@@ -2313,6 +2313,24 @@ fcp_goto:
                                 ; and was otherwise this body twice over
     cmp al, [disk_drive]
     jne .full
+    mov dl, al                  ; **...AND IS IT STILL THE SAME DISK?** (SPEC.md
+    FCPX dsk_media_ok           ; 18.9.1.1) The compare above says only that the
+    jc .full                    ; VOLUME has not changed, and a floppy is the
+                                ; thing that can be swapped under it. Without
+                                ; this the quiet arm wrote [dsk_cwd] and
+                                ; returned, so no boot sector was read, so
+                                ; [dsk_sigcur] never moved - and 18.95's cache
+                                ; is keyed on exactly that, so it went on
+                                ; serving the OLD disk's directory until the
+                                ; package was closed. MEASURED: three DIRs four
+                                ; seconds apart cost reads=0 and listed a disk
+                                ; that was no longer in the drive.
+                                ;
+                                ; The MEDIA half alone - dsk_here_ok also asks
+                                ; whether the DIRECTORY has moved, and moving
+                                ; between folders of one mounted volume with no
+                                ; I/O is what this routine is FOR. DX is banked
+                                ; at the top and .full re-loads DL anyway
     cmp byte [dsk_vkind], DVK_FILE
     je .fsgo                    ; a REDIRECTED volume: below
     or bx, bx
@@ -2511,6 +2529,7 @@ fcp_pfail:
     FCPXF dsk_dirw_next_x
     FCPXF dsk_dirw_start_x
     FCPXF dsk_dotdot_x
+    FCPXF dsk_media_ok
     FCPXF dsk_ncopy
     FCPXF dsk_next_clus_x
     FCPXF dsk_rd1_x

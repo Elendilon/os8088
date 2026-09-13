@@ -28313,6 +28313,62 @@ Three things about the implementation:
   short-circuit there would make Refresh a no-op, which is the one thing it
   must never be.
 
+### 18.9.1.1 …and the PACKAGE's quiet stand had no such predicate at all
+
+Reported from the field: *"Dos open, fullscreen, resting on B:. `DIR` gives
+the right listing. Inserted a different 720KB disk. `DIR`. Stale listing — it
+did flash the disk light so it checked something. I was unable to get a fresh
+listing until I exited and re-entered DOS.O88."*
+
+§18.9.1's predicate is real and is correct. It is in `dsk_here_ok`, which
+`dsk_chdir_q` asks — the path the **Disk window** takes. `OSAPI_FILE_GOTO_QM`,
+which is the path every **package** takes, goes to `fcp_goto`, and its
+same-volume arm was:
+
+```
+    cmp al, [disk_drive]
+    jne .full
+    ...
+.quiet:
+    mov [dsk_cwd], bx           ; ...and that is the whole of it
+```
+
+**No mount, so no boot-sector read, so `[dsk_sigcur]` is never recomputed** —
+and §18.95's read-ahead is keyed on exactly `(volume, [dsk_sigcur])`. The key
+cannot change, so the cache keeps serving the old disk's sectors, and it keeps
+serving them until something else forces a full mount. Closing and reopening
+the program is one such thing, which is why that appeared to be the cure.
+
+It is measured rather than reasoned. With the same disk in B: and the box
+standing on it, three consecutive `DIR`s four seconds apart — longer than the
+2.03-second motor timeout — cost **`reads=0 read_sectors=0 seeks=0`** each,
+while listing thirty files. Breakpoints say why: `fcp_goto` is HIT, `dsk_xfer`
+is HIT, and **`dsk_chdir_q`, `dsk_here_ok` and `dsk_bpb_sig` are never
+reached**. The transfer happens and the cache answers it.
+
+The "disk light flashed" is consistent and is not evidence against any of
+this: the DOS box reads for other reasons on the way, and none of those reads
+re-signs LBA 0.
+
+**So the predicate is split rather than duplicated.** `dsk_media_ok` is
+§18.9.1's second half on its own — *can the medium under this mounted volume
+have changed?* — and `dsk_here_ok` is the identity compare plus a tail jump
+into it, which is what it always was with the two halves named. `fcp_goto`'s
+same-volume arm asks the media half and falls to `.full` when the answer is
+*maybe*.
+
+**It asks the media half ONLY, and that distinction is the whole design.**
+`dsk_here_ok` also requires the *directory* to be unchanged, and `fcp_goto`
+must not: moving between folders inside one mounted volume with no I/O is
+precisely what it is for, and what makes `OSAPI_FILE_PATH`'s walk cost one
+mount and then nothing. What it may not do is move between folders of a disk
+that is no longer in the drive.
+
+The cost is the one §18.9.1 already priced and accepted: within a single
+operation the motor never stops and the skip holds, and two operations
+separated by a human hand mount once. A package that walks a path still pays
+one mount for the walk.
+
 ### 18.9.2 …and a FIXED disk validates its BPB once, ever
 
 `disk_mount` re-read LBA 0 on every switch to a volume, to validate the BPB

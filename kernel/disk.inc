@@ -5771,15 +5771,41 @@ dsk_chdir_q_x:
 ; the byte reads 0, which means "validate", which is what we do today.
 ; -----------------------------------------------------------------------------
 dsk_here_ok:
-    push ax
-    push bx
-    push es
     cmp byte [dsk_mntok], 0     ; the last mount of this volume worked...
     je .no
     cmp dl, [disk_drive]        ; ...it is this volume...
     jne .no
     cmp ax, [dsk_cwd]           ; ...and this directory
     jne .no
+    jmp dsk_media_ok            ; ...and the MEDIA half answers the rest
+                                ; (SPEC.md 18.9.1.1). NO PUSH: the identity
+                                ; half only COMPARES, so the contract's "every
+                                ; register preserved" needs nothing spent to
+                                ; keep it, and the media half banks its own
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_media_ok - can the MEDIUM under this mounted volume have changed?
+; in:  DL = volume
+; out: CF=0 = it cannot have, so a mount may be skipped; CF=1 = it might have
+; clobbers: CF only (every register preserved)
+;
+; SPEC.md 18.9.1's second half, named. It was the tail of dsk_here_ok and is
+; split out because the IDENTITY half and the MEDIA half are two questions and
+; only one caller wants both: `fcp_goto` (SPEC.md 18.9.1.1) moves between
+; folders INSIDE one mounted volume with no I/O, which is what makes
+; OSAPI_FILE_PATH's walk cost one mount and then nothing - so it may not ask
+; "are we at the same cluster", and it absolutely must ask "is it the same
+; disk". It had been asking neither, and a floppy swapped under a running
+; package was served the old disk's directory out of SPEC.md 18.95's cache
+; until the package was closed and reopened.
+; -----------------------------------------------------------------------------
+dsk_media_ok:
+    push ax
+    push bx
+    push es
     mov bl, dl
     call dsk_vol_row_x
     jc .no

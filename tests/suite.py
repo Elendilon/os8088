@@ -2846,6 +2846,31 @@ SOAK = [
         "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
+    Row("dosmedia", "soak", py("tests/dosmedia.py"), 90.0,
+        "A FLOPPY SWAPPED UNDER A RUNNING PACKAGE (SPEC.md 18.9.1.1). "
+        "Reported from the field: the DOS box standing on B:, DIR correct, a "
+        "DIFFERENT 720KB disk inserted, DIR again - and the listing was the "
+        "OLD disk\'s, permanently, until the program was closed and reopened. "
+        "**THE HARNESS CANNOT SWAP A FLOPPY UNDER A RUNNING GUEST** - "
+        "MartyPC\'s debug server has `disks` and `flush` and no `insert` - so "
+        "this row cannot stage the report, and what it asserts instead is "
+        "sharper: does a quiet re-stand on a floppy RE-READ LBA 0? That one "
+        "sector is the whole mechanism, because 18.95\'s read-ahead is keyed "
+        "on (volume, [dsk_sigcur]) and [dsk_sigcur] is the sum of the boot "
+        "sector THIS MOUNT READ - so if nothing re-reads it the key cannot "
+        "change and the cache serves the old disk for ever. It measured as "
+        "`reads=0` on every DIR, counted at the CONTROLLER with m.disk(). "
+        "A TWO-SIDED BUDGET: at zero the medium is never checked (the "
+        "defect), and at six or more the directory is being re-read and "
+        "18.95 is undone (the opposite regression). Plus the predicate\'s own "
+        "input - 0040:003F really carrying B:\'s motor bit while a DIR runs, "
+        "because a BIOS that never set it would make 18.9.1\'s skip dead "
+        "code, still correct and silently costing every re-stand a "
+        "revolution. **That third one replaced an assertion that passed while "
+        "measuring nothing**: `two DIRs back to back` cannot be back to back, "
+        "because typing goes through `settle` and the motor has always "
+        "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
+        needs=("marty",), wants=("build/doscom360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 100.0,
         "THE DOS BOX'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "
