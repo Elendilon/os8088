@@ -118,6 +118,78 @@ def after_the_pass(m, me):
     return max((p for _, p in s.compacted(up=False)), default=0) / PARA
 
 
+def exact(m, me):
+    """THE COMBINED PLAN: one walk, TWO fill points, each claim routed by its
+    own door.  Nothing moves - which is what makes two fill points sound here
+    and unsound in mem_cp_run (a top-down claim packed up inside an ascending
+    walk writes onto claims the walk has not visited yet).
+
+    The floor fill rises from [mem_base] over the bottom-up claims; the ceiling
+    fill falls from [mem_top] over the top-down ones; a PINNED claim of either
+    door stays where it is, splits a run off and moves that fill past it.  The
+    answer is the largest of the barrier gaps and the middle."""
+    runs, lo, hi = [], m.base, m.top
+    live = [c for c in m.claims if not c.purgeable]
+    def movable(c):
+        return (not c.pinned) or c.seg == me     # the what-if excuses ME
+    for c in sorted([c for c in live if not c.hi], key=lambda c: c.seg):
+        if movable(c):
+            lo += c.para
+        else:
+            if c.seg > lo:
+                runs.append(c.seg - lo)
+            lo = c.end
+    for c in sorted([c for c in live if c.hi], key=lambda c: -c.seg):
+        if movable(c):
+            hi -= c.para
+        else:
+            if c.end < hi:
+                runs.append(hi - c.end)
+            hi = c.seg
+    if hi > lo:
+        runs.append(hi - lo)
+    return max(runs, default=0) / PARA
+
+
+def exact2(m, me):
+    """...and the same thing IN THE ORDER THE PASSES RUN, which is what makes
+    it right where `exact` above is 12-20K high: the two stacks can WALL EACH
+    OTHER IN.  A bottom-up claim sitting above a top-down one is a barrier to
+    the descending pass, so the claim below it cannot reach the ceiling - and
+    once the descending pass has left it there, it is a barrier to the
+    ascending pass in turn.  Two independent sweeps cannot see that; two
+    sweeps IN ORDER can.
+
+    The kernel cannot mutate mem_tab inside a PLAN, so its spelling of the
+    second sweep asks "where will this top-down claim be?" per barrier - an
+    O(n^2) ceiling re-walk over at most MEM_MAX records, microseconds, and no
+    scratch - or banks the answers in MEM_MAX words of .bss.  Modelled here
+    with a position map, which is the same arithmetic either way."""
+    live = [c for c in m.claims if not c.purgeable]
+    def movable(c):
+        return (not c.pinned) or c.seg == me
+    at, pos = m.top, {}
+    for c in sorted(live, key=lambda c: -c.seg):        # the descending pass
+        if movable(c) and c.hi:
+            at -= c.para
+            pos[id(c)] = at
+        else:
+            pos[id(c)] = c.seg
+            at = c.seg
+    runs, lo = [], m.base
+    for c in sorted(live, key=lambda c: pos[id(c)]):    # ...then the ascending
+        b = pos[id(c)]
+        if movable(c) and not c.hi:
+            lo += c.para
+        else:
+            if b > lo:
+                runs.append(b - lo)
+            lo = b + c.para
+    if m.top > lo:
+        runs.append(m.top - lo)
+    return max(runs, default=0) / PARA
+
+
 def case(name, base, top, claims, me):
     m = M(base, top, claims)
     free = copy.deepcopy(m)                 # what-if: my region movable
@@ -127,11 +199,22 @@ def case(name, base, top, claims, me):
     want = true_combined(free)
     got, plain = cheap(m, me)
     woke = after_the_pass(m, me)
+    ex = exact2(m, me)
+    # ...and what PLAIN mem_avail should now report: the combined figure with
+    # the caller's region still PINNED, which is what mem_claim can deliver
+    # since the both-passes fix. Today it reports `plain` - the ascending
+    # plan alone.
+    owed = exact2(m, None)
     err = got - want
     verdict = "ok " if abs(err) < 0.01 else ("OVER" if err > 0 else "UNDER")
-    print("  %-35s plain %6.1f | what-if %6.1f %s%+5.1f | on the wake %6.1f %s"
-          % (name, plain, got, verdict, err, woke,
-             "ok " if abs(woke - want) < 0.01 else "WRONG"))
+    eerr = ex - want
+    print("  %-35s mem_avail %6.1f (owes %6.1f%s) | what-if %6.1f %-7s | wake %6.1f %s"
+          % (name, plain, owed,
+             "" if abs(owed - plain) < 0.01 else "  SHORT %+.0f" % (plain - owed),
+             ex,
+             "ok" if abs(eerr) < 0.01 else ("OVER%+.0f" % eerr if eerr > 0
+                                            else "UNDER%+.0f" % eerr),
+             woke, "ok" if abs(woke - want) < 0.01 else "WRONG"))
 
 
 B, T = 0x1B20, 0xA000                       # the measured machine's arena
@@ -160,6 +243,12 @@ case("[free][me][gap][another movable]", B, T,
      base_lo + [C(0x9000, 20, True, True), C(0x9900, 20, True, False)], 0x9900)
 case("[free][me][gap][gap][2 movable]", B, T,
      base_lo + [C(0x8800, 8, True, True), C(0x9000, 12, True, True),
+                C(0x9900, 20, True, False)], 0x9900)
+case("INTERLEAVED: a lo claim above a hi one", B, T,
+     base_lo + [C(0x9000, 20, True, True), C(0x9600, 8, False, True),
+                C(0x9900, 20, True, False)], 0x9900)
+case("INTERLEAVED, the lo claim PINNED", B, T,
+     base_lo + [C(0x9000, 20, True, True), C(0x9600, 8, False, False),
                 C(0x9900, 20, True, False)], 0x9900)
 case("big floor barrier (pinned cache)", B, T,
      [C(0x1B20, 3, False, True), C(0x4000, 40, False, False),
