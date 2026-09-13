@@ -96,6 +96,15 @@ ASM = ["boot/boot.asm", "boot/boothd.asm",
        # prose that explains what an ink or a face flag MEANS, which is the
        # trade this file exists to make unnecessary.
        "apps/skies/skies.asm", "apps/skies/cswdefs.inc",
+       # The embeddable line library's walk block (SPEC.md 5.6.7, 5.12): the
+       # seven GLS_* offsets are written out in kernel/kernel.asm AND here,
+       # and since 5.12.7 retired gfx_linit/gfx_lstep the kernel's copy has
+       # no reader of its own - so a reorder there assembles cleanly. GLS_SZ
+       # is already watched and sizes every caller's block (missile, tank,
+       # the saver), so a GLS_SY here that outgrew it would be gfxe_winit
+       # writing past the block, silently. The file's own comment at the
+       # block promises this row keeps the two the same.
+       "apps/os88gfx.inc",
        "drivers/os88drv.inc",
        # The screen saver's private ABI (SPEC.md 79.3): five verbs, the
        # settings block's four offsets, the mode bits and the minutes clamp,

@@ -237,7 +237,7 @@ gfxe_bsize:
 ; -----------------------------------------------------------------------------
 ; gfxe_bclear - paper the band's rows
 ; in:  AX = the paper word (0FFFFh = lit, the usual; 0 = a black ground)
-; out: nothing; clobbers AX, CX, DI, ES, flags
+; out: nothing; clobbers AX, CX, DI, ES, flags (and DX, BX on the mul arms)
 ;
 ; Only the rows this band HAS. The buffer is sized for GFXE_BAND_H and a real
 ; frame rarely wants them all, so clearing the lot would be most of the cost
@@ -250,7 +250,17 @@ gfxe_bclear:
     pop es
     mov di, GFXE_BAND_BUF
     mov ax, [gfxe_bh]
-%ifdef GFXE_BAND_POW2
+%if (GFXE_BAND_ST & 1) != 0
+    mov bx, GFXE_BAND_ST            ; an ODD stride is counted in BYTES: ST/2
+    mul bx                          ; would drop a byte a row and leave the
+                                    ; band's tail unpapered, and ST = 1 (W = 8)
+                                    ; would make the shift below a -1, which an
+                                    ; 8086 does not mask - AX = 0 and nothing
+                                    ; papered at all. Decided here, at assembly
+                                    ; time, the way GFXE_ROWOFF decides the
+                                    ; row step; the multiple-of-8 contract
+                                    ; above stays what it says
+%elifdef GFXE_BAND_POW2
     mov cl, GFXE_BAND_SH - 1        ; bh * stride bytes = bh * stride/2 words
     shl ax, cl
 %else
@@ -260,7 +270,11 @@ gfxe_bclear:
     mov cx, ax
     pop ax
     cld
+%if (GFXE_BAND_ST & 1) != 0
+    rep stosb                       ; the paper word's low byte IS the paper
+%else                               ; byte, 0FFh or 0
     rep stosw
+%endif
     pop es
     ret
 

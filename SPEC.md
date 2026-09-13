@@ -23569,6 +23569,13 @@ same shape for less.
 
 **The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
 
+**And the ring is centred in its ROW**, the way the label is: `(PITCH − 12) >> 1`
+below the row's top, clamped at zero, so at the pitches §13.17 names — 16 and
+20 — the ring's centre and the label's agree to the half pixel both roundings
+carry. The first cut drew the ring at the row's top and centred only the label,
+2 px apart at 16 and 4 at 20; `tests/radio.py` reads the ring at the same
+offset, so the pair cannot separate again.
+
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
 **Five drawing calls for an unpicked row and eight for the picked one** — a pen
