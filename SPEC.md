@@ -62674,6 +62674,13 @@ mount-mid-session wall and SPEC.md 66.4.3's pin measured as one thing, and
 what makes it a demonstration rather than a construction is that every step
 of it is something a user does.
 
+`tests/trkbigmod.py` is that run kept runnable, at 78 seconds. The module is
+the one thing it could not keep — every real one this size is somebody's file
+— so `tools/os88mkmod.py` generates a valid M.K. module at an exact length,
+and it is a real module rather than a blob because a file `mp_load` refused
+would exercise the claim and then fail the load, which is a green row about a
+machine that never played anything.
+
 ### 45.4 Memory layout
 
 Four stores, none of them guessed:

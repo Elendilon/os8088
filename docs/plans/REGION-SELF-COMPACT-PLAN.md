@@ -829,7 +829,26 @@ machine has. The new one carries a DSP and no OPL, which is
 `os8088_5150_sbonly`'s reasoning (SPEC.md 51.3.1) pointed at a different
 question.
 
-**This is not a suite row and cannot be**: the module is 397KB of somebody's
-ProTracker file, which CONTRIBUTING.md §6 keeps out of the tree, and a
-synthetic one would have to be generated at test time. The numbers above are
-the record; `tests/trkcompact.py` is the gate.
+**IT IS A SUITE ROW** — `tests/trkbigmod.py`, 78 seconds — and what stood in
+the way was only the module. Every real one this size is somebody's file,
+which CONTRIBUTING.md §6 keeps out of the tree, so `tools/os88mkmod.py`
+writes one at an exact length instead: 31 sample headers, an order table,
+notes in pattern 0 and a sawtooth in sample 1, with `--selfcheck`
+re-deriving `mp_load`'s own gates over six sizes. **A real module and not a
+blob**, because a file `mp_load` refused would exercise the claim and then
+fail the load — a green row about a machine that never played anything.
+
+The generated 397KB module reproduces the reported run to the byte: the same
+365KB/92KB split, `7940` → `9040`, `8780` → `9e80`, `trk_s_playing`. The
+A/B is the row's own: with `trk_cpq_try`'s call removed, check 3 still passes
+— the heap is identical — and checks 4 and 5 fail with `trk_s_nofit` and
+nothing moved.
+
+**Check 3 is the one that keeps the row honest**, and its measure took a
+correction worth keeping: the gain from a compaction is *the free space
+ABOVE the largest run*, not the weight of the movable claims between. The
+descending pass packs every mover onto the ceiling, so whatever is free above
+the run ends up joined to it whatever those claims weigh — counting the
+claims is right here by luck (63KB against a 92KB hole, and the assertion is
+the stricter one) and over-reports the moment the movers weigh more than the
+hole they have to move into.

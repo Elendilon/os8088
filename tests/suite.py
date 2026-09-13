@@ -4820,6 +4820,16 @@ SOAK = [
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True,
         wants=("build/trackmove360.img",)),
+    Row("trkbigmod", "soak", py("tests/trkbigmod.py"), 80.0,
+        "THE WHOLE DANCE (SPEC.md 45.3.2): boot 640K Hercules with SOUND.DRV"
+        " down, open Sheet/Paint/Clear Skies, mount the sound driver"
+        " MID-SESSION so its image is a wall under three regions that hold the"
+        " ceiling, open Tracker under that, close the three - and open a 397KB"
+        " module the 365KB run left cannot fund. The module is generated at an"
+        " exact size (tools/os88mkmod.py), because every real one that size is"
+        " somebody's file",
+        needs=("marty",), serial=True,
+        wants=("build/trkbig.img",)),
     Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
         "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
         " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
