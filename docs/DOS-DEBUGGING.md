@@ -588,6 +588,26 @@ print one line per case, and wait for a key. Keep it assembling with
 - **Comparing registers DOS leaves undefined.** See `AX_IS_AN_ANSWER`.
 - **Believing our own trace.** It was correct four times in a row while the
   program was failing. The reference is the instrument.
+- **Reading the PROGRAM's buffer from the host, after the fact.** A trace entry
+  records where an output buffer *was*; the program has reused it by the time
+  anything on the host looks. `AH=47h` was read back as answering an **empty**
+  path, twice, and an afternoon went into why — the box was answering
+  `\PRINCE` correctly all along, and a probe that copied the answer **in the
+  guest, at the instant the slot returned**, said so in one run. Bank it where
+  the program cannot reach, or do not quote it.
+- **A probe that is big enough to be the experiment.** The ring above grew to
+  8 KB of package bss to hold every parsed name, and the program then died
+  after two INT 21h calls — a clean-looking result that was entirely the
+  instrument. Keep a scratch ring to a few hundred bytes, and prefer recording
+  only the **failures**: they are what you are looking for, they are rare, and
+  they are not overwritten by whatever loop the program falls into afterwards.
+- **A refusal whose cause is hundreds of calls upstream.** SPEC.md §96.4.1.1
+  is the worked example: an `AH=3Dh open` answered "no such file" with every
+  piece of state around it reading correct, because an earlier `AH=47h` had
+  written a directory sector into the program's own memory. When the diff says
+  the box is wrong at one instruction and the state at that instruction is
+  right, the question is **who wrote to this program**, not what this call
+  did.
 
 ---
 

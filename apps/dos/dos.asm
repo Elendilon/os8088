@@ -2201,7 +2201,9 @@ dos_int21:
     pop es                          ; the record lands in OUR bss, not the
     mov di, dos_vsbuf               ; program's: nothing here is the caller's
     mov cx, VS_SIZEOF               ; buffer and DOS gives us nowhere to put one
-    call OSAPI_VOL_STAT
+    call dos_be_vstat               ; ...and THROUGH THE BACK END (96.4.1): the
+                                    ; slot mounts the volume and reads its FAT,
+                                    ; which is disk work on the program's stack
     jc .dfback
     cmp cx, VS_SIZEOF
     jb .dfback                      ; a short answer has no free count in it,
@@ -2682,8 +2684,10 @@ dos_int21:
     pop es
     mov di, dos_pbuf
     mov cx, DOS_PBUF
-    call OSAPI_FILE_PATH
-    jc .cw_bad
+    call dos_be_path                ; THE BACK END AND NOT THE SLOT: this runs
+    jc .cw_bad                      ; inside the bracket, where SS is the DOS
+                                    ; program's (SPEC.md 96.4.1), and dsk_path
+                                    ; reaches dsk_secbuf through SS
     mov si, dos_pbuf
     cmp byte [si], '\'
     jne .cw_copy
@@ -3534,6 +3538,11 @@ dos_tty:
 ;
 ; NO INT 21h HANDLER MAY CALL AN OSAPI_* FILE SLOT DIRECTLY. That is the
 ; whole discipline, and it is the only thing wave 1 owes the later phase.
+;
+; THE ENTRIES BELOW REACH dos_be_go WITH A NEAR JUMP AND NOT A SHORT ONE, for
+; one byte each and no cliff: at 17 doors the FIRST entry's short jump was 126
+; of its 127, so the eighteenth would not assemble - and what it says is
+; "short jump is out of range" on a line nobody touched.
 ; -----------------------------------------------------------------------------
 DBE_GOTO    equ 0                   ; DX = dir cluster, BL = volume
 DBE_READ    equ 2                   ; SI = name, ES:BX = buffer, DX:CX = cap
@@ -3558,56 +3567,65 @@ DBE_COPY    equ 30                  ; ES:SI = source name, ES:DI = destination
 DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
                                     ; places, ONE volume (SPEC.md 22.25). AX=0
                                     ; with CF is NOT ATTEMPTED, not an error
-DBE_NENT    equ 17
+DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
+                                    ; the length (SPEC.md 19.2.4)
+DBE_VSTAT   equ 36                  ; ES:DI = a VS_SIZEOF record, CX = its size
+DBE_NENT    equ 19
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_read:
     mov word [dos_betgt], dos_k_read
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_find:
     mov word [dos_betgt], dos_k_find
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_rdat:
     mov word [dos_betgt], dos_k_rdat
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_write:
     mov word [dos_betgt], dos_k_write
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_append:
     mov word [dos_betgt], dos_k_append
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_delete:
     mov word [dos_betgt], dos_k_delete
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_dfree:
     mov word [dos_betgt], dos_k_dfree
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_mkdir:
     mov word [dos_betgt], dos_k_mkdir
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_rmdir:
     mov word [dos_betgt], dos_k_rmdir
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_xcaps:
     mov word [dos_betgt], dos_k_xcaps
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_xalloc:
     mov word [dos_betgt], dos_k_xalloc
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_xfree:
     mov word [dos_betgt], dos_k_xfree
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_rename:
     mov word [dos_betgt], dos_k_rename
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_copy:
     mov word [dos_betgt], dos_k_copy
-    jmp short dos_be_go
+    jmp dos_be_go
 dos_be_move:
     mov word [dos_betgt], dos_k_move
-    jmp short dos_be_go
+    jmp dos_be_go
+dos_be_path:
+    mov word [dos_betgt], dos_k_path
+    jmp dos_be_go
+dos_be_vstat:
+    mov word [dos_betgt], dos_k_vstat
+    jmp dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
 
@@ -3739,6 +3757,14 @@ dos_k_move:
 
 dos_k_xcopy:
     call OSAPI_XMEM_COPY
+    ret
+
+dos_k_path:
+    call OSAPI_FILE_PATH
+    ret
+
+dos_k_vstat:
+    call OSAPI_VOL_STAT
     ret
 
 ; =============================================================================
@@ -8398,7 +8424,7 @@ dos_cd_go:
     je .same                        ; at a root, and DOS ignores '..' there
     mov di, dos_pbuf                ; (pbuf is free here: the link's working
     mov cx, DOS_PBUF                ; directory and the environment's program
-    call OSAPI_FILE_PATH            ; path are both spent before the program
+    call dos_be_path                ; path are both spent before the program
     jc .no                          ; runs, and this only happens while it does)
     add di, cx                      ; ...CX is the length, so DI is the NUL
 .strip:
