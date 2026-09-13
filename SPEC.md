@@ -123432,6 +123432,39 @@ fail, and a refusal that left it standing would hand the parent's next
   Ctrl-Break or critical-error termination to report, because `INT 23h` is an
   `iret` and `INT 24h` always FAILs (§96.7).
 
+#### 96.14.3 …and `Not enough memory` was TWO failures wearing one sentence
+
+Reported from the field: Prince of Persia installed to `C:\PRINCE`, the
+console standing there, `PRINCE` typed — and **`Not enough memory.`** with
+*"452 KB actually free at this point"*.
+
+The message cannot be acted on because it is two different failures, and
+`DER_MEM` is raised at both:
+
+- **the ARENA could not be got** — `OSAPI_MEM_AVAIL_LVL` answered below
+  `DOS_MIN_KB`, or the claim that followed it was refused. This is about the
+  MACHINE: the heap has no run big enough, whatever is being launched.
+- **the arena will not HOLD THIS PROGRAM** — the `.EXE` path's
+  `image + MINALLOC + PSP` test. This is about the FILE, and it fires with a
+  perfectly good arena.
+
+Measured on the reported program: `PRINCE.EXE` is 126,304 bytes, its header
+declares `MINALLOC` = 1,216 paragraphs and `MAXALLOC` = 0xFFFF, so it needs
+**8,989 paragraphs — 140 KB** before it can start. A DOS box on a 640 KB
+machine sizes its arena at **449 KB**, so the second test passes with 300 KB
+to spare and the failure has to be the first. **One sentence could not say
+that**, and the investigation it cost is the argument for splitting it.
+
+So the fit test answers `DER_FIT` and DOS's own words for it:
+**`Program too big to fit in memory`**, measured out of IBM PC DOS 3.30's
+`COMMAND.COM` at offset 2436 rather than remembered. `Not enough memory.`
+keeps its meaning and is now only ever about the machine.
+
+**It is a message change and not a behaviour change** — both paths refused
+before and both refuse now. What it buys is that the next report says which
+half, and a reader of the band can tell "this machine cannot run this" from
+"this machine cannot run anything right now".
+
 ### 96.15 XMS, over the four slots the kernel already publishes
 
 A DOS program finds extended memory by asking the **multiplex interrupt**
