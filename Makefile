@@ -4791,6 +4791,21 @@ $(BUILD)/DOSHELLO.COM: tests/doscom/hello.asm | $(BUILD)
 $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.COM
 
+# ...and DIR /P's, which needs one thing no shipped floppy has: a directory
+# with MORE VISIBLE ENTRIES THAN A PAGE (SPEC.md 96.33.9).  A page is
+# [con_vrows]-1, so 16 on the CGA band tests/dosdirsw.py drives; the system
+# disk's root holds 21 entries and DIR shows FIVE of them, because sixteen are
+# hidden or system and DOS does not list those.  Twenty-four plain files is
+# comfortably over a CGA page and comfortably under a VGA one, so the same
+# disk answers "it paused" on one adapter and "it did not need to" on another.
+$(BUILD)/dirsw360.img: tools/os88disk.py | $(BUILD)
+	@rm -rf $(BUILD)/dirsw && mkdir -p $(BUILD)/dirsw
+	@for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \
+	          21 22 23 24; do \
+	    printf 'entry %s\r\n' $$i > $(BUILD)/dirsw/FILE$$i.TXT; \
+	done
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/dirsw/*.TXT
+
 # ...and the wave-2 gate's, which is a REAL MZ .EXE - header, relocation table
 # and a last page that is exactly full, so e_cblp is 0 (SPEC.md 96.8).
 $(BUILD)/DOSHELLO.EXE: tests/dosexe/hello.asm | $(BUILD)

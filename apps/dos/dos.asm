@@ -3582,13 +3582,23 @@ dos_tty:
     push cs                         ; real, con_scr and every byte of the
     pop ds                          ; library being DS-relative. It is only
     call con_write                  ; reachable outside the bracket, where DS is
-    pop ds                          ; already ours - but "only reachable" is
+                                    ; already ours - but "only reachable" is
                                     ; what the paragraph above was about
                                     ; ...so the console takes it instead, and
-                                    ; DRAWS NOTHING HERE: a verb that prints a
-                                    ; directory would take the lock per
-                                    ; character. dos_con_run spends the marks
+                                    ; DRAWS NOTHING HERE **IN A WINDOW**: a verb
+                                    ; that prints a directory would take the gfx
+                                    ; lock per character, and a band repaint is
+                                    ; OSAPI_GFX_BLIT1 per run at ~756us of
+                                    ; arrival. dos_con_run spends the marks
                                     ; once, after the verb has returned
+    cmp byte [cs:dos_fsxup], 0      ; **FULL SCREEN STREAMS A LINE AT A TIME**
+    je .nofs                        ; (SPEC.md 96.33.11): there the same paint
+    cmp al, 10                      ; is a rep movsw of eighty words, so the
+    jne .nofs                       ; argument that forbids it in a window does
+    call dos_fsx_owed               ; not reach it. LF and only LF - per
+.nofs:                              ; character would rewrite a row that is
+    pop ds                          ; about to change again, and the echo path
+                                    ; already paints after every key it takes
 .out:
     pop bx
     pop ax
@@ -12257,6 +12267,20 @@ dos_fh_fill:
     DBSS DOS_B_SHMADE,  1           ; the destination has been created
     DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
     DBSS DOS_B_SHWHY,   1           ; DSHW_*: WHICH refusal, for a debugger
+    ; --- DIR's SWITCHES, and the state a SUSPENDED listing resumes from -----
+    ; (SPEC.md 96.33.9). /P cannot wait for a key: dos_con_key holds the gfx
+    ; lock, so a built-in that blocked there would freeze the whole machine
+    ; until a human pressed something. It emits one page and returns instead,
+    ; and these four are what the next keystroke picks the walk up from.
+    DBSS DOS_B_SHDSW,   1           ; DIR's switch bits: DSW_P, DSW_W
+    DBSS DOS_B_SHMORE,  1           ; 1 = a listing is suspended mid-page
+    DBSS DOS_B_SHORD,   2           ; ...the ORDINAL to resume at (19.7.1),
+                                    ; never a cursor: the walk re-goto's and
+                                    ; re-reads, so a floppy change between
+                                    ; pages costs a wrong listing and not a
+                                    ; wrong SECTOR
+    DBSS DOS_B_SHLN,    2           ; lines put on this page so far
+    DBSS DOS_B_SHWCOL,  1           ; /W: which of the five columns is next
     DBSS DOS_B_FHPATH,  1           ; the name carried a folder part...
     DBSS DOS_B_FPBUF,   DOS_PBUF    ; ...which is this
     DBSS DOS_B_FHCWD,   2           ; where we were before walking it
@@ -12496,6 +12520,11 @@ dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
 dsh_made    equ os88_image_end + DOS_B_SHMADE
 dsh_got     equ os88_image_end + DOS_B_SHGOT
 dsh_why     equ os88_image_end + DOS_B_SHWHY
+dsh_dsw     equ os88_image_end + DOS_B_SHDSW   ; DIR's switches (SPEC.md 96.33.9)
+dsh_more    equ os88_image_end + DOS_B_SHMORE  ; ...a listing is suspended
+dsh_ord     equ os88_image_end + DOS_B_SHORD   ; ...at this ordinal
+dsh_ln      equ os88_image_end + DOS_B_SHLN    ; ...this many lines on the page
+dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP

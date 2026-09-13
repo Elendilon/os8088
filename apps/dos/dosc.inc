@@ -172,9 +172,11 @@ dos_con_key:
     push dx
     push si
     push di
-    cmp al, 13
-    je .enter
-    cmp al, 8
+    cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWNS THE NEXT KEY**
+    jne .more                       ; (SPEC.md 96.33.9), whatever it is - which
+    cmp al, 13                      ; is DOS's own behaviour and is why this
+    je .enter                       ; test is in front of the editor rather
+    cmp al, 8                       ; than inside it
     je .bs
     cmp al, 27
     je .esc
@@ -219,6 +221,29 @@ dos_con_key:
                                     ; tested before this proc is reached
 .enter:
     call dos_con_run
+    jmp short .done
+
+; --- a paged listing is waiting: any key is its own, not the line's ----------
+; Esc and Ctrl-C ABANDON it, which is what DOS's break does to a DIR; anything
+; else is one more page.  dsh_dir_page prints the prompt again itself when it
+; stops a second time, so nothing here knows how many pages there are.
+.more:
+    cmp al, 27
+    je .stop
+    cmp al, 3
+    je .stop
+    call dsh_dir_more               ; ...which leaves [dsh_more] set if there
+    cmp byte [dsh_more], 0          ; is still more after this page
+    jne .drew
+    call dos_prompt                 ; the listing finished: a new prompt, as
+    jmp short .drew                 ; dos_con_run's own tail does
+.stop:
+    call dsh_dir_stop
+    mov si, dsh_s_crlf
+    call con_say
+    call dos_prompt
+.drew:
+    call dos_con_draw
 .done:
     pop di
     pop si
@@ -295,6 +320,19 @@ dos_con_run:
     mov si, dsh_line
     call dsh_run
     mov byte [dsh_exec], 0
+    cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWES NO PROMPT**
+    je .ranout                      ; (SPEC.md 96.33.9): the listing stopped
+    call dos_con_draw               ; mid-page and printed `Strike a key`, and
+    ret                             ; a prompt under that would be a machine
+                                    ; asking two questions at once. The next
+                                    ; keystroke resumes it in dos_con_key.
+                                    ; **IT STILL DRAWS, THOUGH** - this arm
+                                    ; returned straight out and the page the
+                                    ; user is being asked to read never reached
+                                    ; the glass, so the whole listing appeared
+                                    ; at the end and the pause looked like a
+                                    ; hang (SPEC.md 96.33.9.1)
+.ranout:
     or al, al
     jz .prompt
     cmp byte [dsh_why], DSHW_NOCMD
@@ -365,6 +403,17 @@ dos_con_prog:
 
     call dos_path_take              ; **A PARSE AND A WALK, NOT AN EXISTENCE
     jc .no                          ; CHECK** - it resolves the folder and takes
+    call dos_path_make              ; ...and THEN the box is rewritten FULLY
+    push si                         ; QUALIFIED (SPEC.md 96.33.10). It held the
+    mov si, dos_pln                 ; name as typed - `prince.EXE` off B: - and
+    call os88line_resync            ; the box outlives the command: it is what
+    pop si                          ; Run re-launches and what Save Shortcut
+                                    ; writes, so a relative name is only true
+                                    ; while the box is still standing where it
+                                    ; was typed. dos_path_make is the entry
+                                    ; proc's own proc, which is what makes the
+                                    ; two doors agree by construction rather
+                                    ; than by both being written correctly
     mov byte [dos_state], DST_READY ; the 8.3 name, and whether there is a file
     mov byte [dos_fromcon], 1       ; of that name is dos_run's answer. So the
                                     ; refusal a typo earns is DER_READ, and

@@ -121410,6 +121410,139 @@ thing the DOS default would buy is nothing: `A>` is what DOS shows when
 `AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
 that line would have run.
 
+##### 96.33.11 Full screen streams a LINE AT A TIME; the window still draws once
+
+Asked from the field: *"in fullscreen text mode, can we print each line as it
+arrives, so it feels more like DOS? Keep windowed 'draw after done' ... because
+a gfx redraw is MUCH slower than a text redraw."*
+
+Both halves of that are right, and they are the same sentence from §96.33's own
+design read in two directions. `dos_tty`'s console arm **draws nothing** — a
+verb that prints a directory would otherwise take the gfx lock once per
+CHARACTER — so `dos_con_run` spends the marks once, after the verb returns. In
+a window that is correct and is not negotiable: a band repaint is
+`OSAPI_GFX_BLIT1` per attribute run against a 4bpp or 1bpp framebuffer, and
+PERFORMANCE.md prices the arrival of any drawing call at **~756 µs** before it
+covers a pixel.
+
+**In the full-screen bracket the same paint is a `rep movsw` of eighty words**
+— §70.8.7's whole claim, that `con_scr`'s cell IS the cell in VRAM — so the
+argument that forbids per-line drawing in a window does not reach it. Measured
+on a CGA at the text screen: **80 words a row**, against a windowed band's
+per-run far calls.
+
+So `dos_tty` spends the marks on **LF and only LF** when `[dos_fsxup]` is set:
+one `dos_fsx_owed` a line, which walks twenty-five bit tests and writes the one
+or two rows that changed. A directory listing arrives line by line, as it does
+under DOS, and the window is untouched.
+
+**LF and not every character**, which is the part worth stating: per-character
+would be 80 words a keystroke for a row that is about to be written again, and
+the echo path already paints — `dos_fsx_keys` calls `dos_fsx_owed` after every
+key it takes. The line feed is the only edge where output has accumulated and
+nothing else is about to spend it.
+
+###### 96.33.9.1 ...and two things the pause got wrong, both about the GLASS
+
+Reported from the field the same day §96.33.9 shipped, and both are the suspend
+design's own seams rather than the listing's:
+
+**1. The page the user is asked to read never reached the screen.** `dos_con_run`
+returned from the `[dsh_more]` arm *before* `dos_con_draw`, on the reasoning
+that a suspended listing owes no prompt — which is true and is not the same
+statement. The marks were spent by the NEXT keystroke's draw, so the whole
+listing appeared at the end and the pause looked like a hang: a prompt asking
+`Strike a key when ready . . . ` about a page that is not on the screen. The
+arm draws and then returns.
+
+**A suspension is a place the console STOPS, so it is exactly where a paint is
+owed** — more so than a normal return, where the prompt that follows would have
+forced one anyway.
+
+**2. `Strike a key when ready . . . ` ends in a SPACE and no newline**, which is
+`COMMAND.COM`'s own string and is right: it leaves the cursor sitting after the
+dots where it can be seen. DOS moves down when the key ARRIVES. Ours resumed
+the listing where the cursor stood, so the first line of the next page
+overprinted the prompt's row. The CRLF belongs to the RESUME (`dsh_dir_more`)
+and not to the prompt — a prompt carrying its own newline would park the cursor
+on an empty line below the question and wait there.
+
+##### 96.33.10 The path box holds a FULLY QUALIFIED path, whatever was typed
+
+Reported from the field: typing `prince` on `B:` left the box reading
+`prince.EXE`. It should read `B:\PRINCE.EXE` — *"fully qualified, so if I
+change the CWD the last program run is still always accurate"*.
+
+`dos_con_prog` copied the name **as typed** into `[dos_path]` and then called
+`dos_path_take` to resolve it. That order is right and the box is simply a step
+behind: the resolve is what turns a bare name into a drive, a folder and an 8.3
+name, and nothing put the result back.
+
+**The fix is a proc that already exists and is already the double-click's.**
+`dos_path_make` composes `[dos_vol]` + `OSAPI_FILE_PATH` + `[dos_name]`, and the
+entry proc calls it for exactly this reason — *"EITHER WAY the box shows the
+fully qualified path of what is about to run"* (§96.32.3). The console door was
+the one path into a launch that did not. So `dos_con_prog` calls it after
+`dos_path_take` succeeds, and the two doors now agree by construction rather
+than by both being written correctly.
+
+**It matters because the box OUTLIVES the command.** The path is what `Run`
+re-launches, what `Save Shortcut` writes (§96.21) and what the user reads to see
+what last ran — and a relative name is only true while the box is still standing
+where it was typed. One `CD` and `PRINCE.EXE` names a different file or none.
+
+##### 96.33.9 `DIR`'s SWITCHES, and why `/P` cannot block
+
+Reported from the field: *"dir doesn't have most of its common command line
+args. Like /p"*. `dsh_c_dir` took one argument — a path or a pattern — and read
+anything else as part of it.
+
+**What the switches ARE was measured and not remembered**, off the DOS 3.30
+image and out of `COMMAND.COM`'s own string table (`tools/os88fat.py` reads the
+file; the strings sit together at offsets 20095–20875):
+
+| | DOS 3.30 |
+|---|---|
+| `/P` | pauses a screenful at a time, prompting **`Strike a key when ready . . . `** |
+| `/W` | five columns of names, no size and no date — `COMMAND  COM    ANSI     SYS    …`, each field 8-pad, space, 3-pad, four trailing, 16 columns, five to a row |
+| anything else | **`Invalid parameter`** |
+
+**`/B` IS NOT A DOS 3.3 SWITCH**, and that is the measurement worth having
+rather than the reasoning: `DIR /B` on the real thing answers `Invalid
+parameter`, exactly as `DIR /Z` does. It arrived with DOS 5, this box reports
+3.31 (§96.7), and it would have shipped on the strength of feeling like it had
+always been there.
+
+**`/P` CANNOT WAIT FOR A KEY, and that is a property of where the shell runs.**
+`dos_con_key` is `W_ONKEY`'s handler and its contract is **the gfx lock HELD**
+(§12.8.3), so a built-in that blocked on a keystroke would hold that lock for
+as long as the user took to press one: no pointer, no repaint, no other window
+— the whole machine, not merely this box. §7.4 is a 125-byte fix for a freeze
+that only lasted a disk transfer; one that lasts until a human acts is not a
+freeze to trade against anything.
+
+So `/P` **SUSPENDS** rather than waits, which is `fcp_step`'s shape one layer up
+(§22.3): the listing emits one page, banks the ordinal it stopped at, prints the
+prompt and RETURNS, with `[dsh_more]` set. The next keystroke is then the
+console's resume rather than its input — any key continues, `Esc` and `Ctrl-C`
+abandon the listing the way DOS's own break does — and the enumeration picks up
+at the banked ordinal. Nothing is held across the suspension that a floppy
+change could invalidate: the walk is by ORDINAL against a re-`dos_be_goto`'d
+directory (§19.7.1), so a resumed listing re-reads rather than trusting a
+cursor, and `dsh_home` runs on the way out of every page.
+
+**A PAGE IS THE LIVE VIEWPORT AND NOT 24 LINES.** `[con_vrows] - 1` is the
+height: 24 in the full-screen bracket and on VGA or Hercules, and **16 on CGA**,
+where §96.33.8's short band shows 17 rows of 25. A fixed 24 would page *past*
+the end of a CGA band and make the switch useless on the one adapter whose user
+most needs it.
+
+**The header and footer come with it**, because the same measurement showed
+them missing: DOS prints ` Volume in drive A has no label` and ` Directory
+of  A:\` (two spaces, which is `COMMAND.COM`'s own `%S` format) above the
+listing, and `%9d File(s) %9ld bytes free` under it. This box printed
+`N file(s)` — lower case, no byte count, no header.
+
 ##### 96.33.3 Line input is the console's, and Esc is the way out of full screen
 
 A keystroke on the main page with **no field focused** is the console's: a

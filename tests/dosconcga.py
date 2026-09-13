@@ -74,8 +74,13 @@ class Box(object):
         return vt, vr, self.w("con_cy"), self.rows()[vt:vt + vr]
 
 
-def band_lit(m, bx):
+def band_lit(m, bx, rect=None):
     """Lit pixels inside the console band, found by its own shape.
+
+    **IMPORTED BY tests/dosdirsw.py** as well as used here, which is why it
+    takes `bx` rather than reading module state: two rows now need to ask
+    whether the band actually has ink in it, and a third copy of a
+    modal-extent scan is a third place to get it subtly wrong.
 
     doscon.py's band_ink, and it is copied rather than imported for that
     file's own reason: the rendered frame is not in guest coordinates, so a
@@ -103,17 +108,30 @@ def band_lit(m, bx):
             out.append((st, w - 1))
         return out
 
-    tally = {}
-    for y in range(lo, hi):
-        r = runs(y)
-        if not r:
-            continue
-        a, b = max(r, key=lambda ab: ab[1] - ab[0])
-        if b - a >= 200:
-            tally[(a, b)] = tally.get((a, b), 0) + 1
-    if not tally:
-        return 0, 0
-    x1, x2 = max(tally, key=lambda k: (tally[k], k[1] - k[0]))
+    # **THE RECTANGLE IS LEARNED ONCE, ON A BAND THAT IS MOSTLY EMPTY.**  The
+    # modal-dark scan below needs blank rows to find the band's x extent by:
+    # a row with text in it has its dark run BROKEN by every glyph, so once the
+    # band fills, the widest dark run is a gap between two words and the tally
+    # picks a sliver.  Measured: the same full band read 90,053 dark pixels
+    # with the rect learned empty and 67,531 with it re-derived - and the
+    # "lit" count that came with the sliver was 108, which reads exactly like
+    # a band that never painted.  That cost a whole A/B against innocent
+    # kernel code.  So a caller that will fill the band learns the rect first
+    # and passes it back in.
+    if rect is not None:
+        x1, x2 = rect
+    else:
+        tally = {}
+        for y in range(lo, hi):
+            r = runs(y)
+            if not r:
+                continue
+            a, b = max(r, key=lambda ab: ab[1] - ab[0])
+            if b - a >= 200:
+                tally[(a, b)] = tally.get((a, b), 0) + 1
+        if not tally:
+            return 0, 0
+        x1, x2 = max(tally, key=lambda k: (tally[k], k[1] - k[0]))
     span = x2 - x1 + 1
     lit = dark = 0
     for y in range(lo, hi):
@@ -124,6 +142,35 @@ def band_lit(m, bx):
         lit += span - d
         dark += d
     return lit, dark
+
+
+def band_rect(m, bx):
+    """The band's (x1, x2), learned while it is mostly empty - see band_lit."""
+    w, h, px = m.fbuf()
+    y0 = bx.w("dos_cony")
+    rws = bx.w("dos_conrows") * 8
+    lo, hi = max(0, y0 - 6), min(h, y0 + rws + 6)
+    tally = {}
+    for y in range(lo, hi):
+        row = px[y * w * 3:(y + 1) * w * 3]
+        out, st = [], None
+        for x in range(w):
+            if row[x * 3] <= 128:
+                if st is None:
+                    st = x
+            elif st is not None:
+                out.append((st, x - 1))
+                st = None
+        if st is not None:
+            out.append((st, w - 1))
+        if not out:
+            continue
+        a, b = max(out, key=lambda ab: ab[1] - ab[0])
+        if b - a >= 200:
+            tally[(a, b)] = tally.get((a, b), 0) + 1
+    if not tally:
+        return None
+    return max(tally, key=lambda k: (tally[k], k[1] - k[0]))
 
 
 def main():
