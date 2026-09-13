@@ -122223,6 +122223,56 @@ parameter`, exactly as `DIR /Z` does. It arrived with DOS 5, this box reports
 3.31 (§96.7), and it would have shipped on the strength of feeling like it had
 always been there.
 
+That was read out of the string table, and it has since been **typed at the
+real thing**: IBM Personal Computer DOS 3.30 booted under MartyPC, `DIR /B`,
+and the screen says `Invalid parameter`. The field reported it as *"/B
+invalid"* against this box, which is the box being right.
+
+##### 96.33.9.2 …and `DIR` DOES NOT SORT, which is also DOS
+
+Reported from the field alongside the switches: *"we are not sorting
+alphabetically"*. True, and it is fidelity rather than an omission — `DIR`
+lists in **directory order** on every DOS before 5.0, because ordering is what
+`/O` was added to do and `/O` is DOS 5's.
+
+Measured the same way, on the same boot. The tail of the real 3.30's own `DIR`
+of its system disk:
+
+```
+SYS      COM     4766   3-17-87  12:00p
+VDISK    SYS     3455   3-17-87  12:00p
+XCOPY    EXE    11247   3-17-87  12:00p
+EGA      CPI    49065   3-18-87  12:00p
+LCD      CPI    10752   3-17-87  12:00p
+4201     CPI    17089   3-18-87  12:00p
+5202     CPI      459   3-17-87  12:00p
+```
+
+`EGA.CPI` after `XCOPY.EXE`, and `4201.CPI` after both: that is the order the
+directory entries sit in, and no sort could produce it.
+
+**The kernel's own listing is a different structure and it DOES sort** (§19.5),
+which is what makes this look like a bug from inside the system: the Disk
+window sorts because a person is picking an icon out of a grid, and `DIR`
+does not because it is COMMAND.COM. Two answers, two audiences, and the box
+is the one that has to match a 1987 screenshot.
+
+**AND THE DEPARTURE IS TAKEN, BY THE OWNER, WITH THE LINE DRAWN WHERE IT
+BELONGS**: *"implementation wise we are trying to model on DOS 3.3 (with a
+switch to DOS 5.0 soon). User interface wise, we can deviate; and alphabetical
+is what any modern user will expect."*
+
+So `DIR` sorts. That is a stated departure and not a fidelity claim, and the
+rule it draws is the one worth keeping: **the ABI is 3.3's and the screen is
+ours.** Everything a program can observe - `int 21h`'s answers, the version
+`AH=30h` reports, which switches are `Invalid parameter` - stays 3.3, because a
+program is the thing that can tell. The order names appear in for a person to
+read is not something a program observes at all.
+
+It also makes the box agree with the Disk window (§19.5) rather than disagree
+with it, which is what made this look like a defect from inside the system in
+the first place.
+
 **`/P` CANNOT WAIT FOR A KEY, and that is a property of where the shell runs.**
 `dos_con_key` is `W_ONKEY`'s handler and its contract is **the gfx lock HELD**
 (§12.8.3), so a built-in that blocked on a keystroke would hold that lock for
