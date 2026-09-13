@@ -298,6 +298,55 @@ def main():
                  "%r" % (BARE, BARE, rows[-3:]))
         print("doscon: ...and a bare %r finds %s" % (BARE, got))
 
+        # --- 5d: ...AND IT RAN, so its LAST SCREEN is the band (96.34) ------
+        # This step used to type the next command straight after the launch,
+        # which is a RACE with a program that waits for a key: the keystrokes
+        # went to DOSHELLO, not to the console, and everything below asserted
+        # against whichever side won. So the program is driven to its end here
+        # - and what it leaves behind is the wave's own assertion.
+        #
+        # `dos_snap` copies the program's text screen into con_scr at teardown
+        # (SPEC.md 96.34). With it removed the band still holds the prompt's
+        # own history and not one of these lines, which is what makes this a
+        # test rather than a description.
+        for _ in range(120):
+            if any("READY" in r for r in (m.screen() or [])):
+                break
+            time.sleep(0.25)
+        else:
+            fail("%s.COM never reached its READY prompt inside the bracket"
+                 % BARE)
+        m.type_text("x")                     # ...which is how it exits, 042
+        for _ in range(120):
+            time.sleep(0.4)
+            if not bx.b("dos_inbr"):
+                break
+        else:
+            fail("the bracket never came down after %s.COM took a key" % BARE)
+        os88marty.settle(m)
+        rows = bx.live()
+        for want in ("os8088 DOS gate", "Memory to top of block",
+                     "READY - press a key"):
+            if not any(want in r for r in rows):
+                fail("the program printed %r and the console does not hold it "
+                     "after the bracket came down - dos_snap is what copies "
+                     "its last screen in (SPEC.md 96.34). The band says %r"
+                     % (want, rows[-8:]))
+        if not any("exit code 042" in r for r in rows):
+            fail("the box's own exit line is not in the band under the "
+                 "captured screen: %r" % rows[-4:])
+        # ...and the CURSOR came across, so the box's line is BELOW the
+        # program's output rather than on top of its first row - which is
+        # exactly what a clobbered DX looked like (96.34.3).
+        prog = [i for i, r in enumerate(bx.rows()) if "os8088 DOS gate" in r]
+        ended = [i for i, r in enumerate(bx.rows()) if "exit code 042" in r]
+        if prog and ended and ended[0] <= prog[0]:
+            fail("the exit line is at row %d and the program's first row at "
+                 "%d - the cursor did not come across (SPEC.md 96.34.3)"
+                 % (ended[0], prog[0]))
+        print("doscon: ...and its last screen is in the band, %d rows of it, "
+              "with the box's exit line under it" % len(rows))
+
         bx.type("%s:\n" % chr(ord("A") + here))
 
         # --- 7: a name that is neither a verb nor a file --------------------

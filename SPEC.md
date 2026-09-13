@@ -121347,6 +121347,98 @@ move is a frame given away; the mode set leaves the CRTC's own cursor blinking
 at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
 placed at all.
 
+#### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
+
+A DOS program inside the bracket owns the machine and the screen with it. It
+prints, it exits, §53's restore puts the desktop back — and whatever it said
+is gone before anyone can read it. This is how the last of it survives.
+
+**The storage question is answered by not having one.** `con_scr` is *text
+VRAM's own layout* — a character byte and an attribute byte, eighty columns to
+a row — because `os88con.inc` is an IBM console (§70.8). So the program's
+screen and the console's buffer are **the same data structure at two
+addresses**, and the capture is a `rep movsw` per row into the buffer the
+console already has. Not one byte of storage is added, and the scrollback the
+band scrolls is the scrollback the program wrote into.
+
+**And the capture costs nothing per character**, which is the other half of the
+brief. There is no hook in the output path, no ring, no staging buffer and no
+state at all: it reads the *result* at teardown rather than the traffic on the
+way. `dos_tty` is untouched.
+
+##### 96.34.1 Reading the result catches what a hook cannot
+
+A capture spliced into `dos_tty` would see `AH=02h`, `AH=09h` and `AH=40h` and
+**nothing else** — and "everything else" is most of what a DOS program does
+with a screen: `int 10h AH=0Eh`, `AH=13h`, a cursor set and a direct write into
+`B800`, which is what every program that cares about speed does. The screen is
+where all of those arrive, so the screen is what is read.
+
+What it does not reach is equally exact, and both halves are what a real
+machine gives you:
+
+- **Anything scrolled off the program's own screen.** Twenty-five rows is all
+  there is; a program that printed a hundred lines has lost the first
+  seventy-five on any machine.
+- **A program that ended in a GRAPHICS mode**, which has no text to read. The
+  console is then left *entirely alone* — the prompt and its history survive a
+  game, which is the behaviour that matters for the case there is nothing to
+  capture.
+
+##### 96.34.2 Where it runs, and what it reads
+
+At `dos_prog_done`, **before `dos_restore_machine`** — the mode byte and the
+cursor in the BDA are still the program's until that runs, and the regen
+buffer still holds its text.
+
+| BDA | what it decides |
+|---|---|
+| `0040:0049` | the mode: `0`/`1` are forty columns and `2`/`3` eighty, both at `B800`; `7` is eighty at `B000`; **everything else is graphics and returns** |
+| `0040:004E` | the active page's own offset into the regen buffer, so a program that wrote page 1 is read from page 1 |
+| `0040:0062` + `0040:0050` | the active page, and that page's cursor — low byte the column, high the row |
+
+**Twenty-five rows, asserted rather than read.** `0040:0084` is an EGA-and-later
+field and this project's target machine is neither, so a kernel that read it on
+a CGA would be reading whatever the ROM left there. Every mode in the table
+above is twenty-five rows on every adapter os8088 supports.
+
+A forty-column mode lands in the left forty columns and the rest of each row is
+blanked, which is what it looked like.
+
+##### 96.34.3 The cursor is carried, and an empty screen is not a capture
+
+**The cursor comes across**, so the prompt that draws next continues where the
+program stopped and the blank rows below it stay blank. A program that printed
+three lines gives three lines and a prompt under them, not three lines and
+twenty-two blanks and a prompt at the bottom.
+
+**And a screen with nothing on it is refused before it is copied.** The bracket
+sets `FSXM_TEXT80` on the way in and a mode set clears, so a program that
+prints nothing at all — or clears and exits — would otherwise blit twenty-five
+blank rows over the user's own session and wipe the command they just typed.
+The scan is one pass for a cell that is neither `20h` nor `00h`; no such cell
+means there is nothing to show, and the console keeps what it had.
+
+**`[con_scrl]` is zeroed with the copy**, for `con_clear`'s reason (§70.9.3): a
+wholesale replacement makes the scroll debt a lie, and `con_scrollpaint` would
+spend it by blitting content that is no longer there. `con_markall` follows, so
+the next paint draws the lot.
+
+##### 96.34.4 What is NOT built here, and the wart it leaves
+
+The pair of this is **seeding** — laying the console onto the real text screen
+at bracket entry, so a program starts on a screen that already shows the
+prompt's history and the command line that launched it, and its output scrolls
+on from there. `con_tx_row` and `dos_fsx_owed` are that renderer and it already
+exists (§96.33.5); what it needs is `OSAPI_FSX_CAPS` for `[con_tkind]` and the
+same four stores `dos_fsx_con` makes.
+
+Until it is built the console does not *continue* onto the program's screen, it
+is *replaced* by it — so the command line the user typed is not above the
+program's output the way it would be under a real `COMMAND.COM`. §96.34.3's
+empty-screen refusal is what keeps that from being destructive rather than
+merely incomplete.
+
 ### 96.7 What wave 1 answers, and what it refuses
 
 `INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,

@@ -775,4 +775,157 @@ dos_fsx_owed:
     pop ax
     ret
 
+; =============================================================================
+; THE PROGRAM'S LAST SCREEN (SPEC.md 96.34)
+; =============================================================================
+; -----------------------------------------------------------------------------
+; dos_snap - the text screen a DOS program left -> the console's own buffer
+; in:  nothing; called from dos_prog_done with the program's screen STILL UP
+; out: nothing; every register preserved
+;
+; NOT ONE BYTE OF STORAGE. con_scr is text VRAM's own layout - a character and
+; an attribute, eighty columns to a row - so the program's screen and the
+; console's buffer are the same structure at two addresses, and the capture is
+; a `rep movsw` a row into the buffer the band already scrolls.
+;
+; AND NOTHING PER CHARACTER: there is no hook in dos_tty, no ring and no state.
+; It reads the RESULT rather than the traffic, which is also why it catches
+; int 10h and a direct write into B800 - most of what a DOS program does with a
+; screen never passes through INT 21h at all (SPEC.md 96.34.1).
+;
+; DS IS UNKNOWN HERE. dos_prog_done is reached from the INT 21h terminate path,
+; which runs on the program's stack with DS holding whatever the program had.
+; SS:SP is already ours by then; DS is this proc's own to set.
+; -----------------------------------------------------------------------------
+dos_snap:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    push cs
+    pop ds
+    mov ax, 0x40
+    mov es, ax                      ; --- the BDA, as the PROGRAM left it -----
+    mov al, [es:0x49]               ; the mode decides the segment AND the
+    mov bx, 0xB800                  ; width, and refuses every graphics one
+    mov cx, CON_COLS                ; (SPEC.md 96.34.2)
+    cmp al, 7
+    je .mono
+    cmp al, 3
+    ja .out                         ; 4..6 are CGA graphics and 8 and up are
+    cmp al, 1                       ; EGA/VGA's - neither has text to read
+    ja .have                        ; 2, 3: eighty columns of colour text
+    mov cx, 40                      ; 0, 1: forty, in the left half of each row
+    jmp short .have
+.mono:
+    mov bx, 0xB000
+.have:
+    mov si, [es:0x4E]               ; the ACTIVE page's own offset, so a
+                                    ; program that wrote page 1 is read there
+    mov di, [es:0x62]               ; ...and that page's cursor
+    and di, 7
+    shl di, 1
+    add di, 0x50
+    mov dx, [es:di]                 ; DL = the column, DH = the row
+    mov ds, bx                      ; --- DS:SI is THEIRS from here ----------
+    push cs
+    pop es                          ; ...and ES:DI ours, which is the way
+                                    ; movsw runs
+    call dos_snap_any               ; AN EMPTY SCREEN IS NOT A CAPTURE (96.34.3)
+    jc .out                         ; - the bracket's own mode set cleared it,
+                                    ; so a program that printed nothing would
+                                    ; otherwise blit twenty-five blank rows
+                                    ; over the user's session
+    mov di, con_scr
+    mov bx, CON_ROWS
+.row:
+    push cx
+    rep movsw                       ; the row itself...
+    pop cx
+    push cx
+    mov ax, 0x0720                  ; ...and a forty-column mode's right half,
+    neg cx                          ; blanked in the console's own default
+    add cx, CON_COLS
+    jcxz .rowd
+    rep stosw
+.rowd:
+    pop cx
+    dec bx
+    jnz .row
+
+    push cs                         ; --- and it is ours again ---------------
+    pop ds
+    mov al, dl                      ; THE CURSOR COMES ACROSS (96.34.3): the
+    xor ah, ah                      ; prompt continues where the program
+    cmp ax, CON_COLS                ; stopped, and the blank rows under it stay
+    jb .cxok                        ; blank
+    mov ax, CON_COLS - 1
+.cxok:
+    mov [con_cx], ax
+    mov al, dh
+    xor ah, ah
+    cmp ax, CON_ROWS
+    jb .cyok
+    mov ax, CON_ROWS - 1
+.cyok:
+    mov [con_cy], ax
+    mov byte [con_pwrap], 0         ; a captured screen promises no wrap
+    mov word [con_scrl], 0          ; con_clear's reason (70.9.3): a wholesale
+    call con_markall                ; replacement makes the scroll debt a LIE,
+                                    ; and con_scrollpaint would spend it by
+                                    ; blitting content that is not there
+.out:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_snap_any - is there anything ON that screen? ------------------------
+; in:  DS:SI = the page's first cell, CX = its columns
+; out: CF=0 = at least one cell is neither a space nor a NUL; CF=1 = it is
+;      blank and must not be copied. SI and every register preserved.
+;
+; A mode set fills with 20h and a zeroed buffer reads 00h, so those two are
+; what "nothing" looks like; everything else is content, control codes
+; included, because 00h-1Fh are CP437 faces and arrows on a screen (70.9).
+dos_snap_any:
+    push ax
+    push cx
+    push dx                         ; **DX IS THE CURSOR THIS PROC'S CALLER IS
+    push si                         ; HOLDING**, and `mul` writes it: measured
+    mov ax, cx                      ; as a captured screen whose cursor came
+    mov cx, CON_ROWS                ; back 0,0, so the box's own `ended, exit
+    mul cx                          ; code` line landed on the program's FIRST
+    mov cx, ax                      ; row. A register an instruction owns
+.c:
+    lodsw
+    cmp al, ' '
+    je .next
+    or al, al
+    jnz .yes
+.next:
+    loop .c
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+.yes:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+
 dos_c_leave: db ' Esc to leave', 0
