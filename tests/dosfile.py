@@ -82,6 +82,8 @@ def main():
                      "READ %d" % NBYTES,
                      "SEEK ok",
                      "INPLACE ok",      # the seek-back rewrite (SPEC.md 96.11.6)
+                     "GREW ok",         # ...and a write at the END of it
+                     "CROSS ok",        # ...across the slack/append boundary
                      "GONE ok"):
             if want not in text:
                 fail("%r is not on the screen - the handle layer did not "
