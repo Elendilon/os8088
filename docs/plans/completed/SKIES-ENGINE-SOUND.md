@@ -9,7 +9,7 @@
 > bytes *smaller*. `tests/skiessound.py` is the gate — three red runs — and all
 > 34 `skies*` soak rows are green.
 >
-> **It shipped twice**, and §5 is the second pass: the first build was
+> **It shipped three times**, and §5 and §6 are the field passes: the first build was
 > arithmetic and a person listened to it on a real speaker. Two of the four
 > tops came down, a feature was **deleted**, and the one complaint nobody had
 > predicted got a mechanism of its own.
@@ -124,7 +124,7 @@ seven-byte record, and 0 means *no engine*. One shaper reads it:
 | Icon A5 | 95 → **170** | lever | *was 95 → 190* |
 | Wassmer Bijave | *no record* | — | — |
 
-**123 bytes of image** of a 9,872-byte gap: **1.2%**. `SKIES.O88` is 44,226
+**180 bytes of image** of a 9,872-byte gap: **1.8%**. `SKIES.O88` is 44,226
 bytes, **three fewer** than before, and no floppy in any of the four geometries
 moves a cluster. One word of bss. Under 1% of a flown frame.
 
@@ -275,3 +275,84 @@ shifting into 8.8 — so 50% of a 19-unit engine is 9 and not 9.5. The pin and
 the model disagreed by four parts in 2,400, `cs_step` dragged the thrust back
 every tick, the thrust never settled and neither did the note. **A pin that
 fights the model is not a pin**; pin what the model wants.
+
+
+---
+
+## 6. The third pass: a fourth is not a glide, and idle is where you start
+
+The second pass fixed what the field named and introduced one thing it had not
+seen yet. The report:
+
+> **Cessna:** Good
+> **Pitts:** Slightly steppy, but overall good
+> **Fouga:** This one still "plays notes" as it goes up or down, but the top,
+> stable, is now pretty good. Very high pitched still but it is a jet.
+> **A5:** Good
+> **All of them:** On entry to the scene they all start at one point, and
+> change to another point. They should probably all start at their "idle"
+> point without ramping to it.
+
+### 6.1 The slew was right in hertz and wrong in intervals
+
+`CSS_LAG` moved the note by a share of the **gap**. That is a constant fraction
+in hertz and a wild one in *interval*, and the complaint tracked the arithmetic
+across all four aeroplanes exactly:
+
+| | first step, lever shut | in cents | the verdict |
+|---|---:|---:|---|
+| Cessna | 45 >> 2 = 11 Hz at 60 | 290 | *"Good"* |
+| Pitts | 85 >> 2 = 21 Hz at 75 | 400 | *"slightly steppy"* |
+| **Magister** | **520 >> 3 = 65 Hz at 180** | **500** | *"still plays notes"* |
+
+Five hundred cents is a musical **fourth** in one tick. The ear was measuring
+intervals and the design was measuring hertz, which is why widening the record
+was the answer and re-tuning it was not: no value of a gap-share is small at
+180 Hz and large at 700 at the same time.
+
+**`CSS_CAP` is a second shift on the NOTE**, and the step is the lower of the
+two. A share of the note is a constant interval by construction, so the time a
+glide takes is proportional to the **octaves** crossed rather than to the
+hertz. Measured, lever shut in one step: the Cessna 105 → 60 Hz through **15**
+distinct notes in 19 ticks, the Magister 625 → 180 through **97** in 101 — 1.8
+octaves at ~22 cents a tick. The jet's is slow and should be: `CSP_SPOOL` gives
+the thrust 5.3 seconds and the note now takes about the same.
+
+It also answers the Pitts for free. Where the ceiling is *tighter* than the
+lever's own step, the note is smoother than the lever: the Pitts' lever moves
+1.7 Hz a tick at 39 cents and its note moves 1–2 at 23.
+
+### 6.2 Starting at idle is a sentinel, not a special case
+
+`[cs_eng]` begins at 0, so every flight opened by gliding **up to idle** — a
+rising note no aeroplane makes, and the one thing in the second pass nobody had
+predicted because the ramp only exists at all *because* the slew does.
+
+A note of 0 means "not running yet" and the first tick **snaps**. That
+generalises correctly rather than special-casing entry: a later flight carries
+the throttle the last one left (§88.8), and starting at *that* engine's note is
+the same rule. Clearing `[cs_eng]` at bracket entry is what makes the sentinel
+true, and is also what stops a Cessna gliding down from the Magister the last
+flight left behind.
+
+### 6.3 Two things the test had to learn
+
+- **A check can stop being about its subject and keep passing.** The spool's
+  check was *"still climbing 24 ticks after its own slew settled"*, which
+  discriminated while the note arrived quickly. `CSS_CAP` makes the Magister's
+  own glide take a hundred ticks — longer than the spool — so the delay stopped
+  measuring the spool and `--clobber-spool` went **green**. It is a source
+  check now: at a half-open lever the jet plays **426 Hz**, the thrust it has,
+  and not the **440** the lever asks for, the two being separable because
+  `cs_step` rounds its target to whole units before shifting into 8.8.
+- **Compute both sides of a comparison host-side when the clobber can reach
+  one.** The first spelling read the "thrust" figure through `law()`, which
+  honours the guest's `CSS_FLAGS` — so under `--clobber-spool` it moved to the
+  lever's value and the red run read as two identical numbers disagreeing.
+
+### 6.4 And one honest limit, restated
+
+During a *sustained* sweep the note cannot be finer than the thing it follows,
+and the lever has fifty whole steps. A piston's sweep is ~1 Hz a tick and stays
+there. Everything in §6 is about the transitions that are not sustained
+sweeps — and the one source with real resolution to give was the jet's.

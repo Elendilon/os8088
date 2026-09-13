@@ -72,7 +72,7 @@ def _equates():
 
 
 E = _equates()
-_WANT = "CSP_SND CSP_THRUST CSS_IDLE CSS_SPAN CSS_LAG CSS_FLAGS " \
+_WANT = "CSP_SND CSP_THRUST CSS_IDLE CSS_SPAN CSS_LAG CSS_CAP CSS_FLAGS " \
         "CSSF_SPOOL".split()
 _missing = [k for k in _WANT if k not in E]
 if _missing:
@@ -167,8 +167,8 @@ def main(argv):
             for i in range(5):
                 p = rec(mp["cs_planes"], 2 * i)
                 sn = rec(p, E["CSP_SND"])
-                if sn:
-                    m.write(lin + sn + E["CSS_LAG"], b"\x00")
+                if sn:                          # both terms: a shift of 0 on
+                    m.write(lin + sn + E["CSS_LAG"], b"\x00\x00")
         if a.clobber_spool:
             jet = rec(mp["cs_planes"], 4)
             s = rec(jet, E["CSP_SND"])
@@ -199,8 +199,8 @@ def main(argv):
                     return
             sys.exit("skiessound: the bracket would not close")
 
-        def fly(row):
-            """Pick row `row`, enter the bracket; out: its plane record."""
+        def pick(row):
+            """Leave the bracket and select row `row`; out: its record."""
             leave()
             want = rec(mp["cs_planes"], 2 * row)
             for _ in range(3):
@@ -221,18 +221,29 @@ def main(argv):
             if got != want:
                 sys.exit("skiessound: row %d picked %04x, wanted %04x"
                          % (row, got, want))
-            # ...and ENTERING is polled for leave()'s reason, one direction
-            # along: `f` is typed ONCE because it toggles, and what follows
-            # is a wait rather than a frame count. cs_cmd_fly reads the
-            # picked location's world off the floppy (88.10.5), so the first
-            # flight into a world is a disk transfer and not a repaint.
+            return got
+
+        def enter(row):
+            """...and ENTER, polled for leave()'s reason one direction along.
+
+            `f` is typed ONCE because it toggles, and what follows is a wait
+            rather than a frame count: cs_cmd_fly reads the picked location's
+            world off the floppy (88.10.5), so the first flight into a world
+            is a disk transfer and not a repaint.
+            """
             m.type_text("f")
             for _ in range(20):
                 m.advance(frames=40)
                 m.run()
                 if inbracket():
-                    return got
+                    return
             sys.exit("skiessound: row %d took no mode" % row)
+
+        def fly(row):
+            """Pick row `row`, enter the bracket; out: its plane record."""
+            got = pick(row)
+            enter(row)
+            return got
 
         def ticks(n, pin):
             """Run n sim ticks, calling pin() at the top of each."""
@@ -275,7 +286,7 @@ def main(argv):
             m.bp_exec()
             m.run()
 
-        def settle(plane, thr, spool=True, cap=90):
+        def settle(plane, thr, spool=True, cap=150):
             """Tick until the NOTE STOPS MOVING, and say how long it took.
 
             CSS_LAG means the note closes on what the engine wants rather than
@@ -384,31 +395,38 @@ def main(argv):
                                       for k, v in sorted(full_notes.items(),
                                                          key=lambda x: x[1])))
 
-        # --- 6: the jet's note LAGS THE HAND --------------------------------
-        # CSP_SPOOL is 5 - a 32nd of the gap a tick, 95% in 5.3 seconds - so
-        # the lever goes to full in one tick and the THRUST does not. That is
-        # a different mechanic from CSS_LAG below and this is the check that
-        # separates them: the spool is the engine, the slew is the note.
-        for row, want_lag in ((2, True), (0, False)):
-            plane = fly(row)
-            nm = name(plane)
-            snd = rec(plane, E["CSP_SND"])
-            bp_on()
-            settle(plane, 0)
-            poke("cs_thracc", b"\x00\x00")
-            seq = [t for t, _ in tones(plane, 100, nn=24, spool=False)]
-            bp_off()
-            top = law(snd, plane, 100, rec(plane, E["CSP_THRUST"]) << 8)
-            if want_lag:
-                check(seq[-1] < top,
-                      "%s has not ARRIVED even after its note settled and 24 "
-                      "more ticks (%d Hz of %d): the thrust is still climbing "
-                      "(88.7.5)" % (nm, seq[-1], top))
-            else:
-                check(seq[0] >= top,
-                      "%s is at full note the moment its own slew settles "
-                      "(%d Hz of %d): a piston's throttle IS its power"
-                      % (nm, seq[0], top))
+        # --- 6: the jet's note is off the THRUST and not the lever ----------
+        # CSP_SPOOL is 5, so cs_thracc closes on a target cs_step computes in
+        # WHOLE units before shifting into 8.8: 50% of a 19-unit engine is 9
+        # and not 9.5. That rounding is what makes the two sources SEPARABLE
+        # at a half-open lever - 426 Hz off the thrust against 440 off the
+        # lever - and separable is what a check needs.
+        #
+        # IT USED TO BE A TIMING CHECK and could not stay one. "Still climbing
+        # 24 ticks after its own slew settled" discriminated while the note
+        # arrived quickly; CSS_CAP's ceiling (88.8.2.1) makes the Magister's
+        # own glide take a hundred ticks, which is longer than the spool, so
+        # the spool stopped being what the delay measured. A check that has
+        # stopped being about its subject passes for the wrong reason.
+        plane = fly(2)
+        nm = name(plane)
+        snd = rec(plane, E["CSP_SND"])
+        bp_on()
+        settle(plane, 50)
+        got = w("cs_eng")
+        bp_off()
+        # BOTH LAWS COMPUTED HERE and neither through law(), which honours
+        # the guest's CSS_FLAGS - under --clobber-spool that would quietly
+        # move the "thrust" figure to the lever's and the red run would read
+        # as two identical numbers disagreeing.
+        full = rec(plane, E["CSP_THRUST"])
+        idle, span = rec(snd, E["CSS_IDLE"]), rec(snd, E["CSS_SPAN"])
+        thrust = idle + (((50 * full // 100) << 8) * span) // (full << 8)
+        lever = idle + 50 * span // 100
+        check(got == thrust and got != lever,
+              "%s at a half-open lever plays %d Hz - the thrust it HAS "
+              "(%d), not what the lever asks for (%d): 88.7.5's spool, and "
+              "at cs_thracc's own 8.8" % (nm, got, thrust, lever))
 
         # --- 7: THE NOTE GLIDES, which is what the field asked for ----------
         # "The stepping, between throttle levels, sounds more like it is
@@ -422,28 +440,68 @@ def main(argv):
             nm = name(plane)
             snd = rec(plane, E["CSP_SND"])
             lag = recb(snd, E["CSS_LAG"])
+            cap = recb(snd, E["CSS_CAP"])
             bp_on()
             settle(plane, 100)
             hi = w("cs_eng")
             # ...and now SHUT it, in one step, and watch the note come down
-            seq = []
-            pin = hold(plane, 0)
-            for _ in range(40):
+            # ...and run until it STOPS, not for a fixed count. How long a
+            # descent takes is CSS_CAP's business now - a constant interval
+            # per tick, so the time is proportional to the OCTAVES crossed,
+            # and the Magister's 1.8 are four times the trainer's 0.8.
+            lo = law(snd, plane, 0, 0)
+            seq, pin = [], hold(plane, 0)
+            for _ in range(200):
                 pin()
                 seq.append(w("cs_eng"))
+                if len(seq) > 3 and seq[-1] == seq[-2] == seq[-3]:
+                    break
                 m.run()
                 if m.wait_stop(30) is None:
                     sys.exit("skiessound: cs_step never ran")
             bp_off()
-            lo = law(snd, plane, 0, 0)
             mid = [v for v in seq if lo < v < hi]
             check(len(set(mid)) >= 4 and seq[1] > lo,
-                  "%s (CSS_LAG %d) GLIDES %d -> %d Hz through %d distinct "
-                  "notes rather than changing in one tick (88.8.2.1)"
-                  % (nm, lag, hi, lo, len(set(mid))))
+                  "%s (CSS_LAG %d, CSS_CAP %d) GLIDES %d -> %d Hz through %d "
+                  "distinct notes over %d ticks rather than changing in one "
+                  "(88.8.2.1)" % (nm, lag, cap, hi, lo, len(set(mid)),
+                                  len(seq)))
             check(seq[-1] <= lo + 1,
-                  "%s still ARRIVES: %d Hz against an idle of %d, 40 ticks "
-                  "after the lever shut" % (nm, seq[-1], lo))
+                  "%s still ARRIVES: %d Hz against an idle of %d, %d ticks "
+                  "after the lever shut" % (nm, seq[-1], lo, len(seq)))
+
+        # --- 8: NO RAMP ON ENTRY --------------------------------------------
+        # [cs_eng] starts at 0 and used to GLIDE up to idle, so every flight
+        # opened with a rising note the aeroplane never makes - the field's
+        # "on entry to the scene they all start at one point, and change to
+        # another point. They should probably all start at their idle point
+        # without ramping to it." A note of 0 is the sentinel for "not
+        # running yet" and the first tick SNAPS to whatever the engine wants.
+        #
+        # It has to be watched from OUTSIDE the bracket: by the time fly()
+        # has confirmed the mode, a ramp would be long over. The breakpoint
+        # goes on before the F, so the first stop IS the flight's first tick.
+        for row in (0, 2):
+            plane = pick(row)
+            nm = name(plane)
+            snd = rec(plane, E["CSP_SND"])
+            m.bp_exec(lin + mp["cs_step"])
+            enter(row)
+            if m.wait_stop(30) is None:
+                sys.exit("skiessound: cs_step never ran on entry")
+            seq = []
+            for _ in range(6):
+                m.run()
+                if m.wait_stop(30) is None:
+                    sys.exit("skiessound: cs_step never ran")
+                seq.append((w("cs_eng"), w("cs_thr"), w("cs_thracc")))
+            bp_off()
+            want = [law(snd, plane, t, ta) for _, t, ta in seq]
+            got = [v for v, _, _ in seq]
+            check(got == want,
+                  "%s is AT its note from the first tick of the flight (%s Hz "
+                  "against %s) - no ramp up to idle (88.8.2.1)"
+                  % (nm, got, want))
 
         leave()
 

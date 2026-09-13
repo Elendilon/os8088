@@ -110448,22 +110448,60 @@ was about the transitions:
 
 A throttle that moves in one step used to move the note in one tick, and a
 square wave that jumps between two steady values is a synthesiser retuning.
-`CSS_LAG` gives the note **inertia**: `[cs_eng]` closes that fraction of the
-gap to what the engine wants each tick, and never by less than one hertz or a
-small gap would stand for ever. So the brake shutting the throttle (§88.7.10)
-falls through the range instead of changing note — measured, the Cessna glides
-105 → 60 Hz through **ten** distinct notes and the Magister 700 → 180 through
-**thirty-five**.
+`[cs_eng]` closes on what the engine wants instead, by **the lower of two
+steps**, and never by less than one hertz:
+
+| | a share of | what it is |
+|---|---|---|
+| `CSS_LAG` | the **gap** | the engine responding — fast when there is far to go |
+| `CSS_CAP` | the **note** | a ceiling in **interval**, the same at the bottom of a range as at the top |
+
+**The second one is the correction, and the first alone is what shipped and
+was wrong.** A share of the gap is a constant fraction in *hertz* and a wild
+one in *interval*: the Magister's first step out of idle was 520 >> 3 = 65 Hz
+at 180 Hz, which is a musical **fourth**, and the field heard it as precisely
+that — *"this one still 'plays notes' as it goes up or down"*. The complaint
+tracked the arithmetic exactly, across all four aeroplanes: the Cessna's first
+step is 290 cents and was *"Good"*, the Pitts' 400 and was *"slightly steppy"*,
+the Magister's 500 and *"plays notes"*. A share of the **note** is a constant
+interval by construction, so a range glides at the same rate wherever it is,
+and the time a glide takes is proportional to the **octaves** it crosses rather
+than to the hertz.
+
+Measured, with the lever shut in one step: the Cessna glides 105 → 60 Hz
+through **15** distinct notes in 19 ticks, and the Magister 625 → 180 through
+**97** in 101 — 1.8 octaves at about 22 cents a tick, which is a portamento and
+not a scale. The Magister's is slow *and should be*: `CSP_SPOOL` gives the
+thrust 5.3 seconds and the note now takes about the same.
 
 **It is honest about what it cannot do.** During a *sustained* sweep the note
-tracks the lever at the lever's own rate, so the slew does not make the steps
-smaller — a throttle held from shut to full traverses the range in the fifty
-ticks the throttle takes, whatever the lag is. What it fixes is every
-transition that is not a sustained sweep: a tap, a cut, the brake, the reset,
-and the first tick of a flight, where `[cs_eng]` starts at 0 and the engine
-audibly comes up to idle. The remaining floor is the model's: the lever has
-fifty steps and one square wave has one voice, so the jet's resolution came
-from `[cs_thracc]` and the pistons' steps are ~1 Hz and stay there.
+cannot be finer than the thing it follows — the lever has fifty whole steps,
+so a piston's sweep is ~1 Hz a tick and stays there. What the pair fixes is
+every transition that is not a sustained sweep: a tap, a cut, the brake
+(§88.7.10), the reset. Where `CSS_CAP` is *tighter* than the lever's own step
+it does better than track — the Pitts' lever moves 1.7 Hz a tick at 39 cents
+and its note moves 1–2 at 23, which is the *"slightly steppy"* answered — and
+the one source with real resolution to give is the jet's, `[cs_thracc]` being
+8.8 where the lever is fifty steps.
+
+##### 88.8.2.1.1 A flight starts AT its idle, and does not ramp to it
+
+`[cs_eng]` begins at 0, so the first build glided **up to idle** on entering the
+bracket: every flight opened with a rising note no aeroplane makes. The field:
+*"on entry to the scene they all start at one point, and change to another
+point. They should probably all start at their 'idle' point without ramping to
+it."*
+
+**A note of 0 is the sentinel for "not running yet"** and the first tick
+**snaps** to whatever the engine wants rather than slewing to it — which
+generalises correctly, because a later flight carries the throttle the last one
+left (§88.8) and starting at *that* engine's note is the same rule. It is
+cleared at bracket entry beside `[cs_tone]`, or a Cessna's first tick would
+glide down from the Magister the last flight left in it.
+
+`tests/skiessound.py` watches it from **outside** the bracket: the breakpoint
+goes on before the `F`, so the first stop is the flight's own first tick. By
+the time a test has confirmed the mode, a ramp would be long over.
 
 `[cs_eng]` is the **engine's** note and `[cs_tone]` is what is playing, which
 is why they are two words: the stall beep and the crash blast stand in front of
@@ -110474,7 +110512,7 @@ left in it.
 
 ##### 88.8.2.2 What it costs, and why an emulator could not settle it
 
-**123 bytes of image**, measured on the gap (§88.10.6): no bss beyond
+**180 bytes of image**, measured on the gap (§88.10.6): no bss beyond
 `[cs_eng]`'s word, no kernel byte, and `SKIES.O88` is **44,226 bytes** — three
 *fewer* than before any of this — so no floppy in any of the four geometries
 moves a cluster. The bytes come out of a run of zeros that LZ4 had all but
@@ -110499,13 +110537,16 @@ them could have been settled here:
 | a beat is a piston's roughness | *"does sound like a bug, rather than an engine"* |
 | the wall clock defends the beat's rate | *"the varying framerate… is hurting this, too"* |
 | a note per throttle level is an engine | *"sounds more like it is playing a note"* |
+| a share of the GAP is a smooth glide | *"still plays notes as it goes up or down"* — it is a fourth at the bottom of a wide range |
+| gliding up to idle on entry is an engine starting | *"they should probably all start at their idle point without ramping to it"* |
 
 A synthesised square wave has none of a real speaker's rolloff or resonance,
 and a container has no ears at all. `tests/skiessound.py` gates what *is*
 checkable — each aeroplane plays its own record's law, the Bijave plays
 nothing, the note is ONE value over sixteen settled ticks, it GLIDES rather
-than snapping, and the Fouga's note is still climbing after the lever stops —
-and everything above came from docs/FIELD-MACHINES.md instead.
+than snapping, it is AT its note from a flight's first tick, and the Fouga
+plays the thrust it HAS and not what the lever asks for — and everything above
+came from docs/FIELD-MACHINES.md instead.
 
 #### 88.8.1 A paused aeroplane is silent
 

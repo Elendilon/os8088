@@ -1849,10 +1849,11 @@ cs_sound_step:
     jg .swup
     neg ax                          ; sink: down from the top
     add ax, CS_SWOOPHI
-    jmp short .want
+    jmp .want                       ; NEAR: the engine block below is past a
+                                    ; rel8 now (SPEC.md 88.8.2.1)
 .swup:
     add ax, CS_SWOOPLO              ; lift: up from the bottom
-    jmp short .want
+    jmp .want
 .noswoop:
     ; --- THE ENGINE, OFF ITS OWN RECORD (SPEC.md 88.8.2) --------------------
     ;     Every aeroplane used to be `[cs_thr] + 50`, so a Fouga Magister and
@@ -1885,24 +1886,65 @@ cs_sound_step:
     div bx
 .add:
     add ax, [di + CSS_IDLE]
-    ; --- AND THE NOTE HAS INERTIA (SPEC.md 88.8.2.1) ------------------------
-    ;     The engine's own note is [cs_eng], and it CLOSES on what the engine
-    ;     wants rather than arriving there: CSS_LAG of the gap a tick, never
-    ;     less than one hertz or a small gap would stand for ever. So a
-    ;     throttle that shuts in one step - the brake does exactly that
-    ;     (88.7.10) - glides down instead of changing note.
-    mov bx, ax
-    sub bx, [cs_eng]
-    jz .slewed
+    ; --- AND THE NOTE HAS INERTIA, AND A PITCH CEILING (SPEC.md 88.8.2.1) ---
+    ;     [cs_eng] is the engine's own note and it CLOSES on what the engine
+    ;     wants rather than arriving there, by the LOWER of two steps:
+    ;
+    ;       CSS_LAG - a share of the GAP, which is the engine responding
+    ;       CSS_CAP - a share of the NOTE, which is a constant INTERVAL
+    ;
+    ;     and never less than one hertz, or a small gap would stand for ever.
+    ;     The first alone was what shipped and the field heard what it misses:
+    ;     a share of the gap is constant in hertz and wild in interval, so the
+    ;     Magister's first step out of idle was 65 Hz at 180 - a musical
+    ;     FOURTH - and it "still plays notes as it goes up or down". A share
+    ;     of the note glides the bottom of a range at the same rate as the top.
+    mov bx, [cs_eng]
+    or bx, bx
+    jz .prime                       ; ENTERING: start AT the note (88.8.2.1),
+    push ax                         ; because a ramp up to idle is a sound the
+    sub ax, bx                      ; aeroplane never makes
+    jz .same
+    jns .mag
+    neg ax
+.mag:                               ; AX = how far there is to go
     mov cl, [di + CSS_LAG]
+    shr ax, cl
+    jnz .cap
+    inc ax
+.cap:
+    mov dx, bx
+    mov cl, [di + CSS_CAP]
+    shr dx, cl                      ; ...against a share of the note itself
+    jnz .pick
+    inc dx
+.pick:
+    cmp ax, dx
+    jbe .step
+    mov ax, dx                      ; the ceiling is the lower of the two
+.step:
+    pop dx                          ; what the engine wants, back
+    cmp bx, dx
+    jb .up
+    sub bx, ax                      ; ...and never PAST it, either way
+    cmp bx, dx
+    jae .put
+    jmp short .land
+.up:
+    add bx, ax
+    cmp bx, dx
+    jbe .put
+.land:
+    mov bx, dx
+.put:
+    mov [cs_eng], bx
     mov ax, bx
-    sar ax, cl                      ; a NEGATIVE gap always moves: sar rounds
-    jnz .move                       ; toward minus infinity, so -1 stays -1
-    inc ax                          ; ...and a small positive one is one hertz
-.move:
-    add [cs_eng], ax
-.slewed:
-    mov ax, [cs_eng]
+    jmp short .st
+.same:
+    pop ax                          ; the gap was nothing: the note stands
+    jmp short .st
+.prime:
+    mov [cs_eng], ax
     jmp short .st
 .quiet:
     xor ax, ax

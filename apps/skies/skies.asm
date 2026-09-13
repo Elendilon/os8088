@@ -392,18 +392,28 @@ CSS_IDLE  equ 0                 ; word: Hz with the throttle SHUT and the
                                 ; most of one aeroplane's character against
                                 ; another is actually heard
 CSS_SPAN  equ 2                 ; word: Hz added between shut and full power
-CSS_LAG   equ 4                 ; THE NOTE'S OWN INERTIA (88.8.2.1), a shift:
-                                ; the note closes this fraction of the gap to
-                                ; what the engine wants, each tick, and never
-                                ; by less than one hertz. A throttle that moves
-                                ; in one step GLIDES instead of snapping, which
-                                ; is what an engine does and what a note does
-                                ; not - the field's "the stepping between
-                                ; throttle levels sounds more like it is
-                                ; playing a note than switching engine
-                                ; pitches". 0 is instant
-CSS_FLAGS equ 5                 ; CSSF_*
-CSS_SIZE  equ 6
+CSS_LAG   equ 4                 ; THE ENGINE'S RESPONSE (88.8.2.1), a shift:
+                                ; the note closes this fraction of the GAP to
+                                ; what the engine wants, each tick. A throttle
+                                ; that moves in one step GLIDES instead of
+                                ; snapping, which is what an engine does and
+                                ; what a note does not
+CSS_CAP   equ 5                 ; ...AND THE NOTE'S PITCH CEILING, a second
+                                ; shift, on the NOTE rather than on the gap:
+                                ; the step may not exceed this share of where
+                                ; the note already is. A share of the gap is a
+                                ; constant fraction in HERTZ and a wildly
+                                ; varying one in INTERVAL - the Magister's
+                                ; first step out of idle was 65 Hz at 180,
+                                ; which is a musical FOURTH, and the field
+                                ; heard it as exactly that: "this one still
+                                ; plays notes as it goes up or down". A share
+                                ; of the note is a constant interval, so a
+                                ; wide range glides at the same rate at the
+                                ; bottom as at the top. The lower of the two
+                                ; wins, and neither may be less than one hertz
+CSS_FLAGS equ 6                 ; CSSF_*
+CSS_SIZE  equ 7
 
 CSSF_SPOOL equ 0x01             ; follow the SPOOLED thrust and not the lever
                                 ; (88.7.5) - a jet, and the one aeroplane here

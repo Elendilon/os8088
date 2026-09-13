@@ -2833,7 +2833,7 @@ SOAK = [
         " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
-    Row("skiessound", "soak", py("tests/skiessound.py"), 85.0,
+    Row("skiessound", "soak", py("tests/skiessound.py"), 110.0,
         "SPEC.md 88.8.2: an ENGINE each. Every aeroplane used to be"
         " [cs_thr] + 50, so a Fouga Magister and an Icon A5 were the same"
         " note at the same lever; each reads its own record now, and this"
@@ -2849,13 +2849,17 @@ SOAK = [
         " has an engine record exactly when it has CSP_THRUST, so a sixth is"
         " covered by arriving. THE NOTE IS STEADY - one value over sixteen"
         " settled ticks, which is what replaced a beat the field heard as a"
-        " bug - and it GLIDES, ten distinct notes on the Cessna and"
-        " thirty-five on the Magister when the lever shuts in one step,"
-        " rather than changing note (88.8.2.1). And the Magister's THRUST"
-        " lags the hand: its note has not arrived 24 ticks after its own slew"
-        " settled, where a piston is at full the moment the slew is done."
-        " --clobber-lag, --clobber-shared and --clobber-spool are the three"
-        " red runs",
+        " bug - and it GLIDES at a constant INTERVAL, 15 distinct notes on"
+        " the Cessna and 97 on the Magister when the lever shuts in one step,"
+        " which is CSS_CAP's ceiling and not CSS_LAG's share of the gap: a"
+        " share of the gap was a musical FOURTH at the bottom of the jet's"
+        " range (88.8.2.1). It is AT its note from a flight's FIRST TICK,"
+        " watched from outside the bracket because a ramp would be over"
+        " before a test could confirm the mode. And the Magister plays the"
+        " thrust it HAS - 426 Hz at a half-open lever against the 440 the"
+        " lever asks for, the two separable because cs_step rounds its target"
+        " to whole units. --clobber-lag, --clobber-shared and --clobber-spool"
+        " are the three red runs",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the approach - held toward"

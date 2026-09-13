@@ -309,24 +309,28 @@ cs_s_a5:     db 'ICON A5', 0
 ; reason 88.8.2.2 says an emulator cannot settle this.
 ; =============================================================================
 cs_snd_c172:   dw 60, 45                ; 60..105 Hz. A direct-drive Lycoming,
-               db 2, 0                  ; four cylinders, two blades - and the
-                                        ; one the field passed unaltered once
-                                        ; its beat came off
+               db 2, 4, 0               ; four cylinders, two blades - and the
+                                        ; one the field has passed twice
 cs_snd_pitts:  dw 75, 85                ; 75..160 Hz. Six cylinders firing 3 a
-               db 2, 0                  ; revolution is 135 at 2,700 rpm: the
-                                        ; loud one, and it should sound it
+               db 2, 5, 0               ; revolution is 135 at 2,700 rpm: the
+                                        ; loud one, and it should sound it. A
+                                        ; tighter ceiling than the trainer's -
+                                        ; "slightly steppy, but overall good" -
+                                        ; because its range is twice as wide
 cs_snd_fouga:  dw 180, 520              ; 180..700 Hz, off the thrust it HAS.
-               db 3, CSSF_SPOOL         ; A Marbore at 21,500 rpm is a whine
+               db 3, 6, CSSF_SPOOL      ; A Marbore at 21,500 rpm is a whine
                                         ; and the arithmetic said 260..1200 -
                                         ; which the field heard as "much too
                                         ; high pitched for human ears", 1,200
                                         ; sitting in the band a PC speaker is
                                         ; harshest in. Down a fifth and a bit,
                                         ; still an octave and a half clear of
-                                        ; every piston, and the SLOWEST slew
-                                        ; here because its span is the widest
+                                        ; every piston, and the TIGHTEST pitch
+                                        ; ceiling here because its range is
+                                        ; two octaves where no piston's is
+                                        ; more than one
 cs_snd_a5:     dw 95, 75                ; 95..170 Hz, and the top is the
-               db 2, 0                  ; field's: 190 was "slightly high
+               db 2, 4, 0               ; field's: 190 was "slightly high
                                         ; pitched at full. Probably accurate,
                                         ; but again, human ears and all". It
                                         ; stays the highest piston, by less
