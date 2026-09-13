@@ -3122,9 +3122,19 @@ SOAK = [
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk"]
         + py("tests/dispclose.py", "--small"), 100.0,
         "...and the same suite on kern_small, which since SPEC.md 75.3.2 has "
-        "the identical behaviour rather than a fallback. It needs `make "
-        "small` first, and it is the ONE gate here that drives that build",
-        needs=("marty",), serial=True, timeout=900),
+        "the identical behaviour rather than a fallback. **IT DECLARED THE ARM "
+        "AND NOT THE ARTEFACT**, which is the failure docs/WRITING-TESTS.md 4 "
+        "is about: it carried a sentence saying it needed `make small` first "
+        "and claiming to be the one gate that drove that build, and it drove "
+        "nothing - every other kern_small row here declares `wants=` and this "
+        "one did not, so on a box where nobody had typed `make small` it died "
+        "in 0.2s on a FileNotFoundError for build/small360.img, several frames "
+        "from the cause and reading like a broken close path. The `wants=` "
+        "below is the whole fix: build/small360.img\'s own rule sub-makes into "
+        "build/smallk, so one artefact brings the kernel the env line above "
+        "points at",
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/small360.img",)),
     Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
         "WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
