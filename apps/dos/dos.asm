@@ -1198,6 +1198,10 @@ dos_fsx_main:
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
+    call dos_snap                   ; **THE LAST SCREEN FIRST** (SPEC.md 96.34):
+                                    ; the BDA's mode byte and cursor are the
+                                    ; PROGRAM's until dos_restore_machine runs,
+                                    ; and the regen buffer still holds its text
     call dos_unhook_vectors
     call dos_restore_machine
     ret
