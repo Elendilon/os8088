@@ -39,6 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dosconcga                                               # noqa: E402
 import dosmap                                                  # noqa: E402
 import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
@@ -122,6 +123,12 @@ def main():
             fail("could not launch %s" % BOX)
         os88marty.settle(m)
         bx = Box(m)
+        # LEARN THE BAND'S RECTANGLE NOW, while it holds a banner and a prompt
+        # and nothing else - see dosconcga.band_lit for why a full band cannot
+        # be measured from scratch.
+        rect = dosconcga.band_rect(m, bx)
+        if rect is None:
+            fail("could not find the console band on the glass at all")
         page = bx.w("con_vrows") - 1
         print("dosdirsw: the band is %d rows, so a page is %d lines"
               % (bx.w("con_vrows"), page))
@@ -173,11 +180,38 @@ def main():
         if paged[-1].rstrip().endswith(">"):
             fail("a prompt was printed UNDER the pause (%r) - the box is "
                  "asking two questions at once" % paged[-1])
-        print("dosdirsw: /P stopped with %r and no prompt under it" % STRIKE)
+        # **AND THE PAGE IS ON THE GLASS** (96.33.9.1 item 1).  The band's
+        # BUFFER is right whether or not anything painted, so this reads
+        # PIXELS: the suspended arm of dos_con_run returned before
+        # dos_con_draw for a release, the marks were spent by the next
+        # keystroke, and the whole listing appeared at the end - a prompt
+        # asking the user to read a page that is not there.
+        lit, _ = dosconcga.band_lit(m, bx, rect)
+        entries = [r for r in paged if "FILE" in r]
+        if len(entries) < 4:
+            fail("only %d entries are in view under the pause: a page is %d "
+                 "lines and the listing should have filled it (%r)"
+                 % (len(entries), page, paged[:4]))
+        if lit < 200:
+            fail("the pause is up but the band has %d lit pixels - the page "
+                 "the user is being asked to read never reached the glass "
+                 "(SPEC.md 96.33.9.1)" % lit)
+        print("dosdirsw: /P stopped with %r, %d entries in view and %d lit "
+              "pixels behind them" % (STRIKE, len(entries), lit))
 
         # --- 4: ...and a key resumes it to the same total --------------------
+        strike_row = [i for i, r in enumerate(bx.view()) if STRIKE in r][0]
         bx.type(" ")
         done = bx.live()
+        # **AND THE RESUME STARTED ON A NEW LINE** (96.33.9.1 item 2): the
+        # prompt ends in a space and no CRLF, which is COMMAND.COM's own
+        # string, so a resume that did not emit one overprinted its row.
+        strike_now = [r for r in bx.view() if STRIKE in r]
+        for r in strike_now:
+            if r.rstrip() != STRIKE + " . . .":
+                fail("the pause's row now reads %r - the resumed listing was "
+                     "written over it instead of starting on the line below "
+                     "(SPEC.md 96.33.9.1)" % r)
         if bx.b("dsh_more"):
             fail("a key did not finish the listing: [dsh_more] is still 1")
         if count_of(done) != total:

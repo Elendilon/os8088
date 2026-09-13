@@ -3582,13 +3582,23 @@ dos_tty:
     push cs                         ; real, con_scr and every byte of the
     pop ds                          ; library being DS-relative. It is only
     call con_write                  ; reachable outside the bracket, where DS is
-    pop ds                          ; already ours - but "only reachable" is
+                                    ; already ours - but "only reachable" is
                                     ; what the paragraph above was about
                                     ; ...so the console takes it instead, and
-                                    ; DRAWS NOTHING HERE: a verb that prints a
-                                    ; directory would take the lock per
-                                    ; character. dos_con_run spends the marks
+                                    ; DRAWS NOTHING HERE **IN A WINDOW**: a verb
+                                    ; that prints a directory would take the gfx
+                                    ; lock per character, and a band repaint is
+                                    ; OSAPI_GFX_BLIT1 per run at ~756us of
+                                    ; arrival. dos_con_run spends the marks
                                     ; once, after the verb has returned
+    cmp byte [cs:dos_fsxup], 0      ; **FULL SCREEN STREAMS A LINE AT A TIME**
+    je .nofs                        ; (SPEC.md 96.33.11): there the same paint
+    cmp al, 10                      ; is a rep movsw of eighty words, so the
+    jne .nofs                       ; argument that forbids it in a window does
+    call dos_fsx_owed               ; not reach it. LF and only LF - per
+.nofs:                              ; character would rewrite a row that is
+    pop ds                          ; about to change again, and the echo path
+                                    ; already paints after every key it takes
 .out:
     pop bx
     pop ax

@@ -1481,6 +1481,22 @@ dsh_dir_page:
     mov al, 1
     ret
 
+; --- dsh_dir_more - RESUME a suspended listing, on the line below the prompt -
+; out: as dsh_dir_page
+;
+; **THE NEWLINE IS HERE AND NOT IN THE PROMPT** (SPEC.md 96.33.9.1).
+; `Strike a key when ready . . . ` ends in a SPACE and no CRLF, which is
+; COMMAND.COM's own string and is what leaves the cursor sitting after the dots
+; where the user can see it.  DOS moves down when the key ARRIVES, so a prompt
+; that carried its own newline would put the cursor on the next line and wait
+; there.  Without this the resumed listing overprinted the prompt's own row.
+dsh_dir_more:
+    push si
+    mov si, dsh_s_crlf
+    call dsh_say
+    pop si
+    jmp dsh_dir_page
+
 ; --- dsh_dir_stop - abandon a suspended listing (Esc, Ctrl-C) ---------------
 ; clobbers: nothing (flags)
 dsh_dir_stop:

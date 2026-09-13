@@ -296,11 +296,17 @@ def main():
         # folder holding PRINCE.EXE: it took the word as a whole file name,
         # where COMMAND.COM treats a name with no extension as a SEARCH.
         bx.type("%s\n" % BARE)
+        # **AND THE BOX IS FULLY QUALIFIED** since SPEC.md 96.33.10: it held
+        # the name as typed, which is only true while the box is still
+        # standing where it was typed - one CD and it names a different file.
         got = bx.text("dos_path", 32).upper()
-        if got != BARE + ".COM":
+        if not got.endswith(BARE + ".COM"):
             fail("typing %r should find %s.COM in this folder and the path box "
                  "holds %r - a name with no extension is a SEARCH, .COM then "
                  ".EXE (SPEC.md 96.33.7)" % (BARE, BARE, got))
+        if got[1:3] != ":\\":
+            fail("the path box holds %r and should be FULLY QUALIFIED - drive, "
+                 "folder and name (SPEC.md 96.33.10)" % got)
         rows = bx.live()
         if any("Bad command" in r for r in rows[-3:]):
             fail("%r was refused as a bad command and %s.COM is right there: "
@@ -374,9 +380,11 @@ def main():
         # disk: the path box holds what was typed, the state moved, and the
         # console got a line back. tests/dosargs.py drives a real .COM.
         bx.type("DOS.O88\n")
-        if bx.text("dos_path", 32).upper() != "DOS.O88":
-            fail("typing a program's name should put it in the path box and "
-                 "it holds %r (SPEC.md 96.33.3)" % bx.text("dos_path", 32))
+        got = bx.text("dos_path", 32).upper()
+        if not got.endswith("DOS.O88") or got[1:3] != ":\\":
+            fail("typing a program's name should put its FULLY QUALIFIED path "
+                 "in the box (SPEC.md 96.33.3, 96.33.10) and it holds %r"
+                 % bx.text("dos_path", 32))
         rows = bx.live()
         if not any("DOS.O88" in r for r in rows[-4:]):
             fail("the console said nothing about the program that was run: %r"
