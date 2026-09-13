@@ -66,6 +66,12 @@
 ;   con_row / con_compose / con_emit         one row: buffer -> band -> glass
 ;   con_font                                 the 256 CP437 glyphs, once
 ;
+; ...and two opt-ins: `%define CON_TTY` adds the teletype half (con_write,
+; con_say, con_open - CR, LF, BS and TAB, for a carrier with no ANSI parser
+; over it), and `%define CON_FSX` the FULL-SCREEN one (con_tx_*, the same
+; buffer onto real text VRAM). os88ui.inc's rule and for its reason: a package
+; that does not use a capability pays nothing for it.
+;
 ; THE SCREEN IS FIXED AND DOES NOT REFLOW. A terminal that reflows on a resize
 ; is a terminal whose host has the wrong idea of how wide it is; a resize
 ; changes how much of the 80x25 is VISIBLE and changes the screen not at all.
@@ -1341,6 +1347,356 @@ con_open:
     ret
 %endif
 
+%ifdef CON_FSX
+; =============================================================================
+; THE FULL-SCREEN HALF - `%define CON_FSX` (SPEC.md 70.8.13)
+;
+; SPEC.md 53's exclusive bracket with FSXM_TEXT80, which is the one mode every
+; adapter here can set - VGA, CGA and Hercules alike. **THE BUFFER MAPS 1:1
+; ONTO TEXT VRAM** (70.8.7): 80 columns by 25 rows against 80 by 25, all of it,
+; no centring and no status line, and con_scr's cell IS the cell in VRAM - a
+; character byte then an attribute byte - so a colour row is a `rep movsw` and
+; not a translation. That is the whole argument for the bracket: a cell in text
+; mode is ONE WORD STORE and the card's own ROM font does the rendering, where
+; the windowed renderer composes a band and blits it.
+;
+; WHAT IS HERE IS THE RENDERER AND NOTHING ELSE. The BRACKET is the carrier's -
+; which mode it asks for, whether it keeps a worker, which key leaves, what it
+; puts on the bottom row - because those are the four things two carriers do
+; not agree about: Telnet keeps a worker and leaves on `^]` (every telnet
+; client since 4.2BSD), and the DOS box has no worker and leaves on Esc
+; (SPEC.md 96.33.5).
+;
+; --- WHAT YOU OWE IT ---------------------------------------------------------
+;   [con_tseg]     the mode's framebuffer segment, out of OSAPI_FSX_MODE's
+;                  FSI_SEG - B000 on Hercules and B800 on the rest, and the ONE
+;                  thing in here that is not a constant
+;   [con_tkind]    that display's VID_* kind, asked of OSAPI_FSX_CAPS and NOT
+;                  of OSAPI_VIDEO, which answers about the PRIMARY - a bracket
+;                  on the Hercules of a VGA-primary desktop would be told the
+;                  wrong thing (SPEC.md 53.7.1)
+;   [con_thint]    the row your leave hint is on, or 0xFF once it has gone: a
+;                  VRAM scroll carries it up and the row it lands on is owed
+;
+; **EVERY KERNEL DRAWING SLOT IS OFF-LIMITS IN HERE** (SPEC.md 53.1) - they
+; render desktop geometry into a framebuffer that is now character cells. A
+; carrier with a kept worker must gate its every path to a drawing slot on
+; "is a foreign screen up" BEFORE the gfx lock and not inside it; the block
+; above con_fillcells is that rule with its measurement attached.
+;
+; NO RETRACE GATING, ON ANY ADAPTER. apps/tracker/trktxt.inc is the precedent
+; and it reached the opposite conclusion to the obvious one: it REMOVED a
+; retrace clock that measured correctly, because polling one is
+; indistinguishable from work to a round-robin scheduler.
+; =============================================================================
+
+CON_TATTR  equ 0x07                 ; grey on black: a terminal's own colours,
+                                    ; and the desktop's black-on-white would be
+                                    ; a white screen with a hole in it
+CON_TSATTR equ 0x70                 ; ...and a hint on the bottom row, inverse,
+                                    ; which mode 7 spells the same
+
+; -----------------------------------------------------------------------------
+; con_tx_scroll - spend [con_scrl] as ONE VRAM move (SPEC.md 70.8.8)
+;
+; **THIS RENDERER DID NOT SCROLL AT ALL.** te_tx_owed used to end with
+; `mov word [con_scrl], 0` under the comment "a text row change IS the scroll
+; here: the rows are re-emitted, so there is nothing for con_scrollpaint to
+; spend". Only the rows in the dirty range were re-emitted, and te_scrollck
+; marked exactly one - the row it opened. So after a scroll the buffer had
+; moved every row up and the screen had been told about the last one: rows
+; 0..N-2 kept showing pre-scroll text for the rest of the session, and the
+; bottom row was overwritten again and again. A board's output, which is one
+; long scroll, was legible on one line.
+;
+; The debt is spent the way it was always for: ONE `rep movsw` of (25-N)*160
+; bytes inside VRAM, and the N rows it vacates are marked so the CARRIER's
+; own loop re-emits them from the buffer.
+; -----------------------------------------------------------------------------
+con_tx_scroll:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call con_takescroll              ; ...read and zeroed together, because the
+    or ax, ax                       ; WORKER adds to that counter while this
+    jz .out                         ; runs (SPEC.md 70.8.8)
+    cmp ax, CON_ROWS
+    jae .all                        ; the whole screen scrolled away: there is
+                                    ; nothing under it worth moving
+    mov [con_rr], ax                 ; N, out of the registers' way while DS is
+                                    ; pointed at VRAM. con_rr is con_compose's
+                                    ; scratch and the two renderers are never
+                                    ; up at once - [te_txm] is what says so
+    mov bx, CON_COLS * 2
+    mul bx                          ; **MUL WRITES DX** (SPEC.md 1). AX = the
+    mov si, ax                      ; source row's offset, N*160
+    xor di, di
+    mov ax, CON_ROWS
+    sub ax, [con_rr]
+    mov bx, CON_COLS
+    mul bx                          ; AX = (25-N)*80 WORDS
+    mov cx, ax
+    mov ax, [con_tseg]
+    mov es, ax
+    push ds
+    mov ds, ax                      ; VRAM to VRAM, and DS comes straight back
+    cld
+    rep movsw
+    pop ds                          ; ...before con_mark reads one of our words
+    mov bx, CON_ROWS
+    sub bx, [con_rr]
+.mk:
+    call con_mark                    ; the rows it VACATED are owed, and the
+    inc bx                          ; loop above re-emits them from the buffer
+    cmp bx, CON_ROWS
+    jb .mk
+    ; --- AND THE ROW THE LEAVE HINT LANDED ON ------------------------------
+    ; The move carried it up with everything else, and the row it arrived on
+    ; is not one of the vacated ones - so without this it drifts a row up the
+    ; screen per scroll and stays there wherever the board is not drawing. It
+    ; is marked instead, and the buffer erases it: "gone the moment the board
+    ; draws" (SPEC.md 70.8.7) is then true of a board that scrolls as well as
+    ; of one that prints over it.
+    mov al, [con_thint]
+    cmp al, 0xFF
+    je .out                         ; already off the top
+    mov bl, [con_rr]
+    sub al, bl
+    jc .hgone
+    mov [con_thint], al
+    mov bl, al
+    xor bh, bh
+    call con_mark
+    jmp short .out
+.hgone:
+    mov byte [con_thint], 0xFF
+    jmp short .out                  ; (the CRTC cursor needs no mark: it is
+                                    ; hardware, and con_tx_cursor places it
+                                    ; from [con_cx]/[con_cy] on every pass)
+.all:
+    mov byte [con_thint], 0xFF       ; ...AND THE HINT IS GONE WITH IT. Without
+                                    ; this the next scroll subtracts from a row
+                                    ; number that no longer means anything and
+                                    ; marks an unrelated row - one redundant
+                                    ; redraw, never wrong pixels, and one line
+                                    ; to stop it
+    call con_markall
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- con_tx_row - BX = a buffer row, onto the text screen ---------------------
+; A COLOUR ROW IS A MOVE: con_scr's cell is character then attribute and so is
+; VRAM's, so eighty words go straight across. An MDA row is eighty cells each
+; MAPPED first (SPEC.md 70.8.9), because mode 7 has no background colour.
+con_tx_row:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, CON_COLS * 2
+    mul bx                          ; **MUL WRITES DX** (SPEC.md 1)
+    mov si, con_scr
+    add si, ax
+    mov di, ax                      ; ...and the VRAM offset is the SAME
+    mov es, [con_tseg]               ; number: one cell, one layout
+    mov cx, CON_COLS
+    cld
+    cmp byte [con_tkind], VID_HERC
+    je .mda
+    rep movsw
+    jmp short .out
+.mda:
+    lodsw                           ; AL = the character, AH = the attribute
+    call con_tx_mattr                ; ...which mode 7 cannot say in colour
+    stosw
+    loop .mda
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- con_tx_mattr - AH = an IBM attribute -> the MDA byte (SPEC.md 70.8.9) ----
+; The INVERSE predicate is 70.8.4's, to the bit: it is the same question the
+; 1bpp windowed renderer asks about polarity, so the two 1bpp paths cannot
+; disagree about which cells are reversed.
+;
+; **THREE CASES AND THE BLINK BIT, AND NO FOURTH.** An earlier draft mapped
+; SGR 4 to MDA's 0x01 underline off a [te_ul] byte; SPEC.md 70.8.9 dropped it,
+; because SGR 4 does not reach the attribute at all - the parser keeps
+; underline out of the cell, so there is no third byte per cell and nothing
+; for this to read. **THE INPUT HERE IS THE DERIVED IBM BYTE** - bits 0-3
+; foreground, 4-6 background, 7 blink - and this renderer never sees the
+; logical state it came from.
+con_tx_mattr:
+    push bx
+    mov bl, ah
+    and bl, 0x80                    ; blink is kept in every case
+    test ah, 0x07
+    jnz .bright                     ; a foreground that is not 0 or 8 reads
+    test ah, 0x70                   ; as text whatever the paper is
+    jz .plain
+    or bl, 0x70                     ; INVERSE: lit paper, dark glyph
+    jmp short .set
+.bright:
+    test ah, 0x08
+    jz .plain
+    or bl, 0x0F                     ; ...intensity is all MDA has of colour
+    jmp short .set
+.plain:
+    or bl, 0x07
+.set:
+    mov ah, bl
+    pop bx
+    ret
+
+; --- con_tx_cursor - the hardware cursor, positioned by the BRACKET -----------
+; SPEC.md 53.7's forbidden list has exactly one int 10h on it - a MODE SET
+; outside fsx_mode - and 53.4 names AH=02h and AH=01h as calls the bracket may
+; already make. Both existing consumers, this file and trktxt.inc, already do
+; the AH=01h park, byte for byte the same three instructions.
+con_tx_cursor:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, [con_cvis]
+    cmp al, [con_tcur]
+    je .place                       ; the SHAPE is only issued on a change: it
+    mov [con_tcur], al               ; is what the mode set already chose, and a
+    or al, al                       ; BIOS call a frame for a byte that does
+    jz .park                        ; not move is a frame the worker wanted
+    mov ax, 0x0106                  ; ...an underline in an 8-row cell
+    mov cx, 0x0607
+    int 0x10
+    jmp short .place
+.park:
+    mov ax, 0x0100                  ; SPEC.md 53.4's park, byte for byte what
+    mov cx, 0x2000                  ; trktxt.inc does
+    int 0x10
+    jmp short .out
+.place:
+    cmp byte [con_cvis], 0
+    je .out
+    mov ah, 2
+    xor bh, bh
+    mov dh, [con_cy]
+    mov dl, [con_cx]
+    int 0x10
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- con_tx_ice - blink or a bright background, per adapter (SPEC.md 70.8.9) --
+; 53.4 gives the app the blink toggle explicitly, "through the BIOS the
+; bracket may already call (... AX=1003h blink) or the CRTC ports directly",
+; and 53.7 says the video hardware inside a foreign mode is otherwise the
+; app's - so port 3D8h is the app's to write. Hercules has neither, and the
+; menu item is greyed there rather than doing nothing.
+con_tx_ice:
+    push ax
+    push bx
+    push dx
+    mov bl, 1
+    cmp byte [con_ice], 0
+    je .have
+    xor bl, bl                      ; iCE ON is BLINK OFF
+.have:
+    cmp byte [con_tkind], VID_CGA
+    je .cga
+    cmp byte [con_tkind], VID_HERC
+    je .out                         ; MDA text is monochrome: nothing to do
+    mov ax, 0x1003
+    int 0x10
+    jmp short .out
+.cga:
+    mov al, 0x29                    ; 80x25 text, video on, blink on
+    or bl, bl
+    jnz .cw
+    mov al, 0x09                    ; ...bit 5 clear = a bright background
+.cw:
+    mov dx, 0x3D8
+    out dx, al
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- con_tx_hint - SI = a run, on the bottom row, drawn ONCE ----------------
+; **AND THE HOST IS ALLOWED TO OVERWRITE IT** (SPEC.md 70.8.7). A hint that
+; survives is a hint that fights the program for the row it needs; a hint that
+; is gone the moment anything draws there is a hint that did its job. The
+; STRING is the carrier's, because the key that leaves is.
+; in:  SI = a NUL-terminated run; out: nothing, all registers preserved
+con_tx_hint:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov bx, si                      ; ...its LENGTH first, because it is
+    xor cx, cx                      ; right-aligned and a carrier's run is not
+.len:                               ; a fixed twelve characters
+    cmp byte [bx], 0
+    je .have
+    inc bx
+    inc cx
+    jmp short .len
+.have:
+    jcxz .out
+    cmp cx, CON_COLS
+    jbe .fits
+    mov cx, CON_COLS
+.fits:
+    mov es, [con_tseg]
+    mov ax, CON_COLS
+    sub ax, cx
+    add ax, (CON_ROWS - 1) * CON_COLS
+    shl ax, 1
+    mov di, ax
+    mov ah, CON_TSATTR
+    mov byte [con_thint], CON_ROWS - 1  ; the row it is on, so a scroll can
+    cld                                 ; erase it where it lands
+.h:
+    mov al, [si]
+    or al, al
+    jz .out
+    inc si
+    stosw
+    jmp short .h
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+
 ; --- the console's own bss (SPEC.md 21 step 5 zeroes it) --------------------
 con_scr     equ CON_BSS_AT + 0          ; CON_SCRSZ: the cells, character then
                                         ; attribute - text VRAM's own layout
@@ -1375,4 +1731,13 @@ con_cvis    equ con_pwrap + 1           ; byte: the cursor is drawn
 con_ice     equ con_cvis + 1            ; byte: bit 7 is a BRIGHT BACKGROUND
 con_nob     equ con_ice + 1             ; byte: OSAPI_GFX_BLIT1 refused once
 con_scrbusy equ con_nob + 1             ; byte: a scroll is half done
-CON_BSS     equ con_scrbusy + 1 - CON_BSS_AT
+con_tseg    equ con_scrbusy + 1        ; --- the FULL-SCREEN half's (70.8.13) ---
+con_tkind   equ con_tseg + 2           ; word: the mode's framebuffer segment,
+con_tcur    equ con_tkind + 1          ; byte: that display's VID_* kind, byte:
+con_thint   equ con_tcur + 1           ; the cursor shape the CRTC was last told
+                                        ; about, byte: the row the leave hint is
+                                        ; on. FOUR BYTES AND NO %ifdef: a
+                                        ; conditional bss chain is a chain with
+                                        ; two lengths, and CON_BSS is a number
+                                        ; the carrier adds to its own
+CON_BSS     equ con_thint + 1 - CON_BSS_AT

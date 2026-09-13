@@ -88810,6 +88810,28 @@ the status line's buffer on the argument that the two cannot overlap in time —
 true there, and not a promise a library may make about a carrier it has not
 met.
 
+#### 70.8.13 ...and the FULL-SCREEN renderer went with it
+
+§70.8.7's text-mode half is `os88con.inc`'s too, behind `%define CON_FSX` —
+`con_tx_scroll`, `con_tx_row`, `con_tx_mattr`, `con_tx_cursor`, `con_tx_ice`
+and `con_tx_hint`. It moved for the same reason the windowed half did and it
+was cleaner to move: not one of those six had anything of Telnet in it beyond
+three words of state, which are `[con_tseg]`, `[con_tkind]` and `[con_tcur]`
+now.
+
+**WHAT IS THERE IS THE RENDERER AND NOT THE BRACKET**, and that split is the
+whole design: which mode to ask for, whether to keep a worker, which key
+leaves and what goes on the bottom row are the four things two carriers do not
+agree about. Telnet keeps a worker because its worker owns the socket and
+leaves on `Ctrl+]`; §96.33.5's DOS box has no worker at all and leaves on Esc.
+So `apps/telnet/tetxt.inc` is a bracket and a key policy now, and
+`apps/dos/dosc.inc` carries its own.
+
+`con_tx_hint` is the one that gained something in the move: it took a fixed
+twelve-character run at a fixed offset, and it measures the carrier's string
+and right-aligns it, because the sentence naming the key that leaves cannot be
+the library's when the key is not.
+
 ### 70.9 The ANSI-BBS parser (`apps/telnet/teansi.inc`)
 
 §70's *"recognised and discarded"* was the honest choice while nothing acted
@@ -121227,6 +121249,45 @@ right for "N file(s) copied" and wrong for a file: a 65KB file on a 1.44MB
 floppy is ordinary and printing its low word alone is a plausible wrong number.
 `dsh_num32` divides `DX:AX` by ten the two-step way and `dsh_num` is twelve
 bytes now.
+
+##### 96.33.5 Full screen, and Esc back out of it
+
+`Program > Full Screen` puts the same 80x25 buffer on the real text screen,
+which is the only place the whole of it fits: the band shows 25 rows on
+Hercules and VGA and **15 on CGA**, where an 80-column program's output is
+eighty columns wide on all three.
+
+**The renderer is `os88con.inc`'s and the bracket is this box's** (§70.8.13),
+and the four things a bracket holds are the four two carriers do not agree
+about:
+
+| | the DOS box | Telnet |
+|---|---|---|
+| the mode | `FSXM_TEXT80` | the same |
+| the worker | **none** — this console is the UI task's alone | `FSXF_KEEPWORKER`: its worker owns the socket |
+| the key out | **Esc** | `Ctrl+]`, which every telnet client since 4.2BSD uses |
+| the hint | ` Esc to leave` | ` ^] to leave` |
+
+**Esc is ours only while the console has the screen.** A DOS program reads Esc
+for its own purposes and a box that ate it could not run half the software it
+exists for — so this bracket is entered from the menu, ends before any program
+is launched, and §96.2's program bracket is a different one with no key of ours
+in it at all. §11.2.1 asks for `F` in both directions and exempts an app taking
+typed text, which a command prompt is as completely as a terminal.
+
+**The line editor is not written twice.** `dos_con_key` is the same proc on both
+screens; what changes is that `[dos_fsxup]` stands `dos_con_draw` down, because
+every kernel drawing slot renders desktop geometry into a framebuffer that is
+now character cells (§53.1). The keystroke still reaches `con_write` and still
+marks its row, and `[con_drb]` is what carries the change across to the other
+renderer — which is the same shared debt the windowed and full-screen halves
+have always used (§70.8.1), doing the job it was built for.
+
+**`[con_tcur]` is seeded 0xFF and not 0.** `con_tx_cursor` issues the cursor
+SHAPE only on a change, because a BIOS call a frame for a byte that does not
+move is a frame given away; the mode set leaves the CRTC's own cursor blinking
+at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
+placed at all.
 
 ### 96.7 What wave 1 answers, and what it refuses
 

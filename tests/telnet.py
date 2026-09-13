@@ -626,8 +626,8 @@ def main():
         # up - so "armed" is != 0xFF, not != 0, which is the way round a byte
         # named like a flag invites you to read it.
         latch = m.read(S("fsx_task"), 1)[0]
-        tseg = rw("te_tseg")
-        say("after ^]: te_txm %d, fsx_task %02X, te_tseg %04X"
+        tseg = rw("con_tseg")
+        say("after ^]: te_txm %d, fsx_task %02X, con_tseg %04X"
             % (rb("te_txm"), latch, tseg))
         if not rb("te_txm"):
             fails.append("^] did not enter the text bracket (te_txm 0)")

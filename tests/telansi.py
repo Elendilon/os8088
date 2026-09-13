@@ -350,7 +350,7 @@ def main():
     sy = te_syms()
     for n in ("con_scr", "te_state", "te_soff", "te_zon", "te_zat", "te_obin",
               "te_rxi", "te_rxn", "te_btn", "te_line", "te_pndn", "con_cvis",
-              "te_hbuf", "te_thint", "te_txm", "te_zn", "te_tseg",
+              "te_hbuf", "con_thint", "te_txm", "te_zn", "con_tseg",
               "con_cx", "con_cy", "te_sx", "te_sy"):
         if n not in sy:
             sys.exit("telansi: %s is not in the package map" % n)
@@ -763,12 +763,12 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
     # **THE SEGMENT IS ASKED, NOT ASSUMED.** It was a hardcoded 0xB8000, which
     # is right on VGA and CGA and wrong on Hercules - and the same gate pointed
     # at a Hercules run then reports "4,000 of 4,000 bytes differ" instead of
-    # "the wrong framebuffer". [te_tseg] is the answer OSAPI_FSX_MODE gave the
+    # "the wrong framebuffer". [con_tseg] is the answer OSAPI_FSX_MODE gave the
     # package (tetxt.inc), so this reads the machine's own.
-    tseg = u16(m.readseg(pseg, sy["te_tseg"], 2))
+    tseg = u16(m.readseg(pseg, sy["con_tseg"], 2))
     say("fsx seg   %04X" % tseg)
     if tseg not in (0xB800, 0xB000):
-        fails.append("[te_tseg] is %04X, which is neither text framebuffer - "
+        fails.append("[con_tseg] is %04X, which is neither text framebuffer - "
                      "the memcmp below would compare the wrong memory" % tseg)
     vram = m.read(tseg << 4, CON_SCRSZ)
     if shot:
@@ -780,12 +780,12 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
     # writes ` ^] to leave` straight into the last row's last twelve cells,
     # once, on entry, and the HOST IS ALLOWED TO OVERWRITE IT - a hint that
     # survives is a hint that fights the board for the row it needs. So the
-    # memcmp skips those cells while [te_thint] still says row 24, and asserts
+    # memcmp skips those cells while [con_thint] still says row 24, and asserts
     # them separately: the two facts are both worth having and neither is the
     # other's excuse.
     hint = b" ^] to leave"
     skip = set()
-    if m.readseg(pseg, sy["te_thint"], 1)[0] == CON_ROWS - 1:
+    if m.readseg(pseg, sy["con_thint"], 1)[0] == CON_ROWS - 1:
         base = ((CON_ROWS - 1) * CON_COLS + CON_COLS - len(hint)) * 2
         skip = set(range(base, base + len(hint) * 2))
         got = bytes(vram[base + 2 * i] for i in range(len(hint)))

@@ -1973,6 +1973,9 @@ te_tpl:
 %include "os88ui.inc"
 %include "os88line.inc"
 %include "os88sock.inc"         ; net_find (SPEC.md 72, SPEC.md 20.11.1)
+%define CON_FSX                     ; ...and its FULL-SCREEN renderer (70.8.13):
+                                ; the same buffer onto real text VRAM, which
+                                ; tetxt.inc's bracket drives
 %include "os88con.inc"          ; THE 80x25 CONSOLE (SPEC.md 70.8), which was
                                 ; this package's until SPEC.md 96.32's DOS box
                                 ; wanted the same screen. It carries the CP437
@@ -2038,26 +2041,24 @@ te_abon     equ te_rx + TE_RX        ; byte: the credits have the screen
 te_txm      equ te_abon + 1           ; byte: a FOREIGN TEXT MODE is up, so
                                       ; every kernel drawing slot is off-limits
                                       ; (SPEC.md 53.1) and te_show must not
-te_tkind    equ te_txm + 1            ; byte: that display's VID_* kind, asked
-                                      ; of OSAPI_FSX_CAPS rather than
-                                      ; OSAPI_VIDEO - which answers about the
-                                      ; PRIMARY, and a bracket on the Hercules
-                                      ; of a VGA-primary desktop would be told
-                                      ; the wrong thing (SPEC.md 53.7.1)
-te_tcur     equ te_tkind + 1          ; byte: the cursor visibility the CRTC
-                                      ; was last told about
-te_thint    equ te_tcur + 1           ; byte: the text row the ` ^] to leave`
-                                      ; hint is on, or 0xFF once it has gone -
-                                      ; a VRAM scroll carries it up and the
-                                      ; row it lands on is owed (SPEC.md
-                                      ; 70.8.7)
-te_tseg     equ te_thint + 1           ; word: ...its framebuffer segment
+                                      ; ...and [con_tkind], [con_tcur],
+                                      ; [con_thint] and [con_tseg] stood HERE
+                                      ; until SPEC.md 70.8.13 took the
+                                      ; full-screen renderer into
+                                      ; apps/os88con.inc. They are its words
+                                      ; now and its chain declares them; four
+                                      ; dead equs left here would have SHADOWED
+                                      ; them, which assembles perfectly and
+                                      ; puts the bracket's framebuffer segment
+                                      ; in one word while the renderer reads
+                                      ; another - measured as [te_tseg] = 0000
+                                      ; and 3,971 of 4,000 VRAM bytes wrong
 
 ; --- the parser's own state (SPEC.md 70.9), and every byte of it is HERE ----
 ; Not one byte of it lives in a local across a call, which is the property the
 ; whole design turns on: a stream split at any offset behaves like one that is
 ; not (SPEC.md 70.9, tools/ansisim.py's fragment sweep).
-te_pst      equ te_tseg + 2           ; byte: PS_*, the state
+te_pst      equ te_txm + 1            ; byte: PS_*, the state
 te_ph       equ te_pst + 1            ; byte: the IAC state machine's phase
 te_verb     equ te_ph + 1             ; byte: ...and the DO/WILL it is answering
 te_sbopt    equ te_verb + 1           ; byte: the option a subnegotiation is

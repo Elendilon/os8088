@@ -5804,17 +5804,27 @@ dos_oncmd:
     push bx
     mov bx, si
     or al, al
-    jnz .env
+    jnz .notrun
     call dos_defocus                ; ...the caret too, exactly as the BUTTON
                                     ; does: the menu item is the same action
                                     ; and owes the same thing
     call dos_go                     ; 'Run', which is the bar's button
     jmp short .out
+.notrun:
+    cmp al, 1
+    jne .full
 .env:
     call dos_defocus                ; 'Environment', which is the bar's other
     mov byte [dos_page], DOS_PAGE_1ST
     mov bx, [dos_win]
     call dos_swap
+    jmp short .out
+.full:
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .out                        ; the console is the MAIN page's band, and
+    call dos_defocus                ; a setup page has no screen to take
+    mov si, [dos_win]
+    call dos_fsx                    ; 'Full Screen' (SPEC.md 96.33.5)
 .out:
     pop bx
     pop ax
@@ -7113,11 +7123,11 @@ dos_tpl:
 
     ; --- THE MENU (SPEC.md 12.2), which this box has never had -------------
     OS88_MENUSET dos_menus, dos_ttl, dos_oncmd
-        OS88_MENU dos_m_prog, dos_items_prog, 2
+        OS88_MENU dos_m_prog, dos_items_prog, 3
     OS88_MENUSET_END dos_menus
 
 dos_m_prog: db 'Program', 0
-dos_items_prog: dw dos_l_run, dos_l_tenv
+dos_items_prog: dw dos_l_run, dos_l_tenv, dos_l_full
 
 dos_ttl:    db 'DOS', 0
 dos_l_args: db 'Arguments:', 0
@@ -7133,6 +7143,7 @@ dos_l_next: db '>', 0
 dos_l_tset: db 'Setup', 0           ; ...and the two page names, which the
 dos_l_tenv: db 'Environment', 0     ; title row shows
 dos_l_run:  db 'Run', 0             ; --- and the top bar's (96.32.1)
+dos_l_full: db 'Full Screen', 0     ; ...and the console's own (96.33.5)
 dos_l_savb: db 'Save Shortcut', 0
 ; --- the memory page (SPEC.md 96.25) -----------------------------------------
 ; The two figures are PATCHED IN PLACE by dos_mem_num and drawn as part of one
@@ -11966,6 +11977,8 @@ dos_fh_fill:
     DBSS DOS_B_INBR,    1           ; the fsx bracket is up, so dos_tty's byte
                                     ; goes to the ROM and not to the console
     DBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
+    DBSS DOS_B_FSXUP,   1           ; the console has the WHOLE screen (96.33.5),
+                                    ; so no kernel drawing slot may be called
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
     DBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
@@ -11999,6 +12012,9 @@ DOS_BSS_SIZE equ DB
 ; DOS_BSS_SIZE is an `equ` a few lines above, so there is nothing to keep in
 ; step by hand.
 %define CON_BSS_AT (os88_image_end + DOS_BSS_SIZE)
+%define CON_FSX                     ; the FULL-SCREEN renderer (SPEC.md 70.8.13,
+                                    ; 96.33.5): the same buffer on real text
+                                    ; VRAM, driven by dosc.inc's own bracket
 %define CON_TTY                     ; CR, LF, BS, TAB and BEL, because there is
                                     ; no ANSI parser over this one (SPEC.md
                                     ; 96.33.1) - and con_open, since the
@@ -12190,6 +12206,7 @@ dsh_got     equ os88_image_end + DOS_B_SHGOT
 dsh_why     equ os88_image_end + DOS_B_SHWHY
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
+dos_fsxup   equ os88_image_end + DOS_B_FSXUP
 dsh_exec    equ os88_image_end + DOS_B_SHEXEC
 dos_cmdx    equ os88_image_end + DOS_B_CMDX
 dos_cmdn    equ os88_image_end + DOS_B_CMDN

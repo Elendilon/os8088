@@ -2868,7 +2868,13 @@ SOAK = [
         "IT, because a console with a perfect buffer and an empty glyph table "
         "draws a black rectangle and passes every other check in the file. "
         "That is not hypothetical: it is what the first build did, con_open "
-        "having not called con_font.",
+        "having not called con_font. STEP 8 IS FULL SCREEN (96.33.5) and it "
+        "reads TEXT VRAM'S OWN BYTES at the segment the bracket was handed, "
+        "because that is the whole claim the design makes: con_scr's cell IS "
+        "the cell in VRAM, so the renderer is a MOVE and not a translation "
+        "(70.8.7) - and Esc comes back to the window on the line it left, "
+        "which is the fence that keeps the key OURS only while the console has "
+        "the screen.",
         needs=("marty",), serial=True),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "

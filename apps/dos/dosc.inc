@@ -451,6 +451,16 @@ dos_con_draw:
     push dx
     push si
     push di
+    cmp byte [dos_fsxup], 0
+    jne .out                        ; **A FOREIGN TEXT SCREEN IS UP** (SPEC.md
+                                    ; 53.1): every kernel drawing slot renders
+                                    ; desktop geometry into a framebuffer that
+                                    ; is now character cells, so not one of
+                                    ; them may be called. The keystroke still
+                                    ; reaches con_write and still marks its
+                                    ; row - [con_drb] is what carries the
+                                    ; change across, and dos_fsx_owed spends
+                                    ; it on the OTHER renderer
     mov bx, [dos_win]
     call dos_con_geom
     jc .out                         ; not visible: the marks keep, and the next
@@ -496,3 +506,166 @@ dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
              db 13, 10, 0
 dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
+
+; =============================================================================
+; FULL SCREEN, AND ESC BACK OUT (SPEC.md 96.33.5)
+; =============================================================================
+; The same 80x25 buffer on the real text screen, which is the only place the
+; whole of it fits: the band shows 25 rows on Hercules and VGA and 15 on CGA,
+; and an 80-column program's output is 80 columns wide on all three.
+;
+; **THE RENDERER IS os88con.inc's AND THE BRACKET IS OURS** (SPEC.md 70.8.13),
+; and the four things it holds are the four two carriers do not agree about:
+;
+;   the mode      FSXM_TEXT80, which every adapter here can set
+;   the worker    THERE IS NONE. Telnet passes FSXF_KEEPWORKER because its
+;                 worker owns the socket; this box's console is written by the
+;                 UI task alone, so a kept worker would be a task with nothing
+;                 to do and one more thing to be wrong about
+;   the key out   ESC, and Telnet's is Ctrl+] - see below
+;   the hint      ours names Esc, so the string is ours too
+;
+; **ESC IS OURS ONLY WHILE THE CONSOLE HAS THE SCREEN.** A DOS program reads
+; Esc for its own purposes and a box that ate it could not run half the
+; software it exists for - so this bracket is entered from the menu, ends
+; before any program is launched, and the program's own bracket (96.2) is a
+; different one with no key of ours in it at all. SPEC.md 11.2.1 asks for `F`
+; in both directions and exempts an app taking typed text, which a command
+; prompt is as completely as a terminal.
+; -----------------------------------------------------------------------------
+
+; --- dos_fsx - Program > Full Screen ----------------------------------------
+; in:  SI = our window; UI task, gfx lock held (a callback's environment)
+; out: nothing; preserves all registers
+dos_fsx:
+    push ax
+    push bx
+    push cx
+    push si
+    mov bx, si
+    call OSAPI_FSX_CAPS             ; AX = the modes this adapter allows, DL =
+    test ax, 1 << FSXM_TEXT80       ; the DISPLAY's own kind (SPEC.md 53.7.1),
+    jz .out                         ; which osapi_video cannot answer for a
+    mov [con_tkind], dl             ; window that is not on the primary
+    mov byte [dos_fsxup], 1         ; ...BEFORE the bracket, so nothing between
+    mov ax, dos_fsx_con             ; here and the mode set can reach a drawing
+    mov bx, si                      ; slot either
+    xor cx, cx                      ; NO FSXF_KEEPWORKER: this box has no worker
+    call OSAPI_FSX_RUN
+    mov byte [dos_fsxup], 0         ; ...and again on the refusal path, where
+.out:                               ; dos_fsx_con never ran
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_fsx_con - the bracket's body ---------------------------------------
+; in:  SI = our window, ES = KERNEL_SEG, DS = CS = ours; near ret
+dos_fsx_con:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; the FSI block is OURS (the gfx_blit4
+    mov di, dos_fsi                 ; idiom: ES:DI is the caller's own)
+    mov al, FSXM_TEXT80
+    call OSAPI_FSX_MODE
+    jc .done
+    mov ax, [dos_fsi + FSI_SEG]     ; the ONE thing that is not a constant:
+    mov [con_tseg], ax              ; B000 on Hercules and B800 on the rest
+    mov byte [con_tcur], 0xFF       ; **NOT 0 AND NOT 1**: con_tx_cursor issues
+                                    ; the SHAPE only on a change, and the mode
+                                    ; set left the CRTC's own cursor blinking
+                                    ; at 0,0 - so a byte that already agrees
+                                    ; with [con_cvis] means it never places it
+    call con_tx_ice                 ; ...and the blink bit, per adapter (70.8.9)
+    mov byte [con_thint], 0xFF
+    call con_markall
+    call dos_fsx_owed
+    mov si, dos_c_leave             ; ONCE, on entry, and anything that draws
+    call con_tx_hint                ; over it may (SPEC.md 70.8.7)
+.loop:
+    call dos_fsx_keys
+    jc .done
+    call dos_fsx_owed
+    mov al, FSXW_FRAME              ; YIELDS while it waits, so the rest of the
+    call OSAPI_FSX_WAIT             ; machine keeps its slices
+    jmp short .loop
+.done:
+    mov byte [dos_fsxup], 0         ; ...INSIDE the bracket, so fsx_restore's
+    call con_markall                ; repaint finds the box windowed and the
+    pop es                          ; whole band owed, and dos_con_draw is
+    pop di                          ; whole band owed
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_fsx_keys - the keyboard, polled. CF=1 = leave the bracket -----------
+; int 16h directly, because no events are dispatched in here (SPEC.md 53.1) -
+; and every other key is the console's, exactly as it is windowed. It cannot
+; DRAW, though: dos_con_key ends in dos_con_draw, which is a kernel drawing
+; slot and off-limits in a foreign text mode. [con_drb] is what carries the
+; change across, and dos_fsx_owed below is what spends it.
+dos_fsx_keys:
+    push ax
+.next:
+    mov ah, 1
+    int 0x16
+    jz .none
+    xor ah, ah
+    int 0x16
+    cmp al, 27
+    je .quit
+    call dos_con_key                ; THE SAME HANDLER, and it draws nothing:
+    jmp short .next                 ; [dos_fsxup] stands dos_con_draw down and
+                                    ; the marks it leaves are what dos_fsx_owed
+                                    ; spends. One prompt, one line editor, two
+                                    ; screens
+.none:
+    pop ax
+    clc
+    ret
+.quit:
+    pop ax
+    stc
+    ret
+
+; --- dos_fsx_owed - the scroll, then the rows the bitmap names, then the pen -
+dos_fsx_owed:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    call con_tx_scroll              ; ...FIRST: the rows below are written on
+    xor bx, bx                      ; top of the cells this moves
+.row:
+    call con_takerow
+    jnc .next
+    call con_tx_row
+.next:
+    inc bx
+    cmp bx, CON_ROWS
+    jb .row
+    call con_tx_cursor
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+dos_c_leave: db ' Esc to leave', 0

@@ -23,6 +23,11 @@ one of them is a separate thing that can be missing:
   7  ...and a name that is neither says `Bad command or file name`, which is
      DOS's sentence and not "It could not be read." about a file the user
      never had.
+  8  FULL SCREEN puts the same buffer on real text VRAM and ESC comes back
+     (96.33.5). The assertion is VRAM's OWN BYTES at the segment the bracket
+     was handed, because that is the whole claim the design makes: con_scr's
+     cell IS the cell in VRAM, so the renderer is a move and not a translation
+     (70.8.7), and a screenshot cannot tell those apart.
 
 **IT READS THE BUFFER AND NOT THE GLASS**, with one exception. con_scr is
 2,000 cells of (character, attribute) and every assertion above is about
@@ -266,6 +271,55 @@ def main():
                  % rows[-4:])
         print("doscon: ...and typing a program's name fills the path box and "
               "reports back")
+
+        # --- 8: FULL SCREEN, and Esc back out of it (SPEC.md 96.33.5) -------
+        # The assertion is TEXT VRAM's own bytes, read out of the guest at the
+        # segment the bracket was handed - B000 on this Hercules, B800 on the
+        # rest - because that is the whole claim the design makes: con_scr's
+        # cell IS the cell in VRAM, so the renderer is a move and not a
+        # translation (70.8.7). A screenshot could not tell that from a
+        # translation that happened to work.
+        want = [r for r in bx.live()][-6:]
+        ui.menu_pick("Program", "Full Screen")
+        time.sleep(2.0)
+        if not bx.b("dos_fsxup"):
+            fail("Program > Full Screen did not take the screen: [dos_fsxup] "
+                 "is 0 (SPEC.md 96.33.5)")
+        seg = bx.w("con_tseg")
+        if seg not in (0xB000, 0xB800):
+            fail("the bracket's framebuffer segment is %04X, and FSXM_TEXT80 "
+                 "is B000 on Hercules and B800 on the rest" % seg)
+        vram = m.read(seg << 4, 80 * 25 * 2)
+        got = []
+        for r in range(25):
+            row = vram[r * 160:(r + 1) * 160]
+            t = "".join(chr(row[i]) if 32 <= row[i] < 127 else " "
+                        for i in range(0, 160, 2)).rstrip()
+            if t.strip():
+                got.append(t)
+        for line in want:
+            if line not in got:
+                fail("the full screen does not carry the buffer: %r is in "
+                     "con_scr and not in text VRAM at %04X. The cell IS the "
+                     "cell (SPEC.md 70.8.7), so this is a MOVE and cannot "
+                     "lose a row" % (line, seg))
+        if not any("Esc to leave" in r for r in got):
+            fail("the bottom row does not name the key that leaves: %r"
+                 % got[-2:])
+        print("doscon: full screen carries %d rows of the buffer, and row 24 "
+              "says how to get out" % len(got))
+
+        m.key("Escape")
+        time.sleep(2.0)
+        if bx.b("dos_fsxup"):
+            fail("Esc did not leave the full screen: [dos_fsxup] is still set. "
+                 "It is OURS only while the console has the screen - a running "
+                 "program's Esc is the program's (SPEC.md 96.33.5)")
+        rows = bx.live()
+        if rows[-1] != want[-1]:
+            fail("the window came back showing %r where it went in on %r"
+                 % (rows[-1], want[-1]))
+        print("doscon: ...and Esc comes back to the window on the same line")
 
     print("doscon: ok")
 

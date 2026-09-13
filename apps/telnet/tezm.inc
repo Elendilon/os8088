@@ -2786,11 +2786,11 @@ te_tx_prog:
     push di
     push es
     call tz_text
-    mov es, [te_tseg]
-    mov di, (TET_ROWS - 1) * TET_COLS * 2
+    mov es, [con_tseg]
+    mov di, (CON_ROWS - 1) * CON_COLS * 2
     mov si, tz_msg
-    mov ah, TET_SATTR
-    mov cx, TET_COLS - 12           ; ...and never over the leave hint's own
+    mov ah, CON_TSATTR
+    mov cx, CON_COLS - 12           ; ...and never over the leave hint's own
     cld                             ; twelve cells at the end of the row
 .h:
     mov al, [si]
