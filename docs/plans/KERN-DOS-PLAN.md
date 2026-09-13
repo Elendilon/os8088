@@ -123,8 +123,11 @@ cost per launch and it is the honest price of the third arm, alongside the
 losses in §10.
 
 > **MEASURED, and the answer is ~4 SECONDS** —
-> docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3. The owner hibernated on iron:
-> **~2 s to write and ~2 s to resume**. So §2.1's *"a few seconds for the
+> docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3. The owner hibernated on
+> **three machines including the real 5150 with a real ST-225 in it**, all at
+> 640 KB with no XMS: **~2 s to write and ~2 s to resume** on every one, and
+> the 4.77 MHz and 10 MHz machines agree — a figure the CPU speed does not
+> move. So §2.1's *"a few seconds for the
 > restore"* is exactly what it is, the judgement §2.1 already made stands, and
 > arm 3's handoff is cheap.
 >

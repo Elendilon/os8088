@@ -234,8 +234,19 @@ machine and what docs/FIELD-MACHINES.md's `pc5150` has. On that transport a
 *whole os8088 boot* — kernel, modules and drivers off the same disk — is
 **2,087 ms**, which is not compatible with 25 KB/s by any arithmetic.
 
-**The owner's own reading, on iron: ~2 s to write and ~2 s to resume**, which
-is ~320 KB/s and 8–13x this box's XT-IDE figure.
+**The owner's own readings — three machines, 640 KB and no XMS on all three,
+counted by eye at the screen:**
+
+| machine | transport | write | resume |
+|---|---|---:|---:|
+| 86Box, 4.77 MHz | ST-225, emulated | ~2 s (up to 3) | ~2 s |
+| 86Box, `8088VGA` | 128 MB on a WD controller, C: a 32 MB partition | ~2 s | ~2 s |
+| **the real IBM 5150** | **a real ST-225 spinning in it** | **~2 s (up to 3)** | **~2 s** |
+
+~320 KB/s, and **8–13x this box's XT-IDE figure**. The third row is the one
+that settles it, and the first two settle something else worth having:
+**86Box's ST-225 agrees with the real drive**, so a hard-disk timing has
+somewhere to be taken after all — see the rule below.
 
 What is NOT established, and must not be inferred from any of the above:
 **whether MartyPC's figure is right for an XT-IDE card.** Real XT-IDE on a
@@ -244,10 +255,14 @@ pessimistic; nothing here can tell, because no XT-IDE card exists in the field
 set to check it against.
 
 > **The rule this generalises to: a hard-disk TIMING taken on MartyPC is not
-> quotable.** The floppy is modelled and field-checked; the hard disk is
-> neither, and its device model is explicitly delay-free. Counts, sector
-> traffic and call shapes off it are exact as ever — it is milliseconds that
-> are not.
+> quotable, and 86Box is where one goes instead.** MartyPC's floppy is
+> modelled and field-checked; its hard disk is neither, and its device model
+> is explicitly delay-free. Counts, sector traffic and call shapes off it are
+> exact as ever — it is milliseconds that are not. 86Box models period
+> controllers and its ST-225 has now been checked against a real one on this
+> exact operation, so that is where a hard-disk figure is asked — **with a
+> person watching**, since 86Box has no debugger and no automation socket
+> (docs/TESTING.md), which is precisely how these three readings were taken.
 
 ### 3.3 What it means, which is the opposite of what this section first said
 
@@ -256,14 +271,15 @@ stands.** The owner weighed *"a few seconds for the restore"* and that is what
 it is. Arm 3's handoff is cheap, the direct restore is worth taking for the
 reason §2.1 gives, and the plan needs no re-putting.
 
-Two caveats on the field figure, which are the honest residue:
+**The clock does not enter into it**, which is the reading worth keeping: the
+4.77 MHz machine and the 10 MHz one give the same ~2 s. A figure the CPU speed
+does not move is a figure the CPU is not spending — the transfer is the
+controller's, and that is the whole difference from MartyPC's XT-IDE, where
+the CPU is the transfer.
 
-- **Which machine it was taken on decides whether to normalise for clock.**
-  BOOT-PERF-PLAN's `8088VGA` is an 8088 at **10 MHz**; `pc5150` is 4.77. At
-  10 MHz, ~2 s is ~320 KB/s; at 4.77 it is the same 320 KB/s of a slower CPU,
-  which says more about the controller still.
-- **It scales with the machine's RAM**, the image being all of conventional
-  memory. A 640 KB machine is the worst case and also the one arm 3 is for.
+One caveat stands: **it scales with the machine's RAM**, the image being all
+of conventional memory. All three readings are 640 KB with no XMS, which is
+the worst case and also the machine arm 3 is for.
 
 ---
 

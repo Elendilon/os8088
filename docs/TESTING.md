@@ -124,9 +124,15 @@ was exact, reproducible to 1.5% over three runs, and about the wrong machine.
 
 Counts, sector traffic, call shapes and `int 13h` batching off MartyPC's hard
 disk are exact as ever, and that is what `tests/hibernate.py` and the other
-hard-disk rows assert. **Milliseconds are not**, and there is nowhere here
-they can be taken: no 86Box or QEMU substitute exists either, so a hard-disk
-timing goes to docs/FIELD-MACHINES.md or it does not get quoted.
+hard-disk rows assert. **Milliseconds are not — and 86Box is where they go
+instead**, which is the one place this table's *"only where a person is
+watching"* row earns its keep rather than merely existing. 86Box models
+period controllers, and its **ST-225 has been checked against a real ST-225
+spinning in the field 5150** on exactly this operation: ~2 s emulated against
+~2 s on iron, plus a third reading off `8088VGA` with a WD controller that
+agrees (docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3.2). So a hard-disk
+timing is asked of 86Box with somebody watching, or of the field machine —
+never of MartyPC, which has no answer to give.
 
 ### Which ROM did it actually load? Fingerprint it, never infer it
 
