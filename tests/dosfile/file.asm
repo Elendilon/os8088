@@ -34,6 +34,9 @@ SEEKTO    equ 12345                 ; ...and a point inside none of them
 MARK      equ 0x5A                  ; step 4b's rewrite is offset+MARK, which
                                     ; the file cannot already hold anywhere
 SZ4D      equ BLK * NBLK + 16 + BLK * 2   ; what 4a..4d leave behind
+TRN1      equ 12000                 ; 4g shrinks to this - MORE than the DOS
+                                    ; box's window, so it is the copying arm
+TRN2      equ 100                   ; ...and then to this, which fits it
 GAP       equ 5000                  ; ...and how far past it 4e seeks: bigger
                                     ; than a cluster on every geometry here,
                                     ; so the GAP itself crosses the hand-over
@@ -505,6 +508,42 @@ start:
     mov dx, msg_zlen
     int 0x21
 
+    ; --- 4g. ...and CX=0 SHORT of the end shrinks it (SPEC.md 96.11.6.2) ----
+    ; Three truncations, one per arm of the rewrite, and each is checked for
+    ; the SIZE and for a byte that has to have SURVIVED it - a rewrite that
+    ; drops or shifts the prefix is otherwise a file of exactly the right
+    ; length full of the wrong thing.
+    ;
+    ;   TRN1 is larger than the window, so it is the temporary-file COPY;
+    ;   TRN2 fits the window, so it is the one read and one replace;
+    ;   zero is dos_fh_touch.
+    ;
+    ; Both checked offsets are below 20,480, where the file is still step 1's
+    ; byte N = N & 0FFh.
+    mov cx, TRN1
+    call shrink
+    mov cx, TRN1
+    call sizeis
+    mov dx, TRN1 - 16
+    mov cx, 16
+    call vfy
+
+    mov cx, TRN2
+    call shrink
+    mov cx, TRN2
+    call sizeis
+    mov dx, TRN2 - 16
+    mov cx, 16
+    call vfy
+
+    xor cx, cx
+    call shrink
+    xor cx, cx
+    call sizeis
+    mov ah, 0x09
+    mov dx, msg_shrink
+    int 0x21
+
     ; --- 5. close, delete, and prove it is gone -----------------------------
     mov ah, 0x3E
     mov bx, [handle]
@@ -589,6 +628,79 @@ start:
     int 0x21
     mov ax, 0x4C21
     int 0x21
+
+; -----------------------------------------------------------------------------
+; shrink - open, seek to CX, write ZERO bytes, close (SPEC.md 96.11.6.2)
+shrink:
+    mov ax, 0x3D02
+    mov dx, fname
+    int 0x21
+    jc start.ofail
+    mov [handle], ax
+    mov ax, 0x4200
+    mov bx, [handle]
+    mov dx, cx
+    xor cx, cx
+    int 0x21
+    jc start.sfail
+    mov ah, 0x40
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, buf
+    int 0x21
+    jc start.wfail
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    jc start.clfail
+    ret
+
+; sizeis - a FRESH handle's size must be CX; leaves it open
+sizeis:
+    push cx
+    mov ax, 0x3D00
+    mov dx, fname
+    int 0x21
+    jc start.ofail
+    mov [handle], ax
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc start.sfail
+    pop cx
+    cmp ax, cx
+    jne start.enogrow
+    or dx, dx
+    jnz start.enogrow
+    ret
+
+; vfy - CX bytes at file offset DX are still (DX + i) & 0FFh; closes
+vfy:
+    push dx
+    push cx
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    int 0x21
+    jc start.sfail
+    pop cx
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov dx, buf
+    int 0x21
+    jc start.rfail
+    pop bx
+    cmp ax, 16
+    jne start.vfail
+    mov cx, 16
+    call check
+    jc start.vfail
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    ret
 
 ; -----------------------------------------------------------------------------
 ; gapzero - seek to CX, read 16, and every byte must be 0 (SPEC.md 96.11.6.1)
@@ -726,6 +838,7 @@ msg_grew:    db 'GREW ok',13,10,'$'
 msg_cross:   db 'CROSS ok',13,10,'$'
 msg_gap:     db 'GAP ok',13,10,'$'
 msg_zlen:    db 'ZLEN ok',13,10,'$'
+msg_shrink:  db 'SHRINK ok',13,10,'$'
 msg_left:    db ' blocks left ','$'
 msg_eshrt2:  db 'FAILED - a write at the end took a SHORT count ','$'
 msg_enogrow: db 'FAILED - a write at the end did not move the size',13,10,'$'

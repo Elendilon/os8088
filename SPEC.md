@@ -122102,7 +122102,7 @@ the reason to use it is in the last column):
 
 | `AH=40h`, `CX=0`, on a 1,000-byte file | IBM DOS 3.30 | os8088, before | os8088, now |
 |---|---|---|---|
-| position 400 — **inside** the file | size → **400** | 1,000, unchanged | 1,000, unchanged |
+| position 400 — **inside** the file | size → **400** | 1,000, unchanged | **400** |
 | position 2,000 — **past** the end | size → **2,000** | 1,000, unchanged | **2,000** |
 
 **Both sides answered `CF=0` with `AX=0` in every cell of that table**, which
@@ -122110,34 +122110,51 @@ is why this is worth a section: the program cannot tell. It asked for the file
 to be a length, was told the call succeeded, and got a file of a different
 length — §96.22's wrong-kind-of-answer, one layer down.
 
-**The extend half is BUILT and cost 26 bytes**, because §96.11.6.1's gap is
-exactly it with the data write empty; all it needed was the gap test moved to
-the top of the loop, where a count of zero has not yet returned.
+**The extend half is 26 bytes**, because §96.11.6.1's gap is exactly it with
+the data write empty; all it needed was the gap test moved to the top of the
+loop, where a count of zero has not yet returned.
 
-**The TRUNCATE half is NOT built** and is the one thing in this area that
-needs a kernel it has not got. `OSAPI_FILE_WRITE_AT` grows a file to the end
-of what it has allocated and `OSAPI_FILE_APPEND` grows it further; **nothing
-published can make a file smaller**, and lowering a size means freeing the
-clusters past a point, re-terminating the chain at the last one kept, and
-storing the new size — a commit order of its own (§18.4). `dskw_free_chain`
-is already the second half of it. Until that exists the call stays a no-op on
-a shortening handle, which is what it has always been here; the shape that
-DOES truncate — `3Ch` create, which replaces — is unaffected and is how nearly
-every program that wants an empty file asks for one.
+**The shrink half is a FULL REWRITE IN THE PACKAGE, and that is a decision
+rather than a shortcut.** `OSAPI_FILE_WRITE_AT` grows a file to the end of
+what it has allocated and `OSAPI_FILE_APPEND` grows it further; **nothing
+published can make a file smaller**. The kernel slot that would was written
+against `dskw_wabody`'s shape, assembled, and measured by building the kernel
+with and without it at one commit — **271 bytes of `.cold` with `.text` and
+`.bss` byte-identical** (every scratch word it wants is `WRITE_AT`'s, and the
+two cannot be in flight together), plus **14 `.text`** for a cell and a thunk.
+It is not taken: 285 resident bytes on every machine for ever, for a call this
+box makes, is how a kernel that boots on 128KB stops doing so a couple of
+hundred bytes at a time. `docs/plans/DOS-EXEC-PLAN.md` carries the costing for
+whoever wants to revisit it.
 
-**It is costed rather than estimated**: the body was written against
-`dskw_wabody`'s shape, assembled, and measured by building the kernel with and
-without it at one commit — **271 bytes of `.cold`, with `.text` and `.bss`
-byte-identical**, because every scratch word it needs (`dwr_off`, `dwr_clb`,
-`dwr_end`) is `WRITE_AT`'s and the two cannot be in flight together. Published
-as a slot it is **+14 `.text`** on top of that — an 8-byte cell and a 6-byte
-thunk, exactly what `OSAPI_FILE_WRITE_AT` cost — so **285 resident bytes**,
-plus perhaps seventy in the DOS package for the door and the shrink arm. The
-`.cold` rung had 308 bytes left when that was taken, so it crosses one; per
-the byte rule that does not decide it, but it is the fact whoever decides
-should have. What the 271 buys beyond DOS fidelity is that **nothing on this
-machine can shorten a file except by rewriting it whole** — a program that
-saves a shorter document rewrites every byte of it today.
+So `dos_fh_shrink` copies the kept prefix out under a temporary name and swaps
+the two, which is what a DOS utility does by hand — and every door it needs
+was already here: read-at, write, append, delete and rename. **336 package
+bytes and four of instance `.bss`, nothing resident.** Three arms, and the
+first two are not micro-optimisations, because the general one wants the kept
+prefix's own size in FREE SPACE — the one thing a real truncate never asks
+for:
+
+| kept | how | costs |
+|---|---|---|
+| nothing | `dos_fh_touch` — the zero-length replace a `3Ch` handle that writes nothing already leaves | one call |
+| ≤ the window | one read-at and one whole-file write | no temporary, no free space |
+| more | the copy | the prefix's size in free space, and the prefix copied |
+
+**What the copy costs is stated rather than discovered**: truncating a 200KB
+file is a 200KB copy where DOS rewrites one directory entry, and there is one
+instant — between the delete and the rename — where the data exists only under
+the temporary name, because a rename onto a name that already exists refuses
+and so the order is forced. A stale `OS88TRNC.$$$` is what a machine that lost
+power mid-shrink leaves behind; the next shrink deletes it without comment.
+
+**The advance is BY THE CHUNK and not by the window**, which is the one thing
+in the loop that is easy to get wrong and fails a whole iteration later: the
+last chunk is short, so stepping by the window size runs the offset past the
+prefix, the remaining count goes negative and reads as a full window, and that
+window is appended onto a temporary whose size has stopped being a cluster
+multiple — where `APPEND` refuses it (§18.4.4), as a write error on a file
+nothing was wrong with.
 
 The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
 accumulator that writes then appends, because that file's size really is

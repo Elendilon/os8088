@@ -86,6 +86,8 @@ def main():
                      "CROSS ok",        # ...across the slack/append boundary
                      "GAP ok",          # a seek PAST the end (SPEC.md 96.11.6.1)
                      "ZLEN ok",         # ...and CX=0 there (SPEC.md 96.11.6.2)
+                     "SHRINK ok",       # ...and CX=0 SHORT of the end, all
+                                        # three arms of the rewrite
                      "GONE ok"):
             if want not in text:
                 fail("%r is not on the screen - the handle layer did not "

@@ -1508,17 +1508,12 @@ dispatch rather than against memory.
   it needed was the gap test moved to the top of the loop, where a count of
   zero has not yet returned.
 
-  **The TRUNCATING half is costed and NOT built**, and it is the one thing
-  left in this area that needs a kernel it has not got: nothing published can
-  make a file smaller. The body was written against `dskw_wabody`'s shape,
-  assembled and measured by building the kernel with and without it at one
-  commit — **271 bytes of `.cold`, `.text` and `.bss` byte-identical** (every
-  scratch word it wants is `WRITE_AT`'s, and the two cannot be in flight
-  together) — plus **14 `.text`** for the cell and thunk if it is published,
-  and ~70 in the package for the door and the shrink arm. **285 resident**,
-  crossing the `.cold` rung that had 308 bytes left when the measurement was
-  taken. The case for spending it is wider than DOS: today nothing on this
-  machine can shorten a file except by rewriting it whole.
+  **The TRUNCATING half is BUILT IN THE PACKAGE, and the kernel slot is
+  COSTED AND REFUSED** — §15.12 below is the costing, kept because the refusal
+  is a judgement somebody may want to revisit rather than a fact. It shrinks
+  by copying the kept prefix out under a temporary name and swapping the two:
+  **336 package bytes, four of instance `.bss`, nothing resident**, over five
+  doors that were all already here.
 
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 
@@ -1880,3 +1875,59 @@ under the tracer and runs perfectly without it. That had been mis-diagnosed as
 down in three places each of which was read *after* the wrong conclusion — so
 `tools/os88dosdbg.py` prints it on stderr at the top of every `trace` and
 `build` now. A line the run emits cannot be left unopened.
+
+### 15.12 The `OSAPI_FILE_TRUNC` option — measured, and REFUSED for now
+
+`AH=40h` with `CX=0` is *"the file ends HERE"* (SPEC.md 96.11.6.2), and the
+shrinking direction is the one thing in the DOS box's file layer that no
+published slot can do: `OSAPI_FILE_WRITE_AT` grows a file to the end of what
+it has allocated, `OSAPI_FILE_APPEND` grows it further, and **nothing on this
+machine can make a file smaller.** Neither can any of our own programs — a
+Note Pad or a Word that saves a shorter document rewrites every byte of it,
+and always has.
+
+**So the slot was written and measured rather than argued about.** The body
+sits beside `dskw_wabody` and borrows its whole shape (mount, `DVK_FILE`
+refusal, `dskw_name83`, `dskw_find`, `dskw_pmask`), then: refuse a new size at
+or above the current one; `ceil(new / cluster)` clusters to keep; walk to the
+last one kept; **store the directory entry FIRST** (§18.4 — a crash after it
+leaks clusters, where a crash before it would leave the entry naming a chain
+that had been freed); mark that cluster EOC; `dskw_free_chain` from its old
+successor; flush. `dskw_free_chain` and `dskw_setfat` already exist, and
+`dskw_dbody`'s delete is the same commit order one step simpler.
+
+Built into the kernel with and without it **at one commit**, and read off
+`kernsize`'s sections line rather than a rung:
+
+| | |
+|---|---|
+| `.cold` | **+271** |
+| `.text`, `.bss` | **byte-identical** — every scratch word it wants (`dwr_off`, `dwr_clb`, `dwr_end`) is `WRITE_AT`'s, and the two cannot be in flight together |
+| published as a slot | **+14 `.text`** — an 8-byte cell and a 6-byte thunk, exactly what `OSAPI_FILE_WRITE_AT` cost |
+| the DOS package | ~70 for the door and the shrink arm |
+| **resident total** | **285 bytes** |
+
+It crossed the `.cold` rung, which had 308 bytes left when the measurement was
+taken — noted because whoever revisits this should have the fact, not because
+it decides anything (CLAUDE.md's byte rule).
+
+**It is refused on the ledger and not on the merits.** 285 resident bytes on
+every machine for ever, so that a DOS box can answer one call the way DOS
+does, is a bad trade *while there is a package-side answer* — and a DOS box
+that grows the kernel two hundred bytes at a time is how a machine that boots
+on 128KB stops doing so. What shipped instead is `dos_fh_shrink`: the kept
+prefix copied out under a temporary name and the two swapped, **336 package
+bytes and four of instance `.bss`**, over five doors that were all already
+there (read-at, write, append, delete, rename). It is measurably worse in two
+ways the slot would not be — it needs the kept prefix's own size in FREE SPACE
+and it copies every kept byte, so truncating a 200KB file is a 200KB copy
+where DOS rewrites one directory entry — and both are absent from its two
+cheap arms (nothing kept, and a prefix that fits the window).
+
+**What would reopen it** is a second consumer. The moment anything else on
+this machine wants to shorten a file — a text editor saving over a longer
+document, a log that rolls, the FTP server's `ALLO`/`STOR` — the 271 bytes
+stop being the DOS box's and start being the file system's, and the package
+copy stops being the cheaper answer. It is written here rather than in SPEC.md
+for that reason: SPEC.md says what the machine does, and this is a price tag
+somebody may want to pay later.
