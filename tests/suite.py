@@ -3004,9 +3004,12 @@ SOAK = [
         "which is why os88line_resync exists (96.21.1).",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
-    Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
+    Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
-        "66.8).",
+        "66.8). 60s is 42.8 MEASURED after SPEC.md 66.4.3 added the region "
+        "rows, which open PAINT first so heapfrag's own region lands under it "
+        "and closing Paint leaves a hole above it - that is a second package "
+        "launch and a close on top of the suite, and the row was 36.9s before.",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
     Row("xmcheck", "soak", py("tests/xmcheck.py"), 50.0,
@@ -4566,6 +4569,23 @@ SOAK = [
         "which happened, and one FAT reader reads both sides. It ERASES the "
         "VHD.",
         needs=("marty",), serial=True, timeout=1200),
+    Row("instassoc", "soak", py("tests/instassoc.py"), 85.0,
+        "SPEC.md 52.10.14: the installed volume's ASSOC.DAT describes THAT "
+        "volume. The install copied the source floppy's copy, whose app rows "
+        "carry the cluster of a folder on the FLOPPY (SPEC.md 54.7.1) - so on "
+        "C: every row named a folder that was not there, and the file "
+        "described the 8 packages of the system disk out of the 25 installed. "
+        "What makes it worth a row rather than a line in instdeep is that the "
+        "ASSOCIATION survives the copy and the LOCATION does not: the machine "
+        "knows BROWSER.HTM opens with BROWSER, names it in the error, and "
+        "cannot find BROWSER.O88 in C:\\APPS - because SPEC.md 54.4.2's rung "
+        "4 tries the folder assoc_dfold names and that byte is 0 for every "
+        "slot asc_merge_ext created, so the one folder holding the program is "
+        "the one place the sweep cannot look. The installer says Done in both "
+        "cases and the difference is a hidden + system file, so this reads "
+        "the partition back on the HOST with instdeep's FAT reader. It "
+        "ERASES the VHD.",
+        needs=("marty",), serial=True, timeout=1200),
     Row("hibernate", "soak", py("tests/hibernate.py"), 300.0,
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
@@ -5188,7 +5208,8 @@ SOAK = [
         "them the kernel's and on the far side of the ABI from the callback. "
         "A declaration is not a mechanism: check 1 is that the block MOVED, "
         "and check 4b that no word anywhere still holds the old base",
-        needs=("marty", "nasm"), serial=True, timeout=900),
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/heapfrag360.img",)),
     Row("heaphi", "soak", py("tests/heaphi.py"), 90.0,
         "A driver's second image goes at the TOP of the heap (SPEC.md "
         "50.3.2.1). The user's sequence - tick Hard Drive, tick Ram Disk, "

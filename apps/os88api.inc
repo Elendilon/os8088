@@ -1115,6 +1115,53 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 
 %define OSAPI_MEM_FREE      KERNEL_SEG:0x0208   ; DX = the segment you were
                                  ; given; out CF=0 released, CF=1 not yours
+; --- "…and if I moved too", and the post that makes it true (SPEC.md 66.4.3) --
+; A package may not compact its OWN region from inside its own callback: a
+; frame is standing in it - the far-return CS the CPU pushed, the API cell's
+; own `push ds`, and whatever you pushed yourself - so the kernel pins it for
+; exactly as long as you are the one asking.
+;
+; The way past it is to ask, return, and be woken:
+;
+;     call OSAPI_MEM_AVAIL          ; AX = what I can have RIGHT NOW
+;     call OSAPI_MEM_AVAIL_MAX      ; AX = ...and if my region moved too
+;     ; worth it?  then:
+;     mov bx, [my_window]
+;     mov al, MEM_LVL_TOP
+;     call OSAPI_MEM_COMPACT_WAKE   ; CF=0: posted
+;     ret                           ; <- RETURN.  Nothing happens until you do
+;     ; ...and in your OSAPI_WM_ONWAKE handler:
+;     call OSAPI_MEM_AVAIL          ; now EXACT, and it is the max
+;     call OSAPI_MEM_CLAIM
+;
+; ASK BEFORE YOU CLAIM, and that is not politeness: a claim that fails SHEDS
+; on the way down - the disk caches go, and the read-ahead costs seconds of
+; int 13h to rebuild - so a package with an exact requirement that guesses
+; wrong pays for its refusal twice. OSAPI_MEM_AVAIL_MAX is how the refusal
+; gets to mean "I could not have had this even trying".
+;
+; DECIDE ON THE WAKE, not before it. The what-if measured a state the machine
+; has since left; the wake's OSAPI_MEM_AVAIL is the one to claim against, and
+; posting a second time because the first did not give you what you hoped for
+; is how a program spins.
+; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL. MEM_LVL_TOP is an ordinary
+; claim's - every cache counts as free, because mem_claim sheds them all - and
+; it is what you want unless you are a cache yourself (SPEC.md 50.6.4). It
+; mirrors kernel/memory.inc's own constant; tests/unit/t_mirror.py says so.
+MEM_LVL_TOP equ 0xFF
+
+%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; out AX/BX as OSAPI_MEM_AVAIL,
+                                 ; planned as if YOUR OWN REGION could move.
+                                 ; A MEASUREMENT AND NOT A PROMISE: claiming
+                                 ; this number refuses, because you are
+                                 ; standing in your region as you ask
+%define OSAPI_MEM_COMPACT_WAKE KERNEL_SEG:0x0598 ; BX = a window of YOURS,
+                                 ; AL = the shed rank the pass must respect
+                                 ; (MEM_LVL_TOP to let it drop any cache).
+                                 ; out CF = 0 posted, and an EVT_WAKE arrives
+                                 ; once it has run; CF = 1 refused - BX is not
+                                 ; your window, or a post of yours is already
+                                 ; standing
 %define OSAPI_MEM_AVAIL     KERNEL_SEG:0x0210   ; out AX = largest free run in
                                  ; KB, BX = total free KB. Size yourself from
                                  ; THIS, not from int 12h: it is the only
@@ -3331,7 +3378,7 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; hold on the machine rather than only where you asked for it.
 OSAPI_CUR_ARROW equ 0           ; the default, and what W_FLAGS arrives holding
 OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
-; ...and there is NO third value to pass here. The hourglass belongs to a
+; ...and there is NO third value to pass here. The clock belongs to a
 ; gfx-lock HOLD rather than to a window (SPEC.md 7.5), so it is asked for with
 ; OSAPI_CUR_BUSY below and this slot refuses it - a window record that could
 ; carry it would be a program declaring the machine permanently busy over its
@@ -3360,7 +3407,7 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
 %define OSAPI_CUR_BUSY      KERNEL_SEG:0x0540   ; I AM ABOUT TO GO QUIET FOR
                                                 ; A WHILE (SPEC.md 7.5). NO
                                                 ; ARGUMENT. The pointer becomes
-                                                ; an HOURGLASS for the rest of
+                                                ; a CLOCK for the rest of
                                                 ; the gfx-lock hold you are
                                                 ; inside, and OSAPI_GFX_UNLOCK
                                                 ; puts the old one back - so
@@ -3373,8 +3420,8 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; decode, a compression pass, a
                                                 ; long compute - and NOT around
                                                 ; an ordinary repaint: the
-                                                ; pointer would flicker to an
-                                                ; hourglass and back on every
+                                                ; pointer would flicker to a
+                                                ; clock and back on every
                                                 ; one, which is why the kernel
                                                 ; does not do this for every
                                                 ; lock hold itself. A FILE

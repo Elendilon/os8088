@@ -4471,7 +4471,7 @@ gfx_unlock:
                                 ; routine's contract requires, and is a
                                 ; compare and a return on the unlocks that saw
                                 ; no file work, which is nearly all of them
-    cmp byte [cur_shape], CUR_BUSYSH ; **AND THE HOURGLASS DIES WITH THE HOLD**
+    cmp byte [cur_shape], CUR_BUSYSH ; **AND THE CLOCK DIES WITH THE HOLD**
     jne .nowait                      ; (SPEC.md 7.5) - fpg_finish's argument
     call cur_busy_undo               ; above applied to the pointer's picture:
 .nowait:                             ; the hold IS the busy, so the hold is the

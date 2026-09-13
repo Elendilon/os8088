@@ -1558,6 +1558,13 @@ hd_inst_step:
 .apps:
     call hd_inst_apps
     jc .failed
+    call hd_iassoc              ; ...and the volume's OWN association cache,
+                                ; built from what is actually on it (SPEC.md
+                                ; 52.10.14). LAST, so it sees both disks'
+                                ; packages, and SILENT: the MBR is already
+                                ; committed and a cache that cannot be written
+                                ; is SPEC.md 54.7's absent tier rather than a
+                                ; failed install
     mov byte [hd_iw_st], HII_DONE
 %ifdef INSTBENCH
     mov word [hd_imsg], hd_s_bdone  ; the rows below are the report now, so the
@@ -2335,6 +2342,34 @@ hd_icopy_tree:
                                 ; to say so, or a user's own KERNEL.SYS in a
                                 ; folder of their own would be skipped for
                                 ; sharing a name with the kernel
+    mov si, hd_ient             ; ...AND NEITHER IS ASSOC.DAT (SPEC.md
+    mov di, hd_s_assoc          ; 52.10.14). It is a per-VOLUME cache whose
+    call hd_iname_same          ; app rows carry the CLUSTER of the folder
+    jc .entry                   ; each program lives in (SPEC.md 54.7.1), so
+                                ; the source's copy describes the FLOPPY's
+                                ; layout and is not merely stale on the
+                                ; destination, it is wrong in a way the
+                                ; kernel cannot tell from right: `.HTM`
+                                ; resolves to BROWSER and then to a cluster
+                                ; that means nothing on C:. hd_iassoc builds
+                                ; the volume its own at the end of the
+                                ; install.
+                                ;
+                                ; ROOT-ONLY like the kernel above, and for a
+                                ; reason of its own: asc_root_find looks in
+                                ; the root and only there, so a user's own
+                                ; ASSOC.DAT in a folder of theirs is an
+                                ; ordinary file and is copied.
+                                ;
+                                ; THE APPS PHASE ALREADY REFUSED IT - SPEC.md
+                                ; 52.10.12's species test skips everything
+                                ; hidden + system, and its comment names this
+                                ; exact hazard. The SYSTEM phase is the one
+                                ; that carries it, because that phase's whole
+                                ; job is the hidden + system files, so the
+                                ; test that was written to keep the cache off
+                                ; the destination ran only on the half that
+                                ; was never going to bring it
 .file:
     mov si, hd_ient
     call hd_icopy_one
@@ -3358,6 +3393,8 @@ hd_s_igap:    db '    ', 0
 hd_s_idash:   db '   -', 0
 hd_s_ik:      db 'K', 0
 hd_s_kernel:  db 'KERNEL.SYS', 0
+hd_s_assoc:   db 'ASSOC.DAT', 0 ; ...the OTHER file the copy may not carry
+                                ; (SPEC.md 52.10.14)
 hd_s_iapps:   db 'APPS', 0      ; what makes a disk THE APPS DISK (52.10.5)
 hd_s_o88:     db '.O88', 0      ; ...and what has to be INSIDE it
 

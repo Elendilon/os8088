@@ -13729,7 +13729,7 @@ pt_load:
                                     ; rather than after it (SPEC.md 59.4)
     call OSAPI_CUR_BUSY             ; ...AND THE POINTER SAYS IT TOO (SPEC.md
                                     ; 7.5.4). The message names the operation
-                                    ; ONCE and then sits there; the hourglass
+                                    ; ONCE and then sits there; the clock
                                     ; is what a hand moving over a dead machine
                                     ; asks and gets an answer to. No teardown:
                                     ; the kernel took the lock around this
