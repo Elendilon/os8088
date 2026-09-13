@@ -11079,6 +11079,203 @@ dos_fh_rdloop:
 ; out: CF=0 with AX = the bytes written; CF=1 with AL = a DOS error code
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+; dos_fh_shrink - make the file end at the handle's position (SPEC.md 96.11.6.2)
+; in:  SI = the record, FH_POS < FH_SIZE
+; out: CF=0; CF=1 with AL = a DOS error code
+;
+; **A FULL REWRITE THROUGH TODAY'S MACHINERY, AND NOT A KERNEL TRUNCATE.**
+; Nothing published can make a file smaller, and the slot that would was
+; written, assembled and measured at 271 bytes of .cold plus a cell and a
+; thunk - costed in docs/plans/DOS-EXEC-PLAN.md and deliberately not taken,
+; because a DOS box growing the resident kernel a couple of hundred bytes at a
+; time is how a machine that boots on 128KB stops doing so. So the prefix is
+; copied out under a temporary name and the two are swapped, which is what a
+; DOS utility does by hand - and every door it needs was already here:
+; read-at, write, append, delete and rename.
+;
+; Three arms, cheapest first, and the first two are not micro-optimisations:
+; the general one wants the kept prefix's own size in FREE SPACE, which is the
+; one thing a real truncate never asks for.
+;
+;   - nothing kept          -> dos_fh_touch, the zero-length replace a 3Ch
+;                              handle that writes nothing already leaves;
+;   - a prefix that FITS    -> one read and one replace: no temporary, no free
+;     the window               space, and no window where the file is missing;
+;   - otherwise             -> the copy.
+;
+; WHAT THE COPY COSTS is worth stating rather than discovering: it reads and
+; writes every kept byte, so truncating a 200KB file is a 200KB copy where DOS
+; rewrites one directory entry, and it needs that much room on the volume. It
+; also has one instant - between the delete and the rename - where the data
+; exists only under the temporary name. Both are the price of not spending the
+; kernel bytes, and both are absent from the two arms above.
+dos_trncn: db 'OS88TRNC.$$$', 0
+; -----------------------------------------------------------------------------
+dos_fh_shrink:
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+
+    call dos_fh_flush               ; the window is about to describe a file
+    jc .terr                        ; that has been rewritten under it
+    mov byte [dos_wown], 0xFF
+    mov byte [dos_wfill], 0
+    mov word [dos_wlen], 0
+
+    mov al, [si+FH_VOL]             ; THE BYTES GO WHERE THE FILE IS (96.6.2),
+    call dos_vol_to                 ; and one switch covers the whole rewrite
+    jc .terr                        ; where dos_fh_fill brackets each call
+    push ax
+    call .body
+    pop ax
+    pushf                           ; ...and the walk home happens whatever the
+    call dos_vol_to                 ; body did, or the program is left standing
+    popf                            ; somewhere it never asked to be
+    jc .terr
+
+    mov ax, [si+FH_POS]             ; the record last, as everywhere else here
+    mov [si+FH_SIZE], ax
+    mov ax, [si+FH_POS+2]
+    mov [si+FH_SIZE+2], ax
+    clc
+    jmp short .tout
+.terr:
+    mov al, 5                       ; access denied - DOS's own answer for a
+    stc                             ; write that could not be made
+.tout:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; --- the rewrite, standing on the file's own volume -------------------------
+.body:
+    mov ax, [si+FH_POS]
+    or ax, [si+FH_POS+2]
+    jnz .b1
+    jmp dos_fh_touch                ; nothing kept: the zero-length replace
+.b1:
+    cmp word [si+FH_POS+2], 0
+    jne .bcopy
+    mov ax, [si+FH_POS]
+    cmp ax, [dos_wbytes]
+    ja .bcopy
+    xor ax, ax                      ; the prefix fits: read it whole...
+    xor dx, dx
+    call .brd
+    jc .bret
+    mov cx, [si+FH_POS]             ; ...and put it back as the WHOLE file
+    xor al, al
+    push si
+    add si, FH_NAME
+    call .bput
+    pop si
+    ret
+
+.bcopy:
+    push si                         ; a stale temporary is not an error - it is
+    mov si, dos_trncn               ; what a machine that lost power mid-shrink
+    call dos_be_delete              ; leaves behind
+    pop si
+    mov word [dos_trnof], 0
+    mov word [dos_trnof+2], 0
+.bcl:
+    mov ax, [si+FH_POS]             ; what is left of the prefix...
+    mov dx, [si+FH_POS+2]
+    sub ax, [dos_trnof]
+    sbb dx, [dos_trnof+2]
+    mov cx, ax
+    or dx, dx
+    jnz .bcfull
+    jcxz .bcdone
+    cmp cx, [dos_wbytes]
+    jbe .bcgo
+.bcfull:
+    mov cx, [dos_wbytes]            ; ...clamped to one window, which is a
+.bcgo:                              ; cluster multiple and so is every offset
+    push cx                         ; below it - which is what keeps APPEND's
+    mov ax, [dos_trnof]             ; own precondition true right up to the
+    mov dx, [dos_trnof+2]           ; last chunk (18.4.4)
+    call .brd
+    pop cx
+    jc .bret
+    mov al, 1
+    mov dx, [dos_trnof]
+    or dx, [dos_trnof+2]
+    jnz .bcap
+    xor al, al                      ; the FIRST chunk replaces; the rest append
+.bcap:
+    push cx                         ; **BY THE CHUNK AND NOT BY THE WINDOW.**
+    push si                         ; The last chunk is SHORT, so advancing by
+    mov si, dos_trncn               ; [dos_wbytes] steps past the prefix's end,
+    call .bput                      ; the remaining count goes NEGATIVE and
+    pop si                          ; reads as a whole window - which appends
+    pop cx                          ; a chunk onto a temporary whose size has
+    jc .bret                        ; stopped being a cluster multiple, and
+    add [dos_trnof], cx             ; APPEND refuses it (18.4.4). It fails one
+    adc word [dos_trnof+2], 0       ; iteration after the mistake, as a write
+    jmp short .bcl                  ; error on a file nothing was wrong with
+.bcdone:
+    push si                         ; the swap. DELETE THEN RENAME is forced -
+    add si, FH_NAME                 ; a rename onto a name that exists refuses -
+    call dos_be_delete              ; so there is one instant where the data is
+    pop si                          ; only under the temporary name
+    jc .bret
+    push si
+    push di
+    mov di, si
+    add di, FH_NAME
+    mov si, dos_trncn
+    call dos_be_rename
+    pop di
+    pop si
+.bret:
+    ret
+
+; --- .brd - [dos_wbytes] of the file at DX:AX, into the window --------------
+.brd:
+    push si
+    push bx
+    push cx
+    push es
+    mov bx, [dos_wseg]
+    mov es, bx
+    xor bx, bx
+    mov cx, [dos_wbytes]
+    add si, FH_NAME
+    call dos_be_rdat
+    pop es
+    pop cx
+    pop bx
+    pop si
+    ret
+
+; --- .bput - CX bytes of the window onto the name at SI; AL != 0 = append ----
+.bput:
+    push si
+    push bx
+    push es
+    mov bx, [dos_wseg]
+    mov es, bx
+    xor bx, bx
+    or al, al
+    jnz .bpa
+    xor dx, dx
+    call dos_be_write
+    jmp short .bpo
+.bpa:
+    call dos_be_append
+.bpo:
+    pop es
+    pop bx
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_fh_wiloop - AH=40h on an AH=3Dh handle: OVERWRITE (SPEC.md 96.11.6)
 ; in:  SI = the record, CX = bytes, DX = the program's buffer offset
 ; out: CF=0 with AX = bytes taken (0 = at the end of file); CF=1 with AL = a
@@ -11107,6 +11304,28 @@ dos_fh_wiloop:
     mov di, dx                      ; DI walks the PROGRAM's buffer
     mov bx, cx                      ; BX = what is still to go
     xor dx, dx                      ; DX counts what has gone in
+    ; --- a seek PAST the end is a GAP, and it is laid FIRST (96.11.6.1) -----
+    ; At the TOP rather than down in .igrow, because a write of ZERO bytes is
+    ; how DOS spells "the file ends HERE" (96.11.6.2) and .ichunk's own
+    ; `or bx, bx` returns before the gap has been looked at. It is the same
+    ; test either way: past the end at entry is the only way .igrow could ever
+    ; have seen one, the position only moving forward from here.
+    test byte [si+FH_FLAGS], FHF_WHOLE
+    jnz .ichunk                     ; a COMPRESSED file is the window (96.11.1)
+    mov ax, [si+FH_POS+2]
+    cmp ax, [si+FH_SIZE+2]
+    ja .ihole
+    jb .ishort
+    mov ax, [si+FH_POS]
+    cmp ax, [si+FH_SIZE]
+    ja .ihole
+    je .ichunk
+.ishort:                            ; BEFORE the end, where a count of zero is
+    or bx, bx                       ; "the file ends HERE" (96.11.6.2) and
+    jnz .ichunk                     ; anything else is an ordinary overwrite
+    call dos_fh_shrink
+    jc .ierr
+    jmp .idone                      ; DX is still 0, and 0 is what DOS answers
 .ichunk:
     or bx, bx
     jz .idone
@@ -11125,9 +11344,16 @@ dos_fh_wiloop:
     mov di, ax                      ; ...destination: inside the window
     mov ax, [dos_wseg]
     mov es, ax
+    cld
+    cmp byte [dos_wfil], 0          ; **THE GAP HAS NO SOURCE** (96.11.6.1):
+    je .icmov                       ; laying it is this copy with the move
+    xor al, al                      ; made a STORE, which is what makes a seek
+    rep stosb                       ; past the end reuse of everything here
+    jmp short .icput                ; rather than a path of its own
+.icmov:
     mov ds, [bp]                    ; dos_fh_wrloop's frame rule, and for its
-    cld                             ; reason: [bp] is the program's own DS
-    rep movsb
+    rep movsb                       ; reason: [bp] is the program's own DS
+.icput:
     pop ds
     cmp di, [dos_wlen]              ; DI is the window offset PAST the copy, so
     jbe .inowid                     ; this is max(extent, offset + copied) -
@@ -11171,11 +11397,11 @@ dos_fh_wiloop:
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .idone                      ; a COMPRESSED file is the window (96.11.1)
                                     ; and cannot be grown a byte at a time
-    mov ax, [si+FH_SIZE+2]          ; only at the very END of the file, never
-    cmp ax, [si+FH_POS+2]           ; in a hole: a seek past the end and a
-    jne .idone                      ; write is not an extension, it is a gap
-    mov ax, [si+FH_SIZE]            ; this layer cannot make
-    cmp ax, [si+FH_POS]
+    mov ax, [si+FH_SIZE+2]          ; only at the very END of the file, which
+    cmp ax, [si+FH_POS+2]           ; by here is the only place it can be: a
+    jne .idone                      ; gap was laid at the top and the position
+    mov ax, [si+FH_SIZE]            ; only moves forward. AX ends as the SIZE,
+    cmp ax, [si+FH_POS]             ; which is what the arithmetic below wants
     jne .idone
 
     ; **AND THE ARITHMETIC IS 16-BIT, WHICH IS NOT A SHORTCUT.** [dos_wbase] is
@@ -11216,6 +11442,70 @@ dos_fh_wiloop:
     add ax, dx                      ; ...plus what this loop had already placed
     clc
     jmp short .iout
+
+; --- ...or a seek left a GAP behind it (SPEC.md 96.11.6.1) ------------------
+; Laying [SIZE, POS) is the same operation as writing the program's bytes
+; there and differs in the SOURCE alone - so this rewinds the position to the
+; end of the file and calls ITSELF with the fill flag armed. The slack arm,
+; the append accumulator, the window, the flush and the short-count answer are
+; all the ones above, and the recursion is one deep by construction: the inner
+; call runs with POS == SIZE, which is the case that never reaches here.
+.ihole:
+    mov ax, [si+FH_POS]
+    sub ax, [si+FH_SIZE]
+    mov [dos_gapn], ax
+    mov ax, [si+FH_POS+2]
+    sbb ax, [si+FH_SIZE+2]
+    mov [dos_gapn+2], ax
+    mov ax, [si+FH_SIZE]            ; ...and each chunk carries the position
+    mov [si+FH_POS], ax             ; back up, so when the gap is spent it is
+    mov ax, [si+FH_SIZE+2]          ; exactly where the seek left it and no
+    mov [si+FH_POS+2], ax           ; target has to be banked
+.ihstep:
+    call dos_fh_flush               ; **THE WINDOW IS A VIEW AGAIN**, and the
+    jc .ierr                        ; ORDER is the whole of it: .iappend takes
+    or byte [si+FH_FLAGS], FHF_INPLC ; the flag off to hand the rest of a write
+                                    ; to the accumulator, so every step back
+                                    ; into the slack arm - the next chunk of
+                                    ; the gap, and the program's own bytes
+                                    ; after it - wants it back. But what the
+                                    ; accumulator holds was APPENDED, and
+                                    ; flipping the flag over a dirty window
+                                    ; sends those bytes out as a WRITE_AT past
+                                    ; the file's allocated end, which is the
+                                    ; one thing 18.4.7 refuses. So it goes out
+                                    ; first, as the append it is, and the flag
+                                    ; moves over an EMPTY window
+    mov cx, 0x8000                  ; a chunk is a COUNT, so it is 16-bit; the
+    cmp word [dos_gapn+2], 0        ; gap a 42h can name is not
+    jne .ihgo
+    mov cx, [dos_gapn]
+    jcxz .ihend
+    cmp cx, 0x8000
+    jbe .ihgo
+    mov cx, 0x8000
+.ihgo:
+    push bx                         ; the program's own write, untouched...
+    push dx
+    push di
+    mov byte [dos_wfil], 1          ; ...while the two copy sites STORE
+    call dos_fh_wiloop
+    mov byte [dos_wfil], 0
+    pop di
+    pop dx
+    pop bx
+    jc .ierr
+    sub [dos_gapn], ax
+    sbb word [dos_gapn+2], 0
+    or ax, ax
+    jnz .ihstep
+    jmp .idone                ; the disk would not take the gap, so
+                                    ; nothing of the program's bytes can go in
+                                    ; either: 0 with CF=0 is what a full disk
+                                    ; has always answered
+.ihend:
+    jmp .ichunk                     ; spent - and the position is the seek's,
+                                    ; so the write is now an ordinary one
 .ierr:
     stc
 .iout:
@@ -11262,9 +11552,16 @@ dos_fh_wrloop:
     mov di, [dos_wlen]              ; destination: the window's free end, read
     mov ax, [dos_wseg]              ; while DS is still OURS
     mov es, ax
-    mov ds, [bp]
     cld
+    cmp byte [dos_wfil], 0          ; ...and the gap reaches the accumulator
+    je .wcmov                       ; too, whenever it is longer than the last
+    xor al, al                      ; cluster's slack (96.11.6.1)
+    rep stosb
+    jmp short .wcput
+.wcmov:
+    mov ds, [bp]
     rep movsb
+.wcput:
     pop ds
     mov di, si                      ; the source pointer, advanced by the copy
     pop si
@@ -12182,7 +12479,12 @@ dos_fh_fill:
     DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
     DBSS DOS_B_OPMODE, 1       ; AH=3Dh's access mode, banked (96.11.6)
     DBSS DOS_B_WVSV,  1        ; because it runs INSIDE a fill, through
-    DBSS DOS_B_WVPAD, 1        ; dos_fh_take, and must not spend the fill's
+    DBSS DOS_B_WFIL,  1        ; dos_fh_take, and must not spend the fill's
+                               ; own. WFIL was that byte's PAD: the gap's
+                               ; "the source is a fill byte, not the
+                               ; program's buffer" flag is free (96.11.6.1)
+    DBSS DOS_B_GAPN,  4        ; ...and what is left of the gap to lay
+    DBSS DOS_B_TRNOF, 4        ; ...and how far a shrink's rewrite has got
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
 ; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
 ; DOS keeps a current directory per drive, and here that is one CLUSTER each
@@ -12611,6 +12913,9 @@ dos_fvvol   equ os88_image_end + DOS_B_FVVOL   ; byte: the fill's volume...
 dos_fvsv    equ os88_image_end + DOS_B_FVSV    ; byte: ...and where it came from
 dos_opmode  equ os88_image_end + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
 dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
+dos_wfil    equ os88_image_end + DOS_B_WFIL    ; byte: fill the window, not copy
+dos_gapn    equ os88_image_end + DOS_B_GAPN    ; dword: the gap still to lay
+dos_trnof   equ os88_image_end + DOS_B_TRNOF   ; dword: a shrink's copy offset
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
 dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to

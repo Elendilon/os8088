@@ -122366,13 +122366,139 @@ Three things fall out of that and each is worth naming:
   program seeing anything. `FHF_INPLC` comes off the handle when it does, and
   `FHF_MADE` goes on, because from there the file's size really is moving and
   §18.4's commit order is where that belongs.
-- **A seek PAST the end and a write is still refused**, and that is a different
-  thing: it is a gap, not an extension, and this layer cannot make one.
+- **A seek PAST the end and a write LAYS THE GAP** — §96.11.6.1, which is the
+  one case that is not simply the read path reversed.
+
+##### 96.11.6.2 `AH=40h` with `CX=0`, which is not a write at all
+
+Writing zero bytes is how DOS spells **"the file ends HERE"**: the length is
+set to the handle's current position, up or down. It is not folklore —
+measured on the fork owner's own IBM DOS 3.30 and on this box, with one `.COM`
+run unchanged on both — `tests/dostrap/cx0.asm`, which prints rather than
+asserts and is how this table is re-taken (docs/DOS-DEBUGGING.md's method, and
+the reason to use it is in the last column):
+
+| `AH=40h`, `CX=0`, on a 1,000-byte file | IBM DOS 3.30 | os8088, before | os8088, now |
+|---|---|---|---|
+| position 400 — **inside** the file | size → **400** | 1,000, unchanged | **400** |
+| position 2,000 — **past** the end | size → **2,000** | 1,000, unchanged | **2,000** |
+
+**Both sides answered `CF=0` with `AX=0` in every cell of that table**, which
+is why this is worth a section: the program cannot tell. It asked for the file
+to be a length, was told the call succeeded, and got a file of a different
+length — §96.22's wrong-kind-of-answer, one layer down.
+
+**The extend half is 26 bytes**, because §96.11.6.1's gap is exactly it with
+the data write empty; all it needed was the gap test moved to the top of the
+loop, where a count of zero has not yet returned.
+
+**The shrink half is a FULL REWRITE IN THE PACKAGE, and that is a decision
+rather than a shortcut.** `OSAPI_FILE_WRITE_AT` grows a file to the end of
+what it has allocated and `OSAPI_FILE_APPEND` grows it further; **nothing
+published can make a file smaller**. The kernel slot that would was written
+against `dskw_wabody`'s shape, assembled, and measured by building the kernel
+with and without it at one commit — **271 bytes of `.cold` with `.text` and
+`.bss` byte-identical** (every scratch word it wants is `WRITE_AT`'s, and the
+two cannot be in flight together), plus **14 `.text`** for a cell and a thunk.
+It is not taken: 285 resident bytes on every machine for ever, for a call this
+box makes, is how a kernel that boots on 128KB stops doing so a couple of
+hundred bytes at a time. `docs/plans/DOS-EXEC-PLAN.md` carries the costing for
+whoever wants to revisit it.
+
+So `dos_fh_shrink` copies the kept prefix out under a temporary name and swaps
+the two, which is what a DOS utility does by hand — and every door it needs
+was already here: read-at, write, append, delete and rename. **336 package
+bytes and four of instance `.bss`, nothing resident.** Three arms, and the
+first two are not micro-optimisations, because the general one wants the kept
+prefix's own size in FREE SPACE — the one thing a real truncate never asks
+for:
+
+| kept | how | costs |
+|---|---|---|
+| nothing | `dos_fh_touch` — the zero-length replace a `3Ch` handle that writes nothing already leaves | one call |
+| ≤ the window | one read-at and one whole-file write | no temporary, no free space |
+| more | the copy | the prefix's size in free space, and the prefix copied |
+
+**What the copy costs is stated rather than discovered**: truncating a 200KB
+file is a 200KB copy where DOS rewrites one directory entry, and there is one
+instant — between the delete and the rename — where the data exists only under
+the temporary name, because a rename onto a name that already exists refuses
+and so the order is forced. A stale `OS88TRNC.$$$` is what a machine that lost
+power mid-shrink leaves behind; the next shrink deletes it without comment.
+
+**The advance is BY THE CHUNK and not by the window**, which is the one thing
+in the loop that is easy to get wrong and fails a whole iteration later: the
+last chunk is short, so stepping by the window size runs the offset past the
+prefix, the remaining count goes negative and reads as a full window, and that
+window is appended onto a temporary whose size has stopped being a cluster
+multiple — where `APPEND` refuses it (§18.4.4), as a write error on a file
+nothing was wrong with.
 
 The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
 accumulator that writes then appends, because that file's size really is
 moving and §18.4's commit order is where that belongs. Two handles, two
 models, one window — `FHF_INPLC` is which.
+
+##### 96.11.6.1 A seek past the end, and the gap it leaves
+
+`42h` will move the position past the end of the file, and DOS has always let
+it: the write that follows extends the file to where the seek went and leaves
+everything between the old end and the new bytes **undefined**. It is not an
+edge case anyone invented, it is how three ordinary things are spelled —
+
+- **pre-allocating**: create, seek to `size-1`, write one byte, and the file is
+  that size,
+- **fixed-record random access**: a program that writes record 40 of a
+  twelve-record file, which is every ISAM and B-tree index, the dBASE family,
+  and GW-BASIC's `PUT #n, recnum`,
+- **extending without data**: `AH=40h` with `CX=0`, which is §96.11.6.2.
+
+So the gap is laid rather than refused, and **the byte cost is nearly all
+reuse**: laying `POS - SIZE` bytes at the end of a file is the same operation
+as writing the program's own bytes there, differing in the SOURCE alone. One
+flag says the source is a fill byte instead of the program's buffer, the copy
+site stores rather than moves, and the routine calls **itself** with the
+position rewound to the file's end — so the slack-then-append split, the
+window, the flush and the short-count answer are all the ones already written.
+
+Three consequences, and the first is the one to know:
+
+- **The gap is ZEROED, where DOS leaves it undefined.** Zero is what `rep
+  stosb` costs — two bytes against `rep movsb`'s two — so the stricter answer
+  is the cheaper one here, and a program that reads the gap back gets
+  something repeatable instead of whatever the cluster held. Nothing may
+  *depend* on it: the contract is DOS's, which is that the contents are
+  undefined.
+- **The recursion is one deep and cannot be two.** The inner call runs with
+  `POS == SIZE`, which is the case that never reaches this arm.
+- **A gap that runs out of disk answers zero, with CF=0.** The file grew as far
+  as it could and none of the program's bytes went in, so the short count is
+  the truth and it is the same truth a full disk has always told.
+
+A `FHF_WHOLE` handle — a compressed file, §96.11.1 — still refuses, because the
+window *is* the file there and it cannot be grown a byte at a time. That test
+is first, and unchanged.
+
+**The ORDER inside the loop is the part that was got wrong twice.** `.iappend`
+takes `FHF_INPLC` off the handle to hand the rest of a write to the
+accumulator, so every step back into the slack arm wants it put back — but what
+the accumulator is holding was *appended*, and flipping the flag over a dirty
+window sends those bytes out as a `WRITE_AT` past the file's allocated end,
+which is the one thing §18.4.7 refuses. So the window is flushed as the append
+it is, and only then does the flag move. Leaving the flag alone instead is the
+other half of the same fault, one call later: the CLOSE then flushes a **view**
+as an append and writes the file's own tail onto the end of it.
+
+**The test is at the TOP of the write loop and not down in the growth arm**,
+because `CX=0` is how §96.11.6.2 is spelled and the loop's own `or bx, bx`
+returns before the gap has been looked at. It is the same test in either
+place: past the end at entry is the only way the growth arm could ever see a
+gap, the position only moving forward from there.
+
+**It cost 138 bytes of the package and NOTHING resident** — the kernel is
+byte-identical, `OSAPI_FILE_APPEND` already doing the allocation — plus four
+bytes of instance `.bss` for the gap counter. The flag itself is free: it took
+a pad byte that was already there.
 
 #### 96.11.2 Writes are sequential, and the refusal is the point
 
