@@ -2836,6 +2836,141 @@ dskw_read_at_x:
     jmp short .out
 
 ; -----------------------------------------------------------------------------
+; dskw_write_at - overwrite bytes a file already owns (SPEC.md 18.4.7)
+; in:  SI -> a NUL 8.3 name, ES:BX -> the bytes, CX = count (a multiple of
+;      512, >= 512), DX:AX = the byte offset (a multiple of the cluster)
+; out: CF=0 with AX=0; CF=1 with AX = FERR_*
+; clobbers: AX (the output), CF
+;
+; IT NEVER CHANGES THE FILE'S SIZE, and that one restriction is the whole
+; reason it is small: no cluster is allocated, no FAT sector is written, no
+; directory entry is touched and there is nothing to roll back. Growing a file
+; is dskw_append's, where SPEC.md 18.4's commit order lives.
+;
+; THE TWO GRANULARITIES DIFFER ON PURPOSE. The OFFSET is a cluster multiple
+; because that makes the walk exact - offset/cluster clusters to skip and no
+; partial-cluster arithmetic - which is dskw_read_at's own rule. The COUNT is
+; a SECTOR multiple because the transfer moves whole sectors: a count rounded
+; up would write bytes from past the CALLER's buffer into the file, where a
+; read doing the mirror of that only touches the caller's own memory.
+;
+; The span is checked against what the file has ALLOCATED and not against its
+; size: a 3,000-byte file on an 8KB-cluster volume owns 8,192 bytes of disk,
+; so a 512-byte write at offset 0 lands wholly inside a cluster it already
+; has. Testing the size would refuse every file whose length is not a cluster
+; multiple, which is nearly all of them. It is checked BEFORE the walk and not
+; discovered during it: a walk off the end of the chain would have written
+; into somebody else's clusters on the way to reporting corruption.
+; -----------------------------------------------------------------------------
+dskw_write_at_x:
+    push bx
+    push cx
+    push dx
+    mov [dwr_off], ax           ; THE OFFSET FIRST: dskw_wrp spends DX as the
+    mov [dwr_off+2], dx         ; count's high word, and a count here is one
+    xor dx, dx                  ; 16-bit number by contract - the same shape
+                                ; dskw_append_x arrives in
+    mov ax, dskw_wabody
+    jmp dskw_wrp
+
+dskw_wabody:
+    call dskw_mounted
+    jnc .gated
+    ret
+.gated:
+    cmp byte [dsk_vkind], DVK_FILE
+    je .prot                    ; a REDIRECTED volume (SPEC.md 62.9) has
+                                ; FSV_READAT and no write-at verb to pair with
+                                ; it, so there is nothing to call
+    mov di, dskw_n83
+    call dskw_name83
+    jc .badarg
+    call dskw_find
+    jc .out                     ; AX = FERR_NOENT / FERR_IO already
+    call dskw_pmask             ; AL = what may not be written here
+    test byte [dskw_raw+DSK_R_ATTR], al
+    jnz .prot
+
+    call dskw_clbytes           ; --- the arguments, all three refused ------
+    mov [dwr_clb], ax
+    test ax, ax
+    jz .badarg                  ; an unmounted volume has no cluster size
+    dec ax
+    and ax, [dwr_off]           ; the offset on a cluster boundary. A power of
+    jnz .badarg                 ; two, so the modulo is a mask - and the mask
+                                ; is under 65,536, so only the LOW word of a
+                                ; 32-bit offset can carry a remainder
+    mov ax, [dskw_len]
+    test ax, ax
+    jz .badarg                  ; nothing to write is a bad argument here, not
+    test ax, 511                ; a no-op: the caller has miscomputed
+    jnz .badarg                 ; ...and whole SECTORS, per the header
+
+    mov ax, [dskw_raw+DSK_R_SIZE]   ; --- clusters the file OWNS -------------
+    mov dx, [dskw_raw+DSK_R_SIZE+2]
+    add ax, [dwr_clb]           ; ceil(size / clb). The divide cannot overflow:
+    adc dx, 0                   ; a volume caps at 65,535 sectors (18.7), so
+    sub ax, 1                   ; the quotient is at most that many clusters
+    sbb dx, 0
+    div word [dwr_clb]
+    mov [dwr_sz], ax
+
+    mov ax, [dwr_off]           ; ...clusters to skip...
+    mov dx, [dwr_off+2]
+    div word [dwr_clb]
+    mov [dwr_take], ax
+
+    mov ax, [dskw_len]          ; ...and clusters the write spans
+    xor dx, dx
+    add ax, [dwr_clb]
+    adc dx, 0
+    sub ax, 1
+    sbb dx, 0
+    div word [dwr_clb]
+    add ax, [dwr_take]
+    jc .badarg
+    cmp ax, [dwr_sz]
+    ja .badarg                  ; past the allocated end: this cannot grow one
+
+    mov ax, [dskw_raw+DSK_R_CLUS]   ; --- walk to the offset's cluster -------
+    or ax, ax
+    jz .badarg                  ; an empty file owns no cluster to write into
+    mov cx, [dwr_take]
+    jcxz .atclus
+.skip:
+    call dsk_next_clus_x
+    jc .corrupt                 ; the chain ended before the entry's size said
+    call dskw_clok              ; it would
+    jc .corrupt
+    loop .skip
+.atclus:
+    mov dx, [dskw_len]          ; --- and write it -----------------------
+    mov cl, 9
+    shr dx, cl                  ; DX = sectors; the count is a multiple of 512
+    mov bx, [dskw_src]
+    mov es, [dskw_seg]
+    call dsk_write_chain_x
+    jc .ioerr
+    call dskw_sync_x
+    xor ax, ax
+    clc
+    ret
+.badarg:
+    mov ax, FERR_NAME
+    stc
+    ret
+.prot:
+    mov ax, FERR_PROT
+    stc
+    ret
+.corrupt:
+.ioerr:
+    mov ax, FERR_IO
+    stc
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dskw_append - add CX bytes to the end of an existing file (SPEC.md 22.5)
 ; in:  SI -> a NUL 8.3 name, ES:BX -> the bytes, CX = count (>= 1)
 ; out: CF=0, AX = 0; CF=1, AX = FERR_*
@@ -5164,6 +5299,8 @@ dwf_dskw_mkdir:         call dskw_mkdir_x
 dwf_dskw_read_at:       call dskw_read_at_x
                     retf
 dwf_dskw_append:        call dskw_append_x
+                    retf
+dwf_dskw_write_at:      call dskw_write_at_x
                     retf
 dwf_dskw_append_sys:    call dskw_append_sys_x
                     retf

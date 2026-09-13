@@ -2000,9 +2000,10 @@ dos_int21:
     ; multiple - so there is no in-place write to give. A program that opens
     ; for writing gets its refusal at the WRITE, naming the call, rather than
     ; at the open naming nothing.
-    push bx
-    call dos_fh_name
-    jc .fherr
+    mov [dos_opmode], al            ; BANKED HERE AND NOWHERE LATER:
+    push bx                         ; dos_fh_name spends AL on the name it
+    call dos_fh_name                ; copied, so the mode is gone by the time
+    jc .fherr                       ; the record exists to put it in
     call .fhabs
     jc .fhpath
     call dos_fh_stat                ; fills [dos_fent]
@@ -2020,6 +2021,13 @@ dos_int21:
     mov ax, [dos_fent+20]
     mov [si+FH_SIZE+2], ax
     mov byte [si+FH_FLAGS], FHF_USED
+    mov al, [dos_opmode]            ; **THE ACCESS MODE IS HONOURED NOW**
+    and al, 7                       ; (SPEC.md 96.11.6): 1 or 2 asked to write,
+    jz .opro                        ; and OSAPI_FILE_WRITE_AT can overwrite what
+    cmp al, 2                       ; the file already owns. Mode 0 stays
+    ja .opro                        ; read-only and 3..7 is not an access mode
+    or byte [si+FH_FLAGS], FHF_WRITE | FHF_INPLC
+.opro:
     test byte [dos_fent+22], OSAPI_FIND_CZ
     jz .opdone
     ; A COMPRESSED FILE CANNOT BE READ THROUGH THE WINDOW AT ALL: READ_AT is
@@ -2074,8 +2082,15 @@ dos_int21:
 .clnw:
     test byte [si+FH_FLAGS], FHF_WRITE
     jz .cldone
-    test byte [si+FH_FLAGS], FHF_MADE
-    jnz .cldone
+    test byte [si+FH_FLAGS], FHF_MADE | FHF_INPLC
+    jnz .cldone                     ; ...OR OPENED, WHICH IS THE SAME ANSWER
+                                    ; HERE and is why this is one immediate
+                                    ; rather than a second test: an AH=3Dh
+                                    ; handle never created anything, so
+                                    ; "created and never written" is not a
+                                    ; state it can be in - and touching its
+                                    ; file would truncate the one it just
+                                    ; overwrote in place (SPEC.md 96.11.6)
     call dos_fh_touch               ; created, never written: DOS leaves a
     jc .fherr                       ; zero-length file and so does this
 .cldone:
@@ -2106,15 +2121,22 @@ dos_int21:
     jc .fhbad
     test byte [si+FH_FLAGS], FHF_WRITE
     jz .fhacc
+    test byte [si+FH_FLAGS], FHF_INPLC
+    jnz .fwinpl                     ; an AH=3Dh handle OVERWRITES (96.11.6)
     mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
     cmp ax, [si+FH_SIZE]            ; (SPEC.md 96.11.2): a write anywhere but
-    jne .fhacc                      ; the end is one this layer cannot make,
-    mov ax, [si+FH_POS+2]           ; and reporting success for it would lose
-    cmp ax, [si+FH_SIZE+2]          ; the program's data silently
-    jne .fhacc
+    jne .fhacc                      ; the end is one a handle that CREATED the
+    mov ax, [si+FH_POS+2]           ; file cannot make, and reporting success
+    cmp ax, [si+FH_SIZE+2]          ; for it would lose the program's data
+    jne .fhacc                      ; silently
     call dos_fh_wrloop
     jc .fherr
     jmp .fhok
+.fwinpl:
+    call dos_fh_wiloop              ; ...and it may not GROW one: the loop
+    jc .fherr                       ; stops at the end of file and answers
+    jmp .fhok                       ; the short count, which is what DOS
+                                    ; answers for a full disk
 
 .unlink:
     ; AH=41h: DS:DX = an ASCIZ name.
@@ -3617,7 +3639,9 @@ DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
 DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
                                     ; the length (SPEC.md 19.2.4)
 DBE_VSTAT   equ 36                  ; ES:DI = a VS_SIZEOF record, CX = its size
-DBE_NENT    equ 19
+DBE_WRAT    equ 38                  ; SI = name, ES:BX = bytes, CX = count,
+                                    ; DX:AX = the offset (SPEC.md 18.4.7)
+DBE_NENT    equ 20
 
 dos_be_goto:
     mov word [dos_betgt], dos_k_goto
@@ -3672,6 +3696,9 @@ dos_be_path:
     jmp dos_be_go
 dos_be_vstat:
     mov word [dos_betgt], dos_k_vstat
+    jmp dos_be_go
+dos_be_wrat:
+    mov word [dos_betgt], dos_k_wrat
     jmp dos_be_go
 dos_be_xcopy:
     mov word [dos_betgt], dos_k_xcopy
@@ -3812,6 +3839,10 @@ dos_k_path:
 
 dos_k_vstat:
     call OSAPI_VOL_STAT
+    ret
+
+dos_k_wrat:
+    call OSAPI_FILE_WRITE_AT
     ret
 
 ; =============================================================================
@@ -8108,6 +8139,10 @@ FHF_USED    equ 1
 FHF_WRITE   equ 2                   ; opened by AH=3Ch: writes are accepted
 FHF_MADE    equ 4                   ; ...and at least one window has been
                                     ; flushed, so the next one APPENDS
+FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
+                                    ; EXISTS, so a write OVERWRITES through
+                                    ; OSAPI_FILE_WRITE_AT and never moves the
+                                    ; size (SPEC.md 96.11.6)
 FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
@@ -10987,6 +11022,81 @@ dos_fh_rdloop:
 ;      segment, [bp] = its DS
 ; out: CF=0 with AX = the bytes written; CF=1 with AL = a DOS error code
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dos_fh_wiloop - AH=40h on an AH=3Dh handle: OVERWRITE (SPEC.md 96.11.6)
+; in:  SI = the record, CX = bytes, DX = the program's buffer offset
+; out: CF=0 with AX = bytes taken (0 = at the end of file); CF=1 with AL = a
+;      DOS error
+;
+; dos_fh_rdloop WITH THE COPY REVERSED, and that is the whole of it: the
+; window is a VIEW here rather than dos_fh_wrloop's accumulator, so
+; dos_fh_fill already puts it over the position, cluster-aligned, and hands
+; back the offset into it. The bytes go in, the window is marked dirty, and
+; dos_fh_flush writes the WHOLE window back at [dos_wbase].
+;
+; IT STOPS AT THE END OF FILE AND ANSWERS THE SHORT COUNT. A write that would
+; grow the file is not one OSAPI_FILE_WRITE_AT can make (18.4.7), and a short
+; count is what DOS itself answers when the disk fills - so a program that
+; checks its return value learns the truth and one that does not is no worse
+; off than on a full disk.
+; -----------------------------------------------------------------------------
+dos_fh_wiloop:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov di, dx                      ; DI walks the PROGRAM's buffer
+    mov bx, cx                      ; BX = what is still to go
+    xor dx, dx                      ; DX counts what has gone in
+.ichunk:
+    or bx, bx
+    jz .idone
+    call dos_fh_fill                ; AX = the offset into the window, CX =
+    jc .ierr                        ; the bytes of the file that live there
+    jcxz .idone                     ; at the end of file: a short count
+    cmp cx, bx
+    jbe .icopy
+    mov cx, bx
+.icopy:
+    push cx
+    push si
+    push ds
+    mov si, di                      ; source: the program's buffer...
+    mov di, ax                      ; ...destination: inside the window
+    mov ax, [dos_wseg]
+    mov es, ax
+    mov ds, [bp]                    ; dos_fh_wrloop's frame rule, and for its
+    cld                             ; reason: [bp] is the program's own DS
+    rep movsb
+    pop ds
+    mov di, si                      ; the source pointer, advanced by the copy
+    pop si
+    pop cx
+    mov byte [dos_wdirty], 1
+    sub bx, cx
+    add dx, cx
+    add [si+FH_POS], cx             ; ...and ONLY the position moves: the size
+    adc word [si+FH_POS+2], 0       ; is the file's and this cannot change it
+    jmp short .ichunk
+.idone:
+    mov ax, dx
+    clc
+    jmp short .iout
+.ierr:
+    stc
+.iout:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 dos_fh_wrloop:
     push bx
     push cx
@@ -11606,6 +11716,8 @@ dos_fh_flush:
     mov bx, [dos_wseg]
     mov es, bx
     xor bx, bx
+    test al, FHF_INPLC
+    jnz .inplace                    ; an AH=3Dh handle OVERWRITES (96.11.6)
     test al, FHF_MADE
     jnz .append
     xor dx, dx
@@ -11616,6 +11728,19 @@ dos_fh_flush:
     jmp short .home
 .append:
     call dos_be_append
+    jc .errv
+    jmp short .home
+.inplace:
+    add cx, 511                     ; WHOLE SECTORS, because that is what
+    and cx, ~511                    ; OSAPI_FILE_WRITE_AT takes (18.4.7) - and
+                                    ; the rounded-up tail is the FILE'S OWN
+                                    ; bytes, because dos_fh_fill read this
+                                    ; window out of it before anything wrote
+                                    ; into it. The read-modify-write is the
+                                    ; window, and it cost nothing
+    mov ax, [dos_wbase]
+    mov dx, [dos_wbase+2]
+    call dos_be_wrat
     jc .errv
 .home:
     mov al, [dos_wvsv]              ; ...and back, before anything else can
@@ -11916,6 +12041,7 @@ dos_fh_fill:
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
     DBSS DOS_B_FVVOL, 1        ; the window owner's volume, and where the read
     DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
+    DBSS DOS_B_OPMODE, 1       ; AH=3Dh's access mode, banked (96.11.6)
     DBSS DOS_B_WVSV,  1        ; because it runs INSIDE a fill, through
     DBSS DOS_B_WVPAD, 1        ; dos_fh_take, and must not spend the fill's
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
@@ -12321,6 +12447,7 @@ dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
 dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end
 dos_fvvol   equ os88_image_end + DOS_B_FVVOL   ; byte: the fill's volume...
 dos_fvsv    equ os88_image_end + DOS_B_FVSV    ; byte: ...and where it came from
+dos_opmode  equ os88_image_end + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
 dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster

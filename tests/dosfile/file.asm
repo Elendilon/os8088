@@ -31,6 +31,8 @@
 BLK       equ 512                   ; one write, and one read
 NBLK      equ 40                    ; 20,480 bytes: two window crossings
 SEEKTO    equ 12345                 ; ...and a point inside none of them
+MARK      equ 0x5A                  ; step 4b's rewrite is offset+MARK, which
+                                    ; the file cannot already hold anywhere
 
 start:
     mov ah, 0x09
@@ -148,6 +150,78 @@ start:
     mov dx, msg_seek
     int 0x21
 
+    ; --- 4b. SEEK BACK AND REWRITE, IN PLACE (SPEC.md 96.11.6) --------------
+    ; The case AH=3Dh could not make before OSAPI_FILE_WRITE_AT (18.4.7): a
+    ; handle opened for READ/WRITE, seeked backwards, written over. The read
+    ; is through a FRESH handle so the window cannot be answering out of
+    ; memory, and the SIZE is asked again afterwards because the whole
+    ; restriction that makes the slot cheap is that it cannot move one.
+    mov ah, 0x3E                    ; the read-only handle is done with
+    mov bx, [handle]
+    int 0x21
+    mov ax, 0x3D02                  ; ...and THIS one asked to write
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, SEEKTO
+    int 0x21
+    jc .sfail
+    mov bx, SEEKTO + MARK           ; a pattern the file does NOT already hold
+    call fill                       ; at this offset
+    mov ah, 0x40
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .wfail
+    cmp ax, 16
+    jne .wshort
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    jc .clfail
+
+    mov ax, 0x3D00                  ; a fresh handle, so the bytes come off
+    mov dx, fname                   ; the DISK and not out of the window
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202                  ; ...and the size did not move
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    cmp ax, BLK * NBLK
+    jne .grew
+    or dx, dx
+    jnz .grew
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, SEEKTO
+    int 0x21
+    jc .sfail
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .rfail
+    cmp ax, 16
+    jne .vfail2
+    mov cx, 16
+    mov bx, SEEKTO + MARK
+    call check
+    jc .vfail
+    mov ah, 0x09
+    mov dx, msg_inpl
+    int 0x21
+
     ; --- 5. close, delete, and prove it is gone -----------------------------
     mov ah, 0x3E
     mov bx, [handle]
@@ -192,6 +266,8 @@ start:
 .still:  mov dx, msg_estill
          jmp short .say
 .wrongerr: mov dx, msg_ecode
+         jmp short .say
+.grew:   mov dx, msg_egrew
          jmp short .say
 .vfail2: mov bx, SEEKTO
 .vfail:  push bx
@@ -313,6 +389,8 @@ msg_size:    db 'SIZE ','$'
 msg_read:    db 'READ ','$'
 msg_seek:    db 'SEEK ok',13,10,'$'
 msg_gone:    db 'GONE ok',13,10,'$'
+msg_inpl:    db 'INPLACE ok',13,10,'$'
+msg_egrew:   db 'FAILED - the in-place write moved the SIZE',13,10,'$'
 msg_ecreate: db 'FAILED at create, code ','$'
 msg_ewrite:  db 'FAILED at write',13,10,'$'
 msg_eshort:  db 'FAILED - a short write',13,10,'$'

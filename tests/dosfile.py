@@ -81,13 +81,15 @@ def main():
                      "SIZE %d" % NBYTES,
                      "READ %d" % NBYTES,
                      "SEEK ok",
+                     "INPLACE ok",      # the seek-back rewrite (SPEC.md 96.11.6)
                      "GONE ok"):
             if want not in text:
                 fail("%r is not on the screen - the handle layer did not "
                      "complete (SPEC.md 96.11)" % want)
 
         print("dosfile: wrote, read back and verified %d bytes across two "
-              "window crossings, seeked, deleted" % NBYTES)
+              "window crossings, seeked, rewrote IN PLACE and deleted"
+              % NBYTES)
 
         m.type_text("x")
         os88marty.settle(m)
