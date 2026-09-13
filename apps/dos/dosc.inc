@@ -13,11 +13,10 @@
 ; So what is below is an input, an output and a prompt - and every verb in
 ; `dsh_tab` became reachable from the keyboard without being touched.
 ;
-; NO OSAPI_* FILE SLOT IS CALLED FROM THIS FILE either (§96.4). The one place
-; that looks like an exception is the prompt's path, which goes through
-; `OSAPI_FILE_PATH` - a slot that reads the INSTANCE's own current directory
-; and touches no volume, no name and no directory entry, which is why
-; `dos_envpath` has used it since §96.19.3 and the back end has no verb for it.
+; NO OSAPI_* FILE SLOT IS CALLED FROM THIS FILE either (§96.4), and the
+; prompt's own path is the place that would have been the exception: it wants
+; the instance's current directory, and `DBE_PATH` is the verb for it
+; (§96.4.1).
 ; -----------------------------------------------------------------------------
 
 ; -----------------------------------------------------------------------------
