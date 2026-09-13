@@ -335,29 +335,73 @@ cannot be checked.
 Option 2 from the report — *"take it off as the running program, compact, and
 let it claim on its next turn"* — plus §3. Three pieces.
 
-### 5.1 The WHAT-IF flag is costed and NOT recommended
+### 5.1 The WHAT-IF flag — RECOMMENDED, ~50-60 bytes in approximate form
 
-The report asked for two `mem_avail` calls — one plain, one with a flag meaning
-*"and pretend my own region may move"* — so the package can see the difference
-before deciding whether a callback boundary is worth it, on the sound principle
-that *"the what-if is not a promise of a future state, but a measurement of a
-CURRENT state."*
+An earlier revision of this document refused the flag on two grounds and **both
+were wrong**. It said the package does not need the prediction because it reads
+its number on the wake — which answers what the package does *after* it has
+decided, not how it decides — and it priced the flag at the ~150-250 bytes of
+an exact combined plan, which is not the only way to answer it.
 
-The principle is right and the flag is what it costs that makes it lose. It is
-the only thing in this plan that needs §3.3's combined plan: a *prediction* has
-to be made without moving anything, and that is the ~150–250 bytes, the second
-fill point and the over-report invariant. Everything else here needs none of it.
+**The decision is real, and it is not "how much can I have".** Three shapes of
+caller, and only the third needs anything new:
 
-**And the package does not need the prediction.** Post, wake, read plain
-`mem_avail` — exact, because the move has happened — and claim. What the flag
-buys is the ability to skip a post that would have gained nothing, and a post
-that gains nothing **moved nothing**, so it costs one 32-record walk and a wake.
-On the stated rule that 100+ bytes needs 300–400 ms behind it, a flag that saves
-microseconds does not buy 150.
+| the package's question | how it decides | needs the flag? |
+|---|---|---|
+| *"as much as I can get"* (the DOS runner) | always post | no |
+| *"at least N"* | plain `mem_avail` against its own N | no |
+| *"more, but only if the gain is worth it"* | the difference between the two answers | **yes** |
 
-So: **plain `OSAPI_MEM_AVAIL` only**, and it is read on the wake rather than
-before the post. If the prediction is ever wanted, it is a separable follow-on
-with a price tag already on it.
+The third is legitimate and the reason is not the callback boundary — it is
+that **a compaction is not free to the rest of the machine.** It moves other
+packages' claims and fires every holder's relocation proc, and §3.4 prices the
+copies at 2.86 ms a KB — up to a few hundred milliseconds on a busy heap. A
+package ought to be able to ask whether that is worth disturbing everyone for,
+and *"is the answer bigger if I move too?"* is exactly that question.
+
+**And it does not need an exact combined plan.** Three `mem_cp_plan` calls —
+all of them arithmetic over 32 records, no copies, microseconds — answer it:
+
+```
+what-if  =  A  +  (D_free - D_pinned)
+```
+
+where `A` is the ascending plan (plain `mem_avail`'s own answer), `D_pinned`
+the descending plan as things stand, and `D_free` the descending plan with the
+caller's own region treated as frameless. The kernel side is a word naming the
+segment to excuse, tested in `mem_frameless` ahead of `mem_in_nest`.
+
+**Measured against the true both-passes figure over seven layouts** (the
+measured one of §2.1 and six synthetic, `heapmap`'s own model of both passes as
+the reference):
+
+| layout | plain | cheap what-if | true | |
+|---|---:|---:|---:|---|
+| the measured 8K hole above the region | 494.5 | **502.5** | 502.5 | exact |
+| no hole above the region | 494.5 | 494.5 | 494.5 | exact |
+| hole above, another mover below | 474.5 | **482.5** | 482.5 | exact |
+| a PINNED driver between region and roof | 494.5 | 494.5 | 494.5 | exact |
+| region already at the ceiling | 502.5 | 502.5 | 502.5 | exact |
+| two holes, one above and one below | 458.5 | 466.5 | 490.5 | **under by 24** |
+| a big pinned cache on the floor | 316.0 | **324.0** | 324.0 | exact |
+
+**Six of seven exact, one low, none high.** It is exact when the caller's
+region is the only movable top-down claim in play — the report's own case — and
+it loses ground when other movable regions or driver images sit below it,
+because the delta of the descending pass's *largest run* stops being a clean
+proxy for what the pair reaches.
+
+**Under-reporting is the safe direction and costs nothing a caller has today.**
+A what-if that reads low makes the package skip a post that would have helped,
+which is precisely where it stands with no flag at all; a what-if that read
+high would talk it into a compaction that disturbs the machine for less than
+advertised. So the approximation is never worse than the alternative it
+replaces, which is the property that makes it worth 50 bytes instead of 200.
+
+*(The sample is seven layouts, one measured and six built to break it. Nothing
+here establishes that it can never over-report — only that it did not, over a
+set chosen to try. `tests/heapfrag` asserting the two against each other on the
+machine is what would.)*
 
 ### 5.2 One posted request
 
@@ -431,10 +475,12 @@ Kernel side, in four pieces:
 | the cell — validate `BX` is the caller's window, store, `sch_uiwake` | `osapi_table` 0x0550 | ~40 body + 8 table; the closest analogue in the tree, `osapi_pkg_rehome_x`, is **33 bytes counted** for the same validate-and-record shape |
 | the service — clear first, `mem_compact` at the posted rank, `wm_wake` | `ui.inc` `.loop` step 0 | ~30 |
 | the rank door (§5.2) | `memory.inc` | ~10 |
+| the what-if (§5.1) — `[mem_cp_selfok]`, `mem_frameless`'s excuse, the three-plan arithmetic, its cell | `memory.inc` + table | ~50-60 |
 | **the region un-pin itself** | — | **0** |
 
-**Total ≈ 125 bytes resident on `kern_big`, 0 on `kern_small`**, of which 35 is
-measured and the rest is anchored on a counted analogue.
+**Total ≈ 175-185 bytes resident on `kern_big`, 0 on `kern_small`**, of which 35
+is measured and the rest is anchored on a counted analogue. Without the what-if
+it is ~125.
 
 **The un-pin is free, and that is the point of the whole shape.** No predicate
 changes: at `ui_task` step 0 `[wm_pkgd]` is 0, nothing is loading, and the
