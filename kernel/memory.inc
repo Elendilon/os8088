@@ -2200,6 +2200,23 @@ mem_cp_plan:
     push bp
     xor bp, bp                  ; COUNT what would move, and touch nothing
     jmp short mem_cp_walk
+mem_cp_room:
+    push bp
+    mov bp, 2                   ; ...or COUNT WITH THE DISSOLVE IN THE MODEL
+    jmp short mem_cp_walk       ; (SPEC.md 66.10.4): mem_avail_lvl's question is
+                                ; "what may a claimant at this rank HAVE", and
+                                ; mem_claim's ladder is compact -> shed -> retry,
+                                ; so the answer includes a cache it outranks
+                                ; EVEN WHEN THAT CACHE CAN MOVE. It is a third
+                                ; mode and not a second meaning for BP=0 because
+                                ; mem_compact's termination rests on the plan
+                                ; and the run counting the SAME movers: a plan
+                                ; that counts a dissolve the run then declines
+                                ; to make answers "I did work" for ever, and
+                                ; mem_claim's retry loop never exits. Measured,
+                                ; and it is a HANG and not a slowdown - a 485KB
+                                ; claim on a 530KB heap, [dos_arena] still 0
+                                ; after 600 guest seconds
 mem_cp_run:
     push bp
     mov bp, 1                   ; ...or the same walk with the move in it
@@ -2226,13 +2243,30 @@ mem_cp_walk:
     jc .pinned
     call mem_cp_mine            ; ...and is it THIS pass's to move (66.4)
     jc .pinned
+    cmp bp, 2                   ; **ROOM MODE DISSOLVES WHAT THE PASS PACKS**
+    jne .move                   ; (SPEC.md 66.10.4). 66.10 rests on "a cache is
+    call mem_cp_drop            ; genuinely unmovable", which 18.95.7 withdrew
+    jnc .dropped                ; when it took the page head off MEM_P_DIRW -
+.move:                          ; after which the `.pinned` arm below, the only
+                                ; door to mem_cp_drop, became unreachable for
+                                ; the one cache the level ladder exists for and
+                                ; mem_avail_lvl answered the SAME number at
+                                ; every rank. mem_cp_room reports the room a
+                                ; dissolve produces - which is what mem_claim
+                                ; goes on to collect through mem_shed_one, and
+                                ; what mem_bigrun has always said on a kernel
+                                ; with no compactor - while mem_compact's own
+                                ; plan and run still PACK it, because the slot
+                                ; table holds LBAs and not addresses, so a move
+                                ; keeps the cache where a drop costs a mount's
+                                ; worth of read-ahead
     call mem_cp_dest            ; DI = where its bytes go: the fill point going
     cmp di, [ss:si+MC_SEG]      ; up, a block-length below it coming down, and
     je .stay                    ; off a 64KB page boundary its MC_DMA head
                                 ; would straddle. Equal to its own base means
                                 ; already where it belongs
-    or bp, bp
-    jz .count
+    cmp bp, 1                   ; ...and only mode 1 TOUCHES anything: 0 counts
+    jne .count                  ; for mem_compact, 2 counts for mem_avail_lvl
     call mem_cp_move
 .count:
     inc dx
@@ -2246,8 +2280,9 @@ mem_cp_walk:
                                 ; the plan counts exactly the room the run is
                                 ; about to produce. The KEY has already stepped
                                 ; past it, so it is not revisited
-    or bp, bp
-    jz .count2
+.dropped:
+    cmp bp, 1
+    jne .count2
     call mem_cp_kill
 .count2:
     inc dx
@@ -3404,8 +3439,8 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 %endif
     mov [mem_pg_rank], al       ; inside the window, with the other three
 %ifdef OS88_COMPACT
-    call mem_cp_plan            ; CX = the largest run compaction would leave,
-    mov ax, cx                  ; caches at or below AL dissolved with it
+    call mem_cp_room            ; CX = the largest run compaction would leave,
+    mov ax, cx                  ; caches BELOW AL dissolved with it (66.10.4)
 %else
     call mem_bigrun             ; ...and where nothing moves, the run a
                                 ; claimant can have is the biggest hole the

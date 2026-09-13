@@ -236,6 +236,7 @@ BSS = ("DOS_B_TRACEN", "DOS_B_TRACEW", "DOS_B_TRSEG", "DOS_B_TRNM",
        "DOS_B_APARA", "DOS_B_FHTAB", "DOS_B_WOWN", "DOS_B_WLEN",
        "DOS_B_WFILL", "DOS_B_WBYTES")
 CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
+          "DOS_TRACE_KB",
           "DOS_NFH", "DOS_FH0",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
 
@@ -316,6 +317,42 @@ def package_image_size(img_path, name="DOS.O88"):
     if body is None:
         raise RuntimeError("%s carries no %s" % (img_path, name))
     return struct.unpack_from("<H", body, 8)[0]
+
+
+def trace_costs(kb=None):
+    """THE ONE THING TO SAY OUT LOUD ON EVERY TRACE RUN.
+
+    A DOSTRACE build claims `DOS_TRACE_KB` of the heap for its ring and its
+    rendered dump (SPEC.md 96.29.1), and the DOS arena is what is left - so a
+    program that is near the edge REFUSES UNDER THE TRACER AND RUNS PERFECTLY
+    WITHOUT IT.
+
+    **That has been mis-diagnosed as "the box is short of memory" eight
+    separate times**, which is the whole reason this function exists rather
+    than another paragraph: the cost was already written down in `dos.asm`, in
+    SPEC.md 96.29.1 and in this file's own docstring, and every one of those
+    was read AFTER the wrong conclusion had been reached.  A line the run
+    prints cannot be skipped the way a document can.
+
+    The number comes out of the assembler (`dos_syms`) rather than being
+    transcribed, so it cannot drift from the part the disk actually carries.
+    """
+    if kb is None:
+        try:
+            kb = dos_syms(["DOS_TRACE_KB"])["DOS_TRACE_KB"]
+        except Exception:                           # never fail a run for a
+            kb = 0                                  # banner
+    much = ("%d KB" % kb) if kb else "tens of KB"
+    return (
+        "os88dosdbg: **THIS DISK IS NOT THE SHIPPED BOX.**  The trace part is\n"
+        "            %s of heap claimed at launch, so the DOS arena here is\n"
+        "            that much SMALLER than a plain build's.  A program that\n"
+        "            refuses on this disk and runs on build/os8088-360.img is\n"
+        "            refusing the TRACER and not the box: re-check it WITHOUT\n"
+        "            --build before concluding anything about memory.\n"
+        "            (docs/DOS-DEBUGGING.md, Traps - this has cost eight\n"
+        "            wrong diagnoses, every one of them about the arena.)"
+        % much)
 
 
 def build_trace_disk(system_img, out_img, verbose=True):
@@ -430,6 +467,8 @@ def cmd_trace(a):
     sym = dos_syms(list(BSS) + list(CONSTS))
     stride, nent = sym["DOS_TRACE_SZ"], sym["DOS_TRACEN"]
     _agree(stride, "apps/dos/dos.asm's DOS_TRACE_SZ")
+    # BEFORE the run and not after it, and on stderr: see trace_costs().
+    print(trace_costs(sym.get("DOS_TRACE_KB")), file=sys.stderr)
     img = a.kernel
     if a.build:
         img = build_trace_disk(a.system, a.kernel)
@@ -843,6 +882,7 @@ def cmd_syms(a):
 
 def cmd_build(a):
     build_trace_disk(a.system, a.out)
+    print(trace_costs(), file=sys.stderr)
     return 0
 
 

@@ -84356,6 +84356,59 @@ then claims against what it is told:
 been granted**, so the two halves are one change: placing a cache where its room
 rejoins the middle is worth only what the number tells somebody to ask for.
 
+#### 66.10.4 ...and then the cache became MOVABLE, and the door stopped being reachable
+
+§66.10 above rests on one sentence — *"`mem_can_move` still refuses — a cache is
+genuinely unmovable"* — and **§18.95.7 withdrew it two waves later without
+re-reading this section.** Taking the 64KB page head off `MEM_P_DIRW` made the
+claim relocatable, `dsk_rah_want` now calls `mem_movable_x` on it, and the walk
+reaches `mem_cp_drop` from its `.pinned` arm **and from nowhere else**. A cache
+that can move is moved. It is never dissolved, at any rank, so:
+
+- `mem_avail_lvl_x` answers the **same number at every level**. §50.6.6's whole
+  purpose is that `AL = 0xFE` and `AL = 0xFF` differ by the cache; they differ
+  by nothing;
+- and a package that sized itself from it — which is the only kind there is —
+  asks for the smaller figure and is granted it, so `mem_claim`'s shed is never
+  reached and the bytes are never collected.
+
+Measured in the guest, on the shipped 360KB pair with a live 31.5K window
+(`tests/dirwshed.py`, and the DOS box's own Setup page is the read-out):
+
+| `MEM_P_DIRW`'s `MC_RLOC` | keeping the cache | taking it as well |
+|---|---:|---:|
+| `dsk_rah_reloc` — as shipped | 453K | **453K** |
+| poked to 0 — pinned, §66.10's premise | 453K | **485K** |
+
+The A/B is the proof and it is one word of one record: pin the cache and the
+door opens again, exactly 32K wide.
+
+**The fix is in the PLAN and not in the run**, which is the part worth being
+careful about. `mem_claim`'s ladder is compact → retry → **shed** → retry
+(§66.4), so a claimant that outranks the cache *will* be given its bytes — the
+plan under-reporting them is the error `mem_avail`'s own contract calls the
+invisible direction. But packing a movable cache down is still the better
+outcome when packing alone is enough: the slot table holds LBAs and not
+addresses, so a move keeps the cache and a drop costs a mount's worth of
+read-ahead. So the walk asks `mem_cp_drop` **before `mem_cp_dest`, on the
+counting pass only**:
+
+- `mem_cp_plan` (`BP = 0`) dissolves what this claimant may dissolve and reports
+  the room that produces — the same answer `mem_bigrun` has always given on a
+  kernel with no compactor, which is where the intended semantics were still
+  written down (*"a takeable cache is not a wall"*);
+- `mem_cp_run` (`BP = 1`) packs it as before, and `mem_shed_one` takes it
+  afterwards if packing did not deliver.
+
+The two walks therefore **stop being step for step**, which §66.10 names as the
+one way this feature can promise room it does not deliver — and the divergence
+is bounded and one-directional by construction: the plan can only over-report
+by a cache the retry loop is about to shed anyway, and the cost of being wrong
+is one compaction pass that does not fit, followed by the shed that does.
+
+`kern_small` was never affected: it has no compactor, so `mem_avail_lvl_x` takes
+`mem_bigrun`, whose `mem_pg_cheap` test is the correct one.
+
 
 ## 67. Cyclone 88 — the seventeenth package (`apps/cyclone/cyclone.asm`)
 
@@ -121925,6 +121978,52 @@ drive" is `0xFF` and must be INITIALISED, not left to `.bss`.** A zeroed
 sentinel is not merely wrong, it is wrong in the one direction that looks
 plausible — it names the first drive, which exists on every machine, so
 nothing refuses and the failure travels.
+
+##### 96.6.3.1 ...and a SECOND DOOR reintroduced it, because the initialiser was inside one arm
+
+The sentinel above was written **after** `OSAPI_ARG_FILE` answered, in the arm
+that takes a document:
+
+```
+    call OSAPI_ARG_FILE         ; CF=1 = launched empty
+    jc .idle                    ; <-- the console door (96.33) goes THIS way
+    mov [dos_dir], dx
+    mov [dos_vol], bl
+    mov byte [dos_fhome], 0xFF  ; ...and only THIS way
+```
+
+§96.33's prompt is reached down the `.idle` arm, so **a box opened with no
+document ran with `[dos_fhome]` = 0** and §96.6.3 was undone for every program
+started by typing its name. Reported from the field in the sentence §96.6.3
+already names: from the console, on B:, `prince.exe` answered *"Please insert
+Prince of Persia Disk 1 into Drive A:"*.
+
+It is visible without a game, in the prompt itself — run anything off B: and
+the prompt that comes back says `A:\>`:
+
+```
+B:\>DOSHELLO
+DOSHELLO.COM ended, exit code 042
+A:\>                              <-- the box moved, and nobody asked it to
+```
+
+The one file call `DOSHELLO.COM` makes is an `AH=3Dh` that is *meant* to fail,
+so the fold home happens on a path where nothing succeeded — which is the
+point: **`dos_fh_leave` runs at `.fhok` AND `.fherr`**, so the drive moves on
+the first file call of any kind and whether it worked is irrelevant.
+
+**The fix is the placement and not the byte**: the store moves above the
+`OSAPI_ARG_FILE` call, where it initialises a `.bss` byte on every path into
+the package rather than on one of them. `tests/dirwshed.py` runs a real `.COM`
+twice off B: and would have failed at the second launch, which is how this was
+found at all.
+
+The general rule the pair makes is worth more than either: **an initialiser
+that only one entry path executes is not an initialiser.** §96.6.3 says a
+sentinel meaning *no drive* must be `0xFF` rather than `.bss`'s zero; this says
+the store must sit where every door passes through it, because the second door
+is always added later and by somebody reading the arm they are adding, not the
+arm they are not.
 
 #### 96.12.3 A name may carry a PATH, and refusing one broke every program that asks where it is
 

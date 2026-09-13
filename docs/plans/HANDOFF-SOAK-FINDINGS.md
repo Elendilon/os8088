@@ -1766,3 +1766,52 @@ with cluster 0 against a subdirectory's cluster), or the first mount of a
 session. `tools/os88dosdbg.py trace DOSHELLO.COM --disk build/doscom360.img`
 against that machine is the instrument, and SPEC.md 96.29.1's part means the
 ring no longer competes with the arena for room.
+
+## G5. `heapcheck` check 13 — "ceiling packed up" is RED and predates SPEC.md 66.10.4
+
+Found on a scoped soak (`-k 'dos*' -k 'heap*' -k '*move*' -k 'reg*'`, 49 rows,
+47 ok) at build 91c8abf. **Checks 1–12 and 14 all pass; only 13 fails**, which
+is exactly the shape `heapcheck`'s own docstring says it verified by
+amputation — *"checks 1..12 pass and only 13 goes red"* is what patching
+`mem_compact`'s `.flip` arm to `jmp .undo` produced. So the row is reporting
+*the descending pass did not run, or did not move the block*.
+
+**It is NOT SPEC.md 66.10.4's.** A/B'd on one tree with the single line of that
+change reverted (`mem_avail_lvl_x` back on `mem_cp_plan` instead of
+`mem_cp_room`), rebuilt, re-run: **check 13 fails identically**, same 1
+UNEXPECTED, everything else green. The change shifts what `OSAPI_MEM_AVAIL`
+reports and therefore the SIZE of every block `heapfrag` asks for, so the map
+differs between arms — but the verdict does not.
+
+The map the failing run leaves, read out of `mem_tab`:
+
+```
+  1b60     3 KB owner 0000 MOVABLE
+  1c20     3 KB owner ff06 MOVABLE
+  1ce0    65 KB owner 9f80 MOVABLE
+  2d20    65 KB owner 9f80 MOVABLE
+  3d60    65 KB owner 9f80 MOVABLE
+        238 KB HOLE
+  8920    65 KB owner 9f80          <-- check 13's block, and it did not rise
+         24 KB HOLE
+  9f80     2 KB owner 0001 dma
+```
+
+The block at `8920` is the one check 13 needs to pack UP into the 24 KB above
+it; `heapfrag`'s own test is `cmp ax, [bx+hf_base0] / jbe .ceilbad`, so it
+reads red when the base did not increase.
+
+**What to rule out first, in this order.** `heapcheck` has not been touched
+since #172, so the candidate is a KERNEL change under it, and the branch
+carries two that reach this exact pass: **`1625361` — "the read-ahead window
+claims no DMA page, and MOVES" (SPEC.md 18.95.7, 50.6.7)** is the obvious
+suspect, because it changed both the placement freedom and the movability of
+the one claim sitting at the arena floor, and SPEC.md 66.10.4 is a second
+defect the same commit caused. `6232003` (the purge floor) is the other.
+`python3 tools/os88bisect.py classify heapcheck` is the protocol; sample N>1,
+because `heapfrag` sizes every block from a live `OSAPI_MEM_AVAIL` and a map
+that differs run to run is not the same experiment twice.
+
+Left red deliberately rather than guessed at: the row is about the compactor's
+descending pass, it is reproducible, and it is cheaper to bisect once than to
+reason about from the map.

@@ -572,6 +572,29 @@ print one line per case, and wait for a key. Keep it assembling with
 
 ## Traps, each of which cost real time
 
+- **THE TRACE DISK HAS A SMALLER ARENA THAN THE SHIPPED BOX, and a program that
+  refuses under the tracer is refusing the TRACER.** This is first because it
+  has cost **eight** separate wrong diagnoses, every one of them the same
+  sentence — *"the program will not run, so the box is short of memory"* — about
+  a program that launches perfectly on a plain build. A `DOSTRACE` package
+  carries the ring and the rendered dump as an `OP_ASSET` part (SPEC.md
+  §96.29.1), so **the part is claimed out of the heap before the arena is**, and
+  the arena is `DOS_TRACE_KB` smaller than the figure any other disk would give.
+  `python3 tools/os88dosdbg.py syms DOS_TRACE_KB` prints it — 21 KB today.
+
+  **The rule: a refusal seen under the tracer is not a measurement until it has
+  been reproduced without it.** Run the program off `build/os8088-360.img` (or
+  whatever geometry you were on) with no `--build` and no `--kernel`, and only
+  then say anything about memory. The box's own arena figure is on the Setup
+  page and `[dos_akb]` is the word behind it, so the A/B takes one boot.
+
+  The cost was written down in three places before this one — in `dos.asm` at
+  the part, in SPEC.md §96.29.1, and in this file's own prose — and all three
+  were read *after* the wrong conclusion had been reached, which is why
+  `os88dosdbg.py` now **prints it on stderr at the top of every `trace` and
+  `build`**. A line the run emits cannot be scrolled past the way a document
+  can be left unopened.
+
 - **A 720KB image in a 360KB drive.** Half the disk is unreachable, and the
   refusal reads as *end of file*. `os88fat.py reach` first, every time.
 - **`make` overwriting the traced package.** `os88dosdbg.py build` orders it
