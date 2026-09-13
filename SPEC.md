@@ -121250,6 +121250,37 @@ floppy is ordinary and printing its low word alone is a plausible wrong number.
 `dsh_num32` divides `DX:AX` by ten the two-step way and `dsh_num` is twelve
 bytes now.
 
+##### 96.33.6 `B:` is a drive change, and `VER` says what this is
+
+**A bare `X:` is not a verb and DOS answers it before the table.** That is why
+`DIR` and `B:` feel like the same kind of thing to the person typing them and
+only one of them is, and the box answered the second with `Bad command or file
+name` — which is the shape §96.33.3's fallthrough has when the thing typed was
+never going to be a program.
+
+**Two characters exactly.** `B:` changes drive; `B:FOO` does not — it names a
+file on B:, and `dsh_word` leaves the whole of it in `[dsh_verb]`, so the
+length test IS the distinction and no lookahead is needed. A drive that is not
+there answers DOS's own `Invalid drive specification` and **does not move**:
+`dos_drv_sel` puts the whole switch back when the mount refuses, so a floppy
+that is not in the drive leaves the user where they were.
+
+**And the per-drive directory comes with it** (§96.6.2). `dos_drv_sel` banks
+where we were and RECALLS where that drive last stood, so `B:` `CD APPS` `A:`
+`B:` is back in `B:\APPS` and not at its root — which is DOS's behaviour and is
+already what `AH=0Eh` does for a program.
+
+**From the prompt the change persists and from `command /c b:` it does not.**
+`dos_con_run` calls `dsh_run` with no `dsh_bank`/`dsh_home` bracket and
+`dsh_tail` brackets it, so a child shell's drive dies with the child — §96.30's
+own note, arriving for free.
+
+**`VER` says `os8088 DOS Version 3.31`.** It said *"os8088 DOS box, MS-DOS
+Version 3.31"* and neither half of that is ours: it is not a box to the person
+typing at it, and it is not Microsoft's. The VERSION stays, because it is what
+`AH=30h` answers (§96.7) and a machine whose `VER` and whose programs disagree
+about what they are running on is worse than either alone.
+
 ##### 96.33.5 Full screen, and Esc back out of it
 
 `Program > Full Screen` puts the same 80x25 buffer on the real text screen,

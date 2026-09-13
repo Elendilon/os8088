@@ -2872,9 +2872,14 @@ SOAK = [
         "reads TEXT VRAM'S OWN BYTES at the segment the bracket was handed, "
         "because that is the whole claim the design makes: con_scr's cell IS "
         "the cell in VRAM, so the renderer is a MOVE and not a translation "
-        "(70.8.7) - and Esc comes back to the window on the line it left, "
+        "(70.8.7), CELL FOR CELL over all 2,000 - and Esc comes back to the "
+        "window on the line it left, "
         "which is the fence that keeps the key OURS only while the console has "
-        "the screen.",
+        "the screen. AND STEP 5b IS THE DRIVE CHANGE (96.33.6): a bare `B:` is "
+        "COMMAND.COM's and not a verb, which this box answered `Bad command "
+        "or file name` until it was reported - a drive letter falls through a "
+        "table that has no row for it - and `Z:` must be refused AND must not "
+        "move.",
         needs=("marty",), serial=True),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "

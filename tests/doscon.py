@@ -25,9 +25,15 @@ one of them is a separate thing that can be missing:
      never had.
   8  FULL SCREEN puts the same buffer on real text VRAM and ESC comes back
      (96.33.5). The assertion is VRAM's OWN BYTES at the segment the bracket
-     was handed, because that is the whole claim the design makes: con_scr's
-     cell IS the cell in VRAM, so the renderer is a move and not a translation
-     (70.8.7), and a screenshot cannot tell those apart.
+     was handed, CELL FOR CELL over all 2,000 - because that is the whole
+     claim the design makes: con_scr's cell IS the cell in VRAM, so the
+     renderer is a move and not a translation (70.8.7), and a screenshot
+     cannot tell those apart.
+
+...and 5b, between them, is that a bare `B:` is a DRIVE CHANGE and not a verb
+(96.33.6) - which the box answered `Bad command or file name` until it was
+reported, because a drive letter falls through a table that has no row for it.
+`Z:` must be refused AND must not move.
 
 **IT READS THE BUFFER AND NOT THE GLASS**, with one exception. con_scr is
 2,000 cells of (character, attribute) and every assertion above is about
@@ -203,7 +209,7 @@ def main():
         # --- 3: a built-in runs, into the band ------------------------------
         bx.type("\n")
         rows = bx.live()
-        if not any("MS-DOS Version" in r for r in rows[-3:]):
+        if not any("os8088 DOS Version" in r for r in rows[-3:]):
             fail("VER ran and its line is not in the band - the last rows are "
                  "%r" % rows[-3:])
 
@@ -245,6 +251,32 @@ def main():
                  "prompt so that it cannot go stale (SPEC.md 96.33.2)"
                  % rows[-1])
         print("doscon: ...and the prompt follows CD: %r" % rows[-1])
+
+        # --- 5b: a bare X: changes DRIVE, which is not a verb ---------------
+        # DOS answers it before the table, and the box did not answer it at
+        # all: `B:` came back `Bad command or file name` (SPEC.md 96.33.6).
+        here = bx.b("dos_vol")
+        other = "B" if here == 0 else "A"
+        bx.type("%s:\n" % other)
+        if bx.b("dos_vol") != (1 if here == 0 else 0):
+            fail("%s: left the box on volume %d - a bare drive letter is a "
+                 "DRIVE CHANGE and not a verb (SPEC.md 96.33.6)"
+                 % (other, bx.b("dos_vol")))
+        if not bx.live()[-1].startswith("%s:" % other):
+            fail("the prompt did not follow the drive change: %r"
+                 % bx.live()[-1])
+        bx.type("Z:\n")
+        rows = bx.live()
+        if not any("Invalid drive" in r for r in rows[-3:]):
+            fail("a drive that is not there should answer DOS's own "
+                 "`Invalid drive specification`, and the band says %r"
+                 % rows[-3:])
+        if bx.b("dos_vol") != (1 if here == 0 else 0):
+            fail("a REFUSED drive change moved the box anyway, to volume %d"
+                 % bx.b("dos_vol"))
+        print("doscon: ...and %s: changes drive while Z: is refused without "
+              "moving" % other)
+        bx.type("%s:\n" % chr(ord("A") + here))
 
         # --- 7: a name that is neither a verb nor a file --------------------
         bx.type("NOSUCH\n")
@@ -289,25 +321,36 @@ def main():
         if seg not in (0xB000, 0xB800):
             fail("the bracket's framebuffer segment is %04X, and FSXM_TEXT80 "
                  "is B000 on Hercules and B800 on the rest" % seg)
+        # **CELL FOR CELL, all 2,000 of them** - which is a far stronger claim
+        # than "every line is present somewhere", and the one 70.8.7 actually
+        # makes. The ATTRIBUTE byte is deliberately not compared: on a mono
+        # adapter con_tx_mattr maps it (70.8.9) and on a colour one it does
+        # not, so the CHARACTER is the half that is a pure move on every
+        # adapter.
+        buf = m.read(bx.base + bx.dm["con_scr"], 80 * 25 * 2)
         vram = m.read(seg << 4, 80 * 25 * 2)
-        got = []
+        hint = " Esc to leave"
+        pairs = []
         for r in range(25):
-            row = vram[r * 160:(r + 1) * 160]
-            t = "".join(chr(row[i]) if 32 <= row[i] < 127 else " "
-                        for i in range(0, 160, 2)).rstrip()
-            if t.strip():
-                got.append(t)
-        for line in want:
-            if line not in got:
-                fail("the full screen does not carry the buffer: %r is in "
-                     "con_scr and not in text VRAM at %04X. The cell IS the "
-                     "cell (SPEC.md 70.8.7), so this is a MOVE and cannot "
-                     "lose a row" % (line, seg))
-        if not any("Esc to leave" in r for r in got):
+            pairs.append(("".join(chr(buf[r * 160 + c * 2]) for c in range(80)),
+                          "".join(chr(vram[r * 160 + c * 2]) for c in range(80))))
+        for r, (b, v) in enumerate(pairs):
+            if r == 24:
+                b, v = b[:80 - len(hint)], v[:80 - len(hint)]   # the hint has
+                                                               # the row's TAIL
+                                                               # and may (70.8.7)
+            if b != v:
+                col = next(i for i in range(len(b)) if b[i] != v[i])
+                fail("the full screen is not the buffer: row %d column %d is "
+                     "%r in con_scr and %r in text VRAM at %04X. The cell IS "
+                     "the cell (SPEC.md 70.8.7), so this is a MOVE and cannot "
+                     "differ" % (r, col, b[col], v[col], seg))
+        got = [v for _, v in pairs if v.strip()]
+        if hint not in pairs[24][1]:
             fail("the bottom row does not name the key that leaves: %r"
-                 % got[-2:])
-        print("doscon: full screen carries %d rows of the buffer, and row 24 "
-              "says how to get out" % len(got))
+                 % pairs[24][1])
+        print("doscon: full screen is the buffer cell for cell over %d live "
+              "rows, and row 24 says how to get out" % len(got))
 
         m.key("Escape")
         time.sleep(2.0)

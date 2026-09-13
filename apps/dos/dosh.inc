@@ -110,6 +110,40 @@ dsh_run:
     mov di, dsh_verb
     call dsh_upper
 
+    ; --- A BARE `X:` IS A DRIVE CHANGE, and it is not a verb -----------------
+    ; DOS answers it BEFORE the table, which is why `DIR` and `B:` feel like
+    ; the same kind of thing and only one of them is. TWO characters exactly:
+    ; `B:` changes drive and `B:FOO` does not - it names a file on B:, which
+    ; dsh_word leaves in [dsh_verb] whole, so the length test IS the
+    ; distinction and no lookahead is needed.
+    ;
+    ; From the PROMPT the change persists, because dos_con_run calls dsh_run
+    ; with no dsh_bank/dsh_home bracket around it; from `command /c b:` it does
+    ; not, because dsh_tail brackets it - and a child shell's drive dying with
+    ; it is DOS's own behaviour (SPEC.md 96.30).
+    cmp byte [dsh_verb+2], 0
+    jne .notdrv
+    cmp byte [dsh_verb+1], ':'
+    jne .notdrv
+    mov al, [dsh_verb]
+    cmp al, 'A'
+    jb .notdrv
+    cmp al, 'Z'
+    ja .notdrv
+    sub al, 'A'                     ; SPEC.md 96.6's map is the identity
+    call dos_vol_to                 ; ...and [dos_curdir] comes with it:
+    jc .nodrive                     ; dos_drv_sel banks where we were and
+    xor al, al                      ; RECALLS where that drive last stood
+    ret                             ; (SPEC.md 96.6.2), so `B: / CD APPS / A: /
+                                    ; B:` is back in B:\APPS and not at its root
+.nodrive:
+    mov si, dsh_s_nodrv
+    call dsh_say
+    mov byte [dsh_why], DSHW_NODRV
+    mov al, 1
+    ret
+.notdrv:
+
     mov bx, dsh_tab
 .look:
     mov al, [bx]
@@ -1495,6 +1529,7 @@ DSHW_SYNTAX equ 6               ; wrong number of arguments
 DSHW_REDIR  equ 7               ; a redirection target that is not NUL
 DSHW_NOCMD  equ 8               ; no such verb - which from a prompt means
                                 ; "try it as a program" (SPEC.md 96.33.3)
+DSHW_NODRV  equ 9               ; `X:` named a drive that is not there
 
 dsh_s_nul:      db 'NUL', 0
 dsh_s_crlf:     db 13, 10, 0
@@ -1509,7 +1544,14 @@ dsh_s_files:    db ' file(s)', 13, 10, 0
 dsh_s_dir:      db '<DIR>', 0
 dsh_s_redir:    db 'Cannot redirect to that file', 13, 10, 0
 dsh_s_nomem:    db 'Insufficient memory', 13, 10, 0
-dsh_s_ver:      db 13, 10, 'os8088 DOS box, MS-DOS Version 3.31', 13, 10, 0
+dsh_s_nodrv:    db 'Invalid drive specification', 13, 10, 0
+dsh_s_ver:      db 13, 10, 'os8088 DOS Version 3.31', 13, 10, 0
+                                ; **NOT "box" AND NOT "MS-DOS"** - this is not
+                                ; a box to the person typing at it and it is
+                                ; not Microsoft's. The VERSION stays 3.31
+                                ; because that is what AH=30h answers
+                                ; (SPEC.md 96.7), and a machine whose VER and
+                                ; whose programs disagree is worse than either
 
 ; -----------------------------------------------------------------------------
 ; dsh_isshell - is the AH=4Bh program name our built-in COMMAND.COM?
