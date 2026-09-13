@@ -3072,6 +3072,31 @@ SOAK = [
         "TO FAIL with the avail query put back on mem_cp_plan - 453K and 453K, "
         "a spread of 0 against a 32 KB cache.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
+    Row("linecar", "soak", py("tests/linecar.py"), 60.0,
+        "THE CARET'S BAR, AFTER AN EDIT THAT MOVED IT (SPEC.md 83.1.1). "
+        "os88line_edit repaints what one keystroke changed instead of the "
+        "whole field (96.19.1) and was given the view and the length to work "
+        "that out but NOT the caret, which is the third thing a key moves - "
+        "so a cell the narrow path did not repaint KEPT the 1px bar standing "
+        "in it, and a field the user typed ABCD into and rubbed out was four "
+        "bars and no text. THE ASSERTION IS THREE HISTORIES AND ONE PICTURE, "
+        "which is what stops it being written vacuously: `AB` typed, `ABCD` "
+        "backspaced twice, and `AB` with Left then End all leave the field at "
+        "LEN 2 CAR 2 'AB', so the pixels must be identical and no notion of "
+        "what a caret looks like is encoded here at all. The guest's own "
+        "LN_LEN, LN_CAR and buffer are read per history, and the reference "
+        "must DIFFER from the EMPTY field - otherwise two blanks compare "
+        "equal and the row says nothing. EVERY HISTORY RUNS even when one has "
+        "already failed, because the backspace and the caret move are two "
+        "separate leaks in one routine and a partial fix must not read as a "
+        "whole one. The reset between them is Home-then-Delete and that is "
+        "chosen rather than convenient: both are os88line_edit's own "
+        "fall-back to a full redraw or leave the caret where it was, so the "
+        "reset is clean WITH THE DEFECT IN - clearing with backspaces would "
+        "carry history 1's trail into history 2 and compare two dirty "
+        "pictures. VERIFIED RED both ways with the caroff taken back out: "
+        "backspaced 16 pixels at two cells, moved 6 at one.",
+        needs=("marty",), serial=True),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "

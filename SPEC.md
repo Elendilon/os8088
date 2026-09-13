@@ -102851,6 +102851,47 @@ reference typed, a width entered, or a paragraph of note written.
   single-store fast path that needs an 8-aligned pen (§6); without it every
   keystroke repaints the row through the slower erase-then-letter pair.
 
+#### 83.1.1 The cheap repaint owes the bar the caret LEFT
+
+`os88line_edit` (§96.19.1) repaints what one keystroke changed instead of the
+whole field, and it is handed the field's state *as it was before the key* so
+that it can tell what that was: the view, so a scroll is visible to it, and the
+length, so an append can be told from a backspace. **It was not handed the
+caret, and the caret is the third thing a key moves.**
+
+The bar is a 1px `gfx_fill` and nothing else on the machine knows it is there,
+so a cell that is not repainted keeps it. Most arms repaint the cell the caret
+left for their own reasons — an append draws the character that landed in it —
+and the two that do not left a bar behind on **every** keystroke:
+
+* **a backspace at the end of the text**, which is the case this control exists
+  to make cheap. The caret moves one cell left; the arm blanks the cell the
+  *character* was in, which is the cell the caret is moving *to*. The bar it
+  left is one cell to the **right** of that and is drawn over by nothing, so
+  the trail grows by one per key: type `ABCD` into a field, rub it out, and
+  what is left is four bars and no text.
+* **a key that moves the caret to the end without changing the text** — `End`
+  from the middle of a line. A move that lands anywhere else is already a
+  fall-back (the caret is then not at the end, so the whole field is
+  repainted), which is why this is the one shape of caret move that reaches the
+  cheap path at all, and why the arrow keys never showed it.
+
+So `os88line_edit` takes **`DX` = `LN_CAR` as it was before the key** alongside
+the other two, and takes that bar off with `os88line_caroff` before putting the
+new one up — unless the arm it picked has already repainted that cell, which
+is what the append does and is the whole of the typing path. One extra cell on
+a backspace and on `End`, and **nothing at all on the path §96.19.1 measures**.
+
+`os88line_caroff` reads the buffer as it is NOW, and here that is right rather
+than lucky: the cell it repaints either holds a character this edit did not
+touch, or is past the end of a text that just got shorter — where its `.blank`
+arm is an 8px white fill, which is exactly what a rubbed-out cell wants.
+
+**Three words and not two is the contract worth having**, because the two-word
+version could not state its own promise: *repaint what one edit changed* has to
+include the caret, and a routine that is told where the text was but not where
+the bar was can only ever get it right by luck.
+
 ### 83.2 The multi-line block, and what it does not do
 
 ```
@@ -123765,7 +123806,9 @@ three other carriers get it too. It is deliberately small and **falls back
 rather than getting clever**: if the view scrolled, every visible cell moved;
 if the caret is not at the end, an insert shifted the whole tail. Both go to
 `os88line_draw`. What is left is the case that matters, because it is what
-typing *is* — an append touches **one cell** and a backspace blanks one.
+typing *is* — an append touches **one cell**, and a backspace blanks one and
+takes the caret's own bar off a second (§83.1.1, which is what it did not do
+and why every backspace used to leave a bar standing).
 
 A partial repaint whose arithmetic is wrong leaves ink behind, which is worse
 than a slow one, so the cheap path is taken only where it is obviously right.

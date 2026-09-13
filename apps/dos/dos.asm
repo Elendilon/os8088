@@ -5839,10 +5839,16 @@ dos_key:
     mov [dos_lnv], dx                ; - IN MEMORY, because AL is the KEYSTROKE
     mov dx, [si+LN_LEN]              ; and loading the view into AX would eat it
     mov [dos_lnl], dx
+    mov dx, [si+LN_CAR]              ; ...AND THE CARET, which is the third
+    mov [dos_lnc], dx                ; thing a key moves: the bar is a 1px fill
+                                     ; and a cell the repaint skips KEEPS it,
+                                     ; so every backspace used to leave one
+                                     ; standing (SPEC.md 83.1.1)
     call os88line_key                ; CF=0 = the field used it. IT DOES NOT
     jc .nofield                      ; DRAW - its header says "redraw the
     mov ax, [dos_lnv]                ; field", and the redraw is the caller's.
     mov bx, [dos_lnl]
+    mov dx, [dos_lnc]
     call os88line_edit               ; EDIT and not DRAW: typing the 21st
     add [dos_ncell], cx              ; character must not repaint twenty that
     inc word [dos_nkey]              ; did not change (SPEC.md 96.19.1)
@@ -8377,6 +8383,7 @@ PKT_VERSION equ 9
                                  ; dos_srect, which it already had
     DBSS DOS_B_LNV,   2          ; the field's view and length as they were
     DBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
+    DBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
     DBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
     DBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
     DBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
@@ -13060,6 +13067,7 @@ dos_grect   equ os88_image_end + DOS_B_GRECT   ; ...'>'
 dos_trect   equ os88_image_end + DOS_B_TRECT   ; ...and 'Return'
 dos_lnv     equ os88_image_end + DOS_B_LNV     ; word: LN_VIEW before a key
 dos_lnl     equ os88_image_end + DOS_B_LNL     ; word: LN_LEN before a key
+dos_lnc     equ os88_image_end + DOS_B_LNC     ; word: LN_CAR before a key
 dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
 dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
 dos_page    equ os88_image_end + DOS_B_PAGE    ; byte: DOS_PAGE_*

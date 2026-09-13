@@ -436,7 +436,8 @@ os88line_caroff:
 ; -----------------------------------------------------------------------------
 ; os88line_edit - repaint what ONE EDIT changed, and not the rest
 ; in:  SI = the block, AX = LN_VIEW as it was BEFORE the key,
-;      BX = LN_LEN as it was before it; the gfx lock held
+;      BX = LN_LEN as it was before it, DX = LN_CAR as it was before it;
+;      the gfx lock held
 ; out: CX = text cells drawn, for a caller that wants to count them.
 ;      Everything else preserved.
 ;
@@ -465,6 +466,16 @@ os88line_caroff:
 ; The cells come from os88line_cell and the caret from os88line_caron, which
 ; is this file's own rule: a cell repainted from arithmetic of its own lands
 ; beside the one that was drawn rather than on it.
+;
+; **AND THE THIRD WORD IS THE CARET** (SPEC.md 83.1.1). The bar is a 1px fill
+; and nothing else on the machine knows it is there, so a cell this routine
+; does not repaint KEEPS it. The append is covered for free - the opaque cell
+; it draws is the one the bar was standing in - and the other two were not:
+; a backspace blanks the cell the CHARACTER was in, which is the one the caret
+; is moving TO, so the bar it left sat one cell right and the trail grew by one
+; per key; and End from the middle of a line moves the caret with the text
+; unchanged, which is the one shape of caret move that reaches this path at all
+; (any other lands away from the end, which is already a full redraw).
 ; -----------------------------------------------------------------------------
 os88line_edit:
     push ax
@@ -477,6 +488,11 @@ os88line_edit:
     xor cx, cx
     cmp di, [si+LN_VIEW]
     jne .full                   ; the whole visible span moved
+    mov di, dx                  ; DI = THE CARET AS IT WAS, which is where the
+                                ; bar on the glass is. The view question is
+                                ; answered and DI is free, so the block needs
+                                ; no storage for it - which is this file's
+                                ; whole rule (SPEC.md 83.1.1)
     mov ax, [si+LN_CAR]
     cmp ax, [si+LN_LEN]
     jne .full                   ; a mid-string edit shifted the tail
@@ -497,6 +513,10 @@ os88line_edit:
     mov ah, CWHITE              ; the last character is already followed by
     call OSAPI_FONT_RUN         ; the buffer's own terminator
     pop si
+    mov di, [si+LN_CAR]         ; ...AND NOTHING IS OWED AT .caret: the cell
+                                ; just drawn opaquely IS the one the bar was
+                                ; standing in, because a caret at the end
+                                ; before the key is at LN_LEN-1 after it
     mov cx, 1
     jmp short .caret
 .shrank:
@@ -520,8 +540,18 @@ os88line_edit:
 .caret:
     cmp byte [si+LN_FOCUS], 0
     je .out
-    mov ax, [si+LN_CAR]
     push cx
+    cmp di, [si+LN_CAR]
+    je .cnew                    ; the bar has not moved: it is already right
+    mov ax, di                  ; **THE BAR THE CARET LEFT**, and os88line_
+    call os88line_caroff        ; caroff reads the buffer as it is NOW, which
+                                ; is right rather than lucky: that cell either
+                                ; holds a character this edit did not touch, or
+                                ; is past the end of a text that just got
+                                ; shorter - where its .blank arm is the 8px
+                                ; white fill a rubbed-out cell wants
+.cnew:
+    mov ax, [si+LN_CAR]
     call os88line_caron
     pop cx
 .out:
