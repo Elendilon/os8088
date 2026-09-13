@@ -518,7 +518,7 @@ fpg_arm:
     jb .curdone                 ; [mouse_y] and NOT [cur_drawn_y]: the drawn
                                 ; position is meaningless while the arrow is
                                 ; hidden, and cursor_show draws at the live one
-    call cur_busy_take          ; ...AND IT COMES BACK AS AN HOURGLASS (SPEC.md
+    call cur_busy_take          ; ...AND IT COMES BACK AS A CLOCK (SPEC.md
                                 ; 7.5). THE FREE HALF OF THE FEATURE: this
                                 ; site's whole reason for existing is that the
                                 ; pointer is off the glass and about to be put
@@ -528,7 +528,7 @@ fpg_arm:
                                 ; before. The five compares above are already
                                 ; the answer to "may a system pointer be on
                                 ; this screen at all", which is the same
-                                ; question the hourglass has to ask
+                                ; question the clock has to ask
     mov byte [cur_lazy], 1
     call cursor_show
 .curdone:

@@ -9106,12 +9106,12 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
-### 7.5 The hourglass belongs to a LOCK HOLD, not to a window
+### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
 property of a **window**: `OSAPI_WM_CURSOR` writes one into `W_FLAGS`, the
 record owns it for its whole life, and `cur_shape_pass` applies it on the UI
-task whenever the pointer moves over that content. The hourglass is a property
+task whenever the pointer moves over that content. The clock is a property
 of a **gfx-lock hold** — *the machine is busy and your hand changes nothing* —
 and every one of those differences falls out of the same fact: **during the
 hold the UI task is not available to apply anything.** It is either the task
@@ -9121,7 +9121,7 @@ by the hold itself and taken off by `gfx_unlock`.
 That is `fpg_finish`'s safety argument (§12.8.3) reused verbatim, and it is why
 there is no "off" verb to forget: **every way out of a locked run of kernel
 code — return, failure, a question, a swap prompt — comes through
-`gfx_unlock`**, so nothing can leave an hourglass on the screen. `wm_cursor`
+`gfx_unlock`**, so nothing can leave a clock on the screen. `wm_cursor`
 therefore refuses `CUR_BUSYSH` at the door — `cmp al, CUR_NWSHAPE`, **the same
 instruction it always was with a different constant in it**: a window record
 that could carry it would be a program declaring the machine permanently busy
@@ -9134,31 +9134,57 @@ picture. The assertion beside `WF_HIBITS` is cut from `CUR_NWSHAPE` for exactly
 that reason, and it is what caught this: raising `CUR_NSHAPE` to 3 failed the
 build in `wm.inc` on the first attempt.
 
-#### 7.5.0 The picture, and why it is asymmetric
+#### 7.5.0 The picture, and why it is a clock and not an hourglass
 
 Every shape shares the arrow's 8x12 cell (§7.2) — a bigger one would be paid on
-every lock hold in the machine — and the hourglass fills it edge to edge,
-because the bars *are* its widest rows. So there is no room in eight columns
-for the white rim the other two shapes are built with, and a
-black-on-transparent hourglass would vanish into any dark window it stood on.
-What ships is the other construction: **a solid white tile with the glass in
-black on it**, which reads on every ground and costs the same 24 bytes.
+every lock hold in the machine. What ships inside it is a **watch face**: a
+round silhouette, a black bezel, a white face, two black hands, and **nothing
+written outside the circle**.
 
-The drawing is **asymmetric on purpose**, and it was picked by rendering four
-of them zoomed rather than by drawing one. The upper chamber is SOLID — sand
-still to fall — and the lower is an OUTLINE with a pile in it. That is what
-says which way up it is at 8x11: the obvious symmetric drawing, with a
-four-row neck, reads as an **I-beam**.
+It was an hourglass first, and the reason it is not one any more is a
+constraint that only shows up on the desktop. **An hourglass cannot be given a
+rim.** The arrow and the crosshair float because their black bodies are ringed
+in one pixel of white, but an hourglass's *widest* rows are its caps, which
+span the whole cell — so dilating them by a pixel reaches both edges and the
+"rim" is a solid tile. That tile is what shipped, and on a white window it is
+invisible and correct. On the **50% dither desktop** it is a white square
+punched into the dither wherever the pointer stops, and the pointer moves, so
+the phase under it changes pixel by pixel and there is no alignment to hide
+behind. A circle has no corners to stamp.
+
+So the white goes **inside**, and that is the construction worth naming because
+it generalises: the outline is black, the surface behind it is white, and the
+ground shows through everywhere else. It is **self-contrasting** — on a white
+window you read the bezel and the hands, and on a dark one the bezel
+disappears into the ground and you read the white face, which is the same
+clock. There is no ground it can vanish into, which is what the rim was for.
+Twelve of the cell's ninety-six pixels are left transparent and the table is
+still **24 bytes**; §7.5.4's cost is *lower* than the tile's, not higher.
+
+The hands are what say the machine is counting rather than broken, and **they
+must meet**: both strokes share the pixel at `(CUR_BHX, CUR_BHY)`, which is the
+pivot and the hot spot at once. Drawn a pixel apart they read as two scratches.
+Nothing can assert that — it is a statement about which pixel means the centre
+and the table does not know — so it is checked the way §7.2's crosshair gap is,
+by looking at it.
+
+**The hot spot moved with the picture**, `CUR_BHY` 5 → 4. The hourglass was 11
+rows and the clock is 8, so the crosshair's row 5 is no longer the middle of
+anything; a shape swapped in under a pointer that has not moved must not appear
+to jump, which is the whole reason §7.2.2 subtracts a hot spot per shape.
+
+A wristwatch is also what System 1 itself wore, which is not the argument for
+it but is the reason it does not look foreign here.
 
 #### 7.5.1 It is DELIBERATELY still, where the arrow may not be
 
 §7.1.4.3 refuses a lit-but-frozen arrow and the field called that one a
 stutter; §7.1.4.4 is why `CURFIX` is still off by default. The rule survives
 here and its **reason** is what licenses the exception: a still arrow is a
-**lie about responsiveness**, and an hourglass standing still is the truth it
-exists to tell. So the hourglass may sit where the arrow may not, and the whole
+**lie about responsiveness**, and a clock that is not counting is the truth
+this shape exists to tell. So it may sit where the arrow may not, and the whole
 of §7.4's tracking machinery — `[cur_inxfer]`, `[cur_barok]` — is left exactly
-as it is. A file operation's hourglass **tracks** because §7.4 already makes the
+as it is. A file operation's clock **tracks** because §7.4 already makes the
 pointer track through `int 13h`; a package's does not, because nothing in a
 four-second decode is going to move it. Neither needed a line of new code.
 
@@ -9177,11 +9203,11 @@ renderer looks at a single bit of the picture to decide how much work to do.
 below it, and that placement is load-bearing: `cur_shape_set` spends the
 promise, which is what sends the test to the `cursor_show` arm and draws the
 restored picture. Below it, the test would take `.never` — *"the arrow never
-left the screen"* — and the hourglass would stay on it.
+left the screen"* — and the clock would stay on it.
 
 **The bank is conditional**, and the four bytes that make it so are not
 optional: a *second* take inside one hold — a package that called the slot and
-then touched a file — would otherwise bank the hourglass as the thing to go
+then touched a file — would otherwise bank the clock as the thing to go
 back to, and `gfx_unlock` would restore it for ever. `cur_shape_set` is already
 a compare and a return when the picture is on, so a `cmp`/`je` above the store
 is the whole of the fix.
@@ -9272,7 +9298,7 @@ no way to know it happened.
 
 **It is not done for every lock hold**, and that is the whole reason it is a
 verb rather than a policy. An ordinary repaint is one hold; wearing an
-hourglass for it would flicker the pointer on every window that redrew, which
+clock for it would flicker the pointer on every window that redrew, which
 is PERFORMANCE.md Part 1 rule 2 again. The kernel cannot tell a four-second
 hold from a four-millisecond one *in front of it*, and by the time it could the
 flicker has already happened. The program can, and it is the only thing that
@@ -9280,7 +9306,7 @@ can.
 
 The slot is a **door in front of `cur_busy_on`**, twenty bytes of it, and all
 it adds is *the caller must hold the lock itself*. That buys two things: the
-hold is the lifetime `gfx_unlock` ends, so a package cannot leave an hourglass
+hold is the lifetime `gfx_unlock` ends, so a package cannot leave a clock
 to be cleared by somebody else's unlock; and it hands the drawing below the
 same guarantee the mouse ISR gets from a free lock (§7.4.2.1) — that no task is
 inside a primitive — which a package's **worker** could otherwise break.
@@ -9325,7 +9351,7 @@ One hazard is closed by construction rather than by the gate, and it is worth
 naming because it is invisible: on the **lit** arm `cur_shape_set`'s own
 `cur_unlazy` would hide the pointer a SECOND time, settling `[cur_level]` at
 −2 and leaving it gone for the whole freeze with the shape byte saying
-hourglass. `cur_busy_on` therefore spends the promise **above** the arm test —
+busy. `cur_busy_on` therefore spends the promise **above** the arm test —
 three bytes — which also decides which arm is taken. `tests/curbusy.py` does
 NOT catch it: two arms of three are lock-free, where there is no promise to
 spend, and their samples dominate.
@@ -9335,11 +9361,12 @@ spend, and their samples dominate.
 - **The renderers are blind to the picture.** `cur_put_mono`/`cur_get_mono`
   walk `[cur_rows]` rows of `CUR_SPAN` bytes whatever the bits are — the 1bpp
   cost is *identical* for every shape. `cur_draw` skips a framebuffer byte
-  whose shifted white row is empty, so a denser picture can cost more there:
+  whose shifted white row is empty, so a SPARSER picture costs less there:
   counted over all eight pen phases, the arrow writes **19.75** bytes a draw
-  and the hourglass **20.62**, a 1.04x that is worst at one phase (+7 of 15)
-  and cheaper at three. `cur_saveu`'s four planes dominate either way and are
-  shape-blind.
+  and the clock **13.50**, which is **0.68x** — the busy pointer is cheaper to
+  draw than the ordinary one, where the solid tile this replaces was dearer at
+  20.62. That is the transparency of §7.5.0 paying for itself twice.
+  `cur_saveu`'s four planes dominate either way and are shape-blind.
 - **`cur_shape_pass` is untouched** — still one byte compare on a quiet pass
   (§7.2.1.1), and still `cmp al, CUR_NSHAPE` in `cur_shape_set`.
 - **The only hot path that gained an instruction is `gfx_unlock`**, by a `cmp`

@@ -3990,7 +3990,7 @@ apic_wm_destroy:
                                   ;          clip rect is SKIPPED, not refused
     OSAPI_SLOT cur_busy        ; 0x0540 - I AM ABOUT TO GO QUIET FOR A WHILE
                                   ;          (SPEC.md 7.5). No argument. The
-                                  ;          pointer becomes an HOURGLASS for
+                                  ;          pointer becomes a CLOCK for
                                   ;          the rest of the gfx-lock hold the
                                   ;          caller is inside, and gfx_unlock
                                   ;          puts the old one back - so there

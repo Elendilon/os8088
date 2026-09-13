@@ -3058,7 +3058,7 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; hold on the machine rather than only where you asked for it.
 OSAPI_CUR_ARROW equ 0           ; the default, and what W_FLAGS arrives holding
 OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
-; ...and there is NO third value to pass here. The hourglass belongs to a
+; ...and there is NO third value to pass here. The clock belongs to a
 ; gfx-lock HOLD rather than to a window (SPEC.md 7.5), so it is asked for with
 ; OSAPI_CUR_BUSY below and this slot refuses it - a window record that could
 ; carry it would be a program declaring the machine permanently busy over its
@@ -3087,7 +3087,7 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
 %define OSAPI_CUR_BUSY      KERNEL_SEG:0x0540   ; I AM ABOUT TO GO QUIET FOR
                                                 ; A WHILE (SPEC.md 7.5). NO
                                                 ; ARGUMENT. The pointer becomes
-                                                ; an HOURGLASS for the rest of
+                                                ; a CLOCK for the rest of
                                                 ; the gfx-lock hold you are
                                                 ; inside, and OSAPI_GFX_UNLOCK
                                                 ; puts the old one back - so
@@ -3100,8 +3100,8 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; decode, a compression pass, a
                                                 ; long compute - and NOT around
                                                 ; an ordinary repaint: the
-                                                ; pointer would flicker to an
-                                                ; hourglass and back on every
+                                                ; pointer would flicker to a
+                                                ; clock and back on every
                                                 ; one, which is why the kernel
                                                 ; does not do this for every
                                                 ; lock hold itself. A FILE
