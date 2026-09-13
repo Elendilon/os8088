@@ -121213,7 +121213,7 @@ every paint:
 | `[con_oy]` | `[dos_cony]` — below the bar |
 | `[con_topy]` | **0**: §96.32's band origin is the text's origin, where Telnet's is the window's and its own chrome is above |
 | `[con_vcols]`/`[con_vrows]` | `[dos_concols]`/`[dos_conrows]` |
-| `[con_vtop]` | `CON_ROWS - [con_vrows]`, floored at 0 — **the BOTTOM of the buffer**, which is the opposite of a terminal's viewport and right for a console: the interesting row is the one the prompt is on. It only bites on CGA, where 200 pixels of screen leave 15 rows of 25 |
+| `[con_vtop]` | **`[con_cy] + 1 - [con_vrows]`, floored at 0** — the window FOLLOWS THE CURSOR (§96.33.8). It was `CON_ROWS - [con_vrows]`, the bottom of the buffer, which is the same number only once the console has filled and is a blank screen before that |
 | `[con_mono]` | `OSAPI_VIDEO`'s `DH`, asked here and not at launch (§11.96.12) |
 
 **`con_open` is called once, from the entry proc**, and it is not optional: the
@@ -121230,6 +121230,49 @@ and `con_say` for a NUL-terminated string. **LF scrolls and CR does not move the
 row**, which is the ROM teletype's behaviour and not ANSI's NEL, so a program
 that ends its lines `13, 10` gets one new line and one that ends them `10`
 alone gets a staircase — exactly as it would on a real PC.
+
+##### 96.33.8 The viewport follows the CURSOR, and anchoring it to the buffer was a blank screen
+
+Reported from the field: **on CGA, opening `DOS.O88` shows an empty black band**
+— *"the prompt and version are both above the fold"*.
+
+`[con_vtop]` is the first buffer row a short window shows, and §96.33.1 set it
+to `CON_ROWS - [con_vrows]` under a reasoning that is half right: *the
+interesting row is the one the prompt is on*, so anchor at the bottom. The
+prompt is only on the buffer's LAST row once the console has scrolled a whole
+screenful. Before that it is near the top, and the bottom of the buffer is
+blank. Measured on `os8088_5150_cga_gla` at the first paint:
+
+```
+conrows=17 concols=80  con_vrows=17 con_vtop=8 con_cy=4
+  buf[ 1] 'os8088 DOS Version 3.31'
+  buf[ 3] 'Type a command, or the name of a program to run.'
+  buf[ 4] 'A:\>'
+```
+
+Every live row is above row 8, and rows 8..24 — the whole visible window — are
+spaces. **The band was drawing perfectly; it was pointed at the wrong eight
+rows.**
+
+So the anchor is the CURSOR and not an end of the buffer: `vtop = max(0, cy + 1
+- vrows)`. It needs no upper clamp, `cy` being at most `CON_ROWS - 1` by
+construction. The two agree exactly once the console has filled — `cy` pins at
+the last row and the buffer scrolls under it — so this changes nothing about a
+console that has been used, which is why the defect survived every test that
+typed something first.
+
+**The shift is spent as a SCROLL and not as a repaint**, which is what makes it
+free. `dos_con_pub` runs immediately before `con_scrollpaint` on every draw, and
+a viewport that moves down by *n* is visually identical to a buffer that
+scrolled up by *n* — the same blit, the same newly-revealed bottom row, which
+`con_markcur` has already marked. So an increase is added to `[con_scrl]` and
+the existing machinery spends it; only a DECREASE, which no teletype produces
+and only `con_clear`'s home can, falls back to `con_markall`.
+
+**VGA and Hercules never saw it.** 350 and 348 pixels hold all 25 rows, so
+`vrows` is 25, `vtop` is 0 by either rule, and the band is right. It is CGA's
+200 lines alone that leave 17 rows of 25 — one adapter of three, which §39 names
+as the standing trap and which a single-adapter check cannot see.
 
 ##### 96.33.2 The prompt is `$P$G` and it is not configurable
 
