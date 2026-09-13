@@ -86,8 +86,15 @@ def fail(msg):
 
 
 def field(text, name):
-    m = re.search(r"^%s (.*?)\s*$" % name, text, re.M)
-    return m.group(1) if m else None
+    """The LAST line named `name`, which is this run's.
+
+    Not the first: SPEC.md 96.34.4 seeds the console onto the program's
+    screen, so a second run starts with the FIRST run's output still on it and
+    a search from the top answers about the wrong run.  It read `ARGS (none)`
+    for a run that had been given arguments, which is the previous run being
+    right rather than this one being wrong."""
+    got = re.findall(r"^%s (.*?)\s*$" % name, text, re.M)
+    return got[-1] if got else None
 
 
 def run_and_read(m, limit=120.0):

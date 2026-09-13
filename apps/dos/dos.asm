@@ -1141,6 +1141,34 @@ dos_fsx_main:
                                     ; program will draw on it. Not worth
                                     ; abandoning the run for
 
+    jc .noseed                      ; --- THE CONSOLE ONTO THE PROGRAM'S
+                                    ; SCREEN (SPEC.md 96.34.4). The mode set
+                                    ; CLEARED, so without this a program starts
+                                    ; on a blank screen and the command line
+                                    ; that launched it is not above its output
+    mov bx, [dos_win]
+    call OSAPI_FSX_CAPS             ; DL = the DISPLAY's own kind, which
+    mov [con_tkind], dl             ; osapi_video cannot answer for a window
+    mov ax, [dos_fsi + FSI_SEG]     ; that is not on the primary (53.7.1)
+    mov [con_tseg], ax
+    mov byte [con_tcur], 0xFF       ; dos_fsx_con's reason (96.33.5)
+    call con_tx_ice
+    cmp word [con_cx], 0            ; **A FRESH LINE FIRST** (96.34.4): a shell
+    je .seedy                       ; echoes the newline you pressed, and a
+    mov al, 13                      ; DOUBLE-CLICK leaves the cursor at the end
+    call con_write                  ; of the idle prompt - so without this the
+    mov al, 10                      ; program's first line lands ON `A:\>`
+    call con_write
+.seedy:
+    call con_markall
+    call dos_fsx_owed               ; ...the same renderer Full Screen uses
+    mov dh, [con_cy]                ; AND THE ROM'S OWN CURSOR WITH IT: the
+    mov dl, [con_cx]                ; teletype reads 0040:0050, so a program's
+    xor bh, bh                      ; first write would otherwise land on row 0
+    mov ah, 0x02                    ; and overwrite the history just painted
+    int 0x10
+.noseed:
+
     call OSAPI_VIDEO                ; AX = width, BX = height: INT 33h's scale
     mov [dos_vw], ax                ; (SPEC.md 96.10). Asked ONCE, here, and
     mov [dos_vh], bx                ; not per call - it cannot change inside a

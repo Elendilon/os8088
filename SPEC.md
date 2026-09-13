@@ -121424,20 +121424,39 @@ wholesale replacement makes the scroll debt a lie, and `con_scrollpaint` would
 spend it by blitting content that is no longer there. `con_markall` follows, so
 the next paint draws the lot.
 
-##### 96.34.4 What is NOT built here, and the wart it leaves
+##### 96.34.4 ...and the console is SEEDED onto the program's screen
 
-The pair of this is **seeding** — laying the console onto the real text screen
-at bracket entry, so a program starts on a screen that already shows the
-prompt's history and the command line that launched it, and its output scrolls
-on from there. `con_tx_row` and `dos_fsx_owed` are that renderer and it already
-exists (§96.33.5); what it needs is `OSAPI_FSX_CAPS` for `[con_tkind]` and the
-same four stores `dos_fsx_con` makes.
+The capture's pair, and it costs **52 bytes**: the bracket sets `FSXM_TEXT80`
+on the way in and a mode set *clears*, so without this a program starts on a
+blank screen and the command line that launched it is not above its output the
+way it is under a real `COMMAND.COM`. With it the console does not get
+*replaced* by the program's screen, it **continues onto it** — and the capture
+then brings the whole thing back, the seeded history included, because the two
+write the same cells at the same positions.
 
-Until it is built the console does not *continue* onto the program's screen, it
-is *replaced* by it — so the command line the user typed is not above the
-program's output the way it would be under a real `COMMAND.COM`. §96.34.3's
-empty-screen refusal is what keeps that from being destructive rather than
-merely incomplete.
+It is not a second renderer. `dos_fsx_owed` and `con_tx_row` are Full Screen's
+(§96.33.5) and this is the same four stores `dos_fsx_con` makes —
+`OSAPI_FSX_CAPS` for `[con_tkind]` (the *display's* kind, which `osapi_video`
+cannot answer for a window that is not on the primary), `FSI_SEG` for
+`[con_tseg]`, `0xFF` into `[con_tcur]`, and `con_tx_ice`.
+
+**And the ROM's own cursor with it**, which is the store that is easy to miss:
+the teletype reads `0040:0050`, and the mode set left it at 0,0 — so a
+program's first `AH=09h` would land on row 0 and overwrite the history that was
+just painted. One `int 10h AH=02h` puts it under the prompt instead, which
+updates the BDA and the CRTC together rather than either alone.
+
+A refused mode set skips the whole thing, for the same reason the run carries
+on through one: the screen is then already the desktop's and there is nothing
+to seed onto.
+
+##### 96.34.5 What is still deferred
+
+**Full windowed capture** — a program's output arriving in the band *as it
+runs*, with the bracket never taking the screen at all — is §11 wave 6's
+original shape and is deferred behind the hibernate phase (§14), because a
+program that writes `B8000` directly has to be refused into full screen and
+that decision reads differently once `kern_dos` exists.
 
 ### 96.7 What wave 1 answers, and what it refuses
 
