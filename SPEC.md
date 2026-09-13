@@ -122253,6 +122253,90 @@ parameter`, exactly as `DIR /Z` does. It arrived with DOS 5, this box reports
 3.31 (§96.7), and it would have shipped on the strength of feeling like it had
 always been there.
 
+That was read out of the string table, and it has since been **typed at the
+real thing**: IBM Personal Computer DOS 3.30 booted under MartyPC, `DIR /B`,
+and the screen says `Invalid parameter`. The field reported it as *"/B
+invalid"* against this box, which is the box being right.
+
+##### 96.33.9.2 …and `DIR` DOES NOT SORT, which is also DOS
+
+Reported from the field alongside the switches: *"we are not sorting
+alphabetically"*. True, and it is fidelity rather than an omission — `DIR`
+lists in **directory order** on every DOS before 5.0, because ordering is what
+`/O` was added to do and `/O` is DOS 5's.
+
+Measured the same way, on the same boot. The tail of the real 3.30's own `DIR`
+of its system disk:
+
+```
+SYS      COM     4766   3-17-87  12:00p
+VDISK    SYS     3455   3-17-87  12:00p
+XCOPY    EXE    11247   3-17-87  12:00p
+EGA      CPI    49065   3-18-87  12:00p
+LCD      CPI    10752   3-17-87  12:00p
+4201     CPI    17089   3-18-87  12:00p
+5202     CPI      459   3-17-87  12:00p
+```
+
+`EGA.CPI` after `XCOPY.EXE`, and `4201.CPI` after both: that is the order the
+directory entries sit in, and no sort could produce it.
+
+**The kernel's own listing is a different structure and it DOES sort** (§19.5),
+which is what makes this look like a bug from inside the system: the Disk
+window sorts because a person is picking an icon out of a grid, and `DIR`
+does not because it is COMMAND.COM. Two answers, two audiences, and the box
+is the one that has to match a 1987 screenshot.
+
+**AND THE DEPARTURE IS TAKEN, BY THE OWNER, WITH THE LINE DRAWN WHERE IT
+BELONGS**: *"implementation wise we are trying to model on DOS 3.3 (with a
+switch to DOS 5.0 soon). User interface wise, we can deviate; and alphabetical
+is what any modern user will expect."*
+
+So `DIR` sorts. That is a stated departure and not a fidelity claim, and the
+rule it draws is the one worth keeping: **the ABI is 3.3's and the screen is
+ours.** Everything a program can observe - `int 21h`'s answers, the version
+`AH=30h` reports, which switches are `Invalid parameter` - stays 3.3, because a
+program is the thing that can tell. The order names appear in for a person to
+read is not something a program observes at all.
+
+It also makes the box agree with the Disk window (§19.5) rather than disagree
+with it, which is what made this look like a defect from inside the system in
+the first place. **Plain name order, folders MIXED IN**, because that is what
+`dsk_sortdir` does and two sorted listings that disagree would be worse than
+one sorted and one not.
+
+**The mechanism is an INDEX, and it makes `DIR` cheaper rather than dearer.**
+`OSAPI_FILE_FIND` is stateless by ordinal and re-walks the directory per call
+(§19.7.1), so today's chained listing already visits the directory O(n²)
+times — cached, but spent. `dsh_dsort` walks it **once**, keeps each matching
+entry's whole 24-byte find record in a claim, sorts an array of 16-bit
+offsets into those records, and emits from RAM. The emit pass then costs no
+`FIND` at all.
+
+Three things fall out of sorting the OFFSETS rather than the records:
+
+- a comparison is two indirect loads and no multiply — the 8086 has no
+  `shl reg, imm`, and a 24-byte stride addressed per comparison would put a
+  ~120-cycle `mul` inside the inner loop;
+- a swap is two words rather than 24 bytes;
+- and the records never move, so nothing has to be kept in step with them.
+
+Selection sort, for `dsk_sortdir`'s reason one level along: at most n-1
+exchanges whatever the input. At the 256-entry cap that is 32,640
+comparisons of 11 bytes — about half a second on a 4.77 MHz 8088, against
+the eighteen seconds those 256 lines take to reach a CGA at §6.1's
+measured 71 ms a row. For an ordinary twenty-entry folder it is 190
+comparisons and unmeasurable.
+
+**The fallback is DIRECTORY ORDER and it is not silent about what it is.** A
+claim that is refused, or a folder with more than `DSH_SMAX` matching
+entries, lists exactly as it always did — which is real DOS's order, so the
+degradation is to the behaviour this section is departing FROM rather than to
+something broken. The claim is 7 KB, transient, taken at the top of the
+listing and freed at its end; `/P` suspends between pages and the claim spans
+the suspension, which is what makes a paged listing sort as one listing
+rather than per page.
+
 **`/P` CANNOT WAIT FOR A KEY, and that is a property of where the shell runs.**
 `dos_con_key` is `W_ONKEY`'s handler and its contract is **the gfx lock HELD**
 (§12.8.3), so a built-in that blocked on a keystroke would hold that lock for
@@ -123347,6 +123431,39 @@ fail, and a refusal that left it standing would hand the parent's next
 - **`AH=4Dh`** answers the child's exit code, and `AH` = 0 always: there is no
   Ctrl-Break or critical-error termination to report, because `INT 23h` is an
   `iret` and `INT 24h` always FAILs (§96.7).
+
+#### 96.14.3 …and `Not enough memory` was TWO failures wearing one sentence
+
+Reported from the field: Prince of Persia installed to `C:\PRINCE`, the
+console standing there, `PRINCE` typed — and **`Not enough memory.`** with
+*"452 KB actually free at this point"*.
+
+The message cannot be acted on because it is two different failures, and
+`DER_MEM` is raised at both:
+
+- **the ARENA could not be got** — `OSAPI_MEM_AVAIL_LVL` answered below
+  `DOS_MIN_KB`, or the claim that followed it was refused. This is about the
+  MACHINE: the heap has no run big enough, whatever is being launched.
+- **the arena will not HOLD THIS PROGRAM** — the `.EXE` path's
+  `image + MINALLOC + PSP` test. This is about the FILE, and it fires with a
+  perfectly good arena.
+
+Measured on the reported program: `PRINCE.EXE` is 126,304 bytes, its header
+declares `MINALLOC` = 1,216 paragraphs and `MAXALLOC` = 0xFFFF, so it needs
+**8,989 paragraphs — 140 KB** before it can start. A DOS box on a 640 KB
+machine sizes its arena at **449 KB**, so the second test passes with 300 KB
+to spare and the failure has to be the first. **One sentence could not say
+that**, and the investigation it cost is the argument for splitting it.
+
+So the fit test answers `DER_FIT` and DOS's own words for it:
+**`Program too big to fit in memory`**, measured out of IBM PC DOS 3.30's
+`COMMAND.COM` at offset 2436 rather than remembered. `Not enough memory.`
+keeps its meaning and is now only ever about the machine.
+
+**It is a message change and not a behaviour change** — both paths refused
+before and both refuse now. What it buys is that the next report says which
+half, and a reader of the band can tell "this machine cannot run this" from
+"this machine cannot run anything right now".
 
 ### 96.15 XMS, over the four slots the kernel already publishes
 

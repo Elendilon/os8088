@@ -1313,6 +1313,12 @@ dsh_c_dir:
     mov word [dsh_ord], 0           ; ordinal to start at, /W's column
     mov word [dsh_ln], 0
     mov byte [dsh_wcol], 0
+    call dsh_sbuild                 ; ...AND THE SORT (SPEC.md 96.33.9.2), once
+                                    ; for the whole listing rather than per
+                                    ; page, so a /P listing sorts as ONE listing
+                                    ; and the claim spans the suspension. CF=1
+                                    ; is not a failure: it is directory order,
+                                    ; which is what real DOS lists
     jmp dsh_dir_page                ; ...and its answer is ours (tail call)
 .badsw:
     mov si, dsh_s_badparm
@@ -1417,6 +1423,19 @@ dsh_dir_page:
     mov [dos_curdir], dx
     mov cx, [dsh_ord]               ; the ordinal, banked across the pause
 .each:
+    cmp word [dsh_sseg], 0
+    je .walk                        ; no claim: the old chained walk, in
+    push cx                         ; directory order (SPEC.md 96.33.9.2)
+    call dsh_stage                  ; ...otherwise straight out of RAM, sorted,
+    jc .done                        ; with no FIND and so no directory re-walk.
+                                    ; **CX STAYS ON THE STACK ACROSS THE `jc`**:
+                                    ; every exit below pops it exactly once, and
+                                    ; on this arm it is a dead ordinal - the
+                                    ; cursor is [dsh_si]. A `pop` before the
+                                    ; branch would leave .done popping a frame
+                                    ; that is not there
+    jmp short .matched              ; dsh_sbuild matched it on the way in
+.walk:
     push ds
     pop es
     push cx
@@ -1432,6 +1451,7 @@ dsh_dir_page:
     mov di, dsh_pat
     call dsh_match
     jc .next
+.matched:
     test byte [dsh_dsw], DSW_W
     jz .long
     call dsh_dirwide                ; five to a row, so four names in five
@@ -1468,12 +1488,19 @@ dsh_dir_page:
     jmp short .each
 .done:
     pop cx
+    call dsh_sfree                  ; the sort claim is the LISTING's, and this
+                                    ; is where a listing ends (SPEC.md
+                                    ; 96.33.9.2). A /P suspension is not an end
+                                    ; and deliberately does not reach here -
+                                    ; dsh_dir_stop is the abandon path and frees
+                                    ; it too
     call dsh_wflush                 ; /W's part-row, if one is open
     call dsh_home
     call dsh_dirtot
     xor al, al
     ret
 .ioerr:
+    call dsh_sfree
     call dsh_home
     mov si, dsh_s_ioerr
     call dsh_say
@@ -1501,6 +1528,273 @@ dsh_dir_more:
 ; clobbers: nothing (flags)
 dsh_dir_stop:
     mov byte [dsh_more], 0
+    jmp dsh_sfree                   ; ...and the sort claim goes with it
+
+; =============================================================================
+; DIR'S SORT (SPEC.md 96.33.9.2)
+;
+; A stated departure from DOS, on the owner's line: the ABI is 3.3's and the
+; SCREEN is ours. A program can observe int 21h's answers, the version AH=30h
+; reports and which switches are refused; it cannot observe the order names
+; appear in for a person to read.
+;
+; It makes DIR CHEAPER rather than dearer. OSAPI_FILE_FIND is stateless by
+; ordinal and re-walks the directory per call (SPEC.md 19.7.1), so a chained
+; listing already visits it O(n^2) times. This walks ONCE, keeps each matching
+; entry's whole find record in a claim, sorts an array of OFFSETS into those
+; records, and emits from RAM.
+; =============================================================================
+DSH_SREC    equ OSAPI_FIND_SZ       ; 24 - the record, kept whole so that
+                                    ; dsh_dirline and dsh_dirwide read exactly
+                                    ; what they read before
+DSH_SMAX    equ 256                 ; ...and the cap. A 1.44MB root holds 224
+DSH_SOFF    equ DSH_SMAX * DSH_SREC ; where the offset array starts
+DSH_SKB     equ 7                   ; (6,144 + 512 = 6,656 bytes)
+
+; --- dsh_sfree - give the claim back.  clobbers: nothing (flags) ------------
+dsh_sfree:
+    pushf
+    push ax
+    push dx
+    mov dx, [dsh_sseg]
+    or dx, dx
+    jz .out
+    call OSAPI_MEM_FREE
+    mov word [dsh_sseg], 0
+.out:
+    mov word [dsh_sn], 0
+    pop dx
+    pop ax
+    popf
+    ret
+
+; --- dsh_scmp - does the record indexed at SI sort BEFORE the one at DI? ----
+; in:  ES = the claim, SI and DI = BYTE offsets into the index array (i*2)
+; out: CF=1 = yes.  clobbers: nothing but the flags
+;
+; **THE RECORD SORTS ITSELF**: +0 is a NUL-terminated 13-byte DISPLAY name
+; (apps/os88api.inc's own layout), so nothing is stored beside it and the
+; order is the one a person reads. DOS names are upper case (SPEC.md 19), so
+; there is no folding to do.
+;
+; It takes INDEX slots rather than record offsets and does the indirection
+; itself, which is not a convenience: the caller's loop already holds i*2 and
+; j*2, and the obvious spelling - dereference into AX and compare `[es:ax]` -
+; does not assemble at all. The 8086 addresses memory through BX, BP, SI and
+; DI and through nothing else.
+;
+; Byte loads with an `es:` override on BOTH operands, for dsk_sortdir's
+; reason: `cmpsb` wants DS:SI and DS is OURS, not the claim's.
+dsh_scmp:
+    push ax
+    push cx
+    push si
+    push di
+    add si, DSH_SOFF
+    mov si, [es:si]                 ; ...the two records' byte offsets
+    add di, DSH_SOFF
+    mov di, [es:di]
+    mov cx, 13                      ; the field's width, as a fence - the NUL
+.c:                                 ; below is what actually ends it
+    mov al, [es:si]
+    cmp al, [es:di]
+    jne .ne                         ; ...and the cmp's own CF is the answer
+    or al, al
+    jz .same                        ; both ended here, so they are equal
+    inc si
+    inc di
+    dec cx
+    jnz .c
+.same:
+    clc                             ; equal is not BEFORE
+.ne:
+    pop di                          ; `pop` writes no flag, so the compare's
+    pop si                          ; CF rides out through all four
+    pop cx
+    pop ax
+    ret
+
+; --- dsh_sbuild - one walk, into a sorted claim -----------------------------
+; in:  [dsh_rclus]/[dsh_rdrv] the folder, [dsh_pat] the pattern
+; out: CF=0 with [dsh_sseg]/[dsh_sn] live; CF=1 = list it in directory order
+; clobbers: AX, BX, CX, DX, SI, DI, ES, flags
+dsh_sbuild:
+    call dsh_sfree                  ; a listing abandoned mid-page leaves one
+    mov ax, DSH_SKB
+    call OSAPI_MEM_CLAIM            ; out DX = base segment
+    jc .no                          ; **REFUSED IS NOT FATAL**: fall through to
+    mov [dsh_sseg], dx              ; directory order, which is real DOS's
+    xor cx, cx                      ; the ordinal, chained
+    xor bx, bx                      ; ...and the record cursor, bytes
+.walk:
+    push ds
+    pop es
+    push cx
+    mov di, dsh_fnd
+    call dos_be_find                ; out CX = the NEXT ordinal
+    jc .built
+    pop ax
+    push cx
+    mov si, dsh_fnd                 ; matched HERE rather than at emit, so the
+    mov di, dsh_nm11                ; claim holds only what will be printed and
+    call dsh_to11                   ; the cap counts the same entries the
+    mov si, dsh_nm11                ; listing does
+    mov di, dsh_pat
+    call dsh_match
+    jc .next
+    cmp bx, DSH_SOFF
+    jae .full                       ; more than the cap: unsorted, and 96.33.9.2
+                                    ; says why that degradation is the safe one
+    mov es, [dsh_sseg]              ; THE RECORD, WHOLE AND ALONE - its +0 is
+    mov di, bx                      ; the display name, so the sort needs
+    mov si, dsh_fnd                 ; nothing stored beside it
+    mov cx, DSH_SREC
+    call dsh_scopy
+    mov ax, [dsh_sn]                ; ...and its offset, into the index array
+    add ax, ax
+    add ax, DSH_SOFF
+    mov di, ax
+    mov [es:di], bx
+    inc word [dsh_sn]
+    add bx, DSH_SREC
+.next:
+    pop cx
+    jmp short .walk
+.full:
+    pop cx
+.nofit:
+    call dsh_sfree
+.no:
+    stc
+    ret
+.built:
+    pop cx
+    cmp word [dsh_sn], 2
+    jb .done                        ; 0 or 1 records are already in order
+    mov es, [dsh_sseg]
+    call dsh_ssort
+.done:
+    mov word [dsh_si], 0
+    clc
+    ret
+
+; --- dsh_scopy - CX bytes from DS:SI to ES:DI.  clobbers: AX, CX, SI, DI ----
+; A byte loop and not `rep movsb`, for dsh_scmp's reason inverted: movsb wants
+; ES:DI, which IS the claim here, and DS:SI, which IS ours - so this one could
+; use it. It does not, because the routine above holds BX across the copy and
+; a shared helper that clobbers differently at its two call sites is how a
+; register contract rots.
+dsh_scopy:
+    push si
+    push di
+    push cx
+.b:
+    mov al, [si]
+    mov [es:di], al
+    inc si
+    inc di
+    dec cx
+    jnz .b
+    pop cx
+    pop di
+    pop si
+    ret
+
+; --- dsh_ssort - selection sort of the OFFSET array, by the record's name ---
+; in:  ES = the claim, [dsh_sn] records
+; clobbers: AX, BX, CX, DX, SI, DI, flags (BP is banked)
+;
+; Selection sort for dsk_sortdir's reason (SPEC.md 19.4): at most n-1
+; exchanges whatever the input, where a bubble sort's worst case is n^2/2 -
+; and here an exchange is two WORDS of the index rather than a 24-byte record.
+;
+; BP holds i*2 and is an INTEGER here, never an address: SS is not DS in this
+; system (SPEC.md 1), so a `[bp+x]` would read the stack segment.
+dsh_ssort:
+    push bp
+    mov cx, [dsh_sn]
+    add cx, cx                      ; CX = n*2, the index array's length
+    xor bp, bp                      ; BP = i*2
+.outer:
+    mov ax, bp
+    add ax, 2
+    cmp ax, cx
+    jae .out                        ; the last element has nothing to pick from
+    mov di, bp                      ; DI = the smallest seen, as an index slot
+    mov si, ax                      ; SI = j*2
+.inner:
+    cmp si, cx
+    jae .place
+    call dsh_scmp
+    jnc .innext                     ; not smaller: keep looking
+    mov di, si
+.innext:
+    add si, 2
+    jmp short .inner
+.place:
+    cmp di, bp
+    je .next                        ; already the smallest: nothing to exchange
+    mov si, bp
+    add si, DSH_SOFF
+    mov bx, di
+    add bx, DSH_SOFF
+    mov ax, [es:si]
+    mov dx, [es:bx]
+    mov [es:si], dx
+    mov [es:bx], ax
+.next:
+    add bp, 2
+    jmp short .outer
+.out:
+    pop bp
+    ret
+
+; --- dsh_stage - record [dsh_si] of the sorted claim, into dsh_fnd/dsh_nm11 -
+; out: CF=0 staged and [dsh_si] advanced; CF=1 = the listing is done
+; clobbers: AX, CX, SI, DI, ES, flags
+;
+; It puts the two cells dsh_dirline and dsh_dirwide already read exactly where
+; they already read them, which is what makes the sort invisible to the two
+; renderers.
+dsh_stage:
+    mov ax, [dsh_si]
+    cmp ax, [dsh_sn]
+    jae .end
+    mov es, [dsh_sseg]
+    add ax, ax
+    add ax, DSH_SOFF
+    mov si, ax
+    mov si, [es:si]                 ; the record's byte offset
+    mov di, dsh_fnd
+    mov cx, DSH_SREC
+    call dsh_sload
+    push ds                         ; ...and dsh_nm11 is DERIVED from it, by the
+    pop es                          ; same routine the unsorted arm uses, so the
+    mov si, dsh_fnd                 ; two paths cannot drift
+    mov di, dsh_nm11
+    call dsh_to11
+    inc word [dsh_si]
+    clc
+    ret
+.end:
+    stc
+    ret
+
+; --- dsh_sload - CX bytes from ES:SI to DS:DI.  clobbers: AX, CX, SI, DI ----
+dsh_sload:
+    push si
+    push di
+    push cx
+.b:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    jnz .b
+    pop cx
+    pop di
+    pop si
     ret
 
 ; --- dsh_dirline - one entry of [dsh_fnd], as DOS lays it out ----------------

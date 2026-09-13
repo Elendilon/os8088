@@ -416,6 +416,9 @@ DER_BIG     equ 3
 DER_FSX     equ 4
 DER_EXE     equ 5
 DER_BADEXE  equ 6
+DER_FIT     equ 7                   ; ...and THIS program will not fit in the
+                                    ; arena we got, which is a different
+                                    ; sentence from not getting one (96.14.3)
 
 ; -----------------------------------------------------------------------------
 ; dos_entry - package entry (SPEC.md 20.2)
@@ -1119,12 +1122,12 @@ dos_exe_setup:
     ; --- does the arena hold PSP + image + minalloc? -----------------------
     mov bx, ax
     add bx, [dos_exe_minal]
-    jc .nomem
+    jc .nofit
     add bx, 16
-    jc .nomem
+    jc .nofit
     mov ax, [dos_ldpara]            ; the program's block, in paragraphs
     cmp ax, bx
-    jb .nomem
+    jb .nofit
 
     ; --- RELOCATE, in place, BEFORE the move -------------------------------
     ; The table lives in the header the move is about to destroy, and the
@@ -1178,9 +1181,14 @@ dos_exe_setup:
     pop bx
     clc
     ret
-.nomem:
-    mov al, DER_MEM
-    jmp short .fail
+.nofit:
+    mov al, DER_FIT                 ; **NOT DER_MEM** (SPEC.md 96.14.3): the
+    jmp short .fail                 ; arena was got and this program wants more
+                                    ; than it holds - image + MINALLOC + PSP -
+                                    ; which is a fact about the FILE. Sharing
+                                    ; one sentence with "the machine has no run
+                                    ; big enough" is what made a field report
+                                    ; unactionable
 .bad:
     mov al, DER_BADEXE
 .fail:
@@ -7497,7 +7505,7 @@ dos_exitd:   db '000', 0
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
-    dw dos_e_badexe
+    dw dos_e_badexe, dos_e_fit
 dos_e_goto:  db 'Its folder could not be opened.', 0
 dos_e_mem:   db 'Not enough memory.', 0
 dos_e_read:  db 'It could not be read.', 0
@@ -7505,6 +7513,8 @@ dos_e_big:   db 'Too large for one segment.', 0
 dos_e_fsx:   db 'The screen is already in use.', 0
 dos_e_exe:   db '.EXE is not supported yet.', 0
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
+dos_e_fit:   db 'Program too big to fit in memory.', 0  ; DOS 3.30's own words,
+                                    ; measured at COMMAND.COM offset 2436
 dos_dotdot:  db '..', 0
 dos_s_blast: db 'BLASTER=A', 0
 dos_mlen:    db 31,28,31,30,31,30,31,31,30,31,30,31
@@ -12723,6 +12733,9 @@ dos_fh_fill:
                                     ; wrong SECTOR
     DBSS DOS_B_SHLN,    2           ; lines put on this page so far
     DBSS DOS_B_SHWCOL,  1           ; /W: which of the five columns is next
+    DBSS DOS_B_SHSSEG,  2           ; DIR's sort claim, 0 = none (SPEC.md
+    DBSS DOS_B_SHSN,    2           ; 96.33.9.2) ...and how many records in it
+    DBSS DOS_B_SHSI,    2           ; ...and which one the listing is emitting
     DBSS DOS_B_FHPATH,  1           ; the name carried a folder part...
     DBSS DOS_B_FPBUF,   DOS_PBUF    ; ...which is this
     DBSS DOS_B_FHCWD,   2           ; where we were before walking it
@@ -12970,6 +12983,9 @@ dsh_more    equ os88_image_end + DOS_B_SHMORE  ; ...a listing is suspended
 dsh_ord     equ os88_image_end + DOS_B_SHORD   ; ...at this ordinal
 dsh_ln      equ os88_image_end + DOS_B_SHLN    ; ...this many lines on the page
 dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
+dsh_sseg    equ os88_image_end + DOS_B_SHSSEG  ; DIR's sort claim (96.33.9.2)
+dsh_sn      equ os88_image_end + DOS_B_SHSN    ; ...records in it
+dsh_si      equ os88_image_end + DOS_B_SHSI    ; ...and the emit cursor
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP
