@@ -776,3 +776,60 @@ sentence being on the glass **before** the freeze rather than after it, and a
 loaded module is a load the same heap refused before the feature. Measured:
 nine instances, a 79KB floor, `BEVERLY.MOD` at 114KB, the asker's region
 `8780` → `93c0` and the module playing.
+
+### 8.4 The owner's own scenario, end to end
+
+`tests/trkcompact.py` builds its heap out of Tracker instances because that
+is what a repeatable gate can build. The scenario the feature was *asked* for
+is a different thing and worth recording separately, because every step of it
+is something a user does:
+
+> boot with the sound driver not mounted, 640K, Hercules → open Sheet → open
+> Paint → open Clear Skies → **mount the sound driver** → open Tracker →
+> close Sheet, Paint and Clear Skies → open a 400KB `.mod`
+
+Driven on `os8088_5150_herc_sb_gla_144` with `SLINGER.MOD`, 406,354 bytes =
+**397KB**:
+
+| step | largest run |
+|---|---|
+| bare desktop | 531 KB |
+| Sheet | 307 |
+| Paint | 231 |
+| Clear Skies | 120 |
+| `SOUND.DRV` mounted mid-session | 120 |
+| Tracker | 71 |
+| the three closed | **365**, with a second run of **92** above the driver |
+
+The heap at the click is `[365 free][Tracker 49][pool 8][SOUND.DRV 6][92
+free]`, and that is §2's pin and HEAP-UNPIN-PLAN §2.0's mount-mid-session
+wall as ONE picture: the two free runs are separated by the asker's own
+region, so plain `mem_avail` — which may not move it — reports 365 against a
+397KB requirement, and `OSAPI_MEM_AVAIL_MAX` reports what the machine could
+have had. Tracker posts, the descending pass packs all three top-down claims
+into the ceiling hole (**every one of them by exactly 92KB**: the region
+`7940` → `9040`, the pool `8580` → `9c80`, the driver image `8780` →
+`9e80`), and the 397KB claim comes out of the 457KB run that leaves.
+
+**The A/B is the same machine, the same disk and the same clicks** with only
+`trk_cpq_try`'s call removed: `Too big for free memory`, nothing moved, no
+module. The 365 is identical in both arms, which is the point — the heap is
+not what changed.
+
+**It needed a machine that did not exist**, and the reason is worth keeping
+because it is not the one expected. `os8088_5150_herc_sb_gla` has 360KB
+drives and a 397KB file does not fit on one; `os8088_5150_herc_gla_144` has
+the drives and no card, and `SOUND.DRV`'s ATTACH refuses when neither an OPL
+nor a DSP answers - so the mid-heap wall cannot be made to exist there. And
+the obvious fix, copying the first machine's sound block, **breaks step 1**:
+the boot overlay sniffs 388h for an OPL2 and sets the sound row's `DRVR_WANT`
+when one answers, so a machine with an AdLib in it has `SOUND.DRV` mounted
+BEFORE THE FIRST PAINT and "boot with it not mounted" is not a state that
+machine has. The new one carries a DSP and no OPL, which is
+`os8088_5150_sbonly`'s reasoning (SPEC.md 51.3.1) pointed at a different
+question.
+
+**This is not a suite row and cannot be**: the module is 397KB of somebody's
+ProTracker file, which CONTRIBUTING.md §6 keeps out of the tree, and a
+synthetic one would have to be generated at test time. The numbers above are
+the record; `tests/trkcompact.py` is the gate.

@@ -62652,6 +62652,28 @@ for free memory`; after it, the asker's own region moves `8780` → `93c0`,
 the two runs merge, and the module plays. The `.o88` grows **128 bytes**,
 none of it resident.
 
+**And measured again on the session the feature was asked for**, which is
+worth carrying because it is a machine somebody would actually sit at rather
+than a heap a gate built: a 640KB Hercules 5150
+(`os8088_5150_herc_sb_gla_144`) booted with `SOUND.DRV` **not mounted**, then
+Sheet, then Paint, then Clear Skies, then `SOUND.DRV` mounted **mid-session**
+from the Control Panel, then Tracker — so the driver's image and pool land
+UNDER three regions that already hold the ceiling, and Tracker's region lands
+under those — and then the three are closed and a **397KB** ProTracker module
+is opened. The heap at that moment is **365KB free below Tracker and 92KB
+above the driver**, the module wants 397, and the two runs are what
+§66.4.3.2's what-if can see and plain `mem_avail` cannot: Tracker's own 49KB
+region is the barrier between them. It posts, and the descending pass packs
+all three top-down claims into the ceiling hole — Tracker's region `7940` →
+`9040`, the sound pool `8580` → `9c80`, the driver's own image `8780` →
+`9e80`, every one of them **92KB** — leaving a 457KB floor run out of which
+the 397KB claim is taken. **A/B on the same machine, the same disk and the
+same clicks**, with only `trk_cpq_try`'s call removed: `Too big for free
+memory`, nothing moved, no module. This is HEAP-UNPIN-PLAN §2.0's
+mount-mid-session wall and SPEC.md 66.4.3's pin measured as one thing, and
+what makes it a demonstration rather than a construction is that every step
+of it is something a user does.
+
 ### 45.4 Memory layout
 
 Four stores, none of them guessed:
