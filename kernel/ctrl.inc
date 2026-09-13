@@ -706,6 +706,11 @@ cp_tsel:  db 0                  ; selected field; initialised .text data like
 ; a selected row is white on a black bar - so the run's other half is decided
 ; at the same branch that decides the pen and read back at the draw.
 cp_ipap:  db CWHITE
+; cp_list has JUST laid the whole pane's ground, so an unselected row's bar
+; rect is already white and cp_listrow may skip its fill (SPEC.md 31.1.4).
+; Set around cp_list's row loop and nowhere else: a selection that MOVES calls
+; cp_listrow on its own, where the fill is the one write that takes a bar off.
+cp_lfull: db 0
 
 ; Which ONE control cp_ctlpaint is redrawing, and whether the next control emit
 ; is it (SPEC.md 31.1.3). [cp_only] = 0 means "all of them", which is what every
@@ -2032,8 +2037,10 @@ cp_listrow:
     mov byte [gfx_color], CWHITE    ; --- not selected: the bar rect in the
     mov ah, CWHITE                  ; GROUND, which is what takes a bar off
     mov al, CBLACK                  ; a row that used to have one - one write,
-    jmp short .bar                  ; where the pane erase was thousands
-.sel:
+    cmp byte [cp_lfull], 0          ; where the pane erase was thousands...
+    jne .name                       ; ...unless cp_list laid that ground a
+    jmp short .bar                  ; moment ago, and this would be the second
+.sel:                               ; write of every white pixel in the rect
     mov byte [gfx_color], CBLACK    ; --- selected: black bar, white name
     mov ah, CBLACK
     mov al, CWHITE
@@ -2052,7 +2059,7 @@ cp_listrow:
     call KERNEL_SEG:cw_gfx_fill
     pop bx
     pop ax
-
+.name:
     mov cx, di                  ; --- the name, OPAQUE, on the paper the bar
     add cx, CP_IX               ; just laid (SPEC.md 6.1): font_run carries
     mov dx, si                  ; both in one pass, so there is no ground for
@@ -2106,12 +2113,14 @@ cp_list:
     mov cx, ax
     and cx, 0x00FF              ; CX = how many rows there are
     jcxz .out
+    mov byte [cp_lfull], 1      ; ...each on the ground laid above, so no
     xor bx, bx                  ; BL = the ORDINAL being drawn
 .row:
     mov al, bl
     call cp_listrow
     inc bl
     loop .row
+    mov byte [cp_lfull], 0      ; row is written twice (SPEC.md 31.1.4)
 .out:
     pop bp
     pop si

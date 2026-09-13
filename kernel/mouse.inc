@@ -4358,6 +4358,10 @@ cur_busy_on:
     jne .no                     ; an exclusive app owns every pixel of its own
                                 ; raster (SPEC.md 53.6), which is fpg_arm's own
                                 ; first test for the same reason
+%ifdef KERN_BIG
+    cmp byte [blk_sv], 0        ; A SAVER SESSION OWNS THE GLASS (SPEC.md
+    jne .no                     ; 79.6.1) - wm_clip_set's test, for the same
+%endif                          ; reason: its hide is repaid by ss_set_x
     cmp word [wm_clip_n], 0
     jne .no                     ; a clipped painter already asked cur_lazyck and
                                 ; was told the pointer was out of reach, and it
@@ -4385,6 +4389,19 @@ cur_busy_on:
     cmp al, -1
     jne .no                     ; hidden MORE than once: a refcount we did not
                                 ; take is not ours to undo
+    cmp byte [gfx_lock_flag], 0
+    je .no                      ; ...NOR ONE NOBODY OWES A SHOW FOR (SPEC.md
+                                ; 7.5.3). A FREE lock means this -1 is not a
+                                ; spent promise - cur_unlazy above had none to
+                                ; spend - but fpg_arm's own bar-row hide
+                                ; (12.8.4, repaid by fpg_finish) or a saver
+                                ; session's (79.6.1, repaid by ss_set_x), and a
+                                ; show here settles that debt TWICE: [cur_level]
+                                ; ends at +1 for good, cursor_hide never erases
+                                ; again and the ISR keeps drawing, which is
+                                ; 7.1.4's permanent smear. 7.4.3.1's block
+                                ; makes the same test, and this arm measured
+                                ; 0 of 3 lock-free
     call cur_busy_take          ; --- DOWN. Put it back and put gfx_lock's
     mov byte [cur_lazy], 1      ; promise back with it: "lit and owed a hide" is
     call cursor_show            ; exactly what that byte already means, so every

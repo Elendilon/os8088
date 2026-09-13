@@ -9225,7 +9225,15 @@ and it has three arms:
   it is the arm the second call always takes.
 - **down** (`[cur_level]` = −1) — swap, re-arm `[cur_lazy]`, `cursor_show`.
   That is §7.4.3.1's own sequence, and it is what a package's hold is normally
-  in.
+  in. **And only with the lock HELD**, which is §7.4.3.1's own test: `cur_unlazy`
+  above has just spent the hold's promise, so a −1 under a held lock is that
+  hide and this show settles it. Under a *free* lock a −1 is somebody else's —
+  `fpg_arm`'s own bar-row hide (§12.8.4, repaid by `fpg_finish`) or a saver
+  session's for-the-session hide (§79.6.1, repaid by `ss_set_x`) — and a show
+  here would settle that debt twice, leaving `[cur_level]` at +1 for good:
+  `cursor_hide` never erases again while the ISR keeps drawing, §7.1.4's
+  permanent smear. The measurement above found this arm 0 of 3 lock-free, so
+  refusing it costs nothing measured.
 - **lit** (`[cur_level]` = 0) — and this is the common one. The picture may only
   change while the cursor is off the glass (§7.2.2) and here there is no
   hide/show pair already happening to change it inside, **so this arm buys one:
@@ -9237,8 +9245,10 @@ and it has three arms:
 `cur_busy_take`'s three-byte call stays inside §7.4.3.1's block anyway, so that
 the day it *does* fire the swap is free and nothing is drawn twice.
 
-The four refusals below the first arm are each somebody else's rule rather than
-this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **clip
+The five refusals below the first arm are each somebody else's rule rather than
+this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **saver
+session** (§79.6.1, `wm_clip_set`'s test and `kern_big`'s alone — the overlay
+owns the glass and its hide is the session's), a **clip
 region armed** (§7.4.2's third condition — a clipped painter that already asked
 `cur_lazyck` and was told the pointer was out of reach would draw straight
 through one put up behind its back), **the menu bar's own rows** (§7.4.3, where
@@ -34510,7 +34520,12 @@ row names it.
 
 **A re-homing entry may own no window.** Its region is about to be freed, so a
 window whose `W_SEG` named it would far-call a dead claim on its first repaint.
-`BX != 0` from the entry makes the launch abort.
+`BX != 0` from the entry makes the launch abort — and the free itself is
+protected by the **stamp**, not by BX: before the part's header is checked,
+every window whose `W_SEG` is the loader's region is destroyed by
+`wm_destroy_seg`, `.abort`'s own sweep for the same region, so a loader that
+created a window and returned BX = 0 anyway cannot leave a record naming a
+freed claim. A package's word about its windows is never what protects a free.
 
 Everything else the loader did **survives untouched**, because it is stamped by
 **instance** and not by segment: the sound grant (`snd_inst`, set to the record
@@ -47742,7 +47757,13 @@ another.
 pane's own **ground** — `cp_paint` does not fill the content, it calls the three
 routines that each own a pane — and it remains the right call in the two places
 where every row really has moved: a full window paint, and a driver load or
-unload that changes the list's membership (§31.9).
+unload that changes the list's membership (§31.9). **And inside it an
+unselected row's bar rect is already white**: `[cp_lfull]` is set around
+`cp_list`'s row loop and `cp_listrow` skips the ground fill on it, because the
+pane erase and the row's own fill are the same white pixels written twice
+(PERFORMANCE.md rule 2) — five to eight `gfx_fill` calls a whole-pane paint,
+4–6 ms on the target, for nothing on the glass. A selection that moves calls
+`cp_listrow` alone, where that fill is the one write that takes a bar off.
 
 **It cost 76 bytes of `CTRL.DRV`** — 6,102 → 6,178, an on-demand module and not
 one resident byte (§2.8).

@@ -169,9 +169,9 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; stop being uniform, and every reader had to stop assuming otherwise first.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_SMALL
-; --- kern_small's SIX (docs/plans/KERN-SMALL-CUT-PLAN.md D1) -----------------------
-; 1,280 bytes against kern_big's 2,816. The COUNT is the owner's; what is
-; chosen here is WHICH SIX, off the same survey (docs/plans/completed/STACK-SLOTS-PLAN.md 12.1)
+; --- kern_small's FOUR (docs/plans/KERN-SMALL-CUT-PLAN.md D1) ----------------------
+; 832 bytes against kern_big's 2,816. The COUNT is the owner's; what is
+; chosen here is WHICH FOUR, off the same survey (docs/plans/completed/STACK-SLOTS-PLAN.md 12.1)
 ; read against what SPEC.md 24.5 actually puts on the small disks:
 ;
 ;   the 384 class  ftpd, the Browser and Frotz - NONE of which ships on
@@ -185,12 +185,12 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ;   the 192 class  the modal class, and the one with real competition here:
 ;                  Artful, the Task Manager, the Fractal, Cyclone, Notepad,
 ;                  Arkanoid and Tamegram are all on the small apps disk
-;   the 128 class  the idle task holds one for the life of the machine, so the
-;                  second is the only sleeper slot a program can have - and the
-;                  sound driver's stream task, one of its four consumers, went
-;                  with SPEC.md 51.0
+;   the 128 class  the idle task holds the ONE for the life of the machine.
+;                  There is no sleeper slot a program can have: a package
+;                  declaring 128 gets the 192 - and the sound driver's stream
+;                  task, one of its four consumers, went with SPEC.md 51.0
 ;
-; FIVE USABLE, the idle task owning the sixth. A 43KB heap holds about two
+; THREE USABLE, the idle task owning the fourth. A 43KB heap holds about two
 ; packages, so the binding resource is not this table.
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the idle task's, for the life of the machine

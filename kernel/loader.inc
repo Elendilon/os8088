@@ -1153,6 +1153,20 @@ ld_start:
                                 ; its first repaint - and the loader has no
                                 ; business creating one anyway, the program
                                 ; being what the user asked to run
+    ; ...AND BX IS ONLY THE HALF THE ENTRY CHOSE TO DECLARE. wm_create stamps
+    ; W_SEG on every window a package makes, so a loader that created one and
+    ; returned BX = 0 anyway would pass the test above and leave a record
+    ; naming the region mem_free_x is about to free - the first wm_paint_all
+    ; after it far-calls PKG_DISP inside whatever claimed those paragraphs.
+    ; Sweep by the STAMP, which is .abort's own rule for the same region
+    ; (SPEC.md 20.12.10.6): a package's word about its windows is never what
+    ; protects a free. Here, before ld_hdr_ok, so a re-home that goes on to
+    ; abort is not swept twice.
+    call KERNEL_SEG:cw_gfx_lock
+    mov ax, [ld_base]
+    mov bp, wm_destroy_seg
+    call KERNEL_SEG:cw_mem_disp
+    call KERNEL_SEG:cw_gfx_unlock
     mov es, [ld_rehome]
     xor si, si
     mov al, 3                   ; ...and it is a PACKAGE header or it is not a
