@@ -129,12 +129,16 @@ dsh_run:
     jmp short .look
 
 .unknown:
-    mov si, dsh_s_bad
-    call dsh_say
-    mov si, dsh_verb
+    mov byte [dsh_why], DSHW_NOCMD  ; **THE MESSAGE IS THE CALLER'S NOW**
+    cmp byte [dsh_exec], 0          ; (SPEC.md 96.33.3): from a `/c` shell an
+    jne .noexec                     ; unknown verb is nothing else and this is
+    mov si, dsh_s_bad               ; the answer, but from the PROMPT it may be
+    call dsh_say                    ; a program - so the refusal is held back
+    mov si, dsh_verb                ; and [dsh_why] says which arm ran
     call dsh_say
     mov si, dsh_s_crlf
     call dsh_say
+.noexec:
     mov al, 1
     ret
 .empty:
@@ -1223,6 +1227,183 @@ dsh_c_type:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsh_c_dir - DIR (SPEC.md 96.33.4)
+; in:  SI = the arguments
+; out: AL = the exit code
+;
+; **THE TABLE HAD NO DIR AND THAT WAS RIGHT UNTIL THERE WAS A PROMPT.** Every
+; other verb here is one a PROGRAM shells out for (SPEC.md 96.30.1 measured
+; which); nothing shells out to list a directory, because a program that wants
+; a listing calls `AH=4Eh`. A person at a prompt wants nothing else first.
+;
+; ONE LINE A FILE, DOS's own columns: the name padded to 8, the extension
+; padded to 3, then `<DIR>` or the size right-aligned. No date and no time -
+; the listing record carries neither (`OSAPI_FIND_SZ`'s six fields) and a
+; column of blanks is worse than no column.
+;
+; **FOLDERS ARE LISTED AND `..` IS NOT SKIPPED**, which is the opposite of
+; dsh_nth's rule and deliberate: that walker feeds COPY, where a folder is not
+; a file to copy; this one is the user's picture of where they are, and `..`
+; is how they know they are not at the root.
+; -----------------------------------------------------------------------------
+dsh_c_dir:
+    call dsh_skipsp
+    mov di, dsh_a1
+    call dsh_word
+    cmp byte [dsh_a1], 0
+    jne .havearg
+    mov word [dsh_a1], '*' | ('.' << 8)     ; a bare DIR is `*.*`, here as
+    mov word [dsh_a1+2], '*'                ; everywhere else
+.havearg:
+    mov si, dsh_a1
+    mov al, 1                       ; ...and a whole spec that IS a folder is
+    call dsh_resolve                ; listed rather than matched, which is what
+    jc .nopath                      ; `DIR APPS` has to mean
+    cmp byte [dsh_leaf], 0
+    jne .haspat
+    mov word [dsh_leaf], '*' | ('.' << 8)
+    mov word [dsh_leaf+2], '*'
+.haspat:
+    mov si, dsh_leaf
+    mov di, dsh_pat
+    call dsh_to11
+
+    call dsh_bank
+    mov dx, [dsh_rclus]
+    mov bl, [dsh_rdrv]
+    call dos_be_goto
+    jc .ioerr
+    mov [dos_curdir], dx
+    mov word [dsh_n], 0
+    xor cx, cx                      ; the ordinal
+.each:
+    push ds
+    pop es
+    push cx
+    mov di, dsh_fnd
+    call dos_be_find                ; out CX = the NEXT ordinal
+    jc .done
+    pop ax                          ; ...the one we asked for, spent
+    push cx
+    mov si, dsh_fnd
+    mov di, dsh_nm11
+    call dsh_to11
+    mov si, dsh_nm11
+    mov di, dsh_pat
+    call dsh_match
+    jc .next
+    call dsh_dirline
+    inc word [dsh_n]
+.next:
+    pop cx
+    jmp short .each
+.done:
+    pop cx
+    call dsh_home
+    call dsh_dirtot
+    xor al, al
+    ret
+.ioerr:
+    call dsh_home
+    mov si, dsh_s_ioerr
+    call dsh_say
+    mov byte [dsh_why], DSHW_IO
+    mov al, 1
+    ret
+.nopath:
+    mov si, dsh_s_nopath
+    call dsh_say
+    mov byte [dsh_why], DSHW_NOPATH
+    mov al, 3
+    ret
+
+; --- dsh_dirline - one entry of [dsh_fnd], as DOS lays it out ----------------
+; clobbers: AX, BX, CX, DX, SI, DI, flags
+dsh_dirline:
+    mov si, dsh_nm11                ; the padded form dsh_to11 just built, which
+    mov cx, 8                       ; is the columns already - the `?` a pattern
+    call .field                     ; expansion leaves is not in it, dsh_to11
+    mov al, ' '                     ; having been given a real name
+    call dos_tty
+    mov si, dsh_nm11 + 8
+    mov cx, 3
+    call .field
+    mov al, ' '
+    call dos_tty
+    cmp word [dsh_fnd+14], OSAPI_FT_DIR
+    jb .size
+    mov si, dsh_s_dir               ; `<DIR>`, and `..` gets it too
+    call dsh_say
+    jmp short .eol
+.size:
+    mov ax, [dsh_fnd+18]            ; **THE LOW WORD, and the high one is not
+    mov dx, [dsh_fnd+20]            ; dropped** - dsh_num32 takes both, because
+    call dsh_num32                  ; a 65KB file on a 1.44MB floppy is ordinary
+.eol:
+    mov si, dsh_s_crlf
+    call dsh_say
+    ret
+.field:                             ; CX bytes at SI, verbatim
+    mov al, [si]
+    call dos_tty
+    inc si
+    loop .field
+    ret
+
+; --- dsh_dirtot - `N file(s)`, DOS's own footer -----------------------------
+dsh_dirtot:
+    mov si, dsh_s_crlf
+    call dsh_say
+    mov ax, [dsh_n]
+    xor dx, dx
+    call dsh_num32
+    mov si, dsh_s_files
+    call dsh_say
+    ret
+
+; --- dsh_num32 - DX:AX as decimal, right-aligned in eight columns -----------
+; clobbers: AX, BX, CX, DX, SI, DI, flags
+;
+; A 32-BIT DIVIDE and not two 16-bit ones: `div bx` on DX:AX quotients into AX
+; with the remainder in DX and needs the high half to be smaller than the
+; divisor, which after the first step it always is - so the loop is the
+; ordinary one and the only thing 32 bits costs is zeroing DX once.
+dsh_num32:
+    mov di, dsh_num + 11
+    mov byte [di], 0
+    mov bx, 10
+.d:
+    push ax
+    mov ax, dx
+    xor dx, dx
+    div bx                          ; the HIGH half first, remainder into DX
+    mov cx, ax                      ; ...which is the top of the next divide
+    pop ax
+    div bx                          ; DX:AX / 10 completed
+    dec di
+    add dl, '0'
+    mov [di], dl
+    mov dx, cx
+    or ax, ax
+    jnz .d
+    or dx, dx
+    jnz .d
+.pad:
+    mov si, dsh_num + 11
+    sub si, di                      ; SI = the digits written
+    mov cx, 8
+    sub cx, si
+    jbe .say
+.sp:
+    mov al, ' '
+    call dos_tty
+    loop .sp
+.say:
+    mov si, di
+    call dsh_say
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsh_c_ver / dsh_c_echo / dsh_c_rem
 dsh_c_ver:
     mov si, dsh_s_ver
@@ -1292,6 +1473,7 @@ dsh_tab:
     DSHCMD 'CD',     dsh_c_cd
     DSHCMD 'CHDIR',  dsh_c_cd
     DSHCMD 'TYPE',   dsh_c_type
+    DSHCMD 'DIR',    dsh_c_dir
     DSHCMD 'VER',    dsh_c_ver
     DSHCMD 'ECHO',   dsh_c_echo
     DSHCMD 'REM',    dsh_c_rem
@@ -1311,6 +1493,8 @@ DSHW_SELF   equ 4               ; source and destination are one file
 DSHW_NOPATH equ 5               ; no such folder
 DSHW_SYNTAX equ 6               ; wrong number of arguments
 DSHW_REDIR  equ 7               ; a redirection target that is not NUL
+DSHW_NOCMD  equ 8               ; no such verb - which from a prompt means
+                                ; "try it as a program" (SPEC.md 96.33.3)
 
 dsh_s_nul:      db 'NUL', 0
 dsh_s_crlf:     db 13, 10, 0
@@ -1321,6 +1505,8 @@ dsh_s_nofile:   db 'File not found', 13, 10, 0
 dsh_s_ioerr:    db 'File creation error', 13, 10, 0
 dsh_s_self:     db 'File cannot be copied onto itself', 13, 10, 0
 dsh_s_copied:   db ' file(s) copied', 13, 10, 0
+dsh_s_files:    db ' file(s)', 13, 10, 0
+dsh_s_dir:      db '<DIR>', 0
 dsh_s_redir:    db 'Cannot redirect to that file', 13, 10, 0
 dsh_s_nomem:    db 'Insufficient memory', 13, 10, 0
 dsh_s_ver:      db 13, 10, 'os8088 DOS box, MS-DOS Version 3.31', 13, 10, 0

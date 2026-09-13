@@ -13,7 +13,7 @@
 ; **THE BUFFER MAPS 1:1 ONTO TEXT VRAM** (SPEC.md 70.8.7). 80 columns by 25
 ; rows against 80 by 25, all of it, no centring and NO STATUS LINE: a board
 ; uses row 25, and a terminal that reserved it would cut the bottom off every
-; menu. TET_X0 and TET_Y0 are gone; a row is at FSI_SEG:(r*160). And te_scr's
+; menu. TET_X0 and TET_Y0 are gone; a row is at FSI_SEG:(r*160). And con_scr's
 ; cell IS the cell in VRAM - a character byte then an attribute byte - so a
 ; colour row is a `rep movsw` and not a translation. That is the whole
 ; argument for the bracket, one size smaller than SPEC.md 70.6 made it.
@@ -57,7 +57,7 @@ TET_ESC    equ 0x1D                 ; **CTRL+], AND IT IS NOT AN ARBITRARY
                                     ; typed text, which a terminal is as
                                     ; completely as anything here: every
                                     ; printable key belongs to the host
-%if TET_COLS != TE_COLS || TET_ROWS != TE_ROWS
+%if TET_COLS != CON_COLS || TET_ROWS != CON_ROWS
   %error "the buffer maps 1:1 onto text VRAM (SPEC.md 70.8.7): the two sizes ARE one size"
 %endif
 
@@ -117,7 +117,7 @@ te_fsx_main:
     call te_tx_ice                  ; ...and the blink bit, which is a per-
                                     ; adapter question (SPEC.md 70.8.9)
     mov byte [te_thint], 0xFF
-    call te_markall
+    call con_markall
     call te_tx_owed
     call te_tx_hint                 ; ONCE, on entry, and the host is allowed
 .loop:                              ; to overwrite it (SPEC.md 70.8.7)
@@ -144,7 +144,7 @@ te_fsx_main:
     jmp short .loop
 .done:
     mov byte [te_txm], 0            ; ...INSIDE the bracket, so fsx_restore's
-    call te_markall                 ; repaint finds the app windowed and the
+    call con_markall                 ; repaint finds the app windowed and the
     pop es                          ; whole screen owed
     pop di
     pop si
@@ -186,7 +186,7 @@ te_tx_keys:
 ; te_tx_owed - the scroll, then the rows the bitmap names, then the cursor
 ; in:  nothing; out: nothing, all registers preserved
 ;
-; THE SAME MARKS THE WINDOWED PATH USES (SPEC.md 70.8.1). te_putc runs on the
+; THE SAME MARKS THE WINDOWED PATH USES (SPEC.md 70.8.1). con_putc runs on the
 ; kept worker and marks the row it wrote whichever screen is up, so the two
 ; renderers share one answer to "what changed" and cannot drift about it.
 ;
@@ -210,12 +210,12 @@ te_tx_owed:
     call te_tx_scroll               ; ...FIRST: the rows below are lettered on
     xor bx, bx                      ; top of the pixels this moves
 .row:
-    call te_takerow
+    call con_takerow
     jnc .next
     call te_tx_row
 .next:
     inc bx
-    cmp bx, TE_ROWS
+    cmp bx, CON_ROWS
     jb .row
     cmp byte [tz_pan], 0
     je .nop
@@ -236,11 +236,11 @@ te_tx_owed:
     ret
 
 ; -----------------------------------------------------------------------------
-; te_tx_scroll - spend [te_scrl] as ONE VRAM move (SPEC.md 70.8.8)
+; te_tx_scroll - spend [con_scrl] as ONE VRAM move (SPEC.md 70.8.8)
 ;
 ; **THIS RENDERER DID NOT SCROLL AT ALL.** te_tx_owed used to end with
-; `mov word [te_scrl], 0` under the comment "a text row change IS the scroll
-; here: the rows are re-emitted, so there is nothing for te_scrollpaint to
+; `mov word [con_scrl], 0` under the comment "a text row change IS the scroll
+; here: the rows are re-emitted, so there is nothing for con_scrollpaint to
 ; spend". Only the rows in the dirty range were re-emitted, and te_scrollck
 ; marked exactly one - the row it opened. So after a scroll the buffer had
 ; moved every row up and the screen had been told about the last one: rows
@@ -260,14 +260,14 @@ te_tx_scroll:
     push si
     push di
     push es
-    call te_takescroll              ; ...read and zeroed together, because the
+    call con_takescroll              ; ...read and zeroed together, because the
     or ax, ax                       ; WORKER adds to that counter while this
     jz .out                         ; runs (SPEC.md 70.8.8)
     cmp ax, TET_ROWS
     jae .all                        ; the whole screen scrolled away: there is
                                     ; nothing under it worth moving
-    mov [te_rr], ax                 ; N, out of the registers' way while DS is
-                                    ; pointed at VRAM. te_rr is te_compose's
+    mov [con_rr], ax                 ; N, out of the registers' way while DS is
+                                    ; pointed at VRAM. con_rr is con_compose's
                                     ; scratch and the two renderers are never
                                     ; up at once - [te_txm] is what says so
     mov bx, TET_COLS * 2
@@ -275,7 +275,7 @@ te_tx_scroll:
     mov si, ax                      ; source row's offset, N*160
     xor di, di
     mov ax, TET_ROWS
-    sub ax, [te_rr]
+    sub ax, [con_rr]
     mov bx, TET_COLS
     mul bx                          ; AX = (25-N)*80 WORDS
     mov cx, ax
@@ -285,11 +285,11 @@ te_tx_scroll:
     mov ds, ax                      ; VRAM to VRAM, and DS comes straight back
     cld
     rep movsw
-    pop ds                          ; ...before te_mark reads one of our words
+    pop ds                          ; ...before con_mark reads one of our words
     mov bx, TET_ROWS
-    sub bx, [te_rr]
+    sub bx, [con_rr]
 .mk:
-    call te_mark                    ; the rows it VACATED are owed, and the
+    call con_mark                    ; the rows it VACATED are owed, and the
     inc bx                          ; loop above re-emits them from the buffer
     cmp bx, TET_ROWS
     jb .mk
@@ -303,19 +303,19 @@ te_tx_scroll:
     mov al, [te_thint]
     cmp al, 0xFF
     je .out                         ; already off the top
-    mov bl, [te_rr]
+    mov bl, [con_rr]
     sub al, bl
     jc .hgone
     mov [te_thint], al
     mov bl, al
     xor bh, bh
-    call te_mark
+    call con_mark
     jmp short .out
 .hgone:
     mov byte [te_thint], 0xFF
     jmp short .out                  ; (the CRTC cursor needs no mark: it is
                                     ; hardware, and te_tx_cursor places it
-                                    ; from [te_cx]/[te_cy] on every pass)
+                                    ; from [con_cx]/[con_cy] on every pass)
 .all:
     mov byte [te_thint], 0xFF       ; ...AND THE HINT IS GONE WITH IT. Without
                                     ; this the next scroll subtracts from a row
@@ -323,7 +323,7 @@ te_tx_scroll:
                                     ; marks an unrelated row - one redundant
                                     ; redraw, never wrong pixels, and one line
                                     ; to stop it
-    call te_markall
+    call con_markall
 .out:
     pop es
     pop di
@@ -335,7 +335,7 @@ te_tx_scroll:
     ret
 
 ; --- te_tx_row - BX = a buffer row, onto the text screen ---------------------
-; A COLOUR ROW IS A MOVE: te_scr's cell is character then attribute and so is
+; A COLOUR ROW IS A MOVE: con_scr's cell is character then attribute and so is
 ; VRAM's, so eighty words go straight across. An MDA row is eighty cells each
 ; MAPPED first (SPEC.md 70.8.9), because mode 7 has no background colour.
 te_tx_row:
@@ -346,9 +346,9 @@ te_tx_row:
     push si
     push di
     push es
-    mov ax, TE_COLS * 2
+    mov ax, CON_COLS * 2
     mul bx                          ; **MUL WRITES DX** (SPEC.md 1)
-    mov si, te_scr
+    mov si, con_scr
     add si, ax
     mov di, ax                      ; ...and the VRAM offset is the SAME
     mov es, [te_tseg]               ; number: one cell, one layout
@@ -417,7 +417,7 @@ te_tx_cursor:
     push bx
     push cx
     push dx
-    mov al, [te_cvis]
+    mov al, [con_cvis]
     cmp al, [te_tcur]
     je .place                       ; the SHAPE is only issued on a change: it
     mov [te_tcur], al               ; is what the mode set already chose, and a
@@ -433,12 +433,12 @@ te_tx_cursor:
     int 0x10
     jmp short .out
 .place:
-    cmp byte [te_cvis], 0
+    cmp byte [con_cvis], 0
     je .out
     mov ah, 2
     xor bh, bh
-    mov dh, [te_cy]
-    mov dl, [te_cx]
+    mov dh, [con_cy]
+    mov dl, [con_cx]
     int 0x10
 .out:
     pop dx
@@ -458,7 +458,7 @@ te_tx_ice:
     push bx
     push dx
     mov bl, 1
-    cmp byte [te_ice], 0
+    cmp byte [con_ice], 0
     je .have
     xor bl, bl                      ; iCE ON is BLINK OFF
 .have:

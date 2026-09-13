@@ -32,12 +32,21 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import os88build                                               # noqa: E402
 import os88fat                                                 # noqa: E402
 import os88ui                                                  # noqa: E402
 
 SYS = "build/os8088-360.img"
-GATE = "build/dossh360.img"
-SCRATCH = "build/dossh-run.img"
+# **BOTH RESOLVED AGAINST THE RUN'S TREE** (tools/os88build.at). This row is
+# the shape docs/plans/SOAK-PARALLEL.md 14.2 does not reach on its own: it
+# WRITES a scratch image and then boots it, and only the BOOT went through the
+# resolver - so under `os88soak` the copy landed in the shared `build/` while
+# os88marty.launch looked for it in the frozen tree, and the row died in 0.1s
+# with a FileNotFoundError naming a directory it had never heard of. It passes
+# under `os88test` and fails under `os88soak`, which is the worst way for a
+# row to be wrong: whoever runs it the quick way sees nothing.
+GATE = os88build.at("build/dossh360.img")
+SCRATCH = os88build.at("build/dossh-run.img")
 
 # The exit code each check must answer.  None = "anything but zero", which is
 # what a refusal is: the CODE is DOS's business and only its being non-zero is

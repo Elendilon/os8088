@@ -87821,7 +87821,7 @@ not one.
 **Only the rows that changed are drawn.** `[te_dr0]`/`[te_dr1]` are a RANGE
 and not a bitmap, because terminal output is sequential — a burst of bytes
 touches a contiguous run of rows, so it is one compare per mark and one bound
-at the draw. `te_putc` marks the row it wrote, before the cursor moves.
+at the draw. `con_putc` marks the row it wrote, before the cursor moves.
 
 **A scroll moves the pixels it already has.** `te_scrollck` always did the
 `rep movsb` on the buffer; what is new is that the screen follows it with one
@@ -87834,12 +87834,12 @@ and `te_feed` set it for arriving TEXT, so a character redrew the status line
 and the button as well. `te_owed` asks about the chrome, the scroll and the
 rows separately; `te_show` spends each on its own terms.
 
-**A fifth thing fell out of the same work.** `TE_ROWS` is 18 and the screen is
+**A fifth thing fell out of the same work.** `CON_ROWS` is 18 and the screen is
 fixed, but the WINDOW is not: `wm_fit` clamps the 190-row template to the
 desktop band, which on CGA is 155 — and the rows that did not fit were drawn
 anyway, because the gfx primitives clip to the SCREEN and not to the window
-(§39.7). The bottom of the terminal was painted over the dock. `te_vrows` is
-what the live content box can show and `te_vtop` is the first buffer row it
+(§39.7). The bottom of the terminal was painted over the dock. `con_vrows` is
+what the live content box can show and `con_vtop` is the first buffer row it
 shows, so a short window shows the LAST rows: a terminal's new output is at
 the bottom, and showing the top of the buffer means never seeing what just
 arrived. **And the rows stop above `TE_STATH`**, which the gate found: the
@@ -87874,7 +87874,7 @@ the next from an unchanged build.
 **The terminal is 64x18 whatever the window is.** That is §70's own doctrine —
 a terminal that reflows on a resize is one whose host has the wrong idea of
 how wide it is, and this client tells the host nothing (no NAWS). So a resize
-moves the VIEW: `te_vcols` and `te_vrows` are derived from the live content
+moves the VIEW: `con_vcols` and `con_vrows` are derived from the live content
 box on every `te_layout`, and both say how much of the fixed screen is on
 show. The buffer never changes, the host's idea of where a line wraps never
 moves, and the window opens wide enough for all 64 columns.
@@ -87884,7 +87884,7 @@ template on CGA (§70.4) — a short window shows the LAST rows. Horizontally it
 is the same bargain, and it is what `WF_SIZABLE` had to wait for: `font_run`
 clips to the SCREEN and not to the window (§39.7), so a narrow window would
 otherwise have painted its right-hand columns over whatever was beside it.
-`te_wpx` is one routine because two rects are cut to that width — the scroll
+`con_wpx` is one routine because two rects are cut to that width — the scroll
 blit's and the About panel's fill — and a second copy of the shift would be a
 second opinion about how wide the terminal is.
 
@@ -87896,7 +87896,7 @@ axes and asserts that the view follows the box, that the derivation is
 reversible, and that the run ends inside the window.
 
 **That last one is about the GEOMETRY and not about the pixels, and the
-difference is worth recording.** It catches a `te_vcols` derivation that stops
+difference is worth recording.** It catches a `con_vcols` derivation that stops
 following the box, which is the likely regression. It does *not* prove that
 nothing is painted outside the frame, and two attempts at proving that both
 measured nothing: counting lit pixels in the band beside the window measures
@@ -87945,7 +87945,7 @@ and for the same two reasons.
 
 **The dirty range is shared with the windowed renderer** (§70.4) and that is
 the point of it being a range rather than a painter's private business:
-`te_putc` runs on the kept worker and marks the row it wrote whichever screen
+`con_putc` runs on the kept worker and marks the row it wrote whichever screen
 is up, so the two renderers cannot drift about what changed.
 
 **`^]` is the key, in both directions, and it is not an arbitrary choice.**
@@ -87976,7 +87976,7 @@ feature would buy nothing.
 
 **`te_owed` already answers the finer question**, and it did before any of
 this — three debts and one test: the CHROME (`[te_dirty]`, a state change),
-the SCROLL (`[te_scrl]`, pixels the buffer has already moved) and the ROWS
+the SCROLL (`[con_scrl]`, pixels the buffer has already moved) and the ROWS
 (`[te_dr0]`..`[te_dr1]`). Nothing owed means the buffer and the glass agree,
 and a cache taken then is exactly what a repaint would draw — whether the
 session is up, down or was never dialled. So `te_promise` is `te_owed`
@@ -87991,7 +87991,7 @@ Four call sites, all with the gfx lock held (§20.6 rule 7):
 | `te_show`, on the way in | true by construction — it is what got it called | **withdraw** |
 | `te_show`, after a draw that happened | false | **grant** |
 | `te_paint` (`W_PAINT`) | false — `te_screen` settles every row | **grant** |
-| `te_toggle`, at `TS_OPEN` | true — `te_clear` just marked all 18 rows | **withdraw** |
+| `te_toggle`, at `TS_OPEN` | true — `con_clear` just marked all 18 rows | **withdraw** |
 
 The `te_toggle` site is §71.11's first bug not repeated: the withdrawal goes
 **at the transition and unconditionally**, not a tick later when the worker
@@ -88021,12 +88021,12 @@ lock: the clear frees the cache, and the UI task may be blitting out of it.
 
 Found while placing the grant, and it is a defect on its own. `te_screen`
 marks all 18 rows and draws them from the buffer, so after it the glass is
-right — but `[te_scrl]` survived, and `te_scrollpaint` then spends it on the
+right — but `[con_scrl]` survived, and `con_scrollpaint` then spends it on the
 next worker pass by **blitting the whole terminal up N rows and marking only
 the N it vacated**. Rows 0..17−N are left showing rows N..17.
 
 It is reachable without the cache: text scrolls while the window is covered
-(`te_show` bails at `.un` *ahead* of `te_scrollpaint`, so `[te_scrl]`
+(`te_show` bails at `.un` *ahead* of `con_scrollpaint`, so `[con_scrl]`
 accumulates), the window is uncovered into a full `te_paint`, and the next
 pass blits a screen that was already correct. `te_screen` zeroes it now,
 which is also what makes `te_owed` readable as the whole truth — the
@@ -88062,8 +88062,8 @@ IBM's:
 | 4–6 | background | 0–7 |
 | 7 | blink | 1 = blinking, or a bright background when iCE is on (§70.8.9) |
 
-`te_scr` is 80 × 25 × 2 = **4,000 bytes**, row-major, cell *(r, c)* at
-`te_scr + (r*80 + c)*2`. It is the buffer both renderers draw from and the
+`con_scr` is 80 × 25 × 2 = **4,000 bytes**, row-major, cell *(r, c)* at
+`con_scr + (r*80 + c)*2`. It is the buffer both renderers draw from and the
 only thing either of them agrees about. **Bytes 0x80–0xFF are CP437 GLYPHS and
 never C1 controls** (§70.9): a board's art is made of them, and a terminal that
 read 0x9B as a CSI introducer would eat the picture.
@@ -88072,20 +88072,20 @@ The state, all of it, and every byte named:
 
 | name | size | meaning |
 |---|---|---|
-| `te_cx` | word | cursor column, 0..79 |
-| `te_cy` | word | cursor row, 0..24 |
+| `con_cx` | word | cursor column, 0..79 |
+| `con_cy` | word | cursor row, 0..24 |
 | `te_sx`, `te_sy` | word each | **the one** saved cursor — `CSI s`/`CSI u` and `ESC 7`/`ESC 8` share it, and it starts at (0,0) |
-| `te_attr` | byte | the current attribute — **DERIVED** from the six logical bytes below and recomputed by every SGR (§70.9.4) |
+| `con_attr` | byte | the current attribute — **DERIVED** from the six logical bytes below and recomputed by every SGR (§70.9.4) |
 | `te_lfg` | byte | logical foreground, **4 bits**, intensity included; reset 7 |
 | `te_lbg` | byte | logical background, **3 bits**; reset 0 |
 | `te_blk` | byte | 1 = blink (SGR 5) |
 | `te_rev` | byte | 1 = reverse (SGR 7) |
 | `te_con` | byte | 1 = concealed (SGR 8) |
-| `te_pwrap` | byte | 1 = a glyph was written in column 79 and the cursor stayed there |
-| `te_cvis` | byte | 1 = the cursor is drawn; `CSI ?25l` clears it, `?25h` sets it |
-| `te_ice` | byte | 1 = iCE colours: bit 7 is a bright background, not blink. **Render-time only** — it changes nothing in `te_scr` |
-| `te_drb` | 4 bytes | the dirty ROW BITMAP, bit *r* of byte *r*>>3, 25 bits used |
-| `te_scrl` | word | rows the buffer has scrolled since the glass last agreed |
+| `con_pwrap` | byte | 1 = a glyph was written in column 79 and the cursor stayed there |
+| `con_cvis` | byte | 1 = the cursor is drawn; `CSI ?25l` clears it, `?25h` sets it |
+| `con_ice` | byte | 1 = iCE colours: bit 7 is a bright background, not blink. **Render-time only** — it changes nothing in `con_scr` |
+| `con_drb` | 4 bytes | the dirty ROW BITMAP, bit *r* of byte *r*>>3, 25 bits used |
+| `con_scrl` | word | rows the buffer has scrolled since the glass last agreed |
 
 **There is ONE saved-cursor slot and it holds the position only.** `ESC 7`/
 `ESC 8` are DEC's pair and `CSI s`/`CSI u` are ANSI.SYS's, and a board uses
@@ -88110,14 +88110,14 @@ one composed band and one blit per attribute run — call it four calls and
 3 ms — so a range costs about **50 ms of drawing to change two rows**, every
 time the host moves the cursor.
 
-So `[te_dr0]`/`[te_dr1]` become `te_drb`, **four bytes and twenty-five bits**.
-`te_mark` sets a bit, `te_markall` sets all twenty-five, `te_markclr` zeroes
+So `[te_dr0]`/`[te_dr1]` become `con_drb`, **four bytes and twenty-five bits**.
+`con_mark` sets a bit, `con_markall` sets all twenty-five, `te_markclr` zeroes
 the four bytes, and a renderer walks the bits. Both renderers consume the same
-bitmap, for §70.6's reason unchanged: `te_putc` runs on the kept worker and
+bitmap, for §70.6's reason unchanged: `con_putc` runs on the kept worker and
 marks the row it wrote whichever screen is up, so the two cannot drift about
 what changed.
 
-**`[te_scrl]` stays, and it is spent by BOTH renderers now.** It is a
+**`[con_scrl]` stays, and it is spent by BOTH renderers now.** It is a
 different debt from the bitmap and always was — pixels the buffer has already
 moved and the glass has not — and §70.8.8 is what happened when only one
 renderer spent it.
@@ -88129,16 +88129,16 @@ something else touches it. The RANGE could only have widened to cover both,
 which is why nobody fixed it there. The bitmap is a twenty-five-bit number and
 moving every mark down one row is **moving that number right one bit** —
 `shr` the top byte, `rcr` the other three, eight bytes of code — so
-`te_markup` runs inside `te_scroll1` and the two debts stay consistent with
+`con_markup` runs inside `con_scroll1` and the two debts stay consistent with
 each other by construction.
 
 **And the CURSOR's row is marked after a scroll BLIT** (found by
 `tests/telnet.py`, 12 differing pixels on Hercules). The underline is composed
 into the band (§70.8.2), so the windowed blit carries it up the window with
 everything else and the row it *left* keeps a stale one. A scroll from
-`te_scroll1` always leaves the cursor on the row it opened, which is marked
+`con_scroll1` always leaves the cursor on the row it opened, which is marked
 already — but a scroll the parser asks for (§70.9.3's `SU`) does not move the
-cursor at all, so `te_scrollpaint` marks `[te_cy]` unconditionally. One call.
+cursor at all, so `con_scrollpaint` marks `[con_cy]` unconditionally. One call.
 
 #### 70.8.2 The windowed renderer: one composed band a row, one blit an attribute run
 
@@ -88146,14 +88146,14 @@ cursor at all, so `te_scrollpaint` marks `[te_cy]` unconditionally. One call.
 prices an 8x8 cell at ~900 us on a 4.77 MHz 8088, so a full 80x25 screen
 lettered a cell at a time is **1.8 seconds**. The row is composed instead:
 
-1. `te_band` is 80 bytes by 8 rows — **640 bytes**, one screen row's pixels,
+1. `con_band` is 80 bytes by 8 rows — **640 bytes**, one screen row's pixels,
    1bpp, bit 7 leftmost, exactly `OSAPI_GFX_BLIT1`'s band format with a stride
    of 80.
 2. For each of the row's eighty cells, the eight bytes of that character's
-   glyph are read out of `te_glyf` (§70.8.6) and stored one per band row at
+   glyph are read out of `con_glyf` (§70.8.6) and stored one per band row at
    the cell's byte column. That is eight byte stores a cell and no drawing
    call at all.
-3. The cursor, when `[te_cvis]` is set and the cursor is on this row, is
+3. The cursor, when `[con_cvis]` is set and the cursor is on this row, is
    **two lit scanlines in the cell's bottom two band rows**, OR'd in during
    composition. It is not a second paint and it never flashes: the cell goes
    from its old pixels to its final pixels in the band, and the band reaches
@@ -88182,16 +88182,16 @@ The cost, in calls rather than pixels, which is the unit that matters:
 | **any row at all on a 1bpp adapter** | **1 blit, no pen** (§70.8.4) |
 | the worst row there is: eighty alternating attributes | 80 pen + 80 blit |
 
-**Counted from `te_emit`, which is one loop and no second path**: it walks the
-row's cells, grows a run while the attribute byte repeats, and emits `te_pen`
-+ `te_blitrun` once per run. So the count is exactly the number of maximal
+**Counted from `con_emit`, which is one loop and no second path**: it walks the
+row's cells, grows a run while the attribute byte repeats, and emits `con_pen`
++ `con_blitrun` once per run. So the count is exactly the number of maximal
 attribute runs in the row, and on a 1bpp screen the walk is skipped entirely.
 Read off the source rather than instrumented in the guest, and said so.
 
 **A REFUSED BLIT DEGRADES ONCE PER SCREEN, NOT ONCE PER RUN.** §5.4.2 makes
 `kern_small` carry the slot and a `stc`/`retf` stub, so a package must test
 `CF` and the documented degrade is to letter in the kernel's 8x8 face. The
-first refusal latches `[te_nob]` and calls `te_rowfont`, which copies the
+first refusal latches `[con_nob]` and calls `con_rowfont`, which copies the
 row's characters out of the interleaved buffer into a NUL-terminated run and
 draws it with one `OSAPI_FONT_RUN`; every later row takes that path without
 asking the kernel again. The attributes are lost, which is what a machine with
@@ -88272,17 +88272,17 @@ of a subtraction is a worse trade than 40 bytes: the heap figure is a
 configuration a fork can change, and the code is what makes the change safe.
 
 What it does on a refusal is §70.8.2's degrade — one `OSAPI_FONT_RUN` for the
-whole row, with `[te_nob]` latched so no later row asks the kernel again — and
+whole row, with `[con_nob]` latched so no later row asks the kernel again — and
 not the BLIT4 path below, which was the answer to "the split does not fit" and
 is now unreachable.
 
 **The latch is tested per ROW and it used to be tested per RUN**, which is the
 w2 review's MAJOR 1 and was a defect of exactly the shape a compile-tested path
-has: `te_blitrun` returned on `[te_nob]` *before* reaching the fallback, so the
+has: `con_blitrun` returned on `[con_nob]` *before* reaching the fallback, so the
 first refused run lettered its own row and every later call — the first run of
 every OTHER row included — returned having drawn nothing. One row of text and
 twenty-four blank ones, for the life of the instance, on the one machine that
-can see it. The test now lives at the head of `te_emit`, which answers for the
+can see it. The test now lives at the head of `con_emit`, which answers for the
 whole row before it walks a single run.
 
 **The fallback that was NOT needed, kept for the record: `OSAPI_GFX_BLIT4`
@@ -88322,14 +88322,14 @@ not a space" rule renders as nothing at all, and it is exactly what a board's
 highlighted menu item is made of. Every other pair — a colour on black, a
 colour on a colour — reads correctly as lit glyph on dark ground.
 
-**Blink is ignored windowed.** With `[te_ice]` set, bit 7 means a bright
+**Blink is ignored windowed.** With `[con_ice]` set, bit 7 means a bright
 background instead, **on a COLOUR screen and there only**. The first version
-widened the background mask from 0x70 to 0xF0 above the `[te_mono]` test, so
+widened the background mask from 0x70 to 0xF0 above the `[con_mono]` test, so
 an iCE machine read bit 7 as a background bit on one bit as well — and
 attribute 0x88, blink set on black, then drew INVERSE in the window and plain
 in full screen, where `te_tx_mattr` always masks 0x70. On one bit there is one
 brightness and a bright background is not a thing, so the mask is 0x70 there
-whatever `[te_ice]` says, and §70.8.9's two 1bpp paths agree again.
+whatever `[con_ice]` says, and §70.8.9's two 1bpp paths agree again.
 
 Composing the inverse is an `XOR` with a mask byte, eight times a cell over
 the band bytes, which is why this costs nothing: **the calls are identical
@@ -88406,7 +88406,7 @@ A terminal needs 0..255, and it needs them to be **CP437** rather than the
 system face: a `make FONT=` kernel replaces the OS's letters, and a board's
 box-drawing character is not a design choice this package may inherit.
 
-So the package builds its own table, `te_glyf`, **2,048 bytes in bss**, at
+So the package builds its own table, `con_glyf`, **2,048 bytes in bss**, at
 launch:
 
 | the machine | 0..31 | 32..127 | 128..255 |
@@ -88478,12 +88478,12 @@ terminal that reserved it would cut the bottom off every menu. `TET_X0` and
 
 | what | what it costs |
 |---|---|
-| a dirty row on a colour text screen | one 80-word `rep movsw` straight out of `te_scr` |
+| a dirty row on a colour text screen | one 80-word `rep movsw` straight out of `con_scr` |
 | a dirty row on MDA | eighty cells, each mapped (§70.8.9) then stored |
 | a scroll of N rows | **one** `rep movsw` of (25−N)×160 bytes, then the N vacated rows re-emitted |
 
 The colour case is the whole argument for the bracket, one size smaller than
-§70.6 made it: the cell in `te_scr` **is** the cell in VRAM, character byte
+§70.6 made it: the cell in `con_scr` **is** the cell in VRAM, character byte
 then attribute byte, so a row is a move and not a translation.
 
 **The way out is drawn once, on entry, on row 25, and the host is allowed to
@@ -88515,7 +88515,7 @@ that owns the socket.
 
 **The hardware cursor is positioned by the BRACKET, not by the worker.**
 `int 10h AH=02h` after each pass, and `AH=01h CX=2000h` to park it when
-`[te_cvis]` is clear. **The SHAPE call is issued only on a change** — `[te_tcur]`
+`[con_cvis]` is clear. **The SHAPE call is issued only on a change** — `[te_tcur]`
 is the visibility the CRTC was last told about — because the mode set already
 chose one and a BIOS call a frame for a byte that does not move is a frame the
 kept worker wanted.
@@ -88523,7 +88523,7 @@ kept worker wanted.
 **A visible hardware cursor BLINKS, and no `settle()` can see past it.** That
 is a fact about the harness rather than about this renderer and it is recorded
 because it costs a session every time: a full-screen capture taken with
-`[te_cvis]` set never reaches two identical frames on a VGA, and the failure
+`[con_cvis]` set never reaches two identical frames on a VGA, and the failure
 reads as "the machine never finished booting". Clear the byte for the capture. §53.7's forbidden list has exactly one `int 10h`
 on it — a **mode set** outside `fsx_mode` — and §53.4 names AH=02h, AH=01h,
 AH=05h, AH=0Eh and AX=1003h as calls the bracket may already make. Both
@@ -88544,19 +88544,19 @@ and running `tests/telnet.py` against it — which is the only way to know that
 a gate written after a fix can see the thing it is about.
 
 **1. Full screen did not scroll at all.** `te_tx_owed` ends with
-`mov word [te_scrl], 0` under the comment *"a text row change IS the scroll
-here: the rows are re-emitted, so there is nothing for `te_scrollpaint` to
+`mov word [con_scrl], 0` under the comment *"a text row change IS the scroll
+here: the rows are re-emitted, so there is nothing for `con_scrollpaint` to
 spend."* Only the rows in the dirty range are re-emitted, and `te_scrollck`
-marks exactly one — `TE_ROWS - 1`, the row it opened. So after a scroll, the
+marks exactly one — `CON_ROWS - 1`, the row it opened. So after a scroll, the
 buffer had moved every row up and the screen had been told about the last one:
 **rows 0..16 kept showing pre-scroll text for the rest of the session**, and
 the bottom row was overwritten again and again. A board's output, which is
-one long scroll, was legible on one line. The renderer spends `[te_scrl]` as a
+one long scroll, was legible on one line. The renderer spends `[con_scrl]` as a
 VRAM move now (§70.8.7), which is what the debt was always for.
 
 **Reproduced.** Twenty-five numbered lines on the text screen, then four
-scrolls left the way `te_scroll1` leaves them — the buffer moved, the row it
-opened marked, `[te_scrl]` at 1:
+scrolls left the way `con_scroll1` leaves them — the buffer moved, the row it
+opened marked, `[con_scrl]` at 1:
 
 | | text VRAM row 0 | rows above the bottom holding pre-scroll text |
 |---|---|---|
@@ -88600,27 +88600,27 @@ see this at all — the bracket is on the UI task and goes on drawing either way
 
 **3. And the debt itself had no critical section**, which §70.9's own wave
 found rather than the field. `FSXF_KEEPWORKER` means `te_tx_owed` runs on the
-**UI task** while `te_putc`, `te_scroll1` and `te_mark` keep running on the
+**UI task** while `con_putc`, `con_scroll1` and `con_mark` keep running on the
 **worker**, and two read-modify-writes crossed that boundary unguarded. §70.2
 had the house answer for exactly this one word along — `pushf`/`cli` … `popf`,
 and its own comment says *"`te_txw` HAS TWO WRITERS"*.
 
 | what | the window | what a board saw |
 |---|---|---|
-| `mov ax, [te_scrl]` … `mov word [te_scrl], 0` | two instructions | a board that scrolled twice in it lost one: VRAM moved N rows where the buffer moved N+1, and **every row the board did not touch again stayed one line out of place for the rest of the session** |
+| `mov ax, [con_scrl]` … `mov word [con_scrl], 0` | two instructions | a board that scrolled twice in it lost one: VRAM moved N rows where the buffer moved N+1, and **every row the board did not touch again stayed one line out of place for the rest of the session** |
 | the row loop, then `te_markclr` | **the whole 25-row pass** | a character arriving for row 3 while the loop was on row 18 had its mark cleared unread and **never reached the screen at all** |
 
 The fix is two small procs and **no snapshot buffer**, which is the shape worth
-having: `te_takerow` clears a row's bit *as it draws that row*, under one
+having: `con_takerow` clears a row's bit *as it draws that row*, under one
 `cli`, so a mark set for a row the loop has passed survives into the next pass
-instead of being dropped; `te_takescroll` reads the counter and zeroes it
+instead of being dropped; `con_takescroll` reads the counter and zeroes it
 together. `te_markclr` is **deleted** — a bitmap that is cleared wholesale is a
 bitmap that drops what the other task wrote while it was being walked, and
 leaving the routine in the file would have left the shape available.
 
 **Both renderers take the same two procs**, which is the other half of it: the
 windowed path had the identical race on `te_screen`'s UI-task pass, where a
-lost scroll was masked by the `te_markall` that opened the sequence. One
+lost scroll was masked by the `con_markall` that opened the sequence. One
 answer, not two, and no renderer can now be the one that forgot.
 
 #### 70.8.9 iCE colours, and what MDA does with an attribute
@@ -88671,7 +88671,7 @@ desktop would be told the wrong thing). The mapping:
 | bit 7 | kept in every case |
 
 **There is no underline row and there was one in the first draft.** §70.9.4
-settles it: SGR 4 does not reach `te_scr` at all, because a two-byte cell has
+settles it: SGR 4 does not reach `con_scr` at all, because a two-byte cell has
 nowhere to put a third bit and a third byte per cell is 2,000 bytes of bss for
 something no board sends. An MDA already shows attribute 0x01 as an underline
 for a blue foreground, which arrives here through the ordinary colour mapping
@@ -88692,15 +88692,15 @@ and a gate that asserted on it would be asserting about the emulator, so
 
 #### 70.8.10 The viewport, and what a narrow window costs now
 
-§70.5's bargain is unchanged and its arithmetic moves. `te_vcols` and
-`te_vrows` are still derived from the LIVE content box on every `te_layout`,
+§70.5's bargain is unchanged and its arithmetic moves. `con_vcols` and
+`con_vrows` are still derived from the LIVE content box on every `te_layout`,
 still show columns 0.. and the LAST rows, and **the buffer still never
 changes**: 80x25 whatever the window is.
 
 The window opens as wide as the desktop allows, up to eighty columns.
 Measured, with the template at 656 x 254 and `wm_fit` clamping it:
 
-| adapter | desktop | the window | te_px | te_vcols x te_vrows |
+| adapter | desktop | the window | con_px | con_vcols x con_vrows |
 |---|---|---|---|---|
 | VGA | 640 x 480 | 640 x 254 | 8 | **79 x 25** |
 | CGA | 640 x 200 | 640 x 155 | 8 | **79 x 13** |
@@ -88729,8 +88729,8 @@ host where to wrap a line the buffer is not going to wrap there.
 | before | 4,719 | 1,935 | 6,654 |
 | after | **7,052** | **7,554** | **14,606** |
 
-The bss is where the screen went: `te_scr` is 4,000 bytes, `te_glyf` 2,048 and
-`te_band` 640, which is 6,688 of the 5,619 it grew by. §20's `APP_MAX_SIZE` is
+The bss is where the screen went: `con_scr` is 4,000 bytes, `con_glyf` 2,048 and
+`con_band` 640, which is 6,688 of the 5,619 it grew by. §20's `APP_MAX_SIZE` is
 61,440 for image + bss and is not the binding limit — contiguous heap is — so
 the launch to watch is a 256 KB machine's, `vm/xt-weave-256`'s class.
 
@@ -88740,10 +88740,10 @@ second copy of one:
 
 | name | size | meaning |
 |---|---|---|
-| `te_mono` | byte | this screen is 1bpp, re-asked in `te_layout` (§70.8.5) |
-| `te_nob` | byte | `OSAPI_GFX_BLIT1` refused once, so every row letters (§70.8.2) |
-| `te_rr` | word | the row `te_compose` is composing, for the cursor test at its foot — and the scroll count `te_tx_scroll` holds while `DS` points at VRAM |
-| `te_ry`, `te_rcp` | word each | the band's y and the row's first cell, out of the registers' way in `te_emit` |
+| `con_mono` | byte | this screen is 1bpp, re-asked in `te_layout` (§70.8.5) |
+| `con_nob` | byte | `OSAPI_GFX_BLIT1` refused once, so every row letters (§70.8.2) |
+| `con_rr` | word | the row `con_compose` is composing, for the cursor test at its foot — and the scroll count `te_tx_scroll` holds while `DS` points at VRAM |
+| `con_ry`, `con_rcp` | word each | the band's y and the row's first cell, out of the registers' way in `con_emit` |
 | `te_tkind` | byte | the display's `VID_*` kind, from `OSAPI_FSX_CAPS` (§53.7.1) |
 | `te_tcur` | byte | the cursor visibility the CRTC was last told about |
 | `te_thint` | byte | the row the leave hint is on, `0xFF` once gone (§70.8.7) |
@@ -88751,7 +88751,7 @@ second copy of one:
 **Three things this wave did not answer**, written down so the next one does
 not assume they were:
 
-1. **Per-display depth.** `te_mono` is the PRIMARY's (§70.8.5), so a window on
+1. **Per-display depth.** `con_mono` is the PRIMARY's (§70.8.5), so a window on
    the mono half of an extended desktop composes with a colour polarity.
 2. **The windowed cursor does not blink.** §70.8.2 pins a steady underline and
    that is what shipped; the full-screen one blinks because the CRTC does.
@@ -88763,6 +88763,52 @@ not assume they were:
    went with it and for the same reason** — §70.9.3's one saved slot holds the
    POSITION and never the attribute, so the byte that was to hold `ESC 7`'s
    colours had no writer either.
+
+#### 70.8.12 The console is `apps/os88con.inc` now, and Telnet is one carrier
+
+**Everything §70.8 to §70.8.11 describes is a SHARED INCLUDE** — the buffer,
+the attribute, the dirty bitmap, both scrolls, the composer, the blit-per-run
+renderer and the CP437 face. It moved out of `apps/telnet/` unchanged and every
+symbol in it is `con_*` rather than `te_*`; this section stays where it is
+because it is where the design was argued, and §70.8's tables are the
+library's contract read in Telnet's own terms.
+
+**What moved it is the third consumer, not the second.** §96.32's DOS box needs
+this screen for its console band, and the wave after that needs it again for a
+DOS program's captured output — so the choice was one copy or three, and a
+second copy drifts from the first the day either grows a feature. That is the
+argument `apps/os88ui.inc`'s header makes for every file in that directory, and
+nothing here is new except the count.
+
+**The carrier owes it the geometry and nothing else** — `[con_px]` (the text
+pen, a multiple of 8), `[con_oy]`, `[con_topy]`, `[con_vcols]`, `[con_vrows]`,
+`[con_vtop]` and `[con_mono]` — **asked for at every paint and never once at
+launch**, because a window can be resized, dragged across a seam or land on
+another adapter, and a MOVED window calls no paint proc at all (§11.96.12).
+Three words the extraction carried in came straight back out: `te_ox`, `te_cw`
+and `te_chh` are Telnet's own window layout, read by no routine in the library,
+and a console that knows its carrier's window width is a console with an
+opinion about where the band goes.
+
+**ONE CONSOLE PER PACKAGE, declared by the library rather than by the caller.**
+`os88line.inc` takes a caller-owned block because a window may hold two text
+fields; this file declares its own storage, because nothing wants two terminals
+and the cost of the other shape lands in the worst place there is — `con_compose`
+writes eight bytes a cell with no call at all, and addressing the buffer through
+a block would put an indirect base in that inner loop, eighty cells a row and
+twenty-five rows, on a 4.77 MHz machine.
+
+**The bss chains off `CON_BSS_AT`**, `os88parts.inc`'s shape and for its
+reason: the default is `os88_image_end`, so the console's `CON_BSS` bytes come
+first and a carrier bases its own at `os88_image_end + CON_BSS`. Telnet's
+`TE_BSS` is still measured from `os88_image_end` to the foot of its own chain,
+so it carries the console's bytes with no second term.
+
+**It cost Telnet two bytes of image and eighty-one of bss.** The bytes are
+`[con_run]`, `con_rowfont`'s NUL-terminated run, which Telnet used to lend it
+the status line's buffer on the argument that the two cannot overlap in time —
+true there, and not a promise a library may make about a carrier it has not
+met.
 
 ### 70.9 The ANSI-BBS parser (`apps/telnet/teansi.inc`)
 
@@ -88793,7 +88839,7 @@ Seven states plus one lookahead sub-state. `[te_pst]` holds it, and
 | GROUND | anything else, 0x01..0xFF | put the glyph | GROUND |
 | ESC | `[` | | CSI_ENTRY |
 | ESC | `7` | save the cursor POSITION (one slot, §70.8) | GROUND |
-| ESC | `8` | restore it, and clear `[te_pwrap]` | GROUND |
+| ESC | `8` | restore it, and clear `[con_pwrap]` | GROUND |
 | ESC | `]` `P` `_` | OSC / DCS / APC — **exactly these three** | STRING |
 | ESC | 0x1B | **restart**: stay here | ESC |
 | ESC | 0x18, 0x1A | abort | GROUND |
@@ -88885,7 +88931,7 @@ is the difference between a clean screen and a screen with `?7h` in it.
 | 0x00 | dropped — **the only byte GROUND drops** |
 | 0x07 BEL | a short `OSAPI_SND_TONE` (0x00E8) — **and never a block** |
 | 0x08 BS | cursor left one, stopping at column 0. **No erase** |
-| 0x09 TAB | to the next multiple of eight; **clamped to column 79** if that would be 80 or more. **No erase**, and it never sets `[te_pwrap]` |
+| 0x09 TAB | to the next multiple of eight; **clamped to column 79** if that would be 80 or more. **No erase**, and it never sets `[con_pwrap]` |
 | 0x0A LF | cursor down one; at row 24 the screen scrolls. **An INDEX only — no implicit carriage return**, so `A` LF `B` puts the `B` in column 1 |
 | 0x0C FF | clear the screen with the current attribute, cursor home |
 | 0x0D CR | column 0 |
@@ -88917,7 +88963,7 @@ second line of a board's two-column menu against the left margin.
 
 **BS does not erase and TAB does not erase**, which is the ANSI-BBS convention
 and not the VT's: a board draws with the cursor and expects a backspace to
-move it, and the existing `te_putc` wrote eight spaces for a tab — which is
+move it, and the existing `con_putc` wrote eight spaces for a tab — which is
 why a board's aligned menu came out with holes in it.
 
 **BEL never blocks.** `OSAPI_SND_TONE` is not a blocking call — it programs the
@@ -88952,12 +88998,12 @@ Every clamp is to the 80x25 buffer. `Pn` is param 0 unless stated.
 | `S` | SU | 1 | the whole screen scrolls up `Pn` |
 | `T` | SD | 1 | the whole screen scrolls down `Pn` |
 | `s` | SCP | — | save `cx`, `cy` into **the one slot** `ESC 7` uses (§70.8). Never the attribute |
-| `u` | RCP | — | restore them, and clear `[te_pwrap]` |
+| `u` | RCP | — | restore them, and clear `[con_pwrap]` |
 | `n` | DSR | 0 | `6` answers `ESC [ <row> ; <col> R`, **1-based**. `5` answers `ESC [ 0 n`. Anything else, nothing |
 | `c` | DA | 0 | answers `ESC [ ? 1 ; 0 c` — **only for `Pn` = 0 and only with NO private prefix**, so `CSI ?c` is consumed silently |
 | `N` | — | — | **unknown, ignored** with a parameter; a bare `CSI N` is music |
 | `m` | SGR | 0 | §70.9.4 |
-| `h` `l` with `?` prefix | DECSET / DECRST | — | `[te_cvis]` set / cleared if **any** parameter is 25; every other value consumed |
+| `h` `l` with `?` prefix | DECSET / DECRST | — | `[con_cvis]` set / cleared if **any** parameter is 25; every other value consumed |
 
 **`CSI M` and `CSI N` are ANSI music, and this is the design's one genuine
 collision.** `ESC[M` is Delete Line in ANSI.SYS and a music string in
@@ -88992,7 +89038,7 @@ the other erases, by SU/SD, by IL/DL/ICH/DCH/ECH, by SGR, or by `CSI s`.
 
 **A row insert, a row delete and a screen scroll all mark every row they
 moved**, which on a 25-row bitmap is cheap to say and is the whole of what the
-renderer needs. Only `LF` at the bottom and `SU` take `[te_scrl]`, because
+renderer needs. Only `LF` at the bottom and `SU` take `[con_scrl]`, because
 only they move the screen as a whole in the direction the blit can follow.
 
 #### 70.9.4 SGR is applied to LOGICAL state, and the attribute is derived
@@ -89010,20 +89056,20 @@ then writes the `31` into the low nibble draws **blue on white** — a plausible
 picture, entirely wrong, and one that only shows up on the boards that put the
 `7` first.
 
-So the terminal keeps six logical bytes and **derives** `[te_attr]` after every
+So the terminal keeps six logical bytes and **derives** `[con_attr]` after every
 SGR:
 
 ```
 fg = te_lfg & 0x0F              ; bg = te_lbg & 0x07
 if te_rev:  fg, bg = (bg | (fg & 0x08)), (fg & 0x07)   ; intensity stays on fg
 if te_con:  fg = bg
-te_attr    = (te_blk ? 0x80 : 0) | ((bg & 7) << 4) | (fg & 0x0F)
+con_attr    = (te_blk ? 0x80 : 0) | ((bg & 7) << 4) | (fg & 0x0F)
 ```
 
 **The four check values**, which `tools/ansisim.py` and the assembly must both
 produce:
 
-| sequence | `te_attr` |
+| sequence | `con_attr` |
 |---|---|
 | `CSI 0;7m` | **0x70** |
 | `CSI 1;7m` | **0x78** |
@@ -89069,7 +89115,7 @@ as this needs to have.
 
 **The first draft declared a `[te_ul]` byte so that this terminal and `ansisim`
 would "publish the same state", and it is gone.** The byte-for-byte contract of
-§70.12 is `te_scr` and nothing else, so publishing the flag bought the gate
+§70.12 is `con_scr` and nothing else, so publishing the flag bought the gate
 nothing; what it cost was a byte in a package's bss that no renderer read, and
 a byte no renderer reads is a byte that goes stale in silence — the next
 person to add a rule about underline would have found a flag that was already
@@ -89081,7 +89127,7 @@ agree about every one of the 4,000 bytes, which is the contract.
 #### 70.9.5 Wrap is PENDING, and that is the whole of it
 
 **A glyph written in column 79 stays visible and the cursor stays on column
-79, with `[te_pwrap]` set.** The next GLYPH wraps to column 0 of the next row,
+79, with `[con_pwrap]` set.** The next GLYPH wraps to column 0 of the next row,
 scrolling if it was the last, and clears the flag.
 
 **What else clears it is a closed list, and it is "anything that ASSIGNS a row
@@ -89161,7 +89207,7 @@ wave-2 review's fixes cost — and each is a shape rather than a trick:
 * **One cell mover, and it picks its own direction.** IL, SD and ICH open a gap
   and copy backwards; DL, SU and DCH close one and copy forwards. Six
   hand-written `rep movsw` blocks were six chances to get an overlap wrong and
-  six copies of the doubling from cells to bytes; `te_cmove` compares its two
+  six copies of the doubling from cells to bytes; `con_cmove` compares its two
   addresses and is the only place `std` appears.
 * **`te_reset` is one `rep stosb`**, which is why the parser's whole state is
   one contiguous run of bss — the option layer's phase and the saved cursor
@@ -89173,8 +89219,8 @@ wave-2 review's fixes cost — and each is a shape rather than a trick:
 
 **The worker's deepest chain is 102 bytes**, `tools/stkdepth.py`, and it is the
 feed path rather than the draw path now: `te_step` → `te_feed` → `te_byte` →
-`te_pbyte` → `te_ground` → `te_putc` → `te_nextrow` → `te_scroll1` →
-`te_scrollup` → `te_fillcells` → `te_markcells` → `te_mark` → `te_bit`.
+`te_pbyte` → `te_ground` → `con_putc` → `con_nextrow` → `con_scroll1` →
+`con_scrollup` → `con_fillcells` → `con_markcells` → `con_mark` → `con_bit`.
 `OS88_STACK_256` covers it with §8.7's 64-byte interrupt floor at 1.54x, above
 the 1.25x `stkclass` enforces.
 
@@ -89184,7 +89230,7 @@ a board's art is mostly SGR, so that would have redrawn a row that did not
 change, eighty cells composed and blitted, thousands of times a screen, in
 flat contradiction of PERFORMANCE.md's rule 1. The dispatcher remembers the
 cursor and marks the two rows only if the final MOVED it; the finals that
-change a CELL mark their own rows inside `te_fillcells`, where the row
+change a CELL mark their own rows inside `con_fillcells`, where the row
 arithmetic is already being done. The controls carry the same rule one level
 down: NUL and BEL move nothing and take neither mark, and a board sends CR and
 LF by the thousand.
@@ -90019,7 +90065,7 @@ edited to agree with the code is not a gate:
    test time, not stored** — so an oracle cannot drift from the reference
    renderer and a change to the reference renderer is a change to every
    expectation at once.
-3. The comparison is `te_scr` read out of guest memory against that output,
+3. The comparison is `con_scr` read out of guest memory against that output,
    **byte for byte, all 4,000 of them**, characters and attributes alike.
 4. Nothing in the fixtures is third-party art. A small ANSI scene drawn by the
    tool is fine and is what exercises the block glyphs.
@@ -90055,7 +90101,7 @@ but that sweep catches it before the guest does. The assembly's own gate should
 drive at least one fixture through `NETV_RECV` boundaries it chose rather than
 the ones TCP happened to give it.
 
-`tests/telansi.py` drives one fixture at a time, compares `te_scr`, asserts the
+`tests/telansi.py` drives one fixture at a time, compares `con_scr`, asserts the
 negotiation replies and a DSR answer in the server's log, enters full screen
 and screenshots it, and types the special keys of §70.10.2 asserting the bytes
 the server saw. `tests/telzm.py` runs the same harness with the server sending
@@ -90244,7 +90290,7 @@ the one way a Telnet client can wedge a session that is working perfectly.
 **THE FULL-SCREEN MEMCMP WAS PASSING OVER A BLANK SCREEN**, and the
 screenshot is the only thing that said so. It ran at the end of the fixture
 loop, by which time Close and the mirror check had each put the terminal
-through `te_reset` and `te_clear` — so 4,000 bytes of SPACE were compared with
+through `te_reset` and `con_clear` — so 4,000 bytes of SPACE were compared with
 4,000 bytes of space, which is a comparison a renderer that drew *nothing at
 all* would also pass. The picture was a black screen with the leave hint on it.
 The check now opens one more session, feeds the `art` fixture, **asserts that
@@ -121017,6 +121063,136 @@ hygiene biting inside a single routine rather than across two files.
 **It does not unblock the installer**, and it was never going to: the call
 after it is the `AH=4Bh` that cannot find `COMMAND.COM` (§96.29). It is here
 because a wrong answer is worth more to remove than a missing one.
+
+#### 96.33 THE CONSOLE BAND: our own `COMMAND.COM`, in the window (`apps/os88con.inc`)
+
+§96.32 cut the window to 80 columns and left the band below the top bar empty,
+with three lines of status text standing in it and a comment saying so. **This
+is what goes there**: an 80x25 text console with a prompt in it, black with
+white text, drawn by `apps/os88con.inc` — the screen Telnet has had since
+§70.8, which moved into a shared include for this (§70.8.12).
+
+**It is the interpreter `dosh.inc` already is**, and §96.30 said so when it was
+written: *"a prompt in a window differs from this in its INPUT (a typed line
+rather than a command tail) and its OUTPUT (a text pane rather than the ROM
+teletype), and in nothing else"*. So this section adds an input and an output
+and **no verb**: `dsh_run` is entered with the line the user typed, every
+command in `dsh_tab` is reachable from the prompt the day it is reachable from
+`AH=4Bh`, and the back-end rule (§96.4) is untouched.
+
+**The console is the window's, not the bracket's.** A DOS program that takes
+the machine still takes it: `OSAPI_FSX_*`, the ROM teletype, the whole of
+§96.2's bracket. What changes is where `dos_tty` sends a byte when **no bracket
+is up** — to `con_write` instead of `int 10h AH=0Eh`, which is a call that
+cannot work outside one anyway.
+
+| | windowed (this section) | inside the bracket (§96.2) |
+|---|---|---|
+| output | `con_write` into `con_scr`, painted by the UI task | `int 10h AH=0Eh`, the ROM's own |
+| input | `dos_onkey`, the window's keystrokes | `int 16h`, polled by `dos_getkey` |
+| the screen | 80x25 in the band, `[con_vrows]` of it on view | the adapter's, whatever the program sets |
+
+##### 96.33.1 What the console owes the library, and where it comes from
+
+`dos_con_geom` already answered every one of these for §96.32's band, so the
+wiring is six stores and one far call at the foot of a routine that runs on
+every paint:
+
+| the library's | from |
+|---|---|
+| `[con_px]` | `[dos_conx]` — the band's left, and **already a multiple of 8**, which `OSAPI_GFX_BLIT1` requires (§5.4.2) |
+| `[con_oy]` | `[dos_cony]` — below the bar |
+| `[con_topy]` | **0**: §96.32's band origin is the text's origin, where Telnet's is the window's and its own chrome is above |
+| `[con_vcols]`/`[con_vrows]` | `[dos_concols]`/`[dos_conrows]` |
+| `[con_vtop]` | `CON_ROWS - [con_vrows]`, floored at 0 — **the BOTTOM of the buffer**, which is the opposite of a terminal's viewport and right for a console: the interesting row is the one the prompt is on. It only bites on CGA, where 200 pixels of screen leave 15 rows of 25 |
+| `[con_mono]` | `OSAPI_VIDEO`'s `DH`, asked here and not at launch (§11.96.12) |
+
+**`con_open` is called once, from the entry proc**, and it is not optional: the
+loader zeroes bss (§21 step 5), so an unopened console has attribute 0 — black
+on black — and every character written into it is invisible. Telnet does the
+same two stores inside `te_reset` off its SGR state, which is why they are not
+in `con_clear`: an erase takes the CURRENT attribute and may not invent one
+(§70.9.3).
+
+**`%define CON_TTY` is the control half** (§70.8.12): `con_putc` takes a glyph
+and nothing else, because Telnet's controls belong to its ANSI parser. This box
+has no parser, so it opts into `con_write` — CR, LF, BS, TAB, and BEL dropped —
+and `con_say` for a NUL-terminated string. **LF scrolls and CR does not move the
+row**, which is the ROM teletype's behaviour and not ANSI's NEL, so a program
+that ends its lines `13, 10` gets one new line and one that ends them `10`
+alone gets a staircase — exactly as it would on a real PC.
+
+##### 96.33.2 The prompt is `$P$G` and it is not configurable
+
+The prompt is the current drive letter, the current path and `>` — `PROMPT
+$P$G`, which is what a DOS user sets on the first line of their `AUTOEXEC.BAT`
+and what every screenshot of the era shows. It is **recomposed at every
+prompt** rather than held as a string, so `CD` and a drive change are reflected
+with nothing to invalidate: the letter is `[dos_vol]` through §96.6's identity
+map and the path is `OSAPI_FILE_PATH`, which is the same pair `dos_envpath`
+already builds `MYPATH` out of.
+
+**It starts on the drive the box was LAUNCHED from, at that drive's ROOT.**
+The drive is `OSAPI_FILE_HERE`'s, which answers the instance's own volume with
+no disk I/O at all; `[dos_vol]` is zero out of bss and zero is drive A:
+(§96.6.3's sentinel trap one file along), so without it an installed machine's
+box stood on C: and printed `A:\>`.
+
+**The FOLDER that call answers is deliberately thrown away.** It is `APPS\` —
+where this package's own file lives, since `DOS.O88` is `SYSROOT` (§24.3) — and
+a user opening a DOS box has come for a machine, not for our installation
+layout. A prompt that opens `A:\APPS>` is one they have to `CD \` out of
+before anything they type means what it looks like.
+
+**There is no `PROMPT` command**, and `$P$G` is not stored anywhere. A console
+whose prompt can be set to `$N$G` is a console with a format string to parse,
+an escape vocabulary of fourteen codes to implement and a setting to persist,
+for a result no test can assert and no user of this box has asked for. The one
+thing the DOS default would buy is nothing: `A>` is what DOS shows when
+`AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
+that line would have run.
+
+##### 96.33.3 Line input is the console's, and Esc is the way out of full screen
+
+A keystroke on the main page with **no field focused** is the console's: a
+printable character echoes and appends, `BS` rubs one out, `Enter` runs the
+line. The buffer is `dsh_line` itself — the same one `dsh_tail` copies a command
+tail into — because a typed line and a tail are the same thing by the time
+`dsh_run` sees it, and a second buffer would be `DSH_LINE` bytes of a package
+that ships on every system floppy for the sake of a history this wave does not
+have.
+
+**Esc leaves full screen, and only in console mode.** The console can take the
+whole screen as 80x25 — Telnet's own full-screen renderer (§70.8.7) is in the
+library — and the way back out is `Esc`, because there is no menu bar and no
+close box up there. **Once a program is running it is the program's key**, not
+ours: a DOS program reads `Esc` for its own purposes and a box that ate it
+would be a box that cannot run half the software it exists for. So the fence is
+the same one §96.2's bracket already draws, tested where every other one is.
+
+##### 96.33.4 `DIR` is the one verb the prompt added
+
+`dsh_tab` had fifteen verbs and no `DIR`, and that was **right until there was
+a prompt**. Every verb in it is one a PROGRAM shells out for, and §96.30.1
+measured which: nothing shells out to list a directory, because a program that
+wants a listing calls `AH=4Eh` itself. A person at a prompt wants nothing else
+first.
+
+It is one line a file, DOS's own columns — the name padded to 8, the extension
+padded to 3, then `<DIR>` or the size right-aligned in eight — and **no date
+and no time**, because the listing record (`OSAPI_FIND_SZ`) carries neither and
+a column of blanks is worse than no column. The footer is `N file(s)`.
+
+**Folders are listed and `..` is not skipped**, which is the opposite of
+`dsh_nth`'s rule and deliberate: that walker feeds `COPY`, where a folder is
+not a file to copy; this one is the user's picture of where they are, and `..`
+is how they know they are not at the root.
+
+**The size is 32 bits.** `dsh_count` prints a word into six digits, which is
+right for "N file(s) copied" and wrong for a file: a 65KB file on a 1.44MB
+floppy is ordinary and printing its low word alone is a plausible wrong number.
+`dsh_num32` divides `DX:AX` by ten the two-step way and `dsh_num` is twelve
+bytes now.
 
 ### 96.7 What wave 1 answers, and what it refuses
 

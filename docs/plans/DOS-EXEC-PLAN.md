@@ -970,13 +970,20 @@ what three of these rows got wrong.
 | 3 | **BUILT, all four.** `4Bh` EXEC (SPEC.md 96.14), XMS via the `OSAPI_XMEM_*` slots (96.15), `INT 12h`/BDA (already done in wave 1: the BDA's memory word is written at bracket entry, and the ROM's `int 12h` reads it), and **the drivers out of the way** — which came out a KERNEL slot rather than package code, `OSAPI_DRV_SUSPEND` (96.17, 51.11), and is the only row in the whole plan that spent a kernel byte. §15.5 below is what it cost and what the refusal got wrong. | **209 `.text` + 5 `.bss` + 1 API cell** | **+2.9 KB** |
 | 4 | **BUILT.** Packet driver over `ETHER.DRV` (SPEC.md 96.23), validated with mTCP's own `PKTTOOL` and `PING`. **Not the package-only row this table claimed**: §9.4's two premises were both false and §15.7 is what it cost. | **4 `.text`** + 3 driver verbs | **+1.2 KB** (image 13,074 → 14,292; 1,060 compressed) |
 | 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
-| 6 | **Windowed text mode** (§10) — the `INT 21h`/TTY subset rendered into a real window, RunCPM's terminal (SPEC.md 74.2) being the precedent; a program that writes `B8000` is refused into fullscreen instead. | 0 | +4 KB |
-| 7 | **A command interpreter** in that window — the `COMMAND.COM`-shaped half. Needs wave 3's `4Bh` EXEC under it, which is what makes it wave 7 and not wave 6. | 0 | +4–6 KB |
+| 6 | **Windowed text mode** (§10) — the `INT 21h`/TTY subset rendered into a real window, RunCPM's terminal (SPEC.md 74.2) being the precedent; a program that writes `B8000` is refused into fullscreen instead. **HALF BUILT by wave 7's screen**: `dos_tty` writes into the console outside the bracket (SPEC.md 96.33), so the machinery is there; what is left is CAPTURING a program's output, which means the bracket not taking the screen at all. | 0 | +4 KB |
+| 7 | **BUILT.** A command interpreter in that window — and it came out an INPUT, an OUTPUT and a PROMPT with **no verb of its own** (SPEC.md 96.33), because `dosh.inc` was already the interpreter and §96.30 said so when it was written. `apps/os88con.inc` is the screen, extracted from Telnet (§70.8.12); `apps/dos/dosc.inc` is the prompt; `DIR` is the one verb the table was missing (§96.33.4). | **0** | **+3.9 KB image, +6.7 KB bss** (image 23,889 → 27,751, bss 4,367 → 11,186; 23,115 compressed on disk) |
 | — | *deferred, needs its own design* | | |
 | ? | FCB functions (§6.2) — cost is real, audience is small | 0 | +2 KB |
 | ? | DOS 5 rather than 3.31 (§12 q1) — the version byte is free, the functions behind it are not | 0 | ? |
 | ? | `kern_small`, launched to a window and a file dialog (§11.1 item 3) | 0 | small |
 | ? | **The hibernate phase (§14)** — the whole machine for DOS, ~636 KB, and the session safe on disk. Not scheduled; §14.4 is the only thing waves 1–7 must not box out | 0 or a third kernel | ? |
+
+**Wave 7 came in under its estimate on code and over it on RAM**, and the split
+is the thing worth knowing: the +4–6 KB above was a guess at an interpreter,
+and the interpreter already existed — what the wave actually spent is a **6,819
+byte SCREEN**, which is `con_scr`'s 4,000 cells, the CP437 face's 2,048 and one
+640-byte band. That is bss in the package's own segment, so it comes straight
+off the arena a DOS program is handed; on a 640KB machine it is 1% of it.
 
 **Wave 1 is the one that decides everything**, and it is worth building as a
 throwaway first: a `.COM` that does nothing but `INT 21h AH=09h` (print a

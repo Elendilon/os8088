@@ -2846,6 +2846,30 @@ SOAK = [
         "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
+    Row("doscon", "soak", py("tests/doscon.py"), 100.0,
+        "THE DOS BOX'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
+        "below the top bar carried three lines of status text and now carries "
+        "an 80x25 screen - apps/os88con.inc, which is Telnet's terminal made "
+        "into a shared include (70.8.12) because three consumers were coming. "
+        "SEVEN STEPS, in the order a person does them: the box opens on a "
+        "PROMPT and not on an error, naming the drive it was LAUNCHED from "
+        "(96.33.2 - it read `A:\\>` on a machine standing on C: until "
+        "OSAPI_FILE_HERE was asked); typing echoes; a BUILT-IN runs into the "
+        "band, which no prompt could reach before (dosh.inc was `AH=4Bh`'s "
+        "alone since 96.30); DIR lists the folder, being the one verb that "
+        "table was missing (96.33.4); CD moves and THE PROMPT FOLLOWS, which "
+        "is what says $P$G is recomposed rather than held; a PROGRAM runs by "
+        "having its name typed and the path box ends up holding it; and a name "
+        "that is neither answers DOS's own `Bad command or file name` rather "
+        "than `It could not be read.` about a file the user never had. IT "
+        "READS THE BUFFER AND NOT THE GLASS - con_scr is 2,000 cells of "
+        "character-and-attribute and every assertion above is about CHARACTERS "
+        "- with ONE picture check, that the band is BLACK WITH LIT PIXELS IN "
+        "IT, because a console with a perfect buffer and an empty glyph table "
+        "draws a black rectangle and passes every other check in the file. "
+        "That is not hypothetical: it is what the first build did, con_open "
+        "having not called con_font.",
+        needs=("marty",), serial=True),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "
@@ -5132,7 +5156,7 @@ SOAK = [
         "tools/ansisim.py - the same state machine in Python, and the "
         "contract's second reader the way htmsim.py is the browser's. Thirteen "
         "fixtures from tests/fixtures/ansi/ are fed by tools/os88bbs.py in "
-        "deliberately RAGGED fragments, and te_scr is read out of guest memory "
+        "deliberately RAGGED fragments, and con_scr is read out of guest memory "
         "and compared with the simulator's 4,000 bytes CHARACTER AND ATTRIBUTE "
         "- the oracle computed at test time, never stored, so it cannot drift "
         "from the reference renderer. Then the negotiation and both "
@@ -5141,7 +5165,7 @@ SOAK = [
         "an option this terminal does not implement, the DSR and DA answers, "
         "the twelve special keys as the exact bytes on the wire, Enter as a "
         "BARE CR under TRANSMIT-BINARY, the Zmodem trigger's handover offset, "
-        "and full screen as a memcmp of te_scr against text VRAM. QEMU by "
+        "and full screen as a memcmp of con_scr against text VRAM. QEMU by "
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),

@@ -477,9 +477,20 @@ dos_entry:
                                     ; Both preserve the flags, so the CF this
                                     ; proc owes the loader rides through
     call dos_fld_init               ; the arguments field (SPEC.md 96.19)
+    call dos_con_start              ; ...AND THE CONSOLE (SPEC.md 96.33), before
+                                    ; the first paint can read a screen whose
+                                    ; attribute is still a zeroed bss's
 
-    mov ax, dos_wake
-    call OSAPI_WM_ONWAKE
+    mov bx, [dos_win]               ; **NAMED, not whatever the last call left
+    mov ax, dos_wake                ; in BX.** The slot takes BX = the window
+    call OSAPI_WM_ONWAKE            ; and AX = the handler, and this used to
+                                    ; ride on a leftover: the first proc above
+                                    ; it that clobbered BX registered the
+                                    ; handler against another window's slot and
+                                    ; every wake this package posts went
+                                    ; nowhere - Run, Enter-re-run and the
+                                    ; console's own launch all stuck at
+                                    ; DST_READY with nothing to see
     mov si, dos_about
     call OSAPI_ABOUT_SET
 
@@ -671,7 +682,14 @@ dos_run:
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
     mov bx, [dos_win]
     xor cx, cx                      ; no FSXF_KEEPWORKER: there is no worker
-    call OSAPI_FSX_RUN
+    mov byte [dos_inbr], 1          ; **WHICH SCREEN dos_tty WRITES TO** (SPEC.md
+    call OSAPI_FSX_RUN              ; 96.33): the ROM's teletype in here and the
+    mov byte [dos_inbr], 0          ; console outside. It is set around the
+                                    ; BRACKET and not around the program,
+                                    ; because dos_fsx_main's own OSAPI_FSX_MODE
+                                    ; has already taken the screen by the time a
+                                    ; program runs and has not given it back
+                                    ; when one exits
     pushf
     call OSAPI_GFX_UNLOCK
     popf
@@ -713,6 +731,11 @@ dos_run:
                                     ; here including the refusals: a resume with
                                     ; nothing suspended is free and a machine
                                     ; left silent is not (SPEC.md 51.11.1)
+    call dos_con_ended              ; ...and the console says what happened, which
+                                    ; is where §96.32's three status lines went
+                                    ; (SPEC.md 96.33): a log says it once and it
+                                    ; stays said, where a sentence on the band
+                                    ; was true until the next launch
     call dos_repaint                ; THE WINDOW DOES NOT REPAINT ITSELF. On the
                                     ; path that runs, fsx_restore's wm_paint_all
                                     ; (SPEC.md 53.6) happens to redraw us and
@@ -3465,10 +3488,36 @@ dos_getkey:
 dos_tty:
     push ax
     push bx
-    mov ah, 0x0E                    ; the ROM's teletype: it scrolls, it wraps,
-    mov bx, 0x0007                  ; and it is what a DOS program's output
-    int 0x10                        ; goes through when it is not writing the
-    pop bx                          ; framebuffer itself
+    cmp byte [cs:dos_inbr], 0       ; **`cs:` AND IT IS NOT DECORATION** (SPEC.md
+    je .window                      ; 96.33): AH=09h, AH=40h and AH=02h all
+                                    ; reach here with DS holding the PROGRAM's
+                                    ; segment, off the gate's frame - so a
+                                    ; DS-relative read of our own byte lands in
+                                    ; the program's image at the same offset.
+                                    ; MEASURED: a probe's `COUNT ` and `TERM `
+                                    ; labels vanished and their VALUES survived,
+                                    ; because AH=09h was reading a program byte
+                                    ; that happened to be 0 and AH=02h was
+                                    ; reading ours. Inside the bracket the ROM's
+                                    ; teletype is
+    mov ah, 0x0E                    ; the machine's own screen and outside it
+    mov bx, 0x0007                  ; there is no mode for it to write to at
+    int 0x10                        ; all - an int 10h there would scribble on
+    jmp short .out                  ; whatever the desktop has in 12h
+.window:
+    push ds                         ; ...and the console arm needs OUR DS for
+    push cs                         ; real, con_scr and every byte of the
+    pop ds                          ; library being DS-relative. It is only
+    call con_write                  ; reachable outside the bracket, where DS is
+    pop ds                          ; already ours - but "only reachable" is
+                                    ; what the paragraph above was about
+                                    ; ...so the console takes it instead, and
+                                    ; DRAWS NOTHING HERE: a verb that prints a
+                                    ; directory would take the lock per
+                                    ; character. dos_con_run spends the marks
+                                    ; once, after the verb has returned
+.out:
+    pop bx
     pop ax
     ret
 
@@ -3752,49 +3801,15 @@ dos_paint:
     call os88ui_btn
     pop bx
 
-    ; --- ...and the status text, in the CONSOLE BAND -------------------------
-    ; It is the console wave's space and these lines are standing in it until
-    ; there is a console to put them in - which is why they start at the
-    ; band's own origin rather than at a row measured from the content top.
-    mov bx, [dos_conx]
-    mov dx, [dos_cony]
-    mov [dos_ctop], dx              ; banked: DX marches down the lines below
-    add dx, 2
-
-    mov di, dos_l_idle              ; one line per state, and the second line
-    mov si, dos_l2_idle             ; is the detail
-    cmp byte [dos_state], DST_READY
-    jne .notready
-    mov di, dos_l_ready
-    mov si, dos_l2_ready
-.notready:
-    cmp byte [dos_state], DST_RAN
-    jne .notran
-    mov di, dos_l_ran
-    mov si, dos_l2_ran
-    call dos_fmt_exit
-.notran:
-    cmp byte [dos_state], DST_ERR
-    jne .noterr
-    mov di, dos_l_err
-    call dos_err_line               ; SI = the reason
-.noterr:
-
-    push si
-    mov si, di
-    call dos_line
-    pop si
-    add dx, 12
-    call dos_line
-    add dx, 14
-    mov si, dos_name                ; ...and the program's own name last, which
-    cmp byte [dos_state], DST_IDLE  ; is the thing the user recognises
-    je .out
-    call dos_line
-    ; **AND NOTHING ELSE.** The arguments field, the page button and Save
-    ; Shortcut were all on this page and are all in the setup area now
-    ; (SPEC.md 96.32.2) - this page is the bar and the band, and the band is
-    ; the console wave's.
+    ; --- ...AND THE CONSOLE, which is what the band is (SPEC.md 96.33) -------
+    ; **A FULL PAINT OWES EVERY ROW**: there is no next pass that comes back
+    ; for one, so it marks the lot and then spends the scroll debt rather than
+    ; leaving it - con_scrollpaint would blit a screen that has just been drawn
+    ; from the buffer and mark only the rows it vacated (telnet's te_screen
+    ; carries the same pair and the same reason).
+    call con_markall
+    call con_rows_owed
+    call con_takescroll
 .out:
     pop di
     pop si
@@ -4038,10 +4053,65 @@ dos_con_geom:
     mov [dos_conx], ax
     add dx, DOS_BARH
     mov [dos_cony], dx
+    call dos_con_pub                ; ...and the console is TOLD, every time
     clc
 .out:
     pop dx
     pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_con_pub - hand the four words to os88con.inc (SPEC.md 96.33.1)
+; in:  the four above, filled; out: nothing; every register preserved
+;
+; A SEPARATE PROC because it is a different STATEMENT: the four words are this
+; box's answer about its own window and the seven below are the library's
+; contract, so the mapping between them is in one place and reads as a mapping.
+;
+; **AND IT RUNS AT EVERY PAINT, WHICH IS THE POINT** (SPEC.md 11.96.12): a
+; window can be resized, dragged across a display seam or land on an adapter of
+; another depth, and a MOVED window calls no paint proc at all - so the console
+; is told where it is rather than remembering.
+; -----------------------------------------------------------------------------
+dos_con_pub:
+    push ax
+    push bx                         ; **OSAPI_VIDEO ANSWERS THE HEIGHT IN BX**,
+    push cx                         ; and dos_con_geom's contract is that every
+    push dx                         ; register survives it - which its callers
+                                    ; rely on, BX being the window they were
+                                    ; asking about
+    mov ax, [dos_conx]
+    mov [con_px], ax                ; the pen: 8-aligned already, which
+    mov ax, [dos_cony]              ; OSAPI_GFX_BLIT1 requires (SPEC.md 5.4.2)
+    mov [con_oy], ax
+    mov word [con_topy], 0          ; the band's origin IS the text's: this box
+                                    ; keeps its chrome above the band, where
+                                    ; Telnet measures from the window
+    mov ax, [dos_concols]
+    mov [con_vcols], ax
+    mov ax, [dos_conrows]
+    cmp ax, CON_ROWS
+    jbe .rows
+    mov ax, CON_ROWS                ; a window taller than the buffer shows the
+.rows:                              ; buffer, not more of it
+    mov [con_vrows], ax
+    mov cx, CON_ROWS
+    sub cx, ax                      ; **THE BOTTOM OF THE BUFFER, not the top**
+    jnb .top                        ; - a console's interesting row is the one
+    xor cx, cx                      ; the prompt is on (SPEC.md 96.33.1). Only
+.top:                               ; CGA reaches it: 25 rows want 200 pixels
+    mov [con_vtop], cx
+    call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1 - the PRIMARY's
+    cmp dh, 1                       ; (osapi_video's own contract), which on an
+    mov dh, 0                       ; extended desktop is the wrong question for
+    ja .colour                      ; the far display and is stated rather than
+    mov dh, 1                       ; hidden, exactly as te_layout states it
+.colour:
+    mov [con_mono], dh
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -4779,10 +4849,13 @@ dos_paint_env:
     push si
     push di
     push bx
-    call OSAPI_WM_CONTENT           ; ASKED, not read out of [dos_ctop]: that
-    mov cx, ax                      ; is the MAIN page's banked value and is
-    add cx, DOS_SETPAD              ; zero until the main page has painted at
-    add dx, DOS_BODYY               ; least once. The row above this one is the
+    call OSAPI_WM_CONTENT           ; ASKED, and there is nothing left to read
+    mov cx, ax                      ; it out of: [dos_ctop] was the MAIN page's
+    add cx, DOS_SETPAD              ; banked content top, its one writer was the
+    add dx, DOS_BODYY               ; status text SPEC.md 96.33 replaced, and a
+                                    ; bss word nobody writes is one that goes
+                                    ; stale in silence. The row above this one
+                                    ; is the
     mov si, dos_l_envt              ; TITLE and belongs to dos_paint_furn
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
@@ -5332,7 +5405,25 @@ dos_key:
     ; while a particular box is focused is one the user thinks is broken.
 .nofield:
     cmp al, 13
-    jne .no
+    jne .console                     ; every other key is the prompt's, if the
+                                     ; prompt is on this page
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .rerun                       ; a setup page has no console on it, so
+    cmp word [dos_cmdn], 0           ; Enter there means only the re-run
+    jne .console                     ; **A TYPED LINE WINS OVER THE RE-RUN.**
+                                     ; Enter on an EMPTY prompt is still
+                                     ; §96.19.4's "run it again", which is what
+                                     ; the dosargs row drives; Enter on a line
+                                     ; the user has typed may not silently
+                                     ; re-launch the last program instead
+    cmp byte [dos_state], DST_RAN
+    je .again
+    cmp byte [dos_state], DST_ERR
+    je .again
+    jmp short .console               ; ...and with nothing to re-run it is the
+                                     ; prompt's again, which is a fresh line
+                                     ; and what DOS does with a bare Enter
+.rerun:
     cmp byte [dos_state], DST_RAN    ; only from a program that has FINISHED -
     je .again                        ; DST_READY is one already queued and a
     cmp byte [dos_state], DST_ERR    ; second wake would run it twice
@@ -5342,6 +5433,11 @@ dos_key:
     mov bx, [dos_win]
     call OSAPI_WM_WAKE               ; ...and dos_wake does the rest, exactly
     jmp short .done                  ; as it did for the launch
+.console:
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .no                          ; the console is the MAIN page's band
+    call dos_con_key                 ; CF=1 = not the console's either, and the
+    jnc .done                        ; scan code may still be somebody's
 .no:
     pop di
     pop si
@@ -7099,21 +7195,18 @@ dos_bdalist:
                                     ; flag - the same trap in another field
     dw 0xFFFF, 0
 
-; **THE IDLE PAIR IS NOT A REFUSAL** (SPEC.md 96.32.1). It used to read "No
-; program to run. / Open a .COM from a disk window." - which was true of the
-; old window, where an empty box meant the user had nothing and could do
-; nothing here. The box is a PATH BOX now: an empty one is the internal
-; COMMAND.COM and the bar above these lines is live either way, so what the
-; window owes the user is what they can DO, not what they have not done.
-; These two are standing in the console wave's band and go when it arrives.
-dos_l_idle:  db 'Type a program to run, or use Environment to set one up.', 0
-dos_l2_idle: db 'Run starts it. A .COM or .EXE opened from a disk starts here too.', 0
-dos_l_ready: db 'Starting...', 0
-dos_l2_ready: db 'Reading it...', 0
-dos_l_ran:   db 'The program has finished.', 0
+; **THE SIX STATUS LINES ARE GONE, AND THAT IS SPEC.md 96.33 ARRIVING.** They
+; stood in the console's band under a comment saying they would go when it
+; came: an idle pair, `Starting...`/`Reading it...`, `The program has
+; finished.` and `Could not run it.` A console is a LOG, so what happened is
+; said once by dos_con_ended and stays said, where a sentence drawn on the band
+; was true only until the next launch overwrote it - and `Starting...` was
+; never readable at all, the bracket taking the screen in the same slice.
+;
+; `Exit code ` survives because dos_fmt_exit stamps the digits INTO it, and
+; both readers want them: the console's line says `ended, exit code 002`.
 dos_l2_ran:  db 'Exit code '
 dos_exitd:   db '000', 0
-dos_l_err:   db 'Could not run it.', 0
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
@@ -7763,7 +7856,6 @@ PKT_VERSION equ 9
     %1 equ DB
     %assign DB DB + %2
 %endmacro
-    DBSS DOS_B_CTOP,  2          ; the content top, banked for one paint
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so
@@ -7820,7 +7912,7 @@ PKT_VERSION equ 9
     DBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
     DBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
     DBSS DOS_B_MX,    2          ; the memory page's content origin, banked
-    DBSS DOS_B_MY,    2          ; for one paint (dos_ctop's shape)
+    DBSS DOS_B_MY,    2          ; for one paint
     DBSS DOS_B_WIN,   2
     DBSS DOS_B_STATE, 1
     DBSS DOS_B_ERR,   1
@@ -11812,7 +11904,9 @@ dos_fh_fill:
     DBSS DOS_B_SHFNAM,  16          ; the match's own name
     DBSS DOS_B_SHFND,   OSAPI_FIND_SZ
     DBSS DOS_B_SHBUF,   DSH_BUF     ; TYPE's chunk
-    DBSS DOS_B_SHNUM,   6           ; a count, as digits
+    DBSS DOS_B_SHNUM,   12          ; a count, as digits - TWELVE since DIR,
+                                    ; whose sizes are 32-bit: ten digits and a
+                                    ; NUL, and dsh_num32 writes the NUL at +11
     DBSS DOS_B_SHQUIET, 1           ; the line was redirected
     DBSS DOS_B_SHASDIR, 1           ; try the whole spec as a folder
     DBSS DOS_B_SHDEL,   1           ; ...and delete the source after
@@ -11839,12 +11933,27 @@ dos_fh_fill:
     DBSS DOS_B_FHCWD,   2           ; where we were before walking it
     DBSS DOS_B_FHMOVED, 1           ; ...and whether we did
     DBSS DOS_B_FHKEEP,  1           ; AH=3Bh: do NOT walk back
+    ; --- THE CONSOLE'S OWN (SPEC.md 96.33) ----------------------------------
+    ; os88con.inc declares the SCREEN; these three are the prompt's, and they
+    ; are here rather than there because a console is not a shell - the library
+    ; has no idea a line is being typed into it.
+    DBSS DOS_B_INBR,    1           ; the fsx bracket is up, so dos_tty's byte
+                                    ; goes to the ROM and not to the console
+    DBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
+    DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
+                                    ; PROGRAM: set from the prompt, 0 for `/c`
+    DBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
+                                    ; how far back BS may rub (SPEC.md 96.33.3)
+    DBSS DOS_B_CMDN,    2           ; ...and how much of dsh_line is typed
 
 DOS_BSS_SIZE equ DB
 
 %include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
                                     ; a COMMAND.COM that is not a file, over
                                     ; the back end like every other file verb
+%include "dosc.inc"                 ; ...AND THE PROMPT THAT TYPES INTO IT
+                                    ; (SPEC.md 96.33): an input, an output and
+                                    ; a prompt, and not one verb of its own
 
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
@@ -11855,6 +11964,21 @@ DOS_BSS_SIZE equ DB
                                     ; a control pays NOTHING for it
 %include "os88ui.inc"
 %include "os88line.inc"
+; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------
+; **ITS BSS GOES LAST**, past this package's own chain, which is the one line
+; that keeps the two apart: os88parts.inc already took the FIRST OP_BSS bytes
+; off `os88_image_end` (the DBSS table's own note above), so a console based
+; there by default would sit on the parts standard and on the head of this
+; table - which is exactly the silent overlap SPEC.md 96.29.1 cost a session.
+; DOS_BSS_SIZE is an `equ` a few lines above, so there is nothing to keep in
+; step by hand.
+%define CON_BSS_AT (os88_image_end + DOS_BSS_SIZE)
+%define CON_TTY                     ; CR, LF, BS, TAB and BEL, because there is
+                                    ; no ANSI parser over this one (SPEC.md
+                                    ; 96.33.1) - and con_open, since the
+                                    ; attribute a zeroed bss leaves is black
+                                    ; on black
+%include "os88con.inc"
 %include "dosnet.inc"               ; THE CABLE TRANSLATION (SPEC.md 96.26) -
                                     ; only reached when the route is the cable
 %include "os88sock.inc"             ; net_try - WHICH driver answers (SPEC.md
@@ -11878,7 +12002,7 @@ that byte of the record, and a wrong offset writes the label pointer"
  %error "DOS_LNSZ must equal os88line.inc's OS88LINE_SZ - the bss table above reserves DOS_LNSZ bytes for a block this file does not own"
 %endif
 
-    OS88_BSS DOS_BSS_SIZE
+    OS88_BSS DOS_BSS_SIZE + CON_BSS
     OS88_IMAGE_END
 
 ; =============================================================================
@@ -11903,7 +12027,6 @@ dos_imgsz   equ os88_image_end + DOS_B_IMGSZ   ; word: the image's bytes
 dos_prgsp   equ os88_image_end + DOS_B_PRGSP   ; word: the program's first SP
 dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
-dos_ctop    equ os88_image_end + DOS_B_CTOP    ; word: this paint's content top
 dos_conx    equ os88_image_end + DOS_B_CONX    ; the console band (SPEC.md
 dos_cony    equ os88_image_end + DOS_B_CONY    ; 96.32): top-left in screen
 dos_concols equ os88_image_end + DOS_B_CONCOLS ; pixels, size in CELLS, all
@@ -12039,6 +12162,11 @@ dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
 dsh_made    equ os88_image_end + DOS_B_SHMADE
 dsh_got     equ os88_image_end + DOS_B_SHGOT
 dsh_why     equ os88_image_end + DOS_B_SHWHY
+dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
+dos_fromcon equ os88_image_end + DOS_B_FROMCON
+dsh_exec    equ os88_image_end + DOS_B_SHEXEC
+dos_cmdx    equ os88_image_end + DOS_B_CMDX
+dos_cmdn    equ os88_image_end + DOS_B_CMDN
 dos_fhpath  equ os88_image_end + DOS_B_FHPATH
 dos_fpbuf   equ os88_image_end + DOS_B_FPBUF
 dos_fhcwd   equ os88_image_end + DOS_B_FHCWD
