@@ -112038,9 +112038,13 @@ label's own name never appears in the file.
 
 #### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
 
-`CS_VOCAB_AT` is **`APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX`** — 0xE3C0 —
-computed in `tools/csworlds.py` and emitted into `build/cswidx.inc`. The
-overlay sits at the **top** of the segment. There is no number here to tune.
+`CS_VOCAB_AT` is computed in `tools/csworlds.py` and emitted into
+`build/cswidx.inc`. There is no number here to tune. **It was
+`APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX` — 0xE3C0, the top of the segment —
+for one cycle, and §88.10.6.1 replaces that with the program's own top**: the
+argument below is why the address must not be HAND-SET, and it is not an
+argument for putting it at the ceiling. Read this section for the failure, and
+§88.10.6.1 for what the address is today.
 
 **It was hand-set, and that is the thing that went wrong.** `skies.asm`
 declares its bss as `(CS_VOCAB_AT - image_end) + CS_VOCAB_MAX + CS_WLD_MAX`, so
@@ -112096,6 +112100,75 @@ section is about.
 bytes because a package addresses itself with 16-bit offsets, the overlay is
 now hard against that ceiling, and the gap is the last of it. The next time
 Clear Skies runs out, the answer is another part — not another address.
+
+##### 88.10.6.1 …and it is derived from the PROGRAM, not from the ceiling
+
+The section above is right about the failure and wrong about the fix, and the
+two are easy to run together. *Do not hand-set the address* and *put the
+address at the ceiling* are *different propositions*: both are staleness-proof,
+and only one of them is free.
+
+**The ceiling is not free, because the gap is not free.** §88.4.5.5's own
+sentence says `image + bss` is `CS_VOCAB_AT` plus the overlay whatever the
+image does — so the address **IS** the claim, and every byte it is raised by is
+claimed RAM no instruction reads, on every instance, for the life of the
+program. Measured:
+
+| | at the ceiling | derived from the program |
+|---|---:|---:|
+| image | 31,887 | 31,887 |
+| declared bss (`CS_BSS`) | 16,803 | 16,803 |
+| **the gap** | **9,614** | **14** |
+| overlay | 3,136 | 3,136 |
+| **`CS_VOCAB_AT`** | 0xE3C0 | **0xBE40** |
+| **the claim** | **61,440** | **51,840** |
+
+Clear Skies also claims a 32KB shadow inside its fsx bracket, so the ceiling
+put its peak at 93KB where the program needs 83KB.
+
+> **`CS_VOCAB_AT` = the image plus the ZWORD chain, rounded UP to a paragraph.**
+
+Rounded to a paragraph because `skies.asm` hands the overlay to `cs_wldget` as
+`CS_VOCAB_AT / 16` — a paragraph count, so an address that is not a multiple of
+16 reads the stream in at the wrong place and **nothing faults**.
+
+**THE CIRCULARITY AND THE CUT.** The size is only known once `skies.asm` has
+assembled, and `skies.asm` cannot lay out its bss until the address is known —
+`OS88_BSS` is told the distance from `os88_image_end` to the top of the
+overlay. So the build is **two passes**:
+
+1. `csworlds.py` at the **ceiling** — provisional, and it always assembles,
+   because nothing can be above it;
+2. a `-DCS_SIZEPROBE` assembly, whose object is the **image followed by one
+   word of `CS_BSS`** — the three `times` fills at the end of `skies.asm`
+   become `dw CS_BSS`, so `image_end = len − 2` and the bss is the last word;
+3. `csworlds.py --vocab-from` that object, which lays the worlds at the derived
+   org and writes the real `build/cswidx.inc`.
+
+No listing is parsed and no symbol table is read. The probe does not care
+whether the provisional address is right: every `cs_*` symbol in `cswidx.inc`
+is an immediate or an absolute `disp16`, so its **value** cannot change an
+encoding's length, and the fills that would care are the ones the probe
+replaces.
+
+**EVERY TREE DERIVES ITS OWN**, which is strictly better than the one address
+every tree shared. `CSDIAG`, `CSPROBE` and `CSHZPROBE` each build into a
+`$(BUILD)` of their own and `$(CSDIAGDEF)` is passed to the **probe** as well,
+so `-DCSPROBE` sizes the overlay against the `-DCSPROBE` image — which is the
+build that stopped assembling at all when the address was a shipped constant.
+
+**GROWING IS STILL FREE TO GET WRONG**, which is the property the ceiling was
+bought for and this keeps: add a routine or a `ZWORD` and the address **moves**,
+because `build/cswidx.inc` depends on `$(SKIES_SRC)` and is measured again.
+What changes is that the claim tracks the program **down** as well as up. The
+middle `times` stays a separate subtraction so it goes **negative**, and nasm
+refuses the file, if the derivation is ever stale — that is the backstop now
+rather than the mechanism.
+
+**And running out still means another part, not another address.** If the
+derived top ever exceeds the ceiling, `csworlds.py` refuses with the
+arithmetic, naming §20.12 — because at that point there is nowhere to raise it
+to, which is the sentence above this one, unchanged.
 
 ### 88.13 The settings (SPEC.md 88.13)
 

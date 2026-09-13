@@ -5162,16 +5162,32 @@ CSWORLDS_Z := $(BUILD)/csw0.z $(BUILD)/csw1.z $(BUILD)/csw2.z \
               $(BUILD)/csw3.z $(BUILD)/csw4.z $(BUILD)/csw5.z \
               $(BUILD)/csw6.z $(BUILD)/csw7.z $(BUILD)/csw8.z
 
-# A DIAG TREE USED TO MOVE THE OVERLAY UP and no longer does. `CS_VOCAB_AT` is
-# DERIVED now - the top of the segment, APP_MAX_SIZE less what the overlay holds
-# (SPEC.md 88.10.6) - so there is one address, every tree assembles against it,
-# and the `--vocab-at 0xC200` that bought the diag trees one rung of headroom is
-# gone with the shortage that needed it.
+# TWO PASSES, AND THE CIRCULARITY IS WHY (SPEC.md 88.10.6.1). `CS_VOCAB_AT` is
+# derived from the PROGRAM - the image plus the ZWORD chain, rounded to a
+# paragraph - so the claim is what Clear Skies actually needs; but that size is
+# only known once skies.asm has assembled, and skies.asm cannot lay out its bss
+# until the address is known. So: csworlds at the CEILING (provisional, and it
+# always assembles because nothing can be above it), a -DCS_SIZEPROBE assembly
+# whose object IS the image followed by one word of CS_BSS, then csworlds again
+# with the address read off it.
+#
+# A DIAG TREE STILL DOES NOT MOVE THE OVERLAY UP BY HAND - it derives its own,
+# which is strictly better than the one address every tree shared: $(CSDIAGDEF)
+# is passed to the PROBE as well, so -DCSPROBE sizes the overlay against the
+# -DCSPROBE image. That is what stopped it assembling at all when the address
+# was a shipped constant.
+#
+# IT DEPENDS ON $(SKIES_SRC) NOW, which is the whole point: touch any source
+# the program is built from and the address is measured again. There is no
+# cycle - cswidx.inc is generated FROM those sources and is not one of them.
 $(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py tools/os88pkg.py \
-                     $(CSWORLDS) \
+                     $(CSWORLDS) $(SKIES_SRC) \
                      apps/skies/cswone.asm apps/skies/cswdefs.inc \
                      apps/skies/cswmac.inc apps/skies/csvocab.inc | $(BUILD)
-	python3 tools/csworlds.py --out $(BUILD)
+	@python3 tools/csworlds.py --out $(BUILD) >/dev/null
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) \
+		-DCS_SIZEPROBE -o $(BUILD)/csprobe.bin apps/skies/skies.asm
+	python3 tools/csworlds.py --out $(BUILD) --vocab-from $(BUILD)/csprobe.bin
 
 $(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
 

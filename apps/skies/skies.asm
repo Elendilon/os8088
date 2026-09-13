@@ -3201,11 +3201,46 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
 ; or off CS_VOCAB_AT less the image and CS_BSS.
 ;
 ; WHAT SETS IT IS NOT THIS FILE (SPEC.md 88.10.6). `CS_VOCAB_AT` is derived in
-; tools/csworlds.py as APP_MAX_SIZE less the overlay, so the overlay is hard
-; against the top of the segment and the gap is everything between the program
-; and the format's own ceiling. Growing into it costs NOTHING - the claim is
-; CS_VOCAB_AT plus the overlay whatever the image does (88.4.5.5) - and when it
-; runs out the answer is another part, not another address.
+; tools/csworlds.py FROM THIS PROGRAM'S OWN SIZE - the image plus the ZWORD
+; chain, rounded up to a paragraph - so the gap below the overlay is ZERO and
+; the claim is what the program actually needs.
+;
+; IT WAS DERIVED FROM THE CEILING FOR ONE CYCLE and that is the mistake this
+; replaces: APP_MAX_SIZE less the overlay is staleness-proof, like this is, but
+; it maximises the gap BY CONSTRUCTION - and the gap is not free. The claim is
+; CS_VOCAB_AT plus the overlay whatever the image does (88.4.5.5), so every
+; byte the address is raised by is a byte of claimed RAM no instruction reads,
+; on every instance, for the life of the program. At the ceiling that was 9,614
+; bytes. Derived from the program it is under 16.
+;
+; GROWING STILL COSTS NOTHING TO GET WRONG, which is the property the ceiling
+; was bought for and this keeps: add a routine or a ZWORD and the address
+; MOVES, because build/cswidx.inc is regenerated from the size the program
+; actually assembled to. There is no number for anyone to tune, get right, or
+; leave behind - what changes is that the claim tracks the program DOWN as well
+; as up.
+;
+; THE GAP IS STILL THE ASSERTION. It is a separate `times` for the reason the
+; paragraph above gives - written as its own subtraction it goes NEGATIVE, and
+; nasm refuses the file, if the derivation is ever stale - and that is now the
+; backstop rather than the mechanism: a stale cswidx.inc means the two-pass
+; build did not run, not that somebody forgot to raise an address.
+%ifdef CS_SIZEPROBE
+; --- PASS 1 (SPEC.md 88.10.6.1) ----------------------------------------------
+; The overlay's address is derived from a size only nasm knows, and the bss
+; that size is part of cannot be laid out until the address is known. That is
+; a real circularity and this is the cut: with -DCS_SIZEPROBE the three fills
+; below become two bytes, so the object is the IMAGE and then CS_BSS, and
+; csworlds.py reads `image_end = len - 2` and `CS_BSS = the last word` off it.
+; No listing is parsed and no symbol table is needed.
+;
+; The probe assembles against whatever cswidx.inc is already there, and does
+; not care whether its address is right: every cs_* symbol in it is an
+; immediate or an absolute disp16, so its VALUE cannot change an encoding's
+; length, and the fills that WOULD care are the ones this replaces.
+    dw CS_BSS
+%else
     times CS_BSS db 0                       ; the declared bss...
     times (CS_VOCAB_AT - (os88_image_end - $$)) - CS_BSS db 0    ; ...the gap...
     times CS_VOCAB_MAX + CS_WLD_MAX db 0    ; ...and the overlay
+%endif

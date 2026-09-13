@@ -67,8 +67,54 @@ CS_WLD_MAX = 2560               # ...and the picked world's
 # in SMALLOMIT_GAMES, so the 128 KB machine never loads it; and the claim this
 # makes - 61,440 - is 340 bytes above the 61,100 Clear Skies ALREADY SHIPPED AT
 # before 88.10.3. A kern_big desktop has run this program at this size.
-CS_VOCAB_AT = APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX
+#
+# AND IT IS DERIVED FROM THE PROGRAM, NOT FROM THE CEILING (88.10.6.1). The
+# paragraph above is why the address must not be hand-set; it is not an
+# argument for putting it at APP_MAX_SIZE, and for one cycle it was read as
+# one. The two are not the same trade. A ceiling address is staleness-proof
+# AND maximises the gap by construction - and the gap is not free: the claim
+# is CS_VOCAB_AT plus the overlay, so every byte the address is raised by is
+# claimed RAM no instruction reads, on every instance, for the life of the
+# program. Measured at the ceiling it was 9,614 bytes.
+#
+# So the ceiling is the PROVISIONAL value now - pass 1's, which always
+# assembles because nothing can be above it - and `--vocab-from` reads the
+# program's real top off that pass and puts the overlay directly on it. The
+# gap becomes the paragraph rounding and nothing else, and the claim tracks
+# the program DOWN as well as up.
+CS_VOCAB_CEIL = APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX
+CS_VOCAB_AT = CS_VOCAB_CEIL
 CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
+
+
+def vocab_from_probe(path):
+    """CS_VOCAB_AT off a -DCS_SIZEPROBE object (SPEC.md 88.10.6.1).
+
+    The probe is the IMAGE followed by one word of CS_BSS, so the program's
+    top is `len - 2 + that word`. Rounded UP to a paragraph, because
+    skies.asm hands the overlay to cs_wldget as `CS_VOCAB_AT / 16` - a
+    paragraph count, so an address that is not a multiple of 16 would read
+    the stream in at the wrong place and nothing would fault.
+    """
+    with open(path, "rb") as fh:
+        d = fh.read()
+    if len(d) < 3:
+        sys.exit("csworlds: %s is not a size probe (%d bytes) - pass 1 did "
+                 "not run, or it assembled something else" % (path, len(d)))
+    image_end = len(d) - 2
+    cs_bss = d[image_end] | (d[image_end + 1] << 8)
+    top = (image_end + cs_bss + 15) & ~15
+    if top > CS_VOCAB_CEIL:
+        sys.exit("csworlds: Clear Skies no longer FITS ONE SEGMENT.\n"
+                 "  image %d + bss %d = %d, rounded %d\n"
+                 "  the overlay needs %d above it and APP_MAX_SIZE is %d,\n"
+                 "  so the ceiling for this address is %d - over by %d.\n"
+                 "THE ANSWER IS ANOTHER PART, NOT ANOTHER ADDRESS (SPEC.md "
+                 "20.12): there is nowhere left to raise it to."
+                 % (image_end, cs_bss, image_end + cs_bss, top,
+                    CS_VOCAB_MAX + CS_WLD_MAX, APP_MAX_SIZE,
+                    CS_VOCAB_CEIL, top - CS_VOCAB_CEIL))
+    return top, image_end, cs_bss
 
 # The nine locations, IN THE DROP-DOWN'S ORDER (sorted by name, which is what
 # skies.asm's cs_ports has always been). Paris carries two.
@@ -153,6 +199,7 @@ def world_map(world):
 
     Cached per process: a row that names four symbols assembles once.
     """
+    adopt_built()
     if world not in _WMAP:
         tag = "%s_%d" % (world, os.getpid())
         tmp = "/tmp/os88_csw_%s.asm" % tag
@@ -207,6 +254,7 @@ def overlay(world):
     convenience: a reader that wants all nine locations walks eight overlays.
     """
     if world not in _OVL:
+        adopt_built()
         blob, _, vocab, _ = assemble(world, os.path.join(ROOT, "build"))
         img = bytearray(open(os.path.join(ROOT, "build", "skies.bin"),
                              "rb").read())
@@ -221,20 +269,80 @@ def overlay(world):
     return _OVL[world]
 
 
+_ADOPTED = [False]
+
+
+def adopt_built(out=None):
+    """Take CS_VOCAB_AT from the tree that was BUILT, not from the default.
+
+    The address is derived per tree now (SPEC.md 88.10.6.1), so a reader that
+    recomputed it would be describing a different build of the program - and
+    the failure is silent in the direction that matters: this module lays a
+    world into skies.bin at CS_WLD_AT, and a world laid at one address and
+    read at another is a world of wild pointers.
+
+    So every LIBRARY path reads build/cswidx.inc, which is the file the image
+    was assembled against. main() does not - it is what computes the value.
+    """
+    if _ADOPTED[0]:
+        return
+    global CS_VOCAB_AT, CS_WLD_AT
+    inc = os.path.join(out or os.path.join(ROOT, "build"), "cswidx.inc")
+    try:
+        with open(inc) as fh:
+            text = fh.read()
+    except OSError:
+        sys.exit("csworlds: no %s - the tree is not built, and the overlay's "
+                 "address is a property of the build now (SPEC.md 88.10.6.1) "
+                 "rather than a constant this file can supply" % inc)
+    m = re.search(r"^CS_VOCAB_AT\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", text, re.M)
+    if not m:
+        sys.exit("csworlds: %s declares no CS_VOCAB_AT" % inc)
+    CS_VOCAB_AT = int(m.group(1), 0)
+    CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
+    _ADOPTED[0] = True
+
+
 def cstr(blob, at):
     end = blob.index(b"\0", at)
     return blob[at:end].decode("ascii")
 
 
 def main(argv):
-    # NO `--vocab-at`. There was one, so a diag tree could raise the overlay
-    # above a shipped address that had stopped leaving room; the address is the
-    # top of the segment now and there is nowhere to raise it to. Every tree -
-    # shipped, CSDIAG, CSPROBE, CSHZPROBE - assembles against this one file.
+    # STILL NO `--vocab-at`. There was one, so a diag tree could raise the
+    # overlay above a shipped address that had stopped leaving room, and a
+    # number anyone can tune is a number that goes stale. `--vocab-from` is
+    # not that: it takes an OBJECT and reads the size out of it, so nothing
+    # is chosen. With neither, the address is the ceiling - which is pass 1,
+    # and is also what a tree that never runs pass 2 gets: correct, and
+    # 9,614 bytes fatter.
+    #
+    # EVERY TREE DERIVES ITS OWN, which is the other half of what this fixes.
+    # CSDIAG, CSPROBE and CSHZPROBE each build into a $(BUILD) of their own,
+    # so each gets a cswidx.inc measured against ITS image - and -DCSPROBE,
+    # which stopped assembling at all against a shipped address, now sizes
+    # the overlay against itself.
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "build"))
+    ap.add_argument("--vocab-from", metavar="PROBE",
+                    help="a -DCS_SIZEPROBE object; the overlay goes directly "
+                         "on top of the program it measures")
     a = ap.parse_args(argv)
     os.makedirs(a.out, exist_ok=True)
+
+    global CS_VOCAB_AT, CS_WLD_AT
+    if a.vocab_from:
+        CS_VOCAB_AT, image_end, cs_bss = vocab_from_probe(a.vocab_from)
+        CS_WLD_AT = CS_VOCAB_AT + CS_VOCAB_MAX
+        _ADOPTED[0] = True          # main COMPUTES the address; the library
+                                    # doors read it back. Latch it so a call
+                                    # into one of them from here cannot go and
+                                    # read the cswidx.inc we are replacing
+        print("csworlds: overlay at 0x%04X - image %d + bss %d = %d, "
+              "gap %d, claim %d (ceiling would be %d)"
+              % (CS_VOCAB_AT, image_end, cs_bss, image_end + cs_bss,
+                 CS_VOCAB_AT - (image_end + cs_bss),
+                 CS_VOCAB_AT + CS_VOCAB_MAX + CS_WLD_MAX, APP_MAX_SIZE))
 
     blobs, syms, vocab, vsyms = {}, {}, None, None
     for w in WORLDS:
