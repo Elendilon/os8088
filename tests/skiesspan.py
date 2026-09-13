@@ -22,7 +22,7 @@ the other, and `SIZE=full` is the arm that matters.
     SIZE=mod  PROF=bank      python3 tests/skiesspan.py 12 2 40
 """
 import os, sys, importlib.util
-ROOT = "/home/user/os8088"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # this tree, wherever it is checked out
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.chdir(ROOT)

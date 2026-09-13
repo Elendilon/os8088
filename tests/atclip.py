@@ -58,13 +58,13 @@ as formatted" means, and no residual parse state is read to get there.
 """
 import sys, os, argparse, subprocess, tempfile
 
-sys.path.insert(0, "/home/user/os8088/tools")
-sys.path.insert(0, "/home/user/os8088/tests")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # this tree, wherever it is checked out
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
 import os88fixture                                       # noqa: E402
 import os88marty, os88ui, os88build, os88geom            # noqa: E402
 import os88mouse                                         # noqa: E402
 
-ROOT = "/home/user/os8088"
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",
          "vga":  "os8088_xt_vga"}
