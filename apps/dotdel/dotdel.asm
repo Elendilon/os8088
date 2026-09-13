@@ -655,7 +655,7 @@ dd_onwake:
     cmp byte [dd_wantfit], 0        ; ...unless a FIT is about to resize us
     jne .wf                         ; anyway: that recuts and repaints, and
                                     ; doing it here first is one of the four
-                                    ; whole frames the field counted (93.3.4.4)
+                                    ; whole frames the field counted (93.3.4.5)
     call OSAPI_GFX_LOCK             ; a wake is the one callback the kernel
     mov ax, KERNEL_SEG              ; runs WITHOUT the lock (SPEC.md 12.8), and
     mov es, ax                      ; dd_repaint_now wants it held
@@ -1102,6 +1102,7 @@ dd_s_play:   db 'PRESS ENTER TO PLAY', 0
 dd_s_hshead: db 'HIGH SCORES', 0
 dd_s_newhs:  db 'NEW HIGH SCORE: ', 0
 dd_s_small:  db 'Window too small.', 0
+dd_s_nomem:  db 'Not enough memory.', 0
 
 ; The five speeds, as percentages, in SPD_* order (SPEC.md 93.7.5). This is
 ; the only place the percentages are still numbers rather than an index -
@@ -1140,6 +1141,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_vkind
     DBYTEV dd_lvkind                ; ...as it was when the layout was cut
     DBYTEV dd_ok                    ; the surface can hold a board
+    DBYTEV dd_nomem                 ; ...and when it cannot, it was the ARENA
+                                    ; that refused (93.3.4.5)
     DBYTEV dd_started               ; ...and one has been laid at least once
     DBYTEV dd_spawned               ; the worker is running
     DBYTEV dd_full                  ; the next frame owes a whole repaint

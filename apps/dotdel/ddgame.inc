@@ -122,6 +122,10 @@ DD_PILLT  equ 5                 ; ticks a pellet spends lit, and dark
 ; =============================================================================
 
 dd_new_game:
+    cmp byte [dd_ok], 0             ; NO LAYOUT, NO GAME (SPEC.md 93.3.4.5):
+    jne .go                         ; Enter, a click and Game > New all reach
+    ret                             ; here with the refusal still on the glass
+.go:
     mov word [dd_score], 0
     mov word [dd_score+2], 0
     mov byte [dd_lives], DD_LIVES0
@@ -284,8 +288,9 @@ dd_put_tile:
 ; ONE LOGIC STEP - exactly one system tick of game time (SPEC.md 93.6)
 ; =============================================================================
 dd_step:
-    cmp byte [dd_ok], 0
-    jne .laid
+    call dd_kbdrain                 ; ABOVE the early returns: a refused
+    cmp byte [dd_ok], 0             ; layout is exactly where nothing else
+    jne .laid                       ; would ever touch the buffer
     ret                             ; no layout yet, so no tiles, no speeds and
 .laid:                              ; nothing to divide by
     cmp byte [dd_abon], 0
@@ -412,6 +417,60 @@ dd_play_step:
 ; turn asked for a few pixels early is taken at the junction. That is the whole
 ; of what "responsive" means here.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dd_kbdrain - eat the STEERING keys out of the BIOS buffer (SPEC.md 93.7.2.1)
+; in:  nothing; out: nothing; preserves all registers
+;
+; dd_input reads the arrows and WASD as key STATE and consumes nothing, and
+; dd_key_common ignores them - so windowed, nothing empties int 16h's buffer
+; while a key is held, and SPEC.md 9.8 then drops the NEWEST arrival, which is
+; the P or Esc the player just typed. cy_kbdrain's shape (apps/cyclone): peek,
+; eat only the eight steering codes, STOP at anything else so a command keeps
+; its place, peek and fetch inside one pushf/cli. The bracket's own loop drains
+; to empty, so there this finds the buffer empty and costs one compare.
+; -----------------------------------------------------------------------------
+dd_kbdrain:
+    push ax
+    push es
+    mov ax, 0x0040                  ; the BIOS data area, for int 16h's own
+    mov es, ax                      ; buffer - head 001A, tail 001C
+.again:
+    mov ax, [es:0x1A]
+    cmp ax, [es:0x1C]
+    je .out                         ; empty: the common case, and no int at all
+    pushf
+    cli
+    mov ah, 0x01                    ; peek: AH = scan, and the key stays put
+    int 0x16
+    jz .pop                         ; emptied under us after all
+    cmp ah, KSC_LEFT
+    je .eat
+    cmp ah, KSC_RIGHT
+    je .eat
+    cmp ah, KSC_UP
+    je .eat
+    cmp ah, KSC_DOWN
+    je .eat
+    cmp ah, 0x1E                    ; A
+    je .eat
+    cmp ah, 0x20                    ; D
+    je .eat
+    cmp ah, 0x11                    ; W
+    je .eat
+    cmp ah, 0x1F                    ; S
+    jne .pop                        ; anything else keeps its place
+.eat:
+    xor ah, ah
+    int 0x16
+    popf
+    jmp short .again
+.pop:
+    popf
+.out:
+    pop es
+    pop ax
+    ret
+
 dd_input:
     cmp byte [dd_demo], 0
     jne .ai

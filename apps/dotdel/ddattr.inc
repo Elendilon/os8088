@@ -53,6 +53,10 @@ DD_BLINKOF equ 5                ; (SPEC.md 85.10.3), so the two title screens
 ; dd_attract_begin - back to the title
 ; -----------------------------------------------------------------------------
 dd_attract_begin:
+    cmp byte [dd_ok], 0             ; NO LAYOUT, NO TITLE (SPEC.md 93.3.4.5):
+    jne .go                         ; Esc and a game over reach here too, and
+    ret                             ; dd_demo_reset renders the board
+.go:
     call dd_attract_layout          ; FIRST: it decides how many tile rows the
                                     ; slice is, and dd_demo_reset decodes the
                                     ; grid against that

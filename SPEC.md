@@ -115688,6 +115688,34 @@ virtual desktop coordinates and resolves the display itself, and `gfx_blit1`
 goes per 8-pixel band column when a band does not fit one display (§5.4.2
 step 4).
 
+##### 93.3.4.5 A refusal is REMEMBERED as a poisoned bank, and nothing writes a picture it does not have
+
+Two refusals land on `.fail`: the **surface** is too small (`dd_layout`) or the
+**arena** is (`dd_fit_claim`). Three things follow from one of them, and each
+was a defect once:
+
+- **The writer refuses a picture it does not have.** A refused first claim
+  leaves `[dd_bdseg]` = 0 with `[dd_sb]`/`[dd_mh]` already published, and the
+  window is live and interactive before anything is laid out — so Enter, a
+  click, Game ▸ New and Esc all reached `dd_board_render`, whose `dd_bd_wipe`
+  is a `rep stosw` through that segment: **1,736 words at 0000:0000 on a
+  windowed CGA**, the interrupt vectors and the BIOS data area. `dd_bd_wipe`
+  and `dd_board_render` now return on a zero segment, and `dd_new_game` and
+  `dd_attract_begin` — the two routes in — return on `[dd_ok]` = 0.
+- **`.fail` poisons the bank.** `.redo` banks the box *before* the claim that
+  refuses, so the four compares at the top of `dd_relayout_ck` matched for the
+  rest of the session: a refused **regrow** left `[dd_bdseg]` naming the old
+  claim under the new geometry, with nothing ever asking again. `.fail` writes
+  `[dd_lvkind]` = 0FFh — the file's own "ask again", `dd_oncmd`'s window-mode
+  arm — so the next paint goes back through `.want`/`.redo` and re-asks the
+  claim, and a refusal recovers the moment the arithmetic does. The worker
+  takes `.want`'s `stc` arm meanwhile and draws no frame at all.
+- **The arena's refusal says so.** Both used to say *Window too small.*, and
+  for the arena that is the wrong advice: a bigger window asks
+  `dd_bdkb_calc` for more and refuses harder. `[dd_nomem]` is set on
+  `dd_fit_claim`'s arm and cleared on `dd_layout`'s, and `dd_draw_toosmall`
+  letters *Not enough memory.* on it.
+
 #### 93.4.1 `W_ONRESIZE`, and why the window is not resizable
 
 The window takes its size from `OSAPI_WM_PREFER` and does not offer a grow
@@ -116894,6 +116922,21 @@ on that. `dd_input` asks **`OSAPI_KEY_DOWN`** once a logic step instead.
 A direction that is not legal yet is **remembered** rather than dropped, so a
 turn asked for a few pixels early is taken at the junction. That is the whole
 of what "responsive" means in a maze game.
+
+##### 93.7.2.1 …and the steering keys are DRAINED, because state does not consume
+
+`OSAPI_KEY_DOWN` answers a question and takes nothing out of the BIOS buffer,
+and `dd_key_common` ignores the arrows and WASD outright — so windowed, nothing
+emptied `int 16h`'s queue while a key was held. §9.8 closes the *hang* that
+used to follow and pays for it by dropping the **newest** arrival, which under
+a held arrow is the P or Esc the player just typed; the UI task fetches one key
+a pass and the worker holds the lock for a 40–55 ms frame, so the queue fills
+at typematic rate. `dd_kbdrain` is `cy_kbdrain`'s shape (§67): peek, eat only
+the eight steering codes, **stop at anything else** so a command keeps its
+place, peek and fetch inside one `pushf`/`cli`. It runs at the top of
+`dd_step`, above the early returns, because a refused layout is exactly where
+nothing else would ever touch the buffer. The bracket's own loop drains to
+empty, so there it costs one compare.
 
 #### 93.7.4 The tunnel's LEFT mouth, and the borrow that is the crossing
 

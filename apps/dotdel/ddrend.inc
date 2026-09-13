@@ -1014,6 +1014,11 @@ dd_tile_put:
     je .done
     cmp al, TT_DOOR
     je .done
+    cmp byte [dd_bpp], 1            ; ONE PLANE HAS NO PEN AT ALL (SPEC.md
+    jbe .done                       ; 5.4.2.2), so the band .emit has just
+                                    ; blitted is already the right pixels -
+                                    ; dd_pen's own first test, and the two
+                                    ; blits below would write them again
     mov cl, [dd_gc]
     mov ch, [dd_gr]
     call dd_ink_ck
@@ -2609,6 +2614,10 @@ dd_draw_toosmall:
     dec dx
     call OSAPI_GFX_FILL
     mov si, dd_s_small
+    cmp byte [dd_nomem], 0          ; the surface, or the arena (93.3.4.5):
+    je .say                         ; "make it bigger" is the wrong advice
+    mov si, dd_s_nomem              ; when bigger is what was refused
+.say:
     mov bx, [dd_cx]
     add bx, 8
     mov dx, [dd_cy]
