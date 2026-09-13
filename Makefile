@@ -5567,8 +5567,16 @@ $(BUILD)/sndmove360.img: $(BUILD)/filler.o88 $(BUILD)/sbtest.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/sbtest.o88
 
+# ...and CALC and PACMAN since SPEC.md 66.6.1.1, which are the two SHAPES the
+# five above do not carry. Every one of them hires a worker, so the row proved
+# the restart half and never once proved the plain one - and the plain one is
+# what 39 of the tree's 41 declarations are. CALC is the bare form with no
+# worker at all (movable on I_TASK == 0xFF alone); PACMAN is the canonical
+# worker pair, restartable at the top of a loop it re-seeds. Both are ~5KB, so
+# the disk pays almost nothing for them.
 REGAPPS := $(BUILD)/word.o88 $(BUILD)/tank.o88 $(BUILD)/ftpd.o88 \
-           $(BUILD)/browser.o88 $(BUILD)/audio.o88
+           $(BUILD)/browser.o88 $(BUILD)/audio.o88 \
+           $(BUILD)/calc.o88 $(BUILD)/pacman.o88
 $(BUILD)/regapp360.img: $(BUILD)/filler.o88 $(BUILD)/paint.o88 $(REGAPPS) \
                         tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
