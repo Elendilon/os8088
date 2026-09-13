@@ -568,12 +568,6 @@ cs_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [cs_win], bx
-    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
-    ; exists, and not beside any worker's declaration: a package with
-    ; NO worker is the case that moves most easily, and putting it at
-    ; the spawn left exactly those runs declaring nothing - measured,
-    ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
     mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
     mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
     mov si, cs_setdrops             ; ...AND THE SETTINGS PAGE'S FOUR, off the

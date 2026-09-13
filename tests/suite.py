@@ -862,6 +862,20 @@ FAST = [
         "compilers agree - `soak -k 'lmpack'`, which is what a change to "
         "either one runs",
         needs=()),
+    Row("movable", "fast", py("tests/unit/t_movable.py"), 0.6,
+        "SPEC.md 66.6.1's ratchet: a package's region is born PINNED, so a "
+        "package that never declares OS88_REGION_MOVABLE is a WALL in the "
+        "arena for the life of the instance - and it is invisible from "
+        "inside, because nothing refuses and the program runs perfectly. The "
+        "door opened with six asm packages through it and twenty-eight that "
+        "were never followed up, for a cycle. Every package under apps/ now "
+        "declares or carries a line in tests/movable.txt saying why not, and "
+        "the list only turns one way. Checks the WORKER half too (66.6.2): a "
+        "region declaration on a package that hires a worker is INERT, which "
+        "is the most expensive shape there is because it reads as done. FAST "
+        "and not soak on t_textrules.py's argument - it is a rule about how "
+        "every package is written, so the place it belongs is in front of "
+        "the next `make` rather than the next soak run"),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
