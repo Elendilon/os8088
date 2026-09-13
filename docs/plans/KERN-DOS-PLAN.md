@@ -172,6 +172,32 @@ disk layer and the DOS core from where they already live — and ships as
 part 0 of `C64.O88`, *"a sidecar a file copy could separate from the program"*
 made part of it. A `kern_dos` image is the same thing and the same size class.
 
+#### 4.1.1 The part costs NOTHING during an in-OS run, and nothing at the handoff either
+
+**The requirement:** arms 1 and 2 are an ordinary windowed DOS box, and the
+`kern_dos` part must not be in RAM while one runs. §20.12 has lazy parts for
+exactly that, so the floor is *loaded only on the arm-3 handoff*.
+
+**But it is better than that, and for free.** §2's handoff walks `HIBERNAT.IMG`
+into an extent list and lets the stub read it with `int 13h` — and the part is
+a byte range of `DOS.O88`, which is a file on a volume, so **the same walk
+turns it into extents too**. The stub reads `kern_dos` straight into low memory
+off the disk.
+
+So the part is **never loaded as a part at all**: not during a windowed run,
+not during the handoff, and not into a scratch claim that has to be found on a
+heap the launch is about to give away. What the box holds is the part's file
+offset and length — which §20.12 puts in the *image*, so reading them costs no
+disk at all.
+
+#### 4.1.2 The UI half does not come along
+
+The part is built from the **core only** — a second assembly of the shared
+source with the window, the menu, the pages, the console, the shortcut writer
+and the file dialogs excluded. `apps/dos/dos.asm` is one file today and has to
+be split so the core is `%include`-able; that is W2's real work and it is the
+same work either of the original options needed.
+
 **Why it beats option two specifically:** two's economy comes from loading the
 DOS half separately, which needs a mini-ABI between two halves that are built
 together anyway — and a mini-ABI between two things one team maintains is the
@@ -267,7 +293,7 @@ each file and `kern_dos` wants part of it.
 At ~31 KB plus shim, a **16 KB read-ahead** takes the program to ~587 KB.
 Over the 580 the hogs want, but only by seven.
 
-**Make it purgeable.** `kern_dos` claims the cache at the top of free memory
+**Make it purgeable** — approved.  `kern_dos` claims the cache at the top of free memory
 and gives it back the moment the program's own `AH=48h` needs it. A hog that
 takes everything at startup gets its 603 KB and no cache; a modest program
 that never asks gets 587 KB and a much faster disk. That is os8088's own
@@ -356,7 +382,9 @@ answer and not two.
 Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 
 - **no packet driver** — §96.23's Crynwr interface is `ETHER.DRV` over the
-  kernel, and neither is there;
+  kernel, and neither is there. **A future phase may reopen this**: a thinner
+  DOS-side rework of `ETHER.DRV`, offered as an option rather than carried
+  always, and §12 question 7 is the one thing the design must not box out;
 - **no windowed mode** — the program is fullscreen by definition;
 - **no console capture** (§96.34), no Task Manager row, no clipboard;
 - **no `DOS.O88` overlay** and no second instance;
@@ -404,6 +432,15 @@ the whole shape; W3 is the go/no-go for §4's reuse.
 6. **Does `kern_dos` need `diskw.inc` at all in W4?** A read-only first arm is
    a smaller target and many programs never write. It is not the shipping
    answer but it may be the right W4.
+
+7. **Where would an optional packet driver go?** A thinner DOS-side rework of
+   `ETHER.DRV` is a named future phase, so the design must leave room: the
+   launch block should be able to say *"and load this too"*, the low-memory
+   layout must not assume `kern_dos` is the only resident piece, and the
+   arithmetic on the Memory page has to be able to report what the option
+   costs — because it comes out of the same 39 KB and the user is the one
+   trading it against their program. **Nothing here needs building now; what
+   is needed now is not making it impossible.**
 
 ---
 
