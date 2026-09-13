@@ -494,11 +494,6 @@ dos_entry:
     mov si, dos_about
     call OSAPI_ABOUT_SET
 
-    call OSAPI_ARG_FILE             ; CF=1 = launched empty, the ordinary case
-    jc .idle                        ; for every package and the COMMAND.COM
-                                    ; door for this one (wave 7)
-    mov [dos_dir], dx
-    mov [dos_vol], bl
     mov byte [dos_fhome], 0xFF      ; **THE SENTINEL, BECAUSE BSS IS ZERO AND
                                     ; ZERO IS DRIVE A:** (SPEC.md 96.6.3).
                                     ; [dos_fhome] means "we never left" at
@@ -506,7 +501,27 @@ dos_entry:
                                     ; that ever wrote it - so until the first
                                     ; name with a drive letter in it, every
                                     ; dos_fh_leave read 0 and dutifully
-                                    ; "restored" the program to A:
+                                    ; "restored" the program to A:.
+                                    ;
+                                    ; **ABOVE THE ARG_FILE BRANCH AND NOT
+                                    ; INSIDE ITS SUCCESS ARM** (96.6.3.1): it
+                                    ; was written after the `jc .idle` below,
+                                    ; so wave 7's console door - which is the
+                                    ; `.idle` arm - ran with it at 0 and undid
+                                    ; 96.6.3 for every program started by
+                                    ; typing its name. From the console on B:,
+                                    ; prince.exe asked what drive it was on,
+                                    ; was told A:, and printed "Please insert
+                                    ; Prince of Persia Disk 1 into Drive A:" -
+                                    ; 96.6.3's own symptom, through the one
+                                    ; door that skipped its one store. An
+                                    ; initialiser that only one entry path
+                                    ; executes is not an initialiser
+    call OSAPI_ARG_FILE             ; CF=1 = launched empty, the ordinary case
+    jc .idle                        ; for every package and the COMMAND.COM
+                                    ; door for this one (wave 7)
+    mov [dos_dir], dx
+    mov [dos_vol], bl
     mov di, dos_name                ; copy the name out of KERNEL_SEG first:
     mov cx, 13                      ; ES is the kernel's here and the next call
 .cp:                                ; is free to move what SI points at

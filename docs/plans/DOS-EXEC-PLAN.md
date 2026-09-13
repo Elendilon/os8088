@@ -1780,3 +1780,61 @@ banked slot, which already holds the SI the program came in with, so the
 advance is **added** and not stored: storing it left every caller's pointer at
 the same low address, with every other column correct.
 
+
+### 15.11 ...and then the console was built, and two OLD defects came out with it
+
+Wave 7 landed as SPEC.md §96.33 and §70.8.12–13. **The interpreter already
+existed** (`dosh.inc`, written for `AH=4Bh` at §96.30) and Telnet already had an
+80x25 console, so the wave is mostly two *lifts* — `apps/os88con.inc`, which is
+Telnet's terminal made into a shared include, and `dosc.inc`, which is only
+input, output and the prompt. Everything after that was field reports, and the
+three that cost most were all the same shape: **a thing COMMAND.COM answers
+BEFORE its table**, which a verb table has no row for. A bare `B:` is a drive
+change (§96.33.6). A bare name with no extension is a SEARCH, `.COM` then
+`.EXE` (§96.33.7). And `VER` says what this actually is rather than borrowing
+two other companies' names.
+
+Two older defects surfaced because the console is a **second door into the
+package**, and neither is wave 7's:
+
+1. **`[dos_fhome]` was initialised inside `OSAPI_ARG_FILE`'s success arm**
+   (§96.6.3.1). §96.6.3 had already fixed this once — a sentinel meaning *no
+   drive* cannot be `.bss`'s zero, because zero is A: — and the console reaches
+   the package down the `.idle` arm, which skipped the one store. So a program
+   started by typing its name ran with the box believing it had come from A:,
+   asked `AH=19h` which drive it was on, was told the wrong one, and printed
+   *"Please insert Prince of Persia Disk 1 into Drive A:"*. **The same symptom
+   §96.6.3 is named after, through the door that skipped its fix.** Visible
+   without a game: run anything off B: and the prompt comes back `A:\>`.
+   The rule it makes is worth more than the byte — *an initialiser that only
+   one entry path executes is not an initialiser* — because the second door is
+   always added later, by somebody reading the arm they are adding.
+
+2. **The memory page's two figures were the same number**, and so was what a
+   launch got (SPEC.md §66.10.4). That one is not in this package at all: §66.10
+   rests on *"a cache is genuinely unmovable"*, §18.95.7 withdrew that sentence
+   when it took the 64KB page head off `MEM_P_DIRW`, and `mem_cp_plan` reaches
+   `mem_cp_drop` only from its `.pinned` arm — so a cache that can move is
+   moved, never dissolved, and `OSAPI_MEM_AVAIL_LVL` answered identically at
+   every rank. §50.6.6's floor, which this box is the only consumer of, had
+   never once done anything. Fixed with a third walk mode (`mem_cp_room`) for
+   **+18 bytes of `.text`**, and the DOS arena on a 640KB machine goes
+   **453K → 485K** when the box is told to take the cache.
+
+   **The failed first attempt is the part to keep.** Making the *plan* dissolve
+   what the *run* packs is the obvious spelling and it **hangs the machine**:
+   `mem_compact`'s termination argument is that the plan and the run count the
+   same movers, so a plan that counts a dissolve the run declines to make
+   answers *"I did work"* for ever and `mem_claim`'s retry loop never exits.
+   Measured as a 485KB claim on a 530KB heap with `[dos_arena]` still 0 after
+   600 guest seconds — a hang, not a slowdown, and the comment that says why
+   was already in the file.
+
+**And one instrument trap is now written down rather than re-learned**
+(docs/DOS-DEBUGGING.md, *Traps*, first entry). A `DOSTRACE` build claims 21 KB
+of heap for its ring, **before** the arena, so a program near the edge refuses
+under the tracer and runs perfectly without it. That had been mis-diagnosed as
+*"the box is short of memory"* **eight** separate times, with the cost written
+down in three places each of which was read *after* the wrong conclusion — so
+`tools/os88dosdbg.py` prints it on stderr at the top of every `trace` and
+`build` now. A line the run emits cannot be left unopened.
