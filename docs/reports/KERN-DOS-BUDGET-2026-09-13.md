@@ -18,12 +18,12 @@ and that this comes before any code.
    measured rather than two readings subtracted.
 2. **`kern_dos`'s floor is 35.5 KB against a 38.5 KB budget**, where the plan
    estimated ~30.5 KB. That leaves **3.0 KB** for the shim *and* the cache,
-   not the ~8 KB plus a 16 KB cache §6 hoped for — and §6.1's levers stop
+   not the ~8 KB plus a 16 KB cache KERN-DOS-PLAN §6 hoped for — and KERN-DOS-PLAN §6.1's levers stop
    being an ordering suggestion and become the thing that makes the target
    reachable. Two of them are priced below and are worth **4.1 KB** together.
 3. **The hibernate round trip is 43.4 guest seconds**, three runs inside
    1.5% of each other: 26.2 s to write the image and 17.1 s to read it back.
-   §2.1 weighed this as *"a few seconds"* against *"4–5 seconds and then a few
+   KERN-DOS-PLAN §2.1 weighed this as *"a few seconds"* against *"4–5 seconds and then a few
    more"*. It is neither.
 
 ---
@@ -31,7 +31,7 @@ and that this comes before any code.
 ## 1. The arena: what each arm is worth
 
 Read off one boot of `os8088_5150_herc_sb_gla` — a 4.77 MHz 5150 with a
-Sound Blaster, which is the machine §1.1's table was taken on — launching
+Sound Blaster, which is the machine KERN-DOS-PLAN §1.1's table was taken on — launching
 `DOSSND.COM` once per arm and reading `[dos_akb]` inside the bracket.
 
 | | |
@@ -44,12 +44,12 @@ Sound Blaster, which is the machine §1.1's table was taken on — launching
 |---|---:|---|
 | 0 `DOS_MEM_KEEP` | **449 KB** | today's default |
 | 1 `DOS_MEM_DUMP` | **481 KB** | §18.95's `dirw` cache given back |
-| 2 `DOS_MEM_WHOLE` | — | greyed; §3 below is its ceiling |
+| 2 `DOS_MEM_WHOLE` | — | greyed; section 3 below is its ceiling |
 
 **The cache is 32 KB, measured**, and it is measured the right way round:
 both figures come from the same boot with the same driver set and the same
 region in the same place, so the 32 is a difference and not two independent
-readings that happen to differ by that much. §1.1's table predicted 449 and
+readings that happen to differ by that much. KERN-DOS-PLAN §1.1's table predicted 449 and
 ~481; both stand.
 
 What is left of the 529 KB heap at arm 0 is 529 − 449 − 32 = **48 KB**: the
@@ -61,13 +61,13 @@ own claims.
 
 ## 2. `kern_dos`'s floor, re-derived
 
-§6's table quotes docs/plans/KERN-SMALL-CUT-PLAN.md §1.2. Those figures are a
+KERN-DOS-PLAN §6's table quotes docs/plans/KERN-SMALL-CUT-PLAN.md §1.2. Those figures are a
 year of commits old and they are **code only**. Re-derived from today's tree
 with `tools/kernsize.py --modules --build build/smallk -DKERN_SMALL`, which
 brackets each include with markers in a temporary copy and refuses to report
 unless the two binaries are byte-identical:
 
-| | code | `.bss` | `.lowbss` | total | §6 quoted |
+| | code | `.bss` | `.lowbss` | total | the plan quoted |
 |---|---:|---:|---:|---:|---:|
 | `disk.inc` | 6,624 | 582 | — | **7,206** | 6,816 |
 | `diskw.inc` | 5,311 | 162 | — | **5,473** | 5,077 |
@@ -77,7 +77,7 @@ unless the two binaries are byte-identical:
 
 ### 2.1 The DOS core is 17,667 bytes and not ~12,000
 
-§6's largest row is an estimate with a reason attached — *"the box's image is
+KERN-DOS-PLAN §6's largest row is an estimate with a reason attached — *"the box's image is
 30,731 and most of it is window"*. It is not most of it.
 
 Measured by **symbol span** over `DOS.O88`'s own map, with local labels rolled
@@ -90,7 +90,7 @@ the package header, which `os88pkg` reports separately:
 |---|---:|---:|---|
 | **core** | 14,636 | 3,031 | INT 21h, the handle layer, PSP/MCB, the loader, FCBs, `dosh.inc`'s built-ins |
 | **window** | 11,960 | 1,135 | the pages, the console, `os88ui.inc`, `os88line.inc`, the shortcut writer |
-| **drop** | 4,608 | 115 | the packet driver and §96.26's cable translation, which §10 says do not come |
+| **drop** | 4,608 | 115 | the packet driver and §96.26's cable translation, which KERN-DOS-PLAN §10 says do not come |
 | unclassified | 201 | 129 | 0.6% and 2.9%, listed below |
 
 The rule is by symbol prefix and the residual is printed rather than
@@ -98,18 +98,18 @@ absorbed, so what the split assumed is visible: the largest unclassified item
 is `dos_cw_back` at 25 bytes, and none of the rest reaches 30.
 
 The bss figure is `DOS_BSS_SIZE` = 4,410 and not the package's 11,273: the
-other **6,863 is `CON_BSS`**, the windowed console's, which §6.1 lever 5
+other **6,863 is `CON_BSS`**, the windowed console's, which KERN-DOS-PLAN §6.1 lever 5
 leaves behind entirely.
 
-**So the core is 14,636 + 3,031 = 17,667** where §6 carried ~12,000 plus
+**So the core is 14,636 + 3,031 = 17,667** where KERN-DOS-PLAN §6 carried ~12,000 plus
 ~1,500 for the PSP, environment and MCB chain — and those 1,500 are already
 inside the 17,667, so the row is **+4,167** over its estimate.
 
 ### 2.2 The floor, and what is left
 
 ```
-  18,713   the kernel side (§2 above)
- +17,667   the DOS core   (§2.1)
+  18,713   the kernel side (section 2 above)
+ +17,667   the DOS core   (section 2.1)
   ======
   36,380 = 35.5 KB
 
@@ -118,9 +118,9 @@ inside the 17,667, so the row is **+4,167** over its estimate.
    3,044 =  3.0 KB   for the shim AND any cache
 ```
 
-§6 reached ~31 KB and left ~8 KB for the shim, with §6.2 spending 16 KB more
+KERN-DOS-PLAN §6 reached ~31 KB and left ~8 KB for the shim, with KERN-DOS-PLAN §6.2 spending 16 KB more
 on a read-ahead and taking the target to ~587 KB. On the measured floor there
-is no such room, and **§6.1's levers are not an ordering suggestion any
+is no such room, and **KERN-DOS-PLAN §6.1's levers are not an ordering suggestion any
 more** — they are what makes 600 KB reachable at all.
 
 ### 2.3 Two of the five levers, priced
@@ -132,7 +132,7 @@ rather than against the floor. The code half is `dos_fh_*`, **2,186 bytes over
 19 procs** — of which the ten that ARE the window (`fill`, `flush`, `core`,
 `enter`, `setup`, `split`, `rdloop`, `wrloop`, `wiloop`, `shrink`) are
 **1,803** and the nine that are the handle TABLE stay, DOS needing handles
-whatever is under them. §6.1 says *"~−3 KB of code"*; it is 1.8.
+whatever is under them. KERN-DOS-PLAN §6.1 says *"~−3 KB of code"*; it is 1.8.
 
 **Lever 2 — drop the cursor half of `mouse.inc`.** Spanned the same way over
 `kern_small`'s map, 3,228 of that file's 3,419 `.text` bytes attribute to 74
@@ -144,7 +144,7 @@ procs:
 | `kbm_*` / `kbd_*` — the keyboard | **781** | 24% |
 | the mouse itself | 1,007 | 31% |
 
-§6.1 estimates −1.5 KB for the cursor and the estimate is right: 1,440. **The
+KERN-DOS-PLAN §6.1 estimates −1.5 KB for the cursor and the estimate is right: 1,440. **The
 keyboard is a second 781 nobody had counted** — `kern_dos` has no event ring
 to feed and the ROM's own `int 09h`/`int 16h` serve INT 21h's character
 input, so that half need not come either. `mouse.inc`'s carried share is
@@ -152,7 +152,7 @@ input, so that half need not come either. `mouse.inc`'s carried share is
 
 Taking both levers: **36,380 − 1,803 − 2,412 = 32,165 = 31.4 KB**, leaving
 **7.1 KB** for the shim — which is within a few hundred bytes of the number
-§6 wrote down, reached by a different route.
+KERN-DOS-PLAN §6 wrote down, reached by a different route.
 
 Levers 3, 4 and 5 (`diskw.inc`'s long-operation machinery, one volume class,
 no console) are **not priced here**. Each is a subset of a file rather than a
@@ -164,7 +164,7 @@ measurement that can be taken without it.
 
 ## 3. What the handoff costs: 43.4 guest seconds
 
-§2 rests on §87.5's resume stub, and §2.1 asks what including the restore
+KERN-DOS-PLAN §2 rests on §87.5's resume stub, and its §2.1 asks what including the restore
 costs, weighing *"waiting 4–5 seconds to get to desktop again, and THEN a few
 more seconds for the restore"* against *"waiting a few seconds for the
 restore"*.
@@ -186,14 +186,14 @@ Guest seconds at 4.772727 MHz. The spread is under 1.5%, which is what a
 cycle counter on a deterministic guest should give.
 
 **Read the three rows separately, because arm 3 pays two of them and not the
-third.** §7's handoff stages the stub and jumps; it does not reboot, so the
+third.** KERN-DOS-PLAN §7's handoff stages the stub and jumps; it does not reboot, so the
 33 s middle row — a machine reset, the ROM's POST and memory count, and a
-whole os8088 boot — is *not* arm 3's. The floppy arm (§9) is the case that
+whole os8088 boot — is *not* arm 3's. The floppy arm (KERN-DOS-PLAN §9) is the case that
 does pay it, and it pays it with no restore at the end.
 
 So on a machine with a hard disk, arm 3 costs **26 seconds before the DOS
 program starts and 17 after it exits**, on top of whatever the program itself
-does. That is the number §2.1 wanted and it is an order of magnitude over the
+does. That is the number KERN-DOS-PLAN §2.1 wanted and it is an order of magnitude over the
 estimate it was weighed against.
 
 Three caveats, stated rather than left to be discovered:
@@ -214,17 +214,17 @@ Three caveats, stated rather than left to be discovered:
 
 ## 4. What this changes in the plan
 
-- **§1.1's arms 1 and 2 are confirmed** and its 32 KB cache row is now
+- **KERN-DOS-PLAN §1.1's arms 1 and 2 are confirmed** and its 32 KB cache row is now
   measured.
-- **§6's table is +5,100 bytes** against today's tree, of which 4,167 is the
-  DOS core row alone, and **§6.1's levers become required rather than
+- **KERN-DOS-PLAN §6's table is +5,100 bytes** against today's tree, of which 4,167 is the
+  DOS core row alone, and **KERN-DOS-PLAN §6.1's levers become required rather than
   recommended**. Two of the five are priced here and are worth 4.1 KB.
-- **§6.2's 16 KB read-ahead cannot be funded out of slack.** With levers 1
+- **KERN-DOS-PLAN §6.2's 16 KB read-ahead cannot be funded out of slack.** With levers 1
   and 2 taken there is 7.1 KB before the shim is written; the purgeable cache
-  §6.2 proposes is therefore the only shape that works, and it has to be
+  KERN-DOS-PLAN §6.2 proposes is therefore the only shape that works, and it has to be
   purgeable in the strong sense — claimed only when the program has not
   taken the memory, not merely given back on demand.
-- **§2.1's cost question is answered and the answer is 43 seconds**, which is
+- **section 2.1's cost question is answered and the answer is 43 seconds**, which is
   a product decision rather than a technical one: whether a DOS program worth
   600 KB is worth three quarters of a minute of waiting around it.
 - **W3 gains a second question.** It was *"how big is the shim?"*; it is now
