@@ -355,23 +355,45 @@ DOS_SAVW    equ 112                 ; 'Save Shortcut' is 13 cells = 104px
 DOS_MEMY    equ 0                   ; the heading IS the block's first row
 DOS_MROW1   equ 16                  ; ...the two figures
 DOS_MROW2   equ 28
-DOS_MFLDY   equ 46                  ; the limit box's top (DOS_FLDH tall)
+DOS_MFLDY   equ 42                  ; the limit box's top (DOS_FLDH tall)
 DOS_MFLDW   equ 64                  ; ...and its width: 5 digits and the caret
 DOS_MFLDX   equ 56                  ; ...indented past its own label
-DOS_MCHKY   equ 66                  ; the check box's row
+DOS_MRADY   equ 58                  ; the radio group's top row (SPEC.md 96.36)
+DOS_MRADP   equ 16                  ; ...and its pitch, the Control Panel's
+DOS_MWHYY   equ 106                 ; ...and the greyed arm's reason, under it.
+                                    ; **CUT AGAINST CGA** (96.36.2), which is
+                                    ; the only adapter that clamps this window:
+                                    ; the group's rect ends at 105 so the
+                                    ; caption is not inside it and a press
+                                    ; there is nobody's, and the caption ends
+                                    ; at 113 against a furniture row that
+                                    ; starts at 118 on that adapter and 178 on
+                                    ; the other two
 DOS_MEMBUF  equ 8                   ; the field's text: 5 digits + NUL, and
                                     ; room for the caret to sit past the end
 DOS_MEMMAX  equ 5                   ; ...what LN_MAX gets. 640 is three and a
                                     ; machine cannot have six digits of KB
                                     ; below 1MB
-DOS_MCHKSZ  equ 12                  ; os88ui.inc's OS88UI_CK_SIZE, written here
+DOS_MRADSZ  equ 18                  ; os88ui.inc's OS88UI_RD_SIZE, written here
                                     ; and CHECKED against it after the include
                                     ; - DOS_LNSZ's rule exactly, and for the
                                     ; same reason: the bss table is above and
                                     ; the record's owner is below
-DOS_MCHKON  equ 10                  ; ...and OS88UI_CK_ON inside it, so that
-                                    ; [dos_keepc] IS the control's own byte and
-                                    ; there is no second copy to keep in step
+DOS_MRADSEL equ 12                  ; ...and OS88UI_RD_SEL inside it, so that
+                                    ; [dos_keepc] IS the control's own pick and
+                                    ; there is no second copy to keep in step.
+                                    ; The field is a WORD and the pick is 0..2,
+                                    ; so its low byte is the whole of it on a
+                                    ; little-endian machine (SPEC.md 96.36)
+
+; --- the three arms, which are what [dos_keepc] holds (SPEC.md 96.36) -------
+DOS_MEM_KEEP  equ 0                 ; everything but the disk cache - the
+                                    ; default, and what a double click gets
+DOS_MEM_DUMP  equ 1                 ; ...and the cache as well
+DOS_MEM_WHOLE equ 2                 ; ...and os8088 itself
+                                    ; (docs/plans/KERN-DOS-PLAN.md). GREYED
+                                    ; until that is built, by dos_mem_whole
+DOS_MEM_N     equ 3                 ; how many arms, for OS88UI_RD_N
 
 ; os88line.inc is included at the END of this file (its own rule: the header
 ; and the icon block are at fixed offsets), and the bss table above needs its
@@ -657,10 +679,15 @@ dos_run:
                                     ; at the DEFAULT level, which for two
                                     ; kilobytes never needs a purge to answer
 .floor:
-    mov bl, MEM_LVL_TOP             ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
-    cmp byte [dos_keepc], 0         ; and the default is the box ticked -
-    je .sized                       ; everything except the disk cache
-    mov bl, DOS_PG_FLOOR            ; (SPEC.md 50.6.6, 96.24)
+    call dos_mem_fix                ; ...and the ARM is the user's, once this
+                                    ; has made sure it is one the machine can
+                                    ; actually carry out (SPEC.md 96.36.1)
+    mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
+    cmp byte [dos_keepc], DOS_MEM_KEEP
+    je .sized                       ; ...and the default keeps the disk cache
+    mov bl, MEM_LVL_TOP             ; DOS_MEM_DUMP takes it as well, and so
+                                    ; does a DOS_MEM_WHOLE dos_mem_fix has
+                                    ; just demoted (SPEC.md 50.6.6, 96.24)
 .sized:
     ; --- UNMOUNT, ASK TWICE, AND COME BACK FOR THE ANSWER (SPEC.md 96.35) ---
     ; The sound driver is ~14KB at the top of the heap, and unmounting it used
@@ -5191,15 +5218,25 @@ dos_mfld_place:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_mchk_place - put the check box's record where the window is now
+; dos_mrad_place - put the radio group's record where the window is now
 ; in:  BX = the window; every register preserved
 ;
-; The RECT IS THE WHOLE CLICKABLE AREA - box, gap and label - which is
-; os88ui_chk's own contract, so a press on the words counts. Recomputed from
-; the content origin on every paint and every click for dos_fld_place's reason:
-; the rect is in SCREEN coordinates and a window moves.
+; The RECT IS THE WHOLE CLICKABLE AREA - every ring, gap and label of every
+; arm - which is os88ui_rad's own contract, so a press on the words counts and
+; the row is worked out by dividing the press's y by the pitch. Recomputed
+; from the content origin on every paint and every click for dos_fld_place's
+; reason: the rect is in SCREEN coordinates and a window moves.
+;
+; THE OTHER FOUR FIELDS ARE SET HERE TOO, not once at entry, for the same
+; reason the rect is: this runs before every paint and before every click, so
+; a record filled in one place cannot disagree with itself. The exception is
+; OS88UI_RD_SEL, which IS [dos_keepc] (SPEC.md 96.36) and is the user's.
+;
+; DOS_MEM_WHOLE's greying is DI's bit 2 and comes from dos_mem_whole - one
+; predicate, three consumers (SPEC.md 47 rule 4), of which this is the one
+; that makes the ring and the label dither.
 ; -----------------------------------------------------------------------------
-dos_mchk_place:
+dos_mrad_place:
     push ax
     push cx
     push dx
@@ -5208,25 +5245,91 @@ dos_mchk_place:
     call dos_mem_org                ; the BLOCK's origin, as above
     mov ax, [dos_mx]
     mov dx, [dos_my]
-    mov si, dos_mchk
-    mov di, dos_l_memc
-    mov [si+OS88UI_CK_LABEL], di
+    xor di, di
+    call dos_mem_whole              ; CF = 1: the third arm cannot be picked.
+    jnc .live                       ; **IT ANSWERS IN SI**, so it is asked
+    mov di, 1 << DOS_MEM_WHOLE      ; BEFORE the record is pointed at and not
+.live:                              ; after - the reason it returns and the
+    mov si, dos_mrad                ; record live in the same register, and
+                                    ; the wrong order writes the rect into the
+                                    ; LABEL and draws the group at 0,0
+    mov word [si+OS88UI_RD_ITEMS], dos_mem_items
+    mov word [si+OS88UI_RD_N], DOS_MEM_N
+    mov word [si+OS88UI_RD_PITCH], DOS_MRADP
+    mov [si+OS88UI_RD_DIS], di
     mov cx, ax
     mov [si+0], cx
-    add cx, OS88UI_CKBOX + OS88UI_CKGAP + 8 * DOS_MEMC_N
-    mov [si+4], cx                  ; ...x2 INCLUSIVE, so the label's last
-    dec word [si+4]                 ; cell is inside and the next pixel is not
+    add cx, OS88UI_RDBOX + OS88UI_RDGAP + 8 * DOS_MEMI_N
+    mov [si+4], cx                  ; ...x2 INCLUSIVE, so the longest label's
+    dec word [si+4]                 ; last cell is inside and the next is not
     mov cx, dx
-    add cx, DOS_MCHKY
+    add cx, DOS_MRADY
     mov [si+2], cx
-    add cx, OS88UI_CKBOX
-    dec cx
+    add cx, DOS_MRADP * DOS_MEM_N
+    dec cx                          ; ...and y2 is the whole group's last line
     mov [si+6], cx
     pop di
     pop si
     pop dx
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mem_whole - may the program have the WHOLE machine? (SPEC.md 96.36.1)
+; out: CF = 1 it may not, and SI = the reason to put on the glass
+;      CF = 0 it may, and SI = 0. Every other register preserved.
+;
+; **THIS ROUTINE IS THE WHOLE OF WHAT THE PLAN'S W6 CHANGES.** The arm names
+; docs/plans/KERN-DOS-PLAN.md, none of which is written, so today it refuses
+; every machine and says so - which is SPEC.md 47 rule 5's "grey a FACT": this
+; build genuinely cannot do it. When the mechanism lands the body becomes
+; hb_pick's question (SPEC.md 87.2) - is there a fixed disk to come back to -
+; and the reason becomes the one beside it. The layout, the record, the three
+; call sites and the .LNK format do not move.
+;
+; It runs on EVERY PAINT (SPEC.md 47 rule 5's corollary), so it must stay
+; cheap: two instructions today, and a byte somebody else already computed
+; when it is not.
+; -----------------------------------------------------------------------------
+dos_mem_whole:
+    mov si, dos_l_memw3
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_mem_fix - force [dos_keepc] to an arm this machine will actually honour
+; in:  nothing; out: nothing, every register preserved
+;
+; **CONSUMER THREE** of dos_mem_whole (SPEC.md 47 rule 4, 96.36.1). A greyed
+; arm refuses a CLICK - os88ui_radhit swallows the press - and that is the
+; whole of what the control can do: it cannot refuse a FILE. [dos_keepc]
+; arrives from a .LNK another machine wrote (96.25.2), so the range clamp
+; there is not enough on its own, DOS_MEM_WHOLE being a legal value this
+; machine may still not be able to carry out.
+;
+; It DEMOTES rather than refusing, to the arm below - which is what the user
+; would have got before that arm existed - and it writes the pick BACK, so the
+; page comes up showing what the machine will really do rather than an arm it
+; is quietly ignoring.
+;
+; The high byte goes with it, because OS88UI_RD_SEL is a WORD and [dos_keepc]
+; is its low half (96.36): every writer here is a byte writer, so one place
+; has to own the other half or a link's 0x0102 draws a dot on no row at all.
+; -----------------------------------------------------------------------------
+dos_mem_fix:
+    push si
+    mov byte [dos_keepc+1], 0
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    jb .out
+    ja .demote                      ; ...and anything ABOVE the last arm is a
+                                    ; link that was never ours
+    call dos_mem_whole
+    jnc .out
+.demote:
+    mov byte [dos_keepc], DOS_MEM_DUMP
+.out:
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5338,11 +5441,29 @@ dos_paint_mem:
     pop bx
 
     push bx                         ; ...and the choice itself
-    call dos_mchk_place
-    mov bx, dos_mchk
+    call dos_mrad_place             ; which fills in the DIS bits as well
+    mov bx, dos_mrad
     xor di, di
-    call os88ui_chk
+    call os88ui_rad
     pop bx
+
+    push bx                         ; ...and WHY the greyed arm is greyed
+    call dos_mem_whole              ; (SPEC.md 47 rule 3): consumer two of the
+    jnc .nowhy                      ; one predicate. Nothing at all when the
+    mov bx, [dos_mx]                ; arm is live - a caption explaining a
+    mov dx, [dos_my]                ; control that is not disabled is noise
+    add bx, OS88UI_RDBOX + OS88UI_RDGAP
+    add dx, DOS_MWHYY               ; ...indented to the labels' own column
+    stc                             ; **IN THE DISABLED PEN** (SPEC.md 47 rule
+    call OSAPI_GFX_PEN              ; 2, 96.36.1): it belongs to the row above
+    call dos_line                   ; it. Drawn solid it is the HEAVIEST text
+    clc                             ; on the block and sits at the labels' own
+    call OSAPI_GFX_PEN              ; indent, so it reads as a FOURTH arm that
+.nowhy:                             ; is live - which is rule 2's confusion one
+    pop bx                          ; level out. And the pen goes back at once:
+                                    ; gfx_unlock clears the flag but the lock
+                                    ; is held for the whole page, so whatever
+                                    ; paints after this would inherit it
 
     pop di                          ; **NO PAGE BUTTON HERE.** The setup area's
                                     ; furniture - the title, the arrows, Save
@@ -5413,13 +5534,18 @@ dos_mem_num:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_mem_take - the limit field's text -> [dos_memkb]
+; dos_mem_take - commit the memory BLOCK: the limit field and the arm
 ; out: nothing; every register preserved
 ;
 ; EMPTY IS ZERO AND ZERO IS "ALL", which is what makes the field need no
 ; second control: a user who wants the machine's own answer clears the box.
 ; Anything that is not a digit ends the number, so a half-typed entry is the
 ; digits in front of it rather than a refusal in the middle of typing.
+;
+; **AND THE ARM GOES WITH IT** (SPEC.md 96.36.1). This is the block's one
+; commit point - all four callers are leaving the page or launching - so it is
+; where the pick meets the machine, and the page comes back showing what will
+; really happen rather than an arm being quietly ignored.
 ; -----------------------------------------------------------------------------
 dos_mem_take:
     push ax
@@ -5443,6 +5569,8 @@ dos_mem_take:
     jmp short .d
 .out:
     mov [dos_memkb], ax
+    call dos_mem_fix                ; ...and the arm, which is the other half
+                                    ; of this block (SPEC.md 96.36.1)
     pop si
     pop cx
     pop bx
@@ -5509,15 +5637,17 @@ dos_click_mem:
     push di
     mov di, cx
     mov bp, dx
-    call dos_mchk_place             ; THE CHECK BOX FIRST: it is the control
-    push bx                         ; the page exists for. os88ui_chkhit takes
-    mov bx, dos_mchk                ; the point in CX/DX, toggles the record's
-    call os88ui_chkhit              ; own ON byte and redraws THE MARK - not
-    pop bx                          ; the control and not the page (13.15.2)
-    jc .notchk
-    call dos_defocus                ; ...and a field keeping the caret while
-    jmp short .out                  ; another control is worked is a caret the
-.notchk:                            ; user cannot account for
+    call dos_mrad_place             ; THE RADIO FIRST: it is the control the
+    push bx                         ; page exists for. os88ui_radhit takes the
+    mov bx, dos_mrad                ; point in CX/DX, moves the record's own
+    call os88ui_radhit              ; SEL word and redraws THE TWO DOTS that
+    pop bx                          ; changed - not the group and not the page
+    jc .notchk                      ; (13.17.4). A greyed arm is swallowed
+    call dos_defocus                ; here, which is SPEC.md 47 rule 6: the
+    jmp short .out                  ; control already said why
+.notchk:                            ; ...and a field keeping the caret while
+                                    ; another control is worked is a caret the
+                                    ; user cannot account for
     call dos_mfld_place
     mov si, dos_mln
     mov cx, di
@@ -5537,10 +5667,9 @@ dos_click_mem:
     jmp short .out
 .away:
     ; The POINT is still in CX/DX for dos_fld_hit, which tests the two boxes
-    ; beside this block with it - checked rather than assumed, because
-    ; os88ui_chkhit does not carry os88ui_bhit's "all registers preserved":
-    ; it only draws on a HIT, and a hit takes the .out path below and never
-    ; reaches the caller's other boxes at all.
+    ; beside this block with it - and os88ui_radhit DOES carry os88ui_bhit's
+    ; "every register preserved", which the check box it replaced did not, so
+    ; the point survives a miss without being banked first.
     pop di                          ; **IT REFUSES WHAT IT DID NOT USE** now
     pop si                          ; (SPEC.md 96.32.2): this block shares the
     pop ax                          ; Setup page with two more boxes, so a
@@ -6214,7 +6343,7 @@ dos_place:
     call dos_fld_place              ; ...the arguments box...
     call dos_senv_place             ; ...the environment row beside it...
     call dos_mfld_place             ; ...and the memory block's two
-    call dos_mchk_place
+    call dos_mrad_place
     jmp short .out
 .env:
     xor cx, cx
@@ -6281,7 +6410,8 @@ dos_fld_init:
     mov byte [si+LN_FOCUS], 0
     mov byte [dos_mbuf], 0
     mov word [dos_memkb], 0         ; 0 = as much as the machine will give,
-    mov byte [dos_keepc], 1         ; which is what a double click gets
+    mov word [dos_keepc], DOS_MEM_KEEP  ; which is what a double click gets.
+                                    ; A WORD: OS88UI_RD_SEL is one (96.36)
     call os88line_resync
 
     pop si
@@ -7158,20 +7288,28 @@ dos_lnk_ext:
 ; size was checked against what is LEFT of the file before that, so both reads
 ; are inside the buffer by construction (SPEC.md 20.8 rule 2).
 ;
-; THE CAP IS CLAMPED and the choice is FORCED TO 0 OR 1, because this is a file
-; somebody else may have written: a cap of 0xFFFF is harmless (dos_run takes
-; the smaller of it and what the machine offers) but a keep byte of 0x7F would
-; make the check box draw a mark for a value it can never toggle back to.
+; THE CAP IS CLAMPED and the choice is FORCED INTO RANGE, because this is a
+; file somebody else may have written: a cap of 0xFFFF is harmless (dos_run
+; takes the smaller of it and what the machine offers) but an arm of 0x7F
+; would put OS88UI_RD_SEL on a row that does not exist, and os88ui_radhit only
+; repaints the row that LOST the pick - so there would be no way back to a
+; legal one (SPEC.md 96.25.2).
+;
+; **RANGE IS NOT ENOUGH**: DOS_MEM_WHOLE is legal and may still be a thing
+; this machine cannot do, which is dos_mem_fix's half (96.36.1). The two are
+; separate because they refuse for different reasons - one is a malformed
+; file and the other is an honest file on the wrong machine.
 dos_lnk_memr:
     push ax
     mov ax, [dos_lbuf+si+8]
     mov [dos_memkb], ax
     mov al, [dos_lbuf+si+10]
-    cmp al, 1
-    jbe .set
-    mov al, 1                       ; anything else means the default, which is
+    cmp al, DOS_MEM_N
+    jb .set
+    mov al, DOS_MEM_KEEP            ; anything else means the default, which is
 .set:                               ; the one a double click gets
     mov [dos_keepc], al
+    call dos_mem_fix                ; ...and then the machine has its say
     call dos_mem_put                ; ...and the field shows what the link said
     pop ax
     ret
@@ -7420,11 +7558,23 @@ dos_memk1:  db '     K', 0
 dos_l_memt2: db 'Taking it as well:       '
 dos_memk2:  db '     K', 0
 dos_l_meml: db 'Limit:', 0
-dos_l_memc: db 'Keep the disk cache', 0
-DOS_MEMC_N  equ 19                  ; ...its length, for the click rect. A
-                                    ; literal because the label is one and
-                                    ; font_width would be a call per paint to
-                                    ; re-derive a constant
+; --- the three arms, and the words under the greyed one (SPEC.md 96.36) -----
+; They read as a ladder, each one taking more than the last, because that is
+; what the user is choosing between - and the first two are the two FIGURES
+; above them said in the imperative ('Keeping the disk cache' / 'Taking it as
+; well'), so the row and the choice name the same thing.
+dos_mem_items:
+    dw dos_l_memc1
+    dw dos_l_memc2
+    dw dos_l_memc3
+dos_l_memc1: db 'Keep the disk cache', 0
+dos_l_memc2: db 'Take the disk cache too', 0
+dos_l_memc3: db 'Take the whole OS too', 0
+dos_l_memw3: db 'not in this build yet', 0
+DOS_MEMI_N  equ 23                  ; the LONGEST arm's length, for the click
+                                    ; rect. A literal because the labels are,
+                                    ; and font_width would be a call per paint
+                                    ; to re-derive a constant
 dos_lnk_root: db '\', 0
 
 ; --- the Shell Link header, 76 bytes, fixed (SPEC.md 96.21) ------------------
@@ -8202,10 +8352,11 @@ PKT_VERSION equ 9
                                  ; DOS gives that call nowhere to put a buffer
     DBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
-    DBSS DOS_B_MCHK,  DOS_MCHKSZ ; ...and the 'Keep disk cache' check box's own
-                                 ; record (os88ui.inc), whose ON byte IS the
-                                 ; setting - os88ui_chkhit toggles and redraws
-                                 ; it, so a copy here would be a second truth
+    DBSS DOS_B_MRAD,  DOS_MRADSZ ; ...and the three-arm radio's own record
+                                 ; (os88ui.inc), whose SEL word IS the setting
+                                 ; - os88ui_radhit moves it and redraws the two
+                                 ; rows that changed, so a copy here would be a
+                                 ; second truth (SPEC.md 96.36)
     DBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
     DBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
     DBSS DOS_B_MX,    2          ; the memory page's content origin, banked
@@ -12771,10 +12922,13 @@ DOS_BSS_SIZE equ DB
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
 ; 20.2), so code emitted between them fails the icon macro's own assertion.
-%define OS88UI_CHK                  ; SPEC.md 13.15: the memory page's one
-                                    ; choice. Opted into here because os88ui's
+%define OS88UI_RAD                  ; SPEC.md 13.17.4: the memory page's one
+                                    ; choice, which is three answers and so a
+                                    ; radio. Opted into here because os88ui's
                                     ; rule is that a package that does not use
-                                    ; a control pays NOTHING for it
+                                    ; a control pays NOTHING for it - and this
+                                    ; is the control's FIRST caller in the tree
+                                    ; (SPEC.md 96.36)
 %include "os88ui.inc"
 %include "os88line.inc"
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------
@@ -12805,13 +12959,13 @@ DOS_BSS_SIZE equ DB
                                     ; two and whose second answer refuses
                                     ; every verb this feature is made of
 
-%if DOS_MCHKSZ != OS88UI_CK_SIZE
- %error "DOS_MCHKSZ must equal os88ui.inc's OS88UI_CK_SIZE - the bss table \
-above reserves DOS_MCHKSZ bytes for a record this file does not own"
+%if DOS_MRADSZ != OS88UI_RD_SIZE
+ %error "DOS_MRADSZ must equal os88ui.inc's OS88UI_RD_SIZE - the bss table \
+above reserves DOS_MRADSZ bytes for a record this file does not own"
 %endif
-%if DOS_MCHKON != OS88UI_CK_ON
- %error "DOS_MCHKON must equal os88ui.inc's OS88UI_CK_ON - [dos_keepc] IS \
-that byte of the record, and a wrong offset writes the label pointer"
+%if DOS_MRADSEL != OS88UI_RD_SEL
+ %error "DOS_MRADSEL must equal os88ui.inc's OS88UI_RD_SEL - [dos_keepc] IS \
+that word of the record, and a wrong offset writes the pitch"
 %endif
 
 %if DOS_LNSZ != OS88LINE_SZ
@@ -12880,8 +13034,8 @@ dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
 dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
 dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
-dos_mchk    equ os88_image_end + DOS_B_MCHK    ; the check box's record
-dos_keepc   equ dos_mchk + DOS_MCHKON          ; byte: 1 = keep the disk cache
+dos_mrad    equ os88_image_end + DOS_B_MRAD    ; the radio group's record
+dos_keepc   equ dos_mrad + DOS_MRADSEL         ; byte: DOS_MEM_* (SPEC.md 96.36)
 dos_mbuf    equ os88_image_end + DOS_B_MBUF    ; the limit field's text
 dos_mln     equ os88_image_end + DOS_B_MLN     ; ...and its os88line block
 dos_mx      equ os88_image_end + DOS_B_MX      ; word: this paint's content x

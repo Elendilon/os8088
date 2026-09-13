@@ -124449,9 +124449,11 @@ Memory for the program:
   Taking it as well:         482 K
 
   Limit: [       ] K
-  [x] Keep the disk cache
 
-                                   [ Memory ]
+  (o) Keep the disk cache
+  ( ) Take the disk cache too
+  ( ) Take the whole OS too
+      not in this build yet
 ```
 
 **The two figures are the choice, so they are on the glass.** Both come from
@@ -124465,6 +124467,10 @@ It is read on the way *out* of the page rather than on Enter — a field that
 only commits on a keystroke the user did not know to press loses what was
 typed, silently.
 
+**The choice is a RADIO of three and not a check box**, because there are
+three answers and a check box can hold two — §96.36 is the control, and
+§96.36.1 is why the third arm is greyed rather than absent.
+
 **The page button cycles now** rather than toggling, and its label names where
 it goes rather than where you are: main → `Environment` → `Memory` → `Done`.
 A button labelled with the current page is one you have to press to find out
@@ -124473,11 +124479,16 @@ what it does.
 #### 96.25.1 What `dos_run` does with them
 
 ```
-    floor = keep the cache ? MEM_PG_HIGH : MEM_LVL_TOP
+    floor = [dos_keepc] == DOS_MEM_KEEP ? MEM_PG_HIGH : MEM_LVL_TOP
     kb    = OSAPI_MEM_AVAIL_LVL(floor)
     if limit: kb = min(kb, limit)
     OSAPI_MEM_CLAIM_LVL(kb, floor, from the top)
 ```
+
+`DOS_MEM_WHOLE` — the third arm — does not reach this code at all: it is a
+different mechanism (docs/plans/KERN-DOS-PLAN.md) and, until it is built,
+`dos_mem_whole` refuses it and `dos_run` falls back to `DOS_MEM_DUMP`'s floor
+rather than claiming against a level nothing implements.
 
 The floor is the same in both calls, which is the one thing that must not
 drift: a number planned at one level and claimed at another is a plan the
@@ -124502,8 +124513,17 @@ and the defaults stand.
 
 **Both fields are treated as hostile.** The cap needs no clamp — `dos_run`
 takes the smaller of it and what the machine offers, so `0xFFFF` means "all" —
-but the choice byte is forced to 0 or 1, because a `0x7F` would draw a check
-box with a mark in it that no click could ever clear.
+but the choice byte is **forced to 0..2**, because `os88ui_rad` divides the
+press's row by the pitch and compares against `OS88UI_RD_N`: a `0x7F` in
+`OS88UI_RD_SEL` draws a dot on no row at all and no click can ever move it,
+since `os88ui_radhit` only repaints the row that LOST the pick and there is
+no such row. It was 0-or-1 when this was a check box and the clamp is the
+same line; what changed is the ceiling, and a link written by an older build
+still reads because 0 and 1 mean what they always meant.
+
+**A `DOS_MEM_WHOLE` read out of a link is clamped a second time, by the
+predicate rather than by the range** — §96.36.1 — because the machine that
+wrote the link is not the machine reading it.
 
 ### 96.35 Sizing the arena: unmount, ask twice, and come back for the answer
 
@@ -125057,6 +125077,97 @@ the same includer for the same reason. Worth writing down because the hazard
 is structural rather than a slip: a file with two hosts grows for both of them
 whenever either one gains a feature, and NASM emits every byte of a flat
 binary whether or not it is referenced.
+
+### 96.36 The Memory page's choice is a RADIO of three
+
+§96.25 shipped the choice as a check box, and a check box holds two answers.
+There are three, and the third is a different kind of thing from the other
+two:
+
+| arm | `[dos_keepc]` | what the program gets |
+|---|---|---|
+| **Keep the disk cache** | `DOS_MEM_KEEP` = 0 | everything but §18.95's `dirw` cache — the default, and the choice that keeps the *disk* fast |
+| **Take the disk cache too** | `DOS_MEM_DUMP` = 1 | ...and the cache as well, rebuilt from the FAT afterwards |
+| **Take the whole OS too** | `DOS_MEM_WHOLE` = 2 | the machine, with os8088 itself unloaded — docs/plans/KERN-DOS-PLAN.md |
+
+`os88ui_rad` (§13.17.4) is the control and **this is its first caller in the
+tree**: it was written for the Control Panel's pages and no package had one
+yet. The record is one per GROUP, so the three arms are eighteen bytes and a
+table of three near pointers — where three check boxes would have been
+thirty-six bytes and a rule the package had to enforce itself, since a check
+box does not know it has siblings.
+
+**`[dos_keepc]` IS `OS88UI_RD_SEL`'s low byte and not a copy of it.** That is
+the check box's own arrangement carried over — `DOS_MCHKON` mirrored
+`OS88UI_CK_ON` so there was one truth — and it survives the conversion
+because `OS88UI_RD_SEL` is a *word* at a fixed offset and the pick is 0..2, so
+the low byte is the whole value on a little-endian machine. `DOS_MRADSEL`
+mirrors `OS88UI_RD_SEL` and a `%if` fails the build if they drift, which is
+the same gate `DOS_MCHKON` had.
+
+#### 96.36.1 The third arm is greyed, and the predicate is the only thing W5 changes
+
+`dos_mem_whole` answers *may the program have the whole machine?* in CF, with
+the reason in SI — which is §47 rule 4's **one predicate, three consumers**:
+
+- the painter sets `OS88UI_RD_DIS` bit 2 from it, so the ring and the label
+  both dither on 1bpp (§47 rules 2 and 3);
+- the painter draws SI under the group when SI is non-zero, which is §47 rule
+  3's *"words that say why not"*, and draws nothing when it is zero;
+- `dos_mem_fix` asks it at the block's **commit point**, because `[dos_keepc]`
+  can arrive from a `.LNK` written on another machine (§96.25.2) and a greyed
+  control refuses a CLICK and not a FILE.
+
+That third consumer is `dos_mem_take`'s tail and `dos_run`'s floor — the same
+two places the *limit* is committed, all four callers of the first being a
+page the user is leaving or a launch. It **demotes** to the arm below rather
+than refusing, which is what the user would have got before that arm existed,
+and it writes the pick back, so the page comes back showing what the machine
+will really do. Hanging it off `dos_run` alone is not enough and the gate row
+caught that: an empty path box never reaches `dos_run` at all.
+
+`[dos_keepc]`'s **high byte** goes with it. `OS88UI_RD_SEL` is a word, every
+writer in this package is a byte writer, and a link carrying `0x0102` would
+put the pick on a row that does not exist — where `os88ui_radhit` repaints the
+row that LOST the pick and there is no such row, so no click could ever move
+it back.
+
+The click path needs no consumer of its own: `os88ui_radhit` reads the DIS bit
+itself and swallows the press, which is §47 rule 6 — greyed, so say nothing
+more.
+
+**Today the predicate refuses unconditionally**, with *"not in this build
+yet"*, because the mechanism behind the arm is docs/plans/KERN-DOS-PLAN.md and
+none of it is written. That is a fact rather than a guess (§47 rule 5): this
+build genuinely cannot do it, and saying so on the glass is what the greying
+standard is for. When the plan's W6 lands, the body of that one routine
+becomes `hb_pick`'s question — *is there a fixed disk to come back to* (§87.2,
+and the plan's §9) — and the reason becomes *"needs a hard disk to come back
+to"*. **Nothing else moves**: not the layout, not the record, not the three
+call sites, not the `.LNK` format.
+
+#### 96.36.2 What it cost the page's layout, measured on the adapter that binds
+
+Three rows of pitch 16 stand where one check box stood, so the block grew 26
+pixels downward, and **CGA is the only adapter where that is a question**:
+the window asks for `DOS_FRAMEH` = 239 and gets it on Hercules and VGA, where
+the furniture row lands 178 pixels below the memory block's own top. On CGA
+the desktop band clamps the window and that figure is **118** — read off a
+running machine rather than derived, since a clamp is the window manager's
+arithmetic and not the package's.
+
+The block was re-cut against 118: the limit field moved up 4 to `DOS_MFLDY` =
+42, the group starts at `DOS_MRADY` = 60 and its last row ends at 104, and the
+reason line sits at `DOS_MWHYY` = 106 and ends at 114. Four pixels of margin
+on the tightest adapter, and none of the three rows above the field moved at
+all.
+
+**There is no third figure**, and that is deliberate: the two on the glass are
+`OSAPI_MEM_AVAIL_LVL`'s and `OSAPI_MEM_AVAIL`'s real answers, and what the
+third arm would give the program is not a number this build can ask anything
+for. §47 rule 5 again — a figure that has to be guessed is worse than no
+figure, because the two beside it are measured and the user cannot tell them
+apart. It arrives with the plan's W1, which is the wave that measures it.
 
 ### 96.26 The cable translation — a DOS program on the wire without a card
 

@@ -2678,6 +2678,25 @@ SOAK = [
         "MartyPC instrument with no QEMU form.",
         needs=("qemu",), serial=True, timeout=600,
         wants=("build/dosxmsq.img",)),
+    Row("dosmem", "soak", py("tests/dosmem.py"), 55.0,
+        "THE MEMORY PAGE'S THREE ARMS (SPEC.md 96.36, 96.25, 47): the choice "
+        "of how much of the machine a DOS program gets was a CHECK BOX, which "
+        "holds two answers, and there are three - the third being os8088 "
+        "itself (docs/plans/KERN-DOS-PLAN.md), greyed because nothing behind "
+        "it is built. It is os88ui_rad's FIRST caller in the tree. A 1bpp "
+        "adapter on purpose (SPEC.md 47.2): grey rounds to black in text "
+        "there, so 'is this row disabled' is a PIXEL fact - the row counts "
+        "horizontally adjacent dark pairs, which a stipple has almost none of "
+        "and a solid glyph is full of, rather than counting ink, which only "
+        "says how much text there is. VERIFIED TO FAIL, three ways seen on "
+        "the way to writing it: dos_mem_whole answers in SI and so does the "
+        "record pointer, so asking it after loading SI drew the group at "
+        "screen 0,0 and left the rect at 0,0,0,0; a press on the greyed arm "
+        "'redrew something' until the POINTER was parked before the capture, "
+        "crop_rgb reading the card's rendered framebuffer with the arrow in "
+        "it; and step 8's demotion read 2 while dos_mem_fix hung off dos_run, "
+        "which an empty path box never reaches.",
+        needs=("marty",), serial=True),
     Row("dosarena", "soak", py("tests/dosarena.py"), 35.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and the box unmounts it, "

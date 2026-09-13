@@ -397,7 +397,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 
 | | what | gate |
 |---|---|---|
-| **W0** | **The radio.** `[dos_keepc]` becomes three-way, arm 3 greyed with its reason. Shippable alone; makes the Memory page final. | `dosmem`-style row over the three positions |
+| **W0** | **BUILT** (SPEC.md 96.36). `[dos_keepc]` is three-way over `os88ui_rad` — the control's **first caller in the tree** — and arm 3 is greyed with its reason on the glass. +364 package bytes, +6 bss, **zero kernel**. | `soak -k dosmem`, and its three verified failures |
 | **W1** | **Measure.** The three arena figures on one machine; the hibernate round trip on `os8088_xt_hdd`; `KERN_SIZE`'s share per §6's table, re-derived rather than quoted. | numbers in `docs/reports/` |
 | **W2** | **Prove the seam.** Every path from the INT 21h core to the file system goes through a `dos_k_*` door; a gate that fails if a new one appears. | a `fast` row over the source, `t_textrules`' shape |
 | **W3** | **The shim and the root.** `kerndos/kerndos.asm` assembles `disk.inc`+`diskw.inc` and reads a file. **Allowed to return "the shim is too big, write a reader instead."** | a host-side FAT read against `os88fat.py` |
@@ -409,6 +409,35 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 
 **W0 and W1 land before anything is designed further.** W2 is the go/no-go for
 the whole shape; W3 is the go/no-go for §4's reuse.
+
+### 11.1 What W0 came to, and the one line W6 changes
+
+The wave cost 364 package bytes and no kernel byte at all, and it landed
+where it was aimed — but three things in it are worth writing down, because
+two of them are the sort of thing that gets re-derived.
+
+**The greying is ONE routine and W6 replaces its body.** `dos_mem_whole`
+answers *may the program have the whole machine?* in CF with the reason in
+SI, and today it refuses unconditionally with *"not in this build yet"*.
+Three consumers read it — the DIS bit, the caption, and `dos_mem_fix` at the
+block's commit point — so when the mechanism exists, that body becomes
+`hb_pick`'s question (§9) and **nothing else in the package moves**: not the
+layout, not the record, not the three call sites, not the `.LNK` format.
+
+**Consumer three does not belong on `dos_run`,** which is where it was put
+first. A `.LNK` written on a machine that HAS the feature can carry
+`DOS_MEM_WHOLE` to one that does not, and a greyed control refuses a click
+and not a file — but `dos_run` is not reached until a launch, and an empty
+path box never reaches it at all. It sits on `dos_mem_take` instead, which is
+the memory block's one commit point (all four of its callers are a page being
+left or a launch), so the page comes back showing what the machine will
+really do.
+
+**The third FIGURE is deliberately absent.** The two on the page are
+`OSAPI_MEM_AVAIL_LVL`'s and `OSAPI_MEM_AVAIL`'s real answers; what arm 3
+would give the program is not a number this build can ask anything for, and
+§47 rule 5 refuses a guess sitting beside two measurements. It arrives with
+W1, which is the wave that measures it.
 
 ---
 
