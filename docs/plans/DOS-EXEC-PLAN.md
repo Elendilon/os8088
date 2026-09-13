@@ -1225,6 +1225,16 @@ lift would be of the half that does not fit.
 
 ## 14. The hibernate phase — handing DOS the whole machine
 
+**SUPERSEDED AS A PLAN by [docs/plans/KERN-DOS-PLAN.md](KERN-DOS-PLAN.md),
+which is this phase costed.** What is below was written while the phase was
+far away, and it is an idea rather than a plan — keep it for §14.1's survey of
+what §87 already gives and for §14.4's one decision, and read the other
+document for the shape, the 600 KB budget, the waves and what the third arm
+loses. Two things the costing found that are not below: **`dos_be_*` is the
+whole port** (twenty doors and `dos_load`, nothing above them changing), and
+**`kern_dos` should ship as a PART of `DOS.O88`** rather than as a file on a
+system disk that is about to come under pressure.
+
 **Not built, not scheduled, and written down now for one reason: there is
 exactly one decision in waves 1–7 that could box it out, and it costs nothing
 to get right (§14.4).**
