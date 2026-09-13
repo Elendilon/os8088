@@ -2678,6 +2678,24 @@ SOAK = [
         "MartyPC instrument with no QEMU form.",
         needs=("qemu",), serial=True, timeout=600,
         wants=("build/dosxmsq.img",)),
+    Row("dosarena", "soak", py("tests/dosarena.py"), 35.0,
+        "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
+        "SOUND.DRV is ~14KB at the TOP of the heap and the box unmounts it, "
+        "and that memory used to be unreachable because the suspend was fenced "
+        "on the fsx bracket - long AFTER the arena was claimed. It is an A/B "
+        "BETWEEN TWO MACHINES and that is the whole design: the same disk and "
+        "the same program on a 5150 WITH a Sound Blaster and on one WITHOUT, "
+        "so if the recovery works the card costs the program nothing. Reading "
+        "a state byte would have asserted the MECHANISM instead, and the "
+        "mechanism has three moving parts in two layers - the fence, the "
+        "posted compaction and the wake - any of which can be present and "
+        "still leave the program short. VERIFIED TO FAIL, on the way to "
+        "writing it and against each of two separate causes: 435KB against "
+        "449 while the suspend was still bracket-only, and 435 against 449 "
+        "again with the unmount happening and the DOS REGION not declared "
+        "movable, so the hole sat above a wall.",
+        needs=("marty",), serial=True,
+        wants=("build/dossnd360.img",)),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

@@ -4881,7 +4881,7 @@ drv_suspend_x:
                                 ; Suspend was fsx_mine's, on the reading that
                                 ; only the app holding the screen may take the
                                 ; hardware - and that made the slot's own
-                                ; headline use impossible: 96.26 unmounts the
+                                ; headline use impossible: 96.35 unmounts the
                                 ; sound driver so the DOS ARENA CLAIM can have
                                 ; the 14KB, and the claim is on an EVT_WAKE,
                                 ; long before any bracket, because
