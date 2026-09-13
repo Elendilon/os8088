@@ -84,13 +84,15 @@ def main():
                      "INPLACE ok",      # the seek-back rewrite (SPEC.md 96.11.6)
                      "GREW ok",         # ...and a write at the END of it
                      "CROSS ok",        # ...across the slack/append boundary
+                     "GAP ok",          # a seek PAST the end (SPEC.md 96.11.6.1)
                      "GONE ok"):
             if want not in text:
                 fail("%r is not on the screen - the handle layer did not "
                      "complete (SPEC.md 96.11)" % want)
 
         print("dosfile: wrote, read back and verified %d bytes across two "
-              "window crossings, seeked, rewrote IN PLACE and deleted"
+              "window crossings, seeked, rewrote IN PLACE, grew it past a "
+              "SEEK's gap and deleted"
               % NBYTES)
 
         m.type_text("x")

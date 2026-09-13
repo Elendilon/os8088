@@ -122088,13 +122088,72 @@ Three things fall out of that and each is worth naming:
   program seeing anything. `FHF_INPLC` comes off the handle when it does, and
   `FHF_MADE` goes on, because from there the file's size really is moving and
   §18.4's commit order is where that belongs.
-- **A seek PAST the end and a write is still refused**, and that is a different
-  thing: it is a gap, not an extension, and this layer cannot make one.
+- **A seek PAST the end and a write LAYS THE GAP** — §96.11.6.1, which is the
+  one case that is not simply the read path reversed.
 
 The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
 accumulator that writes then appends, because that file's size really is
 moving and §18.4's commit order is where that belongs. Two handles, two
 models, one window — `FHF_INPLC` is which.
+
+##### 96.11.6.1 A seek past the end, and the gap it leaves
+
+`42h` will move the position past the end of the file, and DOS has always let
+it: the write that follows extends the file to where the seek went and leaves
+everything between the old end and the new bytes **undefined**. It is not an
+edge case anyone invented, it is how three ordinary things are spelled —
+
+- **pre-allocating**: create, seek to `size-1`, write one byte, and the file is
+  that size,
+- **fixed-record random access**: a program that writes record 40 of a
+  twelve-record file, which is every ISAM and B-tree index, the dBASE family,
+  and GW-BASIC's `PUT #n, recnum`,
+- **extending without data**: `AH=40h` with `CX=0`, which under DOS sets the
+  file's length to the current position — and which this box answers as a
+  silent no-op today. That is a **gap of its own** and is not fixed here: it
+  needs a kernel that can lower a size and free the clusters past it, which
+  neither `WRITE_AT` nor `APPEND` can do.
+
+So the gap is laid rather than refused, and **the byte cost is nearly all
+reuse**: laying `POS - SIZE` bytes at the end of a file is the same operation
+as writing the program's own bytes there, differing in the SOURCE alone. One
+flag says the source is a fill byte instead of the program's buffer, the copy
+site stores rather than moves, and the routine calls **itself** with the
+position rewound to the file's end — so the slack-then-append split, the
+window, the flush and the short-count answer are all the ones already written.
+
+Three consequences, and the first is the one to know:
+
+- **The gap is ZEROED, where DOS leaves it undefined.** Zero is what `rep
+  stosb` costs — two bytes against `rep movsb`'s two — so the stricter answer
+  is the cheaper one here, and a program that reads the gap back gets
+  something repeatable instead of whatever the cluster held. Nothing may
+  *depend* on it: the contract is DOS's, which is that the contents are
+  undefined.
+- **The recursion is one deep and cannot be two.** The inner call runs with
+  `POS == SIZE`, which is the case that never reaches this arm.
+- **A gap that runs out of disk answers zero, with CF=0.** The file grew as far
+  as it could and none of the program's bytes went in, so the short count is
+  the truth and it is the same truth a full disk has always told.
+
+A `FHF_WHOLE` handle — a compressed file, §96.11.1 — still refuses, because the
+window *is* the file there and it cannot be grown a byte at a time. That test
+is first, and unchanged.
+
+**The ORDER inside the loop is the part that was got wrong twice.** `.iappend`
+takes `FHF_INPLC` off the handle to hand the rest of a write to the
+accumulator, so every step back into the slack arm wants it put back — but what
+the accumulator is holding was *appended*, and flipping the flag over a dirty
+window sends those bytes out as a `WRITE_AT` past the file's allocated end,
+which is the one thing §18.4.7 refuses. So the window is flushed as the append
+it is, and only then does the flag move. Leaving the flag alone instead is the
+other half of the same fault, one call later: the CLOSE then flushes a **view**
+as an append and writes the file's own tail onto the end of it.
+
+**It cost 138 bytes of the package and NOTHING resident** — the kernel is
+byte-identical, `OSAPI_FILE_APPEND` already doing the allocation — plus four
+bytes of instance `.bss` for the gap counter. The flag itself is free: it took
+a pad byte that was already there.
 
 #### 96.11.2 Writes are sequential, and the refusal is the point
 

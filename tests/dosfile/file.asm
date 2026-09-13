@@ -33,6 +33,10 @@ NBLK      equ 40                    ; 20,480 bytes: two window crossings
 SEEKTO    equ 12345                 ; ...and a point inside none of them
 MARK      equ 0x5A                  ; step 4b's rewrite is offset+MARK, which
                                     ; the file cannot already hold anywhere
+SZ4D      equ BLK * NBLK + 16 + BLK * 2   ; what 4a..4d leave behind
+GAP       equ 5000                  ; ...and how far past it 4e seeks: bigger
+                                    ; than a cluster on every geometry here,
+                                    ; so the GAP itself crosses the hand-over
 
 start:
     mov ah, 0x09
@@ -372,6 +376,89 @@ start:
     mov dx, msg_cross
     int 0x21
 
+    ; --- 4e. ...and a seek PAST the end leaves a GAP (SPEC.md 96.11.6.1) ----
+    ; 4c and 4d both wrote AT the file's end. This one seeks GAP bytes BEYOND
+    ; it and writes there, which is how every fixed-record program puts record
+    ; 40 into a twelve-record file, and how a pre-allocation is spelled. The
+    ; size must reach POS + the count, and the bytes must read back from where
+    ; the SEEK put them rather than from the old end.
+    ;
+    ; GAP is bigger than any cluster this runs on, so the gap itself crosses
+    ; the slack/append hand-over 4d is about: its first bytes go in through
+    ; OSAPI_FILE_WRITE_AT and the rest through OSAPI_FILE_APPEND.
+    mov ax, 0x3D02
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, SZ4D + GAP
+    int 0x21
+    jc .sfail
+    mov bx, SZ4D + GAP + MARK
+    call fill
+    mov ah, 0x40
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .wfail
+    cmp ax, 16
+    jne .eshort                     ; a SHORT count is the gap being refused
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    jc .clfail
+
+    mov ax, 0x3D00
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    cmp ax, SZ4D + GAP + 16
+    jne .enogrow
+    or dx, dx
+    jnz .enogrow
+    mov ax, 0x4200                  ; the bytes, where the SEEK put them and
+    mov bx, [handle]                ; not where the file used to end
+    xor cx, cx
+    mov dx, SZ4D + GAP
+    int 0x21
+    jc .sfail
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .rfail
+    cmp ax, 16
+    jne .vfail2
+    mov cx, 16
+    mov bx, SZ4D + GAP + MARK
+    call check
+    jc .vfail
+
+    ; ...and the gap is REAL STORAGE, read at both of its ends: the slack arm
+    ; laid the first bytes and the append accumulator the last, so a hand-over
+    ; that lost a window shows up here rather than as a size that looks right.
+    ; The ZERO is ours and not DOS's, which leaves a gap undefined - what is
+    ; being asserted is that the read succeeds with a FULL count.
+    mov cx, SZ4D                    ; the first gap bytes...
+    call gapzero
+    mov cx, SZ4D + GAP - 16         ; ...and the last
+    call gapzero
+    mov ah, 0x09
+    mov dx, msg_gap
+    int 0x21
+
     ; --- 5. close, delete, and prove it is gone -----------------------------
     mov ah, 0x3E
     mov bx, [handle]
@@ -456,6 +543,36 @@ start:
     int 0x21
     mov ax, 0x4C21
     int 0x21
+
+; -----------------------------------------------------------------------------
+; gapzero - seek to CX, read 16, and every byte must be 0 (SPEC.md 96.11.6.1)
+; Jumps out to the caller's own failure arms, which is why it is not a proc
+; that returns a flag: there is nothing useful to do with a bad gap but say so.
+gapzero:
+    mov ax, 0x4200
+    mov bx, [handle]
+    mov dx, cx
+    xor cx, cx
+    int 0x21
+    jc start.sfail
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc start.rfail
+    cmp ax, 16
+    jne start.vfail2
+    mov cx, 16
+    mov si, buf
+    xor bx, bx
+.next:
+    cmp byte [si], 0
+    jne start.vfail
+    inc si
+    inc bx
+    loop .next
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fill - buf[0..BLK) = (BX + i) & 0FFh
@@ -561,6 +678,7 @@ msg_gone:    db 'GONE ok',13,10,'$'
 msg_inpl:    db 'INPLACE ok',13,10,'$'
 msg_grew:    db 'GREW ok',13,10,'$'
 msg_cross:   db 'CROSS ok',13,10,'$'
+msg_gap:     db 'GAP ok',13,10,'$'
 msg_left:    db ' blocks left ','$'
 msg_eshrt2:  db 'FAILED - a write at the end took a SHORT count ','$'
 msg_enogrow: db 'FAILED - a write at the end did not move the size',13,10,'$'

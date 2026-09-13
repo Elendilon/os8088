@@ -1485,6 +1485,25 @@ dispatch rather than against memory.
   §22.24 and §22.25 did NOT answer it, as this entry said — whole files say
   nothing about writing inside one.
 
+  **The row grew twice after it was called built**, each time from a question
+  about what DOS actually does rather than from a failing test — which is the
+  useful part of the record. *"Will our DOS connection switch over to append
+  as needed?"* found that a `3Dh` handle could not GROW its file at all, and
+  the two halves compose exactly: `WRITE_AT` reaches the end of what is
+  allocated, which is precisely where the size becomes a cluster multiple,
+  which is `APPEND`'s own precondition (96.11.6, +128 package bytes). Then
+  *"why would anything seek past the end?"* — three ordinary answers, and a
+  seek past the end now LAYS the gap instead of refusing it (96.11.6.1, +138
+  package bytes, four of instance `.bss`, and the kernel byte-identical). Both
+  are **package-side and free to every machine**, because the kernel slot the
+  first one bought turned out to be the only kernel work either needed.
+
+  **What is left of `40h` is the CX=0 case** — under DOS that sets the file's
+  length to the current position, and here it is a silent no-op. It is the one
+  remaining shape in this area that needs a kernel it has not got: lowering a
+  size and freeing the clusters past it is something neither `WRITE_AT` (which
+  grows only) nor `APPEND` can do.
+
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 
 **All four rows are built** and gated. Three of them cost no kernel byte —

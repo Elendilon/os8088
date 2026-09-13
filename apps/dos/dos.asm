@@ -11104,9 +11104,16 @@ dos_fh_wiloop:
     mov di, ax                      ; ...destination: inside the window
     mov ax, [dos_wseg]
     mov es, ax
+    cld
+    cmp byte [dos_wfil], 0          ; **THE GAP HAS NO SOURCE** (96.11.6.1):
+    je .icmov                       ; laying it is this copy with the move
+    xor al, al                      ; made a STORE, which is what makes a seek
+    rep stosb                       ; past the end reuse of everything here
+    jmp short .icput                ; rather than a path of its own
+.icmov:
     mov ds, [bp]                    ; dos_fh_wrloop's frame rule, and for its
-    cld                             ; reason: [bp] is the program's own DS
-    rep movsb
+    rep movsb                       ; reason: [bp] is the program's own DS
+.icput:
     pop ds
     cmp di, [dos_wlen]              ; DI is the window offset PAST the copy, so
     jbe .inowid                     ; this is max(extent, offset + copied) -
@@ -11150,12 +11157,14 @@ dos_fh_wiloop:
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .idone                      ; a COMPRESSED file is the window (96.11.1)
                                     ; and cannot be grown a byte at a time
-    mov ax, [si+FH_SIZE+2]          ; only at the very END of the file, never
-    cmp ax, [si+FH_POS+2]           ; in a hole: a seek past the end and a
-    jne .idone                      ; write is not an extension, it is a gap
-    mov ax, [si+FH_SIZE]            ; this layer cannot make
-    cmp ax, [si+FH_POS]
-    jne .idone
+    mov ax, [si+FH_POS+2]           ; PAST the end is a seek's gap and is laid
+    cmp ax, [si+FH_SIZE+2]          ; rather than refused (96.11.6.1); BEFORE
+    ja .ihole                       ; it cannot happen at all, the fill above
+    jb .idone                       ; having found no bytes of the file there.
+    mov ax, [si+FH_POS]             ; Equal falls through with AX = the size,
+    cmp ax, [si+FH_SIZE]            ; which is what the arithmetic below wants
+    ja .ihole
+    jb .idone
 
     ; **AND THE ARITHMETIC IS 16-BIT, WHICH IS NOT A SHORTCUT.** [dos_wbase] is
     ; the position rounded DOWN to a cluster and the position is the file's
@@ -11195,6 +11204,70 @@ dos_fh_wiloop:
     add ax, dx                      ; ...plus what this loop had already placed
     clc
     jmp short .iout
+
+; --- ...or a seek left a GAP behind it (SPEC.md 96.11.6.1) ------------------
+; Laying [SIZE, POS) is the same operation as writing the program's bytes
+; there and differs in the SOURCE alone - so this rewinds the position to the
+; end of the file and calls ITSELF with the fill flag armed. The slack arm,
+; the append accumulator, the window, the flush and the short-count answer are
+; all the ones above, and the recursion is one deep by construction: the inner
+; call runs with POS == SIZE, which is the case that never reaches here.
+.ihole:
+    mov ax, [si+FH_POS]
+    sub ax, [si+FH_SIZE]
+    mov [dos_gapn], ax
+    mov ax, [si+FH_POS+2]
+    sbb ax, [si+FH_SIZE+2]
+    mov [dos_gapn+2], ax
+    mov ax, [si+FH_SIZE]            ; ...and each chunk carries the position
+    mov [si+FH_POS], ax             ; back up, so when the gap is spent it is
+    mov ax, [si+FH_SIZE+2]          ; exactly where the seek left it and no
+    mov [si+FH_POS+2], ax           ; target has to be banked
+.ihstep:
+    call dos_fh_flush               ; **THE WINDOW IS A VIEW AGAIN**, and the
+    jc .ierr                        ; ORDER is the whole of it: .iappend takes
+    or byte [si+FH_FLAGS], FHF_INPLC ; the flag off to hand the rest of a write
+                                    ; to the accumulator, so every step back
+                                    ; into the slack arm - the next chunk of
+                                    ; the gap, and the program's own bytes
+                                    ; after it - wants it back. But what the
+                                    ; accumulator holds was APPENDED, and
+                                    ; flipping the flag over a dirty window
+                                    ; sends those bytes out as a WRITE_AT past
+                                    ; the file's allocated end, which is the
+                                    ; one thing 18.4.7 refuses. So it goes out
+                                    ; first, as the append it is, and the flag
+                                    ; moves over an EMPTY window
+    mov cx, 0x8000                  ; a chunk is a COUNT, so it is 16-bit; the
+    cmp word [dos_gapn+2], 0        ; gap a 42h can name is not
+    jne .ihgo
+    mov cx, [dos_gapn]
+    jcxz .ihend
+    cmp cx, 0x8000
+    jbe .ihgo
+    mov cx, 0x8000
+.ihgo:
+    push bx                         ; the program's own write, untouched...
+    push dx
+    push di
+    mov byte [dos_wfil], 1          ; ...while the two copy sites STORE
+    call dos_fh_wiloop
+    mov byte [dos_wfil], 0
+    pop di
+    pop dx
+    pop bx
+    jc .ierr
+    sub [dos_gapn], ax
+    sbb word [dos_gapn+2], 0
+    or ax, ax
+    jnz .ihstep
+    jmp .idone                ; the disk would not take the gap, so
+                                    ; nothing of the program's bytes can go in
+                                    ; either: 0 with CF=0 is what a full disk
+                                    ; has always answered
+.ihend:
+    jmp .ichunk                     ; spent - and the position is the seek's,
+                                    ; so the write is now an ordinary one
 .ierr:
     stc
 .iout:
@@ -11241,9 +11314,16 @@ dos_fh_wrloop:
     mov di, [dos_wlen]              ; destination: the window's free end, read
     mov ax, [dos_wseg]              ; while DS is still OURS
     mov es, ax
-    mov ds, [bp]
     cld
+    cmp byte [dos_wfil], 0          ; ...and the gap reaches the accumulator
+    je .wcmov                       ; too, whenever it is longer than the last
+    xor al, al                      ; cluster's slack (96.11.6.1)
+    rep stosb
+    jmp short .wcput
+.wcmov:
+    mov ds, [bp]
     rep movsb
+.wcput:
     pop ds
     mov di, si                      ; the source pointer, advanced by the copy
     pop si
@@ -12161,7 +12241,11 @@ dos_fh_fill:
     DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
     DBSS DOS_B_OPMODE, 1       ; AH=3Dh's access mode, banked (96.11.6)
     DBSS DOS_B_WVSV,  1        ; because it runs INSIDE a fill, through
-    DBSS DOS_B_WVPAD, 1        ; dos_fh_take, and must not spend the fill's
+    DBSS DOS_B_WFIL,  1        ; dos_fh_take, and must not spend the fill's
+                               ; own. WFIL was that byte's PAD: the gap's
+                               ; "the source is a fill byte, not the
+                               ; program's buffer" flag is free (96.11.6.1)
+    DBSS DOS_B_GAPN,  4        ; ...and what is left of the gap to lay
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
 ; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
 ; DOS keeps a current directory per drive, and here that is one CLUSTER each
@@ -12586,6 +12670,8 @@ dos_fvvol   equ os88_image_end + DOS_B_FVVOL   ; byte: the fill's volume...
 dos_fvsv    equ os88_image_end + DOS_B_FVSV    ; byte: ...and where it came from
 dos_opmode  equ os88_image_end + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
 dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
+dos_wfil    equ os88_image_end + DOS_B_WFIL    ; byte: fill the window, not copy
+dos_gapn    equ os88_image_end + DOS_B_GAPN    ; dword: the gap still to lay
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
 dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to
