@@ -375,6 +375,12 @@ mc_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [mc_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     mov ax, mc_onresize             ; mc_mono / mc_ecoarse / mc_caps are facts
     call OSAPI_WM_ONRESIZE          ; about the CARD, and it can change under
                                     ; us (SPEC.md 11.98)

@@ -1083,6 +1083,12 @@ tm_entry:
     call OSAPI_ABOUT_SET        ; (SPEC.md 12.2) - BX is still the window and
     pop si                      ; the slot preserves the flags
     call tm_kinit               ; preserves the flags, so the CF our ret owes
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
 .out:                           ; the loader is wm_create's
     pop si                      ; POP leaves the flags alone
     ret

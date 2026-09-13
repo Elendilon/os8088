@@ -2581,11 +2581,21 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
 ;
 ;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_REGION_MOVABLE my_reloc        ; ...or with a fix-up of your own
 ;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
 ;
-; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
-; and jumps over it, so there is no second thing to place and no way to declare
-; without one.
+; Both are self-contained: with no argument OS88_REGION_MOVABLE carries its own
+; relocation proc and jumps over it, so there is no second thing to place and
+; no way to declare without one.
+;
+; THE ARGUMENT IS FOR THE PACKAGE THAT HAS A WORD OF ITS OWN TO FIX, and it
+; exists so that such a package declares in the SAME VOCABULARY as every other
+; one rather than hand-rolling the call. Name a near proc of yours; it is
+; entered with BX = the base the region WAS at and DX = where it is now, and it
+; must preserve every register and `ret`. Two things make a package need one -
+; it stamped its own segment somewhere the kernel does not know about, or it
+; handed a far pointer into itself to something that outlives the callback -
+; and both are rare enough that the bare form is the one to reach for.
 ;
 ; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
 ; offset in it survives a move untouched - and every word that NAMES your
@@ -2604,18 +2614,33 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; must NOT pair the two blanket-fashion: declare this as a window instead -
 ; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
 ; -----------------------------------------------------------------------------
-%macro OS88_REGION_MOVABLE 0
+%macro OS88_REGION_MOVABLE 0-1
+    pushf                       ; AND THE FLAGS: an entry proc carries the CF
+                                ; it owes the loader, and OSAPI_MEM_MOVABLE
+                                ; writes one. Nothing acts on that answer - a
+                                ; refusal can only mean the region is not ours,
+                                ; which cannot happen from inside it - so the
+                                ; two bytes buy the right to put this line
+                                ; anywhere the window already exists, which is
+                                ; what makes it a one-line adoption
     push ax
     push dx                     ; DX is the instance index in an entry proc
     mov dx, cs                  ; ...and OUR REGION is the claim
-    mov ax, %%reloc
+  %if %0 == 0
+    mov ax, %%reloc             ; no proc named: ours, just below
+  %else
+    mov ax, %1                  ; the caller's own fix-up (see the header)
+  %endif
     call OSAPI_MEM_MOVABLE
     pop dx
     pop ax
+    popf
+  %if %0 == 0
     jmp short %%over
 %%reloc:                        ; BX = the base it WAS at, DX = where it is now
     ret
 %%over:
+  %endif
 %endmacro
 
 %macro OS88_WORKER_RESTARTABLE 1

@@ -320,6 +320,12 @@ wr_entry:
     jc .out
     mov [wr_win], bx
     mov word [wr_sel], 0xFFFF
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     mov si, wr_sizes
     call OSAPI_WM_PREFER                ; ...registers AND applies, and
                                         ; preserves the flags (SPEC.md 11.100.1)

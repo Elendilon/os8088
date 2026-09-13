@@ -179,6 +179,12 @@ rc_entry:
     mov si, rc_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
     jc .out
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     push ax                         ; SPEC.md 13.7: the buttons fire on the
     mov ax, rc_onup                 ; RELEASE, over the button the press
     call OSAPI_WM_ONMOUSEUP         ; landed on - so a mis-aimed press can be
