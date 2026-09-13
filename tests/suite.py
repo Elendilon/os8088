@@ -2833,7 +2833,7 @@ SOAK = [
         " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
-    Row("skiessound", "soak", py("tests/skiessound.py"), 110.0,
+    Row("skiessound", "soak", py("tests/skiessound.py"), 120.0,
         "SPEC.md 88.8.2: an ENGINE each. Every aeroplane used to be"
         " [cs_thr] + 50, so a Fouga Magister and an Icon A5 were the same"
         " note at the same lever; each reads its own record now, and this"
@@ -2859,7 +2859,10 @@ SOAK = [
         " thrust it HAS - 426 Hz at a half-open lever against the 440 the"
         " lever asks for, the two separable because cs_step rounds its target"
         " to whole units. --clobber-lag, --clobber-shared and --clobber-spool"
-        " are the three red runs",
+        " are the three red runs. Its breakpoint is cs_sound_step's OWN"
+        " .tick and not cs_step: 88.8.2.1.2 put a wall-clock gate in front of"
+        " the body, so cs_step runs up to CS_MAXSTEP times a frame and only"
+        " the first of them crosses a tick",
         needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the approach - held toward"

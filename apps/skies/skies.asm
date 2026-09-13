@@ -2909,6 +2909,9 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZBYTE cs_msg
     ZBYTE cs_sound
     ZWORD cs_tone                   ; the engine tone being played, or 0
+    ZWORD cs_sndtk                  ; the tick cs_sound_step last serviced: the
+                                    ; note moves once per WALL-CLOCK tick and
+                                    ; not once per call (SPEC.md 88.8.2.1.2)
     ZWORD cs_eng                    ; ...and the ENGINE's own note, which the
                                     ; stall beep and the crash blast stand in
                                     ; front of without disturbing (88.8.2.1).

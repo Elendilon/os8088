@@ -1828,6 +1828,43 @@ cs_crash:
 ;                 (SPEC.md 88.8). Once a tick.
 ; -----------------------------------------------------------------------------
 cs_sound_step:
+    ; --- ONCE PER WALL-CLOCK TICK, WHEREVER THE PROGRAM HAPPENS TO BE --------
+    ;     (SPEC.md 88.8.2.1.2). This used to run once per SIM tick, which is
+    ;     not the same thing: cs_steps owes a frame up to CS_MAXSTEP of them
+    ;     and the .sim loop runs them BACK TO BACK at the top, so the note
+    ;     moved three times in a burst and then stood still for the 130-280 ms
+    ;     the frame takes to draw. What the ear got was one change a FRAME -
+    ;     4 to 8 a second on a 4.77 MHz machine - and the steps had to be that
+    ;     much bigger to cover the ground.
+    ;
+    ;     So the tick is the gate and the call is free when it has not moved:
+    ;     the burst collapses to one step, which is RIGHT (a burst is catching
+    ;     up on SIMULATION, not on time), and cs_scene calls this per object
+    ;     so the ticks that elapse during the draw are serviced where they
+    ;     fall. The stall's cadence gets the same correction for nothing -
+    ;     [cs_stallt] counted CALLS and now counts ticks.
+    ;     AND IT HAS TO TEST THE PAUSE ITSELF NOW (SPEC.md 88.8.1). That
+    ;     section put the release on the KEY precisely so the frame would not
+    ;     have to carry a compare - which was sound while the only caller was
+    ;     the sim loop, and a pause is exactly the thing that skips it. The
+    ;     RENDER reaches here now and a render runs while paused, so P
+    ;     released the tone and the very next object put it back.
+    cmp byte [cs_pause], 0
+    jne .out                        ; ...and before the far call, so a paused
+                                    ; frame costs a compare an object
+    call OSAPI_GET_TICKS
+    cmp ax, [cs_sndtk]
+    je .out
+    mov [cs_sndtk], ax
+.tick:                              ; A SERVICED TICK, and the label is for
+                                    ; tests/skiessound.py - it emits nothing.
+                                    ; A breakpoint on cs_step stopped being
+                                    ; one-per-tick the moment the gate above
+                                    ; went in, so a row that wants to watch
+                                    ; the note needs the tick and not the
+                                    ; call. LOCAL on purpose: a global here
+                                    ; would re-open nasm's local scope and
+                                    ; every `.x` below would belong to it
     xor ax, ax                      ; AX = the tone wanted
     cmp byte [cs_sound], 0
     je .want

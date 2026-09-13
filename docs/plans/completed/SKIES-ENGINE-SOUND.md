@@ -9,7 +9,7 @@
 > bytes *smaller*. `tests/skiessound.py` is the gate — three red runs — and all
 > 34 `skies*` soak rows are green.
 >
-> **It shipped four times**, and §5 to §7 are the field passes — the last of
+> **It shipped five times**, and §5 to §8 are the field passes — the last of
 > which was not in this package at all: the first build was
 > arithmetic and a person listened to it on a real speaker. Two of the four
 > tops came down, a feature was **deleted**, and the one complaint nobody had
@@ -125,7 +125,7 @@ seven-byte record, and 0 means *no engine*. One shaper reads it:
 | Icon A5 | 95 → **170** | lever | *was 95 → 190* |
 | Wassmer Bijave | *no record* | — | — |
 
-**180 bytes of image** of a 9,872-byte gap: **1.8%**. `SKIES.O88` is 44,226
+**206 bytes of image** of a 9,872-byte gap: **2.1%**. `SKIES.O88` is 44,226
 bytes, **three fewer** than before, and no floppy in any of the four geometries
 moves a cluster. One word of bss. Under 1% of a flown frame.
 
@@ -420,3 +420,82 @@ neither the change's**:
   tree in 0.0 s. It died in the soak's frozen tree on a missing generated
   `paccman.gen.asm`, which is `docs/plans/HANDOFF-SOAK-FINDINGS.md`'s standing
   "rows that FAIL where they mean SKIP", one artefact along.
+
+
+---
+
+## 8. The fifth pass: the note moved once a FRAME, not once a tick
+
+> *"90% of the stepping is gone — and this fixed the bug in dot del sound that
+> we couldn't find in that session. The last 'stepping' left is, I think,
+> because the sound only changes as the frame draws, and a 4.77 MHz running a
+> 3d game is slow. Is there an easy option to pace the sound changes more often
+> than the frame rate? If not, this is good enough."*
+
+The diagnosis was right and the arithmetic is stark. `cs_sound_step` ran once
+per **simulation** tick, and `cs_steps` owes a frame up to `CS_MAXSTEP` = 3 of
+them which the `.sim` loop runs **back to back at the top**. So the note moved
+three times in a millisecond and then stood still for the 130–280 ms the frame
+took to draw: what the ear got was **one change a frame — 4 to 8 a second**,
+and every step had to be that much bigger to cover the ground.
+
+### 8.1 The tick is the gate, and then the render can call it
+
+`cs_sound_step` reads `OSAPI_GET_TICKS` and returns unless the tick has moved
+since `[cs_sndtk]`. Two things follow, and the second is the point:
+
+- **the `.sim` burst collapses to one step**, which is *right* — a burst is
+  catching up on simulation, not on time, and three steps in a millisecond were
+  never three steps of glide;
+- **the call is now free when nothing has elapsed**, so `cs_scene` can call it
+  **once per drawn object**. That routine is 78% of a frame, which is where the
+  ticks actually elapse, and servicing them where they fall takes 4–8 changes a
+  second to **18.2**.
+
+The stall's cadence gets the same correction for nothing — `[cs_stallt]`
+counted calls and now counts ticks, so the beep no longer runs faster on a
+machine with a faster frame.
+
+Cost: one `OSAPI_GET_TICKS` per drawn object. **46.7 µs** (PERFORMANCE.md Part
+2) against a city frame measured at **180.99 ms** here, so §88.12.1's dozen
+in-range objects are ~0.6 ms — **about 0.3%**, nearer 1% in a crowded view.
+
+### 8.2 The interrupt was the obvious answer and is REFUSED
+
+Hooking `int 08h` for the bracket would give a perfectly even 18.2 Hz instead
+of one quantised to wherever a call site falls, and it is **proven in this very
+package** — `CSDIAG=1` (§88.14) does exactly that, chaining to the kernel's.
+Two things were measured before refusing it, and both are worth keeping:
+
+- **the stack was never the obstacle.** The whole render chain runs on the UI
+  task's 512-byte `STK0`, and a probe that flew the jet over Paris and broke at
+  each of the deep render routines found the deepest (`cs_seg`) entering at
+  **114 bytes** — 398 free, where the ISR frame plus a kernel call is ~50.
+- **the CONTRACT is.** `OSAPI_SND_TONE` is documented worker-safe *by
+  construction*, because `snd_req_inst` resolves the **running task's**
+  instance — and an ISR is not a task. It would work here, the bracket being
+  exclusive so the interrupted task is always ours; and *"works because of who
+  happens to be running"* is the shape of reasoning §20.3 exists to refuse.
+  Taking it would have meant extending a published ABI for one package's last
+  10%.
+
+### 8.3 And it broke the pause, which the suite caught in one run
+
+§88.8.1 put the tone release on the **P key** deliberately, *so that the frame
+would not have to carry a compare*. That was sound while the only caller was
+the sim loop — a pause is exactly the thing that skips it. The render reaches
+`cs_sound_step` now, **and a render runs while paused**, so `P` released the
+tone and the very next object put it straight back.
+
+`tests/skies.py` went red on all three adapters in the first scoped soak after
+the change: *"PAUSED and the engine tone is still 105 (SPEC.md 88.8.1)"*. The
+fix is one compare, placed **before** the far call so a paused frame costs a
+`cmp` an object and nothing else.
+
+**The lesson is about the shape of the reasoning, not the bug.** §88.8.1's
+argument was explicitly *"testing `[cs_pause]` once a frame would cost a compare
+on every frame of every flight to catch a transition that happens when a key is
+pressed"* — a correct optimisation whose premise was **who the callers were**.
+Adding a caller invalidated it silently, and nothing in the code said so. That
+is what a row asserting the *behaviour* is for, and why it is worth more than a
+row asserting the mechanism.

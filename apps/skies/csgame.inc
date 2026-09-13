@@ -69,6 +69,7 @@ cs_fsx_main:
     mov byte [cs_quit], 0
     mov byte [cs_pause], 0
     mov word [cs_tone], 0
+    mov word [cs_sndtk], 0          ; ...the tick the sound last serviced,
     mov word [cs_eng], 0            ; ...and the engine's own note with it, or
                                     ; the first tick of a Cessna would GLIDE
                                     ; DOWN from the Magister the last flight

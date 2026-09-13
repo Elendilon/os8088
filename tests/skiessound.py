@@ -251,7 +251,7 @@ def main(argv):
                 pin()
                 m.run()
                 if m.wait_stop(30) is None:
-                    sys.exit("skiessound: cs_step never ran")
+                    sys.exit("skiessound: cs_sound_step.tick never ran")
 
         def hold(plane, thr, spool=True):
             """A pin that keeps the aeroplane flying at throttle `thr`.
@@ -277,10 +277,10 @@ def main(argv):
             return pin
 
         def bp_on():
-            m.bp_exec(lin + mp["cs_step"])
+            m.bp_exec(lin + mp["cs_sound_step.tick"])
             m.run()
             if m.wait_stop(30) is None:
-                sys.exit("skiessound: cs_step never ran")
+                sys.exit("skiessound: cs_sound_step.tick never ran")
 
         def bp_off():
             m.bp_exec()
@@ -307,7 +307,7 @@ def main(argv):
                     return n
                 m.run()
                 if m.wait_stop(30) is None:
-                    sys.exit("skiessound: cs_step never ran")
+                    sys.exit("skiessound: cs_sound_step.tick never ran")
                 n += 1
             return n
 
@@ -320,7 +320,7 @@ def main(argv):
                 pin()
                 m.run()
                 if m.wait_stop(30) is None:
-                    sys.exit("skiessound: cs_step never ran")
+                    sys.exit("skiessound: cs_sound_step.tick never ran")
             return out
 
         def law(snd, plane, thr, thracc):
@@ -458,7 +458,7 @@ def main(argv):
                     break
                 m.run()
                 if m.wait_stop(30) is None:
-                    sys.exit("skiessound: cs_step never ran")
+                    sys.exit("skiessound: cs_sound_step.tick never ran")
             bp_off()
             mid = [v for v in seq if lo < v < hi]
             check(len(set(mid)) >= 4 and seq[1] > lo,
@@ -485,15 +485,15 @@ def main(argv):
             plane = pick(row)
             nm = name(plane)
             snd = rec(plane, E["CSP_SND"])
-            m.bp_exec(lin + mp["cs_step"])
+            m.bp_exec(lin + mp["cs_sound_step.tick"])
             enter(row)
             if m.wait_stop(30) is None:
-                sys.exit("skiessound: cs_step never ran on entry")
+                sys.exit("skiessound: cs_sound_step.tick never ran on entry")
             seq = []
             for _ in range(6):
                 m.run()
                 if m.wait_stop(30) is None:
-                    sys.exit("skiessound: cs_step never ran")
+                    sys.exit("skiessound: cs_sound_step.tick never ran")
                 seq.append((w("cs_eng"), w("cs_thr"), w("cs_thracc")))
             bp_off()
             want = [law(snd, plane, t, ta) for _, t, ta in seq]

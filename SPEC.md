@@ -110526,6 +110526,65 @@ and its note moves 1–2 at 23, which is the *"slightly steppy"* answered — an
 the one source with real resolution to give is the jet's, `[cs_thracc]` being
 8.8 where the lever is fifty steps.
 
+##### 88.8.2.1.2 The note moves on the WALL CLOCK, not on the frame
+
+`cs_sound_step` ran once per **simulation** tick, which is not the same thing
+as once per tick. `cs_steps` owes a frame up to `CS_MAXSTEP` = 3 of them and
+the `.sim` loop runs them **back to back** at the top, so the note moved three
+times in a burst and then stood still for the 130–280 ms the frame took to
+draw. What the ear got was **one change a frame** — 4 to 8 a second on a
+4.77 MHz machine — and the steps had to be that much bigger to cover the
+ground. It was reported as the last of the stepping, and correctly diagnosed
+from the outside: *"the sound only changes as the frame draws, and a 4.77 MHz
+running a 3d game is slow."*
+
+**The tick is the gate and the call is free when it has not moved.**
+`cs_sound_step` reads `OSAPI_GET_TICKS` and returns at once unless the tick has
+changed since `[cs_sndtk]`. Two things follow. The `.sim` burst collapses to one
+step, which is *right* — a burst is catching up on **simulation**, not on time,
+and three steps in a millisecond were never three steps of glide. And the call
+becomes cheap enough to make from inside the draw, so **`cs_scene` calls it once
+per object**: that routine is 78% of a frame (§88.12.1), which is where the
+ticks actually elapse, and servicing them where they fall is what turns 4–8
+changes a second into **18.2**.
+
+The stall's cadence gets the same correction for nothing: `[cs_stallt]` counted
+CALLS and now counts ticks, so its beep no longer runs faster on a machine with
+a faster frame.
+
+**And `cs_sound_step` has to test the pause itself now**, which §88.8.1
+deliberately avoided: it put the release on the KEY *so that the frame would
+not have to carry a compare*, and that was sound while the only caller was the
+sim loop — a pause being exactly the thing that skips it. The render reaches
+here now and **a render runs while paused**, so `P` released the tone and the
+very next object put it straight back. `tests/skies.py` caught it on all three
+adapters within one soak, which is that row doing the job it is there for. The
+compare sits **before** the far call, so a paused frame costs one `cmp` an
+object and nothing else.
+
+**What it costs is one far call per drawn object**, and the figure is
+arithmetic over two things that are measured rather than a measurement of its
+own: `OSAPI_GET_TICKS` is 46.7 µs (PERFORMANCE.md Part 2) and the city frame
+this was taken on is **180.99 ms** (`tests/skiesperf.py`, 12 exact frames), so
+§88.12.1's dozen in-range objects are **~0.6 ms, about 0.3%**, and a crowded
+forty-object view is nearer 1%. `CX` and `SI` are the cull loop's own and are
+saved either side of the call site, so nothing else in `cs_scene` had to
+change.
+
+**The alternative was an interrupt and it is REFUSED.** Hooking `int 08h` for
+the bracket is proven in this very package — `CSDIAG=1` does exactly that
+(§88.14) — and it would give a perfectly even 18.2 Hz instead of one quantised
+to wherever a call site falls. It is refused on the contract and not on the
+mechanism: `OSAPI_SND_TONE` is documented worker-safe *by construction* because
+`snd_req_inst` resolves the **running task's** instance, and an ISR is not a
+task. Calling it from one would work here — the bracket is exclusive, so the
+interrupted task is always ours — and "works because of who happens to be
+running" is the kind of reasoning §20.3 exists to refuse. The measurement that
+made it thinkable is kept because it cost something to take: the whole render
+chain runs on the UI task's **512-byte** `STK0`, and the deepest routine in it
+(`cs_seg`) enters at **114 bytes** — so 398 were free and the stack was never
+what stood in the way.
+
 ##### 88.8.2.1.1 A flight starts AT its idle, and does not ramp to it
 
 `[cs_eng]` begins at 0, so the first build glided **up to idle** on entering the
