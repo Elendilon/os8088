@@ -63,25 +63,30 @@ region apps/skies/csload.asm     # NOTHING TO DECLARE: it is the launch image
 # OSAPI_GFX_LOCK and never while holding it, and all four take the lock as
 # their first action with nothing set before it.
 
-worker apps/frotz/frotz.asm      # TWO PARK POINTS AND ONE IS INSIDE THE
-                                 # Z-MACHINE (zexec.inc:122, beside zio.inc's).
-                                 # A restart there re-enters zx_worker and
-                                 # restarts the STORY - the interpreter's
-                                 # position is its own call chain, not a static.
-                                 # RETIRED BY making the execute loop's park a
-                                 # window the way the four above want theirs,
-                                 # which for Frotz means proving the opcode
-                                 # boundary is a safe re-entry.
+worker apps/frotz/frotz.asm      # A PARK POINT INSIDE THE INTERPRETER'S OWN
+                                 # CALL CHAIN. NOT, as this line first said,
+                                 # because a restart would restart the story:
+                                 # zx_boot is edge-guarded by [zx_seen], so a
+                                 # restart re-entering zx_worker goes straight
+                                 # to .running and resumes. The real blocker is
+                                 # zi_yield (zio.inc), which is called from
+                                 # EVERY wait loop in the module and holds
+                                 # ES = THE PROGRAM COUNTER'S SEGMENT across
+                                 # the yield - it already banks [zf_sdelta] and
+                                 # re-bases ES afterwards precisely because the
+                                 # story can move under it (SPEC.md 66.5.9).
+                                 # The Z-machine's PC is in the story block and
+                                 # survives; the HOST-side position - mid
+                                 # opcode, mid read, mid print, however many
+                                 # frames deep in zx_run - is on the worker's
+                                 # stack and does not. RETIRED BY answering one
+                                 # question nobody has: whether an opcode in
+                                 # flight at zi_yield has committed, so that
+                                 # re-entering at a burst boundary re-executes
+                                 # it rather than skipping it. Until then
+                                 # undeclared is the SDK's own safe answer -
+                                 # this is the one package in the tree where
+                                 # that sentence is load-bearing.
 
 worker apps/scribe/scribe.asm    # its region cannot move at all yet - see the
                                  # `region` line above. Retired with it.
-
-worker apps/weave/weave.asm      # ITS WORKER BODY IS NOT IN THE PACKAGE. os88_
-                                 # worker is a three-instruction trampoline and
-                                 # wcv_run far-calls WEAVE.WSM (WEAVE-SPEC
-                                 # 1.2.2), so whether a restart is safe is a
-                                 # question about the canvas VM's run loop and
-                                 # not about this declaration. RETIRED BY
-                                 # WEAVE-SPEC saying where the VM may be
-                                 # re-entered, which is a design decision the
-                                 # spec has not taken.
