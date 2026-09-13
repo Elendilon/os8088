@@ -404,16 +404,21 @@ dos_con_prog:
     call dos_path_take              ; **A PARSE AND A WALK, NOT AN EXISTENCE
     jc .no                          ; CHECK** - it resolves the folder and takes
     call dos_path_make              ; ...and THEN the box is rewritten FULLY
-    push si                         ; QUALIFIED (SPEC.md 96.33.10). It held the
-    mov si, dos_pln                 ; name as typed - `prince.EXE` off B: - and
-    call os88line_resync            ; the box outlives the command: it is what
-    pop si                          ; Run re-launches and what Save Shortcut
+                                    ; QUALIFIED (SPEC.md 96.33.10). It held the
+                                    ; name as typed - `prince.EXE` off B: - and
+                                    ; the box outlives the command: it is what
+                                    ; Run re-launches and what Save Shortcut
                                     ; writes, so a relative name is only true
                                     ; while the box is still standing where it
                                     ; was typed. dos_path_make is the entry
                                     ; proc's own proc, which is what makes the
                                     ; two doors agree by construction rather
-                                    ; than by both being written correctly
+                                    ; than by both being written correctly -
+                                    ; and THE RESYNC IS INSIDE IT NOW (96.33.10.1),
+                                    ; because that sentence was true of the
+                                    ; compose and false of the re-measure,
+                                    ; which is exactly where the association
+                                    ; door was drawing an empty box
     mov byte [dos_state], DST_READY ; the 8.3 name, and whether there is a file
     mov byte [dos_fromcon], 1       ; of that name is dos_run's answer. So the
                                     ; refusal a typo earns is DER_READ, and
