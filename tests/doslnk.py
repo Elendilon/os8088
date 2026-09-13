@@ -66,6 +66,12 @@ LIMIT = 96                          # KB, comfortably over DOS_MIN_KB's 64 and
                                     # far under anything a machine here has, so
                                     # "the cap was applied" cannot be confused
                                     # with "the machine was small"
+# os88ui.inc's radio record and the box's arms (SPEC.md 96.36).  The PITCH
+# offset is the SDK's, not the box's, and the arm is what the .LNK carries -
+# where the check box this replaced carried a ticked/unticked 1/0 the OTHER
+# WAY UP, DOS_MEM_KEEP being 0.
+RD_PITCH = 14
+DOS_MEM_KEEP, DOS_MEM_DUMP = 0, 1
 CLSID = bytes([0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
 TITLE_H = os88geom.TITLE_H
@@ -99,7 +105,7 @@ def dos_state(m, ui):
     LOADED that decides where it starts - and that one is on the system disk
     (SPEC.md 24.3), which is also the disk a knob build would change.
     """
-    sym = dbg.dos_syms(["DOS_B_MEMKB", "DOS_B_MCHK", "DOS_MCHKON",
+    sym = dbg.dos_syms(["DOS_B_MEMKB", "DOS_B_MRAD", "DOS_MRADSEL",
                         "DOS_B_AKB"], defines=())
     base = None
     for w in os88geom.windows(m, ui.sym):
@@ -114,7 +120,7 @@ def dos_state(m, ui):
     def w16(o):
         return struct.unpack("<H", bytes(m.read(base + o, 2)))[0]
     return (w16(sym["DOS_B_MEMKB"]),
-            bytes(m.read(base + sym["DOS_B_MCHK"] + sym["DOS_MCHKON"], 1))[0],
+            bytes(m.read(base + sym["DOS_B_MRAD"] + sym["DOS_MRADSEL"], 1))[0],
             w16(sym["DOS_B_AKB"]))
 
 
@@ -219,7 +225,15 @@ def main():
         for ch in ENVVAR:
             m.type_text(ch)
         os88marty.settle(m)
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_mchk"))   # untick the cache
+        # The cache choice is a RADIO of three now (SPEC.md 96.36), so this
+        # PICKS AN ARM rather than toggling a box - and the row is resolved
+        # out of the guest's own rect and pitch, like every other control
+        # here.  Arm DOS_MEM_DUMP is "take the disk cache too", which is what
+        # this row used to say by unticking.
+        x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
+        pitch = int.from_bytes(
+            m.read((pseg << 4) + dm["dos_mrad"] + RD_PITCH, 2), "little")
+        mo.click((x1 + x2) // 2, y1 + DOS_MEM_DUMP * pitch + pitch // 2)
         os88marty.settle(m)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_mln"))
         os88marty.settle(m)
@@ -235,8 +249,8 @@ def main():
             fail("Save Shortcut opened no file dialog")
         m.key("Enter")                      # ...accept the default name
         os88marty.settle(m)
-        print("doslnk: saved, with %r, %r, a %dK limit and the cache OFF"
-              % (TYPED, ENVVAR, LIMIT))
+        print("doslnk: saved, with %r, %r, a %dK limit and arm %d - take the "
+              "cache too" % (TYPED, ENVVAR, LIMIT, DOS_MEM_DUMP))
 
         # THE GUEST WRITES TO ITS OWN CLONE of the image, which is what makes
         # --marty-jobs safe - so the host's copy of the gate disk never
@@ -264,9 +278,11 @@ def main():
     if got["memkb"] != LIMIT:
         fail("the memory block says a %dK limit and %dK was typed"
              % (got["memkb"], LIMIT))
-    if got["keep"] != 0:
-        fail("the memory block says keep-the-cache %d and the box was "
-             "UNTICKED" % got["keep"])
+    if got["keep"] != DOS_MEM_DUMP:
+        fail("the memory block carries arm %d and arm %d was picked "
+             "(SPEC.md 96.36 - DOS_MEM_KEEP is 0 now, where the check box's "
+             "ticked ON byte was 1, so the polarity is the other way up)"
+             % (got["keep"], DOS_MEM_DUMP))
 
     # --- 3: os8088 reads its own back ---------------------------------------
     with os88ui.boot(SYS, apps=FLUSHED_AT,
@@ -307,10 +323,10 @@ def main():
         memkb, keep, akb = dos_state(m, ui)
         print("doslnk: the relaunched box has memkb=%d keep=%d, arena %dK"
               % (memkb, keep, akb))
-        if memkb != LIMIT or keep != 0:
-            fail("the shortcut ran with memkb=%d keep=%d and the link carries "
-                 "%d/0 - the second ExtraData block was written and not read"
-                 % (memkb, keep, LIMIT))
+        if memkb != LIMIT or keep != DOS_MEM_DUMP:
+            fail("the shortcut ran with memkb=%d arm=%d and the link carries "
+                 "%d/%d - the second ExtraData block was written and not read"
+                 % (memkb, keep, LIMIT, DOS_MEM_DUMP))
         if akb > LIMIT:
             fail("the box claimed %dK against a %dK limit - the setting "
                  "reached [dos_memkb] and dos_run ignored it (SPEC.md 96.25.1)"
