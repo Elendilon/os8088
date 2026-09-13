@@ -69,6 +69,10 @@ cs_fsx_main:
     mov byte [cs_quit], 0
     mov byte [cs_pause], 0
     mov word [cs_tone], 0
+    mov word [cs_eng], 0            ; ...and the engine's own note with it, or
+                                    ; the first tick of a Cessna would GLIDE
+                                    ; DOWN from the Magister the last flight
+                                    ; left in it (SPEC.md 88.8.2.1)
     mov ax, [cs_vw]                 ; the panel's horizontal scale, in eighths
     mov bx, 8
     mul bx

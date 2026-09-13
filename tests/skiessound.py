@@ -17,16 +17,23 @@ playing rather than what the table says it should:
      does most of the work: an engine that is running is never silent;
   4. the WASSMER BIJAVE plays nothing at any lever position - it has no
      engine record, and 88.7.6.1 gave it that silence long before this;
-  5. the BEAT drops the note on the ticks its mask selects and leaves it
-     alone on the others, so a piston's roughness is there and a turbine's
-     note is flat. Sampled over sixteen consecutive ticks, a beating engine
-     reads exactly two values and a smooth one reads exactly one;
-  6. the FOUGA'S NOTE LAGS THE HAND. Its record sets CSSF_SPOOL, so it
-     follows the thrust the engine HAS (88.7.5) and not the lever: the
-     throttle goes to full in one tick and the note is still CLIMBING many
-     ticks later, where a piston arrives inside one.
+  5. the note is STEADY - ONE value over sixteen settled ticks. A beat that
+     dropped it on a share of the ticks was heard in the field as "a periodic
+     dip that does sound like a bug, rather than an engine", with its rate
+     moving as the frame rate moved, and this is the check that replaced it;
+  6. the FOUGA'S THRUST LAGS THE HAND. Its record sets CSSF_SPOOL, so it
+     follows the thrust the engine HAS (88.7.5) and not the lever: the note
+     has not arrived even 24 ticks after its own slew settled, where a
+     piston is at full note the moment the slew is done;
+  7. the note GLIDES. A throttle that shuts in one step - the brake does
+     exactly that (88.7.10) - used to change the note in one tick, which the
+     field heard as "playing a note" rather than an engine. CSS_LAG makes it
+     fall through the range: ten distinct notes on the Cessna, thirty-five on
+     the Magister, and it still ARRIVES.
 
-Two red runs (docs/WRITING-TESTS.md 1). --clobber-shared points every plane
+Three red runs (docs/WRITING-TESTS.md 1). --clobber-lag puts CSS_LAG to 0 on
+every engine so the note snaps to each new value, and check 7 goes red on both
+aeroplanes with "0 distinct notes". --clobber-shared points every plane
 at the Cessna's record: check 2 goes red because five aeroplanes are then one
 note, check 6 because a jet reading the lever arrives at once, and the
 record-versus-thrust rule because the sailplane is holding an engine. Check 1
@@ -35,7 +42,8 @@ the record it HOLDS, and under the clobber they all honestly do, which is
 exactly why check 2 has to exist separately. --clobber-spool clears the
 Magister's CSSF_SPOOL so it reads the lever like everything else, and 6 goes
 red on its own while every other check stays green: the jet still has its own
-NUMBERS, it has just stopped lagging, which is the mechanic it is here for.
+NUMBERS and still glides, it has just stopped lagging the hand, which is the
+mechanic it is here for.
 """
 import argparse
 import os
@@ -64,7 +72,7 @@ def _equates():
 
 
 E = _equates()
-_WANT = "CSP_SND CSP_THRUST CSS_IDLE CSS_SPAN CSS_BEAT CSS_MASK CSS_FLAGS " \
+_WANT = "CSP_SND CSP_THRUST CSS_IDLE CSS_SPAN CSS_LAG CSS_FLAGS " \
         "CSSF_SPOOL".split()
 _missing = [k for k in _WANT if k not in E]
 if _missing:
@@ -86,6 +94,8 @@ def main(argv):
                     help="give every aeroplane the Cessna's engine: red")
     ap.add_argument("--clobber-spool", action="store_true",
                     help="make the Magister read the lever: red")
+    ap.add_argument("--clobber-lag", action="store_true",
+                    help="CSS_LAG 0 on every engine, so the note snaps: red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -153,6 +163,12 @@ def main(argv):
             for i in range(5):
                 p = rec(mp["cs_planes"], 2 * i)
                 m.write(lin + p + E["CSP_SND"], snd.to_bytes(2, "little"))
+        if a.clobber_lag:
+            for i in range(5):
+                p = rec(mp["cs_planes"], 2 * i)
+                sn = rec(p, E["CSP_SND"])
+                if sn:
+                    m.write(lin + sn + E["CSS_LAG"], b"\x00")
         if a.clobber_spool:
             jet = rec(mp["cs_planes"], 4)
             s = rec(jet, E["CSP_SND"])
@@ -218,57 +234,99 @@ def main(argv):
                     return got
             sys.exit("skiessound: row %d took no mode" % row)
 
-        def tones(plane, thr, nn=16, spool=True):
-            """(note, thrust) over nn consecutive ticks at throttle `thr`.
+        def ticks(n, pin):
+            """Run n sim ticks, calling pin() at the top of each."""
+            for _ in range(n):
+                pin()
+                m.run()
+                if m.wait_stop(30) is None:
+                    sys.exit("skiessound: cs_step never ran")
+
+        def hold(plane, thr, spool=True):
+            """A pin that keeps the aeroplane flying at throttle `thr`.
 
             The aeroplane is held in the AIR and the lever re-pinned on every
             tick, so nothing the ground model does to the throttle (the brake
-            closes it, 88.7.10) can reach the reading. SPOOL is pinned with
-            it unless the caller is measuring the lag itself.
-
-            IT RETURNS THE THRUST AS WELL AS THE NOTE, and it has to: a
-            spooled engine's note is computed from `[cs_thracc]`, which
-            `cs_step` moves every tick and which does NOT settle on the
-            lever's own percentage - the target is `thr x CSP_THRUST / 100`
-            in WHOLE units before it is shifted into 8.8, so 50% of a
-            19-unit engine is 9 and not 9.5. Both are read at the same stop,
-            which is the one moment they are the pair that made the note:
-            cs_sound_step ran at the end of the previous tick and nothing
-            between there and here touches either.
+            closes it, 88.7.10) can reach the reading. SPOOL is pinned with it
+            unless the caller is measuring the lag itself.
             """
-            full = rec(plane, E["CSP_THRUST"]) << 8
-            out = []
+            # THE MODEL'S OWN TARGET, and not a proportion of full thrust.
+            # cs_step computes it as (thr x CSP_THRUST / 100) in WHOLE units
+            # before shifting into 8.8, so 50% of a 19-unit engine is 9 and
+            # not 9.5 - pin the proportion instead and cs_step drags it back
+            # every tick, the thrust never settles, and the note never settles
+            # either. Pin what the model wants and the gap is zero.
+            want = ((thr * rec(plane, E["CSP_THRUST"]) // 100) << 8) & 0xFFFF
+
+            def pin():
+                poke("cs_py", (600 * 256).to_bytes(4, "little"))
+                poke("cs_thr", thr.to_bytes(2, "little"))
+                if spool:
+                    poke("cs_thracc", want.to_bytes(2, "little"))
+            return pin
+
+        def bp_on():
             m.bp_exec(lin + mp["cs_step"])
             m.run()
             if m.wait_stop(30) is None:
                 sys.exit("skiessound: cs_step never ran")
-            for i in range(nn + 1):
-                if i:
-                    out.append((w("cs_tone"), w("cs_thracc")))
-                poke("cs_py", (600 * 256).to_bytes(4, "little"))
-                poke("cs_thr", thr.to_bytes(2, "little"))
-                if spool:
-                    poke("cs_thracc",
-                         (full * thr // 100).to_bytes(2, "little"))
+
+        def bp_off():
+            m.bp_exec()
+            m.run()
+
+        def settle(plane, thr, spool=True, cap=90):
+            """Tick until the NOTE STOPS MOVING, and say how long it took.
+
+            CSS_LAG means the note closes on what the engine wants rather than
+            arriving there (88.8.2.1), so a reading taken the tick after the
+            lever moved is a reading of the glide. Convergence is asked for
+            rather than counted out: a trainer's 45 Hz takes about fifteen
+            ticks at a shift of 2 and the jet's 520 takes four times that at 3,
+            and a fixed count would be either wrong or slow.
+            """
+            pin = hold(plane, thr, spool)
+            last, same, n = None, 0, 0
+            while n < cap:
+                pin()
+                v = w("cs_eng")
+                same = same + 1 if v == last else 0
+                last = v
+                if same >= 3:
+                    return n
                 m.run()
                 if m.wait_stop(30) is None:
                     sys.exit("skiessound: cs_step never ran")
-            m.bp_exec()
-            m.run()
+                n += 1
+            return n
+
+        def tones(plane, thr, nn=8, spool=True):
+            """(note, thrust) over nn ticks at throttle `thr`, once SETTLED."""
+            settle(plane, thr, spool)
+            pin, out = hold(plane, thr, spool), []
+            for _ in range(nn):
+                out.append((w("cs_tone"), w("cs_thracc")))
+                pin()
+                m.run()
+                if m.wait_stop(30) is None:
+                    sys.exit("skiessound: cs_step never ran")
             return out
 
         def law(snd, plane, thr, thracc):
             """What 88.8.2 says the note is, off the GUEST's own record.
 
-            Hz = CSS_IDLE + source x CSS_SPAN / 100, and the SOURCE is the
-            lever unless CSSF_SPOOL says it is the thrust the engine has.
+            Hz = CSS_IDLE + source x CSS_SPAN / full scale, and the SOURCE is
+            the lever unless CSSF_SPOOL says it is the thrust the engine has -
+            scaled off cs_thracc's 8.8 DIRECTLY, at the resolution the sound
+            actually uses.
             """
-            src = thr
+            span = rec(snd, E["CSS_SPAN"])
             if recb(snd, E["CSS_FLAGS"]) & E["CSSF_SPOOL"]:
                 full = rec(plane, E["CSP_THRUST"]) << 8
-                src = thracc * 100 // full
-            return (rec(snd, E["CSS_IDLE"])
-                    + src * rec(snd, E["CSS_SPAN"]) // 100)
+                add = thracc * span // full
+            else:
+                add = thr * span // 100
+            return rec(snd, E["CSS_IDLE"]) + add
 
         # --- 1, 3, 5: each aeroplane's own law, its idle, and its beat ------
         full_notes = {}
@@ -287,42 +345,37 @@ def main(argv):
                   % (nm, "set" if snd else "0",
                      rec(plane, E["CSP_THRUST"])))
 
+            bp_on()
             if snd == 0:                        # --- 4: the sailplane -------
                 quiet = all(t == 0 for thr in (0, 50, 100)
                             for t, _ in tones(plane, thr, nn=4))
+                bp_off()
                 check(quiet, "%s has no engine record and plays NOTHING at "
                              "any lever position (88.7.6.1)" % nm)
                 continue
 
-            beat = recb(snd, E["CSS_BEAT"])
             for thr in (0, 50, 100):
                 seq = tones(plane, thr)
-                # EVERY SAMPLE against the law for the thrust THAT sample was
-                # made at, because a spooled engine's source moves under the
-                # reading. A beat may only ever take the note DOWN, and by
-                # exactly CSS_BEAT.
-                bad = [(t, law(snd, plane, thr, ta)) for t, ta in seq
-                       if t not in (law(snd, plane, thr, ta),
-                                    law(snd, plane, thr, ta) - beat)]
                 want = law(snd, plane, thr, seq[-1][1])
+                bad = [t for t, ta in seq if t != law(snd, plane, thr, ta)]
                 check(not bad,
-                      "%s at throttle %3d: %s Hz, and its record's law says "
-                      "%d%s" % (nm, thr, sorted({t for t, _ in seq}), want,
-                                " with a %d Hz beat" % beat if beat
-                                else " flat"))
+                      "%s at throttle %3d: %d Hz, which is its record's law"
+                      % (nm, thr, want))
                 if thr == 100:
                     full_notes[nm] = want
                 if thr == 0:
                     check(want > 0, "%s IDLES at %d Hz rather than falling "
                                     "silent (88.8.2)" % (nm, want))
-            # 5: a beating engine reads exactly two values over sixteen ticks
-            # and a smooth one exactly one. This is the beat's own check, and
-            # it is why the note is sampled over a run of ticks at all.
-            got = {t for t, _ in tones(plane, 100)}
-            check(len(got) == (2 if beat else 1),
-                  "%s reads %d distinct note(s) over 16 ticks, which is what "
-                  "a %s engine should" % (nm, len(got),
-                                          "beating" if beat else "smooth"))
+            # 5: THE NOTE IS STEADY. It is the check the field asked for in as
+            # many words - a beat that dropped the note on a share of the ticks
+            # read as "a periodic dip that does sound like a bug, rather than
+            # an engine", and its RATE moved with the frame rate. One value
+            # over sixteen settled ticks is what replaced it.
+            got = {t for t, _ in tones(plane, 100, nn=16)}
+            bp_off()
+            check(len(got) == 1,
+                  "%s holds ONE note over 16 settled ticks (%s Hz), with no "
+                  "beat in it (88.8.2.1)" % (nm, sorted(got)))
 
         # --- 2: four engines, four notes ------------------------------------
         check(len(set(full_notes.values())) == len(full_notes),
@@ -333,29 +386,64 @@ def main(argv):
 
         # --- 6: the jet's note LAGS THE HAND --------------------------------
         # CSP_SPOOL is 5 - a 32nd of the gap a tick, 95% in 5.3 seconds - so
-        # the lever goes to full in one tick and the note does not. A piston
-        # arrives inside one tick, which is the control this check needs: the
-        # assertion is not "it rises", it is "it is STILL rising later".
+        # the lever goes to full in one tick and the THRUST does not. That is
+        # a different mechanic from CSS_LAG below and this is the check that
+        # separates them: the spool is the engine, the slew is the note.
         for row, want_lag in ((2, True), (0, False)):
             plane = fly(row)
             nm = name(plane)
             snd = rec(plane, E["CSP_SND"])
+            bp_on()
+            settle(plane, 0)
             poke("cs_thracc", b"\x00\x00")
             seq = [t for t, _ in tones(plane, 100, nn=24, spool=False)]
+            bp_off()
             top = law(snd, plane, 100, rec(plane, E["CSP_THRUST"]) << 8)
-            # ...and the floor a beating engine can sit at is the law LESS
-            # its beat, which is what the Cessna reads on three ticks in four
-            arrived = seq[2] >= top - recb(snd, E["CSS_BEAT"])
-            climbing = seq[-1] > seq[8] > seq[2]
             if want_lag:
-                check(climbing and not arrived,
-                      "%s is STILL climbing 24 ticks after the lever moved "
-                      "(%d -> %d -> %d Hz): it follows the thrust it HAS "
-                      "(88.7.5)" % (nm, seq[2], seq[8], seq[-1]))
+                check(seq[-1] < top,
+                      "%s has not ARRIVED even after its note settled and 24 "
+                      "more ticks (%d Hz of %d): the thrust is still climbing "
+                      "(88.7.5)" % (nm, seq[-1], top))
             else:
-                check(arrived, "%s arrives inside three ticks (%d Hz of %d): "
-                               "a piston's throttle IS its power"
-                      % (nm, seq[2], top))
+                check(seq[0] >= top,
+                      "%s is at full note the moment its own slew settles "
+                      "(%d Hz of %d): a piston's throttle IS its power"
+                      % (nm, seq[0], top))
+
+        # --- 7: THE NOTE GLIDES, which is what the field asked for ----------
+        # "The stepping, between throttle levels, sounds more like it is
+        # playing a note than switching engine pitches." A throttle that shuts
+        # in one step - the brake does exactly that (88.7.10) - used to change
+        # the note in one tick. CSS_LAG makes it fall through the range
+        # instead, so the check is that the drop takes TIME and passes through
+        # the middle of it rather than jumping the gap.
+        for row in (0, 2):
+            plane = fly(row)
+            nm = name(plane)
+            snd = rec(plane, E["CSP_SND"])
+            lag = recb(snd, E["CSS_LAG"])
+            bp_on()
+            settle(plane, 100)
+            hi = w("cs_eng")
+            # ...and now SHUT it, in one step, and watch the note come down
+            seq = []
+            pin = hold(plane, 0)
+            for _ in range(40):
+                pin()
+                seq.append(w("cs_eng"))
+                m.run()
+                if m.wait_stop(30) is None:
+                    sys.exit("skiessound: cs_step never ran")
+            bp_off()
+            lo = law(snd, plane, 0, 0)
+            mid = [v for v in seq if lo < v < hi]
+            check(len(set(mid)) >= 4 and seq[1] > lo,
+                  "%s (CSS_LAG %d) GLIDES %d -> %d Hz through %d distinct "
+                  "notes rather than changing in one tick (88.8.2.1)"
+                  % (nm, lag, hi, lo, len(set(mid))))
+            check(seq[-1] <= lo + 1,
+                  "%s still ARRIVES: %d Hz against an idle of %d, 40 ticks "
+                  "after the lever shut" % (nm, seq[-1], lo))
 
         leave()
 

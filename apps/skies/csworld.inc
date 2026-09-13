@@ -290,39 +290,43 @@ cs_s_a5:     db 'ICON A5', 0
 ; Bijave's word is 0 because a sailplane has none - its sound is the air's
 ; swoop (88.7.6.3) and nothing here touches it.
 ;
-; THE NUMBERS ARE THE REAL ENGINES' where the speaker can say them and are
-; RAISED where it cannot, which only happens at the bottom. What a listener
-; identifies in a piston aeroplane is the propeller's blade pass, which is the
-; firing rate too on a four-cylinder four-stroke: 2 x rpm / 60. A Cessna at
-; 2,700 rpm is 90 Hz and its 700 rpm idle is 23, and no PC speaker will say 23
-; at any useful volume - so every CSS_IDLE here is higher than the aeroplane's
-; and every full-power figure is its own.
+; THESE NUMBERS HAVE BEEN LISTENED TO, which is the only way any of them could
+; have been settled (88.8.2.2): an emulator synthesises a square wave with none
+; of a real speaker's response, so every figure below is the field's and not
+; arithmetic's. What the first set got right was the trainer and the biplane,
+; and the idles - "idle is audible", "sounds pretty good at idle". What it got
+; wrong was the top of both the amphibian and the jet, and the BEAT, which is
+; gone (88.8.2.1).
 ;
-; THE ORDER IS THE POINT, and it is the honest one: the trainer is the lowest,
-; the biplane is higher and harder because six cylinders fire three times a
-; revolution, the amphibian is the highest PISTON because a Rotax revs to 5,800
-; through a 2.43:1 gearbox, and the jet is not in the same octave as any of
-; them. CSS_IDLE is what a 5150 settles (docs/FIELD-MACHINES.md): an emulator
-; synthesises a square wave with none of a real speaker's low-end rolloff, so
-; this is the one part of the aeroplane that cannot be checked in here.
+; THE ORDER IS STILL THE POINT and it is still the honest one. What a listener
+; identifies in a piston aeroplane is the propeller's blade pass, which on a
+; four-cylinder four-stroke is the firing rate too: 2 x rpm / 60. A Cessna at
+; 2,700 rpm is 90 Hz, a six-cylinder Pitts firing three times a revolution is
+; 135, and a Rotax 912 turning 5,800 through a 2.43:1 gearbox fires at 193 - so
+; the amphibian is the highest-pitched piston here and the jet is not in the
+; same octave as any of them. What the FIELD then did to that is cut the top of
+; the two that were right on paper and wrong in a room, which is the whole
+; reason 88.8.2.2 says an emulator cannot settle this.
 ; =============================================================================
 cs_snd_c172:   dw 60, 45                ; 60..105 Hz. A direct-drive Lycoming,
-               db 5, 3, 0               ; four cylinders, a two-blade prop -
-                                        ; and a gentle one-in-four lump, which
-                                        ; is what a big slow four does at idle
-cs_snd_pitts:  dw 75, 85                ; 75..160 Hz. SIX cylinders firing 3 a
-               db 12, 1, 0              ; revolution is 135 at 2,700 rpm, and
-                                        ; a bark every other tick: the Pitts
-                                        ; is the loud one and should sound it
-cs_snd_fouga:  dw 260, 940              ; 260..1200 Hz, SMOOTH, and off the
-               db 0, 0, CSSF_SPOOL      ; thrust it HAS - two Marbore
-                                        ; turbojets at 21,500 rpm are a whine
-                                        ; and not a beat, and the one thing a
-                                        ; square wave can really say about a
-                                        ; jet is that it LAGS THE LEVER
-cs_snd_a5:     dw 95, 95                ; 95..190 Hz, smooth. A Rotax 912 fires
-               db 0, 0, 0               ; at 193 Hz flat out and drives a slow
-                                        ; three-blade prop through a gearbox:
-                                        ; the highest-pitched piston here and
-                                        ; the smoothest, which is what a geared
-                                        ; engine buys
+               db 2, 0                  ; four cylinders, two blades - and the
+                                        ; one the field passed unaltered once
+                                        ; its beat came off
+cs_snd_pitts:  dw 75, 85                ; 75..160 Hz. Six cylinders firing 3 a
+               db 2, 0                  ; revolution is 135 at 2,700 rpm: the
+                                        ; loud one, and it should sound it
+cs_snd_fouga:  dw 180, 520              ; 180..700 Hz, off the thrust it HAS.
+               db 3, CSSF_SPOOL         ; A Marbore at 21,500 rpm is a whine
+                                        ; and the arithmetic said 260..1200 -
+                                        ; which the field heard as "much too
+                                        ; high pitched for human ears", 1,200
+                                        ; sitting in the band a PC speaker is
+                                        ; harshest in. Down a fifth and a bit,
+                                        ; still an octave and a half clear of
+                                        ; every piston, and the SLOWEST slew
+                                        ; here because its span is the widest
+cs_snd_a5:     dw 95, 75                ; 95..170 Hz, and the top is the
+               db 2, 0                  ; field's: 190 was "slightly high
+                                        ; pitched at full. Probably accurate,
+                                        ; but again, human ears and all". It
+                                        ; stays the highest piston, by less

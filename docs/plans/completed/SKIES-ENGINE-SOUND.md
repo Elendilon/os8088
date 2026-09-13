@@ -4,10 +4,15 @@
 > had to come first; this file is the design record behind both, kept for the
 > half that was hard, which was not the sounds.
 >
-> Four aeroplanes, four engines, and the sailplane still silent. **113 bytes**
-> of image, no bss, no kernel byte, and `SKIES.O88` came out three bytes
-> *smaller*. `tests/skiessound.py` is the gate — 24 checks, two red runs — and
-> all 34 `skies*` soak rows are green.
+> Four aeroplanes, four engines, and the sailplane still silent. **123 bytes**
+> of image, one word of bss, no kernel byte, and `SKIES.O88` came out three
+> bytes *smaller*. `tests/skiessound.py` is the gate — three red runs — and all
+> 34 `skies*` soak rows are green.
+>
+> **It shipped twice**, and §5 is the second pass: the first build was
+> arithmetic and a person listened to it on a real speaker. Two of the four
+> tops came down, a feature was **deleted**, and the one complaint nobody had
+> predicted got a mechanism of its own.
 >
 > **The reason this file is worth reading is that it began as a costing and
 > the costing was WRONG**, in a way the tree had already written down once and
@@ -111,17 +116,17 @@ seven-byte record, and 0 means *no engine*. One shaper reads it:
 
 > `Hz = CSS_IDLE + (source × CSS_SPAN) / 100`
 
-| | idle → full | beat | source |
+| | idle → full | source | (as first built) |
 |---|---|---|---|
-| Cessna 172 | 60 → 105 Hz | one tick in four, −5 | lever |
-| Pitts Special | 75 → 160 | every other tick, −12 | lever |
-| Fouga Magister | 260 → 1,200 | none | **spooled thrust** |
-| Icon A5 | 95 → 190 | none | lever |
+| Cessna 172 | 60 → 105 Hz | lever | unchanged |
+| Pitts Special | 75 → 160 | lever | unchanged |
+| Fouga Magister | **180 → 700** | **spooled thrust** | *was 260 → 1,200* |
+| Icon A5 | 95 → **170** | lever | *was 95 → 190* |
 | Wassmer Bijave | *no record* | — | — |
 
-**113 bytes of image** — 75 code, 38 data — of a 9,872-byte gap: **1.1%**.
-`SKIES.O88` is 44,226 bytes, **three fewer** than before, and no floppy in any
-of the four geometries moves a cluster. No bss. Under 1% of a flown frame.
+**123 bytes of image** of a 9,872-byte gap: **1.2%**. `SKIES.O88` is 44,226
+bytes, **three fewer** than before, and no floppy in any of the four geometries
+moves a cluster. One word of bss. Under 1% of a flown frame.
 
 Three things in it are worth more than the table:
 
@@ -132,10 +137,10 @@ Three things in it are worth more than the table:
 - **The Fouga follows `[cs_thracc]`, not the lever.** §88.7.5 has modelled a
   5.3-second spool since the jet shipped and nothing could ever *hear* it.
   This is the row that earns the feature; the other three are a table.
-- **The beat is on the wall clock.** `cs_steps` drops sim ticks past
-  `CS_MAXSTEP`, so a counted beat would slow down in a banked turn — the
-  engine sagging exactly where the frame is heaviest. §88.8.2.1 is the whole
-  argument.
+- **The note has inertia.** `CSS_LAG` closes a fraction of the gap each tick,
+  so a throttle that shuts in one step glides rather than changing note. That
+  is §5's answer and not the first build's — the first build had a *beat*
+  there instead, and §5 is why it is gone.
 
 ---
 
@@ -172,3 +177,101 @@ and QEMU and may be inaudible on a 5150; and whether a 9.1 Hz tremolo reads as
 an engine or as a fault is a listen. `CSS_IDLE` and `CSS_BEAT` are one word and
 one byte per aeroplane, which is deliberately the cheapest thing in the design
 to change once somebody has heard it (docs/FIELD-MACHINES.md).
+
+
+---
+
+## 5. The second pass: what a person with ears changed
+
+The first build was arithmetic checked against a test that reads `[cs_tone]`.
+Everything in it was *correct* and three of its decisions were wrong, which is
+the whole case for docs/FIELD-MACHINES.md existing. The report, verbatim:
+
+> **Cessna:** Idle is audible. Once revved up there is a periodic "dip" in the
+> sound that does sound like a bug, rather than an engine.
+> **Pitts:** A much more frequent "bug". The varying framerate making the rate
+> of the sound vary is hurting this, too, so constant may be what we need.
+> **Fouga:** Probably appropriate for a jet, but much too high pitched for
+> human ears, see if you can bring it down a bit. No warble here though and
+> that works.
+> **A5:** Sounds pretty good at idle, slightly high pitched at full. Probably
+> accurate, but again, human ears and all.
+> **For all of them:** The stepping, between throttle levels, sounds more like
+> it is playing a note than switching engine pitches.
+
+### 5.1 The beat is deleted, and both halves of why are worth keeping
+
+It read as a **fault** — *"does sound like a bug, rather than an engine"* — on
+the aeroplane with the gentlest setting the design had, one tick in four at
+five hertz. That is not a tuning problem; no depth makes a periodic dip sound
+like combustion.
+
+And its rate moved with the frame rate **anyway**. §88.8.2.1 had defended that
+with the wall clock, and the defence was only ever half of one: the wall clock
+fixes a beat's **period** and cannot fix its **sampling**, because `cs_steps`
+caps a frame's owed ticks at `CS_MAXSTEP` = 3 and discards the rest. The
+document predicted the aliasing and shipped the feature anyway. The field heard
+it.
+
+**So `CSS_BEAT` and `CSS_MASK` are gone rather than zeroed** — the record is six
+bytes, there is no inert path, and the finding lives in SPEC.md 88.8.2.1 where
+the next person to want engine texture will meet it.
+
+### 5.2 Two tops came down, and both were arithmetically right
+
+The Magister's 1,200 Hz is a defensible reading of a Marboré at 21,500 rpm and
+is *"much too high pitched for human ears"* — 1,200 sits in the band a PC
+speaker is harshest in, which is a fact about a 1981 cone and not about
+turbojets. The A5's 190 Hz is exactly where a Rotax 912 fires and is *"slightly
+high pitched… probably accurate, but again, human ears and all"*.
+
+**The reporter conceded the arithmetic in both sentences and overruled it in
+both**, which is the clearest statement of what this measurement is for that
+the project has on file.
+
+### 5.3 "Playing a note" — the one nobody predicted
+
+> *"The stepping, between throttle levels, sounds more like it is playing a
+> note than switching engine pitches."*
+
+A throttle that moves in one step moved the note in one tick. Two steady square
+waves and an instant transition between them is a synthesiser retuning; an
+engine has mass. **`CSS_LAG` is that mass** — `[cs_eng]` closes that fraction
+of the gap each tick, never by less than one hertz — and the brake shutting the
+throttle now falls through the range: **ten** distinct notes on the Cessna,
+**thirty-five** on the Magister.
+
+**Be honest about what it does not fix.** During a *sustained* sweep the note
+tracks the lever at the lever's rate, so the steps are the same size they were:
+fifty throttle levels traversing the range in fifty ticks, whatever the lag is.
+The slew fixes every transition that is *not* a sustained sweep — a tap, a cut,
+the brake, the reset, and the first tick of a flight, where the engine audibly
+comes up to idle from nothing.
+
+What was left after that was resolution, and only the jet had any to reclaim:
+`[cs_thracc]` is 8.8 where the lever is fifty whole steps, so the Magister
+scales straight off it now and never rounds through a percentage. The pistons'
+steps are ~1 Hz and stay there, because fifty lever positions and one square
+wave is the floor.
+
+### 5.4 The test had to change shape, and is better for it
+
+Three of its checks were about a beat. What replaced them:
+
+- **the note is ONE value over sixteen SETTLED ticks** — steadiness asserted
+  directly, which is what the field asked for in as many words;
+- **it GLIDES** — a lever shut in one step must produce four or more distinct
+  intermediate notes and still arrive, with `--clobber-lag` (every `CSS_LAG` to
+  0) the red run, reading *"0 distinct notes"*;
+- **settle before you read.** A reading taken the tick after the lever moved is
+  now a reading of the glide. `settle()` asks for convergence rather than
+  counting ticks out, because a trainer's 45 Hz takes fifteen at a shift of 2
+  and the jet's 520 takes four times that at 3.
+
+One bug in the harness is worth writing down because it cost a wrong reading:
+the pin held `[cs_thracc]` at a *proportion of full thrust*, and `cs_step`
+computes its target as `thr × CSP_THRUST / 100` in **whole units** before
+shifting into 8.8 — so 50% of a 19-unit engine is 9 and not 9.5. The pin and
+the model disagreed by four parts in 2,400, `cs_step` dragged the thrust back
+every tick, the thrust never settled and neither did the note. **A pin that
+fights the model is not a pin**; pin what the model wants.

@@ -372,36 +372,49 @@ CSP_SIZE   equ 48
 ; The tone tier is a single square wave - AX = Hz and nothing else - so a
 ; per-aeroplane engine can only ever be a FREQUENCY LAW, and this is it:
 ;
-;     Hz = CSS_IDLE + (source x CSS_SPAN) / 100
+;     Hz = CSS_IDLE + source x CSS_SPAN / full scale
 ;
 ; where the source is the throttle LEVER, or the thrust the engine actually HAS
 ; when CSSF_SPOOL is set. A CSS_IDLE of 0 IS silence at a shut throttle, which
 ; is what every aeroplane did before this, so the field is the switch as well as
 ; the number and no code tests for it.
+;
+; THERE IS NO BEAT FIELD, and there was one (88.8.2.1). A tone that dropped a
+; few hertz on a fixed share of the ticks was meant to be a piston's roughness
+; and the field heard "a periodic dip that does sound like a bug, rather than
+; an engine" on the trainer and "a much more frequent bug" on the biplane -
+; with its RATE moving as the frame rate moved, which is the sim-tick drop this
+; project predicted and could not hear. The verdict was constant, so what is
+; left is steady notes and the slew below.
 CSS_IDLE  equ 0                 ; word: Hz with the throttle SHUT and the
                                 ; engine turning. An aeroplane with an engine
                                 ; running is NOT SILENT, and the idle is where
                                 ; most of one aeroplane's character against
                                 ; another is actually heard
 CSS_SPAN  equ 2                 ; word: Hz added between shut and full power
-CSS_BEAT  equ 4                 ; the Hz the tone DROPS on its off ticks - a
-CSS_MASK  equ 5                 ; piston's roughness; 0 is a turbine's smooth
-                                ; note. The mask picks which WALL-CLOCK ticks
-                                ; are off ones (`and cl, mask`, 1 = every
-                                ; other, 3 = one in four), and it is the wall
-                                ; clock and not a counter because cs_steps
-                                ; DROPS sim ticks past CS_MAXSTEP - a counted
-                                ; beat would slow down in a banked turn, which
-                                ; is exactly where the frame is heaviest
-CSS_FLAGS equ 6                 ; CSSF_*
-CSS_SIZE  equ 7
+CSS_LAG   equ 4                 ; THE NOTE'S OWN INERTIA (88.8.2.1), a shift:
+                                ; the note closes this fraction of the gap to
+                                ; what the engine wants, each tick, and never
+                                ; by less than one hertz. A throttle that moves
+                                ; in one step GLIDES instead of snapping, which
+                                ; is what an engine does and what a note does
+                                ; not - the field's "the stepping between
+                                ; throttle levels sounds more like it is
+                                ; playing a note than switching engine
+                                ; pitches". 0 is instant
+CSS_FLAGS equ 5                 ; CSSF_*
+CSS_SIZE  equ 6
 
 CSSF_SPOOL equ 0x01             ; follow the SPOOLED thrust and not the lever
                                 ; (88.7.5) - a jet, and the one aeroplane here
                                 ; whose note lags the hand. CSP_SPOOL has
                                 ; modelled a 5.3-second spool since the Fouga
                                 ; shipped and nothing has ever been able to
-                                ; HEAR it
+                                ; HEAR it. It is also the one source with
+                                ; RESOLUTION to spare - cs_thracc is 8.8 where
+                                ; the lever is fifty whole steps - so the jet
+                                ; scales straight off it and never rounds
+                                ; through a percentage
 
 CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
@@ -2881,6 +2894,10 @@ CS_DBGSCR equ 112               ; ...and the copy A/B's scratch is 112 rows,
     ZBYTE cs_msg
     ZBYTE cs_sound
     ZWORD cs_tone                   ; the engine tone being played, or 0
+    ZWORD cs_eng                    ; ...and the ENGINE's own note, which the
+                                    ; stall beep and the crash blast stand in
+                                    ; front of without disturbing (88.8.2.1).
+                                    ; It is what CSS_LAG slews
     ZWORD cs_last                   ; the tick the last frame was stepped at
     ZWORD cs_frames                 ; frames rendered; the only instrument
     ZWORD cs_rwsin                  ; the runway heading's sine and cosine

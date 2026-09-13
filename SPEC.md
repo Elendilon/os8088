@@ -110373,82 +110373,139 @@ with the source the throttle **lever**, or the thrust the engine actually
 throttle, so the field is the switch as well as the number and no code tests
 for it.
 
-| | idle → full | beat | source |
-|---|---|---|---|
-| **Cessna 172** | **60 → 105 Hz** | one tick in four, −5 | lever |
-| **Pitts Special** | **75 → 160** | every other tick, −12 | lever |
-| **Fouga Magister** | **260 → 1,200** | none | **spool** |
-| **Icon A5** | **95 → 190** | none | lever |
-| **Wassmer Bijave** | *no record* | — | — |
+| | idle → full | source |
+|---|---|---|
+| **Cessna 172** | **60 → 105 Hz** | lever |
+| **Pitts Special** | **75 → 160** | lever |
+| **Fouga Magister** | **180 → 700** | **spool** |
+| **Icon A5** | **95 → 170** | lever |
+| **Wassmer Bijave** | *no record* | — |
 
-**The numbers are the real engines' where the speaker can say them.** What a
-listener identifies in a piston aeroplane is the propeller's blade pass, which
-on a four-cylinder four-stroke is the firing rate too: 2 × rpm / 60. A Cessna
-at 2,700 rpm is 90 Hz, a six-cylinder Pitts firing three times a revolution is
+**These numbers have been LISTENED TO**, which is the only way any of them
+could have been settled — §88.8.2.2 is why, and it is the shape of the whole
+section: an emulator synthesises a square wave with none of a real speaker's
+response, so the first set was arithmetic and the field corrected two of the
+four tops and deleted a feature.
+
+What the arithmetic got right is the ORDER and the idles. A listener
+identifies a piston aeroplane by its propeller's blade pass, which on a
+four-cylinder four-stroke is the firing rate too: 2 × rpm / 60. A Cessna at
+2,700 rpm is 90 Hz, a six-cylinder Pitts firing three times a revolution is
 135, and a Rotax 912 turning 5,800 through a 2.43:1 gearbox fires at 193 — so
-the **order** above is the honest one, and the amphibian really is the
-highest-pitched piston here. Every full-power figure is the aeroplane's own.
-Every **idle** is raised: a Cessna idles at 700 rpm, which is 23 Hz, and no PC
-speaker will say 23 at a useful volume.
+the amphibian really is the highest-pitched piston and the jet is not in the
+same octave as any of them. Every **idle** is raised, because a Cessna idles at
+700 rpm, which is 23 Hz, and no PC speaker will say 23 at a useful volume; the
+field's *"idle is audible"* and *"sounds pretty good at idle"* are what settled
+those.
 
-**A shut throttle is now an IDLE and not silence**, which is the single change
-that does most of the work: an engine that is running is never silent, so each
-aeroplane announces itself on the runway before anything is touched, and the
-brake closing the throttle (§88.7.10) drops the Cessna to 60 Hz rather than to
-nothing. An aeroplane with no engine record is still silent, which is what the
-old `or ax, ax` was really catching.
+What the arithmetic got wrong is what a room does to the top of the range. The
+Magister was 260 → **1,200**, which is arithmetically a turbojet and audibly
+*"much too high pitched for human ears"* — 1,200 Hz sits in the band a PC
+speaker is harshest in. It is 180 → 700 now, down a fifth and a bit, still an
+octave and a half clear of every piston. The A5 was 95 → **190**, *"slightly
+high pitched at full. Probably accurate, but again, human ears and all"*, and
+is 95 → 170: still the highest piston, by less.
 
-**The Fouga's row is the one that is not merely a different number.**
-`CSP_SPOOL` has modelled a 5.3-second spool since the jet shipped (§88.7.5) and
-nothing has ever been able to *hear* it: `[cs_thracc]` is the thrust the engine
-has, and reading it instead of the lever is what makes a jet sound like a jet.
-It is the one aeroplane here whose note lags the hand.
+**A shut throttle is an IDLE and not silence**, which is the change that does
+most of the work: each aeroplane announces itself on the runway before anything
+is touched. `CSS_IDLE` = 0 *is* silence, so the field is the switch as well as
+the number and no code tests for it.
 
-##### 88.8.2.1 The beat is on the WALL clock, because sim ticks are dropped
+**The Fouga follows `[cs_thracc]` directly, at 8.8.** §88.7.5 has modelled a
+5.3-second spool since the jet shipped and nothing could ever *hear* it. It is
+also the one source on the machine with resolution to spare — the lever is
+fifty whole steps and the spool is a 16-bit fixed-point number — so the jet
+scales straight off it and never rounds through a percentage first, which is
+§88.8.2.1's problem avoided rather than smoothed.
 
-`CSS_BEAT` drops the tone by that many Hz on the ticks `CSS_MASK` selects — a
-piston's roughness, and 0 is a turbine's smooth note. It is a **stylisation and
-never a model**, and the arithmetic says why: `cs_sound_step` runs once per
-simulation tick, so the update ceiling is **18.2 Hz**, and a propeller's chop is
-80–135. The chop can only ever be the *carrier*. What a beat can be is a few Hz
-of lump, which is what a big slow four does at idle.
+##### 88.8.2.1 There is no beat, and the note has inertia instead
 
-**The phase comes off `[cs_last]` — the tick the frame was stepped at — and not
-off a counter**, and that is the whole of why the field is a mask rather than a
-period. `cs_steps` caps a frame's owed ticks at `CS_MAXSTEP` = 3 **and discards
-the rest**, so on §88.12.1's `turnhold` frame (282.8 ms = 5.15 ticks) two ticks
-in five never reach the sound at all. A counted beat would *slow down* — the
-engine audibly sagging exactly where the picture is heaviest and the machine is
-already struggling. On the wall clock the period is right and what is left is
-sampling: three ticks in five, so the lump goes irregular under load rather
-than flat. That is the honest trade and it is the better half of it.
+**The first build had a BEAT** — the note dropped a few hertz on a fixed share
+of the ticks, a piston's roughness, its phase off the wall clock so that
+`cs_steps`' dropped sim ticks could not drag its period. It was the one part of
+the design this document flagged as needing a listen, and the listen killed it:
 
-##### 88.8.2.2 What it costs, and the two questions no emulator can answer
+> *"Once revved up there is a periodic 'dip' in the sound that does sound like
+> a bug, rather than an engine."* — the Cessna, one tick in four
+>
+> *"A much more frequent 'bug'. The varying framerate making the rate of the
+> sound vary is hurting this, too, so constant may be what we need."* — the
+> Pitts, every other tick
 
-**113 bytes of image**, measured on the gap (§88.10.6): 75 of code and 38 of
-data — four seven-byte records and five `CSP_SND` words. No bss. `SKIES.O88` is
-**44,226 bytes**, three *fewer* than before, and no floppy in any of the four
-geometries moves a cluster: the bytes come out of a run of zeros that LZ4 had
-all but deleted anyway.
+Both halves are worth keeping. The beat read as a **fault** and not as an
+engine, which no amount of tuning the depth was going to fix; and its rate
+moved with the frame rate *anyway* — the aliasing §88.12.1's frame times
+predict, heard in a room, through a defence that was only ever half of one. The
+wall clock fixes a beat's **period** and cannot fix its **sampling**: at
+`turnhold` the frame spans 5.15 ticks and only `CS_MAXSTEP` = 3 are stepped.
+`CSS_BEAT` and `CSS_MASK` are deleted, and the record is six bytes.
+
+**What replaced it is the opposite of a modulation.** The field's other note
+was about the transitions:
+
+> *"The stepping, between throttle levels, sounds more like it is playing a
+> note than switching engine pitches."*
+
+A throttle that moves in one step used to move the note in one tick, and a
+square wave that jumps between two steady values is a synthesiser retuning.
+`CSS_LAG` gives the note **inertia**: `[cs_eng]` closes that fraction of the
+gap to what the engine wants each tick, and never by less than one hertz or a
+small gap would stand for ever. So the brake shutting the throttle (§88.7.10)
+falls through the range instead of changing note — measured, the Cessna glides
+105 → 60 Hz through **ten** distinct notes and the Magister 700 → 180 through
+**thirty-five**.
+
+**It is honest about what it cannot do.** During a *sustained* sweep the note
+tracks the lever at the lever's own rate, so the slew does not make the steps
+smaller — a throttle held from shut to full traverses the range in the fifty
+ticks the throttle takes, whatever the lag is. What it fixes is every
+transition that is not a sustained sweep: a tap, a cut, the brake, the reset,
+and the first tick of a flight, where `[cs_eng]` starts at 0 and the engine
+audibly comes up to idle. The remaining floor is the model's: the lever has
+fifty steps and one square wave has one voice, so the jet's resolution came
+from `[cs_thracc]` and the pistons' steps are ~1 Hz and stay there.
+
+`[cs_eng]` is the **engine's** note and `[cs_tone]` is what is playing, which
+is why they are two words: the stall beep and the crash blast stand in front of
+the engine without disturbing it, so a stall does not leave the note gliding
+down from 900 Hz afterwards. It is cleared at bracket entry beside `[cs_tone]`,
+or a Cessna's first tick would glide down from the Magister the last flight
+left in it.
+
+##### 88.8.2.2 What it costs, and why an emulator could not settle it
+
+**123 bytes of image**, measured on the gap (§88.10.6): no bss beyond
+`[cs_eng]`'s word, no kernel byte, and `SKIES.O88` is **44,226 bytes** — three
+*fewer* than before any of this — so no floppy in any of the four geometries
+moves a cluster. The bytes come out of a run of zeros that LZ4 had all but
+deleted anyway.
 
 The cycles are not the question but they are small. `OSAPI_SND_TONE` costs
-**1,997 cycles / 418.4 µs** (PERFORMANCE.md Set 146) and the added arithmetic
-about 505 a sim tick for a piston and 890 for the jet, predicted from
-PERFORMANCE.md Part 2 rather than measured. At the worst case of three sim
-ticks a frame, against §88.12.1's 164.5 ms cruise frame, that is **0.19%** for
-the law alone and **0.96%** with a beat. The beat is the only new money, and
-not because of the arithmetic: `cs_sound_step` ends in
-`cmp ax, [cs_tone] / je .out`, so steady flight cost nothing before and a beat
-makes the note change every tick.
+**1,997 cycles = 418.4 µs**, measured (PERFORMANCE.md Set 146), and the added
+arithmetic about 600 a sim tick, predicted from PERFORMANCE.md Part 2. At the
+worst case of three sim ticks a frame, against §88.12.1's 164.5 ms cruise
+frame, the law is **0.22%**. A glide re-issues the tone on the ticks it moves,
+which is at most three a frame and **0.98%** — and it is brief, where the beat
+it replaced was for ever.
 
-**Two things here cannot be checked in an emulator**, and both are `CSS_IDLE`'s.
-A real PC speaker rolls off badly below ~100 Hz and a synthesised square wave
-does not, so the piston idles will sound fine under MartyPC and QEMU and may be
-inaudible on a 5150; and whether a 9.1 Hz tremolo reads as an engine or as a
-fault is a listen and not an assertion. `tests/skiessound.py` gates what *is*
-checkable — that each aeroplane plays its own record's law, that the Bijave
-plays nothing, and that the Fouga's note is still climbing after the lever
-stops — and the rest is docs/FIELD-MACHINES.md's.
+**The part worth keeping is the method.** Every acceptance question in this
+section was settled by a person listening on a real machine, and not one of
+them could have been settled here:
+
+| the guess | what the room said |
+|---|---|
+| a 1,200 Hz jet is arithmetically right | *"much too high pitched for human ears"* |
+| a 190 Hz Rotax is arithmetically right | *"slightly high pitched at full… human ears and all"* |
+| a beat is a piston's roughness | *"does sound like a bug, rather than an engine"* |
+| the wall clock defends the beat's rate | *"the varying framerate… is hurting this, too"* |
+| a note per throttle level is an engine | *"sounds more like it is playing a note"* |
+
+A synthesised square wave has none of a real speaker's rolloff or resonance,
+and a container has no ears at all. `tests/skiessound.py` gates what *is*
+checkable — each aeroplane plays its own record's law, the Bijave plays
+nothing, the note is ONE value over sixteen settled ticks, it GLIDES rather
+than snapping, and the Fouga's note is still climbing after the lever stops —
+and everything above came from docs/FIELD-MACHINES.md instead.
 
 #### 88.8.1 A paused aeroplane is silent
 

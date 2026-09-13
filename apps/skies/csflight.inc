@@ -1866,35 +1866,47 @@ cs_sound_step:
     or di, di
     jz .quiet                       ; no engine: the sailplane, and not a
                                     ; throttle number played as hertz
-    mov ax, [cs_thr]                ; the LEVER, 0..100...
+    mov ax, [cs_thr]                ; the LEVER, 0..100 - fifty whole steps...
     test byte [di + CSS_FLAGS], CSSF_SPOOL
     jz .lever
     mov bx, [cs_plane]              ; ...or, on a jet, the thrust the engine
-    mov bx, [bx + CSP_THRUST]       ; HAS: 88.7.5's spool, made audible
-    or bx, bx
-    jz .lever                       ; a spooling engine with no thrust is not
-    mov cl, 8                       ; an aeroplane; it is a `div` by zero
-    shl bx, cl                      ; full thrust in the 8.8 cs_thracc holds
-    mov ax, [cs_thracc]
-    mov dx, 100
-    mul dx
-    div bx                          ; 0..100, the spool's own percentage
+    mov bx, [bx + CSP_THRUST]       ; HAS: 88.7.5's spool, made audible - and
+    or bx, bx                       ; scaled off cs_thracc's 8.8 DIRECTLY,
+    jz .lever                       ; because rounding it through a percentage
+    mov cl, 8                       ; first would throw away the one source on
+    shl bx, cl                      ; this aeroplane with resolution to spare
+    mov ax, [cs_thracc]             ; and put the steps back (88.8.2.1)
+    mul word [di + CSS_SPAN]
+    div bx
+    jmp short .add
 .lever:
     mul word [di + CSS_SPAN]
     mov bx, 100
     div bx
-    add ax, [di + CSS_IDLE]         ; Hz = idle + source x span / 100
-    mov bl, [di + CSS_BEAT]         ; --- and the BEAT, on the WALL clock -----
-    or bl, bl
-    jz .st                          ; a turbine: nothing to add
-    mov cl, [cs_last]               ; cs_steps DROPS sim ticks past
-    and cl, [di + CSS_MASK]         ; CS_MAXSTEP, so a beat counted in CALLS
-    jz .st                          ; would slow down in a banked turn - the
-    xor bh, bh                      ; tick this frame was stepped AT is the
-    sub ax, bx                      ; one quantity that cannot
+.add:
+    add ax, [di + CSS_IDLE]
+    ; --- AND THE NOTE HAS INERTIA (SPEC.md 88.8.2.1) ------------------------
+    ;     The engine's own note is [cs_eng], and it CLOSES on what the engine
+    ;     wants rather than arriving there: CSS_LAG of the gap a tick, never
+    ;     less than one hertz or a small gap would stand for ever. So a
+    ;     throttle that shuts in one step - the brake does exactly that
+    ;     (88.7.10) - glides down instead of changing note.
+    mov bx, ax
+    sub bx, [cs_eng]
+    jz .slewed
+    mov cl, [di + CSS_LAG]
+    mov ax, bx
+    sar ax, cl                      ; a NEGATIVE gap always moves: sar rounds
+    jnz .move                       ; toward minus infinity, so -1 stays -1
+    inc ax                          ; ...and a small positive one is one hertz
+.move:
+    add [cs_eng], ax
+.slewed:
+    mov ax, [cs_eng]
     jmp short .st
 .quiet:
     xor ax, ax
+    mov [cs_eng], ax
 .st:
     cmp byte [cs_stall], 0
     je .want
