@@ -47463,6 +47463,68 @@ still marks a superset and the byte-identity gate means what it says: an
 unnecessary repaint draws the same pixels, so the two builds must agree
 exactly.
 
+### 30.3.4 …and the window the raise is about to draw WHOLE is not one of them
+
+§30.3.3 fixed two directions in which `wm_dock_under`'s mark was surplus — a
+span it had no `x` for, and a second monitor carrying no dock at all. There is
+a third, and it is the one a person actually sees, because it fires on the
+commonest operation the machine has: **opening a window**.
+
+`wm_raise` is the routine that puts a window at the front, and for a window
+that has just become visible `wm_show_b` calls it with `AL` = 1 — *drawn
+whole*, because a window that was not on the glass has no pixels to put back
+(§11.90). Before it draws, it calls `menu_draw_bar` and `wm_dock_under`, in
+that order and for the reason §30.3.2 gives: the strip is drawn **under**
+windows, so it has to be painted before the window lands on it.
+
+And a launch is exactly when `dock_paint` has the most to do — the new
+instance has a **new tile**. So `dock_paint` answers CF = 1, `wm_dock_clear`
+answers CF = 1 for any window tall enough to reach the strip, and
+`wm_dmg_wins` marks it and draws it **whole, `W_PAINT` included**. Two
+instructions later `wm_raise` draws the same window whole again.
+
+It is measured rather than argued. The kernel's `W_PAINT` dispatch was
+logged to a ring with the window index and the path that reached it, and
+opening the DOS box (§96.32 — an 80-column window, so tall enough to stand
+over the strip) reads:
+
+| # | window | path |
+|---|---|---|
+| 0 | Disk | `wm_raise`'s whole draw |
+| 1 | **DOS** | **`wm_dock_under` → `wm_dmg_wins`** |
+| 2 | **DOS** | **`wm_raise`'s whole draw** |
+
+Entry 1 is the waste, and on this package it is the whole console band — the
+one paint PERFORMANCE.md Part 5 prices a window open at.
+
+`[wm_dmg_mine]` is the veto, and the invariant it carries is a promise rather
+than a geometry: **the caller will draw this window whole before it returns**.
+`wm_raise` arms it with the window under `AL` = 1 and the mark pass skips
+that window entirely — not the direct-damage arm, not `dock_px_hit`, not the
+marked-below arm, because all three would only be asking whether something
+needs repainting that is about to be repainted anyway.
+
+Three things make it safe, and each is why the veto is not simply "skip the
+front window":
+
+- **Only `AL` = 1 arms it.** `AL` = 2 is §11.96.10's partial raise, which puts
+  back only what was *covered* — so the part of the window standing on the
+  strip is exactly the part it will not draw, and vetoing there would leave
+  the dock drawn through it. `AL` = 0 draws no content at all.
+- **It is armed for a WINDOW, not for a pass.** The promise holds from the
+  moment `wm_raise` takes it to the tail call that keeps it, so a damage pass
+  reached by `menu_draw_bar` on the way may consume it just as safely as
+  `wm_dock_under` does.
+- **It is cleared at the tail call**, unconditionally, next to the `jmp` that
+  discharges it. `[wm_dmg_stwin]`'s own one-shot is cleared inside
+  `wm_dmg_wins` because its arming caller may not draw a strip at all; this
+  one is cleared by the routine that armed it, because that routine always
+  reaches the clear.
+
+A window **below** the raised one that the strip damaged is untouched by any
+of this: it is marked, drawn, and then covered by the whole draw that follows
+— which is what the z-order already meant.
+
 ### 30.2 A tile's context menu — right-click to Close
 
 A right-press on a tile drops a one-item `menu_popup` (§12.4), `Close`, and
@@ -121469,6 +121531,162 @@ scan would narrow the same way and the saving is real, but the band is what
 every `disp*` row and all five Telnet rows assert against and the fixed call
 cost is what dominates there — so that is a separate change with its own
 measurement, not a rider on this one.
+
+##### 96.33.14 A launch from the console repaints the PATH BOX, not the window
+
+Reported from the field: *"trying to run a program and having it fail ... trigger
+two full window redraws. The failure should need 0."*
+
+`dos_con_prog` ended in `dos_swap`, which is **a full-content ground fill and
+then a full paint** — two visible passes over the whole window, which is what a
+page change costs and is right for one (§96.20.1: the entire content is being
+replaced, so nothing is drawn twice). **A launch is not a page change when the
+box is already on the main page.** What actually changed is the path box's text
+and one line of the console band, and the band has its own painter.
+
+Counted, before: opening the window **2** full paints, a launch that fails to
+load **1 paint and 1 swap** — the swap being the fill plus a paint, so three
+whole-window passes for a command that added a line of text.
+
+So the swap is taken only when the page is actually turning. On the main page
+the launch redraws `dos_pln` — the path box's own `os88line` control, which
+draws its own ground — and lets `dos_con_draw` spend the band's marks. A failed
+load then costs **no full pass at all**, which is what it always owed.
+
+**`dos_swap` is still right where it is used**, and the distinction is worth
+keeping straight: it is the PAGE painter. Every other caller is a genuine
+Setup↔Environment↔main turn, where the whole content really is replaced and the
+fill is the only thing that stops the tail of a longer line showing through.
+
+##### 96.33.13 A bare name runs from the CURRENT directory, not the LAUNCH one
+
+Reported from the field with the picture: `CD SBEEPS`, `DIR` lists `SB.COM`,
+`sb` answers **`Bad command or file name: sb.COM`** — and the path box §96.33.10
+had just made honest reads **`B:\sb.COM`**, the volume ROOT. That box is what
+showed it: the box was right about what the machine was going to do, and what it
+was going to do was wrong.
+
+**The box keeps two folders and they are not the same thing.** `[dos_dir]` is
+where the package was LAUNCHED from — the folder `OSAPI_ARG_FILE` named — and
+`[dos_curdir]` is where it is STANDING now. §96.6.1 is why both exist: a program
+launched from a subdirectory may leave it, so a running program's chdir moves
+`[dos_curdir]` and `[dos_dir]` stays put for the next launch. `dos_run` seeds
+one from the other at each start.
+
+`dos_path_take`'s no-separator arm read *"the folder we stand in"* as `[dos_dir]`
+and left it alone, which is correct for the door it was written for — the Run
+button on a box that has never moved. **The console moves.** `CD` goes through
+`dos_cd_go`, which writes `[dos_curdir]` and nothing else, so from the second
+directory onward every bare name resolved against the first one.
+
+So the arm takes `[dos_curdir]`. The three things that made this hard to see are
+worth naming, because each one looked like the answer:
+
+- **`DIR` was right**, because the built-ins bracket themselves with
+  `dsh_bank`/`dsh_home` around `[dos_curdir]` and never consult `[dos_dir]`;
+- **the SEARCH was right** — `dos_con_ext` probes `NAME.COM` then `NAME.EXE`
+  through the back end, which is standing where the shell put it, so it FOUND
+  `SB.COM` and put it in the box;
+- and only the LAUNCH was wrong, which is why the failure arrives as a read
+  error about a file the user can see in the listing above it.
+
+##### 96.33.15 …and an extension that is not `.COM` or `.EXE` is not a program
+
+§96.33.13 made the current directory reachable, and the first thing it reached
+was a file that should never have been run.
+
+`tests/doscon.py` types `DOS.O88` at the prompt — the box's own package, in the
+folder it was launched from — and its comment says *"DOS.O88 is in this folder
+and is not a DOS program, so the launch refuses"*. **The refusal it was getting
+was the wrong one**: `[dos_dir]` was the volume root, the file was not there,
+and the answer was `Bad command or file name` for a reason that had nothing to
+do with what the file is. Standing in the folder, the box **ran it** — 30 KB of
+`OP_` header and 8086 code assembled at org 0, entered as a `.COM` at
+`PSP:0100`. The machine does not come back: the bracket is up, the gfx lock is
+held by the task that took it, and there is no pointer, no menu bar and no way
+out. Read `[dos_inbr]` = 1 twelve seconds later and it is still 1.
+
+§96.33.7 is half of COMMAND.COM's rule and this is the other half. Written out,
+DOS's rule is:
+
+- **no extension** — search `.COM`, then `.EXE`, then `.BAT`;
+- **an extension** — it must be one of those three, or the answer is
+  `Bad command or file name`.
+
+`dos_con_ext` implemented the first and stopped: *"A NAME THAT ALREADY CARRIES A
+DOT IS LEFT ALONE, whether or not it exists."* That is right about the SEARCH —
+DOS does not probe on `FOO.DAT` — and it was being read as a statement about
+EXECUTION, which it is not. COMMAND.COM will not execute `FOO.DAT`; it does not
+open it, look at it, or care whether it exists.
+
+So the dotted arm checks the extension: `.COM` or `.EXE`, case-insensitively,
+and exactly three characters — `.COMX` is not `.COM`. There is no `.BAT` here
+for §96.33.7's own reason, that there is no batch interpreter, and a `.BAT`
+refused by name is a better answer than one loaded and entered.
+
+**It is the CONSOLE's rule and not the box's.** The Run button (§96.32.1) runs
+what the path box names, and a user who has typed a full path into a field
+labelled with the file they want has said which file they mean. The console is
+where COMMAND.COM's semantics are the contract, and `dos_con_ext` is the one
+routine only the console calls.
+
+The failure this prevents is the worst kind the box has: not an error message,
+not a wrong answer, but a machine that stops responding — and reachable by
+typing the name of any file in the folder you are standing in.
+
+##### 96.33.16 A launch from the FULL SCREEN ends the console's bracket first
+
+Reported from the field: *"on CGA, launching prince from the full-screen
+console switched the gfx mode into weird flashing coloured glyphs and never
+showed prince."* Both halves are one defect and §96.33's own header already
+stated the rule it broke — *"this bracket is entered from the menu, **ends
+before any program is launched**, and the program's own bracket (§96.2) is a
+different one"*. Nothing made it end.
+
+**Never showed Prince.** `dos_con_prog` accepts the command and posts
+`OSAPI_WM_WAKE`, because §96.2's order is binding: the read happens in the
+wake handler's lock-free context and `fsx_run` is taken under the lock
+afterwards. A wake is dispatched by the UI task's event loop — and the UI task
+is *inside* `dos_fsx_con`'s poll loop, which does not return. So the event sits
+in the queue for ever. Measured on a CGA: `[dos_fsxup]` = 1, `[dos_state]` =
+`DST_READY`, `[dos_inbr]` = 0, unchanged twelve seconds after Enter.
+
+**The flashing glyphs.** `dos_con_prog` then repainted, and a repaint is kernel
+drawing slots: §53.1 forbids them here because the framebuffer is character
+cells now, so an `os88line_draw` — or the `dos_swap` that preceded it — lays
+4bpp or 1bpp pixel rows into `B800` where the CRTC reads character/attribute
+pairs. Half of every pair is an attribute, so the ground bits land in the blink
+and colour fields: that is the flashing, and it is exactly what a graphics
+write into a text screen looks like. `dos_con_draw` has carried the
+`[dos_fsxup]` test since it was written; the two calls either side of it did
+not.
+
+`[dos_fsxgo]` closes both. `dos_con_prog` sets it instead of drawing when the
+console has the screen, `dos_fsx_keys` reads it after every key and answers
+CF = 1, and the bracket comes down the same way `Esc` brings it down. The wake
+is then dispatched from an ordinary event loop, and Prince gets §96.2's
+bracket with §96.2's mode call in it.
+
+**And the console comes BACK.** `dos_run`'s `.out` — the one path every launch
+and every refusal reaches — re-enters the bracket when `[dos_fsxgo]` says the
+command was typed in it. From the user's seat the full screen never left: the
+program took it and gave it back, which is what DOS does and is the only
+behaviour that makes a full-screen prompt worth having. It goes through
+§96.2's own protocol, `OSAPI_GFX_LOCK` then `OSAPI_FSX_RUN` then unlock,
+because that is what `fsx_run` requires and `dos_run` released the lock two
+lines above.
+
+**It is not recursion, and that is worth stating because it looks like it.**
+The re-entered bracket can accept another launch, which posts another wake —
+but a wake is dispatched by the event loop *after* the current handler
+returns, so the second `dos_run` starts at the depth the first did. The chain
+unwinds completely every time: bracket, `dos_fsx`, `dos_fsx_back`, `dos_run`,
+handler, loop.
+
+`dos_fsx` clears `[dos_fsxgo]` on entry as well, which is the guard that makes
+a leaked flag harmless rather than mysterious: a stale 1 would otherwise make
+the next bracket quit on its first keystroke, and the worst that can happen
+now is that a launch does not return to the full screen.
 
 ##### 96.33.11 Full screen streams a LINE AT A TIME; the window still draws once
 

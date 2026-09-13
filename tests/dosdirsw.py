@@ -53,6 +53,7 @@ SYS = "build/os8088-360.img"
 # plain files: over a 16-line CGA page, under a 24-line one.
 APPS = "build/dirsw360.img"
 BOX = "A:/APPS/DOS.O88"
+SUBPROG = "DOSHELLO"       # ...and a copy of it in BIN\\ (SPEC.md 96.33.13)
 MACHINE = "os8088_5150_cga_gla"
 STRIKE = "Strike a key when ready"
 
@@ -223,7 +224,38 @@ def main():
                  % done[-2:])
         print("dosdirsw: a key resumed it and the total is still %d" % total)
 
-        # --- 5: Esc abandons -------------------------------------------------
+        # --- 5: a bare name runs from where the box STANDS (96.33.13) --------
+        # `CD` moves [dos_curdir] and dos_path_take's no-separator arm left
+        # [dos_dir] - the LAUNCH folder - so from the second directory onward
+        # every bare name resolved against the first one.  Reported with the
+        # picture: `CD SBEEPS`, DIR lists SB.COM, `sb` answers `Bad command or
+        # file name` and the path box reads `B:\sb.COM`, the volume ROOT.
+        bx.run("CD BIN")
+        if not bx.live()[-1].rstrip().endswith("BIN>"):
+            fail("CD BIN did not move the prompt: %r" % bx.live()[-1])
+        bx.type("%s\n" % SUBPROG)
+        raw = m.read(bx.base + bx.dm["dos_path"], 48).split(b"\0")[0]
+        got = raw.decode("latin-1").upper()
+        if "BIN" not in got:
+            fail("running %r from B:\\BIN put %r in the path box - a bare name "
+                 "must resolve against the CURRENT directory and not the "
+                 "launch one (SPEC.md 96.33.13)" % (SUBPROG, got))
+        if any("Bad command" in r for r in bx.live()[-3:]):
+            fail("%r was refused in B:\\BIN where it lives: %r"
+                 % (SUBPROG, bx.live()[-3:]))
+        print("dosdirsw: ...and a bare name in a subdirectory resolves to %r"
+              % got)
+        # ...and it really RAN, so dismiss it and come back to the root: the
+        # program waits on AH=08h, and B:\BIN holds one file where step 6
+        # wants more than a page.
+        os88marty.until(m, lambda _=None: bx.b("dos_inbr"),
+                        "%s to be running" % SUBPROG, limit=120.0)
+        bx.type(" ")
+        os88marty.until(m, lambda _=None: not bx.b("dos_inbr"),
+                        "%s to exit" % SUBPROG, limit=120.0)
+        bx.run("CD \\")
+
+        # --- 6: Esc abandons -------------------------------------------------
         bx.run("DIR /P")
         if not bx.b("dsh_more"):
             fail("the second `DIR /P` did not suspend")

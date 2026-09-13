@@ -4078,6 +4078,16 @@ wm_raise:
                                 ; AL = 2 is downgraded here as well and a
                                 ; re-listed window is drawn whole
     push ax
+    mov word [wm_dmg_mine], 0   ; **THE PROMISE, AND ONLY AL = 1 MAKES IT**
+    cmp al, 1                   ; (SPEC.md 30.3.4): this routine will draw DI
+    jne .nomine                 ; WHOLE before it returns, so a damage pass
+    mov [wm_dmg_mine], di       ; reached between here and the tail call - the
+.nomine:                        ; dock strip's, on every launch - must not draw
+                                ; it first. AL = 2 is 11.96.10's PARTIAL raise
+                                ; and puts back only what was covered, which is
+                                ; exactly not the part standing on the strip,
+                                ; so it may not arm this; AL = 0 draws no
+                                ; content at all
 %ifndef REDRAWFULL
     cmp al, 2                   ; AL = 2: put back only what was COVERED
     jne .nocov                  ; (SPEC.md 11.96.10). Computed HERE, because
@@ -4157,6 +4167,12 @@ wm_raise:
     pop bx
 .whole:
 %endif
+    mov word [wm_dmg_mine], 0   ; SPENT BY THE DRAW THAT KEEPS IT (30.3.4).
+                                ; Cleared HERE and not in wm_dmg_wins, where
+                                ; [wm_dmg_stwin]'s one-shot is: that one is
+                                ; armed by callers that may draw no strip at
+                                ; all, and this one by a routine that always
+                                ; reaches this instruction
     jmp wm_draw_win             ; tail call
 .titleonly:
     call wm_draw_title          ; DI == BP, so it gains its stripes...
@@ -5801,6 +5817,12 @@ wm_dmg_wins:
     call wm_idx2ptr             ; BX = window ptr (AX and CX survive)
     test byte [bx+W_FLAGS], 2
     jz .mnext
+    cmp bx, [wm_dmg_mine]       ; ...and the window our CALLER is about to draw
+    je .mnext                   ; WHOLE is not marked by anything: not the
+                                ; damage, not the dock strip, not a marked
+                                ; window below it (SPEC.md 30.3.4). Unarmed the
+                                ; word is 0 and no window record lives there,
+                                ; so the test is inert
     mov si, bx                  ; SI = our window for the rest of the pass
     call wm_win_rect            ; AX,BX,CX,DX = our rect, shadow included
     call wm_dmg_hit
@@ -6354,6 +6376,8 @@ wm_dmg_j    dw 0                ; the marking pass's inner index
 ; the whole damage rect as this pass always did, and a wasted repaint is the
 ; safe error.
 wm_dmg_stwin dw 0               ; the window that moved, 0 = not armed
+wm_dmg_mine dw 0                ; ...and the one wm_raise is about to draw
+                                ; WHOLE itself, 0 = not armed (SPEC.md 30.3.4)
 wm_dmg_rzwin dw 0               ; SPEC.md 11.90.3: ...and the one ui_grow just
                                 ; SHRANK without moving, which owes its content
                                 ; nothing. A one-shot across wm_paint_dmg

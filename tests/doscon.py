@@ -18,8 +18,10 @@ one of them is a separate thing that can be missing:
      with `<DIR>` for a folder and a size for a file.
   5  CD moves, and THE PROMPT FOLLOWS IT. `$P$G` is recomposed rather than
      held, so this is the assertion that says so.
-  6  a PROGRAM is run by typing its name (96.33.3), the path box ends up
-     holding what was typed, and the exit line comes back into the console.
+  6  a file that is NOT a program is refused by its EXTENSION (96.33.15) -
+     `DOS.O88`, in the folder the box was launched from. This is the wedge's
+     guard: without the rule the box runs 30KB of package image as a `.COM`
+     and the machine never comes back, so the row fails by HANGING.
   7  ...and a name that is neither says `Bad command or file name`, which is
      DOS's sentence and not "It could not be read." about a file the user
      never had.
@@ -29,6 +31,10 @@ one of them is a separate thing that can be missing:
      claim the design makes: con_scr's cell IS the cell in VRAM, so the
      renderer is a move and not a translation (70.8.7), and a screenshot
      cannot tell those apart.
+  8b ...and a program TYPED AT THE FULL SCREEN runs and gives it back
+     (96.33.16), asserted as the three-state sequence [dos_fsxup]/[dos_inbr]
+     goes 1/0 -> 0/1 -> 1/0. It never ran at all before: the wake a launch
+     posts cannot be dispatched while the UI task is inside the bracket.
 
 ...and two more between them, both reported from the console and both the same
 shape - a thing COMMAND.COM answers BEFORE its table and this box did not.
@@ -374,23 +380,39 @@ def main():
         print("doscon: ...and an unknown name is a bad command, not a read "
               "error")
 
-        # --- 6: a PROGRAM, by typing its name -------------------------------
-        # DOS.O88 is in this folder and is not a DOS program, so the launch
-        # refuses - which is the half this row can assert without a second
-        # disk: the path box holds what was typed, the state moved, and the
-        # console got a line back. tests/dosargs.py drives a real .COM.
+        # --- 6: ...AND A FILE THAT IS NOT A PROGRAM IS REFUSED BY EXTENSION -
+        # DOS.O88 is the box's OWN package, sitting in the folder it was
+        # launched from, and COMMAND.COM would answer `Bad command or file
+        # name` for it without opening it: an extension that is not .COM,
+        # .EXE or .BAT is not a program (SPEC.md 96.33.15).
+        #
+        # **THIS ROW IS THE WEDGE'S GUARD AND IT FAILS BY HANGING.** Before
+        # 96.33.15 the box ran it - 30KB of OP_ header and org-0 code entered
+        # at PSP:0100 - and the machine did not come back: the bracket up, the
+        # gfx lock held, no pointer and no menu bar. So [dos_inbr] is asserted
+        # as well as the sentence, and taking the extension check out again
+        # turns this row red at the menu pick below rather than here.
+        #
+        # The path box is NOT rewritten, which is the other half of the rule:
+        # nothing was resolved, so there is nothing to qualify. 5c above is
+        # what asserts a real program's name landing there fully qualified.
+        was = bx.text("dos_path", 32)
         bx.type("DOS.O88\n")
-        got = bx.text("dos_path", 32).upper()
-        if not got.endswith("DOS.O88") or got[1:3] != ":\\":
-            fail("typing a program's name should put its FULLY QUALIFIED path "
-                 "in the box (SPEC.md 96.33.3, 96.33.10) and it holds %r"
-                 % bx.text("dos_path", 32))
         rows = bx.live()
-        if not any("DOS.O88" in r for r in rows[-4:]):
-            fail("the console said nothing about the program that was run: %r"
-                 % rows[-4:])
-        print("doscon: ...and typing a program's name fills the path box and "
-              "reports back")
+        if not any("Bad command" in r and "DOS.O88" in r for r in rows[-3:]):
+            fail("a file whose extension is not .COM or .EXE is not a program "
+                 "and DOS answers `Bad command or file name` without opening "
+                 "it (SPEC.md 96.33.15); the band says %r" % rows[-3:])
+        if bx.b("dos_inbr"):
+            fail("the box ENTERED a bracket for DOS.O88 - 30KB of package "
+                 "image run as a .COM, which is a machine that does not come "
+                 "back (SPEC.md 96.33.15)")
+        if bx.text("dos_path", 32) != was:
+            fail("a refused name rewrote the path box to %r, and nothing was "
+                 "resolved to put in it (SPEC.md 96.33.15)"
+                 % bx.text("dos_path", 32))
+        print("doscon: ...and DOS.O88 is refused by its extension, with the "
+              "box and the machine untouched")
 
         # --- 8: FULL SCREEN, and Esc back out of it (SPEC.md 96.33.5) -------
         # The assertion is TEXT VRAM's own bytes, read out of the guest at the
@@ -399,7 +421,6 @@ def main():
         # cell IS the cell in VRAM, so the renderer is a move and not a
         # translation (70.8.7). A screenshot could not tell that from a
         # translation that happened to work.
-        want = [r for r in bx.live()][-6:]
         ui.menu_pick("Program", "Full Screen")
         time.sleep(2.0)
         if not bx.b("dos_fsxup"):
@@ -440,6 +461,66 @@ def main():
         print("doscon: full screen is the buffer cell for cell over %d live "
               "rows, and row 24 says how to get out" % len(got))
 
+        # --- 8b: ...AND A PROGRAM TYPED IN IT RUNS, AND GIVES IT BACK -------
+        # Reported from the field on CGA: launching a program from the full
+        # screen "switched the gfx mode into weird flashing coloured glyphs
+        # and never showed prince". Two halves of one defect (SPEC.md
+        # 96.33.16), and this asserts both:
+        #
+        #   the program NEVER RAN, because dos_con_prog posts a wake and the
+        #   UI task cannot dispatch one while it is inside dos_fsx_con's own
+        #   poll loop. Measured before the fix: [dos_state] = DST_READY and
+        #   [dos_inbr] = 0, unchanged twelve seconds after Enter;
+        #
+        #   ...and the GLYPHS, which are the repaint that followed it - a
+        #   kernel drawing slot laying 1bpp or 4bpp pixel rows into a
+        #   framebuffer that is character/attribute pairs now (SPEC.md 53.1).
+        #
+        # The assertion is the three-state sequence and not a screenshot,
+        # because a screenshot of a text screen cannot say which renderer
+        # wrote it: fullscreen -> the program's OWN bracket -> fullscreen
+        # again, which is [dos_fsxup] 1, 0, 1 with [dos_inbr] 0, 1, 0.
+        m.type_text("%s:\n" % other)                   # DOSHELLO.COM is there
+        time.sleep(1.0)
+        m.type_text("%s\n" % BARE)
+        for _ in range(40):
+            time.sleep(0.5)
+            if bx.b("dos_inbr"):
+                break
+        else:
+            fail("%s never started from the FULL SCREEN console: state=%d, "
+                 "[dos_inbr]=0. The wake dos_con_prog posts cannot be "
+                 "dispatched while the UI task is inside the bracket, so the "
+                 "bracket has to come down first (SPEC.md 96.33.16)"
+                 % (BARE, bx.b("dos_state")))
+        if bx.b("dos_fsxup"):
+            fail("the console's bracket is STILL up with the program's own "
+                 "bracket inside it - they are two brackets and the first "
+                 "ends before the second starts (SPEC.md 96.33.16)")
+        for _ in range(120):
+            if any("READY" in r for r in (m.screen() or [])):
+                break
+            time.sleep(0.25)
+        else:
+            fail("%s.COM never reached READY inside its own bracket, launched "
+                 "from the full screen" % BARE)
+        m.type_text("x")
+        for _ in range(40):
+            time.sleep(0.5)
+            if not bx.b("dos_inbr") and bx.b("dos_fsxup"):
+                break
+        else:
+            fail("the full-screen console did not come back after %s.COM: "
+                 "[dos_fsxup]=%d [dos_inbr]=%d. dos_run's exit re-enters it "
+                 "(SPEC.md 96.33.16)"
+                 % (BARE, bx.b("dos_fsxup"), bx.b("dos_inbr")))
+        rows = [r for r in (m.screen() or []) if r.strip()]
+        if not any("exit code 042" in r for r in rows):
+            fail("the box's exit line is not on the full screen it came back "
+                 "to: %r" % rows[-4:])
+        print("doscon: ...and a program typed at the full screen runs in its "
+              "OWN bracket and hands the screen back")
+
         m.key("Escape")
         time.sleep(2.0)
         if bx.b("dos_fsxup"):
@@ -447,10 +528,11 @@ def main():
                  "It is OURS only while the console has the screen - a running "
                  "program's Esc is the program's (SPEC.md 96.33.5)")
         rows = bx.live()
-        if rows[-1] != want[-1]:
-            fail("the window came back showing %r where it went in on %r"
-                 % (rows[-1], want[-1]))
-        print("doscon: ...and Esc comes back to the window on the same line")
+        if not rows[-1].startswith("%s:" % other) or not rows[-1].endswith(">"):
+            fail("the window came back showing %r, and the console was left "
+                 "standing at a %s: prompt" % (rows[-1], other))
+        print("doscon: ...and Esc comes back to the window on the prompt the "
+              "console was left at, %r" % rows[-1])
 
     print("doscon: ok")
 

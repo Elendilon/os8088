@@ -761,6 +761,12 @@ dos_run:
                                     ; is the worst shape a refusal can have
                                     ; (SPEC.md 47): the state was right and the
                                     ; screen was a lie
+    call dos_fsx_back               ; ...AND BACK INTO THE FULL SCREEN if that
+                                    ; is where the command was typed (SPEC.md
+                                    ; 96.33.16). Here, on the one path every
+                                    ; launch AND every refusal reaches, and
+                                    ; after dos_repaint so the window under it
+                                    ; is right when the bracket next comes down
     pop es
     pop di
     pop si
@@ -4490,7 +4496,7 @@ dos_path_take:
     je .no                          ; a path ending in a separator names a
                                     ; FOLDER and this box runs programs
     or di, di
-    jz .commit                      ; no separator: [dos_dir] stands
+    jz .here                        ; no separator: the folder we STAND in
     mov si, bx                      ; --- the directory part, into dos_pbuf ---
     mov cx, di
     mov di, dos_pbuf
@@ -4518,6 +4524,21 @@ dos_path_take:
 .back:
     mov [dos_vol], al
     jmp short .no
+.here:
+    ; **THE FOLDER WE STAND IN IS [dos_curdir], NOT [dos_dir]** (SPEC.md
+    ; 96.33.13).  This arm left [dos_dir] alone, which is right for the door it
+    ; was written for - the Run button on a box that has never moved - and
+    ; wrong the moment the CONSOLE exists: `CD` goes through dos_cd_go, which
+    ; writes [dos_curdir] and nothing else, so from the second directory onward
+    ; every bare name resolved against the LAUNCH folder.  `CD SBEEPS` then
+    ; `sb` looked in the volume root and answered "Bad command or file name"
+    ; about a file DIR had just listed.
+    ;
+    ; The two are genuinely different (96.6.1): [dos_dir] is where the package
+    ; was launched from and survives a program's own chdir, and [dos_curdir] is
+    ; where the box is now.
+    mov dx, [dos_curdir]
+    mov [dos_dir], dx
 .commit:
     mov al, [dos_tvol]
     mov [dos_vol], al
@@ -12295,6 +12316,9 @@ dos_fh_fill:
     DBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
     DBSS DOS_B_FSXUP,   1           ; the console has the WHOLE screen (96.33.5),
                                     ; so no kernel drawing slot may be called
+    DBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
+                                    ; bracket comes down for the program and
+                                    ; goes back up after it (SPEC.md 96.33.16)
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
     DBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
@@ -12528,6 +12552,7 @@ dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP
+dos_fsxgo   equ os88_image_end + DOS_B_FSXGO
 dsh_exec    equ os88_image_end + DOS_B_SHEXEC
 dos_cmdx    equ os88_image_end + DOS_B_CMDX
 dos_cmdn    equ os88_image_end + DOS_B_CMDN

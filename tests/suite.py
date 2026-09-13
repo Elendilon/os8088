@@ -2858,10 +2858,17 @@ SOAK = [
         "band, which no prompt could reach before (dosh.inc was `AH=4Bh`'s "
         "alone since 96.30); DIR lists the folder, being the one verb that "
         "table was missing (96.33.4); CD moves and THE PROMPT FOLLOWS, which "
-        "is what says $P$G is recomposed rather than held; a PROGRAM runs by "
-        "having its name typed and the path box ends up holding it; and a name "
-        "that is neither answers DOS's own `Bad command or file name` rather "
-        "than `It could not be read.` about a file the user never had. IT "
+        "is what says $P$G is recomposed rather than held; a FILE THAT IS NOT "
+        "A PROGRAM is refused by its EXTENSION (96.33.15); and a name that is "
+        "neither answers DOS's own `Bad command or file name` rather "
+        "than `It could not be read.` about a file the user never had. **STEP "
+        "6 IS THE WEDGE'S GUARD AND IT FAILS BY HANGING**: it types DOS.O88, "
+        "the box's own package in the folder it was launched from, and before "
+        "96.33.15 the box RAN it - 30KB of OP_ header and org-0 code entered "
+        "at PSP:0100, after which the machine does not come back, the bracket "
+        "up and the gfx lock held. The refusal it used to get was the wrong "
+        "one: [dos_dir] was the volume ROOT (96.33.13), so the file was simply "
+        "not there. IT "
         "READS THE BUFFER AND NOT THE GLASS - con_scr is 2,000 cells of "
         "character-and-attribute and every assertion above is about CHARACTERS "
         "- with ONE picture check, that the band is BLACK WITH LIT PIXELS IN "
@@ -2873,9 +2880,17 @@ SOAK = [
         "because that is the whole claim the design makes: con_scr's cell IS "
         "the cell in VRAM, so the renderer is a MOVE and not a translation "
         "(70.8.7), CELL FOR CELL over all 2,000 - and Esc comes back to the "
-        "window on the line it left, "
+        "window on the prompt the console was left at, "
         "which is the fence that keeps the key OURS only while the console has "
-        "the screen. AND STEP 5b IS THE DRIVE CHANGE (96.33.6): a bare `B:` is "
+        "the screen. STEP 8b IS A LAUNCH FROM INSIDE IT (96.33.16), reported "
+        "from the field on CGA as `weird flashing coloured glyphs and never "
+        "showed prince`: the wake dos_con_prog posts cannot be dispatched "
+        "while the UI task is inside dos_fsx_con's own poll loop, so the "
+        "program NEVER RAN, and the repaint that followed laid pixel rows into "
+        "a framebuffer that is character cells now. The assertion is the "
+        "three-state sequence and not a screenshot - [dos_fsxup]/[dos_inbr] "
+        "1/0 -> 0/1 -> 1/0 - because a screenshot of a text screen cannot say "
+        "which renderer wrote it. AND STEP 5b IS THE DRIVE CHANGE (96.33.6): a bare `B:` is "
         "COMMAND.COM's and not a verb, which this box answered `Bad command "
         "or file name` until it was reported - a drive letter falls through a "
         "table that has no row for it - and `Z:` must be refused AND must not "
@@ -2886,7 +2901,7 @@ SOAK = [
         "to type the bare name of, and every package on an apps disk is a "
         "`.O88`.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
-    Row("dosdirsw", "soak", py("tests/dosdirsw.py"), 200.0,
+    Row("dosdirsw", "soak", py("tests/dosdirsw.py"), 260.0,
         "DIR's SWITCHES, AND THE PAUSE THAT MAY NOT BLOCK (SPEC.md 96.33.9). "
         "dsh_c_dir took a path and nothing else, so every switch was read as "
         "part of the file name; reported from the field as \"dir doesn't have "
@@ -2913,7 +2928,7 @@ SOAK = [
         "because /P can only be tested against a directory with more VISIBLE "
         "entries than a page and no shipped floppy has one - the system disk's "
         "root holds 21 entries and DIR shows FIVE, sixteen being hidden or "
-        "system, which DOS does not list and neither do we.",
+        "system, which DOS does not list and neither do we. **AND STEP 5 IS 96.33.13**: `CD BIN` then a bare name must resolve to B:\\BIN\\NAME.COM, not to the volume root. `CD` moves [dos_curdir] and dos_path_take's no-separator arm left [dos_dir] - the LAUNCH folder - so from the second directory onward every bare name looked in the first one, and the failure arrives as a read error about a file DIR has just listed.",
         needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
     Row("dosconcga", "soak", py("tests/dosconcga.py"), 120.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "

@@ -421,7 +421,34 @@ dos_con_prog:
                                     ; spell it the way DOS does
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and dos_wake runs it, exactly as the
-    mov bx, [dos_win]               ; Run button's dos_go does
+                                    ; Run button's dos_go does
+    ; --- AND THE REPAINT IS THE PATH BOX'S (SPEC.md 96.33.14) ---------------
+    ; This was dos_swap, which is a full ground FILL and then a full PAINT -
+    ; two whole-window passes, which is what a PAGE CHANGE costs and is right
+    ; for one (96.20.1). A launch from the console is not a page change when
+    ; the box is already on the main page: what changed is this box's text and
+    ; one line of the band, and the band has its own painter.
+    cmp byte [dos_fsxup], 0
+    je .wind                        ; **THE CONSOLE HAS THE SCREEN** (SPEC.md
+    mov byte [dos_fsxgo], 1         ; 96.33.16): the wake just posted cannot be
+    clc                             ; dispatched until this task leaves the
+    ret                             ; bracket, and the repaint below would put
+                                    ; pixel rows into a framebuffer that is
+                                    ; character cells now. So neither happens
+                                    ; here - the byte brings the bracket down
+                                    ; through dos_fsx_keys, and what is on the
+                                    ; screen is already this line, echoed
+.wind:
+    mov bx, [dos_win]
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .turn                       ; a setup page really is being replaced
+    call dos_bar_rects              ; ...otherwise just the control whose text
+    mov si, dos_pln                 ; moved. os88line draws its own ground, so
+    call os88line_draw              ; 13.14.6 is satisfied without a fill
+    call dos_con_draw
+    clc
+    ret
+.turn:
     call dos_swap
     clc
     ret
@@ -448,9 +475,15 @@ dos_con_prog:
 ; this box has no PATH: what is searched is the current directory, which is
 ; where somebody who typed a bare name is standing.
 ;
-; A NAME THAT ALREADY CARRIES A DOT IS LEFT ALONE, whether or not it exists -
-; DOS does not search on `FOO.` or `FOO.DAT` either, and a typed extension is
-; the user saying which file they mean.
+; A NAME THAT ALREADY CARRIES A DOT IS NOT SEARCHED ON - DOS does not probe
+; `FOO.` or `FOO.DAT` either, and a typed extension is the user saying which
+; file they mean - BUT IT IS STILL CHECKED (SPEC.md 96.33.15). COMMAND.COM's
+; rule has two halves and this routine had one: no extension is a search, and
+; an extension MUST be `.COM`, `.EXE` or `.BAT` or the answer is `Bad command
+; or file name`. Left alone, `DOS.O88` typed in the folder the box was launched
+; from loaded 30KB of package image as a `.COM` and the machine never came
+; back. There is no `.BAT` here for the reason above - no batch interpreter -
+; and refusing one by name beats entering it.
 ;
 ; **IT HANDS THE NAME BACK RATHER THAN REWRITING THE LINE.** Appending four
 ; characters in place would have DI overtake the SI still walking the tail -
@@ -475,10 +508,21 @@ dos_con_ext:
     or al, al
     jz .nodot
     cmp al, '.'
-    je .out                         ; it named one: not ours to change
-    inc di
+    je .dotted                      ; it named one: not ours to CHANGE, and
+    inc di                          ; still ours to check (SPEC.md 96.33.15)
     jmp short .dot
-.nodot:
+.dotted:
+    push si                         ; **THE ARGUMENT TAIL** - SI is this
+    mov si, dos_c_com               ; routine's second output and the literals
+    call .isext                     ; want the register. DI is AT the dot and
+    jnc .dok                        ; both strings carry theirs, so the compare
+    mov si, dos_c_exe               ; starts on it
+    call .isext
+.dok:
+    pop si                          ; ...and `pop` writes no flag, so the CF
+    jnc .out                        ; the compare answered rides through
+    jmp short .no                   ; `FOO.DAT` is not a program, whether or
+.nodot:                             ; not it is a file
     push si                         ; the tail, across the two probes
     mov di, dos_c_com
     call .try
@@ -495,6 +539,37 @@ dos_con_ext:
     pop si
 .no:
     stc
+    ret
+
+; --- .isext - DI = at the dot, SI = a '.XXX',0 literal; CF=0 = they match ---
+; Case-insensitive on the typed side, and the TERMINATOR is compared too, so
+; `.COMX` is not `.COM` (SPEC.md 96.33.15). Preserves SI and DI.
+.isext:
+    push si
+    push di
+.x:
+    mov al, [si]
+    push ax
+    mov al, [di]
+    call dos_upc
+    mov ah, al
+    pop ax
+    cmp al, ah
+    jne .xno
+    or al, al
+    jz .xyes                        ; both ended together: a match
+    inc si
+    inc di
+    jmp short .x
+.xno:
+    pop di
+    pop si
+    stc
+    ret
+.xyes:
+    pop di
+    pop si
+    clc
     ret
 
 ; --- .try - DI = an extension; CF=0 = dsh_a1 + it is a file in this folder ---
@@ -703,6 +778,10 @@ dos_fsx:
     test ax, 1 << FSXM_TEXT80       ; the DISPLAY's own kind (SPEC.md 53.7.1),
     jz .out                         ; which osapi_video cannot answer for a
     mov [con_tkind], dl             ; window that is not on the primary
+    mov byte [dos_fsxgo], 0         ; a FRESH bracket owes no launch (96.33.16):
+                                    ; a leaked 1 would otherwise quit it on its
+                                    ; first keystroke, so this makes a leak cost
+                                    ; a full screen not coming back instead
     mov byte [dos_fsxup], 1         ; ...BEFORE the bracket, so nothing between
     mov ax, dos_fsx_con             ; here and the mode set can reach a drawing
     mov bx, si                      ; slot either
@@ -781,7 +860,9 @@ dos_fsx_keys:
     cmp al, 27
     je .quit
     call dos_con_key                ; THE SAME HANDLER, and it draws nothing:
-    jmp short .next                 ; [dos_fsxup] stands dos_con_draw down and
+    cmp byte [dos_fsxgo], 0         ; [dos_fsxup] stands dos_con_draw down and
+    jne .quit                       ; ...and a LAUNCH ends the bracket here
+    jmp short .next                 ; (SPEC.md 96.33.16), exactly as Esc does
                                     ; the marks it leaves are what dos_fsx_owed
                                     ; spends. One prompt, one line editor, two
                                     ; screens
@@ -792,6 +873,27 @@ dos_fsx_keys:
 .quit:
     pop ax
     stc
+    ret
+
+; --- dos_fsx_back - back into the full screen after a program typed in it ----
+; in:  the gfx lock NOT held (dos_run's own exit); out: nothing, all preserved
+;
+; SPEC.md 96.33.16. It goes through SPEC.md 96.2's protocol, because fsx_run
+; requires the lock and dos_run released it two lines up: lock, run, unlock.
+; It is NOT recursion - a launch typed into the RE-ENTERED bracket posts a
+; wake, and a wake is dispatched by the event loop after this whole chain has
+; unwound.
+dos_fsx_back:
+    cmp byte [dos_fsxgo], 0
+    je .out
+    push si
+    mov byte [dos_fsxgo], 0         ; spent BEFORE the bracket, so a launch
+    call OSAPI_GFX_LOCK             ; typed inside it arms a fresh one
+    mov si, [dos_win]
+    call dos_fsx
+    call OSAPI_GFX_UNLOCK
+    pop si
+.out:
     ret
 
 ; --- dos_fsx_owed - the scroll, then the rows the bitmap names, then the pen -
