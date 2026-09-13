@@ -47525,6 +47525,17 @@ A window **below** the raised one that the strip damaged is untouched by any
 of this: it is marked, drawn, and then covered by the whole draw that follows
 — which is what the z-order already meant.
 
+**And it moved a repaint defect, which was not the point and is worth
+recording.** `tests/dispmcfs.py` — the multi-display Mode X round trip — was
+rated over the one commit that introduces this, ten runs a side:
+`02e323e` before it is **BAD, 10/10 failed**, and `9b7ba91` after it is
+**INTERMITTENT, 2/10**. The row is not about window raising at all; what it
+catches is a patch of desktop under the system menu that does not always come
+back (docs/plans/HANDOFF-SOAK-FINDINGS.md G6), and removing a surplus whole-window
+repaint from the same pass evidently removes most of the chances to hit it.
+**The causal story is not established and is not claimed** — the rates are,
+and the residual 2/10 is a real defect that still wants fixing.
+
 ### 30.2 A tile's context menu — right-click to Close
 
 A right-press on a tile drops a one-item `menu_popup` (§12.4), `Close`, and

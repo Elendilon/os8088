@@ -1815,3 +1815,62 @@ that differs run to run is not the same experiment twice.
 Left red deliberately rather than guessed at: the row is about the compactor's
 descending pass, it is reproducible, and it is cheaper to bisect once than to
 reason about from the map.
+
+## G6. `dispmcfs` was failing **10/10** and nobody knew — the desktop under the system MENU does not come back
+
+`dispmcfs` fails on `VGA is stale after the round trip`. It was investigated
+because it appeared in a scoped soak beside a `kernel/wm.inc` change, and the
+result was the reverse of what it looked like — which is the whole reason this
+row is written down rather than fixed in passing.
+
+**The rates, `os88bisect.py sample dispmcfs -n 10` over one commit:**
+
+| commit | rate |
+|---|---|
+| `02e323e` — before SPEC.md 30.3.4's `[wm_dmg_mine]` | **BAD, 10/10 failed** |
+| `9b7ba91` — after it | INTERMITTENT, **2/10** |
+
+So it was failing EVERY TIME, on a commit nobody had associated with it, and
+the change under suspicion took it from always to sometimes. `classify` had
+already refused to bisect it — *"INTERMITTENT AT HEAD 1/5. A rate is not a
+side"* — which is what stopped a wrong attribution: a single A/B run would
+have said `dispmcfs` passes without the change, and one before it (below) did.
+
+**What it actually is, and the box says it.** The row reported a COUNT and no
+place, so every reading of it was a guess; it reports a bounding box now, and
+a failing run reads **240 differing pixels in (24,45)..(63,56), 40x12**.
+
+- Rendered from a passing capture, that region is **pure 50% desktop dither** —
+  no icon, no glyph, nothing.
+- A 50% dither has 240 lit pixels in a 480-pixel box, and the VGA's lit total
+  falls 186458 -> 186214, a loss of 244. **The box went BLACK**: every lit
+  pixel lost and none gained. The extra 4 is the menu bar's clock, which the
+  comparison skips and the total does not.
+- `dispcp.open_panel` drops the system menu at `SYS_X, SYS_Y = 12, 8`, and the
+  rectangle sits squarely inside that dropdown. So the desktop under a menu
+  that has posted and unposted does not always come back.
+
+**IT IS THE ROW'S CONTROL THAT IS WRONG, NOT THE THING IT TESTS.** The fourth
+capture — "after a forced repaint", taken by opening and closing the Control
+Panel — is the reference the third is compared against, and it is the one
+holding the black patch. The three captures before it agree with each other
+(VGA lit 186456, 186463, 186458) and the fourth agrees with none of them. The
+row's own comment anticipates exactly this: *"if it still differs, the first
+capture is the odd one and the assertion is measuring the wrong thing."*
+
+**Left red deliberately.** The row is right to fail — there really is a patch
+of desktop missing — and relaxing the assertion would hide a repaint defect to
+make a test green. What it is NOT is a Mode X round-trip defect, which is what
+its name and its message both say, so anyone reading `VGA is stale after the
+round trip` is being pointed at the wrong half of the run.
+
+**The trap that cost two wrong conclusions here**, and it is not the row's:
+
+1. `git stash push kernel/wm.inc` on a file that is already COMMITTED stashes
+   nothing, silently. The "A/B without the change" then runs WITH it. It
+   passed, which read as proof — and at a 20% rate one pass is proof of
+   nothing anyway.
+2. The count alone fits several suspects equally well. ~180-240 lit pixels is
+   also arrow-sized, the parked pointer at (300,300) is on the VGA and in both
+   captures, and that hypothesis survived until the box put the pixels 276
+   columns away from it.
