@@ -122179,6 +122179,70 @@ The failure this prevents is the worst kind the box has: not an error message,
 not a wrong answer, but a machine that stops responding — and reachable by
 typing the name of any file in the folder you are standing in.
 
+###### 96.33.15.1 …and it refused EVERY extension, because `pop ax` undid the bank
+
+The check above shipped with one instruction too many and refused the whole
+dotted arm: `PRINCE.EXE`, `DOSARGS.COM`, every legitimate name a user types
+with the extension on it, answered `Bad command or file name`.
+
+```
+    mov al, [si]                ; the literal's character
+    push ax
+    mov al, [di]                ; the typed one
+    call dos_upc
+    mov ah, al                  ; ...banked, and then
+    pop ax                      ; ...UNBANKED, because AH came back with AL
+    cmp al, ah                  ; so this compares the literal against
+                                ; whatever AH held at the push
+```
+
+`dos_upc` answers in `AL` and touches nothing else, so the literal had to be
+put somewhere the call could not reach. `AH` is that place and the bank was
+written — one instruction before the `pop ax` that restores both halves of the
+register it was written into. The compare then read a byte no one had set, the
+first character never matched, and `.isext` answered *not this extension* for
+both literals, every time. It is **five instructions now instead of seven** and
+the ordering is what makes it correct rather than the comment: the typed
+character is upper-cased FIRST, because that is the operation with a call in
+it, and the literal is loaded after it into the register the call has finished
+with.
+
+**The reason it shipped is the test, and the lesson is docs/WRITING-TESTS.md's
+§1 rather than the register.** `tests/doscon.py` step 8b asserts that `DOS.O88`
+is refused — which a check that refuses EVERYTHING passes. The rule has two
+halves and the row asserted one: a negative case on its own cannot tell a
+working check from a check that is stuck saying no. `tests/dosext.py` is the
+pair, and it runs the same program under four spellings — bare, with the
+extension, with arguments, and with the extension AND arguments — so the
+acceptance is asserted as loudly as the refusal.
+
+**What it also fixes, for nothing, is a FULLY QUALIFIED name at the prompt.**
+`B:\BIN\FOO.COM /M` carries a dot, so it took the dotted arm and was refused
+there; past the fix `dos_con_ext` hands the name to `dos_path_take`, which is
+the path box's own parser and resolves a drive, a walk and a file without this
+routine learning anything about paths. What is still refused is the same name
+with the extension left OFF — `B:\BIN\FOO /M` — because the `.COM`/`.EXE`
+search is `dsh_nth` over the CURRENT directory and a path is not a pattern it
+can match. That one is open (§96.33.15.2).
+
+###### 96.33.15.2 What the console still will not take
+
+Two spellings DOS 3.3 accepts and this box does not, both measured against
+`DOSARGS.COM` on the gate disk:
+
+- **`FOO/M` — a switch with no space in front of it.** `dsh_word` is
+  whitespace-delimited, so the token is `FOO/M`, no extension is found and the
+  answer is `Bad command or file name`. COMMAND.COM splits the command name at
+  the switch character, which is why `DIR/W` works there and not here. It is
+  the VERB scan as well as the program name, so `DIR/W` and `PRINCE/F` fail the
+  same way.
+- **`B:\BIN\FOO /M` — a path with no extension.** The `.COM`/`.EXE` search
+  walks the current directory by ordinal (§96.33.7), and a name with a
+  separator in it is not an 8.3 pattern that walk can match.
+
+Both are deliberate for now rather than unnoticed, and both are listed here so
+the next reader does not have to re-derive which spellings were measured.
+
 ##### 96.33.16 A launch from the FULL SCREEN ends the console's bracket first
 
 Reported from the field: *"on CGA, launching prince from the full-screen

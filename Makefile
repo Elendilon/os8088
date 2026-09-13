@@ -5005,8 +5005,17 @@ $(BUILD)/pathtest360.img: $(BUILD)/pathtest.o88 tools/os88disk.py
 $(BUILD)/DOSARGS.COM: tests/dosargs/args.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dosargs/args.asm
 
-$(BUILD)/dosargs360.img: $(BUILD)/DOSARGS.COM tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 BIN:$(BUILD)/DOSARGS.COM
+# **THE SAME PROGRAM UNDER A SECOND NAME**, and it is the gate's negative
+# control rather than a spare copy: SPEC.md 96.33.15 refuses an extension that
+# is not .COM or .EXE, and a refusal is only about the EXTENSION if the file is
+# really there and would really run. tests/dosext.py types both names, and the
+# bytes behind them are identical.
+$(BUILD)/DOSARGS.DAT: $(BUILD)/DOSARGS.COM | $(BUILD)
+	cp $< $@
+
+$(BUILD)/dosargs360.img: $(BUILD)/DOSARGS.COM $(BUILD)/DOSARGS.DAT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 BIN:$(BUILD)/DOSARGS.COM \
+	        BIN:$(BUILD)/DOSARGS.DAT
 
 # --- the shortcut gate's disk (SPEC.md 96.21) --------------------------------
 # A SCRATCH image, because the row WRITES to it: Save Shortcut puts a .LNK on

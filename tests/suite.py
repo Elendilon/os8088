@@ -3097,6 +3097,29 @@ SOAK = [
         "pictures. VERIFIED RED both ways with the caroff taken back out: "
         "backspaced 16 pixels at two cells, moved 6 at one.",
         needs=("marty",), serial=True),
+    Row("dosext", "soak", py("tests/dosext.py"), 170.0,
+        "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
+        "COMMAND.COM's rule has two halves - no extension is a search, an "
+        "extension must be one it can execute - and dos_con_ext shipped with a "
+        "check that answered NO to both: `mov ah, al` banked the literal one "
+        "instruction before the `pop ax` that restored the register it was "
+        "banked into, so the compare read a byte nobody had set and EVERY "
+        "dotted name on the machine came back `Bad command or file name` - "
+        "PRINCE.EXE, DOSARGS.COM, a fully qualified B:\\BIN\\FOO.COM. THE "
+        "REASON IT SHIPPED IS THE ROW AND NOT THE REGISTER: doscon step 8b "
+        "asserts that DOS.O88 is REFUSED, which a check stuck saying no passes "
+        "perfectly, so this one asserts the acceptance as loudly as the "
+        "refusal. The negative control is the sharp part - BIN/DOSARGS.DAT is "
+        "a BYTE-FOR-BYTE COPY of BIN/DOSARGS.COM, so its refusal cannot be "
+        "about the file being missing or not being a program: the same bytes "
+        "run under one name and are refused under the other, and the only "
+        "difference is three characters. Six spellings in one boot - bare, "
+        "with the extension, with arguments, with both, fully qualified, and "
+        "the .DAT - and the ones that run must report the exact argument text. "
+        "VERIFIED RED with the pop put back: three of the six, all three "
+        "dotted ones, while the search and the refusal stayed green.",
+        needs=("marty",), serial=True,
+        wants=("build/dosargs360.img",)),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "

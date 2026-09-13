@@ -549,16 +549,22 @@ dos_con_ext:
 ; --- .isext - DI = at the dot, SI = a '.XXX',0 literal; CF=0 = they match ---
 ; Case-insensitive on the typed side, and the TERMINATOR is compared too, so
 ; `.COMX` is not `.COM` (SPEC.md 96.33.15). Preserves SI and DI.
+;
+; **THE TYPED CHARACTER IS UPPER-CASED FIRST, AND THAT ORDER IS THE FIX**
+; (96.33.15.1). It was the literal first, banked into AH across the call and
+; then restored out of existence by the `pop ax` that brought AL back - so the
+; compare read a byte nobody had set, the first character never matched, and
+; every dotted name on the machine answered `Bad command or file name`.
+; dos_upc answers in AL and touches nothing else, so the literal goes into the
+; register the call has already finished with rather than across it.
 .isext:
     push si
     push di
 .x:
-    mov al, [si]
-    push ax
     mov al, [di]
     call dos_upc
-    mov ah, al
-    pop ax
+    mov ah, al                  ; AH = the typed character, upper-cased
+    mov al, [si]                ; ...and the literal's, AFTER the call
     cmp al, ah
     jne .xno
     or al, al
