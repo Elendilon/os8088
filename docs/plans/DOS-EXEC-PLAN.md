@@ -969,7 +969,7 @@ what three of these rows got wrong.
 | 2 | **BUILT.** `.EXE` loader — MZ header, relocations, `minalloc`/`maxalloc`. Directory functions, find-first/next, create/replace/append writes, `INT 33h` mouse. | **0** | **+2.7 KB** (image 3,134 → 5,878; 5,321 compressed on disk) |
 | 3 | **BUILT, all four.** `4Bh` EXEC (SPEC.md 96.14), XMS via the `OSAPI_XMEM_*` slots (96.15), `INT 12h`/BDA (already done in wave 1: the BDA's memory word is written at bracket entry, and the ROM's `int 12h` reads it), and **the drivers out of the way** — which came out a KERNEL slot rather than package code, `OSAPI_DRV_SUSPEND` (96.17, 51.11), and is the only row in the whole plan that spent a kernel byte. §15.5 below is what it cost and what the refusal got wrong. | **209 `.text` + 5 `.bss` + 1 API cell** | **+2.9 KB** |
 | 4 | **BUILT.** Packet driver over `ETHER.DRV` (SPEC.md 96.23), validated with mTCP's own `PKTTOOL` and `PING`. **Not the package-only row this table claimed**: §9.4's two premises were both false and §15.7 is what it cost. | **4 `.text`** + 3 driver verbs | **+1.2 KB** (image 13,074 → 14,292; 1,060 compressed) |
-| 5 | **Write-at-offset file handles** (§6.3) — on a published kernel seek/write-at trio if that API happens, on read-modify-rewrite if it does not. Ordered here rather than "deferred" because Tank Attack wants it too. | 0 or ~400 | +1–2 KB |
+| 5 | **BUILT.** The create/append write path landed first (§15.8–§15.10, `INSTALL.EXE` runs to completion); **write-at-offset followed** as `OSAPI_FILE_WRITE_AT` (SPEC.md 18.4.7) with `3Dh` modes 1/2 honoured over it (96.11.6). The row's own estimate of "0 or ~400" kernel bytes was the right shape and high: **15 resident**, because the chain walk and the window were both already the right shape. Tank Attack can have it too. | **14 `.text` + 1 `.bss`** (+279 `.cold`) | **+176 bytes** |
 | 6 | **Windowed text mode** (§10). **THE CAPTURE HALF IS BUILT** (SPEC.md 96.34): a program's last text screen becomes the console's buffer at teardown, and the console is seeded onto the program's screen on the way in, so the two are one continuous session. It cost **+245 bytes of image and ZERO bss**, because `con_scr` IS text VRAM's layout — the answer to "where does the text live" was that it already lives there. **The FULL windowed half is deferred behind §14**: output arriving in the band *as it runs*, with the bracket never taking the screen, turns on refusing a `B8000` writer into full screen, and that decision reads differently once `kern_dos` exists. | **0** | **+245 bytes** (image 28,659 → 28,904) |
 | 7 | **BUILT.** A command interpreter in that window — and it came out an INPUT, an OUTPUT and a PROMPT with **no verb of its own** (SPEC.md 96.33), because `dosh.inc` was already the interpreter and §96.30 said so when it was written. `apps/os88con.inc` is the screen, extracted from Telnet (§70.8.12); `apps/dos/dosc.inc` is the prompt; `DIR` is the one verb the table was missing (§96.33.4). | **0** | **+3.9 KB image, +6.7 KB bss** (image 23,889 → 27,751, bss 4,367 → 11,186; 23,115 compressed on disk) |
 | — | *deferred, needs its own design* | | |
@@ -1469,14 +1469,21 @@ dispatch rather than against memory.
 - ~~**`AH=43h` attributes**~~ — **BUILT** (`.getattr`).
 - **`45h`/`46h` dup** — not built, and still not wanted by anything measured.
 - **FCB functions** — already deferred in §11 and still deferred.
-- **`3Dh` modes 1 and 2** open a handle whose writes refuse anywhere but the
-  end (SPEC.md §96.11.2), so a program that seeks back and rewrites is
-  refused. **This is the one still-open item that is likely to stop a real
-  program next**, and it is a kernel question rather than package code: it
-  wants the seek/write-at trio §6.3 argues for on its own merits. Note that
-  §22.24 and §22.25 did NOT answer it — `OSAPI_FILE_COPY` and
-  `OSAPI_FILE_MOVE` move whole files and say nothing about writing inside
-  one.
+- ~~**`3Dh` modes 1 and 2**~~ — **BUILT** (SPEC.md 18.4.7, 96.11.6). It was
+  carried here as *"the one still-open item likely to stop a real program
+  next"* and as a kernel question, and both were right: `OSAPI_FILE_WRITE_AT`
+  is the slot, and it came in at **15 bytes of the 64KB segment window** (an
+  8-byte cell, a 6-byte thunk and one `.bss` byte) with the body cold.
+  **The seam is what made it small, and it is worth knowing for the next one
+  of these**: `dsk_read_chain` is direction-agnostic — its run coalescing,
+  corruption tests, progress widget and resume point are all about the CHAIN,
+  and the only read-specific instruction in it is one `call` inside `.flush`
+  — while `disk_read_x` and `disk_write_x` differ by one stored byte and then
+  share `dsk_xfer`. On the package side `dos_fh_fill` already positions the
+  window cluster-aligned over the handle's position, so an in-place write is
+  `dos_fh_rdloop` with the copy reversed and the read-modify-write is free.
+  §22.24 and §22.25 did NOT answer it, as this entry said — whole files say
+  nothing about writing inside one.
 
 ### 15.5 Wave 3, and the row that turned out to be a door rather than code
 

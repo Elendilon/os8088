@@ -28939,6 +28939,80 @@ and it was **wrong for the one caller that can legitimately make a system
 file**, which is §19.6.1's — so `OSAPI_FILE_APPEND_SYS` is the other half of
 that fence and §18.4.4.1 is why it had to exist.
 
+### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
+
+`OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
+write half by name and by whole file, so **a program that seeks back and
+rewrites had nothing to call**. This is that half, and it is deliberately the
+*narrow* one: it overwrites bytes a file already owns and **never changes the
+file's size**.
+
+That single restriction is what makes it cheap. No cluster is allocated, no
+FAT sector is written, no directory entry is touched and there is nothing to
+roll back — the whole operation is *find the entry, check it, walk to the
+offset, write*. Growing a file stays `OSAPI_FILE_APPEND`'s job, where the
+commit order in §18.4 already lives.
+
+| in | |
+|---|---|
+| `SI` | a NUL 8.3 name in the current directory |
+| `ES:BX` | the bytes |
+| `CX` | how many — a multiple of **512**, at least 512 |
+| `DX:AX` | the byte offset — a multiple of the volume's **cluster** |
+
+Out `CF=0` with `AX=0`, or `CF=1` with `AX = FERR_*`.
+
+**The two granularities differ on purpose and neither is arbitrary.** The
+OFFSET is a cluster multiple because that is what makes the walk exact —
+`offset / cluster_bytes` clusters to skip and no partial-cluster arithmetic
+anywhere, which is `READ_AT`'s own rule and the same three instructions. The
+COUNT is a *sector* multiple rather than a cluster one because the transfer
+moves whole sectors: a count rounded up would write bytes from **past the
+caller's buffer** into the file, and a read doing the mirror of that only
+touches the caller's own memory. So the read may be asked for a cluster and
+the write may not be asked for a partial sector.
+
+**`offset + count` must be inside what the file has ALLOCATED** — its size
+rounded up to a whole cluster — and not inside its size. A 3,000-byte file on
+an 8KB-cluster volume owns 8,192 bytes of disk, so a 512-byte write at offset
+0 lands wholly inside a cluster the file already has, and the 5,192 bytes
+after it are slack that was already slack. Testing against the SIZE instead
+would refuse every file whose length is not a cluster multiple, which is
+nearly all of them.
+
+The refusals are `READ_AT`'s plus one, and **past the end is an error here
+where it is a normal answer there**: a read past the end answers zero bytes
+because that is how a copy loop terminates, and a write past the end is a
+caller that thinks it can grow a file this way.
+
+- `FERR_NAME` — a bad offset, a bad count, or a span past the allocated end.
+- `FERR_NOENT` — no such file. It must already exist; this cannot create one.
+- `FERR_PROT` — `DSKW_PROT` (read-only, hidden, system, label, directory),
+  the same mask `dskw_append` uses, **and a redirected volume** (§62.9), whose
+  driver surface has `FSV_READAT` and no write-at verb to pair with it.
+
+#### 18.4.7.1 What it cost, and where
+
+**14 bytes of `.text`, 1 of `.bss` and 279 of `.cold`** — measured against the
+tree it landed on, not estimated. The 15 in the 64KB segment window are the
+whole of what it costs `KERN_CODE_MAX`: an 8-byte cell, a 6-byte thunk and
+`[dsk_chwr]`. The body is cold, so the footprint bill is the 294 together and
+it crossed no rung, which is not the same as costing nothing (§1).
+
+It is that small because the machinery was already there twice over and the
+work was finding the seam rather than writing the walk.
+
+`dsk_read_chain` is a run-coalescing walk over a cluster chain with the
+progress widget, the corruption tests and the resume point all in it, and its
+only read-specific instruction is **one `call` inside `.flush`**. So it takes
+a direction byte, `dsk_write_chain` is the wrapper that sets it, and the
+coalescing a write gets is the coalescing a read already had — a contiguous
+span goes out as one `dsk_xfer` either way.
+
+`disk_read_x` and `disk_write_x` make that nearly free at the bottom too: they
+differ by the byte stored in `[dsk_op]` and the read-ahead window
+`disk_write_x` drops, and then share `dsk_xfer` entirely.
+
 #### 18.4.4.1 A system file could be created and never finished
 
 The pairing is what was missing. `OSAPI_FILE_WRITE_SYS` stamps hidden +
@@ -121866,6 +121940,40 @@ This is not a corner on this system. `PKGZ` compresses every package, every
 driver and every data file on a shipped floppy (§20.13.5), so `README.TXT` on
 the system disk is exactly such a file.
 
+#### 96.11.6 …and `3Dh` gets its in-place write back
+
+`OSAPI_FILE_WRITE_AT` (§18.4.7) is the thing §96.11.2 said did not exist, so
+**a handle from `3Dh` with access mode 1 or 2 is writable now** and a program
+that seeks back and rewrites a record works. Mode 0 stays read-only, and 3–7
+is not a DOS access mode at all.
+
+**The window was already the right shape and that is the whole implementation.**
+`dos_fh_fill` puts it over the handle's position, cluster-aligned, and hands
+back the offset into it — that is the READ path's positioner, and an in-place
+write is `dos_fh_rdloop` with the copy reversed. The flush then writes the
+**whole window** back at `[dos_wbase]`.
+
+Three things fall out of that and each is worth naming:
+
+- **The read-modify-write is free.** `WRITE_AT` takes whole sectors, so a short
+  window is rounded up — and the rounded-up tail is *the file's own bytes*,
+  because `dos_fh_fill` read this window out of the file before anything wrote
+  into it. There is no separate read-before-write anywhere.
+- **Only the position moves.** `FH_SIZE` is the file's and an in-place write
+  cannot change it, which is exactly `WRITE_AT`'s own restriction arriving one
+  layer up.
+- **It stops at the end of file and answers the short count.** Growing a file
+  is not something `WRITE_AT` can do, and a short count is what DOS itself
+  answers when the disk fills — so a program that checks its return value
+  learns the truth, and one that does not is no worse off than it would be on a
+  full disk. Reporting the full count would be the silent data loss §96.11.2
+  exists to prevent.
+
+The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
+accumulator that writes then appends, because that file's size really is
+moving and §18.4's commit order is where that belongs. Two handles, two
+models, one window — `FHF_INPLC` is which.
+
 #### 96.11.2 Writes are sequential, and the refusal is the point
 
 `OSAPI_FILE_APPEND` refuses a file whose size is not a whole number of
@@ -121890,9 +121998,10 @@ better than a shim that pretends:
   seeks back and writes is told no. Reporting success there would lose the
   program's data at the *next* flush, silently, which is the failure the
   refusal exists to prevent (§47).
-- **A write to a handle from `3Dh`.** The access mode is not honoured and the
-  handle is read-only whatever it asked for, for the same reason: there is no
-  in-place write to give. The refusal lands at the WRITE, naming the call,
+- **A write to a handle from `3Dh`.** ~~The access mode is not honoured~~ —
+  **§96.11.6 gives it one**, and what is below is what this looked like before
+  `OSAPI_FILE_WRITE_AT` existed. The refusal lands at the WRITE, naming the
+  call,
   rather than at the open naming nothing — a program that opens for update and
   only ever reads then works.
 

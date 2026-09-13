@@ -656,6 +656,34 @@ OSAPI_LZ_LZB equ 1
                                  ; It refuses with FERR_NODISK while a Cut or
                                  ; Copy/Paste is running, as the copy slot
                                  ; does.
+%define OSAPI_FILE_WRITE_AT KERNEL_SEG:0x0588   ; SI = a NUL 8.3 name, ES:BX =
+                                 ; the bytes, CX = how many (a multiple of
+                                 ; 512, >= 512), DX:AX = the byte offset (a
+                                 ; multiple of the volume's CLUSTER); out
+                                 ; CF=0 AX=0, else AX = FERR_*.
+                                 ; OSAPI_FILE_READ_AT's other half, and
+                                 ; deliberately the NARROW one: it overwrites
+                                 ; bytes the file ALREADY OWNS and **never
+                                 ; changes its size** (SPEC.md 18.4.7).
+                                 ; Growing a file is OSAPI_FILE_APPEND's.
+                                 ; **THE TWO GRANULARITIES DIFFER AND NEITHER
+                                 ; IS ARBITRARY**: the offset is a cluster
+                                 ; multiple so the walk is exact, and the
+                                 ; count is a SECTOR multiple because the
+                                 ; transfer moves whole sectors - a count
+                                 ; rounded up would write bytes from past YOUR
+                                 ; buffer into the file.
+                                 ; The span is checked against what the file
+                                 ; has ALLOCATED (its size rounded up to a
+                                 ; cluster), not against its size: a
+                                 ; 3,000-byte file on an 8KB-cluster volume
+                                 ; takes a 512-byte write at offset 0.
+                                 ; FERR_NAME = a bad offset, a bad count, or
+                                 ; a span past the allocated end. FERR_NOENT =
+                                 ; no such file; this cannot create one.
+                                 ; FERR_PROT = read-only/hidden/system/label/
+                                 ; directory, or a REDIRECTED volume, whose
+                                 ; driver surface has no write-at verb.
 %define OSAPI_FILE_DFREE    KERNEL_SEG:0x0140   ; out CF=0, DX:AX = free bytes, BX =
                                  ; SECTORS per cluster.
                                  ;

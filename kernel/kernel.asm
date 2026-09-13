@@ -4103,7 +4103,18 @@ apic_wm_destroy:
                                   ;          the re-link declines: copy then
                                   ;          delete instead. X, because the
                                   ;          name is package data
-osapi_table_end:                  ; 0x0588
+    OSAPI_NCELL dskw_write_at     ; 0x0588  N: SI = name, ES:BX = bytes, CX =
+                                  ;         count (a 512 multiple), DX:AX =
+                                  ;         the byte offset (a CLUSTER
+                                  ;         multiple). OVERWRITE bytes the file
+                                  ;         already owns (SPEC.md 18.4.7) - it
+                                  ;         never changes the size, which is
+                                  ;         what makes it 26 resident bytes:
+                                  ;         no cluster allocated, no FAT
+                                  ;         written, no entry touched and
+                                  ;         nothing to roll back. Growing one
+                                  ;         is OSAPI_FILE_APPEND's still
+osapi_table_end:                  ; 0x0590
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4111,8 +4122,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 175 * 8
-%error "os8088 API jump table must be exactly 175 8-byte slots"
+%if OSAPI_TABLE_LEN != 176 * 8
+%error "os8088 API jump table must be exactly 176 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6820,6 +6831,8 @@ dskw_rmany:           call COLD_SEG:dwf_dskw_rmany
 dskw_read_at:         call COLD_SEG:dwf_dskw_read_at
                     ret
 dskw_append:          call COLD_SEG:dwf_dskw_append
+                    ret
+dskw_write_at:        call COLD_SEG:dwf_dskw_write_at
                     ret
 %ifndef KERN_SMALL
 %endif

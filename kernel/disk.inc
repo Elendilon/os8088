@@ -6219,6 +6219,25 @@ dsk_dotdot_x:
 ; remain is corruption (the FAT spec keeps bad/EOC marks clear of valid
 ; cluster numbers under correct type detection).
 ; -----------------------------------------------------------------------------
+; --- dsk_write_chain - dsk_read_chain, the other way (SPEC.md 18.4.7) -------
+; in/out: dsk_read_chain's exactly, with ES:BX the SOURCE of the bytes.
+;
+; ONE BYTE OF STATE AND ONE BRANCH, because the walk below is already
+; direction-agnostic: the run coalescing, the corruption tests, the progress
+; widget and [dsk_chain_end] are all about the CHAIN, and the only
+; read-specific instruction in it is the `call` inside `.flush`. A write gets
+; the coalescing a read already had - a contiguous span goes out as one
+; dsk_xfer either way.
+;
+; IT DOES NOT ALLOCATE. The chain has to be long enough already; a link past
+; the end is the same corruption a read would report. Growing a file is
+; dskw_append's, where §18.4's commit order lives.
+dsk_write_chain_x:
+    mov byte [dsk_chwr], 1
+    call dsk_read_chain_x
+    mov byte [dsk_chwr], 0      ; ...and the flags ride through: `mov` leaves
+    ret                         ; them alone, so CF is still the walk's answer
+
 dsk_read_chain_x:
     push ax
     push bx
@@ -6332,10 +6351,16 @@ dsk_read_chain_x:
     mov al, [dsk_cherr]
     stc
     ret
-.flush:                         ; read the pending run (DI = LBA, CX = len)
-    push ax                     ; to ES:BX; advance BX; CF through. AX is
-    mov ax, di                  ; the caller's take count - preserved
+.flush:                         ; move the pending run (DI = LBA, CX = len)
+    push ax                     ; to or from ES:BX; advance BX; CF through. AX
+    mov ax, di                  ; is the caller's take count - preserved
+    cmp byte [dsk_chwr], 0      ; THE ONE DIRECTION-SPECIFIC INSTRUCTION in
+    jne .flwr                   ; this whole routine (SPEC.md 18.4.7.1)
     call disk_read_x              ; in: AX=LBA, CX=count, ES:BX
+    jmp short .flgot
+.flwr:
+    call disk_write_x
+.flgot:
     jc .flret
     mov ax, cx                  ; BX += len*512 (disk_read preserves BX;
     push cx                     ; only its internal pointer advanced)
@@ -7538,6 +7563,10 @@ dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
                                 ; so a chunked read can resume (SPEC.md 18)
 dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
                                 ; register-restore epilogue
+dsk_chwr:     resb 1            ; ...and which way it is moving (SPEC.md
+                                ; 18.4.7.1). Zero is a READ, which is what
+                                ; .bss already is and what every existing
+                                ; caller means
 
 ; --- the directory walker's scratch (SPEC.md 19.2) --------------------------
 ; Safe in .bss: dsk_dirw_start writes all three before any walk reads them.
