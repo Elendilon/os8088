@@ -27,18 +27,28 @@
 
 # --- region ------------------------------------------------------------------
 
-region apps/scribe/scribe.asm    # STAMPS ITS OWN SEGMENT INTO ITS .OVL MODULE.
-                                 # Inherited from a program written before the
-                                 # parts standard (20.12), so the overlay is a
-                                 # hand-rolled sidecar: sc_ovload writes CS into
-                                 # the module's sc_pkgseg and sc_ovbind fills a
-                                 # vector table with it. A bare `ret` proc would
-                                 # leave both naming the old base. RETIRED BY
-                                 # moving the overlay onto parts so no segment
-                                 # is stamped at all - the owner's call, and its
-                                 # own phase. A relocation proc that re-runs
-                                 # sc_ovbind and re-stamps sc_pkgseg is the
-                                 # stopgap if that phase slips.
+region apps/scribe/scribe.asm    # STAMPS ITS OWN SEGMENT INTO MEMORY THE
+                                 # KERNEL DOES NOT KNOW ABOUT - the only
+                                 # package in the tree that does. SCRIBE.OVL
+                                 # is a pre-parts sidecar that keeps DS = OUR
+                                 # SEGMENT, so sc_ovload writes our base into
+                                 # the module's sc_pkgseg AND into six
+                                 # sc_v_* vectors, both meant to last the
+                                 # session. A bare `ret` proc leaves the
+                                 # module setting DS from a stale word and
+                                 # far-calling home into whatever the
+                                 # compactor packed over us.
+                                 # RETIRED BY docs/plans/SCRIBE-OVL-PLAN.md,
+                                 # option B: move both stamps from sc_ovload
+                                 # to sc_ovcall, so nothing stamped outlives
+                                 # ONE ENTRY and no proc is needed at all.
+                                 # It is six stores and one on a path that is
+                                 # already a document open - every verb is
+                                 # file-format or picture work behind an
+                                 # int 13h. The plan also costs the stopgap
+                                 # (a proc, ~15 bytes) and the parts
+                                 # migration, which is a PACKAGING fix and
+                                 # does NOT retire this line on its own.
 
 region apps/skies/csload.asm     # NOTHING TO DECLARE: it is the launch image
                                  # only. It reads the parts, hands off through
@@ -89,4 +99,8 @@ worker apps/frotz/frotz.asm      # A PARK POINT INSIDE THE INTERPRETER'S OWN
                                  # that sentence is load-bearing.
 
 worker apps/scribe/scribe.asm    # its region cannot move at all yet - see the
-                                 # `region` line above. Retired with it.
+                                 # `region` line above and
+                                 # docs/plans/SCRIBE-OVL-PLAN.md. Retired with
+                                 # it: sc_worker is an ordinary poll and the
+                                 # declaration is one line once the region
+                                 # can move.
