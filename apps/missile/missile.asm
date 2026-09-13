@@ -7010,8 +7010,10 @@ mc_line:
     push cx
     push dx
     push di
-    mov di, mc_lwk
-    call gfxe_wline
+    push bp                         ; gfxe_wstep holds the error term here,
+    mov di, mc_lwk                  ; as mc_tr_step and mc_dsc_run already
+    call gfxe_wline                 ; bank it - and mc_line promises every
+    pop bp                          ; register up through mc_rbody
     pop di
     pop dx
     pop cx

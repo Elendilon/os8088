@@ -378,7 +378,10 @@ at_paint:
     je .splash                      ; the document is where we are going. Draw
     mov bx, [at_win]                ; NOTHING - the kernel white-filled this
     call OSAPI_WM_WAKE              ; content already, and the splash here is
-    jmp short .done                 ; the front door on the glass for exactly
+    jc .splash                      ; (a ring too full to take it is a restore
+    jmp short .done                 ; nothing will finish: the splash, and
+                                    ; [at_fsowed] stays set for the next paint)
+                                    ; the front door on the glass for exactly
                                     ; the moment this avoids. The re-entry is
                                     ; the wake handler's: it runs without the
                                     ; lock and may take it, where a paint proc

@@ -7533,6 +7533,16 @@ pt_lnblit:
     push di
     push bp
     push es
+    cmp byte [pt_1bpp], 0           ; THE DOCUMENT, not the adapter (SPEC.md
+    je .slow                        ; 42.23): the band below reads the canvas
+                                    ; as ONE BIT a pixel, and [pt_mono] - the
+                                    ; gate that brought us here - is the
+                                    ; DISPLAY's. A colour file opened on a mono
+                                    ; screen (pt_fmtpick) is a PACKED canvas
+                                    ; under [pt_mono] = 1, and this band would
+                                    ; blit its nibbles as bits: four times too
+                                    ; wide and canvas-derived noise. pt_blit's
+                                    ; own fast path gates on this byte
     mov ax, [pt_lsx0]
     mov bx, [pt_wx]
     cmp ax, bx

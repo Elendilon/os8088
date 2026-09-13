@@ -159,9 +159,9 @@ tk_r_setup:
 %endif
     mov byte [tk_tmpl], 1
 %ifdef APP_SMALL
-    or ax, ax                       ; the bottom rung is the shadow alone, and
-    jnz .tmok                       ; the pre-85.3.5 game with it
-    mov byte [tk_tmpl], 0
+    cmp ax, TKT_POOLMIN             ; the bottom rung is the shadow alone (384
+    jae .tmok                       ; bytes of pool, not 0 - TKT_POOLMIN says
+    mov byte [tk_tmpl], 0           ; why), and the pre-85.3.5 game with it
 .tmok:
 %endif
     mov word [tk_page0], 0

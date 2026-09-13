@@ -543,10 +543,15 @@ at_onwake:
     mov byte [at_fsowed], 0         ; cleared FIRST: at_fs_enter can be refused
     call OSAPI_GFX_LOCK             ; (another window owns the screen) and a
     call at_fs_enter                ; flag left set would post a wake from the
-    call OSAPI_GFX_UNLOCK           ; next paint for ever. A refusal leaves
-    ret                             ; [at_fs] at 0 and the splash is then the
-                                    ; honest picture - at_argload's own rule,
-                                    ; one caller along
+    cmp byte [at_fs], 0             ; next paint for ever. A refusal leaves
+    jne .fsdone                     ; [at_fs] at 0 - and here, unlike
+    mov bx, [at_win]                ; at_argload one caller along, NO splash is
+    call OSAPI_WM_CLIP_SET          ; on the glass: at_paint's .win arm drew
+    jc .fsdone                      ; NOTHING and the kernel white-filled the
+    call at_splash                  ; content, so a refusal has to draw it
+.fsdone:                            ; itself or the window stays a blank card
+    call OSAPI_GFX_UNLOCK           ; (at_abdismiss's own idiom, SPEC.md 11.3)
+    ret
 .arg:
     cmp byte [at_argp], 0           ; not the document's wake, or the document
     je .out                         ; is already open
