@@ -4026,7 +4026,31 @@ apic_wm_destroy:
                                   ;          fullscreen first, and neither zoom
                                   ;          is drawn (SPEC.md 11.99.5).
                                   ;          Preserves every register
-osapi_table_end:                  ; 0x0550
+    OSAPI_XCELL osapi_mem_avail_max ; 0x0550 - X: OSAPI_MEM_AVAIL, plus "AND IF MY
+                                  ;          OWN REGION MOVED TOO" (SPEC.md
+                                  ;          66.4.3). Out AX/BX as the plain
+                                  ;          slot. X because the region to
+                                  ;          excuse is the caller's segment and
+                                  ;          the stub already puts it in ES.
+                                  ;          A MEASUREMENT AND NOT A PROMISE:
+                                  ;          claiming this number refuses,
+                                  ;          because you really are standing in
+                                  ;          your region. Post the slot below
+                                  ;          and claim on the wake, where plain
+                                  ;          OSAPI_MEM_AVAIL has become it
+    OSAPI_XCELL osapi_mem_compact_wake ; 0x0558 - X: "compact everything you
+                                  ;          can, INCLUDING MY OWN REGION, then
+                                  ;          wake me". BX = a window of yours,
+                                  ;          AL = the shed rank the pass is to
+                                  ;          respect. Out CF=0 posted - return
+                                  ;          from your callback and do the
+                                  ;          claiming in your wake handler;
+                                  ;          CF=1 refused (BX is not yours, or
+                                  ;          one of your posts is standing).
+                                  ;          OSAPI_PKG_REHOME's shape: it only
+                                  ;          RECORDS, because you are executing
+                                  ;          in the region it is going to move
+osapi_table_end:                  ; 0x0560
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4034,8 +4058,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 168 * 8
-%error "os8088 API jump table must be exactly 168 8-byte slots"
+%if OSAPI_TABLE_LEN != 170 * 8
+%error "os8088 API jump table must be exactly 170 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6519,6 +6543,8 @@ cw_wm_content:          call wm_content
                     retf
 cw_wm_minsize:          call wm_minsize
                     retf
+cw_wm_wake:             call wm_wake    ; mem_cpq_run's, for the posted
+                    retf                    ; compaction's wake (SPEC.md 66.4.3)
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
                     retf                    ; app_tmr_kinit asks for the snap
                                             ; on every kernel (SPEC.md 11.94)
@@ -6932,6 +6958,10 @@ osapi_mem_free:       call COLD_SEG:mmf_osapi_mem_free
 osapi_mem_movable:    call COLD_SEG:osapi_mem_movable_x
                   ret
 osapi_pkg_rehome:     call COLD_SEG:osapi_pkg_rehome_x
+                  ret
+osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
+                  ret
+osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
                   ret
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret

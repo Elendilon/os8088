@@ -2399,9 +2399,12 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
-    Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
+    Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
-        "66.8).",
+        "66.8). 60s is 42.8 MEASURED after SPEC.md 66.4.3 added the region "
+        "rows, which open PAINT first so heapfrag's own region lands under it "
+        "and closing Paint leaves a hole above it - that is a second package "
+        "launch and a close on top of the suite, and the row was 36.9s before.",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
     Row("xmcheck", "soak", py("tests/xmcheck.py"), 50.0,
