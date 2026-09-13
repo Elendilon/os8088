@@ -11091,7 +11091,8 @@ dos_fh_wiloop:
     jz .idone
     call dos_fh_fill                ; AX = the offset into the window, CX =
     jc .ierr                        ; the bytes of the file that live there
-    jcxz .idone                     ; at the end of file: a short count
+    jcxz .igrow                     ; at the end of file: is there room to GROW
+.iroom:                             ; into what the file already owns?
     cmp cx, bx
     jbe .icopy
     mov cx, bx
@@ -11107,17 +11108,91 @@ dos_fh_wiloop:
     cld                             ; reason: [bp] is the program's own DS
     rep movsb
     pop ds
+    cmp di, [dos_wlen]              ; DI is the window offset PAST the copy, so
+    jbe .inowid                     ; this is max(extent, offset + copied) -
+    mov [dos_wlen], di              ; the growth arm's only way to widen it,
+.inowid:                            ; and a no-op for a write inside the file
     mov di, si                      ; the source pointer, advanced by the copy
     pop si
     pop cx
     mov byte [dos_wdirty], 1
     sub bx, cx
     add dx, cx
-    add [si+FH_POS], cx             ; ...and ONLY the position moves: the size
-    adc word [si+FH_POS+2], 0       ; is the file's and this cannot change it
+    add [si+FH_POS], cx             ; ...and the SIZE only where the write has
+    adc word [si+FH_POS+2], 0       ; passed it, which is the growth arm below
+    push ax                         ; **DX IS THE RUNNING TOTAL** and AX is
+    push dx                         ; about to be the answer: the 32-bit
+    mov ax, [si+FH_POS]             ; compare below needs both, so both are
+    mov dx, [si+FH_POS+2]           ; banked. Measured as a 16-byte write
+    cmp dx, [si+FH_SIZE+2]          ; answering a SHORT count
+    jb .inogrow
+    ja .isetsz
+    cmp ax, [si+FH_SIZE]
+    jbe .inogrow
+.isetsz:
+    mov [si+FH_SIZE], ax
+    mov [si+FH_SIZE+2], dx
+.inogrow:
+    pop dx
+    pop ax
     jmp short .ichunk
 .idone:
     mov ax, dx
+    clc
+    jmp .iout
+; --- ...at the end of file: grow into the cluster the file ALREADY OWNS -----
+; OSAPI_FILE_WRITE_AT reaches the end of what is allocated and no further
+; (SPEC.md 18.4.7.2), which is exactly the point at which the size becomes a
+; cluster multiple - and that is OSAPI_FILE_APPEND's own precondition. So the
+; two compose: this arm fills the last cluster's slack, and everything past it
+; is the append accumulator's ordinary business.
+.igrow:
+    test byte [si+FH_FLAGS], FHF_WHOLE
+    jnz .idone                      ; a COMPRESSED file is the window (96.11.1)
+                                    ; and cannot be grown a byte at a time
+    mov ax, [si+FH_SIZE+2]          ; only at the very END of the file, never
+    cmp ax, [si+FH_POS+2]           ; in a hole: a seek past the end and a
+    jne .idone                      ; write is not an extension, it is a gap
+    mov ax, [si+FH_SIZE]            ; this layer cannot make
+    cmp ax, [si+FH_POS]
+    jne .idone
+
+    ; **AND THE ARITHMETIC IS 16-BIT, WHICH IS NOT A SHORTCUT.** [dos_wbase] is
+    ; the position rounded DOWN to a cluster and the position is the file's
+    ; end, so the end lies inside this very cluster: what the file owns past it
+    ; is the rest of THIS cluster and nothing else. So the allocated end is one
+    ; cluster on, or exactly here - never a 32-bit quantity, and never DX.
+    ;
+    ; DX IS THE RUNNING TOTAL of bytes placed, and the first version of this
+    ; spent it on the high half of an allocated end that could not need one.
+    ; .iappend then added ZERO to what the append took, and a 512-byte write
+    ; across the boundary answered 16 - the count a caller reads as a full disk.
+    sub ax, [dos_wbase]             ; AX = size - base, 0 .. cluster-1
+    jz .iappend                     ; exactly on a cluster boundary: the file
+                                    ; owns nothing past its end, and its size
+                                    ; is already the multiple APPEND wants
+    mov ax, [dos_cbytes]            ; ...otherwise the rest of this cluster,
+    sub ax, [dos_wlen]              ; less what the window already holds
+    jbe .iappend
+    mov cx, ax                      ; CX = the room, which .iroom clamps to
+    mov ax, [dos_wlen]              ; what is actually left to write - so the
+    jmp .iroom                      ; window's extent is grown by the COPY and
+                                    ; not by the room offered
+.iappend:                           ; the last cluster is FULL, so the size is
+                                    ; a cluster multiple and the append path's
+                                    ; own precondition holds (18.4.4)
+    call dos_fh_flush               ; ...the view first: the accumulator wants
+    jc .ierr                        ; an empty window
+    and byte [si+FH_FLAGS], ~FHF_INPLC
+    or byte [si+FH_FLAGS], FHF_MADE ; the file EXISTS, so a flush APPENDS
+    mov word [dos_wlen], 0          ; rather than replacing
+    push dx                         ; the running total, across the accumulator
+    mov cx, bx                      ; what is still to go...
+    mov dx, di                      ; ...from where the copy reached
+    call dos_fh_wrloop              ; AX = what it took (it preserves DX, but
+    pop dx                          ; DX is its INPUT here, so the total rides
+    jc .ierr                        ; on the stack rather than in it)
+    add ax, dx                      ; ...plus what this loop had already placed
     clc
     jmp short .iout
 .ierr:
@@ -11766,13 +11841,14 @@ dos_fh_flush:
     jc .errv
     jmp short .home
 .inplace:
-    add cx, 511                     ; WHOLE SECTORS, because that is what
-    and cx, ~511                    ; OSAPI_FILE_WRITE_AT takes (18.4.7) - and
-                                    ; the rounded-up tail is the FILE'S OWN
-                                    ; bytes, because dos_fh_fill read this
-                                    ; window out of it before anything wrote
-                                    ; into it. The read-modify-write is the
-                                    ; window, and it cost nothing
+                                    ; THE COUNT GOES OVER EXACT and nothing is
+                                    ; rounded here: a window that ends at or
+                                    ; past the file's size is 18.4.7.2's loose
+                                    ; case, so the kernel rounds the TRANSFER
+                                    ; and takes the exact count as the new
+                                    ; size. Rounding it here would move the
+                                    ; size by up to 511 bytes the program
+                                    ; never wrote
     mov ax, [dos_wbase]
     mov dx, [dos_wbase+2]
     call dos_be_wrat
@@ -11867,6 +11943,13 @@ dos_fh_fill:
     jmp .okp
 
 .refill:
+    cmp byte [dos_wdirty], 0        ; **A DIRTY WINDOW GOES OUT FIRST** (SPEC.md
+    je .rfclean                     ; 96.11.6): for a READ the window is a view
+    call dos_fh_flush               ; and never dirty, but an in-place write
+    jc .errp                        ; makes it an accumulator for its own file -
+.rfclean:                           ; and a write that spans two windows would
+                                    ; otherwise have the second refill discard
+                                    ; the first one's bytes
     mov al, [si+FH_VOL]             ; THE VOLUME FIRST, because AX becomes the
     mov [dos_fvvol], al             ; file OFFSET four lines down and AL is its
                                     ; low byte. Reading it later cost a whole

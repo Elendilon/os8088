@@ -222,6 +222,156 @@ start:
     mov dx, msg_inpl
     int 0x21
 
+    ; --- 4c. ...AND A WRITE AT THE END GROWS IT (SPEC.md 96.11.6) -----------
+    ; The other half of a read/write handle, and the one a real DOS program
+    ; leans on: open an existing file, seek to the end, add to it. It must
+    ; take all sixteen bytes, the size must move by exactly sixteen, and they
+    ; must read back - through a fresh handle again.
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    mov ax, 0x3D02
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202                  ; ...to the end of it
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    mov bx, BLK * NBLK + MARK       ; a pattern nothing in the file holds
+    call fill
+    mov ah, 0x40
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .wfail
+    cmp ax, 16
+    jne .eshort                     ; a SHORT count here is the box refusing
+    mov ah, 0x3E                    ; to grow the file
+    mov bx, [handle]
+    int 0x21
+    jc .clfail
+
+    mov ax, 0x3D00
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    cmp ax, BLK * NBLK + 16
+    jne .enogrow
+    or dx, dx
+    jnz .enogrow
+    mov ax, 0x4200
+    mov bx, [handle]
+    xor cx, cx
+    mov dx, BLK * NBLK
+    int 0x21
+    jc .sfail
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .rfail
+    cmp ax, 16
+    jne .vfail2
+    mov cx, 16
+    mov bx, BLK * NBLK + MARK
+    call check
+    jc .vfail
+    mov ah, 0x09
+    mov dx, msg_grew
+    int 0x21
+
+    ; --- 4d. ...ACROSS the slack/append boundary (SPEC.md 18.4.7.2) ---------
+    ; 4c grew a file whose size was a whole number of clusters, so it went
+    ; straight to the append path. This one starts at 20,496 - a size no
+    ; cluster multiple - so the first write lands in the last cluster's SLACK
+    ; through OSAPI_FILE_WRITE_AT, and the second runs out of slack partway
+    ; and has to hand the rest to OSAPI_FILE_APPEND. That hand-over inside one
+    ; AH=40h is the whole composition, and it is what a short count would
+    ; expose.
+    ;
+    ; It asserts BEHAVIOUR and not which arm ran: the size moves by exactly
+    ; what was written and the bytes read back, on a volume of any cluster
+    ; size.
+    mov ax, 0x3D02
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov cx, 2                       ; two blocks, and the SECOND is the one
+    mov word [nleft], 2             ; that runs out of slack
+.gblk:
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    mov [gpos], ax                  ; where this block starts, for the verify
+    mov bx, ax
+    call fill
+    mov ah, 0x40
+    mov bx, [handle]
+    mov cx, BLK
+    mov dx, buf
+    int 0x21
+    jc .wfail
+    cmp ax, BLK
+    jne .eshort                     ; a SHORT count is the hand-over failing
+    dec word [nleft]
+    jnz .gblk
+
+    mov ah, 0x3E
+    mov bx, [handle]
+    int 0x21
+    jc .clfail
+    mov ax, 0x3D00
+    mov dx, fname
+    int 0x21
+    jc .ofail
+    mov [handle], ax
+    mov ax, 0x4202
+    mov bx, [handle]
+    xor cx, cx
+    xor dx, dx
+    int 0x21
+    jc .sfail
+    cmp ax, BLK * NBLK + 16 + BLK * 2
+    jne .enogrow
+    mov ax, 0x4200                  ; ...and the LAST block, which is the one
+    mov bx, [handle]                ; that crossed
+    xor cx, cx
+    mov dx, [gpos]
+    int 0x21
+    jc .sfail
+    mov ah, 0x3F
+    mov bx, [handle]
+    mov cx, 16
+    mov dx, buf
+    int 0x21
+    jc .rfail
+    cmp ax, 16
+    jne .vfail2
+    mov cx, 16
+    mov bx, [gpos]
+    call check
+    jc .vfail
+    mov ah, 0x09
+    mov dx, msg_cross
+    int 0x21
+
     ; --- 5. close, delete, and prove it is gone -----------------------------
     mov ah, 0x3E
     mov bx, [handle]
@@ -239,7 +389,7 @@ start:
     mov ah, 0x09
     mov dx, msg_gone
     int 0x21
-    jmp short .done
+    jmp .done
 
 .cfail:  push ax
          mov ah, 0x09
@@ -268,6 +418,23 @@ start:
 .wrongerr: mov dx, msg_ecode
          jmp short .say
 .grew:   mov dx, msg_egrew
+         jmp short .say
+.eshort: push ax
+         push ax
+         mov ah, 0x09
+         mov dx, msg_eshrt2
+         int 0x21
+         pop ax
+         call put_dec16
+         mov ah, 0x09
+         mov dx, msg_left
+         int 0x21
+         mov ax, [nleft]
+         call put_dec16
+         call put_crlf
+         pop ax
+         jmp .done
+.enogrow: mov dx, msg_enogrow
          jmp short .say
 .vfail2: mov bx, SEEKTO
 .vfail:  push bx
@@ -379,6 +546,8 @@ put_dec16:
     ret
 
 ; -----------------------------------------------------------------------------
+nleft:    dw 0                    ; 4d's block counter...
+gpos:     dw 0                    ; ...and where the block it is writing began
 fname:    db 'DOSTEST.DAT', 0
 handle:   dw 0
 fpos:     dw 0
@@ -390,6 +559,11 @@ msg_read:    db 'READ ','$'
 msg_seek:    db 'SEEK ok',13,10,'$'
 msg_gone:    db 'GONE ok',13,10,'$'
 msg_inpl:    db 'INPLACE ok',13,10,'$'
+msg_grew:    db 'GREW ok',13,10,'$'
+msg_cross:   db 'CROSS ok',13,10,'$'
+msg_left:    db ' blocks left ','$'
+msg_eshrt2:  db 'FAILED - a write at the end took a SHORT count ','$'
+msg_enogrow: db 'FAILED - a write at the end did not move the size',13,10,'$'
 msg_egrew:   db 'FAILED - the in-place write moved the SIZE',13,10,'$'
 msg_ecreate: db 'FAILED at create, code ','$'
 msg_ewrite:  db 'FAILED at write',13,10,'$'

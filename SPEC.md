@@ -28944,8 +28944,9 @@ that fence and §18.4.4.1 is why it had to exist.
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
 write half by name and by whole file, so **a program that seeks back and
 rewrites had nothing to call**. This is that half, and it is deliberately the
-*narrow* one: it overwrites bytes a file already owns and **never changes the
-file's size**.
+*narrow* one: it writes inside the clusters a file already owns, and the only
+thing it ever changes besides the data is the size word — **upward, and never
+past the allocated end** (§18.4.7.2).
 
 That single restriction is what makes it cheap. No cluster is allocated, no
 FAT sector is written, no directory entry is touched and there is nothing to
@@ -28957,7 +28958,7 @@ commit order in §18.4 already lives.
 |---|---|
 | `SI` | a NUL 8.3 name in the current directory |
 | `ES:BX` | the bytes |
-| `CX` | how many — a multiple of **512**, at least 512 |
+| `CX` | how many — at least 1, and a multiple of **512** unless the write reaches the end of the file (§18.4.7.2) |
 | `DX:AX` | the byte offset — a multiple of the volume's **cluster** |
 
 Out `CF=0` with `AX=0`, or `CF=1` with `AX = FERR_*`.
@@ -28980,16 +28981,47 @@ after it are slack that was already slack. Testing against the SIZE instead
 would refuse every file whose length is not a cluster multiple, which is
 nearly all of them.
 
-The refusals are `READ_AT`'s plus one, and **past the end is an error here
-where it is a normal answer there**: a read past the end answers zero bytes
-because that is how a copy loop terminates, and a write past the end is a
-caller that thinks it can grow a file this way.
+The refusals are `READ_AT`'s plus one, and **past the ALLOCATED end is an
+error here where past the SIZE is a normal answer there**: a read past the end
+answers zero bytes because that is how a copy loop terminates, and a write past
+what the file owns is a caller that thinks this can allocate.
 
 - `FERR_NAME` — a bad offset, a bad count, or a span past the allocated end.
+  **Growing the file past what it owns is this**, and it is what tells the
+  caller to reach for `OSAPI_FILE_APPEND` instead.
 - `FERR_NOENT` — no such file. It must already exist; this cannot create one.
 - `FERR_PROT` — `DSKW_PROT` (read-only, hidden, system, label, directory),
   the same mask `dskw_append` uses, **and a redirected volume** (§62.9), whose
   driver surface has `FSV_READAT` and no write-at verb to pair with it.
+
+#### 18.4.7.2 …and it grows a file to the end of what it HAS
+
+`AH=3Dh` needs one thing more than an overwrite: a program that opens an
+existing file, seeks to the end and adds to it. `OSAPI_FILE_APPEND` cannot
+serve that, because its own precondition is that the file's size is a whole
+number of clusters (§18.4.4) — and almost no file's is.
+
+So this slot grows a file **as far as the clusters it already owns**, and no
+further. That is not a compromise between the two, it is what makes them
+compose: once the size reaches the allocated end it IS a cluster multiple, so
+`OSAPI_FILE_APPEND`'s precondition is exactly satisfied and the rest of the
+write is its ordinary business. No cluster is allocated here and no FAT sector
+is written; the only thing the slot ever touches beyond the data is the size
+word, and only upward.
+
+**`offset + count` decides two things and it is one compare.** Call it the END:
+
+- **END below the file's size** — the write is wholly inside. The count must be
+  a multiple of 512 and the transfer does not round, because the bytes past the
+  count are the file's own and the caller did not give them.
+- **END at or past the size** — the count may be anything, and the transfer
+  rounds up to a whole sector. The rounded-up tail lands past the recorded size,
+  on slack inside a cluster the file already owns, so there is nothing there to
+  lose. When END is strictly past the size, the size becomes END.
+
+That is why the DOS box's window never rounds anything itself: the last window
+of a file ends exactly at the size and the first window past it ends past the
+size, and both are the loose case.
 
 #### 18.4.7.1 What it cost, and where
 
@@ -122100,15 +122132,24 @@ Three things fall out of that and each is worth naming:
   window is rounded up — and the rounded-up tail is *the file's own bytes*,
   because `dos_fh_fill` read this window out of the file before anything wrote
   into it. There is no separate read-before-write anywhere.
-- **Only the position moves.** `FH_SIZE` is the file's and an in-place write
-  cannot change it, which is exactly `WRITE_AT`'s own restriction arriving one
-  layer up.
-- **It stops at the end of file and answers the short count.** Growing a file
-  is not something `WRITE_AT` can do, and a short count is what DOS itself
-  answers when the disk fills — so a program that checks its return value
-  learns the truth, and one that does not is no worse off than it would be on a
-  full disk. Reporting the full count would be the silent data loss §96.11.2
-  exists to prevent.
+- **The size moves only where the write passed it.** A rewrite inside the file
+  moves the position alone; an extension moves both, which is `WRITE_AT`'s own
+  rule (§18.4.7.2) arriving one layer up.
+- **A dirty window is flushed before it is refilled.** For a read the window is
+  a view and never dirty; an in-place write makes it an accumulator for its own
+  file, so a write spanning two windows would otherwise have the second refill
+  discard the first one's bytes.
+- **At the end of the file it GROWS one, in two steps that meet exactly.**
+  `WRITE_AT` reaches the end of what the file has allocated and no further
+  (§18.4.7.2) — and that is precisely the point at which the size becomes a
+  cluster multiple, which is `OSAPI_FILE_APPEND`'s own precondition. So the
+  in-place arm fills the last cluster's slack, hands what is left to the append
+  accumulator, and a single `AH=40h` may cross that boundary without the
+  program seeing anything. `FHF_INPLC` comes off the handle when it does, and
+  `FHF_MADE` goes on, because from there the file's size really is moving and
+  §18.4's commit order is where that belongs.
+- **A seek PAST the end and a write is still refused**, and that is a different
+  thing: it is a gap, not an extension, and this layer cannot make one.
 
 The `3Ch` path is **unchanged**: a handle that CREATED its file is still an
 accumulator that writes then appends, because that file's size really is

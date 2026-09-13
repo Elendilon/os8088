@@ -2903,8 +2903,27 @@ dskw_wabody:
     mov ax, [dskw_len]
     test ax, ax
     jz .badarg                  ; nothing to write is a bad argument here, not
-    test ax, 511                ; a no-op: the caller has miscomputed
-    jnz .badarg                 ; ...and whole SECTORS, per the header
+                                ; a no-op: the caller has miscomputed
+
+    add ax, [dwr_off]           ; --- END = offset + count, and it DECIDES ---
+    mov [dwr_end], ax           ; whether the tail may be rounded (18.4.7.2)
+    mov ax, [dwr_off+2]
+    adc ax, 0
+    mov [dwr_end+2], ax
+
+    mov ax, [dskw_raw+DSK_R_SIZE+2]     ; end < size?
+    cmp ax, [dwr_end+2]
+    ja .strict
+    jb .loose
+    mov ax, [dskw_raw+DSK_R_SIZE]
+    cmp ax, [dwr_end]
+    jbe .loose
+.strict:
+    mov ax, [dskw_len]          ; WHOLLY INSIDE THE FILE, so the transfer may
+    test ax, 511                ; not round: the bytes past the count are the
+    jnz .badarg                 ; file's own and the caller did not give them
+.loose:                         ; ...at or past the size, where a rounded tail
+                                ; lands on slack the file already owns
 
     mov ax, [dskw_raw+DSK_R_SIZE]   ; --- clusters the file OWNS -------------
     mov dx, [dskw_raw+DSK_R_SIZE+2]
@@ -2930,7 +2949,10 @@ dskw_wabody:
     add ax, [dwr_take]
     jc .badarg
     cmp ax, [dwr_sz]
-    ja .badarg                  ; past the allocated end: this cannot grow one
+    ja .badarg                  ; past the allocated end: this grows a file to
+                                ; the end of what it HAS and no further, which
+                                ; is what leaves OSAPI_FILE_APPEND's own
+                                ; precondition exactly satisfied (18.4.7.2)
 
     mov ax, [dskw_raw+DSK_R_CLUS]   ; --- walk to the offset's cluster -------
     or ax, ax
@@ -2945,12 +2967,32 @@ dskw_wabody:
     loop .skip
 .atclus:
     mov dx, [dskw_len]          ; --- and write it -----------------------
-    mov cl, 9
-    shr dx, cl                  ; DX = sectors; the count is a multiple of 512
+    mov cl, 9                   ; ceil(count / 512), computed WITHOUT a +511
+    shr dx, cl                  ; that a count near 65,535 would overflow
+    test word [dskw_len], 511
+    jz .nsec
+    inc dx
+.nsec:
     mov bx, [dskw_src]
     mov es, [dskw_seg]
     call dsk_write_chain_x
     jc .ioerr
+
+    mov ax, [dskw_raw+DSK_R_SIZE+2]     ; --- and the SIZE, if it moved ------
+    cmp ax, [dwr_end+2]                 ; (SPEC.md 18.4.7.2). Only ever UP:
+    ja .same                            ; a write inside the file leaves the
+    jb .bigger                          ; entry alone, and this is the one
+    mov ax, [dskw_raw+DSK_R_SIZE]       ; place the slot touches it at all
+    cmp ax, [dwr_end]
+    jae .same
+.bigger:
+    mov ax, [dwr_end]
+    mov [dskw_raw+DSK_R_SIZE], ax
+    mov ax, [dwr_end+2]
+    mov [dskw_raw+DSK_R_SIZE+2], ax
+    call dskw_ent_store         ; the single sector write that makes those
+    jc .out                     ; bytes part of the file (18.4)
+.same:
     call dskw_sync_x
     xor ax, ax
     clc
@@ -5271,6 +5313,9 @@ dwr_sz:       resd 1            ; the file's size, from its directory entry
 dwr_clb:      resw 1            ; bytes per cluster on this volume
 dwr_clus:     resw 1            ; the cluster the walk reached
 dwr_take:     resw 1            ; bytes this call will deliver
+dwr_end:      resd 1            ; dskw_write_at: offset + count (SPEC.md
+                                ; 18.4.7.2), which decides both whether the
+                                ; tail may round and whether the size moves
 
 section .text
 
