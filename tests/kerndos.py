@@ -4,7 +4,7 @@
     python3 tests/kerndos.py
 
 docs/plans/KERN-DOS-PLAN.md §4 assembles the KERNEL'S OWN `disk.inc` and
-`diskw.inc` under a root that is not `kernel.asm`, and §5 says the shim those
+`diskw.inc` under a root that is not `kernel.asm`, and its §5 says the shim those
 two files need is the work nobody can estimate from outside - big enough, and
 the reuse stops paying and the answer is a purpose-written FAT reader instead.
 

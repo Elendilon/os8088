@@ -2,7 +2,7 @@
 ; kerndos/kdgate.inc - wave 3's entry point: mount a floppy and read a file
 ;
 ; **THIS IS A GATE AND NOT kern_dos's REAL ENTRY** (docs/plans/KERN-DOS-PLAN.md
-; §7, which is W5's). It exists because *the shim assembles* and *the shim
+; KERN-DOS-PLAN §7, which is W5's). It exists because *the shim assembles* and *the shim
 ; works* are different claims, and only the second one is worth anything: a
 ; `ret` where a value was expected assembles perfectly and returns garbage.
 ;
