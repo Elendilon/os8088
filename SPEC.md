@@ -83688,15 +83688,27 @@ CF, the site is an entry proc or a spawn that is carrying a CF of its own
 (§20.2), and nothing acts on the answer — a refusal can only mean the region is
 not ours, which cannot happen from inside it.
 
-**Two shapes genuinely cannot take the bare form, and both are registered.** A
-package that has **stamped its own segment** somewhere the kernel does not know
-about — `apps/scribe`, into the vector table of a hand-rolled pre-parts `.ovl`
-module — and a **re-homed** program (§20.12.10), whose loader named its assets
-by absolute segment and whose assets are *inside its own carve*, so they move
-with it: `apps/skies` holds `[cs_artseg]`, `cs_hand`'s `CSH_ART`, nine
-`CSH_WDIR` entries and `CSH_CLB`. For those a bare `ret` is **silent
-corruption** rather than a missed optimisation, and `tests/rehomemove.py` is
-the row that proves the non-trivial proc is what a re-homed program owes.
+**Two shapes genuinely cannot take the bare form.** A package that has
+**stamped its own segment** somewhere the kernel does not know about —
+`apps/scribe`, into the vector table of a hand-rolled pre-parts `.ovl` module —
+and a **re-homed** program (§20.12.10), whose loader named its assets by
+absolute segment and whose assets are *inside its own carve*, so they move with
+it. For those a bare `ret` is **silent corruption** rather than a missed
+optimisation, and `tests/rehomemove.py` is the row that proves the non-trivial
+proc is what a re-homed program owes.
+
+**`apps/skies` is the second shape and it DECLARES** — `cs_reloc`, which adds
+`DX−BX` to `[cs_artseg]` and to `cs_hand`'s own `CSH_ART`. Two things about it
+generalise. **The handoff carries less than it looks like**: `CSH_WDIR`'s nine
+rows are *(sector, packed length)* and `CSH_CLB` is bytes per cluster, so only
+one word of that block is a segment at all — and the three segments the package
+*does* bank are two claims of its own, which a region move does not touch, and
+the kernel's glyph table. **And the zero is a state**: `[cs_artseg]` is 0 when
+the part was refused, every reader tests for it, and a delta added to 0 turns a
+refusal into a wild segment — so a proc guards its zeros rather than assuming
+them away. It is accepted on 1.44MB alone, where 512-byte clusters put the
+program at the carve base; below that `mem_find_own` does not reach it and
+there is nothing to move.
 
 #### 66.6.2 …and past the worker: the package gives its worker back
 

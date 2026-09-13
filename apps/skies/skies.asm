@@ -568,6 +568,19 @@ cs_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [cs_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1) - and it names cs_reloc rather
+    ; than taking the macro's bare `ret`, because this program is RE-HOMED
+    ; and holds a segment that points INSIDE its own carve. cs_reloc says
+    ; which word and why. cs_artload has already run, so the word this
+    ; declares a fix-up for is set by the time the kernel could act on it.
+    ;
+    ; THE DECLARATION IS REFUSED ON THREE GEOMETRIES OF FOUR and that is
+    ; correct: op_claim's head slack is the gap between a part's 512-byte
+    ; file boundary and the cluster boundary a read may start on, so only on
+    ; a 512-byte-cluster volume (1.44MB) do we sit AT the carve's base and
+    ; only then does mem_find_own reach it (tests/rehomemove.py's own
+    ; finding). Below that there is nothing here to move.
+    OS88_REGION_MOVABLE cs_reloc
     mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
     mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
     mov si, cs_setdrops             ; ...AND THE SETTINGS PAGE'S FOUR, off the
@@ -661,6 +674,48 @@ cs_artload:
     mov [cs_artseg], ax
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; cs_reloc - OUR REGION moved (SPEC.md 66.6.1). BX = the base it WAS at,
+;            DX = where it is now. Preserves every register.
+;
+; ALMOST EVERY PACKAGE'S PROC IS A BARE `ret`, and this one is not, for the
+; reason tests/rehome/rhprog.asm's `rp_reloc` is not either: CLEAR SKIES IS A
+; RE-HOMED PROGRAM (20.12.10). csload read the title art into the parts carve
+; and handed us its base BY ABSOLUTE SEGMENT, and that art is INSIDE the carve
+; - which is our region - so it moves with us and the word naming it does not.
+; Nothing else in the machine knows that word exists, so the kernel's
+; mem_region_reloc cannot put it right and a `ret` here would leave the title
+; page blitting out of whatever the compactor packed over the old copy. A
+; compaction does not scrub what it copied FROM, so the failure is a title
+; page that still looks correct until something else is allocated there.
+;
+; ONE WORD PAIR AND NOT FOUR. The handoff block looks like it carries more
+; than it does: CSH_WDIR's nine rows are (sector, packed length) - disk
+; sectors, which cs_wldpick turns into a file offset - and CSH_CLB is this
+; volume's bytes per cluster. Neither is a segment. And the three segments
+; this package DOES bank - [cs_shseg], [cs_wgseg], [cs_gseg] - must be left
+; ALONE: the first two are claims of their own with their own records, which
+; a region move does not touch, and the third is the KERNEL's glyph table.
+;
+; THE ZERO IS A STATE. cs_artload leaves [cs_artseg] = 0 when the part was
+; refused or when no loader ran at all, and every reader tests for it (the
+; title draws lettered and without the aeroplane, 88.10.4's normal path). A
+; delta added to 0 turns that refusal into a wild segment, so it is guarded
+; rather than assumed non-zero.
+; -----------------------------------------------------------------------------
+cs_reloc:
+    push ax
+    cmp word [cs_artseg], 0
+    je .done
+    mov ax, dx
+    sub ax, bx                      ; AX = the delta, in paragraphs
+    add [cs_artseg], ax
+    add [cs_hand + CSH_ART], ax     ; ...and the handoff's own copy. Only
+.done:                              ; cs_artload reads it, and only before the
+    pop ax                          ; window exists, so this is three bytes
+    ret                             ; spent on the block staying TRUE rather
+                                    ; than on a reader that exists today
 
 ; -----------------------------------------------------------------------------
 ; cs_wldpick - put location AL's world in the overlay and make it current

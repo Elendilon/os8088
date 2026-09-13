@@ -134,7 +134,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | **ArtfulType** document + undo/redo arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations. The clip slice left the arena at §46.6.1 - the clipboard is the kernel's claim now |
 | **Fractal** run cache | **MOVABLE** | §66.5.7. `fr_reloc`, one word — every cursor into it is an offset |
 | **ModPlug** module (up to 116KB) | **MOVABLE** | §66.5.8. `mpp_reloc`, 36 words. §56.1's bill: the replayer is an independent copy of Tracker's at *different strides* (`MPS_SZ` 12, `MPM_CHSZ` 40), so a renamed `trk_reloc` walks the tables wrong and yields plausible garbage |
-| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. **41 of the tree's 44 packages declare today** and `tests/unit/t_movable.py` is what keeps it that way (§66.6.1.1): the other three are registered in `tests/movable.txt` with a reason each |
+| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. **42 of the tree's 44 packages declare today** and `tests/unit/t_movable.py` is what keeps it that way (§66.6.1.1): the other three are registered in `tests/movable.txt` with a reason each |
 
 ### Undeclared
 
@@ -214,7 +214,7 @@ holder is unusual: **every word that names it is the KERNEL's**, so its
 relocation proc is very nearly always a `ret` and `OS88_REGION_MOVABLE` emits
 one. What actually decides a region is the *worker*.
 
-**41 of 44 packages declare, and the three that do not are a list rather than a
+**42 of 44 packages declare, and the two that do not are a list rather than a
 shrug** — §66.6.1.1's ratchet, `tests/unit/t_movable.py`, `tests/movable.txt`.
 The table below names the ones with something to say; everything not in it
 declares the bare form and moves on `I_TASK == 0xFF`.
@@ -239,7 +239,7 @@ declares the bare form and moves on `I_TASK == 0xFF`.
 | **WEAVE** | | **MOVABLE, NOT restartable** | its worker trampolines into `WEAVE.WSM`, so its restartability is that module's and a WEAVE-SPEC decision rather than a declaration |
 | C64, LOOM, APPLE2, CWORD, RUNCPM | | **MOVABLE** | C packages that hire no worker; `crt0.asm` declares for them |
 | **SCRIBE** | 42.8KB | **PINNED — registered** | stamps its own segment into a hand-rolled pre-parts `.ovl` module (`sc_pkgseg`, and `sc_ovbind`'s vector table), so a bare `ret` leaves both naming the old base. The fix is to stop stamping segments — move the overlay onto parts (§20.12) — which is its own phase |
-| **SKIES** | 44.2KB | **PINNED — registered** | a re-homed program (§20.12.10) whose loader named the art and the world streams by **absolute segment**, and they live *inside its own carve*, so they move with the region. Needs a proc that adds `DX-BX` to `[cs_artseg]`, `cs_hand`'s `CSH_ART`, its nine `CSH_WDIR` entries and `CSH_CLB`, skipping the zeros a refused part leaves. Only ever *accepted* on 1.44MB, where 512-byte clusters put the program at the carve base — which is what makes the bare form silent corruption rather than a no-op. `tests/rehomemove.py` is the shape |
+| **SKIES** | 44.2KB | **MOVABLE (`cs_reloc`)** | the tree's only re-homed program (§20.12.10) and the second package after Sheet to need a proc that is not a `ret`. csload named the title art by **absolute segment** and the art is *inside its own carve*, so it moves with the region and the word naming it does not — `cs_reloc` adds `DX-BX` to `[cs_artseg]` and to `cs_hand`'s `CSH_ART`, guarding the zero a refused part leaves. **It is ONE word pair and not four**: `CSH_WDIR`'s nine rows are (sector, packed length) and `CSH_CLB` is bytes per cluster, so neither is a segment, and `[cs_shseg]`/`[cs_wgseg]`/`[cs_gseg]` are two claims of their own and the kernel's glyph table. Accepted on 1.44MB alone, where 512-byte clusters put the program at the carve base; read back off the machine at `MC_RLOC=0167`, which is `cs_reloc`'s own offset. `tests/rehomemove.py` is the shape and `rp_reloc` the model |
 | **CSLOAD** | | **nothing to declare** | Skies' launch image only: it reads the parts, hands off through `OSAPI_PKG_REHOME` and its region is freed inside that call — and until then it *is* `[ld_base]`, which `mem_frameless` pins anyway |
 
 `tests/regapp.py` reads `MC_RLOC` and `inst_restart` back out of the kernel for

@@ -97,12 +97,54 @@ def strip(text):
     return "\n".join(out)
 
 
+INCLUDE = re.compile(r'^\s*%include\s+"([^"]+)"', re.M)
+
+
+def sources_of(main, pkgdir):
+    """Every file `main` pulls in, by walking %include the way nasm does.
+
+    THE UNIT IS THE INCLUDE GRAPH AND NOT THE DIRECTORY, which matters in
+    exactly one place and matters completely there: apps/skies/ holds TWO
+    packages - csload.asm, the launch image, and skies.asm, the program it
+    re-homes into - so a directory walk hands each of them the OTHER's
+    declaration. That read csload as declaring the moment skies did, which is
+    a gate reporting on the wrong file.
+
+    Search order is nasm's -I list for this tree: beside the including file,
+    then apps/<pkg>/, then apps/. build/ is skipped - a generated include is
+    not a source and may not exist on a tree that has not built.
+    """
+    seen, todo = set(), [main]
+    while todo:
+        cur = todo.pop()
+        if cur in seen or ("!" + cur) in seen:
+            continue
+        # THE SHARED SDK IS NOT THIS PACKAGE'S SOURCE, and keeping it out is
+        # not tidiness: apps/os88api.inc DEFINES OS88_WORKER_RESTARTABLE, and
+        # a macro body contains the very `call OSAPI_TASK_RESTARTABLE` this
+        # row matches on - so counting it made EVERY package that includes
+        # the SDK report as declaring, and every exemption read as stale. The
+        # graph is walked through those files and they are not collected.
+        if cur.startswith(pkgdir.replace("\\", "/") + "/"):
+            seen.add(cur)
+        else:
+            seen.add("!" + cur)         # walked, not owned
+        for inc in INCLUDE.findall(strip(read(cur))):
+            for cand in (os.path.join(os.path.dirname(cur), inc),
+                         os.path.join(pkgdir, inc),
+                         os.path.join("apps", inc)):
+                cand = os.path.normpath(cand).replace("\\", "/")
+                if os.path.isfile(os.path.join(ROOT, cand)):
+                    todo.append(cand)
+                    break
+    return sorted(f for f in seen if not f.startswith("!"))
+
+
 def packages():
     """{package .asm path: [every source file that package owns]}.
 
     A package's declaration need not be in its main file - thewire's worker is
-    declared in wrhttp.inc - so the unit is the DIRECTORY, which is also what
-    the tree already means by a package.
+    declared in wrhttp.inc - so the unit is what the main file INCLUDES.
     """
     out = {}
     appdir = os.path.join(ROOT, "apps")
@@ -110,19 +152,32 @@ def packages():
         d = os.path.join(appdir, name)
         if not os.path.isdir(d) or name == "cc":        # cc/ is the SDK
             continue
-        own = []
         for base, _dirs, files in os.walk(d):
             if os.path.basename(base) == "hosttest":     # host-side stubs
                 continue
             for f in sorted(files):
-                if f.endswith((".asm", ".inc", ".c", ".h")):
-                    own.append(os.path.relpath(os.path.join(base, f), ROOT))
-        for p in own:
-            if not p.endswith(".asm"):
-                continue
-            body = read(p)
-            if HEADER.search(strip(body)) or CRT0INC.search(strip(body)):
-                out[p.replace("\\", "/")] = own
+                if not f.endswith(".asm"):
+                    continue
+                rel = os.path.relpath(os.path.join(base, f),
+                                      ROOT).replace("\\", "/")
+                body = strip(read(rel))
+                if not (HEADER.search(body) or CRT0INC.search(body)):
+                    continue
+                own = sources_of(rel, os.path.join("apps", name))
+                if CRT0INC.search(body):
+                    # A C PACKAGE'S CODE IS NOT IN ITS INCLUDE GRAPH. smlrcc
+                    # compiles the directory's .c into build/<pkg>.gen.asm and
+                    # THAT is what the .asm %includes - a generated file this
+                    # walker deliberately does not follow. So weave's worker,
+                    # hired in wcanv.c, is invisible to the graph alone, and
+                    # the row went from "needs a worker line" to "that line is
+                    # stale" without one byte of weave changing.
+                    own += [os.path.relpath(os.path.join(b, f),
+                                            ROOT).replace("\\", "/")
+                            for b, _d, fs in os.walk(d)
+                            if os.path.basename(b) != "hosttest"
+                            for f in sorted(fs) if f.endswith((".c", ".h"))]
+                out[rel] = sorted(set(own))
     return out
 
 

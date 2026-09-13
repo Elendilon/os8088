@@ -40,27 +40,6 @@ region apps/scribe/scribe.asm    # STAMPS ITS OWN SEGMENT INTO ITS .OVL MODULE.
                                  # sc_ovbind and re-stamps sc_pkgseg is the
                                  # stopgap if that phase slips.
 
-region apps/skies/skies.asm      # A RE-HOMED PROGRAM WITH CARVE-RELATIVE WORDS
-                                 # (20.12.10, and tests/rehomemove.py is the row
-                                 # about exactly this). csload hands it the art
-                                 # and the world streams BY ABSOLUTE SEGMENT and
-                                 # those live inside its own carve, so they move
-                                 # with the region: [cs_artseg], cs_hand's
-                                 # CSH_ART, its nine CSH_WDIR entries and
-                                 # CSH_CLB all need the delta added. A bare
-                                 # `ret` is silent corruption here rather than a
-                                 # missed optimisation - and only on 1.44MB,
-                                 # where 512-byte clusters put the program AT
-                                 # the carve base and the declaration is
-                                 # accepted at all. RETIRED BY a cs_reloc that
-                                 # adds DX-BX to those words, skipping the zeros
-                                 # (a refused part reads 0 and must stay 0),
-                                 # verified the way rehomemove.py verifies
-                                 # rhprog's: read the asset back THROUGH the
-                                 # fixed vector, because a compaction does not
-                                 # scrub what it copied from and a word the proc
-                                 # never fixed still reads the old copy.
-
 region apps/skies/csload.asm     # NOTHING TO DECLARE: it is the launch image
                                  # only. It reads the parts, hands off through
                                  # OSAPI_PKG_REHOME and its region is freed
