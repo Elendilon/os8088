@@ -335,73 +335,84 @@ cannot be checked.
 Option 2 from the report — *"take it off as the running program, compact, and
 let it claim on its next turn"* — plus §3. Three pieces.
 
-### 5.1 The WHAT-IF flag — RECOMMENDED, ~50-60 bytes in approximate form
+### 5.1 ACCURATE reporting costs ZERO bytes — read it on the WAKE, not before
 
-An earlier revision of this document refused the flag on two grounds and **both
-were wrong**. It said the package does not need the prediction because it reads
-its number on the wake — which answers what the package does *after* it has
-decided, not how it decides — and it priced the flag at the ~150-250 bytes of
-an exact combined plan, which is not the only way to answer it.
+This section has now been wrong twice and the third answer is the cheapest as
+well as the right one. It said the what-if flag was unnecessary (it is not —
+§5.1.2), then that a cheap approximate one was good enough (it is not —
+§5.1.1). What is true is that **the accurate number is already free, and it is
+free because the compaction has actually happened by the time anyone reads it.**
 
-**The decision is real, and it is not "how much can I have".** Three shapes of
-caller, and only the third needs anything new:
+> Post the request, and in the wake handler read plain `OSAPI_MEM_AVAIL`. The
+> heap is packed both ways by then, so the ascending-only plan sees the real
+> single run. **No what-if, no combined plan, no new kernel arithmetic.**
 
-| the package's question | how it decides | needs the flag? |
-|---|---|---|
-| *"as much as I can get"* (the DOS runner) | always post | no |
-| *"at least N"* | plain `mem_avail` against its own N | no |
-| *"more, but only if the gain is worth it"* | the difference between the two answers | **yes** |
+Measured over eleven layouts — the one `tools/heapmap.py` read off a running
+machine and ten built to break it — **the wake reading is exact in all eleven**
+(`tools/heapwhatif.py`, right-hand column). It cannot be otherwise: after the
+pass every movable claim is at its fill point, so the ascending plan finds no
+movers and records the middle gap as a barrier gap, which *is* the answer.
 
-The third is legitimate and the reason is not the callback boundary — it is
-that **a compaction is not free to the rest of the machine.** It moves other
-packages' claims and fires every holder's relocation proc, and §3.4 prices the
-copies at 2.86 ms a KB — up to a few hundred milliseconds on a busy heap. A
-package ought to be able to ask whether that is worth disturbing everyone for,
-and *"is the answer bigger if I move too?"* is exactly that question.
+**And that is what makes the reported failure impossible.** A package that
+needs 400KB posts, wakes, reads the true figure, and claims it or refuses on a
+number that is right. It never denies the user a mod that would have fitted,
+because it never decides on an estimate.
 
-**And it does not need an exact combined plan.** Three `mem_cp_plan` calls —
-all of them arithmetic over 32 records, no copies, microseconds — answer it:
+#### 5.1.1 Why the cheap what-if is not good enough — and it fails where it matters
 
-```
-what-if  =  A  +  (D_free - D_pinned)
-```
+`A + (D_free - D_pinned)` is exact far more often than not, and the layouts it
+gets wrong are exactly the ones this feature exists for:
 
-where `A` is the ascending plan (plain `mem_avail`'s own answer), `D_pinned`
-the descending plan as things stand, and `D_free` the descending plan with the
-caller's own region treated as frameless. The kernel side is a word naming the
-segment to excuse, tested in `mem_frameless` ahead of `mem_in_nest`.
+| layout | plain | what-if | true |
+|---|---:|---:|---:|
+| the measured 8K hole above the region | 494.5 | **502.5** | 502.5 |
+| **`[free][me][another package]`, adjacent** | 474.5 | **482.5** | 482.5 |
+| `[free][me][another]`, the other one pinned | 474.5 | **474.5** | 474.5 |
+| region already at the ceiling | 502.5 | **502.5** | 502.5 |
+| a pinned driver between region and roof | 494.5 | **494.5** | 494.5 |
+| a big pinned cache on the floor | 316.0 | **324.0** | 324.0 |
+| `[free][me][gap][another movable]` | 458.5 | 466.5 | **482.5** — low by 16 |
+| `[free][me][gap][gap][two movable]` | 426.5 | 434.5 | **482.5** — low by 48 |
 
-**Measured against the true both-passes figure over seven layouts** (the
-measured one of §2.1 and six synthetic, `heapmap`'s own model of both passes as
-the reference):
+**A package immediately below the caller is fine; a GAP below the caller is
+not**, and the error grows with the number of gaps. The reason is that neither
+term can see them: `A` is the ascending plan, where every top-down claim is a
+barrier, so it counts none of the ceiling pack; and `D_pinned` already includes
+the other claims moving up, so `D_free - D_pinned` measures only the caller's
+**own marginal** contribution. The gaps between the other top-down claims are
+counted by neither.
 
-| layout | plain | cheap what-if | true | |
-|---|---:|---:|---:|---|
-| the measured 8K hole above the region | 494.5 | **502.5** | 502.5 | exact |
-| no hole above the region | 494.5 | 494.5 | 494.5 | exact |
-| hole above, another mover below | 474.5 | **482.5** | 482.5 | exact |
-| a PINNED driver between region and roof | 494.5 | 494.5 | 494.5 | exact |
-| region already at the ceiling | 502.5 | 502.5 | 502.5 | exact |
-| two holes, one above and one below | 458.5 | 466.5 | 490.5 | **under by 24** |
-| a big pinned cache on the floor | 316.0 | **324.0** | 324.0 | exact |
+A heap with gaps between its top-down claims is a machine that has had packages
+opened and closed for a while — which is the DOS runner's own session, and
+`docs/plans/HEAP-UNPIN-PLAN.md` §2.0's whole subject. **So the approximation is
+weakest precisely where it is needed**, and an earlier revision recommended it
+off a seven-layout sample that happened to contain no gap below the caller.
 
-**Six of seven exact, one low, none high.** It is exact when the caller's
-region is the only movable top-down claim in play — the report's own case — and
-it loses ground when other movable regions or driver images sit below it,
-because the delta of the descending pass's *largest run* stops being a clean
-proxy for what the pair reaches.
+**And an under-report is not a safe error here, which is the other thing that
+was wrong.** It reads low, so a package that needs 400KB and could have had it
+is told 390 and refuses — the user's file does not open, and nothing anywhere
+reports a fault. That is worse than the over-report it was preferred over, not
+better: an over-report is caught by the claim that follows it.
 
-**Under-reporting is the safe direction and costs nothing a caller has today.**
-A what-if that reads low makes the package skip a post that would have helped,
-which is precisely where it stands with no flag at all; a what-if that read
-high would talk it into a compaction that disturbs the machine for less than
-advertised. So the approximation is never worse than the alternative it
-replaces, which is the property that makes it worth 50 bytes instead of 200.
+#### 5.1.2 What an EXACT pre-post estimate would cost, if anyone wants one
 
-*(The sample is seven layouts, one measured and six built to break it. Nothing
-here establishes that it can never over-report — only that it did not, over a
-set chosen to try. `tests/heapfrag` asserting the two against each other on the
-machine is what would.)*
+The wake reading answers everything a package needs to *act*. A pre-post
+estimate answers only *"is this worth disturbing the machine for?"* — a
+compaction fires every holder's relocation proc and moves up to a few hundred
+milliseconds of memory (§3.4) — and nothing in the tree asks that question
+today.
+
+If it is ever wanted, the cheapest exact shape is **not** a full combined walk:
+the descending plan records where the ceiling stack bottoms out, and the
+ascending plan takes its tail from that instead of from `[mem_top]`. Both walks
+already exist and already do barrier accounting; what is new is the recorded
+word, the tail's second source, and — the fiddly part — the ascending pass
+having to tell a **movable** top-down claim (which will be gone) from a
+**pinned** one (which stays a barrier where it is). Call it **60–120 bytes**,
+and note that its failure mode is an over-report, which is a number
+`mem_claim` cannot honour.
+
+**Recommendation: no flag in v1.** Post, wake, read, claim.
 
 ### 5.2 One posted request
 
@@ -475,12 +486,14 @@ Kernel side, in four pieces:
 | the cell — validate `BX` is the caller's window, store, `sch_uiwake` | `osapi_table` 0x0550 | ~40 body + 8 table; the closest analogue in the tree, `osapi_pkg_rehome_x`, is **33 bytes counted** for the same validate-and-record shape |
 | the service — clear first, `mem_compact` at the posted rank, `wm_wake` | `ui.inc` `.loop` step 0 | ~30 |
 | the rank door (§5.2) | `memory.inc` | ~10 |
-| the what-if (§5.1) — `[mem_cp_selfok]`, `mem_frameless`'s excuse, the three-plan arithmetic, its cell | `memory.inc` + table | ~50-60 |
+| accurate reporting (§5.1) — read plain `mem_avail` on the wake | — | **0** |
 | **the region un-pin itself** | — | **0** |
 
-**Total ≈ 175-185 bytes resident on `kern_big`, 0 on `kern_small`**, of which 35
-is measured and the rest is anchored on a counted analogue. Without the what-if
-it is ~125.
+**Total ≈ 125 bytes resident on `kern_big`, 0 on `kern_small`**, of which 35 is
+measured and the rest is anchored on a counted analogue. The two pieces that
+looked like they would dominate — an accurate `mem_avail` and the un-pin — are
+both free, and for the same reason: the deferred shape means the question is
+asked when the answer is already true.
 
 **The un-pin is free, and that is the point of the whole shape.** No predicate
 changes: at `ui_task` step 0 `[wm_pkgd]` is 0, nothing is loading, and the

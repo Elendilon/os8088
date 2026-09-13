@@ -86,6 +86,38 @@ def cheap(m, me):
     return A + (df - dp), A
 
 
+def after_the_pass(m, me):
+    """What PLAIN mem_avail reads once the posted compaction has actually run -
+    the ascending plan over a heap that is already packed BOTH ways.  No
+    what-if, no combined plan, no new kernel arithmetic at all."""
+    s = copy.deepcopy(m)
+    for c in s.claims:
+        if c.seg == me:
+            c.rloc = 160                    # the service point: I am frameless
+    at = s.top                              # ...the descending pass, RUN
+    for c in reversed(s.claims):
+        if c.purgeable:
+            continue
+        if c.pinned or not c.hi:
+            at = c.seg
+        else:
+            at -= c.para
+            c.seg = at
+    s.claims.sort(key=lambda c: c.seg)
+    at = s.base                             # ...and the ascending pass, RUN
+    for c in list(s.claims):
+        if c.purgeable:
+            continue
+        if c.pinned or c.hi:
+            at = c.end
+        else:
+            c.seg = at
+            at = c.end
+    s.claims.sort(key=lambda c: c.seg)
+    # ...then PLAIN mem_avail: the ascending PLAN over the packed heap.
+    return max((p for _, p in s.compacted(up=False)), default=0) / PARA
+
+
 def case(name, base, top, claims, me):
     m = M(base, top, claims)
     free = copy.deepcopy(m)                 # what-if: my region movable
@@ -94,10 +126,12 @@ def case(name, base, top, claims, me):
             c.rloc = 160
     want = true_combined(free)
     got, plain = cheap(m, me)
+    woke = after_the_pass(m, me)
     err = got - want
     verdict = "ok " if abs(err) < 0.01 else ("OVER" if err > 0 else "UNDER")
-    print("  %-34s plain %7.1f  cheap %7.1f  true %7.1f  %s %+.1f"
-          % (name, plain, got, want, verdict, err))
+    print("  %-35s plain %6.1f | what-if %6.1f %s%+5.1f | on the wake %6.1f %s"
+          % (name, plain, got, verdict, err, woke,
+             "ok " if abs(woke - want) < 0.01 else "WRONG"))
 
 
 B, T = 0x1B20, 0xA000                       # the measured machine's arena
@@ -117,6 +151,16 @@ case("me at the very ceiling", B, T,
      base_lo + [C(0x9B00, 20, True, False)], 0x9B00)
 case("two holes, one above one below me", B, T,
      base_lo + [C(0x9000, 12, True, True), C(0x9900, 20, True, False)], 0x9900)
+# --- the reported layout: free at the top, me, another package under me ----
+case("[free][me][another pkg], adjacent", B, T,
+     base_lo + [C(0x9400, 20, True, True), C(0x9900, 20, True, False)], 0x9900)
+case("[free][me][another], another PINNED", B, T,
+     base_lo + [C(0x9400, 20, True, False), C(0x9900, 20, True, False)], 0x9900)
+case("[free][me][gap][another movable]", B, T,
+     base_lo + [C(0x9000, 20, True, True), C(0x9900, 20, True, False)], 0x9900)
+case("[free][me][gap][gap][2 movable]", B, T,
+     base_lo + [C(0x8800, 8, True, True), C(0x9000, 12, True, True),
+                C(0x9900, 20, True, False)], 0x9900)
 case("big floor barrier (pinned cache)", B, T,
      [C(0x1B20, 3, False, True), C(0x4000, 40, False, False),
       C(0x2FC0, 3, False, True)] + [C(0x9900, 20, True, False)], 0x9900)
