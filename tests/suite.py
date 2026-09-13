@@ -2833,6 +2833,27 @@ SOAK = [
         " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
+    Row("skiessound", "soak", py("tests/skiessound.py"), 68.0,
+        "SPEC.md 88.8.2: an ENGINE each. Every aeroplane used to be"
+        " [cs_thr] + 50, so a Fouga Magister and an Icon A5 were the same"
+        " note at the same lever; each reads its own record now, and this"
+        " asks the GUEST what it is playing rather than the table what it"
+        " should. Every powered aeroplane's tone is its own record's law at"
+        " idle, half and full - computed on the host off the record the guest"
+        " holds, and against the THRUST each sample was taken at, because a"
+        " spooled engine's source moves under the reading. The four of them"
+        " are four DIFFERENT notes at full power, which is the whole of the"
+        " ask and the one check a shared record cannot pass. A shut throttle"
+        " is an IDLE and not silence. The Bijave plays nothing at any lever"
+        " position, and the rule behind that is checked per row rather than"
+        " as a special case: an aeroplane has an engine record exactly when"
+        " it has CSP_THRUST, so a sixth aeroplane is covered by arriving. The"
+        " BEAT reads two distinct notes over sixteen ticks where a turbine"
+        " reads one. And the Magister's note LAGS THE HAND - still climbing"
+        " 24 ticks after the lever moved, against the Cessna arriving inside"
+        " three - which is 88.7.5's 5.3-second spool audible for the first"
+        " time. --clobber-shared and --clobber-spool are the red runs",
+        needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the approach - held toward"
         " level both aeroplanes land EXACTLY on it on both axes, the Pitts"

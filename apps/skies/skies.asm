@@ -362,7 +362,46 @@ CSP_INDK   equ 44               ; INDUCED DRAG, the wing's own share
                                 ; tests/skiesbody.py and tests/skiesfleet.py
                                 ; carry these offsets as literals and an
                                 ; insertion moves every field after it
-CSP_SIZE   equ 46
+CSP_SND    equ 46               ; word: ITS ENGINE (88.8.2) - the sound record
+                                ; below, or 0 for an aeroplane that has none.
+                                ; APPENDED for CSP_INDK's reason: tests carry
+                                ; the offsets before it as literals
+CSP_SIZE   equ 48
+
+; --- an ENGINE (SPEC.md 88.8.2): what ONE aeroplane sounds like ---------------
+; The tone tier is a single square wave - AX = Hz and nothing else - so a
+; per-aeroplane engine can only ever be a FREQUENCY LAW, and this is it:
+;
+;     Hz = CSS_IDLE + (source x CSS_SPAN) / 100
+;
+; where the source is the throttle LEVER, or the thrust the engine actually HAS
+; when CSSF_SPOOL is set. A CSS_IDLE of 0 IS silence at a shut throttle, which
+; is what every aeroplane did before this, so the field is the switch as well as
+; the number and no code tests for it.
+CSS_IDLE  equ 0                 ; word: Hz with the throttle SHUT and the
+                                ; engine turning. An aeroplane with an engine
+                                ; running is NOT SILENT, and the idle is where
+                                ; most of one aeroplane's character against
+                                ; another is actually heard
+CSS_SPAN  equ 2                 ; word: Hz added between shut and full power
+CSS_BEAT  equ 4                 ; the Hz the tone DROPS on its off ticks - a
+CSS_MASK  equ 5                 ; piston's roughness; 0 is a turbine's smooth
+                                ; note. The mask picks which WALL-CLOCK ticks
+                                ; are off ones (`and cl, mask`, 1 = every
+                                ; other, 3 = one in four), and it is the wall
+                                ; clock and not a counter because cs_steps
+                                ; DROPS sim ticks past CS_MAXSTEP - a counted
+                                ; beat would slow down in a banked turn, which
+                                ; is exactly where the frame is heaviest
+CSS_FLAGS equ 6                 ; CSSF_*
+CSS_SIZE  equ 7
+
+CSSF_SPOOL equ 0x01             ; follow the SPOOLED thrust and not the lever
+                                ; (88.7.5) - a jet, and the one aeroplane here
+                                ; whose note lags the hand. CSP_SPOOL has
+                                ; modelled a 5.3-second spool since the Fouga
+                                ; shipped and nothing has ever been able to
+                                ; HEAR it
 
 CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
                                 ; location has some it STARTS there (88.7.7)
@@ -3065,8 +3104,18 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
 ;
 ; There is no %if to write here and there could not be: CS_BSS is a
 ; preprocessor %assign and `os88_image_end - $$` is not one, so the two can
-; only meet at assembly time. The gap is 1,444 bytes today, and it is the
-; growth headroom for the image and the ZWORD chain TOGETHER.
+; only meet at assembly time. The gap is the growth headroom for the image and
+; the ZWORD chain TOGETHER - 9,872 bytes today, and NOT A NUMBER TO QUOTE FROM
+; HERE: this comment said 1,444 for long enough to be stale by 1,236, and a
+; costing believed it. Read it off the listing (`nasm -l`, the middle `times`),
+; or off CS_VOCAB_AT less the image and CS_BSS.
+;
+; WHAT SETS IT IS NOT THIS FILE (SPEC.md 88.10.6). `CS_VOCAB_AT` is derived in
+; tools/csworlds.py as APP_MAX_SIZE less the overlay, so the overlay is hard
+; against the top of the segment and the gap is everything between the program
+; and the format's own ceiling. Growing into it costs NOTHING - the claim is
+; CS_VOCAB_AT plus the overlay whatever the image does (88.4.5.5) - and when it
+; runs out the answer is another part, not another address.
     times CS_BSS db 0                       ; the declared bss...
     times (CS_VOCAB_AT - (os88_image_end - $$)) - CS_BSS db 0    ; ...the gap...
     times CS_VOCAB_MAX + CS_WLD_MAX db 0    ; ...and the overlay

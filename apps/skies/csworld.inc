@@ -74,6 +74,7 @@ cs_p_c172:
     dw 0                            ; CSP_FLAGS
     dw cs_art_c172                  ; CSP_ART      SIDE ON (88.10.1)
     dw 703                         ; CSP_INDK     the wing's own drag (88.7.12)
+    dw cs_snd_c172                  ; CSP_SND      a Lycoming (88.8.2)
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
@@ -117,6 +118,7 @@ cs_p_pitts:
                                     ;              a different aeroplane
                                     ;              (88.10.1)
     dw 1440                        ; CSP_INDK     the wing's own drag (88.7.12)
+    dw cs_snd_pitts                 ; CSP_SND      six of them (88.8.2)
 cs_s_pitts:  db 'PITTS SPECIAL', 0
 
 ; --- the third row: a FOUGA CM.170 MAGISTER (SPEC.md 88.7.5), the French jet
@@ -161,6 +163,7 @@ cs_p_fouga:
                                     ;              tail is a butterfly tail
                                     ;              (88.10.1)
     dw 651                         ; CSP_INDK     the wing's own drag (88.7.12)
+    dw cs_snd_fouga                 ; CSP_SND      two turbojets (88.8.2)
 cs_s_fouga:  db 'FOUGA MAGISTER', 0
 
 ; --- the fourth row: a WASSMER WA-30 BIJAVE (SPEC.md 88.7.6), the French
@@ -203,6 +206,9 @@ cs_p_bijave:
                                     ;              its span, and a side view
                                     ;              hides all of it (88.10.1)
     dw 344                         ; CSP_INDK     the wing's own drag (88.7.12)
+    dw 0                            ; CSP_SND      NO ENGINE (88.8.2), and
+                                    ;              0 is the silence 88.7.6.1
+                                    ;              already gave it
 cs_s_bijave: db 'WASSMER BIJAVE', 0
 
 ; --- the fifth row: an ICON A5 (SPEC.md 88.7.7), the light sport amphibian.
@@ -260,6 +266,7 @@ cs_p_a5:
                                     ;              shows a hull is a hull
                                     ;              (88.10.1)
     dw 710                         ; CSP_INDK     the wing's own drag (88.7.12)
+    dw cs_snd_a5                    ; CSP_SND      a geared Rotax (88.8.2)
 cs_s_a5:     db 'ICON A5', 0
 
 ; =============================================================================
@@ -275,3 +282,47 @@ cs_s_a5:     db 'ICON A5', 0
 ; packed by tools/csworlds.py, each assembled on its own at the overlay's
 ; fixed org, and read into cs_wldat when a location is picked.
 ; =============================================================================
+
+; =============================================================================
+; THE ENGINES (SPEC.md 88.8.2)
+;
+; One record per aeroplane that has one. Four aeroplanes, four engines, and the
+; Bijave's word is 0 because a sailplane has none - its sound is the air's
+; swoop (88.7.6.3) and nothing here touches it.
+;
+; THE NUMBERS ARE THE REAL ENGINES' where the speaker can say them and are
+; RAISED where it cannot, which only happens at the bottom. What a listener
+; identifies in a piston aeroplane is the propeller's blade pass, which is the
+; firing rate too on a four-cylinder four-stroke: 2 x rpm / 60. A Cessna at
+; 2,700 rpm is 90 Hz and its 700 rpm idle is 23, and no PC speaker will say 23
+; at any useful volume - so every CSS_IDLE here is higher than the aeroplane's
+; and every full-power figure is its own.
+;
+; THE ORDER IS THE POINT, and it is the honest one: the trainer is the lowest,
+; the biplane is higher and harder because six cylinders fire three times a
+; revolution, the amphibian is the highest PISTON because a Rotax revs to 5,800
+; through a 2.43:1 gearbox, and the jet is not in the same octave as any of
+; them. CSS_IDLE is what a 5150 settles (docs/FIELD-MACHINES.md): an emulator
+; synthesises a square wave with none of a real speaker's low-end rolloff, so
+; this is the one part of the aeroplane that cannot be checked in here.
+; =============================================================================
+cs_snd_c172:   dw 60, 45                ; 60..105 Hz. A direct-drive Lycoming,
+               db 5, 3, 0               ; four cylinders, a two-blade prop -
+                                        ; and a gentle one-in-four lump, which
+                                        ; is what a big slow four does at idle
+cs_snd_pitts:  dw 75, 85                ; 75..160 Hz. SIX cylinders firing 3 a
+               db 12, 1, 0              ; revolution is 135 at 2,700 rpm, and
+                                        ; a bark every other tick: the Pitts
+                                        ; is the loud one and should sound it
+cs_snd_fouga:  dw 260, 940              ; 260..1200 Hz, SMOOTH, and off the
+               db 0, 0, CSSF_SPOOL      ; thrust it HAS - two Marbore
+                                        ; turbojets at 21,500 rpm are a whine
+                                        ; and not a beat, and the one thing a
+                                        ; square wave can really say about a
+                                        ; jet is that it LAGS THE LEVER
+cs_snd_a5:     dw 95, 95                ; 95..190 Hz, smooth. A Rotax 912 fires
+               db 0, 0, 0               ; at 193 Hz flat out and drives a slow
+                                        ; three-blade prop through a gearbox:
+                                        ; the highest-pitched piston here and
+                                        ; the smoothest, which is what a geared
+                                        ; engine buys

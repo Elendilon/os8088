@@ -106425,7 +106425,9 @@ inside the part as a run of zeros (§20.12.10) and LZ4 is best at exactly that,
 so `SKIES.O88` does not measurably grow; what grows is the heap claim, from
 49,216 bytes to 51,776. `CS_VOCAB_AT` moves 0xB400 → 0xBE00 to make room —
 the overlay's address is part of the contract with `tools/csworlds.py`, so
-that constant is where the claim is sized. Clear Skies takes the whole machine
+that constant is where the claim is sized. *(It is DERIVED now and no longer
+moved by hand: §88.10.6, which this section's own refusal is the argument
+for.)* Clear Skies takes the whole machine
 for as long as it runs, it is in `SMALLOMIT_GAMES` so the 128 KB floor machine
 never loads it at all, and a `kern_big` desktop has the 2.5 KB many times
 over. **This is a memory-for-speed trade taken on the owner's decision**, and
@@ -109653,9 +109655,12 @@ would enter at, and they cost nothing.
 **It is not disk and it is not a rung; it is SEGMENT.** `build/skies.bin` is
 padded out to cover the overlay at `CS_VOCAB_AT` (§88.10.5), so the part is
 49,216 bytes either way and the floppy does not move. What moves is the top
-of the program's own code, and `APP_MAX_SIZE` — 60 KB of one segment — is
-what Clear Skies is actually short of: the `CSDIAG=1` arm is over it by
-hundreds of bytes and cannot be built.
+of the program's own code, and what it is measured against is the **gap**
+below the overlay. *(Written when that gap was hundreds of bytes and the
+`CSDIAG=1` arm could not be built. §88.10.6 has since made `CS_VOCAB_AT`
+derived rather than hand-set: the gap is 9,872 bytes and every arm builds. The
+sentence below is still the rule — a padded artefact is not the measure — and
+the shortage it was written against is gone.)*
 
 **Nothing here found it.** `tests/unit/t_deadcode.py` is the kernel's, and
 there is no package equivalent; a package's unreachable code costs its own
@@ -110280,8 +110285,8 @@ typed, `OSAPI_KEY_DOWN` (§9.7) for what is held:
 | `A` / `D` | rudder, and the wheels on the ground | `Esc`, `F` | leave (§11.2.1) |
 | | | `B` | brakes on / off (§88.7.10.1) |
 
-The engine is a speaker tone whose pitch follows the throttle
-(`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
+The engine is a speaker tone off the aeroplane's own engine record (§88.8.2,
+`OSAPI_SND_TONE`, re-issued when the note changes), a stall is a repeated
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
 
@@ -110338,6 +110343,112 @@ one leaves none. It has to be taken on the FIRST crackle of the crash: on the
 second and every later one the crack is already in the shadow wherever nothing
 refilled it, so drawing it again changes only the rows something else marked,
 and a check taken there reads 51 rows and 0 loose on the broken build too.
+
+#### 88.8.2 An engine each, and what a square wave can say about one
+
+Every aeroplane used to make the same noise. `cs_sound_step` was
+
+```
+    mov ax, [cs_thr]        ; 0..100
+    or ax, ax
+    jz .st
+    add ax, 50              ; ...so the engine is 51..150 Hz, whatever it is
+```
+
+— so a **Fouga Magister and an Icon A5 were the same note at the same lever**,
+and the only aeroplane that sounded like itself was the one that made no sound
+at all. `CSP_SND` (offset 46, **appended** for `CSP_INDK`'s reason) points at a
+seven-byte engine record, and 0 means *no engine*: the Bijave's, which is the
+silence §88.7.6.1 already gave it.
+
+**The instrument is one square wave and that is binding.** `OSAPI_SND_TONE`
+takes `AX` = Hz and nothing else — no waveform, no volume — and §53.7 forbids
+touching channel 2 directly, so there is no PWM engine note to be had. A
+per-aeroplane engine can therefore only be a **frequency law**:
+
+> `Hz = CSS_IDLE + (source × CSS_SPAN) / 100`
+
+with the source the throttle **lever**, or the thrust the engine actually
+**has** when `CSSF_SPOOL` is set. A `CSS_IDLE` of 0 *is* silence at a shut
+throttle, so the field is the switch as well as the number and no code tests
+for it.
+
+| | idle → full | beat | source |
+|---|---|---|---|
+| **Cessna 172** | **60 → 105 Hz** | one tick in four, −5 | lever |
+| **Pitts Special** | **75 → 160** | every other tick, −12 | lever |
+| **Fouga Magister** | **260 → 1,200** | none | **spool** |
+| **Icon A5** | **95 → 190** | none | lever |
+| **Wassmer Bijave** | *no record* | — | — |
+
+**The numbers are the real engines' where the speaker can say them.** What a
+listener identifies in a piston aeroplane is the propeller's blade pass, which
+on a four-cylinder four-stroke is the firing rate too: 2 × rpm / 60. A Cessna
+at 2,700 rpm is 90 Hz, a six-cylinder Pitts firing three times a revolution is
+135, and a Rotax 912 turning 5,800 through a 2.43:1 gearbox fires at 193 — so
+the **order** above is the honest one, and the amphibian really is the
+highest-pitched piston here. Every full-power figure is the aeroplane's own.
+Every **idle** is raised: a Cessna idles at 700 rpm, which is 23 Hz, and no PC
+speaker will say 23 at a useful volume.
+
+**A shut throttle is now an IDLE and not silence**, which is the single change
+that does most of the work: an engine that is running is never silent, so each
+aeroplane announces itself on the runway before anything is touched, and the
+brake closing the throttle (§88.7.10) drops the Cessna to 60 Hz rather than to
+nothing. An aeroplane with no engine record is still silent, which is what the
+old `or ax, ax` was really catching.
+
+**The Fouga's row is the one that is not merely a different number.**
+`CSP_SPOOL` has modelled a 5.3-second spool since the jet shipped (§88.7.5) and
+nothing has ever been able to *hear* it: `[cs_thracc]` is the thrust the engine
+has, and reading it instead of the lever is what makes a jet sound like a jet.
+It is the one aeroplane here whose note lags the hand.
+
+##### 88.8.2.1 The beat is on the WALL clock, because sim ticks are dropped
+
+`CSS_BEAT` drops the tone by that many Hz on the ticks `CSS_MASK` selects — a
+piston's roughness, and 0 is a turbine's smooth note. It is a **stylisation and
+never a model**, and the arithmetic says why: `cs_sound_step` runs once per
+simulation tick, so the update ceiling is **18.2 Hz**, and a propeller's chop is
+80–135. The chop can only ever be the *carrier*. What a beat can be is a few Hz
+of lump, which is what a big slow four does at idle.
+
+**The phase comes off `[cs_last]` — the tick the frame was stepped at — and not
+off a counter**, and that is the whole of why the field is a mask rather than a
+period. `cs_steps` caps a frame's owed ticks at `CS_MAXSTEP` = 3 **and discards
+the rest**, so on §88.12.1's `turnhold` frame (282.8 ms = 5.15 ticks) two ticks
+in five never reach the sound at all. A counted beat would *slow down* — the
+engine audibly sagging exactly where the picture is heaviest and the machine is
+already struggling. On the wall clock the period is right and what is left is
+sampling: three ticks in five, so the lump goes irregular under load rather
+than flat. That is the honest trade and it is the better half of it.
+
+##### 88.8.2.2 What it costs, and the two questions no emulator can answer
+
+**113 bytes of image**, measured on the gap (§88.10.6): 75 of code and 38 of
+data — four seven-byte records and five `CSP_SND` words. No bss. `SKIES.O88` is
+**44,226 bytes**, three *fewer* than before, and no floppy in any of the four
+geometries moves a cluster: the bytes come out of a run of zeros that LZ4 had
+all but deleted anyway.
+
+The cycles are not the question but they are small. `OSAPI_SND_TONE` costs
+**1,997 cycles / 418.4 µs** (PERFORMANCE.md Set 146) and the added arithmetic
+about 505 a sim tick for a piston and 890 for the jet, predicted from
+PERFORMANCE.md Part 2 rather than measured. At the worst case of three sim
+ticks a frame, against §88.12.1's 164.5 ms cruise frame, that is **0.19%** for
+the law alone and **0.96%** with a beat. The beat is the only new money, and
+not because of the arithmetic: `cs_sound_step` ends in
+`cmp ax, [cs_tone] / je .out`, so steady flight cost nothing before and a beat
+makes the note change every tick.
+
+**Two things here cannot be checked in an emulator**, and both are `CSS_IDLE`'s.
+A real PC speaker rolls off badly below ~100 Hz and a synthesised square wave
+does not, so the piston idles will sound fine under MartyPC and QEMU and may be
+inaudible on a 5150; and whether a 9.1 Hz tremolo reads as an engine or as a
+fault is a listen and not an assertion. `tests/skiessound.py` gates what *is*
+checkable — that each aeroplane plays its own record's law, that the Bijave
+plays nothing, and that the Fouga's note is still climbing after the lever
+stops — and the rest is docs/FIELD-MACHINES.md's.
 
 #### 88.8.1 A paused aeroplane is silent
 
@@ -111514,6 +111625,67 @@ back is the address the guest will have. It uses nasm's `[map all]` rather than
 a listing, because a mesh is declared by a macro (`CS_PYR cs_m_lcy_shd, 28,
 306, 28`) and a listing renders the macro's *body*, `%1:` and all, so the
 label's own name never appears in the file.
+
+#### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
+
+`CS_VOCAB_AT` is **`APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX`** — 0xE3C0 —
+computed in `tools/csworlds.py` and emitted into `build/cswidx.inc`. The
+overlay sits at the **top** of the segment. There is no number here to tune.
+
+**It was hand-set, and that is the thing that went wrong.** `skies.asm`
+declares its bss as `(CS_VOCAB_AT - image_end) + CS_VOCAB_MAX + CS_WLD_MAX`, so
+
+> `image + bss` = `CS_VOCAB_AT + CS_VOCAB_MAX + CS_WLD_MAX`
+
+— a **constant**, whatever the program's own size. Two things follow and both
+are counter-intuitive. The first is §88.4.5.5's: this address IS the heap
+claim, and a change that grows the image grows no claim at all. The second is
+that **`image + bss` cannot see the program** — a gate reading that field
+watches a number that a 2,000-byte addition does not move, and the only honest
+reading of how much room is left is the **gap**, the middle of the three
+`times` at the end of `skies.asm`.
+
+Hand-set, the address tracked nothing. It went 0xB400 → 0xBE00 when
+§88.4.5.5's end tables landed, and then **stayed there** while §88.10.2,
+§88.10.3, §88.10.4 and §88.10.5 took the packed art, the reader, the body and
+the nine worlds out of the image. The program got smaller by thousands of
+bytes and its growth room did not get bigger by one. What that cost, measured
+before this section:
+
+| | |
+|---|---|
+| the gap on the shipped build | **208 bytes** |
+| `-DCSPROBE`, `tests/skiescount.py`'s instrument | **167 bytes OVER: did not assemble** |
+| the workaround in the tree | a `--vocab-at 0xC200` knob, wired to `CSDIAGDEF`, buying the diag trees one rung back |
+| `skies.asm`'s own comment | *"The gap is 1,444 bytes today"* — stale by 1,236 |
+
+**THE PROJECT HAD ALREADY HAD THIS ARGUMENT AND SETTLED IT THE OTHER WAY.**
+§88.4.5.5's end tables were refused against this gap — *"the arithmetic that
+refused it was correct… and it never asked what that gap was protecting"* — and
+the answer then is the answer now: **nothing**. The gap is claimed RAM that no
+instruction reads. The three facts §88.4.5.5 checked hold unchanged here: the
+bss ships inside the part as a run of zeros and LZ4 all but deletes it, so the
+floppy does not notice; `SKIES` is in `SMALLOMIT_GAMES`, so the 128 KB floor
+machine never loads it; and the claim is heap on a machine this program takes
+whole for as long as it runs.
+
+**And the size it settles at is one this program has already shipped at.** The
+claim goes 51,776 → **61,440**, which is 340 bytes above the 61,100 that
+`image + bss` measured before §88.10.3 — a configuration that ran on every
+machine in the tree. What it buys is the gap: **208 → 9,872 bytes**, with
+`CSDIAG` at 9,096 and `CSPROBE`, which could not be built at all, at 8,473.
+
+Three things go with it. `--vocab-at` is **deleted** — the address is the top
+of the segment and there is nowhere to raise it to — and so is the Makefile's
+`CSVOCABAT`, so a diag tree and a shipped tree now assemble against one
+`cswidx.inc`. `tools/os88pkg.py` becomes a prerequisite of that file, because
+`APP_MAX_SIZE` is imported from it rather than copied: a mirror is what this
+section is about.
+
+**What it does NOT buy is room past `APP_MAX_SIZE`.** The segment is 61,440
+bytes because a package addresses itself with 16-bit offsets, the overlay is
+now hard against that ceiling, and the gap is the last of it. The next time
+Clear Skies runs out, the answer is another part — not another address.
 
 ### 88.13 The settings (SPEC.md 88.13)
 

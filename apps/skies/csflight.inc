@@ -1854,10 +1854,47 @@ cs_sound_step:
     add ax, CS_SWOOPLO              ; lift: up from the bottom
     jmp short .want
 .noswoop:
-    mov ax, [cs_thr]
-    or ax, ax
-    jz .st
-    add ax, 50
+    ; --- THE ENGINE, OFF ITS OWN RECORD (SPEC.md 88.8.2) --------------------
+    ;     Every aeroplane used to be `[cs_thr] + 50`, so a Fouga Magister and
+    ;     an Icon A5 were the same note at the same lever. An aeroplane with
+    ;     no engine has no record and is silent, which is the one case the
+    ;     old `or ax, ax` was really catching - and with a record, a SHUT
+    ;     throttle is an IDLE and not silence, because an engine that is
+    ;     running is never silent.
+    mov di, [cs_plane]
+    mov di, [di + CSP_SND]
+    or di, di
+    jz .quiet                       ; no engine: the sailplane, and not a
+                                    ; throttle number played as hertz
+    mov ax, [cs_thr]                ; the LEVER, 0..100...
+    test byte [di + CSS_FLAGS], CSSF_SPOOL
+    jz .lever
+    mov bx, [cs_plane]              ; ...or, on a jet, the thrust the engine
+    mov bx, [bx + CSP_THRUST]       ; HAS: 88.7.5's spool, made audible
+    or bx, bx
+    jz .lever                       ; a spooling engine with no thrust is not
+    mov cl, 8                       ; an aeroplane; it is a `div` by zero
+    shl bx, cl                      ; full thrust in the 8.8 cs_thracc holds
+    mov ax, [cs_thracc]
+    mov dx, 100
+    mul dx
+    div bx                          ; 0..100, the spool's own percentage
+.lever:
+    mul word [di + CSS_SPAN]
+    mov bx, 100
+    div bx
+    add ax, [di + CSS_IDLE]         ; Hz = idle + source x span / 100
+    mov bl, [di + CSS_BEAT]         ; --- and the BEAT, on the WALL clock -----
+    or bl, bl
+    jz .st                          ; a turbine: nothing to add
+    mov cl, [cs_last]               ; cs_steps DROPS sim ticks past
+    and cl, [di + CSS_MASK]         ; CS_MAXSTEP, so a beat counted in CALLS
+    jz .st                          ; would slow down in a banked turn - the
+    xor bh, bh                      ; tick this frame was stepped AT is the
+    sub ax, bx                      ; one quantity that cannot
+    jmp short .st
+.quiet:
+    xor ax, ax
 .st:
     cmp byte [cs_stall], 0
     je .want
