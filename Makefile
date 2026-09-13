@@ -5140,7 +5140,11 @@ CSWORLDS_Z := $(BUILD)/csw0.z $(BUILD)/csw1.z $(BUILD)/csw2.z \
 # -DCSPROBE arm outgrew it by 331 bytes and stopped ASSEMBLING, which nothing in
 # `all` builds and so nothing in `all` could catch. It costs those trees a
 # bigger heap claim and costs the floppies nothing.
-CSVOCABAT := $(if $(CSDIAGDEF),--vocab-at 0xC200,)
+# ...and then the probe work of this cycle (cs_probe_*, the cs_dbg_* buffers)
+# outgrew 0xC200 by 87, so it is 0xC300 now: all three diag arms assemble at
+# 53,056 bytes, 0xC300 + 576 + 2560 = 0xCF40 is inside the segment, and the
+# shipped build is byte-unchanged because CSVOCABAT is empty without CSDIAGDEF.
+CSVOCABAT := $(if $(CSDIAGDEF),--vocab-at 0xC300,)
 
 $(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py $(CSWORLDS) \
                      apps/skies/cswone.asm apps/skies/cswdefs.inc \

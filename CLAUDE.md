@@ -516,8 +516,8 @@ and in raw QEMU), `make c64disk` the C64 disks, `make paccmandisk` the PaccMan
 disks, `make apple2disk` the Apple II+ disks (`make apple2rom` fetches their
 ROM first, once), and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
-so `all` builds `wire.o88` and no shipped floppy carries it, and the three
-tests that drive it — `wireflick`, `wirefps`, `uilat` — default to that disk.
+so `all` builds `wire.o88` and no shipped floppy carries it, and the two
+tests that drive it — `wireflick` and `uilat` — default to that disk.
 `make allapps` collapses all of them onto one 1.44MB floppy (§19.10), and
 `make live` puts that same payload plus the system on the bootable live
 USB image and live CD (§80).
