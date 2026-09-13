@@ -110562,14 +110562,29 @@ adapters within one soak, which is that row doing the job it is there for. The
 compare sits **before** the far call, so a paused frame costs one `cmp` an
 object and nothing else.
 
-**What it costs is one far call per drawn object**, and the figure is
-arithmetic over two things that are measured rather than a measurement of its
-own: `OSAPI_GET_TICKS` is 46.7 µs (PERFORMANCE.md Part 2) and the city frame
-this was taken on is **180.99 ms** (`tests/skiesperf.py`, 12 exact frames), so
-§88.12.1's dozen in-range objects are **~0.6 ms, about 0.3%**, and a crowded
-forty-object view is nearer 1%. `CX` and `SI` are the cull loop's own and are
-saved either side of the call site, so nothing else in `cs_scene` had to
-change.
+**What it costs is one far call per drawn object, and it is MEASURED**:
+`tests/skiesperf.py` carries it as a stage, so the cost is A/B'd against a
+pinned scene with the world paused and re-measurable for ever rather than
+argued from a table.
+
+| scene | objects | frame | without the sound |
+|---|---:|---:|---|
+| runway | 7 | 159.02 ms | −0.22 ms, **0.1%** |
+| city | 13 | 161.01 | −0.23, **0.1%** |
+| tower | 11 | 180.07 | −0.32, **0.2%** |
+| citybank | 16 | 232.78 | −0.31, **0.1%** |
+
+**0.1–0.2% of a frame, on every scene the table has**, and the city figure
+repeats to the hundredth of a millisecond across runs. The arithmetic that
+preceded it said 0.3% and was pessimistic by two to three times: it priced each
+call at PERFORMANCE.md Part 2's **46.7 µs** for an `OSAPI_*` far call, and
+these divide out at **~18 µs** — `OSAPI_GET_TICKS` returns a word and has
+almost no body, where the published figure is a round trip against a slot that
+does something. Recorded as an observation of this one slot and not as a
+re-derivation of the table.
+
+`CX` and `SI` are the cull loop's own and are saved either side of the call
+site, so nothing else in `cs_scene` had to change.
 
 **The alternative was an interrupt and it is REFUSED.** Hooking `int 08h` for
 the bracket is proven in this very package — `CSDIAG=1` does exactly that

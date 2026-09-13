@@ -456,9 +456,20 @@ The stall's cadence gets the same correction for nothing — `[cs_stallt]`
 counted calls and now counts ticks, so the beep no longer runs faster on a
 machine with a faster frame.
 
-Cost: one `OSAPI_GET_TICKS` per drawn object. **46.7 µs** (PERFORMANCE.md Part
-2) against a city frame measured at **180.99 ms** here, so §88.12.1's dozen
-in-range objects are ~0.6 ms — **about 0.3%**, nearer 1% in a crowded view.
+Cost: one `OSAPI_GET_TICKS` per drawn object, and it is **measured** rather
+than derived — `tests/skiesperf.py` carries it as a stage now, so it is A/B'd
+against a pinned scene and stays re-measurable. **0.1–0.2% of a frame on every
+scene in the table** (runway −0.22 ms of 159.02, city −0.23 of 161.01, tower
+−0.32 of 180.07, citybank −0.31 of 232.78), with the city figure repeating to
+the hundredth across runs.
+
+**The arithmetic that preceded it was pessimistic by two to three times**, and
+the reason is worth keeping: it priced each call at PERFORMANCE.md Part 2's
+46.7 µs for an `OSAPI_*` far call, and these divide out at **~18 µs**.
+`OSAPI_GET_TICKS` returns a word and has almost no body, where the published
+figure is a round trip against a slot that does something. Which is the
+standing rule one more time — *measure before redesigning* cuts both ways, and
+a number quoted from a table is not a measurement of your own call site.
 
 ### 8.2 The interrupt was the obvious answer and is REFUSED
 
