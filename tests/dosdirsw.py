@@ -141,6 +141,37 @@ def main():
         if total is None:
             fail("a plain DIR printed no `N File(s)` footer: %r" % plain[-4:])
         print("dosdirsw: a plain DIR of B:\\ lists %d file(s)" % total)
+
+        # --- 0b: ...AND IT IS IN ALPHABETICAL ORDER (SPEC.md 96.33.9.2) -----
+        # A stated departure from DOS, which lists in DIRECTORY order - the
+        # owner's line being that the ABI is 3.3's and the screen is ours.
+        # Before the sort this disk's listing ended `...DIGISND3, EDUNGEON,
+        # EPALACE, TRACE.LOG`, TRACE.LOG having been written last.
+        #
+        # **THE ENTRY COUNT IS CHECKED FIRST**, because `[] == sorted([])` is
+        # True and a row whose parser silently matches nothing reports SORTED
+        # for ever. That is not hypothetical: the first version of this check
+        # used a regex that matched none of the 80-column rows and passed.
+        names = []
+        for r in plain:
+            t = r.rstrip()
+            if len(t) < 13 or not t[0].isalnum():
+                continue
+            nm, ext = t[:8].rstrip(), t[9:12].rstrip()
+            if not nm or " " in nm:
+                continue
+            names.append(nm + ("." + ext if ext else ""))
+        if len(names) < total // 2:
+            fail("the listing parser found %d entries of %d reported, so the "
+                 "sortedness check below would be measuring nothing: %r"
+                 % (len(names), total, plain[:4]))
+        if names != sorted(names):
+            bad = next(a for a, b in zip(names, sorted(names)) if a != b)
+            fail("DIR is not in alphabetical order - %r arrives out of place "
+                 "(SPEC.md 96.33.9.2). Got %r" % (bad, names[:12]))
+        print("dosdirsw: ...and its %d entries are in alphabetical order"
+              % len(names))
+
         if total <= page:
             fail("B:\\ holds %d entries and a page is %d, so /P can never "
                  "pause here and assertion 3 would pass vacuously" % (total, page))

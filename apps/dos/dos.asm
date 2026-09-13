@@ -12604,6 +12604,9 @@ dos_fh_fill:
                                     ; wrong SECTOR
     DBSS DOS_B_SHLN,    2           ; lines put on this page so far
     DBSS DOS_B_SHWCOL,  1           ; /W: which of the five columns is next
+    DBSS DOS_B_SHSSEG,  2           ; DIR's sort claim, 0 = none (SPEC.md
+    DBSS DOS_B_SHSN,    2           ; 96.33.9.2) ...and how many records in it
+    DBSS DOS_B_SHSI,    2           ; ...and which one the listing is emitting
     DBSS DOS_B_FHPATH,  1           ; the name carried a folder part...
     DBSS DOS_B_FPBUF,   DOS_PBUF    ; ...which is this
     DBSS DOS_B_FHCWD,   2           ; where we were before walking it
@@ -12851,6 +12854,9 @@ dsh_more    equ os88_image_end + DOS_B_SHMORE  ; ...a listing is suspended
 dsh_ord     equ os88_image_end + DOS_B_SHORD   ; ...at this ordinal
 dsh_ln      equ os88_image_end + DOS_B_SHLN    ; ...this many lines on the page
 dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
+dsh_sseg    equ os88_image_end + DOS_B_SHSSEG  ; DIR's sort claim (96.33.9.2)
+dsh_sn      equ os88_image_end + DOS_B_SHSN    ; ...records in it
+dsh_si      equ os88_image_end + DOS_B_SHSI    ; ...and the emit cursor
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP

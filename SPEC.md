@@ -122271,7 +122271,41 @@ read is not something a program observes at all.
 
 It also makes the box agree with the Disk window (§19.5) rather than disagree
 with it, which is what made this look like a defect from inside the system in
-the first place.
+the first place. **Plain name order, folders MIXED IN**, because that is what
+`dsk_sortdir` does and two sorted listings that disagree would be worse than
+one sorted and one not.
+
+**The mechanism is an INDEX, and it makes `DIR` cheaper rather than dearer.**
+`OSAPI_FILE_FIND` is stateless by ordinal and re-walks the directory per call
+(§19.7.1), so today's chained listing already visits the directory O(n²)
+times — cached, but spent. `dsh_dsort` walks it **once**, keeps each matching
+entry's whole 24-byte find record in a claim, sorts an array of 16-bit
+offsets into those records, and emits from RAM. The emit pass then costs no
+`FIND` at all.
+
+Three things fall out of sorting the OFFSETS rather than the records:
+
+- a comparison is two indirect loads and no multiply — the 8086 has no
+  `shl reg, imm`, and a 24-byte stride addressed per comparison would put a
+  ~120-cycle `mul` inside the inner loop;
+- a swap is two words rather than 24 bytes;
+- and the records never move, so nothing has to be kept in step with them.
+
+Selection sort, for `dsk_sortdir`'s reason one level along: at most n-1
+exchanges whatever the input. At the 256-entry cap that is 32,640
+comparisons of 11 bytes — about half a second on a 4.77 MHz 8088, against
+the eighteen seconds those 256 lines take to reach a CGA at §6.1's
+measured 71 ms a row. For an ordinary twenty-entry folder it is 190
+comparisons and unmeasurable.
+
+**The fallback is DIRECTORY ORDER and it is not silent about what it is.** A
+claim that is refused, or a folder with more than `DSH_SMAX` matching
+entries, lists exactly as it always did — which is real DOS's order, so the
+degradation is to the behaviour this section is departing FROM rather than to
+something broken. The claim is 7 KB, transient, taken at the top of the
+listing and freed at its end; `/P` suspends between pages and the claim spans
+the suspension, which is what makes a paged listing sort as one listing
+rather than per page.
 
 **`/P` CANNOT WAIT FOR A KEY, and that is a property of where the shell runs.**
 `dos_con_key` is `W_ONKEY`'s handler and its contract is **the gfx lock HELD**
