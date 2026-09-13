@@ -125211,6 +125211,75 @@ for. §47 rule 5 again — a figure that has to be guessed is worse than no
 figure, because the two beside it are measured and the user cannot tell them
 apart. It arrives with the plan's W1, which is the wave that measures it.
 
+### 96.37 The kernel's disk layer runs outside the kernel, for 92 bytes
+
+docs/plans/KERN-DOS-PLAN.md §4 gives a DOS program ~600 KB of a 640 KB machine
+by assembling the DOS core against a **kernel-less back end**, and reuses
+`kernel/disk.inc`, `kernel/diskw.inc` and `kernel/dskwin.inc` rather than
+writing a FAT reader. Its §5 names the risk in one line: those three files
+take `[sch_lock]`, drive the `fpg_*` progress widget, sit on `.lowbss` buffers
+reached through SS and call the volume and driver layers, and **a shim bigger
+than a purpose-written FAT reader means the reuse is not paying**.
+
+**It is 92 bytes** — 58 of `.text`, 25 of `.bss`, 9 of `.cold` — against
+**11,935 bytes** of kernel disk code it makes reusable. 0.7%, and the answer
+is not close.
+
+| | |
+|---|---:|
+| external symbols those three files name | **81** |
+| …constants, lifted verbatim | 32 |
+| …macros about a machine `kern_dos` has not got | 6 |
+| …stubs, refusals and strings | 29 |
+| …real work: an allocator and an epilogue ladder | 14 |
+
+`kerndos/kerndos.asm` is the root, `kdshim.inc` the shim and `kdlayout.inc`
+the segment ladder. The only piece that is not a `ret`, a refusal or a number
+is a **bump allocator claiming downward from the ceiling** (51 bytes), which
+is §6.2's purgeable cache in miniature: the two claims the disk layer makes
+here are the FAT window and the directory read-ahead, both caches, and
+claiming downward makes giving them back a decrement of one word.
+
+#### 96.37.1 Four ways it went wrong, and every one assembled
+
+`tests/kerndos.py` exists because *it assembles* and *it works* are different
+claims. Each of these built cleanly and failed on the machine:
+
+1. **The shim's stubs at offset 0.** `kdshim.inc` opens `.text` to hold its
+   stubs, so including it before the root's own `section .text` put
+   `fpg_begin`'s `ret` at the image's base — which is where §87.5's stub
+   far-jumps. It returned through whatever the loader left on the stack.
+2. **`.lowbss` without `vstart=0`.** `kernel/kernel.asm` declares it that way
+   because those buffers are reached through `SS = LOW_SEG` and their labels
+   have to be offsets from that segment's start. A bare `section` gives them
+   the absolute offset they land at — 0x3BFC here — so every disk-visible
+   base was 15 KB adrift **and not 512-aligned**, which is the one thing
+   §18.2's alignment rule says answers `int 13h` with error 09h.
+3. **A near `ret` under a FAR call.** The disk layer reaches nine of these
+   through a segment (`call KERNEL_SEG:fpg_busy`, `call
+   COLD_SEG:desk_zones_paint_x`) because in the kernel they live in another
+   one. A near `ret` leaves the pushed CS on the stack, and the mount landed
+   back at the image's own offset 0 some dozens of instructions later. **A
+   stub's return kind is part of its contract** — §20's *"a package author
+   never writes `retf`"* is the same hazard one layer along.
+4. **The on-disk record offsets read out of a SYNTHESIZED entry.**
+   `DSK_R_SIZE` = 28 is the FAT's own layout; §19.1's staged record is name
+   0..15 NUL-terminated, type 16, handle 18, size 20. Reading a size at 28
+   answers **zero**, which asks for zero sectors and reports two calls later
+   as a corrupt chain.
+
+The last two are the ones worth remembering: both are a correct constant used
+against the wrong record, and both surfaced as a symptom in a different layer.
+
+#### 96.37.2 What the reuse brings that `kern_dos` does not want
+
+The three files also emit **`.ovlw` (752 bytes) and `.modf` (1,235)** — the
+boot overlay's disk half and the FORMAT module's header — which a machine with
+no boot overlay and no module mechanism (docs/plans/KERN-DOS-PLAN.md §4.2) has
+no use for. That is ~2 KB of the ~39 KB budget, and gating it out is a later
+wave's, not a reason to reconsider: it is dead weight in a section, not a
+dependency.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw

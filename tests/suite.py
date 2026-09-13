@@ -2678,6 +2678,26 @@ SOAK = [
         "MartyPC instrument with no QEMU form.",
         needs=("qemu",), serial=True, timeout=600,
         wants=("build/dosxmsq.img",)),
+    Row("kerndos", "soak", py("tests/kerndos.py"), 10.0,
+        "THE KERNEL'S DISK LAYER, OUTSIDE THE KERNEL "
+        "(docs/plans/KERN-DOS-PLAN.md W3): kernel/disk.inc, diskw.inc and "
+        "dskwin.inc assembled under kerndos/kerndos.asm - no scheduler, no "
+        "window manager, no drawing layer, no API table - mounting a FAT12 "
+        "floppy and reading a file. IT ASSEMBLES AND IT WORKS ARE DIFFERENT "
+        "CLAIMS: every entry in kerndos/kdshim.inc is a `ret`, a refusal or a "
+        "handful of bytes, and a `ret` where a value was expected assembles "
+        "perfectly and returns garbage. So the guest prints the entry count, "
+        "the length and a ROTATE-AND-ADD checksum, and tools/os88fat.py "
+        "computes the same two on the host off the same image - a plain sum "
+        "could not tell a reordered chain or a zero run from the real bytes, "
+        "which is exactly what a chain walk gets wrong. A: carries no file "
+        "system at all (a loader and the blob raw, because a FAT volume's "
+        "sectors 1..n are its FATs) and B: is the volume under test. It went "
+        "red four ways writing it, every one recorded in SPEC.md 96.37: the "
+        "shim's stubs at offset 0 instead of the entry jump, `.lowbss` "
+        "without vstart=0, a near `ret` under a FAR call, and the ON-DISK "
+        "record offsets read out of a SYNTHESIZED entry.",
+        needs=("marty",), serial=True),
     Row("dosseam", "soak", py("tests/unit/t_dosseam.py"), 1.0,
         "THE DOS BOX'S FILE SEAM (SPEC.md 96.4.1, 96.4.2): the INT 21h core "
         "reaches the file system through the DBE_* doors and nothing else, "
