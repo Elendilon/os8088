@@ -1,8 +1,9 @@
 # A region that can compact ITSELF — and the pass pair that has to land with it
 
-**Status: §3's DEFECT FIX IS BUILT AND MEASURED (+35 bytes, `soak -k` 19/19
-green); §5's posted request is DESIGN, not started.** Two things are wrong and
-each makes the other measure as worthless. SPEC.md 66.6.1 built everything a region needs to move
+**Status: BUILT AND ADOPTED. §3's defect fix is +35 bytes; §5's posted request
+is +367 and shipped as SPEC.md 66.4.3; §8 is Tracker, the first consumer,
+at +128 bytes of its own `.o88` and none resident.** Two things were wrong and
+each made the other measure as worthless. SPEC.md 66.6.1 built everything a region needs to move
 and left out the only moment a package ever wants it; SPEC.md 66.4.1's
 "alternatives, not cumulative" rule then means **a claim that needs both
 compaction passes gets neither of them**. Fix either alone and the measured
@@ -666,3 +667,112 @@ replaced. A descending pass does fix it — `B` only falls — but `mem_tab` is
 unordered and ordering it is the `O(n²)` the routine exists to avoid. The
 slack it **did** have came out: −19 bytes.
 
+
+---
+
+## 8. Tracker, the first consumer (SPEC.md 45.3.2)
+
+`tests/heapfrag` proves the door opens. It cannot prove the door is the right
+shape, because heapfrag is written to exercise the kernel and a real consumer
+is written to get a job done — so the adoption is where the two halves of the
+API turn out to be for **different kinds of program**, which is the finding
+worth keeping out of this section.
+
+**A package that wants *whatever is going* does not need the what-if at all.**
+The report's own DOS runner is that shape: post, return, claim the largest run
+the wake reports, and if it is less than hoped, use less. `OSAPI_MEM_AVAIL_MAX`
+tells it nothing it will act on, and §5.1.1's argument — that a package with an
+exact requirement cannot be told to post and find out — does not bind it.
+
+**Tracker is the other shape and it is the one that pays for the what-if.** Its
+requirement is *this module or no module*, and §5.1.1 is exactly its problem: a
+failed claim sheds every purgeable cache on the way down, so a refusal that
+could have been avoided is paid for twice. `trk_cpq_try` is therefore the
+whole adoption in one routine — ask `OSAPI_MEM_AVAIL_MAX`, and only say
+`Too big for free memory` when the answer is *not even if the machine emptied
+itself for me*.
+
+### 8.1 What it cost, and where the bytes went
+
+**+128 bytes of `apps/tracker/tracker.o88`, none of it resident** — a package
+image is compressed disk present only while the program runs, which is the
+trade CTRL-GLYPH-PLAN §4 states and it points the same way here. The kernel
+side is **zero**: every slot this uses was already published.
+
+Three of the four pieces are not the feature. `trk_cpq_try` is the ask and the
+post; `trk_cpqload` is the retry, and it is `trk_argload`'s shape with nothing
+to look up, because the name is already in this package's own segment and the
+size is already banked — so `trk_fdone`'s own copy is onto itself and there is
+no `OSAPI_FILE_GOTO` to do. `[trk_cpq]` is one byte doing two jobs that are the
+same job. And `.outq` is five bytes: `trk_fdone` clears the flag at its single
+exit and the posted path jumps past that clear, because its wake is the same
+attempt continuing.
+
+### 8.2 The finding: a park-safe worker is not a pump
+
+`OS88_WORKER_RESTARTABLE`'s SDK note says a worker that mixes audio must not
+pair the declaration with region-movability blanket-fashion, and the obvious
+reading of that is to make the declaration a **window** around
+`OSAPI_TASK_ALIVE`. **That reading is wrong here and it fails silently**, which
+is why it is written down: `mem_frameless` reads `[inst_restart]` **at plan
+time**, and Tracker's worker is outside its own `OSAPI_TASK_ALIVE` for
+essentially all of a tick. A windowed declaration therefore makes
+`OSAPI_MEM_AVAIL_MAX` answer *no better* for a heap the compactor could have
+emptied — the low read that §66.4.3.2 names as the failure that is silent.
+
+So the declaration is permanent and the work goes into making the restart
+lossless from **both** park points. Tracker is park-safe (SPEC.md 66.5.4), so
+the second one is *blocked in `OSAPI_GFX_LOCK`* — and enumerating what that
+costs is a two-line answer rather than the open-ended risk the SDK note
+implies:
+
+* `trk_render` takes the lock as its first action and draws nothing before it,
+  so a restart there loses a frame and no pixels.
+* `[trk_inrend]` is set by the CALLER before `call trk_render`, so it is 1 at
+  that park point and would stay 1 for ever — with `trk_fs_enter`'s drain
+  waiting on a worker that is no longer inside `trk_render`. `trk_worker`'s own
+  head clears it, which is where the restart lands.
+* `[trk_mixing]` needs nothing, and the reason is the general one: `trk_feed`
+  blocks on no lock at all, so neither park point is ever inside a feed pass.
+
+**The rejected alternative is worth naming too.** Moving `[trk_inrend]`'s store
+*inside* `trk_render`, after the lock, removes the stuck state with no new code
+— and breaks the drain: the flag would then mean *has the lock* rather than
+*is between deciding to render and finishing*, so `trk_fs_enter` could see 0
+while the worker is blocked on the lock the drain itself holds, proceed into
+`OSAPI_FSX_RUN`, and let the worker draw windowed content onto the fullscreen
+surface.
+
+### 8.3 The gate, and why it counts rather than assumes
+
+`tests/trkcompact.py` builds the heap out of **Tracker itself** — instances
+stacked down from the ceiling until the floor run is under the module's size,
+then the topmost closed so the survivor has a hole above it. A package region
+is a top-down claim (SPEC.md 50.3.2), so the stack grows down and the one hole
+in the arena is the floor; each instance takes one region off it, so **the
+first N whose floor run is under the module is guaranteed to be within one
+region OF it** — which is precisely the window the feature lives in, proved by
+the loop's stopping rule rather than by a count somebody measured once.
+
+Two things it got wrong first, both worth not repeating:
+
+* **The raw largest hole is not the number a package is quoted.** The first
+  shape stopped at a 106KB floor, watched a 114KB module simply fit, and
+  reported the feature dead. 74KB of disk cache was sitting in that hole:
+  `mem_claim` sheds every purgeable claim on its way down, so a precondition
+  that does not count caches as free is measuring a heap the guest does not
+  have.
+* **The plan is deliberately NOT modelled.** Every region in that scenario
+  belongs to an instance with a LIVE worker, so `mem_frameless` pins it until a
+  compaction parks it and a bare `mem_avail` moves none of them. The one that
+  does move is the asker's own, which the precondition adds by hand — and that
+  asymmetry between what `mem_avail` can plan and what `mem_claim` can achieve
+  is a standing property of the park, not something this work introduced.
+
+The assertions are the **guest's own verdict** and not a screen reading:
+`[trk_cpq]` seen non-zero is the post (only `trk_cpq_try` writes it, and only
+after both questions have been asked), `[tui_msgp]` equal to `trk_s_cpq` is the
+sentence being on the glass **before** the freeze rather than after it, and a
+loaded module is a load the same heap refused before the feature. Measured:
+nine instances, a 79KB floor, `BEVERLY.MOD` at 114KB, the asker's region
+`8780` → `93c0` and the module playing.

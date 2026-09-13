@@ -4820,6 +4820,16 @@ SOAK = [
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True,
         wants=("build/trackmove360.img",)),
+    Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
+        "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
+        " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
+        " OSAPI_MEM_COMPACT_WAKE. It stacks instances down from the ceiling"
+        " until the floor run is under the module's size, closes the topmost"
+        " so the survivor has a hole above it, and asserts the guest's own"
+        " verdict: [trk_cpq] seen set is the post, and the module playing is"
+        " a load that the same heap refused before the feature",
+        needs=("marty",), serial=True,
+        wants=("build/trackmove360.img",)),
     Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
