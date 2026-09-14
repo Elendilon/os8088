@@ -421,11 +421,15 @@ DSH_ARG     equ 64                  ; one argument - longer than any 8.3 path
                                     ; is a path that was going to be refused
 DSH_PAT     equ 11                  ; a padded 8.3 name, the form a match is
                                     ; decided in
-DSH_BUF     equ 128                 ; TYPE's chunk
-DSH_CPKB    equ 8                   ; the COPY buffer, out of the DOS ARENA and
-                                    ; not the heap (SPEC.md 96.30.6): 8KB asked
-DSH_CPMINKB equ 1                   ; for, one accepted, which is 2 sectors and
-                                    ; still copies
+DSH_CPKB    equ 8                   ; the buffer COPY and TYPE share, out of
+                                    ; the DOS ARENA and not the heap (SPEC.md
+                                    ; 96.30.6): 8KB asked for, and the request
+                                    ; halves down to ONE CLUSTER - never to a
+                                    ; flat 1KB, which on a 2KB- or 4KB-cluster
+                                    ; volume is a capacity OSAPI_FILE_READ_AT
+                                    ; refuses outright (96.30.7). TYPE had a
+                                    ; 128-byte DSH_BUF of its own and could
+                                    ; therefore not read a file at all
 
 DST_IDLE    equ 0                   ; launched with no document (wave 7's prompt)
 DST_READY   equ 1                   ; a program is named and not yet run
@@ -13026,10 +13030,14 @@ dos_fh_fill:
     DBSS DOS_B_SHNM11,  DSH_PAT     ; ...and the candidate, the same way
     DBSS DOS_B_SHFNAM,  16          ; the match's own name
     DBSS DOS_B_SHFND,   OSAPI_FIND_SZ
-    DBSS DOS_B_SHBUF,   DSH_BUF     ; TYPE's chunk
     DBSS DOS_B_SHNUM,   12          ; a count, as digits - TWELVE since DIR,
                                     ; whose sizes are 32-bit: ten digits and a
                                     ; NUL, and dsh_num32 writes the NUL at +11
+    DBSS DOS_B_SHCPHEAP, 1          ; the buffer came off the HEAP and not the
+                                    ; DOS arena, which is the prompt's arm
+                                    ; (SPEC.md 96.30.7.2) - recorded rather
+                                    ; than re-derived, so the put cannot free
+                                    ; the other one
     DBSS DOS_B_SHQUIET, 1           ; the line was redirected
     DBSS DOS_B_SHASDIR, 1           ; try the whole spec as a folder
     DBSS DOS_B_SHDEL,   1           ; ...and delete the source after
@@ -13296,8 +13304,8 @@ dsh_pat     equ os88_image_end + DOS_B_SHPAT
 dsh_nm11    equ os88_image_end + DOS_B_SHNM11
 dsh_fname   equ os88_image_end + DOS_B_SHFNAM
 dsh_fnd     equ os88_image_end + DOS_B_SHFND
-dsh_buf     equ os88_image_end + DOS_B_SHBUF
 dsh_num     equ os88_image_end + DOS_B_SHNUM
+dsh_cpheap  equ os88_image_end + DOS_B_SHCPHEAP
 dsh_quiet   equ os88_image_end + DOS_B_SHQUIET
 dsh_asdir   equ os88_image_end + DOS_B_SHASDIR
 dsh_del     equ os88_image_end + DOS_B_SHDEL
