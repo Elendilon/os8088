@@ -4028,7 +4028,9 @@ $(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) 
 # is what Add to Disk needs: somewhere to write, MEDIA for the Save dialog to
 # open in (SPEC.md 38.10) and SYSTEM/APPDATA because every disk that carries
 # an application carries one (SPEC.md 19.9).
-$(BUILD)/thewiredata.img: tools/os88disk.py | $(BUILD)
+# Makefile is a prerequisite for dirsw360.img's reason: the folder list IS
+# the payload and lives in the recipe.
+$(BUILD)/thewiredata.img: tools/os88disk.py Makefile | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--folder MEDIA --folder SYSTEM/APPDATA
 
@@ -4074,7 +4076,8 @@ $(BUILD)/telnetsys.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SY
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg $(APPDATAFOLDER)
 
-$(BUILD)/telnetdata.img: tools/os88disk.py | $(BUILD)
+# ...and here too, for the same reason.
+$(BUILD)/telnetdata.img: tools/os88disk.py Makefile | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--folder MEDIA --folder SYSTEM/APPDATA
 
@@ -4803,7 +4806,14 @@ $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 # hidden or system and DOS does not list those.  Twenty-four plain files is
 # comfortably over a CGA page and comfortably under a VGA one, so the same
 # disk answers "it paused" on one adapter and "it did not need to" on another.
-$(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py | $(BUILD)
+# **`Makefile` IS A PREREQUISITE AND IT IS NOT BOILERPLATE.** The disk's
+# LAYOUT is written in the recipe below - twenty-four generated files and a
+# `BIN:` folder - so the Makefile is an input to this target like any source.
+# Without it, adding `BIN:` left a built disk with no BIN on it and `make`
+# saw nothing to do, because neither DOSHELLO.COM nor os88disk.py had moved:
+# `dosdirsw` then failed on `CD BIN did not move the prompt`, which reads
+# exactly like the DOS box losing CD.
+$(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dirsw && mkdir -p $(BUILD)/dirsw
 	@for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \
 	          21 22 23 24; do \
