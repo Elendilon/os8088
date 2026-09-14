@@ -233,3 +233,98 @@ touch at all.
 - **The order of the work.** Extraction is a refactor of a package that ships
   and works, and W5c's handoff does not depend on it. Doing them the other way
   round would put an unbuilt seam under an unbuilt stub.
+
+---
+
+## 6. The four-piece shape, costed — and the join can be NEAR
+
+*Added after the owner proposed the shape below. Section 4 assumed the core
+would be a far-called segment of its own; it does not have to be, and the
+measurement that says so is in 6.2.*
+
+The proposal:
+
+| | what | |
+|---|---|---|
+| **image** | the parts loader, ~2 KB, dropped after it loads | `OSAPI_PKG_REHOME` |
+| **part 0** | the UI — becomes the main image when the loader rehomes to it | `OP_SEG, OP_COMP` |
+| **part 1** | the INT 21h core | `OP_SEG, OP_COMP` |
+| **part 2** | `kern_dos` — the FAT, the mouse, the kernel bits | `OP_SEG, OP_COMP` |
+
+…with **part 1 joining to EITHER part 0 or part 2**, never both, because the
+two hosts are alternatives: one is the windowed box and the other is the
+machine after the handoff.
+
+**Every mechanism it needs already exists.** `OSAPI_PKG_REHOME` (0x0530) is an
+X cell that tells the kernel *the program is at DX, not at me*: the loader's
+region is freed, the carve is re-owned, and `ld_start` runs step 8 again
+against the part (SPEC.md 20.12.10). The ordinary launch pays six bytes for
+it. `apps/skies/csload.asm` is the worked example and its loader is **2,000
+bytes** — the estimate was exact. And the loader needs no protocol to tell the
+program where the parts went: it writes the vector into the head of the
+program's bss, which ships inside the part and which the kernel does not zero
+(SPEC.md 20.12.10.2).
+
+### 6.1 What it costs on the 360KB system disk
+
+| | raw | `OP_COMP` | clusters |
+|---|---:|---:|---:|
+| image — the loader | 2,000 | 2,000 (an image cannot compress) | 2 |
+| part 0 — the UI | 19,556 | ESTIMATED 16,231 | 16 |
+| part 1 — the core | 12,812 | ESTIMATED 10,633 | 11 |
+| part 2 — the `kern_dos` bits | 18,959 | ESTIMATED 15,735 | 16 |
+| | | | **45** |
+
+**+19 clusters over today's 26**, against +43 for the shape W5a builds and +32
+with only the box cut. It is also ~900 bytes better than section 2.1's shape 3
+and **2 KB better in RAM**, because shape 3 kept the box as the uncompressed
+image and this drops a 2 KB loader instead.
+
+### 6.2 The join can be NEAR, and the reason is a coincidence worth checking yearly
+
+A near join needs the core at the **same offset in both hosts**, so each host
+reserves the range below it. The obvious objection is the hole that leaves in
+whichever host is smaller. **Measured, there is almost no hole:**
+
+| | bytes |
+|---|---:|
+| part 0, the UI (13,075 of box code + 5,981 of libraries + a header) | 19,556 |
+| part 2, the `kern_dos` bits (`.text` + `.cold` + `.ovlw` + `.modf`, less the core, less the box that came along) | 18,959 |
+| `CORE_ORG`, 512-aligned above the larger | **19,968** |
+| the hole in part 0 | 412 |
+| the hole in part 2 | 1,009 |
+| the segment ends at | 32,780 |
+
+**The two hosts are within 600 bytes of each other.** Part 0's 412 bytes are
+zero-run padding that compresses to nothing, so the hole costs disk zero and
+RAM 412; part 2 needs no padding at all, because the stub places it and does
+not carve it.
+
+With a near join, every obstacle section 4 listed dissolves:
+
+| section 4's obstacle | with a near join |
+|---|---|
+| 46 far calls at 46.7 µs | they stay near, at 11 µs |
+| a second `DBSS` chain | none — `os88_image_end` is the same offset in both hosts |
+| `OSAPI_MEM_CLAIM`/`FREE` forbidden to a part (rule 2) | not a part's call at all; it is the host's own segment |
+| six library calls out of `dos_tty`, `dos_snap`, `dos_fsx_owed` | six words of vector the host fills, not six doors |
+
+What is left is **one new ABI and one new budget**:
+
+- **a 33-entry jump table at `CORE_ORG`** — 99 bytes — because part 0 cannot
+  know the core's internal addresses at assembly time. It is the same cost as
+  33 far thunks and it is near.
+- **`CORE_ORG` is a budget with two claimants**, exactly like `KERN_BUDGET`:
+  both hosts assert against it and the ledger says who spent what. Today's
+  600-byte margin between them is luck and will not stay lucky — the guard is
+  what makes that a decision somebody takes rather than a build that breaks.
+
+### 6.3 One thing to keep straight about part 2
+
+`kern_dos` is **not loaded by the parts loader**, and
+docs/plans/KERN-DOS-PLAN.md §4.1.1 is why: the heap is being given away, so
+there is nowhere to load it to. The handoff walks part 2's bytes into extents
+while the file layer is still alive and the **stub** reads them with `int 13h`
+— and on this shape it reads **two** runs, part 2 to `KD_SEG:0000` and part 1
+to `KD_SEG:CORE_ORG`. Same loop, one more extent list. "A smaller loader in
+part 0" is exactly right; what it loads is a stub, not a part.

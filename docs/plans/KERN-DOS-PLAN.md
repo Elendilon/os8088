@@ -368,6 +368,48 @@ block at the head of it.
 does not care how many parts it walks, and doing the refactor first would put
 an unbuilt seam under an unbuilt stub. It is a wave of its own — W9 below.
 
+##### 4.1.3.1 The shape, and the join is NEAR
+
+`DOS.O88` becomes four pieces, which is the owner's design and costs **+19
+clusters of a 360KB system disk against today's 26** — better than every other
+shape measured:
+
+| | what | how |
+|---|---|---|
+| **image** | the parts loader, ~2 KB, dropped once it has loaded | `OSAPI_PKG_REHOME` |
+| **part 0** | the UI — becomes the main image when the loader rehomes to it | `OP_SEG, OP_COMP` |
+| **part 1** | the INT 21h core | `OP_SEG, OP_COMP` |
+| **part 2** | `kern_dos` — the FAT, the mouse, the kernel bits | `OP_SEG, OP_COMP` |
+
+**Part 1 joins to EITHER part 0 or part 2 and never both**, because the two
+hosts are alternatives: one is the windowed box and the other is the machine
+after the handoff. Every mechanism it needs is built — `OSAPI_PKG_REHOME` is
+six bytes on an ordinary launch, and `apps/skies/csload.asm`'s loader measures
+**2,000 bytes**, so the ~2 KB estimate is exact.
+
+**AND THE JOIN CAN BE NEAR**, which is the finding that makes the whole thing
+cheap. A near join needs the core at the same offset in both hosts, so each
+reserves the range below it — and the two hosts measure **19,556 and 18,959
+bytes**, within 600 of each other. A 512-aligned `CORE_ORG` of 19,968 leaves
+holes of **412 and 1,009 bytes**; part 0's is zero-run padding that compresses
+away and part 2 needs none at all, because the stub places it rather than
+carving it.
+
+With a near join, every obstacle §4.1.3 listed dissolves: the 46 transfers
+stay near, there is no second `DBSS` chain (`os88_image_end` is the same
+offset in both), rule 2's ES fence never applies because it is the host's own
+segment, and the six library calls become six words of vector the host fills.
+What is left is **a 33-entry jump table at `CORE_ORG` (99 bytes)**, because
+part 0 cannot know the core's internal addresses at assembly time, and
+**`CORE_ORG` as a budget with two claimants** — a `KERN_BUDGET`-shaped ledger,
+because today's 600-byte margin is luck and will not stay lucky.
+
+One thing to keep straight: **part 2 is not loaded by the parts loader.**
+§4.1.1 is why — the heap is being given away, so there is nowhere to load it
+to. The handoff walks its bytes into extents while the file layer is alive and
+the STUB reads them, two runs now: part 2 to `KD_SEG:0000` and part 1 to
+`KD_SEG:CORE_ORG`. Same loop, one more extent list.
+
 ### 4.2 What "kernel" means here, and what it does NOT import
 
 Per the requester: *the thing that sits there running DOS programs*, and
@@ -619,7 +661,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
-| **W9** | **The core stops being shipped twice** (§4.1.3). Extract it to a shared `OP_SEG` part, `OP_COMP`, that both halves far-call: ~12 KB off every system disk, a one-directional seam of 46 sites at 33 entry points, and five new doors. NOT a prerequisite for W5c. | the box and `kern_dos` both run against one core part; `soak -k 'dos*'` |
+| **W9** | **`DOS.O88` becomes four pieces and the core stops being shipped twice** (§4.1.3, §4.1.3.1): a 2 KB loader that rehomes, the UI, the core, and `kern_dos` — with the core joined NEAR to whichever host is running. **+19 clusters against today's 26**, where the shape W5a builds is +43. The new ABI is a 33-entry jump table and a `CORE_ORG` budget with two claimants. NOT a prerequisite for W5c. | the box and `kern_dos` both run against one core part; `soak -k 'dos*'` |
 
 **W0 and W1 land before anything is designed further.** W2 is the go/no-go for
 the whole shape; W3 is the go/no-go for §4's reuse.
