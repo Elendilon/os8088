@@ -5118,18 +5118,18 @@ dos_path_take:
     jmp short .no                   ; longer than the buffer
 .cdend:
     mov byte [di], 0
-    mov al, [dos_vol]
-    push ax                         ; **THE OLD VOLUME, BANKED**: dos_walk_pbuf
-    mov al, [dos_tvol]              ; reads [dos_vol] rather than taking it, so
-    mov [dos_vol], al               ; it has to be set for the walk - and put
-    call dos_walk_pbuf              ; back if the walk refuses, or a typo would
-    pop ax                          ; move the box to a volume it never reached
-    jc .back
-    mov [dos_dir], dx
-    jmp short .commit2
-.back:
-    mov [dos_vol], al
-    jmp short .no
+    push dx                         ; **STAND THE MACHINE, do not move the BOX**
+    mov dl, [dos_tvol]              ; (SPEC.md 96.48.2). This used to set
+    call dos_fh_stand               ; `[dos_vol]` for the walk and put it back
+    pop dx                          ; if the walk refused, because the walk read
+    jc .no                          ; `[dos_vol]` - it reads `[dos_pvol]` now,
+    call dos_walk_pbuf              ; so the drive to walk on is said by
+    jc .no                          ; standing on it. The rollback goes with it:
+    mov [dos_dir], dx               ; nothing was changed, so a typo leaves the
+    jmp short .commit               ; box exactly where it was - and the arm
+                                    ; falls into `.commit` rather than past it,
+                                    ; because `[dos_vol]` is no longer already
+                                    ; set by the time it gets there
 .here:
     ; **THE FOLDER WE STAND IN IS [dos_curdir], NOT [dos_dir]** (SPEC.md
     ; 96.33.13).  This arm left [dos_dir] alone, which is right for the door it
