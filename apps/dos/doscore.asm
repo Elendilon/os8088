@@ -1,8 +1,8 @@
 ; =============================================================================
 ; os8088 - apps/dos/doscore.asm
 ;
-; **THE DOS CORE, ON ITS OWN** (SPEC.md 96.44, docs/plans/KERN-DOS-PLAN.md
-; §4.1.3): INT 21h and everything under it - the PSP, the handle layer, the
+; **THE DOS CORE, ON ITS OWN** (SPEC.md 96.44; KERN-DOS-PLAN 4.1.3, which is
+; docs/plans/KERN-DOS-PLAN.md): INT 21h and everything under it - the PSP, the handle layer, the
 ; FCBs, the MCB chain, `AH=4Bh` and the built-in commands - assembled once,
 ; with no host around it.
 ;
@@ -20,7 +20,7 @@
 ; split is checkable: `build/dos.o88` was byte-identical through the marking.
 ;
 ; WHAT IT NAMES OUTSIDE ITSELF IS THREE THINGS, and that is the measurement
-; §4.1.3 wanted (*"core -> box is ZERO"*):
+; KERN-DOS-PLAN 4.1.3 wanted (*"core -> box is ZERO"*):
 ;
 ;   os88_image_end   where the DBSS table is based.  A CONSTANT here, because
 ;                    the core's bss is at a fixed offset both hosts agree on
