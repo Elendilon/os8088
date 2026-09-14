@@ -3410,14 +3410,24 @@ wr_addprog:
 ; wr_pkgrun - the image in the claim, into a running instance
 ; in:  [wr_fseg], [wr_rlen], [wr_fname]; the UI task, NO LOCK
 ;
-; [wr_rlen] IS THE LENGTH AND IT IS A WORD THE CALLER WRITES: for a plain Load
-; Program it is [wr_got], what arrived (see wr_write's reason); for an archive
-; it is the last entry's unpacked size, and the claim holding it is the same
-; claim the whole tree was decoded through (SPEC.md 92.14).
+; [wr_rlen] IS THE LENGTH AND IT PICKS THE FORM (SPEC.md 21.5), which is why
+; it is a word the CALLER writes and not one this routine derives:
+;
+;   non-zero - the IMAGE form, [wr_fseg]:0 for [wr_rlen] bytes. Plain Load
+;              Program writes [wr_got], what arrived (see wr_write's reason).
+;              It is the only caller of that form in the tree, because it is
+;              the only one holding bytes that were never a file (21.5.1.1).
+;   zero     - BY NAME, [wr_fname] in the instance's own folder, and ES:DI is
+;              not read at all. The ARCHIVE arm writes it (92.14.2): the tree
+;              is on the store, so there IS a file - and by the time this is
+;              called the decode claim has already gone back, which is the
+;              point.
 ;
 ; SPEC.md 21.x. The new instance's current directory is OURS (SPEC.md 19.2.1),
 ; which is why a WF_DISK record is refused by the predicate rather than
-; launched into a folder where its overlay is not.
+; launched into a folder where its overlay is not - and, on the archive arm,
+; how the by-name resolve finds anything: the chain ends standing in the last
+; entry's folder (92.14.1) and the last entry is the program.
 ; -----------------------------------------------------------------------------
 wr_pkgrun:
     push ax
@@ -3427,16 +3437,13 @@ wr_pkgrun:
     push si
     push di
     push es
-    mov es, [wr_fseg]
-    xor di, di                          ; ES:DI = the image, and DS:SI the name
-    mov cx, [wr_rlen]                   ; - the canonical pairing, where the
-    xor dx, dx                          ; two used to be the other way round
-    mov si, wr_fname                    ; (SPEC.md 21.5). A NON-ZERO LENGTH is
-    call OSAPI_PKG_START                ; what says we are holding an image at
-                                        ; all; zero would read the file, which
-                                        ; is the one thing this caller cannot
-                                        ; do and the reason the image form
-                                        ; exists (21.5.1.1)
+    mov es, [wr_fseg]                   ; zero on the archive arm, and never
+    xor di, di                          ; dereferenced there: 21.5 asks the
+    mov cx, [wr_rlen]                   ; LENGTH first and tail-jumps to the
+    xor dx, dx                          ; by-name body without reading ES
+    mov si, wr_fname                    ; ES:DI = the image, DS:SI the name -
+    call OSAPI_PKG_START                ; the canonical pairing, where the two
+                                        ; used to be the other way round
     jc .bad
     push ds
     pop es

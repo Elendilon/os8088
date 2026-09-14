@@ -125,9 +125,20 @@ def say(msg):
 
 
 def build():
-    """The kernel under test and the gate's own disk. The row is builds=True
-    (tests/suite.py) precisely so this may write build/, and a reader running
-    the script by hand should not have to know the target's name."""
+    """The kernel under test and the gate's own disk, for a reader running
+    this script BY HAND - who should not have to know the target's name.
+
+    **NOT INSIDE A SOAK.** The row declares `wants=` now rather than
+    `builds=True` (docs/WRITING-TESTS.md), so under a frozen tree the disk is
+    already there, built with every other row's before anything started - and
+    a `make` here would write the SHARED build/ in the middle of a run, which
+    is the four-minute window that cost nine rows once
+    (docs/plans/SOAK-PARALLEL.md 12). It used to be builds=True with no
+    pkgrun360.img in the `wants=` union, so the frozen tree did not carry the
+    disk at all and the row died on FileNotFoundError in a third of a second,
+    which reads as a broken loader rather than a missing file."""
+    if os88build.tree_root():
+        return
     subprocess.run(["make", "-s", "build/os8088-360.img", "pkgrun"], cwd=ROOT,
                    check=True, stdout=subprocess.DEVNULL)
 

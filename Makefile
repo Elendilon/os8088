@@ -4033,10 +4033,15 @@ $(BUILD)/thewiredata.img: tools/os88disk.py | $(BUILD)
 		--folder MEDIA --folder SYSTEM/APPDATA
 
 .PHONY: thewiretest
-thewiretest: $(BUILD)/thewire360.img $(BUILD)/thewiredata.img
+# $(BUILD)/mseg.o88 is a PREREQUISITE and not an artefact of the disk: the
+# fixture tree tests/thewire.py packs puts it in as the archive's WAH_PROGRAM
+# entry, because a package with PARTS is the one thing the image form of
+# OSAPI_PKG_START refuses (SPEC.md 92.14.2, 21.5.1). It goes on no floppy.
+thewiretest: $(BUILD)/thewire360.img $(BUILD)/thewiredata.img $(BUILD)/mseg.o88
 	@echo "thewiretest: build/thewire360.img - ETHER.DRV already wanted, and"
 	@echo "             SYSTEM/APPDATA/WIRE.CFG naming 10.0.2.2:8092/wire/."
 	@echo "             build/thewiredata.img is the scratch B: it writes to."
+	@echo "             build/mseg.o88 is the archive's parted program."
 	@echo "             Run it with: python3 tests/thewire.py"
 
 # TELNETTEST: the BBS terminal's gate disks (SPEC.md 70.12), ethertest's shape

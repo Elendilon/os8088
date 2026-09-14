@@ -1164,7 +1164,7 @@ FULL = [
         "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
         "a WF_ARC one whose .WPK the test packs with --archive, and the "
         "machine fetches it because `make thewiretest`'s "
-        "SYSTEM/APPDATA/WIRE.CFG says to. Eleven assertions: the catalog is "
+        "SYSTEM/APPDATA/WIRE.CFG says to. Twelve assertions: the catalog is "
         "understood, the host saw the request it expected, the list is the "
         "catalog, the 8088/8086 filter cuts four rows to three, the predicate "
         "greys Load Program on a WF_DISK record and NOT Add to Disk, the "
@@ -1176,8 +1176,20 @@ FULL = [
         "byte count are read with a high word in them, an empty file and a "
         "TWELVE-character name that fills its slot with no NUL, read back on "
         "the host by an independent FAT12 reader after `quit` - "
-        "an archive mounts a RAM disk and runs its program entry off it "
-        "(SPEC.md 92.14), and SPEC.md 92.6.1's CLIP assertion: after Load "
+        "an archive mounts a RAM disk and runs its program entry off it BY "
+        "NAME (SPEC.md 92.14.2) - the entry being MSEG.O88, a package "
+        "carrying seven PARTS, because the image form refuses one for want "
+        "of a file to read them out of and the window it opens titles itself "
+        "`MSEG 7/7 OK` only if every part came back off the store; "
+        "[wr_rlen] and [wr_fseg] are read at the same moment and are both 0, "
+        "which is the ORDERING the title cannot see - the decode claim went "
+        "back BEFORE ld_alloc asked for a region rather than after it. That "
+        "pair is what took SPEC.md 62.9.18 out of the kernel: "
+        "dsk_read_chain_x asked a redirected volume for the WHOLE FILE where "
+        "its own contract is DX SECTORS, so a driver serving FSV_READ "
+        "correctly refused a file longer than the buffer and every package "
+        "on a RAM disk loaded until one had parts. And SPEC.md 92.6.1's CLIP "
+        "assertion: after Load "
         "Program the launched window's content is captured, dragged 8px and "
         "back for a clean repaint, and the two must agree pixel for pixel, "
         "which they do not when the Wire's wake handler has drawn its "
@@ -2369,8 +2381,12 @@ SOAK = [
         "launch was no longer looking, so the row died in shutil.copyfile "
         "before a guest existed. It read as a product failure and passed "
         "under os88test.py all along (docs/WRITING-TESTS.md: a `wants=` was "
-        "the answer, not a `builds=True`)",
-        needs=("marty",), builds=True,
+        "the answer, not a `builds=True`) - so the `builds=True` is gone "
+        "with it, tests/pkgrun.py's build() returning at once when "
+        "os88build.tree_root() is set, which leaves the by-hand invocation "
+        "in the file's own header working and the shared build/ untouched "
+        "mid-run",
+        needs=("marty",),
         wants=("build/hello.o88", "build/mseg.o88",
                "build/pkgrun360.img")),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
@@ -5457,7 +5473,8 @@ SOAK = [
     Row("rdmove", "soak", py("tests/rdmove.py"), 150.0,
         "Compact the heap out from under the RAM disk's store (SPEC.md"
         "66.5.10).",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/heapfrag360.img",)),
     Row("hdmove", "soak", py("tests/hdmove.py"), 120.0,
         "Compact the heap out from under a DONATED listing claim (SPEC.md "
         "66.5.10.2) - the only claim in the tree with three holders, two of "

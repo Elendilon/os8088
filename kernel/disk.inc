@@ -6291,6 +6291,14 @@ dsk_read_chain_x:
     ; sector count as its scale, which is as true of a cable as of a floppy.
     cmp byte [dsk_vkind], DVK_FILE
     jne .walk
+    mov [dsk_chain_end], ax     ; the handle, where .done's own store would
+                                ; have put it: SI is READAT's OFFSET below,
+                                ; so it cannot bank it any more. Nothing has
+                                ; ever read it on this arm - fcp_rdnext is
+                                ; the one caller that resumes a chain and it
+                                ; branches to its own redirected arm long
+                                ; before here - and it is kept rather than
+                                ; dropped at three bytes (SPEC.md 62.9.18)
     push ax                     ; the handle, across the arithmetic
     mov ax, dx                  ; the capacity is exactly what was asked for:
     mov cx, 512                 ; DX sectors, in 32 bits, so the driver can
@@ -6299,13 +6307,28 @@ dsk_read_chain_x:
     mov cx, ax
     mov dx, es                  ; DX:BX = the destination - DX and not ES,
     pop ax                      ; because ES is KERNEL_SEG inside a driver
-    mov si, ax                  ; banked for [dsk_chain_end] below
     push bp
-    mov bp, FSV_READ
+    ; **THE VERB IS READAT AND NOT READ** (SPEC.md 62.9.18). This routine's
+    ; contract is `read DX SECTORS`, which the FAT walk below does by simply
+    ; stopping; FSV_READ is `the WHOLE file` and a driver serving it must
+    ; REFUSE a file longer than the buffer rather than truncate, because
+    ; OSAPI_FILE_READ sits on the same verb. The two agree for every file at
+    ; most as long as the ask and disagree for exactly one species - a
+    ; package carrying PARTS, whose file is bigger than the image step 6 asks
+    ; for (SPEC.md 20.12) - which is why every package on a RAM disk loaded
+    ; until one had parts. READAT at offset 0 is the same bytes, CLAMPED.
+    mov bp, FSV_READ            ; over 64KB there is no 16-bit verb to ask
+    or di, di                   ; with, and no caller of THIS arm can ask it:
+    jnz .fsgo                   ; the loader's is a region (APP_MAX_SIZE) and
+    mov bp, FSV_READAT          ; assoc's is ASC_KB*2 sectors (54.7.1)
+    xor si, si                  ; DI:SI = offset 0, DI being zero already
+.fsgo:
     call drv_fs_call
     pop bp
     jc .fsfail
-    jmp .done                   ; the shared tail: fpg_end, the pops, CF=0
+    jmp .done2                  ; the shared tail: fpg_end, the pops, CF=0 -
+                                ; joined BELOW the chain-end store, which
+                                ; this arm has already made
 .fsfail:
     jmp .fail1                  ; a refusal is LD_EDISK, the same verdict a
                                 ; failed sector read gets - the loader has no
@@ -6354,9 +6377,10 @@ dsk_read_chain_x:
 .final:
     call .flush
     jc .fail1
-.done:                          ; ...and where the redirected read above joins
+.done:
     mov [dsk_chain_end], si     ; where a chunked caller resumes from
-    clc
+.done2:                         ; ...and where the redirected read above joins,
+    clc                         ; having stored its handle already
     call KERNEL_SEG:fpg_end                   ; preserves CF, so it sits either side of the
                                 ; clc without comment (SPEC.md 12.8)
     jmp kretc_bp
