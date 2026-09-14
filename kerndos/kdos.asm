@@ -111,9 +111,13 @@ cell offsets, so CORE_ORG has to rise rather than the table move"
 %include "diskw.inc"
 %include "dos.asm"                  ; the DOS core, whole and unedited
 %include "kdback.inc"               ; ...over the kernel's disk layer
+%include "hbstage.inc"              ; SPEC.md 87.5's staging map, shared as
+                                    ; SOURCE with kernel/hiber.inc (96.49)
 %include "kdmouse.inc"              ; INT 33h's pointer (SPEC.md 96.45): the
                                     ; port os8088 settled on, decoded through
                                     ; kernel/mouproto.inc
+%include "kdresume.inc"             ; ...and the live resume, which carries
+                                    ; the stub itself (SPEC.md 96.49)
 %include "kdentry.inc"              ; the REAL entry: a launch block, a
                                     ; program, and int 19h when it exits
 %include "kdosgate.inc"             ; ...and wave 4's, which stages a block

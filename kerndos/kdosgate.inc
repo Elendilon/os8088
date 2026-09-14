@@ -39,6 +39,8 @@ kd_dos_entry:
     mov word [di+KDL_VER], KDL_VER_NOW
     mov word [di+KDL_FLAGS], KDLF_REBOOT
     mov word [di+KDL_TLEN], KDL_MINE
+    mov word [di+KDL_WAKE + 2], 0   ; no live resume on the W4 gate either -
+                                    ; there is no image to come back to
     mov byte [di+KDL_NVOL], 0       ; ...and no volume table either, for the
                                     ; same reason: this gate knows the two
                                     ; floppies the static initialiser already

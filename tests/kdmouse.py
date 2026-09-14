@@ -110,6 +110,15 @@ def main():
         if not ui.path("A:/APPS/DOS.O88"):
             fail("could not open DOS.O88 off the system disk")
         os88marty.settle(m)
+        # **CHANGE DRIVE FIRST, then name the program without one**, which is
+        # tests/kdmix.py's sequence and is what a user does. This row used to
+        # type a drive-QUALIFIED path into the box instead, and SPEC.md 96.48
+        # is why that stopped working: a name may no longer drag the machine
+        # to another volume, so `B:\DOSMOUSE.COM` typed while standing on A:
+        # is a path the walk roots on A:. The fresh window has the box
+        # focused; Enter on a bare drive letter changes drive and clears it.
+        m.type_text("B:\n")
+        os88marty.settle(m)
         dm = dosmap.package(*dosmap.KDBOX)
         pseg = dosmap.instance(m)
         base = pseg << 4
@@ -135,7 +144,7 @@ def main():
         os88marty.settle(m)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"))
         os88marty.settle(m)
-        m.type_text("B:\\DOSMOUSE.COM")
+        m.type_text("DOSMOUSE.COM")
         os88marty.settle(m)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
         os88marty.settle(m)

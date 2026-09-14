@@ -104,7 +104,7 @@ def topmem(rs):
          % [r for r in rs if r.strip()][:8])
 
 
-def wait_desktop(m, ui, secs=300):
+def wait_desktop(m, ui, secs=300, stamp=None):
     """Wait for the RESTARTED machine to reach a graphics desktop.
 
     **`ui.up()` IS NOT THE WAIT HERE**, and neither is poking its two words
@@ -123,10 +123,12 @@ def wait_desktop(m, ui, secs=300):
     while time.time() < end:
         try:
             if "Graphics" in (m.video() or {}).get("mode", ""):
+                if stamp is not None:
+                    stamp.append(m.status()["cycles"])
                 return ui.ready(limit=secs)
         except Exception:
             pass
-        time.sleep(1.0)
+        time.sleep(0.2)
     raise RuntimeError("no graphics desktop in %ds; the text screen holds %r"
                        % (secs, [r for r in rows(m) if r.strip()][-4:]))
 
@@ -163,15 +165,50 @@ def main():
         print("kdreturn: under kern_dos, %d KB - the handoff is worth %d"
               % (kd_kb, kd_kb - win_kb))
 
+        # --- ...AND IT COMES BACK WITHOUT A BOOT (SPEC.md 96.49) -------------
+        # W6's route printed `the program has exited, code 42` and waited for
+        # a key before `int 19h`. There is no reboot now: `kd_leave` puts the
+        # session back itself, and the line below is the POSITIVE signal that
+        # it did - asserting the ABSENCE of the reboot's own line would be
+        # absence of evidence, and both routes end at the same desktop.
+        # **THE ROUTE IS MEASURED IN GUEST CYCLES, not read off the screen.**
+        # `kd_resume` does print `putting the session back` - a screen that
+        # changes by itself is a crash and one that says why is not - but it
+        # prints INTO THE STAGING AREA, which is the visible text page: the
+        # stub and the extent list overwrite it microseconds later, so no
+        # poll can be relied on to catch it. Cycles are exact at any
+        # emulator speed (CLAUDE.md, Testing) and they measure the thing the
+        # feature is FOR: W6's route is a POST plus a whole boot plus the
+        # restore, and this one is the restore alone.
+        c0 = m.status()["cycles"]
         m.type_text("x")                        # exit with code 42
-        wait_text(m, "exited", 120, "the exit")
-        m.type_text("x")                        # ...and restart
 
         # --- 2. IT COMES BACK BY ITSELF ---------------------------------
+        # **AND THE STAMP IS THE FIRST GRAPHICS FRAME**, not the settled
+        # desktop: `wait_desktop` polls at a whole second and then waits for
+        # the desktop to be READY, and timing that measures the harness. The
+        # mode is the honest edge - everything between here and it is text
+        # (that routine's own reason).
+        c1 = []
         try:
-            wait_desktop(m, ui)
+            wait_desktop(m, ui, stamp=c1)
         except Exception as e:
             fail("the machine never came back after the return: %s" % e)
+        spent = c1[0] - c0
+        # 4.77 MHz, so a second is 4,772,727 cycles. A boot alone is ~2,087 ms
+        # (docs/plans/completed/BOOT-PERF-PLAN.md) and the POST in front of it
+        # is seconds more, against a restore of ~2 s - so this bound is wide
+        # enough to be about the ROUTE and not about either route's speed.
+        LIVE_MAX = 15 * 4772727
+        print("kdreturn: back in %.2f guest seconds (%d cycles)"
+              % (spent / 4772727.0, spent))
+        if spent > LIVE_MAX:
+            fail("the return took %.1f guest seconds, which is a POST and a "
+                 "BOOT: the live resume refused and kd_leave fell back to "
+                 "int 19h (SPEC.md 96.49). That fallback is deliberate and "
+                 "works, so this is about the fast path not being taken - "
+                 "the mount, the image, the geometry or the extents"
+                 % (spent / 4772727.0))
         titles = ui.titles()
         print("kdreturn: back on a desktop, titles %r" % (titles,))
         if "Hibernate" in titles:
