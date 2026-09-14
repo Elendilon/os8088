@@ -2533,6 +2533,24 @@ SOAK = [
         "that only looks at one axis.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
+    Row("kdmouse", "soak", py("tests/kdmouse.py"), 120.0,
+        "THE SAME QUESTION WITH NO KERNEL ON THE MACHINE (SPEC.md 96.45). "
+        "`dosmouse` above is a TRANSLATION gate - the kernel owns the "
+        "hardware and the box scales its numbers - and under arm 3 there is "
+        "no kernel at all: the handoff calls `mouse_unhook` (it must, or a "
+        "live IRQ4 vectors into kern_dos's image at `mou_isr`'s KERNEL "
+        "offset), so the pointer has to be brought back by a second driver "
+        "off the port os8088 settled on. It cannot compare against "
+        "mouse_x/mouse_y - those are not wrong addresses here, they are not "
+        "symbols - so it drives RELATIVE motion and asserts the pointer "
+        "moved down-right by UNEQUAL amounts on the two axes, then clicks "
+        "while the program is blocked. VERIFIED TO FAIL, twice and for two "
+        "different reasons: with DHK_MOUSE unfilled it reads (0,0) -> (0,0) "
+        "having still reported a driver present, and with the launch "
+        "block's line mask overlapping the base's own high byte it reads "
+        "the same thing while kern_dos drives a UART at 0x10F8.",
+        needs=("marty",), serial=True,
+        wants=("build/kdos360.img", "build/dosmou360.img")),
     Row("dosfile", "soak", py("tests/dosfile.py"), 35.0,
         "THE DOS FILE-HANDLE GATE (SPEC.md 96.11): os8088 has no file handle "
         "anywhere - the published API is by NAME and by WHOLE FILE - so the "

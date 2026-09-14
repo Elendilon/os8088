@@ -6044,7 +6044,12 @@ dos_lbfill:
                                             ; hibernation image to come back
                                             ; to, the machine restarts (§9)
     mov word [di+KDL_TLEN], KDL_MINE
-    mov word [di+KDL_RSVD], 0
+    mov word [di+KDL_MOUBASE], 0            ; ...and the mouse's two, which are
+                                            ; the KERNEL's like KDL_UNIT and
+                                            ; KDL_DPT: the box zeroes them so a
+                                            ; kernel that does not patch them
+                                            ; hands over a still pointer rather
+                                            ; than a wild UART base (96.45)
     mov word [di+KDL_UNIT], 0               ; kern_dos mounts by VOLUME, and
                                             ; the volume is one of the fields
 

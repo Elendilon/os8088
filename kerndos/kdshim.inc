@@ -17,9 +17,12 @@
 ; =============================================================================
 
 ; --- 2: the macros ----------------------------------------------------------
-; The pointer is kernel/mouse.inc's and kern_dos carries only that file's
-; MOUSE third (KERN-DOS-PLAN 6.1 lever 2), so every cursor bracket compiles
-; away exactly as `NOCURDISK` makes it in the kernel.
+; There is no ARROW here - nothing of kern_dos draws on the screen at all, the
+; program owns every pixel - so every cursor bracket compiles away exactly as
+; `NOCURDISK` makes it in the kernel. **THE POINTER ITSELF IS NOT MISSING and
+; this comment used to say it was carried from `mouse.inc`, which was never
+; true**: INT 33h is served by `kerndos/kdmouse.inc` off the port os8088
+; settled on (SPEC.md 96.45), and `mouse.inc` is not included by this root.
 %macro CURXFER_ON 0
 %endmacro
 %macro CURXFER_OFF 0

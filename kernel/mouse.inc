@@ -3137,45 +3137,15 @@ mou_byte:
     mov dl, [bx+mou_b1]         ; belongs to the decode from here on
     mov bl, al                  ; BL = Y low bits, decoded below
 
-    ; --- dx = sign-extended {X7X6 from b0, X5..X0 from b1} -------------------
-    mov al, dh
-    and al, 0x03
-    mov cl, 6
-    shl al, cl                  ; X7X6 into bits 7:6
-    mov ah, dl
-    and ah, 0x3F
-    or  al, ah
-    cbw                         ; AX = dx, signed
-    mov si, ax                  ; ...banked, because mou_apply below wants both
-                                ; deltas at once. SI is the ISR's to spend - it
-                                ; is pushed - and it is the one register the
-                                ; y decode does not need
-
-    ; --- dy = sign-extended {Y7Y6 from b0, Y5..Y0 from b2}; positive = down --
-    mov al, dh
-    and al, 0x0C
-    mov cl, 4
-    shl al, cl                  ; Y7Y6 into bits 7:6
-    and bl, 0x3F
-    or  al, bl
-    cbw                         ; AX = dy, signed
-    mov bx, ax
-
-    ; --- buttons: b0 bit 5 = left, bit 4 = right -----------------------------
-    ; Into mouse_btn's OWN two bits here rather than inside mou_apply, because
-    ; this is the whole of what THIS protocol has to say about them - and the
-    ; PS/2 packet already carries them in that order (SPEC.md 9.9.3), so the
-    ; shared back end never has to know which mouse it is serving.
-    xor cl, cl
-    test dh, 0x20
-    jz .nol
-    or  cl, 0x01
-.nol:
-    test dh, 0x10
-    jz .nor
-    or  cl, 0x02
-.nor:
-    mov ax, si
+    ; --- and the packet, which kern_dos decodes too (SPEC.md 96.45) ----------
+    ; The arithmetic is `kernel/mouproto.inc` and it is SHARED AS SOURCE with
+    ; `kerndos/kdmouse.inc`, for `apps/dos/doscall.inc`'s reason one device
+    ; along: two hosts, one protocol, and neither can call the other. What
+    ; stays HERE is everything above - the phase machine on this port's own
+    ; arrays, the contest and the drain - because that is the half that
+    ; differs. A macro and not a call: this is an ISR reached by fall-through,
+    ; and a return address here lands on the stack SPEC.md 9.10 keeps shallow.
+    MOU_DECODE_MS               ; DH/DL/BL -> AX = dx, BX = dy, CL = buttons
     jmp mou_apply               ; ...which ends in the ret this needs
 .bout:
     ret

@@ -4812,7 +4812,8 @@ $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 # what it should cost instead - so while wave 5 is unfinished the part rides a
 # GATE DISK and the shipped DOS.O88 is byte-identical to what it was.
 KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
-               kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc
+               kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc \
+               kerndos/kdmouse.inc kernel/mouproto.inc
 
 # KDSTKDIAG=1 fills the gap between `.lowbss` and the stack top with a
 # sentinel, so tools/kdstkwater.py can read kern_dos's own stack water mark off
