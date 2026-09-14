@@ -35506,20 +35506,46 @@ loader's own region, freed one instruction later, was left as a HOLE beneath
 it. Measured on the DOS box (§96.44.4): **5,120 bytes** of hole, and the
 program's arena **437 → 431 KB**. One line, and it reads 436.
 
-**THE HOLE IS NOT SOMETHING COMPACTION CLOSES, and that is §66.6.1 rather
-than an oversight.** The region is `MC_RLOC`-movable and the compactor would
-gladly take it — but `mem_frameless` asks `mem_in_nest`, and a package
-reaches `mem_claim` only from inside its own callback, so a live return
-address points into the very region that would have to move. It is pinned *by
-the act of asking*. Another package's claim compacts it perfectly well;
-`tests/heapcheck.py` asserts exactly that. What a package cannot do is
-compact itself out of its own way, and
-docs/plans/REGION-SELF-COMPACT-PLAN.md §5's posted request is the general fix
-— designed, costed, not built.
+###### 20.12.10.8.1 …and the hole SURVIVED a compaction, which is an open question
 
-So this is not a substitute for that work. It is the narrower, correct thing:
-a claim that is going to be a region is claimed through the door a region
-uses, and then there is no hole to close.
+A first draft of this section said the hole could not be compacted away
+because a package may not compact its own region — `mem_frameless` asks
+`mem_in_nest`, and a package reaches `mem_claim` only from inside its own
+callback. **That is true of a synchronous claim and it is NOT the situation
+here**, because §66.4.3's posted request exists precisely for it and is
+BUILT: `OSAPI_MEM_COMPACT_WAKE` (0x0598) records the wish and returns,
+`ui_task` step 0 spends it through `mem_cpq_run_x` with nothing held, and
+`apps/dos/dos.asm` has posted one since §96.35. `[dos_cpw]` reads 1 on the
+machine, so the pass really runs.
+
+**And the hole survives it.** Measured with the carve forced bottom-up, same
+disk, same program:
+
+| | region | interior hole | arena |
+|---|---|---:|---:|
+| box open, nothing run | 0x2540 | **0** | — |
+| the program running | 0x2680 | **5,120** | 450,560 |
+| …and with the carve top-down | 0x9480 | 0 | 455,680 |
+
+So the region **moved UP by 5,120 bytes during the Run path** and the space
+below it was not reclaimed — where the compactor's ascending pass should have
+packed a `door lo`, `MC_RLOC`-movable region *down*. `[ld_base]` is 0, the
+package owns no worker, and `OS88_COMPACT` is defined on this kernel, so none
+of the three obvious pins applies.
+
+**It is written down rather than explained, because it is no longer on any
+shipped path** — the top-down carve above removes it — and because the
+general machinery is not in doubt: `soak -k 'heap*' -k 'reg*'` is 10/10,
+`heapcheck` among them, which asserts a poster's own region physically moving
+and reads the closed hole back to the KB. Whoever picks this up should force
+`OSAPI_MEM_CLAIM` at `apps/os88partsbody.inc`'s carve, open `DOS.O88` off
+`build/kdos360.img`, run a `.COM`, and watch `mem_tab` across the Run path;
+the move happens somewhere between `dos_drv_take` and the arena claim.
+
+So the top-down carve is not a substitute for understanding that. It is the
+narrower, correct thing on its own merits: a claim that is going to be a
+region is claimed through the door a region uses, and then there is no hole
+to close.
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 

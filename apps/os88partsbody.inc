@@ -650,10 +650,9 @@ op_claim:
     ; FLOOR, left the loader's freed region as a hole beneath it that no single
     ; contiguous claim can use, and cost the DOS box 6 KB of the arena it hands
     ; its program. Measured there: 437 -> 431 KB, 5,120 of hole and 1,024 of
-    ; carve head slack. The hole is not something COMPACTION closes and that is
-    ; SPEC.md 66.6.1 rather than an oversight: a package reaches mem_claim only
-    ; from inside its own callback, so a live return address points into the
-    ; region that would have to move and mem_frameless pins it.
+    ; carve head slack. The hole SURVIVED a posted compaction, which is an
+    ; open question and not this routine's - SPEC.md 20.12.10.8.1 has the
+    ; three measurements and the repro.
     call OSAPI_MEM_CLAIM_HI     ; out DX = the base segment
     jc .no
     mov [op_base], dx
