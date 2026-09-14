@@ -2698,6 +2698,40 @@ SOAK = [
         "without vstart=0, a near `ret` under a FAR call, and the ON-DISK "
         "record offsets read out of a SYNTHESIZED entry.",
         needs=("marty",), serial=True),
+    Row("kdos", "soak", py("tests/kdos.py"), 6.0,
+        "A DOS PROGRAM RUNS OUTSIDE THE KERNEL "
+        "(docs/plans/KERN-DOS-PLAN.md W4, SPEC.md 96.38): W3 got the disk "
+        "layer out; this puts apps/dos/dos.asm WHOLE AND UNEDITED on top of "
+        "it over kerndos/kdback.inc, a second implementation of the twenty-two "
+        "dos_k_* doors. KERN-DOS-PLAN 3's claim is that a port is those doors "
+        "and nothing above them, and this row is what makes that a fact "
+        "rather than a reading of the source. THE PROGRAM IS FOUR ASSERTIONS "
+        "AND NOT ONE, every line of it out of INT 21h and none out of the "
+        "BIOS: a banner (AH=09h), the version (AH=30h - a dispatch that "
+        "RETURNS a value, where one that merely does not crash would pass a "
+        "banner-only test), the arena read out of PSP:0002, and a file it "
+        "opens and reads itself through the NEW doors - then AH=4Ch with a "
+        "known code, because a fall into the arena produces a clean-looking "
+        "zero as readily as a clean exit. It reads 500 KB above its own PSP "
+        "against the windowed box's 449, which is the number the whole plan "
+        "exists to move. A: carries no file system (the loader and the blob "
+        "raw) and B: is an ordinary FAT12 volume; measured at 3.9s idle.",
+        needs=("marty",), serial=True),
+    Row("kdfar", "soak", py("tests/unit/t_kdfar.py"), 0.3,
+        "NEAR OR FAR HAS TO MATCH THE BODY (SPEC.md 96.38.1): kerndos/ calls "
+        "the kernel's disk layer by hand, and that layer is NOT one calling "
+        "convention - a handful of routines end in `retf` because in the "
+        "kernel they are reached from another segment, and nothing in the "
+        "name says which (dskw_read_x near, dsk_find_x far). A near `call` to "
+        "a `retf` body pops the return address AND two bytes under it, so "
+        "control resumes somewhere plausible with NO FAULT AT ALL. FOUR of "
+        "the sixteen targets kdback.inc names were written near and only ONE "
+        "was on a path W4 reached, so three would have waited for a DOS "
+        "program to call AH=4Eh or AH=36h - which is to say, for a bug "
+        "report. The list maintains itself (t_mirror's argument): it decides "
+        "each routine's flavour from its BODY and checks both directions, "
+        "kerndos into the kernel and the kernel into kdshim.inc's stubs.",
+        ),
     Row("dosseam", "soak", py("tests/unit/t_dosseam.py"), 1.0,
         "THE DOS BOX'S FILE SEAM (SPEC.md 96.4.1, 96.4.2): the INT 21h core "
         "reaches the file system through the DBE_* doors and nothing else, "

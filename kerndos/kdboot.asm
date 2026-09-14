@@ -19,15 +19,40 @@ KD_SEG      equ 0x0060
 BOOT_SPT    equ 9               ; a 360KB image, which is all this row builds
 BOOT_HEADS  equ 2
 
+; **IT RELOCATES ITSELF FIRST, and that is not tidiness.** The BIOS puts a
+; boot sector at 0000:7C00, which is 31KB up - and the kern_dos blob is 45KB
+; loaded at KD_SEG, so the load WALKS OVER THE LOADER a third of the way
+; through. What that looks like is a machine that prints `loading` and then
+; nothing at all, with no read error, because the code that would have
+; printed one is no longer there. boot/boot.asm relocates for the same
+; reason; this is the two-instruction version of it.
+RELOC_SEG   equ 0x9000          ; ...well above anything the blob reaches
+
 start:
     cli
     xor ax, ax
     mov ds, ax
-    mov es, ax
     mov ss, ax
     mov sp, 0x7C00
-    sti
+    mov ax, RELOC_SEG           ; **THE SAME OFFSET IN ANOTHER SEGMENT**, so
+    mov es, ax                  ; every label below still resolves: a copy to
+    mov si, 0x7C00              ; offset 0 would need the whole file re-orged
+    mov di, 0x7C00
+    mov cx, 256                 ; one sector, as words
     cld
+    rep movsw
+    jmp RELOC_SEG:.high
+.high:
+    mov ax, cs
+    mov ds, ax                  ; ...and DS follows, every string and variable
+    mov es, ax                  ; below being ours
+    mov ss, ax                  ; **AND THE STACK, which is the half that is
+    mov sp, 0x7C00              ; easy to forget**: the BIOS's 0000:7C00 is
+    sti                         ; linear 31,744, and the blob spans 1,536 to
+                                ; 46,247 - so the load walks over the return
+                                ; addresses as surely as it walked over the
+                                ; code, and the machine stops in the middle of
+                                ; a `call` with nothing on the screen to say so
     mov [drive], dl             ; the ROM's, and not an assumption - SPEC.md
                                 ; 2.9.11 is what happens when it is assumed
     mov si, s_load

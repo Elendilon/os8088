@@ -251,6 +251,37 @@ and the file dialogs excluded. `apps/dos/dos.asm` is one file today and has to
 be split so the core is `%include`-able; that is W2's real work and it is the
 same work either of the original options needed.
 
+**THIS PARAGRAPH IS WRONG AND W4 IS WHY** (SPEC.md 96.38). Nothing had to be
+split. `apps/dos/dos.asm` is `%include`d **whole and unedited** under
+`kerndos/kdos.asm` and produced exactly **one** name collision in 13,000
+lines — `DVOL_MAX`, which the kernel's own `assoc.inc` defines first — plus
+three `%ifndef KD_BACKEND` gates, every one of them around the **package
+container**: `OS88_HEADER`/`OS88_ICON16`/`OS88_ASSOC16`, `OS88_BSS`, and the
+`dos_k_*` block the second back end replaces. Not one gate is around a line of
+DOS logic, and the window, the menu, the pages, the console and the file
+dialogs all assemble under the second root without complaint.
+
+Two reasons, and the second is the surprise:
+
+1. **The three container macros assert their own file offsets** (0, 32, 96),
+   so they are the only construct in the file that *cannot* assemble where
+   the image does not start at offset 0. Everything else is position
+   independent by the near model's own rules.
+2. **The UI half reaches the kernel through `OSAPI_*` cells, which are far
+   address literals.** An unreached `call KERNEL_SEG:0x0310` costs nothing but
+   its bytes — it is dead code in this root, not a link error — so the cost of
+   bringing the window along is **image size and nothing else**. That turns
+   "split the file" from a prerequisite into §6.1's kind of question: a size
+   lever to be measured against the 39 KB budget, taken or not on its own
+   arithmetic, at a wave that has a budget to spend.
+
+What the wave DID find, and neither is a split: `apps/os88con.inc` is
+unreachable in this root (the program owns the machine, so `[dos_inbr]` is 1
+for ever and `dos_tty`'s console arm is dead), and the entry and exit paths —
+21 procs from `dos_save_machine` through `dos_terminate` — reach **no
+`OSAPI_*` at all**, which is why they port by being included rather than by
+being ported.
+
 **Why it beats option two specifically:** two's economy comes from loading the
 DOS half separately, which needs a mini-ABI between two halves that are built
 together anyway — and a mini-ABI between two things one team maintains is the
@@ -506,7 +537,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **~4 s on iron** (§2.2 — the 43.4 s this first reported is MartyPC's XT-IDE PIO and not the field's controller). | the report, and `tools/os88doscost.py` to re-derive it |
 | **W2** | **DONE, and the seam held with three breaches to fix** (§3, SPEC.md 96.4.2). Two new doors, +24 package bytes and no kernel byte; `tests/unit/t_dosseam.py` is the gate and walks the CALL GRAPH. | `soak -k dosseam` — **soak and not the fast this row first said**, by docs/WRITING-TESTS.md §2.1 rule 1 |
 | **W3** | **DONE, and the reuse pays by a factor of 130** (SPEC.md 96.37). The shim is **92 bytes** against 11,935 of kernel disk code; `kerndos/kerndos.asm` mounts a FAT12 floppy and reads a file with no scheduler, no window manager and no API table under it. | `soak -k kerndos`, checked against `os88fat.py` |
-| **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |
+| **W4** | **DONE, and the core needed no splitting** (SPEC.md 96.38). `kerndos/kdos.asm` is W3's root plus `apps/dos/dos.asm` **whole and unedited** plus `kerndos/kdback.inc`'s twenty-two doors; `KDHELLO.COM` reads **500 KB above its own PSP** against the windowed box's 449, and exits AH=4Ch back into `kern_dos`. | `soak -k kdos`, `-k kdfar` |
 | **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. | the program runs and the machine reboots |
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
@@ -563,6 +594,14 @@ W1, which is the wave that measures it.
    reaches the console only on the arm `kern_dos` never takes. What is left is
    the mechanical half, `org 0`, `os88_image_end` and the header, and that
    cannot be answered without doing the split: it is W3/W4's, not a scan's.
+   **ANSWERED BY W4, and better than expected**: it assembles WHOLE, and the
+   mechanical half is three things — the three container macros assert their
+   own file offsets so they are gated out; `os88_image_end` becomes a label in
+   the root's own `.bss` (the DBSS table is offsets from it either way, and the
+   name is all that has to be kept); and `org 0` was never the obstacle,
+   because `-f bin` sections are laid contiguously from wherever the root puts
+   them. §4.1.2 carries what that means for the split that is no longer
+   needed.
 3. **How does the exit code come back?** The stub restores conventional memory
    over everything, so a byte in `kern_dos`'s image does not survive. Candidates:
    a word in the BDA's unused area, a word in `HIBERNAT.PTR` rewritten before
@@ -575,7 +614,15 @@ W1, which is the wave that measures it.
    FAT16?
 6. **Does `kern_dos` need `diskw.inc` at all in W4?** A read-only first arm is
    a smaller target and many programs never write. It is not the shipping
-   answer but it may be the right W4.
+   answer but it may be the right W4. **ANSWERED: NO, AND THE QUESTION WAS
+   BACKWARDS.** `diskw.inc` is not the write path, it is the **by-name file
+   I/O layer** — docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md found the same
+   thing one wave earlier for a different reason — so `dos_k_read`, the door a
+   read-only arm is built out of, IS `dskw_read_x`. Leaving it out does not buy
+   a smaller W4, it removes the ability to load the program. W4 carries it
+   whole and the write verbs came along for free; what a read-only arm would
+   really cut is `dskw_write_x` and its neighbours, which is a §6.1 lever and
+   not a wave.
 
 7. **Where would an optional packet driver go?** A thinner DOS-side rework of
    `ETHER.DRV` is a named future phase, so the design must leave room: the
