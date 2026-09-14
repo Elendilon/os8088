@@ -127669,3 +127669,116 @@ the open actually landed on, and "the volume is not there" (`(open failed)`)
 is a different picture from "it opened the wrong drive's copy".
 
 This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.
+
+### 96.47 A `goto` inside `kern_dos` was a full MOUNT, listing and all
+
+`dos_k_goto` is the back end's door for *stand in this folder on this volume*
+(§96.44.1), and it went to `dsk_chdir_x` — the kernel's **loud** chdir, which
+mounts unconditionally and then rebuilds the global directory listing.  Both
+halves are wrong over here.
+
+**The listing is drawn for nobody.**  `kern_dos` has no window, no file
+manager and no desktop, so `[disk_nfiles]` and the buffer the root-directory
+scan fills are read by no code in the build.  That scan is a whole `int 13h` —
+the root directory, 4 sectors on a 360KB volume and 9 on a 1.44MB one — which
+is **a third of what a mount costs**.
+
+**And a `goto` naming where we already stand cost a mount.**  Every named
+`int 21h` call brackets itself with `dos_fh_enter` / `dos_fh_leave` (§96.6.2),
+so a program opening file after file in one folder re-mounted its own volume
+on every one of them.  `dsk_chdir_q_x` asks `dsk_here_ok` first and that case
+becomes free.
+
+`dsk_chdir_q_x` is exactly *the same mount for a caller that is going to read
+or write a file here rather than show one* (§18.9), so nothing is being
+invented: the quiet path already exists and this is the caller it was written
+for.  The media half is honest here and not a shortcut — `dsk_media_ok`
+decides on the BIOS motor countdown at 0040:0040, and `dos_hook_vectors` does
+**not** hook `int 08h`, so the ROM's tick keeps decrementing it and a floppy
+that has been still for two seconds re-mounts exactly as it does under the
+kernel.  `[dsk_lstale]` is left owed and nothing pays it, which is the
+arrangement `kernel/instance.inc` already ships for the same reason.
+
+**MEASURED**, Test Drive III on an XT with a VGA, a 360KB A: and the game on a
+1.44MB B: (`tools/os88intmon.py`, the host-side `int 13h` watch, armed at the
+game's own *"shall I save these settings"* prompt and stopped at the first six
+guest seconds of silence — the phase the field report timed at "30 seconds"):
+
+| | `int 13h` calls | sectors | changes of drive | guest s |
+|---|---|---|---|---|
+| IBM DOS 3.30, the same disk in the same drive | 59 | 369 | 0 | 26.88 |
+| `kern_dos`, `dsk_chdir_x` | 107 | 633 | 31 | 30.61 |
+| `kern_dos`, `dsk_chdir_q_x` | **63** | **216** | 47 | 25.85 |
+
+Of the 107, **96 were mount traffic** — sixteen complete mounts of each drive,
+each one boot sector + FAT + root directory — and eleven read the program's
+data.
+
+**A mount is now ONE SECTOR**, which is more than the listing alone: with
+nothing asking for a directory, `dsk_fatw_want` has no reason to pull the FAT
+window either, so the boot sector is all that is read.  The A: column says it
+in one line — 24 transfers over **one** distinct place, `c0 h0 s1`.  216
+sectors is **below IBM DOS's own 369** for the same phase of the same
+program.
+
+The call count barely beats DOS's and the CHANGES OF DRIVE went *up*, 31 to
+47 — which is not a regression but the same alternation over fewer calls
+each.  That is §96.48's, and it is the half the field report was about.
+
+### 96.48 …and the ALTERNATION: a name may not drag the machine home
+
+§96.47 makes each mount cheaper.  This one removes most of them, and it is the
+half the field report was actually about — *"it reads B, then A, then B, then
+A, taking 30 seconds where DOS takes 2"*.
+
+**Under DOS a drive letter in a name does not move the program** (§96.6.2): it
+selects which drive's current directory the name resolves against, and `AH=0Eh`
+alone moves it.  Our back end resolves against whatever is MOUNTED, so that was
+spelled *go there and come back* — `dos_fh_enter` switches, `dos_fh_leave`
+switches back, and the bracket IS the implementation rather than a shortcut.
+
+The cost of the second half is the whole finding.  A program standing on A:
+and naming `B:DATAA.DAT` pays **two complete volume mounts per call**, and the
+`int 13h` trace is unmistakable — a mount of B:, a mount of A:, sixteen times
+over, with three data reads among them:
+
+```
+  0 B: AH=02 c0  h0 s1  n=1     the boot sector
+  1 B: AH=02 c0  h0 s2  n=9     the FAT
+  2 B: AH=02 c0  h1 s2  n=9     the root directory
+  3 A: AH=02 c0  h0 s1  n=1     ...and all of it again, coming home
+  4 A: AH=02 c0  h0 s2  n=8
+  5 A: AH=02 c0  h0 s6  n=4
+```
+
+**Coming home is what has to go.**  Where the machine physically stands is a
+CACHE and not a fact a program can observe: `AH=19h` answers `[dos_vol]`,
+`AH=47h` answers `[dos_curdir]`, and a bare name resolves against those two —
+none of which says anything about which volume happens to be mounted.  So the
+machine may be left wherever the last name put it, and moved only when the
+next resolution actually needs it elsewhere.
+
+Two cells carry that: **`[dos_pvol]` and `[dos_pdir]`, where the machine is**,
+written by `dos_be_goto` itself so that no caller can forget and there is one
+place that can lie.  `dos_fh_enter` computes the pair the name resolves
+against — `[dos_fdrv]` when it carries a letter and `[dos_vol]` when it does
+not, with that drive's banked directory — and calls `dos_be_goto` only when it
+differs from the pair we are standing on.  `dos_fh_leave` moves nothing.
+
+**The user's own question is the rule, one level in**: *if it is already on
+the right drive it should not even try to switch*.  It already did not — the
+`cmp dl, [dos_vol] / je .none` at the head of `dos_fh_enter` is that test —
+but it asked the LOGICAL drive, which is A: throughout this trace while the
+machine stands on B:.  Asked against the PHYSICAL one it answers yes on every
+call after the first.
+
+`dos_drv_sel` (`AH=0Eh`) stops moving the machine too: it banks the outgoing
+drive's directory, sets `[dos_vol]`, recalls the incoming one's, and leaves
+the mount to whichever name comes next — which is nearer to what a real DOS
+does than the eager version was, and deletes a mount from every drive change
+a program makes for its own reasons.
+
+**What it does NOT change**: `[dos_vol]`, `[dos_curdir]` and the per-drive
+bank are all untouched, so every answer a program can read is the answer it
+read before.  A volume that cannot be mounted still refuses with DOS's own
+code 3, at the one place that tries.

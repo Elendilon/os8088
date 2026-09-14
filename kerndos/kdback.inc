@@ -92,12 +92,36 @@ dos_k_rename:
 ; --- where we are, and what is here -----------------------------------------
 ; in: DX = dir cluster, BL = volume.  The kernel's slot moves an INSTANCE and
 ; this moves the machine, which here are the same thing: there is one program.
+;
+; **THE QUIET CHDIR AND NOT THE LOUD ONE** (SPEC.md 96.47). `dsk_chdir_x`
+; mounts unconditionally and then rebuilds the global directory listing;
+; `dsk_chdir_q_x` is the same mount for a caller that is going to READ OR
+; WRITE a file here rather than show one, and both halves of the difference
+; are ours:
+;
+;   - the LISTING is drawn for nobody. There is no window, no file manager
+;     and no desktop in this build, so `[disk_nfiles]` and the buffer the
+;     scan fills are read by no code in it - and the scan is a whole
+;     `int 13h` (the root directory: 4 sectors on a 360KB volume, 9 on a
+;     1.44MB one), which is a THIRD of what a mount costs;
+;   - and `dsk_here_ok` makes a goto that names where we already stand FREE.
+;     Every named `int 21h` call brackets itself with `dos_fh_enter` /
+;     `dos_fh_leave` (96.6.2), so a program opening file after file in one
+;     folder re-mounted the same volume on every one of them.
+;
+; The media half is honest here and not a shortcut: `dsk_media_ok` decides on
+; the BIOS motor countdown at 0040:0040, `dos_hook_vectors` does NOT hook
+; `int 08h`, so the ROM's tick keeps decrementing it and a floppy that has
+; been still for two seconds re-mounts exactly as it does under the kernel.
+;
+; `[dsk_lstale]` is left owed and nothing pays it, which is the arrangement
+; `kernel/instance.inc` already ships for the same reason.
 dos_k_goto:
     push ax
     push dx
     mov ax, dx
     mov dl, bl
-    call dsk_chdir_x
+    call dsk_chdir_q_x
     pop dx
     pop ax
     ret
