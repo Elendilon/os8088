@@ -282,10 +282,16 @@ kd_entry:
     call kd_putc
     mov si, kd_s_nomu
     call kd_puts
-    xor ah, ah
-    mov al, [dos_vol]
     push bx
-    call dskf_dsk_vol_row        ; BX = the row, or CF=1 = no such volume
+    ; **`dsk_vol_row_x`, NEAR, AND THE INDEX IN BL.** Both halves of that are a
+    ; correction: this first went out calling `dskf_dsk_vol_row`, which is the
+    ; FORMAT module's far shim and ends in `retf`, so a near call to it popped
+    ; the return offset into IP and a stack word into CS. `KERNEL_SEG` is this
+    ; segment here (kdos.asm), so the near entry is the one to use - and the
+    ; routine takes BL, not AX, which is what made the first attempt print
+    ; whatever row the index happened to land on.
+    mov bl, [dos_vol]
+    call dsk_vol_row_x           ; BX = the row, or CF=1 = no such volume
     jc .nmnorowb
     mov al, [bx+DV_UNIT]         ; THE ROW'S UNIT, not the volume index
     xor ah, ah                   ; (SPEC.md 52.10.3)

@@ -70,7 +70,20 @@ FSV_STAT    equ 4
 FSV_WRITE   equ 8
 ; --- from kernel/kernel.asm ---
 DBG_TAG_FDD   equ 0x4446
-DSK_FAT_SECS equ 2
+; **NINE, AND IT IS kern_big's FIGURE ON PURPOSE** (SPEC.md 96.40.5).
+; `dsk_bpb_check` rule 10 refuses a FLOPPY whose FATSz16 is over this, and a
+; FAT12 floppy's FAT is 2 sectors at 360KB, 3 at 720KB, 7 at 1.2MB and NINE at
+; 1.44MB - so kern_small's 2 let this box mount 360KB disks and nothing else.
+; It shipped that way and the field found it in a day: a 286 with a 5.25" A:
+; and a 3.5" B: could not run a program off B: whatever disk was in it, and
+; the refusal said only "the disk could not be mounted".
+;
+; IT COSTS THE DOS PROGRAM 3 KB, which is the honest price of reading the
+; media people have: FAT_SEG is DSK_FAT_SECS * 512 and LOW_SEG sits on it, so
+; 2 -> 9 moves the arena's floor 1,024 -> 4,608 bytes and the handed figure
+; 589 -> 586 KB, MEASURED (tests/kdhand.py). A box that cannot read a 1.44MB
+; floppy is not a DOS box.
+DSK_FAT_SECS equ 9
 PKG_FILE_HI  equ 16
 ; --- from kernel/lz.inc ---
 LZ_LZB      equ 1

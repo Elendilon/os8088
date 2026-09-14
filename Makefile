@@ -4903,7 +4903,7 @@ $(BUILD)/kdos360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
 		$(APPDATAFOLDER)
 
 .PHONY: kdostest
-kdostest: $(BUILD)/kdos360.img $(BUILD)/doscom360.img
+kdostest: $(BUILD)/kdos360.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
 	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
 	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
 	@echo "          Run it with: python3 tests/kdpart.py"
@@ -4925,6 +4925,15 @@ $(BUILD)/DOSHELLO.COM: tests/doscom/hello.asm | $(BUILD)
 # carries its own handler cannot see that, which is why this one does not.
 $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.COM
+
+# ...AND THE SAME PROGRAM ON A 1.44MB FLOPPY, which is a different question
+# and not a second geometry for its own sake (SPEC.md 96.40.5). A FAT12
+# floppy's FAT is 2 sectors at 360KB and NINE at 1.44MB, and `kern_dos`
+# carried `DSK_FAT_SECS equ 2`, so mount rule 10 refused every disk bigger
+# than the one every gate here used. It went to the field and came back in a
+# day. No `--fatcap`: the whole point is the FAT size DOS itself writes.
+$(BUILD)/doscom144.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/DOSHELLO.COM
 
 # ...and DIR /P's, which needs one thing no shipped floppy has: a directory
 # with MORE VISIBLE ENTRIES THAN A PAGE (SPEC.md 96.33.9).  A page is

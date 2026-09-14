@@ -126356,7 +126356,7 @@ docs/plans/KERN-DOS-PLAN.md is the design record and §7 of it is the step
 list; this is the contract.
 
 **MEASURED, on a 640KB 5150 with a 360KB system disk**: the program is handed
-**589 KB** above its PSP against **437 KB** in the window — 152 KB, which is
+**586 KB** above its PSP against **437 KB** in the window — 149 KB, which is
 the whole of what the arm is for. `tests/kdhand.py` is the gate and it
 asserts the comparison rather than either number, because the second is a
 property of the machine and the difference is a property of this feature. It
@@ -126379,6 +126379,69 @@ as `unit none - no such volume` rather than as silence.
 
 It is `kd_putc` and a `dsk_vol_row_x`, in the one place that already had the
 ROM's teletype and a decimal printer to hand.
+
+#### 96.40.5 …and what it was actually refusing: `DSK_FAT_SECS`
+
+The refusal §96.40.4 taught to name a drive was right about every drive it
+was asked. `kerndos/kdshim.inc` carried **`DSK_FAT_SECS equ 2`**, and mount
+rule 10 (§18.2) refuses a FLOPPY whose declared `FATSz16` is over that
+number — so `kern_dos` could mount a 360KB floppy and **nothing else**, which
+is what "regardless of what disk I tried" means when every disk tried was a
+3.5" one.
+
+A FAT12 floppy's FAT is a property of the geometry, and DOS formats all four:
+
+| geometry | `FATSz16` |
+|---|---:|
+| 360KB | 2 |
+| 720KB | 3 |
+| 1.2MB | 7 |
+| 1.44MB | **9** |
+
+The 2 was `kern_small`'s, taken when the shim was first cut from
+`kernel/kernel.asm` and never re-argued. **It is correct there and wrong
+here, for a reason that is the whole of this entry**: `kern_small` mounts
+disks *this project formats*, and `tools/os88disk.py --fatcap 2` gives the
+small build's 1.44MB floppies 4KB clusters and a 2-sector FAT so that every
+geometry stays available to it
+(docs/plans/KERN-SMALL-CUT-PLAN.md D2). **`kern_dos` mounts disks DOS
+formatted**, which is the entire point of the arm, and no `--fatcap` reaches
+those. A box whose value is running other people's software cannot pick the
+media.
+
+So it is **9** — `kern_big`'s figure, and for `kern_big`'s reason: it is
+exactly what the largest geometry declares, and it is an ACCEPTANCE
+threshold rather than a buffer that might pinch, a volume claiming more
+being refused before a byte of it is read.
+
+**IT COSTS THE DOS PROGRAM 3 KB and that is the honest price.** `FAT_SEG` is
+`DSK_FAT_SECS * 512` and `LOW_SEG` sits on it (kdlayout.inc), so the arena's
+floor moves 1,024 → 4,608 bytes and the figure §96.40 quotes goes **589 →
+586 KB**, MEASURED. The arithmetic says 3.5 KB and the reading says 3,
+because the program prints `([es:0x0002] − CS) >> 6` and that TRUNCATES: the
+gate's figure is whole kilobytes of a quantity that moved by seven sectors.
+Take 586 as the number and docs/plans/KERN-DOS-PLAN.md §11.5.1 as where the
+bytes are; the two do not meet to the byte and are not meant to. There was
+no version of this trade worth taking the other way: 3 KB is 0.5% of the
+arm's whole prize, and what it buys is the arm working at all on the drive
+most people's DOS disks are in.
+
+**WHY NOTHING CAUGHT IT.** `tests/kdos.py` and every `kd*` row boot a 360KB
+`A:` with a 360KB `B:`, because *every machine in
+`tools/martypc/configs/os8088_machines.toml` had two drives of one type* —
+and so the one geometry that worked was the only one under test. The
+reporter's own `86box.cfg` is two lines of diagnosis: `fdd_01_fn` a 360KB
+5.25" and `fdd_02_type = 35_2hd`, which is what anybody who kept a 5.25"
+drive and added a 3.5" one has. `os8088_5150_cga_gla_mix` is that pair, and
+it reproduced the report on the first boot.
+
+**The general rule is worth more than the fix**: a constant copied out of
+`kern_big` or `kern_small` into `kerndos/kdshim.inc` arrives with an argument
+attached to it, and the argument is about *the kernel it came from*. The
+shim is a third machine with a third set of customers, so each one has to be
+re-argued at the copy or it is a value nobody chose. This is the first row
+where the two kernels' answers differed and the third machine wanted
+neither's by default.
 
 #### 96.40.3 …and why the part is not on the shipped system disks
 

@@ -2796,6 +2796,23 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. It needs `make kdostest`.",
         wants=("build/kdos360.img", "build/doscom360.img")),
+    Row("kdmix", "soak", py("tests/kdmix.py"), 55.0,
+        "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
+        "kd* row boots two 360KB drives - not by choice, but because every "
+        "machine in tools/martypc/configs/os8088_machines.toml had two drives "
+        "of ONE type, so the one geometry kern_dos could mount was the only "
+        "one under test. It shipped able to mount nothing else and the field "
+        "found it in a day: `kerndos/kdshim.inc` carried kern_small's "
+        "`DSK_FAT_SECS equ 2`, and mount rule 10 refuses a floppy whose "
+        "FATSz16 is over it - which is 2 sectors at 360KB and NINE at 1.44MB. "
+        "The row boots `os8088_5150_cga_gla_mix`, the tree's only machine "
+        "with two drives of DIFFERENT types, and reads B: twice: through the "
+        "WINDOW first, which is the control - the same disk readable by one "
+        "half and not the other is exactly the shape of the report - and then "
+        "under kern_dos on the third arm. `build/doscom144.img` is built with "
+        "NO `--fatcap`, deliberately, so its FAT is the nine sectors a real "
+        "DOS writes. MartyPC; it needs `make kdostest`.",
+        wants=("build/kdos360.img", "build/doscom144.img")),
     Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "

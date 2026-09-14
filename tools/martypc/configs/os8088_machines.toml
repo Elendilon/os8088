@@ -1575,3 +1575,45 @@ overlays = [
     bus_type = "ISA"
     type = "CGA"
     clock_mode = "Dynamic"
+
+# A MIXED FLOPPY PAIR: 360KB IN A:, 1.44MB IN B: (SPEC.md 96.40.5)
+#
+# **EVERY OTHER MACHINE IN THIS FILE HAS TWO DRIVES OF ONE TYPE** - two 360KB
+# or, in os8088_5150_herc_gla_144, two 1.44MB - and the field's machines do
+# not: the 286 this was added for is a 360KB 5.25" A: beside a `35_2hd` B:,
+# which is what anybody who kept a 5.25" drive and added a 3.5" one has. A
+# whole class of configuration that no row here could reach.
+#
+# It was added because a bug report could not be reproduced on any machine in
+# this file, and the reporter's 86box.cfg had the answer in two lines. Take no
+# PERFORMANCE.md number off it for os8088_5150_herc_gla_144's reason - the
+# 5150's own FDC runs 250 kbps and cannot really read 18 spt - and note that
+# what it proves is OUR code's handling of two geometries at once, which is a
+# software question the media does not bear on.
+[[machine]]
+name = "os8088_5150_cga_gla_mix"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "360k"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"

@@ -625,8 +625,9 @@ not available**, since the DOS program prints into it, and there is no other
 RAM a program does not own. A cap would mean a new refusal on a perfectly
 ordinary disk.
 
-**`KD_IMG_KB` is 34 and the program has 589 KB against a 600 KB target**
-(§1; it was 61 and 559 before §6.1's levers were pulled), so 1,200 bytes is
+**`KD_IMG_KB` is 34 and the program has 586 KB against a 600 KB target**
+(§1; it was 61 and 559 before §6.1's levers were pulled, and 589 before
+§96.40.5 bought 1.44MB floppies back at 3 KB), so 1,200 bytes is
 1 KB of the one quantity this plan is a budget for —
 spent permanently, on every machine, to save time at the end of a program.
 
@@ -887,26 +888,43 @@ and the window's are **twenty bands** (SPEC.md 96.43.2), each one gate pair.
 shipped `dos.o88` is **md5-identical** either way, which is a stronger
 statement than any test. `KD_IMG_KB` **43 → 34**, the program **580 → 589 KB**.
 
-#### 11.5.1 The last 11 KB, to the byte
+#### 11.5.1 The last 14 KB — the floor to the byte, the top measured
 
-589 is not an estimate and neither is what is missing. The floor is four
-terms and the program is what is left of the BDA's own KB:
+**The FLOOR is four terms and every one of them is exact**, which is the half
+of this that a wave can act on:
 
 | | bytes |
 |---|---:|
 | below `KD_SEG` — the IVT and the BDA | 1,536 |
 | `KD_IMG_KB` 34 | 34,816 |
-| `FAT_SEG` — `DSK_FAT_SECS` × 512 | 1,024 |
+| `FAT_SEG` — `DSK_FAT_SECS` × 512 | 4,608 |
 | `KD_LOW_KB` 5 — the mount buffers and the stack | 5,120 |
-| **the floor** | **42,496** |
-| a 640 KB machine, less the floor | 612,864 |
+| **the floor** | **46,080** |
+| a 640 KB machine, less the floor | 609,280 |
 | less §96.11's file window | −8,192 |
-| less the environment MCB and the PSP (`DOS_PSPP`, 96 paragraphs) | −1,536 |
-| **what `tests/kdhand.py` reads** | **603,136 = 589.0 KB** |
+| less the environment MCB and the PSP (`DOS_PSPP`, 10 paragraphs) | −160 |
+| a 640 KB machine, what is left | 600,928 |
+| **what `tests/kdhand.py` reads** | **586 KB** |
 
-So **600 KB (614,400) needs the WHOLE file window AND 3,072 more bytes of
-floor** — `KD_LOW_KB` 5 → 4 and `KD_IMG_KB` 34 → 32, the second being 2,422
-bytes of image. **Neither is lying around.** The window cannot be deleted, only
+**THE LAST ROW IS MEASURED AND THE ONES ABOVE IT ARE DERIVED, and they do not
+meet to the byte on purpose**: `tests/doscom/hello.asm` prints
+`([es:0x0002] − CS) >> 6`, so its answer is PARAGRAPHS TRUNCATED TO KB and
+the last 1,023 bytes of the arena are invisible to it. Quote 586 as the
+figure and this table as where the other 54 KB went; do not subtract two of
+these rows and call the difference a measurement.
+
+**Two of those rows are corrections and both were quoted for a cycle.**
+`FAT_SEG` was 1,024 here and is 4,608 — §96.40.5 is why, and it is the
+single largest term this plan has ever added back. `DOS_PSPP` was quoted as
+96 paragraphs: it is **10** (`DOS_ENVP` 32 is the environment, and the
+environment sits BELOW the arena's own accounting, not between the floor and
+the PSP), so the old table overstated the overhead by 1,376 bytes while
+understating the floor by 3,584 — two errors of opposite sign, the same
+shape docs/KERNEL-MEMORY.md's own `+46` had.
+
+So **600 KB (614,400) needs the WHOLE file window AND about 5.5 KB more of
+floor** — where before §96.40.5 it needed 3 KB, and the media fix is what
+moved it. **Neither is lying around.** The window cannot be deleted, only
 shrunk, and shrinking it is geometry-dependent: it is
 `max(cluster, largest multiple of cluster ≤ DOS_WKB × 1024)`, so on a 360KB
 floppy's 1 KB cluster `DOS_WKB = 1` buys **7 KB** and on a hard disk with 8 KB
