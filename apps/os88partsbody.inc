@@ -1470,6 +1470,16 @@ op_fetch:
     jc .nodisk
     call op_lazykb              ; AX = the KB it wants, slack included
     jc .toobig
+%if OP_HAS_COMP
+    ; A COMPRESSED ROW HOLDS slack + R + packed, and R is `len - packed`
+    ; rounded UP to a paragraph - so up to fifteen bytes more than the `len`
+    ; op_lazykb sized from. One KB covers it and is transient: the claim lives
+    ; for one expansion.
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .plainkb
+    inc ax
+.plainkb:
+%endif
     mov bx, ax
     push bx
     call OSAPI_MEM_AVAIL        ; ASK, then claim - op_load's rule, for
@@ -1716,30 +1726,33 @@ op_row:
 ; -----------------------------------------------------------------------------
 ; op_zrpara - R for a compressed lazy row, in paragraphs (SPEC.md 20.12.7.4)
 ; in:  SI -> the row
-; out: AX = roundup512(len) - roundup512(packed), as paragraphs
+; out: AX = roundup16(len - packed), as paragraphs
 ; clobbers: AX (the output), flags. SI preserved.
 ;
-; **IT IS op_unpack'S GAP WITH ONE ROW IN IT.** The stream is read R
-; paragraphs up its own claim and expands DOWN to the base, so the decoder's
-; write pointer chases its read pointer; R is the difference between what the
-; part occupies and what its stream does, and both are rounded the same way
-; because a part is laid out on 512-byte boundaries. `in_place_margin` is ZERO
-; for a stream with a tail (20.13.7) and os88pkg.py asserts that on every part
-; it writes, so R is exactly enough and no margin is reserved on top.
+; The stream is read R paragraphs up its own claim and expands DOWN to the
+; base, so the decoder's write pointer chases its read pointer and the gap it
+; starts with is R.
+;
+; **IT IS `len - packed` AND NOT op_unpack's DIFFERENCE OF TWO ROUNDUPS**,
+; which is the shape this was first written in and is wrong here.
+; `in_place_margin`'s model - the one os88pkg.py asserts against every stream
+; it writes - is the source sitting at the TOP of a region of exactly `len`
+; bytes, which puts it `len - packed` above the output; zero margin means the
+; writer never overtakes a reader THAT FAR AHEAD, and says nothing about a
+; reader any closer. op_unpack rounds both terms because its two pointers walk
+; row by row in whole SECTORS, and subtracting two roundups is 210 bytes SHORT
+; on the DOS core - so the expansion ran off the end of its own stream and
+; refused with `A part will not unpack`.
+;
+; Rounded UP to a paragraph, because op_read lands on a segment boundary.
 ; -----------------------------------------------------------------------------
 op_zrpara:
     push cx
-    push dx
     mov ax, [si+OP_R_LEN]
-    add ax, 511
-    and ax, 0FE00h
-    mov dx, [si+OP_R_ZKB]
-    add dx, 511
-    and dx, 0FE00h
-    sub ax, dx
+    sub ax, [si+OP_R_ZKB]       ; os88pkg.py refuses a part that does not get
+    add ax, 15                  ; smaller, so this cannot go negative
     mov cl, 4
     shr ax, cl
-    pop dx
     pop cx
     ret
 %endif

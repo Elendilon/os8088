@@ -64,7 +64,8 @@ bits 16
 %include "os88parts.inc"
 
 DOS_PART_BOX  equ 0             ; the box - a whole .o88 image (20.12.10)
-DOS_PART_KD   equ 1             ; ...and kern_dos, which nothing here reads
+DOS_PART_CORE equ 1             ; ...the INT 21h core, which goes INSIDE it
+DOS_PART_KD   equ 2             ; ...and kern_dos, which nothing here reads
 
 ; --- the handoff, at the head of the BOX's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -82,13 +83,6 @@ LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
 
 ; -----------------------------------------------------------------------------
-; **NOT WIRED YET** (SPEC.md 96.44.5): the core-as-a-part machinery assembles
-; - `apps/dos/doscore.asm` builds at `org CORE_ORG` with the table in front,
-; and BOTH hosts assemble with `-DDOS_EXTCORE` and the core absent - but the
-; four-piece package does not run yet, so `DOS.O88` is still the loader and
-; two parts. `dsl_core` is what the third part needs and is kept here, behind
-; the define, rather than written again later:
-%ifdef DOS_PART_CORE
 ; dsl_core - put the INT 21h core into the hole reserved for it (SPEC.md 96.44.5)
 ; in:  DX = the box's segment, the parts already loaded
 ; out: CF=0; CF=1 = it could not be had, and op_fetch has said why
@@ -154,7 +148,6 @@ dsl_core:
 .no:
     stc
     ret
-%endif
 ; -----------------------------------------------------------------------------
 ; dsl_entry - the package entry proc (SPEC.md 20.2)
 ; in:  SI = the launched file's name in KERNEL_SEG, ES = KERNEL_SEG
@@ -163,6 +156,10 @@ dsl_core:
 dsl_entry:
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
+
+    call dsl_core                   ; the core, into the hole inside the box -
+    jc .no                          ; and it CLAIMS, so nothing may hold the
+                                    ; box's segment across it
 
     mov al, DOS_PART_BOX
     call op_seg                     ; ...read AFTER every claim this proc makes
@@ -203,7 +200,7 @@ dsl_entry:
     ret                             ; op_load has already said why in a toast
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
-    OS88_PARTS_BEGIN 2
+    OS88_PARTS_BEGIN 3
       OS88_PART OP_SEG,   OP_COMP   ; 0 THE BOX: a whole .o88 image, its bss
                                     ;   shipped inside it because the kernel
                                     ;   does not zero a part (20.12.10).
@@ -211,6 +208,11 @@ dsl_entry:
                                     ;   file - 11,839 of those bytes are the
                                     ;   bss, and a run of zeros is what LZ4 is
                                     ;   best at
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY
+                                    ; 1 THE INT 21h CORE, lazy because it does
+                                    ;   not belong in the carve - dsl_core
+                                    ;   copies it into the hole at CORE_ORG
+                                    ;   inside part 0 and drops it again
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY
                                     ; 2 kern_dos. LAZY because op_size would
                                     ;   refuse the pair eagerly (the header

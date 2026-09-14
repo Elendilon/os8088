@@ -44,7 +44,8 @@ KD = os.path.join(ROOT, "build", "kerndos.bin")
 PARTS_MAGIC = b"O88PARTS"
 PARTS_HDR = 10                  # magic(8) + count(1) + reserved(1)
 PART_ROW = 8
-DOS_PART_KD = 1                 # ...and the box is part 0 (SPEC.md 96.44.4)
+DOS_PART_KD = 2                 # loader image, 0 = the box, 1 = the CORE
+                                # (SPEC.md 96.44.5), 2 = kern_dos
 
 
 def fail(msg):
@@ -113,10 +114,10 @@ def main():
     # os88pkg.py refuses --compress beside parts, so whatever is the IMAGE
     # ships raw and 96.40.3 measured that at +932 ms a launch.
     n = blob[at + PARTS_HDR - 2]
-    if n != 2:
+    if n != 3:
         fail("the table declares %d part(s); the four-piece DOS.O88 is a "
-             "loader image with TWO - the box and kern_dos (SPEC.md 96.44.4)"
-             % n)
+             "loader image with THREE - the box, the INT 21h core and "
+             "kern_dos (SPEC.md 96.44.5)" % n)
     kind, pflags, poff, plen, pzkb = struct.unpack_from(
         "<BBHHH", blob, at + PARTS_HDR + PART_ROW * DOS_PART_KD)
     if not pflags & 16:

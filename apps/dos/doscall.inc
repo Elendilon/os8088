@@ -84,14 +84,22 @@ DOSC_STRIDE equ 3               ; a `jmp near` - see the header
 ; REFERENCE - the brackets are inside the %define - so `mov si, dsh_s_bad`
 ; reads the word the core put there. That is one byte more per site and it is
 ; why 96.44.5 spent the effort to get the data population down to two.
+; **`%xdefine` AND NOT `%define`, AND IT IS THE WHOLE THING.** A `%define`
+; body is expanded where it is USED, so `%define %1 (DOSC_TAB + DOSC_N * 3)`
+; captures nothing: every one of the thirty-three names expands to
+; `DOSC_N * 3` with DOSC_N at whatever it is at the CALL SITE - which is 33,
+; the value it finished the list on. All thirty-three then point at the same
+; address, three bytes past the end of the table, and the first call into the
+; core jumps into the middle of its own data and never comes back.
+; `%xdefine` expands the body HERE, so each name carries its own ordinal.
 %assign DOSC_N 0
 %macro DOSC_E 1
-    %define %1 (DOSC_TAB + DOSC_N * DOSC_STRIDE)
+    %xdefine %1 (DOSC_TAB + DOSC_N * DOSC_STRIDE)
     %assign DOSC_N DOSC_N + 1
 %endmacro
 %assign DOSC_DN 0
 %macro DOSC_D 1
-    %define %1 [DOSC_DAT + DOSC_DN * 2]
+    %xdefine %1 [DOSC_DAT + DOSC_DN * 2]
     %assign DOSC_DN DOSC_DN + 1
 %endmacro
 %include "doscents.inc"

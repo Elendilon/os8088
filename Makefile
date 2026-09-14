@@ -4844,7 +4844,8 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
                       apps/os88parts.inc apps/os88partsbody.inc \
                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -I kernel/ -I kerndos/ -I apps/ \
+	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -DDOS_EXTCORE \
+	        -I kernel/ -I kerndos/ -I apps/ \
 	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndos: $(call FILESIZE,$@) bytes"
 
@@ -4862,7 +4863,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    kerndos/kdlaunch.inc \
                    drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
-	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART \
+	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
 	        -o $@ apps/dos/dos.asm
 
 # --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
@@ -4894,11 +4895,11 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # the box as OP_SEG|OP_COMP and kern_dos as OP_ASSET|OP_COMP|OP_LAZY, the
 # pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
-                       $(BUILD)/kerndos.bin tools/os88pkg.py
+                       $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py
 	@mkdir -p $(BUILD)/kdos
 	python3 tools/os88pkg.py $(BUILD)/dosload.bin -o $@ \
-		--part $(BUILD)/dosp.bin --part $(BUILD)/kerndos.bin \
-		--part-compress lz4
+		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
+		--part $(BUILD)/kerndos.bin --part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
 
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
