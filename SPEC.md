@@ -127805,3 +127805,17 @@ Both "walk home" sites become `dos_vol_park`, and that is what makes a read
 loop over one file cost **one** mount rather than two per call: the machine
 stays on the file's volume, and `dos_fh_stand` finds it already there on
 every refill after the first.
+
+#### 96.48.2 …and the path walk roots on the volume we are STANDING on
+
+`dos_walk_at` starts an absolute path at *the volume root* and reached it
+with `mov bl, [dos_vol]`.  That was right while `dos_fh_enter` switched the
+PROGRAM to the named drive as well - the two were the same volume - and it is
+wrong the moment they can differ: `A:\*.*` from a program standing on B:
+stood the machine on A: and then walked to **B:'s** root, so the search ran
+on the drive the program was on and the letter was silently dropped.
+
+Both gotos inside the walk take `[dos_pvol]` now.  `tests/dosdrv.py` is what
+caught it, in the shape its own message names - *found `DRVNAME.COM`, which
+is not a name A: has and B: has not* - which is the value of a row that
+compares against the OTHER drive's listing rather than against a count.

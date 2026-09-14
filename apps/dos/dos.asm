@@ -7915,7 +7915,18 @@ dos_walk_at:
     or al, al
     jz .comp                        ; relative: start from here
     xor dx, dx                      ; ...the volume root, first
-    mov bl, [dos_vol]
+    mov bl, [dos_pvol]              ; **THE VOLUME WE ARE STANDING ON, not the
+                                    ; one the PROGRAM is on** (SPEC.md 96.48).
+                                    ; `dos_fh_stand` has already put us on the
+                                    ; drive the name named, and the walk is
+                                    ; relative to that - where `[dos_vol]` is
+                                    ; the drive the program would come back
+                                    ; to. They were the same thing while
+                                    ; `dos_fh_enter` switched the program too,
+                                    ; and `A:\*.*` from a program on B: is
+                                    ; what the difference looks like:
+                                    ; `tests/dosdrv.py` caught it finding B:'s
+                                    ; directory under A:'s name
     call dos_be_goto                ; the back end, for dos_lnk_find's reason
     jc .no
 .comp:
@@ -7942,7 +7953,7 @@ dos_walk_at:
     mov byte [di], 0
     call dos_lnk_find               ; DX = its cluster
     jc .no
-    mov bl, [dos_vol]
+    mov bl, [dos_pvol]              ; ...and the same for every component
     call dos_be_goto                ; ...a WORD inside this volume
     jc .no
     jmp short .comp
