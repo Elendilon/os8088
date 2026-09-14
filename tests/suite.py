@@ -2363,9 +2363,16 @@ SOAK = [
         "nothing here is a time, which is not on docs/TESTING.md's list - "
         "and it FLAKED, driving remembered coordinates and reading a "
         "384-byte inst_tab off a RUNNING machine, which returns torn "
-        "records. It builds its own disk",
+        "records. It builds its own disk - and DECLARES it, because under "
+        "tools/os88soak.py the run reads a frozen tree and the row's own "
+        "`make` writes the shared build/: pkgrun360.img was built where the "
+        "launch was no longer looking, so the row died in shutil.copyfile "
+        "before a guest existed. It read as a product failure and passed "
+        "under os88test.py all along (docs/WRITING-TESTS.md: a `wants=` was "
+        "the answer, not a `builds=True`)",
         needs=("marty",), builds=True,
-        wants=("build/hello.o88", "build/mseg.o88")),
+        wants=("build/hello.o88", "build/mseg.o88",
+               "build/pkgrun360.img")),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
