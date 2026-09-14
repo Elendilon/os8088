@@ -148,6 +148,13 @@ kd_entry:
     pop si
 .nodpt:
 
+    ; --- THE VOLUME TABLE, BEFORE ANY MOUNT (SPEC.md 96.46) -----------------
+    ; It has to be in place before `disk_mount_x` below, and before the back
+    ; end: `dos_vol` is an INDEX into it, and until this runs the table is the
+    ; static A:/B: initialiser in `kernel/disk.inc` - which is an assumption
+    ; about a table os8088 builds at boot and does not match one on any
+    ; machine whose floppy count is not two.
+    call kd_vtab
     call kdb_bevec              ; **THE BACK END, BEFORE ANY DOOR** (SPEC.md
                                 ; 96.44.1): the core stores a DBE_* ordinal and
                                 ; dos_be_go resolves it through `dos_bevec`, so
@@ -327,6 +334,92 @@ kd_entry:
 .sayd:
     mov byte [kd_code], 0xFF
     jmp kd_leave
+
+; -----------------------------------------------------------------------------
+; kd_vtab - the KERNEL's volume table, into ours (SPEC.md 96.46)
+; in:  SI -> the launch block; DS = ES = KD_SEG
+; out: nothing; every register preserved
+;
+; `kernel/disk.inc`'s `dsk_vtab` is a STATIC initialiser - A: and B: as BIOS
+; units 0 and 1, the rest free - which is right for the kernel, where it is
+; the starting point a boot probe then edits, and wrong here, where nothing
+; ever edits it. The divergence is not exotic: SPEC.md 18.7.1 pins the boot
+; partition at ROW 2 and the initialiser has row 2 FREE, so a fixed disk is
+; not reachable here at all; and `dsk_fdd_retire` frees row 1 in the kernel
+; on a machine with one floppy while nothing frees it here. `dos_vol` is an
+; index into whichever table the reader has.
+;
+; **A ZERO COUNT MEANS KEEP WHAT WE HAVE**, which is KDL_DPT's zero one field
+; along and for its reason: the W4 gate stages its own block and knows no
+; volumes, so it must be able to say "I cannot fill this" distinctly from
+; filling it with zeros - which here would read as eight copies of BIOS unit
+; 0, every drive letter pointing at A:.
+;
+; ONLY `DV_KIND` AND `DV_UNIT` ARE WRITTEN, plus the side table's base. The
+; rest of the row is left exactly as the initialiser has it: `DV_SECS` and
+; `DV_SEG` are a mount's to fill and writing them here would be staler than
+; not, and `DV_FLAGS`/`DV_LBL` are a desktop's.
+; -----------------------------------------------------------------------------
+kd_vtab:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cl, [si+KDL_NVOL]
+    xor ch, ch
+    jcxz .out                   ; nothing staged: the built-in table stands
+    cmp cl, DVOL_MAX
+    jbe .n
+    mov cl, DVOL_MAX            ; a sender with MORE rows than this build has
+.n:                             ; is capped rather than refused - the extra
+                                ; ones are volumes we could not reach anyway
+    lea di, [si+KDL_VTAB]
+    xor si, si                  ; SI = the row number again, for kd_vgather's
+.row:                           ; reason on the other side
+    mov bx, si
+    mov ax, cx
+    mov cl, 4
+    shl bx, cl
+    mov cx, ax
+    add bx, dsk_vtab
+    mov al, [di]
+    mov [bx+DV_KIND], al
+    mov al, [di+1]
+    mov [bx+DV_UNIT], al
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    add bx, dsk_vbase
+    mov ax, [di+2]
+    mov [bx], ax
+    mov ax, [di+4]
+    mov [bx+2], ax
+    add di, KDL_VROW
+    inc si
+    cmp si, cx
+    jb .row
+    ; ...and which one the kernel booted from, which `dskw_*` reads when a
+    ; name carries no drive and nothing else here would set.
+    mov si, [kd_lbp]            ; re-read rather than unwind: SI has been the
+    mov ax, [si+KDL_HDSPT]      ; row number since .row and the block's own
+    mov [dsk_bootspt], ax       ; pointer is a word in the image.
+    mov ax, [si+KDL_HDHDS]      ; The GEOMETRY goes with the table: a row for
+    mov [dsk_boothds], ax       ; the fixed disk with no spt/heads behind it
+                                ; mounts on the floppy fallback and fails
+    mov al, [si+KDL_BOOTV]
+    cmp al, DVOL_MAX
+    jae .out
+    mov [dsk_bootvol], al
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; kd_leave - the program is over (docs/plans/KERN-DOS-PLAN.md §9)

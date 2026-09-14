@@ -127600,3 +127600,72 @@ and the live restore re-run `mouse_init` from scratch on the way up.
 Getting this wrong is the handover's own failure in the other direction: an
 unmasked line with a byte behind it, vectoring into whatever loads at `KD_SEG`
 next.
+
+### 96.46 The volume table is the KERNEL's, and it was hard-coded
+
+`kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
+STATIC initialiser — A: and B: as `DVK_BIOS` units 0 and 1, every other row
+`DVK_FREE`. In the kernel that is exactly right: it is the starting point a
+boot probe then edits. Over here nothing ever edits it, and the two diverge on
+ordinary machines:
+
+- **the fixed disk was not there at all.** §18.7.1 pins the boot partition at
+  **row 2** — `dsk_flop_add` skips that row so a floppy cannot take it first —
+  and row 2 of the initialiser is `DVK_FREE`. So a machine with a hard disk
+  handed `kern_dos` a volume index it read as no volume, and a program on C:
+  could not start. `tests/kdreturn.py` says so in its own fixture comment and
+  runs its program off a floppy to sidestep it;
+- **and row 1 is live here on a machine with no B:.** `dsk_fdd_retire` frees
+  it in the kernel when §18.97's probe finds no second drive, and nothing
+  frees it over here — so drive B: exists, answers, and is a unit the ROM has
+  nothing on.
+
+The volume index IS the DOS drive (§96.6), and the box hands `dos_vol` over as
+an index — so **an index resolved against a different table is a program
+reading a drive that is not its own.** Carrying the table is what makes that
+identity true rather than hoped for.
+
+| | |
+|---|---|
+| `KDL_NVOL` 28 | rows that follow; **0 = leave the built-in table alone** |
+| `KDL_BOOTV` 29 | which index the kernel booted from |
+| `KDL_HDSPT` 30, `KDL_HDHDS` 32 | the fixed disk's sectors-per-track and heads |
+| `KDL_VTAB` 34 | 8 rows of `db kind, db unit, dd base` |
+
+**The geometry is the half a row alone does not buy.** `dsk_boot_from_x` asks
+`int 13h AH=08h` once at boot and banks it, and that routine is in the BOOT
+OVERLAY, which `kern_dos` does not carry — while the mount that needs the
+answer is the read that *fetches the BPB*, so it cannot come from there
+either. Left at zero the mount keeps the floppy fallback of 9 sectors and 2
+heads and fails honestly, which is what a hard disk did here before this.
+
+**Only three fields of sixteen come over**, and the rest are not an oversight:
+`DV_FLAGS` bit 0 is a desktop zone and there is no desktop, `DV_CLASS` is 0 on
+every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT fills — writing them
+here would be staler than not — and `DV_LBL` is a label nothing draws. A
+`DVK_DRV` or `DVK_FILE` row cannot come at all, its transport being a loadable
+driver that does not exist on the other side, so the gather writes `DVK_FREE`
+for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume class* enforced
+at the gather instead of hoped for downstream.
+
+**A zero count means keep what we have**, which is `KDL_DPT`'s zero one field
+along and for its reason: the W4 gate stages its own block and knows no
+volumes, so it must be able to say *I cannot fill this* distinctly from
+filling it with zeros — which here would read as eight copies of BIOS unit 0,
+every drive letter pointing at A:.
+
+`KDL_VER` goes **2 → 3**, and the bump is owed even though `kern_dos` is part
+2 of `DOS.O88` and the box is part 0: those two are always in step, but the
+third writer is the KERNEL, which patches the header and is a different
+artefact on a different disk. An old `DOS.O88` under a new kernel is exactly
+what that word refuses.
+
+**MEASURED: 115 bytes of `kern_dos`'s image**, 35,361 → 35,476 of 35,840, so
+`KD_IMG_KB` does not move and the DOS program keeps its 585 KB — 364 bytes of
+that rung are left. `tests/kdhdd.py` is the gate, and it puts a different
+sixteen-byte marker in `KDDATA.TXT` on each volume: `KDHELLO.COM` opens that
+name with **no drive letter**, so the marker it prints back names the drive
+the open actually landed on, and "the volume is not there" (`(open failed)`)
+is a different picture from "it opened the wrong drive's copy".
+
+This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.

@@ -6044,6 +6044,13 @@ dos_lbfill:
                                             ; hibernation image to come back
                                             ; to, the machine restarts (§9)
     mov word [di+KDL_TLEN], KDL_MINE
+    mov byte [di+KDL_NVOL], 0               ; **AND THE VOLUME COUNT** (96.46):
+                                            ; the table is the KERNEL's, and
+                                            ; zero is how a sender that cannot
+                                            ; fill it says so - where a zeroed
+                                            ; TABLE would read as eight copies
+                                            ; of BIOS unit 0, every letter
+                                            ; pointing at A:
     mov word [di+KDL_MOUBASE], 0            ; ...and the mouse's two, which are
                                             ; the KERNEL's like KDL_UNIT and
                                             ; KDL_DPT: the box zeroes them so a
