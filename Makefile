@@ -4904,7 +4904,11 @@ $(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUIL
 # a wrapped line is a row the gate would have to reassemble.
 # The COMPRESSED arm is not here - it is README.TXT on the SYSTEM disk in A:,
 # which is the file the field actually typed.
-$(BUILD)/dostype360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py | $(BUILD)
+# **AND THE MAKEFILE IS A PREREQUISITE**, for the reason the dirsw rule above
+# now carries: this disk's PAYLOAD is written in the recipe - three generated
+# files - so a change to what is on it moves no input make can see, and the
+# stale image is one the gate then reports as a broken feature.
+$(BUILD)/dostype360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dostype && mkdir -p $(BUILD)/dostype
 	python3 -c "import sys; d=sys.argv[1]; 	  open(d+'/NOTES.TXT','wb').write(b''.join(b'line %03d of the notes\r\n' % i for i in range(1,401))); 	  open(d+'/SHORT.TXT','wb').write(b'a short one\r\n'); 	  open(d+'/CTRLZ.TXT','wb').write(b'before the mark\r\n' + bytes([26]) + b'AFTERMARK\r\n')" 	  $(BUILD)/dostype
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/dostype/*.TXT \
