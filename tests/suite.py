@@ -2723,7 +2723,7 @@ SOAK = [
         "without vstart=0, a near `ret` under a FAR call, and the ON-DISK "
         "record offsets read out of a SYNTHESIZED entry.",
         needs=("marty",), serial=True),
-    Row("kdos", "soak", py("tests/kdos.py"), 6.0,
+    Row("kdos", "soak", py("tests/kdos.py"), 10.0,
         "A DOS PROGRAM RUNS OUTSIDE THE KERNEL "
         "(docs/plans/KERN-DOS-PLAN.md W4, SPEC.md 96.38): W3 got the disk "
         "layer out; this puts apps/dos/dos.asm WHOLE AND UNEDITED on top of "
@@ -2740,7 +2740,7 @@ SOAK = [
         "zero as readily as a clean exit. It reads 500 KB above its own PSP "
         "against the windowed box's 449, which is the number the whole plan "
         "exists to move. A: carries no file system (the loader and the blob "
-        "raw) and B: is an ordinary FAT12 volume; measured at 3.9s idle.",
+        "raw) and B: is an ordinary FAT12 volume; measured at 4.5s idle.",
         needs=("marty",), serial=True),
     Row("kdfar", "soak", py("tests/unit/t_kdfar.py"), 0.3,
         "NEAR OR FAR HAS TO MATCH THE BODY (SPEC.md 96.38.1): kerndos/ calls "

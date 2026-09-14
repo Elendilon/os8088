@@ -23,21 +23,37 @@ bits 16
                                     ; are the ones that get linked
 
 %include "kdlayout.inc"
+%include "kdlaunch.inc"             ; the launch block's layout and its list;
+                                    ; emits nothing until a consumer asks
 
 section .lowbss nobits vstart=0     ; kerndos.asm's own rule, and for its
 section .bss  nobits                ; reason: these are reached through SS
 section .text
 kd_text_start:
+; --- THE FIXED HEADER (kdlayout.inc) ----------------------------------------
+; The stub arrives with no symbol table and jumps to KD_SEG:0000, so the first
+; eight bytes are a contract: a NEAR jump (`near` spelled out, because nasm
+; would shrink a resolved short one and move everything after it) and the two
+; words that say where the launch block goes.
 %ifdef KD_GATE
-    jmp kd_dos_entry
+    %define kd_head_entry kd_dos_entry
+%else
+    %define kd_head_entry kd_entry
 %endif
+    jmp near kd_head_entry          ; KD_H_JMP
+    db 0
+kd_lbp:  dw kd_lblock               ; KD_H_LBP
+kd_lbsz: dw KDL_SIZE                ; KD_H_LBSZ
 %include "kdshim.inc"
 %include "dskwin.inc"
 %include "disk.inc"
 %include "diskw.inc"
 %include "dos.asm"                  ; the DOS core, whole and unedited
 %include "kdback.inc"               ; ...over the kernel's disk layer
-%include "kdosgate.inc"             ; wave 4's entry: load a .COM and run it
+%include "kdentry.inc"              ; the REAL entry: a launch block, a
+                                    ; program, and int 19h when it exits
+%include "kdosgate.inc"             ; ...and wave 4's, which stages a block
+                                    ; and comes in at the same door
 ; --- and the image's own size, which is what the rung has to clear ---------
 ; `-f bin` lays the progbits sections out contiguously, so the image is their
 ; four lengths - and a length is measured INSIDE its own section, `$$` being

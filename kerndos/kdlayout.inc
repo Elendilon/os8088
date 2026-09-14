@@ -44,8 +44,23 @@ KD_LOW_KB   equ 8               ; how much .lowbss the layer's buffers want
 KD_STACK    equ KD_LOW_KB * 1024 ; ...and the stack sits at the top of it and
                                 ; grows DOWN toward the buffers
 
-; The top of the DOS program's memory, in paragraphs. 0x9000 is 576KB: below
-; the adapters' own RAM on every machine this can boot, and where wave 4 stops
-; asking - KERN-DOS-PLAN §1's 600KB is what the REAL entry negotiates, and it
-; has a machine handed to it rather than a floppy to boot from.
-KD_ARENA_TOP equ 0x9000
+; The top of the DOS program's memory is the MACHINE's, and it arrives in the
+; launch block rather than being a constant here: `KDL_CAP` is the BDA's own
+; KB, which is what `int 12h` answers and what a real DOS uses. Wave 4's gate
+; asked 0x9000 (576KB) on the reasoning that it was below the adapters' RAM on
+; anything this can boot; the BDA says 640 on those same machines, which is
+; 60KB the arithmetic was throwing away.
+KD_CAP_MAX  equ 640             ; KB. The clamp, not the answer: 640 * 64 is
+                                ; 0xA000 paragraphs and the last figure that
+                                ; fits the `shl` in 16 bits, and an 8086 has
+                                ; nowhere above it to put a .COM anyway
+
+; --- where the stub leaves the launch block (docs/plans/KERN-DOS-PLAN.md §7 step 7) ---
+; The image's first bytes are a FIXED HEADER, because the stub has no symbol
+; table: a near jump to the entry, then a word saying where to put the block.
+; Putting the block itself here would cost 512 bytes of the part on disk for
+; every machine that never uses them; a pointer costs four and lets it live in
+; `.bss`, which is nobits.
+KD_H_JMP    equ 0               ; 3: `jmp kd_entry`
+KD_H_LBP    equ 4               ; dw: where the block goes
+KD_H_LBSZ   equ 6               ; dw: ...and how many bytes of it there are
