@@ -4924,8 +4924,22 @@ $(BUILD)/kdos360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
 		$(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER)
 
+# ...AND A 1.44MB ONE, because a program worth handing the whole machine to is
+# usually bigger than a 360KB floppy. TD3.EXE alone is 137,845 bytes and its
+# scenes are 169KB and 209KB, so the disk it ships on is the only geometry it
+# has - and A: has to match the DRIVE, not the program: os8088_5150_herc_gla_144
+# is two 1.44MB drives and a 360KB image in one of them is a different medium.
+$(BUILD)/kdos144.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
+                      $(BUILD)/kdos/DOS.O88 $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+                      $(FACES) $(FACELIC) tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
+		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(APPDATAFOLDER)
+
 .PHONY: kdostest
-kdostest: $(BUILD)/kdos360.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
+kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
 	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
 	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
 	@echo "          Run it with: python3 tests/kdpart.py"
