@@ -126356,10 +126356,12 @@ docs/plans/KERN-DOS-PLAN.md is the design record and §7 of it is the step
 list; this is the contract.
 
 **MEASURED, on a 640KB 5150 with a 360KB system disk**: the program is handed
-**560 KB** above its PSP against **438 KB** in the window — 122 KB, which is
+**580 KB** above its PSP against **437 KB** in the window — 143 KB, which is
 the whole of what the arm is for. `tests/kdhand.py` is the gate and it
 asserts the comparison rather than either number, because the second is a
-property of the machine and the difference is a property of this feature.
+property of the machine and the difference is a property of this feature. It
+was 560 against 438 when the arm shipped, and §96.43 is the twenty-one
+kilobytes that moved it.
 
 **THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
@@ -126614,3 +126616,86 @@ because a new launch is a new question.
 there — and it asserts all three: the alert appears, Cancel leaves `[dos_state]`
 at `DST_READY` with the desktop intact, and a second Run asks again rather than
 remembering the refusal for ever.
+
+### 96.43 What arm 3 LEAVES BEHIND — the package is included whole, and most of it refuses
+
+`kerndos/kdos.asm` `%include`s `apps/dos/dos.asm` whole, which §96.40 records
+as a finding rather than a shortcut: the file assembles under a kernel-less
+root with exactly one conflict. What it does not say is what the window half
+then COSTS, and the answer at wave 5 was **seventeen kilobytes of the DOS
+program's own memory** — because `KD_IMG_KB` is not a rung and the arena's
+floor sits on it, so every byte of image is a byte the program does not get
+(`kerndos/kdlayout.inc`).
+
+**THE TEST IS NOT "IS THIS THE WINDOW'S" — IT IS "CAN THIS DO ANYTHING AT
+ALL".** `KERNEL_SEG` is `KD_SEG` under this root, so every surviving
+`OSAPI_*` call lands in §96.40.2's refusal table and comes back `CF=1`. Two
+whole families are therefore **dead rather than merely unused**, and gating
+them out changes no behaviour on any build:
+
+- **The packet driver and the cable translation** (§96.23, §96.26). Every
+  frame reaches the wire through `OSAPI_DRV_CALL` and the buffers through
+  `OSAPI_MEM_CLAIM`; both refuse, so a client that looks for a `PKT DRVR`
+  signature under arm 3 finds none — which is the same answer it gets on a
+  machine with no card, and the one every mTCP application already has a path
+  for. **4,684 bytes.**
+- **The console** (§96.33). `dosc.inc`'s prompt, `os88con.inc`'s 80×25 screen
+  and `os88cp437.inc`'s code page exist to put text in a WINDOW. Under arm 3
+  the program owns the screen and `AH=02h`/`AH=09h` go to the ROM's teletype —
+  which is what `dos_tty` already does inside the fsx bracket, and the bracket
+  is up from `kd_entry` to `int 19h`, so `[dos_inbr]` is 1 for the life of the
+  machine and the console arm is unreachable code with a ten-kilobyte library
+  behind it. **12,247 bytes**, of which **6,863 are `.bss`** — the screen
+  shadow and the 8×8 font — and a `.bss` byte here costs the program exactly
+  what a `.text` byte costs it. This is docs/plans/KERN-DOS-PLAN.md §6.1's
+  lever 5 and it is far the largest of them.
+
+Two consequences worth stating rather than discovering:
+
+**`dsh_pagemax` loses its viewport.** `DIR /P` pages against `[con_vrows]`,
+which is the live band; with no console it answers zero and the routine's
+existing *"never painted"* arm gives it DOS's own 25 rows. The fallback was
+already there for `COMMAND /c` before the first paint, which is the same
+question with a different cause.
+
+**The window half of `dos.asm` is NOT gated and stays.** `os88ui.inc`,
+`os88line.inc` and the setup pages are ~8 KB more, and they cannot be taken
+out by `%ifndef` without threading one through forty call sites in a band that
+also holds twenty-six core procs. That is the four-part package
+(docs/plans/KERN-DOS-PLAN.md §9), where the split is made in the SOURCE and a
+gate is not needed at all.
+
+`tests/kdhand.py` is the gate and its assertion is the COMPARISON — the
+program's top-of-memory figure under `kern_dos` against the same program's in
+a window — so it reads the saving rather than a constant somebody would have
+to keep in step.
+
+#### 96.43.1 …and the stack was 8 KB on nobody's measurement
+
+`KD_LOW_KB` buys two things — `.lowbss`'s mount buffers (3,328 bytes) and the
+stack that grows down toward them — and it was 8 KB because eight is a number.
+Every kilobyte of it is a kilobyte off the DOS program, `dos_arena` being
+`LOW_SEG + KD_LOW_KB * 64`.
+
+**MEASURED: the water mark is 134 bytes.** `KDSTKDIAG=1` puts four
+instructions in `kd_entry` that fill the GAP between the buffers and the stack
+top with `0xAA` — the buffers themselves are zeroed exactly as they ship, so
+the machine under measurement is the machine — and `tools/kdstkwater.py`
+drives §96.40's handoff and reads the region back at the program's `READY`
+prompt, by which time the mount, the `.COM` load and the program's own INT 21h
+calls are all behind it. The sentinel survives to within 134 bytes of the top,
+on two independent builds.
+
+So `KD_LOW_KB` is **5**: 1,792 bytes of stack against a measured 134, which is
+thirteen times over, and the other three kilobytes go to the program.
+`kdos.asm` already refuses to assemble if the buffers reach the stack top, so
+the half an assembler can see is guarded; what the margin is for is the half
+it cannot — the ROM's own `int 13h` and `int 08h` frames land here too, and
+`dos_be_go` swaps every INT 21h file call onto this stack (`[dos_sv_ss]`),
+which is why the measurement is taken with a program running rather than at
+the end of `kd_entry`.
+
+**The knob is stamped**, for `$(VIDSTAMP)`'s reason: without that, make sees an
+up-to-date `kerndos.bin`, builds the gate disk round the other arm, and the
+reader scans a machine with no sentinel in it — which reads exactly like a
+stack that was never used.

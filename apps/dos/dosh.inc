@@ -1638,7 +1638,15 @@ dsh_dirsw:
 ; CGA band and makes the switch useless on the one adapter whose user needs it
 ; most. One row is left for the `Strike a key` prompt itself.
 dsh_pagemax:
+%ifndef KD_BACKEND                  ; **THERE IS NO CONSOLE UNDER kern_dos**
+                                    ; (SPEC.md 96.43), so the viewport is the
+                                    ; program's own 25-row screen and the
+                                    ; refusal below is the answer rather than
+                                    ; a fallback
     mov ax, [con_vrows]
+%else
+    xor ax, ax
+%endif
     cmp ax, 4
     jae .have                       ; never painted (a `COMMAND /c` before the
     mov ax, 25                      ; first paint): DOS's own screen, so the

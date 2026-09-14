@@ -4165,6 +4165,14 @@ FME_LINE    equ 3               ; the status line's own composer (SPEC.md
 FM_NENT     equ 4
 FMFP        equ mod_fp + MOD_FMT * MODFP_STRIDE
 
+%ifndef KD_BUILD                    ; **NO MODULE UNDER kern_dos** (SPEC.md
+                                    ; 96.43): `mod_need` is not in that root,
+                                    ; so nothing could load this image - and
+                                    ; INT 21h has no format function, so
+                                    ; nothing would ask. 1,235 bytes of a
+                                    ; DISK FORMATTER that sat inside a build
+                                    ; whose every byte is a byte off the DOS
+                                    ; program's own memory
 section .modf                   ; the on-demand image (SPEC.md 2.8)
 modf_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
@@ -5132,6 +5140,7 @@ dskw_fmt_stub:
     db 0x0D, 0x0A, 'Not a bootable disk. Press any key.', 0x0D, 0x0A, 0
 DFMT_STUB_LEN equ $ - dskw_fmt_stub
 
+%endif                              ; KD_BUILD
 section .text                   ; ...and back to the kernel segment for what
                                 ; follows (CLAUDE.md 1: a file ends in .text)
 section .cold                   ; ...and the RESIDENT stubs (SPEC.md 2.8.1)

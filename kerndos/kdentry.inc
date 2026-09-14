@@ -70,6 +70,19 @@ kd_entry:
     xor di, di                  ; SS's and whose section is `vstart=0`, so the
     mov cx, kd_e_lowbss         ; end label IS the length
     rep stosb
+%ifdef KDSTKDIAG
+    ; --- HOW DEEP DOES THIS STACK ACTUALLY GO? (SPEC.md 96.43.1) -------------
+    ; `tools/kdstkwater.py` is the reader.  The buffers above are zeroed
+    ; exactly as they ship - the machine under measurement has to be the
+    ; machine - and what is filled is only the GAP between them and the stack
+    ; top, which nothing has written yet: DI is already `kd_e_lowbss` and SP
+    ; is still KD_STACK, so `rep stosb` stops one byte under the first thing
+    ; the CPU will push.  Zero when the knob is off.
+    mov al, 0xAA
+    mov cx, KD_STACK
+    sub cx, di
+    rep stosb
+%endif
     push ds
     pop es
 

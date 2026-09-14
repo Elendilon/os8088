@@ -4796,15 +4796,37 @@ $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
                kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc
 
+# KDSTKDIAG=1 fills the gap between `.lowbss` and the stack top with a
+# sentinel, so tools/kdstkwater.py can read kern_dos's own stack water mark off
+# a running machine (SPEC.md 96.43.1). It reaches THIS rule alone - the kernel
+# and every package are untouched - and it is a nasm define rather than a make
+# knob everywhere else, because nothing but kern_dos has this stack.
+#   make KDSTKDIAG=1 kdostest && python3 tools/kdstkwater.py
+#
+# **AND IT IS STAMPED, for $(VIDSTAMP)'s reason**: without that, make sees an
+# up-to-date kerndos.bin, builds the gate disk round the OTHER arm, and the
+# reader scans a machine with no sentinel in it - which reads exactly like a
+# stack that was never used.
+ifeq ($(KDSTKDIAG),1)
+KDSTKDIAGDEF := -DKDSTKDIAG
+endif
+KDSTAMP := $(BUILD)/.kerndos$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))
+$(shell mkdir -p $(BUILD); \
+        [ -f $(KDSTAMP) ] || { rm -f $(BUILD)/.kerndos-* $(BUILD)/.kerndos \
+                                     $(BUILD)/kerndos.bin \
+                                     $(BUILD)/kdos/DOS.O88 \
+                                     $(BUILD)/kdos360.img; \
+                               touch $(KDSTAMP); })
+
 $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                       apps/dos/dosc.inc apps/dos/dosnetabi.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88line.inc \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
                       apps/os88parts.inc apps/os88partsbody.inc \
-                      drivers/net/netpkg.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I kernel/ -I kerndos/ -I apps/ -I apps/dos/ \
-	        -I drivers/net/ -o $@ kerndos/kdos.asm
+                      drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -I kernel/ -I kerndos/ -I apps/ \
+	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndos: $(call FILESIZE,$@) bytes"
 
 # ...and the package that carries it. -DDOSKPART is 18 bytes of part table and

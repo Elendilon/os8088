@@ -2781,7 +2781,7 @@ SOAK = [
         "docs/plans/KERN-DOS-PLAN.md 7): run a .COM in the window, then run "
         "THE SAME .COM with the Memory page's third arm picked, and assert "
         "that the second run happened on a machine with no os8088 in it - "
-        "560 KB against 438, a text screen the kernel is not drawing, the "
+        "580 KB against 437, a text screen the kernel is not drawing, the "
         "program's own exit code, and an `int 19h` that brings the desktop "
         "back. IT ASSERTS THE COMPARISON and not either figure: the second "
         "number is a property of the machine and the DIFFERENCE is the "

@@ -12,10 +12,19 @@
 ; DECLARED and asserted at the foot of kerndos.asm, because a two-pass
 ; derivation buys nothing when there is one arm to size.
 ; =============================================================================
+; **`KD_BUILD` IS "THIS IS NOT THE KERNEL"**, and every root that includes a
+; kernel file gets it here rather than declaring it: `kerndos.asm` and
+; `kdos.asm` both start with this file, and `KD_BACKEND` is the DOS core's own
+; switch and says nothing about the disk layer.  What it gates in `kernel/` is
+; code that cannot work under this root at all - a module image with no
+; `mod_need` to load it, a UI with no window - so a kernel build sees none of
+; it and measures byte-identical.
+%define KD_BUILD
+
 KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
 KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 
-KD_IMG_KB   equ 61              ; the image rung: every progbits section PLUS
+KD_IMG_KB   equ 43              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG
@@ -43,6 +52,15 @@ KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; 1,432 of it and 96.30.7's console the rest),
                                 ; which leaves 982 bytes and costs the program
                                 ; 560 -> 559 KB
+                                ;
+                                ; **61 -> 43 AT WAVE 8** (SPEC.md 96.43): the
+                                ; image measures 43,302 with the cable network,
+                                ; the console and the FORMAT module gated out of
+                                ; it, so eighteen whole kilobytes go back to the
+                                ; program in one step. 730 bytes spare, which is
+                                ; what this comment's own rule asks for - the
+                                ; next wave lowers it again rather than banking
+                                ; slack
 ; --- the exit code's mailbox (SPEC.md 96.41, docs/plans/KERN-DOS-PLAN.md 8.2)
 ; MIRRORED in kernel/hiber.inc, and tests/unit/t_mirror.py is the guard.
 KDB_SEG     equ 0x0040          ; the BDA...
@@ -59,9 +77,20 @@ FAT_PARA    equ DSK_FAT_SECS * 32         ; 512 bytes = 32 paragraphs
 LOW_SEG     equ FAT_SEG + FAT_PARA        ; ...and the mount buffers above it
 
 
-KD_LOW_KB   equ 8               ; how much .lowbss the layer's buffers want
+KD_LOW_KB   equ 5               ; how much .lowbss the layer's buffers want
                                 ; (3,328 today) PLUS the stack above them,
-                                ; asserted in kerndos.asm
+                                ; asserted in kerndos.asm.
+                                ;
+                                ; **8 -> 5 ON A MEASUREMENT** (SPEC.md
+                                ; 96.43.1): the stack's water mark is **134
+                                ; bytes** of the 4,864 that eight kilobytes
+                                ; left it, read off a machine that had mounted
+                                ; a floppy, loaded a .COM and serviced its INT
+                                ; 21h calls. Five leaves 1,792 - thirteen times
+                                ; the figure - and gives the DOS program the
+                                ; other three kilobytes, which is what every
+                                ; number in this file is for. `KDSTKDIAG=1`
+                                ; and `tools/kdstkwater.py` re-derive it
 KD_STACK    equ KD_LOW_KB * 1024 ; ...and the stack sits at the top of it and
                                 ; grows DOWN toward the buffers
 

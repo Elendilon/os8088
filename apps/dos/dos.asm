@@ -570,9 +570,11 @@ dos_entry:
                                     ; Both preserve the flags, so the CF this
                                     ; proc owes the loader rides through
     call dos_fld_init               ; the arguments field (SPEC.md 96.19)
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_start              ; ...AND THE CONSOLE (SPEC.md 96.33), before
                                     ; the first paint can read a screen whose
                                     ; attribute is still a zeroed bss's
+%endif
 
     mov bx, [dos_win]               ; **NAMED, not whatever the last call left
     mov ax, dos_wake                ; in BX.** The slot takes BX = the window
@@ -673,6 +675,7 @@ dos_entry:
 ; does nothing, rather than launching the program twice.
 ; -----------------------------------------------------------------------------
 dos_wake:
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
     je .notpkg                      ; 96.33.17): OSAPI_PKG_START wants the gfx
     call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
@@ -683,6 +686,7 @@ dos_wake:
                                     ; own flag, so it neither reads nor moves
                                     ; [dos_state]: a package is not the thing
                                     ; `run it again` re-runs
+%endif
 %ifdef DOSKPART
     ; **THE MACHINE WENT AWAY AND CAME BACK** (SPEC.md 96.41): between the wake
     ; that posted the handoff and this one there was a hibernation, a DOS
@@ -748,6 +752,7 @@ dos_run:
     jne .floor                      ; THE COMPACTION WAKE resumes here: the
                                     ; buffers are claimed already, and claiming
                                     ; them twice would leak 2KB a launch
+%ifndef KD_BACKEND
     call dos_pkt_bufs               ; THE PACKET DRIVER'S BUFFERS FIRST (SPEC.md
                                     ; 96.23.7): the sizing below takes
                                     ; everything left, so a claim after it is a
@@ -756,6 +761,7 @@ dos_run:
                                     ; floor rather than inside it - and it asks
                                     ; at the DEFAULT level, which for two
                                     ; kilobytes never needs a purge to answer
+%endif
 .floor:
     call dos_mem_fix                ; ...and the ARM is the user's, once this
                                     ; has made sure it is one the machine can
@@ -952,6 +958,7 @@ dos_run:
 .out:
     mov byte [dos_cpw], 0           ; THE REAL EXIT, so the next launch in this
                                     ; instance sizes from the start again
+%ifndef KD_BACKEND
     call dn_shut                    ; every translated flow closed, before the
                                     ; driver that owns its sockets is resumed
     call dos_pkt_shut               ; THE RAW CLAIM GOES BACK FIRST, on every
@@ -963,15 +970,18 @@ dos_run:
                                     ; is BEFORE the resume because the driver
                                     ; the claim is against must still be
                                     ; mounted to hear it
+%endif                              ; KD_BACKEND
     call dos_drv_back               ; ...and back again, on EVERY path through
                                     ; here including the refusals: a resume with
                                     ; nothing suspended is free and a machine
                                     ; left silent is not (SPEC.md 51.11.1)
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_ended              ; ...and the console says what happened, which
                                     ; is where §96.32's three status lines went
                                     ; (SPEC.md 96.33): a log says it once and it
                                     ; stays said, where a sentence on the band
                                     ; was true until the next launch
+%endif
     call dos_repaint                ; THE WINDOW DOES NOT REPAINT ITSELF. On the
                                     ; path that runs, fsx_restore's wm_paint_all
                                     ; (SPEC.md 53.6) happens to redraw us and
@@ -982,12 +992,14 @@ dos_run:
                                     ; is the worst shape a refusal can have
                                     ; (SPEC.md 47): the state was right and the
                                     ; screen was a lie
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_fsx_back               ; ...AND BACK INTO THE FULL SCREEN if that
                                     ; is where the command was typed (SPEC.md
                                     ; 96.33.16). Here, on the one path every
                                     ; launch AND every refusal reaches, and
                                     ; after dos_repaint so the window under it
                                     ; is right when the bracket next comes down
+%endif
 .outq:                              ; ...AND THE POSTED PATH, which reaches
                                     ; none of the above on purpose: nothing has
                                     ; ended, the drivers must stay out for the
@@ -1398,6 +1410,7 @@ dos_fsx_main:
                                     ; CLEARED, so without this a program starts
                                     ; on a blank screen and the command line
                                     ; that launched it is not above its output
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     mov bx, [dos_win]
     call OSAPI_FSX_CAPS             ; DL = the DISPLAY's own kind, which
     mov [con_tkind], dl             ; osapi_video cannot answer for a window
@@ -1419,6 +1432,7 @@ dos_fsx_main:
     xor bh, bh                      ; first write would otherwise land on row 0
     mov ah, 0x02                    ; and overwrite the history just painted
     int 0x10
+%endif
 .noseed:
 
     call OSAPI_VIDEO                ; AX = width, BX = height: INT 33h's scale
@@ -1434,12 +1448,14 @@ dos_fsx_main:
     call dos_save_machine
     call dos_build_psp
     call dos_hook_vectors
+%ifndef KD_BACKEND
     call dos_pkt_start              ; ...AND THE PACKET DRIVER (SPEC.md 96.23),
                                     ; after dos_hook_vectors because it takes a
                                     ; vector of its own and after
                                     ; dos_save_machine because the whole IVT is
                                     ; banked by then - so the unhook is the
                                     ; restore, the way every other vector's is
+%endif
 
     mov ax, [dos_arena]             ; the DTA starts at PSP:0080, which is the
     add ax, DOS_PSPP                ; command tail's own 128 bytes - DOS puts
@@ -1463,10 +1479,12 @@ dos_fsx_main:
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_snap                   ; **THE LAST SCREEN FIRST** (SPEC.md 96.34):
                                     ; the BDA's mode byte and cursor are the
                                     ; PROGRAM's until dos_restore_machine runs,
                                     ; and the regen buffer still holds its text
+%endif
     call dos_unhook_vectors
     call dos_restore_machine
     ret
@@ -2013,11 +2031,13 @@ dos_int21:
 %ifdef DOSTRACE
     call dos_trace
 %endif
+%ifndef KD_BACKEND
     cmp byte [dos_pkt_raw], 0       ; **THE THIRD POLL** (SPEC.md 96.23.4): a
     je .nopkt                       ; client doing file I/O between receives
     call dos_pkt_poll               ; drains here. One compare on a path that
 .nopkt:                             ; is already a dispatch, and it costs a
                                     ; program with no packet driver nothing
+%endif
 
     cmp ah, 0x4C
     je .term
@@ -3798,6 +3818,12 @@ dos_getkey:
 dos_tty:
     push ax
     push bx
+%ifndef KD_BACKEND                  ; **THERE IS NO SECOND ARM UNDER kern_dos**
+                                    ; (SPEC.md 96.43): the bracket is up from
+                                    ; kd_entry to int 19h, so [dos_inbr] is 1
+                                    ; for the life of the machine and the
+                                    ; console arm below is unreachable code
+                                    ; with a 10KB library behind it
     cmp byte [cs:dos_inbr], 0       ; **`cs:` AND IT IS NOT DECORATION** (SPEC.md
     je .window                      ; 96.33): AH=09h, AH=40h and AH=02h all
                                     ; reach here with DS holding the PROGRAM's
@@ -3810,10 +3836,12 @@ dos_tty:
                                     ; that happened to be 0 and AH=02h was
                                     ; reading ours. Inside the bracket the ROM's
                                     ; teletype is
+%endif                              ; KD_BACKEND
     mov ah, 0x0E                    ; the machine's own screen and outside it
     mov bx, 0x0007                  ; there is no mode for it to write to at
     int 0x10                        ; all - an int 10h there would scribble on
     jmp short .out                  ; whatever the desktop has in 12h
+%ifndef KD_BACKEND
 .window:
     push ds                         ; ...and the console arm needs OUR DS for
     push cs                         ; real, con_scr and every byte of the
@@ -3836,6 +3864,7 @@ dos_tty:
 .nofs:                              ; character would rewrite a row that is
     pop ds                          ; about to change again, and the echo path
                                     ; already paints after every key it takes
+%endif                              ; KD_BACKEND
 .out:
     pop bx
     pop ax
@@ -4181,6 +4210,7 @@ dos_paint:
     call os88ui_btn
     pop bx
 
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     ; --- ...AND THE CONSOLE, which is what the band is (SPEC.md 96.33) -------
     ; **A FULL PAINT OWES EVERY ROW**: there is no next pass that comes back
     ; for one, so it marks the lot and then spends the scroll debt rather than
@@ -4190,6 +4220,7 @@ dos_paint:
     call con_markall
     call con_rows_owed
     call con_takescroll
+%endif
 .out:
     pop di
     pop si
@@ -4433,7 +4464,9 @@ dos_con_geom:
     mov [dos_conx], ax
     add dx, DOS_BARH
     mov [dos_cony], dx
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_pub                ; ...and the console is TOLD, every time
+%endif
     clc
 .out:
     pop dx
@@ -4441,6 +4474,7 @@ dos_con_geom:
     pop ax
     ret
 
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
 ; -----------------------------------------------------------------------------
 ; dos_con_pub - hand the four words to os88con.inc (SPEC.md 96.33.1)
 ; in:  the four above, filled; out: nothing; every register preserved
@@ -4520,6 +4554,7 @@ dos_con_pub:
     pop ax
     ret
 
+%endif
 ; -----------------------------------------------------------------------------
 ; dos_bar_rects - the top bar's three controls (SPEC.md 96.32.1)
 ; in:  BX = the window
@@ -6332,10 +6367,12 @@ dos_key:
     call OSAPI_WM_WAKE               ; ...and dos_wake does the rest, exactly
     jmp short .done                  ; as it did for the launch
 .console:
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .no                          ; the console is the MAIN page's band
     call dos_con_key                 ; CF=1 = not the console's either, and the
     jnc .done                        ; scan code may still be somebody's
+%endif
 .no:
     pop di
     pop si
@@ -6692,11 +6729,13 @@ dos_oncmd:
     call dos_swap
     jmp short .out
 .full:
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .out                        ; the console is the MAIN page's band, and
     call dos_defocus                ; a setup page has no screen to take
     mov si, [dos_win]
     call dos_fsx                    ; 'Full Screen' (SPEC.md 96.33.5)
+%endif
 .out:
     pop bx
     pop ax
@@ -10645,6 +10684,15 @@ dos_xms_move:
 ; and this is the caller.
 
 
+%ifndef KD_BACKEND                  ; **NOT UNDER kern_dos** (SPEC.md 96.43):
+                                    ; there is no driver there to be a packet
+                                    ; driver over.  Everything below reaches
+                                    ; the card through OSAPI_DRV_CALL and its
+                                    ; buffers through OSAPI_MEM_CLAIM, and
+                                    ; 96.40.2's refusal table answers both with
+                                    ; CF=1 - so the family does not misbehave
+                                    ; on that build, it REFUSES, and what is
+                                    ; cut is code that could only ever refuse
 ; =============================================================================
 ; THE PACKET DRIVER (SPEC.md 96.23)
 ; =============================================================================
@@ -11654,6 +11702,8 @@ dos_pkt_tick:
     pop ax
     iret
 
+
+%endif                              ; KD_BACKEND
 ; -----------------------------------------------------------------------------
 ; dos_drv_take - the hardware drivers, out of the way; BLASTER= from what they
 ;                say on the way past
@@ -13441,6 +13491,7 @@ dos_fh_fill:
 ; None of this is resident: a package's bss is zeroed into its heap claim at
 ; launch and goes back when the window closes, so what it costs is a DOS
 ; session's memory and not a machine's.
+%ifndef KD_BACKEND                  ; 96.43: no driver, so no packet driver
     DBSS DOS_B_PKTVEC,  1           ; the vector we took, 0 = none
     DBSS DOS_B_PKTRAW,  1           ; 1 = we hold NETV_RAW
     DBSS DOS_B_PKTBSY,  1           ; the poll's re-entrancy guard
@@ -13484,6 +13535,7 @@ dos_fh_fill:
                                     ; the path on a card machine - which is
                                     ; how it is tested at all - must not
                                     ; forge the class underneath it
+%endif                              ; KD_BACKEND
 ; --- the built-in commands' own state (SPEC.md 96.30, apps/dos/dosh.inc) -----
     DBSS DOS_B_SHLINE,  DSH_LINE    ; the command tail, unpacked
     DBSS DOS_B_SHVERB,  DSH_ARG     ; the verb, upper-cased
@@ -13574,9 +13626,11 @@ DOS_BSS_SIZE equ DB
 %include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
                                     ; a COMMAND.COM that is not a file, over
                                     ; the back end like every other file verb
+%ifndef KD_BACKEND                  ; the console's, so 96.43 takes it too
 %include "dosc.inc"                 ; ...AND THE PROMPT THAT TYPES INTO IT
                                     ; (SPEC.md 96.33): an input, an output and
                                     ; a prompt, and not one verb of its own
+%endif
 
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
@@ -13610,12 +13664,27 @@ DOS_BSS_SIZE equ DB
 %define CON_FSX                     ; the FULL-SCREEN renderer (SPEC.md 70.8.13,
                                     ; 96.33.5): the same buffer on real text
                                     ; VRAM, driven by dosc.inc's own bracket
+%ifndef KD_BACKEND                  ; **NO CONSOLE UNDER kern_dos** (SPEC.md
+                                    ; 96.43): the program owns the screen and
+                                    ; AH=02h/09h go to the ROM's teletype, which
+                                    ; is what they already do inside the fsx
+                                    ; bracket.  It is the plan's lever 5 and the
+                                    ; largest single one, 10,138 bytes - 6,863
+                                    ; of them the 80x25 shadow and the 8x8 font,
+                                    ; which are .bss and so are a KB of the
+                                    ; image rung apiece
 %define CON_TTY                     ; CR, LF, BS, TAB and BEL, because there is
                                     ; no ANSI parser over this one (SPEC.md
                                     ; 96.33.1) - and con_open, since the
                                     ; attribute a zeroed bss leaves is black
                                     ; on black
 %include "os88con.inc"
+%else
+CON_BSS     equ 0                   ; ...and the carrier's own arithmetic still
+                                    ; adds it, so it has a value rather than an
+                                    ; %ifdef at every site that reads it
+%endif                              ; KD_BACKEND
+%ifndef KD_BACKEND                  ; the network family, for 96.43's reason
 %include "dosnet.inc"               ; THE CABLE TRANSLATION (SPEC.md 96.26) -
                                     ; only reached when the route is the cable
 %include "os88sock.inc"             ; net_try - WHICH driver answers (SPEC.md
@@ -13625,6 +13694,7 @@ DOS_BSS_SIZE equ DB
                                     ; net_find, whose job is to prefer one of
                                     ; two and whose second answer refuses
                                     ; every verb this feature is made of
+%endif                              ; KD_BACKEND
 
 %if DOS_MRADSZ != OS88UI_RD_SIZE
  %error "DOS_MRADSZ must equal os88ui.inc's OS88UI_RD_SIZE - the bss table \
@@ -13911,6 +13981,7 @@ dos_ivt     equ os88_image_end + DOS_B_IVT     ; 1024: the whole vector table
 dos_bda     equ os88_image_end + DOS_B_BDA     ; 256:  ...and the whole BDA
 
 ; --- the packet driver's (SPEC.md 96.23) -------------------------------------
+%ifndef KD_BACKEND                  ; 96.43
 dos_pkt_vec   equ os88_image_end + DOS_B_PKTVEC
 dos_pkt_raw   equ os88_image_end + DOS_B_PKTRAW
 dos_pkt_busy  equ os88_image_end + DOS_B_PKTBSY
@@ -13955,3 +14026,4 @@ dos_pkt_rxs equ PKB_RX                      ; ...the one dos_pkt_deliver hands
                                             ; of that routine's arms collapsed
 dos_pkt_txs equ PKB_TX                      ; and the client's own, staged
 dos_pkt_stk_top equ PKB_STKTOP
+%endif                              ; KD_BACKEND
