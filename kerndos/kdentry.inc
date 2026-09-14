@@ -181,9 +181,10 @@ kd_entry:
 ; kd_leave - the program is over (docs/plans/KERN-DOS-PLAN.md §9)
 ;
 ; **THERE IS NOTHING TO GO BACK TO ON THIS ARM**, which is the first
-; deliberately destructive thing this OS does and reads like one: the user was
-; asked in its own window, at the moment of launch, with Cancel as the default
-; (SPEC.md 96.39). So the machine restarts - and it says so first, because a
+; deliberately destructive thing this OS does and reads like one: the user is
+; to be asked in its own window, at the moment of launch, with Cancel as the
+; default - docs/plans/KERN-DOS-PLAN.md §9, which is W7 and is not built. So
+; the machine restarts - and it says so first, because a
 ; screen that goes black on its own is a crash and a screen that says why is a
 ; machine doing what it was told.
 ;
@@ -327,5 +328,33 @@ kd_code:    resb 1              ; the program's exit code, for
 ; would cost 512 of the part on every disk that ships one.
 kd_lblock:
     resb KDL_SIZE
+
+section .text
+
+; --- what the kernel's own kernel.asm would have given the disk layer -------
+; `dsk_vol_fixed` is a two-instruction thunk in kernel.asm:7030 and it is
+; COPIED here rather than shortened. The obvious shortening - `jmp
+; dkf_dsk_vol_fixed`, on the reasoning that `.cold` is not another segment
+; here so the call need not be far - is WRONG, because near or far is a
+; property of the BODY and not of the distance: `dkf_dsk_vol_fixed` ends in
+; `retf` whatever segment it is in. kdback.inc's header has the rest of it.
+section .text
+dsk_vol_fixed:
+    call COLD_SEG:dkf_dsk_vol_fixed
+    ret
+
+section .bss
+kd_glb:
+    resb KDL_SIZE
+
+; --- and the DOS core's own bss ---------------------------------------------
+; **IT GOES IN `.bss` AND NOT AT THE END OF AN IMAGE.** In the package,
+; `os88_image_end` is where the loader zeroes from (SPEC.md 21 step 5) and the
+; DBSS table is offsets from it. Here there is no loader and no image end:
+; the same table lands in the root's own `.bss`, addressed through DS exactly
+; as before, and the name is all that has to be kept.
+section .bss
+os88_image_end:
+    resb DOS_BSS_SIZE + CON_BSS
 
 section .text
