@@ -81,6 +81,19 @@ def _map(src, defines, incs):
     return out
 
 
+# **THE kdos BUILD IS TWO DEFINES AND NOT ONE** (SPEC.md 96.44.5). The box on
+# `build/kdos360.img` is assembled `-DDOSKPART -DDOS_EXTCORE`, and the second
+# one moves EVERY offset in the map: the core comes out of the image and the
+# reservation goes in, so `os88_image_end` and every bss cell hanging off it
+# shift by about 1,800 bytes. A row that asks for `DOSKPART` alone is handed a
+# map of a package that is not on the disk it is driving - and that does not
+# fail, it reads a rect of rubble and CLICKS AT A COORDINATE THAT DOES NOT
+# EXIST, which hangs in `os88mouse` waiting for a cursor that can never
+# arrive. Named here rather than spelled at three call sites, so it tracks the
+# Makefile's `$(BUILD)/dosp.bin` rule in one place.
+KDBOX = ("DOSKPART", "DOS_EXTCORE")
+
+
 def package(*defines):
     """Every label and equate in apps/dos/dos.asm, as a near offset.
 

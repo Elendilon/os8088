@@ -167,7 +167,7 @@ def main():
             fail("the DOS window is gone after the windowed run: %r"
                  % (ui.titles(),))
 
-        dm = dosmap.package("DOSKPART")
+        dm = dosmap.package(*dosmap.KDBOX)
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
 

@@ -5866,6 +5866,15 @@ dos_handoff:
     mov ax, [dos_kdrow + OP_R_LEN]
     mov [di+KDH_ULEN], ax
     mov word [di+KDH_ULEN+2], 0
+    mov ax, [dos_corerow + OP_R_OFF]    ; ...AND THE CORE PART'S THREE (SPEC.md
+    mov [di+KDH_COFF], ax               ; 96.44.5.4): kern_dos's image has a
+    mov ax, [dos_corerow + OP_R_ZKB]    ; hole at CORE_ORG and the stub fills it
+    mov [di+KDH_CPLEN], ax              ; from here, because by then there is no
+    mov word [di+KDH_CPLEN+2], 0        ; file layer left to ask
+    mov ax, [dos_corerow + OP_R_LEN]
+    mov [di+KDH_CULEN], ax
+    mov word [di+KDH_CULEN+2], 0
+    mov word [di+KDH_CORG], CORE_ORG    ; ...and where it goes in that segment
     mov ax, [dos_win]               ; ...and the way home, which only we know:
     mov [di+KDH_WIN], ax            ; the window to wake and the cell the
     mov word [di+KDH_CODE], KDH_NOCODE  ; restored kernel puts the code in
@@ -9160,6 +9169,7 @@ OS88_PARTS_END
 ; without the 800-byte body.
 %include "os88parts.inc"
 dos_kdrow   equ dos_hbss + DOS_B_KDROW   ; the HOST's block (SPEC.md 96.44.5)
+dos_corerow equ dos_hbss + DOS_B_COREROW
 %endif
 
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
@@ -9366,6 +9376,8 @@ DOS_CBASE   equ os88_image_end
 ; verbatim copy leaves all four of those read sites spelled as they were and
 ; moves only the base.
     HBSS DOS_B_KDROW, 8          ; kind, flags, dw off, dw len, dw zkb
+    HBSS DOS_B_COREROW, 8        ; ...and the CORE part's, beside it - the stub
+                                 ; reads both (SPEC.md 96.44.5.4)
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so

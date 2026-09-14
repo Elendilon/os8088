@@ -41,11 +41,24 @@ import os88lz                                                   # noqa: E402
 
 IMG = os.path.join(ROOT, "build", "kdos360.img")
 KD = os.path.join(ROOT, "build", "kerndos.bin")
+CORE = os.path.join(ROOT, "build", "doscore.bin")
+DOSCALL = os.path.join(ROOT, "apps", "dos", "doscall.inc")
 PARTS_MAGIC = b"O88PARTS"
 PARTS_HDR = 10                  # magic(8) + count(1) + reserved(1)
 PART_ROW = 8
-DOS_PART_KD = 2                 # loader image, 0 = the box, 1 = the CORE
-                                # (SPEC.md 96.44.5), 2 = kern_dos
+DOS_PART_CORE = 1               # loader image, 0 = the box, 1 = the INT 21h
+DOS_PART_KD = 2                 # CORE (SPEC.md 96.44.5), 2 = kern_dos
+
+
+def coredef(name):
+    """One `equ` out of apps/dos/doscall.inc. Read rather than mirrored: a
+    fourth copy of CORE_ORG is a fourth thing to keep in step, and this row is
+    about whether the ASSEMBLY agrees with itself."""
+    for line in open(DOSCALL):
+        f = line.split()
+        if len(f) >= 3 and f[0] == name and f[1] == "equ":
+            return int(f[2], 0)
+    fail("%s is not an equ in %s" % (name, DOSCALL))
 
 
 def fail(msg):
@@ -83,7 +96,7 @@ def dir_entry(v, folder, raw11):
 
 
 def main():
-    for p in (IMG, KD):
+    for p in (IMG, KD, CORE):
         if not os.path.exists(p):
             fail("%s is missing - run `make kdostest` first" % p)
 
@@ -118,21 +131,28 @@ def main():
         fail("the table declares %d part(s); the four-piece DOS.O88 is a "
              "loader image with THREE - the box, the INT 21h core and "
              "kern_dos (SPEC.md 96.44.5)" % n)
-    kind, pflags, poff, plen, pzkb = struct.unpack_from(
-        "<BBHHH", blob, at + PARTS_HDR + PART_ROW * DOS_PART_KD)
-    if not pflags & 16:
-        fail("part %d's flags are 0x%02X and OP_COMP (16) is clear: an "
-             "uncompressed part costs the 360KB system disk eight more "
-             "clusters than it has to. The pairing with OP_LAZY was refused "
-             "until SPEC.md 20.12.7.4" % (DOS_PART_KD, pflags))
-    if not pflags & 8:
-        fail("part %d's flags are 0x%02X and OP_LAZY (8) is clear. It MUST be "
-             "lazy: op_load reads every eager part into one carve and "
-             "op_size refuses a carve of 64KB or more, and the box plus "
-             "kern_dos unpack to ~74KB (SPEC.md 96.44.4.1)"
-             % (DOS_PART_KD, pflags))
-    print("kdpart: 1/5 part %d is ASSET+COMP+LAZY at file sector %d, %d bytes "
+    def row(idx):
+        _k, pflags, poff, plen, pzkb = struct.unpack_from(
+            "<BBHHH", blob, at + PARTS_HDR + PART_ROW * idx)
+        if not pflags & 16:
+            fail("part %d's flags are 0x%02X and OP_COMP (16) is clear: an "
+                 "uncompressed part costs the 360KB system disk eight more "
+                 "clusters than it has to. The pairing with OP_LAZY was "
+                 "refused until SPEC.md 20.12.7.4" % (idx, pflags))
+        if not pflags & 8:
+            fail("part %d's flags are 0x%02X and OP_LAZY (8) is clear. It "
+                 "MUST be lazy: op_load reads every eager part into one carve "
+                 "and op_size refuses a carve of 64KB or more, and the box "
+                 "plus kern_dos unpack to ~74KB (SPEC.md 96.44.4.1)"
+                 % (idx, pflags))
+        return poff, plen, pzkb
+
+    coff, clen, czkb = row(DOS_PART_CORE)
+    poff, plen, pzkb = row(DOS_PART_KD)
+    print("kdpart: 1/7 part %d is ASSET+COMP+LAZY at file sector %d, %d bytes "
           "unpacked, %d packed" % (DOS_PART_KD, poff, plen, pzkb))
+    print("kdpart: 2/7 part %d (the CORE) at file sector %d, %d bytes "
+          "unpacked, %d packed" % (DOS_PART_CORE, coff, clen, czkb))
 
     # --- 2: the chain, as absolute LBA runs ----------------------------------
     # Exactly the shape kernel/hiber.inc's hbm_extents builds: {lba, count},
@@ -145,27 +165,32 @@ def main():
             runs[-1][1] += v.spc
         else:
             runs.append([lba, v.spc])
-    print("kdpart: 2/5 the chain is %d cluster(s) in %d coalesced run(s)"
+    print("kdpart: 3/7 the chain is %d cluster(s) in %d coalesced run(s)"
           % (len(list(v.chain(fclus))), len(runs)))
 
     # --- 3: file sector -> absolute sector ------------------------------------
     flat = []
     for lba, cnt in runs:
         flat.extend(range(lba, lba + cnt))
-    need = -(-pzkb // 512)
-    if poff + need > len(flat):
-        fail("the part wants file sectors %d..%d and the file has %d"
-             % (poff, poff + need - 1, len(flat)))
-    want = flat[poff:poff + need]
-    ext, i = [], 0
-    while i < len(want):
-        j = i
-        while j + 1 < len(want) and want[j + 1] == want[j] + 1:
-            j += 1
-        ext.append((want[i], j - i + 1))
-        i = j + 1
-    print("kdpart: 3/5 the part is %d sector(s) in %d extent(s): %s"
-          % (need, len(ext),
+
+    def walk(off, zkb, what):
+        need = -(-zkb // 512)
+        if off + need > len(flat):
+            fail("%s wants file sectors %d..%d and the file has %d"
+                 % (what, off, off + need - 1, len(flat)))
+        want = flat[off:off + need]
+        ext, i = [], 0
+        while i < len(want):
+            j = i
+            while j + 1 < len(want) and want[j + 1] == want[j] + 1:
+                j += 1
+            ext.append((want[i], j - i + 1))
+            i = j + 1
+        return want, ext
+
+    want, ext = walk(poff, pzkb, "the part")
+    print("kdpart: 4/7 the part is %d sector(s) in %d extent(s): %s"
+          % (len(want), len(ext),
              ", ".join("%d+%d" % e for e in ext[:6])
              + (" ..." if len(ext) > 6 else "")))
 
@@ -186,8 +211,61 @@ def main():
         n = next((i for i, (a, b) in enumerate(zip(out, raw)) if a != b), None)
         fail("the part's bytes are not build/kerndos.bin - they differ at "
              "offset %s of %d" % (n, len(raw)))
-    print("kdpart: 4/5 those sectors expand to build/kerndos.bin EXACTLY "
+    print("kdpart: 5/7 those sectors expand to build/kerndos.bin EXACTLY "
           "(%d bytes)" % len(raw))
+
+    # --- 6: and so do the CORE's, out of ONE run with them --------------------
+    # **`hbm_dosrun` READS BOTH PARTS AS ONE RANGE** (SPEC.md 96.44.5.4):
+    # KDH_COFF to the end of KDH_PLEN, because the stub has two streams to
+    # expand and one disk walk to do it with. So the arithmetic checked above
+    # is checked again over the pair, and the CORE's own bytes have to come out
+    # of the front of it.
+    cwant, cext = walk(coff, czkb, "the core part")
+    craw = open(CORE, "rb").read()
+    try:
+        cout = os88lz.decompress(
+            b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps]) for l in cwant)[:czkb],
+            os88lz.LZ4, clen)
+    except Exception as e:                                      # noqa: BLE001
+        fail("the core part's sectors do not decompress: %s" % e)
+    if cout != craw:
+        n = next((i for i, (a, b) in enumerate(zip(cout, craw)) if a != b), None)
+        fail("the core part's bytes are not build/doscore.bin - they differ "
+             "at offset %s of %d" % (n, len(craw)))
+    span = (poff - coff) + len(want)
+    bwant, bext = walk(coff, span * 512, "the combined run")
+    if bwant[:len(cwant)] != cwant or bwant[-len(want):] != want:
+        fail("the combined range %d..%d does not contain both parts' sectors "
+             "in order - hbm_dosrun's one walk would hand the stub the wrong "
+             "bytes" % (coff, coff + span - 1))
+    # KDS_CDELTA is paragraphs from the run's base to kern_dos's stream, and
+    # 512-aligned parts are what make it exact.
+    delta = (poff - coff) * 32
+    if delta * 16 + pzkb > span * 512:
+        fail("KDS_CDELTA would be %d paragraphs and the run is only %d bytes"
+             % (delta, span * 512))
+    print("kdpart: 6/7 the pair is ONE range of %d sector(s) in %d extent(s), "
+          "kern_dos's stream %d paragraph(s) in" % (span, len(bext), delta))
+
+    # --- ...and kern_dos really does reserve the hole the core lands in -------
+    # The stub expands kern_dos FIRST and the core over it, so what has to be
+    # true of the image on the disk is that CORE_ORG..CORE_ORG+CORE_MAX is
+    # `times ... db 0` and nothing else. If that span ever carried code, the
+    # core would land on top of it.
+    corg, cmax, cbss = (coredef("CORE_ORG"), coredef("CORE_MAX"),
+                        coredef("CORE_BSS_SIZE"))
+    if len(raw) < corg + cmax + cbss:
+        fail("kern_dos is %d bytes and the core's reservation needs %d - the "
+             "`times CORE_MAX + CORE_BSS_SIZE db 0` in kerndos/kdos.asm is "
+             "not there" % (len(raw), corg + cmax + cbss))
+    hole = raw[corg:corg + cmax + cbss]
+    if hole.count(0) != len(hole):
+        n = next(i for i, b in enumerate(hole) if b)
+        fail("kern_dos's reservation at 0x%04X is not zeros - byte %d of it "
+             "is 0x%02X, so the core would land on top of something"
+             % (corg, n, hole[n]))
+    if len(craw) > cmax:
+        fail("the core is %d bytes and CORE_MAX is %d" % (len(craw), cmax))
 
     # --- 5: the extent list is what HS_XMAX can hold --------------------------
     # The staging area the stub reads from is fixed at assembly time
@@ -198,9 +276,13 @@ def main():
     if len(ext) > HS_XMAX:
         fail("the part is in %d extents and the staging area holds %d"
              % (len(ext), HS_XMAX))
-    print("kdpart: 5/5 %d extent(s) against the %d the staging area holds"
-          % (len(ext), HS_XMAX))
-    print("kdpart: ok - kern_dos is reachable as absolute sectors")
+    if len(bext) > HS_XMAX:
+        fail("the pair is in %d extents and the staging area holds %d"
+             % (len(bext), HS_XMAX))
+    print("kdpart: 7/7 %d extent(s) for the pair against the %d the staging "
+          "area holds; the reservation at 0x%04X is %d zero byte(s)"
+          % (len(bext), HS_XMAX, corg, len(hole)))
+    print("kdpart: ok - both parts are reachable as absolute sectors")
     return 0
 
 

@@ -76,11 +76,36 @@ DOS_PART_KD   equ 2             ; ...and kern_dos, which nothing here reads
 ; read `[dos_kdrow + OP_R_OFF]` out of the part table when the table was in
 ; its own image, so copying the row VERBATIM leaves all four of its read sites
 ; spelled exactly as they were and moves only the base.
-DSLH_KDROW  equ 0               ; OP_ROW bytes, copied as they lie
-DSLH_SIZE   equ OP_ROW
+DSLH_KDROW   equ 0              ; OP_ROW bytes, copied as they lie
+DSLH_COREROW equ OP_ROW         ; ...and the CORE's beside it (SPEC.md 96.44.5)
+DSLH_SIZE    equ OP_ROW * 2
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
+
+; -----------------------------------------------------------------------------
+; dsl_row - copy part AL's table row to ES:DI (SPEC.md 96.44.5)
+; in:  AL = the part, ES:DI = where it goes
+; out: nothing; DI past the row
+; clobbers: AX, CX, SI, DI, flags
+; -----------------------------------------------------------------------------
+dsl_row:
+    call op_row                     ; SI -> the table row, AX preserved
+; --- dsl_cpy: the same copy from a row we already hold ----------------------
+; in:  DS:SI = the row, ES:DI = where it goes
+; **BYTE BY BYTE and not `movsw`**: ES is the destination and DS is ours, so
+; the string form would want both set, and the stash below is read with ES
+; pointing at the BOX.
+dsl_cpy:
+    mov cx, OP_ROW
+.b:
+    mov al, [si]
+    mov [es:di], al
+    inc si
+    inc di
+    dec cx
+    jnz .b
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dsl_core - put the INT 21h core into the hole reserved for it (SPEC.md 96.44.5)
@@ -157,6 +182,18 @@ dsl_entry:
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
 
+    ; --- THE CORE'S ROW IS TAKEN BEFORE IT IS SPENT (SPEC.md 20.12.7.4) ----
+    ; `dsl_core` below FETCHES this row and drops it again, and a dropped
+    ; compressed row's `zkb` is `OP_SPENT` rather than its packed length -
+    ; which is deliberate over there and fatal here, because the handoff needs
+    ; that exact figure to expand the core after the heap is gone (96.44.5.4).
+    ; Copied afterwards it is 0xFFFF, and the stub reads 64KB of rubble.
+    push ds
+    pop es
+    mov di, dsl_crow
+    mov al, DOS_PART_CORE
+    call dsl_row
+
     call dsl_core                   ; the core, into the hole inside the box -
     jc .no                          ; and it CLAIMS, so nothing may hold the
                                     ; box's segment across it
@@ -172,15 +209,15 @@ dsl_entry:
     mov di, [es:LD_H_IMG]           ; the bss begins here, which the part's own
     add di, DSLH_KDROW              ; header says
     mov al, DOS_PART_KD
-    call op_row                     ; SI -> the table row, AX preserved
-    mov cx, OP_ROW
-.row:
-    mov al, [si]
-    mov [es:di], al
-    inc si
-    inc di
-    dec cx
-    jnz .row
+    call dsl_row                    ; ...kern_dos's row
+    mov di, [es:LD_H_IMG]
+    add di, DSLH_COREROW            ; **AND THE CORE'S**, because the stub reads
+    mov si, dsl_crow                ; BOTH on the way to arm 3 (SPEC.md
+    call dsl_cpy                    ; 96.44.5.4): kern_dos's image has a hole
+                                    ; where the core goes, and only this image
+                                    ; knows where either one sits in the file.
+                                    ; Out of the stash and not the table: the
+                                    ; table's copy has been spent by now
 
     ; --- and the hand-over --------------------------------------------------
     ; AX is what the kernel bounds the part's image + bss against, so it is OUR
@@ -226,5 +263,8 @@ dsl_entry:
                                     ;   to unrefuse
     OS88_PARTS_END
 
-    OS88_BSS OP_BSS
+    OS88_BSS OP_BSS + DSL_BSS
     OS88_IMAGE_END
+
+dsl_crow equ os88_image_end + OP_BSS    ; the CORE row, banked before the fetch
+DSL_BSS  equ OP_ROW                     ; that spends it

@@ -127290,7 +127290,7 @@ assembled once and one such row moving every cell after it.
 
 #### 96.44.5 The core is a PART, and both hosts reserve it
 
-`DOS.O88` is four pieces: a **1,988-byte loader** image, the **UI** as part 0,
+`DOS.O88` is four pieces: a **2,092-byte loader** image, the **UI** as part 0,
 the **INT 21h core** as part 1 and **`kern_dos`** as part 2. The core is
 assembled ONCE, at `org CORE_ORG`, and both hosts reserve the span it lands
 in — which is what §96.44 was for and what W9 exists to deliver.
@@ -127299,11 +127299,11 @@ in — which is what §96.44 was for and what W9 exists to deliver.
 
 | | packed |
 |---|---:|
-| the loader (the image, raw by definition) | 1,988 |
-| part 0 — the UI | 15,641 |
+| the loader (the image, raw by definition) | 2,092 |
+| part 0 — the UI | 15,683 |
 | part 1 — the core | 12,820 |
-| part 2 — `kern_dos` | 11,219 |
-| `DOS.O88` | **42,963** against 53,789 |
+| part 2 — `kern_dos` | 11,218 |
+| `DOS.O88` | **42,962** against 53,789 |
 
 `kern_dos` itself is **14,495 bytes** with the core out of it, against 28,963
 with it in.
@@ -127375,3 +127375,63 @@ claims, a claim may compact, and a compaction moves the carve the box is
 sitting in — so a segment read before it is one the heap has since moved out
 from under. It cost a launch that reported SUCCESS and put up no window, with
 14.5 KB written into the middle of nothing.
+
+##### 96.44.5.4 The handoff reads TWO parts, and the order is the whole of it
+
+`kern_dos` no longer contains the core, so the stub that reads it after the
+kernel is gone has two streams to expand rather than one. Everything that
+makes that cheap is a property the part format already had.
+
+**ONE extent list covers both.** `tools/os88pkg.py` lays parts out in table
+order, each starting on a sector, so the core's packed bytes are immediately
+followed by `kern_dos`'s. `hbm_dosrun` takes the range from `KDH_COFF` to the
+end of `KDH_PLEN` — the difference of the two offsets the box posted, plus
+`kern_dos`'s own sectors — so nothing in the kernel knows the adjacency as a
+fact, and a layout that ever put something between the two would read that
+something too and still hand the stub the right two streams. `hbm_extat`,
+`HS_EXT` and the stub's disk walk are untouched.
+
+The record grows four fields and the stage three:
+
+| | |
+|---|---|
+| `KDH_COFF` 547, `KDH_CPLEN` 549, `KDH_CULEN` 553, `KDH_CORG` 557 | the core part's sector, packed and unpacked lengths, and `CORE_ORG` |
+| `KDS_CPLEN` 0x043A, `KDS_CDELTA` 0x043E, `KDS_CORG` 0x0440 | ...and what the stub reads them as |
+
+They go on the END of the record, so `KDH_LB`'s offset does not move: the
+launch block is 512 of the 559 and every field before it is one an earlier
+wave published. `KDS_CDELTA` is how far into the run `kern_dos`'s own stream
+begins, in **paragraphs** — the parts are 512-aligned, so a sector is 32 of
+them and the conversion is exact. `KDH_CULEN` is carried and never read, for
+`KDH_ULEN`'s reason: `kds_expand` takes a byte count and runs to the end of
+the stream.
+
+**KERN_DOS IS EXPANDED FIRST, AND THAT IS NOT AN OPTIMISATION.**
+`kern_dos`'s image carries a HOLE where the core goes — `times CORE_MAX +
+CORE_BSS_SIZE db 0`, which is what §96.44.5 reserves in the host that does not
+contain the core — so expanding `kern_dos` second writes those zeros straight
+over the core that had just arrived, and the machine jumps into a table of
+`jmp near 0`. The other order costs nothing: neither stream is read twice and
+neither lands anywhere different.
+
+**And the core's ROW is banked before the loader spends it.** `dsl_core`
+`op_fetch`es that row and `op_drop`s it, and a dropped compressed row's `zkb`
+is `OP_SPENT` rather than its packed length (§20.12.7.4) — which is right over
+there and fatal here, because the handoff needs that exact figure to expand
+the core with no file layer left to ask. So `dsl_entry` copies the row into
+the loader's own bss *before* `dsl_core` runs and hands the box that copy.
+Read afterwards it is `0xFFFF`, and the stub expands 64 KB of rubble into the
+image it is about to jump into.
+
+**MEASURED, on `os8088_5150_cga_gla`**: the program is handed **585 KB above
+its PSP** against 431 windowed, the exit code comes back through §96.41's
+mailbox, and the machine restarts into a desktop. `tests/kdhand.py` is that
+run, `tests/kdreturn.py` the same thing across a hibernate, and
+`tests/kdmix.py` it again with the program on a 1.44 MB floppy — the geometry
+§96.40.5 is about. `tests/kdpart.py` is the host-side half and does the
+arithmetic the stub will: both parts' sectors, both streams expanding to their
+own binary byte for byte, the combined range as ONE extent, and `kern_dos`'s
+reservation at `CORE_ORG` being **18,176 zero bytes** and nothing else.
+
+585 is one KB below §96.44.5.1's 586 for the reason that section gives, and
+that KB is the whole cost of shipping the core once.

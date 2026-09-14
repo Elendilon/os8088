@@ -65,7 +65,7 @@ def main():
             fail("could not open DOS.O88 off the system disk")
         os88marty.settle(m)
 
-        dm = dosmap.package("DOSKPART")
+        dm = dosmap.package(*dosmap.KDBOX)
         pseg = dosmap.instance(m)
         base = pseg << 4
         mo = os88mouse.Mouse(marty=m)
@@ -98,10 +98,27 @@ def main():
             fail("clicking the third arm did not pick it")
 
         # --- 3. name the program and go --------------------------------------
+        # **THE PATH BOX HAS TO BE CLICKED FIRST**, and the `B:` above is why:
+        # a fresh window opens with the box focused, Enter RUNS what is in it,
+        # and a bare drive letter changes drive and CLEARS it - so by the time
+        # the Memory page has been visited and left, nothing has focus and
+        # `type_text` goes nowhere at all. The failure is silent and lands two
+        # steps later: Run with an empty path does nothing, and the row reports
+        # "never reached READY" about a machine that never left the desktop.
+        # **AND THE EXTENSION IS PART OF THE NAME**: the box does not append
+        # `.COM`, so `DOSHELLO` gets as far as kern_dos and comes back "the
+        # program could not be loaded" - which reads exactly like the mount
+        # defect this row is about and is not it.
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
         os88marty.settle(m)
-        m.type_text("DOSHELLO\n")
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"))
         os88marty.settle(m)
+        m.type_text("DOSHELLO.COM")
+        os88marty.settle(m)
+        ln = base + dm["dos_pln"]
+        if int.from_bytes(m.read(ln + 12, 2), "little") != 12:
+            fail("the path box did not take the program's name - LN_LEN is %d"
+                 % int.from_bytes(m.read(ln + 12, 2), "little"))
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
         os88marty.settle(m)
         if kdhand.alert_up(m, base, dm):

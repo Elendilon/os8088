@@ -4312,7 +4312,15 @@ KDH_WIN     equ 543             ; dw the window to wake on the way back - the
                                 ; box's, because only the box knows it
 KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
                                 ; RESTORED kernel, KDH_NOCODE until then
-KDH_SIZE    equ 547
+KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
+KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
+KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
+                                ; goes, so the stub reads TWO parts (SPEC.md
+                                ; 96.44.5.4) and only the box knows where
+                                ; either sits in the file
+KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
+                                ; segment - CORE_ORG, which only the box knows
+KDH_SIZE    equ 559
 KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 %define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;
