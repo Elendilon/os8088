@@ -887,14 +887,46 @@ and the window's are **twenty bands** (SPEC.md 96.43.2), each one gate pair.
 shipped `dos.o88` is **md5-identical** either way, which is a stronger
 statement than any test. `KD_IMG_KB` **43 → 34**, the program **580 → 589 KB**.
 
-**What is left is one TRADE and a long TAIL, and neither is a size question.**
-The trade is §96.11's 8 KB file window, which comes straight off the arena
-top and cannot be deleted — `dskw_read_at_x`'s preconditions are the kernel's
-— only made smaller, which buys memory by costing `dos_be_rdat` calls; §6.2's
-*make it purgeable* is the design that avoids the trade rather than taking a
-side of it. The tail is `.cold`'s 11,407 bytes of disk layer, whose largest
-single family is **743**. So **600 KB is reachable and W8 stops at 589**, and
-§13's first bullet asks for that to be said rather than shipped quietly.
+#### 11.5.1 The last 11 KB, to the byte
+
+589 is not an estimate and neither is what is missing. The floor is four
+terms and the program is what is left of the BDA's own KB:
+
+| | bytes |
+|---|---:|
+| below `KD_SEG` — the IVT and the BDA | 1,536 |
+| `KD_IMG_KB` 34 | 34,816 |
+| `FAT_SEG` — `DSK_FAT_SECS` × 512 | 1,024 |
+| `KD_LOW_KB` 5 — the mount buffers and the stack | 5,120 |
+| **the floor** | **42,496** |
+| a 640 KB machine, less the floor | 612,864 |
+| less §96.11's file window | −8,192 |
+| less the environment MCB and the PSP (`DOS_PSPP`, 96 paragraphs) | −1,536 |
+| **what `tests/kdhand.py` reads** | **603,136 = 589.0 KB** |
+
+So **600 KB (614,400) needs the WHOLE file window AND 3,072 more bytes of
+floor** — `KD_LOW_KB` 5 → 4 and `KD_IMG_KB` 34 → 32, the second being 2,422
+bytes of image. **Neither is lying around.** The window cannot be deleted, only
+shrunk, and shrinking it is geometry-dependent: it is
+`max(cluster, largest multiple of cluster ≤ DOS_WKB × 1024)`, so on a 360KB
+floppy's 1 KB cluster `DOS_WKB = 1` buys **7 KB** and on a hard disk with 8 KB
+clusters it buys **nothing**. And 2,422 bytes of image means removing a
+FEATURE: the biggest families left are `dsh_*` at 4,989 (the built-in
+commands, which `AH=4Bh` and Microsoft C's `system()` reach — §96.30), the
+disk layer's 11,214 with a largest single family of 743, and a core whose
+biggest single item is `dos_ivt`, 1,024 bytes of `.bss` that `kd_leave` needs
+intact to reach `int 10h`, `int 13h` and `int 19h` after the program has
+scribbled on the vectors.
+
+**So the last 11 KB is a DECISION and not a size pass**, and §6.2's *make it
+purgeable* — approved there for the read-ahead cache — is the shape that
+answers it without a trade: claim the window at the top and give it back the
+moment the program's own `AH=48h`/`AH=4Ah` needs it, so a hog gets 597 KB and
+no window and a modest program keeps 589 and fast file I/O. That is MCB-chain
+work and it is the one option that costs nobody anything.
+
+**600 KB is reachable and W8 stops at 589**; §13's first bullet asks for that
+to be said rather than shipped quietly, and this is it.
 
 **W9 is unaffected by any of this.** Its case was never the memory: it is
 **+19 clusters of a 360KB system disk against 26**, the DOS core being in
