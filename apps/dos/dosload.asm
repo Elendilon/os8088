@@ -60,10 +60,12 @@ bits 16
                                 ; the three extensions off it to decide that a
                                 ; .COM is ours at all
 
+%include "doscall.inc"              ; CORE_ORG - where the core has to land
 %include "os88parts.inc"
 
-DOS_PART_BOX equ 0              ; the box - a whole .o88 image (20.12.10)
-DOS_PART_KD  equ 1              ; ...and kern_dos, which nothing here reads
+DOS_PART_BOX  equ 0             ; the box - a whole .o88 image (20.12.10)
+DOS_PART_CORE equ 1             ; ...the INT 21h core, which goes INSIDE it
+DOS_PART_KD   equ 2             ; ...and kern_dos, which nothing here reads
 
 ; --- the handoff, at the head of the BOX's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -81,6 +83,72 @@ LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
 
 ; -----------------------------------------------------------------------------
+; dsl_core - put the INT 21h core into the hole reserved for it (SPEC.md 96.44.5)
+; in:  DX = the box's segment, the parts already loaded
+; out: CF=0; CF=1 = it could not be had, and op_fetch has said why
+; clobbers: AX, BX, CX, SI, DI, ES, flags. DX preserved.
+;
+; **op_load CANNOT PUT IT THERE**, which is why this proc exists. The carve
+; lays its parts out one after another, and the core has to land at CORE_ORG
+; *inside* the box's own segment - the one address both hosts agree on, which
+; is what makes every `call dos_load` in the box a near call into the table
+; (apps/dos/doscall.inc). So the core is a LAZY part: op_fetch claims it, reads
+; it and expands it somewhere of its own, this copies it into place, and
+; op_drop gives the claim straight back.
+;
+; THE PAIRING IS WHAT SPEC.md 20.12.7.4 HAD TO UNREFUSE. A lazy row could not
+; be OP_COMP until that section, so the choice here would have been a raw
+; 14.5KB part or a packer of this package's own - which is the third time a
+; package would have written one.
+;
+; THE COPY IS ~41 ms on a 4.77MHz 8088 (`rep movsw` at 13.3 cycles a byte,
+; PERFORMANCE.md Set 117.2) and it happens once, at a launch that is already
+; reading 40KB off a floppy. The core's bss needs no zeroing: it is inside the
+; box's own image, which ships those bytes as zeros.
+; -----------------------------------------------------------------------------
+dsl_core:
+    mov al, DOS_PART_CORE
+    call op_fetch                   ; claims, reads and expands it (20.12.4)
+    jc .no
+    mov al, DOS_PART_CORE
+    call op_row                     ; SI -> the row, for its unpacked length
+    mov cx, [si+OP_R_LEN]
+    inc cx
+    shr cx, 1                       ; CX = words, rounded up
+    mov al, DOS_PART_CORE
+    call op_seg                     ; AX = where op_fetch put it
+    or ax, ax
+    jz .no
+    push ax
+    ; **THE BOX'S SEGMENT IS READ HERE AND NOT BY THE CALLER**, because
+    ; op_fetch CLAIMS - and a claim may compact, which moves the carve the box
+    ; is sitting in (SPEC.md 66.4). Read before the fetch, it is a segment the
+    ; heap has since moved out from under, and the copy below lands on whoever
+    ; owns those paragraphs now. It cost a launch that reported SUCCESS and put
+    ; up no window, with 14.5KB written into the middle of nothing.
+    mov al, DOS_PART_BOX
+    call op_seg
+    or ax, ax
+    jz .nopop
+    mov es, ax                      ; ES:DI = the hole, at the one offset both
+    mov di, CORE_ORG                ; hosts agree on
+    pop ax
+    push ds
+    mov ds, ax                      ; DS:SI = the core, where op_fetch put it
+    xor si, si
+    cld
+    rep movsw
+    pop ds
+    mov al, DOS_PART_CORE
+    call op_drop                    ; ...and the claim goes straight back
+    clc
+    ret
+.nopop:
+    pop ax
+.no:
+    stc
+    ret
+; -----------------------------------------------------------------------------
 ; dsl_entry - the package entry proc (SPEC.md 20.2)
 ; in:  SI = the launched file's name in KERNEL_SEG, ES = KERNEL_SEG
 ; out: CF=0 and BX = 0 (no window of ours); CF=1 = the launch is torn down
@@ -89,8 +157,12 @@ dsl_entry:
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
 
+    call dsl_core                   ; the core, into the hole inside the box -
+    jc .no                          ; and it CLAIMS, so nothing may hold the
+                                    ; box's segment across it
+
     mov al, DOS_PART_BOX
-    call op_seg
+    call op_seg                     ; ...read AFTER every claim this proc makes
     or ax, ax
     jz .no
     mov dx, ax                      ; DX = where the box is
@@ -128,7 +200,7 @@ dsl_entry:
     ret                             ; op_load has already said why in a toast
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
-    OS88_PARTS_BEGIN 2
+    OS88_PARTS_BEGIN 3
       OS88_PART OP_SEG,   OP_COMP   ; 0 THE BOX: a whole .o88 image, its bss
                                     ;   shipped inside it because the kernel
                                     ;   does not zero a part (20.12.10).
@@ -137,7 +209,12 @@ dsl_entry:
                                     ;   bss, and a run of zeros is what LZ4 is
                                     ;   best at
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY
-                                    ; 1 kern_dos. LAZY because op_size would
+                                    ; 1 THE INT 21h CORE, lazy because it does
+                                    ;   not belong in the carve - dsl_core
+                                    ;   copies it into the hole at CORE_ORG
+                                    ;   inside part 0 and drops it again
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY
+                                    ; 2 kern_dos. LAZY because op_size would
                                     ;   refuse the pair eagerly (the header
                                     ;   above), and never fetched at all
                                     ;   because the handoff reads it by extent

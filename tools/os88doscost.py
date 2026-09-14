@@ -59,7 +59,16 @@ FILE_CLASS = {
     "apps/dos/dosc.inc":    "window",    # the in-window prompt (96.33)
     "apps/dos/dosnet.inc":  "drop",      # the cable translation (96.26)
     "apps/os88con.inc":     "window",    # the console screen
-    "apps/os88cp437.inc":   "core",      # the code page, for character output
+    "apps/os88cp437.inc":   "window",    # THE CODE PAGE, AND IT IS THE WINDOW'S
+                                        # (SPEC.md 96.44.5). It was "core" here
+                                        # on the reasoning that character
+                                        # output needs a code page - but
+                                        # `con_cp437` has exactly ONE reader,
+                                        # os88con.inc:932, and os88con.inc is
+                                        # what %includes this file. The core's
+                                        # own output is `dos_tty`, which is the
+                                        # ROM's teletype and uses the BIOS
+                                        # font. 1,280 bytes on the wrong side
     "apps/os88ui.inc":      "window",
     "apps/os88line.inc":    "window",
     "apps/os88sock.inc":    "drop",

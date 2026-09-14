@@ -239,7 +239,7 @@ dos_con_key:
     jmp short .drew                 ; dos_con_run's own tail does
 .stop:
     call dsh_dir_stop
-    mov si, dsh_s_crlf
+    mov si, dos_c_crlf
     call con_say
     call dos_prompt
 .drew:
@@ -346,7 +346,7 @@ dos_con_run:
     call con_say
     mov si, dsh_verb
     call con_say
-    mov si, dsh_s_crlf
+    mov si, dos_c_crlf
     call con_say
 .prompt:
     call dos_prompt
@@ -555,7 +555,7 @@ dos_pkg_go:
     call con_say
     mov si, dos_pkgn
     call con_say
-    mov si, dsh_s_crlf
+    mov si, dos_c_crlf
     call con_say
     call dos_prompt
     call dos_con_draw
@@ -765,7 +765,7 @@ dos_con_ended:
     call con_say                    ; takes any legal 8.3 name, so a verb that
     mov si, dos_name                ; is neither a built-in nor a file gets as
     call con_say                    ; far as the load and fails there - and
-    mov si, dsh_s_crlf              ; "It could not be read." about a program
+    mov si, dos_c_crlf              ; "It could not be read." about a program
     call con_say                    ; the user never had is a sentence that
     jmp short .out                  ; sends them looking at the drive
 .name:
@@ -778,7 +778,7 @@ dos_con_ended:
     call dos_fmt_exit               ; SI = the line with the code stamped in -
     mov si, dos_exitd               ; and only its digits are wanted here
     call con_say
-    mov si, dsh_s_crlf
+    mov si, dos_c_crlf
     call con_say
     jmp short .out
 .err:
@@ -786,7 +786,7 @@ dos_con_ended:
     call con_say
     call dos_err_line               ; SI = the sentence for [dos_err]
     call con_say
-    mov si, dsh_s_crlf
+    mov si, dos_c_crlf
     call con_say
 .out:
     mov byte [dos_fromcon], 0       ; ...spent, so the NEXT launch - a Run
@@ -1211,3 +1211,10 @@ dos_snap_any:
     ret
 
 dos_c_leave: db ' Esc to leave', 0
+
+; **THE PROMPT'S OWN CRLF** (SPEC.md 96.44.5). It was `dsh_s_crlf`, which
+; lives in `apps/dos/dosh.inc` - the CORE - and is read from here six times.
+; Three bytes duplicated is cheaper than any mechanism that would let a host
+; reach a core address, and there is nothing to drift: it is a carriage
+; return and a line feed.
+dos_c_crlf: db 13, 10, 0

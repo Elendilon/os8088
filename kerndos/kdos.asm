@@ -22,6 +22,9 @@ bits 16
                                     ; twenty-two doors out and kdback.inc's
                                     ; are the ones that get linked
 
+%include "doscall.inc"              ; CORE_ORG / CORE_MAX / CORE_BSS_SIZE, which
+                                    ; the reservation below needs long before
+                                    ; `dos.asm` is included (SPEC.md 96.44.5)
 %include "kdlayout.inc"
 %include "kdlaunch.inc"             ; the launch block's layout and its list;
                                     ; emits nothing until a consumer asks
@@ -81,6 +84,23 @@ KD_API_HI   equ 0x05A0              ; apps/os88api.inc owns both, and
 %endrep
 %if $ - $$ != KD_API_HI + 8
   %error "kern_dos's refusal table does not end where the API table does"
+%endif
+
+; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
+; The same reservation the box makes, for the same reason and at the same
+; addresses: the core is a PART both hosts join, so its jump table is at
+; CORE_ORG in this segment too and `kern_dos`'s own code begins above the
+; budget and the bss block. The stub reads this part first and the core's over
+; the hole (96.40.2), so what is in the file here is zeros - which cost the
+; disk nothing, the row being OP_COMP, and cost this image the slack in
+; CORE_MAX, which is the one number that keeps them honest.
+%ifdef DOS_EXTCORE                  ; ...only when the core really IS a part
+%if $ - $$ > CORE_ORG
+  %error "the refusal table reached CORE_ORG - apps/os88api.inc owns those \
+cell offsets, so CORE_ORG has to rise rather than the table move"
+%endif
+    times CORE_ORG - ($ - $$) db 0
+    times CORE_MAX + CORE_BSS_SIZE db 0
 %endif
 
 %include "kdshim.inc"

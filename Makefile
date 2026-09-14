@@ -4786,7 +4786,8 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 # --- DOS (SPEC.md 96) --------------------------------------------------------
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                   apps/dos/dosc.inc apps/dos/dosnetabi.inc \
-                  apps/os88api.inc apps/os88ui.inc \
+                  apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/doscents.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
                   apps/os88con.inc apps/os88cp437.inc \
                   apps/os88parts.inc apps/os88partsbody.inc \
@@ -4838,11 +4839,13 @@ $(shell mkdir -p $(BUILD); \
 $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                       apps/dos/dosc.inc apps/dos/dosnetabi.inc \
-                      apps/os88api.inc apps/os88ui.inc apps/os88line.inc \
+                      apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
                       apps/os88parts.inc apps/os88partsbody.inc \
                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -I kernel/ -I kerndos/ -I apps/ \
+	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -DDOS_EXTCORE \
+	        -I kernel/ -I kerndos/ -I apps/ \
 	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndos: $(call FILESIZE,$@) bytes"
 
@@ -4852,14 +4855,15 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
 # stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
 $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    apps/dos/dosc.inc apps/dos/dosnetabi.inc \
-                   apps/os88api.inc apps/os88ui.inc \
+                   apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/doscents.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc \
                    apps/os88con.inc apps/os88cp437.inc \
                    apps/os88parts.inc apps/os88partsbody.inc \
                    kerndos/kdlaunch.inc \
                    drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
-	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART \
+	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
 	        -o $@ apps/dos/dos.asm
 
 # --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
@@ -4870,7 +4874,8 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 # `all` builds it, because a check nobody runs is a check that rots.
 $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
                       apps/dos/dosc.inc apps/dos/dosnet.inc \
-                      apps/dos/dosnetabi.inc apps/os88api.inc \
+                      apps/dos/dosnetabi.inc apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/doscents.inc \
                       apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
                       apps/os88con.inc apps/os88cp437.inc \
                       apps/os88parts.inc apps/os88partsbody.inc \
@@ -4890,17 +4895,19 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # the box as OP_SEG|OP_COMP and kern_dos as OP_ASSET|OP_COMP|OP_LAZY, the
 # pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
-                       $(BUILD)/kerndos.bin tools/os88pkg.py
+                       $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py
 	@mkdir -p $(BUILD)/kdos
 	python3 tools/os88pkg.py $(BUILD)/dosload.bin -o $@ \
-		--part $(BUILD)/dosp.bin --part $(BUILD)/kerndos.bin \
-		--part-compress lz4
+		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
+		--part $(BUILD)/kerndos.bin --part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
 
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
-                      apps/os88api.inc apps/os88parts.inc \
+                      apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/doscents.inc apps/os88parts.inc \
                       apps/os88partsbody.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -o $@ apps/dos/dosload.asm
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -DDOS_EXTCORE \
+	        -o $@ apps/dos/dosload.asm
 	@echo "dosload: $(call FILESIZE,$@) bytes of parts loader"
 
 # The gate's SYSTEM disk: the shipped one with the parted DOS.O88 in place of

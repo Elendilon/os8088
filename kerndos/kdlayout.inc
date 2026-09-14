@@ -24,7 +24,17 @@
 KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
 KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 
+%ifdef DOS_EXTCORE
+KD_IMG_KB   equ 35              ; **ONE RUNG MORE WHEN THE CORE IS A PART**
+                                ; (SPEC.md 96.44.5.1): the reservation costs
+                                ; 489 bytes - 88 of CORE_ORG above the API
+                                ; wall, 282 of CORE_MAX slack, the rest
+                                ; rounding - and that crosses 34. The DOS
+                                ; program is handed 585 KB rather than 586,
+                                ; against 10.8 KB off the 360KB system disk
+%else
 KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
+%endif
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG

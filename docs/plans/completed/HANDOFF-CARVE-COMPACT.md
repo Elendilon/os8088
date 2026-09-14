@@ -228,12 +228,19 @@ with os88ui.boot("build/kdos360.img", apps="build/doscom360.img",
 **5,120 bytes of a DOS program's arena on this path, and nothing else
 today** — the shipped carve is top-down, so no user is losing the 5 KB. The
 value is in the answer: if **candidate 2** is what is happening, the compactor
-moves a
-`door lo` claim the wrong way and every region that is ever claimed bottom-up
-inherits it. If **candidate 1** is what is happening, the lesson is that a
-package which
-frees something and then posts a compaction has the order backwards, which is
-a rule worth writing into SPEC.md §66.4.3 rather than a defect to fix.
+moves a `door lo` claim the wrong way and every region that is ever claimed
+bottom-up inherits it. If **candidate 1** is what is happening, the lesson is
+that a package which frees something and then posts a compaction has the order
+backwards, which is a rule worth writing into SPEC.md §66.4.3 rather than a
+defect to fix.
 
 Either way the outcome belongs in SPEC.md §20.12.10.8.1, which is where the
 measurements in §1 already live.
+
+> **It was neither, and the value guessed at here was guessed LOW.** It is not
+> 5,120 bytes on one unshipped path: `OSAPI_MEM_COMPACT_WAKE`'s rank argument
+> had never done anything on any path, so the one mechanism a package has for
+> *"pack the heap properly, my own region included, and then wake me"* could
+> not dissolve a cache and stopped at the first one as a barrier. The fix is
+> SPEC.md §66.4.3.3 and it landed in the kernel; the outcome is written up
+> there and in §20.12.10.8.1 as this section asks.

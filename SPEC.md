@@ -126764,7 +126764,7 @@ launch over eight launches is what tipped them. A row that fails because the
 machine under it got slower is telling the truth, and the honest answer is not
 to raise the wait.
 
-So the arm stays on the gate disk until docs/plans/KERN-DOS-PLAN.md §4.1.3.1's
+So the arm stays on the gate disk until docs/plans/KERN-DOS-PLAN.md 4.1.3.1's
 four pieces land — a ~2 KB raw loader in front of three COMPRESSED parts,
 which is ~15 clusters and puts the launch back where it was. `SYSROOT` in the
 Makefile is the one variable, and `tests/unit/t_pkg.py` reads it rather than
@@ -127371,3 +127371,91 @@ the part's own header field says where its bss begins.
 available: an `HBSS` row sits past `CORE_BSS_SIZE` and so cannot be at offset
 zero, and a CONDITIONAL row is what §96.44.2 forbids outright, the core being
 assembled once and one such row moving every cell after it.
+
+#### 96.44.5 The core is a PART, and both hosts reserve it
+
+`DOS.O88` is four pieces: a **1,988-byte loader** image, the **UI** as part 0,
+the **INT 21h core** as part 1 and **`kern_dos`** as part 2. The core is
+assembled ONCE, at `org CORE_ORG`, and both hosts reserve the span it lands
+in — which is what §96.44 was for and what W9 exists to deliver.
+
+**MEASURED**, against the two-piece package §96.44.4 built:
+
+| | packed |
+|---|---:|
+| the loader (the image, raw by definition) | 1,988 |
+| part 0 — the UI | 15,641 |
+| part 1 — the core | 12,820 |
+| part 2 — `kern_dos` | 11,219 |
+| `DOS.O88` | **42,963** against 53,789 |
+
+`kern_dos` itself is **14,495 bytes** with the core out of it, against 28,963
+with it in.
+
+##### 96.44.5.1 The core goes LOW, and `CORE_MAX` is a budget with one claimant
+
+docs/plans/KERN-DOS-PLAN.md 4.1.3.1 put the core ABOVE both hosts, on a
+measurement that they were within 600 bytes of each other. W8 then cut 14,622
+bytes out of one of them: they differ by **4,628** now and structurally will
+stay different, `kern_dos` carrying the disk layer and no window and the box
+the window and no disk layer. Core-above turns that difference into a HOLE in
+`kern_dos`'s address space — 4.7 KB off `KD_IMG_KB`, and so off the DOS
+program, which is the one quantity the plan is a budget for.
+
+**Core-LOW has no hole**: each host's own code begins above a fixed-size core.
+`CORE_ORG` is **0x0600**, which clears the two things that cannot move —
+`kern_dos`'s published API cells end at 0x05A8 (§96.40.2, and
+`apps/os88api.inc` owns those offsets) and the box's package header is at 0x00
+because `OSAPI_PKG_REHOME` step 8 dispatches through it.
+
+`CORE_MAX` is **14,848** against a core of 14,566, and it is a rung the CORE
+alone spends while both hosts read it — where 4.1.3.1's `CORE_ORG` was a
+ledger two hosts push on from opposite sides. What the reservation costs
+`kern_dos` is **489 bytes**: 88 of `CORE_ORG` above the API wall, 282 of
+budget slack and the rest rounding. `KD_IMG_KB` goes 34 → 35, so the DOS
+program is handed 585 KB rather than 586.
+
+##### 96.44.5.2 The seam is 31 calls and 2 words
+
+`apps/dos/doscents.inc` is the list and `apps/dos/doscall.inc` expands it
+twice: into a TABLE when the core is assembled, and into `%define`s when a
+host is. No call site changes spelling — `call dos_load` is `call dos_load` in
+both — which is what makes the split checkable rather than a rewrite. A code
+entry is a `jmp near` (spelled out: nasm shrinks a resolved short jump, which
+would move every slot after it in a build where the halves never meet); a data
+entry is a word holding an address, so `mov si, dsh_s_bad` becomes a memory
+read.
+
+**Core → host is ZERO**, which docs/plans/KERN-DOS-PLAN.md 4.1.3 predicted and the tree bears out: the
+only symbol a core span names that a host defines is `DVOL_MAX`, a constant
+the container already `%ifndef`s.
+
+The data population started at five and four of them had cheaper answers than
+a table slot. `os88cp437.inc` turned out to be the WINDOW's all along — its
+only reader is `os88con.inc`, which is what `%include`s it, and the core's own
+output is `dos_tty` over the ROM's teletype; the `DSHW_*` reason codes are
+equates and moved to the container, where they cost neither host a byte; and
+the prompt got its own three-byte CRLF rather than reaching into the shell's.
+
+##### 96.44.5.3 `DOS_CBASE`, and the loader places the core itself
+
+The core's state is based at **`DOS_CBASE`** and a host's at
+`os88_image_end`. They were one block, the core's first; they cannot be,
+because the core is assembled once and joined to either host, so its cells
+must be at an address neither host chooses. `DOS_CBASE` is
+`CORE_ORG + CORE_MAX` — directly above the core's code, inside the span both
+hosts already reserve. **A build with the core INLINE keeps the old
+arrangement**, which is what the shipped `build/dos.o88` still is.
+
+**`op_load` cannot place the core**, which is why `dsl_core` exists: the carve
+lays its parts out one after another and the core has to land at `CORE_ORG`
+*inside* part 0's own segment. So the core is a LAZY part — `op_fetch` claims,
+reads and expands it somewhere of its own, `dsl_core` copies it into the hole
+and `op_drop` gives the claim straight back. The copy is ~41 ms on a 4.77 MHz
+8088 and happens once, at a launch already reading 40 KB off a floppy.
+
+**The box's segment is read AFTER that fetch and not before.** `op_fetch`
+claims, a claim may compact, and a compaction moves the carve the box is
+sitting in — so a segment read before it is one the heap has since moved out
+from under. It cost a launch that reported SUCCESS and put up no window, with
+14.5 KB written into the middle of nothing.

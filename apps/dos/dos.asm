@@ -29,6 +29,17 @@
 ; =============================================================================
 
 %include "os88api.inc"
+%include "doscall.inc"              ; **EARLY, AND IT HAS TO BE** (SPEC.md
+                                    ; 96.44.5): in a host build this is what
+                                    ; turns every core name into its slot in
+                                    ; the table at CORE_ORG, and a %define
+                                    ; reaches only the lines after it. Included
+                                    ; at the bss table - where CORE_BSS_AT is
+                                    ; first wanted - it left every call site
+                                    ; above it naming a symbol that is not in
+                                    ; this assembly, which reads as thirty-one
+                                    ; undefined symbols and not as an ordering
+                                    ; mistake
 %ifdef DOSKPART
 %include "kdlaunch.inc"             ; the launch block's layout and its list -
                                     ; ONE file, %include'd by this side and by
@@ -80,10 +91,52 @@
                                 ; shared with apps/dos/dosload.asm
 %endif                              ; KD_BACKEND
 
+; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
+; A host does not contain the core; it RESERVES it. `CORE_ORG` is where the
+; core's jump table sits in every host's segment, `CORE_MAX` is the budget its
+; code is cut from and `CORE_BSS_SIZE` the block its state lives in - so a
+; host's own code begins above all three and every core address is the same
+; number wherever it is read from.
+;
+; ZEROS IN THE FILE COST NOTHING ON DISK: this is `OP_SEG | OP_COMP` part, and
+; a run of zeros is what LZ4 is best at. What it does cost is the host's RAM,
+; which is why `CORE_MAX`'s slack is a number worth keeping small.
+%ifndef KD_BACKEND                  ; THE BOX'S reservation only: kern_dos makes
+%ifdef DOS_EXTCORE                  ; its own in kerndos/kdos.asm, above its
+                                    ; API refusal wall, and would otherwise
+                                    ; make a second one here
+  %if ($ - $$) > CORE_ORG
+    %error "the box's own header and icon reached CORE_ORG - raise it in \
+apps/dos/doscall.inc, and note that kern_dos's published API cells end at \
+0x05A8 so it may not go DOWN"
+  %endif
+    times CORE_ORG - ($ - $$) db 0
+    times CORE_MAX + CORE_BSS_SIZE db 0
+%endif                              ; DOS_EXTCORE
+%endif                              ; KD_BACKEND
+
 ; DOS_CONT_W/H WERE HERE and are gone (SPEC.md 96.20.3): they were 286 and 81,
 ; derived by hand from a 288x100 template, and the window is adapter-sized
 ; now. OSAPI_WM_GEOM answers both, is correct after a resize or a drag across
 ; a display seam, and cannot go stale when somebody edits the template.
+
+; --- the shell's REASON CODES (SPEC.md 96.30, 96.44.5) ----------------------
+; Lifted out of `apps/dos/dosh.inc`, which is the CORE, because the window
+; prompt tests DSHW_NOCMD and the core is what sets it - a constant defined on
+; the core's side of the seam is a host reading across it. An equate emits
+; nothing, so the container costs neither host a byte and both see one list.
+DSHW_NONE   equ 0
+DSHW_MEM    equ 1               ; no DOS block for the copy buffer (96.30.6)
+DSHW_IO     equ 2               ; the back end refused
+DSHW_NOFILE equ 3               ; nothing matched the pattern
+DSHW_SELF   equ 4               ; source and destination are one file
+DSHW_NOPATH equ 5               ; no such folder
+DSHW_SYNTAX equ 6               ; wrong number of arguments
+DSHW_REDIR  equ 7               ; a redirection target that is not NUL
+DSHW_NOCMD  equ 8               ; no such verb - which from a prompt means
+                                ; "try it as a program" (SPEC.md 96.33.3)
+DSHW_NODRV  equ 9               ; `X:` named a drive that is not there
+DSHW_BADSW  equ 10              ; a switch this box has not got (96.33.9)
 
 DOS_MIN_KB  equ 64                  ; a machine that cannot offer this much has
                                     ; nothing worth running a DOS program in,
@@ -9106,7 +9159,7 @@ OS88_PARTS_END
 ; nothing at all, which is the property that lets the constants be shared
 ; without the 800-byte body.
 %include "os88parts.inc"
-dos_kdrow   equ os88_image_end + DOS_B_KDROW
+dos_kdrow   equ dos_hbss + DOS_B_KDROW   ; the HOST's block (SPEC.md 96.44.5)
 %endif
 
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
@@ -9242,6 +9295,33 @@ PKT_VERSION equ 9
 ; block instead made `CORE_BSS_SIZE` a figure that depended on whether this
 ; was a DOSTRACE build, so the diagnostic build and the shipped one disagreed
 ; about where every core cell was.
+; --- WHERE THE CORE'S CELLS LIVE (SPEC.md 96.44.5) --------------------------
+; `DOS_CBASE` is the base every `DBSS` cell is measured from, and it is a
+; CONSTANT in every build: the core is assembled once and joined to either
+; host, so its state cannot sit at "wherever this host's image happens to
+; end". It is directly above the core's own code, which `apps/dos/doscall.inc`
+; fixes at `CORE_ORG + CORE_MAX`.
+;
+; `HBSS` cells keep `os88_image_end` - a host's own state belongs in a host's
+; own bss, and the kernel zeroes that block on an ordinary launch.
+%ifndef DOS_EXTCORE
+  %ifndef DOS_CORE_ROOT
+    %define DOS_CORE_INLINE 1       ; neither half of the split: the whole file
+  %endif                            ; in one image, which is what ships today
+%endif
+%if 0
+%elifdef DOS_EXTCORE
+DOS_CBASE   equ CORE_BSS_AT         ; the core is a PART: its cells are at the
+%elifdef DOS_CORE_ROOT              ; one address every host reserves
+DOS_CBASE   equ CORE_BSS_AT
+%else
+; **THE CORE IS INLINE IN THIS BUILD**, which the shipped `build/dos.o88`
+; still is - it carries no part table at all, so there is no core part to
+; join and nothing reserves CORE_BSS_AT. Its cells go where they always went,
+; in this package's own bss, and `dos_hbss` steps over them.
+DOS_CBASE   equ os88_image_end
+%endif
+
 %assign DB 0
 %ifdef DOSTRACE
 %assign HB OP_BSS
@@ -9274,18 +9354,18 @@ PKT_VERSION equ 9
 ; (`LD_H_IMG`), so the block has to be at offset ZERO of it. That is why this
 ; row is here rather than anywhere it would read more naturally.
 ;
-; IT IS `DBSS` AND NOT `HBSS`, WHICH COSTS `kern_dos` EIGHT BYTES IT NEVER
-; READS - and that is the cheaper of the two mistakes available. An `HBSS` row
-; sits past `CORE_BSS_SIZE` and so cannot be at offset zero; a CONDITIONAL row
-; is what 96.44.2 forbids outright, because the core is assembled once and one
-; row only some builds emit moves every cell after it. Eight bytes of a bss
-; against an ABI that cannot be checked is not a close call.
+; IT IS `HBSS` AND IT IS THE FIRST ONE, which is exactly what the loader
+; needs: since 96.44.5 the core's cells are based at `DOS_CBASE` and the
+; HOST's at `os88_image_end`, so the first `HBSS` row IS offset zero of the
+; package's bss - the one address the loader can name without a constant. It
+; was `DBSS` for one wave, when host cells sat past `CORE_BSS_SIZE`, and it
+; cost `kern_dos` eight bytes it never read. It does not any more.
 ;
 ; IT IS AN `OP_ROW` AND NOT A STRUCT OF OUR OWN: the box read
 ; `[dos_kdrow + OP_R_OFF]` when the part table was in its own image, so a
 ; verbatim copy leaves all four of those read sites spelled as they were and
 ; moves only the base.
-    DBSS DOS_B_KDROW, 8          ; kind, flags, dw off, dw len, dw zkb
+    HBSS DOS_B_KDROW, 8          ; kind, flags, dw off, dw len, dw zkb
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so
@@ -14065,34 +14145,28 @@ dos_fh_fill:
                                     ; how far back BS may rub (SPEC.md 96.33.3)
     HBSS DOS_B_CMDN,    2           ; ...and how much of dsh_line is typed
 
-; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------
-; `CORE_BSS_SIZE` is a CONSTANT because the core is assembled once and joined
-; to either host: its cells must be at the same offsets in both, so the host's
-; block cannot start wherever this host's core happens to end. It is checked
-; rather than derived, the way `KERN_BUDGET` is, and the slack is what a later
-; core cell is spent out of.
-%ifndef CORE_BSS_SIZE               ; `-DCORE_BSS_SIZE=n` is how the budget is
-CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
-%endif                              ; below names the exact figure
-                                    ;
-                                    ;   3,251 the core's cells at W9b
-                                    ;      +8 96.44.3's four host hooks
-                                    ;      +9 the padding rows, which belong to
-                                    ;         the block they pad and which
-                                    ;         nothing NAMES, so the classifier
-                                    ;         could not see them
-                                    ;      60 slack
-                                    ;   ----- -------------------------------
-                                    ;   3,328
+; **AND THE HOST'S BLOCK IS THE PACKAGE'S OWN bss** (SPEC.md 96.44.5). It was
+; `CORE_BSS_SIZE + HB` - the core's cells first and the host's after them,
+; both inside the package's bss - and since the core became a PART its cells
+; live at `DOS_CBASE`, above the core's code and at the same address in every
+; host. So what the package declares is its own, and `dos_hbss` is
+; `os88_image_end` with nothing in front of it.
 %if DB > CORE_BSS_SIZE
- %error "the DOS core's bss outgrew CORE_BSS_SIZE - raise it, and note that \
-every host pays the whole of it whether it uses the cells or not"
+ %error "the DOS core's bss outgrew CORE_BSS_SIZE - raise it in \
+apps/dos/doscall.inc, and note that EVERY host reserves the whole of it \
+whether it uses the cells or not"
 %endif
-DOS_BSS_SIZE equ CORE_BSS_SIZE + HB
+%ifdef DOS_CORE_INLINE
+DOS_BSS_SIZE equ CORE_BSS_SIZE + HB ; the core's cells are in here too
+%else
+DOS_BSS_SIZE equ HB
+%endif
 
-%include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
-                                    ; a COMMAND.COM that is not a file, over
-                                    ; the back end like every other file verb
+%ifndef DOS_EXTCORE                 ; THE CORE (SPEC.md 96.44) - the built-in
+%include "dosh.inc"                 ; commands are INT 21h's own (96.30) and
+%endif                              ; not a host's: a COMMAND.COM that is not
+                                    ; a file, over the back end like every
+                                    ; other file verb
 %ifndef KD_BACKEND                  ; the console's, so 96.43 takes it too
 %include "dosc.inc"                 ; ...AND THE PROMPT THAT TYPES INTO IT
                                     ; (SPEC.md 96.33): an input, an output and
@@ -14203,23 +14277,27 @@ that word of the record, and a wrong offset writes the pitch"
 ; **WHERE THE HOST'S BLOCK STARTS** (SPEC.md 96.44.2): above the core's, whose
 ; length is a budget rather than a sum, so a cell the core gains does not move
 ; every cell the host has.
-dos_hbss    equ os88_image_end + CORE_BSS_SIZE
+%ifdef DOS_CORE_INLINE
+dos_hbss    equ os88_image_end + CORE_BSS_SIZE  ; ...after the core's, which is
+%else                                           ; in this same bss
+dos_hbss    equ os88_image_end   ; the HOST's block IS the package's bss
+%endif
 
 dos_win equ dos_hbss + DOS_B_WIN     ; word: our window
 dos_state equ dos_hbss + DOS_B_STATE   ; byte: DST_*
-dos_err     equ os88_image_end + DOS_B_ERR     ; byte: DER_*, when DST_ERR
-dos_exit    equ os88_image_end + DOS_B_EXIT    ; byte: the program's exit code
-dos_badfn   equ os88_image_end + DOS_B_BADFN   ; byte: the AH we lack
+dos_err     equ DOS_CBASE + DOS_B_ERR     ; byte: DER_*, when DST_ERR
+dos_exit    equ DOS_CBASE + DOS_B_EXIT    ; byte: the program's exit code
+dos_badfn   equ DOS_CBASE + DOS_B_BADFN   ; byte: the AH we lack
 dos_dir equ dos_hbss + DOS_B_DIR     ; word: its folder's cluster
-dos_vol     equ os88_image_end + DOS_B_VOL     ; byte: ...and its volume
-dos_name    equ os88_image_end + DOS_B_NAME    ; 16:   its NUL 8.3 name
-dos_arena   equ os88_image_end + DOS_B_ARENA   ; word: the claim, 0 = none
-dos_apara   equ os88_image_end + DOS_B_APARA   ; word: ...its paragraphs
+dos_vol     equ DOS_CBASE + DOS_B_VOL     ; byte: ...and its volume
+dos_name    equ DOS_CBASE + DOS_B_NAME    ; 16:   its NUL 8.3 name
+dos_arena   equ DOS_CBASE + DOS_B_ARENA   ; word: the claim, 0 = none
+dos_apara   equ DOS_CBASE + DOS_B_APARA   ; word: ...its paragraphs
 dos_akb equ dos_hbss + DOS_B_AKB     ; word: ...and its KB, banked
-dos_imgsz   equ os88_image_end + DOS_B_IMGSZ   ; word: the image's bytes
-dos_prgsp   equ os88_image_end + DOS_B_PRGSP   ; word: the program's first SP
-dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
-dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
+dos_imgsz   equ DOS_CBASE + DOS_B_IMGSZ   ; word: the image's bytes
+dos_prgsp   equ DOS_CBASE + DOS_B_PRGSP   ; word: the program's first SP
+dos_sv_ss   equ DOS_CBASE + DOS_B_SVSS    ; word: OUR stack, banked
+dos_sv_sp   equ DOS_CBASE + DOS_B_SVSP    ; word: ...across the far jump
 %ifndef KD_BACKEND
 dos_conx equ dos_hbss + DOS_B_CONX    ; the console band (SPEC.md
 %endif
@@ -14283,34 +14361,34 @@ dos_brect equ dos_hbss + DOS_B_BRECT   ; the page button's rect
 %ifndef KD_BACKEND
 dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's
 %endif
-dos_erp     equ os88_image_end + DOS_B_ERP     ; word: the row being emitted
+dos_erp     equ DOS_CBASE + DOS_B_ERP     ; word: the row being emitted
 %ifndef KD_BACKEND
 dos_lbuf equ dos_hbss + DOS_B_LBUF    ; a .LNK, read or written
 %endif
 %ifndef KD_BACKEND
 dos_sbuf equ dos_hbss + DOS_B_SBUF    ; `.\NAME.EXT` while building
 %endif
-dos_cname   equ os88_image_end + DOS_B_CNAME   ; one path component
-dos_fbuf    equ os88_image_end + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
+dos_cname   equ DOS_CBASE + DOS_B_CNAME   ; one path component
+dos_fbuf    equ DOS_CBASE + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
 %ifndef KD_BACKEND
 dos_wname equ dos_hbss + DOS_B_WNAME   ; ...the name to write it under
 %endif
 %ifndef KD_BACKEND
 dos_lend equ dos_hbss + DOS_B_LEND    ; word: bytes of dos_lbuf read
 %endif
-dos_ebuf    equ os88_image_end + DOS_B_EBUF    ; the four environment rows
+dos_ebuf    equ DOS_CBASE + DOS_B_EBUF    ; the four environment rows
 %ifndef KD_BACKEND
 dos_eln equ dos_hbss + DOS_B_ELN     ; ...and their os88line blocks
 %endif
-dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
+dos_args    equ DOS_CBASE + DOS_B_ARGS    ; 128: the command tail the user
                                                ; typed, without its count or
                                                ; its 0Dh - both are DOS's
                                                ; framing and go on at the PSP
-dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
+dos_pbuf    equ DOS_CBASE + DOS_B_PBUF    ; the program's own path
 dos_ln equ dos_hbss + DOS_B_LN      ; the field's os88line block
-dos_hkv     equ os88_image_end + DOS_B_HKV     ; DHK_NENT words (96.44.3)
-dos_bevec   equ os88_image_end + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
-dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
+dos_hkv     equ DOS_CBASE + DOS_B_HKV     ; DHK_NENT words (96.44.3)
+dos_bevec   equ DOS_CBASE + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
+dos_vsbuf   equ DOS_CBASE + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 %ifdef DOSKPART
 dos_pkgname equ dos_hbss + DOS_B_PKGNAME  ; 13: our own 8.3 file name
 dos_pkgdir equ dos_hbss + DOS_B_PKGDIR   ; word: its folder's cluster
@@ -14337,9 +14415,9 @@ dos_mx equ dos_hbss + DOS_B_MX      ; word: this paint's content x
 %ifndef KD_BACKEND
 dos_my equ dos_hbss + DOS_B_MY      ; word: ...and its top
 %endif
-dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
-dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
-dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
+dos_pic1    equ DOS_CBASE + DOS_B_PIC1    ; byte: the 8259 masks as found
+dos_pic2    equ DOS_CBASE + DOS_B_PIC2    ; byte:
+dos_isexe   equ DOS_CBASE + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 %ifdef DOSTRACE
 dos_tracen equ dos_hbss + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew equ dos_hbss + DOS_B_TRACEW  ; word: its ring write index
@@ -14358,177 +14436,177 @@ dos_trdump  equ DOS_TRD_OFF         ; ...rendered, for the file - and in the
                                     ; nothing at all
 dos_trseg equ dos_hbss + DOS_B_TRSEG
 %endif
-dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
-dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h
-dos_mou_lx  equ os88_image_end + DOS_B_MLX     ; word: the last position 0Bh
-dos_mou_ly  equ os88_image_end + DOS_B_MLY     ; word: ...answered a delta from
-dos_mou_lb  equ os88_image_end + DOS_B_MLB     ; byte: the mask the last state
-dos_mou_pc  equ os88_image_end + DOS_B_MPC     ;       read saw, for the edges
-dos_mou_rc  equ os88_image_end + DOS_B_MRC     ; 2 bytes each, INDEXED BY THE
-dos_mou_px  equ os88_image_end + DOS_B_MPX     ; button number, so they are a
-dos_mou_py  equ os88_image_end + DOS_B_MPY     ; pair and not two names
-dos_mou_rx  equ os88_image_end + DOS_B_MRX
-dos_mou_ry  equ os88_image_end + DOS_B_MRY
-dos_wseg    equ os88_image_end + DOS_B_WSEG
-dos_wbytes  equ os88_image_end + DOS_B_WBYTES
-dos_cbytes  equ os88_image_end + DOS_B_CBYTES
-dos_wown    equ os88_image_end + DOS_B_WOWN
-dos_wfill   equ os88_image_end + DOS_B_WFILL
-dos_wdirty  equ os88_image_end + DOS_B_WDIRTY
-dos_wbase   equ os88_image_end + DOS_B_WBASE
-dos_wlen    equ os88_image_end + DOS_B_WLEN
-dos_fname   equ os88_image_end + DOS_B_FNAME
-dos_fent    equ os88_image_end + DOS_B_FENT
-dos_bk_ss   equ os88_image_end + DOS_B_BKSS
-dos_bk_sp   equ os88_image_end + DOS_B_BKSP
-dos_betgt   equ os88_image_end + DOS_B_BETGT
-dos_beflg   equ os88_image_end + DOS_B_BEFLG
-dos_onprog  equ os88_image_end + DOS_B_ONPRG
-dos_fhix    equ os88_image_end + DOS_B_FHIX
-dos_fhtab   equ os88_image_end + DOS_B_FHTAB
-dos_dta     equ os88_image_end + DOS_B_DTA
-dos_dtaseg  equ os88_image_end + DOS_B_DTASEG
-dos_dtasv   equ os88_image_end + DOS_B_DTASV
-dos_dtasvs  equ os88_image_end + DOS_B_DTASVS
-dos_ford    equ os88_image_end + DOS_B_FORD
-dos_w83a    equ os88_image_end + DOS_B_W83A
-dos_w83b    equ os88_image_end + DOS_B_W83B
-dos_parent  equ os88_image_end + DOS_B_PARENT
-dsh_line    equ os88_image_end + DOS_B_SHLINE
-dsh_verb    equ os88_image_end + DOS_B_SHVERB
-dsh_a1      equ os88_image_end + DOS_B_SHA1
-dsh_a2      equ os88_image_end + DOS_B_SHA2
-dsh_spec    equ os88_image_end + DOS_B_SHSPEC
-dsh_leaf    equ os88_image_end + DOS_B_SHLEAF
-dsh_dname   equ os88_image_end + DOS_B_SHDNAM
-dsh_rtgt    equ os88_image_end + DOS_B_SHRTGT
-dsh_pat     equ os88_image_end + DOS_B_SHPAT
-dsh_nm11    equ os88_image_end + DOS_B_SHNM11
-dsh_fname   equ os88_image_end + DOS_B_SHFNAM
-dsh_fnd     equ os88_image_end + DOS_B_SHFND
-dsh_num     equ os88_image_end + DOS_B_SHNUM
-dsh_cpheap  equ os88_image_end + DOS_B_SHCPHEAP
-dsh_quiet   equ os88_image_end + DOS_B_SHQUIET
-dsh_asdir   equ os88_image_end + DOS_B_SHASDIR
-dsh_del     equ os88_image_end + DOS_B_SHDEL
-dsh_dirop   equ os88_image_end + DOS_B_SHDIROP
-dsh_skip    equ os88_image_end + DOS_B_SHSKIP
-dsh_n       equ os88_image_end + DOS_B_SHN
-dsh_off     equ os88_image_end + DOS_B_SHOFF
-dsh_bvol    equ os88_image_end + DOS_B_SHBVOL
-dsh_bclus   equ os88_image_end + DOS_B_SHBCLUS
-dsh_rdrv    equ os88_image_end + DOS_B_SHRDRV
-dsh_rclus   equ os88_image_end + DOS_B_SHRCLUS
-dsh_sdrv    equ os88_image_end + DOS_B_SHSDRV
-dsh_sclus   equ os88_image_end + DOS_B_SHSCLUS
-dsh_ddrv    equ os88_image_end + DOS_B_SHDDRV
-dsh_dclus   equ os88_image_end + DOS_B_SHDCLUS
-dsh_cname   equ os88_image_end + DOS_B_SHCNAME
-dsh_cpseg   equ os88_image_end + DOS_B_SHCPSEG
-dsh_cpkb    equ os88_image_end + DOS_B_SHCPKB
-dsh_made    equ os88_image_end + DOS_B_SHMADE
-dsh_got     equ os88_image_end + DOS_B_SHGOT
-dsh_why     equ os88_image_end + DOS_B_SHWHY
-dsh_dsw     equ os88_image_end + DOS_B_SHDSW   ; DIR's switches (SPEC.md 96.33.9)
-dsh_more    equ os88_image_end + DOS_B_SHMORE  ; ...a listing is suspended
-dsh_ord     equ os88_image_end + DOS_B_SHORD   ; ...at this ordinal
-dsh_ln      equ os88_image_end + DOS_B_SHLN    ; ...this many lines on the page
-dsh_wcol    equ os88_image_end + DOS_B_SHWCOL  ; ...and /W's column
-dsh_sseg    equ os88_image_end + DOS_B_SHSSEG  ; DIR's sort claim (96.33.9.2)
-dsh_sn      equ os88_image_end + DOS_B_SHSN    ; ...records in it
-dsh_si      equ os88_image_end + DOS_B_SHSI    ; ...and the emit cursor
-dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
+dos_vw      equ DOS_CBASE + DOS_B_VW      ; word: the desktop's width...
+dos_vh      equ DOS_CBASE + DOS_B_VH      ; word: ...and height, for 33h
+dos_mou_lx  equ DOS_CBASE + DOS_B_MLX     ; word: the last position 0Bh
+dos_mou_ly  equ DOS_CBASE + DOS_B_MLY     ; word: ...answered a delta from
+dos_mou_lb  equ DOS_CBASE + DOS_B_MLB     ; byte: the mask the last state
+dos_mou_pc  equ DOS_CBASE + DOS_B_MPC     ;       read saw, for the edges
+dos_mou_rc  equ DOS_CBASE + DOS_B_MRC     ; 2 bytes each, INDEXED BY THE
+dos_mou_px  equ DOS_CBASE + DOS_B_MPX     ; button number, so they are a
+dos_mou_py  equ DOS_CBASE + DOS_B_MPY     ; pair and not two names
+dos_mou_rx  equ DOS_CBASE + DOS_B_MRX
+dos_mou_ry  equ DOS_CBASE + DOS_B_MRY
+dos_wseg    equ DOS_CBASE + DOS_B_WSEG
+dos_wbytes  equ DOS_CBASE + DOS_B_WBYTES
+dos_cbytes  equ DOS_CBASE + DOS_B_CBYTES
+dos_wown    equ DOS_CBASE + DOS_B_WOWN
+dos_wfill   equ DOS_CBASE + DOS_B_WFILL
+dos_wdirty  equ DOS_CBASE + DOS_B_WDIRTY
+dos_wbase   equ DOS_CBASE + DOS_B_WBASE
+dos_wlen    equ DOS_CBASE + DOS_B_WLEN
+dos_fname   equ DOS_CBASE + DOS_B_FNAME
+dos_fent    equ DOS_CBASE + DOS_B_FENT
+dos_bk_ss   equ DOS_CBASE + DOS_B_BKSS
+dos_bk_sp   equ DOS_CBASE + DOS_B_BKSP
+dos_betgt   equ DOS_CBASE + DOS_B_BETGT
+dos_beflg   equ DOS_CBASE + DOS_B_BEFLG
+dos_onprog  equ DOS_CBASE + DOS_B_ONPRG
+dos_fhix    equ DOS_CBASE + DOS_B_FHIX
+dos_fhtab   equ DOS_CBASE + DOS_B_FHTAB
+dos_dta     equ DOS_CBASE + DOS_B_DTA
+dos_dtaseg  equ DOS_CBASE + DOS_B_DTASEG
+dos_dtasv   equ DOS_CBASE + DOS_B_DTASV
+dos_dtasvs  equ DOS_CBASE + DOS_B_DTASVS
+dos_ford    equ DOS_CBASE + DOS_B_FORD
+dos_w83a    equ DOS_CBASE + DOS_B_W83A
+dos_w83b    equ DOS_CBASE + DOS_B_W83B
+dos_parent  equ DOS_CBASE + DOS_B_PARENT
+dsh_line    equ DOS_CBASE + DOS_B_SHLINE
+dsh_verb    equ DOS_CBASE + DOS_B_SHVERB
+dsh_a1      equ DOS_CBASE + DOS_B_SHA1
+dsh_a2      equ DOS_CBASE + DOS_B_SHA2
+dsh_spec    equ DOS_CBASE + DOS_B_SHSPEC
+dsh_leaf    equ DOS_CBASE + DOS_B_SHLEAF
+dsh_dname   equ DOS_CBASE + DOS_B_SHDNAM
+dsh_rtgt    equ DOS_CBASE + DOS_B_SHRTGT
+dsh_pat     equ DOS_CBASE + DOS_B_SHPAT
+dsh_nm11    equ DOS_CBASE + DOS_B_SHNM11
+dsh_fname   equ DOS_CBASE + DOS_B_SHFNAM
+dsh_fnd     equ DOS_CBASE + DOS_B_SHFND
+dsh_num     equ DOS_CBASE + DOS_B_SHNUM
+dsh_cpheap  equ DOS_CBASE + DOS_B_SHCPHEAP
+dsh_quiet   equ DOS_CBASE + DOS_B_SHQUIET
+dsh_asdir   equ DOS_CBASE + DOS_B_SHASDIR
+dsh_del     equ DOS_CBASE + DOS_B_SHDEL
+dsh_dirop   equ DOS_CBASE + DOS_B_SHDIROP
+dsh_skip    equ DOS_CBASE + DOS_B_SHSKIP
+dsh_n       equ DOS_CBASE + DOS_B_SHN
+dsh_off     equ DOS_CBASE + DOS_B_SHOFF
+dsh_bvol    equ DOS_CBASE + DOS_B_SHBVOL
+dsh_bclus   equ DOS_CBASE + DOS_B_SHBCLUS
+dsh_rdrv    equ DOS_CBASE + DOS_B_SHRDRV
+dsh_rclus   equ DOS_CBASE + DOS_B_SHRCLUS
+dsh_sdrv    equ DOS_CBASE + DOS_B_SHSDRV
+dsh_sclus   equ DOS_CBASE + DOS_B_SHSCLUS
+dsh_ddrv    equ DOS_CBASE + DOS_B_SHDDRV
+dsh_dclus   equ DOS_CBASE + DOS_B_SHDCLUS
+dsh_cname   equ DOS_CBASE + DOS_B_SHCNAME
+dsh_cpseg   equ DOS_CBASE + DOS_B_SHCPSEG
+dsh_cpkb    equ DOS_CBASE + DOS_B_SHCPKB
+dsh_made    equ DOS_CBASE + DOS_B_SHMADE
+dsh_got     equ DOS_CBASE + DOS_B_SHGOT
+dsh_why     equ DOS_CBASE + DOS_B_SHWHY
+dsh_dsw     equ DOS_CBASE + DOS_B_SHDSW   ; DIR's switches (SPEC.md 96.33.9)
+dsh_more    equ DOS_CBASE + DOS_B_SHMORE  ; ...a listing is suspended
+dsh_ord     equ DOS_CBASE + DOS_B_SHORD   ; ...at this ordinal
+dsh_ln      equ DOS_CBASE + DOS_B_SHLN    ; ...this many lines on the page
+dsh_wcol    equ DOS_CBASE + DOS_B_SHWCOL  ; ...and /W's column
+dsh_sseg    equ DOS_CBASE + DOS_B_SHSSEG  ; DIR's sort claim (96.33.9.2)
+dsh_sn      equ DOS_CBASE + DOS_B_SHSN    ; ...records in it
+dsh_si      equ DOS_CBASE + DOS_B_SHSI    ; ...and the emit cursor
+dos_inbr    equ DOS_CBASE + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ dos_hbss + DOS_B_FROMCON
-dos_fsxup   equ os88_image_end + DOS_B_FSXUP
+dos_fsxup   equ DOS_CBASE + DOS_B_FSXUP
 dos_ispkg equ dos_hbss + DOS_B_ISPKG   ; byte: the name ends in .O88
 dos_pkgq equ dos_hbss + DOS_B_PKGQ    ; byte: a package launch posted
 dos_pkgn equ dos_hbss + DOS_B_PKGN    ; 13:   ...and which one
 dos_fsxgo equ dos_hbss + DOS_B_FSXGO
-dsh_exec    equ os88_image_end + DOS_B_SHEXEC
+dsh_exec    equ DOS_CBASE + DOS_B_SHEXEC
 dos_cmdx equ dos_hbss + DOS_B_CMDX
 dos_cmdn equ dos_hbss + DOS_B_CMDN
-dos_fhpath  equ os88_image_end + DOS_B_FHPATH
-dos_fpbuf   equ os88_image_end + DOS_B_FPBUF
-dos_fhcwd   equ os88_image_end + DOS_B_FHCWD
-dos_fhmoved equ os88_image_end + DOS_B_FHMOVED
-dos_fhkeep  equ os88_image_end + DOS_B_FHKEEP
-dos_inchild equ os88_image_end + DOS_B_INCHLD
-dos_psv_ss  equ os88_image_end + DOS_B_PSVSS
-dos_psv_sp  equ os88_image_end + DOS_B_PSVSP
-dos_ppsp    equ os88_image_end + DOS_B_PPSP
-dos_ppara   equ os88_image_end + DOS_B_PPARA
-dos_pgpar   equ os88_image_end + DOS_B_PGPAR
-dos_pexe    equ os88_image_end + DOS_B_PEXE
-dos_chexit  equ os88_image_end + DOS_B_CHEXIT
-dos_chblk   equ os88_image_end + DOS_B_CHBLK
+dos_fhpath  equ DOS_CBASE + DOS_B_FHPATH
+dos_fpbuf   equ DOS_CBASE + DOS_B_FPBUF
+dos_fhcwd   equ DOS_CBASE + DOS_B_FHCWD
+dos_fhmoved equ DOS_CBASE + DOS_B_FHMOVED
+dos_fhkeep  equ DOS_CBASE + DOS_B_FHKEEP
+dos_inchild equ DOS_CBASE + DOS_B_INCHLD
+dos_psv_ss  equ DOS_CBASE + DOS_B_PSVSS
+dos_psv_sp  equ DOS_CBASE + DOS_B_PSVSP
+dos_ppsp    equ DOS_CBASE + DOS_B_PPSP
+dos_ppara   equ DOS_CBASE + DOS_B_PPARA
+dos_pgpar   equ DOS_CBASE + DOS_B_PGPAR
+dos_pexe    equ DOS_CBASE + DOS_B_PEXE
+dos_chexit  equ DOS_CBASE + DOS_B_CHEXIT
+dos_chblk   equ DOS_CBASE + DOS_B_CHBLK
 dos_dqbuf equ dos_hbss + DOS_B_DQBUF
 dos_drvmask equ dos_hbss + DOS_B_DRVMASK
-dos_blaster equ os88_image_end + DOS_B_BLAST
-dos_xmstab  equ os88_image_end + DOS_B_XMSTAB
-dos_xmlen   equ os88_image_end + DOS_B_XMLEN
-dos_xmsh    equ os88_image_end + DOS_B_XMSH
-dos_xmso    equ os88_image_end + DOS_B_XMSO
-dos_xmdh    equ os88_image_end + DOS_B_XMDH
-dos_xmdo    equ os88_image_end + DOS_B_XMDO
-dos_xmlin   equ os88_image_end + DOS_B_XMLIN
-dos_xmcon   equ os88_image_end + DOS_B_XMCON
-dos_xmdir   equ os88_image_end + DOS_B_XMDIR
-dos_xparm   equ os88_image_end + DOS_B_XPARM
-dos_xparms  equ os88_image_end + DOS_B_XPARMS
-dos_ldname  equ os88_image_end + DOS_B_LDNAME
-dos_ldpsp   equ os88_image_end + DOS_B_LDPSP
-dos_ldpara  equ os88_image_end + DOS_B_LDPAR
-dos_dy      equ os88_image_end + DOS_B_DY
-dos_dm      equ os88_image_end + DOS_B_DM
-dos_dd      equ os88_image_end + DOS_B_DD
-dos_lasttl  equ os88_image_end + DOS_B_LTL
-dos_lastth  equ os88_image_end + DOS_B_LTH
-dos_tmp1    equ os88_image_end + DOS_B_TMP1
-dos_tmp2    equ os88_image_end + DOS_B_TMP2
-dos_tmp3    equ os88_image_end + DOS_B_TMP3
-dos_acc     equ os88_image_end + DOS_B_ACC
-dos_fabs    equ os88_image_end + DOS_B_FABS
-dos_pfbuf   equ os88_image_end + DOS_B_PFBUF   ; AH=29h's name scratch...
-dos_pfcb    equ os88_image_end + DOS_B_PFCB    ; ...and its FCB prefix
-dos_fname2  equ os88_image_end + DOS_B_FNAME2  ; AH=56h's second name
-dos_rnvol   equ os88_image_end + DOS_B_RNVOL   ; ...and its three bytes of
-dos_rndrv   equ os88_image_end + DOS_B_RNDRV   ; drive arithmetic
-dos_rnabs   equ os88_image_end + DOS_B_RNABS
-dos_fnseg   equ os88_image_end + DOS_B_FNSEG   ; word: where a name is read from
-dos_fdrv    equ os88_image_end + DOS_B_FDRV    ; byte: the drive a name named
-dos_fhome   equ os88_image_end + DOS_B_FHOME   ; byte: ...and where it left
-dos_fvtgt   equ os88_image_end + DOS_B_FVTGT   ; word: the read's back end
-dos_fvvol   equ os88_image_end + DOS_B_FVVOL   ; byte: the fill's volume...
-dos_fvsv    equ os88_image_end + DOS_B_FVSV    ; byte: ...and where it came from
-dos_opmode  equ os88_image_end + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
-dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
-dos_wfil    equ os88_image_end + DOS_B_WFIL    ; byte: fill the window, not copy
-dos_gapn    equ os88_image_end + DOS_B_GAPN    ; dword: the gap still to lay
-dos_trnof   equ os88_image_end + DOS_B_TRNOF   ; dword: a shrink's copy offset
+dos_blaster equ DOS_CBASE + DOS_B_BLAST
+dos_xmstab  equ DOS_CBASE + DOS_B_XMSTAB
+dos_xmlen   equ DOS_CBASE + DOS_B_XMLEN
+dos_xmsh    equ DOS_CBASE + DOS_B_XMSH
+dos_xmso    equ DOS_CBASE + DOS_B_XMSO
+dos_xmdh    equ DOS_CBASE + DOS_B_XMDH
+dos_xmdo    equ DOS_CBASE + DOS_B_XMDO
+dos_xmlin   equ DOS_CBASE + DOS_B_XMLIN
+dos_xmcon   equ DOS_CBASE + DOS_B_XMCON
+dos_xmdir   equ DOS_CBASE + DOS_B_XMDIR
+dos_xparm   equ DOS_CBASE + DOS_B_XPARM
+dos_xparms  equ DOS_CBASE + DOS_B_XPARMS
+dos_ldname  equ DOS_CBASE + DOS_B_LDNAME
+dos_ldpsp   equ DOS_CBASE + DOS_B_LDPSP
+dos_ldpara  equ DOS_CBASE + DOS_B_LDPAR
+dos_dy      equ DOS_CBASE + DOS_B_DY
+dos_dm      equ DOS_CBASE + DOS_B_DM
+dos_dd      equ DOS_CBASE + DOS_B_DD
+dos_lasttl  equ DOS_CBASE + DOS_B_LTL
+dos_lastth  equ DOS_CBASE + DOS_B_LTH
+dos_tmp1    equ DOS_CBASE + DOS_B_TMP1
+dos_tmp2    equ DOS_CBASE + DOS_B_TMP2
+dos_tmp3    equ DOS_CBASE + DOS_B_TMP3
+dos_acc     equ DOS_CBASE + DOS_B_ACC
+dos_fabs    equ DOS_CBASE + DOS_B_FABS
+dos_pfbuf   equ DOS_CBASE + DOS_B_PFBUF   ; AH=29h's name scratch...
+dos_pfcb    equ DOS_CBASE + DOS_B_PFCB    ; ...and its FCB prefix
+dos_fname2  equ DOS_CBASE + DOS_B_FNAME2  ; AH=56h's second name
+dos_rnvol   equ DOS_CBASE + DOS_B_RNVOL   ; ...and its three bytes of
+dos_rndrv   equ DOS_CBASE + DOS_B_RNDRV   ; drive arithmetic
+dos_rnabs   equ DOS_CBASE + DOS_B_RNABS
+dos_fnseg   equ DOS_CBASE + DOS_B_FNSEG   ; word: where a name is read from
+dos_fdrv    equ DOS_CBASE + DOS_B_FDRV    ; byte: the drive a name named
+dos_fhome   equ DOS_CBASE + DOS_B_FHOME   ; byte: ...and where it left
+dos_fvtgt   equ DOS_CBASE + DOS_B_FVTGT   ; word: the read's back end
+dos_fvvol   equ DOS_CBASE + DOS_B_FVVOL   ; byte: the fill's volume...
+dos_fvsv    equ DOS_CBASE + DOS_B_FVSV    ; byte: ...and where it came from
+dos_opmode  equ DOS_CBASE + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
+dos_wvsv    equ DOS_CBASE + DOS_B_WVSV    ; byte: the flush's own
+dos_wfil    equ DOS_CBASE + DOS_B_WFIL    ; byte: fill the window, not copy
+dos_gapn    equ DOS_CBASE + DOS_B_GAPN    ; dword: the gap still to lay
+dos_trnof   equ DOS_CBASE + DOS_B_TRNOF   ; dword: a shrink's copy offset
 dos_cpw equ dos_hbss + DOS_B_CPW     ; byte: resuming on the pass
 dos_drvout equ dos_hbss + DOS_B_DRVOUT  ; byte: the drivers are out
-dos_curdir  equ os88_image_end + DOS_B_CURDIR
-dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
-dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to
-dos_dvfrom  equ os88_image_end + DOS_B_DVFROM  ; the drive a switch is leaving
-dos_ndrv    equ os88_image_end + DOS_B_NDRV    ; AH=0Eh's count, 0 = unprobed
-dos_cwdst   equ os88_image_end + DOS_B_CWDST   ; AH=47h's destination
-dos_cwdrv   equ os88_image_end + DOS_B_CWDRV   ; ...and the drive asked about
-dos_imghi   equ os88_image_end + DOS_B_IMGHI   ; word: the file's size, high
-dos_exe_fseg equ os88_image_end + DOS_B_XFSEG  ; word: where the FILE landed
-dos_exe_lseg equ os88_image_end + DOS_B_XLSEG  ; word: ...and the load segment
-dos_exe_hpara equ os88_image_end + DOS_B_XHPAR ; word: header paragraphs
-dos_exe_nrel equ os88_image_end + DOS_B_XNREL  ; word: relocation entries
-dos_exe_rloc equ os88_image_end + DOS_B_XRLOC  ; word: ...where the table is
-dos_exe_minal equ os88_image_end + DOS_B_XMINA ; word: paragraphs it must have
-dos_exe_ipara equ os88_image_end + DOS_B_XIPAR ; word: the image's paragraphs
-dos_exe_cs  equ os88_image_end + DOS_B_XCS     ; word: the entry state, all
-dos_exe_ip  equ os88_image_end + DOS_B_XIP     ; word: four out of the header
-dos_exe_ss  equ os88_image_end + DOS_B_XSS     ; word: and CS/SS relocated
-dos_exe_sp  equ os88_image_end + DOS_B_XSP     ; word:
+dos_curdir  equ DOS_CBASE + DOS_B_CURDIR
+dos_dvcwd   equ DOS_CBASE + DOS_B_DVCWD   ; per drive: its cluster
+dos_dvtgt   equ DOS_CBASE + DOS_B_DVTGT   ; ...and the one it goes to
+dos_dvfrom  equ DOS_CBASE + DOS_B_DVFROM  ; the drive a switch is leaving
+dos_ndrv    equ DOS_CBASE + DOS_B_NDRV    ; AH=0Eh's count, 0 = unprobed
+dos_cwdst   equ DOS_CBASE + DOS_B_CWDST   ; AH=47h's destination
+dos_cwdrv   equ DOS_CBASE + DOS_B_CWDRV   ; ...and the drive asked about
+dos_imghi   equ DOS_CBASE + DOS_B_IMGHI   ; word: the file's size, high
+dos_exe_fseg equ DOS_CBASE + DOS_B_XFSEG  ; word: where the FILE landed
+dos_exe_lseg equ DOS_CBASE + DOS_B_XLSEG  ; word: ...and the load segment
+dos_exe_hpara equ DOS_CBASE + DOS_B_XHPAR ; word: header paragraphs
+dos_exe_nrel equ DOS_CBASE + DOS_B_XNREL  ; word: relocation entries
+dos_exe_rloc equ DOS_CBASE + DOS_B_XRLOC  ; word: ...where the table is
+dos_exe_minal equ DOS_CBASE + DOS_B_XMINA ; word: paragraphs it must have
+dos_exe_ipara equ DOS_CBASE + DOS_B_XIPAR ; word: the image's paragraphs
+dos_exe_cs  equ DOS_CBASE + DOS_B_XCS     ; word: the entry state, all
+dos_exe_ip  equ DOS_CBASE + DOS_B_XIP     ; word: four out of the header
+dos_exe_ss  equ DOS_CBASE + DOS_B_XSS     ; word: and CS/SS relocated
+dos_exe_sp  equ DOS_CBASE + DOS_B_XSP     ; word:
 dos_fsi equ dos_hbss + DOS_B_FSI     ; FSI_SIZE: the fsx info block
-dos_ivt     equ os88_image_end + DOS_B_IVT     ; 1024: the whole vector table
-dos_bda     equ os88_image_end + DOS_B_BDA     ; 256:  ...and the whole BDA
+dos_ivt     equ DOS_CBASE + DOS_B_IVT     ; 1024: the whole vector table
+dos_bda     equ DOS_CBASE + DOS_B_BDA     ; 256:  ...and the whole BDA
 
 ; --- the packet driver's (SPEC.md 96.23) -------------------------------------
 %ifndef KD_BACKEND                  ; 96.43

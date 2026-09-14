@@ -453,7 +453,12 @@ kd_scatter:
     mov cx, [bx+2]
     jcxz .out
     mov di, [bx]
-    add di, os88_image_end
+    add di, DOS_CBASE           ; **THE CORE'S BASE AND NOT THIS HOST'S IMAGE
+                                ; END** (SPEC.md 96.44.5). Every KDL_FIELDS row
+                                ; is a CORE cell, and since the core became a
+                                ; part its cells sit at DOS_CBASE - the same
+                                ; address in both hosts, which is the whole
+                                ; point of the launch block being a wire format
     rep movsb
     add bx, 4
     jmp short .row
@@ -463,7 +468,7 @@ kd_scatter:
 
 ; --- the table this walk reads, and our own idea of the payload's length ----
 %macro KDL_F 2
-    dw (%1 - os88_image_end), %2
+    dw (%1 - DOS_CBASE), %2     ; ...and the offsets are measured from it
 %endmacro
 kd_lbtab:
     KDL_FIELDS

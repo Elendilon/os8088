@@ -2357,18 +2357,10 @@ dsh_tab:
 ; nobody asked for. But `> NUL` silences the message, so under exactly the
 ; conditions a program shells out in there is NOTHING to read - which cost this
 ; session two emulator runs to recover by other means. One byte fixes it.
-DSHW_NONE   equ 0
-DSHW_MEM    equ 1               ; no DOS block for the copy buffer (96.30.6)
-DSHW_IO     equ 2               ; the back end refused
-DSHW_NOFILE equ 3               ; nothing matched the pattern
-DSHW_SELF   equ 4               ; source and destination are one file
-DSHW_NOPATH equ 5               ; no such folder
-DSHW_SYNTAX equ 6               ; wrong number of arguments
-DSHW_REDIR  equ 7               ; a redirection target that is not NUL
-DSHW_NOCMD  equ 8               ; no such verb - which from a prompt means
-                                ; "try it as a program" (SPEC.md 96.33.3)
-DSHW_NODRV  equ 9               ; `X:` named a drive that is not there
-DSHW_BADSW  equ 10              ; a switch this box has not got (96.33.9)
+; THE DSHW_* REASON CODES MOVED TO apps/dos/dos.asm (SPEC.md 96.44.5):
+; the window prompt tests DSHW_NOCMD and the core sets it, so a constant
+; defined HERE is a seam across the core boundary. An equate emits nothing,
+; so the container is where it costs neither host anything.
 
 ; --- DIR's switches, in [dsh_dsw] (SPEC.md 96.33.9) -------------------------
 ; The DOS 3.30 set is these TWO and nothing else, measured: /B answers
