@@ -781,7 +781,7 @@ ld_run_body_x:
     jc .ret1                    ; there is no staged copy to make and none to
                                 ; go stale. AL = LD_EBAD / LD_EBIG on failure
 
-    call ld_alloc               ; --- 4 and 5, shared with OSAPI_PKG_RUN
+    call ld_alloc               ; --- 4 and 5, shared with OSAPI_PKG_START
     jc .ret1                    ; (SPEC.md 21.5): AL = LD_ENOMEM, and no
                                 ; region was left claimed
     jmp short .read
@@ -855,7 +855,7 @@ ld_run_body_x:
                                 ; push ds/pop ds and a rep movsb, purely
                                 ; because ld_check_hdr read through DS
 
-    jmp ld_start                ; --- 7, 8 and 9, shared with OSAPI_PKG_RUN
+    jmp ld_start                ; --- 7, 8 and 9, shared with OSAPI_PKG_START
                                 ; (SPEC.md 21.5). A TAIL jump: ld_start
                                 ; answers in AL exactly as this routine does,
                                 ; frees the region itself when the entry proc
@@ -868,7 +868,7 @@ ld_run_body_x:
 ; out: CF = 0 with [ld_rec], [ld_base] and [ld_need] filled;
 ;      CF = 1 with AL = LD_ENOMEM - no instance record, or no region
 ;
-; SPLIT OUT FOR OSAPI_PKG_RUN (SPEC.md 21.5), which has no directory entry, no
+; SPLIT OUT FOR OSAPI_PKG_START (SPEC.md 21.5), which has no directory entry, no
 ; cluster and no disk, and needs every one of these three words before it can
 ; copy an image anywhere. Nothing about the arithmetic moved.
 ; -----------------------------------------------------------------------------
@@ -961,7 +961,7 @@ ld_alloc:
 ; out: AL = LD_OK, or LD_EABORT with the region and everything the entry proc
 ;      claimed given back
 ;
-; The other half of the split OSAPI_PKG_RUN needed: from here down the loader
+; The other half of the split OSAPI_PKG_START needed: from here down the loader
 ; does not care whether the image arrived off a disk or out of a caller's
 ; claim, which is exactly why the slot is 100-odd bytes rather than a second
 ; pipeline.
@@ -1297,20 +1297,20 @@ ld_start:
     ret
 
 ; -----------------------------------------------------------------------------
-; ld_pkg_run - OSAPI_PKG_RUN: run a package image that is ALREADY IN MEMORY
-;              (SPEC.md 21.5), slot KERNEL_SEG:0x0520
+; ld_pkg_start - OSAPI_PKG_START: START THE PACKAGE CALLED NAME
+;                (SPEC.md 21.5), slot KERNEL_SEG:0x0520, an N cell
 ;
-; in:  ES:SI = the image, byte for byte what the .O88 file holds, in a claim
-;              of the caller's. ANY segment: it is COPIED, never adopted, so
-;              the caller may free it the moment this returns
-;      DX:CX = its length in bytes, DX the high word
-;      DI    = a NUL-terminated 8.3 name, at most 12 characters, in the
-;              CALLING INSTANCE's own segment (inst_caller, SPEC.md 19.2.1) -
-;              what the new instance is told it was launched from, which is
-;              step 1b's [ld_lname] and the SI of the entry contract (20.2)
-; out: CF = 0, AX = 0: the instance is registered, published and its window
-;              shown, exactly as a Disk-window double-click leaves one
-;      CF = 1, AL = LD_* (SPEC.md 21.4)
+; in:  SI    = the staged 8.3 name, in the kernel's own DS, standing in the
+;              CALLING INSTANCE's folder - both of which api_n has already
+;              done (SPEC.md 20.3). It is the file to start AND what the new
+;              instance is told it was launched from, which is step 1b's
+;              [ld_lname] and the SI of the entry contract (20.2)
+;      DX:CX = the length of an image the CALLER IS HOLDING, or ZERO meaning
+;              it holds none and the file is to be read
+;      ES:DI = that image when DX:CX is non-zero, byte for byte what the .O88
+;              file holds. ANY segment: it is COPIED, never adopted, so the
+;              caller may free it the moment this returns
+; out: AL = LD_* (SPEC.md 21.4); the far entry below turns it into a carry
 ;
 ; UI TASK ONLY, GFX LOCK NOT HELD - the same context loader_run runs in, and
 ; for its reasons: step 9 takes the lock itself around wm_show, and step 8
@@ -1319,54 +1319,68 @@ ld_start:
 ; is reachable only from a window callback or an OSAPI_WM_ONWAKE handler, both
 ; of which the UI task runs with the lock released.
 ;
+; **ONE CELL, AND IT WAS BRIEFLY TWO** (SPEC.md 21.5.1). The by-name form
+; shipped beside this one as OSAPI_PKG_START at 0x05A0, which is the failure
+; SPEC.md 20.8 rule 4 names outright - a successor slot beside a permanent
+; no-consumer path. Two published cells that both mean `run a package` is a
+; question at every call site with no good answer, so 0x05A0 is withdrawn and
+; the merged contract takes this number.
+;
 ; WHAT IT IS NOT: a second loader. Every check, the region claim, the entry
 ; call and the publish are ld_check_hdr, ld_alloc and ld_start - the same
-; bodies the disk path enters. What is here is the three things a memory image
-; needs that a file does not: a length that arrives in registers rather than
-; out of a directory entry, a NAME out of the caller's segment, and a `rep
-; movsb` where step 6 has an int 13h.
+; bodies the disk path enters - and the by-name arm IS the disk path, tail
+; jumping into ld_run_name (21.4), which is what ui.inc launches the Task
+; Manager through. What is here is the two things a memory image needs that a
+; file does not: a length that arrives in registers rather than out of a
+; directory entry, and a `rep movsb` where step 6 has an int 13h.
 ;
-; A PACKAGE WITH PARTS IS REFUSED (header flags bit 2, SPEC.md 20.12): parts
-; are read by the package from its OWN FILE, and there is no file here. That
-; is LD_EBAD and it is asked BEFORE ld_check_hdr, which would allow the bit.
+; A PACKAGE WITH PARTS IS REFUSED ON THE IMAGE ARM ALONE (header flags bit 2,
+; SPEC.md 20.12): parts are read by the package from its OWN FILE, and on that
+; arm there is no file. It is LD_EBAD, asked BEFORE ld_check_hdr, which would
+; allow the bit - and the by-name arm takes parts like any double-click,
+; because there the file is exactly what was named.
 ; -----------------------------------------------------------------------------
-ld_pkg_run_x:
+ld_pkg_start_x:
+    mov ax, cx                  ; **NO IMAGE MEANS READ THE FILE** (SPEC.md
+    or ax, dx                   ; 21.5): the length is the argument that only
+    jz ld_run_name_x            ; exists in the image form, so zero is its
+                                ; absence - and SI is already the staged name
+                                ; in the kernel's own DS, which is exactly
+                                ; ld_run_name's input. A TAIL JUMP, so its ret
+                                ; lands in the far entry's epilogue below and
+                                ; the two arms share one answer
+    mov ax, es
+    or ax, ax
+    jz .bad                     ; an image at segment 0 is the interrupt
+                                ; vector table, which is the fence against
+                                ; HALF the image arguments being set by a
+                                ; caller that meant the by-name form
+    mov [ld_msrc], di           ; the source, banked: ld_alloc's chain reaches
+    mov [ld_msrc+2], ax         ; mem_compact and a package relocation proc,
+                                ; and ES is nobody's to promise across that
     mov [ld_fsz], cx            ; the size, in the two words ld_check_hdr
     mov [ld_fsz+2], dx          ; bounds the image against
+    push si                     ; the staged name, across the header check
+    mov si, di                  ; ES:SI = the image, ld_check_hdr's own shape
     test byte [es:si+LD_H_FLAGS], 4
-    jnz .bad                    ; parts, and no file to read them out of
+    jnz .badpop                 ; parts, and no file to read them out of -
+                                ; asked BEFORE ld_check_hdr, which allows the
+                                ; bit, and true of THIS ARM rather than of the
+                                ; slot (SPEC.md 21.5.1)
     call ld_check_hdr           ; ES:SI IS where it reads - the same call the
-    jc .fail                    ; disk path makes against dsk_secbuf in
-                                ; LOW_SEG. AL = LD_EBAD / LD_EBIG
+    pop si                      ; disk path makes against dsk_secbuf in
+    jc .fail                    ; LOW_SEG. `pop` writes no flag, so the carry
+                                ; it answered rides through
 
-    mov [ld_msrc], si           ; the source, banked: ld_alloc's chain reaches
-    mov ax, es                  ; mem_compact and a package relocation proc,
-    mov [ld_msrc+2], ax         ; and ES is nobody's to promise across that
-
-    ; --- the NAME, out of the caller's segment (SPEC.md 21 step 1b) ---------
-    ; DI is an offset in the CALLING INSTANCE's segment and not in ES: the
-    ; image is in a claim and the name is in the package's own data, which are
-    ; two different segments by construction. inst_caller is the published way
-    ; to ask which instance is calling (SPEC.md 19.2.1); a call from kernel
-    ; context answers 0xFF and the name is then read through KERNEL_SEG, which
-    ; is the only segment there is to read it through.
+    ; --- step 1b: the launching file's NAME, out of the STAGED copy ---------
+    ; It used to be lifted out of the CALLING INSTANCE's segment here, through
+    ; inst_caller and a hand-rolled inst_idx - thirty-odd bytes and a special
+    ; case for a call from kernel context. The N stub does it (SPEC.md 20.3),
+    ; so SI is a kernel offset and this is a plain copy.
     push ds
     pop es                      ; ES = KERNEL for the copy's destination
-    call KERNEL_SEG:cw_inst_caller ; DH = the slot, 0xFF = the kernel itself
-    push ds                     ; DS is restored below whichever arm runs
-    mov ax, ds                  ; the fallback: our own segment
-    cmp dh, 0xFF
-    je .nseg
-    mov bl, dh
-    xor bh, bh
-    mov cl, 5                   ; inst_idx's arithmetic, 32-byte records -
-    shl bx, cl                  ; inline because instance.inc is .text and
-    mov ax, [bx+inst_tab+I_SPTR] ; this is .cold (SPEC.md 2.6)
-.nseg:
-    mov si, di                  ; DS:SI -> the caller's name, ES:DI -> ours
     mov di, ld_lname
     mov cx, LD_NAMELEN
-    mov ds, ax
     cld
 .ncp:
     lodsb
@@ -1376,7 +1390,6 @@ ld_pkg_run_x:
     loop .ncp
     mov byte [es:di], 0         ; twelve characters and no terminator: end it
 .named:
-    pop ds                      ; ...and DS is the kernel's again
 
     call ld_alloc               ; steps 4 and 5: the record and the region
     jc .fail                    ; AL = LD_ENOMEM
@@ -1417,6 +1430,8 @@ ld_pkg_run_x:
 .bad_out:                       ; what that routine's step 7 wants. It answers
     ret                         ; in AL and frees the region itself when the
                                 ; entry proc aborts
+.badpop:
+    pop si
 .bad:
     mov al, LD_EBAD
 .fail:
@@ -1430,8 +1445,27 @@ ld_pkg_run_x:
 ; ...and the answer, which ld_start cannot give: it is the DISK path's body
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
-ldf_ld_pkg_run:
-    call ld_pkg_run_x
+ldf_ld_pkg_start:
+    mov word [ld_pwin], 0       ; no poster. NOTHING ON EITHER ARM READS IT -
+                                ; loader_run_x is the only reader and that is
+                                ; the INDEX door - so this is here to keep the
+                                ; no-poster callers identical (ui.inc writes
+                                ; it at the same seam) rather than because the
+                                ; load needs it
+    mov byte [ld_painted], 0
+    call ld_pkg_start_x         ; AL = LD_*
+    push ax
+    push ds
+    pop es                      ; ld_run_body's failure exits leave ES aimed
+                                ; at LOW_SEG or a freed region, and nothing
+                                ; below may inherit that (ui.inc's note)
+    cmp byte [ld_painted], 0
+    jne .done                   ; the success path drew its own window
+    cmp al, LD_EABORT           ; ...and a package refused AFTER its entry proc
+    jne .done                   ; ran may have put pixels anywhere before it
+    call files_refresh_x        ; said no, so there is no telling where
+.done:
+    pop ax
     or al, al
     jnz .fail                   ; every LD_* but LD_OK, ld_start's own
     xor ax, ax                  ; LD_EABORT included: AX = 0 and CF = 0 on the
@@ -1443,7 +1477,7 @@ ldf_ld_pkg_run:
 ; -----------------------------------------------------------------------------
 section .bss
 
-ld_msrc:    resw 2              ; OSAPI_PKG_RUN's source image, offset then
+ld_msrc:    resw 2              ; OSAPI_PKG_START's source image, offset then
                                 ; segment (SPEC.md 21.5): banked because
                                 ; ld_alloc's chain runs mem_compact and a
                                 ; package's relocation procs, and no register
@@ -1536,59 +1570,6 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
 ldf_ld_run_name:        call ld_run_name_x
                     retf
 
-; -----------------------------------------------------------------------------
-; ld_pkg_open - OSAPI_PKG_OPEN's body: run the package NAMED at SI (21.6)
-; in:  SI -> the staged 8.3 name, in the folder api_n's inst_vol_enter put us
-;      in; DS = KERNEL_SEG; UI task, gfx lock NOT held
-; out: CF = 0 with AL = 0 running; CF = 1 with AL = LD_*
-;
-; It is ld_run_name with a poster of none, which is ui.inc's Task Manager
-; launch with the note taken off - so parts, overlays, sizing and the
-; disk-swap re-check are the disk path's and not this routine's business.
-;
-; IT SAYS NOTHING. loader_run_x ends in ld_say_status, which puts the verdict
-; up as a toast (SPEC.md 59); the caller of this has AL and its own words, and
-; a toast reading `Bad package` for a launch a PROGRAM asked for names neither
-; the program nor the file. [ld_status] is left alone for the same reason: it
-; is the Disk window's status line and belongs to the window that posted a
-; load, which is not this one.
-;
-; The one thing kept from loader_run_x is its tail. A package the loader
-; refused AFTER running its entry proc may have put pixels anywhere before it
-; said no, and there is no telling where - so LD_EABORT, and only when the
-; load did not paint a window of its own, is a whole-screen repaint.
-; -----------------------------------------------------------------------------
-ldf_ld_pkg_open:        call ld_pkg_open_x
-                    retf
-
-ld_pkg_open_x:
-    mov word [ld_pwin], 0       ; no poster. NOTHING ON THIS PATH READS IT -
-                                ; loader_run_x is the only reader and that is
-                                ; the INDEX door - so this is here to keep the
-                                ; two no-poster callers identical (ui.inc
-                                ; writes it at the same seam) rather than
-                                ; because the load needs it
-    mov byte [ld_painted], 0
-    call ld_run_name_x          ; AL = LD_*; it shows the window itself
-    push ax
-    push ds
-    pop es                      ; ld_run_body's failure exits leave ES aimed at
-                                ; LOW_SEG or a freed region, and files_refresh
-                                ; below may not inherit that (ui.inc's note)
-    cmp byte [ld_painted], 0
-    jne .done                   ; the success path drew its own window
-    cmp al, LD_EABORT
-    jne .done
-    call files_refresh_x
-.done:
-    pop ax
-    or al, al
-    jz .ok
-    stc
-    ret
-.ok:
-    clc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; osapi_pkg_rehome - API slot 0x0530: "the program is at DX, not at me"

@@ -6,7 +6,7 @@
 §96.33.15 refuses an extension that is not `.COM` or `.EXE`, and `.O88` was
 refused with the rest - rightly, because entering 30KB of package image as a
 `.COM` wedges the machine.  What was missing was not a fourth extension to
-allow but something else to do with one, and `OSAPI_PKG_OPEN` (§21.6) is it:
+allow but something else to do with one, and `OSAPI_PKG_START` (§21.5) is it:
 the box hands the name to the kernel and the package opens in its own window,
 *not inside the box*, which is the distinction that matters.
 
@@ -141,7 +141,7 @@ def main():
         # --- 1: it opens, and the box survives -------------------------------
         if not launch("CALC.O88", "Calculator"):
             fail("CALC.O88 at the prompt opened no window titled "
-                 "'Calculator'. The console hands a .O88 to OSAPI_PKG_OPEN "
+                 "'Calculator'. The console hands a .O88 to OSAPI_PKG_START "
                  "(SPEC.md 96.33.17, 21.6); the last console lines were %r"
                  % console()[-3:])
         else:

@@ -36418,54 +36418,79 @@ error, no notice, and five sectors of I/O where a load is three hundred. An
 undocumented register contract at a jump target is exactly the difference
 that survives a build and a review.
 
-### 21.5 `OSAPI_PKG_RUN` — the loader's back half, with the read replaced by a copy
+### 21.5 `OSAPI_PKG_START` — ONE door into the loader
 
-Everything in this system launches a package by naming a FILE. The Wire
-(§26.7, docs/WIRE-PLAN.md) fetches a `.O88` over the network into a heap
-claim and has no file to name, so `Load Program` needs a way in that the
-loader did not have. Slot **`KERNEL_SEG:0x04F8`**, the 158th:
+**Start the package called NAME.** If you happen to be holding its bytes, hand
+them over and the kernel will not read the file; if you are not, it will.
+Slot **`KERNEL_SEG:0x0520`**:
 
 ```
-OSAPI_PKG_RUN   KERNEL_SEG:0x04F8
-  in   ES:SI  = a package image, byte for byte what the .O88 file holds,
-                in a claim of YOURS. ANY segment - it is COPIED into a region
-                of the kernel's own, never adopted, so the caller may free
-                its claim the moment this returns
-       DX:CX  = its length in bytes, DX the high word
-       DI     = a NUL-terminated 8.3 name, at most 12 characters, in the
-                CALLING INSTANCE's segment - what the new instance is told
-                it was launched from (step 1b's [ld_lname], and the entry
-                proc's SI, §20.2)
-  out  CF = 0, AX = 0: registered, published and its window shown, exactly
-                as a Disk-window double-click leaves one
-       CF = 1, AL = LD_* (§21.4): LD_EBAD a header ld_check_hdr refuses, or
-                flags bit 2 set; LD_EBIG over APP_MAX_SIZE; LD_ENOMEM no
-                region or no instance record; LD_EABORT the entry declined
+OSAPI_PKG_START KERNEL_SEG:0x0520        ; an N cell
+  in   SI     = a NUL-terminated 8.3 name, at most 12 characters, in YOUR
+                segment. It is the file to start AND what the new instance is
+                told it was launched from (its entry proc's SI, §20.2)
+       DX:CX  = the length of the image you are HOLDING, DX the high word —
+                or ZERO, meaning you are not holding one and the kernel is to
+                READ THE FILE
+       ES:DI  = that image, byte for byte what the `.O88` holds, when DX:CX is
+                non-zero. ANY segment — it is COPIED into a region of the
+                kernel's own, never adopted, so you may free your claim the
+                moment this returns
+  out  CF = 0, AX = 0: registered, published and its window shown, exactly as
+                a Disk-window double-click leaves one
+       CF = 1, AL = LD_* (§21.4)
 ```
 
-**`DI` is read through the CALLING INSTANCE's segment and not through ES**,
-and the two really are different: the image is in a claim and the name is in
-the package's own data. `inst_caller` is the published way to ask who is
-calling (§19.2.1) and `I_SPTR` is that instance's segment; a call from kernel
-context answers `0xFF` and the name is then read through `KERNEL_SEG`, which
-is the only segment there is to read it through.
+**The name is resolved in the folder YOU are standing in** (§19.2.1) — it is
+an N cell, so the stub stages the name into kernel scratch and calls
+`inst_vol_enter` before the body runs. Stand where the file is first
+(`OSAPI_FILE_GOTO_QM`, which moves the machine *and* marks the instance), and
+that is the same rule every other by-name call in this SDK already has.
 
-**It is a plain `OSAPI_SLOT` and not an X cell.** ES is an *argument* here,
-and an X stub overwrites ES with the caller's DS (§20.3) — the one segment the
-image is least likely to be in.
+#### 21.5.1 Why it is one cell and was briefly two
 
-**Context: UI TASK ONLY, gfx lock NOT held** — a window callback or an
-`OSAPI_WM_ONWAKE` handler. That is `loader_run`'s own context and for its
-reasons: step 9 takes the lock itself around `wm_show`, and step 8 runs the
-package's entry proc, which creates windows and may draw. `ui_task`'s ladder
-calls `loader_run_x` with the lock free at its `.chk_ld` step, and both
-callback kinds are entered with it released.
+It shipped as two — `OSAPI_PKG_START` here, taking an image, and
+`OSAPI_PKG_START` at 0x05A0, taking a name — and that is the failure §20.8
+rule 4 names in as many words: *a successor slot beside a permanent
+no-consumer path, which is a worse spec than the one the freeze was
+defending.* Two published cells whose names both mean *run a package* is a
+question at every call site that has no good answer, and the table is
+**unfrozen** precisely so a wrong contract is edited rather than shipped
+around. 0x05A0 is withdrawn; the merged cell takes 0x0520, which the
+re-contract rule permits here because `apps/`, `drivers/` and `tests/` are the
+complete set of callers and `make` rebuilds every one of them.
 
-**A package carrying PARTS is refused** (header flags bit 2, §20.12): parts
-are read by the package out of its OWN FILE and there is none here. The test
-is `LD_EBAD` and it is asked **before** `ld_check_hdr`, which allows the bit.
+**What the split was really about is not the slot — it is PARTS**, and
+merging puts that rule where it is true:
 
-#### The split, which is what makes the slot 159 bytes and not a second loader
+- **`DX:CX` = 0, the kernel reads the file.** Parts, overlays and sizing all
+  work, because `op_load` (§20.12) reads a part out of the package's own FILE
+  and there is one.
+- **`DX:CX` non-zero, you are holding it.** A package carrying parts (header
+  flags bit 2) is **refused** with `LD_EBAD`, and the test is made before
+  `ld_check_hdr`, which allows the bit. There is no file behind the bytes, so
+  there is nothing for `op_load` to read.
+
+As two cells that read as *one door refuses parts and the other does not*,
+which sounds like a property of the door. It is a property of **having a
+file**, and one contract says so at the point of use.
+
+**`ES = 0` with a non-zero length is refused** — an image at segment 0 is the
+interrupt vector table — which is the fence against half of the image
+arguments being set by a caller that meant the by-name form.
+
+#### 21.5.1.1 The Wire is the only caller that holds bytes
+
+`Load Program` (§92) fetches a `.O88` over the network into a heap claim and
+has **no file to name**, which is the whole reason the image form exists.
+Nothing else in the tree is in that position, and the alternative for it is
+worse than a second argument: writing the bytes to a disk first would make
+Load Program require `RAMDISK.DRV` — which today it does not, and which
+§92.14 already greys the *archive* case on — and would put a third copy of
+the program in the heap at its peak, in an arena §92.14 measures `LD_ENOMEM`
+in on a 640KB XT.
+
+#### The split, which is what makes the body one routine and not two loaders
 
 `ld_run_body_x` gave up two routines, both entered by the disk path exactly
 where they used to be inline:
@@ -36480,22 +36505,40 @@ where they used to be inline:
   instance and show its window; `.abort` and its `ld_unreserve` sweep come
   with it. In `ES` = the region, out `AL` = `LD_OK` or `LD_EABORT`.
 
-The disk path is then `ld_check_hdr` → `ld_alloc` → **step 6, the file read
-and the disk-swap re-check** → `ld_start`, and the slot is `ld_check_hdr` →
-`ld_alloc` → **a far `rep movsb`** → `ld_start`. Nothing about the arithmetic,
-the fences or the entry contract moved.
+So the file arm is `ld_run_name` (§21.4) — the same routine `ui.inc` launches
+the Task Manager through and `assoc.inc` opens a document with — and the image
+arm is `ld_check_hdr` → `ld_alloc` → **a far `rep movsb`** → `ld_start`.
+Nothing about the arithmetic, the fences or the entry contract moved.
 
-**No disk-swap re-check on the memory path**, and it is not an omission: the
+**No disk-swap re-check on the image path**, and it is not an omission: the
 bytes came out of memory the caller owns and `ld_check_hdr` read *those very
 bytes*, so there is nothing that could have been swapped underneath them. The
 copy count is `[ld_img]` and not the file length, which `ld_check_hdr` has
 just proved equal — parts being refused above.
 
 **The source is banked in `[ld_msrc]`** (offset, then segment) rather than
-kept in `ES:SI`, because `ld_alloc`'s chain reaches `mem_compact` and a
+kept in `ES:DI`, because `ld_alloc`'s chain reaches `mem_compact` and a
 package's relocation procs and no register survives that by contract.
 
-#### 21.5.1 The copy reads every kernel word BEFORE it moves DS
+**It says nothing on the screen.** `loader_run_x` ends in `ld_say_status`,
+which puts the verdict up as a toast (§59), and this does not: the caller has
+`AL` and its own words for the user, which is `ui.inc`'s Task Manager
+precedent — a toast reading `Bad package` for a launch a *program* asked for
+names neither the program nor the file. Nor does it write `[ld_status]`, which
+is the Disk window's status line and belongs to the window that posted a load.
+The one thing it keeps from `loader_run_x` is the tail: a package refused
+*after* its entry proc ran may have put pixels anywhere, so `LD_EABORT` — and
+only when the load did not paint a window of its own — takes a whole-screen
+repaint.
+
+**Context: UI TASK ONLY, gfx lock NOT held** — a window callback or an
+`OSAPI_WM_ONWAKE` handler. That is `loader_run`'s own context and for its
+reasons: step 9 takes the lock itself around `wm_show`, and step 8 runs the
+package's entry proc, which creates windows and may draw. `ui_task`'s ladder
+calls `loader_run_x` with the lock free at its `.chk_ld` step, and both
+callback kinds are entered with it released.
+
+#### 21.5.2 The copy reads every kernel word BEFORE it moves DS
 
 `[ld_msrc]` is a kernel `.bss` offset and the copy needs it in SI, so the
 order of two instructions is the whole of this section:
@@ -36563,84 +36606,6 @@ The measurement is taken on top of §26.7's, which is why the `before` column
 is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
-
-### 21.6 `OSAPI_PKG_OPEN` — the loader's FRONT half, published
-
-The system had two doors into the loader and a package could only use the one
-that does not work with everything on the machine. `OSAPI_PKG_RUN` (§21.5)
-takes an IMAGE and **refuses a package carrying parts**; the kernel's own
-launches — a Disk-window double-click, an association open, the Task Manager —
-take a NAME and refuse nothing. So *"run this `.O88` the way the file manager
-would"* was the one thing a package could not ask for, and the asymmetry read
-as arbitrary because it is: it belongs to the caller's situation and not to
-the file.
-
-**The parts refusal is right for the Wire and wrong as a general rule.** The
-kernel never reads a part. `op_load` (§20.12) copies the name its entry proc
-was handed and calls `OSAPI_FILE_READ_AT` on it, in the folder the new
-instance is standing in — so the loader's job ends at the image either way,
-and what a parted package needs is simply that **the file it was launched from
-still exists**. `PKG_RUN` has no file behind its bytes, which is exactly the
-Wire's case and exactly why its refusal is correct there. A caller naming a
-file on a disk has one.
-
-**Widening `PKG_RUN` is the wrong repair.** `BX` is free in its contract, so
-*"the name in `DI` is a real file here"* would fit in one bit — but the Wire
-already calls that cell and passes an undefined `BX`, and adding an input to a
-published cell is the ABI trap §20 warns about. The honest reading of *two
-slots that nearly do the same thing* is that the missing one is the FRONT half,
-not a flag on the back half.
-
-```
-OSAPI_PKG_OPEN  KERNEL_SEG:0x05A0        ; an N cell
-  in   SI     = a NUL-terminated 8.3 name, in YOUR segment, naming a package
-                in the folder YOU are standing in (§19.2.1)
-  out  CF = 0, AL = 0: it is running and its window is up, exactly as a
-                Disk-window double-click leaves one
-       CF = 1, AL = LD_* (§21.4) — including LD_EBAD for a file that is not a
-                package AND for one that is not there, which by name are one
-                code (§21.4)
-```
-
-**Parts, overlays, sizing and the disk-swap re-check all come free**, because
-this is not a second loader: it is `ld_run_name` (§21.4) with `[ld_pwin]` = 0,
-which is the same routine `ui.inc` launches the Task Manager through and
-`assoc.inc` opens a document with. Nothing about the pipeline is new, and a
-package with parts launches here for the same reason it launches from a
-double-click.
-
-#### 21.6.1 Why it is FOURTEEN resident bytes
-
-Because `api_n` (§20.3) already does the two things this needed: it stages the
-caller's name into kernel scratch — the name is in the caller's segment and
-the loader reads `DS:SI` through the kernel's — and it calls `inst_vol_enter`,
-which is *resolve this in the calling instance's own directory*. That is the
-stateless-by-name convention the whole file API already follows, so the cell
-adds no rule a package author has to learn: **stand where the file is, name
-it.** A package that navigates with `OSAPI_FILE_GOTO_QM` is already marking
-that folder as its own (§19.2.1), so the two agree with nothing to keep in
-step.
-
-What is left is the 8-byte cell and a 6-byte resident thunk to `.cold`, which
-is `osapi_pkg_run`'s own shape one slot along. The body — no poster, run the
-name, turn the status into a carry — is `.cold` and costs no machine any
-resident byte.
-
-**It says nothing.** `loader_run_x` ends in `ld_say_status`, which puts the
-verdict on the screen as a toast (§59), and this does not: the caller has `AL`
-and its own words for the user, which is `ui.inc`'s Task Manager precedent and
-the right one — a toast reading `Bad package` for a launch a program asked for
-names neither the program nor the file. Nor does it write `[ld_status]`, which
-is the Disk window's status line and belongs to the window that posted a load.
-
-**One thing it does keep from `loader_run_x`**: a package the loader refused
-*after* running its entry proc may have put pixels anywhere before it said no,
-so `LD_EABORT` — and only `LD_EABORT`, and only when the load did not paint a
-window of its own — takes a whole-screen repaint. Every other failure drew
-nothing.
-
-**Context: UI TASK ONLY, gfx lock NOT held** — §21.5's context and for its
-reasons, since it reaches the same step 8 and step 9.
 
 ## 22. files.inc — the Disk window (file manager)
 
@@ -42130,7 +42095,7 @@ copying it. The `.bin` and `.o88` rules are untouched and putting it back on a
 disk is one name in `$(APPS_TOOLS)`.
 
 **Three things still read `build/hello.o88` and none of them is a floppy:**
-`build/pkgrun.img` (§21.5's `OSAPI_PKG_RUN` gate, which loads the shipped
+`build/pkgrun.img` (§21.5's `OSAPI_PKG_START` gate, which loads the shipped
 package's own bytes and compares them), `tests/unit/t_wire.py`'s fixture
 archives (§92) and `tests/unit/t_lzfmt.py`'s round trip. All three take the
 file out of `build/`, which is why the line in `all` is load-bearing rather
@@ -116276,7 +116241,7 @@ the user sees carries the file name.
 
 ```
  kernel/desk.inc         kernel/loader.inc        apps/thewire/          ../os8088-web
- the Wire zone   --dbl-> OSAPI_PKG_RUN    <--WM_- THEWIRE.O88   <--HTTP-- /wire/catalog.bin
+ the Wire zone   --dbl-> OSAPI_PKG_START    <--WM_- THEWIRE.O88   <--HTTP-- /wire/catalog.bin
  (paint, hit)     click  (an image in      ONWAKE  catalog, list,          /wire/pic/*.PIC
                          memory -> a               picture, filter,        /wire/pkg/*.O88
                          running instance)         Load / Add
@@ -116284,7 +116249,7 @@ the user sees carries the file name.
 
 - The two kernel parts (§26's zone, §21's slot) know nothing about HTTP.
 - The package is the only reader of the catalog format on the machine and the
-  only caller of `OSAPI_PKG_RUN` today. It ships on the **system** disks in
+  only caller of `OSAPI_PKG_START` today. It ships on the **system** disks in
   all four geometries, in `SYSTEM/` beside `TASKMGR.O88` (§24.3), and is in
   `SMALLOMIT` — `kern_small` has no NIC.
 - The catalog format below is the contract between the machine and the site.
@@ -116488,7 +116453,7 @@ driver's. The gate's disk carries `10.0.2.2:8092/wire/`.
 
 | | does |
 |---|---|
-| the **UI task** | claims, sets the request, and is the only caller of `OSAPI_MEM_CLAIM`/`_FREE`, `OSAPI_FILE_WRITE`, `OSAPI_FILE_DLG` and `OSAPI_PKG_RUN` |
+| the **UI task** | claims, sets the request, and is the only caller of `OSAPI_MEM_CLAIM`/`_FREE`, `OSAPI_FILE_WRITE`, `OSAPI_FILE_DLG` and `OSAPI_PKG_START` |
 | the **worker** (one, `OS88_STACK_192`) | opens, polls `NETV_STATUS`, sends, drains into a 1,024-byte staging buffer **in its own segment**, copies into the claim, and paints the status cell under the lock with §20.6 rule 5's obscured and clip tests |
 
 The handshake is `apps/ftpd`'s one byte (§77): the worker writes `wr_wkind`
@@ -116647,7 +116612,7 @@ used with.
 ### 92.8 What each action does
 
 - **Load Program** — claim the exact size, fetch `/wire/pkg/<STEM>.O88`, and
-  on the wake call `OSAPI_PKG_RUN` with `ES:SI` = the claim, `DX:CX` = the
+  on the wake call `OSAPI_PKG_START` with `ES:SI` = the claim, `DX:CX` = the
   length and `DI` = `<STEM>.O88`; free the claim; status `Loaded <title> from
   the Wire` and a toast. An `LD_*` refusal is said in the status cell in
   words. The new instance's current directory is the Wire's (§19.2.1), which
@@ -116669,7 +116634,7 @@ used with.
   its own files). Either way the archive's `home` folder is made and entered
   first, every entry's folders are made as they are met, and when the last
   entry is a package the buffer still holds it and Load Program hands it to
-  `OSAPI_PKG_RUN` from there. Status `Adding <title>... N of M files`; the
+  `OSAPI_PKG_START` from there. Status `Adding <title>... N of M files`; the
   toast says `added to your disk` or `added to the RAM disk`.
 - **A selection change** fetches the record's `.PIC` when it has `WF_PIC` and
   the worker is idle, and repaints the detail pane and the two rows whose
@@ -116939,7 +116904,7 @@ Then `OSAPI_FILE_GOTO_Q` to the store's root (DX = 0, BL = the volume index
 `RDPV_STATE` answered), and the chain. On the 640KB XT this is for, the
 arithmetic was **measured and it does not go the way the first draft said**:
 the whole curated master disk — 320KB in 58 rows, `WC_NEEDKB` 345 — mounts a
-368KB store, unpacks, and then `OSAPI_PKG_RUN` answers `LD_ENOMEM`, because
+368KB store, unpacks, and then `OSAPI_PKG_START` answers `LD_ENOMEM`, because
 with ETHER.DRV's rings, the driver, the Wire's own region, catalog and entry
 claim beside a store that size, a ~532KB heap has about 46KB left and RunCPM
 wants its 47KB region and a 64KB Z80 claim before it opens a file. So the
@@ -116982,7 +116947,7 @@ written** and says which file, which is 92.8's rule and §22's.
 
 **The program entry is last so that the launch costs nothing**: when the last
 entry has been written the claim still holds it, byte for byte what the
-`.O88` on the disk now holds, and `OSAPI_PKG_RUN` takes it from there with the
+`.O88` on the disk now holds, and `OSAPI_PKG_START` takes it from there with the
 instance's directory already on the tree — the overlay and the sidecars are
 where the launched package will look (§73.14, 92.8). A tree with no
 `WAH_PROGRAM` — a CP/M game into `RUNCPM/A/1` — ends with the toast and no
@@ -117006,7 +116971,7 @@ current folder and deliberately not the INSTANCE's, and every file cell
 re-stands the machine in the instance's folder first — so a `GOTO_Q` is undone
 by the very next `OSAPI_FILE_WRITE`. `wr_cfgload` already carried that finding
 for `WIRE.CFG` (19.9), and the tree needs it twice over: the writes have to
-land where the archive says, and `OSAPI_PKG_RUN`'s new instance inherits our
+land where the archive says, and `OSAPI_PKG_START`'s new instance inherits our
 directory (19.2.1), which is the whole reason the program entry is last.
 
 **A mounted RAM disk is `DVK_FILE`, not `DVK_DRV`.** RAMDISK.DRV serves files
@@ -122825,7 +122790,7 @@ refused with the rest — rightly, because entering 30 KB of package image as a
 exists to prevent. What was missing was not a fourth extension to allow: it
 was **something else to do with one**.
 
-There is now. `OSAPI_PKG_OPEN` (§21.6) launches a `.O88` the way a
+There is now. `OSAPI_PKG_START` (§21.5) launches a `.O88` the way a
 Disk-window double-click does, so typing `CALC.O88` at the prompt opens
 Calculator in its own window — *not inside the box*, which is the distinction
 that matters. The DOS box is a DOS machine; a package is the OS's, and the
@@ -122859,7 +122824,7 @@ window to look at and `AL` is the only thing that knows why.
 **Where it resolves is where the PROMPT is** — `[dos_curdir]`, not the folder
 the box was launched from (§96.33.13) — and the box stands there with
 `dos_be_goto`, which is `OSAPI_FILE_GOTO_QM`: it moves the machine *and* marks
-the instance, which is what `OSAPI_PKG_OPEN`'s own `inst_vol_enter` reads. The
+the instance, which is what `OSAPI_PKG_START`'s own `inst_vol_enter` reads. The
 two agree with nothing to keep in step.
 
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)

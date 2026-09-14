@@ -633,7 +633,7 @@ dos_entry:
 ; -----------------------------------------------------------------------------
 dos_wake:
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
-    je .notpkg                      ; 96.33.17): OSAPI_PKG_OPEN wants the gfx
+    je .notpkg                      ; 96.33.17): OSAPI_PKG_START wants the gfx
     call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
     jmp short .out                  ; console posts and this is where it lands
                                     ; - the same place a DOS program's own
