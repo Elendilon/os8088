@@ -127783,6 +127783,25 @@ bank are all untouched, so every answer a program can read is the answer it
 read before.  A volume that cannot be mounted still refuses with DOS's own
 code 3, at the one place that tries.
 
+**MEASURED**, and the phase had to be recut because the fix CHANGED WHAT THE
+PROGRAM DOES.  Test Drive III keeps its settings in `TD3.CFG` beside itself
+on B:; standing on A: it never found that file, so it asked its three setup
+questions on every launch while a real DOS read the copy and went straight
+in.  With the home drive right it goes straight in too - so both arms are
+now watched from the LAUNCH to the first eight guest seconds of silence,
+which is one phase of one program with only the operating system different:
+
+| | `int 13h` calls | sectors | sectors a call | changes of drive |
+|---|---|---|---|---|
+| IBM DOS 3.30, the same disk in the same drive | 71 | 407 | 5.7 | 0 |
+| `kern_dos` | **53** | 565 | **10.7** | **1** |
+
+**Fewer calls than IBM DOS**, and the one change of drive is the launch
+itself: six reads off A: for the handoff and the image, and then B: for the
+rest of the run and never back.  The sector count is HIGHER and that is
+§18.91's cylinder run working - 10.7 sectors a call against DOS's 5.7 - so
+the same program's data arrives in three quarters of the calls.
+
 #### 96.48.1 The bracket is in THREE places, and two of them are the file window
 
 `dos_fh_enter`/`dos_fh_leave` is the one a name goes through.  It is not the
