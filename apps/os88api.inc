@@ -907,6 +907,40 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; where you are standing. Run one that has
                                  ; them from a disk instead.
 
+; --- ...and running one that is ON A DISK (SPEC.md 21.6) ---------------------
+; The loader's FRONT half, where the cell above is its back: "run this .O88 the
+; way the file manager would". It is what the kernel already does for a
+; double-click, for an association open and for the Task Manager, so PARTS,
+; OVERLAYS and sizing all come free - the kernel reads the file, which is the
+; one thing OSAPI_PKG_RUN cannot do and the whole of why that cell refuses a
+; parted image. Reach for THIS one unless the bytes you hold have no file
+; behind them.
+%define OSAPI_PKG_OPEN      KERNEL_SEG:0x05A0   ; SI = a NUL-terminated 8.3
+                                 ; name, in YOUR segment, naming a package in
+                                 ; the folder YOU ARE STANDING IN - so stand
+                                 ; where the file is first (OSAPI_FILE_GOTO_QM),
+                                 ; exactly as every other by-name call in this
+                                 ; SDK wants (SPEC.md 19.2.1).
+                                 ;
+                                 ; Out CF=0 with AL = 0: it is running and its
+                                 ; window is up, exactly as a Disk-window
+                                 ; double-click leaves one. CF=1 with AL = an
+                                 ; LD_* code (SPEC.md 21.4) - and note that 2
+                                 ; is BOTH `that file is not a package` and
+                                 ; `there is no such file`, which by name are
+                                 ; one answer.
+                                 ;
+                                 ; IT SAYS NOTHING ON THE SCREEN. You have AL
+                                 ; and your own words for the user; a toast
+                                 ; reading `Bad package` for a launch YOUR
+                                 ; program asked for names neither.
+                                 ;
+                                 ; UI TASK ONLY - a window callback or an
+                                 ; OSAPI_WM_ONWAKE handler - with the gfx lock
+                                 ; NOT held, for OSAPI_PKG_RUN's reasons: it
+                                 ; reaches the same entry-proc call and the
+                                 ; same first paint.
+
 ; --- the desktop SERVICE zone, DRIVERS ONLY (SPEC.md 26.7) --------------------
 ; A driver puts an icon on the desktop. It is here rather than in
 ; drivers/os88drv.inc for OSAPI_FILE_WRITE_SYS's reason: a driver assembles

@@ -4138,7 +4138,24 @@ apic_wm_destroy:
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
                                   ;          in the region it is going to move
-osapi_table_end:                  ; 0x05A0
+    OSAPI_NCELL osapi_pkg_open    ; 0x05A0  N: SI = a NUL-terminated 8.3 name in
+                                  ;         the folder YOU are standing in:
+                                  ;         LAUNCH IT AS A PACKAGE, exactly as
+                                  ;         a Disk-window double-click would
+                                  ;         (SPEC.md 21.6). Out CF=0 AL=0
+                                  ;         running; CF=1 AL=LD_*. The
+                                  ;         loader's FRONT half, where
+                                  ;         OSAPI_PKG_RUN is its back: the
+                                  ;         kernel reads the FILE, so parts,
+                                  ;         overlays and sizing all come free
+                                  ;         and the parts refusal that belongs
+                                  ;         to the Wire's no-file case does not
+                                  ;         follow the caller here. N because
+                                  ;         the stub already stages the name
+                                  ;         and enters this instance's own
+                                  ;         folder, which is the whole reason
+                                  ;         it is 14 resident bytes
+osapi_table_end:                  ; 0x05A8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4146,8 +4163,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 178 * 8
-%error "os8088 API jump table must be exactly 178 8-byte slots"
+%if OSAPI_TABLE_LEN != 179 * 8
+%error "os8088 API jump table must be exactly 179 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4383,7 +4400,7 @@ api_gfx_rest:
     ret
 %endif
 
-; osapi_pkg_run - slot 0x04F8's resident thunk (SPEC.md 21.5)
+; osapi_pkg_run - slot 0x0520's resident thunk (SPEC.md 21.5)
 ;
 ; The body is loader.inc's and loader.inc is `.cold`, so this is the ordinary
 ; six bytes - and it is in BOTH kernels, body included, because a slot that
@@ -4393,6 +4410,21 @@ api_gfx_rest:
 ; -----------------------------------------------------------------------------
 osapi_pkg_run:
     call COLD_SEG:ldf_ld_pkg_run
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_pkg_open - slot 0x05A0's resident thunk (SPEC.md 21.6)
+;
+; The cell above it is an N, so by the time this is entered SI names the
+; staged copy of the caller's name and inst_vol_enter has put us in that
+; instance's own folder - which is the whole of why the FRONT half costs
+; fourteen resident bytes where a hand-written stub would have staged and
+; navigated for itself. The body is loader.inc's and loader.inc is `.cold`,
+; so this is the same six bytes as the slot above, in BOTH kernels for the
+; same reason (SPEC.md 20.8 rule 4).
+; -----------------------------------------------------------------------------
+osapi_pkg_open:
+    call COLD_SEG:ldf_ld_pkg_open
     ret
 
 ; -----------------------------------------------------------------------------

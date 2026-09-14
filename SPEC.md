@@ -36564,6 +36564,84 @@ is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
 
+### 21.6 `OSAPI_PKG_OPEN` — the loader's FRONT half, published
+
+The system had two doors into the loader and a package could only use the one
+that does not work with everything on the machine. `OSAPI_PKG_RUN` (§21.5)
+takes an IMAGE and **refuses a package carrying parts**; the kernel's own
+launches — a Disk-window double-click, an association open, the Task Manager —
+take a NAME and refuse nothing. So *"run this `.O88` the way the file manager
+would"* was the one thing a package could not ask for, and the asymmetry read
+as arbitrary because it is: it belongs to the caller's situation and not to
+the file.
+
+**The parts refusal is right for the Wire and wrong as a general rule.** The
+kernel never reads a part. `op_load` (§20.12) copies the name its entry proc
+was handed and calls `OSAPI_FILE_READ_AT` on it, in the folder the new
+instance is standing in — so the loader's job ends at the image either way,
+and what a parted package needs is simply that **the file it was launched from
+still exists**. `PKG_RUN` has no file behind its bytes, which is exactly the
+Wire's case and exactly why its refusal is correct there. A caller naming a
+file on a disk has one.
+
+**Widening `PKG_RUN` is the wrong repair.** `BX` is free in its contract, so
+*"the name in `DI` is a real file here"* would fit in one bit — but the Wire
+already calls that cell and passes an undefined `BX`, and adding an input to a
+published cell is the ABI trap §20 warns about. The honest reading of *two
+slots that nearly do the same thing* is that the missing one is the FRONT half,
+not a flag on the back half.
+
+```
+OSAPI_PKG_OPEN  KERNEL_SEG:0x05A0        ; an N cell
+  in   SI     = a NUL-terminated 8.3 name, in YOUR segment, naming a package
+                in the folder YOU are standing in (§19.2.1)
+  out  CF = 0, AL = 0: it is running and its window is up, exactly as a
+                Disk-window double-click leaves one
+       CF = 1, AL = LD_* (§21.4) — including LD_EBAD for a file that is not a
+                package AND for one that is not there, which by name are one
+                code (§21.4)
+```
+
+**Parts, overlays, sizing and the disk-swap re-check all come free**, because
+this is not a second loader: it is `ld_run_name` (§21.4) with `[ld_pwin]` = 0,
+which is the same routine `ui.inc` launches the Task Manager through and
+`assoc.inc` opens a document with. Nothing about the pipeline is new, and a
+package with parts launches here for the same reason it launches from a
+double-click.
+
+#### 21.6.1 Why it is FOURTEEN resident bytes
+
+Because `api_n` (§20.3) already does the two things this needed: it stages the
+caller's name into kernel scratch — the name is in the caller's segment and
+the loader reads `DS:SI` through the kernel's — and it calls `inst_vol_enter`,
+which is *resolve this in the calling instance's own directory*. That is the
+stateless-by-name convention the whole file API already follows, so the cell
+adds no rule a package author has to learn: **stand where the file is, name
+it.** A package that navigates with `OSAPI_FILE_GOTO_QM` is already marking
+that folder as its own (§19.2.1), so the two agree with nothing to keep in
+step.
+
+What is left is the 8-byte cell and a 6-byte resident thunk to `.cold`, which
+is `osapi_pkg_run`'s own shape one slot along. The body — no poster, run the
+name, turn the status into a carry — is `.cold` and costs no machine any
+resident byte.
+
+**It says nothing.** `loader_run_x` ends in `ld_say_status`, which puts the
+verdict on the screen as a toast (§59), and this does not: the caller has `AL`
+and its own words for the user, which is `ui.inc`'s Task Manager precedent and
+the right one — a toast reading `Bad package` for a launch a program asked for
+names neither the program nor the file. Nor does it write `[ld_status]`, which
+is the Disk window's status line and belongs to the window that posted a load.
+
+**One thing it does keep from `loader_run_x`**: a package the loader refused
+*after* running its entry proc may have put pixels anywhere before it said no,
+so `LD_EABORT` — and only `LD_EABORT`, and only when the load did not paint a
+window of its own — takes a whole-screen repaint. Every other failure drew
+nothing.
+
+**Context: UI TASK ONLY, gfx lock NOT held** — §21.5's context and for its
+reasons, since it reaches the same step 8 and step 9.
+
 ## 22. files.inc — the Disk window (file manager)
 
 Built-in app kind (KIND_FILES), **cap 4** — up to four windows, each on its
@@ -121521,6 +121599,45 @@ so both directions had to be built:
   already in the file — which is the argument for doing this now rather than
   inventing a path layer.
 
+###### 96.32.1.1 …and it takes ARGUMENTS, and Enter runs it
+
+Two things a user does with a box that holds a command, and the box did
+neither.
+
+**Enter did nothing at all — no launch, no error, no repaint.** §96.19.4 gave
+Enter the meaning *run it again*, which is reached only from `DST_RAN` or
+`DST_ERR`, so on a fresh window a typed path and an Enter fell off the end of
+`dos_key` and returned. That is the worst answer a control can give: the user
+cannot tell a field that refused them from a field that is not wired up.
+**Enter in the PATH BOX is `Run`** now — the same `dos_go`, so the button and
+the key cannot drift — and Enter anywhere else keeps §96.19.4's meaning, which
+is what the arguments field on the setup page needs.
+
+**And `B:\BIN\FOO.COM /M` typed into the box was a PATH**, all of it. The
+resolver has no opinion about spaces, so the line became a directory walk to
+`B:\BIN` and an 8.3 name of `FOO.COM /M`, and what the user got for typing the
+thing every DOS user types was `Its folder could not be opened` — a message
+about the one part of the line that was right.
+
+So the box splits at the **first space**: everything before it is the path and
+everything after it is the argument text, which is exactly what `dos_con_prog`
+does one door along (§96.33.7). An 8.3 name cannot contain a space, so the
+split can never cut a path in half, and a user who types the same line at the
+prompt and into the box gets the same launch — which is the point, because
+those two are the same sentence in two places.
+
+**It MOVES the tail rather than reading past it.** The arguments field is what
+the program is given (§96.19), what `Save Shortcut` writes (§96.21) and what
+*run it again* re-runs, so a tail left sitting in the path box would be a
+launch nobody could repeat and a shortcut that recorded half of it. After the
+split the box holds the path alone and the field holds the arguments, which is
+also the only feedback the user gets that anything was understood.
+
+With no space in the box it does nothing whatever, which is what every other
+door needs: an association, a shortcut and the console all fill the box with a
+resolved path and the field separately, and a split that fired on those would
+clear arguments those doors had just set.
+
 ##### 96.32.2 ONE setup area, with pages inside it rather than beside it
 
 `Environment` opens a **page in the same window**, not a second window, and
@@ -122179,6 +122296,81 @@ The failure this prevents is the worst kind the box has: not an error message,
 not a wrong answer, but a machine that stops responding — and reachable by
 typing the name of any file in the folder you are standing in.
 
+###### 96.33.15.1 …and it refused EVERY extension, because `pop ax` undid the bank
+
+The check above shipped with one instruction too many and refused the whole
+dotted arm: `PRINCE.EXE`, `DOSARGS.COM`, every legitimate name a user types
+with the extension on it, answered `Bad command or file name`.
+
+```
+    mov al, [si]                ; the literal's character
+    push ax
+    mov al, [di]                ; the typed one
+    call dos_upc
+    mov ah, al                  ; ...banked, and then
+    pop ax                      ; ...UNBANKED, because AH came back with AL
+    cmp al, ah                  ; so this compares the literal against
+                                ; whatever AH held at the push
+```
+
+`dos_upc` answers in `AL` and touches nothing else, so the literal had to be
+put somewhere the call could not reach. `AH` is that place and the bank was
+written — one instruction before the `pop ax` that restores both halves of the
+register it was written into. The compare then read a byte no one had set, the
+first character never matched, and `.isext` answered *not this extension* for
+both literals, every time. It is **five instructions now instead of seven** and
+the ordering is what makes it correct rather than the comment: the typed
+character is upper-cased FIRST, because that is the operation with a call in
+it, and the literal is loaded after it into the register the call has finished
+with.
+
+**The reason it shipped is the test, and the lesson is docs/WRITING-TESTS.md's
+§1 rather than the register.** `tests/doscon.py` step 8b asserts that `DOS.O88`
+is refused — which a check that refuses EVERYTHING passes. The rule has two
+halves and the row asserted one: a negative case on its own cannot tell a
+working check from a check that is stuck saying no. `tests/dosext.py` is the
+pair, and it runs the same program under four spellings — bare, with the
+extension, with arguments, and with the extension AND arguments — so the
+acceptance is asserted as loudly as the refusal.
+
+**What it also fixes, for nothing, is a FULLY QUALIFIED name at the prompt.**
+`B:\BIN\FOO.COM /M` carries a dot, so it took the dotted arm and was refused
+there; past the fix `dos_con_ext` hands the name to `dos_path_take`, which is
+the path box's own parser and resolves a drive, a walk and a file without this
+routine learning anything about paths. What is still refused is the same name
+with the extension left OFF — `B:\BIN\FOO /M` — because the `.COM`/`.EXE`
+search is `dsh_nth` over the CURRENT directory and a path is not a pattern it
+can match. That one is open (§96.33.15.3).
+
+###### 96.33.15.2 `DIR/W` — a switch with no space in front of it
+
+`dsh_word` is whitespace-delimited, so `PRINCE/F` was one token, no extension
+was found for it and the answer was `Bad command or file name`. COMMAND.COM
+ends the command name at the switch character, which is why `DIR/W` works
+there — and it is the VERB scan as well as the program name, so `DIR/W` and
+`PRINCE/F` failed the same way.
+
+**`dsh_cmdword` is `dsh_word` with `/` ending the token as well, and SI left
+ON the slash** so the switch stays in the tail the handler is given. Two
+callers and no more: `dsh_run`'s verb and `dos_con_ext`'s program name. It is
+deliberately not `dsh_word` itself — DIR's own argument scan reads `/B` *as a
+word* (§96.33.9), so a global stop would hand it an empty one and leave SI
+parked on a slash it never consumes.
+
+A FAT name cannot contain `/`, and this box takes `\` as its separator and
+never `/`, so there is nothing else the split can cut in half.
+
+###### 96.33.15.3 …and what it still will not take
+
+One spelling DOS 3.3 accepts and this box does not, measured against
+`DOSARGS.COM` on the gate disk: **`B:\BIN\FOO /M`, a path with no
+extension.** The `.COM`/`.EXE` search walks the CURRENT directory by ordinal
+(§96.33.7) and a name with a separator in it is not an 8.3 pattern that walk
+can match. Closing it means probing in the named folder rather than this one,
+which is a walk there and back with the box's own position to restore — a
+feature rather than a fix, and it is written down here so the next reader knows
+it was measured rather than missed.
+
 ##### 96.33.16 A launch from the FULL SCREEN ends the console's bracket first
 
 Reported from the field: *"on CGA, launching prince from the full-screen
@@ -122624,6 +122816,51 @@ SHAPE only on a change, because a BIOS call a frame for a byte that does not
 move is a frame given away; the mode set leaves the CRTC's own cursor blinking
 at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
 placed at all.
+
+##### 96.33.17 `.O88` at the prompt opens the PACKAGE
+
+§96.33.15 refuses an extension that is not `.COM` or `.EXE`, and `.O88` was
+refused with the rest — rightly, because entering 30 KB of package image as a
+`.COM` at `PSP:0100` wedges the machine, and that is the failure that section
+exists to prevent. What was missing was not a fourth extension to allow: it
+was **something else to do with one**.
+
+There is now. `OSAPI_PKG_OPEN` (§21.6) launches a `.O88` the way a
+Disk-window double-click does, so typing `CALC.O88` at the prompt opens
+Calculator in its own window — *not inside the box*, which is the distinction
+that matters. The DOS box is a DOS machine; a package is the OS's, and the
+console is a place a user types the name of a thing they want to run.
+
+So `dos_con_ext` answers a **third** thing rather than allowing a fourth
+extension. `.COM` and `.EXE` mean *this is a DOS program*; `.O88` means *this
+is a package*; anything else is still `Bad command or file name`, and so is a
+`.O88` that is not there.
+
+**It is POSTED and not called**, which is the whole of the mechanics. The slot
+wants the UI task with the gfx lock FREE and the console runs under `W_ONKEY`,
+which holds it — so the name is banked out of `dsh_a1` (the shell's scratch,
+and the next command's to overwrite) and a wake is posted, exactly as a DOS
+program's own launch is. `dos_wake` services it **first and on a flag of its
+own**, so it neither reads nor moves `[dos_state]`: a package is not the thing
+§96.19.4's *run it again* re-runs.
+
+**From the full screen the bracket comes down first**, which is §96.33.16's
+rule reaching a second kind of launch for the same reason — a package's window
+cannot appear over a framebuffer that is character cells, and the wake cannot
+be dispatched while the UI task is inside the bracket either. `[dos_fsxgo]` is
+already that mechanism and it is set here too.
+
+**The path box is left alone.** It holds what `Run` re-runs *as a DOS program*
+(§96.32.1), so putting a `.O88` in it would arm a button that must then refuse
+it. The feedback for a success is the window that opens; a refusal says
+`Cannot open <NAME>` on the console, because at that point the user has no
+window to look at and `AL` is the only thing that knows why.
+
+**Where it resolves is where the PROMPT is** — `[dos_curdir]`, not the folder
+the box was launched from (§96.33.13) — and the box stands there with
+`dos_be_goto`, which is `OSAPI_FILE_GOTO_QM`: it moves the machine *and* marks
+the instance, which is what `OSAPI_PKG_OPEN`'s own `inst_vol_enter` reads. The
+two agree with nothing to keep in step.
 
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 

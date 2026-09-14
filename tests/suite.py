@@ -2341,13 +2341,31 @@ SOAK = [
         "magic and CF=1 / LD_EBAD for header flags bit 2, a package carrying "
         "PARTS, which are read out of a FILE that does not exist here "
         "(SPEC.md 20.12). The two refusals also say the region and the "
-        "instance record a failed load reserved were given back. MARTYPC, "
-        "through os88ui: it was hand-rolled QEMU on the argument that "
+        "instance record a failed load reserved were given back. "
+        "**AND THREE MORE ON THE OTHER DOOR** (SPEC.md 21.6): "
+        "OSAPI_PKG_OPEN is the loader's FRONT half, which takes a NAME, and "
+        "what the pair settles is that the parts refusal belongs to the "
+        "CALLER'S SITUATION and not to the file. HELLO.O88 runs by name too "
+        "(two live HELLO records, one per door); a name that is not there is "
+        "LD_EBAD; and the sharp one is ONE FILE, TWO DOORS, TWO ANSWERS - "
+        "tests/multiseg's real seven-part MSEG.O88, not a flag set by hand, "
+        "is read into a claim and REFUSED by PKG_RUN and then opened BY NAME "
+        "and RUNS, with both halves asserted because either alone is a claim "
+        "about one door rather than about the difference. Its parts really "
+        "arrive: MSEG rewrites its own title to `MSEG 7/7 OK` and this reads "
+        "it, so a launch that produced a window and no parts cannot pass. "
+        "VERIFIED RED by downgrading the cell from OSAPI_NCELL to a plain "
+        "slot - which is exactly 21.6.1's claim, that the N stub's staging "
+        "and inst_vol_enter are what make the front half 14 resident bytes: "
+        "D and E's open half went red and the back door stayed green. "
+        "MARTYPC, through os88ui: it was hand-rolled QEMU on the argument "
+        "that "
         "nothing here is a time, which is not on docs/TESTING.md's list - "
         "and it FLAKED, driving remembered coordinates and reading a "
         "384-byte inst_tab off a RUNNING machine, which returns torn "
         "records. It builds its own disk",
-        needs=("marty",), builds=True, wants=("build/hello.o88",)),
+        needs=("marty",), builds=True,
+        wants=("build/hello.o88", "build/mseg.o88")),
     Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
@@ -3151,6 +3169,53 @@ SOAK = [
         "pictures. VERIFIED RED both ways with the caroff taken back out: "
         "backspaced 16 pixels at two cells, moved 6 at one.",
         needs=("marty",), serial=True),
+    Row("dospkg", "soak", py("tests/dospkg.py"), 150.0,
+        "A .O88 TYPED AT THE DOS PROMPT OPENS THE PACKAGE (SPEC.md 96.33.17). "
+        "96.33.15 refuses an extension that is not .COM or .EXE and .O88 went "
+        "with the rest - rightly, since entering 30KB of package image as a "
+        ".COM wedges the machine - and what was missing was not a fourth "
+        "extension to allow but something else to DO with one. "
+        "OSAPI_PKG_OPEN (21.6) is it, so the box hands the name to the kernel "
+        "and the package opens in its own window, NOT inside the box. Four "
+        "steps and the last two are the ones that break silently: CALC.O88 "
+        "opens 'Calculator' AND the box is still there (a launch that "
+        "replaced it would be the .COM path back); NOSUCH.O88 says `Cannot "
+        "open NOSUCH.O88` and opens nothing, because at that point there is "
+        "no window to look at; a SECOND package launches, which a one-shot "
+        "flag or a name left in the shell's scratch would not deliver (the "
+        "launch is POSTED - the slot wants the gfx lock free and W_ONKEY "
+        "holds it); and from the FULL SCREEN the console's bracket comes "
+        "down first, which is 96.33.16's rule reaching a second kind of "
+        "launch - without it the wake is never dispatched and the machine "
+        "shows 80x25 text with a package running behind it. Asserted on "
+        "GUEST STATE and not pixels: wm_wins for the titles, the box's own "
+        "con_scr for the console. VERIFIED RED with the .O88 arm taken back "
+        "out of dos_con_ext - 5 of the assertions, every spelling answering "
+        "`Bad command or file name` again.",
+        needs=("marty",), serial=True),
+    Row("dosext", "soak", py("tests/dosext.py"), 170.0,
+        "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
+        "COMMAND.COM's rule has two halves - no extension is a search, an "
+        "extension must be one it can execute - and dos_con_ext shipped with a "
+        "check that answered NO to both: `mov ah, al` banked the literal one "
+        "instruction before the `pop ax` that restored the register it was "
+        "banked into, so the compare read a byte nobody had set and EVERY "
+        "dotted name on the machine came back `Bad command or file name` - "
+        "PRINCE.EXE, DOSARGS.COM, a fully qualified B:\\BIN\\FOO.COM. THE "
+        "REASON IT SHIPPED IS THE ROW AND NOT THE REGISTER: doscon step 8b "
+        "asserts that DOS.O88 is REFUSED, which a check stuck saying no passes "
+        "perfectly, so this one asserts the acceptance as loudly as the "
+        "refusal. The negative control is the sharp part - BIN/DOSARGS.DAT is "
+        "a BYTE-FOR-BYTE COPY of BIN/DOSARGS.COM, so its refusal cannot be "
+        "about the file being missing or not being a program: the same bytes "
+        "run under one name and are refused under the other, and the only "
+        "difference is three characters. Six spellings in one boot - bare, "
+        "with the extension, with arguments, with both, fully qualified, and "
+        "the .DAT - and the ones that run must report the exact argument text. "
+        "VERIFIED RED with the pop put back: three of the six, all three "
+        "dotted ones, while the search and the refusal stayed green.",
+        needs=("marty",), serial=True,
+        wants=("build/dosargs360.img",)),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "

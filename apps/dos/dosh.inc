@@ -104,7 +104,7 @@ dsh_run:
     jc .badredir                    ; scan never sees it
     call dsh_skipsp
     mov di, dsh_verb
-    call dsh_word
+    call dsh_cmdword                ; ...and `DIR/W` is DIR (SPEC.md 96.33.15.2)
     cmp byte [dsh_verb], 0
     je .empty                       ; an empty command line is DOS's own no-op
     mov di, dsh_verb
@@ -256,8 +256,25 @@ dsh_skipsp:
     ret
 
 ; dsh_word - one whitespace-delimited token from SI into DI (DSH_ARG bounded)
-; out: SI past it, the token ASCIZ at DI.  clobbers: AX, CX, SI, DI, flags
+; out: SI AT the terminator, the token ASCIZ at DI.  clobbers: AX, CX, SI, flags
+;
+; dsh_cmdword is the same token with `/` ending it as well, and SI left ON the
+; slash so the switch stays in the tail the handler is given (SPEC.md
+; 96.33.15.2): `DIR/W` is DIR with `/W` and `PRINCE/F` is PRINCE with `/F`,
+; which is what COMMAND.COM does and what a DOS user's fingers do. It is for
+; the COMMAND NAME and nothing else - DIR's own argument scan reads `/B` as a
+; word and would get an empty one - so there are exactly two callers, dsh_run's
+; verb and dos_con_ext's program name.
+dsh_cmdword:
+    push bx
+    mov bl, '/'
+    jmp short dsh_word_i
 dsh_word:
+    push bx
+    xor bl, bl                      ; ...and no switch character, so the
+                                    ; compare below can never fire: AL is
+                                    ; already known not to be 0
+dsh_word_i:
     push di
     mov cx, DSH_ARG - 1
 .c:
@@ -267,6 +284,8 @@ dsh_word:
     cmp al, ' '
     je .end
     cmp al, 9
+    je .end
+    cmp al, bl
     je .end
     jcxz .skip                      ; past the buffer: consume the rest of the
     mov [di], al                    ; token but store none of it, so a long
@@ -278,6 +297,7 @@ dsh_word:
 .end:
     mov byte [di], 0
     pop di
+    pop bx
     ret
 
 ; dsh_upper - upper-case the ASCIZ string at DI in place.  clobbers: AL, flags
