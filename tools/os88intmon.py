@@ -167,13 +167,23 @@ def drive_of(vec, r):
 # ===========================================================================
 # THE WATCH
 # ===========================================================================
-def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None):
+def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None,
+          quiet=None):
     """Stop on every `INT n` in `vectors` until the guest has run `budget`
     seconds of its OWN time.  Returns the record list.
 
     `until` is an optional predicate on the record just taken - a phase ends
     when it answers True, which is how a load is measured rather than a
     stopwatch-shaped guess at one.
+
+    `quiet` is the other way a phase ends and the one a LOAD wants: stop
+    once the guest has run this many of its own seconds making no call at
+    all. A program that has finished loading and is waiting for a key makes
+    none, so the silence IS the end of the load - and it is the same end on
+    two different operating systems, which a fixed budget is not. It has to
+    be the guest's clock rather than the host's: a loaded box makes a host
+    second mean less work, so a host-timed silence would end the phase
+    early under exactly the conditions that make a comparison interesting.
     """
     import os88marty
 
@@ -184,20 +194,31 @@ def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None):
     host0 = time.time()
     stalls = 0
 
+    # A silence is only detectable at the grain the wait comes back at, so a
+    # run watching for one polls oftener. 20 guest seconds is the plain wait.
+    wlim = 20.0 if quiet is None else max(0.2, quiet / 3.0)
+
     while True:
         m.run()
-        if not m.wait_stop(limit=20.0, poll=POLL):
+        if not m.wait_stop(limit=wlim, poll=POLL):
             # **A PROGRAM WAITING FOR A KEY MAKES NO CALLS**, and that is not a
             # machine that died - it is the commonest thing a game does. So a
             # timeout asks the CLOCK before it gives up: the budget is guest
             # seconds and it is still being spent.
             spent = (int(m.status().get("cycles", 0)) - c0) / GUEST_HZ
+            if quiet is not None and recs and \
+                    spent - recs[-1]["cyc"] / GUEST_HZ >= quiet:
+                say("intmon: %.1f guest seconds with no call - the phase "
+                    "ended. %d call(s) over %.2f guest s"
+                    % (spent - recs[-1]["cyc"] / GUEST_HZ, len(recs),
+                       recs[-1]["cyc"] / GUEST_HZ))
+                break
             if spent > budget:
                 say("intmon: %.1f guest seconds spent with the guest idle - "
                     "the budget. %d call(s)" % (spent, len(recs)))
                 break
             stalls += 1
-            if stalls > 8:
+            if stalls > (8 if quiet is None else 8 * max(1, int(3.0 / wlim))):
                 say("intmon: no call in %d waits and %.1f guest seconds - the "
                     "guest is stopped, not quiet" % (stalls, spent))
                 break
