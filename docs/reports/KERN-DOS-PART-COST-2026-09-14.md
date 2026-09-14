@@ -94,9 +94,9 @@ it for.
 Two of §4.1's objections to option one have since been answered by work that
 did not exist when it was written:
 
-- ***"a loader"*** — the stub is written either way. §4.1.1's own argument is
-  that the part is never loaded AS a part: the handoff walks its bytes into
-  extents and the stub reads them with `int 13h`. A file's bytes walk exactly
+- ***"a loader"*** — the stub is written either way. The argument in
+  docs/plans/KERN-DOS-PLAN.md §4.1.1 is that the part is never loaded AS a
+  part: the handoff walks its bytes into extents and the stub reads them with `int 13h`. A file's bytes walk exactly
   the same way and need **no part table read first**, so the file is the
   simpler of the two at the point where the code is.
 - ***"a mini-ABI between two halves that rots"*** — W5a built the ABI and it
@@ -115,9 +115,9 @@ of a separately shipped binary, which is not what this tree would build.
 
 ## 4. The real lever is `kern_dos`'s own size, not its container
 
-Both containers are large because the thing inside them is. §4.1.2 said the UI
-half *"does not come along"*; W4 found it does not NEED to and shipped it
-anyway (SPEC.md 96.38), on the ground that unreached bytes cost image size and
+Both containers are large because the thing inside them is.
+docs/plans/KERN-DOS-PLAN.md §4.1.2 said the UI half *"does not come along"*;
+W4 found it does not NEED to and shipped it anyway (SPEC.md 96.38), on the ground that unreached bytes cost image size and
 nothing else. On disk, image size is the whole cost.
 
 Measured spans in this image, by what W4 and §10 already establish is
@@ -153,7 +153,7 @@ version worth putting on it.
 | §1's budget | 39,424 | **39** |
 
 The measured arena at W5a is **569 KB of 640**; the cut would put it near 584.
-§1's target is 600 and §1.1's estimate was 603, so **§6.1's levers are still
+The plan's target is 600 and its own estimate was 603, so **§6.1's levers are still
 the wave that closes it** — but the gap after this cut is 8 KB rather than 23,
 and it is in `.cold` and `.bss` rather than in anything a container choice can
 reach.
