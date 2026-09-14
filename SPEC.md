@@ -127669,3 +127669,88 @@ the open actually landed on, and "the volume is not there" (`(open failed)`)
 is a different picture from "it opened the wrong drive's copy".
 
 This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.
+
+### 96.47 The live resume — the session comes back without a boot
+
+W6 got the machine home by `int 19h`: a POST, a whole boot, and then os8088's
+own `hb_probe` finding the hibernation pointer and resuming. This puts the
+image back **here**, at `kd_leave`, with nothing in between — `kern_dos` reads
+`HIBERNAT.IMG` over conventional memory and jumps to the kernel's wake
+address, which is exactly what §87.5's stub does for an ordinary resume.
+
+**MEASURED: 4.03 guest seconds against 15.4**, MartyPC, `tests/kdreturn.py`'s
+own fixture, stamped on the first graphics frame so the figure is the return
+and not the harness's settle.
+
+docs/plans/KERN-DOS-PLAN.md 8.1 refused this at ~1,200 bytes, and **the size
+estimate was sound — it is 996 — while its other argument was wrong about
+*when***. That argument was that the extent list cannot be bounded cheaply
+because *"the one place it could live is `kern_dos`'s own image: the text
+framebuffer is not available, since the DOS program prints into it."* True
+during the program; this runs after it has exited, with the screen about to be
+overwritten by the image anyway. So the list goes where the kernel's own goes,
+at `HS_EXT`, and costs the image nothing: 1,280 extents of video RAM that no
+rung of the ladder owns, and no cap, no new refusal.
+
+What it does cost is the stub, which is irreducible — it has to BE somewhere
+to be staged. `kernel/hbstage.inc` (the map) and `kernel/hbstub.inc` (the
+~440-byte body) are shared as SOURCE with `kernel/hiber.inc`, in the shape
+§96.45 used for the mouse packet: two stagers, one layout, neither able to
+call the other. **The section is the includer's choice** — `.modh` over there
+and `.text` here — which is why the body is a file rather than a macro.
+
+**One thing in the stub could not stay an assembly constant.** It ended
+`mov ax, KERNEL_SEG` before jumping to the wake address, and `KERNEL_SEG` is
+`KD_SEG` — 0x0060 — inside `kern_dos`, so a shared copy would hand the resumed
+kernel a DS of 96 and nothing would say so. It is staged now (`HS_KSEG`), by
+whoever stages the rest. It cannot be taken from `HS_WAKE` either: that
+segment is the hibernate *module's* CS.
+
+The launch block carries four things only the kernel knows — `KDL_WAKE`,
+`KDL_KSEG`, `KDL_HBVOL` and `KDL_CLK` — gathered at step 3b, the one point in
+the handoff where all four are settled. `KDL_VER` goes 3 → 4.
+
+**The clock block is ten bytes and two of them are not a clock.** `hbm_wake`
+copies `HS_CLK` into `clk_sec`, and that block is sec/min/hour/day/mon then
+**`clk_rtc` and `clk_dirty`** then the year — whether a usable RTC was found
+and whether it is owed a write. `kern_dos` cannot know either, so the block
+carries the kernel's own ten and only the *time* fields are overwritten, from
+the ROM through `cw_clk_snapshot`. A zeroed block would tell the resumed
+machine it has no clock hardware.
+
+**EVERY REFUSAL FALLS BACK TO `int 19h`**, which is W6's route and works. A
+machine that cannot mount its volume, find its image or walk its chain reboots
+and resumes the long way instead of losing the session — so the fast path is
+an optimisation and never a new way to fail. That fallback is not theoretical:
+it is what ran, correctly, through two defects below.
+
+**MEASURED: 996 bytes, and this one crosses the rung.** The image goes 35,476
+→ 36,472, `KD_IMG_KB` 35 → 36, and the DOS program **585 KB → 584**. 392 bytes
+of the new rung are left.
+
+#### 96.47.1 Two defects, and the expensive one was not in the code
+
+**The size of a staged entry is at offset 20.** `kd_resume` read it at 28,
+which is where a raw FAT record keeps it — and §19.1's *synthesized* entry
+declares bytes 24..31 zero, so the read returned a confident nothing, the walk
+refused, and `kd_leave` fell back. The only symptom was a return that took
+fifteen guest seconds instead of four. It is the same trap as the first
+cluster being at 18 and not 26 (§96.37.1 item 4), one field along.
+
+**And the first version sized the walk from `[kd_top]`**, because that is what
+`hbm_extents` does with `[mem_top]`. They are different quantities — the
+kernel writes `[mem_top]` paragraphs and this host knows only a cap the box
+banked out of the BDA — so a machine where they disagree restores SHORT. The
+directory entry's own length is the one figure both sides agree on.
+
+**The expensive one was neither.** `kerndos/kdresume.inc`, `hbstage.inc` and
+`hbstub.inc` were not in the Makefile's `KERNDOS_INC`, so `make kdostest`
+rebuilt nothing and every run for an hour exercised the FIRST version of the
+file — presenting as a session that came back with the kernel intact and the
+package heap full of rubbish, a window titled with 24 bytes of 0x86, because a
+region is claimed top-down and so lives in the tail. `t_pkgdeps` exists for
+exactly this and catches it on a full `make`; `make kdostest` does not run it.
+The lesson is not about prerequisites, which were added: it is that a
+diagnosis should start by checking that the artefact under test is the one the
+source describes — `cmp` against a fresh assembly took one command and would
+have saved the hour.

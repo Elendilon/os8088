@@ -455,6 +455,16 @@ kd_leave:
     ; handover in the other direction from.
     call kd_mou_stop
     mov si, [kd_lbp]
+
+    ; --- THE SESSION, PUT BACK HERE (SPEC.md 96.47) -------------------------
+    ; Before the exit code is printed and before anything is parked: this does
+    ; not return when it works, and what it returns to when it does not is the
+    ; route W6 shipped - `int 19h`, a whole boot, and os8088's own `hb_probe`
+    ; finding the pointer. So the fast path is an optimisation over a route
+    ; that still works, never a new way to lose the session.
+    call kd_resume              ; ...or CF=1, and on down
+    mov si, [kd_lbp]            ; (it spends SI on the block's own fields)
+
     test word [si+KDL_FLAGS], KDLF_REBOOT
     jz .hold                    ; W6: the return. Until it exists, a block
                                 ; that does not ask for the reboot has nowhere

@@ -6044,6 +6044,10 @@ dos_lbfill:
                                             ; hibernation image to come back
                                             ; to, the machine restarts (§9)
     mov word [di+KDL_TLEN], KDL_MINE
+    mov word [di+KDL_WAKE + 2], 0           ; ...and the live resume's, whose
+                                            ; zero SEGMENT is what kd_resume
+                                            ; reads as "this kernel does not
+                                            ; offer one" (96.47)
     mov byte [di+KDL_NVOL], 0               ; **AND THE VOLUME COUNT** (96.46):
                                             ; the table is the KERNEL's, and
                                             ; zero is how a sender that cannot

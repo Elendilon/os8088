@@ -35,7 +35,17 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; **THE SHIPPED FIGURE DOES NOT MOVE.** What ships is the extcore arm and it
 ; was already 35, so the DOS program keeps its 585 KB; what rises is the
 ; `KD_GATE` build (tests/kdos.py), which is a test artefact on no floppy.
-KD_IMG_KB   equ 35              ; the image rung: every progbits section PLUS
+;
+; **35 -> 36 AT SPEC.md 96.47, AND THIS ONE IS PAID BY THE PROGRAM.** The live
+; resume is 996 bytes - 36,472 against 35,840 - of which ~440 is 87.5's stub,
+; which has to BE somewhere to be staged and is the irreducible half. The DOS
+; program goes 585 KB -> 584, which is the trade docs/plans/KERN-DOS-PLAN.md
+; 8.1 costed at ~1,200 and refused: the estimate was sound and its OTHER
+; argument - that the extent list has nowhere to live - was wrong about WHEN,
+; the list going in the text framebuffer at a moment the program has already
+; exited. 392 bytes of the new rung are left, and by this comment's own rule
+; the next wave lowers it again rather than banking slack.
+KD_IMG_KB   equ 36              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG

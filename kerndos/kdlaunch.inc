@@ -156,24 +156,51 @@ KDL_VMAX    equ 8               ; DVOL_MAX's widest arm (kernel/disk.inc), so
 ; the gather writes DVK_FREE for one rather than carrying a row whose
 ; transport is missing (KERN-DOS-PLAN 6.1 lever 4, enforced instead of hoped).
 
+; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.47) ---------------------------
+; `kd_leave` puts the session back itself instead of `int 19h`-ing and letting
+; a fresh boot do it. Four things only the KERNEL knows, and none of them is
+; reconstructible on a machine it is no longer running on.
+KDL_WAKE    equ 82              ; dd where the restored kernel comes back in -
+                                ; `hbm_wake` as off:seg, the same pair the
+                                ; hibernation POINTER carries. Zero = a kernel
+                                ; that does not offer a live resume, which
+                                ; `kd_resume` reads as "reboot instead"
+KDL_KSEG    equ 86              ; dw ...and the DS it comes back WITH, which
+                                ; is NOT the segment above: that one is the
+                                ; hibernate module's CS. The stub used to
+                                ; spell this as `KERNEL_SEG`, an assembly
+                                ; constant that means 0x0060 in this host
+KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on - `hb_pick`'s
+KDL_HBPAD   equ 89              ; db 0, and the word above stays even
+KDL_CLK     equ 90              ; db[10] the kernel's OWN clock block, because
+                                ; `hbm_wake` copies these ten into `clk_sec`
+                                ; and two of them are `clk_rtc`/`clk_dirty` -
+                                ; whether a usable RTC was found and whether it
+                                ; is owed a write (kernel/clock.inc). kern_dos
+                                ; overwrites only the TIME fields, from the
+                                ; ROM; a zeroed block would tell the resumed
+                                ; machine it has no clock hardware
+KDL_CLK_LEN equ 10
+
 ; **THESE TWO ARE `%assign` AND THE REST ARE `equ`**, which is not a style
 ; slip: the fit assert below runs at PREPROCESSOR time and `%if` cannot see an
 ; assembler symbol. A `%assign` reads the same everywhere an `equ` does and
 ; loses only its line in the map file.
-%assign KDL_BODY 82             ; ...and the gathered fields from here
+%assign KDL_BODY 100             ; ...and the gathered fields from here
 %assign KDL_SIZE 512            ; one sector, which is what the stub moves and
                                 ; what `kern_dos` reserves in its own image.
                                 ; The payload is 377 bytes today; the assert
                                 ; each side writes is what keeps it true
 
 KDL_SIG     equ 0x314C444B      ; 'KDL1', little-endian
-KDL_VER_NOW equ 3               ; what this tree writes and checks. It is a
+KDL_VER_NOW equ 4               ; what this tree writes and checks. It is a
                                 ; CONSTANT and not a literal at three sites,
                                 ; because a version that has to be bumped in
                                 ; three files is a version that gets bumped in
                                 ; two. 1 -> 2 is KDL_DPT moving the body,
-                                ; and 2 -> 3 is the volume table doing it
-                                ; again (96.46). **THE BUMP IS OWED EVEN
+                                ; 2 -> 3 is the volume table doing it
+                                ; again (96.46), and 3 -> 4 the live
+                                ; resume's four fields (96.47). **THE BUMP IS OWED EVEN
                                 ; THOUGH BOTH SIDES SHIP IN ONE FILE**:
                                 ; kern_dos is part 2 of DOS.O88 and the box
                                 ; is part 0, so those two are always in step -
