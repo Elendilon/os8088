@@ -499,6 +499,7 @@ dos_entry:
                                 ; 96.44.1): the core stores a DBE_* ordinal and
                                 ; dos_be_go resolves it here, so a host that
                                 ; did not bind would jump through a zeroed bss
+    call dos_hk_bind            ; ...and the four hooks beside them (96.44.3)
 %ifdef DOSKPART
     call dos_pkgwhere           ; **NOW OR NEVER** - SPEC.md 96.40, and the
 %endif                          ; routine's own header says why
@@ -1496,12 +1497,10 @@ dos_fsx_main:
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
-%ifndef KD_BACKEND                  ; 96.43: the console is the window's
-    call dos_snap                   ; **THE LAST SCREEN FIRST** (SPEC.md 96.34):
-                                    ; the BDA's mode byte and cursor are the
-                                    ; PROGRAM's until dos_restore_machine runs,
-                                    ; and the regen buffer still holds its text
-%endif
+    cmp word [dos_hkv + DHK_SNAP], 0 ; **THE LAST SCREEN FIRST** (SPEC.md 96.34):
+    je .nosnap                       ; the BDA's mode byte and cursor are the
+    call word [dos_hkv + DHK_SNAP]   ; PROGRAM's until dos_restore_machine runs,
+.nosnap:                             ; and the regen buffer still holds its text
     call dos_unhook_vectors
     call dos_restore_machine
     ret
@@ -2074,13 +2073,11 @@ dos_int21:
 %ifdef DOSTRACE
     call dos_trace
 %endif
-%ifndef KD_BACKEND
-    cmp byte [dos_pkt_raw], 0       ; **THE THIRD POLL** (SPEC.md 96.23.4): a
-    je .nopkt                       ; client doing file I/O between receives
-    call dos_pkt_poll               ; drains here. One compare on a path that
-.nopkt:                             ; is already a dispatch, and it costs a
-                                    ; program with no packet driver nothing
-%endif
+    cmp word [dos_hkv + DHK_POLL], 0 ; **THE THIRD POLL** (SPEC.md 96.23.4): a
+    je .nopkt                        ; client doing file I/O between receives
+    call word [dos_hkv + DHK_POLL]   ; drains here. One compare on a path that
+.nopkt:                              ; is already a dispatch, and it costs a
+                                     ; host with no packet driver nothing
 
     cmp ah, 0x4C
     je .term
@@ -3869,54 +3866,33 @@ dos_getkey:
 dos_tty:
     push ax
     push bx
-%ifndef KD_BACKEND                  ; **THERE IS NO SECOND ARM UNDER kern_dos**
-                                    ; (SPEC.md 96.43): the bracket is up from
-                                    ; kd_entry to int 19h, so [dos_inbr] is 1
-                                    ; for the life of the machine and the
-                                    ; console arm below is unreachable code
-                                    ; with a 10KB library behind it
-    cmp byte [cs:dos_inbr], 0       ; **`cs:` AND IT IS NOT DECORATION** (SPEC.md
-    je .window                      ; 96.33): AH=09h, AH=40h and AH=02h all
-                                    ; reach here with DS holding the PROGRAM's
-                                    ; segment, off the gate's frame - so a
-                                    ; DS-relative read of our own byte lands in
-                                    ; the program's image at the same offset.
-                                    ; MEASURED: a probe's `COUNT ` and `TERM `
-                                    ; labels vanished and their VALUES survived,
-                                    ; because AH=09h was reading a program byte
-                                    ; that happened to be 0 and AH=02h was
-                                    ; reading ours. Inside the bracket the ROM's
-                                    ; teletype is
-%endif                              ; KD_BACKEND
-    mov ah, 0x0E                    ; the machine's own screen and outside it
-    mov bx, 0x0007                  ; there is no mode for it to write to at
-    int 0x10                        ; all - an int 10h there would scribble on
-    jmp short .out                  ; whatever the desktop has in 12h
-%ifndef KD_BACKEND
-.window:
-    push ds                         ; ...and the console arm needs OUR DS for
-    push cs                         ; real, con_scr and every byte of the
-    pop ds                          ; library being DS-relative. It is only
-    call con_write                  ; reachable outside the bracket, where DS is
-                                    ; already ours - but "only reachable" is
-                                    ; what the paragraph above was about
-                                    ; ...so the console takes it instead, and
-                                    ; DRAWS NOTHING HERE **IN A WINDOW**: a verb
-                                    ; that prints a directory would take the gfx
-                                    ; lock per character, and a band repaint is
-                                    ; OSAPI_GFX_BLIT1 per run at ~756us of
-                                    ; arrival. dos_con_run spends the marks
-                                    ; once, after the verb has returned
-    cmp byte [cs:dos_fsxup], 0      ; **FULL SCREEN STREAMS A LINE AT A TIME**
-    je .nofs                        ; (SPEC.md 96.33.11): there the same paint
-    cmp al, 10                      ; is a rep movsw of eighty words, so the
-    jne .nofs                       ; argument that forbids it in a window does
-    call dos_fsx_owed               ; not reach it. LF and only LF - per
-.nofs:                              ; character would rewrite a row that is
-    pop ds                          ; about to change again, and the echo path
-                                    ; already paints after every key it takes
-%endif                              ; KD_BACKEND
-.out:
+    ; --- THE HOST MAY TAKE IT (SPEC.md 96.44.3) ----------------------------
+    ; `DHK_TTY` answers CF=0 when it has put the character somewhere of its
+    ; own - the box's console, which is where AH=02h/09h/40h go while the
+    ; window is up (96.33). `kern_dos` sets no hook: the bracket is up from
+    ; `kd_entry` to `int 19h`, the program owns the screen, and the ROM's
+    ; teletype below is the only arm there has ever been on that host.
+    ;
+    ; A HOOK AND NOT A `%ifndef`, because the core is assembled ONCE (96.44):
+    ; a build-time arm would be the box's or kern_dos's, never both.
+    ; **`cs:` AND IT IS NOT DECORATION** (SPEC.md 96.33): AH=09h, AH=40h and
+    ; AH=02h all reach here with DS holding the PROGRAM's segment, off the
+    ; gate's frame - so a DS-relative read of our own word lands in the
+    ; program's image at the same offset. MEASURED TWICE: first as a probe's
+    ; `COUNT ` and `TERM ` labels vanishing while their VALUES survived, and
+    ; then, when the hook replaced the `%ifndef` and the override was dropped
+    ; with it, as a CALL through a word of the program's own data - a machine
+    ; running wild in RAM with kern_dos loaded perfectly at KD_SEG and the
+    ; screen never written at all.
+    cmp word [cs:dos_hkv + DHK_TTY], 0
+    je .rom
+    call word [cs:dos_hkv + DHK_TTY]
+    jnc .out
+.rom:
+    mov ah, 0x0E                    ; the machine's own screen: inside the
+    mov bx, 0x0007                  ; bracket that is what the program sees,
+    int 0x10                        ; and outside it there is no mode for an
+.out:                               ; int 10h to write to at all
     pop bx
     pop ax
     ret
@@ -3974,6 +3950,19 @@ DBE_HERE    equ 40                  ; out DX = where this instance stands,
 DBE_VKIND   equ 42                  ; AL = a volume index; out CF=1 no such
                                     ; volume, else AL/AH = VK_*/VT_*
 DBE_NENT    equ 22
+
+; --- THE HOST'S HOOKS (SPEC.md 96.44.3) -------------------------------------
+; Where the CORE would otherwise have to know which host it is in. Each is a
+; word in `dos_hkv`, zero when the host does not want it, and the core calls
+; it where a `%ifndef KD_BACKEND` used to stand - which is what lets the core
+; be assembled ONCE. `dos_bevec`'s shape (96.44.1) with a different table, and
+; the reason it is a second table is that a door must always be answered and a
+; hook may always be absent.
+DHK_SNAP    equ 0                   ; the last screen, before the restore (96.34)
+DHK_POLL    equ 2                   ; the packet driver's third poll (96.23.4)
+DHK_TTY     equ 4                   ; AH=02h/09h: CF=0 = the host took it (96.33)
+DHK_MOUSE   equ 6                   ; INT 33h's state; absent = a still pointer
+DHK_NENT    equ 4
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_be_goto:
@@ -4288,6 +4277,95 @@ dos_be_bind:
     pop di
     pop si
     pop cx
+    ret
+
+
+; -----------------------------------------------------------------------------
+; dos_hk_bind - the four hooks the BOX wants (SPEC.md 96.44.3)
+; in:  nothing; out: nothing, every register preserved
+;
+; Beside `dos_be_bind` and called with it. `kern_dos` has no equivalent and
+; wants none: its four cells stay the zero a bss arrives as, which is what
+; "this host does not want it" is spelled as.
+; -----------------------------------------------------------------------------
+dos_hk_bind:
+    push ax
+    mov word [dos_hkv + DHK_SNAP], dos_snap
+    mov word [dos_hkv + DHK_POLL], dos_hk_poll
+    mov word [dos_hkv + DHK_TTY],  dos_hk_tty
+    mov word [dos_hkv + DHK_MOUSE], dos_hk_mouse
+    pop ax
+    ret
+
+; --- dos_hk_poll - DHK_POLL: drain the packet driver if there is one ---------
+dos_hk_poll:
+    cmp byte [dos_pkt_raw], 0
+    je .no
+    call dos_pkt_poll
+.no:
+    ret
+
+; --- dos_hk_tty - DHK_TTY: the console, when the window is up (SPEC.md 96.33)-
+; out: CF=0 = taken, CF=1 = the caller's ROM teletype should have it
+;
+; **`cs:` AND IT IS NOT DECORATION**: AH=09h, AH=40h and AH=02h all reach here
+; with DS holding the PROGRAM's segment, off the gate's frame - so a
+; DS-relative read of our own byte lands in the program's image at the same
+; offset. MEASURED: a probe's `COUNT ` and `TERM ` labels vanished and their
+; VALUES survived, because AH=09h was reading a program byte that happened to
+; be 0 and AH=02h was reading ours.
+dos_hk_tty:
+    cmp byte [cs:dos_inbr], 0
+    jne .rom                        ; inside the bracket the ROM's teletype IS
+    push ds                         ; the machine's own screen
+    push cs                         ; ...and the console arm needs OUR DS for
+    pop ds                          ; real, con_scr and every byte of the
+    call con_write                  ; library being DS-relative
+                                    ; IT DRAWS NOTHING HERE: a verb that
+                                    ; printed a directory would take the gfx
+                                    ; lock per character. dos_con_run spends
+                                    ; the marks once, after the verb returned
+    cmp byte [cs:dos_fsxup], 0      ; **FULL SCREEN STREAMS A LINE AT A TIME**
+    je .nofs                        ; (SPEC.md 96.33.11): there the same paint
+    cmp al, 10                      ; is a rep movsw of eighty words, so the
+    jne .nofs                       ; argument that forbids it in a window does
+    call dos_fsx_owed               ; not reach it. LF and only LF
+.nofs:
+    pop ds
+    clc
+    ret
+.rom:
+    stc
+    ret
+
+; --- dos_hk_mouse - DHK_MOUSE: BX/CX/DX from the kernel's own pointer --------
+dos_hk_mouse:
+    push ax
+    call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons - and
+    mov bl, al                      ; mouse_btn's bits ARE INT 33h's, bit 0
+    xor bh, bh                      ; left and bit 1 right (SPEC.md 9), so the
+    push bx                         ; mask needs no translation at all
+    push dx                         ; the y the x scale below is about to eat
+    mov ax, cx
+    mov cx, [dos_vw]
+    jcxz .nox                       ; a zero divisor cannot happen and must not
+    mov bx, 640                     ; take the axis with it: leave x as it is
+    mul bx                          ; DX:AX = x * 640, and x < vw always, so
+    div cx                          ; the quotient is < 640 and cannot overflow
+.nox:
+    mov cx, ax
+    pop ax                          ; y
+    push cx                         ; ...and the scaled x, which is AX's next
+    mov cx, [dos_vh]
+    jcxz .noy
+    mov bx, 200
+    mul bx
+    div cx
+.noy:
+    mov dx, ax
+    pop cx
+    pop bx
+    pop ax
     ret
 
 dos_betab:
@@ -8640,53 +8718,26 @@ dos_mou_zero:
 ; kind of clobber that reads as a mouse that only works horizontally.
 ; -----------------------------------------------------------------------------
 dos_mou_read:
-%ifdef KD_BACKEND
-    ; **THERE IS NO KERNEL TO ASK** (docs/plans/KERN-DOS-PLAN.md 6.1 lever 2).
+    ; --- THE HOST OWNS THE POINTER (SPEC.md 96.44.3) ------------------------
+    ; `DHK_MOUSE` fills BX/CX/DX with the button mask and the position in INT
+    ; 33h units; a host that sets none has a mouse that never moves and is
+    ; never pressed, which is a state a program can read (96.10) and exactly
+    ; what `kern_dos` has today.
+    ;
     ; It is reached on the KEY POLL - `dos_getkey` samples the mouse between
     ; `int 16h` checks so that "press a key or click" keeps its edges - so
     ; this is not a corner: it is every DOS program that waits for input.
-    ;
-    ; kern_dos carries no mouse driver yet, and a machine with no driver has a
-    ; mouse that never moves and is never pressed. INT 33h answers exactly
-    ; that (SPEC.md 96.10), which is a state a program can read; the wave that
-    ; gives kern_dos the pointer replaces this body and nothing above it.
     push ax
     xor bx, bx
     xor cx, cx
     xor dx, dx
-    call dos_mou_edge
-    pop ax
-    ret
-%else
-    push ax
-    call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons - and
-    mov bl, al                      ; mouse_btn's bits ARE INT 33h's, bit 0
-    xor bh, bh                      ; left and bit 1 right (SPEC.md 9), so the
-    push bx                         ; mask needs no translation at all
-    push dx                         ; the y the x scale below is about to eat
-    mov ax, cx
-    mov cx, [dos_vw]
-    jcxz .nox                       ; a zero divisor cannot happen and must not
-    mov bx, 640                     ; take the axis with it: leave x as it is
-    mul bx                          ; DX:AX = x * 640, and x < vw always, so
-    div cx                          ; the quotient is < 640 and cannot overflow
-.nox:
-    mov cx, ax
-    pop ax                          ; y
-    push cx                         ; ...and the scaled x, which is AX's next
-    mov cx, [dos_vh]
-    jcxz .noy
-    mov bx, 200
-    mul bx
-    div cx
-.noy:
-    mov dx, ax
-    pop cx
-    pop bx
-    pop ax
+    cmp word [dos_hkv + DHK_MOUSE], 0
+    je .still
+    call word [dos_hkv + DHK_MOUSE]
+.still:
     call dos_mou_edge               ; every state read feeds functions 5 and 6
+    pop ax
     ret
-%endif
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -9033,6 +9084,7 @@ dos_mcb_resize:
 ; OP_OPT, so a machine that cannot spare 35KB still RUNS the program - the
 ; trace simply refuses, which is what an instrument owes a machine it cannot
 ; fit on.
+%define OP_BSS_AT dos_hbss       ; 96.44.2: the host's block, not the core's
 %include "os88parts.inc"
 OS88_PARTS_BEGIN 1
   OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
@@ -9063,6 +9115,7 @@ OS88_PARTS_END
 ; docs/plans/KERN-DOS-PLAN.md §4.1.3.1's four-piece shape is what it should
 ; cost instead.
 %ifdef DOSKPART
+%define OP_BSS_AT dos_hbss       ; 96.44.2: the host's block, not the core's
 %include "os88parts.inc"
 DOS_PART_KD equ 0
 OS88_PARTS_BEGIN 1
@@ -9201,14 +9254,36 @@ PKT_VERSION equ 9
 ; os88parts.inc's own usage note says this in as many words - "OUR words come
 ; first, yours follow them, and OS88_BSS is told the sum" - and it is one
 ; line, once, rather than a term on every symbol.
-%ifdef DOSTRACE
-%assign DB OP_BSS
-%else
+; **THE PARTS STANDARD'S OWN WORDS ARE THE HOST'S** (SPEC.md 96.44.2): only a
+; host has parts, so its 86 bytes go at the head of the HOST's block and not
+; the core's - which is `OP_BSS_AT`'s whole reason for being a `%define` the
+; carrier may point (os88parts.inc's own note). Putting them in the core's
+; block instead made `CORE_BSS_SIZE` a figure that depended on whether this
+; was a DOSTRACE build, so the diagnostic build and the shipped one disagreed
+; about where every core cell was.
 %assign DB 0
+%ifdef DOSTRACE
+%assign HB OP_BSS
+%else
+%assign HB 0
 %endif
+; **TWO ACCUMULATORS, AND THE SPLIT IS THE CORE'S ABI** (SPEC.md 96.44.2).
+; DBSS is the CORE's state and HBSS the HOST's, because W8 gated twenty-nine
+; rows out of `kern_dos` and every cell after them then sat at a different
+; offset in the two builds - which a core assembled ONCE cannot survive. The
+; core's cells are based at `os88_image_end` and are the same offsets in every
+; host; the host's are based above them, at `dos_hbss`, and a host may have as
+; many or as few as it likes.
+;
+; A ROW STAYS WHERE IT IS. Nothing is reordered: which macro a row uses is the
+; whole of the split, so the table still reads in subject order.
 %macro DBSS 2
     %1 equ DB
     %assign DB DB + %2
+%endmacro
+%macro HBSS 2
+    %1 equ HB
+    %assign HB HB + %2
 %endmacro
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
@@ -9216,53 +9291,56 @@ PKT_VERSION equ 9
     ;     anything that wants them asks for them again rather than trusting a
     ;     paint to have run.
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    DBSS DOS_B_CONX,  2          ; the band's left in SCREEN px, 8-aligned
-    DBSS DOS_B_CONY,  2          ; ...its top, below the bar
-    DBSS DOS_B_CONCOLS, 2        ; ...and its size in CELLS: 80, and the rows
-    DBSS DOS_B_CONROWS, 2        ; are 25 or whatever the adapter allows
+    HBSS DOS_B_CONX,  2          ; the band's left in SCREEN px, 8-aligned
+    HBSS DOS_B_CONY,  2          ; ...its top, below the bar
+    HBSS DOS_B_CONCOLS, 2        ; ...and its size in CELLS: 80, and the rows
+    HBSS DOS_B_CONROWS, 2        ; are 25 or whatever the adapter allows
     ; --- THE TOP BAR (SPEC.md 96.32.1) --------------------------------------
-    DBSS DOS_B_PLN,   DOS_LNSZ   ; the path box's os88line block...
-    DBSS DOS_B_PATH,  DOS_PBUF   ; ...and its text, which is the only place
+    HBSS DOS_B_PLN,   DOS_LNSZ   ; the path box's os88line block...
+    HBSS DOS_B_PATH,  DOS_PBUF   ; ...and its text, which is the only place
                                  ; this box has ever held a PATH rather than
                                  ; a volume, a cluster and an 8.3 name
-    DBSS DOS_B_ERECT, 8          ; 'Environment' and 'Run', four words each
-    DBSS DOS_B_RRECT, 8
-    DBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
-    DBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
+    HBSS DOS_B_ERECT, 8          ; 'Environment' and 'Run', four words each
+    HBSS DOS_B_RRECT, 8
+    HBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
+    HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
     ; --- THE SETUP AREA'S FURNITURE (SPEC.md 96.32.2), four words each -------
-    DBSS DOS_B_LRECT, 8          ; '<' and '>' ...
-    DBSS DOS_B_GRECT, 8
-    DBSS DOS_B_TRECT, 8          ; ...and 'Return'. 'Save Shortcut' keeps
+    HBSS DOS_B_LRECT, 8          ; '<' and '>' ...
+    HBSS DOS_B_GRECT, 8
+    HBSS DOS_B_TRECT, 8          ; ...and 'Return'. 'Save Shortcut' keeps
                                  ; dos_srect, which it already had
-    DBSS DOS_B_LNV,   2          ; the field's view and length as they were
-    DBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
-    DBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
-    DBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
-    DBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
-    DBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
-    DBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
-    DBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
+    HBSS DOS_B_LNV,   2          ; the field's view and length as they were
+    HBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
+    HBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
+    HBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
+    HBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
+    HBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
+    HBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
+    HBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
 %endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    DBSS DOS_B_LBUF,  LNK_MAX    ; a shortcut, read or written
-    DBSS DOS_B_SBUF,  20         ; ...and `.\NAME.EXT` while one is built
+    HBSS DOS_B_LBUF,  LNK_MAX    ; a shortcut, read or written
+    HBSS DOS_B_SBUF,  20         ; ...and `.\NAME.EXT` while one is built
 %endif
     DBSS DOS_B_CNAME, 14         ; one component of a link's working directory
     DBSS DOS_B_FBUF,  24         ; ...and OSAPI_FIND_SZ while it is looked up
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    DBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
+    HBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
                                  ; may NOT share dos_sbuf: the builder uses it
-    DBSS DOS_B_LEND,  2          ; how many bytes of dos_lbuf are real
+    HBSS DOS_B_LEND,  2          ; how many bytes of dos_lbuf are real
 %endif
     DBSS DOS_B_EBUF,  DOS_ENVN * DOS_ENVBUF   ; the environment rows...
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    DBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
+    HBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
 %endif
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
-    DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    HBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    DBSS DOS_B_HKV,   DHK_NENT * 2  ; **THE HOST'S HOOKS** (96.44.3): zero is
+                                 ; "this host does not want it", which is what
+                                 ; a zeroed bss already says
     DBSS DOS_B_BEVEC, DBE_NENT * 2  ; **THE BACK END, AS ADDRESSES** (96.44.1):
                                  ; DBE_* indexes this and the HOST fills it,
                                  ; because the core is one object and there are
@@ -9272,31 +9350,31 @@ PKT_VERSION equ 9
 %endif
                                  ; for AH=36h. OURS and not the program's:
                                  ; DOS gives that call nowhere to put a buffer
-    DBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
+    HBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    DBSS DOS_B_MRAD,  DOS_MRADSZ ; ...and the three-arm radio's own record
+    HBSS DOS_B_MRAD,  DOS_MRADSZ ; ...and the three-arm radio's own record
                                  ; (os88ui.inc), whose SEL word IS the setting
                                  ; - os88ui_radhit moves it and redraws the two
                                  ; rows that changed, so a copy here would be a
                                  ; second truth (SPEC.md 96.36)
-    DBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
-    DBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
-    DBSS DOS_B_MX,    2          ; the memory page's content origin, banked
-    DBSS DOS_B_MY,    2          ; for one paint
+    HBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
+    HBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
+    HBSS DOS_B_MX,    2          ; the memory page's content origin, banked
+    HBSS DOS_B_MY,    2          ; for one paint
 %endif
-    DBSS DOS_B_WIN,   2
-    DBSS DOS_B_STATE, 1
+    HBSS DOS_B_WIN,   2
+    HBSS DOS_B_STATE, 1
     DBSS DOS_B_ERR,   1
     DBSS DOS_B_EXIT,  1
     DBSS DOS_B_BADFN, 1
-    DBSS DOS_B_DIR,   2
+    HBSS DOS_B_DIR,   2
     DBSS DOS_B_VOL,   1
     DBSS DOS_B_PAD,   1
     DBSS DOS_B_NAME,  16
     DBSS DOS_B_ARENA, 2
     DBSS DOS_B_APARA, 2
-    DBSS DOS_B_AKB,   2
+    HBSS DOS_B_AKB,   2
     DBSS DOS_B_IMGSZ, 2
     DBSS DOS_B_PRGSP, 2
     DBSS DOS_B_SVSS,  2
@@ -9305,25 +9383,25 @@ PKT_VERSION equ 9
     DBSS DOS_B_PIC2,  1
     DBSS DOS_B_ISEXE, 1
 %ifdef DOSKPART                 ; ...and nothing when arm 3 is not built in
-    DBSS DOS_B_PKGNAME, 13      ; OUR file's name, banked at dos_entry
-    DBSS DOS_B_PKGDIR,  2       ; ...and the folder we were launched from
-    DBSS DOS_B_PKGVOL,  1       ; ...on that volume
-    DBSS DOS_B_KDH,     KDH_SIZE ; the record osapi_dos_handoff keeps a far
-    DBSS DOS_B_WOK,     1       ; 1 = the destructive arm has been confirmed
+    HBSS DOS_B_PKGNAME, 13      ; OUR file's name, banked at dos_entry
+    HBSS DOS_B_PKGDIR,  2       ; ...and the folder we were launched from
+    HBSS DOS_B_PKGVOL,  1       ; ...on that volume
+    HBSS DOS_B_KDH,     KDH_SIZE ; the record osapi_dos_handoff keeps a far
+    HBSS DOS_B_WOK,     1       ; 1 = the destructive arm has been confirmed
                                 ; for THIS launch (SPEC.md 96.42)
 %endif                          ; POINTER to (SPEC.md 96.40), so it is OURS
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
-    DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
-    DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
+    HBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
+    HBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
                                 ; ...and the RING is not here: it is in the
                                 ; part (SPEC.md 96.29.1), with the rendered
                                 ; dump beside it. 35,092 bytes that used to be
                                 ; 80% of APP_MAX_SIZE
-    DBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
+    HBSS DOS_B_TRACEI, 2                ; the entry a result belongs to, 0 =
                                         ; the call was filtered out
-    DBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
-    DBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    DBSS DOS_B_TRSEG,  2        ; THE PART'S SEGMENT, banked by dos_entry.
+    HBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
+    HBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
+    HBSS DOS_B_TRSEG,  2        ; THE PART'S SEGMENT, banked by dos_entry.
                                 ; 0 = the part was refused (it is OP_OPT), and
                                 ; dos_trace tests it: an instrument that
                                 ; cannot fit writes NOTHING rather than
@@ -13739,7 +13817,7 @@ dos_fh_fill:
     DBSS DOS_B_XIP,   2
     DBSS DOS_B_XSS,   2
     DBSS DOS_B_XSP,   2
-    DBSS DOS_B_FSI,   FSI_SIZE
+    HBSS DOS_B_FSI,   FSI_SIZE
     DBSS DOS_B_WSEG,  2        ; the file window (SPEC.md 96.11): the
     DBSS DOS_B_WBYTES,2        ; paragraph it starts at and its size, which
     DBSS DOS_B_CBYTES,2        ; is a multiple of the volume's cluster
@@ -13781,8 +13859,8 @@ dos_fh_fill:
     DBSS DOS_B_CHEXIT, 1       ; the child's code, for AH=4Dh
     DBSS DOS_B_CHPAD, 1
     DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
-    DBSS DOS_B_DQBUF, DQ_SIZE * DQ_MAXREC  ; what the drivers said on their
-    DBSS DOS_B_DRVMASK, 2      ; way out, and which classes went (96.17)
+    HBSS DOS_B_DQBUF, DQ_SIZE * DQ_MAXREC  ; what the drivers said on their
+    HBSS DOS_B_DRVMASK, 2      ; way out, and which classes went (96.17)
     DBSS DOS_B_BLAST, 32       ; "BLASTER=A220 I5 D1 T4", or empty
     DBSS DOS_B_XMSTAB, XH_SIZE * XMS_NH  ; the XMS handle table (96.15)
     DBSS DOS_B_XMLEN, 4        ; ...and AH=0Bh's move, unpacked out of the
@@ -13829,9 +13907,9 @@ dos_fh_fill:
                                ; program's buffer" flag is free (96.11.6.1)
     DBSS DOS_B_GAPN,  4        ; ...and what is left of the gap to lay
     DBSS DOS_B_TRNOF, 4        ; ...and how far a shrink's rewrite has got
-    DBSS DOS_B_CPW,   1        ; 1 = dos_run is resuming on the compaction's
+    HBSS DOS_B_CPW,   1        ; 1 = dos_run is resuming on the compaction's
                                ; own wake (SPEC.md 96.35.1)
-    DBSS DOS_B_DRVOUT, 1       ; ...and 1 = the drivers are already suspended
+    HBSS DOS_B_DRVOUT, 1       ; ...and 1 = the drivers are already suspended
     DBSS DOS_B_CURDIR, 2       ; the cluster we are standing in
 ; --- WHERE EACH DRIVE IS STANDING (SPEC.md 96.6.1) -------------------------
 ; DOS keeps a current directory per drive, and here that is one CLUSTER each
@@ -13857,18 +13935,18 @@ dos_fh_fill:
 ; launch and goes back when the window closes, so what it costs is a DOS
 ; session's memory and not a machine's.
 %ifndef KD_BACKEND                  ; 96.43: no driver, so no packet driver
-    DBSS DOS_B_PKTVEC,  1           ; the vector we took, 0 = none
-    DBSS DOS_B_PKTRAW,  1           ; 1 = we hold NETV_RAW
-    DBSS DOS_B_PKTBSY,  1           ; the poll's re-entrancy guard
-    DBSS DOS_B_PKTMODE, 1           ; what set_rcv_mode was told
-    DBSS DOS_B_PKTHTAB, PKT_NHAND * PKT_HSIZE
-    DBSS DOS_B_PKTMAC,  6           ; the station address, banked by the claim
-    DBSS DOS_B_PKTCVEC, 4           ; the client receiver being called
-    DBSS DOS_B_PKTCHAND, 2          ; ...and the handle both calls carry
-    DBSS DOS_B_PKTOLD08, 4          ; the tick we chain
-    DBSS DOS_B_PKTSSS,  2           ; the program's stack, banked across a poll
-    DBSS DOS_B_PKTSSP,  2
-    DBSS DOS_B_PKTCAN,  2           ; **A CANARY UNDER THE PRIVATE STACK**, and
+    HBSS DOS_B_PKTVEC,  1           ; the vector we took, 0 = none
+    HBSS DOS_B_PKTRAW,  1           ; 1 = we hold NETV_RAW
+    HBSS DOS_B_PKTBSY,  1           ; the poll's re-entrancy guard
+    HBSS DOS_B_PKTMODE, 1           ; what set_rcv_mode was told
+    HBSS DOS_B_PKTHTAB, PKT_NHAND * PKT_HSIZE
+    HBSS DOS_B_PKTMAC,  6           ; the station address, banked by the claim
+    HBSS DOS_B_PKTCVEC, 4           ; the client receiver being called
+    HBSS DOS_B_PKTCHAND, 2          ; ...and the handle both calls carry
+    HBSS DOS_B_PKTOLD08, 4          ; the tick we chain
+    HBSS DOS_B_PKTSSS,  2           ; the program's stack, banked across a poll
+    HBSS DOS_B_PKTSSP,  2
+    HBSS DOS_B_PKTCAN,  2           ; **A CANARY UNDER THE PRIVATE STACK**, and
                                     ; it is here because the alternative was a
                                     ; HANG: the two words above are what the
                                     ; program's SS:SP is banked in, they sit
@@ -13877,23 +13955,23 @@ dos_fh_fill:
                                     ; machine with it. The translation made the
                                     ; chain under this poll much deeper than
                                     ; §96.23.4.1 sized it for
-    DBSS DOS_B_PKTCDS,  2           ; the CLIENT's DS, captured at the gate
+    HBSS DOS_B_PKTCDS,  2           ; the CLIENT's DS, captured at the gate
                                     ; (SPEC.md 96.23.9) - NOT read back out of
                                     ; the stack frame, which is what the first
                                     ; version did and got wrong
-    DBSS DOS_B_PKTBSEG, 2           ; **THE FRAME BUFFER IS A HEAP CLAIM**
+    HBSS DOS_B_PKTBSEG, 2           ; **THE FRAME BUFFER IS A HEAP CLAIM**
                                     ; (SPEC.md 96.23.7) and this is its segment,
                                     ; 0 = none. They were 3,028 bytes of bss,
                                     ; which every DOS window paid for on every
                                     ; machine - including every machine with no
                                     ; card in it
-    DBSS DOS_B_PKTSTAT, 24          ; six dwords, get_statistics' own order
+    HBSS DOS_B_PKTSTAT, 24          ; six dwords, get_statistics' own order
 ; --- AND NOTHING FOR THE WIRE ITSELF (SPEC.md 96.23.7) -----------------------
 ; Every frame, the staging copy, the poll's private stack and the whole of the
 ; cable translation's state are in the NETWORK CLAIM - see PKB_* above. They
 ; were 4,052 bytes of this table, which every DOS window paid for on every
 ; machine, including the 128KB one that ships no network driver at all.
-    DBSS DOS_B_PKTXL,   1           ; **WHICH PATH, and it is NOT the same
+    HBSS DOS_B_PKTXL,   1           ; **WHICH PATH, and it is NOT the same
                                     ; question as which CLASS** (SPEC.md
                                     ; 96.26.1): the translation calls sockets
                                     ; on whatever [net_cls] says, so forcing
@@ -13971,22 +14049,45 @@ dos_fh_fill:
     ; has no idea a line is being typed into it.
     DBSS DOS_B_INBR,    1           ; the fsx bracket is up, so dos_tty's byte
                                     ; goes to the ROM and not to the console
-    DBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
+    HBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
     DBSS DOS_B_FSXUP,   1           ; the console has the WHOLE screen (96.33.5),
                                     ; so no kernel drawing slot may be called
-    DBSS DOS_B_ISPKG,   1           ; the typed name ends in .O88 (96.33.17)
-    DBSS DOS_B_PKGQ,    1           ; ...and a launch of one is POSTED
-    DBSS DOS_B_PKGN,   13           ; ...with its name banked out of dsh_a1
-    DBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
+    HBSS DOS_B_ISPKG,   1           ; the typed name ends in .O88 (96.33.17)
+    HBSS DOS_B_PKGQ,    1           ; ...and a launch of one is POSTED
+    HBSS DOS_B_PKGN,   13           ; ...with its name banked out of dsh_a1
+    HBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
                                     ; bracket comes down for the program and
                                     ; goes back up after it (SPEC.md 96.33.16)
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
-    DBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
+    HBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
                                     ; how far back BS may rub (SPEC.md 96.33.3)
-    DBSS DOS_B_CMDN,    2           ; ...and how much of dsh_line is typed
+    HBSS DOS_B_CMDN,    2           ; ...and how much of dsh_line is typed
 
-DOS_BSS_SIZE equ DB
+; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------
+; `CORE_BSS_SIZE` is a CONSTANT because the core is assembled once and joined
+; to either host: its cells must be at the same offsets in both, so the host's
+; block cannot start wherever this host's core happens to end. It is checked
+; rather than derived, the way `KERN_BUDGET` is, and the slack is what a later
+; core cell is spent out of.
+%ifndef CORE_BSS_SIZE               ; `-DCORE_BSS_SIZE=n` is how the budget is
+CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
+%endif                              ; below names the exact figure
+                                    ;
+                                    ;   3,251 the core's cells at W9b
+                                    ;      +8 96.44.3's four host hooks
+                                    ;      +9 the padding rows, which belong to
+                                    ;         the block they pad and which
+                                    ;         nothing NAMES, so the classifier
+                                    ;         could not see them
+                                    ;      60 slack
+                                    ;   ----- -------------------------------
+                                    ;   3,328
+%if DB > CORE_BSS_SIZE
+ %error "the DOS core's bss outgrew CORE_BSS_SIZE - raise it, and note that \
+every host pays the whole of it whether it uses the cells or not"
+%endif
+DOS_BSS_SIZE equ CORE_BSS_SIZE + HB
 
 %include "dosh.inc"                 ; THE BUILT-IN COMMANDS (SPEC.md 96.30) -
                                     ; a COMMAND.COM that is not a file, over
@@ -14098,157 +14199,163 @@ that word of the record, and a wrong offset writes the pitch"
 ; 96.5): the arena is the program's to scribble on, and a save area the
 ; program can corrupt is worse than none, because it fails at restore time
 ; when there is nothing left to do about it.
-dos_win     equ os88_image_end + DOS_B_WIN     ; word: our window
-dos_state   equ os88_image_end + DOS_B_STATE   ; byte: DST_*
+; **WHERE THE HOST'S BLOCK STARTS** (SPEC.md 96.44.2): above the core's, whose
+; length is a budget rather than a sum, so a cell the core gains does not move
+; every cell the host has.
+dos_hbss    equ os88_image_end + CORE_BSS_SIZE
+
+dos_win equ dos_hbss + DOS_B_WIN     ; word: our window
+dos_state equ dos_hbss + DOS_B_STATE   ; byte: DST_*
 dos_err     equ os88_image_end + DOS_B_ERR     ; byte: DER_*, when DST_ERR
 dos_exit    equ os88_image_end + DOS_B_EXIT    ; byte: the program's exit code
 dos_badfn   equ os88_image_end + DOS_B_BADFN   ; byte: the AH we lack
-dos_dir     equ os88_image_end + DOS_B_DIR     ; word: its folder's cluster
+dos_dir equ dos_hbss + DOS_B_DIR     ; word: its folder's cluster
 dos_vol     equ os88_image_end + DOS_B_VOL     ; byte: ...and its volume
 dos_name    equ os88_image_end + DOS_B_NAME    ; 16:   its NUL 8.3 name
 dos_arena   equ os88_image_end + DOS_B_ARENA   ; word: the claim, 0 = none
 dos_apara   equ os88_image_end + DOS_B_APARA   ; word: ...its paragraphs
-dos_akb     equ os88_image_end + DOS_B_AKB     ; word: ...and its KB, banked
+dos_akb equ dos_hbss + DOS_B_AKB     ; word: ...and its KB, banked
 dos_imgsz   equ os88_image_end + DOS_B_IMGSZ   ; word: the image's bytes
 dos_prgsp   equ os88_image_end + DOS_B_PRGSP   ; word: the program's first SP
 dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
 %ifndef KD_BACKEND
-dos_conx    equ os88_image_end + DOS_B_CONX    ; the console band (SPEC.md
+dos_conx equ dos_hbss + DOS_B_CONX    ; the console band (SPEC.md
 %endif
 %ifndef KD_BACKEND
-dos_cony    equ os88_image_end + DOS_B_CONY    ; 96.32): top-left in screen
+dos_cony equ dos_hbss + DOS_B_CONY    ; 96.32): top-left in screen
 %endif
 %ifndef KD_BACKEND
-dos_concols equ os88_image_end + DOS_B_CONCOLS ; pixels, size in CELLS, all
+dos_concols equ dos_hbss + DOS_B_CONCOLS ; pixels, size in CELLS, all
 %endif
 %ifndef KD_BACKEND
-dos_conrows equ os88_image_end + DOS_B_CONROWS ; four filled by dos_con_geom
+dos_conrows equ dos_hbss + DOS_B_CONROWS ; four filled by dos_con_geom
 %endif
 %ifndef KD_BACKEND
-dos_pln     equ os88_image_end + DOS_B_PLN     ; the path box (SPEC.md 96.32.1)
+dos_pln equ dos_hbss + DOS_B_PLN     ; the path box (SPEC.md 96.32.1)
 %endif
 %ifndef KD_BACKEND
-dos_path    equ os88_image_end + DOS_B_PATH    ; ...and its text
+dos_path equ dos_hbss + DOS_B_PATH    ; ...and its text
 %endif
 %ifndef KD_BACKEND
-dos_erect   equ os88_image_end + DOS_B_ERECT   ; 'Environment' on the bar
+dos_erect equ dos_hbss + DOS_B_ERECT   ; 'Environment' on the bar
 %endif
 %ifndef KD_BACKEND
-dos_rrect   equ os88_image_end + DOS_B_RRECT   ; ...and 'Run'
+dos_rrect equ dos_hbss + DOS_B_RRECT   ; ...and 'Run'
 %endif
 %ifndef KD_BACKEND
-dos_tvol    equ os88_image_end + DOS_B_TVOL    ; dos_path_take's scratch pair
+dos_tvol equ dos_hbss + DOS_B_TVOL    ; dos_path_take's scratch pair
 %endif
 %ifndef KD_BACKEND
-dos_tname   equ os88_image_end + DOS_B_TNAME
+dos_tname equ dos_hbss + DOS_B_TNAME
 %endif
 %ifndef KD_BACKEND
-dos_lrect   equ os88_image_end + DOS_B_LRECT   ; '<' (SPEC.md 96.32.2)
+dos_lrect equ dos_hbss + DOS_B_LRECT   ; '<' (SPEC.md 96.32.2)
 %endif
 %ifndef KD_BACKEND
-dos_grect   equ os88_image_end + DOS_B_GRECT   ; ...'>'
+dos_grect equ dos_hbss + DOS_B_GRECT   ; ...'>'
 %endif
 %ifndef KD_BACKEND
-dos_trect   equ os88_image_end + DOS_B_TRECT   ; ...and 'Return'
+dos_trect equ dos_hbss + DOS_B_TRECT   ; ...and 'Return'
 %endif
 %ifndef KD_BACKEND
-dos_lnv     equ os88_image_end + DOS_B_LNV     ; word: LN_VIEW before a key
+dos_lnv equ dos_hbss + DOS_B_LNV     ; word: LN_VIEW before a key
 %endif
 %ifndef KD_BACKEND
-dos_lnl     equ os88_image_end + DOS_B_LNL     ; word: LN_LEN before a key
+dos_lnl equ dos_hbss + DOS_B_LNL     ; word: LN_LEN before a key
 %endif
 %ifndef KD_BACKEND
-dos_lnc     equ os88_image_end + DOS_B_LNC     ; word: LN_CAR before a key
+dos_lnc equ dos_hbss + DOS_B_LNC     ; word: LN_CAR before a key
 %endif
 %ifndef KD_BACKEND
-dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
+dos_ncell equ dos_hbss + DOS_B_NCELL   ; word: cells the edits redrew
 %endif
 %ifndef KD_BACKEND
-dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
+dos_nkey equ dos_hbss + DOS_B_NKEY    ; word: ...over this many keys
 %endif
 %ifndef KD_BACKEND
-dos_page    equ os88_image_end + DOS_B_PAGE    ; byte: DOS_PAGE_*
+dos_page equ dos_hbss + DOS_B_PAGE    ; byte: DOS_PAGE_*
 %endif
 %ifndef KD_BACKEND
-dos_brect   equ os88_image_end + DOS_B_BRECT   ; the page button's rect
+dos_brect equ dos_hbss + DOS_B_BRECT   ; the page button's rect
 %endif
 %ifndef KD_BACKEND
-dos_srect   equ os88_image_end + DOS_B_SRECT   ; ...and Save Shortcut's
+dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's
 %endif
 dos_erp     equ os88_image_end + DOS_B_ERP     ; word: the row being emitted
 %ifndef KD_BACKEND
-dos_lbuf    equ os88_image_end + DOS_B_LBUF    ; a .LNK, read or written
+dos_lbuf equ dos_hbss + DOS_B_LBUF    ; a .LNK, read or written
 %endif
 %ifndef KD_BACKEND
-dos_sbuf    equ os88_image_end + DOS_B_SBUF    ; `.\NAME.EXT` while building
+dos_sbuf equ dos_hbss + DOS_B_SBUF    ; `.\NAME.EXT` while building
 %endif
 dos_cname   equ os88_image_end + DOS_B_CNAME   ; one path component
 dos_fbuf    equ os88_image_end + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
 %ifndef KD_BACKEND
-dos_wname   equ os88_image_end + DOS_B_WNAME   ; ...the name to write it under
+dos_wname equ dos_hbss + DOS_B_WNAME   ; ...the name to write it under
 %endif
 %ifndef KD_BACKEND
-dos_lend    equ os88_image_end + DOS_B_LEND    ; word: bytes of dos_lbuf read
+dos_lend equ dos_hbss + DOS_B_LEND    ; word: bytes of dos_lbuf read
 %endif
 dos_ebuf    equ os88_image_end + DOS_B_EBUF    ; the four environment rows
 %ifndef KD_BACKEND
-dos_eln     equ os88_image_end + DOS_B_ELN     ; ...and their os88line blocks
+dos_eln equ dos_hbss + DOS_B_ELN     ; ...and their os88line blocks
 %endif
 dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; typed, without its count or
                                                ; its 0Dh - both are DOS's
                                                ; framing and go on at the PSP
 dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
-dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
+dos_ln equ dos_hbss + DOS_B_LN      ; the field's os88line block
+dos_hkv     equ os88_image_end + DOS_B_HKV     ; DHK_NENT words (96.44.3)
 dos_bevec   equ os88_image_end + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
 dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 %ifdef DOSKPART
-dos_pkgname equ os88_image_end + DOS_B_PKGNAME  ; 13: our own 8.3 file name
-dos_pkgdir  equ os88_image_end + DOS_B_PKGDIR   ; word: its folder's cluster
-dos_pkgvol  equ os88_image_end + DOS_B_PKGVOL   ; byte: ...and that volume
-dos_kdh     equ os88_image_end + DOS_B_KDH      ; the handoff record (96.40)
-dos_wok     equ os88_image_end + DOS_B_WOK      ; byte: arm 3 confirmed (96.42)
+dos_pkgname equ dos_hbss + DOS_B_PKGNAME  ; 13: our own 8.3 file name
+dos_pkgdir equ dos_hbss + DOS_B_PKGDIR   ; word: its folder's cluster
+dos_pkgvol equ dos_hbss + DOS_B_PKGVOL   ; byte: ...and that volume
+dos_kdh equ dos_hbss + DOS_B_KDH      ; the handoff record (96.40)
+dos_wok equ dos_hbss + DOS_B_WOK      ; byte: arm 3 confirmed (96.42)
 %endif
-dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
+dos_memkb equ dos_hbss + DOS_B_MEMKB   ; word: the arena cap, 0 = all
 %ifndef KD_BACKEND
-dos_mrad    equ os88_image_end + DOS_B_MRAD    ; the radio group's record
+dos_mrad equ dos_hbss + DOS_B_MRAD    ; the radio group's record
 %endif
 %ifndef KD_BACKEND
 dos_keepc   equ dos_mrad + DOS_MRADSEL         ; byte: DOS_MEM_* (SPEC.md 96.36)
 %endif
 %ifndef KD_BACKEND
-dos_mbuf    equ os88_image_end + DOS_B_MBUF    ; the limit field's text
+dos_mbuf equ dos_hbss + DOS_B_MBUF    ; the limit field's text
 %endif
 %ifndef KD_BACKEND
-dos_mln     equ os88_image_end + DOS_B_MLN     ; ...and its os88line block
+dos_mln equ dos_hbss + DOS_B_MLN     ; ...and its os88line block
 %endif
 %ifndef KD_BACKEND
-dos_mx      equ os88_image_end + DOS_B_MX      ; word: this paint's content x
+dos_mx equ dos_hbss + DOS_B_MX      ; word: this paint's content x
 %endif
 %ifndef KD_BACKEND
-dos_my      equ os88_image_end + DOS_B_MY      ; word: ...and its top
+dos_my equ dos_hbss + DOS_B_MY      ; word: ...and its top
 %endif
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
 %ifdef DOSTRACE
-dos_tracen  equ os88_image_end + DOS_B_TRACEN  ; word: DOSTRACE's call counter
-dos_tracew  equ os88_image_end + DOS_B_TRACEW  ; word: its ring write index
+dos_tracen equ dos_hbss + DOS_B_TRACEN  ; word: DOSTRACE's call counter
+dos_tracew equ dos_hbss + DOS_B_TRACEW  ; word: its ring write index
 dos_traceb  equ DOS_TRB_OFF         ; **AN OFFSET IN THE PART, NOT IN US**
                                     ; (SPEC.md 96.29.1), so every reference to
                                     ; it carries an `es:` and ES is
                                     ; [dos_trseg]. An unprefixed one reads our
                                     ; own image at that offset, which
                                     ; assembles cleanly and traces nonsense
-dos_tracei  equ os88_image_end + DOS_B_TRACEI  ; ...the live entry's offset
-dos_trnm    equ os88_image_end + DOS_B_TRNM   ; the names passed in
-dos_trnmi   equ os88_image_end + DOS_B_TRNMI  ; ...how many so far
+dos_tracei equ dos_hbss + DOS_B_TRACEI  ; ...the live entry's offset
+dos_trnm equ dos_hbss + DOS_B_TRNM   ; the names passed in
+dos_trnmi equ dos_hbss + DOS_B_TRNMI  ; ...how many so far
 dos_trdump  equ DOS_TRD_OFF         ; ...rendered, for the file - and in the
                                     ; part beside the ring. OSAPI_FILE_WRITE
                                     ; takes ES:BX, so handing it over costs
                                     ; nothing at all
-dos_trseg   equ os88_image_end + DOS_B_TRSEG
+dos_trseg equ dos_hbss + DOS_B_TRSEG
 %endif
 dos_vw      equ os88_image_end + DOS_B_VW      ; word: the desktop's width...
 dos_vh      equ os88_image_end + DOS_B_VH      ; word: ...and height, for 33h
@@ -14330,15 +14437,15 @@ dsh_sseg    equ os88_image_end + DOS_B_SHSSEG  ; DIR's sort claim (96.33.9.2)
 dsh_sn      equ os88_image_end + DOS_B_SHSN    ; ...records in it
 dsh_si      equ os88_image_end + DOS_B_SHSI    ; ...and the emit cursor
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
-dos_fromcon equ os88_image_end + DOS_B_FROMCON
+dos_fromcon equ dos_hbss + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP
-dos_ispkg   equ os88_image_end + DOS_B_ISPKG   ; byte: the name ends in .O88
-dos_pkgq    equ os88_image_end + DOS_B_PKGQ    ; byte: a package launch posted
-dos_pkgn    equ os88_image_end + DOS_B_PKGN    ; 13:   ...and which one
-dos_fsxgo   equ os88_image_end + DOS_B_FSXGO
+dos_ispkg equ dos_hbss + DOS_B_ISPKG   ; byte: the name ends in .O88
+dos_pkgq equ dos_hbss + DOS_B_PKGQ    ; byte: a package launch posted
+dos_pkgn equ dos_hbss + DOS_B_PKGN    ; 13:   ...and which one
+dos_fsxgo equ dos_hbss + DOS_B_FSXGO
 dsh_exec    equ os88_image_end + DOS_B_SHEXEC
-dos_cmdx    equ os88_image_end + DOS_B_CMDX
-dos_cmdn    equ os88_image_end + DOS_B_CMDN
+dos_cmdx equ dos_hbss + DOS_B_CMDX
+dos_cmdn equ dos_hbss + DOS_B_CMDN
 dos_fhpath  equ os88_image_end + DOS_B_FHPATH
 dos_fpbuf   equ os88_image_end + DOS_B_FPBUF
 dos_fhcwd   equ os88_image_end + DOS_B_FHCWD
@@ -14353,8 +14460,8 @@ dos_pgpar   equ os88_image_end + DOS_B_PGPAR
 dos_pexe    equ os88_image_end + DOS_B_PEXE
 dos_chexit  equ os88_image_end + DOS_B_CHEXIT
 dos_chblk   equ os88_image_end + DOS_B_CHBLK
-dos_dqbuf   equ os88_image_end + DOS_B_DQBUF
-dos_drvmask equ os88_image_end + DOS_B_DRVMASK
+dos_dqbuf equ dos_hbss + DOS_B_DQBUF
+dos_drvmask equ dos_hbss + DOS_B_DRVMASK
 dos_blaster equ os88_image_end + DOS_B_BLAST
 dos_xmstab  equ os88_image_end + DOS_B_XMSTAB
 dos_xmlen   equ os88_image_end + DOS_B_XMLEN
@@ -14397,8 +14504,8 @@ dos_wvsv    equ os88_image_end + DOS_B_WVSV    ; byte: the flush's own
 dos_wfil    equ os88_image_end + DOS_B_WFIL    ; byte: fill the window, not copy
 dos_gapn    equ os88_image_end + DOS_B_GAPN    ; dword: the gap still to lay
 dos_trnof   equ os88_image_end + DOS_B_TRNOF   ; dword: a shrink's copy offset
-dos_cpw     equ os88_image_end + DOS_B_CPW     ; byte: resuming on the pass
-dos_drvout  equ os88_image_end + DOS_B_DRVOUT  ; byte: the drivers are out
+dos_cpw equ dos_hbss + DOS_B_CPW     ; byte: resuming on the pass
+dos_drvout equ dos_hbss + DOS_B_DRVOUT  ; byte: the drivers are out
 dos_curdir  equ os88_image_end + DOS_B_CURDIR
 dos_dvcwd   equ os88_image_end + DOS_B_DVCWD   ; per drive: its cluster
 dos_dvtgt   equ os88_image_end + DOS_B_DVTGT   ; ...and the one it goes to
@@ -14418,29 +14525,29 @@ dos_exe_cs  equ os88_image_end + DOS_B_XCS     ; word: the entry state, all
 dos_exe_ip  equ os88_image_end + DOS_B_XIP     ; word: four out of the header
 dos_exe_ss  equ os88_image_end + DOS_B_XSS     ; word: and CS/SS relocated
 dos_exe_sp  equ os88_image_end + DOS_B_XSP     ; word:
-dos_fsi     equ os88_image_end + DOS_B_FSI     ; FSI_SIZE: the fsx info block
+dos_fsi equ dos_hbss + DOS_B_FSI     ; FSI_SIZE: the fsx info block
 dos_ivt     equ os88_image_end + DOS_B_IVT     ; 1024: the whole vector table
 dos_bda     equ os88_image_end + DOS_B_BDA     ; 256:  ...and the whole BDA
 
 ; --- the packet driver's (SPEC.md 96.23) -------------------------------------
 %ifndef KD_BACKEND                  ; 96.43
-dos_pkt_vec   equ os88_image_end + DOS_B_PKTVEC
-dos_pkt_raw   equ os88_image_end + DOS_B_PKTRAW
-dos_pkt_busy  equ os88_image_end + DOS_B_PKTBSY
-dos_pkt_mode  equ os88_image_end + DOS_B_PKTMODE
-dos_pkt_htab  equ os88_image_end + DOS_B_PKTHTAB
-dos_pkt_mac   equ os88_image_end + DOS_B_PKTMAC
-dos_pkt_cvec  equ os88_image_end + DOS_B_PKTCVEC
-dos_pkt_chand equ os88_image_end + DOS_B_PKTCHAND
-dos_pkt_old08 equ os88_image_end + DOS_B_PKTOLD08
-dos_pkt_sss   equ os88_image_end + DOS_B_PKTSSS
-dos_pkt_ssp   equ os88_image_end + DOS_B_PKTSSP
-dos_pkt_can   equ os88_image_end + DOS_B_PKTCAN
-dos_pkt_cds   equ os88_image_end + DOS_B_PKTCDS
-dos_pkt_bseg  equ os88_image_end + DOS_B_PKTBSEG
-dos_pkt_stats equ os88_image_end + DOS_B_PKTSTAT
+dos_pkt_vec equ dos_hbss + DOS_B_PKTVEC
+dos_pkt_raw   equ dos_hbss + DOS_B_PKTRAW
+dos_pkt_busy equ dos_hbss + DOS_B_PKTBSY
+dos_pkt_mode equ dos_hbss + DOS_B_PKTMODE
+dos_pkt_htab equ dos_hbss + DOS_B_PKTHTAB
+dos_pkt_mac equ dos_hbss + DOS_B_PKTMAC
+dos_pkt_cvec equ dos_hbss + DOS_B_PKTCVEC
+dos_pkt_chand equ dos_hbss + DOS_B_PKTCHAND
+dos_pkt_old08 equ dos_hbss + DOS_B_PKTOLD08
+dos_pkt_sss equ dos_hbss + DOS_B_PKTSSS
+dos_pkt_ssp equ dos_hbss + DOS_B_PKTSSP
+dos_pkt_can equ dos_hbss + DOS_B_PKTCAN
+dos_pkt_cds equ dos_hbss + DOS_B_PKTCDS
+dos_pkt_bseg equ dos_hbss + DOS_B_PKTBSEG
+dos_pkt_stats equ dos_hbss + DOS_B_PKTSTAT
 
-dos_pkt_xl  equ os88_image_end + DOS_B_PKTXL
+dos_pkt_xl equ dos_hbss + DOS_B_PKTXL
 
 ; --- the cable translation's, IN THE NETWORK CLAIM (SPEC.md 96.26.6) --------
 ; These are offsets into [dos_pkt_bseg] and NOT into our own segment, which is

@@ -267,8 +267,40 @@ kd_entry:
     mov si, kd_s_noroom
     jmp short .say
 .nomount:
+    ; --- **AND IT SAYS WHICH ONE** (SPEC.md 96.40.4) ------------------------
+    ; A refusal that names no drive is a refusal nobody can act on: the field
+    ; report it earned was "it cannot mount the disk, regardless of what disk
+    ; I tried", which is four facts short of a diagnosis. The volume index IS
+    ; the DOS drive (96.6), the unit is what `int 13h` was asked about, and
+    ; the two disagreeing is itself the answer on a machine with an unusual
+    ; drive table.
+    push ax
     mov si, kd_s_nomount
-    jmp short .say
+    call kd_puts
+    mov al, [dos_vol]
+    add al, 'A'
+    call kd_putc
+    mov si, kd_s_nomu
+    call kd_puts
+    xor ah, ah
+    mov al, [dos_vol]
+    push bx
+    call dskf_dsk_vol_row        ; BX = the row, or CF=1 = no such volume
+    jc .nmnorowb
+    mov al, [bx+DV_UNIT]         ; THE ROW'S UNIT, not the volume index
+    xor ah, ah                   ; (SPEC.md 52.10.3)
+    pop bx
+    call kd_dec
+    jmp short .nmend
+.nmnorowb:
+    pop bx
+    mov si, kd_s_nmnone
+    call kd_puts
+.nmend:
+    mov si, kd_s_nmcr
+    call kd_puts
+    pop ax
+    jmp short .sayd
 .nofh:
     mov si, kd_s_nofh
     jmp short .say
@@ -276,6 +308,7 @@ kd_entry:
     mov si, kd_s_noload
 .say:
     call kd_puts
+.sayd:
     mov byte [kd_code], 0xFF
     jmp kd_leave
 
@@ -443,6 +476,17 @@ KDL_MINE equ KDL_ACC
 %endif
 
 ; --- the ROM's teletype, which is the only screen this machine has ----------
+; --- kd_putc - one character, through the ROM's teletype --------------------
+kd_putc:
+    push ax
+    push bx
+    mov ah, 0x0E
+    mov bx, 0x0007
+    int 0x10
+    pop bx
+    pop ax
+    ret
+
 kd_puts:
     push ax
     push bx
@@ -491,7 +535,10 @@ kd_dec:                         ; AX, in decimal, smallest thing that works
 
 kd_s_nolb:    db 13, 10, 'kern_dos: no launch block', 13, 10, 0
 kd_s_noroom:  db 13, 10, 'kern_dos: no room for a program', 13, 10, 0
-kd_s_nomount: db 13, 10, 'kern_dos: the disk could not be mounted', 13, 10, 0
+kd_s_nomount: db 13, 10, 'kern_dos: could not mount drive ', 0
+kd_s_nomu:    db ' (unit ', 0
+kd_s_nmnone:  db 'none - no such volume', 0
+kd_s_nmcr:    db ')', 13, 10, 0
 kd_s_nofh:    db 13, 10, 'kern_dos: no file window', 13, 10, 0
 kd_s_noload:  db 13, 10, 'kern_dos: the program could not be loaded', 13, 10, 0
 kd_s_over:    db 13, 10, 13, 10, 'os8088: the program has exited, code ', 0

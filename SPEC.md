@@ -126363,6 +126363,55 @@ property of the machine and the difference is a property of this feature. It
 was 560 against 438 when the arm shipped, and §96.43 is the thirty
 kilobytes that moved it.
 
+#### 96.40.4 A refusal that names no drive is a refusal nobody can act on
+
+`kd_entry` has five refusal paths and each printed a sentence and rebooted.
+One of them earned a field report that reads *"it cannot mount the disk,
+regardless of what disk I tried"* — which is four facts short of a diagnosis,
+and every one of the four is in a register at the moment it gives up.
+
+So `.nomount` names them: **`could not mount drive B (unit 1)`**. The volume
+index IS the DOS drive (§96.6), the unit is what `int 13h` was actually asked
+about, and **the two disagreeing is itself the answer** on a machine whose
+drive table is not the usual one — a boot partition is volume 2 and unit 80h
+(§52.10.3), and a machine with one floppy has no volume 1 at all, which prints
+as `unit none - no such volume` rather than as silence.
+
+It is `kd_putc` and a `dsk_vol_row_x`, in the one place that already had the
+ROM's teletype and a decimal printer to hand.
+
+#### 96.40.3 …and why the part is not on the shipped system disks
+
+`dos_mem_whole` greys the arm by reading the part table's own length word
+(§96.36.1), so a `DOS.O88` that does not carry `kern_dos` offers nothing —
+which is what every shipped system disk does today, the part riding
+`build/kdos360.img` instead.
+
+**IT WAS TRIED, AND THE COST IS NOT ONLY DISK.** `os88pkg.py` refuses
+`--compress` beside parts — a part's offset is measured from the image — so a
+parted package's image is RAW, and `DOS.O88` goes **26,723 → 57,272 bytes**.
+That is 30 of the 360KB system disk's 50 free clusters, which it has; what it
+also is, is a slower box. **MEASURED, same machine, same click, opening
+`B:\BIN\DOSARGS.COM`:**
+
+| | `int 13h` reads | sectors | transfer |
+|---|---:|---:|---:|
+| the plain package | 23 | 125 | 2,690 ms |
+| the parted one | 25 | 146 | 3,622 ms |
+| | **+2** | **+21** | **+932 ms (35%)** |
+
+**Twelve soak rows went red at once**, and not one of them for a reason of its
+own: they sat about two seconds inside a fifteen-second wait, and 932 ms a
+launch over eight launches is what tipped them. A row that fails because the
+machine under it got slower is telling the truth, and the honest answer is not
+to raise the wait.
+
+So the arm stays on the gate disk until docs/plans/KERN-DOS-PLAN.md §4.1.3.1's
+four pieces land — a ~2 KB raw loader in front of three COMPRESSED parts,
+which is ~15 clusters and puts the launch back where it was. `SYSROOT` in the
+Makefile is the one variable, and `tests/unit/t_pkg.py` reads it rather than
+preferring one answer, because it has been both.
+
 **THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
 it stores the far pointer, sets `[ui_rebootq]` to `UI_RBQ_DOSRUN` and wakes
@@ -126817,3 +126866,88 @@ Two things came out of doing it:
 
 The cost is **+84 bytes of the box's image and +44 of its bss**, +128 of
 `kern_dos`, and the core stops being host-specific.
+
+#### 96.44.2 The core's bss is a BUDGET, and it had to become two accumulators
+
+A core assembled once reaches its state DS-relative at
+`os88_image_end + DOS_B_*`, so every one of those offsets has to come out the
+same in both hosts. `DOS_B_*` is a running sum over the `DBSS` rows — **so one
+conditional row moves every cell after it**, and §96.43.2 had just gated
+twenty-nine window rows out of `kern_dos`. The core's state was at two
+different offsets in the two builds and nothing said so.
+
+**`HBSS` is the second accumulator.** A row that only some builds emit belongs
+to a HOST: `DBSS` is the core's state, based at `os88_image_end` and identical
+everywhere, and `HBSS` is the host's, based above it at `dos_hbss`, where a
+host may have as many or as few cells as it likes. **84 of 266 rows are the
+host's.** Nothing was reordered — which macro a row uses is the whole of the
+split, so the table still reads in subject order.
+
+**`CORE_BSS_SIZE` is a constant and not a sum**, for `KERN_BUDGET`'s reason one
+layer along: the host's block cannot start wherever *this* host's core happens
+to end. It is **3,264** against a measured 3,251, with the ledger in the source
+and an `%if` that fails naming it; `-DCORE_BSS_SIZE=n` is how the exact figure
+is bisected out.
+
+`tests/unit/t_dosbss.py` is the gate and it is two hard zeros — no `DBSS` row
+is conditional, and no core proc names an `HBSS` cell. It was written against a
+real offender: **`DOS_B_PKTRAW` sat inside the packet driver's own
+`%ifndef KD_BACKEND`**, so it was a thirtieth conditional row, and the failure
+it would have caused is silent state corruption in whichever host was not the
+one the core was built against.
+
+**Three things the split broke, and each is a class rather than a slip.**
+
+- **A PADDING row belongs to the block it pads**, and nothing NAMES one — so a
+  classifier that asks *"does the core read this cell?"* puts all nine of them
+  on the host's side and quietly un-aligns the core's table. They are `DBSS`.
+- **The parts standard's own 86 bytes are the HOST's.** `%assign DB OP_BSS`
+  put them at the head of the CORE's block, which made `CORE_BSS_SIZE` a figure
+  that depended on whether this was a `DOSTRACE` build — so the diagnostic
+  build and the shipped one disagreed about where every core cell was, and
+  `dosdbg` failed on the budget assertion. `OP_BSS_AT` is a `%define` the
+  carrier may point precisely for this, and it points at `dos_hbss`.
+- **`DOS_B_x` WAS the offset from `os88_image_end` and three tools relied on
+  it.** It is an offset inside whichever block owns the cell now, so
+  `tools/os88dosdbg.py` asks the assembler for `name - os88_image_end` instead
+  (`dos_bss`), and `tests/doslnk.py` with it. That one is the interesting
+  failure: the box wrote the link's memory block correctly and read it back
+  correctly, and the TEST read three plausible zeroes at the old addresses and
+  reported *"the second ExtraData block was written and not read"* — a green
+  feature failing as a red one, which is the safe direction and still cost a
+  diagnosis.
+
+#### 96.44.3 …and ten conditionals inside the core, of which five matter
+
+Marking the spans made a second question askable: where does the core's own
+CODE differ between hosts? Ten `%if` regions sit inside a core span, and five
+are `DOSTRACE` — a diagnostic build, uniform across hosts, so not a hazard. The
+other five are `KD_BACKEND`, and they are the whole of what is left of the seam:
+
+| | what the box has and `kern_dos` does not |
+|---|---|
+| `dos_prog_done` | `dos_snap`, the last screen (§96.34) |
+| `dos_int21` | the packet driver's third poll (§96.23.4) |
+| `dos_tty` ×2 | the console arm and its body (§96.33) |
+| `dos_mou_read` | `OSAPI_MOUSE`, where `kern_dos` answers a still pointer |
+
+Each is *the box does something extra*, so each is a HOST HOOK now — a word in
+`dos_hkv` the core calls when it is set, `dos_bevec`'s shape (§96.44.1) with a
+different table. **Zero means the host does not want it**, which is what a
+zeroed bss already says, so `kern_dos` binds nothing at all and the box binds
+four in `dos_hk_bind`. The reason it is a second table rather than more doors
+is that **a door must always be answered and a hook may always be absent.**
+
+`dos_tty` is the one with a return value: `DHK_TTY` answers **CF=0 when it has
+taken the character**, and the core falls through to the ROM's teletype
+otherwise — so the box's `[dos_inbr]` test moves into the box's own hook, where
+it can keep the `cs:` override the §96.33 defect was found through, and the
+core keeps one arm. `DHK_MOUSE` is the mirror: it fills BX/CX/DX, and a host
+that sets none has a mouse that never moves and is never pressed, which is
+exactly what `kern_dos` has and a state INT 33h can report.
+
+`tests/unit/t_dosbss.py`'s **rule 3** is the ratchet — no `%ifdef KD_BACKEND`
+or `%ifdef DOSKPART` inside a core span, ever again. `DOSTRACE` and
+`DOSNET_CARD` are deliberately not on that list: they are build knobs and are
+the same in every host, so five such regions remain and none of them is a seam.
+The core assembles standalone at **14,453 bytes**.

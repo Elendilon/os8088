@@ -2818,6 +2818,20 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 0.3,
+        "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
+        "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
+        "a part BOTH the box and kern_dos join, so it is assembled once and "
+        "reads its state DS-relative at os88_image_end + DOS_B_* - and DOS_B_* "
+        "is a running sum, so ONE conditional row moves every cell after it. "
+        "Not hypothetical: 96.43.2 gated twenty-nine window rows out of "
+        "kern_dos and a thirtieth (DOS_B_PKTRAW) sat inside the packet "
+        "driver's own %ifndef, which would have put the whole tail of the "
+        "core's state at two different offsets. Two hard zeros: no DBSS row is "
+        "conditional (a row only some builds emit is a HOST's and belongs to "
+        "the second accumulator), and no core proc names an HBSS cell. "
+        "Host-side, source only, and it fails naming the row or the proc.",
+        ),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.3,
         "kern_dos's REFUSAL TABLE has to cover the SDK's whole API table "
         "(SPEC.md 96.40.2). KERNEL_SEG is kern_dos's own segment, so every "

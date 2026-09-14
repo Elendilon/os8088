@@ -2908,6 +2908,22 @@ SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 # directory, a volume's ROOT and the APPS or GAMES folder - there is no rung
 # that looks in SYSTEM/. APPS/ is rung 4, and assoc_dfold's built-in row for
 # DOS says 1, which is what makes the rung land there.
+#
+# **AND IT IS THE PLAIN ONE, ON A MEASUREMENT** (SPEC.md 96.40.3). Pointing it
+# at $(BUILD)/kdos/DOS.O88 makes the Memory page's third arm LIVE on the
+# ordinary system disks instead of on a gate disk, and it was tried: a parted
+# package's image is RAW - os88pkg.py refuses `--compress` beside parts, a
+# part's offset being measured from the image - so DOS.O88 goes 26,723 to
+# 57,272 bytes, which costs the 360KB system disk 30 of its 50 free clusters
+# AND makes every DOS launch slower. MEASURED, on the same machine and the
+# same click: 23 int 13h reads / 125 sectors / 2,690 ms of transfer plain
+# against 25 / 146 / 3,622 parted - **+932 ms, 35%** - and twelve soak rows
+# that sat about two seconds inside a fifteen-second wait went red at once.
+#
+# So the part rides `build/kdos360.img` until
+# docs/plans/KERN-DOS-PLAN.md §4.1.3.1's four pieces land: a ~2 KB raw loader
+# in front of three COMPRESSED parts, which is ~15 clusters and puts the
+# launch back where it was. ONE VARIABLE either way.
 SYSROOT := $(BUILD)/dos.o88
 SYSROOTARG := APPS:$(BUILD)/dos.o88
 # ...and the SUBSET an APPS disk carries: the Task Manager alone, for the

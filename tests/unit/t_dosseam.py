@@ -58,6 +58,17 @@ REGISTRY = os.path.join(ROOT, "tests", "dosseam.txt")
 ROOTS = ("dos_int21", "dos_int2f", "dos_int33", "dos_int20", "dos_int22",
          "dos_int24", "dos_load")
 
+# ...AND EVERY ROUTINE A HOST HOOK IS BOUND TO (SPEC.md 96.44.3).  A hook is a
+# word in `dos_hkv` the core calls where a `%ifndef KD_BACKEND` used to stand,
+# so the walk cannot follow it - `call word [dos_hkv + DHK_TTY]` reaches
+# wherever this host's `dos_hk_bind` put it.  The BINDING is the edge, and it
+# is right there in the source: every `mov word [dos_hkv + DHK_x], <name>` is
+# a root as surely as an interrupt entry, and reading them keeps this row's
+# picture of the port's surface honest.  Without it `OSAPI_MOUSE` read as
+# registered with zero call sites the day INT 33h's read became a hook.
+HOOKBIND = re.compile(r"mov\s+word\s+\[dos_hkv\s*\+\s*DHK_\w+\]\s*,"
+                      r"\s*([A-Za-z_]\w*)")
+
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 # `jc`/`jnc`/`jz`/... are in here beside call and jmp because a tail branch to
 # another proc is a reach like any other, and this file uses them that way.
@@ -89,12 +100,24 @@ def read():
     return body
 
 
+def hooks(body):
+    """Every routine this host binds into `dos_hkv` (SPEC.md 96.44.3)."""
+    out = []
+    for rows in body.values():
+        for _f, _i, c in rows:
+            m = HOOKBIND.search(c)
+            if m:
+                out.append(m.group(1))
+    return out
+
+
 def reach(body):
     """Every proc the roots can reach, and the path to each."""
     stop = {"dos_be_go"} | {p for p in body
                             if p.startswith(("dos_be_", "dos_k_"))}
-    prev = {r: None for r in ROOTS}
-    seen, queue = set(), list(ROOTS)
+    roots = list(ROOTS) + hooks(body)
+    prev = {r: None for r in roots}
+    seen, queue = set(), list(roots)
     while queue:
         p = queue.pop(0)
         if p in seen or p in stop or p not in body:
@@ -146,7 +169,7 @@ def main():
                     fs.append((f, i, p, m.group(1)))
                 else:
                     other.update([m.group(1)])
-            if INDIRECT.search(c):
+            if INDIRECT.search(c) and "dos_hkv" not in c:
                 indirect.append((f, i, p, c.strip()))
 
     # --- rule 1: a hard zero ------------------------------------------------

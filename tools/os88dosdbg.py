@@ -163,6 +163,20 @@ AX_IS_AN_ANSWER = {
 # =============================================================================
 # constants, derived from the sources rather than transcribed
 # =============================================================================
+def dos_bss(names, defines=("DOSTRACE",)):
+    """{name: its offset from `os88_image_end`} for bss symbols.
+
+    SPEC.md 96.44.2: the offset is asked of the ASSEMBLER as
+    `name - os88_image_end`, because the core's block and the host's are two
+    accumulators now and a cell's `DOS_B_x` is an offset inside whichever one
+    owns it.  A reader that added `DOS_B_x` to the image end was right until
+    the day the table split and then decoded plausible nonsense - which is the
+    failure this file's own header warns about, one layer down.
+    """
+    got = dos_syms(["%s - os88_image_end" % n for n in names], defines)
+    return {n: got["%s - os88_image_end" % n] for n in names}
+
+
 def dos_syms(names, defines=("DOSTRACE",)):
     """The value of any `equ` or DBSS symbol in apps/dos/dos.asm.
 
@@ -231,10 +245,17 @@ def dos_syms(names, defines=("DOSTRACE",)):
 # exactly this reader. Asking for the old name would fail the symbol probe,
 # which is the right failure: a reader that fell back to an offset would
 # decode 16KB of somebody else's image as a trace.
-BSS = ("DOS_B_TRACEN", "DOS_B_TRACEW", "DOS_B_TRSEG", "DOS_B_TRNM",
-       "DOS_B_TRNMI", "DOS_B_LDPSP", "DOS_B_STATE", "DOS_B_ARENA",
-       "DOS_B_APARA", "DOS_B_FHTAB", "DOS_B_WOWN", "DOS_B_WLEN",
-       "DOS_B_WFILL", "DOS_B_WBYTES")
+# **THE SYMBOL, NOT THE CELL ORDINAL** (SPEC.md 96.44.2).  `DOS_B_x` used to
+# BE the offset from `os88_image_end`, so a probe could ask for the ordinal and
+# add it to the image end.  The core's bss and the host's are two accumulators
+# now - a core assembled once has to find its state at the same offsets in
+# every host - so `DOS_B_x` is an offset within whichever block owns the cell,
+# and only the derived symbol knows which.  `dos_bss` below asks the assembler
+# for `name - os88_image_end`, which is right whatever the layout does next.
+BSS = ("dos_tracen", "dos_tracew", "dos_trseg", "dos_trnm",
+       "dos_trnmi", "dos_ldpsp", "dos_state", "dos_arena",
+       "dos_apara", "dos_fhtab", "dos_wown", "dos_wlen",
+       "dos_wfill", "dos_wbytes")
 CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
           "DOS_TRACE_KB",
           "DOS_NFH", "DOS_FH0",
@@ -464,7 +485,8 @@ def cmd_trace(a):
     import os88ui                                                     # noqa: E402
     import os88geom                                                   # noqa: E402
 
-    sym = dos_syms(list(BSS) + list(CONSTS))
+    sym = dos_bss(BSS)
+    sym.update(dos_syms(list(CONSTS)))
     stride, nent = sym["DOS_TRACE_SZ"], sym["DOS_TRACEN"]
     _agree(stride, "apps/dos/dos.asm's DOS_TRACE_SZ")
     # BEFORE the run and not after it, and on stderr: see trace_costs().
@@ -503,8 +525,8 @@ def cmd_trace(a):
 
         last, end = None, time.time() + a.timeout
         while time.time() < end:
-            total = w16(sym["DOS_B_TRACEN"])
-            trseg = w16(sym["DOS_B_TRSEG"])
+            total = w16(sym["dos_tracen"])
+            trseg = w16(sym["dos_trseg"])
             if total and not trseg:
                 raise SystemExit(
                     "os88dosdbg: the box has traced %d call(s) and its trace "
@@ -522,20 +544,20 @@ def cmd_trace(a):
                 # index cannot collide with [dos_tracei]'s "no call in
                 # flight" sentinel (SPEC.md 96.29.1.1). It is asked for by
                 # name for that reason.
-                last = (total, w16(sym["DOS_B_TRACEW"]),
+                last = (total, w16(sym["dos_tracew"]),
                         bytes(m.read((trseg << 4) + sym["DOS_TRB_OFF"],
                                      nent * stride)),
-                        w16(sym["DOS_B_LDPSP"]))
+                        w16(sym["dos_ldpsp"]))
             if a.until and total >= a.until:
                 break
-            if not a.until and m.read(base + sym["DOS_B_STATE"], 1)[0] == 3:
+            if not a.until and m.read(base + sym["dos_state"], 1)[0] == 3:
                 break                                    # the program exited
             time.sleep(a.poll)
         if last is None:
             raise SystemExit("os88dosdbg: the program made no INT 21h call at all")
         total, wr, ring, psp = last
-        nm = m.read(base + sym["DOS_B_TRNMI"], 1)[0]
-        raw = bytes(m.read(base + sym["DOS_B_TRNM"], nm * 13))
+        nm = m.read(base + sym["dos_trnmi"], 1)[0]
+        raw = bytes(m.read(base + sym["dos_trnm"], nm * 13))
         names = [raw[i * 13:(i + 1) * 13].split(b"\0")[0].decode("latin1")
                  for i in range(nm)]
 
@@ -565,7 +587,7 @@ def _dump_state(m, base, sym, psp, a):
     open(stem + ".psp.bin", "wb").write(bytes(m.read(psp << 4, 256)))
     open(stem + ".ivt.bin", "wb").write(bytes(m.read(0, 1024)))
     open(stem + ".bda.bin", "wb").write(bytes(m.read(0x400, 256)))
-    tab = bytes(m.read(base + sym["DOS_B_FHTAB"],
+    tab = bytes(m.read(base + sym["dos_fhtab"],
                        sym["FH_SIZEOF"] * sym["DOS_NFH"]))
     open(stem + ".fhtab.bin", "wb").write(tab)
     print("  state: %s.{psp,ivt,bda,fhtab}.bin" % os.path.basename(stem))
@@ -874,8 +896,12 @@ def cmd_diff(a):
 
 # =============================================================================
 def cmd_syms(a):
-    names = a.names or (list(CONSTS) + list(BSS))
-    for k, v in dos_syms(names).items():
+    if a.names:
+        rows = dos_syms(a.names)
+    else:                               # the BSS half is an OFFSET from
+        rows = dos_bss(BSS)             # os88_image_end now (SPEC.md 96.44.2)
+        rows.update(dos_syms(list(CONSTS)))
+    for k, v in rows.items():
         print("  %-14s %6d  0x%04X" % (k, v, v))
     return 0
 
@@ -897,7 +923,8 @@ def selfcheck():
         if not ok:
             fails.append(name)
 
-    sym = dos_syms(list(CONSTS) + list(BSS))
+    sym = dos_bss(BSS)
+    sym.update(dos_syms(list(CONSTS)))
     ck("apps/dos symbols assemble out", len(sym) == len(CONSTS) + len(BSS))
     ck("DOS_TRACE_SZ is the 16-word entry this file decodes",
        sym.get("DOS_TRACE_SZ") == 32,

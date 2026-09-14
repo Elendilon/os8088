@@ -100,13 +100,19 @@ def dos_state(m, ui):
     The offsets come from tools/os88dosdbg.py, which makes the ASSEMBLER emit
     them - nasm prints no symbols and `-f bin` writes no map, so a layout
     transcribed here would decode plausible nonsense the day a field moves.
+    **BY SYMBOL AND NOT BY CELL ORDINAL** (SPEC.md 96.44.2): `DOS_B_MEMKB`
+    used to BE the offset from `os88_image_end` and is now an offset inside
+    whichever of the two blocks owns the cell, so `dos_bss` asks for
+    `dos_memkb - os88_image_end` instead - which is the same answer today and
+    the right one whatever the layout does next.  The day the table split,
+    this routine read three plausible zeroes and the row failed saying the
+    link had been written and not read.
     The image size is taken off SYS and not off the apps floppy for the same
     reason: the bss begins at os88_image_end, so it is the DOS.O88 that was
     LOADED that decides where it starts - and that one is on the system disk
     (SPEC.md 24.3), which is also the disk a knob build would change.
     """
-    sym = dbg.dos_syms(["DOS_B_MEMKB", "DOS_B_MRAD", "DOS_MRADSEL",
-                        "DOS_B_AKB"], defines=())
+    sym = dbg.dos_bss(["dos_memkb", "dos_keepc", "dos_akb"], defines=())
     base = None
     for w in os88geom.windows(m, ui.sym):
         if w.used and w.visible and w.title.startswith("DOS"):
@@ -119,9 +125,9 @@ def dos_state(m, ui):
         fail("no DOS window to read the settings out of")
     def w16(o):
         return struct.unpack("<H", bytes(m.read(base + o, 2)))[0]
-    return (w16(sym["DOS_B_MEMKB"]),
-            bytes(m.read(base + sym["DOS_B_MRAD"] + sym["DOS_MRADSEL"], 1))[0],
-            w16(sym["DOS_B_AKB"]))
+    return (w16(sym["dos_memkb"]),
+            bytes(m.read(base + sym["dos_keepc"], 1))[0],
+            w16(sym["dos_akb"]))
 
 
 def wait_ready(m, limit=120.0):

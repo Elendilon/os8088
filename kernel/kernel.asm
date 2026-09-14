@@ -7149,8 +7149,19 @@ osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
                   ret
 osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
                   ret
+%ifdef KERN_BIG                 ; **kern_small HAS NO HIBERNATE AND SO NO ARM 3**
 osapi_dos_handoff:    call COLD_SEG:osapi_dos_handoff_x
                   ret           ; X: ES:SI = a KDH_* record (SPEC.md 96.40)
+%else                           ; (SPEC.md 96.40): hiber.inc's body is %ifdef
+osapi_dos_handoff:    stc       ; KERN_BIG, so the thunk had nothing to call
+                  ret           ; and kern_small did not assemble at all. A
+                                ; refusing cell is the published meaning of a
+                                ; slot that cannot do what was asked (20.8),
+                                ; and dos_mem_whole greys the arm on the part
+                                ; table rather than on this - so a kern_small
+                                ; machine carrying a parted DOS.O88 would have
+                                ; offered the arm and been refused here
+%endif
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret
 osapi_sys_kb:         call COLD_SEG:osapi_sys_kb_x
