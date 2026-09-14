@@ -35533,8 +35533,10 @@ packed a `door lo`, `MC_RLOC`-movable region *down*. `[ld_base]` is 0, the
 package owns no worker, and `OS88_COMPACT` is defined on this kernel, so none
 of the three obvious pins applies.
 
-**It is written down rather than explained, because it is no longer on any
-shipped path** — the top-down carve above removes it — and because the
+**docs/plans/HANDOFF-CARVE-COMPACT.md is the handoff** — the repro, the probe,
+what is ruled out and on what evidence, and four candidates ranked. It is
+written down rather than explained here, because it is no longer on any
+shipped path — the top-down carve above removes it — and because the
 general machinery is not in doubt: `soak -k 'heap*' -k 'reg*'` is 10/10,
 `heapcheck` among them, which asserts a poster's own region physically moving
 and reads the closed hole back to the KB. Whoever picks this up should force
