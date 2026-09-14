@@ -36490,6 +36490,14 @@ Load Program require `RAMDISK.DRV` — which today it does not, and which
 the program in the heap at its peak, in an arena §92.14 measures `LD_ENOMEM`
 in on a 640KB XT.
 
+**The ARCHIVE arm is no longer one of those callers** (§92.14.2). It unpacks
+onto a RAM disk and so ends up with a file after all, and the by-name form is
+strictly better there for two reasons the image form cannot fix: a program
+with PARTS is refused on the image arm, and the decode claim is held across
+`ld_alloc` if the image form is used. So the one caller of the image form in
+the whole tree is `Load Program` on a plain `.O88` — bytes that were never a
+file and are never going to be one.
+
 #### The split, which is what makes the body one routine and not two loaders
 
 `ld_run_body_x` gave up two routines, both entered by the disk path exactly
@@ -80431,6 +80439,72 @@ redirected volume it is strictly the cheaper of the two: §19.7.1's stateless
 re-seek costs the FAT arm a sector walk per entry, where the driver walks its
 own rows in RAM.
 
+#### 62.9.18 A package with PARTS on a redirected volume
+
+**`dsk_read_chain_x`'s `DVK_FILE` arm asks `FSV_READ` and the operation it is
+performing is `FSV_READAT`.** It is 62.9.17's shape one cell along — a gap
+rather than a design, found by §92.14 again, and fixed where it is rather than
+worked around in the caller.
+
+That routine's contract is *read `DX` SECTORS of this file*. On the FAT side
+it is exact by construction: the walk consumes the run and simply stops, and
+whatever is left of the chain is never read. `FSV_READ` is not that operation —
+it is *the whole file, by handle* (62.9.1) — and a driver serving it is
+**required** to refuse rather than truncate when the file is longer than the
+buffer, because `OSAPI_FILE_READ` sits on the same verb and a silent short read
+there is a corrupt file nobody is told about (`rd_read`'s `FERR_BIG`, and its
+own comment about writing past the end of somebody else's claim).
+
+So the two operations agree for every file whose size is at most what was
+asked for, which is every file anyone had put on a store — and disagree for
+exactly one species: **a package carrying parts**, whose file is bigger than
+its image by construction (§20.12) and whose step 6 asks for the IMAGE
+(§21 step 6). `MSEG.O88` is 13,291 bytes with a smaller primary; on a RAM disk
+it answered `FERR_BIG`, which the loader reports as `LD_EDISK`, which the Wire
+prints as `That program would not start (1)` — a disk error, for a file that
+had just been written to RAM and read back correctly at the peek.
+
+It is the loader on BOTH its arms, so it is not the by-name door's: the Disk
+window's index launch reaches the same step 6 with the same handle, and a
+parted package double-clicked on a RAM disk failed the same way. §62.9.5's
+"packages launch off it" was true of every package that had been tried.
+
+```
+dsk_read_chain_x, the DVK_FILE arm:
+
+    capacity = DX * 512, in 32 bits, as now
+    high word zero -> FSV_READAT, DI:SI = 0, CX = the capacity
+                      (the same read, CLAMPED to the ask rather than
+                       REFUSED when the file is longer)
+    otherwise      -> FSV_READ, DI:CX = the capacity, as now
+```
+
+**The fallback is not dead and not reachable**, which is the honest way to
+describe it: `FSV_READAT`'s capacity is a WORD by contract, so a request over
+64KB has no 16-bit verb to make it, and the two callers that reach this arm
+cannot make one — the loader's is a package region, at most `APP_MAX_SIZE`
+(61,440), and `assoc`'s is bounded at `ASC_KB * 2` sectors by §54.7.1. Every
+other caller of `dsk_read_chain_x` carries its own redirected arm and branches
+before it gets here (`dskw_read_at_x`, `fcp_rdnext`). Looping `FSV_READAT` to
+cover a hypothetical third caller would be resident `.text` spent on nothing,
+and silently clamping a >64KB ask to 64KB would be the truncation this section
+is about.
+
+`[dsk_chain_end]` is stored before the call rather than after it, because `SI`
+is `FSV_READAT`'s offset. On this arm it holds the driver's opaque handle and
+has never been read by anything — the one caller that resumes a chain is
+`fcp_rdnext`, which does not reach here — so it is kept as it was rather than
+dropped, at three bytes.
+
+**What it costs**: **10 bytes of `.cold`**, which is where `dsk_read_chain_x`
+lives, and nothing of `.text` or `.bss` — `tools/kernsize.py` reads 41,002 to
+41,012 on `kern_big` and no rung is crossed. On `kern_small` the arm is the
+same ten bytes (it is inside no `%ifdef`) and `kernel.bin` measures **76,517
+either way**, section padding swallowing them whole — which is the reading
+CLAUDE.md's banner is about and not a claim that they were free.
+`tests/thewire.py` is the gate, its archive's `WAH_PROGRAM` entry being
+`MSEG.O88` for this reason (§92.14.2).
+
 ### 62.10 The cable's file client — `NET.DRV` becomes the redirector
 
 §62.9's kernel is finished and proven four milestones deep against a RAM
@@ -116904,7 +116978,8 @@ Then `OSAPI_FILE_GOTO_Q` to the store's root (DX = 0, BL = the volume index
 `RDPV_STATE` answered), and the chain. On the 640KB XT this is for, the
 arithmetic was **measured and it does not go the way the first draft said**:
 the whole curated master disk — 320KB in 58 rows, `WC_NEEDKB` 345 — mounts a
-368KB store, unpacks, and then `OSAPI_PKG_START` answers `LD_ENOMEM`, because
+368KB store, unpacks, and then `OSAPI_PKG_START` answers `LD_ENOMEM` — with
+the decode claim still held, which 92.14.2 has since given back — because
 with ETHER.DRV's rings, the driver, the Wire's own region, catalog and entry
 claim beside a store that size, a ~532KB heap has about 46KB left and RunCPM
 wants its 47KB region and a 64KB Z80 claim before it opens a file. So the
@@ -116945,11 +117020,13 @@ the status cell counts it; a `WW_DONE` before `N` entries, or a byte after the
 last, is `The Wire stopped answering`. A failure mid-tree **leaves what was
 written** and says which file, which is 92.8's rule and §22's.
 
-**The program entry is last so that the launch costs nothing**: when the last
-entry has been written the claim still holds it, byte for byte what the
-`.O88` on the disk now holds, and `OSAPI_PKG_START` takes it from there with the
-instance's directory already on the tree — the overlay and the sidecars are
-where the launched package will look (§73.14, 92.8). A tree with no
+**The program entry is last so that the launch has somewhere to stand**: when
+the last entry has been written the instance's directory is already on the
+tree, so the overlay and the sidecars are where the launched package will look
+(§73.14, 92.8) and `OSAPI_PKG_START` resolves the name it was just given right
+there. It was handed the decode CLAIM as an image at first, on the argument
+that the bytes were free — **92.14.2 is why that was the wrong account and
+what it is now**. A tree with no
 `WAH_PROGRAM` — a CP/M game into `RUNCPM/A/1` — ends with the toast and no
 launch. Add to Disk is the same chain from the dialog's completion, with the
 free-space check against `WC_TOTAL` first as before, and `home` made under
@@ -117016,6 +117093,42 @@ this package hands a kernel cell goes through `wr_aname` first: a `wr_sputn`
 bounded at `WARC_SLOT` into a thirteen-byte buffer that always gets a
 terminator. `wr_sput` would have run a twelve-character name into the next
 slot, and at depth 3 the next slot is another name.
+
+#### 92.14.2 The launch is BY NAME, and the claim goes back before it
+
+92.14 said "the program entry is last so that the launch costs nothing" and
+handed `OSAPI_PKG_START` the decode claim as an image (21.5). **Both halves of
+that were a saving against the wrong account**, and this is the correction.
+
+**The image arm refuses a package with PARTS** (21.5.1, header flags bit 2):
+parts are read by the program out of its own file and on that arm there is no
+file. So an archive whose program is a multi-part `.O88` — `C64.O88` with its
+20,480 bytes of ROM, `APPLE2.O88` with its, anything built on 20.12 —
+unpacked perfectly onto the store, wrote the `.O88` whole, and then answered
+`LD_EBAD` at the very last step, for a file sitting complete three inches
+away. The tree it needs is the one it just made.
+
+**And the image arm holds the claim across `ld_alloc`.** The claim the whole
+tree was decoded through is the largest entry's unpacked size, and on this
+feature the largest entry is usually the program itself — so at the moment the
+loader looks for a region, the package exists TWICE in the heap: once in the
+decode claim and once in the region about to be filled from it. That is the
+`LD_ENOMEM` the measurement above records against RunCPM, and paying it buys
+one `rep movsb` — because the file is already on the tree and the by-name arm
+is the ordinary disk path, the same one the store's own Disk window takes
+(62.9.5).
+
+So the RAM arm sets `[wr_rlen]` to zero, calls `wr_freefile`, and then calls
+`wr_pkgrun`: **a zero length IS the by-name form** (21.5), the claim is back
+in the arena before `ld_alloc` asks for anything, and the instance is already
+standing in the last entry's folder (92.14.1) — which is exactly what the
+by-name arm resolves against. It costs one `int 13h`-shaped read of a file
+that was written seconds ago, on a volume that is RAM.
+
+`wr_pkgrun` did not have to change and neither did its contract: it reads
+`[wr_fseg]` and `[wr_rlen]` and 21.5's two forms are distinguished by the
+length alone, so the plain Load Program path — which has no file behind its
+bytes and must keep the image form — passes `[wr_got]` exactly as before.
 
 ### 92.15 Sizes, as built
 
