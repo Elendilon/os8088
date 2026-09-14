@@ -304,6 +304,28 @@ bigger than a purpose-written FAT reader means the reuse is not paying, and
 the answer is a small reader rather than a big shim. Wave 3 is allowed to
 return that answer.
 
+> **IT IS 92 BYTES AND §4 DOES NOT REOPEN** (SPEC.md 96.37). 58 of `.text`,
+> 25 of `.bss`, 9 of `.cold`, against **11,935 bytes** of kernel disk code —
+> 0.7%, and the answer is not close. The three files name **81** external
+> symbols: 32 constants lifted verbatim, 6 macros about a machine `kern_dos`
+> has not got, 29 stubs and refusals and strings, and **14 that are real
+> work** — the bump allocator (51 bytes, §6.2's purgeable cache in miniature)
+> and `kernel.asm`'s epilogue ladder.
+>
+> **Every item of §5's estimate was right**: `sch_lock` is a byte, `fpg_*` is
+> a `ret`, the cursor is gone with `mouse.inc`, and the allocator is a bump.
+> The one thing it did not predict is what the reuse BRINGS: `.ovlw` and
+> `.modf` come along at **1,987 bytes** of boot-overlay and FORMAT-module
+> code a machine with neither has no use for (96.37.2). Dead weight in a
+> section, not a dependency, and a later wave's to gate out.
+>
+> **It mounts and reads**, which is the claim worth having: `tests/kerndos.py`
+> boots it, reads a file off a FAT12 floppy and checksums it against
+> `tools/os88fat.py` on the host. It went red four ways getting there and
+> SPEC.md 96.37.1 has them, of which two are worth the reading — a near `ret`
+> under a FAR call, and the on-disk record offsets read out of a synthesized
+> entry.
+
 ---
 
 ## 6. What goes in `kern_dos`, against the 39 KB
@@ -483,7 +505,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W0** | **BUILT** (SPEC.md 96.36). `[dos_keepc]` is three-way over `os88ui_rad` — the control's **first caller in the tree** — and arm 3 is greyed with its reason on the glass. +364 package bytes, +6 bss, **zero kernel**. | `soak -k dosmem`, and its three verified failures |
 | **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **~4 s on iron** (§2.2 — the 43.4 s this first reported is MartyPC's XT-IDE PIO and not the field's controller). | the report, and `tools/os88doscost.py` to re-derive it |
 | **W2** | **DONE, and the seam held with three breaches to fix** (§3, SPEC.md 96.4.2). Two new doors, +24 package bytes and no kernel byte; `tests/unit/t_dosseam.py` is the gate and walks the CALL GRAPH. | `soak -k dosseam` — **soak and not the fast this row first said**, by docs/WRITING-TESTS.md §2.1 rule 1 |
-| **W3** | **The shim and the root.** `kerndos/kerndos.asm` assembles `disk.inc`+`diskw.inc` and reads a file. **Allowed to return "the shim is too big, write a reader instead."** | a host-side FAT read against `os88fat.py` |
+| **W3** | **DONE, and the reuse pays by a factor of 130** (SPEC.md 96.37). The shim is **92 bytes** against 11,935 of kernel disk code; `kerndos/kerndos.asm` mounts a FAT12 floppy and reads a file with no scheduler, no window manager and no API table under it. | `soak -k kerndos`, checked against `os88fat.py` |
 | **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |
 | **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. | the program runs and the machine reboots |
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
