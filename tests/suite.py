@@ -2533,6 +2533,21 @@ SOAK = [
         "that only looks at one axis.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
+    Row("kdhdd", "soak", py("tests/kdhdd.py"), 150.0,
+        "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
+        "OWN DRIVE (SPEC.md 96.46). Two defects with one instrument: the "
+        "fixture puts a DIFFERENT sixteen-byte marker in KDDATA.TXT on each "
+        "volume and KDHELLO.COM opens that name with NO DRIVE LETTER, so the "
+        "marker it prints back names the drive the open landed on - which "
+        "makes `the volume is not there` and `it opened the wrong drive's "
+        "copy` two different pictures instead of one silent wrong answer. "
+        "kern_dos carried disk.inc's STATIC dsk_vtab, and 18.7.1 pins the "
+        "boot partition at row 2, which that initialiser has DVK_FREE - so a "
+        "machine with a hard disk handed over an index kern_dos read as no "
+        "volume. VERIFIED TO FAIL: with the carry taken out the run under "
+        "kern_dos reports `(open failed)`.",
+        needs=("marty",), serial=True,
+        wants=("build/kdos/DOS.O88", "build/kernel.sys", "build/hiber.drv")),
     Row("kdmouse", "soak", py("tests/kdmouse.py"), 120.0,
         "THE SAME QUESTION WITH NO KERNEL ON THE MACHINE (SPEC.md 96.45). "
         "`dosmouse` above is a TRANSLATION gate - the kernel owns the "

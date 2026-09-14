@@ -74,12 +74,12 @@ def fixture():
          "--file", "CTRL.DRV=build/ctrl.drv",
          "--file", "HDD.DRV=build/hdd.drv",
          "--file", "DOS.O88=build/kdos/DOS.O88"])
-    # ...AND THE PROGRAM ON A FLOPPY, which is not an accident of the fixture.
-    # `kern_dos` mounts the volume the program came off by INDEX and has no
-    # volume table, so a fixed disk is a geometry it has not got - that is the
-    # plan's own open question 5 and not this row's subject. What W6 is about
-    # is the RETURN, and the return reads the part off the FIXED disk through
-    # the extent list `hbm_geomd` builds, which is exercised either way.
+    # ...AND THE PROGRAM ON A FLOPPY, which is still not an accident of the
+    # fixture though the reason has changed. It USED to be that `kern_dos`
+    # had no volume table and a fixed disk was a geometry it had not got -
+    # SPEC.md 96.46 carries the kernel's table over now and `tests/kdhdd.py`
+    # is that row. What W6 is about is the RETURN, and keeping the program on
+    # a floppy keeps this row about the return rather than about the mount.
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
          "build/DOSHELLO.COM"])

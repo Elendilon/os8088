@@ -143,6 +143,15 @@ KDL_FLAGS   equ 6               ; dw in the block: KDLF_*
 KDL_UNIT    equ 12              ; dw ...and the unit `int 19h` is to boot from,
                                 ; which is also the kernel's to fill
 KDL_MOUBASE equ 14              ; dw the serial mouse's UART base, 0 = none
+KDL_NVOL    equ 28              ; db rows of volume table, 0 = leave the
+                                ; built-in one alone (SPEC.md 96.46)
+KDL_BOOTV   equ 29              ; db ...and which index the kernel booted from
+KDL_HDSPT   equ 30              ; dw the fixed disk's sectors per track...
+KDL_HDHDS   equ 32              ; dw ...and its heads, which the boot overlay
+                                ; probes once and kern_dos cannot ask for
+KDL_VTAB    equ 34              ; db kind, db unit, dd base - per volume
+KDL_VROW    equ 6
+KDL_VMAX    equ 8
 KDL_MOULINE equ 27              ; db ...and its bit in the master 8259's mask.
                                 ; The kernel's fields for SPEC.md 96.45's
                                 ; reason: `mouse_init` settled the port and
@@ -2047,6 +2056,73 @@ hbm_dosrun:
     mov al, [mou_line]
     mov [es:KDS_LB + KDL_MOULINE], al
 .nomouse:
+    ; --- AND THE VOLUME TABLE, WHICH WAS HARD-CODED OVER THERE (96.46) ------
+    ; `kern_dos` assumed A: and B: as BIOS units 0 and 1 and every other row
+    ; free, and os8088 BUILDS its table at boot. SPEC.md 18.7.1 pins the boot
+    ; partition at ROW 2, which that initialiser has FREE - so a machine with
+    ; a fixed disk hands over a volume index kern_dos reads as no volume at
+    ; all; and row 1 stays live there on a machine whose second floppy the
+    ; kernel retired. The box hands `dos_vol` over as an INDEX into that
+    ; table, so an index resolved against a different one is a program
+    ; reading a drive that is not its own.
+    ;
+    ; A NON-BIOS ROW IS WRITTEN FREE rather than carried: a DVK_DRV volume's
+    ; transport is a loadable driver and a DVK_FILE one has no sectors at all
+    ; (SPEC.md 62.9), and neither exists on the other side. That is lever 4's
+    ; one volume class enforced at the gather instead of hoped for downstream.
+    ; SI IS THE ROW NUMBER and both offsets are scaled off it, because the
+    ; two tables have different strides: `dsk_vtab` is DV_SIZE = 16 and
+    ; `dsk_vbase` is a 4-byte side table (SPEC.md 52.10.3). Keeping one
+    ; running pointer for both is the arithmetic that gets written wrong.
+    xor si, si
+    mov di, KDS_LB + KDL_VTAB
+.vrow:
+    mov al, DVK_FREE
+    cmp si, DVOL_MAX            ; this kernel may have FEWER rows than the
+    jae .vfree                  ; block has room for - kern_small's four -
+                                ; and the tail is FREE rather than absent
+    mov bx, si
+    mov cl, 4
+    shl bx, cl
+    add bx, dsk_vtab
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .vfree
+    mov al, [bx+DV_UNIT]
+    mov [es:di+1], al
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    add bx, dsk_vbase           ; ...and the partition base, 0 on a floppy
+    mov dx, [bx]
+    mov [es:di+2], dx
+    mov dx, [bx+2]
+    mov [es:di+4], dx
+    mov al, DVK_BIOS
+    jmp short .vput
+.vfree:
+    mov byte [es:di+1], 0
+    mov word [es:di+2], 0
+    mov word [es:di+4], 0
+.vput:
+    mov [es:di], al
+    add di, KDL_VROW
+    inc si
+    cmp si, KDL_VMAX
+    jb .vrow
+    mov byte [es:KDS_LB + KDL_NVOL], KDL_VMAX
+    mov al, [dsk_bootvol]
+    mov [es:KDS_LB + KDL_BOOTV], al
+    ; ...AND THE FIXED DISK'S GEOMETRY, which is the half a row alone does not
+    ; buy. `dsk_boot_from_x` asks `int 13h AH=08h` once at boot and banks it,
+    ; and that routine is in the BOOT OVERLAY - so kern_dos cannot ask the
+    ; question, and the mount that needs the answer is the read that FETCHES
+    ; the BPB, so it cannot come from there either. Left at zero the mount
+    ; keeps the floppy fallback of 9 sectors and 2 heads and fails honestly,
+    ; which is what a hard disk did over there before this.
+    mov ax, [dsk_bootspt]
+    mov [es:KDS_LB + KDL_HDSPT], ax
+    mov ax, [dsk_boothds]
+    mov [es:KDS_LB + KDL_HDHDS], ax
     pop bx
     mov si, dsk_dpt             ; **THE DISKETTE PARAMETER TABLE IS OURS AND NOT
     mov di, KDS_LB + KDL_DPT    ; THE BOX'S**, so the block is patched here
