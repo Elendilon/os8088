@@ -711,7 +711,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W3** | **DONE, and the reuse pays by a factor of 130** (SPEC.md 96.37). The shim is **92 bytes** against 11,935 of kernel disk code; `kerndos/kerndos.asm` mounts a FAT12 floppy and reads a file with no scheduler, no window manager and no API table under it. | `soak -k kerndos`, checked against `os88fat.py` |
 | **W4** | **DONE, and the core needed no splitting** (SPEC.md 96.38). `kerndos/kdos.asm` is W3's root plus `apps/dos/dos.asm` **whole and unedited** plus `kerndos/kdback.inc`'s twenty-two doors; `KDHELLO.COM` reads **500 KB above its own PSP** against the windowed box's 449, and exits AH=4Ch back into `kern_dos`. | `soak -k kdos`, `-k kdfar` |
 | **W5** | **DONE — a DOS program runs with the whole machine and gives it back** (SPEC.md 96.40, 96.40.1, 96.40.2). §7 steps 2–8, ending in `int 19h`; no hibernate yet. The measurement is one comparison: **560 KB above the PSP against 438 in the window**, same program, same disk, same DOS core. W5a is the launch block's ABI and `kern_dos`'s real entry, W5b the disk measurement (docs/reports/KERN-DOS-PART-COST-2026-09-14.md), W5c the handoff itself — four resident kernel bytes, everything else in `HIBER.DRV` — and W5d the gate. **Seven defects were found by building the gate and every one is in its header**; §11.2 is what they came to, because five of the seven are one shape. | `soak -k kdhand -k kdapi -k kdos -k kdfar -k kdpart` |
-| **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
+| **W6** | **DONE — the machine goes away, runs DOS, and comes back** (SPEC.md 96.41). §8's reboot route, not §8.1's direct restore, which is ~1,200 bytes of the program's own arena. **EIGHT RESIDENT BYTES, measured**: `.bss` +2 for `hb_doscode` (which lives between `hbm_ask` reading the BDA at the boot and `hbm_res` staging it for the wake, two separate loads of the image with a posted restart between them, so it cannot be module data) and `.cold` +6 for the one line in `hb_probe` that defaults it. Everything else is `HIBER.DRV`'s, the box's, or a field in a record that already existed. The exit code rides in `0040:00F0` and `HS_DOSCODE` needs no stub code at all, `hbm_wake` already reading that segment. §8.2 answers open question 3 and the answer got EASIER when the route changed. | `soak -k kdreturn -k kdhand -k hibernate -k hibernatedrv` |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
 | **W9** | **`DOS.O88` becomes four pieces and the core stops being shipped twice** (§4.1.3, §4.1.3.1): a 2 KB loader that rehomes, the UI, the core, and `kern_dos` — with the core joined NEAR to whichever host is running. **+19 clusters against today's 26**, where the shape W5a builds is +43. The new ABI is a 33-entry jump table and a `CORE_ORG` budget with two claimants. NOT a prerequisite for W5c. | the box and `kern_dos` both run against one core part; `soak -k 'dos*'` |
@@ -777,6 +777,44 @@ program left, and the bootstrap **returns** rather than boots.
 the same handoff in the other direction and every one of these questions has a
 mirror: what segment is that pointer in, what did the outgoing side leave in
 that memory, and what does the ROM think it is holding.
+
+### 11.3 ...and W6 found four, three of which are that same lesson
+
+**The flag was set in the STAGE and the stage is filled forty lines later.**
+`hbm_dosrun` ORed `KDLF_HIBER` into `KDS_LB` at step 3b and step 5's
+`rep movsw` then wrote the box's own block over it. It read as the whole
+return working and `kd_leave` posting nothing — a machine that comes back with
+no exit code in it. The record's copy is the one to patch.
+
+**`[sch_lock]` is not a flag about the gfx lock.** Step 4 must not take the
+lock when `hbm_wrimg` already has it, and the obvious test — is `[sch_lock]`
+non-zero — means nothing: `dsk_xfer` raises it around every `int 13h` and
+`ui_task` holds it for its own reasons. It skipped `cw_gfx_lock` on the
+**floppy** arm, where nothing had been taken at all, and the teardown then ran
+unlocked. A byte the routine sets itself is the only thing that knows.
+
+**SI is the launch block until something prints.** `kd_leave` reads `[kd_lbp]`
+at the top, prints two strings — each of which loads SI — and then read the
+boot drive out of `[si+KDL_UNIT]`, which by then is a character of *"Press any
+key to restart."*. `int 13h` answers AH=01 to that and the bootstrap returns.
+
+The fourth is not ours and is worth its own line, because it had been WRONG in
+a tool since the day it was written and nothing could see it:
+`tools/os88hdd.py` spelled a 'CZ' file's unpacked size `n`, which is the
+variable holding the CLUSTER COUNT three lines down — so `nextc` advanced by a
+BYTE count after every compressed file. The volume stayed **self-consistent**
+(FAT chain, directory entry and data all used the same wrong number), so a
+four-file fixture was merely very sparse and booted perfectly. It surfaced as
+*"DOS.O88 does not fit the volume"* on a 32MB disk holding 173 KB.
+
+**And a test-harness one worth keeping.** `ui.up()` is not a wait for a
+RESTARTED machine: a warm boot clears no bss — `hb_probe` says so about its own
+three words — so `desk_rows` and `menu_nbar` still hold the last session's
+values while the next one is in the ROM, and `up()` returns on the BIOS banner
+with every reading after it taken from a machine that has not booted. Zeroing
+them first is worse: at that moment those addresses are `kern_dos`'s running
+code. The VIDEO MODE is the honest question — os8088's desktop is graphics on
+every adapter and everything between is not.
 
 ### 11.1 What W0 came to, and the one line W6 changes
 

@@ -36,7 +36,18 @@ KDL_CAP     equ 10              ; dw  KB the machine has (the BDA's, banked by
                                 ;     the box because kern_dos's own int 12h
                                 ;     would answer the same and this is the
                                 ;     one place a cap can be imposed)
-KDL_UNIT    equ 12              ; dw  the int 13h unit the program's volume is
+KDL_UNIT    equ 12              ; dw  THE UNIT `int 19h` IS TO BOOT FROM, and
+                                ;     like KDL_DPT it is the KERNEL's field:
+                                ;     `hbm_dosrun` patches the boot volume's
+                                ;     own int 13h unit into the staged block.
+                                ;     The bootstrap takes no documented input
+                                ;     and GLaBIOS reads the drive out of DL as
+                                ;     it finds it (SPEC.md 96.40.2), so a 0
+                                ;     here is drive A: - which is right on the
+                                ;     machine 9 of docs/plans/KERN-DOS-PLAN.md
+                                ;     is about and is an EMPTY DRIVE on the one
+                                ;     8 is about. It read as the ROM's boot
+                                ;     menu waiting for a key
 KDL_RSVD    equ 14              ; dw  0
 KDL_DPT     equ 16              ; db[11] THE DISKETTE PARAMETER TABLE, and it
 KDL_DPT_LEN equ 11              ;     is the KERNEL's rather than the box's -
@@ -79,6 +90,14 @@ KDLF_REBOOT equ 1               ; bit 0: `int 19h` when the program exits.
                                 ; hibernate image to come back to, so the
                                 ; machine restarts. W6 is the other arm and
                                 ; this bit is where it hangs
+KDLF_HIBER  equ 4               ; bit 2: THE KERNEL HAS WRITTEN A HIBERNATION
+                                ; IMAGE, so the exit code has somewhere to go
+                                ; (docs/plans/KERN-DOS-PLAN.md 8). It is not
+                                ; the box's to set and never arrives from it:
+                                ; `hbm_dosrun` patches it into the STAGED
+                                ; block, because whether there is a fixed disk
+                                ; to come back to is `hb_pick`'s question and
+                                ; the kernel is the only side that can ask it
 KDLF_EXE    equ 2               ; bit 1: the box already knows it is an .EXE.
                                 ; A HINT and not an instruction - kern_dos
                                 ; still asks `dos_is_exe`, which reads the

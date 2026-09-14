@@ -679,6 +679,28 @@ dos_wake:
                                     ; own flag, so it neither reads nor moves
                                     ; [dos_state]: a package is not the thing
                                     ; `run it again` re-runs
+%ifdef DOSKPART
+    ; **THE MACHINE WENT AWAY AND CAME BACK** (SPEC.md 96.41): between the wake
+    ; that posted the handoff and this one there was a hibernation, a DOS
+    ; program with the whole machine, a restart and a resume - and from here it
+    ; is an ordinary wake carrying a number. The kernel poked it into the
+    ; record we posted, which is ours and was in the image.
+    ;
+    ; It is tested BEFORE the state machine for `dos_pkgq`'s reason: this is
+    ; not `run it again`, it is the answer to a run that already happened, and
+    ; a box sitting at DST_READY would otherwise launch the program a second
+    ; time on the very wake that says it finished.
+    mov ax, [dos_kdh + KDH_CODE]
+    cmp ax, KDH_NOCODE
+    je .nocode
+    mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; read once
+    mov [dos_exit], al
+    mov byte [dos_state], DST_RAN
+    mov bx, [dos_win]
+    call dos_swap
+    jmp short .out
+.nocode:
+%endif
 .notpkg:
     cmp byte [dos_state], DST_CPWAIT
     je .go                          ; the compaction has run and the heap is
@@ -5530,6 +5552,12 @@ dos_handoff:
     mov ax, [dos_kdrow + OP_R_LEN]
     mov [di+KDH_ULEN], ax
     mov word [di+KDH_ULEN+2], 0
+    mov ax, [dos_win]               ; ...and the way home, which only we know:
+    mov [di+KDH_WIN], ax            ; the window to wake and the cell the
+    mov word [di+KDH_CODE], KDH_NOCODE  ; restored kernel puts the code in
+                                    ; (docs/plans/KERN-DOS-PLAN.md 8). On the
+                                    ; arm with no fixed disk nothing ever reads
+                                    ; either, and they cost the record 4 bytes
 
     call dos_lbfill
     mov si, dos_kdh

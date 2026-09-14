@@ -291,6 +291,7 @@ kd_leave:
                                 ; that does not ask for the reboot has nowhere
                                 ; to go and says so rather than restarting a
                                 ; machine the user expected back
+    call kd_bda                 ; the exit code, where a boot can find it
     mov si, kd_s_over
     call kd_puts
     mov al, [kd_code]
@@ -316,18 +317,65 @@ kd_leave:
     ; the next boot decides on drive B's own TRACK 0 line.
     mov dl, 2
 .park:
-    dec dl                      ; ...1, then 0 - and it LEAVES DL = 0
+    dec dl                      ; ...1, then 0
     xor ah, ah                  ; AH=00 RESET DISK SYSTEM = recalibrate to
     int 0x13                    ; track 0. No result is read: the int 19h
     or dl, dl                   ; below resets the FDC whatever this leaves
     jnz .park                   ; behind (SPEC.md 18.100)
-    int 0x19
+    mov si, [kd_lbp]            ; **THE BLOCK AGAIN, because the two lines that
+                                ; print above took SI for their strings.** It
+                                ; was read once at the top and the drive below
+                                ; then came out of `kd_s_boot` - a letter,
+                                ; which `int 13h` answers AH=01 to and the
+                                ; bootstrap returns on
+    mov dl, [si+KDL_UNIT]       ; ...and the drive the KERNEL booted from, not
+    int 0x19                    ; the 0 the loop left: on a machine with a hard
+                                ; disk A: is an empty drive, and the bootstrap
+                                ; stops at the ROM's boot menu waiting for a
+                                ; key that is never coming
 .hold:
     mov si, kd_s_held
     call kd_puts
 .h:
     hlt
     jmp .h
+
+; -----------------------------------------------------------------------------
+; kd_bda - the exit code, into the BDA's intra-application area (SPEC.md 96.41)
+; in:  [kd_code]; the block at [kd_lbp]
+; out: nothing; every register preserved
+;
+; **IT ONLY HAS TO SURVIVE `int 19h` AND A BOOT**, which is what makes this the
+; cheapest answer to the plan's own open question 3
+; (docs/plans/KERN-DOS-PLAN.md 8.2). `0040:00F0` is sixteen bytes the BIOS sets
+; up at POST and never touches again, `int 19h` is the BOOTSTRAP and not POST,
+; and os8088's own boot writes nothing below 0x0600 - measured on the machine,
+; byte for byte, at a settled desktop.
+;
+; Only when the kernel said it wrote an image (`KDLF_HIBER`). A record left by
+; a run nobody is coming back from would otherwise sit there until something
+; read it, and the magic is only half an answer: `hbm_ask` clears it after
+; reading, and this writes it only when somebody is going to.
+; -----------------------------------------------------------------------------
+kd_bda:
+    test word [si+KDL_FLAGS], KDLF_HIBER
+    jz .out
+    push ax
+    push es
+    push di
+    mov ax, KDB_SEG
+    mov es, ax
+    mov di, KDB_OFF
+    mov word [es:di], KDB_SIG & 0xFFFF
+    mov word [es:di+2], KDB_SIG >> 16
+    mov al, [kd_code]
+    xor ah, ah
+    mov [es:di+4], ax
+    pop di
+    pop es
+    pop ax
+.out:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; kd_scatter - the block's fields into the DOS core's bss

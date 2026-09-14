@@ -126482,3 +126482,73 @@ With `KDLF_REBOOT` clear there is a hibernation image to put back instead, and
 that is where the return stub goes — docs/plans/KERN-DOS-PLAN.md §8. Until it
 exists a block that does not ask for the reboot says so and holds, rather than
 restarting a machine the user expected back.
+
+### 96.41 The return — the machine goes all the way round
+
+On a machine with a fixed disk there IS something to come back to, and §96.40's
+arm becomes a round trip: the kernel writes a hibernation image before the
+handoff, `kern_dos` restarts when the program exits exactly as it does on the
+floppy arm, and the fresh boot finds the pointer and resumes it **without
+asking**. docs/plans/KERN-DOS-PLAN.md §8 is the design record and §8.1 is why
+it is this rather than a direct restore: the obvious design — `kern_dos`
+copying §87.5's stub and the banked extents into the text framebuffer and
+jumping into it — is ~1,200 bytes of `kern_dos`'s image, and every byte of that
+image is a byte off the DOS program.
+
+**IT COSTS EIGHT RESIDENT BYTES**, measured: `.bss` +2 for `hb_doscode` and
+`.cold` +6 for the line in `hb_probe` that defaults it. Everything else is
+`HIBER.DRV`'s — an on-demand module — the box's own image, or a field on the end
+of a record that already existed.
+
+**THE KERNEL DECIDES, NOT THE BOX.** Whether there is a fixed disk to come back
+to is `hb_pick`'s question (§87.2), so the box posts the same record either way
+and `hbm_dosrun` patches `KDLF_HIBER` into the STAGED launch block — beside
+`KDL_DPT` and `KDL_UNIT`, the two other fields the kernel owns. A failure to
+write the image is **not fatal**: what the user asked for is to run the program
+with the whole machine, and that still happens; it is the coming back that is
+lost, and the flag staying clear is what says so all the way down to
+`kd_leave`.
+
+Five things the round trip needs, each the cheapest answer to its own question:
+
+- **`HBP_DOS`**, one byte in `HIBERNAT.PTR`, meaning *this was not the user
+  leaving the machine*. It sits BEHIND the fixed head on purpose — `hbm_ask`
+  compares the first twelve bytes and this is not one of them, because it
+  describes the OCCASION and not the machine. Everything else in that
+  validation still runs: a stale or unreadable pointer is exactly as fatal
+  either way.
+- **`0040:00F0`**, the BDA's intra-application area, where `kd_leave` leaves
+  `'KDX1'` and the exit code. It does not have to survive the restore — it has
+  to survive `int 19h` and a boot, which is a much weaker requirement: the BIOS
+  sets that area up at POST and never touches it again, `int 19h` is the
+  bootstrap and not POST, and os8088's own boot writes nothing below `0x0600`.
+  **Measured on the machine**, byte for byte at a settled desktop. `hbm_ask`
+  reads it once and clears the magic, so a second reader gets nothing rather
+  than a code from a session two boots ago.
+- **`HS_DOSCODE`**, a word in the staging area. It needs **no stub code at
+  all**: `hbm_wake` already reads that segment for `HS_CLK`, and the stub never
+  writes into it.
+- **`KDH_WIN` and `KDH_CODE`**, two words on the end of the posted record. The
+  box fills the first because only the box knows its window; the restored
+  kernel pokes the second and wakes that window, and `dos_wake` finds a number
+  and goes to `DST_RAN`. Both halves are the ordinary wake a package already
+  services (§74.1), so the way home needed no new slot.
+- **`[hb_dosseg]` standing when the picture is taken.** `hbm_dosrun` spends the
+  post AFTER the image write rather than before it, so the restored kernel
+  knows whose record to put the code in; `hbm_wake` spends it over there.
+
+**AND THE RESTART READS DL.** `int 19h` takes no documented input and GLaBIOS
+reads the boot drive out of DL as it finds it, so `KDL_UNIT` — which the box
+wrote as 0 and nothing read — becomes the boot volume's own `int 13h` unit,
+patched in by the kernel. A 0 is right on the floppy machine §9 of
+docs/plans/KERN-DOS-PLAN.md is about and is an **empty drive** on every machine
+this section is about; it read as the ROM's boot menu waiting for a key.
+`kd_leave` re-reads `[kd_lbp]` before using it, because the two lines it prints
+first take SI for their strings.
+
+`tests/kdreturn.py` is the gate and boots a fixed disk: `hb_pick` is the
+predicate on both sides, so a floppy-only machine takes §96.40's arm and the
+row would be asserting nothing. The program is on a floppy there on purpose —
+`kern_dos` mounts by volume index and has no volume table, so a fixed disk is a
+geometry it has not got (docs/plans/KERN-DOS-PLAN.md §12 question 5), while the
+return reads the part off the fixed disk through the extent list either way.

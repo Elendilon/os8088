@@ -90,6 +90,33 @@ def rec(m, pseg, dm, off):
                           "little")
 
 
+def wait_desktop(m, ui, secs=300):
+    """Wait for the RESTARTED machine to reach a graphics desktop.
+
+    **`ui.up()` IS NOT THE WAIT HERE**, and neither is poking its two words
+    first. A warm boot clears no bss (kernel/hiber.inc's `hb_probe` says so
+    about its own three), so `desk_rows` and `menu_nbar` hold whatever is at
+    those offsets - which between the handoff and the boot is `kern_dos`'s
+    own image, so `up()` returns on the BIOS banner and everything after it
+    reads a machine that has not booted. Zeroing them first is worse: at that
+    moment those addresses ARE kern_dos's running code.
+
+    The mode is the honest question. os8088's desktop is GRAPHICS on every
+    adapter it has (SPEC.md 39) and everything between - the ROM's banner,
+    `kern_dos`, the loading screen's own text - is not.
+    """
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            if "Graphics" in (m.video() or {}).get("mode", ""):
+                return ui.ready(limit=secs)
+        except Exception:
+            pass
+        time.sleep(1.0)
+    raise RuntimeError("no graphics desktop in %ds; the text screen holds %r"
+                       % (secs, [r for r in rows(m) if r.strip()][-4:]))
+
+
 def main():
     for p in (SYS, COM):
         if not os.path.exists(p):
@@ -181,12 +208,10 @@ def main():
         # screen and this tells them apart from a finished boot.
         m.type_text("x")                    # "Press any key to restart"
         try:
-            ui.up(limit=240)
+            wait_desktop(m, ui)
         except Exception as e:
             fail("the machine never came back to a desktop after the "
-                 "program's `int 19h` (SPEC.md 96.40, §9): %s. The text "
-                 "screen holds %r" % (e, [r for r in rows(m) if r.strip()][-4:]))
-        ui.ready(limit=240)
+                 "program's `int 19h` (SPEC.md 96.40, §9): %s" % e)
         w = ui.open_drive("A")
         if not w:
             fail("the restarted machine will not open a Disk window - it "

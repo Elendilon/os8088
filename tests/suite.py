@@ -2796,6 +2796,28 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. It needs `make kdostest`.",
         wants=("build/kdos360.img", "build/doscom360.img")),
+    Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
+        "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
+        "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
+        "there was nothing to return to; on a machine with a FIXED DISK the "
+        "kernel writes a hibernation image before the handoff, kern_dos "
+        "restarts as it always did, and the fresh boot finds the pointer and "
+        "resumes it WITHOUT ASKING - a hibernation the user did not ask for "
+        "and then has to answer for is worse than no return at all. It "
+        "asserts all four: the program ran with the whole machine, the "
+        "desktop came back by itself with no Resume window, the DOS window is "
+        "up with the program's own exit code in it, and the mailbox at "
+        "0040:00F0 is CLEARED so the next resume cannot pick up this one's "
+        "code. IT NEEDS A HARD DISK and boots off one - hb_pick is the "
+        "predicate on both sides, so a floppy-only machine takes W5's arm and "
+        "this row would assert nothing. The PROGRAM is on a floppy on "
+        "purpose: kern_dos mounts by volume index and has no volume table, so "
+        "a fixed disk is a geometry it has not got (the plan's open question "
+        "5), while the RETURN reads the part off the fixed disk through the "
+        "extent list either way. tests/hibernate.py's fixture; MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.3,
         "kern_dos's REFUSAL TABLE has to cover the SDK's whole API table "
         "(SPEC.md 96.40.2). KERNEL_SEG is kern_dos's own segment, so every "

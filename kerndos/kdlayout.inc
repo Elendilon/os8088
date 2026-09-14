@@ -43,6 +43,14 @@ KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; 1,432 of it and 96.30.7's console the rest),
                                 ; which leaves 982 bytes and costs the program
                                 ; 560 -> 559 KB
+; --- the exit code's mailbox (SPEC.md 96.41, docs/plans/KERN-DOS-PLAN.md 8.2)
+; MIRRORED in kernel/hiber.inc, and tests/unit/t_mirror.py is the guard.
+KDB_SEG     equ 0x0040          ; the BDA...
+KDB_OFF     equ 0x00F0          ; ...and its intra-application area, which the
+                                ; BIOS sets up at POST and never touches again
+KDB_SIG     equ 0x3158444B      ; 'KDX1', little-endian
+KDB_CODE    equ 4               ; dw the program's exit code, behind the magic
+
 COLD_SEG    equ KD_SEG          ; NO COLD RUNG: nothing here is boot-only, so
 COLD_PARA   equ 0               ; .cold is ordinary code in the one image
 

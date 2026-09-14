@@ -4298,8 +4298,13 @@ KDH_POFF    equ 21              ; dw the kern_dos part's first file SECTOR
 KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
-KDH_SIZE    equ 543
+KDH_WIN     equ 543             ; dw the window to wake on the way back - the
+                                ; box's, because only the box knows it
+KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
+                                ; RESTORED kernel, KDH_NOCODE until then
+KDH_SIZE    equ 547
 KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 %define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;
                                                 ; out CF=0 posted
 
