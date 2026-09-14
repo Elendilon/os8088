@@ -4,7 +4,7 @@
 ; SPEC.md 87.5's map, shared as SOURCE between `kernel/hiber.inc` - which
 ; stages it for an ordinary resume - and `kerndos/kdresume.inc`, which stages
 ; the SAME picture on a machine the kernel is no longer running on
-; (SPEC.md 96.47). Two stagers, one layout, and neither can call the other.
+; (SPEC.md 96.49). Two stagers, one layout, and neither can call the other.
 ;
 ; It is constants only: the stub's BODY is `kernel/hbstub.inc`, so that each
 ; host can put it in the section it belongs in - `.modh` over there, `.text`

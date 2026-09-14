@@ -1,5 +1,5 @@
 ; =============================================================================
-; kerndos/kdresume.inc - THE LIVE RESUME (SPEC.md 96.47,
+; kerndos/kdresume.inc - THE LIVE RESUME (SPEC.md 96.49,
 ; docs/plans/KERN-DOS-PLAN.md 8.1)
 ;
 ; The DOS program has exited and there is a hibernation image on the fixed
@@ -64,7 +64,11 @@ kd_resume:
     call disk_mount_x
     jc .no
     xor ax, ax                  ; the ROOT: hb_probe writes the pointer and
-    call dsk_chdir_x            ; the image there (SPEC.md 87.1)
+    call dsk_chdir_q_x          ; the image there (SPEC.md 87.1). THE QUIET
+                                ; ONE (96.47): this stands in a directory to
+                                ; READ one file out of it and never to list
+                                ; it, and the loud chdir rebuilds the global
+                                ; listing on the way
     jc .no
     mov si, kdr_s_img
     call dsk_find_name_x        ; AX = the index

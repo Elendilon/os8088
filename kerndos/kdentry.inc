@@ -456,7 +456,7 @@ kd_leave:
     call kd_mou_stop
     mov si, [kd_lbp]
 
-    ; --- THE SESSION, PUT BACK HERE (SPEC.md 96.47) -------------------------
+    ; --- THE SESSION, PUT BACK HERE (SPEC.md 96.49) -------------------------
     ; Before the exit code is printed and before anything is parked: this does
     ; not return when it works, and what it returns to when it does not is the
     ; route W6 shipped - `int 19h`, a whole boot, and os8088's own `hb_probe`

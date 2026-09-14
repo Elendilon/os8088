@@ -378,8 +378,46 @@ class Marty:
         return self.cmd(cmd="cards")["cards"]
 
     def screen(self, card=None):
-        """The video card's text rows, in text modes."""
-        return self.cmd(cmd="screen", card=card)["rows"]
+        """The video card's text rows, in text modes.
+
+        **ON MARTYPC'S VGA THE SERVER ANSWERS BLANK ROWS**, in a text mode,
+        with no error - so a caller waiting for a prompt to appear waits for
+        ever and then reports the thing it was driving as broken. That is the
+        wrong answer rather than a missing one, which is why there is a
+        fallback here rather than a note somewhere: when the rows come back
+        empty and the card is a VGA standing in a text mode, the text is read
+        out of the framebuffer instead. Mode 3 is odd/even addressed, so
+        char/attr pairs sit at 0xB8000 exactly where a CGA has them, and
+        `read` resolves MMIO - the same route `vram` takes for the 1bpp
+        adapters.
+
+        PAGE 0, and a genuinely blank screen costs one extra read: both are
+        deliberate. A card that answers rows keeps answering them, so nothing
+        that works today changes.
+        """
+        rows = self.cmd(cmd="screen", card=card)["rows"]
+        if any(r.strip() for r in (rows or ())):
+            return rows
+        try:
+            v = self.video(card)
+            if v.get("type") == "vga" and video_is_text(v):
+                return self._vga_text(v)
+        except Exception:
+            pass
+        return rows
+
+    def _vga_text(self, v):
+        """`screen()`'s VGA fallback: page 0's character cells, decoded."""
+        mode = str(v.get("mode") or "")
+        base = 0xB0000 if ("Mda" in mode or "Mono" in mode) else 0xB8000
+        cols = 40 if mode.endswith("40") else 80
+        data = self.read(base, cols * 25 * 2)
+        out = []
+        for y in range(25):
+            line = bytearray(data[(y * cols + x) * 2] for x in range(cols))
+            line = bytearray(b if b >= 32 else 32 for b in line)
+            out.append(line.decode("cp437").rstrip())
+        return out
 
     def video(self, card=None):
         """Which card, its raster geometry, and its display apertures.

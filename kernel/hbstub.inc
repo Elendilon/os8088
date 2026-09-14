@@ -1,5 +1,5 @@
 ; =============================================================================
-; kernel/hbstub.inc - THE RESUME STUB'S BODY, ONCE (SPEC.md 87.5, 96.47)
+; kernel/hbstub.inc - THE RESUME STUB'S BODY, ONCE (SPEC.md 87.5, 96.49)
 ;
 ; The ~440 bytes that are copied into the text framebuffer and jumped into:
 ; read the image back over conventional memory with `int 13h`, put the IVT

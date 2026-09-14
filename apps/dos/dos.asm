@@ -625,14 +625,13 @@ dos_entry:
     mov si, dos_about
     call OSAPI_ABOUT_SET
 
-    mov byte [dos_fhome], 0xFF      ; **THE SENTINEL, BECAUSE BSS IS ZERO AND
+    mov byte [dos_pvol], 0xFF       ; **THE SENTINEL, BECAUSE BSS IS ZERO AND
                                     ; ZERO IS DRIVE A:** (SPEC.md 96.6.3).
-                                    ; [dos_fhome] means "we never left" at
-                                    ; 0xFF, and dos_fh_enter is the only thing
-                                    ; that ever wrote it - so until the first
-                                    ; name with a drive letter in it, every
-                                    ; dos_fh_leave read 0 and dutifully
-                                    ; "restored" the program to A:.
+                                    ; It was `[dos_fhome]` and the same trap
+                                    ; one layer along: 0xFF means the machine
+                                    ; is standing NOWHERE yet, so the first
+                                    ; name stands it somewhere rather than
+                                    ; believing it is already on A:.
                                     ;
                                     ; **ABOVE THE ARG_FILE BRANCH AND NOT
                                     ; INSIDE ITS SUCCESS ARM** (96.6.3.1): it
@@ -2338,11 +2337,17 @@ dos_int21:
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_vol]               ; THE VOLUME THE NAME LANDED ON, which is
+    mov al, [dos_pvol]              ; THE VOLUME THE NAME LANDED ON, which is
     mov [si+FH_VOL], al             ; where every later read of this handle
-                                    ; goes - dos_fh_name is still standing
-                                    ; there, so it is [dos_vol] and needs no
-                                    ; second lookup (SPEC.md 96.6.2)
+                                    ; goes. **IT IS `[dos_pvol]` AND NOT
+                                    ; `[dos_vol]`** (SPEC.md 96.48.3): this
+                                    ; used to read the PROGRAM's drive on the
+                                    ; reasoning that `dos_fh_enter` was still
+                                    ; standing there, which stopped being true
+                                    ; the moment a name stopped moving the
+                                    ; program - and `A:AONLY.TXT` opened from
+                                    ; B: then recorded B: and read the wrong
+                                    ; disk on every refill (96.6.2)
     mov ax, [dos_fent+18]
     mov [si+FH_SIZE], ax
     mov ax, [dos_fent+20]
@@ -2390,8 +2395,8 @@ dos_int21:
     call dos_fh_new
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_vol]
-    mov [si+FH_VOL], al
+    mov al, [dos_pvol]              ; ...and the same for a file just CREATED
+    mov [si+FH_VOL], al             ; (SPEC.md 96.48.3)
     mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
     call dos_jft_sync
     mov ax, bx
@@ -2655,8 +2660,12 @@ dos_int21:
     jc .fherr                       ; does, wildcards and all
     call dos_dta_seg                ; ES:DI = the caller's DTA, and DI STAYS
     mov [es:di+DTA_MASK], cl        ; ...the mask FIRST: the rep movsb below
-    mov al, [dos_vol]               ; spends CX (SPEC.md 96.12.1)
-    mov [es:di+DTA_VOL], al         ; ...and the volume dos_fh_name put us on
+    mov al, [dos_pvol]              ; spends CX (SPEC.md 96.12.1)
+    mov [es:di+DTA_VOL], al         ; ...and the volume dos_fh_name put us on,
+                                    ; which is where the MACHINE is standing
+                                    ; and not where the program is (96.48.3):
+                                    ; AH=4Fh reads this back into [dos_fdrv]
+                                    ; so a walk started on B: carries on there
     mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
     push si                         ; and a stosw/rep movsb pair would leave it
     push di                         ; fifteen bytes along - which reads the
@@ -3996,8 +4005,22 @@ DHK_NENT    equ 4
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_be_goto:
+    ; **THE ONE PLACE THAT RECORDS WHERE THE MACHINE IS** (SPEC.md 96.48).
+    ; Every physical move goes through this door, so nothing else can forget
+    ; and there is a single cell that could lie. The record is written AFTER
+    ; the move and only on success: a refused goto leaves the machine where
+    ; it was, and `0xFF` while the call is in flight means a failure that
+    ; jumps out of `dos_be_go` cannot leave a confident wrong answer behind.
+    push ax
+    mov byte [dos_pvol], 0xFF
     mov word [dos_betgt], DBE_GOTO
-    jmp dos_be_go
+    call dos_be_go
+    jc .out
+    mov [dos_pvol], bl              ; neither store touches the flags, and
+    mov [dos_pdir], dx              ; `pop` does not either - so CF is the
+.out:                               ; back end's own answer at the `ret`
+    pop ax
+    ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_read:
@@ -6047,7 +6070,7 @@ dos_lbfill:
     mov word [di+KDL_WAKE + 2], 0           ; ...and the live resume's, whose
                                             ; zero SEGMENT is what kd_resume
                                             ; reads as "this kernel does not
-                                            ; offer one" (96.47)
+                                            ; offer one" (96.49)
     mov byte [di+KDL_NVOL], 0               ; **AND THE VOLUME COUNT** (96.46):
                                             ; the table is the KERNEL's, and
                                             ; zero is how a sender that cannot
@@ -7906,7 +7929,18 @@ dos_walk_at:
     or al, al
     jz .comp                        ; relative: start from here
     xor dx, dx                      ; ...the volume root, first
-    mov bl, [dos_vol]
+    mov bl, [dos_pvol]              ; **THE VOLUME WE ARE STANDING ON, not the
+                                    ; one the PROGRAM is on** (SPEC.md 96.48).
+                                    ; `dos_fh_stand` has already put us on the
+                                    ; drive the name named, and the walk is
+                                    ; relative to that - where `[dos_vol]` is
+                                    ; the drive the program would come back
+                                    ; to. They were the same thing while
+                                    ; `dos_fh_enter` switched the program too,
+                                    ; and `A:\*.*` from a program on B: is
+                                    ; what the difference looks like:
+                                    ; `tests/dosdrv.py` caught it finding B:'s
+                                    ; directory under A:'s name
     call dos_be_goto                ; the back end, for dos_lnk_find's reason
     jc .no
 .comp:
@@ -7933,7 +7967,7 @@ dos_walk_at:
     mov byte [di], 0
     call dos_lnk_find               ; DX = its cluster
     jc .no
-    mov bl, [dos_vol]
+    mov bl, [dos_pvol]              ; ...and the same for every component
     call dos_be_goto                ; ...a WORD inside this volume
     jc .no
     jmp short .comp
@@ -10174,16 +10208,17 @@ dos_drv_sel:
     mov al, [dos_dvtgt]
     mov [dos_vol], al
     call dos_drv_recall         ; ...and stand where that drive last was
-    mov dx, [dos_curdir]
-    mov bl, [dos_vol]
-    call dos_be_goto            ; A REAL MOUNT, and only here: a switch across
-    jnc .out                    ; volumes re-reads the boot sector (19.2.2)
-    mov al, [dos_dvfrom]        ; the mount refused - put the whole switch
-    mov [dos_vol], al           ; back, so a drive that cannot be reached
-    call dos_drv_recall         ; leaves the program exactly where it was
-    mov dx, [dos_curdir]
-    mov bl, [dos_vol]
-    call dos_be_goto            ; ...and this one worked a moment ago
+                                ; **AND NO MOUNT** (SPEC.md 96.48). It used to
+                                ; `dos_be_goto` here and roll the whole switch
+                                ; back if that refused, which is a volume
+                                ; mount on every drive change a program makes
+                                ; for its own reasons. `dos_be_vkind` above is
+                                ; the existence test and it costs no disk;
+                                ; the mount happens at the next NAME, where a
+                                ; volume that cannot be reached refuses with
+                                ; the same code 3 - which is also nearer to
+                                ; what a real DOS does, AH=0Eh touching no
+                                ; drive at all
 .out:
     pop es
     pop di
@@ -13392,45 +13427,87 @@ dos_fh_split:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
-; dos_fh_enter - stand on the volume [dos_fdrv] named, for one call
+; dos_fh_enter - stand the MACHINE where this name resolves, for one call
 ; out: CF=0, having moved or not; CF=1 with AL = 3 for a drive that is not
-;      there. [dos_fhome] is where to go back to, 0xFF when we never left
+;      there
 ; clobbers: AL, which dos_fh_name has already spent on the name it copied
 ;
 ; UNDER DOS A DRIVE LETTER IN A NAME DOES NOT CHANGE THE DEFAULT DRIVE - it
 ; selects which drive's current directory the name is resolved against, and
 ; AH=0Eh alone moves the program.  Our back end resolves against whatever is
-; MOUNTED, so "resolve elsewhere" has to be spelled "go there and come back":
-; the bracket IS the implementation and not a shortcut, which is why the
-; restore is at the two exits every handler already funnels through and not at
-; ten call sites.
+; MOUNTED, so "resolve elsewhere" is spelled "go there" - and since SPEC.md
+; 96.48 it is NOT spelled "and come back": the pair the name resolves against
+; is compared with where the machine is standing (`[dos_pvol]`/`[dos_pdir]`),
+; so a program that names one drive over and over moves once and not once a
+; call.  `dos_fh_leave` no longer restores anything but the folder.
 ;
 ; THE CODE FOR A DRIVE THAT IS NOT THERE IS 3 AND NOT 15, which is measured
 ; rather than reasoned: IBM DOS 3.30 answers AH=4Eh on C: with AX=0003 CF=1 on
 ; a machine with no hard disk (tests/dostrap/drvname.asm).  15 is what a
 ; program gets from calls that take a drive NUMBER, and this is not one.
 ; -----------------------------------------------------------------------------
+dos_fh_stand:
+    ; --- put the MACHINE on drive DL, in THAT DRIVE's folder (SPEC.md 96.48)
+    ; in:  DL = the volume; out: CF=1 = it could not be reached
+    ; clobbers: nothing but the flags
+    ;
+    ; The folder is `[dos_curdir]` for the drive the program is logically on
+    ; and the per-drive bank for any other, which is the same pair `AH=0Eh`
+    ; moves between - so a name resolves against exactly what a real DOS
+    ; would resolve it against, whichever volume happens to be mounted.
+    push ax
+    push bx
+    push dx
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [bx+dos_dvcwd]
+    cmp dl, [dos_vol]
+    jne .have
+    mov ax, [dos_curdir]            ; the live drive's folder is not banked
+.have:                              ; until something switches away from it
+    cmp dl, [dos_pvol]
+    jne .go
+    cmp ax, [dos_pdir]
+    je .ok                          ; **THE TEST THIS SECTION IS ABOUT**: the
+                                    ; machine is already standing exactly here,
+                                    ; so there is nothing to try
+.go:
+    mov bl, dl
+    mov dx, ax
+    call dos_be_goto
+    jc .no
+.ok:
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
 dos_fh_enter:
     push dx
-    mov byte [dos_fhome], 0xFF
     mov dl, [dos_fdrv]
     cmp dl, 0xFF
-    je .none                        ; no letter: resolve where we stand, which
-                                    ; is the common case and costs one compare
-    cmp dl, [dos_vol]
-    je .none                        ; named the drive we are already on
+    jne .named
+    mov dl, [dos_vol]               ; no letter: the drive the PROGRAM is on,
+                                    ; which is not necessarily the one the
+                                    ; machine is standing on (SPEC.md 96.48)
+.named:
     cmp dl, DVOL_MAX
     jae .bad                        ; past the array - and a non-letter lands
                                     ; here too, 'C'-'A' being the only shape
                                     ; that does not
-    mov al, [dos_vol]
-    mov [dos_fhome], al
-    call dos_drv_sel
-    mov al, [dos_fdrv]
-    cmp al, [dos_vol]
-    jne .back                       ; dos_drv_sel leaves us put when the volume
-                                    ; is not there, and that is the whole of
-                                    ; "invalid drive" (SPEC.md 96.6.1)
+    call dos_fh_stand
+    jc .bad                         ; the volume is not there, and that is the
+                                    ; whole of "invalid drive" (SPEC.md 96.6.1)
 .none:
     ; --- ...AND THE FOLDER, if the name carried one (SPEC.md 96.12.3) -----
     ; AFTER the drive switch and not before: `B:\PRINCE\X` names a folder on
@@ -13464,10 +13541,8 @@ dos_fh_enter:
     pop dx
     stc
     ret
-.back:
-    mov byte [dos_fhome], 0xFF      ; we did not move, so there is nothing to
-.bad:                               ; put back - and a stale [dos_fhome] would
-    mov al, 3                       ; move us on the way out
+.bad:
+    mov al, 3
     pop dx
     stc
     ret
@@ -13510,6 +13585,29 @@ dos_fh_home:
 ; volume is the HANDLE's rather than the call's.
 ; -----------------------------------------------------------------------------
 dos_vol_to:
+    ; **THE PROGRAM AND THE MACHINE** (SPEC.md 96.48). `dos_drv_sel` stopped
+    ; mounting, so a caller that is about to make a back-end call has to say
+    ; so: the read or write resolves where the MACHINE is standing, and
+    ; moving only `[dos_vol]` would read the right name off the wrong disk.
+    ; `dos_vol_park` is the other half for a caller that is coming HOME - it
+    ; restores the program's drive and leaves the machine where the work was,
+    ; which is what makes a read loop on one file cost one mount and not one
+    ; a call.
+    call dos_vol_park
+    jc .out
+    push ax                         ; AL is the volume we came FROM and the
+    push dx                         ; caller banks it; neither pop touches the
+    mov dl, [dos_vol]               ; flags, so CF is the stand's own answer
+    call dos_fh_stand
+    pop dx
+    pop ax
+.out:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; --- dos_vol_park - the PROGRAM's drive alone; the machine stays put -------
+dos_vol_park:
     push dx
     mov dl, al
     mov al, [dos_vol]
@@ -13539,24 +13637,22 @@ dos_vol_to:
 ; so a handler that grows a new error path cannot forget it.
 ; -----------------------------------------------------------------------------
 dos_fh_leave:
+    ; **IT NO LONGER GOES HOME** (SPEC.md 96.48). The drive half used to
+    ; `dos_drv_sel` back to where the call found us, which on a program that
+    ; names another drive - `B:DATAA.DAT` from a program standing on A: - is
+    ; a COMPLETE VOLUME MOUNT per call, paired with the one `dos_fh_enter`
+    ; already paid. Where the machine stands is a cache, not something a
+    ; program can observe, so it is left where the name put it and the next
+    ; `dos_fh_stand` moves it only if that name needs it elsewhere.
+    ;
+    ; The FOLDER half stays: it fires only for a name that carried a path
+    ; (`[dos_fhmoved]`), which is not the hot case, and it keeps
+    ; `[dos_curdir]` honest for `AH=47h` without a second mechanism.
     cmp byte [dos_fhkeep], 0        ; AH=3Bh sets this: a chdir's whole purpose
     jne .nofold                     ; is to leave the program somewhere else,
     call dos_fh_home                ; so the folder walk must NOT be undone
 .nofold:
     mov byte [dos_fhkeep], 0
-    push ax
-    pushf
-    mov al, [dos_fhome]
-    cmp al, 0xFF
-    je .out
-    push dx
-    mov dl, al
-    mov byte [dos_fhome], 0xFF
-    call dos_drv_sel
-    pop dx
-.out:
-    popf
-    pop ax
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -13697,8 +13793,9 @@ dos_fh_flush:
     jc .errv
 .home:
     mov al, [dos_wvsv]              ; ...and back, before anything else can
-    call dos_vol_to                 ; run: it worked a moment ago, so a
-.clean:                             ; refusal here is not a case
+    call dos_vol_park               ; run - the PROGRAM's drive only, the
+.clean:                             ; machine staying where the write went
+                                    ; (SPEC.md 96.48)
     mov byte [dos_wdirty], 0
     mov word [dos_wlen], 0
 .ok:
@@ -13706,7 +13803,7 @@ dos_fh_flush:
     jmp short .out
 .errv:
     mov al, [dos_wvsv]              ; a failed write still comes home, or the
-    call dos_vol_to                 ; program is left standing somewhere it
+    call dos_vol_park               ; program is left standing somewhere it
 .err:                               ; never asked to be
     mov byte [dos_wdirty], 0        ; do not retry it for ever - one write that
     mov word [dos_wlen], 0          ; will not go is reported once
@@ -13905,7 +14002,11 @@ dos_fh_fill:
     push ax                         ; and the walk home must not spend any of
     push dx                         ; them
     mov al, [dos_fvsv]
-    call dos_vol_to
+    call dos_vol_park               ; **PARK AND NOT GO** (SPEC.md 96.48): the
+                                    ; program's drive comes back and the
+                                    ; machine stays on the file's, so a read
+                                    ; loop over one file mounts once rather
+                                    ; than twice a call
     pop dx
     pop ax
     popf
@@ -14004,7 +14105,15 @@ dos_fh_fill:
     DBSS DOS_B_RNPAD,  1
     DBSS DOS_B_FNSEG, 2        ; the segment dos_fh_core reads a name FROM
     DBSS DOS_B_FDRV,  1        ; ...and the DRIVE it named, 0xFF = none
-    DBSS DOS_B_FHOME, 1        ; where to go back to, 0xFF = we never left
+; --- WHERE THE MACHINE IS STANDING, which is not where the PROGRAM is ------
+; SPEC.md 96.48. `[dos_vol]`/`[dos_curdir]` are what a program can observe -
+; AH=19h and AH=47h answer them and a bare name resolves against them - and
+; these two are the CACHE: whichever volume and folder the last `dos_be_goto`
+; actually reached. A name moves the machine and never the program, so the
+; machine may be left where the last name put it and moved only when the next
+; one needs it elsewhere. 0xFF = nowhere yet, which forces the first stand.
+    DBSS DOS_B_PVOL,  1
+    DBSS DOS_B_PDIR,  2
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
     DBSS DOS_B_FVVOL, 1        ; the window owner's volume, and where the read
     DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
@@ -14602,7 +14711,8 @@ dos_rndrv   equ DOS_CBASE + DOS_B_RNDRV   ; drive arithmetic
 dos_rnabs   equ DOS_CBASE + DOS_B_RNABS
 dos_fnseg   equ DOS_CBASE + DOS_B_FNSEG   ; word: where a name is read from
 dos_fdrv    equ DOS_CBASE + DOS_B_FDRV    ; byte: the drive a name named
-dos_fhome   equ DOS_CBASE + DOS_B_FHOME   ; byte: ...and where it left
+dos_pvol    equ DOS_CBASE + DOS_B_PVOL    ; byte: the volume the MACHINE is
+dos_pdir    equ DOS_CBASE + DOS_B_PDIR    ; word: ...and the folder in it
 dos_fvtgt   equ DOS_CBASE + DOS_B_FVTGT   ; word: the read's back end
 dos_fvvol   equ DOS_CBASE + DOS_B_FVVOL   ; byte: the fill's volume...
 dos_fvsv    equ DOS_CBASE + DOS_B_FVSV    ; byte: ...and where it came from

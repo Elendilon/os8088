@@ -165,7 +165,7 @@ def main():
         print("kdreturn: under kern_dos, %d KB - the handoff is worth %d"
               % (kd_kb, kd_kb - win_kb))
 
-        # --- ...AND IT COMES BACK WITHOUT A BOOT (SPEC.md 96.47) -------------
+        # --- ...AND IT COMES BACK WITHOUT A BOOT (SPEC.md 96.49) -------------
         # W6's route printed `the program has exited, code 42` and waited for
         # a key before `int 19h`. There is no reboot now: `kd_leave` puts the
         # session back itself, and the line below is the POSITIVE signal that
@@ -205,7 +205,7 @@ def main():
         if spent > LIVE_MAX:
             fail("the return took %.1f guest seconds, which is a POST and a "
                  "BOOT: the live resume refused and kd_leave fell back to "
-                 "int 19h (SPEC.md 96.47). That fallback is deliberate and "
+                 "int 19h (SPEC.md 96.49). That fallback is deliberate and "
                  "works, so this is about the fast path not being taken - "
                  "the mount, the image, the geometry or the extents"
                  % (spent / 4772727.0))

@@ -75,7 +75,7 @@ HBP_PAD     equ 17              ; db 0
 HBP_SIZE    equ 18              ; front of it are hbm_ptrfix, one description
 
 %include "hbstage.inc"        ; SPEC.md 87.5's staging map, shared as SOURCE
-                              ; with kerndos/kdresume.inc (SPEC.md 96.47)
+                              ; with kerndos/kdresume.inc (SPEC.md 96.49)
 
 ; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
 ; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
@@ -120,7 +120,7 @@ KDL_HDHDS   equ 32              ; dw ...and its heads, which the boot overlay
                                 ; probes once and kern_dos cannot ask for
 KDL_VTAB    equ 34              ; db kind, db unit, dd base - per volume
 KDL_WAKE    equ 82              ; dd where a live resume re-enters the kernel
-KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.47)
+KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.49)
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on
 KDL_CLK     equ 90              ; db[10] the kernel's own clock block
 KDL_VROW    equ 6
@@ -1937,7 +1937,7 @@ hbm_dosrun:
     ; return working and `kd_leave` posting nothing, which is a machine that
     ; comes back with no exit code in it.
     or word [cs:hbm_dosrec + KDH_LB + KDL_FLAGS], KDLF_HIBER
-    ; --- ...AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.47) --------------------
+    ; --- ...AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) --------------------
     ; Here and nowhere else: `hb_vol` is `hb_pick_x`'s answer four lines up
     ; and `hb_wakep` is what `hbm_wrimg` has just written into the pointer, so
     ; this is the one point in the handoff where all four are settled. They go

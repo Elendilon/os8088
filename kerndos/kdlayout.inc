@@ -36,7 +36,7 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; was already 35, so the DOS program keeps its 585 KB; what rises is the
 ; `KD_GATE` build (tests/kdos.py), which is a test artefact on no floppy.
 ;
-; **35 -> 36 AT SPEC.md 96.47, AND THIS ONE IS PAID BY THE PROGRAM.** The live
+; **35 -> 36 AT SPEC.md 96.49, AND THIS ONE IS PAID BY THE PROGRAM.** The live
 ; resume is 996 bytes - 36,472 against 35,840 - of which ~440 is 87.5's stub,
 ; which has to BE somewhere to be staged and is the irreducible half. The DOS
 ; program goes 585 KB -> 584, which is the trade docs/plans/KERN-DOS-PLAN.md

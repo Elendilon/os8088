@@ -187,7 +187,7 @@ def main():
         print("kdhdd: UNDER KERN_DOS off C:, the file says %r" % got)
         # **AND THE EXIT IS NOT THIS ROW'S**, which is a correction: it used
         # to wait for `the program has exited` before letting the machine
-        # reboot, and since SPEC.md 96.47 there is no reboot - `kd_leave`
+        # reboot, and since SPEC.md 96.49 there is no reboot - `kd_leave`
         # puts the session back itself and that line never appears. What this
         # row is about is the DRIVE; `tests/kdreturn.py` owns the return.
         m.type_text("x")

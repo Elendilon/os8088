@@ -156,7 +156,7 @@ KDL_VMAX    equ 8               ; DVOL_MAX's widest arm (kernel/disk.inc), so
 ; the gather writes DVK_FREE for one rather than carrying a row whose
 ; transport is missing (KERN-DOS-PLAN 6.1 lever 4, enforced instead of hoped).
 
-; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.47) ---------------------------
+; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) ---------------------------
 ; `kd_leave` puts the session back itself instead of `int 19h`-ing and letting
 ; a fresh boot do it. Four things only the KERNEL knows, and none of them is
 ; reconstructible on a machine it is no longer running on.
@@ -200,7 +200,7 @@ KDL_VER_NOW equ 4               ; what this tree writes and checks. It is a
                                 ; two. 1 -> 2 is KDL_DPT moving the body,
                                 ; 2 -> 3 is the volume table doing it
                                 ; again (96.46), and 3 -> 4 the live
-                                ; resume's four fields (96.47). **THE BUMP IS OWED EVEN
+                                ; resume's four fields (96.49). **THE BUMP IS OWED EVEN
                                 ; THOUGH BOTH SIDES SHIP IN ONE FILE**:
                                 ; kern_dos is part 2 of DOS.O88 and the box
                                 ; is part 0, so those two are always in step -
