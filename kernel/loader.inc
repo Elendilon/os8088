@@ -1537,6 +1537,60 @@ ldf_ld_run_name:        call ld_run_name_x
                     retf
 
 ; -----------------------------------------------------------------------------
+; ld_pkg_open - OSAPI_PKG_OPEN's body: run the package NAMED at SI (21.6)
+; in:  SI -> the staged 8.3 name, in the folder api_n's inst_vol_enter put us
+;      in; DS = KERNEL_SEG; UI task, gfx lock NOT held
+; out: CF = 0 with AL = 0 running; CF = 1 with AL = LD_*
+;
+; It is ld_run_name with a poster of none, which is ui.inc's Task Manager
+; launch with the note taken off - so parts, overlays, sizing and the
+; disk-swap re-check are the disk path's and not this routine's business.
+;
+; IT SAYS NOTHING. loader_run_x ends in ld_say_status, which puts the verdict
+; up as a toast (SPEC.md 59); the caller of this has AL and its own words, and
+; a toast reading `Bad package` for a launch a PROGRAM asked for names neither
+; the program nor the file. [ld_status] is left alone for the same reason: it
+; is the Disk window's status line and belongs to the window that posted a
+; load, which is not this one.
+;
+; The one thing kept from loader_run_x is its tail. A package the loader
+; refused AFTER running its entry proc may have put pixels anywhere before it
+; said no, and there is no telling where - so LD_EABORT, and only when the
+; load did not paint a window of its own, is a whole-screen repaint.
+; -----------------------------------------------------------------------------
+ldf_ld_pkg_open:        call ld_pkg_open_x
+                    retf
+
+ld_pkg_open_x:
+    mov word [ld_pwin], 0       ; no poster. NOTHING ON THIS PATH READS IT -
+                                ; loader_run_x is the only reader and that is
+                                ; the INDEX door - so this is here to keep the
+                                ; two no-poster callers identical (ui.inc
+                                ; writes it at the same seam) rather than
+                                ; because the load needs it
+    mov byte [ld_painted], 0
+    call ld_run_name_x          ; AL = LD_*; it shows the window itself
+    push ax
+    push ds
+    pop es                      ; ld_run_body's failure exits leave ES aimed at
+                                ; LOW_SEG or a freed region, and files_refresh
+                                ; below may not inherit that (ui.inc's note)
+    cmp byte [ld_painted], 0
+    jne .done                   ; the success path drew its own window
+    cmp al, LD_EABORT
+    jne .done
+    call files_refresh_x
+.done:
+    pop ax
+    or al, al
+    jz .ok
+    stc
+    ret
+.ok:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; osapi_pkg_rehome - API slot 0x0530: "the program is at DX, not at me"
 ;                    (SPEC.md 20.12.10)
 ; in:  DX = the segment the program's image starts at, AX = the bytes

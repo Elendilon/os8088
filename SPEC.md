@@ -36564,6 +36564,84 @@ is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
 
+### 21.6 `OSAPI_PKG_OPEN` — the loader's FRONT half, published
+
+The system had two doors into the loader and a package could only use the one
+that does not work with everything on the machine. `OSAPI_PKG_RUN` (§21.5)
+takes an IMAGE and **refuses a package carrying parts**; the kernel's own
+launches — a Disk-window double-click, an association open, the Task Manager —
+take a NAME and refuse nothing. So *"run this `.O88` the way the file manager
+would"* was the one thing a package could not ask for, and the asymmetry read
+as arbitrary because it is: it belongs to the caller's situation and not to
+the file.
+
+**The parts refusal is right for the Wire and wrong as a general rule.** The
+kernel never reads a part. `op_load` (§20.12) copies the name its entry proc
+was handed and calls `OSAPI_FILE_READ_AT` on it, in the folder the new
+instance is standing in — so the loader's job ends at the image either way,
+and what a parted package needs is simply that **the file it was launched from
+still exists**. `PKG_RUN` has no file behind its bytes, which is exactly the
+Wire's case and exactly why its refusal is correct there. A caller naming a
+file on a disk has one.
+
+**Widening `PKG_RUN` is the wrong repair.** `BX` is free in its contract, so
+*"the name in `DI` is a real file here"* would fit in one bit — but the Wire
+already calls that cell and passes an undefined `BX`, and adding an input to a
+published cell is the ABI trap §20 warns about. The honest reading of *two
+slots that nearly do the same thing* is that the missing one is the FRONT half,
+not a flag on the back half.
+
+```
+OSAPI_PKG_OPEN  KERNEL_SEG:0x05A0        ; an N cell
+  in   SI     = a NUL-terminated 8.3 name, in YOUR segment, naming a package
+                in the folder YOU are standing in (§19.2.1)
+  out  CF = 0, AL = 0: it is running and its window is up, exactly as a
+                Disk-window double-click leaves one
+       CF = 1, AL = LD_* (§21.4) — including LD_EBAD for a file that is not a
+                package AND for one that is not there, which by name are one
+                code (§21.4)
+```
+
+**Parts, overlays, sizing and the disk-swap re-check all come free**, because
+this is not a second loader: it is `ld_run_name` (§21.4) with `[ld_pwin]` = 0,
+which is the same routine `ui.inc` launches the Task Manager through and
+`assoc.inc` opens a document with. Nothing about the pipeline is new, and a
+package with parts launches here for the same reason it launches from a
+double-click.
+
+#### 21.6.1 Why it is FOURTEEN resident bytes
+
+Because `api_n` (§20.3) already does the two things this needed: it stages the
+caller's name into kernel scratch — the name is in the caller's segment and
+the loader reads `DS:SI` through the kernel's — and it calls `inst_vol_enter`,
+which is *resolve this in the calling instance's own directory*. That is the
+stateless-by-name convention the whole file API already follows, so the cell
+adds no rule a package author has to learn: **stand where the file is, name
+it.** A package that navigates with `OSAPI_FILE_GOTO_QM` is already marking
+that folder as its own (§19.2.1), so the two agree with nothing to keep in
+step.
+
+What is left is the 8-byte cell and a 6-byte resident thunk to `.cold`, which
+is `osapi_pkg_run`'s own shape one slot along. The body — no poster, run the
+name, turn the status into a carry — is `.cold` and costs no machine any
+resident byte.
+
+**It says nothing.** `loader_run_x` ends in `ld_say_status`, which puts the
+verdict on the screen as a toast (§59), and this does not: the caller has `AL`
+and its own words for the user, which is `ui.inc`'s Task Manager precedent and
+the right one — a toast reading `Bad package` for a launch a program asked for
+names neither the program nor the file. Nor does it write `[ld_status]`, which
+is the Disk window's status line and belongs to the window that posted a load.
+
+**One thing it does keep from `loader_run_x`**: a package the loader refused
+*after* running its entry proc may have put pixels anywhere before it said no,
+so `LD_EABORT` — and only `LD_EABORT`, and only when the load did not paint a
+window of its own — takes a whole-screen repaint. Every other failure drew
+nothing.
+
+**Context: UI TASK ONLY, gfx lock NOT held** — §21.5's context and for its
+reasons, since it reaches the same step 8 and step 9.
+
 ## 22. files.inc — the Disk window (file manager)
 
 Built-in app kind (KIND_FILES), **cap 4** — up to four windows, each on its

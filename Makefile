@@ -6204,14 +6204,21 @@ $(BUILD)/pkgrun.bin: tests/pkgrun/pkgrun.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/pkgrun.o88: $(BUILD)/pkgrun.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $< -o $@
 
-$(BUILD)/pkgrun.img: $(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 tools/os88disk.py
+# MSEG.O88 RIDES ON IT TOO, and it is not a spare part: SPEC.md 21.6's whole
+# claim is that PKG_RUN's parts refusal belongs to the caller's situation and
+# not to the file, so the gate hands ONE file to BOTH doors and reads two
+# different answers. It is tests/multiseg's package and not a fixture, for
+# HELLO.O88's reason one line up.
+$(BUILD)/pkgrun.img: $(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 $(BUILD)/mseg.o88 \
+                     tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		$(BUILD)/pkgrun.o88 $(BUILD)/hello.o88
+		$(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 $(BUILD)/mseg.o88
 	@python3 tools/os88disk.py --verify $@
 
-$(BUILD)/pkgrun360.img: $(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 tools/os88disk.py
+$(BUILD)/pkgrun360.img: $(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 \
+                        $(BUILD)/mseg.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-		$(BUILD)/pkgrun.o88 $(BUILD)/hello.o88
+		$(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 $(BUILD)/mseg.o88
 	@python3 tools/os88disk.py --verify $@
 
 #   make pkgrun                            builds both images
