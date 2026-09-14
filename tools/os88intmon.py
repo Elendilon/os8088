@@ -130,6 +130,21 @@ def fname(vec, ah):
     return FN_TABLE.get(vec, {}).get(ah, "%02Xh" % ah)
 
 
+def chs_of(r):
+    """(cylinder, head, sector) out of an int 13h call's registers.
+
+    CH is the low eight bits of the cylinder and CL carries the sector in
+    0-5 with the cylinder's top two in 6-7 - the encoding every BIOS disk
+    call has used since 1981. It is here because WHICH sectors a run reads
+    is the whole difference between `it went to the disk a lot` and `it read
+    the same three sectors ninety times`.
+    """
+    cx, dx = r["cx"], r["dx"]
+    sec = cx & 0x3F
+    cyl = ((cx >> 8) & 0xFF) | ((cx & 0xC0) << 2)
+    return cyl, (dx >> 8) & 0xFF, sec
+
+
 def drive_of(vec, r):
     """Which drive a call names, when it names one - else None.
 
@@ -327,6 +342,86 @@ def report(data, say=print, top=12):
             say(line)
         if len(rows) > top:
             say("    ...and %d more function(s)" % (len(rows) - top))
+        # **WHICH SECTORS, and how often the same ones** - the difference
+        # between a run that reads a lot and a run that reads one thing over
+        # and over. Only for the transfer functions: AH=00h has no geometry.
+        if vec == 0x13:
+            spots = {}
+            for r in mine:
+                ah = (r["ax"] >> 8) & 0xFF
+                if ah not in (0x02, 0x03, 0x04):
+                    continue
+                d = drive_of(vec, r)
+                spots.setdefault(d, {})
+                key = chs_of(r)
+                spots[d][key] = spots[d].get(key, 0) + 1
+            for d in sorted(spots):
+                hits = spots[d]
+                rpt = sorted(((n, k) for k, n in hits.items()), reverse=True)
+                say("")
+                say("    %s: %d transfer(s) over %d distinct place(s)"
+                    % (d, sum(hits.values()), len(hits)))
+                for n, (c, h, sx) in rpt[:6]:
+                    say("      c%-3d h%d s%-3d  x%d" % (c, h, sx, n))
+                if len(rpt) > 6:
+                    say("      ...and %d more" % (len(rpt) - 6))
+
+            # ...and the ALTERNATION, which is what a person watching the
+            # drive lights actually sees. A run that goes A B A B is not the
+            # same finding as one that reads all of A and then all of B.
+            seq = [drive_of(vec, r) for r in mine
+                   if ((r["ax"] >> 8) & 0xFF) in (0x02, 0x03, 0x04)]
+            flips = sum(1 for a, b in zip(seq, seq[1:]) if a != b)
+            if seq:
+                say("")
+                say("    the order: %s%s"
+                    % (" ".join(x[0] for x in seq[:40]),
+                       " ..." if len(seq) > 40 else ""))
+                say("    %d transfer(s), %d change(s) of drive%s"
+                    % (len(seq), flips,
+                       " - it is ALTERNATING" if flips > len(seq) * 0.4 else ""))
+
+            # **THE PACE**, which IS the speed question. "Slow" has three
+            # separate causes and one number cannot tell them apart, so
+            # there are three: how much a call MOVES (whether the OS
+            # batches), what a call COSTS inside the BIOS (the drive, and
+            # the same on both sides of a comparison), and what is spent
+            # BETWEEN calls (the OS's own arithmetic and the program's).
+            # The third is the only one an operating system can be blamed
+            # for, and without the first two it cannot be seen at all.
+            xf = [r for r in mine
+                  if ((r["ax"] >> 8) & 0xFF) in (0x02, 0x03, 0x04)]
+            sect = sum((r["ax"] & 0xFF) for r in xf
+                       if ((r["ax"] >> 8) & 0xFF) in (0x02, 0x03))
+            if xf:
+                # First call to LAST RETURN when the run is timed - a span
+                # that stopped at the last call's `int` would exclude that
+                # call's own time and make the two halves below fail to add
+                # up, which on a short run reads as more BIOS than wall.
+                wall = (mine[-1]["cyc"] + (mine[-1].get("in", 0) if timed else 0)
+                        - mine[0]["cyc"]) / GUEST_HZ
+                gaps = sorted(b["cyc"] - a["cyc"]
+                              for a, b in zip(mine, mine[1:]))
+                med = (gaps[len(gaps) // 2] / GUEST_HZ * 1000.0) if gaps else 0.0
+                say("")
+                say("    the pace")
+                say("      %d transfer(s), %d sector(s), %.1f sector(s) a call"
+                    % (len(xf), sect, sect / float(len(xf))))
+                say("      %.2f guest s first call to %s, %.1f ms between "
+                    "calls (median)"
+                    % (wall, "last return" if timed else "last call", med))
+                if sect:
+                    say("      %.1f guest ms a sector, over the whole wall"
+                        % (wall * 1000.0 / sect))
+                if timed:
+                    inc = sum(r.get("in", 0) for r in xf) / GUEST_HZ
+                    say("      %.2f guest s INSIDE the BIOS - %.0f%% of the "
+                        "wall, %.1f ms a call"
+                        % (inc, 100.0 * inc / max(1e-9, wall),
+                           inc * 1000.0 / len(xf)))
+                    say("      %.2f guest s OUTSIDE it - the OS and the "
+                        "program" % (wall - inc))
+
         named = [r for r in mine if r.get("name")]
         if named:
             seen = {}
@@ -395,11 +490,11 @@ def selfcheck(say=print):
         bad.append("int 21h AH=0Eh DL=2 is C:")
 
     recs = [
-        {"v": 0x13, "cyc": 0, "ax": 0x0201, "bx": 0, "cx": 1, "dx": 0x0001,
+        {"v": 0x13, "cyc": 0, "ax": 0x0201, "bx": 0, "cx": 1, "dx": 0x0000,
          "si": 0, "di": 0, "ds": 0, "es": 0, "cs": 0x1000, "ip": 0x10,
          "in": int(GUEST_HZ * 0.4)},
         {"v": 0x13, "cyc": int(GUEST_HZ), "ax": 0x0208, "bx": 0, "cx": 2,
-         "dx": 0x0000, "si": 0, "di": 0, "ds": 0, "es": 0,
+         "dx": 0x0001, "si": 0, "di": 0, "ds": 0, "es": 0,
          "cs": 0x1000, "ip": 0x20, "in": int(GUEST_HZ * 0.8)},
     ]
     lines = []
@@ -411,6 +506,26 @@ def selfcheck(say=print):
         bad.append("one call on each of A: and B: should both be named")
     if "1200.0" not in txt:
         bad.append("0.4s + 0.8s of in-call time is 1,200 guest ms")
+
+    if chs_of({"cx": 0x0001, "dx": 0x0000}) != (0, 0, 1):
+        bad.append("CH=0 CL=1 is cylinder 0, sector 1")
+    if chs_of({"cx": 0x0101, "dx": 0x0000}) != (1, 0, 1):
+        bad.append("CH is the cylinder's LOW BYTE: 0x0101 is cylinder 1")
+    if chs_of({"cx": 0x1309, "dx": 0x0100}) != (0x13, 1, 9):
+        bad.append("CH=13h CL=09h DH=1 is cylinder 19, head 1, sector 9")
+    if chs_of({"cx": 0x01C1, "dx": 0x0000}) != (769, 0, 1):
+        bad.append("CL bits 6-7 are the cylinder's TOP TWO: 0x1C1 is cyl 769")
+    if "the order:" not in txt or "the order: A B" not in txt:
+        bad.append("the drive ORDER is what a person watching the lights "
+                   "sees, and it must be printed: %r" % txt)
+    if "4.5 sector(s) a call" not in txt:
+        bad.append("the pace must price BATCHING: 9 sectors in 2 calls "
+                   "is 4.5 a call: %r" % txt)
+    if "1.80 guest s" not in txt:
+        bad.append("a TIMED wall runs to the last RETURN, so 1s apart plus "
+                   "0.8s in the second call is 1.80: %r" % txt)
+    if "1.20 guest s INSIDE" not in txt or "0.60 guest s OUTSIDE" not in txt:
+        bad.append("the two halves must ADD UP to the wall: %r" % txt)
 
     dl = []
     diff({"recs": recs}, {"recs": recs[:1]}, say=dl.append)
