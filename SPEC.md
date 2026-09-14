@@ -127782,3 +127782,26 @@ a program makes for its own reasons.
 bank are all untouched, so every answer a program can read is the answer it
 read before.  A volume that cannot be mounted still refuses with DOS's own
 code 3, at the one place that tries.
+
+#### 96.48.1 The bracket is in THREE places, and two of them are the file window
+
+`dos_fh_enter`/`dos_fh_leave` is the one a name goes through.  It is not the
+only one: **`dos_fh_fill.onvol` and `dos_fh_flush` each carry their own**,
+through `dos_vol_to` — *the bytes come from where the FILE is, not from where
+the program is standing* (§96.6.2) — and those two are the path every
+windowed `AH=3Fh` and every window write actually take.
+
+So `dos_drv_sel` no longer mounting is not a local change: left alone, those
+two would have moved the program's drive and then read the right name **off
+the wrong disk**, which is a wrong answer and not a failure.  `dos_vol_to` is
+therefore split in two:
+
+| | |
+|---|---|
+| `dos_vol_to` | the program's drive **and** the machine — for a caller about to make a back-end call |
+| `dos_vol_park` | the program's drive alone, leaving the machine where the work was — for a caller coming HOME |
+
+Both "walk home" sites become `dos_vol_park`, and that is what makes a read
+loop over one file cost **one** mount rather than two per call: the machine
+stays on the file's volume, and `dos_fh_stand` finds it already there on
+every refill after the first.
