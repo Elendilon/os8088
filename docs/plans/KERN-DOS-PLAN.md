@@ -588,22 +588,75 @@ it never had to survive a program.
 
 ## 8. The return, on a machine with a hard disk
 
-On `AH=4Ch` (or `INT 20h`, or a fault `kern_dos` cannot survive):
+**THE MACHINE GOES ALL THE WAY ROUND, AND THAT IS THE DESIGN RATHER THAN A
+SHORTCUT.** The hibernation image is written before the program starts,
+`kern_dos` restarts the machine when it exits exactly as it does on the
+floppy arm (§9), and the fresh kernel's own `hb_probe` finds the pointer and
+resumes it without asking. There is no second stub, no second extent walk and
+no second copy of the transport facts inside `kern_dos`.
 
-1. Copy the stub and the banked `HIBERNAT.IMG` extents back into the text
-   framebuffer.
-2. Jump into it. It is §87.5 step 4 onward, byte for byte.
-3. The image comes back over everything including `kern_dos`, and control
-   returns to the UI task's loop where the hibernate left it.
+1. The box asks for arm 3 on a machine with a fixed disk, so the record it
+   posts says *hibernate first*.
+2. `hbm_dosrun` writes the image and the pointer — `hbm_hib` steps 1 to 6,
+   factored — with a byte in `HIBERNAT.PTR` meaning *this was not the user
+   leaving the machine*. Then it hands over as W5 already does.
+3. The program runs. On `AH=4Ch` `kern_dos` leaves the exit code in the BDA's
+   intra-application area and issues `int 19h`, which is `kd_leave` unchanged.
+4. The fresh kernel boots, `hb_probe` finds the pointer, and the flag turns
+   what would have been `UI_RBQ_ASK` into `UI_RBQ_RESUME`. §87.5's resume runs
+   as it always does, and the session comes back with the DOS window in it.
 
-**The "no question box on resume" is a flag, not a mechanism.** §87.5's probe
-posts `UI_RBQ_ASK` and the window asks. A hibernate written for a DOS handoff
-sets a byte in `HIBERNAT.PTR` meaning *this was not the user leaving the
-machine*, and the probe posts `UI_RBQ_RESUME` directly. The DOS window is
-still open on the other side, and `dos_wake` finds `DST_RAN` with the exit
-code the stub carried back.
+### 8.1 Why not the direct restore, which is what this section used to say
 
-**What the exit code rides in** is an open question — §12, question 3.
+The obvious design — `kern_dos` copies §87.5's stub and the banked
+`HIBERNAT.IMG` extents back into the text framebuffer and jumps into it — is
+**~1,200 bytes of `kern_dos`'s image**, and every byte of that image is a byte
+off the DOS program:
+
+| | |
+|---|---|
+| `hbs_stub` | **441** bytes, measured |
+| `HS_UNIT`..`HS_NX`, `HS_WAKE`, `HS_CLK` | 22 |
+| the extent list | **6 bytes an extent**, and `HS_XMAX` is 1,280 |
+
+and the extent list is the part that cannot be bounded cheaply, because the
+one place it could live is `kern_dos`'s own image: **the text framebuffer is
+not available**, since the DOS program prints into it, and there is no other
+RAM a program does not own. A cap would mean a new refusal on a perfectly
+ordinary disk.
+
+**`KD_IMG_KB` is 61 and the program has 559 KB against a 600 KB target**
+(§1), so 1,200 bytes is 1 KB of the one quantity this plan is a budget for —
+spent permanently, on every machine, to save time at the end of a program.
+
+What it saves is **~2.1 seconds, once**: a hard-disk boot is 2,087 ms
+(docs/plans/completed/BOOT-PERF-PLAN.md) against a restore that is ~2 s on
+iron and a write that is ~2 s (§2.2, measured by the owner on three machines
+including a real 5150). So the round trip is ~4 s direct and ~6.1 s round the
+houses, at the end of a session the user spent minutes in.
+
+**And the reboot route removes a whole class of the defects §11.2 is about.**
+Five of wave 5's seven were *the thing on the other side of the handoff is not
+the machine this code was written against*; a second stub with a second extent
+walk and a second set of transport facts is five more chances at exactly that.
+
+### 8.2 The exit code rides in the BDA, and that is MEASURED
+
+§12 question 3 asked how the code gets home, since the restore comes back over
+everything including `kern_dos` and including the BDA. On this route it does
+not have to survive the restore — it has to survive **`int 19h` and a boot**,
+which is a different and much weaker requirement.
+
+`0040:00F0` is the intra-application communication area, sixteen bytes the
+BIOS sets up at POST and never touches again. `int 19h` is the bootstrap
+loader and not POST, and os8088's own boot writes nothing below `0x0600`.
+**Verified on the machine**: a magic poked there before `kern_dos`'s `int 19h`
+reads back byte for byte after the ROM's bootstrap, after stage 2, and at a
+settled desktop.
+
+So `kd_leave` writes `'DX'`, the code and a checksum there, `hbm_ask` reads
+them beside the pointer, and `hbm_res` stages the code for the stub to hand to
+`hbm_wake` in a register. The window then finds `DST_RAN` with a number.
 
 ---
 
@@ -781,10 +834,14 @@ W1, which is the wave that measures it.
    because `-f bin` sections are laid contiguously from wherever the root puts
    them. §4.1.2 carries what that means for the split that is no longer
    needed.
-3. **How does the exit code come back?** The stub restores conventional memory
-   over everything, so a byte in `kern_dos`'s image does not survive. Candidates:
-   a word in the BDA's unused area, a word in `HIBERNAT.PTR` rewritten before
-   the restore, or a fixed offset in the image itself that the stub patches.
+3. **How does the exit code come back?** **ANSWERED BY §8.2, and the question
+   got easier when the route changed.** The direct restore comes back over
+   everything including the BDA, so nothing `kern_dos` writes survives it —
+   which is what made this hard. On the reboot route the code only has to
+   survive `int 19h` and a boot, and `0040:00F0` does: it is the BIOS's
+   intra-application area, set up at POST and never touched again, `int 19h`
+   is the bootstrap and not POST, and os8088's own boot writes nothing below
+   `0x0600`. **Verified on the machine**, byte for byte, at a settled desktop.
 4. **XMS.** The box publishes `OSAPI_XMEM_*` to DOS programs today. Does
    `kern_dos` carry an XMS provider, or does arm 3 lose extended memory too?
    §87.7 already owes extended memory to hibernate, so the two are related.
