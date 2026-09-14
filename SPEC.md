@@ -35527,22 +35527,38 @@ disk, same program:
 | the program running | 0x2680 | **5,120** | 450,560 |
 | …and with the carve top-down | 0x9480 | 0 | 455,680 |
 
-So the region **moved UP by 5,120 bytes during the Run path** and the space
-below it was not reclaimed — where the compactor's ascending pass should have
-packed a `door lo`, `MC_RLOC`-movable region *down*. `[ld_base]` is 0, the
-package owns no worker, and `OS88_COMPACT` is defined on this kernel, so none
-of the three obvious pins applies.
+**IT IS ANSWERED, AND THE REGION NEVER MOVED UP.** The two middle rows are two
+different *launches*: opening `A:/APPS/DOS.O88` by hand leaves the heap floor
+clear and the bottom-up carve lands at 0x2540, while reaching the box through
+`DOSHELLO.COM`'s association means drive B: has been opened first, and its FAT
+window — `MEM_P_FATW|1`, **5,120 bytes**, the exact figure — is already
+standing at 0x2480. The carve is simply claimed *above* it, at 0x2680. There is
+no wrong-way move to explain, and §66.4's `mem_cp_mine` could not have made one:
+a `door lo` claim is the ascending pass's alone, and that pass's fill point is
+never above the claim it is looking at.
 
-**docs/plans/HANDOFF-CARVE-COMPACT.md is the handoff** — the repro, the probe,
-what is ruled out and on what evidence, and four candidates ranked. It is
-written down rather than explained here, because it is no longer on any
-shipped path — the top-down carve above removes it — and because the
-general machinery is not in doubt: `soak -k 'heap*' -k 'reg*'` is 10/10,
-`heapcheck` among them, which asserts a poster's own region physically moving
-and reads the closed hole back to the KB. Whoever picks this up should force
-`OSAPI_MEM_CLAIM` at `apps/os88partsbody.inc`'s carve, open `DOS.O88` off
-`build/kdos360.img`, run a `.COM`, and watch `mem_tab` across the Run path;
-the move happens somewhere between `dos_drv_take` and the arena claim.
+What is real is the second half — **the hole below it did not close** — and the
+cause is not in this mechanism at all. `mem_compact` was **discarding the rank
+the poster named**, so the posted pass ran at rank 0, could dissolve nothing,
+and treated that FAT window as a barrier; the cache was then dropped by the
+package's own claim, in a pass where `mem_in_nest` pins the asking region.
+§66.4.3.3 is the defect, the fix and the measurement. With the rank honoured
+the bottom-up carve reads **455,680 and a hole of 0** — the top-down figure, to
+the byte.
+
+So `[ld_base]` being 0, the package owning no worker and `OS88_COMPACT` being
+defined were all true and all beside the point: `mem_frameless` answered
+*movable* for this region in the posted pass, every time. The pass just had
+nothing to pack it into.
+
+**docs/plans/completed/HANDOFF-CARVE-COMPACT.md is the record** — the repro, the
+probe that answered it, and the four ranked candidates with what each turned
+out to be worth (none of them was it). The reason the handoff's own framing
+missed it is worth keeping: every reading it took was from *outside* the pass,
+and the question — *why did this claim not move* — can only be answered from
+inside one. `soak -k 'heap*' -k 'reg*'` was 10/10 throughout and stayed 10/10
+after the fix, because `heapcheck`'s region packs against a **pinned**
+neighbour and so closes its hole at any rank.
 
 So the top-down carve is not a substitute for understanding that. It is the
 narrower, correct thing on its own merits: a claim that is going to be a
@@ -83736,6 +83752,66 @@ before returning, and no path that can reach `mem_cp_run` ever sets it. A
 compaction running with it standing would move a region with a frame in it, and
 now a claim out from under a live worker.
 
+#### 66.4.3.3 The POSTER'S RANK is the caller's, and `mem_compact` was throwing it away
+
+**`AX = 0` means "no pending claim to size the pass against". It does not mean
+"nobody is waiting".** The posted request is exactly the case where both are
+not the same thing: `mem_cpq_run_x` has no claim to derive a rank from — the
+asking package's turn is over — so it sets `[mem_pg_rank]` from
+`[mem_cpq_lvl]`, the rank the poster named in `AL`, and then calls
+`mem_compact` with `AX = 0` for §66.4.1's both-passes behaviour.
+
+`mem_compact` then **zeroed it one instruction later**. Its `.rank` block read
+`xor al, al` / `or di, di` / `jz .rank` / `call mem_rank_bh` / `.rank:`
+`mov [mem_pg_rank], al` — so the store happened on *both* arms, and the zero
+arm overwrote the only thing the poster had said. Every posted pass since
+§66.4.3 shipped therefore ran at **rank 0**, where `mem_cp_drop`'s first
+instruction is `cmp byte [mem_pg_rank], 0` / `je .no`: it dissolved nothing,
+and stopped at the first purgeable cache as a **barrier**.
+
+**The fix is that `AX = 0` leaves the byte alone**, and the two callers that
+pass 0 each say what they mean: `mem_unblob_x` stores 0 explicitly — §66.10.1's
+"the A: mount claimed the read-ahead four routines earlier" is unchanged, and
+is now stated rather than inherited — and `mem_cpq_run_x`'s existing store is
+what survives. **−2 bytes in `mem_compact` and +5 in `mem_unblob_x`, so **+3 bytes of
+`.cold` — which is RESIDENT** (docs/KERNEL-MEMORY.md, *Where it goes*: the
+name is the cold PATH, not a cold lifetime). `.text`, `.bss` and `.lowbss` are
+all unmoved, no rung is crossed and `KERN_SIZE` reads 113,152 either way — but
+per §1's banner the three bytes are the figure and the rung is not.
+
+**WHY IT COST A WHOLE REGION AND NOT ONE CACHE.** A barrier does not merely
+leave that cache where it is — it parks the fill point *past* it, so every
+movable claim above it stays where it is too. The cache is then dropped
+moments later by the package's own `OSAPI_MEM_CLAIM_LVL`, which compacts at
+the claimant's real rank (§66.4) — but that pass runs **inside the package's
+own callback**, where `wm_pkgd` is 1 and `mem_in_nest` pins the asking region
+(§66.6.1). So the hole opens in the one pass that cannot move the region into
+it, and the pass that could move the region is the one that cannot open the
+hole. **Two windows, and the rank bug spent the only one that had both
+halves.**
+
+Measured on `build/kdos360.img` with §20.12.10.8's carve forced bottom-up
+(`os8088_5150_cga_gla`, `DOSHELLO.COM` off B:, `mem_tab` read at a breakpoint
+in `mem_cpq_run_x`). Drive B:'s FAT window is `MEM_P_FATW|1`, 5,120 bytes at
+`MEM_PG_MED`, and the box posts at `DOS_PG_FLOOR` = `MEM_PG_HIGH`:
+
+| | the posted pass does | region | interior hole | arena |
+|---|---|---|---:|---:|
+| rank thrown away | FAT window is a BARRIER | 0x2680, unmoved | **5,120** | 450,560 |
+| rank honoured | drops it, then packs | 0x2680 → **0x2540** | **0** | **455,680** |
+
+The second row is the figure §20.12.10.8 measures for the top-down carve, to
+the byte — so with the rank honoured the compactor really does close this hole
+and the door the carve came in by stops mattering to the arena.
+
+**The poster's rank had never been tested**, which is why this survived
+`heapcheck`: that row's region is packed against a *pinned* neighbour rather
+than a droppable cache, so its hole closes at any rank. A row that asserts the
+poster's rank reaching `mem_cp_drop` is what would have caught it, and
+§66.10.1's "`mem_unblob` is the one caller that passes 0" is the sentence that
+stopped being true when §66.4.3 cut a second door past it — the same shape as
+that section's own warning about `mem_shed_one`, one mechanism along.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is
@@ -85184,7 +85260,15 @@ learns to read the tag.
 So the byte holds the **rank**, not a flag: `mem_compact` takes the owner in
 `BX` alongside the size, derives the claimant's level exactly as `mem_shed_one`
 does, and `mem_cp_drop` is that routine's own two compares. Zero means *nothing
-is takeable*, which is what "no claim waiting" stores.
+is takeable*.
+
+**`AX = 0` no longer STORES that zero, it leaves the byte to the caller**
+(§66.4.3.3). "Nobody is waiting" and "there is no pending claim to size the
+pass against" were the same thing when `mem_unblob` was the only such caller,
+and §66.4.3's posted request is the case where they came apart: a poster IS
+waiting and names its own rank, having no claim for `mem_rank_bh` to read one
+out of. `mem_unblob_x` stores the 0 itself now, so the paragraph above is
+unchanged in effect and is stated where the reason for it lives.
 
 And the byte is free twice over. `mem_cp_pad` was alignment padding — and
 `[mem_av_pg]`, `mem_avail`'s rank, was **the same quantity under a second

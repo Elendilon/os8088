@@ -464,6 +464,10 @@ mem_unblob_x:
     call mem_floor_ax
     mov [mem_base], ax
 %ifdef OS88_COMPACT
+    mov byte [mem_pg_rank], 0   ; DISSOLVE NOTHING, said rather than inherited:
+                                ; mem_compact no longer zeroes this for an
+                                ; AX = 0 pass, because mem_cpq_run_x's poster
+                                ; needs it kept (SPEC.md 66.10.1)
     xor ax, ax
     call mem_compact
 %endif                          ; ...and on kern_small the store IS the whole
@@ -2967,15 +2971,27 @@ mem_compact:
     shl ax, cl                  ; KB -> paragraphs; 0 stays 0
     jc .none                    ; more than a megabyte: nothing to do here
     mov di, ax                  ; DI = what the caller needs
-    xor al, al                  ; ...and the rank a drop is judged against
-    or di, di                   ; (SPEC.md 66.10.1): ZERO when nobody is
-    jz .rank                    ; waiting, so mem_unblob's "compact regardless"
-    call mem_rank_bh            ; dissolves nothing. Otherwise the CLAIMANT's
-                                ; own level, mem_shed_one's derivation exactly
-                                ; - and now literally the same door, which is
-                                ; what SPEC.md 50.6.4 needs
-.rank:
-    mov [mem_pg_rank], al
+    or di, di                   ; ...and the rank a drop is judged against
+    jz .rank                    ; (SPEC.md 66.10.1), WHICH WITH NO PENDING
+                                ; CLAIM IS THE CALLER'S AND NOT DERIVABLE
+                                ; HERE, so AX = 0 leaves [mem_pg_rank] exactly
+                                ; as the caller set it: mem_unblob_x says 0 and
+                                ; dissolves nothing, mem_cpq_run_x says the
+                                ; rank the POSTER named (SPEC.md 66.4.3.3).
+                                ; This used to `xor al, al` and store it
+                                ; unconditionally, which threw the poster's
+                                ; rank away one instruction after it was
+                                ; written - so every posted pass ran at rank 0,
+                                ; dissolved nothing, and stopped at the first
+                                ; purgeable cache as a BARRIER. The hole that
+                                ; cache was standing in then opened in the
+                                ; package's OWN mem_claim instead, where
+                                ; mem_in_nest pins the asking region and it
+                                ; cannot follow the hole down
+    call mem_rank_bh            ; Otherwise the CLAIMANT's own level,
+    mov [mem_pg_rank], al       ; mem_shed_one's derivation exactly - and now
+.rank:                          ; literally the same door, which is what
+                                ; SPEC.md 50.6.4 needs
 
     inc byte [mem_cp_busy]
     mov word [mem_cp_msk], 0     ; THE ASCENDING PASS FIRST, always: it is the
@@ -4120,7 +4136,13 @@ mem_cpq_run_x:
     mov word [mem_cpq], 0
     mov al, [mem_cpq_lvl]
     mov [mem_pg_rank], al       ; the rank the asker named, which mem_compact
-                                ; cannot derive with no claim pending
+                                ; cannot derive with no claim pending - AND
+                                ; WHICH IT MUST NOT OVERWRITE. Its AX = 0 arm
+                                ; deliberately leaves this byte alone for this
+                                ; store's sake; it used to zero it here, which
+                                ; made the poster's rank dead letter and every
+                                ; posted pass a pass that dissolved nothing
+                                ; (SPEC.md 66.4.3.3)
 %ifdef OS88_COMPACT
     xor ax, ax                  ; "compact regardless", which is BOTH passes
     call mem_compact            ; (SPEC.md 66.4.1)

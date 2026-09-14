@@ -1,21 +1,73 @@
-# Handoff — a posted compaction ran and a 5,120-byte hole survived it
+# ANSWERED — a posted compaction ran at the WRONG RANK, and the hole it could not open was opened later by a pass that could not move the region
 
-> ## OPEN, and deliberately NOT on any shipped path.
-> The DOS box's own symptom is **fixed** — SPEC.md §20.12.10.8 claims the
-> parts carve top-down, which is correct on its own merits and means there is
-> no hole to close. What is open is *why the compaction did not close it when
-> there was one*, and that question belongs to `mem_compact` rather than to
-> `apps/dos/`.
->
-> **The general machinery is not in doubt.** `soak -k 'heap*' -k 'reg*'` is
-> **10/10**, `heapcheck` among them — the row that asserts a POSTER'S OWN
-> region physically moving and reads the closed hole back to the KB
-> (docs/plans/REGION-SELF-COMPACT-PLAN.md §7.3). So this is a specific case
-> that escapes something, not a feature that does not work.
+> **SPEC.md §66.4.3.3 is the contract and the fix; SPEC.md §20.12.10.8.1 carries
+> the measurements. This file is the design record — how it was chased, and
+> why the framing below had to be discarded before it could be.**
 
-**Observed as:** with `apps/os88partsbody.inc`'s carve claimed BOTTOM-UP, the
-DOS box's region moves **up** 5,120 bytes across the Run path and the space
-below it is never reclaimed — costing the DOS program 5 KB of its arena.
+**The answer, in three sentences.** `mem_cpq_run_x` sets `[mem_pg_rank]` to the
+rank the poster named and then calls `mem_compact` with `AX = 0`, whose `.rank`
+block stored a zero over it on *both* arms — so every posted pass ever run
+dissolved nothing and stopped at the first purgeable cache as a **barrier**,
+parking its fill point past every movable claim above it. That cache (drive
+B:'s FAT window, `MEM_P_FATW|1`, **5,120 bytes** — the whole of the missing
+figure) was then dropped moments later by the package's *own*
+`OSAPI_MEM_CLAIM_LVL`, which compacts at the claimant's real rank but runs
+**inside the package's callback**, where `wm_pkgd` is 1 and `mem_in_nest` pins
+the asking region. Two windows: the one that could move the region could not
+open the hole, and the one that opened the hole could not move the region.
+
+**−2 bytes in `mem_compact`, +5 in `mem_unblob_x` — +3 bytes of `.cold`,
+which is RESIDENT** (docs/KERNEL-MEMORY.md: the name is the cold PATH, not a
+cold lifetime — `.ovl`/`.ovlw` are the sections that go away). `.text`, `.bss`
+and `.lowbss` are unmoved and `KERN_SIZE` reads 113,152 either way. With the
+rank honoured the bottom-up carve reads **arena 455,680 and a hole of 0**,
+which is the top-down carve's figure to the byte.
+
+## 0. THE PREMISE BELOW IS WRONG, AND THAT IS THE LESSON
+
+Everything from §1 on is the handoff as it was written. It is kept because
+four of its five sections are sound and because the one that is not is
+instructive: **"THE REGION MOVED UP BY 5,120 BYTES" never happened.**
+
+§1's two middle rows are two different *launches*. Opening `A:/APPS/DOS.O88` by
+hand leaves the heap floor clear, so the bottom-up carve lands at 0x2540;
+reaching the box through `DOSHELLO.COM`'s association means **drive B: has been
+opened first**, and its 5,120-byte FAT window is already standing at 0x2480, so
+the carve is claimed above it at 0x2680. The equality of the two 5,120s is not
+a coincidence — it is the *same cache*, counted once as the gap between the two
+launches and once as the hole it left — and reading it as a distance a region
+travelled is what sent §4 looking for a wrong-way move.
+
+There was never a wrong-way move to find. **Candidate 2** was checkable at the
+source and
+is **refused**: `mem_cp_mine` is three instructions, a `door lo` claim is the
+ascending pass's alone, and that pass's fill point is never above the claim it
+is looking at, so neither pass can move a bottom-up claim up. **Candidate 1** (a
+transient
+under the region) was the right *instinct* — something 5,120 bytes long really
+was standing under it — but it is not transient and it does not go away by
+itself: it is a purgeable cache, and the question is which pass is allowed to
+dissolve it. **Candidates 3 and 4** are both innocent.
+
+**The method that did answer it is §4's own first sentence, taken literally:**
+*dump `mem_tab` from inside `mem_cpq_run_x`*. Every reading in §1 was taken
+from outside the pass, and *why did this claim not move* cannot be answered
+from outside one. Three breakpoints did it — `mem_cpq_run_x` for the heap at
+the service point, `mem_cp_dest`/`mem_cp_drop`/`mem_cp_move` for the walk's
+fill point claim by claim, and `mem_pg_cheap` for the rank in force — and the
+walk trace named it immediately: the region reached `mem_cp_drop` and
+`mem_cp_far` (a **barrier**) where the fill point was already correct at
+0x2540, in a pass whose `[mem_pg_rank]` read **0x00** twenty-four instructions
+after `mem_cpq_run_x` had set it to **0xFE**.
+
+**What would have caught it as a test**, and is the row to add if this is ever
+revisited: nothing asserts that the poster's rank reaches `mem_cp_drop`.
+`heapcheck` cannot see it — its region packs against a **pinned** neighbour, so
+its hole closes at any rank. That is also why `soak -k 'heap*' -k 'reg*'` was
+honestly 10/10 while the mechanism's one documented argument was being
+discarded.
+
+---
 
 ---
 
@@ -175,9 +227,11 @@ with os88ui.boot("build/kdos360.img", apps="build/doscom360.img",
 
 **5,120 bytes of a DOS program's arena on this path, and nothing else
 today** — the shipped carve is top-down, so no user is losing the 5 KB. The
-value is in the answer: if §4.2 is what is happening, the compactor moves a
+value is in the answer: if **candidate 2** is what is happening, the compactor
+moves a
 `door lo` claim the wrong way and every region that is ever claimed bottom-up
-inherits it. If §4.1 is what is happening, the lesson is that a package which
+inherits it. If **candidate 1** is what is happening, the lesson is that a
+package which
 frees something and then posts a compaction has the order backwards, which is
 a rule worth writing into SPEC.md §66.4.3 rather than a defect to fix.
 

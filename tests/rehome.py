@@ -217,11 +217,28 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 "the program at %04X is not inside the claim owned by its own "
                 "slot (%04X..%04X) - the wrong claim was re-owned"
                 % (wseg, c.seg, c.end))
-        if c.hi:
+        # THE DOOR NO LONGER TELLS THE TWO APART, AND THAT IS THE POINT
+        # (SPEC.md 20.12.10.8). This read `if c.hi: fail` - the carve came in
+        # bottom-up, the loader's region top-down, so the door was a free
+        # discriminator. The carve is claimed TOP-DOWN now, through
+        # mem_claim_hi_x like every other CS-based claim, so that test fails
+        # on a correct machine and the discriminating work has already been
+        # done above by the two checks that do not depend on a door: exactly
+        # ONE claim on this slot (two means the loader's region was never
+        # freed) and the program sitting INSIDE it.
+        #
+        # So the check is INVERTED rather than deleted, and it is still
+        # load-bearing: a bottom-up survivor now means op_claim went back
+        # through OSAPI_MEM_CLAIM, which is the regression SPEC.md 20.12.10.8
+        # exists to prevent - it lands the carve at the FLOOR and leaves the
+        # loader's freed region as a hole beneath it.
+        if not c.hi:
             fails.append(
-                "the surviving claim came in by the TOP-DOWN door, so it is "
-                "the loader's region and not the carve: step 8a freed the "
-                "wrong one (SPEC.md 20.12.10.5)")
+                "the surviving claim came in by the BOTTOM-UP door, so "
+                "op_claim is not using mem_claim_hi_x: a claim that becomes "
+                "a region must come in by a region's door, or it lands at "
+                "the heap floor with the loader's freed region left as a "
+                "hole under it (SPEC.md 20.12.10.8)")
         # --- 5. and its MC_RLOC is the SHAPE's answer ------------------------
         # The program declares itself movable either way (rhprog.asm's
         # rp_reloc). Which shape it is in decides whether the kernel takes the
