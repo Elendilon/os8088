@@ -175,9 +175,9 @@ with os88ui.boot("build/kdos360.img", apps="build/doscom360.img",
 
 **5,120 bytes of a DOS program's arena on this path, and nothing else
 today** — the shipped carve is top-down, so no user is losing the 5 KB. The
-value is in the answer: if §4.2 is what is happening, the compactor moves a
+value is in the answer: if candidate 2 above is what is happening, the compactor moves a
 `door lo` claim the wrong way and every region that is ever claimed bottom-up
-inherits it. If §4.1 is what is happening, the lesson is that a package which
+inherits it. If candidate 1 is what is happening, the lesson is that a package which
 frees something and then posts a compaction has the order backwards, which is
 a rule worth writing into SPEC.md §66.4.3 rather than a defect to fix.
 

@@ -7,7 +7,7 @@
 ;
 ; **IT IS A GATHER/SCATTER OF THE BOX'S OWN BSS, and that is the whole trick.**
 ; Both sides `%include "dos.asm"`, so `dos_name`, `dos_args`, `dos_ebuf` and
-; the rest are the same offsets FROM `os88_image_end` in the box and in
+; the rest are the same offsets FROM `DOS_CBASE` in the box and in
 ; `kern_dos` - the images differ, the DBSS layout cannot. So the block is a
 ; list of (offset, length) rows that one side gathers from and the other
 ; scatters to, and adding a field is one line HERE rather than two copies of
@@ -133,7 +133,7 @@ KDLF_EXE    equ 2               ; bit 1: the box already knows it is an .EXE.
 ;
 ;   ; the table, for the walk
 ;   %macro KDL_F 2
-;       dw (%1 - os88_image_end), %2
+;       dw (%1 - DOS_CBASE), %2
 ;   %endmacro
 ;   kd_lbtab:
 ;       KDL_FIELDS

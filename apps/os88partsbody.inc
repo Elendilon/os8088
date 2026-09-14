@@ -1112,13 +1112,13 @@ op_seg:
 %if OP_HAS_LAZY
     test byte [si+OP_R_FLAG], OP_LAZY
     jz .notlazy
-    mov ax, [si+OP_R_ZKB]       ; A LAZY ROW BANKS ITS SEGMENT IN ITS OWN zkb
-%if OP_HAS_COMP
-    cmp ax, OP_SPENT            ; ...and a DROPPED compressed one holds the
-    jne .out                    ; sentinel, which is not a segment and not
-    xor ax, ax                  ; `not fetched` either (SPEC.md 20.12.7.4)
-%endif
-    jmp .out                    ; WORD, and 0 there means "not fetched". The
+    xor ax, ax                  ; A LAZY ROW BANKS ITS SEGMENT IN ITS OWN zkb
+    test byte [si+OP_R_FLAG], OP_FETCHED    ; WORD - but only once OP_FETCHED
+    jz .out                                 ; says so (SPEC.md 20.12.7.4).
+    mov ax, [si+OP_R_ZKB]                   ; Before that the word is the
+    jmp .out                                ; PACKED LENGTH on a compressed row
+                                ; and zero on a plain one, so `non-zero` is not
+                                ; the question. The
                                 ; jump is NEAR: 20.12.7's walk went in below
                                 ; and .out is past it. The
                                 ; table is in the image, which is this
@@ -1398,8 +1398,8 @@ op_lazyok:
     cmp word [si+OP_R_ZKB], OP_SPENT    ; dropped and unfetchable - the packed
     je .no                              ; length is gone (SPEC.md 20.12.7.4)
 %endif
-    cmp word [si+OP_R_ZKB], 0
-    jne .yes                    ; already here, and having it costs nothing
+    test byte [si+OP_R_FLAG], OP_FETCHED
+    jnz .yes                    ; already here, and having it costs nothing
     call op_clbget
     jc .no
     call op_lazykb
@@ -1461,8 +1461,8 @@ op_fetch:
     cmp word [si+OP_R_ZKB], OP_SPENT    ; dropped: the word that held its
     je .spent                           ; packed length is where the segment
 %endif                                  ; went (SPEC.md 20.12.7.4)
-    cmp word [si+OP_R_ZKB], 0
-    je .get
+    test byte [si+OP_R_FLAG], OP_FETCHED
+    jz .get
     clc                         ; already here
     ret
 .get:
@@ -1594,6 +1594,7 @@ op_fetch:
     jc .zbad
 .plainbank:
 %endif
+    or byte [si+OP_R_FLAG], OP_FETCHED  ; ...and the flag is what SAYS so
     mov [si+OP_R_ZKB], ax       ; THE ROW IS WHERE A FETCHED PART LIVES
     clc
     ret
@@ -1658,6 +1659,7 @@ op_drop:
     mov dx, [si+OP_R_ZKB]
     or dx, dx
     jz .out
+    and byte [si+OP_R_FLAG], ~OP_FETCHED & 0xFF  ; not here any more
 %if OP_HAS_COMP
     ; **A COMPRESSED ROW IS SPENT, NOT EMPTY** (SPEC.md 20.12.7.4): the packed
     ; length it would need to be read again is the very word the segment went

@@ -125,6 +125,17 @@ OP_R_ZKB      equ 6             ; FOUR MEANINGS, one per flag combination, and
                                 ; on an OP_COMP|OP_LAZY row the packed length
                                 ; BEFORE the fetch and the segment after
                                 ; (SPEC.md 20.12.7.4)
+OP_FETCHED    equ 32            ; **A RUNTIME FLAG, never in the file** - set by
+                                ; op_fetch and cleared by op_drop, and it is
+                                ; what "is this part here?" asks. It used to be
+                                ; `zkb != 0`, which was sound while zkb could
+                                ; only ever be a banked segment; on an
+                                ; OP_COMP|OP_LAZY row (SPEC.md 20.12.7.4) zkb
+                                ; STARTS as the packed length, so a part that
+                                ; had never been fetched read as already here
+                                ; and op_fetch returned CF=0 having done
+                                ; nothing. os88pkg.py refuses the bit in a
+                                ; file, so a row always begins clear
 OP_SPENT      equ 0xFFFF        ; ...and what op_drop leaves in a dropped
                                 ; OP_COMP|OP_LAZY row, because the packed
                                 ; length it would need to be read again is the

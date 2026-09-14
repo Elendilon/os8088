@@ -60,6 +60,11 @@ PART_ALIGN = 512           # every part starts on a 512-byte boundary in the
                            # file - see the layout comment in main()
 PK_SEG, PK_ASSET = 0, 1
 OPF_XMS, OPF_ZERO, OPF_OPT, OPF_LAZY, OPF_COMP = 1, 2, 4, 8, 16
+OPF_FETCHED = 32                # RUNTIME ONLY (SPEC.md 20.12.7.4): op_fetch
+                                # sets it and op_drop clears it, so a row that
+                                # arrived with it set would read as a part
+                                # already in memory. It is deliberately NOT in
+                                # OPF_ALL, which is what refuses it here.
 OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP
 PART_FMT_AT = PARTS_HDR - 1     # the table's reserved byte, which is the
                                 # FORMAT the OP_COMP rows use (SPEC.md

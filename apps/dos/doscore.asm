@@ -1,38 +1,39 @@
 ; =============================================================================
 ; os8088 - apps/dos/doscore.asm
 ;
-; **THE DOS CORE, ON ITS OWN** (SPEC.md 96.44; the design record is
-; docs/plans/KERN-DOS-PLAN.md 4.1.3): INT 21h and everything under it - the PSP,
-; the handle layer, the FCBs, the MCB chain, `AH=4Bh` and the built-in commands
-; - assembled once, with no host around it.
+; **THE DOS CORE, ON ITS OWN** (SPEC.md 96.44, 96.44.5; the design record is
+; docs/plans/KERN-DOS-PLAN.md 4.1.3): INT 21h and everything under it - the
+; PSP, the handle layer, the FCBs, the MCB chain, `AH=4Bh` and the built-in
+; commands - assembled ONCE, with no host around it, and shipped as a part
+; both hosts join.
 ;
 ; **IT IS THE SAME FILE, BEHIND TWO DEFINES, AND NOT A COPY.** `apps/dos/dos.asm`
-; carries three populations now and each is marked where it stands:
+; carries three populations and each is marked where it stands:
 ;
 ;   %ifndef KD_BACKEND   the WINDOW half (96.43.2) - what `kern_dos` leaves out
 ;   %ifndef DOS_EXTCORE  the CORE (96.44) - what a HOST leaves out
-;   everything else      the container: the package header, the constants, the
-;                        DBSS table, the bss equates and the includes at the
-;                        foot, which every build wants
+;   everything else      the container: the constants, the DBSS table and the
+;                        bss equates, which every build wants and which emit
+;                        no bytes at all
 ;
 ; so this root is `KD_BACKEND` with no host, and a host is `DOS_EXTCORE` with
 ; no core.  Nothing was moved to make that true, which is the whole reason the
-; split is checkable: `build/dos.o88` was byte-identical through the marking.
+; split is checkable.
 ;
 ; WHAT IT NAMES OUTSIDE ITSELF IS THREE THINGS, and that is the measurement
-; docs/plans/KERN-DOS-PLAN.md 4.1.3 wanted (*"core -> box is ZERO"*):
+; docs/plans/KERN-DOS-PLAN.md 4.1.3 wanted (*"core -> box is ZERO"*), which
+; came out true on the tree: the only symbol a core span names that a host
+; defines is `DVOL_MAX`, a constant the container already `%ifndef`s.
 ;
-;   os88_image_end   where the DBSS table is based.  A CONSTANT here, because
-;                    the core's bss is at a fixed offset both hosts agree on
+;   os88_image_end   where the DBSS table is based - `CORE_BSS_AT`, a CONSTANT
+;                    both hosts place the core's bss at (96.44.2)
 ;   DVOL_MAX         how many volumes the machine can have (96.38)
 ;   dos_bevec        the twenty-two back-end doors AS ADDRESSES (96.44.1),
-;                    filled by whichever host is running - the one edge that
-;                    exists, and it is the door table this plan already built
+;                    filled by whichever host is running
 ;
-; **NOTHING IS EMITTED FOR A HOST TO CALL YET.** This root exists so the
-; marking is CHECKED rather than asserted: a span marked core that is really
-; the container, or a core routine that still names a host symbol, fails here
-; and nowhere else.  The entry table and `org CORE_ORG` are the next wave's.
+; **THE FIRST BYTES ARE THE TABLE** (`apps/dos/doscall.inc`), because a host
+; cannot know the core's internal addresses - they are assembled separately -
+; and what it CAN know is where the core begins.
 ; =============================================================================
 cpu 8086
 bits 16
@@ -40,18 +41,28 @@ bits 16
 %define KD_BACKEND                  ; ...so the window half is not in this one
 %define DOS_CORE_ROOT               ; ...and the container knows it has no host
 
-; --- what the host would otherwise have said --------------------------------
-; Both are CONSTANTS to the core and neither is code: `DVOL_MAX` is the
-; kernel's own (`assoc.inc` defines it first in every real build, which is why
-; dos.asm's copy is `%ifndef`'d), and `os88_image_end` is where the DBSS table
-; is based - a LABEL in the package and a fixed offset here, because the core's
-; bss has to be at the same place whichever host it is joined to.
+%include "doscall.inc"              ; CORE_ORG, CORE_MAX and the table's shape
+
+    org CORE_ORG
+
+    DOSC_EMIT                       ; the jump table, then the data table
+
+; --- what a host would otherwise have said ----------------------------------
 %ifndef DVOL_MAX
-DVOL_MAX equ 8
-%endif
-%ifndef CORE_BSS
-CORE_BSS equ 0x8000                 ; provisional - the budget is the next
-%endif                              ; wave's (docs/plans/KERN-DOS-PLAN.md §4.1.3.1)
-os88_image_end equ CORE_BSS
+DVOL_MAX equ 8                      ; the kernel's own (`assoc.inc` defines it
+%endif                              ; first in every real build, which is why
+                                    ; dos.asm's copy is `%ifndef`'d)
+os88_image_end equ CORE_BSS_AT      ; THE CORE NEVER NAMES AN HBSS CELL - it
+                                    ; is `tests/unit/t_dosbss.py`'s rule 2 -
+                                    ; so this exists only so the equate block
+                                    ; assembles. The core's own cells are at
+                                    ; `DOS_CBASE` (96.44.5)
 
 %include "dos.asm"
+
+; --- and the budget, which is the one number this file owns -----------------
+CORE_SIZE equ $ - $$
+%if CORE_SIZE > CORE_MAX
+  %error "the DOS core outgrew CORE_MAX - raise it in apps/dos/doscall.inc, \
+and note that BOTH hosts reserve it, so a byte here is a byte off each of them"
+%endif
