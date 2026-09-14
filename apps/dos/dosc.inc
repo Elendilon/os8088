@@ -475,7 +475,7 @@ dos_con_prog:
 ; in:  [dsh_a1] = the name, as typed; reached from dos_con_prog
 ; out: CF=0 - it is queued, so the caller treats it as a launch
 ;
-; **IT IS POSTED AND NOT CALLED**, for OSAPI_PKG_OPEN's context rule (21.6):
+; **IT IS POSTED AND NOT CALLED**, for OSAPI_PKG_START's context rule (21.5):
 ; the slot wants the UI task with the gfx lock FREE, and this runs under
 ; W_ONKEY, which holds it. dos_wake is where the lock is free - the same place
 ; a DOS program's own launch is serviced - so the name is banked, a wake is
@@ -525,7 +525,7 @@ dos_con_pkg:
 ; in:  [dos_pkgn] = the name; UI task, gfx lock NOT held
 ; out: nothing
 ;
-; Stand where the console is standing FIRST - OSAPI_PKG_OPEN resolves in the
+; Stand where the console is standing FIRST - OSAPI_PKG_START resolves in the
 ; calling instance's own folder (19.2.1) and dos_be_goto is GOTO_QM, which
 ; moves the machine AND marks the instance, so the two agree with nothing to
 ; keep in step.
@@ -543,7 +543,12 @@ dos_pkg_go:
     call dos_be_goto
     jc .bad
     mov si, dos_pkgn
-    call OSAPI_PKG_OPEN
+    xor cx, cx                      ; **NO IMAGE: READ THE FILE** (SPEC.md
+    xor dx, dx                      ; 21.5). Zero is the ordinary case and the
+                                    ; image form is the Wire's alone, so this
+                                    ; is the whole of what a by-name caller
+                                    ; says beyond the name
+    call OSAPI_PKG_START
     jnc .out                        ; its window is up: nothing to say
 .bad:
     mov si, dos_s_nopkg
@@ -626,7 +631,7 @@ dos_con_ext:
     ; `.O88` used to land in the refusal below with the rest, which was right
     ; while there was nothing else to do with one - 96.33.15 exists because
     ; entering DOS.O88 as a `.COM` wedges the machine. There is something else
-    ; to do with one now: OSAPI_PKG_OPEN (21.6) launches it the way the file
+    ; to do with one now: OSAPI_PKG_START (21.5) launches it the way the file
     ; manager would. So this is a third ANSWER and not a fourth extension.
     mov si, dos_c_o88
     call .isext

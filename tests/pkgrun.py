@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OSAPI_PKG_RUN runs an image out of memory, and refuses two (SPEC.md 21.5).
+"""OSAPI_PKG_START runs an image out of memory, and refuses two (SPEC.md 21.5).
 
     make && make pkgrun && python3 tests/pkgrun.py
 
@@ -54,18 +54,19 @@ WHAT IT ASSERTS, and the first one is asserted against the KERNEL:
      and by a different route: the flags test is made before ld_check_hdr,
      which allows the bit.
 
-AND THREE ON THE OTHER DOOR (SPEC.md 21.6), which is why this row is worth
-more than it was. `OSAPI_PKG_OPEN` is the loader's FRONT half - a NAME rather
-than an image - and what the pair settles is that C's refusal belongs to the
-CALLER'S SITUATION and not to the file:
+AND THREE ON THE OTHER FORM OF THE SAME CELL (SPEC.md 21.5), which is why this
+row is worth more than it was. `OSAPI_PKG_START` takes a NAME and, optionally,
+an image you are holding - ONE door, two forms - and what the pair settles is
+that C's refusal belongs to NOT HAVING A FILE and not to the slot:
 
   D  HELLO.O88 runs BY NAME too, so `inst_tab` ends with TWO live records
      named HELLO, one per door.
-  E  **ONE FILE, TWO DOORS, TWO ANSWERS.** MSEG.O88 - tests/multiseg's real
-     five-part package, not a flag set by hand - is read into a claim and
-     handed to PKG_RUN, which must REFUSE it; then the same name is handed to
-     PKG_OPEN, which must RUN it. Both halves are asserted, because either
-     alone is a claim about one door rather than about the difference.
+  E  **ONE FILE, ONE CELL, TWO ANSWERS.** MSEG.O88 - tests/multiseg's real
+     seven-part package, not a flag set by hand - is read into a claim and
+     handed to the IMAGE form, which must REFUSE it; then the same name is
+     given to the BY-NAME form, which must RUN it. Both halves are asserted,
+     because either alone is a claim about one form rather than about the
+     difference.
      And the parts REALLY ARRIVE: MSEG rewrites its own window title to
      `MSEG 5/5 OK` (tests/multiseg.py reads the same word), so a launch that
      produced a window and no parts cannot pass this.
@@ -250,14 +251,14 @@ def main():
                          "package did not launch, so nothing below ran")
         if names.count("HELLO") < 2:
             fails.append("A/D: %d live instance(s) named HELLO, want 2 - one "
-                         "per door. OSAPI_PKG_RUN ran the image and "
-                         "OSAPI_PKG_OPEN ran the same file by name, and they "
-                         "are separate instances (SPEC.md 21.5, 21.6)"
+                         "per door. OSAPI_PKG_START ran the image and "
+                         "OSAPI_PKG_START ran the same file by name, and they "
+                         "are separate instances (SPEC.md 21.5)"
                          % names.count("HELLO"))
         if "MSEG" not in names:
             fails.append("E: no live instance named MSEG - the file "
-                         "OSAPI_PKG_RUN refused was not run by name either, "
-                         "so the pair says nothing (SPEC.md 21.6)")
+                         "the image form refused was not run by name either, "
+                         "so the pair says nothing (SPEC.md 21.5)")
         else:
             # ...AND ITS PARTS ARRIVED. MSEG rewrites its own window title to
             # `MSEG n/n OK` once it has checked every part three ways
@@ -271,7 +272,7 @@ def main():
                 fails.append("E: MSEG launched by name and its title reads "
                              "%r, not %r - it ran, and its PARTS did not "
                              "arrive, which is the whole of what this door "
-                             "exists to do (SPEC.md 21.6, 20.12)"
+                             "exists to do (SPEC.md 21.5, 20.12)"
                              % (title, want))
         if "HELLO" in names:
             # --- AND THE COPY LANDED, byte for byte -------------------------
@@ -349,31 +350,31 @@ def main():
                                      "package with PARTS reads them from its "
                                      "own FILE (SPEC.md 20.12)"
                                      % (cfc, alc, LD_EBAD))
-                    # --- the other door (SPEC.md 21.6) ---------------------
+                    # --- the other door (SPEC.md 21.5) ---------------------
                     if ferr2:
                         fails.append("E: OSAPI_FILE_READ of MSEG.O88 answered "
                                      "FERR %d, so the half of E that hands "
-                                     "the file to PKG_RUN never ran" % ferr2)
+                                     "the file to the image form never ran" % ferr2)
                     elif not ln2:
                         fails.append("E: MSEG.O88 read back as 0 bytes")
                     if (cfd, ald) != (0, 0):
-                        fails.append("D: OSAPI_PKG_OPEN answered CF=%d AL=%d "
+                        fails.append("D: OSAPI_PKG_START answered CF=%d AL=%d "
                                      "for HELLO.O88, want CF=0 AL=0. It is "
                                      "ld_run_name with no poster - the same "
                                      "pipeline a double-click takes "
-                                     "(SPEC.md 21.6)" % (cfd, ald))
+                                     "(SPEC.md 21.5)" % (cfd, ald))
                     if (cfe1, ale1) != (1, LD_EBAD):
-                        fails.append("E: PKG_RUN answered CF=%d AL=%d for the "
+                        fails.append("E: the IMAGE form answered CF=%d AL=%d for the "
                                      "REAL parted MSEG.O88, want CF=1 AL=%d. "
                                      "Without this half, E's other half is a "
-                                     "claim about one door and not about the "
+                                     "claim about one form and not about the "
                                      "difference" % (cfe1, ale1, LD_EBAD))
                     if (cfe, ale) != (0, 0):
-                        fails.append("E: PKG_OPEN answered CF=%d AL=%d for "
+                        fails.append("E: the BY-NAME form answered CF=%d AL=%d for "
                                      "MSEG.O88, want CF=0 AL=0. The kernel "
                                      "reads the FILE here, so a package "
                                      "carrying parts has one to read them "
-                                     "out of (SPEC.md 21.6)" % (cfe, ale))
+                                     "out of (SPEC.md 21.5)" % (cfe, ale))
                     if (cff, alf) != (1, LD_EBAD):
                         fails.append("F: a name that is not there answered "
                                      "CF=%d AL=%d, want CF=1 AL=%d"
@@ -390,7 +391,7 @@ def main():
 
     for f in fails:
         print("FAIL " + f)
-    print("pkgrun: %s" % ("OK - the back half ran one and refused two; the front half ran two more, one of them the very file "
+    print("pkgrun: %s" % ("OK - the image form ran one and refused two; the by-name form ran two more, one of them the very file "
                           "the back half refused"
                           if not fails
                           else "%d assertion(s) failed" % len(fails)))

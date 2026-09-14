@@ -2330,7 +2330,7 @@ SOAK = [
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
     Row("pkgrun", "soak", py("tests/pkgrun.py"), 25.0,
-        "OSAPI_PKG_RUN (SPEC.md 21.5): the loader's back half with the disk "
+        "OSAPI_PKG_START (SPEC.md 21.5): the loader's back half with the disk "
         "read replaced by a copy, which is how the Wire runs a package it "
         "fetched over the network into a claim. `make pkgrun` builds a TEST "
         "package no shipped floppy carries (the mseg/covl shape, SPEC.md "
@@ -2342,8 +2342,8 @@ SOAK = [
         "PARTS, which are read out of a FILE that does not exist here "
         "(SPEC.md 20.12). The two refusals also say the region and the "
         "instance record a failed load reserved were given back. "
-        "**AND THREE MORE ON THE OTHER DOOR** (SPEC.md 21.6): "
-        "OSAPI_PKG_OPEN is the loader's FRONT half, which takes a NAME, and "
+        "**AND THREE MORE ON THE OTHER DOOR** (SPEC.md 21.5): "
+        "OSAPI_PKG_START is the loader's FRONT half, which takes a NAME, and "
         "what the pair settles is that the parts refusal belongs to the "
         "CALLER'S SITUATION and not to the file. HELLO.O88 runs by name too "
         "(two live HELLO records, one per door); a name that is not there is "
@@ -3182,7 +3182,7 @@ SOAK = [
         "with the rest - rightly, since entering 30KB of package image as a "
         ".COM wedges the machine - and what was missing was not a fourth "
         "extension to allow but something else to DO with one. "
-        "OSAPI_PKG_OPEN (21.6) is it, so the box hands the name to the kernel "
+        "OSAPI_PKG_START (21.6) is it, so the box hands the name to the kernel "
         "and the package opens in its own window, NOT inside the box. Four "
         "steps and the last two are the ones that break silently: CALC.O88 "
         "opens 'Calculator' AND the box is still there (a launch that "

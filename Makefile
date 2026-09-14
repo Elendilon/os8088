@@ -2004,7 +2004,7 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # does, because every new package is written by copying it and the copy is
 # what tells you. It is also not only `all` that would notice late: three
 # things read build/hello.o88 out of build/ rather than off a disk -
-# build/pkgrun.img (SPEC.md 21.5's OSAPI_PKG_RUN gate compares the loaded
+# build/pkgrun.img (SPEC.md 21.5's OSAPI_PKG_START gate compares the loaded
 # bytes against that exact file), tests/unit/t_wire.py's fixture archives and
 # tests/unit/t_lzfmt.py's round trip - and all three are soak rows that would
 # fail naming a missing file rather than naming this line.
@@ -6186,7 +6186,7 @@ $(BUILD)/covl360.img: $(BUILD)/covl.o88 tools/os88disk.py
 #   make test TESTAPPS=build/covl.img    boots with it in B:
 covl: $(BUILD)/covl.img $(BUILD)/covl360.img
 
-# --- PKGRUN, OSAPI_PKG_RUN's gate (ON DEMAND: `make pkgrun`) -----------------
+# --- PKGRUN, OSAPI_PKG_START's gate (ON DEMAND: `make pkgrun`) -----------------
 # SPEC.md 21.5: run a package image that is already in memory. The gate is a
 # test package that reads HELLO.O88 off the disk beside it into a claim and
 # hands it to the slot three times - once whole, once with a spoiled magic and
@@ -6204,11 +6204,12 @@ $(BUILD)/pkgrun.bin: tests/pkgrun/pkgrun.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/pkgrun.o88: $(BUILD)/pkgrun.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $< -o $@
 
-# MSEG.O88 RIDES ON IT TOO, and it is not a spare part: SPEC.md 21.6's whole
-# claim is that PKG_RUN's parts refusal belongs to the caller's situation and
-# not to the file, so the gate hands ONE file to BOTH doors and reads two
-# different answers. It is tests/multiseg's package and not a fixture, for
-# HELLO.O88's reason one line up.
+# MSEG.O88 RIDES ON IT TOO, and it is not a spare part: SPEC.md 21.5's whole
+# claim is that the parts refusal belongs to NOT HAVING A FILE and not to the
+# slot, so the gate hands ONE file to BOTH FORMS of OSAPI_PKG_START - the
+# image it is holding, and the name - and reads two different answers. It is
+# tests/multiseg's package and not a fixture, for HELLO.O88's reason one line
+# up.
 $(BUILD)/pkgrun.img: $(BUILD)/pkgrun.o88 $(BUILD)/hello.o88 $(BUILD)/mseg.o88 \
                      tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \

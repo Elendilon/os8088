@@ -3930,17 +3930,30 @@ apic_wm_destroy:
                                   ;          costs a lost loop iteration - and
                                   ;          if the worker was holding
                                   ;          something, correctness
-    OSAPI_SLOT osapi_pkg_run      ; 0x0520 - run a package image that is
-                                  ;          ALREADY IN MEMORY (SPEC.md 21.5):
-                                  ;          ES:SI = the image in a claim of
-                                  ;          yours, DX:CX its length, DI a
-                                  ;          NUL 8.3 name in your own segment.
-                                  ;          A PLAIN SLOT and not an X cell:
-                                  ;          ES is an ARGUMENT here and an X
-                                  ;          stub would overwrite it with the
-                                  ;          caller's DS (SPEC.md 20.3), which
-                                  ;          is the one segment the image is
-                                  ;          least likely to be in
+    OSAPI_NCELL osapi_pkg_start   ; 0x0520  N: START THE PACKAGE CALLED NAME
+                                  ;         (SPEC.md 21.5). SI = a NUL 8.3
+                                  ;         name in YOUR segment, resolved in
+                                  ;         the folder you are standing in.
+                                  ;         DX:CX = the length of an image you
+                                  ;         are HOLDING at ES:DI, or ZERO
+                                  ;         meaning you hold none and the
+                                  ;         kernel is to READ THE FILE. Out
+                                  ;         CF=0 AL=0 running; CF=1 AL=LD_*.
+                                  ;         ONE DOOR: it was two for a cycle -
+                                  ;         this taking an image and 0x05A0 a
+                                  ;         name - which is the successor slot
+                                  ;         beside a no-consumer path that
+                                  ;         SPEC.md 20.8 rule 4 names as the
+                                  ;         worse spec. 0x05A0 is WITHDRAWN.
+                                  ;         N, and it is the N stub that makes
+                                  ;         the merge cheap: it stages the
+                                  ;         name AND hands the body the
+                                  ;         caller's ES and DI untouched, so
+                                  ;         one contract carries both forms.
+                                  ;         The PARTS refusal lives on the
+                                  ;         image arm, where it is true: with
+                                  ;         no file there is nothing for
+                                  ;         op_load to read a part out of
     OSAPI_XCELL osapi_desk_svc      ; 0x0528 - X: a DRIVER registers the
                                   ;          desktop SERVICE zone (SPEC.md
                                   ;          26.7). in AL = 1 add / 0
@@ -4138,24 +4151,7 @@ apic_wm_destroy:
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
                                   ;          in the region it is going to move
-    OSAPI_NCELL osapi_pkg_open    ; 0x05A0  N: SI = a NUL-terminated 8.3 name in
-                                  ;         the folder YOU are standing in:
-                                  ;         LAUNCH IT AS A PACKAGE, exactly as
-                                  ;         a Disk-window double-click would
-                                  ;         (SPEC.md 21.6). Out CF=0 AL=0
-                                  ;         running; CF=1 AL=LD_*. The
-                                  ;         loader's FRONT half, where
-                                  ;         OSAPI_PKG_RUN is its back: the
-                                  ;         kernel reads the FILE, so parts,
-                                  ;         overlays and sizing all come free
-                                  ;         and the parts refusal that belongs
-                                  ;         to the Wire's no-file case does not
-                                  ;         follow the caller here. N because
-                                  ;         the stub already stages the name
-                                  ;         and enters this instance's own
-                                  ;         folder, which is the whole reason
-                                  ;         it is 14 resident bytes
-osapi_table_end:                  ; 0x05A8
+osapi_table_end:                  ; 0x05A0
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4163,8 +4159,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 179 * 8
-%error "os8088 API jump table must be exactly 179 8-byte slots"
+%if OSAPI_TABLE_LEN != 178 * 8
+%error "os8088 API jump table must be exactly 178 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4400,7 +4396,7 @@ api_gfx_rest:
     ret
 %endif
 
-; osapi_pkg_run - slot 0x0520's resident thunk (SPEC.md 21.5)
+; osapi_pkg_start - slot 0x0520's resident thunk (SPEC.md 21.5)
 ;
 ; The body is loader.inc's and loader.inc is `.cold`, so this is the ordinary
 ; six bytes - and it is in BOTH kernels, body included, because a slot that
@@ -4408,24 +4404,10 @@ api_gfx_rest:
 ; (SPEC.md 20.8 rule 4). `call far` and `retf` touch no flags, so the CF the
 ; body answers with is what the caller's `pop ds / retf` returns.
 ; -----------------------------------------------------------------------------
-osapi_pkg_run:
-    call COLD_SEG:ldf_ld_pkg_run
+osapi_pkg_start:
+    call COLD_SEG:ldf_ld_pkg_start
     ret
 
-; -----------------------------------------------------------------------------
-; osapi_pkg_open - slot 0x05A0's resident thunk (SPEC.md 21.6)
-;
-; The cell above it is an N, so by the time this is entered SI names the
-; staged copy of the caller's name and inst_vol_enter has put us in that
-; instance's own folder - which is the whole of why the FRONT half costs
-; fourteen resident bytes where a hand-written stub would have staged and
-; navigated for itself. The body is loader.inc's and loader.inc is `.cold`,
-; so this is the same six bytes as the slot above, in BOTH kernels for the
-; same reason (SPEC.md 20.8 rule 4).
-; -----------------------------------------------------------------------------
-osapi_pkg_open:
-    call COLD_SEG:ldf_ld_pkg_open
-    ret
 
 ; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
@@ -6623,7 +6605,7 @@ cw_inst_alloc:          call inst_alloc
                     retf
 cw_inst_bind_win:       call inst_bind_win
                     retf
-cw_inst_caller:         call inst_caller    ; OSAPI_PKG_RUN reads its name
+cw_inst_caller:         call inst_caller    ; OSAPI_PKG_START reads its name
                     retf                    ; argument through the CALLING
                                             ; instance's segment (SPEC.md
                                             ; 21.5), and loader.inc is cold

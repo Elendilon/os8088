@@ -723,7 +723,7 @@ wr_apathn:
 ;
 ; **THE PROGRAM ENTRY IS LAST SO THAT THE LAUNCH COSTS NOTHING**: the claim
 ; still holds it, byte for byte what the file on the tree now holds, and
-; OSAPI_PKG_RUN takes it from there with the instance's directory already ON
+; OSAPI_PKG_START takes it from there with the instance's directory already ON
 ; the tree - so the overlay and the sidecars are where the launched package
 ; will look for them (SPEC.md 73.14, 92.8).
 ;

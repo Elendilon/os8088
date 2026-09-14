@@ -863,72 +863,57 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; releases your region, and your task
                                  ; ends inside this call.
 
-; --- running a package you are HOLDING (SPEC.md 21.5) -------------------------
-; The loader's back half with the disk read replaced by a copy. It exists for
-; the Wire (SPEC.md 26.7), which fetches a .O88 over the network into a claim
-; and has nowhere to put it: everything else in this system launches a package
-; by naming a FILE, and there is no file here.
-%define OSAPI_PKG_RUN       KERNEL_SEG:0x0520   ; ES:SI = a package image, byte for byte
-                                 ; what the .O88 file holds, in a claim of
-                                 ; YOURS. ANY segment - it is COPIED into a
-                                 ; region of the kernel's own, never
-                                 ; adopted, so you may free your claim the
-                                 ; moment this returns. DX:CX = its length
-                                 ; in bytes, DX the high word. DI = a
-                                 ; NUL-terminated 8.3 name, at most 12
-                                 ; characters, in YOUR OWN segment (not
-                                 ; ES): what the new instance is told it
-                                 ; was launched from, which is its entry
-                                 ; proc's SI (SPEC.md 20.2).
+; --- STARTING A PACKAGE (SPEC.md 21.5) ---------------------------------------
+; ONE DOOR, and it was briefly two: this cell took an IMAGE and 0x05A0 took a
+; NAME, which is the successor-slot-beside-a-no-consumer-path that SPEC.md
+; 20.8 rule 4 names as the worse spec. 0x05A0 is WITHDRAWN.
+%define OSAPI_PKG_START     KERNEL_SEG:0x0520   ; SI = a NUL-terminated 8.3
+                                 ; name, at most 12 characters, in YOUR
+                                 ; segment. It is the file to start AND what
+                                 ; the new instance is told it was launched
+                                 ; from - its entry proc's SI (SPEC.md 20.2).
+                                 ; It is resolved IN THE FOLDER YOU ARE
+                                 ; STANDING IN, so stand where the file is
+                                 ; first with OSAPI_FILE_GOTO_QM, which is
+                                 ; what every other by-name call here wants
+                                 ; (SPEC.md 19.2.1).
+                                 ;
+                                 ; DX:CX = the length of an image you are
+                                 ; HOLDING, DX the high word - or ZERO,
+                                 ; meaning you are not holding one and the
+                                 ; kernel is to READ THE FILE. **ZERO IS THE
+                                 ; ORDINARY CASE**: reach for the image form
+                                 ; only when the bytes have no file behind
+                                 ; them, which in this whole tree is the Wire
+                                 ; and nothing else (SPEC.md 21.5.1.1).
+                                 ;
+                                 ; ES:DI = that image when DX:CX is non-zero,
+                                 ; byte for byte what the .O88 file holds. ANY
+                                 ; segment - it is COPIED into a region of the
+                                 ; kernel's own, never adopted, so you may
+                                 ; free your claim the moment this returns. ES
+                                 ; = 0 with a non-zero length is REFUSED: an
+                                 ; image at segment 0 is the interrupt vector
+                                 ; table, and that is the fence against half
+                                 ; the image arguments being set by a caller
+                                 ; that meant the by-name form.
                                  ;
                                  ; Out CF=0 with AX = 0: it is registered,
-                                 ; published and its window shown, exactly
-                                 ; as a Disk-window double-click leaves
-                                 ; one. CF=1 with AL = an LD_* code
-                                 ; (SPEC.md 21.4): 2 the header is not a
-                                 ; package's, or it carries PARTS (header
-                                 ; flags bit 2 - parts are read from the
-                                 ; package's own FILE and there is none
-                                 ; here); 3 too large; 4 its entry proc
-                                 ; declined; 5 no region or no instance
-                                 ; record.
+                                 ; published and its window shown, exactly as
+                                 ; a Disk-window double-click leaves one.
+                                 ; CF=1 with AL = an LD_* code (SPEC.md 21.4):
+                                 ; 2 not a package - AND, by name, `no such
+                                 ; file`, which arrive as one answer; 3 too
+                                 ; large; 4 its entry proc declined; 5 no
+                                 ; region or no instance record.
                                  ;
-                                 ; UI TASK ONLY - a window callback or an
-                                 ; OSAPI_WM_ONWAKE handler - with the gfx
-                                 ; lock NOT held. It takes the lock itself
-                                 ; around the new window's first paint, and
-                                 ; the entry proc it calls runs with the
-                                 ; lock free like every other package's.
-                                 ;
-                                 ; The new instance's CURRENT DIRECTORY is
-                                 ; YOURS at the time of the call (SPEC.md
-                                 ; 19.2.1), so a package with an overlay or
-                                 ; sidecars run this way looks for them
-                                 ; where you are standing. Run one that has
-                                 ; them from a disk instead.
-
-; --- ...and running one that is ON A DISK (SPEC.md 21.6) ---------------------
-; The loader's FRONT half, where the cell above is its back: "run this .O88 the
-; way the file manager would". It is what the kernel already does for a
-; double-click, for an association open and for the Task Manager, so PARTS,
-; OVERLAYS and sizing all come free - the kernel reads the file, which is the
-; one thing OSAPI_PKG_RUN cannot do and the whole of why that cell refuses a
-; parted image. Reach for THIS one unless the bytes you hold have no file
-; behind them.
-%define OSAPI_PKG_OPEN      KERNEL_SEG:0x05A0   ; SI = a NUL-terminated 8.3
-                                 ; name, in YOUR segment, naming a package in
-                                 ; the folder YOU ARE STANDING IN - so stand
-                                 ; where the file is first (OSAPI_FILE_GOTO_QM),
-                                 ; exactly as every other by-name call in this
-                                 ; SDK wants (SPEC.md 19.2.1).
-                                 ;
-                                 ; Out CF=0 with AL = 0: it is running and its
-                                 ; window is up, exactly as a Disk-window
-                                 ; double-click leaves one. CF=1 with AL = an
-                                 ; LD_* code (SPEC.md 21.4) - and note that 2
-                                 ; is BOTH `that file is not a package` and
-                                 ; `there is no such file`, which by name are
-                                 ; one answer.
+                                 ; **PARTS** (SPEC.md 20.12) work on the
+                                 ; by-name form and are REFUSED on the image
+                                 ; form with LD_EBAD - because a part is read
+                                 ; out of the package's OWN FILE, and when you
+                                 ; handed over bytes there is no file to read
+                                 ; one from. That is a fact about not having a
+                                 ; file, not about this cell.
                                  ;
                                  ; IT SAYS NOTHING ON THE SCREEN. You have AL
                                  ; and your own words for the user; a toast
@@ -937,9 +922,10 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ;
                                  ; UI TASK ONLY - a window callback or an
                                  ; OSAPI_WM_ONWAKE handler - with the gfx lock
-                                 ; NOT held, for OSAPI_PKG_RUN's reasons: it
-                                 ; reaches the same entry-proc call and the
-                                 ; same first paint.
+                                 ; NOT held. It takes the lock itself around
+                                 ; the new window's first paint, and the entry
+                                 ; proc it calls runs with the lock free like
+                                 ; every other package's.
 
 ; --- the desktop SERVICE zone, DRIVERS ONLY (SPEC.md 26.7) --------------------
 ; A driver puts an icon on the desktop. It is here rather than in

@@ -51,7 +51,7 @@ ELEVEN ASSERTIONS.
    sent.
 
 8. LOAD PROGRAM RUNS ONE OUT OF MEMORY. HELLO is selected and the button
-   clicked; `OSAPI_PKG_RUN` (SPEC.md 21.5) copies the fetched image into a
+   clicked; `OSAPI_PKG_START` (SPEC.md 21.5) copies the fetched image into a
    region of the kernel's own and a window titled HELLO appears. Nothing was
    written to a disk and nothing was read from one - the bytes came off the
    host's socket, through a claim, into a running instance.
@@ -70,7 +70,7 @@ ELEVEN ASSERTIONS.
 10. AN ARCHIVE, RUN FROM RAM (SPEC.md 92.14). Load Program on the same
    record. `RDPV_MOUNT` puts a store up, the instance stands on its root, the
    tree lands there and the last entry - still in the claim - goes to
-   `OSAPI_PKG_RUN`. Asserted: a THIRD live volume appears in `dsk_vtab` and
+   `OSAPI_PKG_START`. Asserted: a THIRD live volume appears in `dsk_vtab` and
    it is `DVK_FILE` - RAMDISK.DRV serves FILES and not sectors (SPEC.md
    62.9), and nothing else on this machine registers a volume - the status
    cell says `Loaded`, and a HELLO window opens.
@@ -916,7 +916,7 @@ def main():
             the four words the painter used - os88ui.inc's own "GEOMETRY IS A
             POINTER" discipline, from the outside. A y derived here instead
             missed the Load Program button by nothing visible and reported
-            OSAPI_PKG_RUN as broken.
+            OSAPI_PKG_START as broken.
             """
             return [u16(m.readseg(pseg, img + off[name] + i * 2, 2))
                     for i in range(4)]
@@ -992,7 +992,7 @@ def main():
             no("wr_sel is %d after clicking the third row" % sel)
         if not grey & 1:
             no("Load Program is NOT greyed on a WF_DISK record: SPEC.md 92.7 "
-               "refuses it because OSAPI_PKG_RUN would run it with its "
+               "refuses it because OSAPI_PKG_START would run it with its "
                "overlay nowhere (wr_grey = %d)" % grey)
         if grey & 2:
             no("Add to Disk is greyed on a WF_DISK record, and Add to Disk is "
@@ -1090,13 +1090,13 @@ def main():
             after = dispcp.win_list(m, S)
             # **AND SAY WHICH SIDE FAILED.** [wr_job] still WJ_LOAD with the
             # transfer settled and the claim still held means the UI task went
-            # into OSAPI_PKG_RUN and did not come out - the Wire has done its
+            # into OSAPI_PKG_START and did not come out - the Wire has done its
             # whole half and the loader has the machine. Reported as that,
             # with the CPU's own registers, rather than as "no window
             # appeared", which reads as the package's fault.
             if (b("wr_job")[0] == 1 and b("wr_fseg", 2) != b"\0\0"
                     and b("wr_state")[0] in (WS_DONE, WS_FAIL)):
-                say("WEDGED INSIDE OSAPI_PKG_RUN - wr_job is still WJ_LOAD, "
+                say("WEDGED INSIDE OSAPI_PKG_START - wr_job is still WJ_LOAD, "
                     "the transfer settled at state %d and the claim %04X is "
                     "still held, so wr_pkgrun never returned."
                     % (b("wr_state")[0], w("wr_fseg")))
@@ -1117,7 +1117,7 @@ def main():
                 no("the host was never asked for /wire/pkg/HELLO.O88, so "
                    "Load Program never started a transfer at all")
             if len(after) <= len(before):
-                no("Load Program opened no window: OSAPI_PKG_RUN refused, or "
+                no("Load Program opened no window: OSAPI_PKG_START refused, or "
                    "the wake never ran the image")
             elif "HELLO" not in [t.upper() for t in titles]:
                 no("Load Program opened a window and it is not HELLO's: %r"
@@ -1125,7 +1125,7 @@ def main():
             else:
                 say("HELLO is running, and nothing it needs was ever on a "
                     "disk: the image came off the host's socket, through a "
-                    "claim, into OSAPI_PKG_RUN")
+                    "claim, into OSAPI_PKG_START")
                 # --- 11: THE CLIP ASSERTION (SPEC.md 92.6.1) ---------------
                 # HERE rather than after the archive's launch, and it is the
                 # same code path: what 92.6.1 is about is `wr_onwake` drawing
@@ -1135,7 +1135,7 @@ def main():
                 # the archive's own launch cannot run.
                 clip_check(m, mo, after[-1], shot, no, say)
         else:
-            no("apps/os88api.inc carries no OSAPI_PKG_RUN, so this build has "
+            no("apps/os88api.inc carries no OSAPI_PKG_START, so this build has "
                "no kernel half - the assertion above cannot run and its "
                "absence must not read as a pass")
 
@@ -1292,7 +1292,7 @@ def main():
 def have_pkg_run():
     """Has the kernel half landed? The SDK is the one place that says so."""
     src = open(os.path.join(ROOT, "apps", "os88api.inc")).read()
-    return "%define OSAPI_PKG_RUN" in src
+    return "%define OSAPI_PKG_START" in src
 
 
 if __name__ == "__main__":

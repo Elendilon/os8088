@@ -86,7 +86,7 @@
                                     ; RAM-disk answers Load Program needs
                                     ; before it moves a byte (SPEC.md 62.9.16)
 
-; OSAPI_PKG_RUN is apps/os88api.inc's (SPEC.md 21.5). While the two halves of
+; OSAPI_PKG_START is apps/os88api.inc's (SPEC.md 21.5). While the two halves of
 ; this feature were being built on separate branches there was an %ifndef here
 ; that defined the slot and four LD_* codes locally, so the package half could
 ; assemble and be reviewed before the kernel half landed. It is gone with the
@@ -2672,7 +2672,7 @@ wr_do:
                                         ; is a store that went away between
                                         ; the paint and the click
     xor dx, dx                          ; ...and the store's ROOT, which the
-    call OSAPI_FILE_GOTO_QM             ; instance MOVES to: OSAPI_PKG_RUN's
+    call OSAPI_FILE_GOTO_QM             ; instance MOVES to: OSAPI_PKG_START's
     jc .nordo                           ; new instance inherits our directory
                                         ; (SPEC.md 19.2.1), and the whole point
                                         ; of unpacking a tree is that the
@@ -3428,11 +3428,15 @@ wr_pkgrun:
     push di
     push es
     mov es, [wr_fseg]
-    xor si, si
-    mov cx, [wr_rlen]
-    xor dx, dx
-    mov di, wr_fname
-    call OSAPI_PKG_RUN
+    xor di, di                          ; ES:DI = the image, and DS:SI the name
+    mov cx, [wr_rlen]                   ; - the canonical pairing, where the
+    xor dx, dx                          ; two used to be the other way round
+    mov si, wr_fname                    ; (SPEC.md 21.5). A NON-ZERO LENGTH is
+    call OSAPI_PKG_START                ; what says we are holding an image at
+                                        ; all; zero would read the file, which
+                                        ; is the one thing this caller cannot
+                                        ; do and the reason the image form
+                                        ; exists (21.5.1.1)
     jc .bad
     push ds
     pop es
@@ -3963,7 +3967,7 @@ wr_rxn      equ os88_image_end + WR_B7 + 30         ; word: ...and what is left
 wr_pnum     equ os88_image_end + WR_B7 + 32         ; word: 'N of M', the N...
 wr_ptot     equ os88_image_end + WR_B7 + 34         ; word: ...and the M
 wr_rlen     equ os88_image_end + WR_B7 + 36         ; word: the bytes handed to
-                                                    ; OSAPI_PKG_RUN
+                                                    ; OSAPI_PKG_START
 wr_needkb   equ os88_image_end + WR_B7 + 38         ; word: WC_NEEDKB, banked
                                                     ; because OSAPI_DRV_CALL
                                                     ; owns every register

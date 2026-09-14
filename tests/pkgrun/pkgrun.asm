@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - tests/pkgrun/pkgrun.asm
 ;
-; PKGRUN - the capability gate for OSAPI_PKG_RUN (SPEC.md 21.5). A TEST
+; PKGRUN - the capability gate for OSAPI_PKG_START (SPEC.md 21.5). A TEST
 ; package: `make pkgrun` builds it and no shipped floppy carries it, exactly
 ; like tests/multiseg and tests/wire (SPEC.md 78.9).
 ;
@@ -20,8 +20,8 @@
 ;      a DIFFERENT refusal from B, decided before ld_check_hdr rather than
 ;      inside it.
 ;
-; ...AND THREE MORE ON THE OTHER DOOR (SPEC.md 21.6), because the pair is the
-; point.  OSAPI_PKG_OPEN is the loader's FRONT half - a NAME rather than an
+; ...AND THREE MORE ON THE OTHER DOOR (SPEC.md 21.5), because the pair is the
+; point.  OSAPI_PKG_START is the loader's FRONT half - a NAME rather than an
 ; image - and what it settles is that PKG_RUN's parts refusal belongs to the
 ; CALLER'S SITUATION and not to the file:
 ;
@@ -76,7 +76,7 @@ pr_ferr:    db 0                    ; +42 OSAPI_FILE_READ's FERR_*, 0 = read
 pr_len:     dw 0                    ; +43 ...and the bytes it delivered
 pr_ent:     db 0                    ; +45 how many times pr_onwake was ENTERED,
                                     ;     which is what guards it - see there
-pr_cfd:     db 0                    ; +46 ...and OSAPI_PKG_OPEN's three (21.6)
+pr_cfd:     db 0                    ; +46 ...and OSAPI_PKG_START's three (21.6)
 pr_cfe:     db 0                    ; +47
 pr_cff:     db 0                    ; +48
 pr_ald:     db 0                    ; +49
@@ -110,7 +110,7 @@ PR_CONT_W  equ 286                  ; content width:  288 outer - 2px borders
 PR_CONT_H  equ 81                  ; ...and 100 outer - TITLE_H - 1. SIX rows
                                     ; at PR_ROW_H now, plus the 6px top
                                     ; margin, is 78 - so 76 outer stopped
-                                    ; fitting when SPEC.md 21.6's three
+                                    ; fitting when SPEC.md 21.5's three
                                     ; arrived
 PR_ROW_H   equ 12
 
@@ -207,6 +207,7 @@ pr_onwake:
                                     ; DX is 0 and this is the whole length
 
     ; --- A: it runs -------------------------------------------------------
+    mov si, pr_s_file
     call pr_run
     mov [pr_cfa], bl
     mov [pr_ala], al
@@ -220,6 +221,7 @@ pr_onwake:
 .b:
     mov es, [pr_seg]
     mov byte [es:PR_OFF], 0         ; 'O' of the 'O8' magic (SPEC.md 20.2)
+    mov si, pr_s_file
     call pr_run
     mov [pr_cfb], bl
     mov [pr_alb], al
@@ -234,6 +236,7 @@ pr_onwake:
     mov es, [pr_seg]
     mov byte [es:PR_OFF], 'O'       ; the magic back...
     or byte [es:PR_OFF+3], 4        ; ...and header flags bit 2 instead
+    mov si, pr_s_file
     call pr_run
     mov [pr_cfc], bl
     mov [pr_alc], al
@@ -246,7 +249,7 @@ pr_onwake:
     ; --- E, first half: the SAME FILE that D opens, handed to PKG_RUN ------
     ; C proves the flag is refused; this proves it of a REAL parted package,
     ; and it is the half that makes the pair mean something - the second half
-    ; below opens this very file by name and it runs (SPEC.md 21.6).
+    ; below opens this very file by name and it runs (SPEC.md 21.5).
     mov es, [pr_seg]
     mov bx, PR_OFF
     mov cx, PR_CLAIM_KB * 1024 - PR_OFF
@@ -259,6 +262,7 @@ pr_onwake:
 .read2:
     mov [pr_len2], ax
     mov [pr_len], ax                ; pr_run reads this
+    mov si, pr_s_mseg               ; ...and the name that goes WITH the image
     call pr_run
     mov [pr_cfe1], bl
     mov [pr_ale1], al
@@ -268,7 +272,7 @@ pr_onwake:
     call OSAPI_MEM_FREE             ; and never adopted (SPEC.md 21.5)
     mov word [pr_seg], 0
 
-    ; --- D, E and F: the OTHER door, which takes a NAME (SPEC.md 21.6) -----
+    ; --- D, E and F: the OTHER door, which takes a NAME (SPEC.md 21.5) -----
     ; The claim is freed first on purpose: these three are about a slot that
     ; needs no image of ours at all, and a heap still holding 20KB of one
     ; would be this package hiding the difference it exists to show.
@@ -290,7 +294,7 @@ pr_onwake:
     jne .f                          ; PKG_RUN must have refused it...
     cmp byte [pr_ale1], LD_EBAD
     jne .f
-    or bl, bl                       ; ...and PKG_OPEN must have run it
+    or bl, bl                       ; ...and PKG_START must have run it
     jnz .f
     or al, al
     jnz .f
@@ -334,21 +338,20 @@ pr_onwake:
     ret
 
 ; -----------------------------------------------------------------------------
-; pr_run - one call of the slot under test
-; in:  [pr_seg] holds the image, [pr_len] its length
+; pr_run - the IMAGE form of the one slot (SPEC.md 21.5)
+; in:  [pr_seg] holds the image, [pr_len] its length, SI -> its name
 ; out: BL = 1 the call answered CF=1, else 0; AL = the code it answered
-; clobbers: AX, BX, CX, DX, SI, DI, ES
+; clobbers: AX, BX, CX, DX, DI, ES
 ; -----------------------------------------------------------------------------
 pr_run:
     mov es, [pr_seg]
-    mov si, PR_OFF                  ; ES:SI = the image, and NOT at offset 0:
+    mov di, PR_OFF                  ; ES:DI = the image, and NOT at offset 0:
                                     ; see PR_OFF
     mov cx, [pr_len]
-    xor dx, dx                      ; DX:CX = its length
-    mov di, pr_s_file               ; DI = the name, in OUR segment and not in
-                                    ; ES - which is the point of the slot's
-                                    ; register contract (SPEC.md 21.5)
-    call OSAPI_PKG_RUN
+    xor dx, dx                      ; DX:CX = its length, and NON-ZERO is what
+                                    ; says we are holding one at all: zero
+                                    ; would read the file (SPEC.md 21.5)
+    call OSAPI_PKG_START            ; SI = the name, the caller's to choose
     mov bl, 0
     jnc .out
     mov bl, 1
@@ -356,18 +359,21 @@ pr_run:
     ret
 
 ; -----------------------------------------------------------------------------
-; pr_open - one call of the OTHER door (SPEC.md 21.6)
+; pr_open - the BY-NAME form of the one slot (SPEC.md 21.5)
 ; in:  SI -> a NUL-terminated 8.3 name, in OUR segment
 ; out: BL = 1 the call answered CF=1, else 0; AL = the code it answered
-; clobbers: AX, BX, SI
+; clobbers: AX, BX, CX, DX
 ;
 ; No claim, no length and no image: the kernel reads the FILE, which is the
-; whole difference between this and pr_run above. The name is resolved in the
-; folder THIS INSTANCE is standing in (SPEC.md 19.2.1), which is the gate
-; disk's root - where HELLO.O88 and MSEG.O88 both are.
+; whole difference between this and pr_run above - ONE CELL, and a length of
+; zero is what chooses. The name is resolved in the folder THIS INSTANCE is
+; standing in (SPEC.md 19.2.1), which is the gate disk's root - where
+; HELLO.O88 and MSEG.O88 both are.
 ; -----------------------------------------------------------------------------
 pr_open:
-    call OSAPI_PKG_OPEN
+    xor cx, cx                      ; **NO IMAGE: READ THE FILE.** Zero is the
+    xor dx, dx                      ; whole of what the by-name form says
+    call OSAPI_PKG_START            ; beyond the name (SPEC.md 21.5)
     mov bl, 0
     jnc .out
     mov bl, 1
