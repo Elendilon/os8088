@@ -567,8 +567,8 @@ dsh_resolve:
     dec si
     cmp byte [si], '\'
     jne .back
-    inc si                          ; KEEP the separator with the folder part,
-    jmp short .havecut              ; so a leading one still reads as absolute
+    inc si                          ; SI = the LEAF, always past the separator -
+    jmp short .havecut              ; where the folder part ends is decided below
 .colon:
     cmp bx, 2                       ; no separator: is there a drive letter?
     jb .nodir
@@ -581,6 +581,22 @@ dsh_resolve:
     mov di, dsh_leaf                ; is the folder
     call dsh_cpz
     pop si
+
+    ; **AND THE FOLDER PART DROPS THE SEPARATOR** (SPEC.md 96.30.8), unless it
+    ; is the spec's FIRST character - which is the case the old rule was
+    ; written for, where cutting before it leaves an empty string where the
+    ; caller meant the root. Everywhere else it left a TRAILING one, so
+    ; `BIN\ONE.TXT` handed dsh_cdto the string `BIN\` - one component and
+    ; that component EMPTY, which dos_cd_go reads as `where we already are`
+    ; and answers SUCCESS. The walk silently did not happen, the leaf was
+    ; looked for in the wrong folder, and every verb said File not found
+    ; about a file that was plainly there.
+    cmp si, dsh_spec + 1            ; a leaf at +1 means the separator LEADS,
+    jbe .term                       ; so keep it: the folder part is `\`
+    cmp byte [si-1], '\'             ; ...and .colon arrives here too, where the
+    jne .term                       ; byte before the leaf is a COLON and the
+    dec si                          ; folder part `d:` is already whole
+.term:
     mov byte [si], 0
     call dsh_bank
     mov si, dsh_spec
@@ -1477,6 +1493,15 @@ dsh_c_type:
 ; and one walker is the point: it is what knows that a folder is not a file and
 ; that '..' is not either. The buffer is the handle layer's scratch for a name
 ; and is not held across anything.
+;
+; **AND THE COPY UPPER-CASES, because dos_fh_stat's compare is byte-exact**
+; (SPEC.md 96.30.7.1). 8.3 names are upper case on the disk, which is why
+; dos_fh_core upper-cases at the same job one layer along - and this did not,
+; so `type readme.txt` answered `File not found` where `TYPE README.TXT`
+; printed the file. No other verb has it: every one of them hands the name to
+; the KERNEL, whose dskw_name83 upper-cases into the 8.3 field, so only the
+; verb that asks a question about a name BEFORE handing it over could be
+; case-sensitive at all.
 dsh_stat:
     push si
     push di
@@ -1490,6 +1515,7 @@ dsh_stat:
     cld
 .cp:
     lodsb
+    call dos_upc
     stosb
     or al, al
     jz .done
@@ -1874,6 +1900,21 @@ dsh_sbuild:
     call OSAPI_MEM_CLAIM            ; out DX = base segment
     jc .no                          ; **REFUSED IS NOT FATAL**: fall through to
     mov [dsh_sseg], dx              ; directory order, which is real DOS's
+
+    ; **AND IT STANDS WHERE THE LISTING IS** (SPEC.md 96.30.8). This walked
+    ; with dos_be_find and no dos_be_goto in front of it, so it enumerated
+    ; wherever the INSTANCE happened to stand - and dsh_c_dir calls it after
+    ; dsh_resolve has already gone home, so `DIR BIN` filled the claim from
+    ; the launch folder and dsh_dir_page then served ITS rows rather than
+    ; walking the folder it had correctly stood in. A bare DIR was right
+    ; because the two folders are the same one, which is why nothing saw it.
+    ; The bracket is dsh_dir_page's own, and the two agree now.
+    call dsh_bank
+    mov dx, [dsh_rclus]
+    mov bl, [dsh_rdrv]
+    call dos_be_goto
+    jc .nogo
+    mov [dos_curdir], dx
     xor cx, cx                      ; the ordinal, chained
     xor bx, bx                      ; ...and the record cursor, bytes
 .walk:
@@ -1914,15 +1955,21 @@ dsh_sbuild:
     pop cx
 .nofit:
     call dsh_sfree
-.no:
+.nogo:                              ; the goto failed, or the claim will not
+    call dsh_home                   ; hold the listing: unsorted is the answer
+.no:                                ; and dsh_dir_page stands itself up again
     stc
     ret
 .built:
     pop cx
     cmp word [dsh_sn], 2
-    jb .done                        ; 0 or 1 records are already in order
+    jb .sorted                      ; 0 or 1 records are already in order
     mov es, [dsh_sseg]
     call dsh_ssort
+.sorted:
+    call dsh_home                   ; ...and back where we were found, because
+                                    ; dsh_dir_page does its own goto and a
+                                    ; caller of either may be standing anywhere
 .done:
     mov word [dsh_si], 0
     clc

@@ -122066,6 +122066,24 @@ prompt with no program running, so it is megabyte-shaped in practice and
 `BEVERLY.MOD` is not a thing anyone types — and it is a refusal with a reason
 rather than a wrapper on the screen.
 
+**AND THE NAME IT STATS HAS TO BE UPPER-CASED, which the first build forgot.**
+`dos_fh_stat` compares a find record's name against `[dos_fname]` with a
+byte-exact compare, and 8.3 names are upper case on the disk — so the handle
+layer's own `dos_fh_core` upper-cases as it copies, under a comment saying
+exactly that. `dsh_stat` copied the leaf verbatim, so **`type readme.txt`
+answered `File not found` and `TYPE README.TXT` printed the file**, on the same
+file, in the same folder, one keystroke apart.
+
+Nothing else in the shell has the defect and that is what hid it: every other
+verb hands its name to the KERNEL, whose `dskw_name83` upper-cases on the way
+into an 8.3 field, so `copy readme.txt x.txt` and `dir` and `del x.txt` are all
+case-blind. `TYPE` is the one verb that asks a question about a name *before*
+handing it over, and the answer it got was a comparison the kernel would never
+have made. Reported from the field as *"type readme.txt or any target returns
+file not found"* — and every gate this section owns typed upper case, so the
+row was green on a build where the command was broken for the way people
+actually type it (docs/WRITING-TESTS.md §1's failure, in one spelling).
+
 **There is no streaming arm for a compressed file and there cannot be one
 here**, which is worth writing down so it is not re-derived: the expansion
 state lives inside the kernel's decoder for the length of one call, so a
@@ -122106,6 +122124,58 @@ no copy — true of a stream, false of a whole-file read, which answers
 `FERR_BIG` off the directory entry before it touches anything. So that arm
 asks, compares what it got against what it asked for, and hands back a short
 block rather than reading into it.
+
+##### 96.30.8 A relative path prefix was dropped, and `DIR <folder>` listed the wrong one
+
+Two more the same tester found on the next pass, both **older than 96.30.7** —
+they reproduce unchanged on the build before it — and both invisible to every
+gate this section owns for the same reason: the rows type a name in the folder
+they are standing in, which is the one case each defect gets right.
+
+**1. `FOLDER\FILE` resolved to the folder you were standing in.** `dsh_resolve`
+splits a spec at its last separator and **keeps the separator with the folder
+part**, which is correct for `\FOO` — cutting before it would leave an empty
+string where the caller meant the root. It is wrong for everything else:
+`BIN\ONE.TXT` handed `dsh_cdto` the string `"BIN\"`, and that goes to
+`dos_fh_core`, which parses ONE component and answers with an empty
+`[dos_fname]` — which `dos_cd_go` reads as *"no name: where we already are"*
+and returns success. So the walk silently did not happen, the leaf was then
+looked for in the wrong folder, and every verb said `File not found` about a
+file that was plainly there.
+
+`CD BIN\` is the minimal case and shows it with no leaf at all: **it does not
+move, where `CD BIN` does.**
+
+The separator is kept **only when it is the first character of the spec**,
+which is the absolute case the rule was written for; anywhere else the cut
+drops it. `A:\README.TXT` was never affected and still is not — its folder part
+is `A:`, which §96.30's `.colon` arm already handles as a whole.
+
+**What this does NOT fix, and it is a limit rather than a bug in the cut**:
+`SUB\DEEPER\FILE` now hands `dsh_cdto` the string `SUB\DEEPER`, and
+`dos_cd_go` takes one component, so it descends into `DEEPER` from where it
+stands rather than walking both. That was a total failure before and is a
+one-level walk now; a multi-component relative path wants `dos_cd_go` to loop,
+which is `AH=3Bh`'s body and a change to what a DOS PROGRAM sees.
+
+**2. `DIR <folder>` listed the folder you were standing in.** §96.33.9.2's sort
+claims the listing up front so a `/P` run sorts as ONE listing across its
+suspensions — and `dsh_sbuild` walks with `dos_be_find` **having done no
+`dos_be_goto` first**, so it enumerates wherever the instance happens to
+stand. `dsh_c_dir` calls it *after* `dsh_resolve` has already gone home, so the
+claim is filled from the launch folder and `dsh_dir_page` then serves its rows
+out of that claim instead of walking the folder it correctly stood in.
+
+`DIR` with no argument is right on both counts, which is why nothing caught it:
+the folder resolved and the folder stood in are the same one. `CD BIN` then
+`DIR` is also right — it is only naming the folder that goes wrong, and it goes
+wrong by listing a plausible directory rather than by failing.
+
+`dsh_sbuild` brackets itself now, exactly as `dsh_dir_page` already does:
+`dsh_bank`, `dos_be_goto` to `[dsh_rclus]`/`[dsh_rdrv]`, the walk, `dsh_home`.
+The page's own bracket is unchanged and the two now agree about which folder
+the listing is of.
+
 
 ##### 96.30.5 It is the interpreter the windowed prompt wants
 

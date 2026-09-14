@@ -34,6 +34,13 @@ each one fail for its own reason and not for its neighbour's.
    its sizes and its footer. **Asserted in that order on one prompt**, and it
    is the sharpest row here: a box that has stopped speaking passes every
    other assertion in this file by printing nothing.
+3b. AND IT WAS CASE-SENSITIVE, which is a FIFTH defect this row let through
+   on its first build: `dos_fh_stat` compares byte-exact against an upper-case
+   directory name, so `type readme.txt` answered `File not found` and
+   `TYPE README.TXT` printed the file. Every assertion here typed upper case
+   and every one was green. The lower-case line is asserted with a COPY beside
+   it as a control, because COPY normalises through the kernel - if both go
+   red the defect is below the shell.
 4. THE REFUSAL WAS SILENCED BY THE FLAG IT SETS. `dsh_redir` set the flag at
    the `>` and only then asked whether the target was `NUL`, so `Cannot
    redirect to that file` never printed and `TYPE > FILE.TXT` read as a
@@ -113,6 +120,7 @@ def main():
         sys.exit("dostype: %s will not build:\n%s" % (APPS, r.stdout + r.stderr))
 
     notes = [b"line %03d of the notes" % i for i in range(1, 401)]
+    want = "os8088 is free software, under the MIT licence."
 
     with os88ui.boot(os88build.at(SYS), apps=os88build.at(APPS)) as ui:
         m = ui.m
@@ -150,6 +158,94 @@ def main():
             say("  the 400th line arrived, so both passes read at the right "
                 "offset and the partial tail was delivered whole")
 
+        # --- 1b: ...AND THE SAME FILE IN LOWER CASE -------------------------
+        # **THE SPELLING IS THE ASSERTION** (SPEC.md 96.30.7.1). dos_fh_stat
+        # compares byte-exact and 8.3 names are upper case on the disk, so a
+        # leaf copied verbatim made `type readme.txt` answer `File not found`
+        # while `TYPE README.TXT` printed the file - one keystroke apart, on
+        # the same file, in the same folder. Every assertion in this row typed
+        # UPPER CASE and every one of them was green on that build, which is
+        # docs/WRITING-TESTS.md §1 in one spelling: the row tested the command
+        # and not the way anybody types it. The verb goes lower too, because
+        # the verb and the argument are normalised by different code.
+        rows = run(bx, "type short.txt")
+        out = after(rows, "type short.txt")
+        say("type short.txt (lower case) -> %r" % out[:2])
+        if not out or out[0].strip() != "a short one":
+            no("`type short.txt` printed %r where `TYPE SHORT.TXT` prints the "
+               "file. dsh_stat hands dos_fh_stat the leaf as typed and that "
+               "compare is byte-exact against an upper-case directory name "
+               "(SPEC.md 96.30.7.1) - so this is the whole command broken for "
+               "the way people actually type, with every upper-case assertion "
+               "in this file still green" % out[:2])
+
+        # ...and the control: every OTHER verb is case-blind already, because
+        # it hands its name to the kernel, whose dskw_name83 upper-cases into
+        # the 8.3 field. If these go red too, the defect is not dsh_stat's.
+        rows = run(bx, "copy short.txt lower.txt", settle=3.0)
+        out = after(rows, "copy short.txt lower.txt")
+        say("copy short.txt lower.txt (control) -> %r" % out[:2])
+        if not out or "copied" not in out[0]:
+            no("the CONTROL failed: `copy short.txt lower.txt` printed %r. "
+               "COPY normalises through the kernel, so if it cannot take a "
+               "lower-case name either, the case defect is below the shell "
+               "and not in dsh_stat" % out[:2])
+        rows = run(bx, "del lower.txt", settle=2.0)
+
+        # --- 1c: A RELATIVE PATH PREFIX (SPEC.md 96.30.8) -------------------
+        # dsh_resolve kept the separator with the FOLDER part - correct for a
+        # leading one, where cutting leaves an empty string where the caller
+        # meant the root, and wrong for every other, where it left a TRAILING
+        # one. `BIN\X` then handed dsh_cdto a string whose single component is
+        # EMPTY, dos_cd_go read that as "where we already are" and answered
+        # SUCCESS, and the leaf was looked for in the wrong folder. Every verb
+        # said File not found about a file plainly there.
+        # ASSERTED ON THREE VERBS, because the resolve is shared and a fix that
+        # only reached one of them would be the wrong fix.
+        rows = run(bx, "TYPE BIN\\NOTE.TXT", settle=3.0)
+        out = after(rows, "TYPE BIN\\NOTE.TXT")
+        say("TYPE BIN\\NOTE.TXT -> %r" % out[:2])
+        if not out or out[0].strip() != "in the bin":
+            no("`TYPE BIN\\NOTE.TXT` printed %r and BIN\\NOTE.TXT is `in the "
+               "bin`. A relative path prefix resolved to the folder we were "
+               "STANDING in (SPEC.md 96.30.8) - `CD BIN` then `TYPE NOTE.TXT` "
+               "works, which is what made this invisible" % out[:2])
+        rows = run(bx, "COPY BIN\\NOTE.TXT PULLED.TXT", settle=3.0)
+        out = after(rows, "COPY BIN\\NOTE.TXT PULLED.TXT")
+        say("COPY BIN\\NOTE.TXT PULLED.TXT -> %r" % out[:2])
+        if not out or "copied" not in out[0]:
+            no("`COPY BIN\\NOTE.TXT PULLED.TXT` printed %r: the same resolve, "
+               "and COPY reads the prefix through it too" % out[:2])
+        rows = run(bx, "DEL PULLED.TXT", settle=2.0)
+
+        # ...and the DRIVE-qualified form, which was NEVER broken and which a
+        # careless fix breaks: its folder part is `A:`, owned by .colon, and
+        # cutting the separator off blindly makes the LEAF `\README.TXT`.
+        rows = run(bx, "TYPE A:\\README.TXT", settle=8.0)
+        if not any(want in r for r in rows):
+            no("`TYPE A:\\README.TXT` stopped working. The drive-qualified "
+               "form has its own arm and must survive the relative fix "
+               "(SPEC.md 96.30.8) - this went red on the first attempt at it")
+
+        # --- 1d: DIR ON A NAMED FOLDER (SPEC.md 96.30.8) --------------------
+        # The sort claims the whole listing up front so a /P run sorts as ONE
+        # listing - and it walked with no goto in front of it, so it filled the
+        # claim from wherever the instance stood while dsh_dir_page correctly
+        # stood in the folder that was named. A bare DIR is right because the
+        # two are the same folder, which is why nothing caught it.
+        rows = run(bx, "DIR BIN", settle=3.0)
+        out = after(rows, "DIR BIN")
+        say("DIR BIN -> %r" % out[:2])
+        if not any("DOSHELLO" in r for r in out):
+            no("`DIR BIN` listed %r and BIN holds DOSHELLO.COM and NOTE.TXT. "
+               "dsh_sbuild walked the folder we were STANDING in rather than "
+               "the one named (SPEC.md 96.30.8), and the rows came out of that "
+               "claim - so it listed a plausible directory rather than failing"
+               % out[:3])
+        if any(r.strip().startswith("BIN ") for r in out):
+            no("`DIR BIN` listed BIN itself, which means it listed the PARENT: "
+               "%r" % out[:3])
+
         # --- 2: A FILE SHORTER THAN ONE CLUSTER -----------------------------
         rows = run(bx, "TYPE SHORT.TXT")
         out = after(rows, "TYPE SHORT.TXT")
@@ -179,7 +275,6 @@ def main():
         # read below.
         out = [r.strip() for r in rows if r.strip()]
         say("TYPE A:\\README.TXT left %d rows, last: %r" % (len(out), out[-1:]))
-        want = "os8088 is free software, under the MIT licence."
         if not any(want in r for r in out):
             no("TYPE A:\\README.TXT did not put %r on the console. README.TXT "
                "is a 'CZ' container of 8,088 bytes whose contents are 14,722 "

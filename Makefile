@@ -4976,9 +4976,10 @@ $(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUIL
 # stale image is one the gate then reports as a broken feature.
 $(BUILD)/dostype360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dostype && mkdir -p $(BUILD)/dostype
-	python3 -c "import sys; d=sys.argv[1]; 	  open(d+'/NOTES.TXT','wb').write(b''.join(b'line %03d of the notes\r\n' % i for i in range(1,401))); 	  open(d+'/SHORT.TXT','wb').write(b'a short one\r\n'); 	  open(d+'/CTRLZ.TXT','wb').write(b'before the mark\r\n' + bytes([26]) + b'AFTERMARK\r\n')" 	  $(BUILD)/dostype
+	python3 -c "import sys; d=sys.argv[1]; 	  open(d+'/NOTES.TXT','wb').write(b''.join(b'line %03d of the notes\r\n' % i for i in range(1,401))); 	  open(d+'/SHORT.TXT','wb').write(b'a short one\r\n'); 	  open(d+'/CTRLZ.TXT','wb').write(b'before the mark\r\n' + bytes([26]) + b'AFTERMARK\r\n'); \
+	  import os; os.makedirs(d+'/bin', exist_ok=True); open(d+'/bin/NOTE.TXT','wb').write(b'in the bin\r\n')" 	  $(BUILD)/dostype
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/dostype/*.TXT \
-		BIN:$(BUILD)/DOSHELLO.COM
+		BIN:$(BUILD)/DOSHELLO.COM BIN:$(BUILD)/dostype/bin/NOTE.TXT
 
 # ...and the wave-2 gate's, which is a REAL MZ .EXE - header, relocation table
 # and a last page that is exactly full, so e_cblp is 0 (SPEC.md 96.8).
