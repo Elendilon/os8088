@@ -127616,6 +127616,36 @@ claim about the whole tree at one moment, and a capability landing in the same
 cycle can make it false without touching the buffer. The gate is what notices,
 which is why the resume's row is worth more than the measurement was.
 
+#### 96.44.8 The recursive delete, which DOS does not have
+
+`dskw_rmtree` and its pipeline — `dskw_rtbody`, `dskw_rt_scan`,
+`dskw_rt_byclus`, `dskw_rt_zap`, `dskw_rt_go_home`, `dskw_chdir_dl` — are
+**529 bytes** that no `kern_dos` root can reach, and the argument is stronger
+than reachability: **DOS has no recursive delete.** `AH=3Ah` removes an EMPTY
+directory and refuses a populated one, which is `dskw_rmdir` with `AL` = 0 —
+the strict arm `dos_k_rmdir` already takes. The pipeline is the file manager's
+Trash verb (§18.6), and its only callers outside itself are `kernel/files.inc`
+and `kernel/filecp.inc`, neither of which is in a kerndos root.
+
+Two bands under `%ifndef KD_BUILD`, plus `dwf_dskw_rmany`'s `AL` = 1 arm.
+**`KD_IMG_KB` 35 → 34**, 381 bytes of rung left.
+
+**Two things inside the span STAY, and each is why the band stops where it
+does.** `dskw_clok` — is `AX` a cluster that could exist — sits in the middle
+of the pipeline because it was once rmtree's alone, and ten places ask it now,
+`dskw_rmdir` among them. And **`dskw_isempty` is LIVE**: it is what
+`dskw_rmdir` calls to refuse a populated directory, which is exactly what
+`AH=3Ah` is. `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
+`dskw_append`'s own chain walk bounds itself with it.
+
+**A static call-graph walk got `dskw_isempty` WRONG**, calling it dead, and a
+grep for the name did not: the reachability tool used to find this family is
+an over-approximation that under-approximated once, and gating on its answer
+would have made `RMDIR` on a non-empty directory jump into whatever followed.
+Every name in the band was confirmed by grep before it was gated, and that is
+the method this section recommends — the walk finds candidates and the grep
+decides them.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
