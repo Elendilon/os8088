@@ -122817,6 +122817,51 @@ move is a frame given away; the mode set leaves the CRTC's own cursor blinking
 at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
 placed at all.
 
+##### 96.33.17 `.O88` at the prompt opens the PACKAGE
+
+§96.33.15 refuses an extension that is not `.COM` or `.EXE`, and `.O88` was
+refused with the rest — rightly, because entering 30 KB of package image as a
+`.COM` at `PSP:0100` wedges the machine, and that is the failure that section
+exists to prevent. What was missing was not a fourth extension to allow: it
+was **something else to do with one**.
+
+There is now. `OSAPI_PKG_OPEN` (§21.6) launches a `.O88` the way a
+Disk-window double-click does, so typing `CALC.O88` at the prompt opens
+Calculator in its own window — *not inside the box*, which is the distinction
+that matters. The DOS box is a DOS machine; a package is the OS's, and the
+console is a place a user types the name of a thing they want to run.
+
+So `dos_con_ext` answers a **third** thing rather than allowing a fourth
+extension. `.COM` and `.EXE` mean *this is a DOS program*; `.O88` means *this
+is a package*; anything else is still `Bad command or file name`, and so is a
+`.O88` that is not there.
+
+**It is POSTED and not called**, which is the whole of the mechanics. The slot
+wants the UI task with the gfx lock FREE and the console runs under `W_ONKEY`,
+which holds it — so the name is banked out of `dsh_a1` (the shell's scratch,
+and the next command's to overwrite) and a wake is posted, exactly as a DOS
+program's own launch is. `dos_wake` services it **first and on a flag of its
+own**, so it neither reads nor moves `[dos_state]`: a package is not the thing
+§96.19.4's *run it again* re-runs.
+
+**From the full screen the bracket comes down first**, which is §96.33.16's
+rule reaching a second kind of launch for the same reason — a package's window
+cannot appear over a framebuffer that is character cells, and the wake cannot
+be dispatched while the UI task is inside the bracket either. `[dos_fsxgo]` is
+already that mechanism and it is set here too.
+
+**The path box is left alone.** It holds what `Run` re-runs *as a DOS program*
+(§96.32.1), so putting a `.O88` in it would arm a button that must then refuse
+it. The feedback for a success is the window that opens; a refusal says
+`Cannot open <NAME>` on the console, because at that point the user has no
+window to look at and `AL` is the only thing that knows why.
+
+**Where it resolves is where the PROMPT is** — `[dos_curdir]`, not the folder
+the box was launched from (§96.33.13) — and the box stands there with
+`dos_be_goto`, which is `OSAPI_FILE_GOTO_QM`: it moves the machine *and* marks
+the instance, which is what `OSAPI_PKG_OPEN`'s own `inst_vol_enter` reads. The
+two agree with nothing to keep in step.
+
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
 A DOS program inside the bracket owns the machine and the screen with it. It

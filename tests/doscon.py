@@ -19,7 +19,9 @@ one of them is a separate thing that can be missing:
   5  CD moves, and THE PROMPT FOLLOWS IT. `$P$G` is recomposed rather than
      held, so this is the assertion that says so.
   6  a file that is NOT a program is refused by its EXTENSION (96.33.15) -
-     `DOS.O88`, in the folder the box was launched from. This is the wedge's
+     `SOUND.DRV`, at the volume root. It was `DOS.O88` until 96.33.17 made a
+     `.O88` at the prompt OPEN THE PACKAGE, which is a window rather than a
+     refusal; tests/dospkg.py owns that. This is the wedge's
      guard: without the rule the box runs 30KB of package image as a `.COM`
      and the machine never comes back, so the row fails by HANGING.
   7  ...and a name that is neither says `Bad command or file name`, which is
@@ -381,37 +383,47 @@ def main():
               "error")
 
         # --- 6: ...AND A FILE THAT IS NOT A PROGRAM IS REFUSED BY EXTENSION -
-        # DOS.O88 is the box's OWN package, sitting in the folder it was
-        # launched from, and COMMAND.COM would answer `Bad command or file
-        # name` for it without opening it: an extension that is not .COM,
-        # .EXE or .BAT is not a program (SPEC.md 96.33.15).
+        # An extension that is not .COM or .EXE is not a DOS program, and
+        # COMMAND.COM answers `Bad command or file name` for it WITHOUT
+        # OPENING IT (SPEC.md 96.33.15).
         #
-        # **THIS ROW IS THE WEDGE'S GUARD AND IT FAILS BY HANGING.** Before
-        # 96.33.15 the box ran it - 30KB of OP_ header and org-0 code entered
-        # at PSP:0100 - and the machine did not come back: the bracket up, the
-        # gfx lock held, no pointer and no menu bar. So [dos_inbr] is asserted
-        # as well as the sentence, and taking the extension check out again
-        # turns this row red at the menu pick below rather than here.
+        # **THIS STEP IS THE WEDGE'S GUARD AND IT FAILS BY HANGING.** Before
+        # 96.33.15 the box ran what it was given - a package image's OP_ header
+        # and org-0 code entered at PSP:0100 - and the machine did not come
+        # back: the bracket up, the gfx lock held, no pointer and no menu bar.
+        # So [dos_inbr] is asserted as well as the sentence.
+        #
+        # **IT USED TO TYPE `DOS.O88` AND IT CANNOT ANY MORE** (SPEC.md
+        # 96.33.17): a `.O88` at the prompt OPENS THE PACKAGE now, which is a
+        # window appearing rather than a refusal - and typing the box's own
+        # name here would put a second DOS window in front of every step
+        # below. tests/dospkg.py owns that behaviour and asserts it four ways.
+        # What is left for this step is the rule itself, and `SOUND.DRV` at
+        # the volume root is the sharper subject anyway: a REAL FILE that
+        # really is not a program, where DOS.O88 was a real file that has
+        # since become one this box can start.
         #
         # The path box is NOT rewritten, which is the other half of the rule:
         # nothing was resolved, so there is nothing to qualify. 5c above is
         # what asserts a real program's name landing there fully qualified.
         was = bx.text("dos_path", 32)
-        bx.type("DOS.O88\n")
+        bx.type("CD \\\n")
+        bx.type("SOUND.DRV\n")
         rows = bx.live()
-        if not any("Bad command" in r and "DOS.O88" in r for r in rows[-3:]):
+        if not any("Bad command" in r and "SOUND.DRV" in r for r in rows[-3:]):
             fail("a file whose extension is not .COM or .EXE is not a program "
                  "and DOS answers `Bad command or file name` without opening "
                  "it (SPEC.md 96.33.15); the band says %r" % rows[-3:])
         if bx.b("dos_inbr"):
-            fail("the box ENTERED a bracket for DOS.O88 - 30KB of package "
-                 "image run as a .COM, which is a machine that does not come "
-                 "back (SPEC.md 96.33.15)")
+            fail("the box ENTERED a bracket for SOUND.DRV - a driver image "
+                 "run as a .COM, which is a machine that does not come back "
+                 "(SPEC.md 96.33.15)")
         if bx.text("dos_path", 32) != was:
             fail("a refused name rewrote the path box to %r, and nothing was "
                  "resolved to put in it (SPEC.md 96.33.15)"
                  % bx.text("dos_path", 32))
-        print("doscon: ...and DOS.O88 is refused by its extension, with the "
+        bx.type("CD APPS\n")
+        print("doscon: ...and SOUND.DRV is refused by its extension, with the "
               "box and the machine untouched")
 
         # --- 8: FULL SCREEN, and Esc back out of it (SPEC.md 96.33.5) -------

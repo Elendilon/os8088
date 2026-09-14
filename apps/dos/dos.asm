@@ -632,6 +632,17 @@ dos_entry:
 ; does nothing, rather than launching the program twice.
 ; -----------------------------------------------------------------------------
 dos_wake:
+    cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
+    je .notpkg                      ; 96.33.17): OSAPI_PKG_OPEN wants the gfx
+    call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
+    jmp short .out                  ; console posts and this is where it lands
+                                    ; - the same place a DOS program's own
+                                    ; launch is serviced, and for the same
+                                    ; reason. It is tested FIRST and clears its
+                                    ; own flag, so it neither reads nor moves
+                                    ; [dos_state]: a package is not the thing
+                                    ; `run it again` re-runs
+.notpkg:
     cmp byte [dos_state], DST_CPWAIT
     je .go                          ; the compaction has run and the heap is
                                     ; packed BOTH ways: dos_run picks up at the
@@ -13049,6 +13060,9 @@ dos_fh_fill:
     DBSS DOS_B_FROMCON, 1           ; ...and this launch was typed at the prompt
     DBSS DOS_B_FSXUP,   1           ; the console has the WHOLE screen (96.33.5),
                                     ; so no kernel drawing slot may be called
+    DBSS DOS_B_ISPKG,   1           ; the typed name ends in .O88 (96.33.17)
+    DBSS DOS_B_PKGQ,    1           ; ...and a launch of one is POSTED
+    DBSS DOS_B_PKGN,   13           ; ...with its name banked out of dsh_a1
     DBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
                                     ; bracket comes down for the program and
                                     ; goes back up after it (SPEC.md 96.33.16)
@@ -13292,6 +13306,9 @@ dsh_si      equ os88_image_end + DOS_B_SHSI    ; ...and the emit cursor
 dos_inbr    equ os88_image_end + DOS_B_INBR    ; the console's five (96.33)
 dos_fromcon equ os88_image_end + DOS_B_FROMCON
 dos_fsxup   equ os88_image_end + DOS_B_FSXUP
+dos_ispkg   equ os88_image_end + DOS_B_ISPKG   ; byte: the name ends in .O88
+dos_pkgq    equ os88_image_end + DOS_B_PKGQ    ; byte: a package launch posted
+dos_pkgn    equ os88_image_end + DOS_B_PKGN    ; 13:   ...and which one
 dos_fsxgo   equ os88_image_end + DOS_B_FSXGO
 dsh_exec    equ os88_image_end + DOS_B_SHEXEC
 dos_cmdx    equ os88_image_end + DOS_B_CMDX

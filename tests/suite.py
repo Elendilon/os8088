@@ -3135,6 +3135,30 @@ SOAK = [
         "pictures. VERIFIED RED both ways with the caroff taken back out: "
         "backspaced 16 pixels at two cells, moved 6 at one.",
         needs=("marty",), serial=True),
+    Row("dospkg", "soak", py("tests/dospkg.py"), 150.0,
+        "A .O88 TYPED AT THE DOS PROMPT OPENS THE PACKAGE (SPEC.md 96.33.17). "
+        "96.33.15 refuses an extension that is not .COM or .EXE and .O88 went "
+        "with the rest - rightly, since entering 30KB of package image as a "
+        ".COM wedges the machine - and what was missing was not a fourth "
+        "extension to allow but something else to DO with one. "
+        "OSAPI_PKG_OPEN (21.6) is it, so the box hands the name to the kernel "
+        "and the package opens in its own window, NOT inside the box. Four "
+        "steps and the last two are the ones that break silently: CALC.O88 "
+        "opens 'Calculator' AND the box is still there (a launch that "
+        "replaced it would be the .COM path back); NOSUCH.O88 says `Cannot "
+        "open NOSUCH.O88` and opens nothing, because at that point there is "
+        "no window to look at; a SECOND package launches, which a one-shot "
+        "flag or a name left in the shell's scratch would not deliver (the "
+        "launch is POSTED - the slot wants the gfx lock free and W_ONKEY "
+        "holds it); and from the FULL SCREEN the console's bracket comes "
+        "down first, which is 96.33.16's rule reaching a second kind of "
+        "launch - without it the wake is never dispatched and the machine "
+        "shows 80x25 text with a package running behind it. Asserted on "
+        "GUEST STATE and not pixels: wm_wins for the titles, the box's own "
+        "con_scr for the console. VERIFIED RED with the .O88 arm taken back "
+        "out of dos_con_ext - 5 of the assertions, every spelling answering "
+        "`Bad command or file name` again.",
+        needs=("marty",), serial=True),
     Row("dosext", "soak", py("tests/dosext.py"), 170.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
         "COMMAND.COM's rule has two halves - no extension is a search, an "

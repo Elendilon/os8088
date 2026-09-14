@@ -364,8 +364,11 @@ dos_con_run:
 ; verb handlers are handed and what the arguments field wants.
 ; -----------------------------------------------------------------------------
 dos_con_prog:
+    mov byte [dos_ispkg], 0
     call dos_con_ext                ; **`PRINCE` IS `PRINCE.COM` OR `PRINCE.EXE`**
     jc .no                          ; (SPEC.md 96.33.7). It hands back dsh_a1 =
+    cmp byte [dos_ispkg], 0
+    jne dos_con_pkg                 ; ...and `.O88` is neither (SPEC.md 96.33.17)
     push si                         ; the name and SI = the tail, which is the
     mov si, dsh_a1                  ; split this proc wanted anyway - the NAME
     mov di, dos_path                ; as typed and not [dsh_verb], that one
@@ -468,6 +471,99 @@ dos_con_prog:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_con_pkg - a `.O88` typed at the prompt: hand it to the OS (96.33.17)
+; in:  [dsh_a1] = the name, as typed; reached from dos_con_prog
+; out: CF=0 - it is queued, so the caller treats it as a launch
+;
+; **IT IS POSTED AND NOT CALLED**, for OSAPI_PKG_OPEN's context rule (21.6):
+; the slot wants the UI task with the gfx lock FREE, and this runs under
+; W_ONKEY, which holds it. dos_wake is where the lock is free - the same place
+; a DOS program's own launch is serviced - so the name is banked, a wake is
+; posted, and dos_pkg_go does the work.
+;
+; THE NAME IS COPIED rather than left in [dsh_a1], which is the shell's
+; scratch and the next command's to overwrite. Thirteen bytes against a
+; question nobody should have to ask about the order two things happen in.
+;
+; [dos_path] and [dos_state] are LEFT ALONE. The path box holds what `Run`
+; re-runs as a DOS program (96.32.1), and a package is not one - putting a
+; `.O88` in there would arm a button that must refuse it.
+; -----------------------------------------------------------------------------
+dos_con_pkg:
+    push si
+    push di
+    mov si, dsh_a1
+    mov di, dos_pkgn
+    mov cx, 13
+.cp:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jz .named
+    loop .cp
+    mov byte [di-1], 0
+.named:
+    mov byte [dos_pkgq], 1
+    mov bx, [dos_win]
+    call OSAPI_WM_WAKE              ; ...and ui_task pops it with the lock free
+    pop di
+    pop si
+    cmp byte [dos_fsxup], 0
+    je .wind
+    mov byte [dos_fsxgo], 1         ; **THE CONSOLE HAS THE SCREEN** (96.33.16),
+    clc                             ; and a package's window cannot appear over
+    ret                             ; a framebuffer that is character cells
+.wind:
+    call dos_con_draw               ; the echoed line, and nothing else: the
+    clc                             ; window that is about to open is the
+    ret                             ; feedback
+
+; -----------------------------------------------------------------------------
+; dos_pkg_go - service the posted package launch (SPEC.md 96.33.17)
+; in:  [dos_pkgn] = the name; UI task, gfx lock NOT held
+; out: nothing
+;
+; Stand where the console is standing FIRST - OSAPI_PKG_OPEN resolves in the
+; calling instance's own folder (19.2.1) and dos_be_goto is GOTO_QM, which
+; moves the machine AND marks the instance, so the two agree with nothing to
+; keep in step.
+; -----------------------------------------------------------------------------
+dos_pkg_go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov byte [dos_pkgq], 0
+    mov dx, [dos_curdir]            ; where the PROMPT is, not where the box
+    mov bl, [dos_vol]               ; was launched from (96.33.13)
+    call dos_be_goto
+    jc .bad
+    mov si, dos_pkgn
+    call OSAPI_PKG_OPEN
+    jnc .out                        ; its window is up: nothing to say
+.bad:
+    mov si, dos_s_nopkg
+    call con_say
+    mov si, dos_pkgn
+    call con_say
+    mov si, dsh_s_crlf
+    call con_say
+    call dos_prompt
+    call dos_con_draw
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_con_ext - the typed line's PROGRAM NAME, extension and all (SPEC.md 96.33.7)
 ; in:  nothing; dsh_line holds the line
 ; out: CF=0 with dsh_a1 = the name to run and SI = the argument tail;
@@ -525,10 +621,25 @@ dos_con_ext:
     jnc .dok                        ; both strings carry theirs, so the compare
     mov si, dos_c_exe               ; starts on it
     call .isext
+    jnc .dok
+    ; --- ...AND A PACKAGE IS NOT A DOS PROGRAM (SPEC.md 96.33.17) ----------
+    ; `.O88` used to land in the refusal below with the rest, which was right
+    ; while there was nothing else to do with one - 96.33.15 exists because
+    ; entering DOS.O88 as a `.COM` wedges the machine. There is something else
+    ; to do with one now: OSAPI_PKG_OPEN (21.6) launches it the way the file
+    ; manager would. So this is a third ANSWER and not a fourth extension.
+    mov si, dos_c_o88
+    call .isext
+    jnc .ispkg
 .dok:
     pop si                          ; ...and `pop` writes no flag, so the CF
     jnc .out                        ; the compare answered rides through
     jmp short .no                   ; `FOO.DAT` is not a program, whether or
+.ispkg:
+    mov byte [dos_ispkg], 1         ; the caller branches on this, and it is a
+    pop si                          ; BYTE rather than a second carry because
+    clc                             ; CF already means `this is a program name`
+    ret
 .nodot:                             ; not it is a file
     push si                         ; the tail, across the two probes
     mov di, dos_c_com
@@ -750,6 +861,8 @@ dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
 dos_c_com:   db '.COM', 0     ; ...and the ORDER is the contract
 dos_c_exe:   db '.EXE', 0
+dos_c_o88:   db '.O88', 0     ; ...and this one is not a DOS program at all
+dos_s_nopkg: db 'Cannot open ', 0
 
 ; =============================================================================
 ; FULL SCREEN, AND ESC BACK OUT (SPEC.md 96.33.5)
