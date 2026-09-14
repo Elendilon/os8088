@@ -504,7 +504,9 @@ dos_con_ext:
     mov si, dsh_line
     call dsh_skipsp
     mov di, dsh_a1
-    call dsh_word                   ; ...SI walks on to the argument tail
+    call dsh_cmdword                ; ...SI walks on to the argument tail, and
+                                    ; stops ON a `/` so `PRINCE/F` is PRINCE
+                                    ; with `/F` (SPEC.md 96.33.15.2)
     cmp byte [dsh_a1], 0
     je .no
     mov di, dsh_a1

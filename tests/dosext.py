@@ -25,11 +25,13 @@ The six spellings, all of the same program, in one boot:
   DOSARGS /M P:220         runs, with them
   DOSARGS.COM /M P:220     runs, with them      - the reported defect
   B:\\BIN\\DOSARGS.COM /M    runs, with them      - fully qualified, for free
+  DOSARGS/M                runs, with them      - the switch with no space
+  DOSARGS.COM/M            runs, with them        in front of it (96.33.15.2)
   DOSARGS.DAT              REFUSED              - the rule's own half
 
-96.33.15.2 records the two spellings DOS takes and this box does not -
-`FOO/M` with no space, and a path with the extension left off - so a reader
-who finds them refused knows it was measured rather than missed.
+96.33.15.3 records the one spelling DOS still takes and this box does not -
+a path with the extension left off - so a reader who finds it refused knows it
+was measured rather than missed.
 """
 import os
 import struct
@@ -55,6 +57,8 @@ CASES = [
     ("DOSARGS /M P:220",        "/M P:220"),
     ("DOSARGS.COM /M P:220",    "/M P:220"),
     ("B:\\BIN\\DOSARGS.COM /M",  "/M"),
+    ("DOSARGS/M",               "/M"),
+    ("DOSARGS.COM/M",           "/M"),
     ("DOSARGS.DAT",             None),
 ]
 

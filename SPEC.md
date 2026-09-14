@@ -121521,6 +121521,45 @@ so both directions had to be built:
   already in the file — which is the argument for doing this now rather than
   inventing a path layer.
 
+###### 96.32.1.1 …and it takes ARGUMENTS, and Enter runs it
+
+Two things a user does with a box that holds a command, and the box did
+neither.
+
+**Enter did nothing at all — no launch, no error, no repaint.** §96.19.4 gave
+Enter the meaning *run it again*, which is reached only from `DST_RAN` or
+`DST_ERR`, so on a fresh window a typed path and an Enter fell off the end of
+`dos_key` and returned. That is the worst answer a control can give: the user
+cannot tell a field that refused them from a field that is not wired up.
+**Enter in the PATH BOX is `Run`** now — the same `dos_go`, so the button and
+the key cannot drift — and Enter anywhere else keeps §96.19.4's meaning, which
+is what the arguments field on the setup page needs.
+
+**And `B:\BIN\FOO.COM /M` typed into the box was a PATH**, all of it. The
+resolver has no opinion about spaces, so the line became a directory walk to
+`B:\BIN` and an 8.3 name of `FOO.COM /M`, and what the user got for typing the
+thing every DOS user types was `Its folder could not be opened` — a message
+about the one part of the line that was right.
+
+So the box splits at the **first space**: everything before it is the path and
+everything after it is the argument text, which is exactly what `dos_con_prog`
+does one door along (§96.33.7). An 8.3 name cannot contain a space, so the
+split can never cut a path in half, and a user who types the same line at the
+prompt and into the box gets the same launch — which is the point, because
+those two are the same sentence in two places.
+
+**It MOVES the tail rather than reading past it.** The arguments field is what
+the program is given (§96.19), what `Save Shortcut` writes (§96.21) and what
+*run it again* re-runs, so a tail left sitting in the path box would be a
+launch nobody could repeat and a shortcut that recorded half of it. After the
+split the box holds the path alone and the field holds the arguments, which is
+also the only feedback the user gets that anything was understood.
+
+With no space in the box it does nothing whatever, which is what every other
+door needs: an association, a shortcut and the console all fill the box with a
+resolved path and the field separately, and a split that fired on those would
+clear arguments those doors had just set.
+
 ##### 96.32.2 ONE setup area, with pages inside it rather than beside it
 
 `Environment` opens a **page in the same window**, not a second window, and
@@ -122223,25 +122262,36 @@ the path box's own parser and resolves a drive, a walk and a file without this
 routine learning anything about paths. What is still refused is the same name
 with the extension left OFF — `B:\BIN\FOO /M` — because the `.COM`/`.EXE`
 search is `dsh_nth` over the CURRENT directory and a path is not a pattern it
-can match. That one is open (§96.33.15.2).
+can match. That one is open (§96.33.15.3).
 
-###### 96.33.15.2 What the console still will not take
+###### 96.33.15.2 `DIR/W` — a switch with no space in front of it
 
-Two spellings DOS 3.3 accepts and this box does not, both measured against
-`DOSARGS.COM` on the gate disk:
+`dsh_word` is whitespace-delimited, so `PRINCE/F` was one token, no extension
+was found for it and the answer was `Bad command or file name`. COMMAND.COM
+ends the command name at the switch character, which is why `DIR/W` works
+there — and it is the VERB scan as well as the program name, so `DIR/W` and
+`PRINCE/F` failed the same way.
 
-- **`FOO/M` — a switch with no space in front of it.** `dsh_word` is
-  whitespace-delimited, so the token is `FOO/M`, no extension is found and the
-  answer is `Bad command or file name`. COMMAND.COM splits the command name at
-  the switch character, which is why `DIR/W` works there and not here. It is
-  the VERB scan as well as the program name, so `DIR/W` and `PRINCE/F` fail the
-  same way.
-- **`B:\BIN\FOO /M` — a path with no extension.** The `.COM`/`.EXE` search
-  walks the current directory by ordinal (§96.33.7), and a name with a
-  separator in it is not an 8.3 pattern that walk can match.
+**`dsh_cmdword` is `dsh_word` with `/` ending the token as well, and SI left
+ON the slash** so the switch stays in the tail the handler is given. Two
+callers and no more: `dsh_run`'s verb and `dos_con_ext`'s program name. It is
+deliberately not `dsh_word` itself — DIR's own argument scan reads `/B` *as a
+word* (§96.33.9), so a global stop would hand it an empty one and leave SI
+parked on a slash it never consumes.
 
-Both are deliberate for now rather than unnoticed, and both are listed here so
-the next reader does not have to re-derive which spellings were measured.
+A FAT name cannot contain `/`, and this box takes `\` as its separator and
+never `/`, so there is nothing else the split can cut in half.
+
+###### 96.33.15.3 …and what it still will not take
+
+One spelling DOS 3.3 accepts and this box does not, measured against
+`DOSARGS.COM` on the gate disk: **`B:\BIN\FOO /M`, a path with no
+extension.** The `.COM`/`.EXE` search walks the CURRENT directory by ordinal
+(§96.33.7) and a name with a separator in it is not an 8.3 pattern that walk
+can match. Closing it means probing in the named folder rather than this one,
+which is a walk there and back with the box's own position to restore — a
+feature rather than a fix, and it is written down here so the next reader knows
+it was measured rather than missed.
 
 ##### 96.33.16 A launch from the FULL SCREEN ends the console's bracket first
 

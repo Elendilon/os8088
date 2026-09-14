@@ -505,17 +505,30 @@ def main():
             fail("%s.COM never reached READY inside its own bracket, launched "
                  "from the full screen" % BARE)
         m.type_text("x")
+        # **ONE LOOP FOR BOTH, and the exit line is POLLED rather than read
+        # once.** The flags flip when the bracket is back up; the box's exit
+        # line is written after that, so a single read the instant they flip
+        # is a race - and it is a race that only loses UNDER LOAD, which is
+        # the worst shape a gate can have: docs/plans/SOAK-PARALLEL.md §1
+        # measures a contended guest doing up to 37% less work per host
+        # second, so this failed at --marty-jobs 3 and passed alone, looking
+        # exactly like the feature being broken. The two diagnoses stay
+        # separate because they are different defects.
+        back = seen = False
         for _ in range(40):
             time.sleep(0.5)
-            if not bx.b("dos_inbr") and bx.b("dos_fsxup"):
+            if not back and not bx.b("dos_inbr") and bx.b("dos_fsxup"):
+                back = True
+            if back and any("exit code 042" in r for r in (m.screen() or [])):
+                seen = True
                 break
-        else:
+        if not back:
             fail("the full-screen console did not come back after %s.COM: "
                  "[dos_fsxup]=%d [dos_inbr]=%d. dos_run's exit re-enters it "
                  "(SPEC.md 96.33.16)"
                  % (BARE, bx.b("dos_fsxup"), bx.b("dos_inbr")))
         rows = [r for r in (m.screen() or []) if r.strip()]
-        if not any("exit code 042" in r for r in rows):
+        if not seen:
             fail("the box's exit line is not on the full screen it came back "
                  "to: %r" % rows[-4:])
         print("doscon: ...and a program typed at the full screen runs in its "

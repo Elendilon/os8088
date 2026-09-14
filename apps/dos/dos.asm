@@ -5845,8 +5845,24 @@ dos_key:
                                      ; so every backspace used to leave one
                                      ; standing (SPEC.md 83.1.1)
     call os88line_key                ; CF=0 = the field used it. IT DOES NOT
-    jc .nofield                      ; DRAW - its header says "redraw the
-    mov ax, [dos_lnv]                ; field", and the redraw is the caller's.
+    jnc .edited                      ; DRAW - its header says "redraw the
+                                     ; field", and the redraw is the caller's
+    ; --- ENTER IN THE PATH BOX IS `Run` (SPEC.md 96.32.1.1) ------------------
+    ; It used to fall through to .nofield, where Enter means §96.19.4's "run it
+    ; again" and is reached only from DST_RAN or DST_ERR - so on a fresh window
+    ; a typed path and an Enter did NOTHING AT ALL: no launch, no error, no
+    ; repaint. A user cannot tell a field that refused them from one that is
+    ; not wired up. The SAME dos_go the button calls, so the two cannot drift;
+    ; every other field keeps 96.19.4's meaning, which is what the arguments
+    ; row on the setup page needs.
+    cmp al, 13
+    jne .nofield
+    cmp si, dos_pln
+    jne .nofield
+    call dos_go
+    jmp short .done
+.edited:
+    mov ax, [dos_lnv]
     mov bx, [dos_lnl]
     mov dx, [dos_lnc]
     call os88line_edit               ; EDIT and not DRAW: typing the 21st
@@ -6261,6 +6277,76 @@ dos_oncmd:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_path_args - the path box holds `PATH ARGUMENTS`: split it (SPEC.md 96.32.1.1)
+; in:  nothing; out: nothing; every register preserved
+;
+; Everything up to the FIRST SPACE is the path and everything after it is the
+; argument text, which is exactly what dos_con_prog does one door along - so
+; the same line typed at the prompt and typed into the box gets the same
+; launch, those two being the same sentence in two places. An 8.3 name cannot
+; contain a space, so the split can never cut a path in half; and os88line_key
+; takes 0x20..0x7E, so there is no tab in a field to split on either.
+;
+; **IT MOVES THE TAIL RATHER THAN READING PAST IT.** The arguments field is
+; what the program is given (96.19), what Save Shortcut writes (96.21) and
+; what `run it again` re-runs, so a tail left in the path box would be a launch
+; nobody could repeat and a shortcut that recorded half of it. After the split
+; the box holds the path alone and the field holds the arguments, which is also
+; the only feedback that anything was understood.
+;
+; With no space in the box it does NOTHING, which is what every other door
+; needs: an association, a shortcut and the console each fill the box with a
+; resolved path and the field separately, and a split that fired on those would
+; clear arguments they had just set.
+; -----------------------------------------------------------------------------
+dos_path_args:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, dos_path
+.find:
+    mov al, [si]
+    or al, al
+    jz .none
+    cmp al, ' '
+    je .split
+    inc si
+    jmp short .find
+.split:
+    mov byte [si], 0                ; the path ends here...
+    inc si
+.skip:
+    cmp byte [si], ' '
+    jne .copy
+    inc si
+    jmp short .skip
+.copy:
+    mov di, dos_args                ; ...and the rest is the tail, bounded the
+    mov cx, DOS_ARGMAX              ; way dos_con_prog bounds its own
+.c:
+    mov al, [si]
+    or al, al
+    jz .cend
+    mov [di], al
+    inc si
+    inc di
+    dec cx
+    jnz .c
+.cend:
+    mov byte [di], 0
+    mov si, dos_pln                 ; both boxes re-measured from their text,
+    call os88line_resync            ; because a field whose LN_LEN disagrees
+    mov si, dos_ln                  ; with its buffer draws the old length
+    call os88line_resync
+.none:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_go - RUN what the box names, with the setup as it stands (SPEC.md 96.32.1)
 ; in:  BX = the window, gfx lock HELD (a click callback's context)
 ; out: nothing; [dos_state] and a posted wake are the answer
@@ -6279,6 +6365,13 @@ dos_go:
     push bx
     cmp byte [dos_path], 0
     je .out                         ; the internal interface: not yet ours
+    call dos_path_args              ; **AND THE BOX MAY HOLD ARGUMENTS** (SPEC.md
+                                    ; 96.32.1.1): the resolver has no opinion
+                                    ; about spaces, so `B:\BIN\FOO.COM /M` was
+                                    ; an 8.3 name of `FOO.COM /M` and the answer
+                                    ; was "Its folder could not be opened" -
+                                    ; about the one part of the line that was
+                                    ; right
     call dos_mem_take               ; whatever the boxes hold NOW, both of them
     call dos_path_take
     jc .nopath

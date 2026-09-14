@@ -23,6 +23,10 @@ separate thing that can be missing:
      scans for the other.  A shim that wrote only one is wrong for half the
      world, so the gate program reports COUNT and TERM independently and this
      asserts both.
+  7  THE OTHER DOOR: the same line typed WHOLE into the PATH BOX - path and
+     arguments together, which is what a box holding a command looks like.
+     Enter used to do nothing at all there, and the line used to be taken as a
+     path all the way to the end (96.32.1.1).
   6  MYPATH is a real path (96.19.3).  It was a bare 8.3 name until
      OSAPI_FILE_PATH existed, which is why the gate disk puts the program in a
      subdirectory: in the root both spellings agree and the row proves nothing.
@@ -45,6 +49,10 @@ ARGS = "build/dosargs360.img"
 TYPED = "/M P:220"                   # ...what a user would actually type
 WANTPATH = "B:\\BIN\\DOSARGS.COM"
 ENVVAR = "SOUND=SB"              # ...typed in the Setup page's env row
+# ...and step 7's line, typed WHOLE into the path box (SPEC.md 96.32.1.1)
+BOXPATH = "B:\\BIN\\DOSARGS.COM"
+BOXARGS = "/Q R:1"
+BOXLINE = BOXPATH + " " + BOXARGS
 # **NOT ONE LAYOUT CONSTANT HERE ANY MORE.** Five stood here - DOS_FLDW,
 # DOS_BTNW, DOS_BTNY, DOS_EROWY, DOS_FLDY - copied from apps/dos/dos.asm under
 # a comment saying that mirroring them was "the nearest a package-local
@@ -64,6 +72,11 @@ ENVVAR = "SOUND=SB"              # ...typed in the Setup page's env row
 
 def u16(m, at):
     return struct.unpack("<H", m.read(at, 2))[0]
+
+
+def ztext(m, pseg, dm, name, n=96):
+    """A NUL-terminated string out of the live instance, by name."""
+    return m.read((pseg << 4) + dm[name], n).split(b"\0")[0].decode("latin-1")
 
 
 def pkg_base(m):
@@ -97,16 +110,29 @@ def field(text, name):
     return got[-1] if got else None
 
 
-def run_and_read(m, limit=120.0):
-    """Wait for the program's READY line and hand back its whole screen."""
+def readys(m):
+    """How many READY lines are on the screen NOW.
+
+    **NOT A BOOLEAN**, and that is the whole point: SPEC.md 96.34.4 seeds the
+    console onto the program's screen, so the PREVIOUS run's READY is still
+    there when the next one starts.  A wait on `"READY" in rows` returns
+    instantly and hands back the last run's output, which reads as this run
+    being given the wrong arguments - or, worse, as it being given the right
+    ones when it was never asked."""
+    return sum(1 for r in (m.screen() or []) if "READY" in r)
+
+
+def run_and_read(m, limit=120.0, after=0):
+    """Wait until the screen carries `after`+1 READY lines; hand it all back."""
     end = time.time() + limit
     while time.time() < end:
         rows = m.screen() or []
-        if any("READY" in r for r in rows):
+        if sum(1 for r in rows if "READY" in r) > after:
             return "\n".join(r.rstrip() for r in rows)
         time.sleep(0.3)
-    fail("the program never reached its READY line; the last screen was %r"
-         % ([r.rstrip() for r in (m.screen() or []) if r.strip()][:10],))
+    fail("no %dth READY line inside %.0fs; the last screen was %r"
+         % (after + 1, limit,
+            [r.rstrip() for r in (m.screen() or []) if r.strip()][:10]))
 
 
 def main():
@@ -271,10 +297,14 @@ def main():
         os88marty.settle(m)
 
         # --- 4: Enter runs it again ------------------------------------------
+        was = readys(m)
         m.key("Enter")
-        second = run_and_read(m)
+        second = run_and_read(m, after=was)
         print("dosargs: ...and again, after typing %r:" % TYPED)
-        for r in second.splitlines()[:8]:
+        for r in second.splitlines()[-8:]:      # the TAIL: 96.34.4 seeds the
+                                                # console onto the program's
+                                                # screen, so the head of it is
+                                                # the PREVIOUS run
             if r.strip():
                 print("   | %s" % r)
 
@@ -311,6 +341,66 @@ def main():
         print("dosargs: both framings agree - count %s, terminator at %s"
               % (field(second, "COUNT"), field(second, "TERM")))
 
+        m.type_text("x")
+        os88marty.settle(m)
+
+        # --- 7: THE OTHER DOOR - the PATH BOX, with arguments in it ----------
+        # SPEC.md 96.32.1.1.  Everything above is the arguments FIELD; this is
+        # the box at the top of the window, and a user types the whole command
+        # into it because that is what a box holding a command looks like.  Two
+        # separate things were wrong and each hides the other, so both are
+        # asserted here:
+        #
+        #   ENTER did nothing at all - no launch, no error, no repaint - so a
+        #   field that refused you and a field that is not wired up looked the
+        #   same; and
+        #
+        #   the line was taken as a PATH, all of it, so `B:\BIN\FOO.COM /M`
+        #   resolved to an 8.3 name of `FOO.COM /M` and the answer was `Its
+        #   folder could not be opened` - about the one part of the line that
+        #   was right.
+        #
+        # The SPLIT is asserted as well as the launch, because the arguments
+        # field is what Save Shortcut writes and what `run it again` re-runs: a
+        # tail left sitting in the path box would be a launch nobody could
+        # repeat.
+        w = ui.window("DOS")
+        if not w:
+            fail("the DOS window did not survive the second exit")
+        ui.raise_window(w)
+        pseg = dosmap.instance(m)
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"))
+        os88marty.settle(m)
+        for _ in range(140):
+            m.type_text("\b")
+        os88marty.settle(m)
+        m.type_text(BOXLINE)
+        os88marty.settle(m)
+        was = readys(m)
+        m.key("Enter")
+        third = run_and_read(m, after=was)
+        print("dosargs: ...and typed whole into the PATH BOX, %r:" % BOXLINE)
+        for r in third.splitlines()[-8:]:
+            if r.strip():
+                print("   | %s" % r)
+        if field(third, "ARGS") != BOXARGS:
+            fail("the path box was given %r and the program read its tail as "
+                 "%r, not %r. The box splits at the first space - an 8.3 name "
+                 "cannot hold one - and everything after it is the tail "
+                 "(SPEC.md 96.32.1.1)"
+                 % (BOXLINE, field(third, "ARGS"), BOXARGS))
+        pseg = dosmap.instance(m)
+        gotpath = ztext(m, pseg, dm, "dos_path")
+        gotargs = ztext(m, pseg, dm, "dos_args")
+        if gotpath != BOXPATH or gotargs != BOXARGS:
+            fail("after the launch the box holds %r and the arguments field "
+                 "%r; the tail must MOVE, because that field is what Save "
+                 "Shortcut writes and what `run it again` re-runs - a tail "
+                 "left in the box is a launch nobody can repeat (96.32.1.1). "
+                 "Expected %r and %r"
+                 % (gotpath, gotargs, BOXPATH, BOXARGS))
+        print("dosargs: ...and the box kept %r with %r moved into the field"
+              % (gotpath, gotargs))
         m.type_text("x")
 
     print("dosargs: ok")
