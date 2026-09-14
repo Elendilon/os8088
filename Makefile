@@ -4028,7 +4028,9 @@ $(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) 
 # is what Add to Disk needs: somewhere to write, MEDIA for the Save dialog to
 # open in (SPEC.md 38.10) and SYSTEM/APPDATA because every disk that carries
 # an application carries one (SPEC.md 19.9).
-$(BUILD)/thewiredata.img: tools/os88disk.py | $(BUILD)
+# Makefile is a prerequisite for dirsw360.img's reason: the folder list IS
+# the payload and lives in the recipe.
+$(BUILD)/thewiredata.img: tools/os88disk.py Makefile | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--folder MEDIA --folder SYSTEM/APPDATA
 
@@ -4074,7 +4076,8 @@ $(BUILD)/telnetsys.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SY
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg $(APPDATAFOLDER)
 
-$(BUILD)/telnetdata.img: tools/os88disk.py | $(BUILD)
+# ...and here too, for the same reason.
+$(BUILD)/telnetdata.img: tools/os88disk.py Makefile | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--folder MEDIA --folder SYSTEM/APPDATA
 
@@ -4778,6 +4781,76 @@ $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 	python3 tools/os88pkg.py $< -o $@ $(PKGZARG)
 
+# --- kern_dos, AND THE GATE DISK THAT CARRIES IT ----------------------------
+# docs/plans/KERN-DOS-PLAN.md wave 5. `kern_dos` is the DOS core assembled over
+# the KERNEL's own disk layer instead of over the API table - one root,
+# kerndos/kdos.asm, which %includes apps/dos/dos.asm whole and unedited
+# (SPEC.md 96.38) - and it ships as a compressed PART of DOS.O88
+# (docs/plans/KERN-DOS-PLAN.md §4.1).
+#
+# **NOTHING SHIPPED BUILDS THIS.** A DOS.O88 carrying the part costs the 360KB
+# system disk 43 of its 53 free clusters, and the four-piece shape in
+# docs/plans/KERN-DOS-PLAN.md §4.1.3.1 is
+# what it should cost instead - so while wave 5 is unfinished the part rides a
+# GATE DISK and the shipped DOS.O88 is byte-identical to what it was.
+KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
+               kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc
+
+$(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
+                      apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
+                      apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88line.inc \
+                      apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
+                      apps/os88parts.inc apps/os88partsbody.inc \
+                      drivers/net/netpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I kernel/ -I kerndos/ -I apps/ -I apps/dos/ \
+	        -I drivers/net/ -o $@ kerndos/kdos.asm
+	@echo "kerndos: $(call FILESIZE,$@) bytes"
+
+# ...and the package that carries it. -DDOSKPART is 18 bytes of part table and
+# nothing else: the standard's 800-byte body is NOT emitted, because this part
+# is never read by op_load - the handoff walks its bytes into extents and the
+# stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
+$(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
+                   apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                   apps/os88api.inc apps/os88ui.inc \
+                   apps/os88line.inc apps/os88sock.inc \
+                   apps/os88con.inc apps/os88cp437.inc \
+                   apps/os88parts.inc apps/os88partsbody.inc \
+                   drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
+	        $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART \
+	        -o $@ apps/dos/dos.asm
+
+# **IT IS WRITTEN AS `DOS.O88` AND THE NAME IS NOT COSMETIC**: os88disk.py
+# takes the SOURCE file's name, and assoc_locate looks for the handler a
+# document's association names (SPEC.md 54.4.2). A `DOSP.O88` in APPS/ is a
+# package no .COM on any disk can reach.
+$(BUILD)/kdos/DOS.O88: $(BUILD)/dosp.bin $(BUILD)/kerndos.bin tools/os88pkg.py
+	@mkdir -p $(BUILD)/kdos
+	python3 tools/os88pkg.py $(BUILD)/dosp.bin -o $@ \
+		--part $(BUILD)/kerndos.bin --part-compress lz4
+	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
+
+# The gate's SYSTEM disk: the shipped one with the parted DOS.O88 in place of
+# the ordinary one, so the machine a test boots is the machine a user would
+# have if docs/plans/KERN-DOS-PLAN.md §4.1 had shipped. Everything else on
+# it is unchanged.
+$(BUILD)/kdos360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
+                      $(BUILD)/kdos/DOS.O88 $(COREAPPS360) $(SYSDOC) $(SYSLOGO) \
+                      $(FACES360) $(FACELIC) tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
+		$(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(APPDATAFOLDER)
+
+.PHONY: kdostest
+kdostest: $(BUILD)/kdos360.img $(BUILD)/doscom360.img
+	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
+	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
+	@echo "          Run it with: python3 tests/kdpart.py"
+
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------
 # DOSHELLO.COM is OURS - hand-written under tests/, MIT with the rest of the
 # tree - and it is built only by its own target, like everything else in
@@ -4803,7 +4876,14 @@ $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 # hidden or system and DOS does not list those.  Twenty-four plain files is
 # comfortably over a CGA page and comfortably under a VGA one, so the same
 # disk answers "it paused" on one adapter and "it did not need to" on another.
-$(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py | $(BUILD)
+# **`Makefile` IS A PREREQUISITE AND IT IS NOT BOILERPLATE.** The disk's
+# LAYOUT is written in the recipe below - twenty-four generated files and a
+# `BIN:` folder - so the Makefile is an input to this target like any source.
+# Without it, adding `BIN:` left a built disk with no BIN on it and `make`
+# saw nothing to do, because neither DOSHELLO.COM nor os88disk.py had moved:
+# `dosdirsw` then failed on `CD BIN did not move the prompt`, which reads
+# exactly like the DOS box losing CD.
+$(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dirsw && mkdir -p $(BUILD)/dirsw
 	@for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \
 	          21 22 23 24; do \

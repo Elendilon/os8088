@@ -210,28 +210,22 @@ be invented**.
 
 ### 4.1 The proposal: `kern_dos` is a PART of `DOS.O88`
 
-> **THIS SECTION'S CONCLUSION IS WITHDRAWN — MEASURED, W5b.**
-> docs/reports/KERN-DOS-PART-COST-2026-09-14.md is the measurement and the
-> table below is wrong in three of its four rows. The one-line version: the
-> part costs **43 of the 53 clusters a 360KB system disk has left**, not `0`,
-> because `DOS.O88` is ON that disk (the Makefile's `SYSROOT`, in `APPS/`) —
-> and it is **worse than shipping `kern_dos` as its own compressed file** by
-> about six clusters, because `tools/os88pkg.py` refuses `--compress` with
-> parts, so adding one also gives back `DOS.O88`'s own 5,425 bytes of
-> compression.
+> **THIS SECTION STANDS, AND ITS TABLE IS CORRECTED — MEASURED, W5b.**
+> docs/reports/KERN-DOS-PART-COST-2026-09-14.md is the measurement. The
+> `system-disk bytes: 0` row is wrong — `DOS.O88` is ON the 360KB system disk
+> (the Makefile's `SYSROOT`, in `APPS/`), so a compressed part costs **43 of
+> the 53 clusters that disk has left**. A `KERNDOS.SYS` file costs **38**,
+> because `tools/os88pkg.py` refuses whole-file compression on a parted
+> package and `DOS.O88` gives back its own 5,425 bytes.
 >
-> Nothing here was wrong when it was written.
-> docs/plans/O88-COMPRESSION-PLAN.md landed afterwards and made every package
-> compressed by default, which is the fact that inverts the comparison. The
-> corrected table is in the report's section 3; the shape W5 builds against is
-> **a file**, and moving it into a part later is one filename in the walk.
+> **Five clusters is a wash and PORTABILITY decides it, so the part wins.**
+> One file carries the whole function from disk A to disk B; a sidecar is what
+> docs/plans/completed/O88-MULTISEG-PLAN.md wave 6 removed from `apps/c64`
+> precisely because a file copy could separate it from its program. An
+> individual part still compresses (`OP_COMP`) — only the enclosing package
+> stops doing so.
 >
-> Two of the objections to option one are answered rather than reweighed: the
-> stub is written either way (§4.1.1's own argument is that the part is never
-> loaded AS a part, so a file's bytes walk the same and need no part table
-> read first), and the "mini-ABI between two halves that rots" is
-> `kerndos/kdlaunch.inc` — one list `%include`d by both sides, each summing
-> its own copy, with a length word in the block that refuses a drift.
+> **What the measurement really found is DUPLICATION**, which is §4.1.3 below.
 
 **One assembly root, `kerndos/kerndos.asm`**, which `%include`s the kernel's
 disk layer and the DOS core from where they already live — and ships as
@@ -324,6 +318,97 @@ assembly time and the "load mechanism" is `op_load` plus the §2 stub.
 
 **Why it beats option one:** the system disk is at 255 of 354 clusters at 360
 KB, and the next development focus puts more system apps on it.
+
+#### 4.1.3 The DOS core would be in `DOS.O88` TWICE, and it need not be
+
+**MEASURED** (docs/reports/KERN-DOS-PART-COST-2026-09-14.md §4): the core —
+`dos_int21` and everything under it, the PSP, the handle layer, the FCBs, the
+MCB chain, `AH=4Bh` and the built-in commands — is **12,812 bytes of
+`DOS.O88`'s own 31,868-byte image**, and every byte of it is inside the
+`kern_dos` part as well. Nothing in §4.1 costed that, because §4.1 was about
+where the part goes rather than what is in it.
+
+Extracting the core to a **third part both halves share** is worth about **12
+KB of every system disk, for ever**, on top of §4.1.2's 14,622:
+
+| | clusters on a 360KB system disk |
+|---|---:|
+| the part as W5a builds it, the box left in | +43 |
+| the box cut from the part | +32 |
+| …and the core extracted to its own part | **+20** |
+
+**THE SEAM IS ONE-DIRECTIONAL AND THAT IS WHY IT IS WORTH DOING.** Box → core
+is 46 transfers at 33 entry points, the busiest being five call sites and
+none in a per-character path. **Core → box is ZERO** — not luck but §3: the
+one edge that exists is `dos_be_go`'s `jmp word [dos_betgt]`, the door table
+this plan already built and `kerndos/kdback.inc` already re-implements.
+
+Outside itself the core reaches **four `OSAPI_*` slots and six library calls,
+in three procs**. Six of the seven are the windowed arm W4 showed `kern_dos`
+never takes (`[dos_inbr]` is 1 for ever, SPEC.md 96.38). The two that are not
+are `OSAPI_MEM_CLAIM` and `OSAPI_MEM_FREE`, which SPEC.md 20.12's parts rule 2
+forbids a part outright — and answers in the same breath: *the primary claims
+and passes a segment down*. So the whole of the new work is **two more doors,
+three more, or three procs moved**.
+
+The state seam is **46 of 251 bss cells**, twelve of which are the `DOSTRACE`
+build, the packet driver and the Memory page's radio. **The ~34 that remain
+are the launch block** — `kerndos/kdlaunch.inc` already marshals seven of them
+across a segment boundary and is the shape the rest take.
+
+**The shape**: one assembly, `OP_SEG | OP_COMP`, far-called with its own bss,
+in BOTH hosts — the box reaching it through `op_load`/`op_seg`, `kern_dos`'s
+stub reading the same part's extents into a segment of its own and far-calling
+the same 33 entry points. **One ABI, because it is the same ABI.**
+`apps/skies/csload.asm` is the worked example: a package whose part 0 is a
+whole `.o88` image, compressed, far-called, with its own bss and a handoff
+block at the head of it.
+
+**It is NOT a prerequisite for W5c** and should not be made one: the handoff
+does not care how many parts it walks, and doing the refactor first would put
+an unbuilt seam under an unbuilt stub. It is a wave of its own — W9 below.
+
+##### 4.1.3.1 The shape, and the join is NEAR
+
+`DOS.O88` becomes four pieces, which is the owner's design and costs **+19
+clusters of a 360KB system disk against today's 26** — better than every other
+shape measured:
+
+| | what | how |
+|---|---|---|
+| **image** | the parts loader, ~2 KB, dropped once it has loaded | `OSAPI_PKG_REHOME` |
+| **part 0** | the UI — becomes the main image when the loader rehomes to it | `OP_SEG, OP_COMP` |
+| **part 1** | the INT 21h core | `OP_SEG, OP_COMP` |
+| **part 2** | `kern_dos` — the FAT, the mouse, the kernel bits | `OP_SEG, OP_COMP` |
+
+**Part 1 joins to EITHER part 0 or part 2 and never both**, because the two
+hosts are alternatives: one is the windowed box and the other is the machine
+after the handoff. Every mechanism it needs is built — `OSAPI_PKG_REHOME` is
+six bytes on an ordinary launch, and `apps/skies/csload.asm`'s loader measures
+**2,000 bytes**, so the ~2 KB estimate is exact.
+
+**AND THE JOIN CAN BE NEAR**, which is the finding that makes the whole thing
+cheap. A near join needs the core at the same offset in both hosts, so each
+reserves the range below it — and the two hosts measure **19,556 and 18,959
+bytes**, within 600 of each other. A 512-aligned `CORE_ORG` of 19,968 leaves
+holes of **412 and 1,009 bytes**; part 0's is zero-run padding that compresses
+away and part 2 needs none at all, because the stub places it rather than
+carving it.
+
+With a near join, every obstacle §4.1.3 listed dissolves: the 46 transfers
+stay near, there is no second `DBSS` chain (`os88_image_end` is the same
+offset in both), rule 2's ES fence never applies because it is the host's own
+segment, and the six library calls become six words of vector the host fills.
+What is left is **a 33-entry jump table at `CORE_ORG` (99 bytes)**, because
+part 0 cannot know the core's internal addresses at assembly time, and
+**`CORE_ORG` as a budget with two claimants** — a `KERN_BUDGET`-shaped ledger,
+because today's 600-byte margin is luck and will not stay lucky.
+
+One thing to keep straight: **part 2 is not loaded by the parts loader.**
+§4.1.1 is why — the heap is being given away, so there is nowhere to load it
+to. The handoff walks its bytes into extents while the file layer is alive and
+the STUB reads them, two runs now: part 2 to `KD_SEG:0000` and part 1 to
+`KD_SEG:CORE_ORG`. Same loop, one more extent list.
 
 ### 4.2 What "kernel" means here, and what it does NOT import
 
@@ -576,6 +661,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
+| **W9** | **`DOS.O88` becomes four pieces and the core stops being shipped twice** (§4.1.3, §4.1.3.1): a 2 KB loader that rehomes, the UI, the core, and `kern_dos` — with the core joined NEAR to whichever host is running. **+19 clusters against today's 26**, where the shape W5a builds is +43. The new ABI is a 33-entry jump table and a `CORE_ORG` budget with two claimants. NOT a prerequisite for W5c. | the box and `kern_dos` both run against one core part; `soak -k 'dos*'` |
 
 **W0 and W1 land before anything is designed further.** W2 is the go/no-go for
 the whole shape; W3 is the go/no-go for §4's reuse.
