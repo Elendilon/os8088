@@ -123,23 +123,22 @@ DSK_VKB      equ 6              ; ...and the claim a driver funds is still 6KB:
   %error "DSK_DE_STRIDE must cover SPEC.md 19.1's meaningful prefix: name 0..15, type 16, handle 18, size dword 20..23. Below 24 an entry loses its SIZE, and the Disk window letters a stale one"
 %endif
 
-; --- DOES THIS BUILD WANT A LISTING AT ALL? (SPEC.md 96.44.7) ---------------
-; `disk_dir` and `disk_icons` are the DISK WINDOW's mount snapshot - 2,816
-; bytes of `.lowbss` written by `disk_mount`'s steps 3 and 4 and read by the
-; file manager. `kern_dos` has no window, no `fm_draw_icon16` and no file
-; manager, and MEASURED on the guest after a handoff it was filling both of
-; them anyway: 294 non-zero bytes in one and 192 in the other, with every
-; reader of either inside the mount that wrote it.
+; --- DOES THIS BUILD HARVEST ICONS? (SPEC.md 96.44.7) -----------------------
+; `disk_icons` is **2,048 bytes of `.lowbss`** and step 4 of `disk_mount` is
+; what fills it: a 16x16 body per entry, read with one `int 13h` per type-1
+; file. It is the DISK WINDOW's, and `kern_dos` has no window, no
+; `fm_draw_icon16` and no file manager - MEASURED on the guest after a
+; handoff, the array held 192 non-zero bytes and every reader of it in that
+; root was inside the mount that wrote it.
 ;
-; The switch is POSITIVE and set in two disjoint places, because the answer is
-; known at two different points: the kernel decides it here (it is the whole
-; point of the Disk window) and `kerndos/kdlayout.inc` decides it for the
-; kerndos roots, which it must, because `KD_LOW_KB` is cut from the answer and
-; is needed before this file is included. `kerndos/kerndos.asm`'s wave-3 gate
-; READS the listing (`kdgate.inc` asserts the entry count), so it asks for one;
-; `kerndos/kdos.asm`, the root that ships, does not.
+; **`disk_dir` STAYS, and that is a correction.** The listing looked equally
+; dead and is not: SPEC.md 96.47's live resume finds `HIBERNAT.IMG` with
+; `dsk_find_name_x`, which walks `[disk_nfiles]` entries through
+; `dsk_get_dir_x` - so the 768-byte half has a real consumer and only the
+; 2,048-byte half does not. The two were one switch for a day and the resume
+; row is what said so.
 %ifndef KD_BUILD
-  %define DSK_WANT_LIST         ; the kernel, either size
+  %define DSK_WANT_ICONS        ; the kernel, either size
 %endif
 
 section .lowbss                 ; LOW_SEG: written by int 13h through ES:BX
@@ -158,8 +157,6 @@ dsk_secbuf: resb 512            ; sector scratch: BPB read, root-dir scan,
                                 ; aligns it - at +2,816 it was 256 into a
                                 ; sector and the build's own size decided
                                 ; whether the first mount failed with 09h
-%ifdef DSK_WANT_LIST            ; ...and nothing below is a transfer base, so
-                                ; leaving them out moves no alignment
 disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
                                 ; DSK_DE_STRIDE apiece and not DSK_DE_SIZE:
                                 ; 19.1's bytes 24..31 are zero and no reader
@@ -175,12 +172,15 @@ dsk_icoix:  resb DSK_ICOIX_N    ; entry i's POOL SLOT, or 0xFF for no icon
                                 ; is 32 bytes of `rep stosb` where the array
                                 ; below took 2,048 of `rep stosw`
 %endif
+%ifdef DSK_WANT_ICONS           ; ...and it is LAST in the window, so leaving
+                                ; it out moves nothing below it and
+                                ; dsk_secbuf keeps the rung's aligned base
 disk_icons: resb DSK_ICO_N*DSK_ICO_SIZE    ; harvested icon bodies. On
                                 ; kern_big slot i belongs to directory entry
                                 ; i and all-zero means no icon; on kern_small
                                 ; it is a POOL and dsk_icoix says which body
                                 ; an entry uses. Fully rewritten every mount
-%endif                          ; DSK_WANT_LIST
+%endif                          ; DSK_WANT_ICONS
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base
 %if (dsk_secbuf - $$) % 512     ; against the RUNG base, not dsk_win_base: a

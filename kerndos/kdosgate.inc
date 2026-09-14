@@ -39,6 +39,12 @@ kd_dos_entry:
     mov word [di+KDL_VER], KDL_VER_NOW
     mov word [di+KDL_FLAGS], KDLF_REBOOT
     mov word [di+KDL_TLEN], KDL_MINE
+    mov word [di+KDL_WAKE + 2], 0   ; no live resume on the W4 gate either -
+                                    ; there is no image to come back to
+    mov byte [di+KDL_NVOL], 0       ; ...and no volume table either, for the
+                                    ; same reason: this gate knows the two
+                                    ; floppies the static initialiser already
+                                    ; has, and zero means KEEP IT (96.46)
     mov word [di+KDL_MOUBASE], 0    ; no mouse on the W4 gate: it never goes
                                     ; through hbm_dosrun, which is the only
                                     ; thing that knows the port (SPEC.md 96.45)

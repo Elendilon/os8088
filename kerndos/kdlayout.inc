@@ -35,7 +35,24 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; **THE SHIPPED FIGURE DOES NOT MOVE.** What ships is the extcore arm and it
 ; was already 35, so the DOS program keeps its 585 KB; what rises is the
 ; `KD_GATE` build (tests/kdos.py), which is a test artefact on no floppy.
-KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
+;
+; **35 -> 36 AT SPEC.md 96.49, AND THIS ONE IS PAID BY THE PROGRAM.** The live
+; resume is 996 bytes - 36,472 against 35,840 - of which ~440 is 87.5's stub,
+; which has to BE somewhere to be staged and is the irreducible half. The DOS
+; program goes 585 KB -> 584, which is the trade docs/plans/KERN-DOS-PLAN.md
+; 8.1 costed at ~1,200 and refused: the estimate was sound and its OTHER
+; argument - that the extent list has nowhere to live - was wrong about WHEN,
+; the list going in the text framebuffer at a moment the program has already
+; exited. 392 bytes of the new rung are left, and by this comment's own rule
+; the next wave lowers it again rather than banking slack.
+;
+; **AND 36 -> 35 AT 96.44.6, WHICH IS THE WAVE THAT LINE ASKED FOR.** The
+; refusal wall was 1,432 bytes of `stc`/`retf` under CORE_ORG and it is gone
+; because the calls it caught are; CORE_ORG falls 0x0600 -> 0x0080 in BOTH
+; hosts. So the live resume's 996 bytes are paid for and the program is ahead:
+; MEASURE this rather than subtracting the two, because the assertion at the
+; foot of each root is what the number has to clear.
+KD_IMG_KB   equ 35              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG
@@ -96,42 +113,27 @@ FAT_PARA    equ DSK_FAT_SECS * 32         ; 512 bytes = 32 paragraphs
 LOW_SEG     equ FAT_SEG + FAT_PARA        ; ...and the mount buffers above it
 
 
-; --- DOES THIS ROOT WANT THE MOUNT'S LISTING? (SPEC.md 96.44.7) -------------
-; `kernel/dskwin.inc` owns the arrays and this owns the rung they sit in, so
-; the decision is made HERE for the kerndos roots - `KD_LOW_KB` is cut from
-; the answer and is needed before that file is included.
-;
-; `kerndos/kerndos.asm`'s wave-3 gate READS the listing: `kdgate.inc` asserts
-; the entry count the mount synthesized, which is the whole of what that row
-; checks. So that root asks for one, and pays 2,816 bytes of `.lowbss` for it.
-; `kdos.asm` - the root that SHIPS - has no window to draw one in.
-%ifdef KD_LIST
-  %define DSK_WANT_LIST
-KD_LOW_KB   equ 5               ; how much .lowbss the layer's buffers want
-                                ; (3,328 today) PLUS the stack above them,
-                                ; asserted in kerndos.asm.
+KD_LOW_KB   equ 3               ; how much .lowbss the layer's buffers want
+                                ; PLUS the stack above them, asserted in
+                                ; kerndos.asm.
                                 ;
                                 ; **8 -> 5 ON A MEASUREMENT** (SPEC.md
                                 ; 96.43.1): the stack's water mark is **134
                                 ; bytes** of the 4,864 that eight kilobytes
                                 ; left it, read off a machine that had mounted
                                 ; a floppy, loaded a .COM and serviced its INT
-                                ; 21h calls. Five leaves 1,792 - thirteen times
-                                ; the figure - and gives the DOS program the
-                                ; other three kilobytes, which is what every
-                                ; number in this file is for. `KDSTKDIAG=1`
-                                ; and `tools/kdstkwater.py` re-derive it
-%else
-KD_LOW_KB   equ 2               ; **5 -> 2 WITH THE LISTING OUT** (SPEC.md
-                                ; 96.44.7). `.lowbss` is `dsk_secbuf` alone
-                                ; now - 512 bytes, and the one int 13h
-                                ; transfer base, so it keeps the rung's own
-                                ; 512-aligned start - which leaves 1,536 for
-                                ; the stack against a measured water mark of
-                                ; **134** (96.43.1), eleven times the figure.
-                                ; The other three kilobytes are the DOS
-                                ; program's
-%endif
+                                ; 21h calls. `KDSTKDIAG=1` and
+                                ; `tools/kdstkwater.py` re-derive it
+                                ;
+                                ; **5 -> 3 WITH THE ICON HARVEST OUT** (SPEC.md
+                                ; 96.44.7). `disk_icons` is 2,048 bytes of the
+                                ; window that no build with no window reads, so
+                                ; `.lowbss` is dsk_secbuf + disk_dir = 1,280 -
+                                ; leaving 1,792 for the stack, which is what
+                                ; five left it before. **disk_dir STAYS**: it
+                                ; looked as dead as the icons and 96.47's live
+                                ; resume reads it, which is why this is 3 and
+                                ; not 2
 KD_STACK    equ KD_LOW_KB * 1024 ; ...and the stack sits at the top of it and
                                 ; grows DOWN toward the buffers
 

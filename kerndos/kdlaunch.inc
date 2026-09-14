@@ -102,22 +102,113 @@ KDL_DPT_LEN equ 11              ;     is the KERNEL's rather than the box's -
                                 ;     ZERO = leave the vector alone, which is
                                 ;     the W4 gate's case: it boots through a
                                 ;     loader that never touched it
+; --- THE VOLUME TABLE, WHICH IS THE KERNEL'S AND WAS HARD-CODED (96.46) -----
+; `kern_dos` carried a STATIC `dsk_vtab` - A: and B: as BIOS units 0 and 1,
+; every other row free - and that is an assumption about a table os8088
+; BUILDS AT BOOT. What the initialiser is FOR is being the starting point a
+; boot probe then edits; over here nothing ever edits it. So:
+;
+;   - THE HARD DISK IS NOT THERE AT ALL. SPEC.md 18.7.1 pins the boot
+;     partition at ROW 2 (`dsk_flop_add` skips that row so a floppy cannot
+;     take it first), and row 2 of the initialiser is DVK_FREE - so a machine
+;     with a fixed disk hands `kern_dos` a volume index it reads as no volume;
+;   - AND ROW 1 IS LIVE ON A MACHINE WITH NO B:. `dsk_fdd_retire` frees it in
+;     the kernel when the probe finds no second drive (SPEC.md 18.97), and
+;     nothing frees it here - so drive B: exists, answers, and is a unit the
+;     ROM has nothing on.
+;
+; The volume INDEX is the identity DOS drive (SPEC.md 96.6) and the box hands
+; over `dos_vol` as an index, so an index resolved against a different table
+; is a program reading a drive that is not its own. Carrying the table is
+; what makes the identity true rather than hoped for.
+KDL_NVOL    equ 28              ; db  rows that follow, 0 = LEAVE THE BUILT-IN
+                                ;     TABLE ALONE. That is the W4 gate's case
+                                ;     (kerndos/kdosgate.inc stages its own
+                                ;     block and knows no volumes) and it is
+                                ;     KDL_DPT's zero one field along: a
+                                ;     sender that cannot fill it says so, and
+                                ;     is not mistaken for one that filled it
+                                ;     with zeros - which here would read as
+                                ;     eight copies of BIOS unit 0
+KDL_BOOTV   equ 29              ; db  ...and which index the KERNEL booted
+                                ;     from, for `[dsk_bootvol]`
+KDL_HDSPT   equ 30              ; dw the FIXED DISK's sectors per track, and
+KDL_HDHDS   equ 32              ; dw its heads - `int 13h AH=08h`'s answer,
+                                ;    which `dsk_boot_from_x` asks ONCE at boot
+                                ;    and banks. It is in the BOOT OVERLAY, so
+                                ;    `kern_dos` does not carry the question -
+                                ;    and the mount that needs the answer is
+                                ;    the read that FETCHES the BPB, so it
+                                ;    cannot come from there either. Zero
+                                ;    leaves the floppy fallback and the mount
+                                ;    fails honestly (kernel/disk.inc), which
+                                ;    is what a hard disk did here before this
+KDL_VTAB    equ 34              ; the rows themselves, KDL_VROW bytes each
+KDL_VROW    equ 6               ; db kind, db unit, dd the partition base
+KDL_VMAX    equ 8               ; DVOL_MAX's widest arm (kernel/disk.inc), so
+                                ; the block's shape does not depend on which
+                                ; kernel staged it
+; **ONLY THREE FIELDS OF SIXTEEN COME OVER**, and the rest are not an
+; oversight: `DV_FLAGS` bit 0 is a DESKTOP ZONE and there is no desktop,
+; `DV_CLASS` is 0 on every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT
+; fills, and `DV_LBL` is a label nothing here draws. A `DVK_DRV` or `DVK_FILE`
+; row cannot come at all - there is no driver layer on the other side - so
+; the gather writes DVK_FREE for one rather than carrying a row whose
+; transport is missing (KERN-DOS-PLAN 6.1 lever 4, enforced instead of hoped).
+
+; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) ---------------------------
+; `kd_leave` puts the session back itself instead of `int 19h`-ing and letting
+; a fresh boot do it. Four things only the KERNEL knows, and none of them is
+; reconstructible on a machine it is no longer running on.
+KDL_WAKE    equ 82              ; dd where the restored kernel comes back in -
+                                ; `hbm_wake` as off:seg, the same pair the
+                                ; hibernation POINTER carries. Zero = a kernel
+                                ; that does not offer a live resume, which
+                                ; `kd_resume` reads as "reboot instead"
+KDL_KSEG    equ 86              ; dw ...and the DS it comes back WITH, which
+                                ; is NOT the segment above: that one is the
+                                ; hibernate module's CS. The stub used to
+                                ; spell this as `KERNEL_SEG`, an assembly
+                                ; constant that means 0x0060 in this host
+KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on - `hb_pick`'s
+KDL_HBPAD   equ 89              ; db 0, and the word above stays even
+KDL_CLK     equ 90              ; db[10] the kernel's OWN clock block, because
+                                ; `hbm_wake` copies these ten into `clk_sec`
+                                ; and two of them are `clk_rtc`/`clk_dirty` -
+                                ; whether a usable RTC was found and whether it
+                                ; is owed a write (kernel/clock.inc). kern_dos
+                                ; overwrites only the TIME fields, from the
+                                ; ROM; a zeroed block would tell the resumed
+                                ; machine it has no clock hardware
+KDL_CLK_LEN equ 10
+
 ; **THESE TWO ARE `%assign` AND THE REST ARE `equ`**, which is not a style
 ; slip: the fit assert below runs at PREPROCESSOR time and `%if` cannot see an
 ; assembler symbol. A `%assign` reads the same everywhere an `equ` does and
 ; loses only its line in the map file.
-%assign KDL_BODY 28             ; ...and the gathered fields from here
+%assign KDL_BODY 100             ; ...and the gathered fields from here
 %assign KDL_SIZE 512            ; one sector, which is what the stub moves and
                                 ; what `kern_dos` reserves in its own image.
                                 ; The payload is 377 bytes today; the assert
                                 ; each side writes is what keeps it true
 
 KDL_SIG     equ 0x314C444B      ; 'KDL1', little-endian
-KDL_VER_NOW equ 2               ; what this tree writes and checks. It is a
+KDL_VER_NOW equ 4               ; what this tree writes and checks. It is a
                                 ; CONSTANT and not a literal at three sites,
                                 ; because a version that has to be bumped in
                                 ; three files is a version that gets bumped in
-                                ; two. 1 -> 2 is KDL_DPT moving the body
+                                ; two. 1 -> 2 is KDL_DPT moving the body,
+                                ; 2 -> 3 is the volume table doing it
+                                ; again (96.46), and 3 -> 4 the live
+                                ; resume's four fields (96.49). **THE BUMP IS OWED EVEN
+                                ; THOUGH BOTH SIDES SHIP IN ONE FILE**:
+                                ; kern_dos is part 2 of DOS.O88 and the box
+                                ; is part 0, so those two are always in step -
+                                ; but the third writer is the KERNEL, which
+                                ; patches the header and is a different
+                                ; artefact on a different disk. An old
+                                ; DOS.O88 under a new kernel is exactly what
+                                ; this word refuses
 
 KDLF_REBOOT equ 1               ; bit 0: `int 19h` when the program exits.
                                 ; docs/plans/KERN-DOS-PLAN.md §9 - there is no

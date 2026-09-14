@@ -127581,50 +127581,40 @@ runtime as a wrong answer somebody has to diagnose from a frozen machine. It
 needs `make kdostest` and SKIPS without it, because the question is about what
 nasm emitted and not about what the source says.
 
-#### 96.44.7 The Disk window's mount snapshot, on a machine with no window
+#### 96.44.7 The icon harvest, on a machine with no window
 
-`disk_mount`'s steps 3 and 4 build a **listing**: 32 synthesized directory
-entries into `disk_dir` and a harvested 16×16 icon body per entry into
-`disk_icons`, one `int 13h` per file. They are `.lowbss`, **2,816 bytes**, and
-under `kern_dos` they are filled and never read.
+`disk_mount`'s step 4 blanks and then fills **`disk_icons`** — a 16×16 body
+per directory entry, harvested with one `int 13h` per type-1 file. It is
+**2,048 bytes of `.lowbss`**, it belongs to the Disk window, and `kern_dos`
+has no window, no `fm_draw_icon16` and no file manager. Measured on the guest
+after a handoff: 192 non-zero bytes in it, and every reader of it in that root
+inside the mount that wrote it.
 
-**MEASURED on the guest after a handoff**, not inferred: `disk_dir` holds 294
-non-zero bytes and `disk_icons` 192, and `disk_drive` reads 0 — so the volume
-listed is the system disk's own root, `APPS` and `GAMES` and the rest. Every
-reader of either array in this root is inside the mount that wrote it: the
-file manager is not here, `fm_draw_icon16` is not here, and `dos_be_find`
+`DSK_WANT_ICONS` gates the array, the blank, the harvest and the two symbolic
+references to it. `.lowbss` is **1,280 bytes** — `dsk_secbuf` still first and
+so still the 512-aligned `int 13h` transfer base, then `disk_dir` — which
+leaves 1,792 for the stack, exactly what five kilobytes left it, against a
+measured water mark of 134 (§96.43.1). **`KD_LOW_KB` falls 5 → 3.**
+
+##### 96.44.7.1 …and `disk_dir` STAYS, which is a correction worth keeping
+
+The 768-byte listing looked exactly as dead as the icons: `dos_be_find`
 reaches `dsk_find_x`, which walks raw directory sectors through `dsk_secbuf`
-and never looks at the snapshot.
+and never touches the snapshot, and a probe of the running guest found the
+same "written, never read" shape for both arrays.
 
-**The path that skips it already existed and is already validated.**
-`[dsk_quiet]` is §18.9's *mount to read a file, not to show one* — what
-`dsk_chdir_q` takes in the kernel — and it leaves `[disk_nfiles]` 0,
-`[dsk_lstale]` 1 and `[dsk_mntok]` 1, which is a complete mount with the write
-gate open. A build with no listing takes it unconditionally, and that is a
-**fence rather than an optimisation**: the writers stage through `[dsk_doff]`,
-which is 0 there, so reaching one would put a directory entry on top of
-`dsk_secbuf`.
+**§96.47's live resume reads it.** `kdr_go` finds `HIBERNAT.IMG` with
+`dsk_find_name_x`, which walks `[disk_nfiles]` entries through
+`dsk_get_dir_x` — so the listing is what the loud `disk_mount_x` at the top of
+the resume exists to build, and a build that skipped it came back from a
+handoff and could not find the image. The two halves were one switch for a
+day; `tests/kdreturn.py` is what said so, going from 31 seconds to a timeout
+with the listing gone and nothing else changed.
 
-`DSK_WANT_LIST` is the switch and it is POSITIVE, set in two disjoint places
-because the answer is known at two different points — `kernel/dskwin.inc` for
-the kernel, `kerndos/kdlayout.inc` for the kerndos roots, which must decide it
-before `KD_LOW_KB` is cut from it. **`kerndos/kerndos.asm` asks for a
-listing**: its wave-3 gate asserts the entry count the mount synthesized, which
-is the whole of what that row checks. `kerndos/kdos.asm`, the root that ships,
-does not.
-
-`.lowbss` is **512 bytes** now — `dsk_secbuf` alone, still first and so still
-512-aligned, which §2.1.1 requires of the one `int 13h` transfer base. That
-leaves 1,536 for a stack whose measured high-water is **134** (§96.43.1),
-eleven times the figure, so **`KD_LOW_KB` falls 5 → 2**.
-
-**The floor is 42.0 KB against 46.0**, and with §96.44.6's kilobyte the DOS
-program is handed **589 KB**.
-
-**What is NOT claimed is a time saving.** The harvest is one sector read per
-type-1 entry and it looks expensive, but the one A/B taken was invalid — a
-25-file B: against a 1-file B:, when `kern_dos` mounts A: — and no honest
-measurement of it has been made. The memory is what this section rests on.
+**The rule it is a worked example of**: a claim that a buffer is dead is a
+claim about the whole tree at one moment, and a capability landing in the same
+cycle can make it false without touching the buffer. The gate is what notices,
+which is why the resume's row is worth more than the measurement was.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
@@ -127706,3 +127696,339 @@ and the live restore re-run `mouse_init` from scratch on the way up.
 Getting this wrong is the handover's own failure in the other direction: an
 unmasked line with a byte behind it, vectoring into whatever loads at `KD_SEG`
 next.
+
+### 96.46 The volume table is the KERNEL's, and it was hard-coded
+
+`kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
+STATIC initialiser — A: and B: as `DVK_BIOS` units 0 and 1, every other row
+`DVK_FREE`. In the kernel that is exactly right: it is the starting point a
+boot probe then edits. Over here nothing ever edits it, and the two diverge on
+ordinary machines:
+
+- **the fixed disk was not there at all.** §18.7.1 pins the boot partition at
+  **row 2** — `dsk_flop_add` skips that row so a floppy cannot take it first —
+  and row 2 of the initialiser is `DVK_FREE`. So a machine with a hard disk
+  handed `kern_dos` a volume index it read as no volume, and a program on C:
+  could not start. `tests/kdreturn.py` says so in its own fixture comment and
+  runs its program off a floppy to sidestep it;
+- **and row 1 is live here on a machine with no B:.** `dsk_fdd_retire` frees
+  it in the kernel when §18.97's probe finds no second drive, and nothing
+  frees it over here — so drive B: exists, answers, and is a unit the ROM has
+  nothing on.
+
+The volume index IS the DOS drive (§96.6), and the box hands `dos_vol` over as
+an index — so **an index resolved against a different table is a program
+reading a drive that is not its own.** Carrying the table is what makes that
+identity true rather than hoped for.
+
+| | |
+|---|---|
+| `KDL_NVOL` 28 | rows that follow; **0 = leave the built-in table alone** |
+| `KDL_BOOTV` 29 | which index the kernel booted from |
+| `KDL_HDSPT` 30, `KDL_HDHDS` 32 | the fixed disk's sectors-per-track and heads |
+| `KDL_VTAB` 34 | 8 rows of `db kind, db unit, dd base` |
+
+**The geometry is the half a row alone does not buy.** `dsk_boot_from_x` asks
+`int 13h AH=08h` once at boot and banks it, and that routine is in the BOOT
+OVERLAY, which `kern_dos` does not carry — while the mount that needs the
+answer is the read that *fetches the BPB*, so it cannot come from there
+either. Left at zero the mount keeps the floppy fallback of 9 sectors and 2
+heads and fails honestly, which is what a hard disk did here before this.
+
+**Only three fields of sixteen come over**, and the rest are not an oversight:
+`DV_FLAGS` bit 0 is a desktop zone and there is no desktop, `DV_CLASS` is 0 on
+every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT fills — writing them
+here would be staler than not — and `DV_LBL` is a label nothing draws. A
+`DVK_DRV` or `DVK_FILE` row cannot come at all, its transport being a loadable
+driver that does not exist on the other side, so the gather writes `DVK_FREE`
+for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume class* enforced
+at the gather instead of hoped for downstream.
+
+**A zero count means keep what we have**, which is `KDL_DPT`'s zero one field
+along and for its reason: the W4 gate stages its own block and knows no
+volumes, so it must be able to say *I cannot fill this* distinctly from
+filling it with zeros — which here would read as eight copies of BIOS unit 0,
+every drive letter pointing at A:.
+
+`KDL_VER` goes **2 → 3**, and the bump is owed even though `kern_dos` is part
+2 of `DOS.O88` and the box is part 0: those two are always in step, but the
+third writer is the KERNEL, which patches the header and is a different
+artefact on a different disk. An old `DOS.O88` under a new kernel is exactly
+what that word refuses.
+
+**MEASURED: 115 bytes of `kern_dos`'s image**, 35,361 → 35,476 of 35,840, so
+`KD_IMG_KB` does not move and the DOS program keeps its 585 KB — 364 bytes of
+that rung are left. `tests/kdhdd.py` is the gate, and it puts a different
+sixteen-byte marker in `KDDATA.TXT` on each volume: `KDHELLO.COM` opens that
+name with **no drive letter**, so the marker it prints back names the drive
+the open actually landed on, and "the volume is not there" (`(open failed)`)
+is a different picture from "it opened the wrong drive's copy".
+
+This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.
+
+### 96.47 A `goto` inside `kern_dos` was a full MOUNT, listing and all
+
+`dos_k_goto` is the back end's door for *stand in this folder on this volume*
+(§96.44.1), and it went to `dsk_chdir_x` — the kernel's **loud** chdir, which
+mounts unconditionally and then rebuilds the global directory listing.  Both
+halves are wrong over here.
+
+**The listing is drawn for nobody.**  `kern_dos` has no window, no file
+manager and no desktop, so `[disk_nfiles]` and the buffer the root-directory
+scan fills are read by no code in the build.  That scan is a whole `int 13h` —
+the root directory, 4 sectors on a 360KB volume and 9 on a 1.44MB one — which
+is **a third of what a mount costs**.
+
+**And a `goto` naming where we already stand cost a mount.**  Every named
+`int 21h` call brackets itself with `dos_fh_enter` / `dos_fh_leave` (§96.6.2),
+so a program opening file after file in one folder re-mounted its own volume
+on every one of them.  `dsk_chdir_q_x` asks `dsk_here_ok` first and that case
+becomes free.
+
+`dsk_chdir_q_x` is exactly *the same mount for a caller that is going to read
+or write a file here rather than show one* (§18.9), so nothing is being
+invented: the quiet path already exists and this is the caller it was written
+for.  The media half is honest here and not a shortcut — `dsk_media_ok`
+decides on the BIOS motor countdown at 0040:0040, and `dos_hook_vectors` does
+**not** hook `int 08h`, so the ROM's tick keeps decrementing it and a floppy
+that has been still for two seconds re-mounts exactly as it does under the
+kernel.  `[dsk_lstale]` is left owed and nothing pays it, which is the
+arrangement `kernel/instance.inc` already ships for the same reason.
+
+**MEASURED**, Test Drive III on an XT with a VGA, a 360KB A: and the game on a
+1.44MB B: (`tools/os88intmon.py`, the host-side `int 13h` watch, armed at the
+game's own *"shall I save these settings"* prompt and stopped at the first six
+guest seconds of silence — the phase the field report timed at "30 seconds"):
+
+| | `int 13h` calls | sectors | changes of drive | guest s |
+|---|---|---|---|---|
+| IBM DOS 3.30, the same disk in the same drive | 59 | 369 | 0 | 26.88 |
+| `kern_dos`, `dsk_chdir_x` | 107 | 633 | 31 | 30.61 |
+| `kern_dos`, `dsk_chdir_q_x` | **63** | **216** | 47 | 25.85 |
+
+Of the 107, **96 were mount traffic** — sixteen complete mounts of each drive,
+each one boot sector + FAT + root directory — and eleven read the program's
+data.
+
+**A mount is now ONE SECTOR**, which is more than the listing alone: with
+nothing asking for a directory, `dsk_fatw_want` has no reason to pull the FAT
+window either, so the boot sector is all that is read.  The A: column says it
+in one line — 24 transfers over **one** distinct place, `c0 h0 s1`.  216
+sectors is **below IBM DOS's own 369** for the same phase of the same
+program.
+
+The call count barely beats DOS's and the CHANGES OF DRIVE went *up*, 31 to
+47 — which is not a regression but the same alternation over fewer calls
+each.  That is §96.48's, and it is the half the field report was about.
+
+### 96.48 …and the ALTERNATION: a name may not drag the machine home
+
+§96.47 makes each mount cheaper.  This one removes most of them, and it is the
+half the field report was actually about — *"it reads B, then A, then B, then
+A, taking 30 seconds where DOS takes 2"*.
+
+**Under DOS a drive letter in a name does not move the program** (§96.6.2): it
+selects which drive's current directory the name resolves against, and `AH=0Eh`
+alone moves it.  Our back end resolves against whatever is MOUNTED, so that was
+spelled *go there and come back* — `dos_fh_enter` switches, `dos_fh_leave`
+switches back, and the bracket IS the implementation rather than a shortcut.
+
+The cost of the second half is the whole finding.  A program standing on A:
+and naming `B:DATAA.DAT` pays **two complete volume mounts per call**, and the
+`int 13h` trace is unmistakable — a mount of B:, a mount of A:, sixteen times
+over, with three data reads among them:
+
+```
+  0 B: AH=02 c0  h0 s1  n=1     the boot sector
+  1 B: AH=02 c0  h0 s2  n=9     the FAT
+  2 B: AH=02 c0  h1 s2  n=9     the root directory
+  3 A: AH=02 c0  h0 s1  n=1     ...and all of it again, coming home
+  4 A: AH=02 c0  h0 s2  n=8
+  5 A: AH=02 c0  h0 s6  n=4
+```
+
+**Coming home is what has to go.**  Where the machine physically stands is a
+CACHE and not a fact a program can observe: `AH=19h` answers `[dos_vol]`,
+`AH=47h` answers `[dos_curdir]`, and a bare name resolves against those two —
+none of which says anything about which volume happens to be mounted.  So the
+machine may be left wherever the last name put it, and moved only when the
+next resolution actually needs it elsewhere.
+
+Two cells carry that: **`[dos_pvol]` and `[dos_pdir]`, where the machine is**,
+written by `dos_be_goto` itself so that no caller can forget and there is one
+place that can lie.  `dos_fh_enter` computes the pair the name resolves
+against — `[dos_fdrv]` when it carries a letter and `[dos_vol]` when it does
+not, with that drive's banked directory — and calls `dos_be_goto` only when it
+differs from the pair we are standing on.  `dos_fh_leave` moves nothing.
+
+**The user's own question is the rule, one level in**: *if it is already on
+the right drive it should not even try to switch*.  It already did not — the
+`cmp dl, [dos_vol] / je .none` at the head of `dos_fh_enter` is that test —
+but it asked the LOGICAL drive, which is A: throughout this trace while the
+machine stands on B:.  Asked against the PHYSICAL one it answers yes on every
+call after the first.
+
+`dos_drv_sel` (`AH=0Eh`) stops moving the machine too: it banks the outgoing
+drive's directory, sets `[dos_vol]`, recalls the incoming one's, and leaves
+the mount to whichever name comes next — which is nearer to what a real DOS
+does than the eager version was, and deletes a mount from every drive change
+a program makes for its own reasons.
+
+**What it does NOT change**: `[dos_vol]`, `[dos_curdir]` and the per-drive
+bank are all untouched, so every answer a program can read is the answer it
+read before.  A volume that cannot be mounted still refuses with DOS's own
+code 3, at the one place that tries.
+
+#### 96.48.1 The bracket is in THREE places, and two of them are the file window
+
+`dos_fh_enter`/`dos_fh_leave` is the one a name goes through.  It is not the
+only one: **`dos_fh_fill.onvol` and `dos_fh_flush` each carry their own**,
+through `dos_vol_to` — *the bytes come from where the FILE is, not from where
+the program is standing* (§96.6.2) — and those two are the path every
+windowed `AH=3Fh` and every window write actually take.
+
+So `dos_drv_sel` no longer mounting is not a local change: left alone, those
+two would have moved the program's drive and then read the right name **off
+the wrong disk**, which is a wrong answer and not a failure.  `dos_vol_to` is
+therefore split in two:
+
+| | |
+|---|---|
+| `dos_vol_to` | the program's drive **and** the machine — for a caller about to make a back-end call |
+| `dos_vol_park` | the program's drive alone, leaving the machine where the work was — for a caller coming HOME |
+
+Both "walk home" sites become `dos_vol_park`, and that is what makes a read
+loop over one file cost **one** mount rather than two per call: the machine
+stays on the file's volume, and `dos_fh_stand` finds it already there on
+every refill after the first.
+
+#### 96.48.2 …and the path walk roots on the volume we are STANDING on
+
+`dos_walk_at` starts an absolute path at *the volume root* and reached it
+with `mov bl, [dos_vol]`.  That was right while `dos_fh_enter` switched the
+PROGRAM to the named drive as well - the two were the same volume - and it is
+wrong the moment they can differ: `A:\*.*` from a program standing on B:
+stood the machine on A: and then walked to **B:'s** root, so the search ran
+on the drive the program was on and the letter was silently dropped.
+
+Both gotos inside the walk take `[dos_pvol]` now.  `tests/dosdrv.py` is what
+caught it, in the shape its own message names - *found `DRVNAME.COM`, which
+is not a name A: has and B: has not* - which is the value of a row that
+compares against the OTHER drive's listing rather than against a count.
+
+**And the walk had a SECOND caller with the same idiom.**  `dos_path_take`
+- the path box's parser (§96.32) - set `[dos_vol]` to the drive the typed
+path named, called `dos_walk_pbuf`, and put `[dos_vol]` back if the walk
+refused, its own comment saying *"dos_walk_pbuf reads `[dos_vol]` rather
+than taking it, so it has to be set for the walk"*.  That is now said by
+STANDING on the drive instead, and the rollback goes with it: nothing is
+changed, so a typo leaves the box exactly where it was.  The arm falls into
+`.commit` rather than past it, `[dos_vol]` no longer being set already by
+the time it gets there.  `tests/dosargs.py` is what caught that one - a
+typed `B:\BIN\DOSARGS.COM /Q R:1` whose tail came back `(none)`, because
+the path had stopped resolving at all.
+
+#### 96.48.3 Every BANKED volume is the machine's, and there are three
+
+The walk is not the only place that had `[dos_vol]` standing in for *the
+volume this name landed on*.  Three cells bank a volume at the moment a name
+resolves and spend it much later, and all three were written from the
+program's drive on the reasoning that `dos_fh_enter` was still standing
+there:
+
+| | banked at | spent at |
+|---|---|---|
+| `FH_VOL` | `AH=3Dh` open and `AH=3Ch` create | every refill and flush of that handle's window |
+| `DTA_VOL` | `AH=4Eh` find first | `AH=4Fh` find next, which reads it back into `[dos_fdrv]` |
+| `dos_rnvol` | `AH=56h` rename | the SECOND name, for which it means *unqualified* |
+
+The first two are the machine's and take `[dos_pvol]`; the third is the
+program's and stays `[dos_vol]`, because *what an unqualified name means* is
+exactly the drive the program is on.  Getting `FH_VOL` wrong is the sharp
+one and `tests/dosdrv.py` names it: *a file opened as `A:AONLY.TXT` while
+standing on B: could not be read* - the handle recorded B:, and every later
+read of it went to the wrong disk under the right name.
+### 96.49 The live resume — the session comes back without a boot
+
+W6 got the machine home by `int 19h`: a POST, a whole boot, and then os8088's
+own `hb_probe` finding the hibernation pointer and resuming. This puts the
+image back **here**, at `kd_leave`, with nothing in between — `kern_dos` reads
+`HIBERNAT.IMG` over conventional memory and jumps to the kernel's wake
+address, which is exactly what §87.5's stub does for an ordinary resume.
+
+**MEASURED: 4.03 guest seconds against 15.4**, MartyPC, `tests/kdreturn.py`'s
+own fixture, stamped on the first graphics frame so the figure is the return
+and not the harness's settle.
+
+docs/plans/KERN-DOS-PLAN.md 8.1 refused this at ~1,200 bytes, and **the size
+estimate was sound — it is 996 — while its other argument was wrong about
+*when***. That argument was that the extent list cannot be bounded cheaply
+because *"the one place it could live is `kern_dos`'s own image: the text
+framebuffer is not available, since the DOS program prints into it."* True
+during the program; this runs after it has exited, with the screen about to be
+overwritten by the image anyway. So the list goes where the kernel's own goes,
+at `HS_EXT`, and costs the image nothing: 1,280 extents of video RAM that no
+rung of the ladder owns, and no cap, no new refusal.
+
+What it does cost is the stub, which is irreducible — it has to BE somewhere
+to be staged. `kernel/hbstage.inc` (the map) and `kernel/hbstub.inc` (the
+~440-byte body) are shared as SOURCE with `kernel/hiber.inc`, in the shape
+§96.45 used for the mouse packet: two stagers, one layout, neither able to
+call the other. **The section is the includer's choice** — `.modh` over there
+and `.text` here — which is why the body is a file rather than a macro.
+
+**One thing in the stub could not stay an assembly constant.** It ended
+`mov ax, KERNEL_SEG` before jumping to the wake address, and `KERNEL_SEG` is
+`KD_SEG` — 0x0060 — inside `kern_dos`, so a shared copy would hand the resumed
+kernel a DS of 96 and nothing would say so. It is staged now (`HS_KSEG`), by
+whoever stages the rest. It cannot be taken from `HS_WAKE` either: that
+segment is the hibernate *module's* CS.
+
+The launch block carries four things only the kernel knows — `KDL_WAKE`,
+`KDL_KSEG`, `KDL_HBVOL` and `KDL_CLK` — gathered at step 3b, the one point in
+the handoff where all four are settled. `KDL_VER` goes 3 → 4.
+
+**The clock block is ten bytes and two of them are not a clock.** `hbm_wake`
+copies `HS_CLK` into `clk_sec`, and that block is sec/min/hour/day/mon then
+**`clk_rtc` and `clk_dirty`** then the year — whether a usable RTC was found
+and whether it is owed a write. `kern_dos` cannot know either, so the block
+carries the kernel's own ten and only the *time* fields are overwritten, from
+the ROM through `cw_clk_snapshot`. A zeroed block would tell the resumed
+machine it has no clock hardware.
+
+**EVERY REFUSAL FALLS BACK TO `int 19h`**, which is W6's route and works. A
+machine that cannot mount its volume, find its image or walk its chain reboots
+and resumes the long way instead of losing the session — so the fast path is
+an optimisation and never a new way to fail. That fallback is not theoretical:
+it is what ran, correctly, through two defects below.
+
+**MEASURED: 996 bytes, and this one crosses the rung.** The image goes 35,476
+→ 36,472, `KD_IMG_KB` 35 → 36, and the DOS program **585 KB → 584**. 392 bytes
+of the new rung are left.
+
+#### 96.49.1 Two defects, and the expensive one was not in the code
+
+**The size of a staged entry is at offset 20.** `kd_resume` read it at 28,
+which is where a raw FAT record keeps it — and §19.1's *synthesized* entry
+declares bytes 24..31 zero, so the read returned a confident nothing, the walk
+refused, and `kd_leave` fell back. The only symptom was a return that took
+fifteen guest seconds instead of four. It is the same trap as the first
+cluster being at 18 and not 26 (§96.37.1 item 4), one field along.
+
+**And the first version sized the walk from `[kd_top]`**, because that is what
+`hbm_extents` does with `[mem_top]`. They are different quantities — the
+kernel writes `[mem_top]` paragraphs and this host knows only a cap the box
+banked out of the BDA — so a machine where they disagree restores SHORT. The
+directory entry's own length is the one figure both sides agree on.
+
+**The expensive one was neither.** `kerndos/kdresume.inc`, `hbstage.inc` and
+`hbstub.inc` were not in the Makefile's `KERNDOS_INC`, so `make kdostest`
+rebuilt nothing and every run for an hour exercised the FIRST version of the
+file — presenting as a session that came back with the kernel intact and the
+package heap full of rubbish, a window titled with 24 bytes of 0x86, because a
+region is claimed top-down and so lives in the tail. `t_pkgdeps` exists for
+exactly this and catches it on a full `make`; `make kdostest` does not run it.
+The lesson is not about prerequisites, which were added: it is that a
+diagnosis should start by checking that the artefact under test is the one the
+source describes — `cmp` against a fresh assembly took one command and would
+have saved the hour.

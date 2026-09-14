@@ -64,3 +64,8 @@
     DOSC_E dsh_to11
     DOSC_D dsh_s_bad
     DOSC_D dsh_s_ver
+; **APPENDED, never inserted** (SPEC.md 96.48.2): the path box's parser stands
+; the machine on the drive a typed path names, because the walk follows
+; `[dos_pvol]` now rather than `[dos_vol]`, and `dos_path_take` is on the
+; WINDOW side of the seam. One entry, at the end, so no slot before it moves.
+    DOSC_E dos_fh_stand

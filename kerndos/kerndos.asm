@@ -16,15 +16,6 @@
 cpu 8086
 bits 16
 
-; **THIS ROOT WANTS THE MOUNT'S LISTING** (SPEC.md 96.44.7), and it is the only
-; one that does. `kdgate.inc` below asserts the entry count `disk_mount`
-; synthesized - which IS what this gate checks, the whole claim being that the
-; kernel's disk layer works outside the kernel - so the arrays it fills have to
-; be here. `kerndos/kdos.asm`, the root that ships, has no window to draw one
-; in and leaves 2,816 bytes of `.lowbss` out; this one pays for them and
-; `KD_LOW_KB` follows (kdlayout.inc reads this).
-%define KD_LIST
-
 %include "kdlayout.inc"         ; the segment ladder and the sizes
 
 ; THE SECTIONS, DECLARED IN THE ORDER THEY LAND, which is the kernel's rule

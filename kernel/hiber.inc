@@ -74,39 +74,8 @@ HBP_DOS     equ 16              ; db 1 = THIS WAS NOT THE USER LEAVING THE
 HBP_PAD     equ 17              ; db 0
 HBP_SIZE    equ 18              ; front of it are hbm_ptrfix, one description
 
-; --- the staging area in the text framebuffer (SPEC.md 87.5) -----------------
-; B800:0000 (or B000:0000 on a Hercules primary), which vid_reboot has just
-; made a linear 16KB+ of RAM that no rung of the ladder owns. The stub's CS,
-; DS and SS are all this segment, and every datum it reads is at one of
-; these offsets - numeric, so the stub is position-independent.
-HS_CODE     equ 0x0000          ; the stub, up to HS_CODE_MAX bytes
-HS_CODE_MAX equ 0x0400
-HS_UNIT     equ 0x0400          ; dw the int 13h drive
-HS_SPT      equ 0x0402          ; dw sectors per track
-HS_HEADS    equ 0x0404          ; dw heads
-HS_NX       equ 0x0406          ; dw extents
-HS_WAKE     equ 0x0408          ; dd hbm_wake, off:seg
-HS_MASKM    equ 0x0410          ; db the master PIC's mask before the stub
-HS_MASKS    equ 0x0411          ; db ...and the slave's
-HS_CLK      equ 0x0412          ; db[10] clk_sec..clk_year of the fresh boot
-HS_LBA      equ 0x0420          ; dd the run's first LBA (scratch)
-HS_LEFT     equ 0x0424          ; dw sectors left in this extent
-HS_K        equ 0x0426          ; dw the file sector index = linear / 512
-HS_N        equ 0x0428          ; dw sectors in the call being issued
-HS_CHS      equ 0x042A          ; dw CX, dw DX as int 13h wants them
-HS_DOSCODE  equ 0x043A          ; dw the DOS program's exit code on a handoff
-                                ; return, 0xFFFF = an ordinary resume. IT NEEDS
-                                ; NO STUB CODE AT ALL: hbm_wake already reads
-                                ; the staging area for HS_CLK, and the stub
-                                ; never writes into that segment
-HS_SLAVE    equ 0x042E          ; db 1 = there is a second 8259 to mask and
-                                ; put back; 0 on an XT, whose port 0xA0 is
-                                ; the NMI mask register (SPEC.md 9.9.2)
-HS_IVT      equ 0x0500          ; db[1024] file sectors 0..1, the IVT
-HS_EXT      equ 0x0A00          ; {dd lba, dw count} x HS_XMAX
-HS_XMAX     equ 1280            ; one per sector of a 640KB image at worst
-HS_XSTRIDE  equ 6                ; ...and one entry's bytes
-HS_STACK    equ 0x3FF0          ; the stub's stack top: under a CGA's 16KB
+%include "hbstage.inc"        ; SPEC.md 87.5's staging map, shared as SOURCE
+                              ; with kerndos/kdresume.inc (SPEC.md 96.49)
 
 ; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
 ; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
@@ -143,6 +112,19 @@ KDL_FLAGS   equ 6               ; dw in the block: KDLF_*
 KDL_UNIT    equ 12              ; dw ...and the unit `int 19h` is to boot from,
                                 ; which is also the kernel's to fill
 KDL_MOUBASE equ 14              ; dw the serial mouse's UART base, 0 = none
+KDL_NVOL    equ 28              ; db rows of volume table, 0 = leave the
+                                ; built-in one alone (SPEC.md 96.46)
+KDL_BOOTV   equ 29              ; db ...and which index the kernel booted from
+KDL_HDSPT   equ 30              ; dw the fixed disk's sectors per track...
+KDL_HDHDS   equ 32              ; dw ...and its heads, which the boot overlay
+                                ; probes once and kern_dos cannot ask for
+KDL_VTAB    equ 34              ; db kind, db unit, dd base - per volume
+KDL_WAKE    equ 82              ; dd where a live resume re-enters the kernel
+KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.49)
+KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on
+KDL_CLK     equ 90              ; db[10] the kernel's own clock block
+KDL_VROW    equ 6
+KDL_VMAX    equ 8
 KDL_MOULINE equ 27              ; db ...and its bit in the master 8259's mask.
                                 ; The kernel's fields for SPEC.md 96.45's
                                 ; reason: `mouse_init` settled the port and
@@ -1781,6 +1763,10 @@ hbm_res:
     mov di, HS_CLK              ; bytes, clk_sec..clk_year, and NOT the two
     mov cx, 5                   ; display toggles after them, which are the
     rep movsw                   ; image's to keep
+    mov word [es:HS_KSEG], KERNEL_SEG   ; the segment the stub used to spell
+                                ; as a constant (kernel/hbstage.inc): it means
+                                ; something else in the other host, so it is
+                                ; staged by whoever stages
     mov ax, [hb_doscode]        ; ...and the DOS program's exit code, if this
     mov [es:HS_DOSCODE], ax     ; resume is a handoff coming home. NO STUB CODE
                                 ; AT ALL: hbm_wake reads this segment anyway
@@ -1951,6 +1937,34 @@ hbm_dosrun:
     ; return working and `kd_leave` posting nothing, which is a machine that
     ; comes back with no exit code in it.
     or word [cs:hbm_dosrec + KDH_LB + KDL_FLAGS], KDLF_HIBER
+    ; --- ...AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) --------------------
+    ; Here and nowhere else: `hb_vol` is `hb_pick_x`'s answer four lines up
+    ; and `hb_wakep` is what `hbm_wrimg` has just written into the pointer, so
+    ; this is the one point in the handoff where all four are settled. They go
+    ; into the RECORD's copy and not the stage's, for `KDLF_HIBER`'s own
+    ; reason immediately below - step 5 copies the record over the stage.
+    mov ax, [hb_wakep]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_WAKE], ax
+    mov ax, [hb_wakep + 2]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_WAKE + 2], ax
+    mov word [cs:hbm_dosrec + KDH_LB + KDL_KSEG], KERNEL_SEG
+    mov al, [hb_vol]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_HBVOL], al
+    push si
+    push di
+    push cx
+    mov si, clk_sec             ; the ten `hbm_wake` puts back, ours because
+    mov di, hbm_dosrec + KDH_LB + KDL_CLK   ; two of them are clk_rtc and
+    mov cx, 10                  ; clk_dirty and nothing over there can know
+.hbclk:                         ; them (kernel/clock.inc)
+    mov al, [si]
+    mov [cs:di], al
+    inc si
+    inc di
+    loop .hbclk
+    pop cx
+    pop di
+    pop si
     mov word [hb_dosseg], 0     ; the post is spent HERE, and the image has it
     jmp short .staged
 .noimg:
@@ -2047,6 +2061,73 @@ hbm_dosrun:
     mov al, [mou_line]
     mov [es:KDS_LB + KDL_MOULINE], al
 .nomouse:
+    ; --- AND THE VOLUME TABLE, WHICH WAS HARD-CODED OVER THERE (96.46) ------
+    ; `kern_dos` assumed A: and B: as BIOS units 0 and 1 and every other row
+    ; free, and os8088 BUILDS its table at boot. SPEC.md 18.7.1 pins the boot
+    ; partition at ROW 2, which that initialiser has FREE - so a machine with
+    ; a fixed disk hands over a volume index kern_dos reads as no volume at
+    ; all; and row 1 stays live there on a machine whose second floppy the
+    ; kernel retired. The box hands `dos_vol` over as an INDEX into that
+    ; table, so an index resolved against a different one is a program
+    ; reading a drive that is not its own.
+    ;
+    ; A NON-BIOS ROW IS WRITTEN FREE rather than carried: a DVK_DRV volume's
+    ; transport is a loadable driver and a DVK_FILE one has no sectors at all
+    ; (SPEC.md 62.9), and neither exists on the other side. That is lever 4's
+    ; one volume class enforced at the gather instead of hoped for downstream.
+    ; SI IS THE ROW NUMBER and both offsets are scaled off it, because the
+    ; two tables have different strides: `dsk_vtab` is DV_SIZE = 16 and
+    ; `dsk_vbase` is a 4-byte side table (SPEC.md 52.10.3). Keeping one
+    ; running pointer for both is the arithmetic that gets written wrong.
+    xor si, si
+    mov di, KDS_LB + KDL_VTAB
+.vrow:
+    mov al, DVK_FREE
+    cmp si, DVOL_MAX            ; this kernel may have FEWER rows than the
+    jae .vfree                  ; block has room for - kern_small's four -
+                                ; and the tail is FREE rather than absent
+    mov bx, si
+    mov cl, 4
+    shl bx, cl
+    add bx, dsk_vtab
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .vfree
+    mov al, [bx+DV_UNIT]
+    mov [es:di+1], al
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    add bx, dsk_vbase           ; ...and the partition base, 0 on a floppy
+    mov dx, [bx]
+    mov [es:di+2], dx
+    mov dx, [bx+2]
+    mov [es:di+4], dx
+    mov al, DVK_BIOS
+    jmp short .vput
+.vfree:
+    mov byte [es:di+1], 0
+    mov word [es:di+2], 0
+    mov word [es:di+4], 0
+.vput:
+    mov [es:di], al
+    add di, KDL_VROW
+    inc si
+    cmp si, KDL_VMAX
+    jb .vrow
+    mov byte [es:KDS_LB + KDL_NVOL], KDL_VMAX
+    mov al, [dsk_bootvol]
+    mov [es:KDS_LB + KDL_BOOTV], al
+    ; ...AND THE FIXED DISK'S GEOMETRY, which is the half a row alone does not
+    ; buy. `dsk_boot_from_x` asks `int 13h AH=08h` once at boot and banks it,
+    ; and that routine is in the BOOT OVERLAY - so kern_dos cannot ask the
+    ; question, and the mount that needs the answer is the read that FETCHES
+    ; the BPB, so it cannot come from there either. Left at zero the mount
+    ; keeps the floppy fallback of 9 sectors and 2 heads and fails honestly,
+    ; which is what a hard disk did over there before this.
+    mov ax, [dsk_bootspt]
+    mov [es:KDS_LB + KDL_HDSPT], ax
+    mov ax, [dsk_boothds]
+    mov [es:KDS_LB + KDL_HDHDS], ax
     pop bx
     mov si, dsk_dpt             ; **THE DISKETTE PARAMETER TABLE IS OURS AND NOT
     mov di, KDS_LB + KDL_DPT    ; THE BOX'S**, so the block is patched here
@@ -2883,175 +2964,8 @@ kds_stub_end:
   %error "hiber: the DOS handoff stub is bigger than its staging slot"
 %endif
 
-hbs_stub:
-    mov ax, cs
-    mov ds, ax
-    mov ss, ax
-    mov sp, HS_STACK
-    cld
-    mov word [HS_K], 0
-    mov si, HS_EXT
-    mov cx, [HS_NX]
-.extent:
-    or cx, cx
-    jnz .have
-    jmp .done
-.have:
-    push cx
-    mov ax, [si]
-    mov [HS_LBA], ax
-    mov ax, [si+2]
-    mov [HS_LBA+2], ax
-    mov ax, [si+4]
-    mov [HS_LEFT], ax
-.run:
-    cmp word [HS_LEFT], 0
-    je .nextext
-    ; --- CHS of [HS_LBA] (hd_chs's one div pair), and the track's remainder --
-    mov ax, [HS_LBA+2]
-    xor dx, dx
-    div word [HS_SPT]
-    mov bx, ax                  ; BX:AX = track after the second div...
-    mov ax, [HS_LBA]
-    div word [HS_SPT]           ; ...and DX = sector - 1
-    mov cx, [HS_SPT]
-    sub cx, dx                  ; CX = sectors from this one to the track end
-    mov [HS_N], cx
-    inc dx
-    push dx                     ; the sector, 1-based
-    mov dx, bx
-    div word [HS_HEADS]         ; AX = cylinder, DX = head
-    pop bx                      ; BL = the sector
-    mov dh, dl                  ; DH = head
-    mov dl, [HS_UNIT]           ; DL = drive
-    mov ch, al                  ; CH = cylinder low 8, CL = sector | high 2
-    mov cl, ah
-    ror cl, 1
-    ror cl, 1
-    and cl, 0xC0
-    or cl, bl
-    mov [HS_CHS], cx
-    mov [HS_CHS+2], dx
-    ; --- the run: to the track's end, the extent's end, the DMA page ---------
-    mov cx, [HS_N]
-    cmp cx, [HS_LEFT]
-    jbe .cap1
-    mov cx, [HS_LEFT]
-.cap1:
-    mov bx, [HS_K]
-    cmp bx, 3
-    jae .high
-    mov cx, 1                   ; file sectors 0..2 go to 0060:0000, singly
-    mov bx, 0x0060
-    jmp short .go
-.high:
-    push cx
-    mov cl, 5
-    shl bx, cl                  ; ES = k * 32: linear k * 512
-    mov ax, bx
-    and ax, 0x0FFF
-    neg ax
-    add ax, 0x1000              ; paragraphs to the 64KB page's end...
-    shr ax, cl                  ; ...in sectors
-    pop cx
-    cmp cx, ax
-    jbe .go
-    mov cx, ax
-.go:
-    mov [HS_N], cx
-    mov es, bx
-    xor bx, bx
-    mov di, 3                   ; tries
-.try:
-    mov ax, [HS_N]
-    mov ah, 0x02
-    mov cx, [HS_CHS]
-    mov dx, [HS_CHS+2]
-    sti                         ; the ROM wants its interrupts on an AT
-    int 0x13
-    jnc .ok
-    xor ah, ah
-    mov dl, [HS_UNIT]
-    int 0x13                    ; reset, and again
-    dec di
-    jnz .try
-    jmp short .fail
-.ok:
-    mov bx, [HS_K]
-    cmp bx, 2
-    jae .advance
-    ; --- file sector 0 or 1: the IVT, into the staging area for later -------
-    push ds
-    push si
-    mov cl, 9
-    shl bx, cl
-    add bx, HS_IVT
-    mov di, bx
-    mov ax, cs
-    mov es, ax
-    mov ax, 0x0060
-    mov ds, ax
-    xor si, si
-    mov cx, 256
-    rep movsw
-    pop si
-    pop ds
-.advance:
-    mov ax, [HS_N]
-    add [HS_K], ax
-    add [HS_LBA], ax
-    adc word [HS_LBA+2], 0
-    sub [HS_LEFT], ax
-    jmp .run
-.nextext:
-    add si, HS_XSTRIDE
-    pop cx
-    dec cx
-    jmp .extent
-.done:
-    cli                         ; --- the IVT goes back last, under cli ------
-    xor ax, ax
-    mov es, ax
-    xor di, di
-    mov si, HS_IVT
-    mov cx, 512
-    rep movsw
-    mov al, [HS_MASKM]
-    out 0x21, al
-    cmp byte [HS_SLAVE], 0
-    je .noslave
-    mov al, [HS_MASKS]
-    out 0xA1, al
-.noslave:
-    mov ax, KERNEL_SEG
-    mov ds, ax                  ; ...and NOT SS:SP - hbm_wake builds its own
-    jmp far [cs:HS_WAKE]        ; out of the memory it has just put back
-.fail:
-    mov ah, 0x02                ; the cursor to row 8 first: rows 0-2 of this
-    xor bh, bh                  ; page ARE the stub, and the ROM's teletype
-    mov dx, 0x0800              ; writes at the cursor the mode set homed. Row
-    int 0x10                    ; 8 is the IVT copy, dead on this path, and
-    mov si, hbs_s_fail - hbs_stub   ; three lines from there never scroll
-.ch:
-    mov al, [si]
-    or al, al
-    jz .key
-    mov ah, 0x0E
-    mov bx, 0x0007
-    int 0x10
-    inc si
-    jmp short .ch
-.key:
-    xor ah, ah
-    int 0x16
-    int 0x19
-    jmp $
-hbs_s_fail: db 13, 10, 'Resume failed: the disk could not be read.', 13, 10
-            db 'Press any key to restart.', 13, 10, 0
-hbs_stub_end:
-%if hbs_stub_end - hbs_stub > HS_CODE_MAX
-  %error "hiber: the resume stub is bigger than its staging slot"
-%endif
+%include "hbstub.inc"         ; ...and the stub's body, in THIS host's
+                              ; `.modh` - the section is the includer's
 
 ; =============================================================================
 ; The image's own data (SPEC.md 2.8.6): strings read through CS, and the
