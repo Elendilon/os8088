@@ -1617,3 +1617,44 @@ overlays = [
     bus_type = "ISA"
     type = "CGA"
     clock_mode = "Dynamic"
+
+# ...AND THE SAME MIXED PAIR WITH A VGA IN IT (SPEC.md 96.40.5)
+#
+# os8088_5150_cga_gla_mix's drives on an XT with a VGA, which exists because
+# **a DOS game of the period often cannot use a 1983 adapter at all**: Test
+# Drive III offers VGA, EGA or Tandy and nothing else, so on any CGA or
+# Hercules machine in this file its opening question has one answer - Exit to
+# DOS - and the program under test never starts. A 1.44MB B: is the other
+# half: a game disk is megabytes, and every VGA machine here has two 360KB
+# drives.
+#
+# Take no PERFORMANCE.md number off it for its CGA twin's reason, and note
+# that a 5150 could not carry a VGA at all - this is a 5160, which is why the
+# type differs from the machine it is otherwise a copy of.
+[[machine]]
+name = "os8088_xt_vga_mix"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "360k"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"
