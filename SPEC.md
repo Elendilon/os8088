@@ -126749,3 +126749,71 @@ capacity, so the window cannot be deleted, only made smaller — which buys
 memory by costing `dos_be_rdat` calls. The tail is `.cold`'s 11,407 bytes of
 disk layer, whose largest single family is 743. Neither is a size question any
 more; both are somebody's judgement about what arm 3 is for.
+
+### 96.44 The core, on its own — one file behind two defines
+
+docs/plans/KERN-DOS-PLAN.md §4.1.3's finding is that the DOS core is inside
+`DOS.O88` **twice** once `kern_dos` ships as a part of it, and that extracting
+it is worth about 12 KB of every system disk for ever. §96.43's gating is what
+makes that cheap, because it turns out the same marks do both jobs.
+
+**`apps/dos/dos.asm` carries THREE populations and each is marked where it
+stands.** Nothing was moved:
+
+| | marked | what it is |
+|---|---|---|
+| the window half | `%ifndef KD_BACKEND` (§96.43.2) | what `kern_dos` leaves out |
+| **the core** | **`%ifndef DOS_EXTCORE`** | what a HOST leaves out |
+| the container | neither | the package header, the constants, the `DBSS` table, the bss equates and the includes at the foot — every build wants these |
+
+So `apps/dos/doscore.asm` is `KD_BACKEND` with no host round it, and a host is
+`DOS_EXTCORE` with no core in it. **141 spans are marked**, found by
+classifying every top-level label by whether `kerndos/kdos.asm` compiles it and
+then trimming each span at the first line that is container material — an
+`%assign`, a top-level `equ`, a `%macro` or a `DBSS` row — and at the last line
+still at its own preprocessor depth. Two were marked by hand (`dos_mou_read`,
+whose own `%ifdef KD_BACKEND` arms straddle the boundary, and
+`dos_mcb_resize`), and **seven were marked and then un-marked**: `dos_pkgwhere`,
+`dos_handoff`, `dos_hasfixed`, `dos_wholeask`, `dos_wholedone`, `dos_lbfill`
+and `dos_s_wholeq` live inside `%ifdef DOSKPART`, which the box defines and
+`kern_dos` does not, so they are arm 3's POSTING code and belong to the box.
+
+**The marking is CHECKED and not asserted, twice over.** `build/dos.o88` came
+out md5-identical through all of it — a mark nothing defines emits nothing —
+and `build/doscore.bin` is in the default build so that a span marked core that
+is really the container, or a core routine that still names a host symbol,
+fails there. Neither host would ever notice: each carries the other's half.
+
+**The core measures 14,409 bytes and names three things outside itself**:
+`os88_image_end` (where the `DBSS` table is based — a label in the package and
+a constant to the core, because its bss must sit at the same offset whichever
+host it joins), `DVOL_MAX`, and `dos_bevec`. That is the plan's own
+*"core → box is ZERO"* made good rather than asserted.
+
+#### 96.44.1 …and the twenty-two doors become an ORDINAL
+
+`dos_be_goto` used to be `mov word [dos_betgt], dos_k_goto` — the ADDRESS of a
+host routine, so the core could only ever be assembled into that host. It
+stores `DBE_GOTO` now, and `dos_be_go` turns the ordinal into an address
+through `dos_bevec`, which the host fills before the first door is used
+(`dos_be_bind` in the box, `kdb_bevec` in `kern_dos`, each from its own table).
+
+**Nine bytes, once, rather than two per door.** BX is an INPUT to five of the
+twenty-two — `DBE_READ`'s buffer among them — and AX to `DBE_RDAT`, so the
+lookup cannot sit in the stubs without a push and a pop in each; it goes at the
+top of `dos_be_go`, which every door reaches and which already banks registers.
+
+Two things came out of doing it:
+
+- **`dos_fh_fill` has its own copy of the mechanism** and it had to move with
+  them. `[dos_fvtgt]` is stashed and then written into `[dos_betgt]` by
+  `.onvol`, so leaving it an address would have had `dos_be_go` resolve a
+  pointer as an index — a wild call on the one path every windowed file read
+  takes. It stores `DBE_RDAT`/`DBE_READ` now.
+- **`dos_be` was DEAD**, and it was the table this change needed. Twenty-two
+  words in `DBE_*` order naming every `dos_k_*`, defined since §96.4 and read
+  by nothing; the two host tables are it, moved to the side of the seam that
+  can name those routines. 44 bytes out of both builds.
+
+The cost is **+84 bytes of the box's image and +44 of its bss**, +128 of
+`kern_dos`, and the core stops being host-specific.

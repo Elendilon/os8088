@@ -148,6 +148,12 @@ kd_entry:
     pop si
 .nodpt:
 
+    call kdb_bevec              ; **THE BACK END, BEFORE ANY DOOR** (SPEC.md
+                                ; 96.44.1): the core stores a DBE_* ordinal and
+                                ; dos_be_go resolves it through `dos_bevec`, so
+                                ; this comes before the mount and before
+                                ; dos_fh_setup - both of which are doors
+
     ; --- the arena ------------------------------------------------------------
     ; A real DOS puts the program straight above itself and gives it
     ; everything to the top of memory. So does this: no heap, no claim, no

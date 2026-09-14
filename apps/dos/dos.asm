@@ -495,6 +495,10 @@ dos_entry:
     push dx
     push si
     push di
+    call dos_be_bind            ; **THE BACK END, BEFORE ANY DOOR** (SPEC.md
+                                ; 96.44.1): the core stores a DBE_* ordinal and
+                                ; dos_be_go resolves it here, so a host that
+                                ; did not bind would jump through a zeroed bss
 %ifdef DOSKPART
     call dos_pkgwhere           ; **NOW OR NEVER** - SPEC.md 96.40, and the
 %endif                          ; routine's own header says why
@@ -1061,6 +1065,7 @@ dos_repaint:
     pop ax
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_is_exe - is the loaded image an .EXE?
@@ -1099,6 +1104,8 @@ dos_is_exe:
     pop ax
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_load - read the program into the arena at PSP:0100
@@ -1149,6 +1156,7 @@ dos_load:
     pop bx
     stc
     ret
+%endif                              ; DOS_EXTCORE
 
 
 ; =============================================================================
@@ -1166,6 +1174,7 @@ MZ_SP       equ 0x10
 MZ_IP       equ 0x14
 MZ_CS       equ 0x16                ; initial CS, likewise relative
 MZ_LFARLC   equ 0x18                ; where the relocation table starts
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_exe_setup - turn the loaded file into a running .EXE image
@@ -1334,6 +1343,8 @@ dos_exe_setup:
     pop bx
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_movedown - copy CX paragraphs from AX:0 down to DX:0
@@ -1374,6 +1385,7 @@ dos_movedown:
     jmp short .chunk
 .done:
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; =============================================================================
@@ -1480,6 +1492,7 @@ dos_fsx_main:
     call dos_prog_enter             ; ...and away (SPEC.md 96.14): the same
                                     ; door AH=4Bh's child goes through
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
@@ -1492,6 +1505,8 @@ dos_prog_done:                      ; the INT 21h terminate path jumps here,
     call dos_unhook_vectors
     call dos_restore_machine
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; =============================================================================
 ; THE MACHINE-STATE LEDGER (SPEC.md 96.5)
@@ -1554,6 +1569,8 @@ dos_save_machine:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_restore_machine - the named list, and the four bytes that are ZEROED
@@ -1624,6 +1641,8 @@ dos_restore_machine:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_hook_vectors / dos_unhook_vectors
@@ -1670,16 +1689,24 @@ dos_hook_vectors:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_unhook_vectors:
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_iret:
     iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_int24:                              ; DOS's critical-error contract: AL = 3
     mov al, 3                           ; is FAIL, which turns a dead drive into
     iret                                ; a failed call instead of an "Abort,
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
                                         ; Retry, Fail?" nobody can answer
 
 ; =============================================================================
@@ -1806,6 +1833,8 @@ dos_build_psp:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fcb_blank - the unparsed FCB DOS leaves when there is no argument for it
@@ -1823,6 +1852,8 @@ dos_fcb_blank:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_jft_sync - the PSP's job file table, rewritten from our own handle table
@@ -1865,6 +1896,8 @@ dos_jft_sync:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_psp_make - a PSP at [dos_ldpsp], for a block of [dos_ldpara] paragraphs
@@ -2003,6 +2036,8 @@ dos_psp_make:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; =============================================================================
 ; INT 20h / INT 21h (SPEC.md 96.7)
@@ -2017,10 +2052,14 @@ dos_psp_make:
 dos_int20:
     xor al, al                      ; INT 20h is AH=4Ch with a zero code, and
     jmp dos_terminate               ; DOS treats them as the same exit
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_int22:                          ; the terminate ADDRESS: a child process
     xor al, al                      ; returning here is an exit too, and wave 1
     jmp dos_terminate               ; has no children to send
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_int21:
     sti                             ; DOS runs its calls with interrupts on
@@ -3376,6 +3415,8 @@ dos_int21:
     pop ds                          ; so the gate's promise does not rest on
     pop bp                          ; every one of them being balanced
     iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_terminate - back to the bracket, on our own stack
@@ -3412,6 +3453,7 @@ dos_terminate:
     push cs                         ; ...and back into dos_fsx_main's flow with
     pop ds                          ; our own DS, which every proc below wants
     jmp dos_prog_done
+%endif                              ; DOS_EXTCORE
 
 ; -----------------------------------------------------------------------------
 ; dos_tty - one character to the screen, through the ROM
@@ -3789,6 +3831,7 @@ dos_tr_result:
     pop si
     ret
 %endif
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_getkey - one character from the ROM
@@ -3820,6 +3863,8 @@ dos_getkey:
     pop cx                          ; makes the caller ask twice for the scan;
     pop bx                          ; wave 1 hands back the 0 and no more
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_tty:
     push ax
@@ -3875,6 +3920,7 @@ dos_tty:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 
 ; =============================================================================
 ; THE BACK END (SPEC.md 96.4)
@@ -3928,64 +3974,103 @@ DBE_HERE    equ 40                  ; out DX = where this instance stands,
 DBE_VKIND   equ 42                  ; AL = a volume index; out CF=1 no such
                                     ; volume, else AL/AH = VK_*/VT_*
 DBE_NENT    equ 22
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_be_goto:
-    mov word [dos_betgt], dos_k_goto
+    mov word [dos_betgt], DBE_GOTO
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_read:
-    mov word [dos_betgt], dos_k_read
+    mov word [dos_betgt], DBE_READ
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_find:
-    mov word [dos_betgt], dos_k_find
+    mov word [dos_betgt], DBE_FIND
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_rdat:
-    mov word [dos_betgt], dos_k_rdat
+    mov word [dos_betgt], DBE_RDAT
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_write:
-    mov word [dos_betgt], dos_k_write
+    mov word [dos_betgt], DBE_WRITE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_append:
-    mov word [dos_betgt], dos_k_append
+    mov word [dos_betgt], DBE_APPEND
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_delete:
-    mov word [dos_betgt], dos_k_delete
+    mov word [dos_betgt], DBE_DELETE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_dfree:
-    mov word [dos_betgt], dos_k_dfree
+    mov word [dos_betgt], DBE_DFREE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_mkdir:
-    mov word [dos_betgt], dos_k_mkdir
+    mov word [dos_betgt], DBE_MKDIR
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_rmdir:
-    mov word [dos_betgt], dos_k_rmdir
+    mov word [dos_betgt], DBE_RMDIR
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_xcaps:
-    mov word [dos_betgt], dos_k_xcaps
+    mov word [dos_betgt], DBE_XCAPS
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_xalloc:
-    mov word [dos_betgt], dos_k_xalloc
+    mov word [dos_betgt], DBE_XALLOC
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_xfree:
-    mov word [dos_betgt], dos_k_xfree
+    mov word [dos_betgt], DBE_XFREE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_rename:
-    mov word [dos_betgt], dos_k_rename
+    mov word [dos_betgt], DBE_RENAME
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_copy:
-    mov word [dos_betgt], dos_k_copy
+    mov word [dos_betgt], DBE_COPY
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_move:
-    mov word [dos_betgt], dos_k_move
+    mov word [dos_betgt], DBE_MOVE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_path:
-    mov word [dos_betgt], dos_k_path
+    mov word [dos_betgt], DBE_PATH
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_vstat:
-    mov word [dos_betgt], dos_k_vstat
+    mov word [dos_betgt], DBE_VSTAT
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_wrat:
-    mov word [dos_betgt], dos_k_wrat
+    mov word [dos_betgt], DBE_WRAT
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 ; --- THE TWO QUERY DOORS (SPEC.md 96.4.2) ----------------------------------
 ; Neither does disk I/O, so neither NEEDS dos_be_go's stack swap - and both
 ; are here anyway, because the rule this block states is not about the swap.
@@ -3995,13 +4080,19 @@ dos_be_wrat:
 ; walking the call graph from the interrupt entries, and they were the whole
 ; of what was outside.
 dos_be_here:
-    mov word [dos_betgt], dos_k_here
+    mov word [dos_betgt], DBE_HERE
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_vkind:
-    mov word [dos_betgt], dos_k_vkind
+    mov word [dos_betgt], DBE_VKIND
     jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_xcopy:
-    mov word [dos_betgt], dos_k_xcopy
+    mov word [dos_betgt], DBE_XCOPY
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_be_go - the one door, and it SWAPS THE STACK (SPEC.md 96.4.1)
@@ -4027,6 +4118,22 @@ dos_be_xcopy:
 ; the jump into the program and cleared by dos_terminate with SS:SP.
 ; -----------------------------------------------------------------------------
 dos_be_go:
+    ; --- THE ORDINAL BECOMES AN ADDRESS HERE (SPEC.md 96.44.1) -------------
+    ; **THE CORE MAY NOT NAME A `dos_k_*`.** Each host has its own back end -
+    ; the box's goes to `OSAPI_*` cells and `kern_dos`'s straight to the disk
+    ; layer - so a door that stored the address of one could only ever be
+    ; assembled INTO that host. It stores `DBE_*` instead and the host fills
+    ; `dos_bevec` before the first call, which is the whole of what makes the
+    ; core one object joined to either (docs/plans/KERN-DOS-PLAN.md 4.1.3).
+    ;
+    ; NINE BYTES, ONCE, rather than two per door: BX is an INPUT to five of
+    ; the twenty-two (DBE_READ's buffer among them) and AX to DBE_RDAT, so
+    ; the lookup cannot live in the stubs without a push and a pop in each.
+    push bx
+    mov bx, [dos_betgt]
+    mov bx, [dos_bevec + bx]
+    mov [dos_betgt], bx
+    pop bx
     cmp byte [dos_onprog], 0
     je .direct
     cli                             ; SS and SP move as a pair, as everywhere
@@ -4047,6 +4154,7 @@ dos_be_go:
     ret
 .direct:
     jmp word [dos_betgt]
+%endif                              ; DOS_EXTCORE
 
 ; --- the os8088 implementation ------------------------------------------------
 %ifndef KD_BACKEND                  ; kerndos/kdback.inc is the OTHER one
@@ -4154,6 +4262,41 @@ dos_k_vstat:
 dos_k_wrat:
     call OSAPI_FILE_WRITE_AT
     ret
+
+; -----------------------------------------------------------------------------
+; dos_be_bind - the twenty-two doors, as addresses (SPEC.md 96.44.1)
+; in:  nothing; out: nothing, every register preserved
+;
+; CALLED ONCE, BEFORE THE FIRST DOOR. The core stores a `DBE_*` ORDINAL and
+; `dos_be_go` turns it into an address through this table, so the core can be
+; assembled ONCE and joined to either back end. The table is DS-relative data
+; and the copy is a `rep movsw` of twenty-two words.
+; -----------------------------------------------------------------------------
+dos_be_bind:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, dos_betab
+    mov di, dos_bevec
+    mov cx, DBE_NENT
+    cld
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+dos_betab:
+    dw dos_k_goto, dos_k_read, dos_k_find, dos_k_rdat, dos_k_write
+    dw dos_k_append, dos_k_delete, dos_k_dfree, dos_k_mkdir, dos_k_rmdir
+    dw dos_k_xcaps, dos_k_xalloc, dos_k_xfree, dos_k_xcopy, dos_k_rename
+    dw dos_k_copy, dos_k_move, dos_k_path, dos_k_vstat, dos_k_wrat
+    dw dos_k_here, dos_k_vkind
+
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
@@ -4285,6 +4428,7 @@ dos_fmt_exit:
     pop ax
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_err_line - SI = the sentence for [dos_err]
@@ -4304,6 +4448,8 @@ dos_err_line:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_fmt_fn:
     push ax
@@ -4325,6 +4471,8 @@ dos_fmt_fn:
     pop di
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_hexd:
     add al, '0'
@@ -4333,6 +4481,7 @@ dos_hexd:
     add al, 7
 .out:
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
@@ -4891,6 +5040,7 @@ dos_path_take:
     pop ax
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_keeph - a CGA window may hang over the dock (SPEC.md 11.93)
@@ -4927,6 +5077,7 @@ dos_keeph:
     pop ax
     popf
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
@@ -7192,6 +7343,7 @@ dos_is_lnk:
     stc
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_upc:
     cmp al, 'a'
@@ -7201,6 +7353,7 @@ dos_upc:
     sub al, 32
 .out:
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; --- dos_fld_reload - the fields show what is in the buffers now ------------
@@ -7578,6 +7731,7 @@ dos_lnk_cd:
     pop ax                          ; is the ordinary "it could not be read",
     ret                             ; naming the program
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_walk_pbuf - stand at the absolute path in dos_pbuf, from the volume ROOT
@@ -7601,6 +7755,8 @@ dos_walk_pbuf:
     mov si, dos_pbuf                ; the absolute form, from the volume root
     mov al, 1
     jmp short dos_walk_at
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 ; dos_walk_at - ...and the general one, which SPEC.md 96.12.3 needs: AL=1 walks
 ; from the volume's root and AL=0 from WHERE WE ARE STANDING, so the folder
 ; part of `SUB\FILE.DAT` resolves without pretending it is absolute. SI is the
@@ -7662,6 +7818,8 @@ dos_walk_at:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- dos_lnk_find - the folder called dos_cname here; DX = its cluster ------
 dos_lnk_find:
@@ -7702,6 +7860,8 @@ dos_lnk_find:
     pop ax
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- dos_ceq - SI vs DI, NUL strings, case-insensitive. CF=0 = equal --------
 ; NOT dos_streq, which already exists here and answers in ZF against ES:DI -
@@ -7736,6 +7896,7 @@ dos_ceq:
     pop ax
     stc
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; --- dos_lnk_skip - step SI over one StringData ------------------------------
@@ -7993,6 +8154,7 @@ dos_lnk_rows:
     pop ax
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_has_eq - does the NUL string at SI carry an '='?
@@ -8015,6 +8177,8 @@ dos_has_eq:
     pop si
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_psp_tail - the user's arguments into the new PSP's command tail
@@ -8061,6 +8225,8 @@ dos_psp_tail:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_envpath - the program's own path, for the tail of the environment
@@ -8126,6 +8292,7 @@ dos_envpath:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; =============================================================================
@@ -8194,11 +8361,15 @@ dos_btn_tab:
 dos_l_memt: db 'Memory for the program:', 0
 dos_l_memk: db 'Keeping the disk cache:  '
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_memk1:  db '     K', 0
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_memt2: db 'Taking it as well:       '
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_memk2:  db '     K', 0
+%endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_meml: db 'Limit:', 0
 ; --- the three arms, and the words under the greyed one (SPEC.md 96.36) -----
@@ -8243,22 +8414,7 @@ DOS_LNK_HDRLEN equ $ - dos_lnk_hdr
  %error "the Shell Link header is 76 bytes and this template is not"
 %endif
 %endif                              ; KD_BACKEND
-
-dos_be:                             ; the table, in DBE_* order
-    dw dos_k_goto
-    dw dos_k_read
-    dw dos_k_find
-    dw dos_k_rdat
-    dw dos_k_write
-    dw dos_k_append
-    dw dos_k_delete
-    dw dos_k_dfree
-    dw dos_k_mkdir
-    dw dos_k_rmdir
-    dw dos_k_xcaps
-    dw dos_k_xalloc
-    dw dos_k_xfree
-    dw dos_k_xcopy
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- the BDA's RESTORE list (SPEC.md 96.5): offset, bytes, 0xFFFF ends it ----
 ; Every span here is a field the KERNEL reads, or one whose stale value would
@@ -8283,6 +8439,8 @@ dos_bdalist:
     dw 0x0098, 10                   ; the int 15h wait-flag pointer, count and
                                     ; flag - the same trap in another field
     dw 0xFFFF, 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; **THE SIX STATUS LINES ARE GONE, AND THAT IS SPEC.md 96.33 ARRIVING.** They
 ; stood in the console's band under a comment saying they would go when it
@@ -8295,26 +8453,60 @@ dos_bdalist:
 ; `Exit code ` survives because dos_fmt_exit stamps the digits INTO it, and
 ; both readers want them: the console's line says `ended, exit code 002`.
 dos_l2_ran:  db 'Exit code '
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_exitd:   db '000', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
     dw dos_e_badexe, dos_e_fit
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_goto:  db 'Its folder could not be opened.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_mem:   db 'Not enough memory.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_read:  db 'It could not be read.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_big:   db 'Too large for one segment.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_fsx:   db 'The screen is already in use.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_exe:   db '.EXE is not supported yet.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_fit:   db 'Program too big to fit in memory.', 0  ; DOS 3.30's own words,
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
                                     ; measured at COMMAND.COM offset 2436
 dos_dotdot:  db '..', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_s_blast: db 'BLASTER=A', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_mlen:    db 31,28,31,30,31,30,31,31,30,31,30,31
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_dowt:    db 0,3,2,5,0,3,5,1,4,6,2,4    ; Sakamoto's month table
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_fn:    db 'It asked for INT 21h AH='
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_fnd:     db '00h.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 
 ; =============================================================================
@@ -8423,6 +8615,8 @@ dos_int33:
     pop ds
     pop bp
     iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mou_zero - forget the edge state (function 0)
@@ -8433,6 +8627,8 @@ dos_mou_zero:
     mov word [dos_mou_pc], 0       ; both counts are one word apiece in pairs,
     mov word [dos_mou_rc], 0       ; so two stores clear four bytes
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mou_read - the pointer, in INT 33h's 640x200 virtual units
@@ -8491,6 +8687,8 @@ dos_mou_read:
     call dos_mou_edge               ; every state read feeds functions 5 and 6
     ret
 %endif
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mou_edge - accumulate the press/release counts 5 and 6 answer
@@ -8538,6 +8736,8 @@ dos_mou_edge:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mou_delta - function 0Bh, derived from the position
@@ -8555,6 +8755,7 @@ dos_mou_delta:
     mov [dos_mou_ly], ax
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 
 ; =============================================================================
 ; THE MCB CHAIN (SPEC.md 96.9)
@@ -8577,6 +8778,7 @@ MCB_OWN     equ 1
 MCB_SZ      equ 3
 MCB_M       equ 'M'
 MCB_Z       equ 'Z'
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mcb_split - make BX paragraphs of the block at ES, freeing the rest
@@ -8611,6 +8813,8 @@ dos_mcb_split:
     pop dx
     pop es
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mcb_alloc - AH=48h
@@ -8673,6 +8877,8 @@ dos_mcb_alloc:
     pop cx
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mcb_free - AH=49h
@@ -8706,6 +8912,8 @@ dos_mcb_free:
     mov ax, 9
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_mcb_resize - AH=4Ah
@@ -8830,6 +9038,7 @@ OS88_PARTS_BEGIN 1
   OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
 OS88_PARTS_END
 %endif
+%endif                              ; DOS_EXTCORE
 
 ; -----------------------------------------------------------------------------
 ; kern_dos, AS A PART (docs/plans/KERN-DOS-PLAN.md §4.1)
@@ -9054,6 +9263,10 @@ PKT_VERSION equ 9
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
     DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    DBSS DOS_B_BEVEC, DBE_NENT * 2  ; **THE BACK END, AS ADDRESSES** (96.44.1):
+                                 ; DBE_* indexes this and the HOST fills it,
+                                 ; because the core is one object and there are
+                                 ; two back ends behind it
     DBSS DOS_B_VSBUF, VS_SIZEOF  ; OSAPI_VOL_STAT's record (SPEC.md 18.4.6),
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
 %endif
@@ -9211,6 +9424,7 @@ DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
                                     ; heap claim
 %endif
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
                                     ; cluster is bigger gets a window of one
                                     ; cluster instead, because READ_AT cannot
                                     ; be asked for less
@@ -9287,6 +9501,7 @@ dos_fh_setup:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
 
 ; =============================================================================
 ; FIND, DIRECTORIES AND THE CWD (SPEC.md 96.12)
@@ -9311,6 +9526,7 @@ DTA_TIME    equ 22                  ; layout, which the program reads
 DTA_DATE    equ 24
 DTA_SIZE    equ 26                  ; dword
 DTA_NAME    equ 30                  ; char[13], NUL-terminated
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_dta_seg - ES:DI = the caller's DTA
@@ -9320,6 +9536,8 @@ dos_dta_seg:
     mov di, [dos_dta]
     mov es, [dos_dtaseg]
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_find_step - one step of a walk, into the DTA at ES:DI
@@ -9408,6 +9626,8 @@ dos_find_step:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_wild - does the 8.3 name at DS:SI match the pattern at ES:DI?
@@ -9460,6 +9680,8 @@ dos_wild:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_wfld - one 8.3 FIELD: CX bytes at DS:SI against the pattern at ES:DI
@@ -9484,6 +9706,8 @@ dos_wfld:
     mov al, 1
     or al, al                       ; ZF=0, and `or al, al` on a 0 would not
     ret                             ; say so - which is why AL is loaded first
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_83 - the NUL-terminated name at DS:SI into eleven bytes at ES:DI
@@ -9526,6 +9750,8 @@ dos_83:
     pop di
     pop di
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_cd_go - AH=3Bh's body: stand in the directory [dos_fname] names
@@ -9626,6 +9852,8 @@ dos_cd_go:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; =============================================================================
 ; DRIVES (SPEC.md 96.6.1)
@@ -9659,6 +9887,8 @@ dos_cw_back:
     pop dx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- dos_drv_bank - remember where drive AL is standing ---------------------
 dos_drv_bank:
@@ -9672,6 +9902,8 @@ dos_drv_bank:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- dos_drv_recall - stand drive AL where it last was (0 = its root) -------
 dos_drv_recall:
@@ -9685,6 +9917,8 @@ dos_drv_recall:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; --- dos_drv_count - how many volumes there are, probed ONCE ----------------
 ; out: AL = the count; every other register preserved
@@ -9719,6 +9953,8 @@ dos_drv_count:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_drv_sel - AH=0Eh's body: stand on drive DL
@@ -9770,6 +10006,7 @@ dos_drv_sel:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 
 ; =============================================================================
 ; THE DATE AND THE TIME (SPEC.md 96.13)
@@ -9793,6 +10030,7 @@ dos_drv_sel:
 CLK_DEF_Y   equ 2026                ; MIRRORED from kernel/clock.inc, so a DOS
 CLK_DEF_M   equ 7                   ; program and the menu bar agree about a
 CLK_DEF_D   equ 4                   ; machine that has no clock to ask.
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
                                     ; tests/unit/t_mirror.py is what keeps them
                                     ; equal, because nothing else would notice
 
@@ -9810,6 +10048,8 @@ dos_ticks:
     pop es
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_date_init - believe the RTC, or the kernel's fallback
@@ -9868,6 +10108,8 @@ dos_date_init:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_unbcd - AL from packed BCD to binary
@@ -9887,6 +10129,8 @@ dos_unbcd:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_date_roll - has midnight passed since anyone last looked?
@@ -9909,6 +10153,8 @@ dos_date_roll:
     pop dx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_date_inc - one day on
@@ -9945,6 +10191,8 @@ dos_date_inc:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_dow - the day of the week, Sakamoto's method
@@ -9992,6 +10240,8 @@ dos_dow:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_time_now - the tick count as DOS's four fields
@@ -10045,6 +10295,8 @@ dos_time_now:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_time_set - AH=2Dh's body: the four fields back into the tick count
@@ -10105,6 +10357,8 @@ dos_time_set:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; =============================================================================
 ; AH=4Bh - LOADING AND RUNNING A CHILD (SPEC.md 96.14)
@@ -10150,6 +10404,8 @@ dos_prog_enter:
     push si
     push di
     retf
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_exec_load - give the child a block, load it into it, and build its PSP
@@ -10228,6 +10484,8 @@ dos_exec_load:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_exec_back - the parent is the running program again
@@ -10247,6 +10505,8 @@ dos_exec_back:
     mov word [dos_parent], 0
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_exec_unload - the child's block, back to the chain
@@ -10265,6 +10525,8 @@ dos_exec_unload:
     pop es
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_exec_tail - the parameter block's command tail into the child's PSP:0080
@@ -10313,6 +10575,7 @@ dos_exec_tail:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 
 ; =============================================================================
 ; XMS - EXTENDED MEMORY (SPEC.md 96.15)
@@ -10338,6 +10601,7 @@ XH_BASE     equ 0                   ; dword: what the kernel handed back
 XH_KB       equ 4                   ; word
 XH_USED     equ 6
 XH_SIZE     equ 8
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_int2f - the multiplex interrupt
@@ -10376,6 +10640,8 @@ dos_int2f:
     push cs
     pop es
     iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_xms_kb - the pool's free KB, through the back end
@@ -10393,6 +10659,8 @@ dos_xms_kb:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_xms_ent - the XMS entry point itself, FAR CALLED by the program
@@ -10505,6 +10773,8 @@ dos_xms_ent:
     pop ds
     pop bp
     retf
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_xms_new - the first free handle row
@@ -10526,6 +10796,8 @@ dos_xms_new:
 .out:
     pop cx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_xms_row - the row handle AX names
@@ -10554,6 +10826,8 @@ dos_xms_row:
     pop ax
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_xms_move - AH=0Bh's body
@@ -10695,6 +10969,7 @@ dos_xms_move:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
 
 
 ; =============================================================================
@@ -11818,6 +12093,7 @@ dos_drv_back:
     pop ax
     ret
 %endif                              ; KD_BACKEND
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_blaster_set - "BLASTER=A220 I5 D1 T4" from the record at SI
@@ -11899,6 +12175,8 @@ dos_blaster_set:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_hex3 - AX's low twelve bits as three hex digits at ES:DI (DI advanced)
@@ -11931,6 +12209,8 @@ dos_hex3:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_dec2 - AL (0..99) as one or two digits at ES:DI
@@ -11960,6 +12240,8 @@ dos_dec2:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_setname - [dos_fname] into the record at SI
@@ -11983,6 +12265,8 @@ dos_fh_setname:
     pop si
     pop cx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_touch - make the zero-length file the record at SI names
@@ -12014,6 +12298,8 @@ dos_fh_touch:
     mov al, 5
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_rdloop - AH=3Fh's body
@@ -12090,6 +12376,8 @@ dos_fh_rdloop:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_wrloop - AH=40h's body for a file handle
@@ -12129,6 +12417,8 @@ dos_fh_rdloop:
 ; exists only under the temporary name. Both are the price of not spending the
 ; kernel bytes, and both are absent from the two arms above.
 dos_trncn: db 'OS88TRNC.$$$', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 ; -----------------------------------------------------------------------------
 dos_fh_shrink:
     push bx
@@ -12293,6 +12583,8 @@ dos_fh_shrink:
     pop bx
     pop si
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_wiloop - AH=40h on an AH=3Dh handle: OVERWRITE (SPEC.md 96.11.6)
@@ -12535,6 +12827,8 @@ dos_fh_wiloop:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 dos_fh_wrloop:
@@ -12608,6 +12902,8 @@ dos_fh_wrloop:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_slot - the record for handle BX
@@ -12637,6 +12933,8 @@ dos_fh_slot:
     pop ax
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_new - the first free handle
@@ -12688,6 +12986,8 @@ dos_fh_new:
     pop cx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_name - copy a program's ASCIZ path into [dos_fname], 8.3 and upper
@@ -12726,6 +13026,8 @@ dos_fh_name:
 .nout:
     pop di
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_core - the parse itself, from ANY segment into ANY buffer of ours
@@ -12834,6 +13136,8 @@ dos_fh_core:
     pop cx
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_split - take the FOLDER PART off the name at DS:SI (SPEC.md 96.12.3)
@@ -12897,6 +13201,8 @@ dos_fh_split:
 .out:                               ; where the 8.3 name starts
     pop di
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_enter - stand on the volume [dos_fdrv] named, for one call
@@ -12978,6 +13284,8 @@ dos_fh_enter:
     pop dx
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; dos_fh_home - back to the folder dos_fh_enter banked, if it moved us
 ; clobbers: nothing (AX, BX, DX and the flags are restored)
@@ -12999,6 +13307,8 @@ dos_fh_home:
     popf
 .out:
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_vol_to - stand on volume AL
@@ -13031,6 +13341,8 @@ dos_vol_to:
     pop dx
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_leave - back to the drive dos_fh_enter left, if it left one
@@ -13059,6 +13371,8 @@ dos_fh_leave:
     popf
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_stat - find [dos_fname] in the current directory
@@ -13099,6 +13413,8 @@ dos_fh_stat:
     pop cx
     stc
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_streq - compare the NUL-terminated strings at DS:SI and ES:DI
@@ -13122,6 +13438,8 @@ dos_streq:
     pop di
     pop si
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_flush - write the window out if it is dirty
@@ -13222,6 +13540,8 @@ dos_fh_flush:
     pop bx
     pop ax
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_take - give the window to the handle [dos_fhix] names
@@ -13245,6 +13565,8 @@ dos_fh_take:
 .out:
     pop bx
     ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_fill - make the window cover the handle's current position
@@ -13311,7 +13633,9 @@ dos_fh_fill:
     xor bx, bx                      ; (SPEC.md 96.6.2)
     mov cx, [dos_wbytes]
     add si, FH_NAME
-    mov word [dos_fvtgt], dos_k_rdat
+    mov word [dos_fvtgt], DBE_RDAT  ; AN ORDINAL, not an address (96.44.1):
+                                    ; .onvol stores this into [dos_betgt]
+                                    ; and dos_be_go is what resolves it
     call .onvol                     ; out DX:AX = the bytes delivered, 0 at or
     pop si                          ; past the end
     jc .eof
@@ -13326,7 +13650,7 @@ dos_fh_fill:
     mov cx, [dos_wbytes]
     xor dx, dx
     add si, FH_NAME
-    mov word [dos_fvtgt], dos_k_read ; EXPANDS on the way in (SPEC.md 20.14),
+    mov word [dos_fvtgt], DBE_READ  ; EXPANDS on the way in (SPEC.md 20.14),
     call .onvol                      ; which is the whole reason this arm exists
     pop si
     jc .eof
@@ -13404,6 +13728,7 @@ dos_fh_fill:
     pop ax                          ; between the open and the read.  The
     stc                             ; caller reads this as end of file, which
     ret                             ; is the honest half of it: no bytes, and
+%endif                              ; DOS_EXTCORE
                                     ; no lie about which ones
 
     DBSS DOS_B_XNREL, 2
@@ -13876,6 +14201,7 @@ dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; framing and go on at the PSP
 dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
 dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
+dos_bevec   equ os88_image_end + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
 dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 %ifdef DOSKPART
 dos_pkgname equ os88_image_end + DOS_B_PKGNAME  ; 13: our own 8.3 file name

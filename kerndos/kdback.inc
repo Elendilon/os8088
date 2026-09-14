@@ -165,3 +165,37 @@ dos_k_xfree:
 kd_k_refuse:
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; kdb_bevec - the twenty-two doors, as addresses (SPEC.md 96.44.1)
+; in:  nothing; out: nothing, every register preserved
+;
+; kern_dos's half of what `dos_be_bind` is for the box: the core stores a
+; `DBE_*` ORDINAL and `dos_be_go` turns it into an address through `dos_bevec`,
+; so the core is ONE object and the back end under it is whichever host bound
+; itself. `kd_entry` calls this before the mount.
+; -----------------------------------------------------------------------------
+kdb_bevec:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, kdb_betab
+    mov di, dos_bevec
+    mov cx, DBE_NENT
+    cld
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+kdb_betab:
+    dw dos_k_goto, dos_k_read, dos_k_find, dos_k_rdat, dos_k_write
+    dw dos_k_append, dos_k_delete, dos_k_dfree, dos_k_mkdir, dos_k_rmdir
+    dw dos_k_xcaps, dos_k_xalloc, dos_k_xfree, dos_k_xcopy, dos_k_rename
+    dw dos_k_copy, dos_k_move, dos_k_path, dos_k_vstat, dos_k_wrat
+    dw dos_k_here, dos_k_vkind

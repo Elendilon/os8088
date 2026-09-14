@@ -1970,6 +1970,7 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
      $(BUILD)/hello.o88 $(BUILD)/pacman.o88 \
      $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
+     $(BUILD)/doscore.bin \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
 # but does not ship (SPEC.md 78.9, `make wiredisk`). Keeping it in the default
@@ -4844,6 +4845,23 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART \
 	        -o $@ apps/dos/dos.asm
+
+# --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
+# Nothing consumes this yet and that is the point: it is what CHECKS the core's
+# marking in apps/dos/dos.asm.  A span marked core that is really the container,
+# or a core routine that still names a host symbol, fails here and in no other
+# build - the two hosts each carry the other half and would never notice.
+# `all` builds it, because a check nobody runs is a check that rots.
+$(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
+                      apps/dos/dosc.inc apps/dos/dosnet.inc \
+                      apps/dos/dosnetabi.inc apps/os88api.inc \
+                      apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
+                      apps/os88con.inc apps/os88cp437.inc \
+                      apps/os88parts.inc apps/os88partsbody.inc \
+                      kerndos/kdlaunch.inc drivers/net/netpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
+	        -I kerndos/ -o $@ apps/dos/doscore.asm
+	@echo "doscore: $(call FILESIZE,$@) bytes of INT 21h with no host round it"
 
 # **IT IS WRITTEN AS `DOS.O88` AND THE NAME IS NOT COSMETIC**: os88disk.py
 # takes the SOURCE file's name, and assoc_locate looks for the handler a
