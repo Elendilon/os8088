@@ -35490,6 +35490,37 @@ kernel reads nothing that has moved, refuses the file through the guard it
 already has (`image != file size`), and that refusal is the correct outcome by
 the correct route.
 
+
+##### 20.12.10.8 The carve is claimed TOP-DOWN, because it becomes the region
+
+A package's REGION is claimed top-down (`mem_claim_hi_x`), and so are a driver
+image and a kernel module: the top of the heap IS the set of CS-based claims
+(docs/plans/HEAP-UNPIN-PLAN.md §2.0). **The parts carve is one of those** — it
+is code you far-call — and on a re-home it does not merely resemble the
+region, it *becomes* it: `mem_reown_x` stamps the instance's slot onto the
+very claim `op_load` made.
+
+It was claimed **bottom-up** until this was noticed, so a re-homed package
+landed at the FLOOR while an ordinary one lands at the ceiling — and the
+loader's own region, freed one instruction later, was left as a HOLE beneath
+it. Measured on the DOS box (§96.44.4): **5,120 bytes** of hole, and the
+program's arena **437 → 431 KB**. One line, and it reads 436.
+
+**THE HOLE IS NOT SOMETHING COMPACTION CLOSES, and that is §66.6.1 rather
+than an oversight.** The region is `MC_RLOC`-movable and the compactor would
+gladly take it — but `mem_frameless` asks `mem_in_nest`, and a package
+reaches `mem_claim` only from inside its own callback, so a live return
+address points into the very region that would have to move. It is pinned *by
+the act of asking*. Another package's claim compacts it perfectly well;
+`tests/heapcheck.py` asserts exactly that. What a package cannot do is
+compact itself out of its own way, and
+docs/plans/REGION-SELF-COMPACT-PLAN.md §5's posted request is the general fix
+— designed, costed, not built.
+
+So this is not a substitute for that work. It is the narrower, correct thing:
+a claim that is going to be a region is claimed through the door a region
+uses, and then there is no hole to close.
+
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
 **The header, the icon and the association block are NOT compressed.** The

@@ -642,15 +642,18 @@ op_claim:
     jc .no
     or ax, ax
     jz .no                      ; a claim of nothing is not a claim
-    ; **TOP-DOWN, LIKE THE REGION IT MAY BECOME** (SPEC.md 20.12.10.7). A
+    ; **TOP-DOWN, LIKE THE REGION IT MAY BECOME** (SPEC.md 20.12.10.8). A
     ; package's region is claimed top-down (`mem_claim_hi_x`) and so are a
     ; driver image and a kernel module: the top of the heap IS the set of
     ; CS-based claims, and this is one - it is code you far-call, and on a
     ; re-home it becomes the region itself. Claimed bottom-up it landed at the
-    ; FLOOR, left the loader's freed region as a hole beneath it that no
-    ; single contiguous claim can use, and cost the DOS box 6 KB of the arena
-    ; it hands its program. Measured there: 437 -> 431 KB, 5,120 of hole and
-    ; 1,024 of carve rounding.
+    ; FLOOR, left the loader's freed region as a hole beneath it that no single
+    ; contiguous claim can use, and cost the DOS box 6 KB of the arena it hands
+    ; its program. Measured there: 437 -> 431 KB, 5,120 of hole and 1,024 of
+    ; carve head slack. The hole is not something COMPACTION closes and that is
+    ; SPEC.md 66.6.1 rather than an oversight: a package reaches mem_claim only
+    ; from inside its own callback, so a live return address points into the
+    ; region that would have to move and mem_frameless pins it.
     call OSAPI_MEM_CLAIM_HI     ; out DX = the base segment
     jc .no
     mov [op_base], dx
