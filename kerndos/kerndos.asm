@@ -52,19 +52,57 @@ kd_text_start:
 %include "disk.inc"             ; volumes, mount, the FAT read path
 %include "diskw.inc"            ; the FAT write path
 %include "kdgate.inc"           ; wave 3's mount-and-read gate, KD_GATE only
+; --- and the image's own size, which is what the rung has to clear ---------
+; A length is measured INSIDE its own section, `$$` being that section's
+; start. Across two sections nasm will not subtract at all ("operands differ
+; by a non-scalar"), which is the assembler declining to answer a question
+; the caller has got wrong.
+section .text
+kd_e_text:
+KD_S_TEXT equ kd_e_text - $$
 section .cold
+kd_e_cold:
+KD_S_COLD equ kd_e_cold - $$
+section .ovlw
+kd_e_ovlw:
+KD_S_OVLW equ kd_e_ovlw - $$
 section .modf
 modf_end:                       ; diskw.inc writes this into a module header
-                                ; it will never build one of (SPEC.md 2.8)
+kd_e_modf:                      ; it will never build one of (SPEC.md 2.8)
+KD_S_MODF equ kd_e_modf - $$
+section .bss
+kd_e_bss:
+KD_S_BSS equ kd_e_bss - $$
+section .lowbss
+kd_e_lowbss:
+KD_S_LOWBSS equ kd_e_lowbss - $$
 section .text
 kd_text_end:
 
 ; --- what the ladder asserted ------------------------------------------------
-KTEXT_SIZE equ kd_text_end - kd_text_start
-KBSS_SIZE  equ 0
-KCOLD_SIZE equ 0
-%if (KTEXT_SIZE + KBSS_SIZE + KCOLD_SIZE) > KD_IMG_KB * 1024
+; **THE WHOLE IMAGE AND NOT `.text`.** FAT_SEG sits on top of this rung, so a
+; rung short by a kilobyte puts the FAT snapshot INSIDE the code: measuring
+; `.text` alone passed at 40KB on a 45KB image, and the mount then overwrote
+; the routine that called it.
+KTEXT_SIZE equ KD_S_TEXT + KD_S_COLD + KD_S_OVLW + KD_S_MODF
+; **AND THE BSS, WHICH `-f bin` PUTS ABOVE THE IMAGE** and which read `equ 0`
+; here while it was thousands of bytes. It is the SAME hazard as the one the
+; paragraph above records, one section along: `.bss` is nobits so it costs no
+; disk, but it occupies address space between the last emitted byte and
+; FAT_SEG - so a rung that clears the image and not the bss puts the FAT
+; snapshot in the DOS core's own variables, and nothing says so until a mount
+; overwrites a handle table.
+KBSS_SIZE  equ KD_S_BSS
+KIMG_SIZE  equ KTEXT_SIZE + KBSS_SIZE
+%if KIMG_SIZE > KD_IMG_KB * 1024
  %error "kern_dos outgrew KD_IMG_KB - raise it in kdlayout.inc, and note that \
 the whole of kern_dos has about 39KB before the 600KB target is missed \
 (docs/plans/KERN-DOS-PLAN.md 1)"
+%endif
+
+; ...and the same question for `.lowbss`, which sits at LOW_SEG under the
+; stack rather than above the image: KD_LOW_KB has to hold the disk layer's
+; buffers AND leave room for KD_STACK to grow down into.
+%if KD_S_LOWBSS > KD_STACK
+ %error "kern_dos's .lowbss buffers reach the stack - raise KD_LOW_KB"
 %endif

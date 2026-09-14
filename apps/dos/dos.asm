@@ -35,6 +35,14 @@
                                     ; only at this point in the file; the code
                                     ; half is os88sock.inc at the end
 
+; **THE PACKAGE CONTAINER IS NOT THE CORE**
+; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
+; whole and is not a package at all: no header, no icon, no association
+; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; - so under that root they are the only thing in 13,000 lines that cannot
+; assemble, which is a finding rather than a nuisance: the WINDOW half is not
+; the obstacle anybody expected it to be.
+%ifndef KD_BACKEND
 %ifdef DOSTRACE
     ; **THE TRACE BUILD IS A PARTED PACKAGE AND THE SHIPPED ONE IS NOT**
     ; (SPEC.md 96.29.1). flags bit 2 is OS88_F_PARTS, and it is behind the
@@ -72,6 +80,7 @@
                                     ; its arguments and its environment, in
                                     ; Microsoft's own Shell Link layout
     OS88_ASSOC16_END
+%endif                              ; KD_BACKEND
 
 ; DOS_CONT_W/H WERE HERE and are gone (SPEC.md 96.20.3): they were 286 and 81,
 ; derived by hand from a 288x100 template, and the window is adapter-sized
@@ -3934,6 +3943,8 @@ dos_be_go:
     jmp word [dos_betgt]
 
 ; --- the os8088 implementation ------------------------------------------------
+%ifndef KD_BACKEND                  ; kerndos/kdback.inc is the OTHER one
+                                    ; (docs/plans/KERN-DOS-PLAN.md §3)
 dos_k_goto:
     call OSAPI_FILE_GOTO_QM         ; QM AND NOT Q, and the difference is the
     ret                             ; whole of whether this works when the
@@ -4037,6 +4048,7 @@ dos_k_vstat:
 dos_k_wrat:
     call OSAPI_FILE_WRITE_AT
     ret
+%endif                              ; KD_BACKEND
 
 ; =============================================================================
 ; THE WINDOW
@@ -8632,6 +8644,15 @@ DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
                                     ; program's name: "D:NNNNNNNN.EEE" is 14,
                                     ; so it is a whole one with room over
 DOS_PFSEPN  equ 14                  ; ...and the separators above the blank
+%ifndef KD_BACKEND                  ; ...unless a kerndos root is providing the
+                                    ; back end, because it %includes this file
+                                    ; whole OVER the kernel's own disk layer
+                                    ; and that layer names DVOL_MAX first
+                                    ; (docs/plans/KERN-DOS-PLAN.md §4).
+                                    ; KD_BACKEND and not `%ifndef DVOL_MAX`:
+                                    ; nasm's %ifndef tests for a MACRO, and an
+                                    ; `equ` is a symbol - so the obvious guard
+                                    ; compiles and does nothing
 DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
                                     ; It is a CAPACITY here rather than a fact
                                     ; about the machine, and every use of it
@@ -8640,6 +8661,7 @@ DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
                                     ; reach and can never cost it a write past
                                     ; its own bss, which is somebody else's
                                     ; heap claim
+%endif
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
                                     ; cluster is bigger gets a window of one
                                     ; cluster instead, because READ_AT cannot
@@ -13134,8 +13156,10 @@ that word of the record, and a wrong offset writes the pitch"
  %error "DOS_LNSZ must equal os88line.inc's OS88LINE_SZ - the bss table above reserves DOS_LNSZ bytes for a block this file does not own"
 %endif
 
+%ifndef KD_BACKEND
     OS88_BSS DOS_BSS_SIZE + CON_BSS
     OS88_IMAGE_END
+%endif
 
 ; =============================================================================
 ; BSS - zeroed by the loader (SPEC.md 21 step 5)

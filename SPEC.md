@@ -125674,6 +125674,111 @@ no use for. That is ~2 KB of the ~39 KB budget, and gating it out is a later
 wave's, not a reason to reconsider: it is dead weight in a section, not a
 dependency.
 
+### 96.38 A DOS program runs on top of it, and the core is unedited
+
+docs/plans/KERN-DOS-PLAN.md §3's claim is one sentence — *"the port is a
+second implementation of twenty-two doors, and nothing above them changes"* —
+and `kerndos/kdos.asm` is that sentence assembled: §96.37's root, plus
+`apps/dos/dos.asm` **included whole and unedited**, plus `kerndos/kdback.inc`,
+which implements `dos_k_goto` … `dos_k_wrat` against `kernel/diskw.inc`
+directly instead of through an `OSAPI_*` cell. `tests/kdos.py` boots it on a
+360 KB disk and runs `KDHELLO.COM`.
+
+**A DOS program reads 500 KB above its own PSP**, out of PSP:0002, on a
+machine whose windowed box gives it 449 (§96.35). That is the figure the whole
+plan exists to move, measured by the program rather than asserted by us.
+
+Three things came out of building it that the plan did not predict:
+
+1. **The core needed no splitting.** docs/plans/KERN-DOS-PLAN.md §4.1.2
+   expected `dos.asm` to be cut into a core and a window half; it assembles
+   under a second root with **one**
+   name collision (`DVOL_MAX`) and three `%ifndef KD_BACKEND` gates, all of
+   them around the PACKAGE CONTAINER — the header, the icon, the association
+   table, `OS88_BSS` — and none around a line of DOS logic.
+2. **The entry and exit paths reach no kernel slot at all.** Walking the call
+   graph from `dos_save_machine`, `dos_build_psp`, `dos_hook_vectors`,
+   `dos_fh_setup`, `dos_load`, `dos_is_exe`, `dos_exe_setup`,
+   `dos_prog_enter`, `dos_terminate` and `dos_prog_done` reaches **21 procs
+   and not one `OSAPI_*`, nor one indirect call**. The machine ledger, the PSP,
+   the MCB chain and the terminate path are 8086 work on the IVT, the BDA and
+   our own bss, which is why they port by being included.
+3. **`apps/os88con.inc` is unreachable here**, and that is worth more than it
+   sounds. `dos_tty` picks the ROM teletype or the console library off
+   `[dos_inbr]` (§96.33); in the package that byte is set around the fsx
+   bracket and cleared after it, and in `kern_dos` it is set once and never
+   cleared, because the program owns the machine from the moment it starts and
+   there is no window to come back to. So the whole terminal emulator and its
+   renderer are dead weight in this root — a lever for
+   docs/plans/KERN-DOS-PLAN.md §6.1 that the plan does not currently count.
+
+#### 96.38.1 Near or far is a property of the BODY, and four of sixteen were wrong
+
+The disk layer is not one calling convention. Most of it is near; a handful of
+routines end in `retf` because in the kernel they are reached from another
+segment (§2.6.1), and **nothing in the name says which** — `dskw_read_x` is
+near and `dsk_find_x` is far, same suffix, same layer. `COLD_SEG` is `KD_SEG`
+in `kern_dos`, so the kernel's own spelling (`call COLD_SEG:dsk_path_x`)
+assembles unchanged and is the right thing to copy.
+
+Four of the sixteen targets `kdback.inc` names are far and all four were
+written near. What that does is §96.37.1 item 3 in the other direction and is
+just as quiet: the `retf` pops the return address **and two bytes of whatever
+was under it**, so control resumes at a plausible address with the stack two
+bytes light and no fault of any kind. `dos_k_path` presented as a machine that
+printed its arena line, ran `dos_build_psp` to completion, and stopped
+somewhere in the heap twenty steps later.
+
+Only one of the four was on a path this wave reached. The other three —
+`dsk_find_x`, `dwf_dskw_vstat` and `dkf_dsk_vol_fixed`, which are AH=4Eh,
+AH=36h and asking what kind of drive you are standing on — would have waited
+for a DOS program to call them. `tests/unit/t_kdfar.py` is the gate and it
+enumerates nothing: it decides each routine's flavour from its body and checks
+both directions, `kerndos/` calling into `kernel/` and `kernel/` calling
+`kdshim.inc`'s stubs.
+
+#### 96.38.2 The banked SP has to sit on a return address
+
+`dos_terminate` restores `SS:SP` from `[dos_sv_ss]`/`[dos_sv_sp]` and **jumps**
+to `dos_prog_done`, which ends in the `ret` that ends `dos_fsx_main` itself —
+at that routine's own entry depth. So the word the bank points *at* is where
+AH=4Ch lands, and a `kern_dos` entry that banks the plain `SP` of a routine
+nothing called points it at the top of an empty stack: the program runs,
+prints, exits correctly, and the machine then runs off into its own bss with
+every check but the last one green. `kerndos/kdosgate.inc` pushes the address
+first, which is what a `call dos_fsx_main` does for the package.
+
+And the load geometry is `dos_run`'s and not the arena's: `[dos_ldpsp]` is
+`[dos_arena] + DOS_PSPP`, ten paragraphs up, because `dos_build_psp` lays the
+environment's MCB at 0 and the environment at 1. A gate that hands `dos_load`
+the arena base loads the image on top of the environment and builds the PSP
+where the first MCB goes — it assembles, it runs, and the program reads its
+own arena out of a word the loader has already overwritten.
+
+#### 96.38.3 The image rung has to clear the BSS, and `-f bin` puts it above
+
+`kern_dos` lays `FAT_SEG` directly on top of its own image (`kdlayout.inc`),
+so `KD_IMG_KB` is the one number that keeps the FAT snapshot out of the code.
+It was wrong twice, in two different ways, and **both builds ran**:
+
+- **40 KB against a 45,827-byte image.** The assertion measured `.text` alone,
+  and the three other progbits sections `disk.inc` and `diskw.inc` emit —
+  `.cold` 11,397, `.ovlw` 762, `.modf` 1,235 — were not in it. The mount then
+  wrote the FAT over the routine that called it, which presented as a machine
+  printing `loading` and stopping.
+- **56 KB against 58,144.** With every progbits section counted the image is
+  45,827 — and `-f bin` places a `nobits` section **after** the progbits ones,
+  so the DOS core's 12,316 bytes of `.bss` sit between the last emitted byte
+  and `FAT_SEG`. The rung cleared the image and missed the bss by 800 bytes.
+  That one ran, printed, read its file and exited correctly, because the top
+  800 bytes of bss happened not to be in use.
+
+A length is measured **inside its own section** (`label - $$`); nasm refuses a
+subtraction across two of them outright — *"operands differ by a non-scalar"* —
+which is the assembler declining to answer a question the caller has got
+wrong. `.lowbss` is asserted the same way, against `KD_STACK` rather than the
+rung, because it sits under the stack at `LOW_SEG` rather than above the image.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw

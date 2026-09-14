@@ -210,6 +210,29 @@ be invented**.
 
 ### 4.1 The proposal: `kern_dos` is a PART of `DOS.O88`
 
+> **THIS SECTION'S CONCLUSION IS WITHDRAWN — MEASURED, W5b.**
+> docs/reports/KERN-DOS-PART-COST-2026-09-14.md is the measurement and the
+> table below is wrong in three of its four rows. The one-line version: the
+> part costs **43 of the 53 clusters a 360KB system disk has left**, not `0`,
+> because `DOS.O88` is ON that disk (the Makefile's `SYSROOT`, in `APPS/`) —
+> and it is **worse than shipping `kern_dos` as its own compressed file** by
+> about six clusters, because `tools/os88pkg.py` refuses `--compress` with
+> parts, so adding one also gives back `DOS.O88`'s own 5,425 bytes of
+> compression.
+>
+> Nothing here was wrong when it was written.
+> docs/plans/O88-COMPRESSION-PLAN.md landed afterwards and made every package
+> compressed by default, which is the fact that inverts the comparison. The
+> corrected table is in the report's section 3; the shape W5 builds against is
+> **a file**, and moving it into a part later is one filename in the walk.
+>
+> Two of the objections to option one are answered rather than reweighed: the
+> stub is written either way (§4.1.1's own argument is that the part is never
+> loaded AS a part, so a file's bytes walk the same and need no part table
+> read first), and the "mini-ABI between two halves that rots" is
+> `kerndos/kdlaunch.inc` — one list `%include`d by both sides, each summing
+> its own copy, with a length word in the block that refuses a drift.
+
 **One assembly root, `kerndos/kerndos.asm`**, which `%include`s the kernel's
 disk layer and the DOS core from where they already live — and ships as
 **part 1 of `DOS.O88`** (§20.12), not as a file on the system disk.
@@ -250,6 +273,48 @@ source with the window, the menu, the pages, the console, the shortcut writer
 and the file dialogs excluded. `apps/dos/dos.asm` is one file today and has to
 be split so the core is `%include`-able; that is W2's real work and it is the
 same work either of the original options needed.
+
+**THIS PARAGRAPH IS WRONG AND W4 IS WHY** (SPEC.md 96.38). Nothing had to be
+split. `apps/dos/dos.asm` is `%include`d **whole and unedited** under
+`kerndos/kdos.asm` and produced exactly **one** name collision in 13,000
+lines — `DVOL_MAX`, which the kernel's own `assoc.inc` defines first — plus
+three `%ifndef KD_BACKEND` gates, every one of them around the **package
+container**: `OS88_HEADER`/`OS88_ICON16`/`OS88_ASSOC16`, `OS88_BSS`, and the
+`dos_k_*` block the second back end replaces. Not one gate is around a line of
+DOS logic, and the window, the menu, the pages, the console and the file
+dialogs all assemble under the second root without complaint.
+
+Two reasons, and the second is the surprise:
+
+1. **The three container macros assert their own file offsets** (0, 32, 96),
+   so they are the only construct in the file that *cannot* assemble where
+   the image does not start at offset 0. Everything else is position
+   independent by the near model's own rules.
+2. **The UI half reaches the kernel through `OSAPI_*` cells, which are far
+   address literals.** An unreached `call KERNEL_SEG:0x0310` costs nothing but
+   its bytes — it is dead code in this root, not a link error — so the cost of
+   bringing the window along is **image size and nothing else**. That turns
+   "split the file" from a prerequisite into §6.1's kind of question: a size
+   lever to be measured against the 39 KB budget, taken or not on its own
+   arithmetic, at a wave that has a budget to spend.
+
+What the wave DID find, and neither is a split: `apps/os88con.inc` is
+unreachable in this root (the program owns the machine, so `[dos_inbr]` is 1
+for ever and `dos_tty`'s console arm is dead), and the entry and exit paths —
+21 procs from `dos_save_machine` through `dos_terminate` — reach **no
+`OSAPI_*` at all**, which is why they port by being included rather than by
+being ported.
+
+**AND W5b PUT A PRICE ON LEAVING THEM IN**, which W4 could not: unreached
+bytes cost image size and nothing else, and on a disk image size is the whole
+cost. The measured spans are 5,675 for the window half, 2,090 for the console
+library, 1,665 for `dosc.inc`'s prompt, 3,164 for `dosnet.inc`'s packet driver
+(§10 says arm 3 has none) and 1,997 for `.ovlw` + `.modf` — **14,622 bytes**,
+which takes `kern_dos` from 46,407 to about 31,800 and its packed form under
+the room a 360KB system disk has. `apps/dos/dosh.inc` STAYS: it reads like
+`dosc.inc`'s pair and is not one — it is the **built-in commands** (SPEC.md
+96.30), the `COMMAND.COM` that is not a file, which `AH=4Bh` reaches and which
+Microsoft C's `system()` is.
 
 **Why it beats option two specifically:** two's economy comes from loading the
 DOS half separately, which needs a mini-ABI between two halves that are built
@@ -506,8 +571,8 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W1** | **DONE** — docs/reports/KERN-DOS-BUDGET-2026-09-13.md. Arms 1 and 2 confirmed at 449/481 KB with a 32 KB cache between them, the floor re-derived at **35.5 KB against 38.5**, and the hibernate round trip at **~4 s on iron** (§2.2 — the 43.4 s this first reported is MartyPC's XT-IDE PIO and not the field's controller). | the report, and `tools/os88doscost.py` to re-derive it |
 | **W2** | **DONE, and the seam held with three breaches to fix** (§3, SPEC.md 96.4.2). Two new doors, +24 package bytes and no kernel byte; `tests/unit/t_dosseam.py` is the gate and walks the CALL GRAPH. | `soak -k dosseam` — **soak and not the fast this row first said**, by docs/WRITING-TESTS.md §2.1 rule 1 |
 | **W3** | **DONE, and the reuse pays by a factor of 130** (SPEC.md 96.37). The shim is **92 bytes** against 11,935 of kernel disk code; `kerndos/kerndos.asm` mounts a FAT12 floppy and reads a file with no scheduler, no window manager and no API table under it. | `soak -k kerndos`, checked against `os88fat.py` |
-| **W4** | **A `.COM` runs.** The DOS core over the new back end, no handoff yet — `kern_dos` booted directly on a test disk. | MartyPC, a `.COM` that prints |
-| **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. | the program runs and the machine reboots |
+| **W4** | **DONE, and the core needed no splitting** (SPEC.md 96.38). `kerndos/kdos.asm` is W3's root plus `apps/dos/dos.asm` **whole and unedited** plus `kerndos/kdback.inc`'s twenty-two doors; `KDHELLO.COM` reads **500 KB above its own PSP** against the windowed box's 449, and exits AH=4Ch back into `kern_dos`. | `soak -k kdos`, `-k kdfar` |
+| **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. **W5a IS BUILT** (SPEC.md 96.38.3): the launch block's ABI and `kern_dos`'s real entry, with wave 4's gate reduced to a second producer of that block — **560 KB above the PSP, up from 500**, the ceiling having become the BDA's own figure. **W5b is MEASURED and it withdrew §4.1**: the part costs 43 of a 360KB system disk's 53 free clusters and a file costs six fewer (docs/reports/KERN-DOS-PART-COST-2026-09-14.md). W5c, the handoff itself, is NOT built. | `soak -k kdos`; then the program runs and the machine reboots |
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
@@ -563,6 +628,14 @@ W1, which is the wave that measures it.
    reaches the console only on the arm `kern_dos` never takes. What is left is
    the mechanical half, `org 0`, `os88_image_end` and the header, and that
    cannot be answered without doing the split: it is W3/W4's, not a scan's.
+   **ANSWERED BY W4, and better than expected**: it assembles WHOLE, and the
+   mechanical half is three things — the three container macros assert their
+   own file offsets so they are gated out; `os88_image_end` becomes a label in
+   the root's own `.bss` (the DBSS table is offsets from it either way, and the
+   name is all that has to be kept); and `org 0` was never the obstacle,
+   because `-f bin` sections are laid contiguously from wherever the root puts
+   them. §4.1.2 carries what that means for the split that is no longer
+   needed.
 3. **How does the exit code come back?** The stub restores conventional memory
    over everything, so a byte in `kern_dos`'s image does not survive. Candidates:
    a word in the BDA's unused area, a word in `HIBERNAT.PTR` rewritten before
@@ -575,7 +648,15 @@ W1, which is the wave that measures it.
    FAT16?
 6. **Does `kern_dos` need `diskw.inc` at all in W4?** A read-only first arm is
    a smaller target and many programs never write. It is not the shipping
-   answer but it may be the right W4.
+   answer but it may be the right W4. **ANSWERED: NO, AND THE QUESTION WAS
+   BACKWARDS.** `diskw.inc` is not the write path, it is the **by-name file
+   I/O layer** — docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md found the same
+   thing one wave earlier for a different reason — so `dos_k_read`, the door a
+   read-only arm is built out of, IS `dskw_read_x`. Leaving it out does not buy
+   a smaller W4, it removes the ability to load the program. W4 carries it
+   whole and the write verbs came along for free; what a read-only arm would
+   really cut is `dskw_write_x` and its neighbours, which is a §6.1 lever and
+   not a wave.
 
 7. **Where would an optional packet driver go?** A thinner DOS-side rework of
    `ETHER.DRV` is a named future phase, so the design must leave room: the
