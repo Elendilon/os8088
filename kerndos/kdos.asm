@@ -22,6 +22,8 @@ bits 16
                                     ; twenty-two doors out and kdback.inc's
                                     ; are the ones that get linked
 
+%include "mouproto.inc"             ; the serial packet, shared as SOURCE with
+                                    ; kernel/mouse.inc (SPEC.md 96.45)
 %include "doscall.inc"              ; CORE_ORG / CORE_MAX / CORE_BSS_SIZE, which
                                     ; the reservation below needs long before
                                     ; `dos.asm` is included (SPEC.md 96.44.5)
@@ -109,6 +111,9 @@ cell offsets, so CORE_ORG has to rise rather than the table move"
 %include "diskw.inc"
 %include "dos.asm"                  ; the DOS core, whole and unedited
 %include "kdback.inc"               ; ...over the kernel's disk layer
+%include "kdmouse.inc"              ; INT 33h's pointer (SPEC.md 96.45): the
+                                    ; port os8088 settled on, decoded through
+                                    ; kernel/mouproto.inc
 %include "kdentry.inc"              ; the REAL entry: a launch block, a
                                     ; program, and int 19h when it exits
 %include "kdosgate.inc"             ; ...and wave 4's, which stages a block

@@ -39,7 +39,9 @@ kd_dos_entry:
     mov word [di+KDL_VER], KDL_VER_NOW
     mov word [di+KDL_FLAGS], KDLF_REBOOT
     mov word [di+KDL_TLEN], KDL_MINE
-    mov word [di+KDL_RSVD], 0
+    mov word [di+KDL_MOUBASE], 0    ; no mouse on the W4 gate: it never goes
+                                    ; through hbm_dosrun, which is the only
+                                    ; thing that knows the port (SPEC.md 96.45)
 
     ; **THE MACHINE'S OWN KB, OUT OF THE BDA** (0040:0013, which is `int 12h`'s
     ; own answer). The real handoff banks the same word for the same reason: it

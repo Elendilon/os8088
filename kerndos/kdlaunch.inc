@@ -48,7 +48,41 @@ KDL_UNIT    equ 12              ; dw  THE UNIT `int 19h` IS TO BOOT FROM, and
                                 ;     is about and is an EMPTY DRIVE on the one
                                 ;     8 is about. It read as the ROM's boot
                                 ;     menu waiting for a key
-KDL_RSVD    equ 14              ; dw  0
+KDL_MOUBASE equ 14              ; dw  THE SERIAL MOUSE'S UART BASE, 0 = this
+                                ;     machine has none that `kern_dos` can
+                                ;     drive (SPEC.md 96.45). KDL_UNIT's field
+                                ;     and not the box's: `mouse_init` spends
+                                ;     596 ms at boot deciding which port has a
+                                ;     mouse and which LINE it actually fires,
+                                ;     against a modem on the other one
+                                ;     (SPEC.md 9.5), and that contest is not
+                                ;     reconstructible from anything a package
+                                ;     can see - so `hbm_dosrun` patches the
+                                ;     answer into the STAGED block beside the
+                                ;     boot unit and the DPT.
+                                ;     **IT WAS `KDL_RSVD` AND THE SPARE IS
+                                ;     WHY NO VERSION BUMP IS OWED**: KDL_VER
+                                ;     moves when a ROW MOVES, and filling a
+                                ;     reserved word in the header moves none.
+                                ;     KDL_TLEN covers the gathered BODY alone,
+                                ;     so both sides still sum the same list
+KDL_MOULINE equ 27              ; db  ...and its bit in the master 8259's mask -
+                                ;     `mouse.inc`'s MOU_L4 (0x10) or MOU_L3
+                                ;     (0x08). **AT 27 AND NOT 15**, which is
+                                ;     the free byte the DPT leaves (16..26)
+                                ;     rather than the base's OWN HIGH BYTE:
+                                ;     a word at 14 occupies 14 AND 15, so a
+                                ;     line mask at 15 wrote 0x10 over the top
+                                ;     of 0x03F8 and kern_dos drove a UART at
+                                ;     0x10F8. The low byte still looked right,
+                                ;     which is what made it read as a mouse
+                                ;     that was simply never there.
+                                ;     CARRIED RATHER THAN DERIVED from
+                                ;     the base, because a card at 2F8 jumpered
+                                ;     to IRQ4 is a machine this project has
+                                ;     met (SPEC.md 9.5.2.1) and the kernel
+                                ;     learned which line fires by watching
+                                ;     packets arrive on it
 KDL_DPT     equ 16              ; db[11] THE DISKETTE PARAMETER TABLE, and it
 KDL_DPT_LEN equ 11              ;     is the KERNEL's rather than the box's -
                                 ;     the one field below that no package can

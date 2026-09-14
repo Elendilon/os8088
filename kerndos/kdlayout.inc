@@ -24,17 +24,18 @@
 KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
 KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 
-%ifdef DOS_EXTCORE
-KD_IMG_KB   equ 35              ; **ONE RUNG MORE WHEN THE CORE IS A PART**
-                                ; (SPEC.md 96.44.5.1): the reservation costs
-                                ; 489 bytes - 88 of CORE_ORG above the API
-                                ; wall, 282 of CORE_MAX slack, the rest
-                                ; rounding - and that crosses 34. The DOS
-                                ; program is handed 585 KB rather than 586,
-                                ; against 10.8 KB off the 360KB system disk
-%else
-KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
-%endif
+; **ONE RUNG FOR BOTH ARMS SINCE SPEC.md 96.45**, and the conditional that
+; used to be here is gone rather than updated. It read 35 with the core as a
+; PART and 34 with it inline (96.44.5.1: the reservation is 489 bytes and
+; that crossed 34, which is what took the DOS program 586 KB -> 585). The
+; mouse's 392 bytes then put the INLINE arm over 34 as well - 35,047 against
+; 34,816 - so the two arms want the same number and a conditional that always
+; answers the same thing is a thing to get wrong later.
+;
+; **THE SHIPPED FIGURE DOES NOT MOVE.** What ships is the extcore arm and it
+; was already 35, so the DOS program keeps its 585 KB; what rises is the
+; `KD_GATE` build (tests/kdos.py), which is a test artefact on no floppy.
+KD_IMG_KB   equ 35              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG

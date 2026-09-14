@@ -127519,3 +127519,84 @@ reservation at `CORE_ORG` being **18,176 zero bytes** and nothing else.
 
 585 is one KB below §96.44.5.1's 586 for the reason that section gives, and
 that KB is the whole cost of shipping the core once.
+
+### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
+
+INT 33h has always been answered here (§96.10); what it answered with was a
+pointer that never moved and was never pressed, because `DHK_MOUSE` (§96.44.3)
+was zero and `dos_mou_read`'s own header said so. docs/plans/KERN-DOS-PLAN.md
+6.1 lever 2 intended otherwise — *drop the cursor half of `mouse.inc`, keep the
+packets and the scale*, costed at ~1,007 carried bytes of 3,419 — and what was
+built dropped the whole file. `kerndos/kdshim.inc` still claimed the packet
+third was carried, which is the shape of stale that a comment cannot be caught
+in by any gate.
+
+**And absent was the lesser half of it.** The handoff's step 6 calls
+`mouse_unhook`, and it must: the kernel's `mou_isr` sits at a `KERNEL_SEG`
+offset that is `kern_dos`'s image one instruction later, so a live IRQ4 after
+the handover vectors into the middle of the disk layer with the program's
+registers — §9.6.5's hard freeze one segment along, and the same argument that
+step's comment already makes about `int 09h`.
+
+So what is owed is a **second, much smaller driver**, and what makes it small
+is that os8088 has already done the expensive part. `mouse_init` spends 596 ms
+at boot settling which port has a mouse and which LINE it actually fires on,
+against a modem whose 'NO CARRIER' has the left button in bit 5 (§9.5). That
+contest is over before the user picks the third arm, so `kern_dos` is **told**
+— two header fields in the launch block, exactly as it is told the boot unit
+and the diskette parameter table — and carries no probe, no hot-plug poller,
+no per-port arrays and no contest at all.
+
+| | |
+|---|---|
+| `KDL_MOUBASE` 14, `KDL_MOULINE` 15 | the UART base and its bit in the master 8259's mask, patched into the STAGED block by `hbm_dosrun` beside `KDL_UNIT` |
+| `kerndos/kdmouse.inc` | the vector, the port, the phase machine, the accumulator and `DHK_MOUSE`'s reader |
+| `kernel/mouproto.inc` | the packet arithmetic, **shared as SOURCE** with `kernel/mouse.inc` |
+
+`KDL_MOUBASE` was `KDL_RSVD`, so **no `KDL_VER` bump is owed**: the version
+moves when a row MOVES, filling a reserved header word moves none, and
+`KDL_TLEN` covers the gathered body alone so both sides still sum the same
+list.
+
+**The line is carried and not derived from the base.** A card at 2F8 jumpered
+to IRQ4 is a machine this project has met (§9.5.2.1); the kernel learned which
+line fires by watching packets arrive on it, and that answer cannot be
+reconstructed from the base.
+
+**The decode is one source and two readers.** `MOU_DECODE_MS` is forty lines
+with two sign extensions in it, and it is the half that would be got wrong
+twice; the phase machine, the port contest and the drain window stay in
+`mouse.inc` because those are the half that genuinely differs — the kernel has
+per-port arrays because a modem on the other port decodes independently, and
+`kern_dos` has one port because the contest is already over. A macro rather
+than a proc: the kernel's copy is inside an ISR reached by fall-through, and a
+return address there lands on the stack §9.10 exists to keep shallow. **The
+kernel builds BYTE-IDENTICAL across the extraction**, which is what says the
+share cost nothing.
+
+**MEASURED: 392 bytes of `kern_dos`'s image, and NO kilobyte off the DOS
+program.** The image goes 34,969 → 35,361 against `KD_IMG_KB`'s 35,840, so
+`LOW_SEG` does not move and the program keeps its 585 KB — 479 bytes of that
+rung are left, and by this file's own rule that is 392 bytes spent and not a
+free change.
+
+**Serial only, stated rather than discovered.** A PS/2 mouse is `[mou_port] =
+MOU_P2ROW` (§9.9) on a different transport through the 8042, and the row —
+not the base — is what `hbm_dosrun` tests, so such a machine gets a zero base
+and keeps §96.10's still pointer instead of a wild UART address. MartyPC is an
+8088 and the field 5150 is serial, so the arm that ships is the arm that can
+be tested.
+
+#### 96.45.1 …and it is handed back QUIET
+
+`kd_leave` calls `kd_mou_stop` before either exit: IER = 0 **and** the line
+masked, which is `mouse_unhook`'s own pair and for its reason — the mask alone
+leaves a UART asserting its line, and IER alone leaves an already-latched edge
+free to be delivered. The vector is deliberately not put back, because what
+was there is the kernel's `mou_isr` at an offset that is now this image;
+quiet hardware is the whole of what the next owner needs, and both `int 19h`
+and the live restore re-run `mouse_init` from scratch on the way up.
+
+Getting this wrong is the handover's own failure in the other direction: an
+unmasked line with a byte behind it, vectoring into whatever loads at `KD_SEG`
+next.

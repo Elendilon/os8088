@@ -227,6 +227,16 @@ kd_entry:
     mov word [dos_vh], 200      ; asks OSAPI_VIDEO; there is no kernel here to
                                 ; ask, and a text-mode machine's is the 80x25
                                 ; cell grid's
+    ; --- THE MOUSE, AND IT GOES IN BEFORE THE BANK (SPEC.md 96.45) ----------
+    ; `dos_restore_machine` puts the WHOLE IVT back out of `dos_save_machine`'s
+    ; copy, so a vector taken after the bank is one the program's own exit
+    ; silently undoes. Taken before it, the pointer is part of the machine the
+    ; program is handed - which is what a mouse driver is under DOS - and
+    ; `DHK_MOUSE` is how the core reaches it (96.44.3). SI still points at the
+    ; launch block, which is where the port and the line came from.
+    call kd_mou_start
+    mov word [dos_hkv + DHK_MOUSE], kd_mou_read
+
     call dos_save_machine       ; **BEFORE dos_hook_vectors**: the whole IVT is
                                 ; what dos_restore_machine puts back, so a hook
                                 ; taken before the bank is never taken off
@@ -343,6 +353,14 @@ kd_leave:
     ; in `.hold`'s `hlt` for ever, which reads exactly like a refusal to
     ; restart rather than like a masked interrupt.
     sti
+    ; **THE MOUSE GOES QUIET HERE AND NOT LATER** (SPEC.md 96.45.1). Both
+    ; exits below hand the machine to somebody else - `int 19h` to the ROM, or
+    ; the live restore to os8088 - and our ISR sits at a KD_SEG offset that is
+    ; the next owner's code the instant it loads. An unmasked line with a
+    ; latched byte behind it is then a wild jump with no way to tell afterwards
+    ; where it went, which is exactly what step 6's `mouse_unhook` protects the
+    ; handover in the other direction from.
+    call kd_mou_stop
     mov si, [kd_lbp]
     test word [si+KDL_FLAGS], KDLF_REBOOT
     jz .hold                    ; W6: the return. Until it exists, a block

@@ -5968,6 +5968,8 @@ section .text
                                 ; font.inc for font_glyphs and FONT_FIRST, and
                                 ; after vga12.inc for gfx_blit1_x - it calls
                                 ; both and defines neither
+%include "mouproto.inc"        ; the serial packet's arithmetic, shared as SOURCE
+                              ; with kerndos/kdmouse.inc (SPEC.md 96.45)
 %include "mouse.inc"
 %include "vmmouse.inc"          ; the VMware absolute pointer (SPEC.md 9.11) -
                                 ; a row, a gate and a pump; the protocol and

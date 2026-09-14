@@ -142,6 +142,12 @@ KDL_SIZE    equ 512             ; ...which is one sector
 KDL_FLAGS   equ 6               ; dw in the block: KDLF_*
 KDL_UNIT    equ 12              ; dw ...and the unit `int 19h` is to boot from,
                                 ; which is also the kernel's to fill
+KDL_MOUBASE equ 14              ; dw the serial mouse's UART base, 0 = none
+KDL_MOULINE equ 27              ; db ...and its bit in the master 8259's mask.
+                                ; The kernel's fields for SPEC.md 96.45's
+                                ; reason: `mouse_init` settled the port and
+                                ; the line at boot and nothing a package can
+                                ; see records which one won
 KDLF_HIBER  equ 4               ; ...bit 2, which is the ONE bit the kernel
                                 ; sets rather than the box - whether there is a
                                 ; fixed disk to come back to is hb_pick's
@@ -2007,6 +2013,40 @@ hbm_dosrun:
     xor ah, ah
     mov [es:KDS_LB + KDL_UNIT], ax
 .nobootu:
+    pop bx
+    ; --- ...AND THE MOUSE, for the same reason (SPEC.md 96.45) --------------
+    ; `mouse_init` spent 596 ms at boot settling which port has a mouse and
+    ; which LINE it fires on, against a modem that answers in bytes whose bit
+    ; 5 is the left button (SPEC.md 9.5). Nothing a package can see records
+    ; that answer, and step 6 below UNHOOKS the mouse - so without these three
+    ; lines `kern_dos` has INT 33h and no pointer to put in it.
+    ;
+    ; A PS/2 mouse leaves the base ZERO and that is the whole refusal: 9.9's
+    ; transport is the 8042's aux port and `[mou_port]` is `MOU_P2ROW` there,
+    ; which is not an index into `mou_bases` at all - so the test is the ROW
+    ; and not the base, and a machine that fails it keeps 96.10's still
+    ; pointer instead of being handed rubbish to drive a UART with.
+    push bx                     ; BX is step 3a's sector count and step 5 is
+                                ; inside its lifetime - the lookup above is
+                                ; bracketed for that reason and so is this
+    cmp byte [mou_seen], 0      ; did anything ever win the contest?
+    je .nomouse
+    mov bl, [mou_port]
+    cmp bl, MOU_P2ROW
+    jae .nomouse                ; PS/2, or no row at all
+    xor bh, bh                  ; **[mou_port] IS ALREADY A BYTE OFFSET** and
+                                ; not a row number: `mou_isr` walks the table
+                                ; with `inc bx`/`inc bx` against MOU_PEND and
+                                ; `mou_claim` banks that same BX, which is why
+                                ; MOU_P2ROW is 4 on a two-port machine rather
+                                ; than 2. Scaling it again reads past the end
+                                ; of `mou_bases` and hands kern_dos whatever
+                                ; follows it as a UART base
+    mov ax, [bx+mou_bases]
+    mov [es:KDS_LB + KDL_MOUBASE], ax
+    mov al, [mou_line]
+    mov [es:KDS_LB + KDL_MOULINE], al
+.nomouse:
     pop bx
     mov si, dsk_dpt             ; **THE DISKETTE PARAMETER TABLE IS OURS AND NOT
     mov di, KDS_LB + KDL_DPT    ; THE BOX'S**, so the block is patched here
