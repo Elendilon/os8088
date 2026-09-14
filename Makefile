@@ -4893,6 +4893,28 @@ $(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUIL
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/dirsw/*.TXT \
 		BIN:$(BUILD)/DOSHELLO.COM
 
+# ...and TYPE's, which wants three shapes the shipped floppies do not have
+# between them (SPEC.md 96.30.7). NOTES.TXT is 9,200 bytes, so it is LONGER
+# THAN ONE 8KB CHUNK and not a whole number of them, so the streaming loop runs several passes and finishes
+# on a partial one - which is the case OSAPI_FILE_READ_AT makes the exception
+# for (18.4.4) and the one a fixture that happened to be a cluster multiple
+# would never reach. SHORT.TXT is under a single cluster, so the FIRST read is
+# already the tail. CTRLZ.TXT carries text, a ^Z and then text that must not
+# appear, because DOS stops there and a reader that does not is a reader that
+# prints whatever followed. Every line is short: the console is 80 columns and
+# a wrapped line is a row the gate would have to reassemble.
+# The COMPRESSED arm is not here - it is README.TXT on the SYSTEM disk in A:,
+# which is the file the field actually typed.
+# **AND THE MAKEFILE IS A PREREQUISITE**, for the reason the dirsw rule above
+# now carries: this disk's PAYLOAD is written in the recipe - three generated
+# files - so a change to what is on it moves no input make can see, and the
+# stale image is one the gate then reports as a broken feature.
+$(BUILD)/dostype360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
+	@rm -rf $(BUILD)/dostype && mkdir -p $(BUILD)/dostype
+	python3 -c "import sys; d=sys.argv[1]; 	  open(d+'/NOTES.TXT','wb').write(b''.join(b'line %03d of the notes\r\n' % i for i in range(1,401))); 	  open(d+'/SHORT.TXT','wb').write(b'a short one\r\n'); 	  open(d+'/CTRLZ.TXT','wb').write(b'before the mark\r\n' + bytes([26]) + b'AFTERMARK\r\n')" 	  $(BUILD)/dostype
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/dostype/*.TXT \
+		BIN:$(BUILD)/DOSHELLO.COM
+
 # ...and the wave-2 gate's, which is a REAL MZ .EXE - header, relocation table
 # and a last page that is exactly full, so e_cblp is 0 (SPEC.md 96.8).
 $(BUILD)/DOSHELLO.EXE: tests/dosexe/hello.asm | $(BUILD)
@@ -5129,7 +5151,7 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/DOSXMSQ.COM
 
 .PHONY: doscom
-doscom: $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
+doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \

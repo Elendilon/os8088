@@ -121960,6 +121960,140 @@ DISK-CPU-PLAN §5 is settled — it would make the copy buffer free on the
 machines that have a driver, and leave the arena route for the ones that do
 not.
 
+##### 96.30.7 `TYPE` could not read a file at all, and one `>` muted the box
+
+Four defects in the interpreter, found by a tester running the verbs for the
+first time and all reproduced on the machine. Three of them are one sentence
+each; the first is the one the tester hit and the second is the one that
+would have cost the most.
+
+**1. `TYPE` read in 128-byte chunks and `OSAPI_FILE_READ_AT` will not take
+that.** §18.4.4's two preconditions are that the offset AND the capacity are
+each a whole number of CLUSTERS — the thing that makes a resume point exact —
+so `DSH_BUF equ 128` was refused on its very first chunk, on every file, on
+every volume, with `FERR_NAME`. It had nothing to do with compression and
+nothing to do with the name: `TYPE README.TXT`, `TYPE A:\README.TXT` and
+`TYPE NOSUCH.TXT` all answered identically. The smallest cluster this machine
+has is one 512-byte sector, so no geometry could ever have made 128 legal.
+
+The box already had the answer written down one file along: `dos_fh_setup`
+sizes the file window as *the largest cluster multiple that fits an 8 KB
+floor, or one whole cluster when the cluster is bigger*, under a comment
+saying in as many words that `READ_AT` cannot be asked for less. `TYPE` uses
+**the copy buffer** now — `dsh_bufget`, which is where `COPY` already gets a
+cluster-shaped block out of the DOS arena (§96.30.6) — so there is one
+buffer, one sizing rule and no second constant to go stale. `dsh_buf` and
+`DSH_BUF` are deleted.
+
+**2. `[dsh_quiet]` was set by the first redirection and NEVER CLEARED.** It is
+package bss, so one `> NUL` anywhere silenced every `dsh_say` in the box for
+the life of the instance — and the box is a window a person leaves open. What
+that looks like is not an error: `VER` prints nothing, and `DIR` keeps
+printing NAMES (it writes those through `dos_tty` directly) while losing its
+`<DIR>` markers, its sizes and its footer, so the listing silently changes
+shape. Measured, in that order, on one prompt. `dsh_run` clears it beside
+`[dsh_why]`, which is the line that already existed for exactly this reason
+one variable along.
+
+**3. The redirection REFUSAL was silenced by the flag it sets.** `dsh_redir`
+set `[dsh_quiet]` at the `>` and only then asked whether the target was `NUL`,
+so `.badredir`'s *"Cannot redirect to that file"* was suppressed by the
+command it was refusing. §96.30.3 makes the whole argument for refusing rather
+than ignoring a target that is not `NUL` — *an answer of the wrong kind is
+worse than a refusal* — and the refusal was invisible, which is the case that
+argument is against. The flag moves four lines down, after `dsh_same` agrees
+the target is `NUL`: a MOVE and not an addition.
+
+**4. `TYPE` reported every failure as `File creation error`.** That is
+`dsh_s_ioerr`, which is DOS's message for a failed `COPY` create and is
+correct there; `TYPE` creates nothing, and the tester reasonably read it as
+the command wanting a destination and tried `TYPE > FILE.TXT` — which hit
+defects 2 and 3 together and printed nothing at all. `TYPE` now answers
+**`File not found`** for a name that is not there, which is what DOS 3.30
+answers, and keeps a read failure separate.
+
+**And a fifth that nothing had hit yet**: `DSH_CPMINKB` is 1 KB, so
+`dsh_bufget`'s halving retry could hand `COPY` a buffer of 1,024 bytes — not
+a cluster multiple on a volume whose cluster is 2 KB or 4 KB, which is a hard
+disk. `COPY` would have failed there exactly as `TYPE` failed everywhere, and
+the gate disks are all floppies with 512-byte clusters, so nothing could see
+it. The floor is a CLUSTER now rather than a constant, and the request is
+rounded to one on the way in.
+
+###### 96.30.7.1 …and a compressed file is read WHOLE, as the handle layer reads one
+
+`OSAPI_FILE_READ_AT` is raw by §20.14.3 — it delivers the `'CZ'` container's
+own bytes — and `README.TXT` is compressed on every shipped floppy, so fixing
+the capacity alone would have made `TYPE README.TXT` print a wrapper and
+14 KB of LZ4. That is not hypothetical: it is the file the tester tried.
+
+The decision is already made in this box, at `AH=3Dh`: a find record carrying
+`OSAPI_FIND_CZ` cannot be windowed at all, so a small one is opened
+`FHF_WHOLE` and read through `OSAPI_FILE_READ`, which expands. `TYPE` asks the
+same question with the same walker (`dos_fh_stat`, which answers the size and
+the `CZ` bit together) and takes the same two arms:
+
+```
+plain      -> dsh_bufget(8 KB), then DBE_RDAT at rising cluster-multiple
+              offsets until it delivers 0 - the streaming loop, unchanged
+              except for where the buffer comes from
+compressed -> dsh_bufget(roundup_KB(size)), then ONE DBE_READ, which
+              expands on the way in; the find record's size is the UNPACKED
+              one (DIR already prints 14,722 for an 8,088-byte README.TXT),
+              so the block is sized from what will arrive rather than from
+              what is on the disk
+```
+
+**The compressed arm has a size it cannot exceed and says so.** The handle
+layer's answer to a compressed file bigger than its window is to refuse the
+OPEN (`.opbig`); `TYPE`'s is to refuse the buffer, `Insufficient memory`,
+which is DOS's own sentence and the one `dsh_bufget`'s other caller already
+uses. That is a real limit — the arena is most of conventional memory at a
+prompt with no program running, so it is megabyte-shaped in practice and
+`BEVERLY.MOD` is not a thing anyone types — and it is a refusal with a reason
+rather than a wrapper on the screen.
+
+**There is no streaming arm for a compressed file and there cannot be one
+here**, which is worth writing down so it is not re-derived: the expansion
+state lives inside the kernel's decoder for the length of one call, so a
+chunked read of a `'CZ'` file would have to restart the stream at every chunk.
+§20.13.7's raw tail makes in-place expansion free, not resumable.
+
+###### 96.30.7.2 …and at the PROMPT there is no arena, so `COPY` was broken too
+
+`dsh_bufget` takes its block from the DOS arena, and §96.30.6's argument for
+that is exact: **a program that shells out has, by construction, left room for
+a shell to load into**, so the buffer loads where a real `COMMAND.COM` would.
+Every word of it is about a program.
+
+At the windowed prompt there is no program. `[dos_arena]` is claimed inside
+`dos_run` and set back to **0** on the way out, so `dos_mcb_alloc` walks a
+chain that starts at segment 0, finds no `MCB` signature in the interrupt
+vector table and takes its `.broken` arm — correctly, that being what the arm
+is for. The refusal is `Insufficient memory` on a machine with hundreds of
+kilobytes free, and it is not `TYPE`'s: **`COPY` at the prompt had it first**
+and nothing had typed one, because §96.30's verbs were written for and tested
+through `AH=4Bh`.
+
+§96.30.6's own last paragraph names the fix without knowing it is one:
+*"`OSAPI_FILE_COPY` is still the right door for a package with a heap, which
+is every windowed caller including wave 7's prompt; it is simply not reachable
+from inside a bracket, and that is a property of the bracket rather than of
+the slot."* The buffer is the same shape: inside a bracket the heap is the DOS
+program's by §96.3's one claim and the arena is the only source; at the prompt
+the heap is ours and the arena does not exist. So `dsh_bufget` reads
+`[dos_arena]` and takes one door or the other, in the same KB, and
+`dsh_bufput` frees whichever it took — recorded in a byte rather than
+re-derived, because a rule that holds *because no built-in enters a bracket*
+is the kind that stops holding quietly.
+
+**The halving retry is not allowed on the compressed arm.** `dsh_bufget`
+halves a refused request because a smaller buffer is a slower copy rather than
+no copy — true of a stream, false of a whole-file read, which answers
+`FERR_BIG` off the directory entry before it touches anything. So that arm
+asks, compares what it got against what it asked for, and hands back a short
+block rather than reading into it.
+
 ##### 96.30.5 It is the interpreter the windowed prompt wants
 
 A prompt in a window (docs/plans/DOS-EXEC-PLAN.md wave 7) differs from this in

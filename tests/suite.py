@@ -3290,6 +3290,42 @@ SOAK = [
         "dotted ones, while the search and the refusal stayed green.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
+    Row("dostype", "soak", py("tests/dostype.py"), 120.0,
+        "TYPE, AND THE FLAG THAT MUTED THE BOX (SPEC.md 96.30.7). A tester "
+        "ran the verbs for the first time and TYPE answered `File creation "
+        "error` on every file - compressed, uncompressed, and a name that was "
+        "not there alike. FOUR defects standing on each other, one assertion "
+        "each. **IT COULD NOT READ A FILE AT ALL**: the chunk was 128 bytes "
+        "and OSAPI_FILE_READ_AT refuses a capacity that is not a whole number "
+        "of CLUSTERS (18.4.4), so the FIRST read was refused on every file on "
+        "every volume, and the smallest cluster this machine has is 512 bytes "
+        "- no geometry could have made 128 legal. NOTES.TXT is 9,200 bytes "
+        "against an 8KB chunk on purpose, so it takes two passes and finishes "
+        "on a partial one, which is the case 18.4.4 makes its own exception "
+        "for; SHORT.TXT is 13, so the first read IS the tail; CTRLZ.TXT has "
+        "text after a ^Z that must not appear. **ONE `>` MUTED THE BOX FOR "
+        "GOOD** - [dsh_quiet] is package bss and was never cleared, so one "
+        "redirection silenced every dsh_say for the life of a window somebody "
+        "leaves open, which is not an error to look at: VER prints nothing "
+        "and DIR keeps printing NAMES while losing its <DIR> markers, its "
+        "sizes and its footer, so the listing silently changes SHAPE. That is "
+        "asserted LAST and in that order, because a box that has stopped "
+        "speaking passes every other row in this file by printing nothing. "
+        "**AND THE REFUSAL WAS SILENCED BY THE FLAG IT SETS** - the `>` set it "
+        "before the target was judged, so `Cannot redirect to that file` never "
+        "printed and the command read as one that had worked, the wrong KIND "
+        "of answer 96.30.3 refuses a non-NUL target to avoid. Plus the "
+        "compressed arm (README.TXT on the SYSTEM disk is a 'CZ' container, so "
+        "fixing the capacity alone would have typed a wrapper) and a COPY AT "
+        "THE PROMPT, which is a fifth defect nothing had typed: the buffer "
+        "comes out of the DOS ARENA and at the prompt there is no arena "
+        "(96.30.7.2), so dos_mcb_alloc walked the interrupt vector table and "
+        "refused - COPY had that one first. VERIFIED RED against the tree "
+        "before the fix: ELEVEN of eleven, each naming its own defect, with "
+        "`File creation error` on five of them and a DIR reading `BIN CTRLZ "
+        "TXT NOTES TXT SHORT TXT` with no sizes on the last. 37s measured.",
+        needs=("marty",), serial=True,
+        wants=("build/dostype360.img",)),
     Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "

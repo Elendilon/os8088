@@ -27,7 +27,7 @@
 ; rewrite.
 ; -----------------------------------------------------------------------------
 
-; DSH_LINE, DSH_ARG, DSH_PAT and DSH_BUF are in dos.asm's constants block,
+; DSH_LINE, DSH_ARG and DSH_PAT are in dos.asm's constants block,
 ; EARLY, because the DBSS table sizes this file's buffers and `%assign` cannot
 ; forward-reference. dosnetabi.inc is in the tree for the same reason.
 
@@ -99,7 +99,15 @@ dsh_tail:
 ; -----------------------------------------------------------------------------
 dsh_run:
     mov byte [dsh_why], DSHW_NONE   ; ...and cleared per command, so a stale
-    call dsh_redir                  ; one cannot be read as this one's
+    mov byte [dsh_quiet], 0         ; one cannot be read as this one's - which
+                                    ; goes DOUBLE for the quiet flag, whose
+                                    ; stale one is not a wrong diagnosis but a
+                                    ; box that never speaks again (96.30.7):
+                                    ; it is bss, so one `> NUL` silenced every
+                                    ; dsh_say for the life of the instance,
+                                    ; and a DIR then keeps printing NAMES
+                                    ; while losing its sizes and its footer
+    call dsh_redir
                                     ; `> NUL` off the end first, so the verb
     jc .badredir                    ; scan never sees it
     call dsh_skipsp
@@ -214,7 +222,6 @@ dsh_redir:
     inc bx
     jmp short .scan
 .cut:
-    mov byte [dsh_quiet], 1
     mov si, bx                      ; SI walks the target, BX marks the cut
     inc si
     cmp byte [si], '>'
@@ -231,6 +238,13 @@ dsh_redir:
     mov di, dsh_s_nul
     call dsh_same
     jc .no
+    mov byte [dsh_quiet], 1         ; **HERE AND NOT AT THE `>`** (96.30.7):
+                                    ; set before the target was judged, this
+                                    ; flag suppressed .badredir's own refusal,
+                                    ; so `TYPE > FILE.TXT` printed nothing and
+                                    ; read as a command that had worked - the
+                                    ; wrong KIND of answer 96.30.3 refuses a
+                                    ; non-NUL target to avoid giving
 .none:
     pop bx
     pop si
@@ -882,37 +896,110 @@ dsh_c_xcopy:
 ; answering 8 - so a program that shells out has, by construction, left room
 ; for a shell to load into. Ours loads a buffer instead of a COMMAND.COM.
 ; -----------------------------------------------------------------------------
+; --- dsh_clkb - BX = this volume's cluster size in KB, at least 1 -----------
+; A cluster is a power of two SECTORS by FAT's own rule - dos_fh_fill's mask
+; already leans on it - so KB is sectors/2 with 1 as the floor, and that floor
+; is exact rather than a fudge: a 512-byte cluster makes every whole KB two of
+; them. Preserves everything but BX.
+dsh_clkb:
+    push ax
+    call dos_be_dfree               ; BX = SECTORS per cluster, and this is the
+    jc .guess                       ; O(clusters) call the SDK warns about, so
+    or bx, bx                       ; it is asked once per BUFFER and never in
+    jnz .got                        ; the chunk loop that uses one
+.guess:
+    mov bx, 2                       ; a volume that will not say: 1KB, which is
+.got:                               ; the 360KB floppy's own and a multiple of
+    inc bx                          ; every smaller one
+    shr bx, 1                       ; sectors -> KB, rounding 1 sector up to 1
+    pop ax
+    ret
+
+; **AND WHERE IT COMES FROM DEPENDS ON WHETHER THERE IS A PROGRAM** (96.30.7.2).
+; 96.30.6 sized this against `a program that shells out`, which by the DOS
+; contract has left room for a shell to load into - so the block comes out of
+; the DOS ARENA, where a real COMMAND.COM would load itself. At the PROMPT
+; there is no program and no arena: [dos_arena] is claimed inside dos_run and
+; freed back to 0 on the way out, so dos_mcb_alloc walks a chain that starts at
+; segment 0, finds no MCB signature in the IVT and refuses every time. That is
+; the windowed caller 96.30.6's own last paragraph says has a heap, so at the
+; prompt it takes one - the same KB, through OSAPI_MEM_CLAIM.
 dsh_bufget:
     mov word [dsh_cpseg], 0
-    mov ax, DSH_CPKB
-.try:
+    push ax
+    call dsh_clkb                   ; **AND THE SIZE IS CUT TO IT** (96.30.7)
+    pop ax
+    cmp ax, bx                      ; ...which is also the floor: OSAPI_FILE_
+    jae .round                      ; READ_AT refuses a capacity under one
+    mov ax, bx                      ; cluster outright (18.4.4)
+.round:
+    push bx                         ; up to the next whole cluster, by MASK:
+    dec bx                          ; the cluster is a power of two, which is
+    add ax, bx                      ; the same fact dos_fh_fill's own rounding
+    pop bx                          ; rests on
+    push bx
+    neg bx
+    and ax, bx
+    pop bx
+    cmp ax, 1024                    ; ...and a block this cannot NAME: the
+    jae .none                       ; shl below is 16 bits of paragraphs
+    mov byte [dsh_cpheap], 0
+    cmp word [dos_arena], 0
+    jne .try
+    mov byte [dsh_cpheap], 1        ; ...the prompt's arm, decided ONCE so the
+.try:                               ; put below cannot free the other one
     mov [dsh_cpkb], ax
+    push bx
+    cmp byte [dsh_cpheap], 0
+    je .arena
+    call OSAPI_MEM_CLAIM            ; AX = KB -> DX = the base segment
+    mov ax, dx                      ; ...and this arm answers where the other
+    jmp short .did                  ; one does, in AX
+.arena:
     mov bx, ax
     mov cl, 6
     shl bx, cl                      ; KB -> paragraphs
     call dos_mcb_alloc
+.did:
+    pop bx
     jnc .got
     mov ax, [dsh_cpkb]              ; halve and retry: a machine that cannot
     shr ax, 1                       ; fund 8KB can very often fund one, and a
-    cmp ax, DSH_CPMINKB             ; smaller buffer is a slower copy rather
-    jae .try                        ; than no copy
-    stc
-    ret
-.got:
-    mov [dsh_cpseg], ax
-    clc
-    ret
+    push bx                         ; smaller buffer is a slower copy rather
+    neg bx                          ; than no copy. BACK ONTO A CLUSTER after
+    and ax, bx                      ; the halving, DOWNWARD: a request that is
+    pop bx                          ; not a power of two halves to an odd
+    cmp ax, bx                      ; multiple, and rounding UP here could not
+    jae .try                        ; terminate. NEVER under a cluster,
+.none:                              ; which is what DSH_CPMINKB's flat 1KB got
+    stc                             ; wrong: on a 2KB- or 4KB-cluster volume -
+    ret                             ; a hard disk - the last retry handed COPY
+.got:                               ; a buffer READ_AT could not be asked for,
+    mov [dsh_cpseg], ax             ; and every gate disk here is a floppy
+    clc                             ; whose cluster is 512 bytes, so nothing
+    ret                             ; could see it
 
 dsh_bufput:
+    push ax
+    push dx
     push es
     mov ax, [dsh_cpseg]
     or ax, ax
     jz .none
+    cmp byte [dsh_cpheap], 0
+    je .arena
+    mov dx, ax
+    call OSAPI_MEM_FREE
+    jmp short .gone
+.arena:
     mov es, ax
     call dos_mcb_free
+.gone:
     mov word [dsh_cpseg], 0
 .none:
     pop es
+    pop dx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1211,7 +1298,23 @@ dsh_dir_go:
     ret
 
 ; -----------------------------------------------------------------------------
-; dsh_c_type - a file to the screen, in chunks, through the ROM teletype
+; dsh_c_type - a file to the screen, through the ROM teletype (SPEC.md 96.30.7)
+;
+; **THE BUFFER IS THE COPY BUFFER AND THAT IS THE WHOLE FIX.** This read in
+; 128-byte chunks out of a bss array, and OSAPI_FILE_READ_AT will not take a
+; capacity that is not a whole number of CLUSTERS (18.4.4) - so it was refused
+; on its first chunk, on every file, on every volume, and reported the refusal
+; as `File creation error`. The smallest cluster this machine has is one
+; 512-byte sector, so no geometry could ever have made 128 legal. dsh_bufget
+; is where COPY already gets a cluster-shaped block out of the DOS arena
+; (96.30.6), so there is one buffer and one sizing rule.
+;
+; TWO ARMS, and the second is the handle layer's own decision (96.30.7.1):
+; READ_AT is RAW (20.14.3), so a 'CZ' file - which README.TXT is on every
+; shipped floppy - would be typed as its wrapper. A compressed file is read
+; WHOLE through OSAPI_FILE_READ, which expands on the way in, exactly as
+; AH=3Dh opens one FHF_WHOLE.
+; -----------------------------------------------------------------------------
 dsh_c_type:
     call dsh_skipsp
     mov di, dsh_a1
@@ -1228,43 +1331,129 @@ dsh_c_type:
     mov dx, [dsh_rclus]
     mov bl, [dsh_rdrv]
     call dos_be_goto
-    jc .ioerr
+    jc .nopath
     mov [dos_curdir], dx
+
+    call dsh_stat                   ; --- is it there, how big, and is it
+    jc .nofile                      ; COMPRESSED? DX:AX = the UNPACKED size,
+    test bl, OSAPI_FIND_CZ          ; BL = the flags
+    jnz .czarm
+
+    mov ax, DSH_CPKB                ; --- PLAIN: stream it, a cluster-shaped
+    call dsh_bufget                 ; chunk at a time
+    jc .nomem
     mov word [dsh_off], 0
     mov word [dsh_off+2], 0
 .chunk:
     push ds
-    pop es
-    mov si, dsh_leaf
-    mov bx, dsh_buf
-    mov cx, DSH_BUF
-    mov dx, [dsh_off+2]
-    mov ax, [dsh_off]
-    call dos_be_rdat                ; out DX:AX = what it delivered
-    jc .ioerr
+    pop es                          ; dos_be_rdat takes the NAME in DS:SI and
+    mov si, dsh_leaf                ; the buffer in ES:BX, so ES is the block
+    mov es, [dsh_cpseg]             ; and the name is read before it moves
+    mov bx, 0
+    mov cx, [dsh_cpkb]
+    mov ax, cx
+    mov cl, 10
+    shl ax, cl                      ; KB -> bytes. A cluster of 64KB would wrap
+    mov cx, ax                      ; this to zero and READ_AT refuses a zero
+    mov dx, [dsh_off+2]             ; capacity, so that machine gets an honest
+    mov ax, [dsh_off]               ; refusal rather than a wrong read - and no
+    call dos_be_rdat                ; volume this OS mounts has one
+    jc .rderr
     mov cx, ax
     or cx, cx
-    jz .fin
+    jz .fin                         ; at or past the end: the loop's own end
     add [dsh_off], cx
     adc word [dsh_off+2], 0
-    mov si, dsh_buf
-.putc:
-    mov al, [si]
-    cmp al, 26                      ; ^Z ends a text file, as it does under DOS
-    je .fin
-    call dos_tty
-    inc si
-    loop .putc
+    call .put
+    jc .fin                         ; ^Z
     jmp short .chunk
+
+.czarm:
+    ; --- COMPRESSED: ONE whole read, which EXPANDS (96.30.7.1) --------------
+    ; The size is the UNPACKED one - it is what OSAPI_FILE_FIND reports and
+    ; what DIR already prints - so the block is sized from what will ARRIVE
+    ; rather than from what is on the disk. 64KB is the bound and it is the
+    ; PRINTER's: the walk below indexes one segment, and a block bigger than
+    ; that cannot be reached from it.
+    or dx, dx
+    jnz .toobig
+    add ax, 1023
+    jc .toobig
+    mov cl, 10
+    shr ax, cl                      ; bytes -> KB, rounded up
+    or ax, ax
+    jnz .czget
+    inc ax                          ; an empty file still wants a block
+.czget:
+    push ax                         ; **THE HALVING IS NOT ALLOWED HERE**: a
+    call dsh_bufget                 ; whole-file read into a smaller block is
+    pop bx                          ; FERR_BIG, decided off the directory entry
+    jc .nomem                       ; before any I/O, so a half-sized buffer
+    cmp [dsh_cpkb], bx              ; buys nothing at all. The cluster rounding
+    jb .nomemb                      ; may make it BIGGER, which is free
+    push ds
+    pop es
+    mov si, dsh_leaf
+    mov es, [dsh_cpseg]
+    xor bx, bx
+    mov ax, [dsh_cpkb]
+    mov cx, 1024
+    mul cx                          ; DX:AX = the capacity in BYTES, 32 bits,
+    mov cx, ax                      ; which is what this slot takes
+    call dos_be_read                ; out DX:AX = the UNPACKED size
+    jc .rderr
+    mov cx, ax
+    jcxz .fin
+    xor bx, bx
+    call .put
 .fin:
+    call dsh_bufput
     call dsh_home
     xor al, al
     ret
-.ioerr:
+
+; --- .put - CX bytes at [dsh_cpseg]:BX to the console --------------------
+; out: CF=1 if a ^Z ended the file. BX walks; ES and CX ride through dos_tty,
+; whose console arm brackets every SI and ES it touches (apps/os88con.inc) and
+; whose ROM arm is int 10h AH=0Eh.
+.put:
+    jcxz .putok
+.p1:
+    mov al, [es:bx]
+    cmp al, 26                      ; ^Z ends a text file, as it does under DOS
+    je .puteof
+    call dos_tty
+    inc bx
+    loop .p1
+.putok:
+    clc
+    ret
+.puteof:
+    stc
+    ret
+
+.nomemb:
+    call dsh_bufput
+.nomem:
+    mov si, dsh_s_nomem             ; ...and it is DOS's own sentence, which
+    mov ah, DSHW_MEM                ; dsh_bufget's other caller already uses
+    jmp short .bad
+.toobig:
+    mov si, dsh_s_toobig
+    mov ah, DSHW_IO
+    jmp short .bad
+.rderr:
+    call dsh_bufput
+    mov si, dsh_s_rderr             ; **AND NOT `File creation error`**: TYPE
+    mov ah, DSHW_IO                 ; creates nothing, and reporting COPY's
+    jmp short .bad                  ; message here sent the first person to
+.nofile:                            ; try the verb looking for a destination
+    mov si, dsh_s_nofile            ; to give it (96.30.7)
+    mov ah, DSHW_NOFILE
+.bad:
     call dsh_home
-    mov si, dsh_s_ioerr
     call dsh_say
-    mov byte [dsh_why], DSHW_IO
+    mov [dsh_why], ah
     mov al, 1
     ret
 .syntax:
@@ -1279,6 +1468,39 @@ dsh_c_type:
     mov byte [dsh_why], DSHW_NOPATH
     mov al, 3
     ret
+
+; --- dsh_stat - dos_fh_stat on the leaf we are standing on -------------------
+; out: CF=0 with DX:AX = the UNPACKED size and BL = the OSAPI_FIND_* flags;
+;      CF=1 = no such file in this folder
+;
+; Through [dos_fname] because dos_fh_stat is the walker AH=3Dh opens through,
+; and one walker is the point: it is what knows that a folder is not a file and
+; that '..' is not either. The buffer is the handle layer's scratch for a name
+; and is not held across anything.
+dsh_stat:
+    push si
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov si, dsh_leaf
+    mov di, dos_fname
+    mov cx, 12                      ; an 8.3 name, and the terminator after it
+    cld
+.cp:
+    lodsb
+    stosb
+    or al, al
+    jz .done
+    loop .cp
+    mov byte [es:di], 0
+.done:
+    pop es
+    pop cx
+    pop di
+    pop si
+    jmp dos_fh_stat
 
 ; -----------------------------------------------------------------------------
 ; dsh_c_dir - DIR (SPEC.md 96.33.4)
@@ -2125,6 +2347,19 @@ dsh_s_badparm:  db 'Invalid parameter', 13, 10, 0
 dsh_s_dir:      db '<DIR>', 0
 dsh_s_redir:    db 'Cannot redirect to that file', 13, 10, 0
 dsh_s_nomem:    db 'Insufficient memory', 13, 10, 0
+dsh_s_rderr:    db 'Error reading file', 13, 10, 0
+                                ; **NOT A DOS 3.30 STRING AND IT CANNOT BE**
+                                ; (SPEC.md 96.30.7): the real thing answers a
+                                ; TYPE that cannot read through the CRITICAL
+                                ; ERROR handler - `Abort, Retry, Fail?` - and
+                                ; this box has none at the prompt. What it must
+                                ; not do is keep saying `File creation error`
+                                ; about a verb that creates nothing
+dsh_s_toobig:   db 'File too large', 13, 10, 0
+                                ; ...the COMPRESSED bound alone (96.30.7.1): a
+                                ; 'CZ' file has to be expanded whole and the
+                                ; walk that prints it indexes one segment
+
 dsh_s_nodrv:    db 'Invalid drive specification', 13, 10, 0
 dsh_s_ver:      db 13, 10, 'os8088 DOS Version 3.31', 13, 10, 0
                                 ; **NOT "box" AND NOT "MS-DOS"** - this is not
