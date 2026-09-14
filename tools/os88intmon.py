@@ -98,6 +98,33 @@ BIOS_FN = {
 }
 FN_TABLE = {0x21: DOS_FN, 0x13: BIOS_FN}
 
+# **THE CALLS THAT NAME A FILE**, and reading the name is the difference
+# between "it opened something" and "it opened A:\TD3.CFG when it was launched
+# from B:". DS:DX on every one of them; AH=56h's second name is at ES:DI and
+# is read too, because a rename that moves is the interesting rename.
+DOS_NAMED = {0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x41, 0x43, 0x4B, 0x4E, 0x56, 0x5B}
+
+
+def _asciz(m, seg, off, n=64):
+    """An ASCIZ out of the guest, or None.
+
+    A name is read AT THE STOP, before the handler has run - so it is what the
+    program asked for rather than anything we made of it. Bounded and
+    forgiving: a bad pointer must not end a trace.
+    """
+    try:
+        b = m.read(((seg << 4) + off) & 0xFFFFF, n)
+    except Exception:
+        return None
+    out = bytearray()
+    for c in b:
+        if c == 0:
+            break
+        if c < 32 or c > 126:
+            return None                 # not a name: do not invent one
+        out.append(c)
+    return out.decode("ascii") if out else None
+
 
 def fname(vec, ah):
     return FN_TABLE.get(vec, {}).get(ah, "%02Xh" % ah)
@@ -145,10 +172,19 @@ def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None):
     while True:
         m.run()
         if not m.wait_stop(limit=20.0, poll=POLL):
+            # **A PROGRAM WAITING FOR A KEY MAKES NO CALLS**, and that is not a
+            # machine that died - it is the commonest thing a game does. So a
+            # timeout asks the CLOCK before it gives up: the budget is guest
+            # seconds and it is still being spent.
+            spent = (int(m.status().get("cycles", 0)) - c0) / GUEST_HZ
+            if spent > budget:
+                say("intmon: %.1f guest seconds spent with the guest idle - "
+                    "the budget. %d call(s)" % (spent, len(recs)))
+                break
             stalls += 1
-            if stalls > 2:
-                say("intmon: the guest stopped answering - %d call(s) in"
-                    % len(recs))
+            if stalls > 8:
+                say("intmon: no call in %d waits and %.1f guest seconds - the "
+                    "guest is stopped, not quiet" % (stalls, spent))
                 break
             continue
         stalls = 0
@@ -166,6 +202,14 @@ def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None):
             "si": r["si"], "di": r["di"], "ds": r["ds"], "es": r["es"],
             "cs": r["cs"], "ip": r["ip"],
         }
+        if vec == 0x21 and ((r["ax"] >> 8) & 0xFF) in DOS_NAMED:
+            nm = _asciz(m, r["ds"], r["dx"])
+            if nm:
+                rec["name"] = nm
+            if ((r["ax"] >> 8) & 0xFF) == 0x56:
+                nm2 = _asciz(m, r["es"], r["di"])
+                if nm2:
+                    rec["name2"] = nm2
         if do_time:
             rec["in"] = _time_one(m, base, r)
             c0 += 0                     # the return stop costs the guest nothing
@@ -283,6 +327,16 @@ def report(data, say=print, top=12):
             say(line)
         if len(rows) > top:
             say("    ...and %d more function(s)" % (len(rows) - top))
+        named = [r for r in mine if r.get("name")]
+        if named:
+            seen = {}
+            for r in named:
+                k = (fname(vec, (r["ax"] >> 8) & 0xFF), r["name"])
+                seen[k] = seen.get(k, 0) + 1
+            say("")
+            say("    the names it asked for:")
+            for (what, nm), n in sorted(seen.items(), key=lambda kv: -kv[1]):
+                say("      %-14s %-40s x%d" % (what, nm, n))
         if timed:
             say("    TOTAL %.1f guest ms inside int %02Xh"
                 % (tot / GUEST_HZ * 1000.0, vec))
