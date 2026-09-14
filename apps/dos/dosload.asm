@@ -32,10 +32,13 @@
 ; box needs off this row is three numbers, and the loader copies them into the
 ; box's own bss before it disappears.
 ;
-; **`OP_LAZY` COSTS THE ROW ITS `zkb` WORD**, which on an `OP_COMP` row is the
-; packed length (20.12.7) - so the stream is packed by `tools/os88lz.py --raw`
-; in the Makefile instead and the FILE is the packed stream, which makes
-; `OP_R_LEN` the packed length directly. The stub needs no other figure:
+; **`OP_COMP` BESIDE `OP_LAZY` WAS REFUSED AND IS NOT ANY MORE** (SPEC.md
+; 20.12.7.4). The refusal was right about the mechanism - one `zkb` word, two
+; meanings - and backwards about the conclusion: every lazy row in this tree
+; is a compressed stream, and each had grown a packer and an expander outside
+; the standard to get there. The word is shared in TIME now - the packed
+; length until the fetch, the segment after - and this row never fetches at
+; all, so the second meaning never arrives. The stub needs no other figure:
 ; `kds_expand` takes a byte count and runs to the end of the stream, and
 ; `KDS_ULEN` is carried and never read.
 ;
@@ -133,11 +136,17 @@ dsl_entry:
                                     ;   file - 11,839 of those bytes are the
                                     ;   bss, and a run of zeros is what LZ4 is
                                     ;   best at
-      OS88_PART OP_ASSET, OP_LAZY   ; 1 kern_dos, PACKED BY THE MAKEFILE. Lazy
-                                    ;   because op_size would refuse the pair
-                                    ;   eagerly (the header above), and never
-                                    ;   fetched because the handoff reads it by
-                                    ;   extent list with the heap already gone
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY
+                                    ; 1 kern_dos. LAZY because op_size would
+                                    ;   refuse the pair eagerly (the header
+                                    ;   above), and never fetched at all
+                                    ;   because the handoff reads it by extent
+                                    ;   list with the heap already gone - what
+                                    ;   the box wants off this row is three
+                                    ;   numbers. COMP because it is 29KB of a
+                                    ;   360KB system disk otherwise, and the
+                                    ;   pairing is what SPEC.md 20.12.7.4 had
+                                    ;   to unrefuse
     OS88_PARTS_END
 
     OS88_BSS OP_BSS

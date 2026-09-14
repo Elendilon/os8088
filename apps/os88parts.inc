@@ -117,7 +117,24 @@ OP_R_KIND     equ 0             ; dw len, dw zkb - off and len are os88pkg.py's
 OP_R_FLAG     equ 1             ; and zkb is yours
 OP_R_OFF      equ 2
 OP_R_LEN      equ 4
-OP_R_ZKB      equ 6             ; KB of zero-filled scratch, OP_ZERO rows only
+OP_R_ZKB      equ 6             ; FOUR MEANINGS, one per flag combination, and
+                                ; the flags are what say which: KB of
+                                ; zero-filled scratch on an OP_ZERO row, the
+                                ; PACKED length on an eager OP_COMP one, the
+                                ; SEGMENT a fetched OP_LAZY part sits at - and
+                                ; on an OP_COMP|OP_LAZY row the packed length
+                                ; BEFORE the fetch and the segment after
+                                ; (SPEC.md 20.12.7.4)
+OP_SPENT      equ 0xFFFF        ; ...and what op_drop leaves in a dropped
+                                ; OP_COMP|OP_LAZY row, because the packed
+                                ; length it would need to be read again is the
+                                ; word the segment was banked in. 0 would mean
+                                ; `not fetched` and a second op_fetch would
+                                ; read a stream of ZERO bytes and answer CF=0
+                                ; over a claim of rubble; this makes it refuse
+                                ; and say so. It is safe as a sentinel because
+                                ; it is not a segment any claim can have -
+                                ; 0xFFFF:0000 is 16 bytes below the 1MB wrap
                                 ; - or the PACKED byte count on an OP_COMP row,
                                 ; or a fetched OP_LAZY row's segment. One word,
                                 ; three meanings, and no two of them can be on
@@ -205,9 +222,14 @@ op_t_n:
     %if ((%2) & OP_COMP) && ((%2) & OP_ZERO)
         %error "OP_COMP on a scratch part: there are no file bytes to compress, and zkb is the KB it asks for"
     %endif
-    %if ((%2) & OP_COMP) && ((%2) & OP_LAZY)
-        %error "OP_COMP with OP_LAZY: a lazy row's zkb word banks the segment it was fetched into, and a compressed row's carries its packed length - one word, and a fetched part would overwrite the length it needs to be fetched again"
-    %endif
+    ; OP_COMP with OP_LAZY IS THE COMMON CASE AND WAS REFUSED (SPEC.md
+    ; 20.12.7.4). The refusal that stood here was right about the mechanism -
+    ; one zkb word, two meanings - and wrong about which way to resolve it:
+    ; EVERY lazy row in this tree is a compressed stream, and each one had
+    ; grown a packer and an expander of its own outside the standard. The
+    ; word is shared in TIME instead: zkb is the PACKED LENGTH until the part
+    ; is fetched and the SEGMENT afterwards, which is the order op_fetch
+    ; reads them in.
     %if ((%2) & OP_COMP) && ((%2) & OP_XMS)
         %error "OP_COMP with OP_XMS: the span above 1MB is staged through a transient conventional buffer a chunk at a time, and a stream cannot be expanded a chunk at a time - the parts up there are stored plain"
     %endif

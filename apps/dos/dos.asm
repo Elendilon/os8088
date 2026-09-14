@@ -9092,17 +9092,21 @@ OS88_PARTS_END
 ; docs/plans/KERN-DOS-PLAN.md §4.1.3.1's four-piece shape is what it should
 ; cost instead.
 %ifdef DOSKPART
-%define OP_BSS_AT dos_hbss       ; 96.44.2: the host's block, not the core's
+; **THE TABLE IS THE LOADER'S NOW AND THE ROW IS IN OUR bss** (SPEC.md
+; 96.44.4). This arm carried the part table itself until W9c, when the file's
+; IMAGE became `apps/dos/dosload.asm` - which reads the box out of part 0 and
+; then ceases to exist, taking its table with it. So the three numbers the
+; handoff wants arrive the way SPEC.md 20.12.10.2 says they should: the loader
+; writes the row into the head of this bss before it re-homes, and the kernel
+; does not zero a part.
+;
+; IT IS THE `OP_ROW` VERBATIM, so every read below is spelled as it was when
+; the table was here - only the base moved. `os88parts.inc` is still included
+; for `OP_R_OFF`/`OP_R_LEN`/`OP_R_ZKB`; with no `OS88_PARTS_BEGIN` it emits
+; nothing at all, which is the property that lets the constants be shared
+; without the 800-byte body.
 %include "os88parts.inc"
-DOS_PART_KD equ 0
-OS88_PARTS_BEGIN 1
-  OS88_PART OP_ASSET, OP_COMP
-OS88_PARTS_END_TABLE
-
-; ...and where the row is, for the handoff to read. OP_T_ROWS past the table's
-; own head, and then OP_R_OFF (512-byte units), OP_R_LEN (bytes) and OP_R_ZKB,
-; which on an OP_COMP row is the PACKED length (SPEC.md 20.12.7).
-dos_kdrow   equ op_table + OP_T_ROWS + OP_ROW * DOS_PART_KD
+dos_kdrow   equ os88_image_end + DOS_B_KDROW
 %endif
 
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
@@ -14573,3 +14577,19 @@ dos_pkt_rxs equ PKB_RX                      ; ...the one dos_pkt_deliver hands
 dos_pkt_txs equ PKB_TX                      ; and the client's own, staged
 dos_pkt_stk_top equ PKB_STKTOP
 %endif                              ; KD_BACKEND
+
+; --- AND THE bss SHIPS INSIDE THE PART (SPEC.md 96.44.4, 51.1.2) ------------
+; `DOSKPART` is the arm that becomes PART 0 of `DOS.O88`, and a part is not
+; zeroed by the loader: `ld_start` jumps to step 8 and not step 7, precisely so
+; that the handoff `apps/dos/dosload.asm` wrote into the head of this bss
+; survives the re-home (SPEC.md 20.12.10.2). So the bytes have to BE there, as
+; zeros in the file - which is nothing on the disk, because a run of zeros is
+; what LZ4 is best at and the row is `OP_COMP`.
+;
+; ONLY ON THIS ARM. The shipped `build/dos.o88` is an ordinary v3 package whose
+; bss the loader zeroes, and padding it would put 11,839 bytes on every floppy
+; for nothing. `tests/unit/t_pkg.py` reads the built files rather than this
+; comment.
+%ifdef DOSKPART
+    times OS88_BSS_SIZE db 0
+%endif

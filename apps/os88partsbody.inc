@@ -642,7 +642,16 @@ op_claim:
     jc .no
     or ax, ax
     jz .no                      ; a claim of nothing is not a claim
-    call OSAPI_MEM_CLAIM        ; out DX = the base segment
+    ; **TOP-DOWN, LIKE THE REGION IT MAY BECOME** (SPEC.md 20.12.10.7). A
+    ; package's region is claimed top-down (`mem_claim_hi_x`) and so are a
+    ; driver image and a kernel module: the top of the heap IS the set of
+    ; CS-based claims, and this is one - it is code you far-call, and on a
+    ; re-home it becomes the region itself. Claimed bottom-up it landed at the
+    ; FLOOR, left the loader's freed region as a hole beneath it that no
+    ; single contiguous claim can use, and cost the DOS box 6 KB of the arena
+    ; it hands its program. Measured there: 437 -> 431 KB, 5,120 of hole and
+    ; 1,024 of carve rounding.
+    call OSAPI_MEM_CLAIM_HI     ; out DX = the base segment
     jc .no
     mov [op_base], dx
     add dx, [op_rpara]          ; ...and R paragraphs up is where op_read fills
@@ -1102,6 +1111,11 @@ op_seg:
     test byte [si+OP_R_FLAG], OP_LAZY
     jz .notlazy
     mov ax, [si+OP_R_ZKB]       ; A LAZY ROW BANKS ITS SEGMENT IN ITS OWN zkb
+%if OP_HAS_COMP
+    cmp ax, OP_SPENT            ; ...and a DROPPED compressed one holds the
+    jne .out                    ; sentinel, which is not a segment and not
+    xor ax, ax                  ; `not fetched` either (SPEC.md 20.12.7.4)
+%endif
     jmp .out                    ; WORD, and 0 there means "not fetched". The
                                 ; jump is NEAR: 20.12.7's walk went in below
                                 ; and .out is past it. The
@@ -1378,6 +1392,10 @@ op_lazyok:
     call op_row
     test byte [si+OP_R_FLAG], OP_LAZY
     jz .no
+%if OP_HAS_COMP
+    cmp word [si+OP_R_ZKB], OP_SPENT    ; dropped and unfetchable - the packed
+    je .no                              ; length is gone (SPEC.md 20.12.7.4)
+%endif
     cmp word [si+OP_R_ZKB], 0
     jne .yes                    ; already here, and having it costs nothing
     call op_clbget
@@ -1437,6 +1455,10 @@ op_fetch:
     test byte [si+OP_R_FLAG], OP_LAZY
     jz .bad                     ; not a lazy part: op_seg already answers for
                                 ; it, so asking is a bug and not a refusal
+%if OP_HAS_COMP
+    cmp word [si+OP_R_ZKB], OP_SPENT    ; dropped: the word that held its
+    je .spent                           ; packed length is where the segment
+%endif                                  ; went (SPEC.md 20.12.7.4)
     cmp word [si+OP_R_ZKB], 0
     je .get
     clc                         ; already here
@@ -1471,6 +1493,12 @@ op_fetch:
     mov [op_off], ax
     mov [op_off+2], dx
     mov ax, [si+OP_R_LEN]
+%if OP_HAS_COMP
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .plainwant
+    mov ax, [si+OP_R_ZKB]       ; A COMPRESSED ROW READS ITS PACKED LENGTH and
+.plainwant:                     ; expands to OP_R_LEN below (SPEC.md 20.12.7.4)
+%endif
     add ax, bx                  ; op_lazykb has already proved that neither of
     mov [op_want], ax           ; these carries, and refused if they did - and
                                 ; THIS, before the rounding, is what op_read
@@ -1490,8 +1518,15 @@ op_fetch:
     ; op_seg reads [op_base] for every EAGER filed part, so it goes back
     ; whatever happens - and [op_rdseg] with it, because on a package with a
     ; compressed part that is the base plus R and NOT the base (SPEC.md
-    ; 20.12.7). A lazy part is never compressed (the macro refuses the
-    ; pairing), so this one lands at the claim itself.
+    ; 20.12.7).
+    ;
+    ; **AND A COMPRESSED LAZY ROW IS READ R PARAGRAPHS UP ITS OWN CLAIM**, for
+    ; that same reason one part at a time (SPEC.md 20.12.7.4): the stream has
+    ; to sit ABOVE where it expands to, or the decoder's write pointer
+    ; overtakes its read pointer. R is roundup512(len) - roundup512(packed),
+    ; both multiples of 512 and so of 16, and `in_place_margin` is ZERO for a
+    ; stream with a tail (20.13.7) - which os88pkg.py asserts on every part it
+    ; writes - so R is exactly enough and no margin is reserved.
     pop dx
     push si
     push bx
@@ -1500,6 +1535,13 @@ op_fetch:
     push word [op_rdseg]
     mov [op_base], dx
     mov [op_rdseg], dx
+%if OP_HAS_COMP
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .plainrd
+    call op_zrpara              ; AX = R, in paragraphs
+    add [op_rdseg], ax
+.plainrd:
+%endif
     call op_read
     pop dx
     mov [op_rdseg], dx
@@ -1514,6 +1556,42 @@ op_fetch:
     mov cl, 4                   ; is a multiple of 512 and therefore of 16 -
     shr ax, cl                  ; op_seg's arithmetic, one part at a time
     add ax, dx
+%if OP_HAS_COMP
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .plainbank
+    ; --- EXPAND IT, DOWN ITS OWN CLAIM (SPEC.md 20.12.7.4) -----------------
+    ; op_unpack's walk with one row in it: the stream is R paragraphs up and
+    ; the output starts at the base, so the write pointer chases the read
+    ; pointer and never catches it.
+    push dx                     ; THE CLAIM, for .zbad - the base is not it
+    push si                     ; the row
+    push ax                     ; the base
+    call op_zrpara              ; AX = R in paragraphs; SI preserved
+    pop dx                      ; DX = the base
+    push dx
+    add ax, dx                  ; ...and AX = where the stream was read to
+    push ax
+    mov cx, [si+OP_R_ZKB]       ; CX = the PACKED length, while it is still
+    mov ax, [si+OP_R_LEN]       ; there - one more store and it is a segment
+    mov dx, ax                  ; BX:DX = the 32-bit expected output, and a
+    xor bx, bx                  ; part is 16 bits by os88pkg.py
+    mov al, [op_table + OP_T_FMT]   ; THE FORMAT, READ BEFORE DS MOVES: one
+    xor ah, ah                      ; instruction later op_table is
+    pop di                          ; unreachable, which op_unpack's own
+    pop es                          ; header records as the defect that
+    push es                         ; refused every stream
+    push ds
+    mov ds, di                  ; DS:SI the stream, ES:DI the output, DI = 0
+    xor si, si                  ; being the contract (SPEC.md 20.13.3)
+    xor di, di
+    call OSAPI_DECOMP
+    pop ds                      ; ...and none of these four touches CF
+    pop ax                      ; the base
+    pop si                      ; the row
+    pop dx                      ; the claim
+    jc .zbad
+.plainbank:
+%endif
     mov [si+OP_R_ZKB], ax       ; THE ROW IS WHERE A FETCHED PART LIVES
     clc
     ret
@@ -1522,6 +1600,15 @@ op_fetch:
     call OSAPI_MEM_FREE         ; DX is still the claim, and a fetch that
     mov si, op_s_read           ; failed must leave nothing behind
     jmp op_say
+%if OP_HAS_COMP
+.zbad:
+    call OSAPI_MEM_FREE         ; ...and the same for a stream that would not
+    mov si, op_s_zbad           ; expand, which leaves the row at 0 and so
+    jmp op_say                  ; re-fetchable: nothing was banked in it
+.spent:
+    mov si, op_s_spent          ; dropped and gone: a REFUSAL and not a silent
+    jmp op_say                  ; read of nothing (SPEC.md 20.12.7.4)
+%endif
 .bad:
     mov si, op_s_lazy
     jmp op_say
@@ -1569,7 +1656,20 @@ op_drop:
     mov dx, [si+OP_R_ZKB]
     or dx, dx
     jz .out
+%if OP_HAS_COMP
+    ; **A COMPRESSED ROW IS SPENT, NOT EMPTY** (SPEC.md 20.12.7.4): the packed
+    ; length it would need to be read again is the very word the segment went
+    ; into, so 0 would have op_fetch read a stream of NOTHING and answer CF=0
+    ; over a claim of rubble. AX is free - the line below reloads it.
+    xor ax, ax
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .plaindrop
+    mov ax, OP_SPENT
+.plaindrop:
+    mov [si+OP_R_ZKB], ax       ; CLEARED FIRST: op_seg must never answer a
+%else
     mov word [si+OP_R_ZKB], 0   ; CLEARED FIRST: op_seg must never answer a
+%endif
                                 ; segment that is on its way back to the heap
     mov ax, [si+OP_R_OFF]       ; ...and the word op_fetch banked is the PART's
     mov cl, 9                   ; base, which sits past the head slack (op_seg
@@ -1605,6 +1705,40 @@ op_row:
     add si, op_table + OP_T_ROWS
     pop ax
     ret
+
+%if OP_HAS_COMP && OP_HAS_LAZY
+; GATED (SPEC.md 20.12.9): only a table with an OP_COMP|OP_LAZY row reaches it
+
+; -----------------------------------------------------------------------------
+; op_zrpara - R for a compressed lazy row, in paragraphs (SPEC.md 20.12.7.4)
+; in:  SI -> the row
+; out: AX = roundup512(len) - roundup512(packed), as paragraphs
+; clobbers: AX (the output), flags. SI preserved.
+;
+; **IT IS op_unpack'S GAP WITH ONE ROW IN IT.** The stream is read R
+; paragraphs up its own claim and expands DOWN to the base, so the decoder's
+; write pointer chases its read pointer; R is the difference between what the
+; part occupies and what its stream does, and both are rounded the same way
+; because a part is laid out on 512-byte boundaries. `in_place_margin` is ZERO
+; for a stream with a tail (20.13.7) and os88pkg.py asserts that on every part
+; it writes, so R is exactly enough and no margin is reserved on top.
+; -----------------------------------------------------------------------------
+op_zrpara:
+    push cx
+    push dx
+    mov ax, [si+OP_R_LEN]
+    add ax, 511
+    and ax, 0FE00h
+    mov dx, [si+OP_R_ZKB]
+    add dx, 511
+    and dx, 0FE00h
+    sub ax, dx
+    mov cl, 4
+    shr ax, cl
+    pop dx
+    pop cx
+    ret
+%endif
 %if OP_HAS_ZERO
 ; GATED (SPEC.md 20.12.9): op_scrub - it zeroes the scratch parts, and there are none
 
@@ -1683,3 +1817,8 @@ op_s_lazy:  db 'Not a fetchable part', 0
 %if OP_HAS_COMP
 op_s_zbad:  db 'A part will not unpack', 0
 %endif
+%if OP_HAS_COMP && OP_HAS_LAZY
+op_s_spent: db 'That part was dropped', 0   ; ...and cannot come back: a
+%endif                                      ; compressed lazy row's packed
+                                            ; length is where the segment went
+                                            ; (SPEC.md 20.12.7.4)

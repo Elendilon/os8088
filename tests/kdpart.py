@@ -44,6 +44,7 @@ KD = os.path.join(ROOT, "build", "kerndos.bin")
 PARTS_MAGIC = b"O88PARTS"
 PARTS_HDR = 10                  # magic(8) + count(1) + reserved(1)
 PART_ROW = 8
+DOS_PART_KD = 1                 # ...and the box is part 0 (SPEC.md 96.44.4)
 
 
 def fail(msg):
@@ -106,17 +107,31 @@ def main():
     at = blob.find(PARTS_MAGIC, 0, image)
     if at < 0:
         fail("flags bit 2 is set and there is no 'O88PARTS' table in the image")
+    # **kern_dos IS PART 1 AND THE IMAGE IS A LOADER** (SPEC.md 96.44.4). It
+    # was part 0 of a package whose image was the box itself until W9c, which
+    # made the image `apps/dos/dosload.asm` and the box part 0 - because
+    # os88pkg.py refuses --compress beside parts, so whatever is the IMAGE
+    # ships raw and 96.40.3 measured that at +932 ms a launch.
     n = blob[at + PARTS_HDR - 2]
-    if n != 1:
-        fail("the table declares %d part(s); wave 5 builds exactly one" % n)
+    if n != 2:
+        fail("the table declares %d part(s); the four-piece DOS.O88 is a "
+             "loader image with TWO - the box and kern_dos (SPEC.md 96.44.4)"
+             % n)
     kind, pflags, poff, plen, pzkb = struct.unpack_from(
-        "<BBHHH", blob, at + PARTS_HDR)
+        "<BBHHH", blob, at + PARTS_HDR + PART_ROW * DOS_PART_KD)
     if not pflags & 16:
-        fail("part 0's flags are 0x%02X and OP_COMP (16) is clear: an "
+        fail("part %d's flags are 0x%02X and OP_COMP (16) is clear: an "
              "uncompressed part costs the 360KB system disk eight more "
-             "clusters than it has to" % pflags)
-    print("kdpart: 1/5 part 0 is ASSET+COMP at file sector %d, %d bytes "
-          "unpacked, %d packed" % (poff, plen, pzkb))
+             "clusters than it has to. The pairing with OP_LAZY was refused "
+             "until SPEC.md 20.12.7.4" % (DOS_PART_KD, pflags))
+    if not pflags & 8:
+        fail("part %d's flags are 0x%02X and OP_LAZY (8) is clear. It MUST be "
+             "lazy: op_load reads every eager part into one carve and "
+             "op_size refuses a carve of 64KB or more, and the box plus "
+             "kern_dos unpack to ~74KB (SPEC.md 96.44.4.1)"
+             % (DOS_PART_KD, pflags))
+    print("kdpart: 1/5 part %d is ASSET+COMP+LAZY at file sector %d, %d bytes "
+          "unpacked, %d packed" % (DOS_PART_KD, poff, plen, pzkb))
 
     # --- 2: the chain, as absolute LBA runs ----------------------------------
     # Exactly the shape kernel/hiber.inc's hbm_extents builds: {lba, count},

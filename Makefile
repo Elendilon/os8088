@@ -4883,11 +4883,25 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # takes the SOURCE file's name, and assoc_locate looks for the handler a
 # document's association names (SPEC.md 54.4.2). A `DOSP.O88` in APPS/ is a
 # package no .COM on any disk can reach.
-$(BUILD)/kdos/DOS.O88: $(BUILD)/dosp.bin $(BUILD)/kerndos.bin tools/os88pkg.py
+# **AND THE IMAGE IS THE LOADER, NOT THE BOX** (SPEC.md 96.44.4). os88pkg.py
+# refuses --compress beside parts, so whatever is the IMAGE ships raw - which
+# is what cost 96.40.3's +932 ms a launch when the box itself was it. The
+# loader is 1,812 bytes and the two heavy pieces are parts, both compressed:
+# the box as OP_SEG|OP_COMP and kern_dos as OP_ASSET|OP_COMP|OP_LAZY, the
+# pairing 20.12.7.4 had to unrefuse.
+$(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
+                       $(BUILD)/kerndos.bin tools/os88pkg.py
 	@mkdir -p $(BUILD)/kdos
-	python3 tools/os88pkg.py $(BUILD)/dosp.bin -o $@ \
-		--part $(BUILD)/kerndos.bin --part-compress lz4
+	python3 tools/os88pkg.py $(BUILD)/dosload.bin -o $@ \
+		--part $(BUILD)/dosp.bin --part $(BUILD)/kerndos.bin \
+		--part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
+
+$(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
+                      apps/os88api.inc apps/os88parts.inc \
+                      apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -o $@ apps/dos/dosload.asm
+	@echo "dosload: $(call FILESIZE,$@) bytes of parts loader"
 
 # The gate's SYSTEM disk: the shipped one with the parted DOS.O88 in place of
 # the ordinary one, so the machine a test boots is the machine a user would

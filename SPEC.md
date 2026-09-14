@@ -35113,6 +35113,88 @@ features **2,581 → 2,552**. The bss word is retired in place rather than
 reclaimed, because every offset below it would move and `apps/cc/crt0.asm`
 reads the same chain.
 
+
+##### 20.12.7.4 `OP_COMP` with `OP_LAZY` — the common case, and it was refused
+
+The pairing was an `%error` in `apps/os88parts.inc` and a `fail` in
+`os88pkg.py`, and the reason given was exact: *a lazy row's zkb word banks the
+segment it was fetched into and a compressed row's carries its packed length —
+one word, and a fetched part would overwrite the length it needs to be fetched
+again.*
+
+**The mechanism was right and the conclusion was backwards.** Every `OP_LAZY`
+row in this tree is a compressed stream — Clear Skies' title bands and its
+nine world blobs — and each one had grown a packer and an expander OUTSIDE the
+standard to get there (`tools/csart.py`, `tools/csworlds.py`, `csl_art`). A
+third was about to be written for `kern_dos`'s part. A standard that refuses
+what every one of its users does is not protecting them from anything; it is
+making each of them solve it again, differently.
+
+**THE WORD IS SHARED IN TIME.** `zkb` is the PACKED LENGTH until the part is
+fetched and the SEGMENT afterwards, which is the order `op_fetch` reads them
+in — it takes the length, does the read, expands, and only then banks the
+segment over it. Nothing else in the row moves: `len` is the unpacked length
+as it is on every other row, which is what `op_lazykb` sizes the claim from
+and what `op_size` would refuse against.
+
+**The stream is read R paragraphs UP its own claim**, `R =
+roundup512(len) − roundup512(packed)`, and expands down to the base — which is
+`op_unpack`'s walk (§20.12.7.1) with one row in it, for the same reason and
+with the same arithmetic. Both terms are multiples of 512 and therefore of 16,
+so R is paragraphs and nothing carries past a segment. **No margin is
+reserved**: `in_place_margin` is zero for a stream with a tail (§20.13.7) and
+`os88pkg.py` asserts that on every part it writes, so R is exactly enough.
+
+###### 20.12.7.4.1 What `op_drop` leaves behind, and why it is not zero
+
+A dropped row cannot simply go back to 0. On an uncompressed lazy row 0 means
+*not fetched* and a later `op_fetch` reads it again; on a compressed one the
+packed length it would need for that read is the very word the segment went
+into. Zero there would have `op_fetch` read a stream of **nothing** and answer
+CF=0 over a claim of rubble — the worst shape a refusal can take.
+
+So `op_drop` writes **`OP_SPENT` (0xFFFF)**, and `op_fetch`, `op_lazyok` and
+`op_seg` all know it: the first refuses with *That part was dropped*, the
+second answers no in advance, and the third answers 0 — *not here* — rather
+than a segment. It is safe as a sentinel because it is not a segment any claim
+can have: `0xFFFF:0000` is sixteen bytes below the 1MB wrap.
+
+**A compressed lazy part is therefore fetch-once.** That is a real capability
+lost and it is the right trade *today*: nothing in the tree has ever
+re-fetched a dropped part, and lazy exists precisely so a part is read when it
+is wanted — usually once — rather than at load.
+
+**BUT THE USE CASE IS REAL AND SHOULD NOT BE ARGUED AWAY.** Take an RPG whose
+world is one map per part, each far bigger than the machine: walking east and
+then back west is fetch, drop, fetch the first one again — and that is the
+shape lazy parts are *for*, not an abuse of them. Two workarounds exist and
+both are worse than a fix. A package can carry its own loader that never
+re-homes, keeping the table (and so the packed lengths) alive for the session
+— which is `apps/skies/csload.asm` plus the 2 KB it exists to give back. Or it
+can keep its own copy of the lengths, which does not actually work: `op_fetch`
+reads a non-zero `zkb` as *already here*, so a restored length is
+indistinguishable from a banked segment.
+
+**The fix, when somebody needs it, is a `%if OP_HAS_COMP && OP_HAS_LAZY` bss
+array**: one word per part holding the banked segment, so `zkb` stays the
+packed length for the life of the package and nothing is shared at all.
+`op_seg`, `op_fetch`, `op_lazyok` and `op_drop` are the five sites; the row
+index is `(SI − op_table − OP_T_ROWS) >> 2` as a word offset. It was
+costed here at roughly **60 bytes of code and two of bss per part**, against
+the ~24 bytes the sentinel takes — worth paying the day a package wants to go
+back and forth, and not before. `OP_SPENT` is what makes waiting safe: until
+then a re-fetch is a REFUSAL that names itself, not a silent wrong answer.
+
+###### 20.12.7.4.2 What it costs
+
+**+176 bytes** of `apps/skies/csload.asm`, measured — the only shipped image
+carrying both flags today. It is a loader, freed the moment it re-homes
+(§20.12.10), so those bytes are transient RAM and 176 of disk; and Clear Skies
+can now give back more than that by deleting its own packer and expander. A
+package with lazy rows and no compressed one, or the other way round, pays
+**zero**: every line of it is behind `%if OP_HAS_COMP && OP_HAS_LAZY`, which
+§20.12.9's rule derives from the table rather than from an opinion.
+
 #### 20.12.9 The standard takes only what the table asks for
 
 `apps/os88parts.inc` is the package's code, not the kernel's, so what it costs
