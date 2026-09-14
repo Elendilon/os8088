@@ -404,6 +404,62 @@ part 0 cannot know the core's internal addresses at assembly time, and
 **`CORE_ORG` as a budget with two claimants** — a `KERN_BUDGET`-shaped ledger,
 because today's 600-byte margin is luck and will not stay lucky.
 
+###### 4.1.3.1.1 …and the 600-byte margin is 4,628 now, so the core goes LOW
+
+**RE-MEASURED at W9c, and the section above no longer describes this tree.**
+Its near join rests on one sentence — *"the two hosts measure 19,556 and
+18,959 bytes, within 600 of each other"* — and W8 spent the next wave cutting
+**14,622 bytes out of one of them**. The two are not within 600 any more and
+never will be again: `kern_dos` carries `disk.inc` and `diskw.inc` (11,935)
+and no window, the box carries the window half (12,033) and no disk layer, so
+the difference is *structural* rather than a coincidence that drifted.
+
+MEASURED on this tree (`tools/os88doscost.py` for the core, symbol spans for
+the rest):
+
+| | image | less the core | |
+|---|---:|---:|---|
+| the box | 33,619 | **18,389** | window half + the shell + the container |
+| `kern_dos` | 28,991 | **13,761** | the disk layer + the shim + the refusal wall |
+| the core | — | 15,230 | +3,846 of bss, identical in both |
+| | | **4,628** | the margin §4.1.3.1 costed at 600 |
+
+**Put the core ABOVE the hosts, as §4.1.3.1 says, and that 4,628 lands on
+`kern_dos` as a HOLE**: `CORE_ORG` has to clear the larger host, so it is
+18,432 and `kern_dos` has 4,671 bytes of address space between its last byte
+and the core's first. Its own `.bss` is 5,523 and would cover it — but the
+core's bss has to be at ONE offset in both hosts (§96.44.2), so the bss that
+could fill the hole is the very thing that may not move into it. **It is
+~4.7 KB off `KD_IMG_KB`, which is ~4.7 KB off the DOS program**, in a plan
+whose entire purpose is that quantity.
+
+**PUT THE CORE LOW INSTEAD and the hole disappears.** Each host's own code
+sits ABOVE a fixed-size core, so there is nothing to pad: the core is at
+`CORE_ORG`, the hosts start at `CORE_ORG + CORE_MAX`, and what each host
+costs is only what it is.
+
+| | what is below `CORE_ORG` | wasted |
+|---|---|---:|
+| `kern_dos` | the 8-byte header and §96.40.2's refusal wall, which END AT 0x05A8 and cannot move — `apps/os88api.inc` owns those offsets | ~8 |
+| the box | the package header, 0x70, which `OSAPI_PKG_REHOME` step 8 dispatches through and which therefore cannot move either | ~1,344 |
+
+So `CORE_ORG = 0x05B0` and the trade is **1,344 bytes of the box's heap
+region against 4,671 of `kern_dos`'s arena** — and those are not the same
+kind of byte. The box's region is heap on a machine with 437 KB free; the
+arena is the 586 KB this whole plan is a budget for.
+
+**What it costs instead is a budget with ONE claimant**, which is the other
+half of why it is better. §4.1.3.1's `CORE_ORG` is a ledger two things push
+on from opposite sides — grow either host and the other pays — and it says
+so (*"today's 600-byte margin is luck and will not stay lucky"*), which it
+was not. `CORE_MAX` is a `KERN_BUDGET`-shaped rung the CORE alone spends,
+the hosts read it, and slack is one number in one place: at 15,360 the core
+has 130 bytes of it.
+
+The box's 1,344 is not even certain to be waste — it is exactly the kind of
+room the box's own header, icon and association table already want — but it
+is costed as waste here so the decision does not rest on finding a use.
+
 One thing to keep straight: **part 2 is not loaded by the parts loader.**
 §4.1.1 is why — the heap is being given away, so there is nowhere to load it
 to. The handoff walks its bytes into extents while the file layer is alive and
