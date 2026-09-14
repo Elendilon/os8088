@@ -304,6 +304,17 @@ There is no growth room anywhere in the ladder: a fixed ceiling with slack
 under it is memory nothing can use, which is what the old 60KB package pool
 was, and a package's region is an ordinary heap claim now (SPEC.md §20.1).
 
+**`.cold` IS RESIDENT — the name is the cold PATH, not a cold LIFETIME.** It
+is in the span above, it is in `KERN_SIZE`, and `KERN_BUDGET` bills it at the
+same rate as `.text`; `COLD_SEG` buys it a CS of its own and that is all it
+buys, relieving `KERN_CODE_MAX`'s 64KB near-addressing window and no other
+guard. The sections that genuinely disappear are **`.ovl` and `.ovlw`**, which
+are *Not in the span* below. Getting this backwards is the commonest mistake
+made against this file — *"+N bytes of `.cold`, so nothing resident"* has been
+written into several change records and is wrong every time. If a byte has to
+stop being resident, the mechanism is an **on-demand module** (SPEC.md §2.8),
+not a section move.
+
 `kern_big`, as blessed (`kernsize --json`; the `.text`/`.bss`/`.cold`/
 `.lowbss` figures are the `sections` line and the rungs are `kernel.asm`'s):
 

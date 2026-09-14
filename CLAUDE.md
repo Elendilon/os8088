@@ -823,6 +823,16 @@ learned.
   item, the greying predicate and the thunks; everything else goes in the
   module. Moving code to `.cold` or the boot overlay relieves `KERN_CODE_MAX`
   but not `KERN_BUDGET` — a module relieves both.
+  **`.cold` IS RESIDENT, and the name is the trap**: it means a cold PATH, not
+  a cold LIFETIME. Those bytes are in RAM from boot to power-off exactly like
+  `.text`'s and are billed by `KERN_BUDGET` exactly like `.text`'s — all
+  `COLD_SEG` buys is a CS of its own, which relieves the 64KB near-addressing
+  window and nothing else (docs/KERNEL-MEMORY.md, *Where it goes*). **`.ovl`
+  and `.ovlw` are the sections that really do go away**, and the two get
+  conflated constantly: *"+N bytes of `.cold`, nothing resident"* is a
+  sentence several sessions have now written and it is wrong every time. The
+  honest form is *"+N bytes of `.cold`, resident, no rung crossed"* — and per
+  the banner above, the rung is not the point anyway.
   **docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md is what the mechanism REFUSES**, and it
   refused two of four candidates: `mod_need`'s own transitive cone is 155
   symbols in 7 files, so a module inside it must be gated rather than moved,
