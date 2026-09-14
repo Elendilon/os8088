@@ -15,7 +15,7 @@
 KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
 KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 
-KD_IMG_KB   equ 60              ; the image rung: every progbits section PLUS
+KD_IMG_KB   equ 61              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG
@@ -29,7 +29,20 @@ KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; that holds it.  **BOTH HALVES COST A ROUND
                                 ; OF DEBUGGING**: 40 cleared neither and 56
                                 ; cleared the image and missed the bss by 800
-                                ; bytes, which ran anyway
+                                ; bytes, which ran anyway.
+                                ;
+                                ; **THIS IS NOT A RUNG AND IT IS NOT FREE.**
+                                ; `LOW_SEG` sits on it and the arena sits on
+                                ; that, so a KB here is a KB OFF THE DOS
+                                ; PROGRAM - the one quantity
+                                ; docs/plans/KERN-DOS-PLAN.md 1 is a budget
+                                ; for. So it is raised to the smallest whole
+                                ; KB that fits and never to a round one: 60 ->
+                                ; 61 at wave 5, the image having measured
+                                ; 61,482 (SPEC.md 96.40.2's refusal table is
+                                ; 1,432 of it and 96.30.7's console the rest),
+                                ; which leaves 982 bytes and costs the program
+                                ; 560 -> 559 KB
 COLD_SEG    equ KD_SEG          ; NO COLD RUNG: nothing here is boot-only, so
 COLD_PARA   equ 0               ; .cold is ordinary code in the one image
 
