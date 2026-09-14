@@ -121,6 +121,16 @@ VK_REMOVABLE equ 0               ; AL: a floppy
 VK_FIXED     equ 1               ; AL: a hard disk, however it is reached
 VT_BIOS      equ 0               ; AH: int 13h
 VT_DRIVER    equ 1               ; AH: a DRVC_DISK driver (SPEC.md 52)
+VT_FILE      equ 2               ; AH: a REDIRECTED volume (SPEC.md 62.9) -
+                                 ; somebody else's disk over a cable, so it has
+                                 ; no SECTORS of its own. It answers VK_FIXED
+                                 ; and it is not a hard disk: anything asking
+                                 ; "can I write an image to this and read it
+                                 ; back with no operating system" has to
+                                 ; exclude it, which is what kernel/hiber.inc's
+                                 ; hb_pick does. The slot has answered this
+                                 ; value since SPEC.md 62.9 and the SDK named
+                                 ; only the other two
                             ; It is baked into every OSAPI_* far call, so a
                             ; package built against a different value calls
                             ; into empty memory: rebuild EVERY .o88 (and the

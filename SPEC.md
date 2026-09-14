@@ -95540,7 +95540,7 @@ so an alert the user minimized comes back on the next close click. Without
 that, minimizing an alert would leave an application refusing to close with
 nothing on screen to say why.
 
-#### 75.3.0 The buttons track the pointer, and only the one that CHANGED redraws
+### 75.3.0 The buttons track the pointer, and only the one that CHANGED redraws
 
 Two defects, reported from the field against Paint's `Save changes?` and both
 of them the shared control's rather than Paint's — which is the point of the
@@ -95649,6 +95649,19 @@ CF-setting call and the branch that reads it — `wm_draw_title` calls
 `wm_flush` and branches on CF to decide whether a snapped window has a left
 border (§11.95.2) — so a pen that clobbered flags would move the title bar one
 pixel on exactly the windows that are flush with the screen edge.
+
+#### 75.3.3 `OS88UI_ADANGER` — Cancel / Proceed, and the ORDER is the whole of it
+
+A fourth set, added for SPEC.md 96.42. **Index 0 carries the ring and Enter
+fires it**, so a set whose destructive answer is index 0 arms the dangerous
+button with the key a user presses to make a dialog go away. `OS88UI_AYESNO`
+cannot say otherwise and neither can a caller rewording the question: the
+default is a property of the SET.
+
+Sixteen bytes of any package that opts into the alert — eight for the row and
+eight for the one label that was not already there. `Proceed` is SEVEN
+characters because that is what `OS88UI_ABW` holds; `Continue` would not fit
+the row, which is the constraint §75.3 above is about.
 
 ### 76.1. What is chrome
 
@@ -126552,3 +126565,52 @@ row would be asserting nothing. The program is on a floppy there on purpose —
 `kern_dos` mounts by volume index and has no volume table, so a fixed disk is a
 geometry it has not got (docs/plans/KERN-DOS-PLAN.md §12 question 5), while the
 return reads the part off the fixed disk through the extent list either way.
+
+### 96.42 ...and on a machine with no fixed disk it ASKS FIRST
+
+§96.41's return needs somewhere to come back from. Without one the arm still
+does what the user asked — the program gets the whole machine — and the price
+is the session: every open window, every unsaved document, and a restart when
+the program exits. **That is the one deliberately destructive thing this box
+does and it is not allowed to happen quietly.**
+
+It is **offered rather than greyed**, which is the opposite of §47 rule 5's
+usual answer and is deliberate: the memory is a real want, the machine really
+can deliver it, and a greyed control would be refusing a capability rather than
+reporting a fact. What §47 governs here is the QUESTION, which names a fact —
+there is nothing to come back to — at the moment the user commits.
+
+**`OS88UI_ADANGER`** (§75.3.3) is the shape: `Cancel / Proceed`, with Cancel at
+index 0, so the ring and Enter are the safe answer. The message is
+`Open windows are lost. Proceed?` — thirty-one of `OS88UI_AMAX`'s thirty-four —
+and the title is the box's own caption, which is what `os88ui_ask` does with
+every alert.
+
+**IT HANGS OFF `dos_wake` AND NOT OFF THE RUN BUTTON**, which is where it was
+nearly put. A `.LNK` carries the arm (§96.21) and an association launch never
+passes through `dos_go` at all, so a shortcut written on a machine WITH a hard
+disk would have ended the session on a machine without one with nothing asked.
+`dos_wake` is the one door every launch comes through. The gfx lock is TAKEN
+rather than assumed there — `os88ui_ask` wants it held and a wake handler does
+not have it (§74.1).
+
+**`dos_hasfixed` excludes `VT_FILE`, and that is what makes it agree with
+`hb_pick`.** A redirected volume (§62.9) answers `VK_FIXED` and is somebody
+else's disk over a cable: no sectors of its own, so nothing can write an image
+to it and read it back with no operating system — which is exactly what the
+kernel's own predicate says by refusing `DVK_FILE`. The SDK named two of that
+field's three values and now names three. It is a WALK and not a cache: a hard
+disk arrives when the Control Panel mounts `HDD.DRV`, and this is asked once
+per launch rather than once per paint.
+
+**`[dos_wok]` HAS THREE STATES AND NOT TWO.** A launch is a posted wake and a
+wake is a kick (§74.1): tearing the alert down repaints, and the box is still
+`DST_READY` when the next wake lands — so a flag that only recorded *confirmed*
+put the question straight back up and **Cancel could not be answered at all**.
+`DOS_W_NO` is what makes a refusal stick, and `dos_go` resets it to `DOS_W_ASK`
+because a new launch is a new question.
+
+`tests/kdhand.py` is the gate — it drives the floppy machine, so the arm asks
+there — and it asserts all three: the alert appears, Cancel leaves `[dos_state]`
+at `DST_READY` with the desktop intact, and a second Run asks again rather than
+remembering the refusal for ever.

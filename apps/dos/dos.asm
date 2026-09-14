@@ -421,6 +421,10 @@ DOS_MEM_KEEP  equ 0                 ; everything but the disk cache - the
                                     ; default, and what a double click gets
 DOS_MEM_DUMP  equ 1                 ; ...and the cache as well
 DOS_MEM_WHOLE equ 2                 ; ...and os8088 itself
+DOS_W_ASK   equ 0                   ; [dos_wok]: the destructive arm's own
+DOS_W_YES   equ 1                   ; confirmation, per LAUNCH (SPEC.md 96.42).
+DOS_W_NO    equ 2                   ; THREE states and not two: a refusal has to
+                                    ; be REMEMBERED, or the next wake asks again
                                     ; (docs/plans/KERN-DOS-PLAN.md). GREYED
                                     ; until that is built, by dos_mem_whole
 DOS_MEM_N     equ 3                 ; how many arms, for OS88UI_RD_N
@@ -708,6 +712,10 @@ dos_wake:
                                     ; claim, and plain OSAPI_MEM_AVAIL is exact
     cmp byte [dos_state], DST_READY
     jne .out
+%ifdef DOSKPART
+    call dos_wholeask           ; SPEC.md 96.42: arm 3 with nothing to come
+    jc .out                     ; back to asks FIRST, and the answer comes back
+%endif                          ; through this same door
 .go:
     mov byte [dos_state], DST_RAN
     call dos_run
@@ -5574,6 +5582,128 @@ dos_handoff:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_hasfixed - is there a disk this session could come back FROM? (96.42)
+; out: CF = 0 there is one, CF = 1 there is not; every register preserved
+;
+; **IT HAS TO AGREE WITH `hb_pick` AND THAT IS WHY IT EXCLUDES `VT_FILE`**
+; (SPEC.md 47 rule 5: what greys, what is asked and what is written cannot
+; disagree). A redirected volume answers VK_FIXED and is somebody else's disk
+; over a cable - no sectors of its own, so nothing can write an image to it and
+; read it back with no operating system, which is exactly what the kernel's own
+; predicate says by refusing `DVK_FILE`.
+;
+; A WALK AND NOT A CACHE: a hard disk arrives when the Control Panel mounts
+; `HDD.DRV`, which is an ordinary thing to do mid-session, and this is asked
+; ONCE PER LAUNCH rather than once per paint.
+; -----------------------------------------------------------------------------
+dos_hasfixed:
+    push ax
+    push bx
+    xor bl, bl
+.vol:
+    mov al, bl
+    push bx
+    call dos_be_vkind           ; AL = VK_*, AH = VT_*; CF = no such volume
+    pop bx
+    jc .next
+    cmp al, VK_FIXED
+    jne .next
+    cmp ah, VT_FILE
+    je .next                    ; hb_pick1's own test, one segment out
+    pop bx
+    pop ax
+    clc
+    ret
+.next:
+    inc bl
+    cmp bl, DVOL_MAX
+    jb .vol
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_wholeask - THE ONE DELIBERATELY DESTRUCTIVE THING THIS BOX DOES (96.42)
+; in:  the wake handler's context - UI task, the gfx lock NOT held
+; out: CF = 1 an alert is up and the launch is SUSPENDED; CF = 0 carry on
+;
+; docs/plans/KERN-DOS-PLAN.md 9: on a machine with no fixed disk there is
+; nothing to come back to, so every open window and every unsaved document goes
+; and the machine restarts when the program exits. It is offered rather than
+; greyed - the user wants the memory and that is a real want - and it is
+; offered with the safe answer on the ring (OS88UI_ADANGER), at the moment of
+; launch, in its own window.
+;
+; **HERE AND NOT AT THE RUN BUTTON**, which is where it was nearly put: a
+; `.LNK` carries the arm (SPEC.md 96.21) and an association launch never passes
+; through `dos_go` at all, so a shortcut written on a machine WITH a hard disk
+; would have ended the session on a machine without one with nothing asked.
+; `dos_wake` is the one door every launch comes through.
+;
+; The gfx lock is TAKEN rather than assumed: `os88ui_ask` wants it held and a
+; wake handler does not have it (SPEC.md 74.1).
+; -----------------------------------------------------------------------------
+dos_wholeask:
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    jne .no
+    cmp byte [dos_wok], DOS_W_YES
+    je .no                      ; asked and confirmed for THIS launch
+    cmp byte [dos_wok], DOS_W_NO
+    je .hold                    ; **ASKED AND REFUSED, AND THE REFUSAL HAS TO
+                                ; STICK.** The launch is a posted WAKE and a
+                                ; wake is a kick (SPEC.md 74.1): tearing the
+                                ; alert down repaints, and the box is still
+                                ; DST_READY when the next one lands - so a
+                                ; two-state flag put the question straight back
+                                ; up and Cancel could not be answered at all
+    call dos_hasfixed
+    jnc .no                     ; there is one: the session comes back (96.41)
+                                ; and there is nothing to warn about
+    push ax
+    push bx
+    push si
+    push di
+    call OSAPI_GFX_LOCK
+    mov al, OS88UI_ADANGER
+    mov bx, [dos_win]
+    mov si, dos_s_wholeq
+    mov di, dos_wholedone
+    call os88ui_ask
+    call OSAPI_GFX_UNLOCK
+    pop di
+    pop si
+    pop bx
+    pop ax
+    jc .no                      ; REFUSED - one was already up and has been
+                                ; raised. Falling through to the launch there
+                                ; would run the program behind its own question
+.hold:
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; dos_wholedone - the alert's answer. AL = 0 Cancel, 1 Proceed, or
+;                 OS88UI_ACANCEL for a dismissal; the lock is NOT held
+dos_wholedone:
+    mov byte [dos_wok], DOS_W_NO
+    cmp al, 1
+    jne .out                    ; Cancel, Esc, the close box: [dos_state] was
+                                ; never advanced, so the box is still READY and
+                                ; there is nothing to undo - but the REFUSAL is
+                                ; recorded, because the next wake would
+                                ; otherwise ask again
+    mov byte [dos_wok], DOS_W_YES
+    mov bx, [dos_win]           ; ...and round again, through the one door
+    call OSAPI_WM_WAKE
+.out:
+    ret
+
+dos_s_wholeq: db 'Open windows are lost. Proceed?', 0
+
+; -----------------------------------------------------------------------------
 ; dos_lbfill - the launch block, into the record (kerndos/kdlaunch.inc)
 ; out: every register preserved
 ;
@@ -6671,6 +6801,12 @@ dos_go:
     call dos_mem_take               ; whatever the boxes hold NOW, both of them
     call dos_path_take
     jc .nopath
+%ifdef DOSKPART
+    mov byte [dos_wok], DOS_W_ASK   ; A NEW LAUNCH IS A NEW QUESTION (96.42:
+                                ; 96.42): the confirmation is about THIS
+                                ; program ending the session, so an answer
+                                ; given for the last one does not carry
+%endif
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; CF=1 = the ring was full, which dos_paint
@@ -8883,6 +9019,8 @@ PKT_VERSION equ 9
     DBSS DOS_B_PKGDIR,  2       ; ...and the folder we were launched from
     DBSS DOS_B_PKGVOL,  1       ; ...on that volume
     DBSS DOS_B_KDH,     KDH_SIZE ; the record osapi_dos_handoff keeps a far
+    DBSS DOS_B_WOK,     1       ; 1 = the destructive arm has been confirmed
+                                ; for THIS launch (SPEC.md 96.42)
 %endif                          ; POINTER to (SPEC.md 96.40), so it is OURS
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
@@ -13443,6 +13581,14 @@ DOS_BSS_SIZE equ DB
 ; os88ui.inc first (os88line.inc needs its UI_* macros), and both LAST -
 ; the header and the icon block are at fixed offsets in the image (SPEC.md
 ; 20.2), so code emitted between them fails the icon macro's own assertion.
+%ifdef DOSKPART
+%define OS88UI_ALERT                ; SPEC.md 75.3: arm 3 on a machine with no
+                                    ; fixed disk ENDS THE SESSION, and SPEC.md
+                                    ; 96.42 will not let it do that quietly.
+                                    ; The alert is the OS's own and costs the
+                                    ; kernel nothing; this build is the only
+                                    ; one that can ask the question
+%endif
 %define OS88UI_RAD                  ; SPEC.md 13.17.4: the memory page's one
                                     ; choice, which is three answers and so a
                                     ; radio. Opted into here because os88ui's
@@ -13562,6 +13708,7 @@ dos_pkgname equ os88_image_end + DOS_B_PKGNAME  ; 13: our own 8.3 file name
 dos_pkgdir  equ os88_image_end + DOS_B_PKGDIR   ; word: its folder's cluster
 dos_pkgvol  equ os88_image_end + DOS_B_PKGVOL   ; byte: ...and that volume
 dos_kdh     equ os88_image_end + DOS_B_KDH      ; the handoff record (96.40)
+dos_wok     equ os88_image_end + DOS_B_WOK      ; byte: arm 3 confirmed (96.42)
 %endif
 dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
 dos_mrad    equ os88_image_end + DOS_B_MRAD    ; the radio group's record

@@ -11,6 +11,9 @@ writing it (docs/WRITING-TESTS.md 1):
 
   - the post refused, or spent by nobody        -> the program runs WINDOWED and
                                                    the KB figure does not move
+  - the confirmation not asked (SPEC.md 96.42) -> the session goes with no
+                                                  warning at all
+  - ...or asked and not HONOURED               -> Cancel runs it anyway
   - `hbm_dosrun` reading the record through the -> `mov ds` before `mov si` puts
     poster's DS                                    543 bytes of the package's own
                                                    bss in the record, and the
@@ -88,6 +91,33 @@ def topmem(rs, what):
 def rec(m, pseg, dm, off):
     return int.from_bytes(m.read((pseg << 4) + dm["dos_mrad"] + off, 2),
                           "little")
+
+
+# os88ui.inc's alert geometry, mirrored for the same reason tests/dosmem.py
+# mirrors the radio's: these are the SDK's numbers and the box does not own
+# them. The row is a FORMULA (SPEC.md 75.3) - every button OS88UI_ABW wide - so
+# a click lands out of the guest's own window record rather than a remembered
+# coordinate.
+A_BW, A_BG, A_BH, A_BTNY, TITLE_H, KSEG = 72, 12, 13, 46, 18, 0x0060
+
+
+def alert_up(m, base, dm):
+    """os88ui_awin, read off the guest: the alert's window pointer or 0."""
+    return int.from_bytes(m.read(base + dm["os88ui_awin"], 2), "little")
+
+
+def alert_button(m, base, dm, i, n=2):
+    """The middle of button i of n, computed the way os88ui_arect does."""
+    w = alert_up(m, base, dm)
+    if not w:
+        fail("no alert is up to click")
+    rec = m.read((KSEG << 4) + w, 8)            # the window record is the
+    wx = int.from_bytes(rec[2:4], "little")     # KERNEL's (W_X, W_Y, W_W)
+    wy = int.from_bytes(rec[4:6], "little")
+    ww = int.from_bytes(rec[6:8], "little")
+    row = n * (A_BW + A_BG) - A_BG
+    left = wx + (ww - row) // 2 + i * (A_BW + A_BG)
+    return left + A_BW // 2, wy + TITLE_H + A_BTNY + A_BH // 2
 
 
 def wait_desktop(m, ui, secs=300):
@@ -170,6 +200,40 @@ def main():
                                                              # one-way and Run
                                                              # is only hit there
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
+        os88marty.settle(m)
+
+        # --- 3a. ...WHICH ASKS FIRST (SPEC.md 96.42) -------------------------
+        # This machine has no fixed disk, so there is nothing to come back to:
+        # every open window goes and the machine restarts when the program
+        # exits. That is the one deliberately destructive thing this box does,
+        # and it is not allowed to happen quietly.
+        base = pseg << 4
+        if not alert_up(m, base, dm):
+            fail("Run on the third arm went straight to the launch. With no "
+                 "fixed disk the session is LOST, and "
+                 "docs/plans/KERN-DOS-PLAN.md 9 wants that asked in its own "
+                 "window at the moment of launch")
+        print("kdhand: the confirmation is up")
+
+        mo.click(*alert_button(m, base, dm, 0))  # Cancel - and it must NOT
+        os88marty.settle(m)                      # launch
+        if alert_up(m, base, dm):
+            fail("Cancel left the alert up")
+        st = m.read(base + dm["dos_state"], 1)[0]
+        if st != 1:                             # DST_READY
+            fail("[dos_state] is %d after CANCELLING: the launch went ahead "
+                 "anyway, which is worse than never asking" % st)
+        if "DOS" not in ui.titles() or "Disk" not in ui.titles():
+            fail("the desktop did not survive a cancelled launch: %r"
+                 % (ui.titles(),))
+        print("kdhand: Cancel was honoured and the desktop is untouched")
+
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
+        os88marty.settle(m)
+        if not alert_up(m, base, dm):
+            fail("the second Run did not ask - the confirmation is once per "
+                 "LAUNCH and not once per session (SPEC.md 96.42)")
+        mo.click(*alert_button(m, base, dm, 1))     # Proceed
         rs = wait_text(m, "READY", secs=150, what="the run under kern_dos")
         kd_kb = topmem(rs, "the run under kern_dos")
         print("kdhand: under kern_dos, the program has %d KB above its PSP"

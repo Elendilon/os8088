@@ -1810,6 +1810,14 @@ os88ui_sbd_id:   dw 0, 0
 OS88UI_AOK     equ 0            ; the button sets. Index 0 is the DEFAULT - it
 OS88UI_AYESNO  equ 1            ; carries the ring and it is what Enter fires
 OS88UI_ASAVE   equ 2            ; Save / Discard / Cancel
+OS88UI_ADANGER equ 3            ; Cancel / Proceed - and the ORDER is the whole
+                                ; of it. Index 0 carries the ring and Enter
+                                ; fires it, so a set whose destructive answer
+                                ; is index 0 arms the dangerous button with the
+                                ; key a user presses to get rid of a dialog.
+                                ; OS88UI_AYESNO cannot say this and neither can
+                                ; a caller rewording the question: the default
+                                ; is a property of the SET
 OS88UI_ACANCEL equ 0FFh         ; ...and the answer for a DISMISSED alert
 OS88UI_AMAX    equ 34           ; the message, in characters (it is CLIPPED by
                                 ; the window, not refused - keep it short)
@@ -1847,12 +1855,15 @@ os88ui_asets:
     dw 1, os88ui_as_ok,   0,             0
     dw 2, os88ui_as_yes,  os88ui_as_no,  0
     dw 3, os88ui_as_save, os88ui_as_disc, os88ui_as_can
+    dw 2, os88ui_as_can,  os88ui_as_proc, 0
 os88ui_as_ok:   db 'OK', 0
 os88ui_as_yes:  db 'Yes', 0
 os88ui_as_no:   db 'No', 0
 os88ui_as_save: db 'Save', 0
 os88ui_as_disc: db 'Discard', 0
 os88ui_as_can:  db 'Cancel', 0
+os88ui_as_proc: db 'Proceed', 0  ; SEVEN characters, which is what OS88UI_ABW
+                                 ; holds - 'Continue' would not fit the row
 
 ; -----------------------------------------------------------------------------
 ; os88ui_ask - raise the alert (see the header)

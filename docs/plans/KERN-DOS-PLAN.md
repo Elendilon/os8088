@@ -712,7 +712,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W4** | **DONE, and the core needed no splitting** (SPEC.md 96.38). `kerndos/kdos.asm` is W3's root plus `apps/dos/dos.asm` **whole and unedited** plus `kerndos/kdback.inc`'s twenty-two doors; `KDHELLO.COM` reads **500 KB above its own PSP** against the windowed box's 449, and exits AH=4Ch back into `kern_dos`. | `soak -k kdos`, `-k kdfar` |
 | **W5** | **DONE — a DOS program runs with the whole machine and gives it back** (SPEC.md 96.40, 96.40.1, 96.40.2). §7 steps 2–8, ending in `int 19h`; no hibernate yet. The measurement is one comparison: **560 KB above the PSP against 438 in the window**, same program, same disk, same DOS core. W5a is the launch block's ABI and `kern_dos`'s real entry, W5b the disk measurement (docs/reports/KERN-DOS-PART-COST-2026-09-14.md), W5c the handoff itself — four resident kernel bytes, everything else in `HIBER.DRV` — and W5d the gate. **Seven defects were found by building the gate and every one is in its header**; §11.2 is what they came to, because five of the seven are one shape. | `soak -k kdhand -k kdapi -k kdos -k kdfar -k kdpart` |
 | **W6** | **DONE — the machine goes away, runs DOS, and comes back** (SPEC.md 96.41). §8's reboot route, not §8.1's direct restore, which is ~1,200 bytes of the program's own arena. **EIGHT RESIDENT BYTES, measured**: `.bss` +2 for `hb_doscode` (which lives between `hbm_ask` reading the BDA at the boot and `hbm_res` staging it for the wake, two separate loads of the image with a posted restart between them, so it cannot be module data) and `.cold` +6 for the one line in `hb_probe` that defaults it. Everything else is `HIBER.DRV`'s, the box's, or a field in a record that already existed. The exit code rides in `0040:00F0` and `HS_DOSCODE` needs no stub code at all, `hbm_wake` already reading that segment. §8.2 answers open question 3 and the answer got EASIER when the route changed. | `soak -k kdreturn -k kdhand -k hibernate -k hibernatedrv` |
-| **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
+| **W7** | **DONE, and it is OFFERED rather than greyed** (SPEC.md 96.42). §9's second bullet won over its first: the memory is a real want and the machine really can deliver it, so a greyed control would be refusing a capability rather than reporting a fact. What the question names is the fact — there is nothing to come back to — at the moment the user commits. `OS88UI_ADANGER` is a fourth alert set (SPEC.md 75.3.3), **Cancel at index 0** so the ring and Enter are the safe answer; sixteen bytes of any package that opts into the alert and **no kernel bytes at all**. The shipped `DOS.O88` is BYTE-IDENTICAL — the whole of it is `%ifdef DOSKPART`. | `soak -k kdhand`, and the alert rows beside it |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
 | **W9** | **`DOS.O88` becomes four pieces and the core stops being shipped twice** (§4.1.3, §4.1.3.1): a 2 KB loader that rehomes, the UI, the core, and `kern_dos` — with the core joined NEAR to whichever host is running. **+19 clusters against today's 26**, where the shape W5a builds is +43. The new ABI is a 33-entry jump table and a `CORE_ORG` budget with two claimants. NOT a prerequisite for W5c. | the box and `kern_dos` both run against one core part; `soak -k 'dos*'` |
 
@@ -777,6 +777,24 @@ program left, and the bootstrap **returns** rather than boots.
 the same handoff in the other direction and every one of these questions has a
 mirror: what segment is that pointer in, what did the outgoing side leave in
 that memory, and what does the ROM think it is holding.
+
+### 11.4 W7's finding is about a WAKE, and it is the box's own idiom biting
+
+**`[dos_wok]` has three states and not two.** A launch is a posted wake and a
+wake is a KICK (SPEC.md 74.1): tearing the alert down repaints, and the box is
+still `DST_READY` when the next wake lands — so a flag that only recorded
+*confirmed* put the question straight back up, and **Cancel could not be
+answered at all**. It is the same shape as `dos_wake`'s own comment about
+`DST_RAN` being set BEFORE the run ("a second wake arriving for any reason
+finds DST_RAN and does nothing, rather than launching the program twice"), one
+question earlier: a refusal has to be recorded for exactly the same reason a
+launch does.
+
+**And the hook belongs on `dos_wake`, not on the Run button**, which is where
+it was nearly put. A `.LNK` carries the arm (SPEC.md 96.21) and an association
+launch never passes through `dos_go` at all, so a shortcut written on a machine
+WITH a hard disk would have ended the session on a machine without one with
+nothing asked.
 
 ### 11.3 ...and W6 found four, three of which are that same lesson
 
