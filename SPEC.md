@@ -127820,6 +127820,18 @@ caught it, in the shape its own message names - *found `DRVNAME.COM`, which
 is not a name A: has and B: has not* - which is the value of a row that
 compares against the OTHER drive's listing rather than against a count.
 
+**And the walk had a SECOND caller with the same idiom.**  `dos_path_take`
+- the path box's parser (§96.32) - set `[dos_vol]` to the drive the typed
+path named, called `dos_walk_pbuf`, and put `[dos_vol]` back if the walk
+refused, its own comment saying *"dos_walk_pbuf reads `[dos_vol]` rather
+than taking it, so it has to be set for the walk"*.  That is now said by
+STANDING on the drive instead, and the rollback goes with it: nothing is
+changed, so a typo leaves the box exactly where it was.  The arm falls into
+`.commit` rather than past it, `[dos_vol]` no longer being set already by
+the time it gets there.  `tests/dosargs.py` is what caught that one - a
+typed `B:\BIN\DOSARGS.COM /Q R:1` whose tail came back `(none)`, because
+the path had stopped resolving at all.
+
 #### 96.48.3 Every BANKED volume is the machine's, and there are three
 
 The walk is not the only place that had `[dos_vol]` standing in for *the
