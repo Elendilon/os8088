@@ -127819,3 +127819,24 @@ Both gotos inside the walk take `[dos_pvol]` now.  `tests/dosdrv.py` is what
 caught it, in the shape its own message names - *found `DRVNAME.COM`, which
 is not a name A: has and B: has not* - which is the value of a row that
 compares against the OTHER drive's listing rather than against a count.
+
+#### 96.48.3 Every BANKED volume is the machine's, and there are three
+
+The walk is not the only place that had `[dos_vol]` standing in for *the
+volume this name landed on*.  Three cells bank a volume at the moment a name
+resolves and spend it much later, and all three were written from the
+program's drive on the reasoning that `dos_fh_enter` was still standing
+there:
+
+| | banked at | spent at |
+|---|---|---|
+| `FH_VOL` | `AH=3Dh` open and `AH=3Ch` create | every refill and flush of that handle's window |
+| `DTA_VOL` | `AH=4Eh` find first | `AH=4Fh` find next, which reads it back into `[dos_fdrv]` |
+| `dos_rnvol` | `AH=56h` rename | the SECOND name, for which it means *unqualified* |
+
+The first two are the machine's and take `[dos_pvol]`; the third is the
+program's and stays `[dos_vol]`, because *what an unqualified name means* is
+exactly the drive the program is on.  Getting `FH_VOL` wrong is the sharp
+one and `tests/dosdrv.py` names it: *a file opened as `A:AONLY.TXT` while
+standing on B: could not be read* - the handle recorded B:, and every later
+read of it went to the wrong disk under the right name.

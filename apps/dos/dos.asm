@@ -2337,11 +2337,17 @@ dos_int21:
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_vol]               ; THE VOLUME THE NAME LANDED ON, which is
+    mov al, [dos_pvol]              ; THE VOLUME THE NAME LANDED ON, which is
     mov [si+FH_VOL], al             ; where every later read of this handle
-                                    ; goes - dos_fh_name is still standing
-                                    ; there, so it is [dos_vol] and needs no
-                                    ; second lookup (SPEC.md 96.6.2)
+                                    ; goes. **IT IS `[dos_pvol]` AND NOT
+                                    ; `[dos_vol]`** (SPEC.md 96.48.3): this
+                                    ; used to read the PROGRAM's drive on the
+                                    ; reasoning that `dos_fh_enter` was still
+                                    ; standing there, which stopped being true
+                                    ; the moment a name stopped moving the
+                                    ; program - and `A:AONLY.TXT` opened from
+                                    ; B: then recorded B: and read the wrong
+                                    ; disk on every refill (96.6.2)
     mov ax, [dos_fent+18]
     mov [si+FH_SIZE], ax
     mov ax, [dos_fent+20]
@@ -2389,8 +2395,8 @@ dos_int21:
     call dos_fh_new
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_vol]
-    mov [si+FH_VOL], al
+    mov al, [dos_pvol]              ; ...and the same for a file just CREATED
+    mov [si+FH_VOL], al             ; (SPEC.md 96.48.3)
     mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
     call dos_jft_sync
     mov ax, bx
@@ -2654,8 +2660,12 @@ dos_int21:
     jc .fherr                       ; does, wildcards and all
     call dos_dta_seg                ; ES:DI = the caller's DTA, and DI STAYS
     mov [es:di+DTA_MASK], cl        ; ...the mask FIRST: the rep movsb below
-    mov al, [dos_vol]               ; spends CX (SPEC.md 96.12.1)
-    mov [es:di+DTA_VOL], al         ; ...and the volume dos_fh_name put us on
+    mov al, [dos_pvol]              ; spends CX (SPEC.md 96.12.1)
+    mov [es:di+DTA_VOL], al         ; ...and the volume dos_fh_name put us on,
+                                    ; which is where the MACHINE is standing
+                                    ; and not where the program is (96.48.3):
+                                    ; AH=4Fh reads this back into [dos_fdrv]
+                                    ; so a walk started on B: carries on there
     mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
     push si                         ; and a stosw/rep movsb pair would leave it
     push di                         ; fifteen bytes along - which reads the
