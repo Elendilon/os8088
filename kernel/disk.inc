@@ -831,7 +831,17 @@ section .text                   ; DATA, so back to the kernel segment
 ; goes through dsk_get_dir / dsk_get_icon, which already staged an entry into
 ; the kernel segment and now just take their segment from a word.
 dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in
+%ifdef DSK_WANT_LIST
 dsk_doff:    dw disk_dir         ; entry 0's offset in it
+%else
+dsk_doff:    dw 0                ; NO LISTING IN THIS BUILD (SPEC.md 96.44.7):
+                                ; kerndos/kdos.asm has no window to draw one
+                                ; in, so dskwin.inc leaves the arrays out and
+                                ; disk_mount takes its own `.quiet` path. These
+                                ; three keep their cells - a word each, and
+                                ; every reader goes through them - and say
+                                ; "nowhere, and nothing fits"
+%endif
 %ifdef KERN_SMALL
 dsk_iconext: db 0               ; SPEC.md 25.8's bump allocator: the next free
                                 ; POOL body, reset at every mount
@@ -840,8 +850,15 @@ dsk_icofld:  db 0xFF            ; ...and the body every FOLDER shares, 0xFF
                                 ; claims one. It used to be a 64-byte copy of
                                 ; the same bytes per folder
 %endif
+%ifdef DSK_WANT_LIST
 dsk_ioff:    dw disk_icons       ; icon slot 0's offset in it
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
+%else
+dsk_ioff:    dw 0
+dsk_nmax:    dw 0                ; ...and a cap of zero, which every `cmp ax,
+                                ; [dsk_nmax] / jae` in the file already reads
+                                ; as "the extras are invisible"
+%endif
 
 ; The current directory (SPEC.md 19.2) - the one disk_dir lists and the one
 ; every dskw_* name resolves inside. 0 = the root. These live HERE, in
@@ -2320,11 +2337,14 @@ dsk_vol_drop_drv_x:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 dsk_list_floor:
+%ifdef DSK_WANT_LIST
     mov word [dsk_dseg], LOW_SEG
     mov word [dsk_doff], disk_dir
     mov word [dsk_ioff], disk_icons
     mov word [dsk_nmax], DSK_NENT
-    ret
+%endif                          ; ...and in a build with no listing the three
+    ret                         ; initialisers above already say so, and no
+                                ; mount may reach a writer (SPEC.md 96.44.7)
 
 ; -----------------------------------------------------------------------------
 ; dsk_list_pick - choose the listing buffer for the volume being mounted
@@ -2902,8 +2922,19 @@ disk_mount_x:
     ; count is the one thing that could make a reader believe they are this
     ; volume's. An empty listing is a state the whole kernel already handles;
     ; a wrong one is not. [dsk_lstale] is the debt, and dsk_relist pays it.
+%ifdef DSK_WANT_LIST
     cmp byte [dsk_quiet], 0
     je .listing
+%endif                          ; **NO LISTING, NO CHOICE** (SPEC.md 96.44.7):
+                                ; a build with no `disk_dir` falls straight
+                                ; into the path `[dsk_quiet]` would have
+                                ; chosen, which is a complete and validated
+                                ; mount - `dsk_chdir_q` has taken it in the
+                                ; kernel since 18.9. It is a FENCE and not an
+                                ; optimisation: the writers below stage
+                                ; through [dsk_doff], which is 0 there, so
+                                ; reaching them would put a directory entry
+                                ; on top of dsk_secbuf
 .quiet:                         ; ...and .fsmount's copy of this arrives here
     mov word [disk_nfiles], 0
     mov byte [dsk_lstale], 1
@@ -3243,11 +3274,13 @@ disk_mount_x:
                                 ; spends - there is no '..' on a disk here to
                                 ; read one out of (62.9.1)
 
+%ifdef DSK_WANT_LIST
     cmp byte [dsk_quiet], 0     ; 2b's gate, and 2b's ANSWER: a caller
     je .fslist                  ; switching volumes to READ a file never looks
-    jmp .quiet                  ; at the listing, and an EMPTY one is a state
-                                ; the whole kernel handles where a stale one
-                                ; is not (SPEC.md 18.9)
+%endif                          ; at the listing, and an EMPTY one is a state
+    jmp .quiet                  ; the whole kernel handles where a stale one
+                                ; is not (SPEC.md 18.9) - and with no listing
+                                ; at all it is the only arm (96.44.7)
 
 .fslist:
     mov ax, LOW_SEG             ; dsk_synth_up and dsk_put_dir both stage

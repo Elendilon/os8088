@@ -1,42 +1,53 @@
 #!/usr/bin/env python3
-"""kern_dos's refusal table has to cover the SDK's whole API table.
+"""No `OSAPI_*` far call may survive into a `kern_dos` image.
 
     python3 tests/unit/t_kdapi.py
 
 `KERNEL_SEG` is kern_dos's OWN segment (`kerndos/kdlayout.inc`), so every
-`call OSAPI_X` that survives into that image is a far call to `KD_SEG:0xNNNN`.
-`apps/dos/dos.asm` is included whole and has ~96 of them; wave 2 measured the
-LOAD path at 21 procs reaching none, and the RUN path then reached one -
-`dos_getkey` polls `dos_mou_read`, which is every DOS program that waits for a
-keystroke.  It presented as a machine spinning in the ROM with a key already
-in the BIOS ring, and it took a day to find.
+`call OSAPI_X` that reaches that image is a far call to `KD_SEG:0xNNNN` - a
+jump into the middle of the disk layer, with the caller's registers, and no
+way to tell afterwards where it went.  `apps/dos/dos.asm` is included whole
+and has ~96 of them; wave 2 measured the LOAD path at 21 procs reaching none,
+and the RUN path then reached one - `dos_getkey` polls `dos_mou_read`, which
+is every DOS program that waits for a keystroke.  It presented as a machine
+spinning in the ROM with a key already in the BIOS ring, and it took a day.
 
-So `kerndos/kdos.asm` lays a cell at every published offset and each one
-REFUSES (`stc`/`retf`, SPEC.md 20.8's published meaning).  That turns a wild
-jump into the middle of the disk layer into a wrong ANSWER, which is
-diagnosable - and it only works if the table's two ends still describe
-`apps/os88api.inc`.  They are two constants in a different file, so this is
-`t_mirror.py`'s subject with a derivation on one side instead of a literal.
+**THIS USED TO CHECK A WALL AND NOW IT CHECKS THE CALLS** (SPEC.md 96.44.6).
+The wall was 179 `stc`/`retf` cells at every published offset, so a survivor
+refused instead of jumping - 1,432 bytes of the image, and it is what held
+`CORE_ORG` at 0x0600 in BOTH hosts.  Scanning the assembled images found the
+wall was catching **six sites in four cells**: `dos_keeph`'s two, a window
+routine mis-marked core, and `dosh.inc`'s four, which reach a heap only the
+windowed host has.  The first moved into the window half and the other four
+became `DHK_CLAIM`/`DHK_FREE`, so there is nothing left to catch.
 
-WHAT IT CHECKS
+What replaces it is strictly better.  A wall turns a wild jump into a wrong
+ANSWER at runtime, on a machine that has no operating system left to report
+it; this fails the BUILD, at the wave that writes the call, naming the cell.
 
-  1 `KD_API_LO` is the LOWEST `KERNEL_SEG:0x....` offset the SDK publishes.
-  2 `KD_API_HI` is the HIGHEST.
-  3 every published offset lands inside the span AND on an 8-byte boundary
-    from `KD_API_LO` - a cell at an odd offset would be entered mid-row.
-  4 the span does not reach down into kern_dos's fixed header (0x0000..0x0007),
-    which is what leaves room for it.
+HOW.  Disassembly is not needed and would not be safe: `9A` is also a data
+byte.  What makes the scan sound in the other direction is that it only ever
+reports MORE than the truth - a false hit is a wrong refusal somebody reads
+and dismisses, where a missed one is the failure this exists for.  So every
+`9A ll hh ss ss` whose segment word is `KD_SEG` and whose offset is a
+published cell counts, and the message names the slot.
 
-It is HOST-SIDE and needs no build: both files are source.
+IT NEEDS THE BUILT IMAGES (`make kdostest`), because the question is about
+what nasm emitted and not about what the source says.  A tree without them
+SKIPS rather than passes - `tests/suite.py` carries that in `wants=`.
 """
+import collections
 import os
 import re
+import struct
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from os88geom import KD_SEG                                # noqa: E402
+
 SDK = os.path.join(ROOT, "apps", "os88api.inc")
-KDOS = os.path.join(ROOT, "kerndos", "kdos.asm")
-HDR_END = 8                     # KD_H_JMP/KD_H_LBP/KD_H_LBSZ, kdlayout.inc
+IMAGES = ("build/kerndos.bin", "build/doscore.bin")
 
 
 def fail(msg):
@@ -44,55 +55,63 @@ def fail(msg):
     sys.exit(1)
 
 
-def main():
-    cells = {}
+def cells():
+    """{offset: name} for every published API cell."""
+    out = {}
     for ln in open(SDK):
         m = re.match(r"\s*%define\s+(OSAPI_\w+)\s+KERNEL_SEG:(0x[0-9A-Fa-f]+)",
                      ln)
         if m:
-            cells[m.group(1)] = int(m.group(2), 16)
-    if len(cells) < 100:
+            out.setdefault(int(m.group(2), 16), m.group(1))
+    return out
+
+
+def scan(path, api):
+    """Every `call far KD_SEG:<published cell>` in the image."""
+    data = open(path, "rb").read()
+    hits = collections.Counter()
+    for i in range(len(data) - 4):
+        if data[i] != 0x9A:                 # call far ptr16:16
+            continue
+        off, seg = struct.unpack_from("<HH", data, i + 1)
+        if seg == KD_SEG and off in api:
+            hits[off] += 1
+    return hits, len(data)
+
+
+def main():
+    api = cells()
+    if len(api) < 100:
         fail("only %d OSAPI_* cells found in apps/os88api.inc - the regex no "
-             "longer matches how they are spelled" % len(cells))
+             "longer matches how they are spelled, so this test is checking "
+             "nothing" % len(api))
 
-    src = open(KDOS).read()
-    got = {}
-    for name in ("KD_API_LO", "KD_API_HI"):
-        m = re.search(r"^%s\s+equ\s+(0x[0-9A-Fa-f]+)" % name, src, re.M)
-        if not m:
-            fail("kerndos/kdos.asm defines no %s - the refusal table is gone, "
-                 "and with it the only thing between a stray kernel call and "
-                 "the middle of the disk layer" % name)
-        got[name] = int(m.group(1), 16)
+    missing = [p for p in IMAGES
+               if not os.path.exists(os.path.join(ROOT, p))]
+    if missing:
+        print("t_kdapi: SKIP - %s not built (`make kdostest`)"
+              % ", ".join(missing))
+        return
 
-    lo, hi = min(cells.values()), max(cells.values())
-    if got["KD_API_LO"] != lo:
-        fail("KD_API_LO is 0x%04X and the SDK's lowest cell is 0x%04X (%s). "
-             "A table that starts too high leaves the cells under it as "
-             "whatever kern_dos has there"
-             % (got["KD_API_LO"], lo,
-                next(n for n, v in cells.items() if v == lo)))
-    if got["KD_API_HI"] != hi:
-        fail("KD_API_HI is 0x%04X and the SDK's highest cell is 0x%04X (%s). "
-             "A cell published above the table is a far call into kern_dos's "
-             "own code with the caller's registers"
-             % (got["KD_API_HI"], hi,
-                next(n for n, v in cells.items() if v == hi)))
-    if lo < HDR_END:
-        fail("the SDK publishes a cell at 0x%04X, which is inside kern_dos's "
-             "fixed header (0x0000..0x%04X) - the two cannot both be there, "
-             "and kdlayout.inc's KD_H_* is what the stub jumps to"
-             % (lo, HDR_END - 1))
+    total = 0
+    for rel in IMAGES:
+        hits, size = scan(os.path.join(ROOT, rel), api)
+        if hits:
+            lines = ["   0x%04X  x%-3d %s" % (o, n, api[o])
+                     for o, n in sorted(hits.items())]
+            fail("%s makes %d far call(s) to KERNEL_SEG, which under this "
+                 "root is kern_dos's own segment:\n%s\n"
+                 "That is a jump into kern_dos's code with the caller's "
+                 "registers. Either the caller belongs in the WINDOW half "
+                 "(`%%ifndef KD_BACKEND`), or the thing it wants is a HOST "
+                 "HOOK - `dos_hkv`, SPEC.md 96.44.3 - which is what "
+                 "`dos_keeph` and `dosh.inc`'s heap pair each turned out to "
+                 "be (96.44.6)."
+                 % (rel, sum(hits.values()), "\n".join(lines)))
+        total += size
 
-    for name, off in sorted(cells.items(), key=lambda kv: kv[1]):
-        if (off - lo) % 8:
-            fail("%s is at 0x%04X, which is %d bytes past 0x%04X - not a "
-                 "multiple of the 8-byte cell, so the refusal table's row "
-                 "would be entered in the middle"
-                 % (name, off, off - lo, lo))
-
-    print("t_kdapi: ok - %d cells, 0x%04X..0x%04X, %d refusal rows"
-          % (len(cells), lo, hi, (hi - lo) // 8 + 1))
+    print("t_kdapi: ok - %d published cells, 0 far calls in %d bytes of image"
+          % (len(api), total))
 
 
 if __name__ == "__main__":

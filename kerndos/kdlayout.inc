@@ -35,7 +35,7 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; **THE SHIPPED FIGURE DOES NOT MOVE.** What ships is the extcore arm and it
 ; was already 35, so the DOS program keeps its 585 KB; what rises is the
 ; `KD_GATE` build (tests/kdos.py), which is a test artefact on no floppy.
-KD_IMG_KB   equ 35              ; the image rung: every progbits section PLUS
+KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG
@@ -72,6 +72,14 @@ KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; program. 650 bytes spare, which is what this
                                 ; comment's own rule asks for - the next wave
                                 ; lowers it again rather than banking slack
+                                ;
+                                ; **35 -> 34 WITH THE REFUSAL WALL** (SPEC.md
+                                ; 96.44.6). The wall was 1,432 bytes of
+                                ; `stc`/`retf` under CORE_ORG and it is gone
+                                ; because the calls it caught are: the image
+                                ; measures 33,953 against 35,361, and CORE_ORG
+                                ; falls 0x0600 -> 0x0080 in BOTH hosts. 863
+                                ; bytes spare
 ; --- the exit code's mailbox (SPEC.md 96.41, docs/plans/KERN-DOS-PLAN.md 8.2)
 ; MIRRORED in kernel/hiber.inc, and tests/unit/t_mirror.py is the guard.
 KDB_SEG     equ 0x0040          ; the BDA...
@@ -88,6 +96,17 @@ FAT_PARA    equ DSK_FAT_SECS * 32         ; 512 bytes = 32 paragraphs
 LOW_SEG     equ FAT_SEG + FAT_PARA        ; ...and the mount buffers above it
 
 
+; --- DOES THIS ROOT WANT THE MOUNT'S LISTING? (SPEC.md 96.44.7) -------------
+; `kernel/dskwin.inc` owns the arrays and this owns the rung they sit in, so
+; the decision is made HERE for the kerndos roots - `KD_LOW_KB` is cut from
+; the answer and is needed before that file is included.
+;
+; `kerndos/kerndos.asm`'s wave-3 gate READS the listing: `kdgate.inc` asserts
+; the entry count the mount synthesized, which is the whole of what that row
+; checks. So that root asks for one, and pays 2,816 bytes of `.lowbss` for it.
+; `kdos.asm` - the root that SHIPS - has no window to draw one in.
+%ifdef KD_LIST
+  %define DSK_WANT_LIST
 KD_LOW_KB   equ 5               ; how much .lowbss the layer's buffers want
                                 ; (3,328 today) PLUS the stack above them,
                                 ; asserted in kerndos.asm.
@@ -102,6 +121,17 @@ KD_LOW_KB   equ 5               ; how much .lowbss the layer's buffers want
                                 ; other three kilobytes, which is what every
                                 ; number in this file is for. `KDSTKDIAG=1`
                                 ; and `tools/kdstkwater.py` re-derive it
+%else
+KD_LOW_KB   equ 2               ; **5 -> 2 WITH THE LISTING OUT** (SPEC.md
+                                ; 96.44.7). `.lowbss` is `dsk_secbuf` alone
+                                ; now - 512 bytes, and the one int 13h
+                                ; transfer base, so it keeps the rung's own
+                                ; 512-aligned start - which leaves 1,536 for
+                                ; the stack against a measured water mark of
+                                ; **134** (96.43.1), eleven times the figure.
+                                ; The other three kilobytes are the DOS
+                                ; program's
+%endif
 KD_STACK    equ KD_LOW_KB * 1024 ; ...and the stack sits at the top of it and
                                 ; grows DOWN toward the buffers
 

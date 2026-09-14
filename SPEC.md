@@ -127293,7 +127293,11 @@ Each is *the box does something extra*, so each is a HOST HOOK now — a word in
 `dos_hkv` the core calls when it is set, `dos_bevec`'s shape (§96.44.1) with a
 different table. **Zero means the host does not want it**, which is what a
 zeroed bss already says, so `kern_dos` binds nothing at all and the box binds
-four in `dos_hk_bind`. The reason it is a second table rather than more doors
+them in `dos_hk_bind`.
+
+**There are SIX since §96.44.6**: `DHK_CLAIM` and `DHK_FREE` are the kernel's
+heap, which the windowed host has and `kern_dos` does not, and they are what
+took the last four `OSAPI_*` far calls out of the core. The reason it is a second table rather than more doors
 is that **a door must always be answered and a hook may always be absent.**
 
 `dos_tty` is the one with a return value: `DHK_TTY` answers **CF=0 when it has
@@ -127403,10 +127407,11 @@ the window and no disk layer. Core-above turns that difference into a HOLE in
 program, which is the one quantity the plan is a budget for.
 
 **Core-LOW has no hole**: each host's own code begins above a fixed-size core.
-`CORE_ORG` is **0x0600**, which clears the two things that cannot move —
-`kern_dos`'s published API cells end at 0x05A8 (§96.40.2, and
-`apps/os88api.inc` owns those offsets) and the box's package header is at 0x00
-because `OSAPI_PKG_REHOME` step 8 dispatches through it.
+`CORE_ORG` was **0x0600**, which cleared the two things that could not move —
+`kern_dos`'s refusal wall, which ran to 0x05A8, and the box's package header at
+0x00, because `OSAPI_PKG_REHOME` step 8 dispatches through it. **It is 0x0080
+since §96.44.6**: the wall is gone, so only the box's header, icon and
+association block bind it, and those end at 112.
 
 `CORE_MAX` is **14,848** against a core of 14,566, and it is a rung the CORE
 alone spends while both hosts read it — where 4.1.3.1's `CORE_ORG` was a
@@ -127519,6 +127524,107 @@ reservation at `CORE_ORG` being **18,176 zero bytes** and nothing else.
 
 585 is one KB below §96.44.5.1's 586 for the reason that section gives, and
 that KB is the whole cost of shipping the core once.
+
+#### 96.44.6 The refusal wall is gone, because the CALLS are
+
+`KERNEL_SEG` is `kern_dos`'s own segment (`kerndos/kdlayout.inc`), so a
+surviving `call OSAPI_X` is a far call to `KD_SEG:0xNNNN` — a jump into the
+middle of the disk layer with the caller's registers, on a machine that has no
+operating system left to report it. §96.40.2's answer was a **wall**: 179
+`stc`/`retf` cells at every published offset from 0x0010 to 0x05A8, so a
+survivor got a refusal instead. It cost **1,432 bytes** of the image and it is
+what held `CORE_ORG` at 0x0600 — in BOTH hosts, because the core is one object
+joined to either.
+
+**The wall was catching six sites in four cells, and `kerndos.bin` made none of
+them.** Scanning the assembled images for opcode `9A` with that segment word
+is the measurement; §96.43.2 had gated the window half out of this root a wave
+earlier and nothing re-read the wall afterwards. The six are two separate
+things:
+
+| | where | what it wanted |
+|---|---|---|
+| `OSAPI_WM_DISPLAY`, `OSAPI_WM_KEEPH` | `dos_keeph` | a WINDOW |
+| `OSAPI_MEM_CLAIM` ×2, `OSAPI_MEM_FREE` ×2 | `dsh_bufget`/`dsh_bufput`, `dsh_sbuild`/`dsh_sfree` | a HEAP |
+
+**`dos_keeph` was a window routine marked core.** Its only caller in 13,000
+lines is `dos_entry`'s, inside `%ifndef KD_BACKEND`, and nothing in the core
+names it — so `DOSC_E dos_keeph` was a table row nobody crossed. It moves into
+the window half and comes off `apps/dos/doscents.inc`; the core loses 37 bytes
+and the entry with them.
+
+**The other four are a HEAP, which only the windowed host has.** `dsh_bufget`
+already chose between two arms on `[dos_arena]`: the arena through
+`dos_mcb_alloc`, or — at the *prompt*, where there is no arena because a
+program is not running — the kernel's heap. `kern_dos` sets `[dos_arena]` in
+`kd_entry` before any door and has no prompt, so the heap arm was unreachable
+there and nobody had established it. They become **`DHK_CLAIM` and `DHK_FREE`**,
+§96.44.3's table two rows longer, and the absence that a zeroed bss already
+spells is read as *there is no heap in this host*: `dsh_bufget` takes the arena
+arm, and `dsh_sbuild` takes the refusal exit it already had, so a `DIR` under
+`kern_dos` lists in directory order — which is real DOS's.
+
+**A hook and not a door, for §96.44.3's own reason**: a door must always be
+answered and a hook may always be absent. A heap is exactly the second kind.
+
+`CORE_ORG` is **0x0080** now. What binds it is the BOX's low bytes — the
+package header at 0x00, the icon at 0x20 and the association block at 0x60,
+which `OS88_ASSOC16_END` pads to **112** — against `kern_dos`'s eight-byte
+fixed header, and each host asserts its own side. **1,408 bytes out of both**:
+`kern_dos`'s image is 33,953 against 35,361, so `KD_IMG_KB` falls **35 → 34**
+and the DOS program is handed a kilobyte more.
+
+**The check that replaces the wall is stronger than the wall was.**
+`tests/unit/t_kdapi.py` scans both assembled images for the opcode and fails
+the BUILD naming the slot — at the wave that writes the call, rather than at
+runtime as a wrong answer somebody has to diagnose from a frozen machine. It
+needs `make kdostest` and SKIPS without it, because the question is about what
+nasm emitted and not about what the source says.
+
+#### 96.44.7 The Disk window's mount snapshot, on a machine with no window
+
+`disk_mount`'s steps 3 and 4 build a **listing**: 32 synthesized directory
+entries into `disk_dir` and a harvested 16×16 icon body per entry into
+`disk_icons`, one `int 13h` per file. They are `.lowbss`, **2,816 bytes**, and
+under `kern_dos` they are filled and never read.
+
+**MEASURED on the guest after a handoff**, not inferred: `disk_dir` holds 294
+non-zero bytes and `disk_icons` 192, and `disk_drive` reads 0 — so the volume
+listed is the system disk's own root, `APPS` and `GAMES` and the rest. Every
+reader of either array in this root is inside the mount that wrote it: the
+file manager is not here, `fm_draw_icon16` is not here, and `dos_be_find`
+reaches `dsk_find_x`, which walks raw directory sectors through `dsk_secbuf`
+and never looks at the snapshot.
+
+**The path that skips it already existed and is already validated.**
+`[dsk_quiet]` is §18.9's *mount to read a file, not to show one* — what
+`dsk_chdir_q` takes in the kernel — and it leaves `[disk_nfiles]` 0,
+`[dsk_lstale]` 1 and `[dsk_mntok]` 1, which is a complete mount with the write
+gate open. A build with no listing takes it unconditionally, and that is a
+**fence rather than an optimisation**: the writers stage through `[dsk_doff]`,
+which is 0 there, so reaching one would put a directory entry on top of
+`dsk_secbuf`.
+
+`DSK_WANT_LIST` is the switch and it is POSITIVE, set in two disjoint places
+because the answer is known at two different points — `kernel/dskwin.inc` for
+the kernel, `kerndos/kdlayout.inc` for the kerndos roots, which must decide it
+before `KD_LOW_KB` is cut from it. **`kerndos/kerndos.asm` asks for a
+listing**: its wave-3 gate asserts the entry count the mount synthesized, which
+is the whole of what that row checks. `kerndos/kdos.asm`, the root that ships,
+does not.
+
+`.lowbss` is **512 bytes** now — `dsk_secbuf` alone, still first and so still
+512-aligned, which §2.1.1 requires of the one `int 13h` transfer base. That
+leaves 1,536 for a stack whose measured high-water is **134** (§96.43.1),
+eleven times the figure, so **`KD_LOW_KB` falls 5 → 2**.
+
+**The floor is 42.0 KB against 46.0**, and with §96.44.6's kilobyte the DOS
+program is handed **589 KB**.
+
+**What is NOT claimed is a time saving.** The harvest is one sector read per
+type-1 entry and it looks expensive, but the one A/B taken was invalid — a
+25-file B: against a 1-file B:, when `kern_dos` mounts A: — and no honest
+measurement of it has been made. The memory is what this section rests on.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

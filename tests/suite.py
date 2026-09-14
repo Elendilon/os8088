@@ -2867,19 +2867,26 @@ SOAK = [
         "the second accumulator), and no core proc names an HBSS cell. "
         "Host-side, source only, and it fails naming the row or the proc.",
         ),
-    Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.3,
-        "kern_dos's REFUSAL TABLE has to cover the SDK's whole API table "
-        "(SPEC.md 96.40.2). KERNEL_SEG is kern_dos's own segment, so every "
-        "`call OSAPI_X` that survives into that image is a far call to "
-        "KD_SEG:0xNNNN - and apps/dos/dos.asm is included whole with ~96 of "
-        "them. The table lays a `stc`/`retf` cell at every published offset "
-        "so a stray call is a wrong ANSWER rather than a jump into the middle "
-        "of the disk layer, and that only works while its two ends still "
-        "describe apps/os88api.inc. t_mirror's subject with a DERIVATION on "
-        "one side instead of a literal: it re-reads every cell the SDK "
-        "publishes and checks the span, the boundary and that nothing "
-        "collides with kern_dos's fixed header. Host-side, no build.",
-        ),
+    Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
+        "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "
+        "96.44.6). KERNEL_SEG is kern_dos's own segment, so a `call OSAPI_X` "
+        "that reaches that image is a far call to KD_SEG:0xNNNN - a jump into "
+        "the middle of the disk layer with the caller's registers - and "
+        "apps/dos/dos.asm is included whole with ~96 of them. It cost a day "
+        "once already: dos_getkey polls dos_mou_read, so every DOS program "
+        "that waits for a keystroke made one, and it presented as a machine "
+        "spinning in the ROM with a key already in the ring. IT USED TO CHECK "
+        "A WALL: 179 `stc`/`retf` cells at every published offset, 1,432 "
+        "bytes, and what held CORE_ORG at 0x0600 in both hosts. The wall was "
+        "catching six sites in four cells - dos_keeph's two, a window routine "
+        "mis-marked core, and dosh.inc's four reaching a heap only the "
+        "windowed host has - so the calls went instead and the wall with "
+        "them. This scans the ASSEMBLED images for opcode 9A with that "
+        "segment and fails the build naming the slot, which is strictly "
+        "better: a wall turns a wild jump into a wrong ANSWER at runtime, on "
+        "a machine with no operating system left to report it. Needs "
+        "`make kdostest`; it SKIPS without it rather than passing.",
+        wants=("build/kerndos.bin", "build/doscore.bin")),
     Row("kdfar", "soak", py("tests/unit/t_kdfar.py"), 0.3,
         "NEAR OR FAR HAS TO MATCH THE BODY (SPEC.md 96.38.1): kerndos/ calls "
         "the kernel's disk layer by hand, and that layer is NOT one calling "
