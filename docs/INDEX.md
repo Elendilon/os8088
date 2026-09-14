@@ -277,6 +277,14 @@ Read first: [§84 Software floating point (`apps/os88fp.inc`)](../SPEC.md#84-sof
 | `0x00D0` | `OSAPI_SRAND` | AX -> [osapi_seed] |
 | `0x00D8` | `OSAPI_RAND` | out AX = next pseudo-random word |
 
+### Running a DOS program
+
+Read first: [§96 DOS — running `.COM` and `.EXE` programs (`apps/dos/`)](../SPEC.md#96-dos--running-com-and-exe-programs-appsdos).
+
+| slot | call | takes |
+|---|---|---|
+| `0x05A0` | `OSAPI_DOS_HANDOFF` | ES:SI = a KDH_* record; out CF=0 posted |
+
 ## Shared includes
 
 A package `%include`s these itself; they are not kernel calls. Include them at the END of the package, before `OS88_BSS`.

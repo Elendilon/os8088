@@ -93,6 +93,50 @@ HS_EXT      equ 0x0A00          ; {dd lba, dw count} x HS_XMAX
 HS_XMAX     equ 1280            ; one per sector of a 640KB image at worst
 HS_XSTRIDE  equ 6                ; ...and one entry's bytes
 HS_STACK    equ 0x3FF0          ; the stub's stack top: under a CGA's 16KB
+
+; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
+; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
+; reads to KD_SEG, which is above the IVT and the BDA both, so it has no
+; late-copy problem to solve and 1,024 bytes of the staging area are free. The
+; launch block takes 512 of them.
+KDS_PLEN    equ 0x0430          ; dd the part's PACKED bytes
+KDS_ULEN    equ 0x0434          ; dd ...and what they expand to
+KDS_TSEG    equ 0x0438          ; dw where the packed stream is read
+KDS_LB      equ 0x0500          ; db[512] the launch block, on HS_IVT's ground
+KDS_TMPSEG  equ 0x1000          ; 64KB up: above kern_dos's image, which starts
+                                ; at KD_SEG and is 46KB, so the stream and the
+                                ; thing it expands to never meet and SPEC.md
+                                ; 20.13.7's in-place rules need no thought
+
+; --- kern_dos's own three numbers, MIRRORED (kerndos/kdlayout.inc) -----------
+; tests/unit/t_mirror.py is what keeps them honest: a name defined in more than
+; one place has to agree everywhere, and these three are the whole of what the
+; kernel needs to know about a machine it is handing over to.
+KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
+KD_H_LBP    equ 4               ; dw: where the launch block goes
+KD_H_LBSZ   equ 6               ; dw: ...and how many bytes of it there are
+KDL_SIZE    equ 512             ; ...which is one sector
+KDL_DPT     equ 16              ; db[11] in the block: the DISKETTE PARAMETER
+KDL_DPT_LEN equ 11              ; TABLE, the one field the box cannot fill.
+                                ; `hbm_dosrun` patches it into the STAGED copy
+                                ; out of `dsk_dpt` - see kerndos/kdlaunch.inc
+%if KDL_DPT_LEN != DPT_LEN
+  %error "hiber: the launch block's DPT field is not a diskette parameter table"
+%endif
+
+; --- the record a package posts (SPEC.md 96.40) -----------------------------
+; MIRRORED in apps/os88api.inc, and t_mirror is the guard.
+KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_VOL     equ 4               ; db the volume DOS.O88 is on
+KDH_PAD     equ 5               ; db 0
+KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
+KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
+KDH_POFF    equ 21              ; dw the part's first file SECTOR
+KDH_PLEN    equ 23              ; dd its packed bytes
+KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
+KDH_LB      equ 31              ; db[512] the launch block, verbatim
+KDH_SIZE    equ 543
+KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
 %if HS_EXT + HS_XMAX*HS_XSTRIDE > HS_STACK - 512
   %error "hiber: the extent list would run into the stub's stack"
 %endif
@@ -140,6 +184,13 @@ hb_heads:   resw 1              ;   and are staged as one block copy
 hb_nx:      resw 1              ; ...how many extents the walk found
 hb_base:    resd 1
 hb_xseg:    resw 1              ; the extent list's claim, 0 = none
+; --- THE DOS HANDOFF's POSTED RECORD (SPEC.md 96.40) ------------------------
+; A FAR POINTER and not a copy, which is osapi_pkg_rehome's economy: the
+; package's region is alive until drv_shutdown, so the four bytes that say
+; where its KDH_* record lies are all the kernel has to keep resident. A copy
+; would be 543 bytes of every machine's RAM for a feature most never use.
+hb_dosoff:  resw 1              ; the record, in the POSTER's segment
+hb_dosseg:  resw 1              ; 0 = nothing posted
                                 ; ...and NO staging cells: the kernel already
                                 ; has both singletons this module wanted, and
                                 ; hbm_btn satisfies the invariant that makes
@@ -208,6 +259,39 @@ hb_probe_x:
 ; out: CF = 0 and AL = its index; CF = 1 no such volume
 ; clobbers: AX (the output), flags
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; osapi_dos_handoff_x - the DOS box asks for the machine (SPEC.md 96.40)
+; in:  ES:SI = a KDH_* record in the CALLER's segment
+; out: CF=0 posted, CF=1 refused
+;
+; **IT ONLY RECORDS**, which is osapi_pkg_rehome's shape and
+; osapi_mem_compact_wake's: what it asks for detaches every driver and takes
+; the screen, and a package's callback is the one place that may not happen -
+; the caller is executing in a region the teardown is about to stop caring
+; about, with the gfx lock held. ui_task's step 0 spends it with nothing held.
+;
+; The record is read WHERE IT LIES rather than copied, so it must be in the
+; package's image or bss and not on a stack: the four bytes here are the whole
+; resident cost of the feature.
+osapi_dos_handoff_x:
+    push ax
+    cmp word [hb_dosseg], 0     ; one at a time: a second post before the first
+    jne .no                     ; is spent would be two machines' worth of
+    mov ax, es                  ; parameters and one teardown
+    or ax, ax
+    jz .no
+    mov [hb_dosseg], ax
+    mov [hb_dosoff], si
+    mov byte [ui_rebootq], UI_RBQ_DOSRUN
+    mov byte [sch_uiwake], 1    ; ui_task blocks (SPEC.md 8.1.2), so the post
+    pop ax                      ; has to wake it or the handoff waits for
+    clc                         ; whatever else happens to
+    retf
+.no:
+    pop ax
+    stc
+    retf
+
 hb_pick_x:
     push bx
     push cx
@@ -1194,6 +1278,8 @@ hbm_perform:
     je hbm_hib
     cmp al, UI_RBQ_RESUME
     je hbm_res
+    cmp al, UI_RBQ_DOSRUN
+    je hbm_dosrun
     jmp hbm_ask
 
 ; --- hbm_hib: write the image and stop (SPEC.md 87.4) ------------------------
@@ -1559,6 +1645,408 @@ hbm_res:
     rep movsw
     pop ds
     ; 5. the ROM's int 08h back, the kernel's IRQs masked, and go ----------
+    jmp hbm_handover            ; **A JUMP AND NOT A CALL**: what ends that
+                                ; routine is a `retf` that is a FAR JUMP INTO
+                                ; THE STUB spelled as a return (SPEC.md 87.5),
+                                ; so os88ovlchk's 2.6.1 rule reads a near call
+                                ; to it as a far entry called wrongly - and it
+                                ; is right that nothing returns here
+
+.failx:
+    mov dx, [hb_xseg]
+    mov bx, MEM_K_HIB
+    mov bp, mem_free_x
+    call COLD_SEG:hbk_bp
+    mov word [hb_xseg], 0
+.fail:
+    call COLD_SEG:drvf_drv_vol_back
+    mov byte [hb_mode], HB_M_RESUME
+    mov si, hbm_s_lost
+    call hbm_toast
+    call hbm_winback
+    mov sp, [hb_sp]
+    ret
+
+; =============================================================================
+; THE DOS HANDOFF (SPEC.md 96.40, docs/plans/KERN-DOS-PLAN.md §7)
+; =============================================================================
+; The DOS box has asked for the WHOLE machine. What follows is §87.5's resume
+; with a different payload and a different stub - the same extent walk, the
+; same staging area, the same teardown in the same order - and it is here
+; rather than in a module of its own for exactly that reason: one walker, one
+; staging layout, one place where the kernel stops being the kernel.
+;
+; WHAT IS DIFFERENT is the thing being read. A resume reads an IMAGE that is
+; the whole of memory; this reads a PART of a package - a byte range of
+; DOS.O88 - and the range is compressed, so the stub expands it. The walk
+; therefore takes a SKIP and a COUNT where the resume's takes neither.
+;
+; It does not come back. The machine it hands over has no kernel in it.
+; -----------------------------------------------------------------------------
+hbm_dosrun:
+    ; --- 1. the record, where the poster left it (SPEC.md 96.40) -----------
+    ; It is copied into the MODULE's own data and every read of it carries a
+    ; `cs:`, because DS here is KERNEL_SEG - the module runs with the kernel's
+    ; data segment and its own code segment, which is what the rest of this
+    ; file assumes and what makes [hb_dosseg] readable without an override.
+    push ds
+    push es
+    mov si, [hb_dosoff]         ; **THE OFFSET BEFORE THE SEGMENT.** Both words
+                                ; are KERNEL_SEG's, and the line below is what
+                                ; stops DS being it - so loading DS first makes
+                                ; the second read come out of the POSTER's own
+                                ; image at that offset. It assembles, it runs,
+                                ; and it copies 543 bytes of somebody else's
+                                ; bss over the record
+    mov ds, [hb_dosseg]
+    push cs
+    pop es
+    mov di, hbm_dosrec
+    mov cx, KDH_SIZE
+    rep movsb
+    pop es
+    pop ds
+    cmp word [cs:hbm_dosrec + KDH_MAGIC], KDH_SIG & 0xFFFF
+    jne .b1
+    cmp word [cs:hbm_dosrec + KDH_MAGIC + 2], KDH_SIG >> 16
+    jne .b1
+    mov word [hb_dosseg], 0     ; the post is spent, whatever happens next
+
+    ; --- 2. stand where DOS.O88 is, and find it -----------------------------
+    call COLD_SEG:drvf_drv_vol_bank     ; hbm_enter's first half: bank where
+    mov ax, [cs:hbm_dosrec + KDH_DIR]   ; the user stands, then stand where
+    mov dl, [cs:hbm_dosrec + KDH_VOL]   ; DOS.O88 is - a FOLDER cluster, not
+    mov bp, dsk_chdir_x                 ; hbm_root's zero, because a package
+    call COLD_SEG:hbk_bp                ; lives in APPS/ and not in the root
+    jc .b2
+    ; **THE NAME HAS TO BE IN KERNEL_SEG**, which is not what ES says: the
+    ; compare underneath is `dsk_streq`, and that reads DS:SI against DS:DI
+    ; (kernel/disk.inc) - so a name in the module's own image is read at that
+    ; offset in the KERNEL's segment and matches nothing. `api_name` is the
+    ; kernel's own 13-byte stage for exactly this question, it is exactly
+    ; KDH_NAME's length, and it is free here: it is what the N cells copy a
+    ; package's name into, and nothing is inside a package call at ui_task's
+    ; step 0. Zero resident bytes for the buffer, thirteen for the copy.
+    mov si, hbm_dosrec + KDH_NAME
+    mov di, api_name
+    mov cx, 13
+.nm:
+    mov al, [cs:si]             ; ...and BYTE BY BYTE, not `movsb`: a module's
+    mov [di], al                ; own data is CS-relative (SPEC.md 2.8.6) and
+    inc si                      ; a repeated string op with a segment override
+    inc di                      ; loses the prefix to an interrupt on an 8086
+    loop .nm
+    mov si, api_name
+    mov bp, dsk_find_name_x
+    call COLD_SEG:hbk_bp                ; AX = the index
+    jc .b3
+    mov bp, dsk_get_dir_x       ; SI -> the staged entry (SPEC.md 19.1): the
+    call COLD_SEG:hbk_bp        ; first cluster is at 18 and NOT at the FAT
+    mov ax, [si + 18]           ; record's own 26 (SPEC.md 96.37.1 item 4)
+    mov [cs:hbm_dosclus], ax
+
+    ; --- 3. the transport facts, and the extents ----------------------------
+    mov al, [cs:hbm_dosrec + KDH_VOL]
+    call hbm_geomd              ; hb_unit / hb_spt / hb_heads / hb_base
+    jc .b4
+    call hbm_xcap               ; a claim big enough for the worst case
+    mov bx, MEM_K_HIB
+    mov bp, mem_claim_x
+    call COLD_SEG:hbk_bp        ; DX = its segment
+    jc .b5
+    mov [hb_xseg], dx
+    mov ax, [cs:hbm_dosrec + KDH_PLEN]  ; the PACKED bytes, as sectors: what
+    add ax, 511                         ; the stub reads is the stream and not
+    mov cl, 9                           ; what it expands to
+    shr ax, cl
+    mov bx, ax                          ; BX = sectors to take
+    mov cx, [cs:hbm_dosrec + KDH_POFF]  ; CX = sectors to skip
+    mov ax, [cs:hbm_dosclus]
+    call hbm_extat
+    jc .b6
+
+    ; --- 4. the panel, the drivers, the lock, text mode - 87.5 step 3's order
+    call COLD_SEG:cpf_cp_flush_close
+    call COLD_SEG:drv_shutdown_x
+    call KERNEL_SEG:cw_gfx_lock
+    mov bp, vid_reboot
+    call KERNEL_SEG:cw_mem_disp
+
+    ; --- 5. the staging area ------------------------------------------------
+    call hbm_stageseg           ; ES = the text framebuffer
+    push ds
+    push cs
+    pop ds                      ; ...and DS the module, for the three copies
+    mov si, kds_stub            ; that come out of it
+    mov di, HS_CODE
+    mov cx, kds_stub_end - kds_stub
+    rep movsb
+    mov si, hbm_dosrec + KDH_PLEN   ; the two lengths, as they lie
+    mov di, KDS_PLEN
+    mov cx, 4
+    rep movsw
+    mov si, hbm_dosrec + KDH_LB     ; ...and the launch block, verbatim
+    mov di, KDS_LB
+    mov cx, KDL_SIZE / 2
+    rep movsw
+    pop ds
+    mov si, dsk_dpt             ; **THE DISKETTE PARAMETER TABLE IS OURS AND NOT
+    mov di, KDS_LB + KDL_DPT    ; THE BOX'S**, so the block is patched here
+    mov cx, DPT_LEN             ; rather than gathered there: `int 1Eh` names
+    rep movsb                   ; KERNEL_SEG:dsk_dpt and kern_dos lands on that
+                                ; same segment with its own table at a
+                                ; different offset, so without these eleven
+                                ; bytes the ROM reads kern_dos's code as an
+                                ; EOT and a gap length (SPEC.md 18.92, 96.40.1)
+    mov si, hb_unit             ; unit, spt, heads, extents - the stub's order,
+    mov di, HS_UNIT             ; and these four are the KERNEL's
+    mov cx, 4
+    rep movsw
+    mov word [es:KDS_TSEG], KDS_TMPSEG  ; where the PACKED stream lands: above
+                                        ; the image it expands to, so the two
+                                        ; never meet
+    push ds
+    mov ds, [hb_xseg]           ; the extents
+    xor si, si
+    mov di, HS_EXT
+    mov cx, [es:HS_NX]
+    mov ax, cx
+    shl cx, 1
+    add cx, ax                  ; words: 3 per extent
+    rep movsw
+    pop ds
+
+    ; --- 6. the VECTORS the ROM is about to need (SPEC.md 96.40.2) ----------
+    ; `sched_unhook` is exactly this and cannot be called: it falls into
+    ; SPEC.md 18.100's park and the `int 19h` at its tail, so what is wanted is
+    ; its BODY and there is no entry for one. Two shim calls and five
+    ; instructions is cheaper than factoring it, and every byte here is the
+    ; module's rather than the kernel's.
+    ;
+    ; **INT 09h IS THE ONE THAT MATTERS.** `mouse_init` hooks it for keypad 5
+    ; and `hbm_handover` below UNMASKS IRQ1 on the way out, so a key pressed
+    ; any time after the handover vectors into kern_dos's image at `kbm_isr`'s
+    ; KERNEL offset - which is SPEC.md 9.6.5's hard freeze one segment along,
+    ; and `kd_leave` ends on `int 16h`.
+    mov bp, mouse_unhook
+    call KERNEL_SEG:cw_mem_disp ; int 09h, int 0Ch/0Bh, int 74h, the UARTs
+    mov bp, snd_unhook
+    call KERNEL_SEG:cw_mem_disp ; 61h bits 0-1 back to their boot state
+
+    ; ...and the PIT, whose divisor is the kernel's fast one (SPEC.md 8.1).
+    ; The ROM counts a tick per IRQ0 whatever the rate, so a machine handed
+    ; over fast keeps a clock that gains. IF stays 0 from here: `hbm_handover`
+    ; opens with `cli` anyway, and closing the window costs nothing.
+    cli
+    mov al, 0x36
+    out 0x43, al
+    xor al, al
+    out 0x40, al
+    out 0x40, al
+
+    ; --- 7. the ROM's int 08h back, the kernel's IRQs masked, and go --------
+    jmp hbm_handover            ; 87.5 step 5, factored. A JUMP for the reason
+                                ; hbm_res's is one: nothing returns from it
+; **A REFUSAL SAYS WHICH STEP, and that is not only for the bring-up.** Six
+; things can go wrong before the machine is torn down and they are six
+; different repairs: a stale record, a folder that has moved, a DOS.O88 that
+; is not there, a volume int 13h cannot reach, no heap for the extent list,
+; and a part too fragmented to hand over. `kern_dos could not be reached` is
+; true of all six and useful for none, and these strings are MODULE bytes -
+; the machine pays nothing for them until it asks.
+.b1:
+    mov si, hbm_s_d1
+    jmp short .bad
+.b2:
+    mov si, hbm_s_d2
+    jmp short .bad
+.b3:
+    mov si, hbm_s_d3
+    jmp short .bad
+.b4:
+    mov si, hbm_s_d4
+    jmp short .bad
+.b5:
+    mov si, hbm_s_d5
+    jmp short .bad
+.b6:
+    mov si, hbm_s_d6
+.bad:
+    mov word [hb_dosseg], 0
+    call hbm_toast
+    mov sp, [hb_sp]
+    ret
+
+; -----------------------------------------------------------------------------
+; hbm_geomd - the transport facts for a volume kern_dos will be read OFF
+; in:  AL = the volume index; that volume is the one standing
+; out: as hbm_geom
+;
+; **A FLOPPY IS THE CASE hbm_geom REFUSES, AND IT IS THIS ONE'S ORDINARY CASE.**
+; Hibernate writes an image and can only write it to a fixed disk, so its
+; `test dl, 0x80 / jz .no` is right for it; the DOS handoff READS a part of a
+; package, and on the machine docs/plans/KERN-DOS-PLAN.md §9 is about - no hard
+; disk, so the program runs and the machine reboots - that package is on a
+; floppy by definition.
+;
+; The facts for one are simpler rather than different: the unit is the row's,
+; there is no partition so the base is zero, and the geometry is the MOUNTED
+; volume's, which is this one because the caller has just stood on it.
+; -----------------------------------------------------------------------------
+hbm_geomd:
+    call hbm_geom
+    jnc .out                    ; a fixed disk: hibernate's own answer
+    push ax
+    push bx
+    push dx
+    mov bl, al
+    call COLD_SEG:dskf_dsk_vol_row  ; BX = the row
+    jc .no
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .no                     ; a DRIVER volume that refused really is one
+    mov dl, [bx+DV_UNIT]        ; this machine cannot read without its driver
+    test dl, 0x80
+    jnz .no                     ; ...and a fixed disk that got here failed
+    xor dh, dh                  ; hbm_geom's own range check, not its class one
+    mov [hb_unit], dx
+    mov word [hb_base], 0       ; a floppy has no partition to be offset into
+    mov word [hb_base + 2], 0
+    mov dx, [disk_spt]          ; the MOUNTED volume's, which is this one
+    mov [hb_spt], dx
+    mov dx, [disk_heads]
+    mov [hb_heads], dx
+    mov ax, [hb_spt]            ; hbm_geom's range check, repeated rather than
+    dec ax                      ; shared: 1..63 and 1..255 as one unsigned
+    cmp ax, 62                  ; window each, so a zero wraps and is refused
+    ja .no
+    mov ax, [hb_heads]
+    dec ax
+    cmp ax, 254
+    ja .no
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+    pop ax
+    stc
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; hbm_extat - a chain's sectors as extents, with a SKIP and a COUNT
+; in:  AX = the first cluster, CX = sectors to skip, BX = sectors to take;
+;      [hb_xseg] = where to build
+; out: CF=0 and [hb_nx] runs of {dd lba, dw count}; CF=1 the chain ran out
+;
+; hbm_extents is this with CX = 0 and BX from [mem_top]. THE SKIP IS THE WHOLE
+; DIFFERENCE and it is why a part can be handed over at all: the part is a byte
+; range of a file (docs/plans/KERN-DOS-PLAN.md §4.1.1), so the walk has to
+; arrive at file sector N without reading anything, and N is not a cluster
+; boundary. Sector N is the (N mod spc)'th of the (N div spc)'th cluster, which
+; is the one place an off-by-one lands in the MIDDLE of the image rather than
+; at its edge - tests/kdpart.py does the same arithmetic on the host.
+; -----------------------------------------------------------------------------
+hbm_extat:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, [hb_xseg]
+    xor di, di
+    mov word [hb_nx], 0
+    mov si, ax                  ; SI = the cluster in hand
+    mov [cs:hbm_xskip], cx
+    mov [cs:hbm_xtake], bx
+.clus:
+    mov al, [dsk_spc]
+    xor ah, ah
+    mov dx, ax                  ; DX = this cluster's sectors
+    cmp [cs:hbm_xskip], dx
+    jb .here                    ; the part starts inside this cluster
+    sub [cs:hbm_xskip], dx      ; ...or past it: step over, reading nothing
+    jmp short .next
+.here:
+    mov ax, si
+    mov bp, dsk_clus2lba_x
+    call COLD_SEG:hbk_bp        ; AX = its first LBA, volume-relative
+    jc .bad
+    add ax, [cs:hbm_xskip]      ; ...plus however far in the part starts
+    sub dx, [cs:hbm_xskip]      ; DX = sectors of this cluster we want
+    mov word [cs:hbm_xskip], 0
+    xor bx, bx
+    add ax, [hb_base]           ; DX:AX would be the absolute LBA, and the
+    adc bx, [hb_base + 2]       ; high half is BX because DX is in use
+    cmp dx, [cs:hbm_xtake]
+    jbe .whole
+    mov dx, [cs:hbm_xtake]      ; ...capped at what is left to take
+.whole:
+    cmp word [hb_nx], 0
+    je .new
+    cmp ax, [cs:hbm_nextlo]     ; does this cluster follow the run in hand?
+    jne .new
+    cmp bx, [cs:hbm_nexthi]
+    jne .new
+    add [es:di-2], dx           ; contiguous: the run grows
+    jmp short .grown
+.new:
+    cmp di, [cs:hbm_xlim]
+    jae .bad                    ; more runs than the staging area holds
+    mov [es:di], ax
+    mov [es:di+2], bx
+    mov [es:di+4], dx
+    add di, HS_XSTRIDE
+    inc word [hb_nx]
+.grown:
+    add ax, dx
+    adc bx, 0
+    mov [cs:hbm_nextlo], ax
+    mov [cs:hbm_nexthi], bx
+    sub [cs:hbm_xtake], dx
+    jz .done
+.next:
+    mov ax, si
+    mov bp, dsk_next_clus_x
+    call COLD_SEG:hbk_bp        ; AX = the next cluster; CF = outside the
+    jc .bad                     ; volume's [2, dsk_maxclus]
+    mov si, ax
+    jmp .clus                   ; near: hbk_bp made the walk longer
+.done:
+    clc
+    jmp short .out
+.bad:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+hbm_xskip:  dw 0                ; sectors still to step over
+hbm_xtake:  dw 0                ; -----------------------------------------------------------------------------
+; hbm_handover - SPEC.md 87.5 step 5, and it does not come back
+; in:  ES = the staging segment, the stub already copied to HS_CODE
+;
+; FACTORED because the DOS handoff (96.40) ends exactly here too: the same
+; vector, the same three masks, the same far jump spelled as a return. What
+; differs between a resume and a handoff is the payload, not the way out.
+;
+; **IT IS JUMPED TO AND NEVER CALLED.** The `retf` at the foot of it is the
+; jump into the stub, not a return, so a near `call` here would read to
+; os88ovlchk as 2.6.1's defect - and the reading would be fair: there is
+; nothing for a return address to return to.
+; -----------------------------------------------------------------------------
+hbm_handover:
     cli
     push es
     xor ax, ax
@@ -1585,20 +2073,8 @@ hbm_res:
     mov ax, HS_CODE
     push ax
     retf                        ; into the stub, IF = 0
-.failx:
-    mov dx, [hb_xseg]
-    mov bx, MEM_K_HIB
-    mov bp, mem_free_x
-    call COLD_SEG:hbk_bp
-    mov word [hb_xseg], 0
-.fail:
-    call COLD_SEG:drvf_drv_vol_back
-    mov byte [hb_mode], HB_M_RESUME
-    mov si, hbm_s_lost
-    call hbm_toast
-    call hbm_winback
-    mov sp, [hb_sp]
-    ret
+
+; ...and still to place
 
 ; hbm_stageseg - out: ES = the text framebuffer the stub will run in
 hbm_stageseg:
@@ -1822,6 +2298,284 @@ hbm_wake:
 ; entered by a far jump with IF = 0. Position-independent: every jump is
 ; relative and every datum is at a numeric HS_* offset in its own segment.
 ; =============================================================================
+; =============================================================================
+; kds_stub - THE DOS HANDOFF'S STUB (SPEC.md 96.40.1)
+; =============================================================================
+; It runs with CS, DS and SS in the text framebuffer, on a machine with no
+; kernel in it, and does three things: read the part's sectors, expand them
+; into `kern_dos`'s segment, and jump.
+;
+; **IT IS hbs_stub WITH THE HARD PART TAKEN OUT.** A resume reads an image to
+; its own linear address and has to put the IVT back LAST, under `cli`, after
+; the final `int 13h` - which is the whole of that stub's awkwardness. This
+; reads to KD_SEG, which is 0x0060: above the IVT and above the BDA, so
+; nothing it writes is anything the ROM is still using and there is no
+; special case at all.
+;
+; What it has that the other does not is a DECODER. The part is `OP_COMP`
+; because the 360KB system disk cannot afford it raw
+; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md), and the packed stream is
+; read to KDS_TMPSEG - a segment ABOVE the image it expands to, so the two
+; never meet and the in-place rules of SPEC.md 20.13.7 do not have to be
+; reasoned about at all.
+; -----------------------------------------------------------------------------
+kds_stub:
+    mov ax, cs
+    mov ds, ax
+    mov ss, ax
+    mov sp, HS_STACK
+    cld
+    ; --- 1. the packed stream, one run per int 13h --------------------------
+    mov word [HS_K], 0
+    mov si, HS_EXT
+    mov cx, [HS_NX]
+.extent:
+    or cx, cx
+    jz .expand
+    push cx
+    mov ax, [si]
+    mov [HS_LBA], ax
+    mov ax, [si+2]
+    mov [HS_LBA+2], ax
+    mov ax, [si+4]
+    mov [HS_LEFT], ax
+.run:
+    cmp word [HS_LEFT], 0
+    je .nextext
+    ; --- CHS of [HS_LBA], hd_chs's one div pair, and the track's remainder --
+    mov ax, [HS_LBA+2]
+    xor dx, dx
+    div word [HS_SPT]
+    mov bx, ax
+    mov ax, [HS_LBA]
+    div word [HS_SPT]           ; DX = sector - 1
+    mov cx, [HS_SPT]
+    sub cx, dx                  ; CX = sectors to the end of the track
+    mov [HS_N], cx
+    inc dx
+    push dx
+    mov dx, bx
+    div word [HS_HEADS]         ; AX = cylinder, DX = head
+    pop bx                      ; BL = the sector
+    mov dh, dl
+    mov dl, [HS_UNIT]
+    mov ch, al
+    mov cl, ah
+    ror cl, 1
+    ror cl, 1
+    and cl, 0xC0
+    or cl, bl
+    mov [HS_CHS], cx
+    mov [HS_CHS+2], dx
+    ; --- the run: to the track's end, the extent's end, the DMA page --------
+    mov cx, [HS_N]
+    cmp cx, [HS_LEFT]
+    jbe .cap1
+    mov cx, [HS_LEFT]
+.cap1:
+    mov bx, [HS_K]
+    push cx
+    mov cl, 5
+    shl bx, cl                  ; the destination, k * 32 paragraphs...
+    add bx, [KDS_TSEG]          ; ...above the packed stream's base
+    mov ax, bx
+    and ax, 0x0FFF
+    neg ax
+    add ax, 0x1000              ; paragraphs to the 64KB page's end...
+    shr ax, cl                  ; ...in sectors
+    pop cx
+    cmp cx, ax
+    jbe .go
+    mov cx, ax
+.go:
+    mov [HS_N], cx
+    mov es, bx
+    xor bx, bx
+    mov di, 3                   ; tries
+.try:
+    mov ax, [HS_N]
+    mov ah, 0x02
+    mov cx, [HS_CHS]
+    mov dx, [HS_CHS+2]
+    sti                         ; the ROM wants its interrupts on an AT
+    int 0x13
+    jnc .ok
+    xor ah, ah
+    mov dl, [HS_UNIT]
+    int 0x13                    ; reset, and again
+    dec di
+    jnz .try
+    jmp .fail
+.ok:
+    mov ax, [HS_N]
+    add [HS_K], ax
+    add [HS_LBA], ax
+    adc word [HS_LBA+2], 0
+    sub [HS_LEFT], ax
+    jmp .run
+.nextext:
+    add si, HS_XSTRIDE
+    pop cx
+    dec cx
+    jmp .extent
+
+    ; --- 2. expand it into kern_dos's own segment ---------------------------
+.expand:
+    cli
+    mov al, [HS_MASKM]          ; the PIC masks go back BEFORE the expansion:
+    out 0x21, al                ; it is the longest thing this stub does and a
+    cmp byte [HS_SLAVE], 0      ; machine with the timer masted through it
+    je .noslave                 ; would lose ticks the ROM counts
+    mov al, [HS_MASKS]
+    out 0xA1, al
+.noslave:
+    sti
+    mov ax, KD_SEG
+    mov es, ax
+    mov cx, [KDS_PLEN]          ; ONE BLOCK, because os88pkg.py caps a part at
+    push ds                     ; 64KB and this one is 46KB (SPEC.md 20.12)
+    mov ds, [cs:KDS_TSEG]
+    xor si, si
+    call kds_expand             ; DS:SI -> ES:0, CX packed bytes
+    pop ds
+
+    ; --- 3. the launch block, into the image that just arrived --------------
+    ; kern_dos's first eight bytes are a fixed header (kerndos/kdlayout.inc):
+    ; a near jump and a word saying where the block goes. The stub has no
+    ; symbol table, which is why that word is there.
+    mov ax, KD_SEG
+    mov es, ax
+    mov di, [es:KD_H_LBP]
+    mov cx, [es:KD_H_LBSZ]
+    shr cx, 1
+    mov si, KDS_LB
+    push ds
+    push cs
+    pop ds
+    rep movsw
+    pop ds
+    jmp KD_SEG:0x0000           ; ...and away. Its header jumps to the entry
+
+.fail:
+    mov ah, 0x02                ; the cursor to row 8 first, hbs_stub's reason:
+    xor bh, bh                  ; rows 0-2 of this page ARE the stub
+    mov dx, 0x0800
+    int 0x10
+    mov si, kds_s_fail - kds_stub
+.ch:
+    mov al, [si]
+    or al, al
+    jz .key
+    mov ah, 0x0E
+    mov bx, 0x0007
+    int 0x10
+    inc si
+    jmp short .ch
+.key:
+    xor ah, ah
+    int 0x16
+    int 0x19
+    jmp $
+
+; --- kds_expand: one LZ4 stream, kernel/lz.inc's lz_lz4 with no bounds -------
+; in:  DS:SI = the stream, T WORD FIRST; ES = where it expands to, DI free;
+;      CX = the stream's PACKED bytes
+;
+; **THE STREAM IS NOT A CLASSIC LZ4 BLOCK AND THIS IS THE THIRD READER OF THE
+; ONE THAT SHIPS** (SPEC.md 20.13.7): a T word, then the symbols cut at the
+; first peak of (produced - consumed), then T bytes of RAW TAIL that go across
+; as they are. `os88lz.py` writes it, `kernel/lz.inc` reads it, and this reads
+; it again because the kernel is gone by the time this runs. A classic decoder
+; on one of these streams does not fail - it reads the T word AS A TOKEN, and
+; `05 00` is "copy nine bytes from 0xFC00 back", so the image lands NINE BYTES
+; along with the header still holding whatever was there before. That is what
+; it did, and the machine jumped into it.
+;
+; UNBOUNDED, for kz_expand's reason one file along: what it produces is the
+; thing that is about to be jumped into, and a bound cannot make a wrong
+; expansion safe. What can is that tests/kdpart.py has already checked, on the
+; host, that these exact sectors expand to these exact bytes.
+;
+; The two bounds live in the STAGE's own scratch rather than in registers -
+; `HS_LBA` and `HS_LEFT` are the disk walk's and it has finished - and they are
+; read through `cs:` because the match copy below owns DS.
+kds_expand:
+    xor di, di
+    add cx, si                  ; the stream's end...
+    mov ax, [si]
+    add si, 2                   ; ...past the T word
+    sub cx, ax                  ; ...and so where the raw tail begins: the ONLY
+    mov [cs:HS_LBA], cx         ; source bound the loop tests
+    mov [cs:HS_LEFT], ax        ; ...and how much of it there is
+.seq:
+    cmp si, [cs:HS_LBA]
+    jae .tail
+    mov al, [si]                ; the token: literal length in the high nibble,
+    inc si                      ; match length - 4 in the low one.
+    mov bl, al                  ; **THE STRING FORM IS REFUSED IN A MODULE
+                                ; IMAGE** (SPEC.md 2.8.6): a module's own data
+                                ; is CS-relative and os88ovlchk cannot see that
+                                ; this body is COPIED OUT of the module before
+                                ; it runs. Two bytes a site, and hbs_stub reads
+                                ; its own string the same way
+    mov cl, 4
+    shr al, cl
+    xor ah, ah
+    mov cx, ax
+    cmp al, 15
+    jne .lits
+.lx:
+    mov al, [si]
+    inc si
+    xor ah, ah
+    add cx, ax
+    cmp al, 255
+    je .lx
+.lits:
+    rep movsb                   ; CX = 0 is legal and moves nothing
+    cmp si, [cs:HS_LBA]
+    jae .tail                   ; the symbols never end on a literal run in
+                                ; this format - the tail is what ends it
+    mov ax, [si]                ; the match offset
+    add si, 2
+    mov bp, ax
+    mov al, bl
+    and al, 0x0F
+    xor ah, ah
+    mov cx, ax
+    cmp al, 15
+    jne .mat
+.mx:
+    mov al, [si]
+    inc si
+    xor ah, ah
+    add cx, ax
+    cmp al, 255
+    je .mx
+.mat:
+    add cx, 4                   ; the minimum match, which the token omits
+    push ds
+    push si
+    mov si, di
+    sub si, bp
+    push es
+    pop ds                      ; a match reads what we have already written
+    rep movsb
+    pop si
+    pop ds
+    jmp short .seq
+.tail:
+    mov cx, [cs:HS_LEFT]        ; SI is standing on it
+    rep movsb
+    ret
+
+kds_s_fail: db 13, 10, 'kern_dos could not be read off the disk.', 13, 10
+            db 'Press any key to restart.', 13, 10, 0
+kds_stub_end:
+%if kds_stub_end - kds_stub > HS_CODE_MAX
+  %error "hiber: the DOS handoff stub is bigger than its staging slot"
+%endif
+
 hbs_stub:
     mov ax, cs
     mov ds, ax
@@ -1996,6 +2750,19 @@ hbs_stub_end:
 ; The image's own data (SPEC.md 2.8.6): strings read through CS, and the
 ; pointer's buffer, which dskw_write and dskw_read reach as ES:BX.
 ; =============================================================================
+; --- the DOS handoff's record, copied out of the poster's segment ------------
+; MODULE DATA and not kernel bss: 543 bytes that only exist while the module
+; is resident, which is the whole economy of osapi_dos_handoff_x keeping a far
+; POINTER (SPEC.md 96.40).
+hbm_dosrec:     times KDH_SIZE db 0
+hbm_dosclus:    dw 0            ; DOS.O88's first cluster, across hbm_geom
+hbm_s_d1:       db 'The handoff record is not one of ours', 0
+hbm_s_d2:       db 'The folder DOS.O88 was in has moved', 0
+hbm_s_d3:       db 'DOS.O88 is not on that disk any more', 0
+hbm_s_d4:       db 'That disk is not one the ROM can read', 0
+hbm_s_d5:       db 'No room to list where kern_dos is', 0
+hbm_s_d6:       db 'kern_dos is too scattered to hand over', 0
+
 hbm_ptrfix:     db 'HIB1'      ; the pointer's fixed head, described ONCE
                 dw BUILD_NUM
                 dw MOD_STAMP

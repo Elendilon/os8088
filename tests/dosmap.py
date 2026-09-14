@@ -90,7 +90,8 @@ def package(*defines):
     """
     return _map(os.path.join(ROOT, "apps", "dos", "dos.asm"), defines,
                 ("apps", os.path.join("apps", "dos"),
-                 os.path.join("drivers", "net")))
+                 os.path.join("drivers", "net"),
+                 "kerndos"))          # -DDOSKPART's launch block (96.40)
 
 
 def rect(m, pseg, dm, name):

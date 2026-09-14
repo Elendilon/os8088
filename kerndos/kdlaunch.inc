@@ -27,7 +27,7 @@
 ; =============================================================================
 
 KDL_MAGIC   equ 0               ; dd 'KDL1'
-KDL_VER     equ 4               ; dw  1 - bumped when a ROW MOVES, not when
+KDL_VER     equ 4               ; dw  KDL_VER_NOW - bumped when a ROW MOVES, not
                                 ;     one is added at the end
 KDL_FLAGS   equ 6               ; dw  KDLF_*
 KDL_TLEN    equ 8               ; dw  the payload's bytes, as the SENDER
@@ -38,17 +38,41 @@ KDL_CAP     equ 10              ; dw  KB the machine has (the BDA's, banked by
                                 ;     one place a cap can be imposed)
 KDL_UNIT    equ 12              ; dw  the int 13h unit the program's volume is
 KDL_RSVD    equ 14              ; dw  0
+KDL_DPT     equ 16              ; db[11] THE DISKETTE PARAMETER TABLE, and it
+KDL_DPT_LEN equ 11              ;     is the KERNEL's rather than the box's -
+                                ;     the one field below that no package can
+                                ;     fill, so `hbm_dosrun` patches it into the
+                                ;     STAGED copy after the box has gathered
+                                ;     the rest. SPEC.md 18.92: `int 1Eh` is a
+                                ;     POINTER the BIOS re-reads on every floppy
+                                ;     operation, os8088 points it at its own
+                                ;     patched copy at boot, and `kern_dos`
+                                ;     lands on the same segment with that copy
+                                ;     at a DIFFERENT offset - so a handover
+                                ;     that does not carry these eleven bytes
+                                ;     leaves the ROM reading whatever kern_dos
+                                ;     happens to have there. It reads as "the
+                                ;     disk could not be mounted", which is a
+                                ;     true sentence about the wrong thing.
+                                ;     ZERO = leave the vector alone, which is
+                                ;     the W4 gate's case: it boots through a
+                                ;     loader that never touched it
 ; **THESE TWO ARE `%assign` AND THE REST ARE `equ`**, which is not a style
 ; slip: the fit assert below runs at PREPROCESSOR time and `%if` cannot see an
 ; assembler symbol. A `%assign` reads the same everywhere an `equ` does and
 ; loses only its line in the map file.
-%assign KDL_BODY 16             ; ...and the gathered fields from here
+%assign KDL_BODY 28             ; ...and the gathered fields from here
 %assign KDL_SIZE 512            ; one sector, which is what the stub moves and
                                 ; what `kern_dos` reserves in its own image.
                                 ; The payload is 377 bytes today; the assert
                                 ; each side writes is what keeps it true
 
 KDL_SIG     equ 0x314C444B      ; 'KDL1', little-endian
+KDL_VER_NOW equ 2               ; what this tree writes and checks. It is a
+                                ; CONSTANT and not a literal at three sites,
+                                ; because a version that has to be bumped in
+                                ; three files is a version that gets bumped in
+                                ; two. 1 -> 2 is KDL_DPT moving the body
 
 KDLF_REBOOT equ 1               ; bit 0: `int 19h` when the program exits.
                                 ; docs/plans/KERN-DOS-PLAN.md §9 - there is no

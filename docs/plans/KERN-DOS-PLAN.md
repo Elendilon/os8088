@@ -657,7 +657,7 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 | **W2** | **DONE, and the seam held with three breaches to fix** (§3, SPEC.md 96.4.2). Two new doors, +24 package bytes and no kernel byte; `tests/unit/t_dosseam.py` is the gate and walks the CALL GRAPH. | `soak -k dosseam` — **soak and not the fast this row first said**, by docs/WRITING-TESTS.md §2.1 rule 1 |
 | **W3** | **DONE, and the reuse pays by a factor of 130** (SPEC.md 96.37). The shim is **92 bytes** against 11,935 of kernel disk code; `kerndos/kerndos.asm` mounts a FAT12 floppy and reads a file with no scheduler, no window manager and no API table under it. | `soak -k kerndos`, checked against `os88fat.py` |
 | **W4** | **DONE, and the core needed no splitting** (SPEC.md 96.38). `kerndos/kdos.asm` is W3's root plus `apps/dos/dos.asm` **whole and unedited** plus `kerndos/kdback.inc`'s twenty-two doors; `KDHELLO.COM` reads **500 KB above its own PSP** against the windowed box's 449, and exits AH=4Ch back into `kern_dos`. | `soak -k kdos`, `-k kdfar` |
-| **W5** | **The handoff.** §7 steps 2–8, ending in `int 19h`. No hibernate yet. **W5a IS BUILT** (SPEC.md 96.38.3): the launch block's ABI and `kern_dos`'s real entry, with wave 4's gate reduced to a second producer of that block — **560 KB above the PSP, up from 500**, the ceiling having become the BDA's own figure. **W5b is MEASURED and it withdrew §4.1**: the part costs 43 of a 360KB system disk's 53 free clusters and a file costs six fewer (docs/reports/KERN-DOS-PART-COST-2026-09-14.md). W5c, the handoff itself, is NOT built. | `soak -k kdos`; then the program runs and the machine reboots |
+| **W5** | **DONE — a DOS program runs with the whole machine and gives it back** (SPEC.md 96.40, 96.40.1, 96.40.2). §7 steps 2–8, ending in `int 19h`; no hibernate yet. The measurement is one comparison: **560 KB above the PSP against 438 in the window**, same program, same disk, same DOS core. W5a is the launch block's ABI and `kern_dos`'s real entry, W5b the disk measurement (docs/reports/KERN-DOS-PART-COST-2026-09-14.md), W5c the handoff itself — four resident kernel bytes, everything else in `HIBER.DRV` — and W5d the gate. **Seven defects were found by building the gate and every one is in its header**; §11.2 is what they came to, because five of the seven are one shape. | `soak -k kdhand -k kdapi -k kdos -k kdfar -k kdpart` |
 | **W6** | **The return.** §8, and the no-question flag. | launch, run, exit, desktop back with the same windows |
 | **W7** | **The floppy arm.** §9's confirmation and the greying. | the refusal, and the confirmed path |
 | **W8** | **The budget.** §6.1's levers until the measured figure clears 600 KB. | `dosarena`'s shape, arm 3 |
@@ -665,6 +665,65 @@ Arm 3 is **not a superset of arm 2**, and the Memory page has to say so:
 
 **W0 and W1 land before anything is designed further.** W2 is the go/no-go for
 the whole shape; W3 is the go/no-go for §4's reuse.
+
+### 11.2 What W5 cost, and the one shape five of its seven defects shared
+
+The handoff worked on the first build of every piece and ran nothing: the
+post, the teardown, the stage, the stub and the entry were each correct in
+isolation and the machine did six different wrong things before a program
+printed a line. **Five of the seven are the same sentence** —
+
+> **the thing on the other side of the handoff is not the machine this code
+> was written against, and the difference is silent.**
+
+- `hbm_dosrun` read `[hb_dosoff]` **after** `mov ds, [hb_dosseg]`. Both words
+  are `KERNEL_SEG`'s and the line above is what stops DS being it, so the
+  second read came out of the *poster's* image at that offset and copied 543
+  bytes of somebody else's bss over the record. It assembles, it runs, and the
+  magic check is the only reason anyone found out.
+- `dsk_find_name` was handed a name in the **module's** image. It compares
+  `DS:SI` against `DS:DI`, so the name was read at that offset in the kernel's
+  segment and matched nothing: *"DOS.O88 is not on that disk any more"* about
+  a file in the folder the module had just stood in. `api_name` is the answer
+  and it costs no resident bytes.
+- The stub's expander read the part as a **classic LZ4 block**. §20.13.7's
+  stream is a T word, the symbols and a raw tail; a classic decoder reads the
+  T word AS A TOKEN, and `05 00` is *"copy nine bytes from 0xFC00 back"*, so
+  the image landed nine bytes along with the header still holding whatever was
+  there before. It is the third reader of that format in the tree.
+- `int 1Eh` was left naming `KERNEL_SEG:dsk_dpt`. `kern_dos` lands on that
+  same segment with **its own** table at a different offset, so the ROM read
+  code as an EOT and a gap length — and the symptom was *"the disk could not
+  be mounted"* about a floppy whose BPB `int 13h` had just read perfectly.
+- `.bss` and `.lowbss` are `nobits` and **nothing that puts the image in
+  memory writes them**. Wave 4 never saw it: a machine four seconds out of
+  POST has zeros above the image. The handoff arrives with the outgoing
+  kernel's data at its own offsets, which is a volume table, a FAT window and
+  a handle table that all look plausible and belong to another operating
+  system.
+
+The sixth is the same shape one layer out and is the one with a general
+answer. **`KERNEL_SEG` IS `KD_SEG`**, so every `call OSAPI_X` that survives
+into the image is a far call into `kern_dos`'s own code. Wave 2 measured the
+LOAD path at 21 procs reaching none of them and that measurement stands; what
+it did not cover is the RUN path, where `dos_getkey` samples `dos_mou_read`
+between `int 16h` checks — which is **every DOS program that waits for a
+keystroke**. So the image now carries a wall of refusals at the published cell
+offsets (SPEC.md 96.40.2): 1,432 bytes of a rung with thousands spare, not one
+byte of the arena, and a stray call becomes a wrong answer rather than a wild
+jump. `tests/unit/t_kdapi.py` keeps its two ends on `apps/os88api.inc`.
+
+The seventh is not that shape and is worth its own line, because it is a
+property of **the ROM**: `int 19h` takes no documented input and GLaBIOS reads
+the boot drive out of `DL` as it finds it. `dsk_fdd_park_x` leaves `DL` = 0 by
+falling out of its own loop, which is why the desktop's Restart has never
+shown it; a routine that simply calls `int 19h` hands the ROM whatever the DOS
+program left, and the bootstrap **returns** rather than boots.
+
+**The lesson for W6 is the whole of the above read forwards.** The return is
+the same handoff in the other direction and every one of these questions has a
+mirror: what segment is that pointer in, what did the outgoing side leave in
+that memory, and what does the ROM think it is holding.
 
 ### 11.1 What W0 came to, and the one line W6 changes
 

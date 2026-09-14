@@ -48,6 +48,11 @@ UI_RBQ_FLUSH   equ 1            ; flush the Control Panel on the way out
 UI_RBQ_NOFLUSH equ 2            ; ...and do not go near a disk at all
 UI_RBQ_HIBER   equ 3            ; SPEC.md 87: write the image and stop
 UI_RBQ_RESUME  equ 4            ; ...put an image back
+UI_RBQ_DOSRUN  equ 6            ; SPEC.md 96.40: hand the machine to kern_dos.
+                                ; It needs no arm of its own in ui_task - the
+                                ; `cmp al, UI_RBQ_HIBER / jb` below already
+                                ; routes everything above it to hbf_perform,
+                                ; which is where the module is
 UI_RBQ_ASK     equ 5            ; ...and ask whether to, at boot. All three
                                 ; are spent by the same top-of-pass site as
                                 ; a restart, for the same reason (20.10):

@@ -36,7 +36,7 @@ kd_dos_entry:
     mov di, kd_glb
     mov word [di+KDL_MAGIC], KDL_SIG & 0xFFFF
     mov word [di+KDL_MAGIC+2], KDL_SIG >> 16
-    mov word [di+KDL_VER], 1
+    mov word [di+KDL_VER], KDL_VER_NOW
     mov word [di+KDL_FLAGS], KDLF_REBOOT
     mov word [di+KDL_TLEN], KDL_MINE
     mov word [di+KDL_RSVD], 0

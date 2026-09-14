@@ -29,6 +29,15 @@
 ; =============================================================================
 
 %include "os88api.inc"
+%ifdef DOSKPART
+%include "kdlaunch.inc"             ; the launch block's layout and its list -
+                                    ; ONE file, %include'd by this side and by
+                                    ; kern_dos's entry, which is what makes the
+                                    ; gather and the scatter one list. EARLY,
+                                    ; because the preprocessor is sequential
+                                    ; and dos_lbfill is 3,000 lines above the
+                                    ; part table
+%endif
 %include "netpkg.inc"               ; THE SOCKET DRIVER'S OWN HEADER, for the
                                     ; NETV_RAW* verbs the packet driver rests
                                     ; on (SPEC.md 72.22, 96.23). Constants
@@ -477,6 +486,9 @@ dos_entry:
     push dx
     push si
     push di
+%ifdef DOSKPART
+    call dos_pkgwhere           ; **NOW OR NEVER** - SPEC.md 96.40, and the
+%endif                          ; routine's own header says why
 %ifdef DOSTRACE
     ; **op_load FIRST, BEFORE ANYTHING TOUCHES SI** (os88parts.inc rule 1):
     ; SI arrives holding an offset into the KERNEL's segment at the name of
@@ -714,6 +726,19 @@ dos_run:
     call dos_mem_fix                ; ...and the ARM is the user's, once this
                                     ; has made sure it is one the machine can
                                     ; actually carry out (SPEC.md 96.36.1)
+%ifdef DOSKPART
+    ; --- ARM 3: THE WHOLE MACHINE (SPEC.md 96.40) --------------------------
+    ; HERE, before the arena is claimed and before a driver is unmounted: what
+    ; follows posts a teardown and RETURNS, so every byte this routine would
+    ; otherwise have spent is a byte the handoff would have to give back.
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    jne .notwhole
+    call dos_handoff
+    jnc .out                        ; POSTED - ui_task's step 0 spends it with
+    mov al, DER_MEM                 ; nothing held, and the machine does not
+    jmp .err                        ; come back
+.notwhole:
+%endif
     mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
     cmp byte [dos_keepc], DOS_MEM_KEEP
     je .sized                       ; ...and the default keeps the disk cache
@@ -5376,9 +5401,213 @@ dos_mrad_place:
 ; when it is not.
 ; -----------------------------------------------------------------------------
 dos_mem_whole:
+%ifdef DOSKPART
+    ; **THE PREDICATE IS ONE COMPARE AND IT IS A FACT** (SPEC.md 47 rule 5):
+    ; the part table's length word is what os88pkg.py wrote, so a build
+    ; carrying kern_dos says a number here and one that does not says zero.
+    ; A machine cannot be asked whether it has a feature its own image was
+    ; not built with.
+    cmp word [dos_kdrow + OP_R_LEN], 0
+    je .no
+    xor si, si
+    clc
+    ret
+.no:
+%endif
     mov si, dos_l_memw3
     stc
     ret
+
+%ifdef DOSKPART
+; =============================================================================
+; ARM 3: HANDING THE MACHINE TO kern_dos (SPEC.md 96.40)
+; =============================================================================
+; docs/plans/KERN-DOS-PLAN.md §7. The box fills a record in its OWN image, the
+; kernel records where it lies and returns, and `ui_task`'s step 0 spends the
+; post with nothing held: the drivers go, the screen goes, the kernel goes,
+; and what is left is `kern_dos` with a DOS program in 560 KB of it.
+;
+; **THE RECORD IS IN THE IMAGE AND NOT ON A STACK**, which SPEC.md 96.40 says
+; in as many words: `osapi_dos_handoff` keeps a FAR POINTER rather than a copy,
+; so the 543 bytes stay ours and are read long after this routine returns.
+; -----------------------------------------------------------------------------
+
+; -----------------------------------------------------------------------------
+; dos_pkgwhere - our own file, and the folder it is in. CALLED FROM dos_entry
+;                AND FROM NOWHERE ELSE, because both facts exist only there.
+; out: [dos_pkgname], [dos_pkgdir], [dos_pkgvol]; every register preserved
+;
+; SI arrives at the entry proc holding an offset into the KERNEL's segment at
+; the name of the file we came out of (SPEC.md 20.12 rule 1), and the loader
+; reuses that buffer on the next launch.
+;
+; THE FOLDER IS THE SAME KIND OF NOW-OR-NEVER, and it is the half that is easy
+; to miss. An instance's file calls resolve in its own launched-from directory
+; (SPEC.md 19.2.1), which is where it stands at THIS instruction and nowhere
+; later: dos_run's own GOTO stands it where the DOCUMENT is, and on the
+; arrangement a user really has - DOS.O88 in APPS/ on the boot disk, the .COM
+; on a floppy in B: - that is a different volume entirely.
+; -----------------------------------------------------------------------------
+dos_pkgwhere:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    ; ES arrives holding KERNEL_SEG (SPEC.md 20.1) and SI points into it; DS
+    ; is ours and DI is about to. So the two segment registers SWAP, and
+    ; neither of them is a constant this code may assume.
+    mov ax, es                  ; AX = KERNEL_SEG
+    push ds
+    pop bx                      ; BX = ours
+    mov ds, ax
+    mov es, bx
+    mov di, dos_pkgname
+    mov cx, 13
+    rep movsb
+    pop es
+    pop ds
+    push ds
+    push es
+    call dos_be_here            ; DX = the folder we stand in, BL = its drive
+    jc .out
+    mov [dos_pkgdir], dx
+    mov [dos_pkgvol], bl
+.out:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_handoff - fill the record and post it
+; out: CF=0 posted (this run is over); CF=1 refused, and the caller falls back
+; -----------------------------------------------------------------------------
+dos_handoff:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es                      ; every store below is ours
+
+    mov di, dos_kdh
+    mov word [di+KDH_MAGIC], KDH_SIG & 0xFFFF
+    mov word [di+KDH_MAGIC+2], KDH_SIG >> 16
+    mov byte [di+KDH_PAD], 0
+    mov al, [dos_pkgvol]
+    mov [di+KDH_VOL], al
+    mov ax, [dos_pkgdir]
+    mov [di+KDH_DIR], ax
+
+    push di                     ; our own file name, as the loader gave it
+    add di, KDH_NAME
+    mov si, dos_pkgname
+    mov cx, 13
+    rep movsb
+    pop di
+
+    mov ax, [dos_kdrow + OP_R_OFF]  ; the part's first file SECTOR, which is
+    mov [di+KDH_POFF], ax           ; what os88pkg.py wrote there
+    mov ax, [dos_kdrow + OP_R_ZKB]  ; ...and on an OP_COMP row this word is the
+    mov [di+KDH_PLEN], ax           ; PACKED length (SPEC.md 20.12.7)
+    mov word [di+KDH_PLEN+2], 0
+    mov ax, [dos_kdrow + OP_R_LEN]
+    mov [di+KDH_ULEN], ax
+    mov word [di+KDH_ULEN+2], 0
+
+    call dos_lbfill
+    mov si, dos_kdh
+    push ds
+    pop es                      ; ES:SI is the record, in OUR segment
+    call OSAPI_DOS_HANDOFF
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_lbfill - the launch block, into the record (kerndos/kdlaunch.inc)
+; out: every register preserved
+;
+; The GATHER half of the gather/scatter kern_dos's entry does: one list,
+; walked in the other direction, each side summing its own copy so a field
+; added to one and not the other is refused at the entry rather than scattered
+; into the wrong place.
+; -----------------------------------------------------------------------------
+dos_lbfill:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+
+    mov di, dos_kdh + KDH_LB
+    mov word [di+KDL_MAGIC], KDL_SIG & 0xFFFF
+    mov word [di+KDL_MAGIC+2], KDL_SIG >> 16
+    mov word [di+KDL_VER], KDL_VER_NOW
+    mov word [di+KDL_FLAGS], KDLF_REBOOT    ; W6 is the other arm: with no
+                                            ; hibernation image to come back
+                                            ; to, the machine restarts (§9)
+    mov word [di+KDL_TLEN], KDL_MINE
+    mov word [di+KDL_RSVD], 0
+    mov word [di+KDL_UNIT], 0               ; kern_dos mounts by VOLUME, and
+                                            ; the volume is one of the fields
+
+    ; **THE MACHINE'S OWN KB, OUT OF THE BDA** (0040:0013, int 12h's answer).
+    ; Not OSAPI_SYS_KB: what kern_dos wants is CONVENTIONAL memory as the ROM
+    ; reports it, which is the number a real DOS uses and the one the arena's
+    ; ceiling is cut from.
+    push ds
+    mov ax, 0x0040
+    mov ds, ax
+    mov ax, [0x0013]
+    pop ds
+    mov [di+KDL_CAP], ax
+
+    add di, KDL_BODY
+%macro KDL_F 2
+    mov si, %1
+    mov cx, %2
+    rep movsb
+%endmacro
+    KDL_FIELDS
+%unmacro KDL_F 2
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+%assign KDL_ACC 0
+%macro KDL_F 2
+    %assign KDL_ACC KDL_ACC + %2
+%endmacro
+    KDL_FIELDS
+%unmacro KDL_F 2
+KDL_MINE equ KDL_ACC
+%if KDL_ACC + KDL_BODY > KDL_SIZE
+  %error "the DOS box's launch block outgrew KDL_SIZE"
+%endif
+%endif                                  ; DOSKPART
 
 ; -----------------------------------------------------------------------------
 ; dos_mem_fix - force [dos_keepc] to an arm this machine will actually honour
@@ -7982,6 +8211,24 @@ dos_mou_zero:
 ; kind of clobber that reads as a mouse that only works horizontally.
 ; -----------------------------------------------------------------------------
 dos_mou_read:
+%ifdef KD_BACKEND
+    ; **THERE IS NO KERNEL TO ASK** (docs/plans/KERN-DOS-PLAN.md 6.1 lever 2).
+    ; It is reached on the KEY POLL - `dos_getkey` samples the mouse between
+    ; `int 16h` checks so that "press a key or click" keeps its edges - so
+    ; this is not a corner: it is every DOS program that waits for input.
+    ;
+    ; kern_dos carries no mouse driver yet, and a machine with no driver has a
+    ; mouse that never moves and is never pressed. INT 33h answers exactly
+    ; that (SPEC.md 96.10), which is a state a program can read; the wave that
+    ; gives kern_dos the pointer replaces this body and nothing above it.
+    push ax
+    xor bx, bx
+    xor cx, cx
+    xor dx, dx
+    call dos_mou_edge
+    pop ax
+    ret
+%else
     push ax
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons - and
     mov bl, al                      ; mouse_btn's bits ARE INT 33h's, bit 0
@@ -8010,6 +8257,7 @@ dos_mou_read:
     pop ax
     call dos_mou_edge               ; every state read feeds functions 5 and 6
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dos_mou_edge - accumulate the press/release counts 5 and 6 answer
@@ -8598,6 +8846,12 @@ PKT_VERSION equ 9
     DBSS DOS_B_PIC1,  1
     DBSS DOS_B_PIC2,  1
     DBSS DOS_B_ISEXE, 1
+%ifdef DOSKPART                 ; ...and nothing when arm 3 is not built in
+    DBSS DOS_B_PKGNAME, 13      ; OUR file's name, banked at dos_entry
+    DBSS DOS_B_PKGDIR,  2       ; ...and the folder we were launched from
+    DBSS DOS_B_PKGVOL,  1       ; ...on that volume
+    DBSS DOS_B_KDH,     KDH_SIZE ; the record osapi_dos_handoff keeps a far
+%endif                          ; POINTER to (SPEC.md 96.40), so it is OURS
 %ifdef DOSTRACE                 ; ...and NOTHING when it is off: the ring is
     DBSS DOS_B_TRACEN, 2        ; 514 bytes, and an instrument that costs the
     DBSS DOS_B_TRACEW, 2        ; shipped build anything is one that gets
@@ -13267,6 +13521,12 @@ dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
 dos_pbuf    equ os88_image_end + DOS_B_PBUF    ; the program's own path
 dos_ln      equ os88_image_end + DOS_B_LN      ; the field's os88line block
 dos_vsbuf   equ os88_image_end + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
+%ifdef DOSKPART
+dos_pkgname equ os88_image_end + DOS_B_PKGNAME  ; 13: our own 8.3 file name
+dos_pkgdir  equ os88_image_end + DOS_B_PKGDIR   ; word: its folder's cluster
+dos_pkgvol  equ os88_image_end + DOS_B_PKGVOL   ; byte: ...and that volume
+dos_kdh     equ os88_image_end + DOS_B_KDH      ; the handoff record (96.40)
+%endif
 dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
 dos_mrad    equ os88_image_end + DOS_B_MRAD    ; the radio group's record
 dos_keepc   equ dos_mrad + DOS_MRADSEL         ; byte: DOS_MEM_* (SPEC.md 96.36)

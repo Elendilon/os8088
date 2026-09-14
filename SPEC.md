@@ -126198,3 +126198,153 @@ halved to make room. Both constants are back at 512 and 256, `image + bss` for
 the trace arm is **24,631 rather than 49,199**, and the shipped build is
 byte-identical. A `%ifdef`'d instrument competing with the arena it exists to
 measure was the wrong trade to keep making.
+
+### 96.40 Arm 3 — handing the whole machine to `kern_dos`
+
+The Memory page's third arm (§96.36) gives the DOS program the machine
+itself: os8088 tears itself down, `kern_dos` is read off the disk into the
+segment the kernel was in, and the program runs on a machine whose only
+resident software is a FAT reader and an `INT 21h`.
+docs/plans/KERN-DOS-PLAN.md is the design record and §7 of it is the step
+list; this is the contract.
+
+**MEASURED, on a 640KB 5150 with a 360KB system disk**: the program is handed
+**560 KB** above its PSP against **438 KB** in the window — 122 KB, which is
+the whole of what the arm is for. `tests/kdhand.py` is the gate and it
+asserts the comparison rather than either number, because the second is a
+property of the machine and the difference is a property of this feature.
+
+**THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
+`ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
+it stores the far pointer, sets `[ui_rebootq]` to `UI_RBQ_DOSRUN` and wakes
+`ui_task`. It is `OSAPI_PKG_REHOME`'s shape (§20.12.10) and
+`OSAPI_MEM_COMPACT_WAKE`'s (§66.4.3) for their reason: what it asks for
+detaches every driver and takes the screen, and the caller is executing
+inside a region the teardown is about to stop caring about, with the gfx
+lock held. `ui_task`'s step 0 spends the post with nothing held.
+
+The record is read **where it lies** rather than copied, so it must be in the
+package's image or bss and never on a stack. Four resident bytes —
+`hb_dosseg` and `hb_dosoff` — are the whole cost of the feature to a machine
+that never uses it; everything else is in `HIBER.DRV`.
+
+| off | | |
+|---|---|---|
+| 0 | `dd` | `'KDH1'` |
+| 4 | `db` | the volume `DOS.O88` is on |
+| 5 | `db` | 0 |
+| 6 | `dw` | its folder's first cluster, 0 = the root |
+| 8 | `db[13]` | its 8.3 name, NUL-terminated |
+| 21 | `dw` | the part's first file **sector** (`OP_R_OFF`) |
+| 23 | `dd` | its packed bytes |
+| 27 | `dd` | ...and its unpacked bytes |
+| 31 | `db[512]` | the launch block, verbatim |
+
+**A PACKAGE CANNOT NAME ITS OWN FILE ANY OTHER WAY.** `dos_pkgwhere` runs in
+`dos_entry` and nowhere else, because both facts exist only there: SI arrives
+at the entry proc holding the launched file's name in `KERNEL_SEG`, and
+`dos_be_here` answers the folder the instance is standing in before any
+navigation has moved it. A box that asked later would be asking about
+wherever the user had gone.
+
+### 96.40.1 What the kernel does with the post
+
+`hbm_dosrun` is the spender, in `HIBER.DRV` beside the hibernate it shares its
+teardown with, and it runs at `ui_task` step 0 with nothing held. Six things
+can go wrong before a byte of the machine is torn down and **each says which**
+— a stale record, a folder that has moved, a `DOS.O88` that is not there, a
+volume `int 13h` cannot reach, no heap for the extent list, and a part too
+fragmented to hand over.
+
+1. **The record, copied into the module's own data.** The offset is read
+   before DS is changed: both words are `KERNEL_SEG`'s, and loading DS first
+   makes the second read come out of the poster's image at that offset.
+2. **Stand where `DOS.O88` is, and find it.** The name goes through
+   `api_name` — `dsk_find_name` compares `DS:SI` against `DS:DI`, so a name in
+   the module's own image is read at that offset in the kernel's segment and
+   matches nothing.
+3. **The extents.** `hbm_geomd` is `hbm_geom` with a floppy arm, because
+   hibernate writes an image and can only write one to a fixed disk while this
+   reads a part of a package — and on the machine §9 of
+   docs/plans/KERN-DOS-PLAN.md is about, that package is on a floppy by
+   definition. The walk skips `KDH_POFF` sectors and takes `ceil(PLEN/512)`.
+4. **The panel, the drivers, the lock, text mode** — §87.5 step 3's order.
+5. **The staging area**, which is the **text framebuffer**: the one RAM a
+   conventional-memory image does not cover. The stub goes at `HS_CODE`, the
+   two lengths at `KDS_PLEN`, the launch block at `KDS_LB`, and the transport
+   facts and the extent list where the hibernate stub reads them.
+6. **The vectors the ROM is about to need.** `int 09h` above all: `mouse_init`
+   hooks it for keypad 5 (§9.6.5) and the handover unmasks IRQ1 on the way
+   out, so a key pressed after it would vector into `kern_dos`'s image at
+   `kbm_isr`'s kernel offset. The PIT divisor goes back to the BIOS's 65536
+   with it, because the ROM counts a tick per IRQ0 whatever the rate.
+7. **`hbm_handover`** — §87.5 step 5, factored, and a `jmp` because nothing
+   returns from it.
+
+**THE STUB IS NOT THE HIBERNATE STUB.** It reads the packed part one run per
+`int 13h` into `KDS_TMPSEG`, expands it into `KD_SEG`, copies the launch block
+to the offset `kern_dos`'s own fixed header names, and jumps to `KD_SEG:0000`.
+Its expander reads §20.13.7's stream and not a classic LZ4 block — the T word,
+the symbols, and the raw tail — which is the third reader of that format in
+the tree and exists because the kernel is gone by the time it runs. A classic
+decoder on one of these does not fail: it reads the T word **as a token**, and
+`05 00` is "copy nine bytes from 0xFC00 back", so the image lands nine bytes
+along with the header still holding whatever was there before.
+
+**The launch block** (`kerndos/kdlaunch.inc`) is a gather/scatter of the box's
+own bss. Both sides `%include "dos.asm"`, so `dos_name`, `dos_args`,
+`dos_ebuf` and the rest are the same **fields** on both — the images differ,
+the list cannot — and adding one is a line in `KDL_FIELDS` rather than two
+copies of marshalling code that drift. Each side sums its own copy and the
+block carries the total, so a field added to one and not the other is refused
+at the entry rather than scattered into the wrong place.
+
+**One field is the KERNEL's and not the box's**: `KDL_DPT`, eleven bytes of
+diskette parameter table, patched into the *staged* copy out of `dsk_dpt`.
+`int 1Eh` is a POINTER the BIOS re-reads on every floppy operation (§18.92),
+os8088 points it at its own patched copy at boot, and `kern_dos` lands on the
+same segment with its own table at a different offset — so a handover that
+does not carry those bytes leaves the ROM reading code as an EOT and a gap
+length. A block whose first DPT byte is zero leaves the vector alone, which is
+the gate arm's case.
+
+### 96.40.2 What `kern_dos` does, and how the machine comes back
+
+`kd_entry` is `dos_run` plus `dos_fsx_main` with the OS taken out, in their
+order, minus the steps that name a kernel this machine has not got. Four
+things it owes that no loader does for it:
+
+- **The glass.** The staging area is the text framebuffer, so what is on the
+  screen when it starts is the stub drawn as characters. Setting the mode the
+  machine is already in is the BIOS's own clear and is adapter-blind.
+- **The bss.** `.bss` and `.lowbss` are `nobits`: they cost the part no disk
+  and **nothing that puts the image in memory writes them**. On a machine four
+  seconds out of POST that is invisible; on the handoff it is the outgoing
+  kernel's data at its own offsets — a volume table, a FAT window and a handle
+  table that all look plausible and are another operating system's. The launch
+  block is the one thing already written, so it is skipped at run time through
+  `[kd_lbp]` rather than at assembly time.
+- **The API table's ground.** `KERNEL_SEG` *is* this segment here, so every
+  `call OSAPI_X` that survives into the image is a far call to `KD_SEG:0xNNNN`.
+  Cells 0x0010 to 0x05A0 exist and **refuse** — `stc`/`retf`, the published
+  meaning of a slot that cannot do what was asked (§20.8) — so a wrong one is
+  a wrong answer rather than a wild jump. It costs 1,432 bytes of the image
+  and not one byte of the arena, the arena's floor being `LOW_SEG`.
+- **Interrupts.** `AH=4Ch` arrives on an `int 21h`, which clears IF, and
+  `dos_terminate` restores `SS:SP` and jumps rather than `iret`-ing — so the
+  flags the gate pushed are never popped and `kd_leave` runs with IF = 0. In
+  the box that is invisible; here the very next thing is the ROM, and a BIOS
+  disk read waits on IRQ6.
+
+**AND THE RESTART READS DL.** `int 19h` takes no documented input, so a
+routine that just calls it hands the ROM whatever the DOS program left —
+which was `int 13h` on drive 0xA1, `AH=01`, and a bootstrap that **returns**
+rather than boots. `kernel/disk.inc`'s `dsk_fdd_park_x` leaves `DL` = 0 by
+falling out of its own loop, which is why the desktop's Restart has never
+shown this; `kd_leave` does it on purpose, and takes §18.100's park with it
+because the FDC has just run a whole DOS program's worth of I/O.
+
+With `KDLF_REBOOT` clear there is a hibernation image to put back instead, and
+that is where the return stub goes — docs/plans/KERN-DOS-PLAN.md §8. Until it
+exists a block that does not ask for the reboot says so and holds, rather than
+restarting a machine the user expected back.

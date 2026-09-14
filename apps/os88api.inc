@@ -4274,6 +4274,35 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; template taller than the whole adapter is
                                  ; still cut - and on a machine where you fit
                                  ; the band, this changes nothing at all.
+; -----------------------------------------------------------------------------
+; OSAPI_DOS_HANDOFF - hand the whole machine to kern_dos (SPEC.md 96.40)
+; in:  ES:SI = a KDH_* record in YOUR segment
+; out: CF=0 posted, CF=1 refused
+;
+; **IT ONLY RECORDS.** What it asks for detaches every driver and takes the
+; screen, and a package's callback is the one place that may not happen: the
+; kernel keeps a FAR POINTER to your record and reads it at ui_task's step 0,
+; with nothing held. So the record must live in your IMAGE or your BSS and not
+; on a stack, and it must still be there when you return.
+;
+; This is the DOS box's slot and nothing else in the tree calls it. It is
+; published rather than private because the alternative is a second copy of
+; the layout below in two places that cannot see each other, and
+; tests/unit/t_mirror.py is what keeps this one honest against the kernel's.
+KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_VOL     equ 4               ; db the volume your package's FILE is on
+KDH_PAD     equ 5               ; db 0
+KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
+KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
+KDH_POFF    equ 21              ; dw the kern_dos part's first file SECTOR
+KDH_PLEN    equ 23              ; dd its packed bytes
+KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
+KDH_LB      equ 31              ; db[512] the launch block, verbatim
+KDH_SIZE    equ 543
+KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+%define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;
+                                                ; out CF=0 posted
+
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

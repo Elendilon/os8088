@@ -34,13 +34,67 @@ kd_entry:
     sti
     cld
 
+    ; --- THE BSS, WHICH ARRIVES AS WHATEVER WAS ALREADY THERE ---------------
+    ; `.bss` and `.lowbss` are `nobits`: they cost the part no disk, and
+    ; NOTHING THAT PUTS THIS IMAGE IN MEMORY WRITES THEM. On the W4 gate that
+    ; was invisible - a machine four seconds out of POST has zeros above the
+    ; image - and on the handoff it is the outgoing KERNEL's data, at its own
+    ; offsets, which is a volume table, a FAT window and a handle table that
+    ; all look plausible and are another operating system's. It surfaced as
+    ; `the disk could not be mounted` about a floppy whose BPB int 13h had
+    ; just read perfectly.
+    ;
+    ; Here rather than in each loader, for `mod_need`'s MOD_BSS reason one
+    ; layer out: one place cannot be forgotten by the next thing that learns
+    ; to start this image.
+    ;
+    ; **THE LAUNCH BLOCK IS THE ONE THING ALREADY WRITTEN**, so it is skipped
+    ; at RUN time rather than at assembly time - the handoff's lands in
+    ; `kd_lblock` and the gate's in `kd_glb`, and `[kd_lbp]` is the only thing
+    ; that knows which. It is in `.text` and survives this.
+    mov si, [kd_lbp]
+    push ds
+    pop es
+    xor al, al
+    mov di, kd_b_start
+    mov cx, si
+    sub cx, di
+    rep stosb                   ; ...everything under the block
+    mov di, si
+    add di, KDL_SIZE
+    mov cx, kd_e_bss
+    sub cx, di
+    rep stosb                   ; ...and everything over it
+    push ss
+    pop es                      ; ...and the disk layer's buffers, which are
+    xor di, di                  ; SS's and whose section is `vstart=0`, so the
+    mov cx, kd_e_lowbss         ; end label IS the length
+    rep stosb
+    push ds
+    pop es
+
+%ifndef KD_GATE
+    ; --- the glass, because the STAGING AREA IS THE TEXT FRAMEBUFFER ---------
+    ; SPEC.md 87.5 stages the handoff in the one RAM a conventional-memory
+    ; image does not cover, which is the text page - so what is on the screen
+    ; when this starts is the stub, its extent list and the launch block, drawn
+    ; as characters. Setting the mode the machine is ALREADY in is the BIOS's
+    ; own clear and costs six bytes; a hard-coded 3 would be wrong on an MDA.
+    ; It is `%ifndef KD_GATE` because the gate arrives through a loader that
+    ; left the screen clean and has already printed on it (kdosgate.inc).
+    mov ah, 0x0F
+    int 0x10                    ; AL = the mode vid_reboot left
+    xor ah, ah
+    int 0x10                    ; ...set again, which is how a BIOS clears
+%endif
+
     ; --- the block, checked before a byte of it is believed ------------------
     mov si, [kd_lbp]
     cmp word [si+KDL_MAGIC], KDL_SIG & 0xFFFF
     jne .nolb
     cmp word [si+KDL_MAGIC+2], KDL_SIG >> 16
     jne .nolb
-    cmp word [si+KDL_VER], 1
+    cmp word [si+KDL_VER], KDL_VER_NOW
     jne .nolb
     cmp word [si+KDL_TLEN], KDL_MINE  ; **AND THE LENGTH, WHICH IS THE HALF
     jne .nolb                         ; THAT ROTS** - the magic survives a
@@ -51,6 +105,35 @@ kd_entry:
 
     ; --- the fields, back into the DOS core's own bss -------------------------
     call kd_scatter
+
+    ; --- and the DISKETTE PARAMETER TABLE, which is not one of them ----------
+    ; SPEC.md 18.92: `int 1Eh` is a POINTER to eleven bytes the BIOS re-reads
+    ; on every floppy operation, and os8088 owns it - so the vector we inherit
+    ; names KERNEL_SEG:dsk_dpt, which is THIS segment at an offset that is not
+    ; our table. The handoff carries the bytes (kerndos/kdlaunch.inc) and this
+    ; puts them in ours and names it; a block with none - the W4 gate, which
+    ; arrives through a loader that never touched the vector - leaves the ROM's
+    ; alone, and a table whose first byte is zero is not one.
+    cmp byte [si+KDL_DPT], 0
+    je .nodpt
+    push si
+    push di
+    add si, KDL_DPT
+    mov di, dsk_dpt             ; ES is ours
+    mov cx, DPT_LEN
+    rep movsb
+    xor ax, ax
+    mov es, ax
+    pushf
+    cli                         ; the vector is two words and an interrupt
+    mov word [es:0x0078], dsk_dpt   ; between them would hand the BIOS half an
+    mov word [es:0x007A], KD_SEG    ; address (dsk_dpt_init_x's reason)
+    popf
+    push ds
+    pop es
+    pop di
+    pop si
+.nodpt:
 
     ; --- the arena ------------------------------------------------------------
     ; A real DOS puts the program straight above itself and gives it
@@ -192,6 +275,16 @@ kd_entry:
 ; hibernation image to put back, and this is where the return stub goes.
 ; -----------------------------------------------------------------------------
 kd_leave:
+    ; **INTERRUPTS BACK ON, BECAUSE THE PROGRAM'S EXIT CAME THROUGH A GATE.**
+    ; AH=4Ch arrives on an `int 21h`, which clears IF, and `dos_terminate`
+    ; restores SS:SP and JUMPS rather than `iret`-ing - so the flags the gate
+    ; pushed are never popped and we are back here with IF = 0. In the box
+    ; that is invisible; here the very next thing is the ROM, and a BIOS disk
+    ; read waits on IRQ6. `int 19h` ran, its read timed out with AH=01, and it
+    ; RETURNED - so the machine printed "Press any key to restart" and then sat
+    ; in `.hold`'s `hlt` for ever, which reads exactly like a refusal to
+    ; restart rather than like a masked interrupt.
+    sti
     mov si, [kd_lbp]
     test word [si+KDL_FLAGS], KDLF_REBOOT
     jz .hold                    ; W6: the return. Until it exists, a block
@@ -207,6 +300,27 @@ kd_leave:
     call kd_puts
     xor ah, ah                  ; the ROM's own wait: a program that printed
     int 0x16                    ; its last line deserves to have it read
+
+    ; --- the park, AND the DL the ROM boots from (SPEC.md 18.100, 96.40.2) ---
+    ; **`int 19h` READS THE BOOT DRIVE OUT OF DL AS IT FINDS IT.** The
+    ; bootstrap takes no documented input, so a routine that just calls it
+    ; hands the ROM whatever the DOS program left - here 0xA1, which is
+    ; `int 13h` answering AH=01 "bad command" twice and the bootstrap RETURNING
+    ; rather than booting. It reads as a machine that refuses to restart, and
+    ; it sat in `.hold`'s `hlt` for ever with its own message underneath.
+    ; kernel/disk.inc's `dsk_fdd_park_x` leaves DL = 0 by falling out of its
+    ; own loop, which is why the desktop's Restart has never shown this.
+    ;
+    ; The resets are that routine's other half and are owed anyway: the FDC has
+    ; just run a whole DOS program's worth of I/O, and SPEC.md 18.97's probe on
+    ; the next boot decides on drive B's own TRACK 0 line.
+    mov dl, 2
+.park:
+    dec dl                      ; ...1, then 0 - and it LEAVES DL = 0
+    xor ah, ah                  ; AH=00 RESET DISK SYSTEM = recalibrate to
+    int 0x13                    ; track 0. No result is read: the int 19h
+    or dl, dl                   ; below resets the FDC whatever this leaves
+    jnz .park                   ; behind (SPEC.md 18.100)
     int 0x19
 .hold:
     mov si, kd_s_held

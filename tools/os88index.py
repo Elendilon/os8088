@@ -72,6 +72,8 @@ GROUPS = [
      ["FSX_", "FULLSCREEN"]),
     ("Randomness and maths", ["84"],
      ["RAND", "SRAND"]),
+    ("Running a DOS program", ["96"],
+     ["DOS_"]),
 ]
 
 # What a group with no slots of its own says instead of a table.

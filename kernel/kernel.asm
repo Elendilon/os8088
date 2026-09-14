@@ -4151,7 +4151,20 @@ apic_wm_destroy:
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
                                   ;          in the region it is going to move
-osapi_table_end:                  ; 0x05A0
+    OSAPI_XCELL osapi_dos_handoff ; 0x05A0 - X: HAND THE MACHINE TO kern_dos
+                                  ;          (SPEC.md 96.40). ES:SI = a KDH_*
+                                  ;          record in YOUR segment. Out CF=0
+                                  ;          posted, CF=1 refused. It only
+                                  ;          RECORDS - osapi_pkg_rehome's and
+                                  ;          osapi_mem_compact_wake's shape -
+                                  ;          because what it asks for tears the
+                                  ;          machine down and may not happen
+                                  ;          inside your callback. The record
+                                  ;          is read where it LIES, at
+                                  ;          ui_task's step 0, so it must be in
+                                  ;          your own image or bss and not on a
+                                  ;          stack
+osapi_table_end:                  ; 0x05A8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4159,8 +4172,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 178 * 8
-%error "os8088 API jump table must be exactly 178 8-byte slots"
+%if OSAPI_TABLE_LEN != 179 * 8
+%error "os8088 API jump table must be exactly 179 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -7136,6 +7149,8 @@ osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
                   ret
 osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
                   ret
+osapi_dos_handoff:    call COLD_SEG:osapi_dos_handoff_x
+                  ret           ; X: ES:SI = a KDH_* record (SPEC.md 96.40)
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret
 osapi_sys_kb:         call COLD_SEG:osapi_sys_kb_x

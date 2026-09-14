@@ -2776,6 +2776,39 @@ SOAK = [
         "written to for a year is where a too-fragmented part would first "
         "show up. Host-side, one second, and it needs `make kdostest`.",
         wants=("build/kdos360.img", "build/kerndos.bin")),
+    Row("kdhand", "soak", py("tests/kdhand.py"), 40.0,
+        "THE DOS HANDOFF, END TO END (SPEC.md 96.40, "
+        "docs/plans/KERN-DOS-PLAN.md 7): run a .COM in the window, then run "
+        "THE SAME .COM with the Memory page's third arm picked, and assert "
+        "that the second run happened on a machine with no os8088 in it - "
+        "560 KB against 438, a text screen the kernel is not drawing, the "
+        "program's own exit code, and an `int 19h` that brings the desktop "
+        "back. IT ASSERTS THE COMPARISON and not either figure: the second "
+        "number is a property of the machine and the DIFFERENCE is the "
+        "property of this feature, which is the only reason the arm exists. "
+        "Seven separate defects were caught by writing it and every one is "
+        "listed in its header - the post refused, the record read through the "
+        "poster's DS, a name looked up in the wrong segment, the part read as "
+        "a classic LZ4 block rather than SPEC.md 20.13.7's stream, `int 1Eh` "
+        "left naming a table at the old kernel's offset, `.bss` arriving as "
+        "the outgoing kernel's bytes, and `OSAPI_MOUSE` surviving into an "
+        "image where KERNEL_SEG is its own segment. MartyPC and it must be: "
+        "the whole point is a real 8088 running a DOS program with the "
+        "operating system gone. It needs `make kdostest`.",
+        wants=("build/kdos360.img", "build/doscom360.img")),
+    Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.3,
+        "kern_dos's REFUSAL TABLE has to cover the SDK's whole API table "
+        "(SPEC.md 96.40.2). KERNEL_SEG is kern_dos's own segment, so every "
+        "`call OSAPI_X` that survives into that image is a far call to "
+        "KD_SEG:0xNNNN - and apps/dos/dos.asm is included whole with ~96 of "
+        "them. The table lays a `stc`/`retf` cell at every published offset "
+        "so a stray call is a wrong ANSWER rather than a jump into the middle "
+        "of the disk layer, and that only works while its two ends still "
+        "describe apps/os88api.inc. t_mirror's subject with a DERIVATION on "
+        "one side instead of a literal: it re-reads every cell the SDK "
+        "publishes and checks the span, the boundary and that nothing "
+        "collides with kern_dos's fixed header. Host-side, no build.",
+        ),
     Row("kdfar", "soak", py("tests/unit/t_kdfar.py"), 0.3,
         "NEAR OR FAR HAS TO MATCH THE BODY (SPEC.md 96.38.1): kerndos/ calls "
         "the kernel's disk layer by hand, and that layer is NOT one calling "
