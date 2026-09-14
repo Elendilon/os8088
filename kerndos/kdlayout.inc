@@ -24,7 +24,7 @@
 KD_SEG      equ 0x0060          ; linear 0x00600, above the IVT and the BDA
 KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 
-KD_IMG_KB   equ 43              ; the image rung: every progbits section PLUS
+KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG
@@ -53,14 +53,14 @@ KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; which leaves 982 bytes and costs the program
                                 ; 560 -> 559 KB
                                 ;
-                                ; **61 -> 43 AT WAVE 8** (SPEC.md 96.43): the
-                                ; image measures 43,302 with the cable network,
-                                ; the console and the FORMAT module gated out of
-                                ; it, so eighteen whole kilobytes go back to the
-                                ; program in one step. 730 bytes spare, which is
-                                ; what this comment's own rule asks for - the
-                                ; next wave lowers it again rather than banking
-                                ; slack
+                                ; **61 -> 43 -> 34 AT WAVE 8** (SPEC.md 96.43,
+                                ; 96.43.2): 43,302 with the cable network, the
+                                ; console and the FORMAT module gated out, and
+                                ; 34,166 once the WINDOW HALF went with them -
+                                ; twenty-seven whole kilobytes back to the
+                                ; program. 650 bytes spare, which is what this
+                                ; comment's own rule asks for - the next wave
+                                ; lowers it again rather than banking slack
 ; --- the exit code's mailbox (SPEC.md 96.41, docs/plans/KERN-DOS-PLAN.md 8.2)
 ; MIRRORED in kernel/hiber.inc, and tests/unit/t_mirror.py is the guard.
 KDB_SEG     equ 0x0040          ; the BDA...

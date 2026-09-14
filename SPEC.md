@@ -126356,11 +126356,11 @@ docs/plans/KERN-DOS-PLAN.md is the design record and §7 of it is the step
 list; this is the contract.
 
 **MEASURED, on a 640KB 5150 with a 360KB system disk**: the program is handed
-**580 KB** above its PSP against **437 KB** in the window — 143 KB, which is
+**589 KB** above its PSP against **437 KB** in the window — 152 KB, which is
 the whole of what the arm is for. `tests/kdhand.py` is the gate and it
 asserts the comparison rather than either number, because the second is a
 property of the machine and the difference is a property of this feature. It
-was 560 against 438 when the arm shipped, and §96.43 is the twenty-one
+was 560 against 438 when the arm shipped, and §96.43 is the thirty
 kilobytes that moved it.
 
 **THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
@@ -126658,12 +126658,8 @@ existing *"never painted"* arm gives it DOS's own 25 rows. The fallback was
 already there for `COMMAND /c` before the first paint, which is the same
 question with a different cause.
 
-**The window half of `dos.asm` is NOT gated and stays.** `os88ui.inc`,
-`os88line.inc` and the setup pages are ~8 KB more, and they cannot be taken
-out by `%ifndef` without threading one through forty call sites in a band that
-also holds twenty-six core procs. That is the four-part package
-(docs/plans/KERN-DOS-PLAN.md §9), where the split is made in the SOURCE and a
-gate is not needed at all.
+**The window half of `dos.asm` goes too, and §96.43.2 is how** — it looked
+like forty call sites and it is twenty bands.
 
 `tests/kdhand.py` is the gate and its assertion is the COMPARISON — the
 program's top-of-memory figure under `kern_dos` against the same program's in
@@ -126699,3 +126695,57 @@ the end of `kd_entry`.
 up-to-date `kerndos.bin`, builds the gate disk round the other arm, and the
 reader scans a machine with no sentinel in it — which reads exactly like a
 stack that was never used.
+
+#### 96.43.2 …and the window half IS gateable — it is twenty bands, not forty sites
+
+§96.43 said the window half could not be taken out by `%ifndef` without
+threading one through forty call sites, and priced it as W9's work.
+**That was a count of CALL SITES where the thing that matters is CONTIGUOUS
+RUNS**, and the runs are what a gate is drawn round: classify every top-level
+label in `apps/dos/dos.asm` and the window's are **twenty bands**, each one a
+`%ifndef KD_BACKEND` round a span the assembler then checks for you.
+
+**The check is that the shipped package is BYTE-IDENTICAL**, and it is: the
+gates are `%ifndef KD_BACKEND`, so `build/dos.o88` is md5-identical before and
+after, which is the strongest statement available about a refactor of a
+14,000-line file that nineteen soak rows exercise.
+
+What the assembler found, and each is a correction to the classification
+rather than to the code:
+
+- **`dos_wfld`, `dos_hexd`, `dos_hex3`/`dos_dec2` and `dos_lnk_find` read like
+  the window's and are the core's.** `dos_walk_at` resolves a `.LNK` on the
+  path, `dos_blaster_set` writes `BLASTER=` in hex, `dos_err_line` stamps the
+  AH a refusal names, and `dos_wild` matches an 8.3 field. A name is not a
+  side — which is `tests/unit/t_dosseam.py`'s own finding (§96.4.2) in a
+  second place.
+- **`dos_errs`' strings stay.** The table is read by a core routine, so the
+  `dos_e_*` it names are core data however window-ish they look.
+- **A gate may not land between a `%ifdef` and its body.** One band's `%endif`
+  was placed one line inside an `%ifdef DOSKPART`, which the `kern_dos` build
+  could not see and the PACKAGE build reported as a macro redefined 300 lines
+  away.
+
+The bss goes with it: **twenty-nine `DBSS` rows** are the window's, gated the
+same way, with four lifted out by the same assembler — `DOS_B_ERP` (the
+environment row `dos_build_psp` emits), `DOS_B_VSBUF` (`AH=36h`'s record),
+`DOS_B_FBUF` and `DOS_B_CNAME` (`dos_walk_at`'s). **`DOS_B_EBUF` and
+`DOS_B_MEMKB` stay because the LAUNCH BLOCK carries them** (§96.40.2): the box
+fills them in the window and `kd_entry` copies them back, so they are the one
+kind of window state that outlives the window.
+
+`disk.inc`'s four `.ovlw` spans go too, under `KD_BUILD` — there is no `kmain`
+to run a boot overlay, the DPT arrives in the launch block and the volume is
+named rather than enumerated. 762 bytes, and the kernel measures
+byte-identical after it.
+
+**Totals**: `.text` 24,849 → 17,342, `.bss` 6,284 → 5,417, `.ovlw` 762 → 0, so
+`KD_IMG_KB` **43 → 34** and the program goes **580 → 589 KB**.
+
+**600 KB is still not reached, and what is left is one trade and a long tail.**
+The trade is §96.11's 8 KB file window, which comes straight off the arena
+top: `dskw_read_at_x` wants a cluster-aligned offset and a cluster-multiple
+capacity, so the window cannot be deleted, only made smaller — which buys
+memory by costing `dos_be_rdat` calls. The tail is `.cold`'s 11,407 bytes of
+disk layer, whose largest single family is 743. Neither is a size question any
+more; both are somebody's judgement about what arm 3 is for.

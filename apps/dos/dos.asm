@@ -479,6 +479,7 @@ DER_BADEXE  equ 6
 DER_FIT     equ 7                   ; ...and THIS program will not fit in the
                                     ; arena we got, which is a different
                                     ; sentence from not getting one (96.14.3)
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_entry - package entry (SPEC.md 20.2)
@@ -1059,6 +1060,7 @@ dos_repaint:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_is_exe - is the loaded image an .EXE?
@@ -1372,6 +1374,7 @@ dos_movedown:
     jmp short .chunk
 .done:
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; =============================================================================
 ; THE BRACKET (SPEC.md 96.2)
@@ -1476,6 +1479,7 @@ dos_fsx_main:
 
     call dos_prog_enter             ; ...and away (SPEC.md 96.14): the same
                                     ; door AH=4Bh's child goes through
+%endif                              ; KD_BACKEND
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
@@ -3494,6 +3498,7 @@ dos_tr_hex4:
     pop ax
     call dos_tr_hex2
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_trace_dump - the ring, as TEXT, into TRACE.LOG beside the program
@@ -3669,6 +3674,7 @@ dos_trace_dump:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 dos_trace:
     cmp ah, 0x02                    ; NOT the console writers. A 110-character
@@ -4149,6 +4155,7 @@ dos_k_wrat:
     call OSAPI_FILE_WRITE_AT
     ret
 %endif                              ; KD_BACKEND
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; =============================================================================
 ; THE WINDOW
@@ -4277,6 +4284,7 @@ dos_fmt_exit:
     pop di
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_err_line - SI = the sentence for [dos_err]
@@ -4325,6 +4333,7 @@ dos_hexd:
     add al, 7
 .out:
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_about - the standard About card's handler (SPEC.md 12.2, 20.5.1)
@@ -4881,6 +4890,7 @@ dos_path_take:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_keeph - a CGA window may hang over the dock (SPEC.md 11.93)
@@ -4917,6 +4927,7 @@ dos_keeph:
     pop ax
     popf
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_btn_rect - the page button's rect, into dos_brect
@@ -5487,6 +5498,7 @@ dos_mem_whole:
     stc
     ret
 
+%endif                              ; KD_BACKEND
 %ifdef DOSKPART
 ; =============================================================================
 ; ARM 3: HANDING THE MACHINE TO kern_dos (SPEC.md 96.40)
@@ -5805,6 +5817,7 @@ KDL_MINE equ KDL_ACC
   %error "the DOS box's launch block outgrew KDL_SIZE"
 %endif
 %endif                                  ; DOSKPART
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_mem_fix - force [dos_keepc] to an arm this machine will actually honour
@@ -6740,6 +6753,8 @@ dos_oncmd:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BACKEND
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_path_args - the path box holds `PATH ARGUMENTS`: split it (SPEC.md 96.32.1.1)
@@ -7176,6 +7191,7 @@ dos_is_lnk:
     pop ax
     stc
     ret
+%endif                              ; KD_BACKEND
 
 dos_upc:
     cmp al, 'a'
@@ -7185,6 +7201,7 @@ dos_upc:
     sub al, 32
 .out:
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; --- dos_fld_reload - the fields show what is in the buffers now ------------
 dos_fld_reload:
@@ -7560,6 +7577,7 @@ dos_lnk_cd:
     pop dx                          ; resolves anyway. What the user then sees
     pop ax                          ; is the ordinary "it could not be read",
     ret                             ; naming the program
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_walk_pbuf - stand at the absolute path in dos_pbuf, from the volume ROOT
@@ -7718,6 +7736,7 @@ dos_ceq:
     pop ax
     stc
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; --- dos_lnk_skip - step SI over one StringData ------------------------------
 dos_lnk_skip:
@@ -7973,6 +7992,7 @@ dos_lnk_rows:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_has_eq - does the NUL string at SI carry an '='?
@@ -8106,6 +8126,7 @@ dos_envpath:
     pop cx
     pop ax
     ret
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; =============================================================================
 ; DATA
@@ -8172,9 +8193,13 @@ dos_btn_tab:
     dw dos_l_done                   ; memory -> back to the main page
 dos_l_memt: db 'Memory for the program:', 0
 dos_l_memk: db 'Keeping the disk cache:  '
+%endif                              ; KD_BACKEND
 dos_memk1:  db '     K', 0
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_memt2: db 'Taking it as well:       '
+%endif                              ; KD_BACKEND
 dos_memk2:  db '     K', 0
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_meml: db 'Limit:', 0
 ; --- the three arms, and the words under the greyed one (SPEC.md 96.36) -----
 ; They read as a ladder, each one taking more than the last, because that is
@@ -8217,6 +8242,7 @@ DOS_LNK_HDRLEN equ $ - dos_lnk_hdr
 %if DOS_LNK_HDRLEN != LNK_HDR
  %error "the Shell Link header is 76 bytes and this template is not"
 %endif
+%endif                              ; KD_BACKEND
 
 dos_be:                             ; the table, in DBE_* order
     dw dos_k_goto
@@ -8980,6 +9006,7 @@ PKT_VERSION equ 9
     ;     above: they are the answer to a question about the WINDOW, so
     ;     anything that wants them asks for them again rather than trusting a
     ;     paint to have run.
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
     DBSS DOS_B_CONX,  2          ; the band's left in SCREEN px, 8-aligned
     DBSS DOS_B_CONY,  2          ; ...its top, below the bar
     DBSS DOS_B_CONCOLS, 2        ; ...and its size in CELLS: 80, and the rows
@@ -9007,24 +9034,34 @@ PKT_VERSION equ 9
     DBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
     DBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
     DBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
+%endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
     DBSS DOS_B_LBUF,  LNK_MAX    ; a shortcut, read or written
     DBSS DOS_B_SBUF,  20         ; ...and `.\NAME.EXT` while one is built
+%endif
     DBSS DOS_B_CNAME, 14         ; one component of a link's working directory
     DBSS DOS_B_FBUF,  24         ; ...and OSAPI_FIND_SZ while it is looked up
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
     DBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
                                  ; may NOT share dos_sbuf: the builder uses it
     DBSS DOS_B_LEND,  2          ; how many bytes of dos_lbuf are real
+%endif
     DBSS DOS_B_EBUF,  DOS_ENVN * DOS_ENVBUF   ; the environment rows...
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
     DBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
+%endif
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
     DBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
     DBSS DOS_B_VSBUF, VS_SIZEOF  ; OSAPI_VOL_STAT's record (SPEC.md 18.4.6),
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
+%endif
                                  ; for AH=36h. OURS and not the program's:
                                  ; DOS gives that call nowhere to put a buffer
     DBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
+%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
     DBSS DOS_B_MRAD,  DOS_MRADSZ ; ...and the three-arm radio's own record
                                  ; (os88ui.inc), whose SEL word IS the setting
                                  ; - os88ui_radhit moves it and redraws the two
@@ -9034,6 +9071,7 @@ PKT_VERSION equ 9
     DBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
     DBSS DOS_B_MX,    2          ; the memory page's content origin, banked
     DBSS DOS_B_MY,    2          ; for one paint
+%endif
     DBSS DOS_B_WIN,   2
     DBSS DOS_B_STATE, 1
     DBSS DOS_B_ERR,   1
@@ -11704,6 +11742,7 @@ dos_pkt_tick:
 
 
 %endif                              ; KD_BACKEND
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 ; -----------------------------------------------------------------------------
 ; dos_drv_take - the hardware drivers, out of the way; BLASTER= from what they
 ;                say on the way past
@@ -11778,6 +11817,7 @@ dos_drv_back:
     pop cx
     pop ax
     ret
+%endif                              ; KD_BACKEND
 
 ; -----------------------------------------------------------------------------
 ; dos_blaster_set - "BLASTER=A220 I5 D1 T4" from the record at SI
@@ -13650,8 +13690,17 @@ DOS_BSS_SIZE equ DB
                                     ; a control pays NOTHING for it - and this
                                     ; is the control's FIRST caller in the tree
                                     ; (SPEC.md 96.36)
+%ifndef KD_BACKEND                  ; **THE WINDOW'S FURNITURE** (SPEC.md
+                                    ; 96.43.2): buttons, fields, a radio and a
+                                    ; line editor, and with the window half
+                                    ; gated out there is nothing left in this
+                                    ; root that names one.  os88ui's own rule -
+                                    ; a package pays for the controls it uses -
+                                    ; one level up: a build with no window uses
+                                    ; none
 %include "os88ui.inc"
 %include "os88line.inc"
+%endif
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------
 ; **ITS BSS GOES LAST**, past this package's own chain, which is the one line
 ; that keeps the two apart: os88parts.inc already took the FIRST OP_BSS bytes
@@ -13696,6 +13745,8 @@ CON_BSS     equ 0                   ; ...and the carrier's own arithmetic still
                                     ; every verb this feature is made of
 %endif                              ; KD_BACKEND
 
+%ifndef KD_BACKEND                  ; the mirrors below compare against a
+                                    ; library this build does not include
 %if DOS_MRADSZ != OS88UI_RD_SIZE
  %error "DOS_MRADSZ must equal os88ui.inc's OS88UI_RD_SIZE - the bss table \
 above reserves DOS_MRADSZ bytes for a record this file does not own"
@@ -13708,6 +13759,7 @@ that word of the record, and a wrong offset writes the pitch"
 %if DOS_LNSZ != OS88LINE_SZ
  %error "DOS_LNSZ must equal os88line.inc's OS88LINE_SZ - the bss table above reserves DOS_LNSZ bytes for a block this file does not own"
 %endif
+%endif                              ; KD_BACKEND
 
 %ifndef KD_BACKEND
     OS88_BSS DOS_BSS_SIZE + CON_BSS
@@ -13736,36 +13788,88 @@ dos_imgsz   equ os88_image_end + DOS_B_IMGSZ   ; word: the image's bytes
 dos_prgsp   equ os88_image_end + DOS_B_PRGSP   ; word: the program's first SP
 dos_sv_ss   equ os88_image_end + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ os88_image_end + DOS_B_SVSP    ; word: ...across the far jump
+%ifndef KD_BACKEND
 dos_conx    equ os88_image_end + DOS_B_CONX    ; the console band (SPEC.md
+%endif
+%ifndef KD_BACKEND
 dos_cony    equ os88_image_end + DOS_B_CONY    ; 96.32): top-left in screen
+%endif
+%ifndef KD_BACKEND
 dos_concols equ os88_image_end + DOS_B_CONCOLS ; pixels, size in CELLS, all
+%endif
+%ifndef KD_BACKEND
 dos_conrows equ os88_image_end + DOS_B_CONROWS ; four filled by dos_con_geom
+%endif
+%ifndef KD_BACKEND
 dos_pln     equ os88_image_end + DOS_B_PLN     ; the path box (SPEC.md 96.32.1)
+%endif
+%ifndef KD_BACKEND
 dos_path    equ os88_image_end + DOS_B_PATH    ; ...and its text
+%endif
+%ifndef KD_BACKEND
 dos_erect   equ os88_image_end + DOS_B_ERECT   ; 'Environment' on the bar
+%endif
+%ifndef KD_BACKEND
 dos_rrect   equ os88_image_end + DOS_B_RRECT   ; ...and 'Run'
+%endif
+%ifndef KD_BACKEND
 dos_tvol    equ os88_image_end + DOS_B_TVOL    ; dos_path_take's scratch pair
+%endif
+%ifndef KD_BACKEND
 dos_tname   equ os88_image_end + DOS_B_TNAME
+%endif
+%ifndef KD_BACKEND
 dos_lrect   equ os88_image_end + DOS_B_LRECT   ; '<' (SPEC.md 96.32.2)
+%endif
+%ifndef KD_BACKEND
 dos_grect   equ os88_image_end + DOS_B_GRECT   ; ...'>'
+%endif
+%ifndef KD_BACKEND
 dos_trect   equ os88_image_end + DOS_B_TRECT   ; ...and 'Return'
+%endif
+%ifndef KD_BACKEND
 dos_lnv     equ os88_image_end + DOS_B_LNV     ; word: LN_VIEW before a key
+%endif
+%ifndef KD_BACKEND
 dos_lnl     equ os88_image_end + DOS_B_LNL     ; word: LN_LEN before a key
+%endif
+%ifndef KD_BACKEND
 dos_lnc     equ os88_image_end + DOS_B_LNC     ; word: LN_CAR before a key
+%endif
+%ifndef KD_BACKEND
 dos_ncell   equ os88_image_end + DOS_B_NCELL   ; word: cells the edits redrew
+%endif
+%ifndef KD_BACKEND
 dos_nkey    equ os88_image_end + DOS_B_NKEY    ; word: ...over this many keys
+%endif
+%ifndef KD_BACKEND
 dos_page    equ os88_image_end + DOS_B_PAGE    ; byte: DOS_PAGE_*
+%endif
+%ifndef KD_BACKEND
 dos_brect   equ os88_image_end + DOS_B_BRECT   ; the page button's rect
+%endif
+%ifndef KD_BACKEND
 dos_srect   equ os88_image_end + DOS_B_SRECT   ; ...and Save Shortcut's
+%endif
 dos_erp     equ os88_image_end + DOS_B_ERP     ; word: the row being emitted
+%ifndef KD_BACKEND
 dos_lbuf    equ os88_image_end + DOS_B_LBUF    ; a .LNK, read or written
+%endif
+%ifndef KD_BACKEND
 dos_sbuf    equ os88_image_end + DOS_B_SBUF    ; `.\NAME.EXT` while building
+%endif
 dos_cname   equ os88_image_end + DOS_B_CNAME   ; one path component
 dos_fbuf    equ os88_image_end + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
+%ifndef KD_BACKEND
 dos_wname   equ os88_image_end + DOS_B_WNAME   ; ...the name to write it under
+%endif
+%ifndef KD_BACKEND
 dos_lend    equ os88_image_end + DOS_B_LEND    ; word: bytes of dos_lbuf read
+%endif
 dos_ebuf    equ os88_image_end + DOS_B_EBUF    ; the four environment rows
+%ifndef KD_BACKEND
 dos_eln     equ os88_image_end + DOS_B_ELN     ; ...and their os88line blocks
+%endif
 dos_args    equ os88_image_end + DOS_B_ARGS    ; 128: the command tail the user
                                                ; typed, without its count or
                                                ; its 0Dh - both are DOS's
@@ -13781,12 +13885,24 @@ dos_kdh     equ os88_image_end + DOS_B_KDH      ; the handoff record (96.40)
 dos_wok     equ os88_image_end + DOS_B_WOK      ; byte: arm 3 confirmed (96.42)
 %endif
 dos_memkb   equ os88_image_end + DOS_B_MEMKB   ; word: the arena cap, 0 = all
+%ifndef KD_BACKEND
 dos_mrad    equ os88_image_end + DOS_B_MRAD    ; the radio group's record
+%endif
+%ifndef KD_BACKEND
 dos_keepc   equ dos_mrad + DOS_MRADSEL         ; byte: DOS_MEM_* (SPEC.md 96.36)
+%endif
+%ifndef KD_BACKEND
 dos_mbuf    equ os88_image_end + DOS_B_MBUF    ; the limit field's text
+%endif
+%ifndef KD_BACKEND
 dos_mln     equ os88_image_end + DOS_B_MLN     ; ...and its os88line block
+%endif
+%ifndef KD_BACKEND
 dos_mx      equ os88_image_end + DOS_B_MX      ; word: this paint's content x
+%endif
+%ifndef KD_BACKEND
 dos_my      equ os88_image_end + DOS_B_MY      ; word: ...and its top
+%endif
 dos_pic1    equ os88_image_end + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ os88_image_end + DOS_B_PIC2    ; byte:
 dos_isexe   equ os88_image_end + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up

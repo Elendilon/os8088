@@ -981,6 +981,15 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; machine's drives, and a Tandon TM100 is not a place to substitute guesses.
 ; Only a machine with no vector at all falls back to the values above.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
                                 ; docs/plans/LAST-DROP-BYTES.md row 12): kmain runs
                                 ; this once, before the first mount, and
@@ -1022,6 +1031,7 @@ dsk_dpt_init_x:
     pop ax
     retf
 
+%endif                              ; KD_BUILD
 section .cold                   ; ...and back to resident cold code
 
 ; -----------------------------------------------------------------------------
@@ -1651,6 +1661,15 @@ dsk_vol_row_x:
 ; row is describing a volume the machine has just successfully read a kernel
 ; out of, which is a stronger statement than any of the bounds would make.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
                                 ; docs/plans/LAST-DROP-BYTES.md row 4): which volume
                                 ; the machine came off, asked once by kmain
@@ -1782,6 +1801,7 @@ dsk_bootltr:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BUILD
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
@@ -1866,6 +1886,15 @@ dsk_geom_pick:
 ; machine nothing has taken a row yet, so they are C: and D: - which is what
 ; DOS 4 and earlier called them, and what the drive-select lines mean.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; ...and row 9, for the same reason one
                                 ; screen down: desk_init is ALREADY in the
                                 ; overlay and reaches this through a `.text`
@@ -1942,6 +1971,7 @@ dsk_flop_add_x:
 ; One predicate, so the desktop and OSAPI_VOL_KIND cannot drift: the same
 ; question is now asked once and answered once.
 ; -----------------------------------------------------------------------------
+%endif                              ; KD_BUILD
 section .cold                   ; ...and back to resident cold code
 dsk_vol_fixed_x:
     push bx
@@ -7006,6 +7036,15 @@ dsk_rb_go:                      ; the last instruction of the GUI, in .cold
 ; Reached by a near call from desk_init, which is also .ovl (same section, same
 ; vstart), and disk.inc is %included first so it is a backward reference.
 ; =============================================================================
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw
 %ifndef NO_FDDPROBE              ; `make FDDPROBE=0` takes the BODY out too, not
                                  ; just desk_init's call: the A/B is meant to be
@@ -7517,6 +7556,7 @@ fdd_wait:
     ret
 
 %endif                           ; NO_FDDPROBE
+%endif                              ; KD_BUILD
 section .text
 
 ; -----------------------------------------------------------------------------
