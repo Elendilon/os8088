@@ -43,11 +43,23 @@
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
 %ifndef KD_BACKEND
+%ifdef DOSKPART
+ %ifdef DOSTRACE
+  %error "DOSKPART and DOSTRACE both want the part table and wave 5 has not merged them - build one at a time"
+ %endif
+ %define DOS_PARTED 1
+%endif
 %ifdef DOSTRACE
-    ; **THE TRACE BUILD IS A PARTED PACKAGE AND THE SHIPPED ONE IS NOT**
-    ; (SPEC.md 96.29.1). flags bit 2 is OS88_F_PARTS, and it is behind the
-    ; %ifdef for the reason the whole instrument is: a byte the shipped build
-    ; pays for an instrument is a byte the DOS program does not get.
+ %define DOS_PARTED 1
+%endif
+%ifdef DOS_PARTED
+    ; **A PARTED BUILD, AND THE SHIPPED ONE IS NOT** (SPEC.md 96.29.1). flags
+    ; bit 2 is OS88_F_PARTS, and it is behind the %ifdef for the reason the
+    ; trace instrument is: a byte the shipped build pays for something it does
+    ; not use is a byte the DOS program does not get. It costs MORE than its
+    ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
+    ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
+    ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
     OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
 %else
     OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
@@ -8336,6 +8348,41 @@ dos_mcb_resize:
 OS88_PARTS_BEGIN 1
   OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
 OS88_PARTS_END
+%endif
+
+; -----------------------------------------------------------------------------
+; kern_dos, AS A PART (docs/plans/KERN-DOS-PLAN.md §4.1)
+; -----------------------------------------------------------------------------
+; The whole of `kern_dos` - the DOS core over the kernel's disk layer - as one
+; `OP_ASSET` row that `os88pkg.py` appends and compresses.
+;
+; **THE STANDARD'S CODE IS NOT EMITTED AND THAT IS THE POINT.** `op_load` reads
+; a part into a claim, and this part is never read into one - the argument in
+; docs/plans/KERN-DOS-PLAN.md §4.1.1 is that the handoff walks its bytes into
+; EXTENTS while the file layer is
+; still alive and the stub reads them with `int 13h`, because by then the heap
+; has been given away (docs/plans/KERN-DOS-PLAN.md §4.1.1). So what this build
+; needs out of the standard is the
+; eighteen bytes of TABLE - `os88pkg.py` fills the offset and the length in -
+; and `OS88_PARTS_END_TABLE` is the documented way to close one without the
+; 800-byte body (apps/os88parts.inc, where the C SDK needs the same split).
+;
+; It is behind `-DDOSKPART` while wave 5 is unfinished: a shipped DOS.O88
+; carrying it would cost the 360KB system disk 43 of its 53 free clusters for
+; a feature that cannot yet be reached, and docs/plans/KERN-DOS-PLAN.md
+; docs/plans/KERN-DOS-PLAN.md §4.1.3.1's four-piece shape is what it should
+; cost instead.
+%ifdef DOSKPART
+%include "os88parts.inc"
+DOS_PART_KD equ 0
+OS88_PARTS_BEGIN 1
+  OS88_PART OP_ASSET, OP_COMP
+OS88_PARTS_END_TABLE
+
+; ...and where the row is, for the handoff to read. OP_T_ROWS past the table's
+; own head, and then OP_R_OFF (512-byte units), OP_R_LEN (bytes) and OP_R_ZKB,
+; which on an OP_COMP row is the PACKED length (SPEC.md 20.12.7).
+dos_kdrow   equ op_table + OP_T_ROWS + OP_ROW * DOS_PART_KD
 %endif
 
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY

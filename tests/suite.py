@@ -2758,6 +2758,24 @@ SOAK = [
         "exists to move. A: carries no file system (the loader and the blob "
         "raw) and B: is an ordinary FAT12 volume; measured at 4.5s idle.",
         needs=("marty",), serial=True),
+    Row("kdpart", "soak", py("tests/kdpart.py"), 1.0,
+        "kern_dos IS REACHABLE AS ABSOLUTE SECTORS (W5c of "
+        "docs/plans/KERN-DOS-PLAN.md §4.1.1): the handoff gives the heap "
+        "away before it jumps, so the part is never LOADED as a part - its "
+        "bytes are walked into extents while the file layer is alive and the "
+        "stub reads them with int 13h. This is that arithmetic, done on the "
+        "host BEFORE any assembly depends on it, and every step has a way to "
+        "be quietly wrong: OP_R_OFF is in 512-byte units and not bytes or "
+        "clusters; a FAT chain's runs are what an extent list IS; file sector "
+        "N is the (N mod spc)'th of the (N div spc)'th cluster, which is the "
+        "one place an off-by-one lands in the MIDDLE of the image; and the "
+        "bytes at those sectors have to LZ4-expand to build/kerndos.bin "
+        "exactly, which is the only step a consistent mistake in the first "
+        "three cannot fool. It also checks the extent COUNT against HS_XMAX, "
+        "because the staging area is fixed at assembly time and a floppy "
+        "written to for a year is where a too-fragmented part would first "
+        "show up. Host-side, one second, and it needs `make kdostest`.",
+        wants=("build/kdos360.img", "build/kerndos.bin")),
     Row("kdfar", "soak", py("tests/unit/t_kdfar.py"), 0.3,
         "NEAR OR FAR HAS TO MATCH THE BODY (SPEC.md 96.38.1): kerndos/ calls "
         "the kernel's disk layer by hand, and that layer is NOT one calling "
