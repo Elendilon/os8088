@@ -76,31 +76,8 @@
                                         ; flags bit 0 = icon, bit 1 = the
                                         ; association block after it
 
-; --- the icon (SPEC.md 20.2/20.5) -------------------------------------------
-; A CRT on a stand with a `>` prompt and a cursor under it. It is 1bpp and
-; reads the same on all three adapters, which is what SPEC.md 39.4 asks of a
-; drawing - and it is what a .COM and a .EXE WEAR, because SPEC.md 54.1
-; composes a document's icon out of its program's. An iconless package would
-; leave every DOS program on a disk showing assoc_compose's bare page, and
-; tools/os88mini.py refuses to bake a default glyph from one at all.
-    OS88_ICON16
-    dw 0x0000, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE
-    dw 0x7FFE, 0x7FFE, 0x7FFE, 0x03C0, 0x03C0, 0x1FF8, 0x0000, 0x0000
-    dw 0x0000, 0x7FFE, 0x4002, 0x4002, 0x5002, 0x4802, 0x5002, 0x4002
-    dw 0x5F02, 0x4002, 0x7FFE, 0x03C0, 0x03C0, 0x1FF8, 0x0000, 0x0000
-    OS88_ICON16_END
-
-    OS88_ASSOC16
-    db 3                            ; ...and this COUNT is the thing to change
-    OS88_ASSOC_EXT 'COM'            ; with them: a fourth entry left at 2 sits
-                                    ; in the block and is never looked at, and
-                                    ; the symptom is the loader trying to RUN
-                                    ; the document
-    OS88_ASSOC_EXT 'EXE'
-    OS88_ASSOC_EXT 'LNK'            ; a SHORTCUT (SPEC.md 96.21): the target,
-                                    ; its arguments and its environment, in
-                                    ; Microsoft's own Shell Link layout
-    OS88_ASSOC16_END
+%include "dosicon.inc"          ; the icon and the association block,
+                                ; shared with apps/dos/dosload.asm
 %endif                              ; KD_BACKEND
 
 ; DOS_CONT_W/H WERE HERE and are gone (SPEC.md 96.20.3): they were 286 and 81,
@@ -8439,15 +8416,15 @@ dos_btn_tab:
 dos_l_memt: db 'Memory for the program:', 0
 dos_l_memk: db 'Keeping the disk cache:  '
 %endif                              ; KD_BACKEND
-%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_memk1:  db '     K', 0
-%endif                              ; DOS_EXTCORE
+%endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_memt2: db 'Taking it as well:       '
 %endif                              ; KD_BACKEND
-%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_memk2:  db '     K', 0
-%endif                              ; DOS_EXTCORE
+%endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_l_meml: db 'Limit:', 0
 ; --- the three arms, and the words under the greyed one (SPEC.md 96.36) -----
@@ -8518,7 +8495,7 @@ dos_bdalist:
                                     ; flag - the same trap in another field
     dw 0xFFFF, 0
 %endif                              ; DOS_EXTCORE
-%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; **THE SIX STATUS LINES ARE GONE, AND THAT IS SPEC.md 96.33 ARRIVING.** They
 ; stood in the console's band under a comment saying they would go when it
@@ -8531,10 +8508,10 @@ dos_bdalist:
 ; `Exit code ` survives because dos_fmt_exit stamps the digits INTO it, and
 ; both readers want them: the console's line says `ended, exit code 002`.
 dos_l2_ran:  db 'Exit code '
-%endif                              ; DOS_EXTCORE
-%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+%endif                              ; KD_BACKEND
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 dos_exitd:   db '000', 0
-%endif                              ; DOS_EXTCORE
+%endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_errs:
@@ -9285,6 +9262,26 @@ PKT_VERSION equ 9
     %1 equ HB
     %assign HB HB + %2
 %endmacro
+
+; --- AND THE VERY FIRST ROW IS THE LOADER'S (SPEC.md 96.44.4) ---------------
+; `apps/dos/dosload.asm` writes the `kern_dos` part's table row into the head
+; of this bss before it re-homes and disappears, and it does that WITHOUT a
+; constant: the kernel's own header field says where a part's bss begins
+; (`LD_H_IMG`), so the block has to be at offset ZERO of it. That is why this
+; row is here rather than anywhere it would read more naturally.
+;
+; IT IS `DBSS` AND NOT `HBSS`, WHICH COSTS `kern_dos` EIGHT BYTES IT NEVER
+; READS - and that is the cheaper of the two mistakes available. An `HBSS` row
+; sits past `CORE_BSS_SIZE` and so cannot be at offset zero; a CONDITIONAL row
+; is what 96.44.2 forbids outright, because the core is assembled once and one
+; row only some builds emit moves every cell after it. Eight bytes of a bss
+; against an ABI that cannot be checked is not a close call.
+;
+; IT IS AN `OP_ROW` AND NOT A STRUCT OF OUR OWN: the box read
+; `[dos_kdrow + OP_R_OFF]` when the part table was in its own image, so a
+; verbatim copy leaves all four of those read sites spelled as they were and
+; moves only the base.
+    DBSS DOS_B_KDROW, 8          ; kind, flags, dw off, dw len, dw zkb
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so

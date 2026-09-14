@@ -127084,3 +127084,65 @@ or `%ifdef DOSKPART` inside a core span, ever again. `DOSTRACE` and
 `DOSNET_CARD` are deliberately not on that list: they are build knobs and are
 the same in every host, so five such regions remain and none of them is a seam.
 The core assembles standalone at **14,453 bytes**.
+
+#### 96.44.4 The image is a LOADER, and the box is part 0
+
+`DOS.O88`'s image is **`apps/dos/dosload.asm`, 1,812 bytes**, and the box is
+part 0 of its own file.
+
+**IT IS A LAUNCH TIME AND NOT A TIDINESS.** `tools/os88pkg.py` refuses
+`--compress` beside parts — a part's offset is measured from the start of the
+file and the table holding it is INSIDE the image, so compressing the image
+and laying out its parts are circular — and §96.40.3 measured what that cost
+when arm 3 first went on a system disk: the image went RAW, `DOS.O88`
+26,723 → 57,272 bytes, and the same click took **+932 ms (35%)**. Twelve soak
+rows went red at once, none of them for a reason of its own.
+
+The way out is one sentence: **only the IMAGE has to be raw, and the image can
+be a kilobyte.** Everything heavy becomes a part, and a part may be `OP_COMP`.
+§20.12.10's re-home is what makes the loader disappear afterwards, and
+`apps/skies/csload.asm` is the worked example this is cut from.
+
+| | | |
+|---|---|---|
+| **image** | `dosload.asm`, 1,812 bytes | raw; freed by `OSAPI_PKG_REHOME` |
+| **part 0** | the box | `OP_SEG, OP_COMP` — its bss ships inside it |
+| **part 1** | `kern_dos` | `OP_ASSET, OP_LAZY`, packed by the Makefile |
+
+##### 96.44.4.1 Part 1 is LAZY because the pair would be REFUSED
+
+Not a style choice. `op_load` claims and reads every EAGER part into one
+carve, and `op_size` refuses a carve of 64KB or more; part 0 unpacks to ~45KB
+and `kern_dos` to ~29KB, so an eager pair is turned away before a sector is
+read. It is also the wrong thing to want — nothing ever `op_fetch`es this row,
+because the handoff walks its bytes into EXTENTS while the file layer is alive
+and the stub reads them with `int 13h` (§96.40.2), by which time the heap has
+been given away and there is nowhere to load to.
+
+**`OP_LAZY` costs the row its `zkb` word**, which on an `OP_COMP` row carries
+the packed length — and `apps/os88parts.inc` refuses the pair for exactly that
+reason, correctly and in general. So the stream is packed by
+`tools/os88lz.py --raw` in the Makefile instead, which makes the FILE the
+packed stream and `OP_R_LEN` the packed length directly. **The stub needs no
+other figure**: `kds_expand` takes a byte count and runs to the end of the
+stream, and `KDS_ULEN` is carried and never read. Nothing on the guest
+changes.
+
+##### 96.44.4.2 The handoff is the part's own ROW, at offset zero of the bss
+
+The part table is in the LOADER's image, which is about to stop existing, so
+the box cannot read it for itself — and it read four fields of it
+(`dos_mem_whole`'s greying predicate and the three the `KDH_*` record wants).
+§20.12.10.2's answer needs no mechanism: the loader writes into the head of
+the box's bss, which the kernel does not zero on the re-home path.
+
+It writes the `OP_ROW` **verbatim**, so `[dos_kdrow + OP_R_OFF]` is spelled at
+all four sites exactly as it was and only the base moved. And it is at **offset
+zero** because that is the one offset the loader can name without a constant:
+the part's own header field says where its bss begins.
+
+`DOS_B_KDROW` is therefore a `DBSS` row and the FIRST one, which costs
+`kern_dos` eight bytes it never reads. That is the cheaper of the two mistakes
+available: an `HBSS` row sits past `CORE_BSS_SIZE` and so cannot be at offset
+zero, and a CONDITIONAL row is what §96.44.2 forbids outright, the core being
+assembled once and one such row moving every cell after it.
