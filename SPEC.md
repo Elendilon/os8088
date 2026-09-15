@@ -124436,6 +124436,38 @@ The digits come from `dos_mem_num`, whose padding is LEADING BLANKS because
 line is one line, so `dos_con_arena` steps over them rather than the box
 carrying a second formatter.
 
+##### 96.33.20 The log line stands on its own, and names the program in full
+
+The console is a LOG, so the line about a program that has stopped is written
+where the cursor happens to be — and for anything that did not come from the
+console, the cursor is sitting immediately after a prompt nobody has typed
+into. The result was
+
+```
+A:\>PRINCE.EXE: Not enough memory.
+B:\>
+```
+
+— the sentence glued to the prompt above it, and the program named as a bare
+`PRINCE.EXE` when the box's own path field said `B:\PRINCE.EXE` and the launch
+had just walked to another drive to find it.
+
+Both halves are fixed at `dos_con_ended`, and both have a trap in them.
+
+**The newline is decided by the COLUMN, not by `[dos_fromcon]`.** A typed
+command has already echoed its own CRLF, so an unconditional one gives it a
+blank line; a Run click, a `.LNK` or an opened document has echoed nothing.
+`[con_cx]` is the only thing that knows which happened, and it is already
+maintained for the cursor.
+
+**The name is `[dos_path]`**, which is what §96.33.10 fills on both launch
+doors and what Save Shortcut writes — so the log says the same thing the path
+box says. `dos_path_make` leaves the bare name there when it cannot resolve a
+path, so the fallback in the printer is only for a box that has never launched
+anything at all. The `Bad command or file name` arm keeps the bare name on
+purpose: that line is about what the user TYPED, and a path would be an
+invention.
+
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
 A DOS program inside the bracket owns the machine and the screen with it. It
@@ -128024,6 +128056,57 @@ at the entry proc holding the launched file's name in `KERNEL_SEG`, and
 `dos_be_here` answers the folder the instance is standing in before any
 navigation has moved it. A box that asked later would be asking about
 wherever the user had gone.
+
+#### 96.40.6 A post that outlives its spender, and the sentence that blamed memory
+
+Arm 3 does **no sizing at all**. It tears the kernel out and hands the program
+what a DOS would — so the one thing it cannot fail for is memory, and for a
+whole class of session it reported exactly that. On a machine showing 425K
+free and 414K in its largest run, a 126,304-byte `PRINCE.EXE` came back
+`PRINCE.EXE: Not enough memory.`, every time, for the rest of the session.
+
+`osapi_dos_handoff_x` refuses twice and neither reason is a quantity: a null
+segment, and **a post that is already standing** — one handover at a time,
+because two would be two machines' worth of parameters and one teardown. The
+box turned that into `DER_MEM`, which is a sentence about the machine when the
+truth is a sentence about the box.
+
+**The latch was left standing by a hibernation resume, and that is not an
+oversight in one place — it is the shape of the feature.** §96.40's handoff
+writes an image on the way out so that the machine has somewhere to come back
+to, and it takes that picture with `[hb_dosseg]` **deliberately live**: the
+restored kernel has to know whose record to put the exit code in. `hbm_wake`
+then spent it — but only on the arm where a DOS program really did come back,
+`HS_DOSCODE` being something other than `KDH_NOCODE`. Resume that same image
+any other way — a cold boot and Resume — and the latch came back with it and
+nothing ever spent it. Arm 3 was dead for the whole restored session, and the
+Memory page went on offering it, because what greys the arm is whether this
+build carries `kern_dos` (§96.36.1) and that was still true.
+
+So the latch is spent on **every** wake, before the code is even looked at.
+That is a move rather than an addition: the store that was inside the branch
+is now in front of it.
+
+There is a second hole of the same kind one layer out. `hbf_perform` is the
+resident front that loads `HIBER.DRV` to spend a post, and its refusal path —
+the module could not be read — returned without withdrawing anything, while
+every arm of `hbm_dosrun` inside the module clears the latch properly. `ui_task`
+has already taken the queue byte by then, so the post is gone and the latch is
+not. It is withdrawn there too, unconditionally: `[hb_dosseg]` is zero unless a
+DOS handoff is what was posted, and `[ui_rebootq]` holds one post at a time.
+
+The rule the two share is worth stating once: **a latch that names a pending
+post must be cleared by every path that consumes, abandons or outlives that
+post** — and an image of the whole of memory is a way of outliving one.
+
+`tests/hibernate.py` gates it, and the A/B is measured on the row rather than
+argued: a sentinel is poked into `[hb_dosseg]` before the picture is taken —
+which is exactly what the handoff leaves there, for one store instead of a
+second machine — and after the resume it reads `0000` with the fix in and
+`1234`, intact, without it. `[hb_doscode]` reads `KDH_NOCODE` in both arms,
+which is the whole reason the old code walked past the latch, so the row
+asserts that too: without it a future change could make the check pass by
+accident, by delivering a code that was never there.
 
 ### 96.40.1 What the kernel does with the post
 
