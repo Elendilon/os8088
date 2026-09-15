@@ -2848,6 +2848,33 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
         wants=("build/os8088-360.img", "build/doscom360.img")),
+    Row("kdarena", "soak", py("tests/kdarena.py"), 40.0,
+        "THE ARENA AND THE READ-AHEAD DO NOT OVERLAP (SPEC.md 96.44.11). "
+        "kern_dos sizes the DOS program's block and THEN mounts the volume "
+        "the program came off - and the mount CLAIMS, out of the same bump "
+        "allocator, so `dsk_rah_want` lowered `[kd_top]` by 32 KB under an "
+        "arena nothing re-read. The program was handed a block whose top "
+        "24 KB the cache was living in, with SPEC.md 96.11's 8 KB file "
+        "window inside the cache outright. THE FIGURE ON THE GLASS WAS RIGHT "
+        "THROUGHOUT, which is why no row saw it: 588 KB is 588 KB whether or "
+        "not something else is in the top of it - so this row checks the four "
+        "words kern_dos laid out against the ceiling they were cut from, and "
+        "not a number the program prints. Four assertions: the file window is "
+        "the paragraph the arena ends at, the block plus the window ends at "
+        "or below `[kd_top]`, `[dsk_rah_seg]` is 0 after the handover because "
+        "`kd_giveback` ran the ladder to the bottom, and - the one that "
+        "refuses the easy fix - the program still has every KB the ceiling "
+        "allows, since SHRINKING the arena would satisfy the other three and "
+        "leave it 32 KB worse off. Checked red at the base commit, where "
+        "assertion 2 reports the 32 KB by name. The map is re-assembled and "
+        "the BINARY compared with build/kerndos.bin, `os88sym`'s discipline, "
+        "because a map of another build resolves every name to a plausible "
+        "wrong address. MartyPC and it must be: the arm takes os8088 out of "
+        "memory, so every word is read out of a guest with no OS in it. "
+        "`make kdostest` builds the B: floppy.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/doscom360.img",
+               "build/kerndos.bin")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 55.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "
@@ -2865,6 +2892,38 @@ SOAK = [
         "NO `--fatcap`, deliberately, so its FAT is the nine sectors a real "
         "DOS writes. MartyPC; `make kdostest` builds the B: floppy.",
         wants=("build/os8088-360.img", "build/doscom144.img")),
+    Row("kdbigexe", "soak", py("tests/kdbigexe.py"), 45.0,
+        "THE READ-AHEAD LADDER, UNDER THE LOAD (SPEC.md 96.44.11.1). "
+        "`kdarena` covers the handover, and the BOTTOM is all the ladder can "
+        "ever reach there - `dos_build_psp` hands a program everything and "
+        "`dos_exe_setup` reads MINALLOC, not MAXALLOC, so no intermediate rung "
+        "can fire. The rungs only mean something at the other site: "
+        "`.loadtry`, where `dos_load` is refused, one rung of the cache is "
+        "shed and the read is made again. NOTHING ALREADY IN THE TREE CAN "
+        "REACH IT - it needs a file between the arena's capacity WITH the "
+        "cache and its capacity without, 569,952 and 602,720 bytes on a 640KB "
+        "machine - so `tests/dosbig/big.asm` is a hand-built MZ .EXE sized to "
+        "the middle of that band, which leaves ~16KB of slack on each side "
+        "(sixteen rungs of KD_IMG_KB either way) and a failure message that "
+        "says which way it has drifted. THE WINDOWED RUN IS THE CONTROL and "
+        "must FAIL: 586KB does not fit the box's ~437KB arena, so a program "
+        "that would have run anywhere could not pass. Five assertions - the "
+        "windowed refusal, the program's own check of the image head 585KB "
+        "BELOW its code (a short read or a `dos_movedown` that bound at 64KB "
+        "is the one failure a `did it start` row would pass), that the file "
+        "really does not fit the cache's own capacity, the cache width at "
+        "every load attempt read through a breakpoint at the top of the retry "
+        "loop and checked against the ladder, and that it loaded on the FIRST "
+        "rung with room rather than shedding more than it had to. Checked red "
+        "twice on purpose: with `.loadtry` deleted the guest says `the "
+        "program could not be loaded`, and with the rungs collapsed the "
+        "widths read [7, 0] against [7, 4, 2, 0]. `os8088_5150_cga_gla_mix`, "
+        "the only machine here with two drives of different types, because "
+        "586KB does not fit a 360KB floppy. MartyPC; `make kdostest` builds "
+        "the disk.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/dosbig144.img",
+               "build/BIG.EXE", "build/kerndos.bin")),
     Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
@@ -2908,6 +2967,24 @@ SOAK = [
         "or file name`. Host-side; four nasm runs, and it fails naming the row "
         "and both offsets.",
         ),
+    Row("kdcwd", "soak", py("tests/kdcwd.py"), 50.0,
+        "WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine "
+        "(SPEC.md 96.44.10). CWDHERE.COM in B:\\SUB\\ with the only copy of "
+        "HERE.TXT beside it prints four things - AH=19h's drive, AH=47h's "
+        "directory, a BARE-name open of the file that is only in that folder, "
+        "and the program path DOS 3+ leaves in the environment's tail - and "
+        "the row runs it windowed, then runs the SAME program on the SAME disk "
+        "with the whole machine under it, and requires the two answers to be "
+        "identical. THE PAIR IS THE POINT: the core is ONE object joined to "
+        "two back ends, so a row that runs either alone cannot see them "
+        "disagree. It caught OSAPI_FILE_PATH's X-cell ES - kern_dos bound the "
+        "door with a far call straight at dsk_path_x, which writes to ES:DI "
+        "and never reloads ES, so the environment's path came out as `B:` and "
+        "Prince of Persia answered `Unable to find necessary files`. The other "
+        "three rows were green throughout, which is why all four are printed. "
+        "MartyPC, the 720KB Hercules twin.",
+        needs=("marty",),
+        wants=("build/os8088-720.img", "build/cwdsub.img")),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
         "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "
         "96.44.6). KERNEL_SEG is kern_dos's own segment, so a `call OSAPI_X` "

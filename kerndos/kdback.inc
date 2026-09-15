@@ -135,9 +135,32 @@ dos_k_here:
     ret
 
 ; in: CX = ordinal, ES:DI = an OSAPI_FIND_SZ buffer
+;
+; **`AL` AND `[dsk_fdraw]` ARE INPUTS, AND THE BOX'S DOOR SETS BOTH**
+; (SPEC.md 96.44.12). `dsk_find_x` takes `AL = 1 if the caller may see hidden
+; and system entries` - the fence SPEC.md 19.6.1 puts between a package and a
+; driver - and `api_file_find` computes it from `dvf_drv_owns_seg` before it
+; calls through; and it clears `[dsk_fdraw]`, which `api_file_find_raw` sets
+; to 1 to get the PACKED size of a compressed file instead of the expanded one
+; (20.14.3). A far call straight at the routine passes whatever `AL` the core
+; happened to be holding and whatever `[dsk_fdraw]` was last left as.
+;
+; A DOS program is a PACKAGE by every rule this system has, so both answers
+; are the constant: AL = 0, and the size a program is told is the size it will
+; get if it reads the file. That is a decision rather than a default - the
+; alternative is a DOS program seeing SYSTEM.CFG and the kernel's own files in
+; a `DIR`, which no package can - and it is written here because the value is
+; not visible at the call site.
+; **AND AX IS NOT BANKED ACROSS IT**, which is the trap in writing this: the
+; obvious `push ax` / `pop ax` around the call would restore the AX the caller
+; arrived with and throw away the `FERR_*` the routine answers on CF=1. `AL`
+; is the only half that is an input and `AH` is not read at all, so `xor al,
+; al` on its own is both the whole of the setup and the whole of the safety.
 dos_k_find:
+    mov byte [dsk_fdraw], 0     ; ...the expanded size, as a package is told
+    xor al, al                  ; ...and NOT a driver: no hidden, no system
     call COLD_SEG:dsk_find_x    ; FAR, and kernel.asm:4472 says so
-    ret
+    ret                         ; CX = the next ordinal, AX = FERR_* on CF=1
 
 ; out: BX = sectors per cluster
 dos_k_dfree:
@@ -163,9 +186,33 @@ dos_k_vkind:
     ret
 
 ; in: ES:DI = a buffer, CX = its size; out CX = the length
+; **ES = OUR DS, WHICH THE BOX'S DOOR GETS FOR FREE** (SPEC.md 96.44.10).
+; `OSAPI_FILE_PATH` is an **X** cell - one of exactly two among the twenty-two
+; doors, the other being `OSAPI_FILE_FIND` - so `api_x` puts the caller's DS in
+; ES before the stub runs, and the core's callers pass a plain DS offset in DI
+; with no ES of their own.  A far call straight at `dsk_path_x` inherits
+; whatever ES the core was holding, and that routine's own note says ES is the
+; caller's throughout and is never reloaded: the path is written somewhere
+; else, `dos_pbuf` keeps its zero, and `dos_envpath` appends the program's
+; name past a NUL nobody will read.  What reaches the program is `B:` - the
+; drive and nothing after it.
+;
+; The field report is Prince of Persia launched from `B:\PRINCE\` under the
+; whole-machine arm: it loads, because `dos_load` reads by name from where the
+; machine stands, and then asks for its disk, because it builds its data path
+; off ITS OWN PATH and that said the volume root.  `dos_envpath`'s own comment
+; already describes the DRIVE half of this failure one level up.
+;
+; `dos_be_find` is the other X cell and needs nothing here: all seven of its
+; callers in the core set ES themselves.  `tests/unit/t_kdfar.py` is the gate
+; for both.
 dos_k_path:
+    push es
+    push ds
+    pop es
     call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm:4500 says so
-    ret
+    pop es                      ; ...and `pop` writes no flag, so the CF
+    ret                         ; dsk_path_x answered rides out
 
 ; --- the refusals, which are KERN-DOS-PLAN 6.1's levers in code -------------
 ; **A REFUSAL IS A DECISION AND NOT AN OMISSION.** Each of these is a verb the

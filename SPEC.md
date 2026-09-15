@@ -127521,6 +127521,24 @@ on the same floppy launched under the inline `build/dos.o88`. It reads exactly
 like a file-resolution bug and is not one: `DIR` listed `PRINCE EXE 126304` one
 line above `Bad command or file name: PRINCE.EXE`.
 
+**The blast radius is NINE CELLS and they are all the shell's.** A shifted cell
+only matters where both halves NAME it, and that set is exact: `dosh.inc` is
+included inside the core's span and `dosc.inc` inside the window's, so the
+crossing cells are the ones the prompt and the built-ins share —
+
+| cell | and what it is |
+|---|---|
+| `dsh_line` | the typed line. **Harmless**, and the near miss worth recording: `dsh_run` takes the line in SI and never names its own symbol for it, which is the only reason the box looked healthy at all |
+| `dsh_verb`, `dsh_a1`, `dsh_a2` | the verb and its arguments — each written and read on one side, so each half simply used its own buffer |
+| `dsh_exec`, `dsh_why` | the launcher's handshake, above |
+| `dsh_more`, `dsh_pat`, `dsh_skip` | **`DIR /P`'s suspended listing** (§96.33.9). `dos_con_run` reads `[dsh_more]` to know a page stopped mid-listing and owes no prompt; it read its own copy, never set, so the parted box drew a prompt under `Strike a key` and the next key went to the line editor instead of resuming — the rest of the directory unreachable |
+
+**Of the 58 cells that shifted, NINE are ones both halves NAME**, and a
+shifted cell matters nowhere else. That set is exact because `dosh.inc` is
+included inside the core's span and `dosc.inc` inside the window's, so the
+crossing cells are the ones the prompt and the built-ins share — which is why
+the damage was the console and only the console.
+
 **AND WHAT KEPT IT HIDDEN FOR A WAVE WAS WHERE THE PARTED PACKAGE LIVED.**
 `$(SYSROOT)` shipped the inline `build/dos.o88` and the parted one rode
 `build/kdos360.img`, a gate disk whose rows drive the HANDOFF — the radio, the
@@ -127932,6 +127950,360 @@ would have made `RMDIR` on a non-empty directory jump into whatever followed.
 Every name in the band was confirmed by grep before it was gated, and that is
 the method this section recommends — the walk finds candidates and the grep
 decides them.
+
+#### 96.44.9 A driver-backed volume cannot exist under `kern_dos`
+
+`DVK_DRV` is a volume whose transport is a loadable driver — the RAM disk, a
+hard-disk driver's partitions — and `DVK_FILE` is a redirected one with no
+sectors at all (§62.9). **Neither can reach `kern_dos`, and that is a fence
+rather than a hope.** `hbm_*`'s gather in `kernel/hiber.inc` stages the
+kernel's volume table into the launch block a row at a time and writes every
+**non-BIOS row `DVK_FREE`**:
+
+```
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .vfree
+```
+
+So `kd_vtab` can only ever copy `DVK_BIOS` and `DVK_FREE` into `dsk_vtab`, and
+`[dsk_vkind]` can only ever hold those. The driver whose transport it was is
+gone with the kernel, and so is the RAM it served.
+
+Three bands under `%ifndef KD_BUILD`, **581 bytes**: `dsk_vol_kind` through
+`dsk_vol_drop_drv_x`, the `osapi_vol_*` registration slots, and
+`disk_mount_x`'s `.fsmount` arm with the `cmp` that reaches it. The slots are
+dead twice over — a driver registers a volume through the API table, and since
+§96.44.6 `kern_dos` has no table at all.
+
+**`KD_IMG_KB` does NOT move**, and it is not made to. The rung keeps 962 bytes
+spare against 381 before, and §1's banner is why the work was taken anyway:
+the byte is the unit, the rung is not a design input, and the next 62 bytes of
+anything cross it. `kern_dos` is a build that grows — §96.49's live resume
+spent 996 in one wave — so the slack has a claimant.
+
+##### 96.44.9.1 What STAYS, and the windowed RAM disk
+
+Four things inside the same span are live and the bands are cut around them.
+`dsk_vol_row_x` and `dsk_vol_slot_x` are called from the mount; `dsk_vol_fixed`
+is `DBE_VKIND`'s whole body, the door `dos_k_vkind` answers `AH=1Ch` with; and
+`dsk_list_floor`/`dsk_list_pick` sit in the middle of the first band because
+the mount calls them and the listing stays (§96.44.7.1).
+
+**The RAM disk is untouched in the window.** The gate is `%ifndef KD_BUILD`, so
+`kernel/disk.inc` compiled for the kernel keeps every byte — a windowed DOS box
+reaches a `DVK_DRV` volume exactly as it did, through the kernel's own layer.
+What the gate removes is code in a second assembly of the same file for a
+machine on which no such volume can be mounted.
+
+**The `DVK_FILE` branches inside the read paths are deliberately LEFT.**
+`dsk_find_x`, `dsk_free_clus_x`, `dsk_read_chain_x`, `dskw_rbody`,
+`dskw_stat_x`, `dskw_read_at_x` and `dsk_synth_up` each carry a
+`cmp byte [dsk_vkind], DVK_FILE` and an arm. They are unreachable for the same
+reason, and gating them means threading a conditional through seven live read
+paths for a few hundred bytes — a worse trade than the bytes are worth, and
+the one shape of this work that has a real chance of breaking something.
+#### 96.44.10 An X cell's ES is part of the door, and `kern_dos` had to put it back
+
+Two of the twenty-two doors are **X** cells — `OSAPI_FILE_FIND` and
+`OSAPI_FILE_PATH` — and an X cell is not just a calling convention, it is a
+segment the CALLER never sets: `api_x` puts the caller's DS in ES and KERNEL in
+DS before the stub runs, so a core routine passes DI as a plain DS offset and
+nothing in the core ever loads ES. `kerndos/kdback.inc` binds the same doors to
+the kernel's own routines with a far call, and a far call carries no such
+promise. `dsk_path_x`'s own note is exact about the consequence: *ES is the
+CALLER's throughout and is never reloaded.*
+
+So under `kern_dos`, `dos_envpath` wrote `B`, `:` into `dos_pbuf`, called
+`dos_be_path`, and the path went to whatever segment the core was holding.
+`dos_pbuf+2` kept its zero, the program's name was appended past a NUL nobody
+would read, and what reached the program in the environment's tail was **`B:`**
+— the drive and nothing else.
+
+MEASURED, with `tests/dostrap/cwdhere.asm` in `B:\SUB\`:
+
+| | windowed | whole machine, before | after |
+|---|---|---|---|
+| `AH=19h` drive | `B:` | `B:` | `B:` |
+| `AH=47h` directory | `\SUB` | `\SUB` | `\SUB` |
+| a BARE-name open beside it | opens | opens | opens |
+| **the environment's own path** | `B:\SUB\CWDHERE.COM` | **`B:`** | `B:\SUB\CWDHERE.COM` |
+
+**The current directory was never the broken half**, which is worth stating
+because the field report's shape points straight at it: three of the four rows
+above already agreed. What does not survive is the string a program reads when
+it wants to know where it came from — and a program that builds its data path
+off its own path then looks in the volume root. `dos_envpath`'s own comment
+already described the DRIVE half of exactly this failure one level up, in the
+same program.
+
+The fix is `push es / push ds / pop es` around the far call in `dos_k_path` and
+`pop es` after it — `pop` writes no flag, so the CF the routine answered rides
+out. `dos_be_find` is the other X cell and needs nothing: **all seven of its
+callers in the core set ES themselves**, and `dos_be_path`'s three are split —
+`AH=47h`'s site does, `dos_envpath` and the `..` walk do not. A door's contract
+is the door's, so the fix is in the door.
+
+`tests/kdcwd.py` is the gate and it runs the probe under BOTH arms of the same
+machine, because the windowed box passes every row of this table and always
+did: a defect that lives only in the joint is only visible to a row that runs
+the joint.
+
+#### 96.44.11 The arena was sized before the mount claimed, and the cache is now a LADDER
+
+`kd_entry` sizes the DOS program's block out of `[kd_top]` and then mounts the
+volume the program came off. **The mount CLAIMS.** `dsk_rah_want` takes §18.95's
+read-ahead out of the same bump allocator `kdshim.inc` publishes as
+`mem_claim_x`, which is `[kd_top] -= size` — so the ceiling the arena was cut
+from moved 32 KB down *after* the cut, and nothing re-read it.
+
+What that produced is not an over-report, it is an **overlap**:
+
+| | measured, base | measured, now |
+|---|---|---|
+| `[kd_top]` | `0x9800` | `0xA000` |
+| `[dos_arena] + [dos_apara]` | `0x9E00` | `0x9E00` |
+| `[dos_wseg]` (§96.11's window) | `0x9E00` | `0x9E00` |
+| `[dsk_rah_seg]` / `[dsk_rah_runs]` | `0x9800` / 7 | `0` / 0 |
+| the program's own figure | **588 KB** | **588 KB** |
+
+The top **24 KB of the program's block was the cache**, and the 8 KB file
+window sat inside the cache outright. **THE NUMBER ON THE GLASS WAS RIGHT THE
+WHOLE TIME**, which is the whole reason no row saw it — 588 KB is 588 KB
+whether or not something else is living in the top of it — and it is why
+`tests/kdarena.py` checks the four words kern_dos laid out against the ceiling
+they were cut from rather than anything the program prints.
+
+Two things it cost, and the second is the sharper one. A program that used its
+top pages wrote over the cache, and `dsk_rah_have` then served **the program's
+own bytes back as disk sectors** for the rest of the session. And
+`[dos_ldpara]` is what bounds `dos_load`'s READ, so an image large enough to
+reach the cache was read straight over it — on exactly the large programs this
+arm exists for.
+
+**`kd_arena` is the fix and it is a re-read, not a delta.** The arena is
+`[kd_floor]` to `[kd_top]` and always was; `kd_arena` recomputes all four
+figures from `[kd_top]` — `[dos_apara]`, `[dos_akb]`, `[dos_wseg]` and
+`[dos_ldpara]` — so it cannot drift however many times the ceiling moves. It
+runs immediately after `disk_mount_x`, which is **before** `dos_fh_setup` and
+before `[dos_ldpara]` bounds the load. `[dos_wbytes]` is 0 until that routine
+has run, so the same three stores are right on both sides of it, and the window
+moves with the ceiling rather than being left as a hole in the middle of the
+block. It stores nothing until every check has passed, and it repeats
+`dos_fh_setup`'s own `DOS_PSPP + 0x100` floor so that it is total rather than
+correct only because every caller happens to RAISE the top.
+
+##### 96.44.11.1 The ladder, and where its rungs can actually fire
+
+The cache is **purgeable** here, in rungs: `kd_shed` steps `[dsk_rah_runs]`
+7 → `KD_RAH_L1` → `KD_RAH_L2` → 0, which is **32 KB → 18 → 9 → gone**. Not
+32/16/8: a slot is `DSK_RAH_SECS` = 9 sectors and the kernel sizes the claim as
+`ceil(n × 4.5 KB)` (§18.95.5), so the reachable widths are multiples of 4.5.
+`KD_RAH_L1` = 4 slots is `DSK_RAH_MIN` exactly — the kernel's own documented
+floor, *"18KB of claim behind a 36KB bar and 93% of what the ceiling saves"* —
+and `KD_RAH_L2` = 2 is deliberately below it, because at that point the
+alternative on offer is not a wider cache, it is no cache.
+
+Shedding is three stores and `dsk_rah_arm` makes the same three for the same
+reasons: `dsk_rah_flush` clears **all** `DSK_RAH_RUNS` records so none names a
+chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
+back to 0, **which is the one that would be silent**, being the round-robin
+cursor that `dsk_rah_fill` spends before bounding the next; and
+`[dsk_rah_runs]` is the bound every other loop reads. The base moves **up**:
+a claim here is `[kd_top] -= size`, so what is released is the BOTTOM of the
+block and what survives is its top, where the surviving slots already are.
+
+**AND IT IS GUARDED ON THE CACHE BEING THE LOWEST CLAIM.** All `kd_shed` does
+is raise `[kd_top]`, so the span it hands over is whatever sits at the bottom —
+the cache only while nothing was claimed after it. On the launch mount nothing
+is: `dsk_rah_want` runs first and `dsk_fatw_want` then takes the **pinned**
+`FAT_SEG` rather than the heap (§18.8.3), so `[dsk_rah_seg]` and `[kd_top]`
+agree to the paragraph. That is an ordering in `kernel/disk.inc` rather than a
+property of this file, and the failure if it ever changes is a program handed a
+live FAT window as free memory — so it is checked, and a shed that cannot prove
+it simply keeps the cache.
+
+**The ladder has two sites and they are not the same question.**
+
+`kd_giveback`, at `.ready:`, runs it to the **bottom**. That is a property of
+the handover rather than of the ladder: `dos_build_psp` hands a program
+everything, because that is what DOS does with a .COM (§96.38.2, and PSP:0002
+is how it finds out), and `dos_exe_setup` reads MINALLOC and not MAXALLOC — so
+nothing downstream ever wants less than all of it and **no intermediate rung
+can fire here**. `kd_shed` is a rung at a time anyway: the day a caller wants a
+FIGURE rather than everything, the policy is one `jnc` and nothing else
+changes.
+
+`.loadtry`, around `dos_load`, is where the rungs are real. The arena is honest
+now, so an image between `[kd_top]` and the machine's own ceiling is REFUSED
+rather than read over the cache — `dskw_read_x` answers `FERR_BIG` before any
+data I/O and leaves the destination untouched. A refusal is better than the
+corruption it replaces and is still not the right answer, because the memory
+exists, a cache is sitting in it, and the program has just asked. So a failed
+load sheds one rung and reads again, and only a ladder with nothing left on it
+lets the refusal stand. **Retrying is safe precisely because `FERR_BIG` writes
+nothing.**
+
+The load keeps the cache for the whole of the work the cache is for — the
+mount, the directory walk and `dos_load`'s own read of the image — and pays
+nothing for the shed: `m.disk()` bracketed around the launch reads **19 reads /
+100 sectors on both arms**, identical.
+
+`tests/kdarena.py` is the gate. It re-assembles kern_dos for a map and compares
+the BINARY with `build/kerndos.bin` before trusting an offset, which is
+`tools/os88sym.py`'s discipline for the same reason: a map of another build
+resolves every name to a plausible wrong address and nothing says so. Its
+fourth assertion is the one that refuses the easy fix — shrinking the arena
+satisfies the other three and leaves the program 32 KB worse off.
+#### 96.44.12 The CELL is part of the door, and `kern_dos` binds the ROUTINE
+
+§96.44.10 is one instance of a class, and the class is worth more than the
+instance. The box reaches every file door through an `OSAPI_*` **cell**, and a
+cell is not a call — it is a stub that does work on both sides of the routine:
+
+| the box's door | the cell's stub does | `kern_dos` binds |
+|---|---|---|
+| `dos_k_read`, `_rdat`, `_write`, `_append`, `_delete`, `_mkdir`, `_rename` | `api_n`: stages the name into the kernel's own 13-byte `api_name`, then `inst_vol_enter` | the routine |
+| `dos_k_find` | `api_file_find`: **`[dsk_fdraw] = 0`**, `inst_vol_enter`, then **`AL` = the driver fence** | the routine |
+| `dos_k_path` | `api_file_path`: `inst_vol_enter`, and `api_x` puts the caller's DS in **ES** | the routine |
+
+**`kern_dos` binds the routine and gets none of it**, and that is correct for
+exactly one of the three columns: `inst_vol_enter` stands the CALLING INSTANCE
+on its own folder and there are no instances here, so skipping it is the right
+answer rather than a gap. The other two are inputs, and an input a caller does
+not set is whatever the register or the cell happened to be holding.
+
+**Three defects, one shape**, and the third is the one that says the shape is
+real rather than a story told about two:
+
+1. **`dos_k_path` inherited ES** — §96.44.10. The program's own path in the
+   environment came out as `B:`.
+2. **`dos_k_find` inherited AL**, which `dsk_find_x` documents as *"1 if the
+   caller may see hidden and system entries"* — §19.6.1's fence between a
+   package and a driver, computed in the box's stub from `dvf_drv_owns_seg`.
+   Passed a stray 1, a DOS program's `DIR` sees `SYSTEM.CFG` and the kernel's
+   own files, which no package can.
+3. **`dos_k_find` inherited `[dsk_fdraw]`**, which `api_file_find_raw` sets to
+   1 to get a compressed file's PACKED size instead of its expanded one
+   (§20.14.3). Left at 1, `AH=4Eh` tells a program a file is the size it
+   occupies and `AH=3Fh` then hands it more bytes than it asked about.
+
+A DOS program is a PACKAGE by every rule this system has, so both of the
+second door's answers are constants: `AL = 0`, `[dsk_fdraw] = 0`. **Writing
+them down at the call site is the fix**, because the value is not visible
+there — which is the whole reason the first one survived a wave.
+
+**The trap in writing it** is worth the line, because the obvious spelling is
+wrong: a `push ax` / `pop ax` bracket around `dos_k_find` restores the caller's
+AX and throws away the `FERR_*` the routine answers on CF=1. `AL` is the only
+half that is an input and `AH` is not read, so `xor al, al` alone is both the
+setup and the safety.
+
+**What would catch the next one** is `tests/unit/t_kdfar.py`'s shape one step
+along: it already reads every target `kdback.inc` names out of the kernel
+source and decides near or far from the body. The same walk can read the box's
+cell for that target and require `kdback.inc` to set whatever the stub sets —
+`inst_vol_enter` excepted by name, with the reason above. That is not built,
+and it is the thing to build before the next `kern_dos` door is written.
+
+#### 96.44.13 An EMPTY environment is not an empty environment, and a program that fits never got one
+
+**`[dos_blaster]` is filled by `dos_drv_take`**, out of the record
+`OSAPI_DRV_SUSPEND` hands back for the sound class (§96.17) — and on the
+whole-machine arm `dos_drv_take` runs **only in `.unmount`**, the branch taken
+when the program does NOT fit the arena. The source says so in as many words:
+*"it fits - and the sound driver is never touched"*. `dos_lbfill` then gathers
+`KDL_F dos_blaster, 32` from a cell nothing had written.
+
+So `kern_dos` built the program's environment with **no rows in it**, and the
+block a DOS program was handed began with its own terminator:
+
+    windowed   BLASTER=A220 D1 T3\0 \0 \x01\0 B:\PRINCE.EXE\0
+    kern_dos                      \0 \x01\0 B:\PRINCE.EXE\0
+
+Both are WELL FORMED. The second is an environment with zero variables,
+correctly terminated, with the program path after it exactly where §96.19.3
+puts it. Nothing refuses, nothing is corrupt, and no `INT 21h` answer differs
+— the whole conversation up to this point is identical on both arms, register
+for register and flag for flag.
+
+**And it stops a program dead, because the rows are the ROAD to the path.** DOS
+3 puts a program's own path after the block's terminating NUL and a count
+word, so a program walks the variables to REACH it. Prince of Persia's walk is
+four instructions, measured at `B78F` in its own image:
+
+```
+B78F  mov es,si            ; the environment segment, out of PSP:2Ch
+B791  cmp byte [es:0],0    ; ...is there anything in it?
+B797  jz  B79F             ; no -> skip the walk
+B799  repne scasb          ; yes -> step to the double NUL, and the path
+```
+
+An empty block takes the `jz`. Prince never reaches its own path, cannot work
+out which directory it came from, and says **"Unable to find necessary files.
+Please start program from the default drive and directory."** — about files it
+had already opened successfully. §96.22 describes that exact shape for a
+different cause, and this is a second road to it.
+
+**The fix is one call, at the top of `dos_lbfill`**: take the drivers before
+gathering the row that only taking them can produce. `dos_drv_take` is
+idempotent — `[dos_drvout]` is its own guard — and the drivers cannot survive
+this arm anyway, since `kern_dos` replaces the kernel they are loaded into. So
+the call belongs where the row is READ, not only on the arm that happens to
+need the memory.
+
+**What it cost to find is the general lesson.** Every measurement that a DOS
+box can make said the two arms were identical: the file's bytes, the small read
+Prince actually makes, the CWD, the drive, the program's own path, the command
+tail, the PSP's 256 bytes, the BIOS data area, the registers at entry, and
+every `INT 21h` return register through the fourteenth call. The difference was
+**five bytes of content in a block whose SHAPE was right** — which is why
+§96.21.4's rule generalises past the PSP: *a program reads this without making
+a call, so nothing appears in a trace when it does.*
+
+##### 96.44.11.2 …and the fixture the rungs needed
+
+`tests/kdarena.py` cannot see a rung, because the handover reaches the bottom
+however many steps the ladder has. `.loadtry` is the only site where a rung
+means anything, and **nothing already in the tree could reach it**: it wants a
+file between the arena's capacity with the cache and its capacity without.
+Measured on a 640 KB 5150 — the 360 KB and the mixed-geometry profiles agree to
+the byte — `dos_load`'s capacity is `([dos_ldpara] − 16) × 16`, so the ladder
+moves it:
+
+| cache held | capacity, in file bytes |
+|---|---|
+| 32 KB (`DSK_RAH_RUNS`) | 569,952 |
+| 18 KB (`KD_RAH_L1`) | 584,288 |
+| 9 KB (`KD_RAH_L2`) | 593,504 |
+| none | 602,720 |
+
+`tests/dosbig/big.asm` is a hand-built MZ .EXE at **586,752 bytes**, the middle
+of that band, so it is refused twice and loads on the third try. **The size IS
+the fixture**, and the middle is chosen for slack rather than tidiness: ~16 KB
+on each side is sixteen rungs of `KD_IMG_KB` in either direction, and
+`tests/kdbigexe.py` re-derives all four capacities off the running guest and
+says which way the fixture has drifted if it ever stops landing between them —
+so this can never fail as a mystery.
+
+**The windowed run is the control, and it must FAIL.** 586 KB does not fit the
+box's ~437 KB arena, so the machine is in `DST_ERR` before the third arm is
+picked: a program that would have run anywhere could not pass this row. What
+the fixture then checks about its own load is the part a *did it start* row
+would miss — the first eight bytes of the image, read from code **585 KB above
+them**, so a short read or a `dos_movedown` that bound at 64 KB is caught
+rather than assumed, plus a relocation applied at the far end of the image.
+
+The ladder itself is read through a breakpoint at the top of the retry loop,
+recording `[dsk_rah_runs]` at every attempt: the row asserts the widths are a
+prefix of 7 → 4 → 2 → 0 and that the load happened on the **first rung with
+room**, which is the whole reason for shedding a rung at a time rather than
+all of it. It is armed only across the launch, because `KD_SEG` and
+`KERNEL_SEG` are the same paragraph and that flat address is live kernel code
+until the handoff replaces it.
+
+Checked red twice on purpose: with `.loadtry` deleted the guest says *"kern_dos:
+the program could not be loaded"*, and with the rungs collapsed to one step the
+recorded widths read `[7, 0]` against `[7, 4, 2, 0]`.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

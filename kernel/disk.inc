@@ -2042,6 +2042,18 @@ dsk_vol_slot_x:
     stc
     ret
 
+%ifndef KD_BUILD                ; **NO DRIVER-BACKED VOLUME UNDER kern_dos**
+                                ; (SPEC.md 96.44.9). A `DVK_DRV` volume's
+                                ; transport is a loadable driver and a
+                                ; `DVK_FILE` one has no sectors at all - and
+                                ; neither survives the handoff, which is not a
+                                ; hope: `hbm_*`'s gather writes every NON-BIOS
+                                ; row `DVK_FREE` into the launch block
+                                ; (kernel/hiber.inc), so kern_dos's own table
+                                ; can hold only DVK_BIOS and DVK_FREE by
+                                ; construction. The RAM disk keeps working in
+                                ; the WINDOW, which is this same file with
+                                ; KD_BUILD undefined
 ; -----------------------------------------------------------------------------
 ; dsk_vol_kind - what kind of volume is mounted right now?
 ; in:  nothing
@@ -2320,6 +2332,10 @@ dsk_vol_drop_drv_x:
     jb .next
     jmp kretc_cx
 
+%endif                          ; KD_BUILD - and `dsk_list_floor`/`dsk_list_pick`
+                                ; below are NOT in the band: the mount calls
+                                ; them, and the listing stays for 96.47's
+                                ; resume (96.44.7.1)
 ; -----------------------------------------------------------------------------
 ; dsk_list_floor - point the listing at the .lowbss buffers (module internal)
 ; in:  nothing
@@ -2390,6 +2406,10 @@ dsk_list_pick:
 ; transport nobody published.
 ; =============================================================================
 
+%ifndef KD_BUILD                ; ...and the SLOTS a driver registers one
+                                ; through, which are reachable only via the
+                                ; API table - and since 96.44.6 kern_dos has
+                                ; no table at all
 ; -----------------------------------------------------------------------------
 ; osapi_vol_fence - is the caller the published disk driver? (internal)
 ; in:  ES = the caller's segment (the slot's X stub, or the caller's own DS)
@@ -2581,6 +2601,7 @@ osapi_vol_paint_x:
 ; case DOS special-cases with two buffers; nine sectors makes it disappear.
 ; =============================================================================
 
+%endif                          ; KD_BUILD
 ; -----------------------------------------------------------------------------
 ; dsk_fat_ofs - where a cluster's FAT entry lives (module internal)
 ; in:  AX = cluster (already range-checked by the caller)
@@ -2813,10 +2834,18 @@ disk_mount_x:
 .cwd_kept:                      ; caller, which is how navigation reuses
                                 ; this whole validated pipeline (19.2)
 
+%ifndef KD_BUILD
     cmp byte [dsk_vkind], DVK_FILE  ; a REDIRECTED volume (SPEC.md 62.9) has
     jne .bpbread                    ; no boot sector, no BPB, no FAT window
     jmp .fsmount                    ; and no directory to walk: everything
-.bpbread:                           ; between here and the listing is SECTORS
+%endif                              ; between here and the listing is SECTORS.
+                                    ; **AND kern_dos CANNOT HAVE ONE** (SPEC.md
+                                    ; 96.44.9): `[dsk_vkind]` is written from a
+                                    ; table whose non-BIOS rows the gather
+                                    ; already turned FREE, so the test is one
+                                    ; that can only answer `jne` and the arm
+                                    ; below is reached by falling through
+.bpbread:
 
     ; --- 1. boot sector: read LBA 0, validate the BPB (SPEC.md 18.2) ---
     ; ...unless this volume is FIXED and we have validated it before, in which
@@ -3241,6 +3270,7 @@ disk_mount_x:
     ; the root directory's extent - and a DRVC_FILE volume has none of them.
     ; What replaces the lot is one question: stand in this folder, and say
     ; what is above it.
+%ifndef KD_BUILD                ; ...and the arm itself (SPEC.md 96.44.9)
 .fsmount:
     mov byte [dsk_spc], 1       ; FSV_DFREE answers BYTES and dsk_free_clus
                                 ; answers CLUSTERS, so a redirected volume's
@@ -3288,6 +3318,7 @@ disk_mount_x:
                                 ; places deciding a listing's order is how a
                                 ; display index stops meaning what the
                                 ; hit-test thinks it means (19.4)
+%endif                          ; KD_BUILD
 
 .fail:
     mov word [disk_spt], 9      ; leave sane fallback geometry behind

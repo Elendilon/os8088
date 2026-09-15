@@ -294,3 +294,119 @@ mem_avail_lvl_x:
 ; is ever going to be and the declaration is a no-op rather than a refusal.
 mem_movable_x:
     ret
+
+; --- THE READ-AHEAD'S LADDER (SPEC.md 96.44.11) ------------------------------
+; The one claim this allocator ever holds is `disk.inc`'s directory read-ahead,
+; and it takes **32 KB** - the `DSK_RAH_RUNS` ceiling, because it solves its
+; width from `mem_avail_lvl_x`, which here answers the whole arena. That is
+; memory the DOS program is going to want, so it is given back a RUNG AT A
+; TIME rather than all at once, and the rungs are widths the cache is still
+; useful at.
+;
+; `(runs * 9 + 1) >> 1` is the KB a width costs - `dsk_rah_arm`'s own
+; arithmetic, mirrored here because the two have to agree to the byte or the
+; base moves somewhere the slots do not follow.
+KD_RAH_L1   equ 4               ; 7 runs = 32 KB, and the rungs below it:
+KD_RAH_L2   equ 2               ; 4 = 18 KB, 2 = 9 KB, 0 = gone. Two is under
+                                ; `DSK_RAH_MIN`'s "worth having" floor on
+                                ; purpose: by the time this rung is reached the
+                                ; program has asked for the memory, and a cache
+                                ; that is not worth having beats one that is
+                                ; not there
+
+; kd_rahkb - what a width costs, in KB
+; in:  AX = runs; out: AX = KB; clobbers AX (the output)
+kd_rahkb:
+    push bx
+    mov bx, ax
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, bx                  ; n*9 (a chunk is DSK_RAH_SECS = 9 sectors)
+    inc ax
+    shr ax, 1                   ; ...and KB = ceil(n * 4.5)
+    pop bx
+    ret
+
+; kd_shed - give the program ONE rung of the cache back
+; in:  nothing
+; out: CF=0 with AX = the paragraphs released; CF=1 = there was nothing left
+; clobbers: AX (the output), flags
+;
+; **THE BASE MOVES UP, NOT DOWN.** A claim here is `[kd_top] -= size`, so the
+; cache occupies `[kd_top, kd_top + size)` and the rung nearest the program is
+; the BOTTOM one. Releasing it raises both `[kd_top]` and `[dsk_rah_seg]` by
+; the same amount, and what is left is the TOP of the old claim - which is
+; where the surviving slots already are, slot i living at `i * 4,608` bytes
+; from the base (18.95.5).
+;
+; THREE STORES MAKE IT SAFE and `dsk_rah_arm` does the same three for the same
+; reasons: `dsk_rah_flush` clears ALL `DSK_RAH_RUNS` records, so none names a
+; chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
+; back to 0, **which is the one that would be silent** - it is the round-robin
+; cursor and `dsk_rah_fill` spends its CURRENT value before bounding the next,
+; so a cursor left past the new width fills a slot no memory backs; and
+; `[dsk_rah_runs]` is the bound every other loop reads.
+kd_shed:
+    push bx
+    push cx
+    push dx
+    mov ax, [dsk_rah_seg]       ; **AND ONLY IF THE CACHE IS THE LOWEST CLAIM.**
+    or ax, ax                   ; All this routine does is RAISE `[kd_top]`, so
+    jz .none                    ; the span it hands over is whatever sits at the
+    cmp ax, [kd_top]            ; bottom - which is the cache only while nothing
+    jne .none                   ; was claimed after it. On the launch mount
+                                ; nothing is: `dsk_rah_want` runs first and
+                                ; `dsk_fatw_want` then takes the PINNED
+                                ; `FAT_SEG` rather than the heap (18.8.3), so
+                                ; the two agree to the paragraph. That is an
+                                ; ordering in someone else's file, though, and
+                                ; the failure if it ever changes is a program
+                                ; handed a live FAT window as free memory - so
+                                ; it is CHECKED, and a shed that cannot prove
+                                ; it simply keeps the cache
+    mov ax, [dsk_rah_runs]
+    call kd_rahkb
+    mov cx, ax                  ; CX = the KB we hold
+    mov ax, [dsk_rah_runs]
+    xor dx, dx                  ; DX = the width we are going to
+    cmp ax, KD_RAH_L1
+    jbe .under1
+    mov dx, KD_RAH_L1
+    jmp short .have
+.under1:
+    cmp ax, KD_RAH_L2
+    jbe .have                   ; at or below the last rung: the step is to 0
+    mov dx, KD_RAH_L2
+.have:
+    mov ax, dx
+    call kd_rahkb
+    sub cx, ax                  ; CX = the KB this rung releases
+    jbe .none                   ; a ladder whose rungs cost the same would spin
+    call dsk_rah_flush          ; no record may name a chunk we are giving away
+    mov word [dsk_rah_next], 0  ; ...and no cursor may point past the new width
+    mov [dsk_rah_runs], dx
+    mov ax, cx
+    mov cl, 6
+    shl ax, cl                  ; KB -> paragraphs
+    add [kd_top], ax
+    or dx, dx
+    jz .gone
+    mov bx, [kd_top]
+    mov [dsk_rah_seg], bx       ; what survives is the TOP of the old claim
+    jmp short .out
+.gone:
+    mov word [dsk_rah_seg], 0   ; and 0 is how every reader spells "no cache"
+.out:
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+.none:
+    pop dx
+    pop cx
+    pop bx
+    xor ax, ax
+    stc
+    ret
