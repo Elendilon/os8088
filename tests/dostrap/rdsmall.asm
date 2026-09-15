@@ -27,6 +27,14 @@
 ;      RDSUM uses, so a disagreement between 4 and 1 is about the SIZE of the
 ;      read and not about the file.
 ;
+; **AND EVERY READ IS INTO A POISONED BUFFER.**  The buffer is filled with EEh
+; before the call and the SPAN it came back written is printed beside the
+; count DOS reported.  A read that writes MORE than it was asked for is
+; invisible in every other measurement - the answer is right, the bytes are
+; right, and what is wrecked is the caller's next variable - and it is exactly
+; the shape that leaves a program opening all of its files and then saying it
+; cannot find them.
+;
 ; It runs unchanged under a real DOS (docs/DOS-DEBUGGING.md's rule), so every
 ; line is a comparison rather than an assertion about ourselves.
 ; OURS, MIT with the rest of the tree.
@@ -153,7 +161,19 @@ start:
 ; --- rd6 - read CX bytes into buf, print AX and the first six --------------
 rd6:
     mov word [got], 0
-    mov byte [buf], 0
+    push cx                         ; **POISON FIRST** - 64 bytes of EEh, so
+    push di                         ; the span the read really touched can be
+    mov di, buf                     ; measured against the count it reported
+    mov cx, 64
+    mov al, 0xEE
+    cld
+    push es
+    push ds
+    pop es
+    rep stosb
+    pop es
+    pop di
+    pop cx
     mov dx, buf
     mov bx, [fh]
     mov ah, 0x3F
@@ -171,6 +191,22 @@ rd6:
     call hexw                       ; AX = bytes delivered
     mov si, s_by
     call puts
+    ; --- the SPAN, which is the question this probe exists for --------------
+    mov si, s_span
+    call puts
+    mov si, buf + 63                ; walk back from the end of the poison
+    mov cx, 64
+.sp:
+    cmp byte [si], 0xEE
+    jne .spdone
+    dec si
+    loop .sp
+.spdone:
+    mov ax, cx                      ; CX = how many bytes are NOT EEh...
+    call hexw                       ; ...counting from the buffer's start
+    mov si, s_by
+    call puts
+
     mov si, buf
     mov cx, 6
 .b:
@@ -258,6 +294,7 @@ s_r2:     db '2 six more   ', 0
 s_r3:     db '3 rewind+six ', 0
 s_r4:     db '4 rewind+512 ', 0
 s_ax:     db 'AX=', 0
+s_span:   db ' span=', 0
 s_by:     db '  ', 0
 s_noopen: db 'OPEN FAILED', 13, 10, 0
 s_rerr:   db 'READ FAILED AX=', 0
@@ -275,3 +312,13 @@ got:      dw 0
 name:     db 'PRINCE.DAT', 0
           times 8 db 0
 buf:      times 512 db 0
+
+; --- BALLAST (SPEC.md 96.11) -------------------------------------------------
+; **THE PROGRAM'S OWN LOAD IS A READ THROUGH THE SAME WINDOW**, and what it
+; leaves behind is state the first read after it inherits.  Prince of Persia is
+; 126,304 bytes and this probe was 1,238, so the two were not asking the same
+; question at all.  `-DBALLAST=n` pads the image to n bytes; the bytes are
+; never executed and never read.
+%ifdef BALLAST
+    times BALLAST - ($ - $$) db 0
+%endif

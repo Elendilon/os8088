@@ -247,7 +247,7 @@ def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None,
                 if nm2:
                     rec["name2"] = nm2
         if do_time:
-            rec["in"] = _time_one(m, base, r)
+            rec["in"] = _time_one(m, base, r, rec)
             c0 += 0                     # the return stop costs the guest nothing
         recs.append(rec)
         if until is not None and until(rec):
@@ -285,18 +285,40 @@ def _which(m, r, vectors):
     return 0
 
 
-def _time_one(m, base, r):
-    """Guest cycles from this `INT` to the instruction after it.
+def _time_one(m, base, r, rec=None):
+    """Guest cycles from this `INT` to the instruction after it - AND THE ANSWER.
 
     The return site is CS:IP+2 - `INT nn` is two bytes - which is an ordinary
     exec breakpoint. NESTING is why the base set stays armed: a handler that
     itself calls a watched vector stops again first, and those stops are run
     past rather than counted, because the record for them was already taken
     at their own entry.
+
+    **IT BANKS THE RETURN REGISTERS, and that is most of why it is worth
+    paying for** (SPEC.md 96.22). An entry-only trace says what a program
+    ASKED; the failures this family keeps producing are ones where the answer
+    was wrong and the program believed it - a file classified as a character
+    device, a search that never ends, a read reported short. Prince of Persia
+    has been lost to that shape five times, and every one of them is invisible
+    in the registers going in. The stop is already being made for the cycle
+    count, so the answer costs one `regs` call.
     """
-    ret = ((r["cs"] << 4) + r["ip"] + 2) & 0xFFFFF
+    # **THE RETURN SITE IS IN THE FRAME, NOT AT CS:IP+2** - and getting that
+    # wrong is why every `--time` figure this tool ever printed was 20 cycles.
+    # MartyPC's INT breakpoint stops INSIDE the handler, with the vector
+    # already fetched: `cs:ip` is the handler's entry (the DOS box's own, at
+    # 9060:05C9 windowed and 0060:05C9 under kern_dos - the same IP for every
+    # call, which is the tell), so `+2` is an address two bytes into the
+    # handler and the guest reaches it at once. What the program will come
+    # back to is the three words the CPU pushed: IP, CS, FLAGS at SS:SP.
+    st_ss, st_sp = r.get("ss"), r.get("sp")
+    if st_ss is None or st_sp is None:
+        return 0
+    fr = m.read(((st_ss << 4) + st_sp) & 0xFFFFF, 4)
+    ret = (((fr[3] << 8 | fr[2]) << 4) + (fr[1] << 8 | fr[0])) & 0xFFFFF
     c0 = int(m.status().get("cycles", 0))
     m.breakpoints(base + [{"type": "exec", "addr": ret}])
+    rr = None
     for _ in range(64):                 # bounded: a call that never returns
         m.run()                         # must not hang the whole run
         if not m.wait_stop(limit=30.0):
@@ -306,6 +328,10 @@ def _time_one(m, base, r):
             break
     cyc = int(m.status().get("cycles", 0)) - c0
     m.breakpoints(base)
+    if rec is not None and rr is not None:
+        for k in ("ax", "bx", "cx", "dx", "si", "di", "ds", "es", "flags"):
+            if k in rr:
+                rec["r_" + k] = rr[k]
     return cyc
 
 

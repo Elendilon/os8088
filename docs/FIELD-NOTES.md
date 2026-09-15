@@ -1619,13 +1619,78 @@ whole-machine arm's two numbers are **nowhere in the file**, and 5939 is past
 the end of it. So the six bytes are right and what is computed from them is
 not.
 
-**The one thread left is that every one of Prince's data pointers is exactly
-TWELVE BYTES higher under `kern_dos`** — the open's `DS:DX`, the read's
-buffer, the `AH=47h` buffer, all `+12` — while its DS sits at the same
-`0x1B13` paragraphs past its own PSP in both. A static buffer cannot move, so
-these are computed; `dos_exe_setup` takes SS and SP straight from the MZ
-header with no clamp, so it is not the stack the loader sets. That is where to
-start.
+**THE INSTRUMENT WAS WRONG, AND FIXING IT IS MOST OF WHAT THIS ROUND ADDED.**
+`os88intmon`'s `--time` computed the return site as `CS:IP + 2` — but
+MartyPC's INT breakpoint stops INSIDE the handler with the vector already
+fetched, so `cs:ip` is the handler's entry (the same `05C9` for every call in
+both arms, which is the tell) and `+2` is two bytes into the handler. Every
+`--time` figure it ever printed was ~20 cycles, and the TD3 run that reported
+`0.0 ms in-BIOS` was the same defect on `int 13h`. The return site is the
+three words the CPU pushed at `SS:SP`. With that right, the stop is already
+being made, so the ANSWER costs one `regs` call — and an entry-only trace
+cannot see this family of failure at all, which is the point: the answers were
+what needed comparing.
+
+**AND THE ANSWERS ARE IDENTICAL THROUGH THE SIX-BYTE READ.** Fourteen calls,
+both arms, every return register and flag:
+
+    AH=30h 1E03 · 4Ah 4A5A · 30h 1E03 · 35h/25h · 44h A0C0 80C0 80D3 80D3 80D3
+    19h 1901 (drive B) · 47h AX=0100 CX=0001 CF=0 · 3Dh AX=0005 (the handle)
+    3Fh six bytes, AX=0006, CF=0
+
+Then `AH=48h` asks for 38 paragraphs on one arm and 377 on the other, with no
+call in between. **The ruled-out list above is now exhaustive over everything
+`int 21h` can say**, and what is left is not a DOS answer.
+
+**THE THREAD IS `SP`, AND IT IS NOW EXACT.** Single-stepping the program
+itself — stop at an `INT 21h`'s return, which `do_time` already runs to, then
+`step` — puts a number on what was a shape. At the open's return, before the
+six-byte read:
+
+    windowed   SP=756E  BP=75C0   and every buffer at 75B8, 7574, 75DA
+    kern_dos   SP=757A  BP=75CC   ...and at 75C4, 7580, 75E6
+
+**`SP` differs by exactly 12** — six words — and every "twelve-byte pointer
+shift" in this entry is that one fact seen through `BP`. Prince's data
+pointers are `[bp-n]` locals, so they move with it and nothing is corrupt:
+the program is simply **six pushes deeper** under `kern_dos` than under the
+window by the time it opens its data file, and the numbers it then computes
+come out of different locals.
+
+`dos_exe_setup` takes `SS` and `SP` straight from the MZ header with no clamp,
+so the loader hands both arms the same stack. Six words is a CALL DEPTH, not a
+loader difference: somewhere between the program's first instruction and its
+`AH=3Dh`, one arm takes a branch the other does not — three nested calls, or a
+retry.
+
+**So the next step is bounded and mechanical**: step from the program's entry
+(a breakpoint at the `CS:IP` in its own MZ header) and find the FIRST
+instruction where `SP` parts. Every `INT 21h` answer before that point is
+already known identical, so whatever the branch tests is something the program
+read without a call — and §96.21.4 is the list of those.
+
+**What it is NOT**, and this cost a run each to establish: not the PSP (all 256
+bytes diffed, and the eight fields §96.21.4 fills are correct on both arms —
+`[PSP:0002]` is `PSP + 0x2B13` on both after the program's own resize, and
+`[PSP:0008]`'s far-call segment lands on `PSP:0050` on both, by 8086
+wraparound on the low one); not the BDA (9 of 128 bytes differ and they are
+the tick count, the floppy motor state, the cursor and `MEM KB`); not the
+environment, the command tail or the program's own path; and not the file
+layer — `tests/dostrap/rdsmall.asm` reads the same six bytes into a POISONED
+buffer and reports the span actually written, which is 6 on both arms, from
+the real disk at LBA 300.
+
+**A THIRD instance of §96.44.10's CLASS was found looking for this and is
+fixed** (§96.44.12), though it is not this bug: `dos_k_find` binds
+`dsk_find_x` directly and so passed it **whatever `AL` the core was holding**,
+where `AL` is §19.6.1's fence between a package and a driver — a stray 1 shows
+a DOS program `SYSTEM.CFG` and the kernel's own files — and left
+`[dsk_fdraw]` at whatever `api_file_find_raw` last set, which reports a
+compressed file's PACKED size where the program will be handed its expanded
+one. The Prince disk has neither a hidden file nor a compressed one, so it
+changes nothing here; it is in the tree because the CLASS is what keeps
+costing this program, and §96.44.12 is the class written down with the gate
+that would catch the fourth.
 
 **To reproduce**: `make kdostest`, then `build/os8088-720.img` in A: and a
 720KB Prince disk in B: on `os8088_5150_herc_sb_720_gla`; open the box, Setup

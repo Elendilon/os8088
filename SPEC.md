@@ -128036,6 +128036,111 @@ the BINARY with `build/kerndos.bin` before trusting an offset, which is
 resolves every name to a plausible wrong address and nothing says so. Its
 fourth assertion is the one that refuses the easy fix — shrinking the arena
 satisfies the other three and leaves the program 32 KB worse off.
+#### 96.44.12 The CELL is part of the door, and `kern_dos` binds the ROUTINE
+
+§96.44.10 is one instance of a class, and the class is worth more than the
+instance. The box reaches every file door through an `OSAPI_*` **cell**, and a
+cell is not a call — it is a stub that does work on both sides of the routine:
+
+| the box's door | the cell's stub does | `kern_dos` binds |
+|---|---|---|
+| `dos_k_read`, `_rdat`, `_write`, `_append`, `_delete`, `_mkdir`, `_rename` | `api_n`: stages the name into the kernel's own 13-byte `api_name`, then `inst_vol_enter` | the routine |
+| `dos_k_find` | `api_file_find`: **`[dsk_fdraw] = 0`**, `inst_vol_enter`, then **`AL` = the driver fence** | the routine |
+| `dos_k_path` | `api_file_path`: `inst_vol_enter`, and `api_x` puts the caller's DS in **ES** | the routine |
+
+**`kern_dos` binds the routine and gets none of it**, and that is correct for
+exactly one of the three columns: `inst_vol_enter` stands the CALLING INSTANCE
+on its own folder and there are no instances here, so skipping it is the right
+answer rather than a gap. The other two are inputs, and an input a caller does
+not set is whatever the register or the cell happened to be holding.
+
+**Three defects, one shape**, and the third is the one that says the shape is
+real rather than a story told about two:
+
+1. **`dos_k_path` inherited ES** — §96.44.10. The program's own path in the
+   environment came out as `B:`.
+2. **`dos_k_find` inherited AL**, which `dsk_find_x` documents as *"1 if the
+   caller may see hidden and system entries"* — §19.6.1's fence between a
+   package and a driver, computed in the box's stub from `dvf_drv_owns_seg`.
+   Passed a stray 1, a DOS program's `DIR` sees `SYSTEM.CFG` and the kernel's
+   own files, which no package can.
+3. **`dos_k_find` inherited `[dsk_fdraw]`**, which `api_file_find_raw` sets to
+   1 to get a compressed file's PACKED size instead of its expanded one
+   (§20.14.3). Left at 1, `AH=4Eh` tells a program a file is the size it
+   occupies and `AH=3Fh` then hands it more bytes than it asked about.
+
+A DOS program is a PACKAGE by every rule this system has, so both of the
+second door's answers are constants: `AL = 0`, `[dsk_fdraw] = 0`. **Writing
+them down at the call site is the fix**, because the value is not visible
+there — which is the whole reason the first one survived a wave.
+
+**The trap in writing it** is worth the line, because the obvious spelling is
+wrong: a `push ax` / `pop ax` bracket around `dos_k_find` restores the caller's
+AX and throws away the `FERR_*` the routine answers on CF=1. `AL` is the only
+half that is an input and `AH` is not read, so `xor al, al` alone is both the
+setup and the safety.
+
+**What would catch the next one** is `tests/unit/t_kdfar.py`'s shape one step
+along: it already reads every target `kdback.inc` names out of the kernel
+source and decides near or far from the body. The same walk can read the box's
+cell for that target and require `kdback.inc` to set whatever the stub sets —
+`inst_vol_enter` excepted by name, with the reason above. That is not built,
+and it is the thing to build before the next `kern_dos` door is written.
+
+#### 96.44.13 An EMPTY environment is not an empty environment, and a program that fits never got one
+
+**`[dos_blaster]` is filled by `dos_drv_take`**, out of the record
+`OSAPI_DRV_SUSPEND` hands back for the sound class (§96.17) — and on the
+whole-machine arm `dos_drv_take` runs **only in `.unmount`**, the branch taken
+when the program does NOT fit the arena. The source says so in as many words:
+*"it fits - and the sound driver is never touched"*. `dos_lbfill` then gathers
+`KDL_F dos_blaster, 32` from a cell nothing had written.
+
+So `kern_dos` built the program's environment with **no rows in it**, and the
+block a DOS program was handed began with its own terminator:
+
+    windowed   BLASTER=A220 D1 T3\0 \0 \x01\0 B:\PRINCE.EXE\0
+    kern_dos                      \0 \x01\0 B:\PRINCE.EXE\0
+
+Both are WELL FORMED. The second is an environment with zero variables,
+correctly terminated, with the program path after it exactly where §96.19.3
+puts it. Nothing refuses, nothing is corrupt, and no `INT 21h` answer differs
+— the whole conversation up to this point is identical on both arms, register
+for register and flag for flag.
+
+**And it stops a program dead, because the rows are the ROAD to the path.** DOS
+3 puts a program's own path after the block's terminating NUL and a count
+word, so a program walks the variables to REACH it. Prince of Persia's walk is
+four instructions, measured at `B78F` in its own image:
+
+```
+B78F  mov es,si            ; the environment segment, out of PSP:2Ch
+B791  cmp byte [es:0],0    ; ...is there anything in it?
+B797  jz  B79F             ; no -> skip the walk
+B799  repne scasb          ; yes -> step to the double NUL, and the path
+```
+
+An empty block takes the `jz`. Prince never reaches its own path, cannot work
+out which directory it came from, and says **"Unable to find necessary files.
+Please start program from the default drive and directory."** — about files it
+had already opened successfully. §96.22 describes that exact shape for a
+different cause, and this is a second road to it.
+
+**The fix is one call, at the top of `dos_lbfill`**: take the drivers before
+gathering the row that only taking them can produce. `dos_drv_take` is
+idempotent — `[dos_drvout]` is its own guard — and the drivers cannot survive
+this arm anyway, since `kern_dos` replaces the kernel they are loaded into. So
+the call belongs where the row is READ, not only on the arm that happens to
+need the memory.
+
+**What it cost to find is the general lesson.** Every measurement that a DOS
+box can make said the two arms were identical: the file's bytes, the small read
+Prince actually makes, the CWD, the drive, the program's own path, the command
+tail, the PSP's 256 bytes, the BIOS data area, the registers at entry, and
+every `INT 21h` return register through the fourteenth call. The difference was
+**five bytes of content in a block whose SHAPE was right** — which is why
+§96.21.4's rule generalises past the PSP: *a program reads this without making
+a call, so nothing appears in a trace when it does.*
 
 ##### 96.44.11.2 …and the fixture the rungs needed
 

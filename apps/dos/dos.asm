@@ -6118,6 +6118,29 @@ dos_s_wholeq: db 'Open windows are lost. Proceed?', 0
 ; into the wrong place.
 ; -----------------------------------------------------------------------------
 dos_lbfill:
+    ; **THE BLASTER ROW HAS TO EXIST BEFORE IT CAN BE GATHERED** (SPEC.md
+    ; 96.44.13). `[dos_blaster]` is filled by `dos_drv_take`, out of the
+    ; record `OSAPI_DRV_SUSPEND` gives back for the sound class - and on this
+    ; path `dos_drv_take` runs only in `.unmount`, the arm taken when the
+    ; program does NOT fit. The source says so in as many words a few hundred
+    ; lines up: *"it fits - and the sound driver is never touched"*. So a
+    ; program that fits handed `kern_dos` an EMPTY string, `dos_build_psp`
+    ; over there emitted no rows, and the environment block a DOS program was
+    ; given began with its own terminator.
+    ;
+    ; **An empty environment is not a cosmetic loss.** DOS 3 puts the
+    ; program's own path after the block's terminating NUL and a count word
+    ; (96.19.3), and a program walks the rows to REACH it. Prince of Persia's
+    ; walk is `cmp byte [es:0],0 / jz skip` - measured, at `B791` in its own
+    ; image - so an empty block means it never finds its path, and it says
+    ; *"Unable to find necessary files. Please start program from the default
+    ; drive and directory."* about files it could have opened.
+    ;
+    ; `dos_drv_take` is idempotent - `[dos_drvout]` is its own guard - and the
+    ; drivers cannot survive this arm anyway: `kern_dos` replaces the kernel
+    ; they are loaded into. So the call belongs here, where the row is about
+    ; to be read, and not only on the arm that happens to need the memory.
+    call dos_drv_take
     push ax
     push cx
     push si
