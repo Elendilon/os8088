@@ -238,6 +238,20 @@ def watch(m, vectors, budget, do_time=False, out=None, say=print, until=None,
             "si": r["si"], "di": r["di"], "ds": r["ds"], "es": r["es"],
             "cs": r["cs"], "ip": r["ip"],
         }
+        # **THE CALL SITE, WHICH IS THE ALIGNMENT KEY** (docs/DOS-DEBUGGING.md).
+        # `cs:ip` above is the HANDLER's - MartyPC's INT breakpoint stops with
+        # the vector already fetched - and it is the same address for every
+        # call, so it aligns nothing. What two runs of one program share is
+        # where the PROGRAM called from, and that is the frame the CPU pushed:
+        # IP, CS at SS:SP. Quoted as `CS - PSP : IP` it is the same number on
+        # two machines that loaded the program at different paragraphs, which
+        # is what turns *"they diverge somewhere"* into *"they diverge at this
+        # instruction"*. Four bytes a call, and it is what the DOSTRAP ring on
+        # the other side has recorded all along.
+        if r.get("ss") is not None and r.get("sp") is not None:
+            fr = m.read(((r["ss"] << 4) + r["sp"]) & 0xFFFFF, 4)
+            rec["c_ip"] = fr[1] << 8 | fr[0]
+            rec["c_cs"] = fr[3] << 8 | fr[2]
         if vec == 0x21 and ((r["ax"] >> 8) & 0xFF) in DOS_NAMED:
             nm = _asciz(m, r["ds"], r["dx"])
             if nm:

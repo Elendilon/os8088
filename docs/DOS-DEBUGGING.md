@@ -585,6 +585,47 @@ print one line per case, and wait for a key. Keep it assembling with
 
 ## Traps, each of which cost real time
 
+- **THE SITES REPEAT, SO INDEX ALIGNMENT LOCKS ONTO THE WRONG ITERATION.** The
+  call site is the right key (see *Why the call site is the whole instrument*),
+  and it is not enough on its own: a program that opens six sound files in a
+  loop makes the same five calls from the same five addresses six times over,
+  so two traces that are **out of step by a constant** still agree, site for
+  site, for hundreds of calls before they visibly part. That is exactly what a
+  reference trace is out of step by, because `ref` logs `COMMAND.COM`'s own
+  calls before the program's and `trace` does not — 52 of them on IBM DOS 3.30.
+
+  It cost a whole wrong conclusion this session: the two sides appeared to open
+  **different files at the same site with the same registers**, which reads as
+  a file-lookup defect, and it was two runs of one loop compared an iteration
+  apart. The tell was that each side's next `LSEEK` was its own file's first
+  header word — *both* were reading correctly.
+
+  **The rule: align on a NAMED LANDMARK, not on an index.** Find the first call
+  in each trace that opens the same file, take the difference of those two
+  indices as the offset, and compare forward from there. Then check the
+  segment bias is constant — `CS_real − CS_ours` is one number for the whole
+  run once the offset is right, and drifts if it is not.
+
+- **AND SET THE SAME ENVIRONMENT, OR THE TWO SIDES RUN DIFFERENT PROGRAMS.**
+  `COMMAND.COM` hands out `COMSPEC=` and whatever the user set; the box hands
+  out `BLASTER=` when it unloaded a sound card on the way in (SPEC.md 96.17),
+  and since SPEC.md 96.44.13.1 a `PATH=` when it has nothing else to say. A
+  program that picks a device off `BLASTER=` then opens **different files**,
+  and a diff that does not control for it reports the program's own branch as a
+  defect in the DOS underneath. `ref --set "BLASTER=A220 D1 T3"` is what makes
+  the two comparable; `trace` gets the row from the machine.
+
+- **THE HOST-SIDE MONITOR IS THE SAME INSTRUMENT ON BOTH SIDES, and it is the
+  better one for a long run.** `tools/os88intmon.py` breakpoints `INT 21h` in
+  MartyPC and does not care whose DOS is underneath, so it can be pointed at a
+  real DOS booted in the emulator just as well as at ours. Against the
+  guest-side ring it has no 512-call cap, takes no memory away from the program
+  under test, and **records the NAME of every file opened**, which the ring
+  cannot carry. What it costs is host wall-clock: ~100 calls a second, or ~28
+  with `do_time` reading each answer back. Use the ring when the program must
+  see an untouched machine; use the monitor when the question is *where do
+  these two runs part*, which is most of the time.
+
 - **THE TRACE DISK HAS A SMALLER ARENA THAN THE SHIPPED BOX, and a program that
   refuses under the tracer is refusing the TRACER.** This is first because it
   has cost **eight** separate wrong diagnoses, every one of them the same

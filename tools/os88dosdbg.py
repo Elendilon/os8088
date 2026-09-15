@@ -704,6 +704,19 @@ def cmd_ref(a):
                 m.type_text("CD \\%s" % a.cd.replace("/", "\\"))
                 m.key("Enter")
                 time.sleep(2)
+            # **THE SAME ENVIRONMENT, OR THE TWO SIDES RUN DIFFERENT
+            # PROGRAMS** (SPEC.md 96.44.13.1).  COMMAND.COM hands out
+            # `COMSPEC=` and nothing else; the box hands out `BLASTER=` when a
+            # sound card was unloaded on the way in.  Prince of Persia PICKS
+            # ITS SOUND DEVICE off that row, so the reference opened
+            # `MIDISND1.DAT` where our side opened `DIGISND1.DAT` - at the same
+            # call site, with the same registers, three calls before they
+            # parted - and a diff that does not control for it reports the
+            # program's own branch as a defect in the DOS underneath.
+            for kv in a.set:
+                m.type_text("SET " + kv)
+                m.key("Enter")
+                time.sleep(2)
             # A PATHED PROGRAM NEEDS DOS's OWN SEPARATOR.  `trace` hands
             # `PRINCE/PRINCE.EXE` to os88ui.path(), which wants forward
             # slashes; COMMAND.COM reads one as a SWITCH character and answers
@@ -1072,6 +1085,12 @@ def main():
                            help="files to leave out of the COPY of the DOS disk, "
                                 "to make room for the tracer; your own disk is "
                                 "never edited")
+            p.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
+                           help="a SET to type before the program, so the "
+                                "reference gets the environment the box would "
+                                "have given it (BLASTER=... is the one that "
+                                "matters: a program picks its sound device off "
+                                "it and then reads different FILES)")
         else:
             p.add_argument("--kernel", default="build/dostrace.img",
                            help="a system disk carrying the DOSTRACE package")
