@@ -32374,7 +32374,7 @@ a package three folders deep:
 
 Three `int 13h` calls for a three-level path, against about twelve for a
 single mount (§18.8.2) — and the second walk is **free**, answered entirely
-out of §19.2.3's cached directory window, which `dsk_path_up` reads through.
+out of §19.2.3's cached directory window, which `dsk_up` reads through.
 
 **The design reason those numbers are what they are**: `dsk_path` never moves
 the machine. It walks with `dsk_dirw_start`/`dsk_dirw_get`, which take a
@@ -32403,26 +32403,72 @@ What survives is the argument that was always sufficient, and one real cost:
   parent, the entry whose first cluster matches the child's, and
   `OSAPI_FILE_FIND` is ordinal-based and *restarts the directory walk on every
   call* — so a parent of K entries would cost K far calls each re-walking from
-  entry 0. `dsk_path_name` reads each directory once.
+  entry 0. `dsk_byclus` reads each directory once.
 
 #### 19.2.4.2 What it refuses, and why each refusal exists
 
 - **`FERR_BIG`** — the buffer cannot hold the path. Nothing is written. A
   depth limit belongs to the caller and `FD_CDMAX`'s 16 is one package's
-  answer, not the kernel's.
-- **`FERR_NAME`** — the chain is corrupt, or deeper than `DSK_PATH_MAX` = 32.
-  `dsk_path_up` range-checks a `..` against `[dsk_maxclus]` exactly as
-  `dsk_dotdot` does, which stops a **wild** parent; it cannot see a **cycle**,
-  where a `..` points at a descendant, and the depth bound is what stops that
-  walking for ever. Both are reachable from an ordinary corrupt floppy.
+  answer, not the kernel's. **The buffer is also the bound on a CYCLE**: a
+  `..` that points at a descendant walks in a circle, every level prepends at
+  least `\X`, so a cycle refuses here within *size/2* levels — each of them a
+  directory sector §19.2.3's window already holds — and it is the same refusal
+  an honest chain that deep would have got. The slot's first cycle carried a
+  separate `DSK_PATH_MAX` = 32 with a depth counter in `.bss` for this, and
+  answered `FERR_NAME` for it; §19.2.4.3 is where those bytes went.
+- **`FERR_NAME`** — a `..` link is missing, would not read, or is **wild**:
+  `dsk_up` range-checks it against `[dsk_maxclus]` exactly as `dsk_dotdot`
+  does, because it *is* `dsk_dotdot`'s body against an argument (§19.2.4.3),
+  and a corrupt parent must not be walked into. Reachable from an ordinary
+  corrupt floppy.
 - **`FERR_NOENT`** — a parent does not contain an entry naming its own child.
   That is a cross-linked disk, and answering a path built out of what was
   found anyway would be the §47 failure this project keeps writing down: a
   confident wrong answer is worse than a refusal.
+- **`FERR_NODISK`, on `kern_small` only** — that kernel carries the cell and
+  no walker (§19.2.4.3), so the answer is `CF=1` before any disk is looked
+  at. No package that ships on the small disks calls the slot (§24.5), and
+  every caller in the tree tests `CF` and falls back to the bare name or the
+  root, which is what KERN-SMALL-CUT-PLAN §10 requires of a refusing stub.
 - **There is no driver fence** on this cell, unlike the other two file cells.
   They have one because they can *name* a hidden or system file; a path names
   directories the caller is already standing inside, and a package that could
   not see its own folder's name could not have been launched from it.
+
+#### 19.2.4.3 What it costs in bytes — three walkers the file system already had
+
+The slot shipped at **+393 resident bytes** on `kern_big` (`.text` +21,
+`.cold` +350, `.bss` +22) and the size pass that followed took it to
+**+137** (`.text` +17, `.cold` +120, `.bss` 0), a saving of **256** — and on
+`kern_small` to **+13**, the cell and a five-byte refusal, a saving of 373.
+Assembled figures, `tools/kernsize.py` before and after. What made it cheap
+is that the walk was **a loop over three routines `disk.inc` already owned**,
+and the first cycle had written a private copy of each:
+
+| the walk needs | the copy it shipped with | what it calls now |
+|---|---|---|
+| the parent of a cluster it is not standing in | `dsk_path_up`, 41 bytes | **`dsk_up`**: `dsk_dotdot`'s body, entered with the cluster in `AX`. `dsk_dotdot` is now three bytes — `mov ax, [dsk_cwd]` — falling into it, so the pair is 33 bytes where two routines were 89 |
+| the entry in that parent whose first cluster is the child's | `dsk_path_name`, 79 bytes | **`dsk_byclus`**: the scan `dskw_rmtree` re-finds an emptied folder with (§18.6, `dskw_rt_byclus`), lifted out of `diskw.inc` and given its directory in `AX` and its cluster in `DX`. `dskw_rt_byclus` is 40 bytes of wrapper over it where it was 93 |
+| that entry's name as text | `dsk_path_8_3`, 69 bytes | **`dsk_synth_name`**: the listing's own formatter, split out of `dsk_synth` for three bytes. So a path spells a folder exactly as the Disk window and `OSAPI_FILE_FIND` do — trimmed, sanitized, the KANJI escape included — where the private formatter stopped at the first space and could disagree |
+
+Two smaller things fell out of the same reading. The walk kept five words in
+`.bss` — the child, the parent, the NUL's home, the buffer's base and a depth
+counter — and every one of them is a register now: `AX`/`DX` are the parent
+and child, `BX` the NUL's home, the base is the `DI` pushed at entry and read
+through `BP = SP` (reloaded before the read, since `dsk_dirw_get` does not
+preserve `BP`), and the name stages in `dsk_ent`, which is `dsk_synth_name`'s
+output anyway. The depth counter went because the buffer already bounds a
+cycle (§19.2.4.2). And the shuffle that moves the finished path down to the
+buffer's base is `rep es movsb` — a segment override on a string move names
+the *source* segment, so one instruction copies caller-to-caller where a
+hand loop had read `DS:SI` and been written out by hand to avoid it.
+
+`kern_small` carries the cell and no body — `gfx_spans`' precedent (§5.4.2) —
+because the slot's consumer is the DOS box and `DOS.O88` is a `kern_big`
+system-disk file (§24.5, `SYSROOT`); `kern_dos` is neither kernel and keeps
+the walker, its back end reaching `dsk_path_x` far (§96.44.10). The refusal
+is `FERR_NODISK` with `CF=1`, and it is in `.text` because an X cell's stub
+is reached near from `api_x`.
 
 ### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 

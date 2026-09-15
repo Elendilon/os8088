@@ -4051,7 +4051,9 @@ apic_wm_destroy:
                                   ;          because the buffer is the
                                   ;          CALLER's - and a slot at all
                                   ;          because dsk_find drops the dot
-                                  ;          links, so no package can walk up
+                                  ;          links, so no package can walk up.
+                                  ;          kern_small: the cell and a
+                                  ;          FERR_NODISK refusal (19.2.4.3)
     OSAPI_SLOT osapi_mem_avail_lvl ; 0x0560 - HOW MUCH MAY I HAVE WITHOUT
                                   ;          DESTROYING WHAT I NAME? (SPEC.md
                                   ;          50.6.5). AL = a purge level;
@@ -4516,12 +4518,10 @@ api_ff_fence:
 ; folder's name could not have been launched from it.
 ; -----------------------------------------------------------------------------
 api_file_path:
-    push si
-    push bx
+%ifndef KERN_SMALL
     call inst_vol_enter         ; preserves everything, including the flags
-    call COLD_SEG:dsk_path_x
-    pop bx
-    pop si
+    call COLD_SEG:dsk_path_x    ; ...and this banks every register it does
+                                ; not answer in, so the stub banks none
     ret                         ; NEAR. api_x reaches every X cell with
                                 ; `call bp` and does the segment work itself -
                                 ; ES = the caller's DS, DS = KERNEL - so a
@@ -4530,6 +4530,11 @@ api_file_path:
                                 ; many and returned into nothing, which
                                 ; presented as a second window whose title
                                 ; read as machine code
+%else
+    mov ax, FERR_NODISK         ; kern_small carries the cell and no walker
+    stc                         ; (SPEC.md 19.2.4.3): no package on its disks
+    ret                         ; calls this, and every caller tests CF
+%endif
 
 ; -----------------------------------------------------------------------------
 ; api_file_write_sys - slot 0x0340, and the ONE fenced cell (SPEC.md 19.6.1)

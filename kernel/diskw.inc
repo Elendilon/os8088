@@ -1173,42 +1173,27 @@ dskw_rt_scan:
 ; dskw_rt_byclus - find the subdirectory of the CURRENT directory whose first
 ;                  cluster is [dskw_rt_clus]
 ; out: CF=0 with dskw_n83 = its 11 raw name bytes; CF=1 = no such entry
-; clobbers: AX, CF
+; clobbers: AX, BP, CF
 ;
 ; How the walk gets back the name of the folder it just emptied without
 ; having carried one down. The cluster is the identity: two directory entries
 ; cannot legitimately share one, and if a corrupt volume makes them, removing
 ; either is removing the thing this cluster is.
+;
+; THE SCAN IS disk.inc's dsk_byclus (SPEC.md 19.2.4): OSAPI_FILE_PATH names
+; each level of a path by exactly this search, and the slot's first cycle
+; carried a second copy of it. What is left here is the raw entry's trip
+; into dskw_raw and dskw_n83, which the remove body reads.
 ; -----------------------------------------------------------------------------
 dskw_rt_byclus:
-    push bx
     push cx
     push dx
     push si
     push di
-    push es
-    push ss
-    pop es
     mov ax, [dsk_cwd]
-    call dsk_dirw_start_x
-.sector:
-    call dsk_dirw_get_x ; either failure is "not found" here
-    jc .none
-    mov si, dsk_secbuf
-    mov cx, 16
-.entry:
-    mov al, [es:si]
-    test al, al
-    jz .none
-    cmp al, 0xE5
-    je .next
-    cmp al, '.'
-    je .next                    ; never the dot links, whatever they point at
-    test byte [es:si+DSK_R_ATTR], DSKW_DIR
-    jz .next
-    mov ax, [es:si+DSK_R_CLUS]
-    cmp ax, [dskw_rt_clus]
-    jne .next
+    mov dx, [dskw_rt_clus]
+    call dsk_byclus_x           ; SS:SI -> the entry; dsk_ent is a by-product
+    jc .out
     mov di, dskw_raw            ; 32, not 11: dsk_copy_in copies WORDS
     mov cx, 32
     call dsk_copy_in_x
@@ -1216,20 +1201,11 @@ dskw_rt_byclus:
     mov di, dskw_n83
     call dskw_copy11
     clc
-    jmp short .out
-.next:
-    add si, 32
-    loop .entry
-    jmp short .sector
-.none:
-    stc
 .out:
-    pop es
     pop di
     pop si
     pop dx
     pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
