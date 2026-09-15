@@ -863,25 +863,33 @@ dos_run:
     ; the hole reachable is that a package cannot compact the heap it is
     ; standing in: OSAPI_MEM_COMPACT_WAKE records the wish and RETURNS, and the
     ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
+    call dos_drv_take               ; THE DRIVERS OUT FIRST, on every arm and
+                                    ; before any claim: it is what CREATES the
+                                    ; hole the no-cap arm sizes into, and the
+                                    ; capped arm needs them out too - the
+                                    ; program's BLASTER= is made of what they
+                                    ; say on the way past (96.44.13) - and
+                                    ; OSAPI_DRV_SUSPEND reads HIBER.DRV into
+                                    ; the heap to do it (SPEC.md 51.11), which
+                                    ; a claim of everything would leave no
+                                    ; room for. From here every exit owes
+                                    ; dos_drv_back, which .out does on every
+                                    ; path but the posted one (96.35.5). On
+                                    ; the wake it is a no-op: [dos_drvout]
     cmp byte [dos_cpw], 0
     jne .ask                        ; on the wake the heap IS packed, so plain
                                     ; avail is exact and posting again is how a
                                     ; program spins (SPEC.md 66.4.3.2)
     cmp word [dos_memkb], 0
     je .unmount                     ; NO CAP: we want the maximum, so the
-                                    ; driver comes out unconditionally
+                                    ; question is only whether a pass adds any
     push bx                         ; ...A CAP, and the cheaper road: a program
     mov al, bl                      ; that asked for 200K on a machine with
-    call OSAPI_MEM_AVAIL_LVL        ; 300K free needs no compaction and no
-    pop bx                          ; silence
+    call OSAPI_MEM_AVAIL_LVL        ; 300K free needs no compaction
+    pop bx
     cmp ax, [dos_memkb]
-    jae .ask                        ; it fits - and the sound driver is never
-                                    ; touched
+    jae .ask                        ; it fits: claim it and ask nothing more
 .unmount:
-    call dos_drv_take               ; ...which is what CREATES the hole. From
-                                    ; here every exit owes dos_drv_back, which
-                                    ; .out does on every path but the posted
-                                    ; one (SPEC.md 96.35.5)
     push bx
     mov al, bl
     call OSAPI_MEM_AVAIL_LVL
@@ -1519,11 +1527,10 @@ dos_fsx_main:
     mov [dos_vh], bx                ; not per call - it cannot change inside a
                                     ; bracket and a divide is 80+ clocks
 
-    call dos_drv_take               ; THE DRIVERS, OUT OF THE WAY (SPEC.md
-                                    ; 96.17) - before the PSP, because the
-                                    ; environment it builds carries BLASTER=
-                                    ; and the driver is the last thing that
-                                    ; knew where the card was
+                                    ; (the drivers are already out: dos_run
+                                    ; took them before the arena, on every arm
+                                    ; - SPEC.md 96.35 - and the environment
+                                    ; below reads the BLASTER= they left)
     call dos_save_machine
     call dos_build_psp
     call dos_hook_vectors
@@ -6029,7 +6036,9 @@ dos_handoff:
     mov si, dos_kdh
     push ds
     pop es                      ; ES:SI is the record, in OUR segment
-    call OSAPI_DOS_HANDOFF
+    mov al, 2                   ; ...and verb 2 of the door the drivers went
+    call OSAPI_DRV_SUSPEND      ; through: the WHOLE machine (SPEC.md 51.11,
+                                ; 96.40). CF=1 = a post already stands
     pop es
     pop di
     pop si
@@ -12445,22 +12454,21 @@ dos_drv_take:
     push es
 
     cmp byte [dos_drvout], 0
-    jne .out                        ; **ALREADY OUT** (SPEC.md 96.35). The
-                                    ; arena sizing takes the drivers BEFORE the
-                                    ; bracket now, so this call - which is
-                                    ; still the only one on the path where the
-                                    ; sizing did not need to - would find
-                                    ; nothing suspended, answer 0 classes, and
-                                    ; wipe both [dos_drvmask] and the BLASTER=
-                                    ; the first call went and asked the card for
+    jne .out                        ; **ALREADY OUT** (SPEC.md 96.35): dos_run
+                                    ; takes them once, before the arena, and
+                                    ; the arm-3 path (dos_lbfill) asks again on
+                                    ; its own way - a second ask would find
+                                    ; nothing suspended and wipe the BLASTER=
+                                    ; the first went and asked the card for
     mov byte [dos_blaster], 0
     push ds
     pop es
     mov di, dos_dqbuf
     mov al, 1
-    call OSAPI_DRV_SUSPEND          ; AX = the classes, CX = records
-    jc .out                         ; nothing moved
-    mov [dos_drvmask], ax
+    call OSAPI_DRV_SUSPEND          ; CX = records
+    jc .out                         ; nothing moved: HIBER.DRV could not be
+                                    ; read (SPEC.md 51.11), and there is
+                                    ; nothing to put back either
     mov byte [dos_drvout], 1
     jcxz .out
     mov si, dos_dqbuf
@@ -12496,7 +12504,6 @@ dos_drv_back:
     xor di, di
     xor al, al
     call OSAPI_DRV_SUSPEND
-    mov word [dos_drvmask], 0
     mov byte [dos_drvout], 0
     pop es
     pop di
@@ -14259,7 +14266,7 @@ dos_fh_fill:
     DBSS DOS_B_CHPAD, 1
     DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
     HBSS DOS_B_DQBUF, DQ_SIZE * DQ_MAXREC  ; what the drivers said on their
-    HBSS DOS_B_DRVMASK, 2      ; way out, and which classes went (96.17)
+                               ; way out (96.17)
     DBSS DOS_B_BLAST, 32       ; "BLASTER=A220 I5 D1 T4", or empty
     DBSS DOS_B_XMSTAB, XH_SIZE * XMS_NH  ; the XMS handle table (96.15)
     DBSS DOS_B_XMLEN, 4        ; ...and AH=0Bh's move, unpacked out of the
@@ -14875,7 +14882,6 @@ dos_pexe    equ DOS_CBASE + DOS_B_PEXE
 dos_chexit  equ DOS_CBASE + DOS_B_CHEXIT
 dos_chblk   equ DOS_CBASE + DOS_B_CHBLK
 dos_dqbuf equ dos_hbss + DOS_B_DQBUF
-dos_drvmask equ dos_hbss + DOS_B_DRVMASK
 dos_blaster equ DOS_CBASE + DOS_B_BLAST
 dos_xmstab  equ DOS_CBASE + DOS_B_XMSTAB
 dos_xmlen   equ DOS_CBASE + DOS_B_XMLEN
