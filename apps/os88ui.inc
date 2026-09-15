@@ -144,6 +144,10 @@
   %macro UI_TICKS 0
     mov ax, [ticks]
   %endmacro
+  %macro UI_CPUTIER 0               ; AL = CPU_8086 / CPU_286 / CPU_386, the
+    mov al, [cpu_tier]              ; published tier (SPEC.md 41.1). AH is
+  %endmacro                         ; CLOBBERED in the package arm and not
+                                    ; here, so a caller may rely on neither
 %else
   %macro UI_FRAME 0
     call OSAPI_GFX_FRAME
@@ -215,6 +219,14 @@
   %macro UI_TICKS 0
     call OSAPI_GET_TICKS
   %endmacro
+  %macro UI_CPUTIER 0               ; ...and the slot answers AL = the tier and
+    call OSAPI_CPU_INFO             ; AH = the feature bits in one word, so AH
+  %endmacro                         ; is clobbered HERE and is not in the
+                                    ; kernel arm: neither may be relied on.
+                                    ; Unlike UI_ISMONO this banks nothing -
+                                    ; cpu_info is `mov ax, [cpu_tier]` and a
+                                    ; `ret`, and three packages already call
+                                    ; it mid-routine with registers live
 %endif
 
 OS88UI_DIS  equ 1               ; disabled: dithered frame AND label (47 r2)
@@ -320,6 +332,15 @@ OS88UI_DOWN equ 16              ; THE PRESSED LOOK (SPEC.md 13.8): interior
 ; in:  BX = rect {x1,y1,x2,y2} inclusive, SI = NUL label, DI = OS88UI_* flags
 ;      caller holds the gfx lock (every callback and every kernel painter does)
 ; out: nothing; all registers preserved
+;
+; **THE RECT IS IN SCREEN COORDINATES AND MUST BE COMPUTED FROM THE CONTENT
+; ORIGIN EVERY TIME** - OSAPI_WM_CONTENT and OSAPI_WM_GEOM - never from a
+; screen origin and never from a copy banked on an earlier pass. A window that
+; MOVES does not call its paint proc: the kernel replays its pixels instead
+; (SPEC.md 11.96.12), so a banked rect goes on describing where the window used
+; to be, and the control is then drawn and hit-tested on somebody else's
+; pixels. apps/os88api.inc's header carries the rule and why it looks like it
+; works until it does not.
 ;
 ; Optional white interior, frame, optional default ring, then the label
 ; CENTRED IN BOTH AXES.
@@ -1397,12 +1418,46 @@ os88ui_sbmove:
 ; grow (13.10.5.6): one drag at a time on the one UI task, os88ui_ksb's
 ; argument exactly - and a block that grew would move every caller's .bss and
 ; rebuild every package that ever declared one.
+;
+; THE CALLER NAMES TWO RATES AND THE MACHINE PICKS (13.10.5.4.1). A following
+; view was rate 0 nearly everywhere because ONE commit is 117 to 417 ms on a
+; 4.77 MHz 8088 - two to eight ticks BEHIND a hand that has already stopped,
+; which is PERFORMANCE.md Part 1's VISIBLE REDRAW
+; (docs/reports/SBRATE-COMMIT-COST-2026-09-11.md is the measurement). That is
+; a fact about the MACHINE and not about the widget, so the element resolves
+; it once for everybody instead of ten callers each asking the same question.
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; os88ui_sbrate - which of the caller's two rates THIS machine can afford
+; in:  AL = the rate for an 8086/8088, AH = the rate for a CPU_286 or better
+;      (both in system ticks, as os88ui_sbgrab takes one - SPEC.md 13.10.5.4)
+; out: AL = whichever applies here, ready for os88ui_sbgrab. AH is UNDEFINED;
+;      every other register preserved, flags not.
+;
+; SPEC.md 13.10.5.4.1. It is still 13.10.1's geometry-not-policy: both numbers
+; are the caller's and the element picks between them on a FACT the code can
+; test (PERFORMANCE.md rule 7), never on a guess about how fast this is.
+;
+; THE POP IS THE TRICK AND IT IS UI_ISMONO'S: a pop writes no flags, so the
+; compare's answer survives the restore and the whole body is nine bytes and
+; the macro.
+; -----------------------------------------------------------------------------
+os88ui_sbrate:
+    push ax                     ; the pair, banked whole
+    UI_CPUTIER                  ; AL = CPU_8086 / CPU_286 / CPU_386
+    cmp al, CPU_286
+    pop ax
+    jb .out                     ; an 8086/8088: AL is already tier 0's
+    mov al, ah
+.out:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; os88ui_sbgrab - take the thumb: a press landed on it and the hand has it now
 ; in:  BX = the block, DX = the press's y (ABSOLUTE), AL = the rate in TICKS
-;      (0 = the view does not follow at all until the release, 13.10.5.4)
+;      (0 = the view does not follow at all until the release, 13.10.5.4) -
+;      ONE rate, already resolved, which is what os88ui_sbrate above is for
 ; out: CF = 1 = there is no thumb to take and NOTHING was armed; CF = 0 = the
 ;      gesture is live. Every register preserved.
 ;
@@ -1515,6 +1570,27 @@ os88ui_sbdrop:
     mov byte [os88ui_sbd_on], 0
 .no:
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbowed - where a LIVE drag on this bar has got to, WITHOUT spending it
+; in:  BX = the block
+; out: CF = 0 and AX = the hand's pos; CF = 1 = no drag, or a DIFFERENT bar's
+;      (13.10.5.10) and AX is untouched. Every other register preserved.
+;
+; SPEC.md 13.10.5.4.2's second trigger - the caller's W_ONTIMER asks this after
+; IDLE ticks in which the thumb did not move, and commits what it answers.
+;
+; It is os88ui_sbdrop with the SPEND taken out, and that is the whole reason it
+; has to live here: a pause is not the end of the gesture, so the record must
+; survive it, and `os88ui_sbd_pos` is the element's own state.
+; -----------------------------------------------------------------------------
+os88ui_sbowed:
+    call os88ui_sbmine
+    jc .no
+    mov ax, [os88ui_sbd_pos]
+    clc
+.no:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1737,6 +1813,14 @@ os88ui_sbd_id:   dw 0, 0
 OS88UI_AOK     equ 0            ; the button sets. Index 0 is the DEFAULT - it
 OS88UI_AYESNO  equ 1            ; carries the ring and it is what Enter fires
 OS88UI_ASAVE   equ 2            ; Save / Discard / Cancel
+OS88UI_ADANGER equ 3            ; Cancel / Proceed - and the ORDER is the whole
+                                ; of it. Index 0 carries the ring and Enter
+                                ; fires it, so a set whose destructive answer
+                                ; is index 0 arms the dangerous button with the
+                                ; key a user presses to get rid of a dialog.
+                                ; OS88UI_AYESNO cannot say this and neither can
+                                ; a caller rewording the question: the default
+                                ; is a property of the SET
 OS88UI_ACANCEL equ 0FFh         ; ...and the answer for a DISMISSED alert
 OS88UI_AMAX    equ 34           ; the message, in characters (it is CLIPPED by
                                 ; the window, not refused - keep it short)
@@ -1774,12 +1858,15 @@ os88ui_asets:
     dw 1, os88ui_as_ok,   0,             0
     dw 2, os88ui_as_yes,  os88ui_as_no,  0
     dw 3, os88ui_as_save, os88ui_as_disc, os88ui_as_can
+    dw 2, os88ui_as_can,  os88ui_as_proc, 0
 os88ui_as_ok:   db 'OK', 0
 os88ui_as_yes:  db 'Yes', 0
 os88ui_as_no:   db 'No', 0
 os88ui_as_save: db 'Save', 0
 os88ui_as_disc: db 'Discard', 0
 os88ui_as_can:  db 'Cancel', 0
+os88ui_as_proc: db 'Proceed', 0  ; SEVEN characters, which is what OS88UI_ABW
+                                 ; holds - 'Continue' would not fit the row
 
 ; -----------------------------------------------------------------------------
 ; os88ui_ask - raise the alert (see the header)

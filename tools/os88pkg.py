@@ -60,6 +60,11 @@ PART_ALIGN = 512           # every part starts on a 512-byte boundary in the
                            # file - see the layout comment in main()
 PK_SEG, PK_ASSET = 0, 1
 OPF_XMS, OPF_ZERO, OPF_OPT, OPF_LAZY, OPF_COMP = 1, 2, 4, 8, 16
+OPF_FETCHED = 32                # RUNTIME ONLY (SPEC.md 20.12.7.4): op_fetch
+                                # sets it and op_drop clears it, so a row that
+                                # arrived with it set would read as a part
+                                # already in memory. It is deliberately NOT in
+                                # OPF_ALL, which is what refuses it here.
 OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP
 PART_FMT_AT = PARTS_HDR - 1     # the table's reserved byte, which is the
                                 # FORMAT the OP_COMP rows use (SPEC.md
@@ -525,12 +530,13 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
                 fail(f"part {i}: OP_COMP on a scratch part. There are no file "
                      "bytes to compress, and its zkb word is the KB it asks "
                      "for (SPEC.md 20.12.7)")
-            if pflags & OPF_LAZY:
-                fail(f"part {i}: OP_COMP with OP_LAZY. A lazy row's zkb word "
-                     "banks the segment it was fetched into and a compressed "
-                     "row's carries its packed length - one word, and a "
-                     "fetched part would overwrite the length it needs to be "
-                     "fetched again (SPEC.md 20.12.7)")
+            # OP_COMP with OP_LAZY was REFUSED here and is the common case
+            # (SPEC.md 20.12.7.4). Every lazy row in the tree is a compressed
+            # stream; the ones that shipped before this each grew a packer and
+            # an expander outside the standard. The zkb word is shared in TIME
+            # now - the packed length until op_fetch runs, the segment after -
+            # and op_drop leaves OP_SPENT rather than 0 so a second fetch
+            # refuses instead of reading a stream of nothing.
             if pflags & OPF_XMS:
                 fail(f"part {i}: OP_COMP with OP_XMS. The span above 1MB is "
                      "staged through a transient conventional buffer a chunk "

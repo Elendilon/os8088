@@ -100,12 +100,39 @@ def main():
           "and it has to hold at the small widths too, not just at 14",
           got="violated at n = %s" % bad2, want="2*n*chunk <= 9n KB at every n")
 
-    check(9 * runs == 126, "the ceiling still wants the bar it always did",
-          "A 640KB machine must be unaffected by SPEC.md 18.95.5: at n = "
-          "DSK_RAH_RUNS the gate has to come out at the same 126KB free run "
-          "the fixed-size version demanded, or this changed behaviour where "
-          "it promised not to",
-          got="%dKB" % (9 * runs), want="126KB")
+    # ...and the THIRD of the three places, which was never read. This slot
+    # held `9 * runs == 126` - a literal that was DSK_RAH_RUNS = 14's own bar,
+    # written to guard SPEC.md 18.95.5 against changing what a 640KB machine
+    # gets. The shipped width is a DECISION below the ceiling now (SPEC.md
+    # 18.95.6), so that number moved and the rule did not: a row that pins a
+    # decision goes red when somebody takes it, which is the opposite of what
+    # a guard is for.
+    #
+    # What belongs here instead is the one number this file's own header names
+    # and nothing checked: the SHIFT-ADD. `kb_of` above is a TRANSCRIPTION of
+    # it, so every row that uses it is checking the kernel against a copy of
+    # the kernel. dsk_rah_want computes KB as:
+    #
+    #     mov bx, ax / shl ax,1 x3 / add ax, bx / inc ax / shr ax, 1
+    #
+    # which is ceil(n * 9 / 2) - and the 9 has to be DSK_RAH_SECS, because
+    # that is what makes it ceil(n * 4.5KB) for a 4,608-byte chunk. A shift
+    # dropped or added here claims LESS than the width it then fills, which is
+    # this row's headline failure with nothing above able to see it.
+    m = re.search(r"mov \[dsk_rah_runs\], ax(.*?)shr ax, 1", src, re.S)
+    shifts = len(re.findall(r"shl ax, 1", m.group(1))) if m else -1
+    adds = len(re.findall(r"add ax, bx", m.group(1))) if m else -1
+    ups = len(re.findall(r"inc ax", m.group(1))) if m else -1
+    mult = (1 << shifts) + adds if shifts >= 0 else None
+    check(mult == secs and ups == 1,
+          "the shift-add in the source IS ceil(n * SECS / 2)",
+          "kb_of above is a transcription of this, so without this check "
+          "every width row is comparing the kernel with a copy of itself. "
+          "The claim is sized here and filled from [dsk_rah_runs], so a "
+          "multiplier one short claims less than it fills - an int 13h "
+          "landing in whatever the heap handed out next",
+          got="(1<<%d)+%d = %s, round-up %s" % (shifts, adds, mult, ups),
+          want="%d, round-up 1" % secs)
 
     # ...and the divisor in the source is the same 9, not a second opinion
     m = re.search(r"mov cx, (\d+)\s*;[^\n]*\n[^\n]*div cx", src)

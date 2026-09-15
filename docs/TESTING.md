@@ -98,6 +98,42 @@ GLaBIOS turns an `int 13h` around 1.61x faster than the 1982 ROM. Counts are
 fine on any machine; a timing is not. docs/MARTYPC-DEBUG.md's *Which of them
 a DISK number may come off* is the per-machine table.
 
+### …and the HARD DISK has no model at all, so its timings are not even askable
+
+Everything above is the **floppy**. MartyPC's hard disk has **no mechanical
+model whatsoever**: `ata_device.rs` carries one constant,
+`ATA_RESET_DELAY_US` = 200 ms, and `operation_read_sector` fetches the next
+sector the instant the buffer is exhausted with nothing gating it. There is
+no `05-hard-disk-timing.patch` beside the floppy's and there has never been a
+field check for one.
+
+So a hard-disk figure off MartyPC is **the guest CPU in the controller's
+option ROM and nothing else** — which for `os8088_xt_hdd`'s XTIDE Universal
+BIOS is a byte-at-a-time programmed-I/O loop on a 4.77 MHz 8088, measured at
+**25 KB/s written and 38 KB/s read**. The field machine's transport is an
+**ST-225 on an ST-11M** (docs/FIELD-MACHINES.md,
+docs/plans/completed/BOOT-PERF-PLAN.md §1), which does ~320 KB/s — **8–13x**,
+and that gap is the controller rather than the emulator being wrong.
+
+**The failure it produces is not a wrong number, it is a wrong CONCLUSION.**
+A session measured os8088's hibernate round trip on `os8088_xt_hdd` at **43.4
+guest seconds**, wrote it into a plan as the price of a feature, and put the
+resulting trade to the owner — who had just done the same operation on iron in
+about **four** (docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3). The reading
+was exact, reproducible to 1.5% over three runs, and about the wrong machine.
+
+Counts, sector traffic, call shapes and `int 13h` batching off MartyPC's hard
+disk are exact as ever, and that is what `tests/hibernate.py` and the other
+hard-disk rows assert. **Milliseconds are not — and 86Box is where they go
+instead**, which is the one place this table's *"only where a person is
+watching"* row earns its keep rather than merely existing. 86Box models
+period controllers, and its **ST-225 has been checked against a real ST-225
+spinning in the field 5150** on exactly this operation: ~2 s emulated against
+~2 s on iron, plus a third reading off `8088VGA` with a WD controller that
+agrees (docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3.2). So a hard-disk
+timing is asked of 86Box with somebody watching, or of the field machine —
+never of MartyPC, which has no answer to give.
+
 ### Which ROM did it actually load? Fingerprint it, never infer it
 
 The IBM 5150 ROM cannot be in this tree (CONTRIBUTING.md 6). Eleven machines

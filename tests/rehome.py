@@ -17,14 +17,15 @@ WHAT THIS ROW ASSERTS, and each line of it goes red on a different half:
   2. the title is `REHOMED 4/4 OK`, which is the package's own four checks:
      the handoff arrived, the asset is where the loader said, it CAN claim
      memory (SPEC.md 50.3.4's whole gate - red without `mem_own`'s two arms)
-     and it may NOT free or unpin its own carve (SPEC.md 20.12.10.5);
+     and it may NOT free its own carve - though it MAY now unpin it
+     (SPEC.md 20.12.10.5, 66.6.1.2);
   3. the program's segment is NOT the base of any claim, which is what makes
      assertion 2's third check mean something - on a geometry where the head
      slack is zero it would pass by accident;
   4. THE LOADER'S REGION IS GONE FROM `mem_tab`. This is the feature: a claim
      based at the loader's old segment must not exist;
-  5. the carve's `MC_OWN` is the instance SLOT and its `MC_RLOC` is 0 - owned
-     the way `ld_alloc` owns a region, and pinned;
+  5. the carve's `MC_OWN` is the instance SLOT and its `MC_RLOC` is SET - owned
+     the way `ld_alloc` owns a region, and MOVABLE since SPEC.md 66.6.1.2;
   6. closing it returns the heap to the free runs it had before the launch.
 
 WHY 360KB IS THE DEFAULT here where multiseg takes both: its clusters are 1KB,
@@ -217,33 +218,52 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 "the program at %04X is not inside the claim owned by its own "
                 "slot (%04X..%04X) - the wrong claim was re-owned"
                 % (wseg, c.seg, c.end))
-        if c.hi:
+        # THE DOOR NO LONGER TELLS THE TWO APART, AND THAT IS THE POINT
+        # (SPEC.md 20.12.10.8). This read `if c.hi: fail` - the carve came in
+        # bottom-up, the loader's region top-down, so the door was a free
+        # discriminator. The carve is claimed TOP-DOWN now, through
+        # mem_claim_hi_x like every other CS-based claim, so that test fails
+        # on a correct machine and the discriminating work has already been
+        # done above by the two checks that do not depend on a door: exactly
+        # ONE claim on this slot (two means the loader's region was never
+        # freed) and the program sitting INSIDE it.
+        #
+        # So the check is INVERTED rather than deleted, and it is still
+        # load-bearing: a bottom-up survivor now means op_claim went back
+        # through OSAPI_MEM_CLAIM, which is the regression SPEC.md 20.12.10.8
+        # exists to prevent - it lands the carve at the FLOOR and leaves the
+        # loader's freed region as a hole beneath it.
+        if not c.hi:
             fails.append(
-                "the surviving claim came in by the TOP-DOWN door, so it is "
-                "the loader's region and not the carve: step 8a freed the "
-                "wrong one (SPEC.md 20.12.10.5)")
-        # --- 5. and its MC_RLOC is the SHAPE's answer ------------------------
+                "the surviving claim came in by the BOTTOM-UP door, so "
+                "op_claim is not using mem_claim_hi_x: a claim that becomes "
+                "a region must come in by a region's door, or it lands at "
+                "the heap floor with the loader's freed region left as a "
+                "hole under it (SPEC.md 20.12.10.8)")
+        # --- 5. ...and its MC_RLOC, WHICHEVER SHAPE IT IS IN -----------------
         # The program declares itself movable either way (rhprog.asm's
-        # rp_reloc). Which shape it is in decides whether the kernel takes the
-        # declaration, and BOTH answers are the correct one for their shape -
-        # so this asserts that the kernel agreed with the geometry rather than
-        # asserting one number (SPEC.md 20.12.10.5).
-        if at_base and c.rloc == 0:
+        # rp_reloc) and the kernel takes it either way since SPEC.md 66.6.1.2.
+        # **THIS USED TO ASSERT THE OPPOSITE FOR ONE OF THE TWO SHAPES** - a
+        # non-zero head slack puts the program INSIDE its carve, which was
+        # refused the declaration on a reading of the compactor that was
+        # accurate and is now fixed. tests/rehomemove.py's `360` arm is what
+        # then moves that shape; this row only says the declaration took.
+        if c.rloc == 0:
             fails.append(
-                "the program is AT the carve's base, so this claim is its "
-                "region in every sense - mem_is_region holds and "
-                "mem_find_own's `MC_SEG == the caller's own segment` arm "
-                "reaches it - and yet MC_RLOC is 0, so OSAPI_MEM_MOVABLE "
-                "refused a declaration it should have taken (SPEC.md 66.6.1)")
-        if not at_base and c.rloc != 0:
-            fails.append(
-                "the carve's MC_RLOC is %d and the program sits INSIDE it, "
-                "not at its base. It must stay pinned: mem_rr_tab rewrites "
-                "I_SPTR by matching the OLD BASE, and I_SPTR is the PART's "
-                "segment where this claim's base is the carve's - a move "
-                "would leave I_SPTR naming where the program used to be. "
-                "mem_find_own should have refused (SPEC.md 20.12.10.5)"
-                % c.rloc)
+                "the carve's MC_RLOC is 0, so the program's region is PINNED "
+                "- and rhprog.asm declares itself movable, so the kernel "
+                "refused a declaration it should have taken. The program sits "
+                "%s, and the second of those is the one that has to be said "
+                "out loud: it was correctly refused there until SPEC.md "
+                "66.6.1.2, because four places in the compactor read *the "
+                "claim's base* where they meant *the segment the package runs "
+                "in* - mem_is_region's equality, mem_frameless asking "
+                "mem_in_nest about the wrong segment, mem_rr_walk matching "
+                "the base alone, and mem_reloc_call dispatching PKG_DISP into "
+                "the carve's head slack. A refusal here means one of those "
+                "went back (SPEC.md 66.6.1, 66.6.1.2)"
+                % ("AT the carve's base" if at_base
+                   else "INSIDE the carve, a non-zero head slack up"))
 
     # --- 6. close it, and the heap comes back --------------------------------
     import os88ui

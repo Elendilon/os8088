@@ -319,6 +319,19 @@ trk_entry:
                                     ; module loads in front of it. BX is still
                                     ; the window and the slot preserves the
                                     ; flags the loader's CF rides in
+    OS88_REGION_MOVABLE             ; OUR REGION MOVES (SPEC.md 66.6.1), and
+                                    ; it is what makes OSAPI_MEM_AVAIL_MAX
+                                    ; below mean anything: a region born
+                                    ; PINNED reads the same in both plans, so
+                                    ; the what-if would answer "no better" for
+                                    ; a heap the compactor could have emptied.
+                                    ; Here rather than beside wm_create
+                                    ; because OSAPI_MEM_MOVABLE writes CF and
+                                    ; the loader's is riding in it - every
+                                    ; other call in this chain preserves the
+                                    ; flags on purpose
+    clc                             ; ...so put the success back. We only
+                                    ; reach this line past wm_create's jc
     call trk_arg                    ; were we launched to play a module?
 .out:
     pop di
@@ -391,12 +404,62 @@ trk_arg:
 ; reclaims the grant and repaints, all of which want the lock held.
 ; -----------------------------------------------------------------------------
 trk_onwake:
+    cmp byte [trk_cpq], 0           ; OUR OWN POSTED COMPACTION HAS RUN
+    jne .cpq                        ; (SPEC.md 66.4.3), so this wake is the
+                                    ; SAME load attempt continuing and not a
+                                    ; new one - trk_fdone left everything it
+                                    ; found alone and asked for the room
     cmp byte [trk_argp], 0          ; not the module's wake, or the module is
     je .out                         ; already playing
     call OSAPI_GFX_LOCK
     call trk_argload
     call OSAPI_GFX_UNLOCK
 .out:
+    ret
+.cpq:
+    call OSAPI_GFX_LOCK
+    call trk_cpqload
+    call OSAPI_GFX_UNLOCK
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_cpqload - re-enter the load the compaction was asked for (SPEC.md 66.4.3)
+; in:  the gfx lock HELD; [trk_cpq] = 1, so trk_cpq_try cannot post again
+; out: nothing; preserves all registers
+;
+; trk_argload's shape with nothing to look up: the name is already in OUR
+; segment and the size is already banked, so trk_fdone's own copy is onto
+; itself and there is no OSAPI_FILE_GOTO to do - the folder never changed,
+; this wake being one ui_task pass after the post.
+;
+; It re-asks plain OSAPI_MEM_AVAIL rather than trusting the what-if, because
+; that is the whole rule: the what-if measured a state the machine has since
+; left, and the number to claim against is the one the wake reports. If it
+; STILL does not fit, [trk_cpq] is what stops the next trip posting again -
+; a second post would be a program spinning.
+; -----------------------------------------------------------------------------
+trk_cpqload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; ES:DI = our own banked name
+    mov di, trk_fname
+    mov cx, [trk_fsize]             ; ...and DX:CX the size the dialog gave us
+    mov dx, [trk_fsize_hi]
+    xor al, al
+    call trk_fdone                  ; ...which clears [trk_cpq] on its way out,
+    pop es                          ; whichever way this goes
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -498,6 +561,15 @@ trk_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [trk_hired], 1
+    OS88_WORKER_RESTARTABLE trk_worker  ; ...and the region cannot move without
+                                    ; this: the kernel wrote our segment into
+                                    ; this worker's frame before its first
+                                    ; instruction, so mem_frameless pins a
+                                    ; region with an undeclared worker however
+                                    ; it is declared (SPEC.md 66.6.2). What a
+                                    ; restart costs is one pass of the loop;
+                                    ; trk_worker's own head is where the only
+                                    ; state that survives it is put right
 .out:
     pop bx
     pop ax
@@ -1148,7 +1220,14 @@ trk_fdone:
     call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB
     pop bx
     cmp ax, bx
-    jb .nomem2                      ; not fundable: say so and touch nothing
+    jae .sizeok
+    call trk_cpq_try                ; ...and if it does not fit AS THE HEAP
+    jc .nomem2                      ; STANDS, could a compaction that moved US
+    jmp .outq                       ; TOO have funded it? (SPEC.md 66.4.3)
+                                    ; CF=0 means one is POSTED and we must
+                                    ; return having touched nothing - the wake
+                                    ; re-enters here with the room made. CF=1
+                                    ; is a refusal that has earned itself
 .sizeok:
 
     call trk_play_stop              ; silence + close + DRAIN before the blob
@@ -1288,12 +1367,66 @@ trk_fdone:
     call tui_msg
     call trk_repaint_done
 .out:
+    mov byte [trk_cpq], 0           ; THIS ATTEMPT IS OVER, whichever way it
+.outq:                              ; went, so the next load may ask for a
+                                    ; compaction of its own. The POSTED path
+                                    ; jumps past it: its wake is this same
+                                    ; attempt continuing, and the byte is what
+                                    ; stops that trip asking twice
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_cpq_try - the one question a refusal owes the user (SPEC.md 66.4.3)
+; in:  [trk_needk] = the KB this load needs, and plain OSAPI_MEM_AVAIL has
+;      already said no
+; out: CF = 0 a compaction is POSTED and the caller must RETURN with nothing
+;      stopped and nothing freed; CF = 1 refuse for real.
+;      Preserves every register but the flags
+;
+; Tracker's requirement is EXACT - this module or no module - and a claim that
+; fails is destructive: mem_claim sheds every purgeable cache on its way down,
+; so the read-ahead and the FAT windows go and cost seconds of int 13h to
+; rebuild. A package with an exact requirement that guesses wrong therefore
+; pays for its refusal twice, which is why this asks before it claims and why
+; "Too big for free memory" only gets said once the answer is "not even if the
+; machine emptied itself for me".
+;
+; ONE POST PER ATTEMPT. The wake's own OSAPI_MEM_AVAIL is the number to decide
+; on; posting again because the first did not give us what the what-if hoped
+; for is how a program spins, and [trk_cpq] is the byte that refuses to.
+; -----------------------------------------------------------------------------
+trk_cpq_try:
+    push ax
+    push bx
+    push si
+    cmp byte [trk_cpq], 0
+    jne .no                         ; asked once already for this load
+    call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run there would be if
+    cmp ax, [trk_needk]             ; our own region moved too - a MEASUREMENT
+    jb .no                          ; of now, never a promise about later
+    mov bx, [trk_win]
+    mov al, MEM_LVL_TOP             ; an ordinary claim's rank: every cache
+    call OSAPI_MEM_COMPACT_WAKE     ; counts as free, because our claim would
+    jc .no                          ; shed them all anyway (SPEC.md 50.6.4)
+    mov byte [trk_cpq], 1
+    mov si, trk_s_cpq               ; ...and SAY so: the pass is hundreds of
+    call tui_msg                    ; milliseconds of rep movsw on the target
+    pop si                          ; machine and this callback returns into
+    pop bx                          ; it, so the sentence has to be on the
+    pop ax                          ; glass before the freeze rather than after
+    clc
+    ret
+.no:
+    pop si
+    pop bx
+    pop ax
+    stc
     ret
 ; =============================================================================
 ; Fullscreen is the fsx exclusive surface (SPEC.md 53) - entered from
@@ -2637,6 +2770,22 @@ trk_xt_toggle:
 TRK_DEEP    equ 4 * TRK_HALF        ; half the ring: draw first above this
 
 trk_worker:
+    mov byte [trk_inrend], 0        ; THE RESTART LANDS HERE (SPEC.md 66.6.2)
+                                    ; and this is the one byte it can leave
+                                    ; stuck. Tracker is PARK-SAFE, so the
+                                    ; kernel may park this worker blocked in
+                                    ; OSAPI_GFX_LOCK as well as at
+                                    ; OSAPI_TASK_ALIVE - and the only lock it
+                                    ; ever blocks on is trk_render's, taken
+                                    ; with this flag already 1 and nothing
+                                    ; drawn yet. Restarted there the frame is
+                                    ; lost, which is what a restart costs, and
+                                    ; the flag would stay set for ever with
+                                    ; trk_fs_enter's drain waiting on a worker
+                                    ; that is no longer inside trk_render.
+                                    ; [trk_mixing] needs no such line: trk_feed
+                                    ; blocks on nothing, so neither park point
+                                    ; is ever inside a feed pass
 .loop:
 %ifdef TRKLOG
     call tlog_wake                  ; WK: how often this got the CPU, which is
@@ -2938,6 +3087,7 @@ trk_s_playingf: db 'Playing  SPACE stop  F/ESC exits', 0
 trk_s_fsload: db 'Load is windowed: F or Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
 trk_s_nofit:  db 'Too big for free memory', 0
+trk_s_cpq:    db 'Making room...', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_nomem:  db 'Out of memory', 0
@@ -3113,6 +3263,13 @@ trk_reloc:
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
     TRKW trk_capk                   ; its size in KB
+    TRKB trk_cpq                    ; 1 = we posted OSAPI_MEM_COMPACT_WAKE for
+                                    ; the load in trk_fname and the wake owes
+                                    ; us the retry (SPEC.md 66.4.3). It is one
+                                    ; byte doing two jobs and they are the same
+                                    ; job: it tells trk_onwake which wake this
+                                    ; is, and it tells trk_cpq_try that this
+                                    ; attempt has had its one question
     TRKBUF trk_argnm, 13            ; a module handed to us at launch (54.5)
     TRKBUF trk_argp, 1              ; ...1 = the first paint owes the load
     TRKBUF trk_argdrv, 1            ; ...and where it lives

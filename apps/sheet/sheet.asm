@@ -59,6 +59,24 @@
 
 %include "os88api.inc"
 
+; THE ROW BAR'S THUMB RATES (SPEC.md 13.10.5.4.1), at the TOP for 13.10.7.4's
+; reason. EQUAL, and for The Wire's reason: this bar has followed the hand at
+; 2 ticks on every machine since it was written, so it is one of the two the
+; rest of that section's table is calibrated against rather than one of the
+; ten the section changes.
+%ifndef SH_SBRATE
+%define SH_SBRATE 2                 ; ticks between commits on an 8086/8088
+%endif
+%ifndef SH_SBRATE286
+%define SH_SBRATE286 2              ; ...and on a 286 or better
+%endif
+; ...AND THE PAUSE COMMIT (13.10.5.4.2): a one-shot re-armed on every movement
+; fires only after this many ticks of stillness. No tier pair - half a second
+; is half a second on an 8088 and on a 286 alike.
+%ifndef SH_SBIDLE
+%define SH_SBIDLE 9
+%endif
+
     OS88_HEADER 'SHEET', sh_entry, 3   ; bit 0 = icon, bit 1 = the
                                         ; association block below
 
@@ -658,14 +676,13 @@ sh_entry:
     ; puts those right; sh_reloc is named here because a proc is required and
     ; because it is the one that would have work to do if this package ever
     ; grew a word of its own.
-    push dx                     ; **DX IS STILL THE CHART CLAIM** and the BMP
-    mov dx, cs                  ; header copy below reads it as ES. Banked
-    mov ax, sh_reloc            ; rather than reordered because the declaration
-    call OSAPI_MEM_MOVABLE      ; belongs beside the others; without the bank
-    pop dx                      ; the 118-byte header landed at offset 0 of
-                                ; this package's OWN image, over the .o88
-                                ; header, and the window opened with an empty
-                                ; title. DS = CS for a package (SPEC.md 20.1)
+    ; The macro banks DX for us - **IT IS STILL THE CHART CLAIM** and the BMP
+    ; header copy below reads it as ES. Banked rather than reordered because
+    ; the declaration belongs beside the others; without the bank the 118-byte
+    ; header landed at offset 0 of this package's OWN image, over the .o88
+    ; header, and the window opened with an empty title. DS = CS for a package
+    ; (SPEC.md 20.1).
+    OS88_REGION_MOVABLE sh_reloc
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN
@@ -714,6 +731,8 @@ sh_entry:
     ; (os88api.inc: "TEST CF AND HAVE A SECOND PATH") - there is simply no
     ; tracking on that machine, and shift+click and shift+arrows, which need
     ; no kernel support at all, remain the way to build a range there.
+    mov ax, sh_ontimer          ; 13.10.5.4.2's PAUSE commit, the gesture's
+    call OSAPI_WM_ONTIMER       ; third edge; BX is still the window
     mov ax, sh_ondrag
     call OSAPI_WM_ONDRAG
 
@@ -1476,6 +1495,9 @@ sh_ondrag:
     call sh_sbsync
     call os88ui_sbdragging
     jc .novthumb
+    mov bx, si                         ; 13.10.5.4.2: every movement pushes the
+    mov ax, SH_SBIDLE                  ; one-shot out, which is what makes it an
+    call OSAPI_WM_TIMER                ; idle detector and not a cadence
     mov bx, sh_vsb
     call os88ui_sbtrack                ; DX = the pointer's y
     jc .out                            ; nothing owed (no move, or the rate)
@@ -2776,12 +2798,30 @@ sh_hsb_drop:
 ; for the vertical bar's rate-0 grab, commits the pos the hand ended on -
 ; which is what "the view follows only on release" means (13.10.5.4).
 ; -----------------------------------------------------------------------------
+sh_ontimer:                            ; the thumb has been STILL for SH_SBIDLE
+    push ax                            ; ticks; 13.9 disarms before this runs
+    push bx                            ; and this does not re-arm, so a pause is
+    push si                            ; ONE commit however long it lasts
+    call sh_sbsync
+    mov bx, sh_vsb
+    call os88ui_sbowed                 ; ...and NOT os88ui_sbdrop: a pause is
+    jc .tout                           ; not the end of the gesture
+    call sh_setscrollrow
+.tout:
+    pop si
+    pop bx
+    pop ax
+    ret
+
 sh_onmouseup:
     push ax
     push bx
     push si
     call os88ui_sbdragging
     jc .noV
+    mov bx, si                         ; the pause timer must not outlive the
+    xor ax, ax                         ; gesture it belongs to (13.10.5.4.2)
+    call OSAPI_WM_TIMER
     call os88ui_sbdrop                 ; the view already followed during the
     jmp .out                           ; drag (the rate above), so releasing
 .noV:                                  ; only has to let go
@@ -2828,7 +2868,8 @@ sh_sbclick:
     je .vpgup
     cmp di, SH_SB_PGDN
     je .vpgdn
-    mov al, 2                          ; SB_THUMB. A rate of 2 ticks (~110ms)
+    mov ax, SH_SBRATE | (SH_SBRATE286 << 8)
+    call os88ui_sbrate                 ; SB_THUMB. A rate of 2 ticks (~110ms)
     call os88ui_sbgrab                 ; rather than 0: the view FOLLOWS the
                                         ; thumb as it moves, throttled, which
                                         ; is 13.10.5.4's purpose - rate 0 means

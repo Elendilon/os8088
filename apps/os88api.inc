@@ -65,6 +65,41 @@
 ; package differ only in the segment they run in.
 KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 
+; =============================================================================
+; DRAW FROM THE CONTENT ORIGIN. ALWAYS. (SPEC.md 11.96.12)
+; =============================================================================
+; **A MOVED WINDOW DOES NOT CALL YOUR PAINT PROC.** The kernel banks your
+; content's pixels and replays them at the new position (§11.96.12's drag
+; cache) - 4.7x fewer drawing calls and half the guest time - so `W_PAINT` is
+; not reached, and any screen coordinate you worked out on a previous paint is
+; now describing where your window USED TO BE.
+;
+; So there are two rules and they are not style:
+;
+;   1. Ask OSAPI_WM_CONTENT (and OSAPI_WM_GEOM) for the box, and compute every
+;      coordinate from it, EVERY TIME you draw or hit-test.
+;   2. Never draw from a screen origin, and never from a rect you cached on an
+;      earlier pass. A rect in bss is valid until the next thing that can move
+;      the window, which is any moment your code is not running.
+;
+; **ASSUME IT ALWAYS HAPPENS.** §11.96.13 snaps a drop's x onto a multiple of
+; 8 before the cache is taken - it exists because the byte-phase refusal below
+; otherwise turned away seven drags in eight - so in ordinary use the replay
+; is what happens on EVERY drag, horizontal or vertical. What is left to refuse
+; it is a destination hanging off the screen, two displays that differ in
+; depth, and **a failed memory claim**: in other words, the only common way to
+; see your paint proc after a move is to be short of heap.
+;
+; That is why the wrong code passes a casual test rather than failing one, and
+; why it is the machine you did NOT test on that shows the defect.
+; `make DRAGCACHE=0` is the A/B.
+;
+; Measured, and the symptom is not subtle once you know it: SPEC.md 96.32's DOS
+; window dragged from y=20 to y=60 left its cached button rects sitting on the
+; old window's title bar, so clicks landed on the drag handle. It cost that
+; session an afternoon, and it is at least the third time this has been found
+; from scratch rather than read.
+
 ; The debug registry's tags (SPEC.md 57) - for a TEST package only. One word
 ; at 0060:000E names a list of (tag, offset) pairs ended by tag 0; the tag is
 ; also the block's own first word. Shipped software has no business here: a
@@ -86,6 +121,16 @@ VK_REMOVABLE equ 0               ; AL: a floppy
 VK_FIXED     equ 1               ; AL: a hard disk, however it is reached
 VT_BIOS      equ 0               ; AH: int 13h
 VT_DRIVER    equ 1               ; AH: a DRVC_DISK driver (SPEC.md 52)
+VT_FILE      equ 2               ; AH: a REDIRECTED volume (SPEC.md 62.9) -
+                                 ; somebody else's disk over a cable, so it has
+                                 ; no SECTORS of its own. It answers VK_FIXED
+                                 ; and it is not a hard disk: anything asking
+                                 ; "can I write an image to this and read it
+                                 ; back with no operating system" has to
+                                 ; exclude it, which is what kernel/hiber.inc's
+                                 ; hb_pick does. The slot has answered this
+                                 ; value since SPEC.md 62.9 and the SDK named
+                                 ; only the other two
                             ; It is baked into every OSAPI_* far call, so a
                             ; package built against a different value calls
                             ; into empty memory: rebuild EVERY .o88 (and the
@@ -555,6 +600,100 @@ OSAPI_LZ_LZB equ 1
                                  ; expanded downwards. FERR_BIG says so.
 %define OSAPI_FILE_DELETE   KERNEL_SEG:0x0130   ; SI = name; out CF=0 AX=0, else FERR_*
 %define OSAPI_FILE_RENAME   KERNEL_SEG:0x0138   ; SI = old name, DI = new name; out as above
+%define OSAPI_FILE_COPY     KERNEL_SEG:0x0578   ; COPY ONE FILE, source directory
+                                 ; to destination (SPEC.md 22.24).
+                                 ; ES:SI = the source 8.3 name, ES:DI = the
+                                 ; destination's - both in YOUR segment - with
+                                 ; BL = the source drive and DX its folder's
+                                 ; first cluster, BH = the destination drive
+                                 ; and CX its folder's. That is exactly the
+                                 ; pair OSAPI_FILE_HERE answers and
+                                 ; OSAPI_FILE_GOTO takes, so "copy this file
+                                 ; to where I was a moment ago" needs no
+                                 ; vocabulary of its own.
+                                 ; Out: CF=0, or CF=1 with AX = FERR_*.
+                                 ;
+                                 ; IT IS THE FILE MANAGER'S OWN ENGINE
+                                 ; (kernel/filecp.inc), not a second one: it
+                                 ; streams in chunks through a buffer it
+                                 ; claims and releases, takes the redirector's
+                                 ; own FSV_COPY when both ends are on one
+                                 ; remote volume, and DELETES A PARTIAL
+                                 ; DESTINATION if anything fails - which is
+                                 ; the half a hand-rolled copy gets wrong.
+                                 ;
+                                 ; WHERE YOU WERE STANDING IS RESTORED, and
+                                 ; the directory listing's staleness is paid,
+                                 ; so a Disk window showing either folder is
+                                 ; correct afterwards.
+                                 ;
+                                 ; The two names may DIFFER: a copy that
+                                 ; renames is one call.
+                                 ; It refuses with FERR_NODISK while a Cut or
+                                 ; Copy/Paste is running or suspended on its
+                                 ; overwrite question - the engine has one set
+                                 ; of state words and the user's operation
+                                 ; owns them.
+%define OSAPI_FILE_MOVE     KERNEL_SEG:0x0580   ; MOVE ONE FILE between two folders
+                                 ; of ONE volume (SPEC.md 22.25). ES:SI = the
+                                 ; 8.3 name - in YOUR segment - with BL = the
+                                 ; source drive and DX its folder's first
+                                 ; cluster, BH = the destination drive and CX
+                                 ; its folder's. OSAPI_FILE_COPY's registers
+                                 ; with one name instead of two.
+                                 ; Out: CF=0 it moved; CF=1 with AX = FERR_*,
+                                 ; or AX = 0.
+                                 ;
+                                 ; **AX = 0 IS NOT AN ERROR. IT MEANS NOTHING
+                                 ; HAPPENED**, and the file is still where it
+                                 ; was: copy it and delete the source instead.
+                                 ; A caller that treats it as a failure gives
+                                 ; up on a move it could have made; one that
+                                 ; treats it as success loses the file.
+                                 ; You get it for a request that spans two
+                                 ; volumes (the FATs share nothing, so there
+                                 ; is no entry to move), for a redirected
+                                 ; volume, when the destination already holds
+                                 ; the name, and when the destination folder
+                                 ; has no reusable slot.
+                                 ;
+                                 ; WHY IT IS WORTH ASKING FIRST: it REWRITES
+                                 ; THE DIRECTORY ENTRY and moves no data at
+                                 ; all, so a 100KB file costs a directory
+                                 ; write rather than 100KB through a buffer
+                                 ; and 100KB back. A folder moves with
+                                 ; everything under it, its '..' following.
+                                 ; It refuses with FERR_NODISK while a Cut or
+                                 ; Copy/Paste is running, as the copy slot
+                                 ; does.
+%define OSAPI_FILE_WRITE_AT KERNEL_SEG:0x0588   ; SI = a NUL 8.3 name, ES:BX =
+                                 ; the bytes, CX = how many (a multiple of
+                                 ; 512, >= 512), DX:AX = the byte offset (a
+                                 ; multiple of the volume's CLUSTER); out
+                                 ; CF=0 AX=0, else AX = FERR_*.
+                                 ; OSAPI_FILE_READ_AT's other half, and
+                                 ; deliberately the NARROW one: it overwrites
+                                 ; bytes the file ALREADY OWNS and **never
+                                 ; changes its size** (SPEC.md 18.4.7).
+                                 ; Growing a file is OSAPI_FILE_APPEND's.
+                                 ; **THE TWO GRANULARITIES DIFFER AND NEITHER
+                                 ; IS ARBITRARY**: the offset is a cluster
+                                 ; multiple so the walk is exact, and the
+                                 ; count is a SECTOR multiple because the
+                                 ; transfer moves whole sectors - a count
+                                 ; rounded up would write bytes from past YOUR
+                                 ; buffer into the file.
+                                 ; The span is checked against what the file
+                                 ; has ALLOCATED (its size rounded up to a
+                                 ; cluster), not against its size: a
+                                 ; 3,000-byte file on an 8KB-cluster volume
+                                 ; takes a 512-byte write at offset 0.
+                                 ; FERR_NAME = a bad offset, a bad count, or
+                                 ; a span past the allocated end. FERR_NOENT =
+                                 ; no such file; this cannot create one.
+                                 ; FERR_PROT = read-only/hidden/system/label/
+                                 ; directory, or a REDIRECTED volume, whose
+                                 ; driver surface has no write-at verb.
 %define OSAPI_FILE_DFREE    KERNEL_SEG:0x0140   ; out CF=0, DX:AX = free bytes, BX =
                                  ; SECTORS per cluster.
                                  ;
@@ -568,6 +707,45 @@ OSAPI_LZ_LZB equ 1
                                  ; chunk of a copy loop - apps/ftpd did the
                                  ; latter and spent 44% of an upload here
                                  ; (SPEC.md 77.40).
+
+%define OSAPI_VOL_STAT      KERNEL_SEG:0x0570   ; EVERY FACT ABOUT THE VOLUME YOU
+                                 ; ARE STANDING ON, in one record (SPEC.md
+                                 ; 18.4.6). ES:DI = your buffer, CX = its size
+                                 ; in bytes; out CF=0 with CX = bytes written,
+                                 ; CF=1 with AX = FERR_*.
+                                 ;
+                                 ; ONE DOOR FOR A FAMILY. DOS alone asks this
+                                 ; four ways (AH=36h, AH=1Bh, AH=1Ch, AH=32h)
+                                 ; and a slot apiece would be four cells of a
+                                 ; table that cannot grow. It also answers
+                                 ; OSAPI_VOL_KIND's two questions, so "what IS
+                                 ; this volume" is one call instead of two.
+                                 ;
+                                 ; **THE SIZE YOU PASS IS THE REQUEST.**
+                                 ; Everything up to VS_NOFREE is a read of
+                                 ; resident state; VS_FREE is a walk of the
+                                 ; whole FAT - ~105 ms on a 20MB disk on a
+                                 ; 4.77MHz 8088, the same walk
+                                 ; OSAPI_FILE_DFREE makes. Pass VS_NOFREE and
+                                 ; it is not taken; pass VS_SIZEOF and you
+                                 ; have asked for it. A buffer shorter than
+                                 ; VS_NOFREE is refused with FERR_BIG.
+                                 ;
+                                 ; The record may GROW, so read CX back rather
+                                 ; than assuming: a caller that knows 12 bytes
+                                 ; passes 12 and gets 12 whatever a later
+                                 ; kernel can say.
+VS_BPS    equ 0                 ; word: bytes per sector
+VS_SPC    equ 2                 ; word: sectors per cluster
+VS_CLUS   equ 4                 ; word: total clusters (CountOfClusters)
+VS_MEDIA  equ 6                 ; byte: the BPB media descriptor
+VS_FAT    equ 7                 ; byte: 12 or 16, the FAT width in BITS
+VS_KIND   equ 8                 ; byte: VK_REMOVABLE / VK_FIXED, 0xFF unknown
+VS_TRANS  equ 9                 ; byte: VT_BIOS / VT_DRIVER, 0xFF unknown
+VS_NOFREE equ 10                ; ...and the size that stops HERE, before the
+                                ; expensive field below
+VS_FREE   equ 10                ; word: free clusters
+VS_SIZEOF equ 12
 
 ; --- menus (SPEC.md 12.2) ------------------------------------------------------
 ; Every application owns the menu bar while its window is frontmost: the
@@ -695,49 +873,69 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; releases your region, and your task
                                  ; ends inside this call.
 
-; --- running a package you are HOLDING (SPEC.md 21.5) -------------------------
-; The loader's back half with the disk read replaced by a copy. It exists for
-; the Wire (SPEC.md 26.7), which fetches a .O88 over the network into a claim
-; and has nowhere to put it: everything else in this system launches a package
-; by naming a FILE, and there is no file here.
-%define OSAPI_PKG_RUN       KERNEL_SEG:0x0520   ; ES:SI = a package image, byte for byte
-                                 ; what the .O88 file holds, in a claim of
-                                 ; YOURS. ANY segment - it is COPIED into a
-                                 ; region of the kernel's own, never
-                                 ; adopted, so you may free your claim the
-                                 ; moment this returns. DX:CX = its length
-                                 ; in bytes, DX the high word. DI = a
-                                 ; NUL-terminated 8.3 name, at most 12
-                                 ; characters, in YOUR OWN segment (not
-                                 ; ES): what the new instance is told it
-                                 ; was launched from, which is its entry
-                                 ; proc's SI (SPEC.md 20.2).
+; --- STARTING A PACKAGE (SPEC.md 21.5) ---------------------------------------
+; ONE DOOR, and it was briefly two: this cell took an IMAGE and 0x05A0 took a
+; NAME, which is the successor-slot-beside-a-no-consumer-path that SPEC.md
+; 20.8 rule 4 names as the worse spec. 0x05A0 is WITHDRAWN.
+%define OSAPI_PKG_START     KERNEL_SEG:0x0520   ; SI = a NUL-terminated 8.3
+                                 ; name, at most 12 characters, in YOUR
+                                 ; segment. It is the file to start AND what
+                                 ; the new instance is told it was launched
+                                 ; from - its entry proc's SI (SPEC.md 20.2).
+                                 ; It is resolved IN THE FOLDER YOU ARE
+                                 ; STANDING IN, so stand where the file is
+                                 ; first with OSAPI_FILE_GOTO_QM, which is
+                                 ; what every other by-name call here wants
+                                 ; (SPEC.md 19.2.1).
+                                 ;
+                                 ; DX:CX = the length of an image you are
+                                 ; HOLDING, DX the high word - or ZERO,
+                                 ; meaning you are not holding one and the
+                                 ; kernel is to READ THE FILE. **ZERO IS THE
+                                 ; ORDINARY CASE**: reach for the image form
+                                 ; only when the bytes have no file behind
+                                 ; them, which in this whole tree is the Wire
+                                 ; and nothing else (SPEC.md 21.5.1.1).
+                                 ;
+                                 ; ES:DI = that image when DX:CX is non-zero,
+                                 ; byte for byte what the .O88 file holds. ANY
+                                 ; segment - it is COPIED into a region of the
+                                 ; kernel's own, never adopted, so you may
+                                 ; free your claim the moment this returns. ES
+                                 ; = 0 with a non-zero length is REFUSED: an
+                                 ; image at segment 0 is the interrupt vector
+                                 ; table, and that is the fence against half
+                                 ; the image arguments being set by a caller
+                                 ; that meant the by-name form.
                                  ;
                                  ; Out CF=0 with AX = 0: it is registered,
-                                 ; published and its window shown, exactly
-                                 ; as a Disk-window double-click leaves
-                                 ; one. CF=1 with AL = an LD_* code
-                                 ; (SPEC.md 21.4): 2 the header is not a
-                                 ; package's, or it carries PARTS (header
-                                 ; flags bit 2 - parts are read from the
-                                 ; package's own FILE and there is none
-                                 ; here); 3 too large; 4 its entry proc
-                                 ; declined; 5 no region or no instance
-                                 ; record.
+                                 ; published and its window shown, exactly as
+                                 ; a Disk-window double-click leaves one.
+                                 ; CF=1 with AL = an LD_* code (SPEC.md 21.4):
+                                 ; 2 not a package - AND, by name, `no such
+                                 ; file`, which arrive as one answer; 3 too
+                                 ; large; 4 its entry proc declined; 5 no
+                                 ; region or no instance record.
+                                 ;
+                                 ; **PARTS** (SPEC.md 20.12) work on the
+                                 ; by-name form and are REFUSED on the image
+                                 ; form with LD_EBAD - because a part is read
+                                 ; out of the package's OWN FILE, and when you
+                                 ; handed over bytes there is no file to read
+                                 ; one from. That is a fact about not having a
+                                 ; file, not about this cell.
+                                 ;
+                                 ; IT SAYS NOTHING ON THE SCREEN. You have AL
+                                 ; and your own words for the user; a toast
+                                 ; reading `Bad package` for a launch YOUR
+                                 ; program asked for names neither.
                                  ;
                                  ; UI TASK ONLY - a window callback or an
-                                 ; OSAPI_WM_ONWAKE handler - with the gfx
-                                 ; lock NOT held. It takes the lock itself
-                                 ; around the new window's first paint, and
-                                 ; the entry proc it calls runs with the
-                                 ; lock free like every other package's.
-                                 ;
-                                 ; The new instance's CURRENT DIRECTORY is
-                                 ; YOURS at the time of the call (SPEC.md
-                                 ; 19.2.1), so a package with an overlay or
-                                 ; sidecars run this way looks for them
-                                 ; where you are standing. Run one that has
-                                 ; them from a disk instead.
+                                 ; OSAPI_WM_ONWAKE handler - with the gfx lock
+                                 ; NOT held. It takes the lock itself around
+                                 ; the new window's first paint, and the entry
+                                 ; proc it calls runs with the lock free like
+                                 ; every other package's.
 
 ; --- the desktop SERVICE zone, DRIVERS ONLY (SPEC.md 26.7) --------------------
 ; A driver puts an icon on the desktop. It is here rather than in
@@ -947,11 +1145,111 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 
 %define OSAPI_MEM_FREE      KERNEL_SEG:0x0208   ; DX = the segment you were
                                  ; given; out CF=0 released, CF=1 not yours
+; --- "…and if I moved too", and the post that makes it true (SPEC.md 66.4.3) --
+; A package may not compact its OWN region from inside its own callback: a
+; frame is standing in it - the far-return CS the CPU pushed, the API cell's
+; own `push ds`, and whatever you pushed yourself - so the kernel pins it for
+; exactly as long as you are the one asking.
+;
+; The way past it is to ask, return, and be woken:
+;
+;     call OSAPI_MEM_AVAIL          ; AX = what I can have RIGHT NOW
+;     call OSAPI_MEM_AVAIL_MAX      ; AX = ...and if my region moved too
+;     ; worth it?  then:
+;     mov bx, [my_window]
+;     mov al, MEM_LVL_TOP
+;     call OSAPI_MEM_COMPACT_WAKE   ; CF=0: posted
+;     ret                           ; <- RETURN.  Nothing happens until you do
+;     ; ...and in your OSAPI_WM_ONWAKE handler:
+;     call OSAPI_MEM_AVAIL          ; now EXACT, and it is the max
+;     call OSAPI_MEM_CLAIM
+;
+; ASK BEFORE YOU CLAIM, and that is not politeness: a claim that fails SHEDS
+; on the way down - the disk caches go, and the read-ahead costs seconds of
+; int 13h to rebuild - so a package with an exact requirement that guesses
+; wrong pays for its refusal twice. OSAPI_MEM_AVAIL_MAX is how the refusal
+; gets to mean "I could not have had this even trying".
+;
+; DECIDE ON THE WAKE, not before it. The what-if measured a state the machine
+; has since left; the wake's OSAPI_MEM_AVAIL is the one to claim against, and
+; posting a second time because the first did not give you what you hoped for
+; is how a program spins.
+; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL is MEM_LVL_TOP, declared
+; with the purge tiers further down: an ordinary claim's rank, where every
+; cache counts as free because mem_claim sheds them all, and it is what you
+; want unless you are a cache yourself (SPEC.md 50.6.4).
+
+%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, exactly
+                                 ; as OSAPI_MEM_AVAIL_LVL's; out AX/BX as
+                                 ; OSAPI_MEM_AVAIL, planned as if YOUR OWN
+                                 ; REGION could move. **SET AL** - pass
+                                 ; MEM_LVL_TOP for the unconditional answer,
+                                 ; and otherwise the SAME level you are going
+                                 ; to claim at, or the two numbers you compare
+                                 ; are answers to different questions.
+                                 ; A MEASUREMENT AND NOT A PROMISE: claiming
+                                 ; this number refuses, because you are
+                                 ; standing in your region as you ask
+%define OSAPI_MEM_COMPACT_WAKE KERNEL_SEG:0x0598 ; BX = a window of YOURS,
+                                 ; AL = the shed rank the pass must respect
+                                 ; (MEM_LVL_TOP to let it drop any cache).
+                                 ; out CF = 0 posted, and an EVT_WAKE arrives
+                                 ; once it has run; CF = 1 refused - BX is not
+                                 ; your window, or a post of yours is already
+                                 ; standing
 %define OSAPI_MEM_AVAIL     KERNEL_SEG:0x0210   ; out AX = largest free run in
                                  ; KB, BX = total free KB. Size yourself from
                                  ; THIS, not from int 12h: it is the only
                                  ; number that accounts for what the kernel
                                  ; and every other package already hold.
+                                 ; IT IS THE DELIVERABLE, NOT THE AT-REST
+                                 ; PICTURE (SPEC.md 50.6.3, 66.10.3): a
+                                 ; PURGEABLE claim counts as FREE in both
+                                 ; answers, and the largest run is the one a
+                                 ; COMPACTION would leave. So this is the same
+                                 ; question mem_claim answers and a claim of AX
+                                 ; will be SERVED - the shed and the compaction
+                                 ; happen on the claim path to make it so.
+                                 ; DO NOT walk the claim table yourself to
+                                 ; "allow for" a shed: OSAPI_CLAIM_SNAPSHOT is
+                                 ; for DISPLAYING the heap, and a package that
+                                 ; reasons from it subtracts what this figure
+                                 ; has already added.
+; ...AND THE PAIR THAT SAYS "BUT NOT THAT" (SPEC.md 50.6.6). The two above are
+; unconditional: they count EVERY cache as free and then, on the claim, shed or
+; drop it to make that true. That is right for a program whose own work is
+; worth more than any cache - and wrong for one that is about to hammer the
+; DISK, because the dearest cache in the system is the directory read-ahead
+; window and losing it multiplies a program's own int 13h traffic (SPEC.md
+; 18.95, 50.6.6).
+;
+; So name a LEVEL and both halves honour it: caches STRICTLY BELOW it are still
+; yours for the taking, and nothing at or above it is shed by the claim or
+; dropped by the compaction that precedes it - it is PACKED OUT OF THE WAY
+; instead. Ask AVAIL_LVL for the number, then CLAIM_LVL for that number with
+; the same level, and the plan you made is the plan that happens.
+;
+;   mov al, MEM_PG_HIGH          ; everything except the disk cache
+;   call OSAPI_MEM_AVAIL_LVL     ; AX = the largest run that leaves it alive
+;   mov bl, MEM_PG_HIGH
+;   call OSAPI_MEM_CLAIM_LVL     ; ...and it is still alive afterwards
+;
+; MEM_LVL_TOP in either is exactly the unconditional slot above, so there is
+; one code path and a constant decides. 0 is "how much without purging
+; ANYTHING", which is the honest number for a program that would rather be
+; refused than cost somebody else a redraw.
+%define OSAPI_MEM_AVAIL_LVL KERNEL_SEG:0x0560   ; AL = the level; out as AVAIL
+%define OSAPI_MEM_CLAIM_LVL KERNEL_SEG:0x0568   ; AX = KB, BL = the level,
+                                 ; BH = 0 bottom-up / 1 from the top (the two
+                                 ; doors above), CX = the page-safe HEAD in KB
+                                 ; or 0; out CF and DX as CLAIM. ONE DOOR FOR
+                                 ; ALL FOUR of the claims above, because a NEW
+                                 ; slot's registers are free to mean something
+                                 ; - no package was ever compiled against them.
+                                 ; **BH AND CX ARE READ**, so set them: the
+                                 ; plain slot ignores both and this one does
+                                 ; not, and a stale CX is a 64KB page
+                                 ; constraint nobody asked for.
 %define OSAPI_WM_CLIP_TEST  KERNEL_SEG:0x0180   ; AX=x1, BX=y1, CX=x2, DX=y2 (inclusive);
                                  ; out CF=0 the whole rect is drawable (also
                                  ; when no clip is armed), CF=1 it is not.
@@ -1293,7 +1591,7 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; (SPEC.md 31.8). The old verb 2, "write the
                                  ; file NOW", is retired and reads as 1
 
-; --- a DRIVER page's file dialog (SPEC.md 51.10) -----------------------------
+; --- a DRIVER page's file dialog (SPEC.md 51.11) -----------------------------
 ; OSAPI_FILE_DLG is unreachable from a driver and always was: fdlg_open fences
 ; on a live INSTANCE owning the window it is handed (SPEC.md 38.1), because
 ; the staleness triple it banks is what stops a commit calling into a region
@@ -1730,6 +2028,55 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; you specifically need this; the claim must
                                  ; also be PINNED (the default, SPEC.md 66), or
                                  ; a compaction moves it under the driver.
+; --- DRIVERS, OUT OF MY WAY (SPEC.md 51.11) ----------------------------------
+; An exclusive fullscreen app about to program the hardware ITSELF - a DOS
+; program driving a Sound Blaster, a demo taking the OPL - needs the drivers
+; that own that hardware to stop owning it. This is the door, and it is NOT
+; sound-specific: what you say is "get out of my way", and each class decides
+; what that means for it.
+;
+; IT IS AN UNLOAD AND A RELOAD, which is why it is honest: the service table
+; the kernel dispatches through is a COPY taken at attach, so a driver going
+; quietly dormant would change nothing the kernel reads - DSV_TICK would still
+; be far-called from inside IRQ0 at a card you are programming. An unload puts
+; that table back, waits the driver's worker out, unhooks its vector and gives
+; its memory back, and you get the memory too.
+;
+; NEITHER HALF IS FENCED, and the whole contract is therefore yours: **CALL THE
+; RESUME ON EVERY EXIT PATH YOU HAVE**, including the ones that refuse. Nothing
+; else will, and a machine left with its sound driver unloaded is a machine
+; that went quiet for no reason the user can see - and since suspend stopped
+; being bracket-only (SPEC.md 51.11.1) that machine can be showing an ordinary
+; WINDOW while it is silent, not only a full-screen program. Suspend where you
+; will: the reason the fence went is that the memory an unload gives back is
+; only reachable if you ask for it BEFORE you claim, which is before any
+; bracket.
+;
+; DRVC_DISK and DRVC_FILE are NOT touched - memory and the ROM's int 13h, and
+; the RAM disk - because both are things a fullscreen program WANTS rather
+; than fights, and neither owns a chip anyone is about to take.
+DQ_CLASS   equ 0                 ; db: the DRVC_* this record is about
+DQ_FLAGS   equ 1                 ; db: bit 0 = it went
+DQ_A       equ 2                 ; dw: the class's own three words. For
+DQ_B       equ 4                 ; dw: DRVC_SOUND: the DSP base port, then
+DQ_C       equ 6                 ; dw: (IRQ | DMA<<8), then the DSP version -
+DQ_SIZE    equ 8                 ;     which is what a BLASTER= is made of
+DQ_MAXREC  equ 8                 ; the most records one call can write, so
+                                 ; a caller can size a buffer without
+                                 ; mirroring the kernel's own DRV_MAX -
+                                 ; which is 6, 5 or 4 depending on the
+                                 ; build and is asserted against this at
+                                 ; assembly time (SPEC.md 51.11.2)
+%define OSAPI_DRV_SUSPEND   KERNEL_SEG:0x0550   ; AL = 1 suspend / 0 resume,
+                                 ; ES:DI = a buffer of DQ_SIZE records or
+                                 ; DI = 0 for none. out CF=0 with AX = a
+                                 ; bitmap of the DRVC_* classes that went and
+                                 ; CX = records written; CF=1 = nothing went.
+                                 ; A driver with nothing to
+                                 ; say about its hardware simply gets no
+                                 ; record, so CX may be less than the bits in
+                                 ; AX.
+;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
                                  ; SI and DI are the driver's to define too.
@@ -1814,7 +2161,11 @@ DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; not free: a class number is ABI, and a driver
                                 ; built against the old header would attach as
                                 ; whatever took it (SPEC.md 58)
-DRVC_NET     equ 4              ; the parallel link (SPEC.md 62)
+DRVC_NET     equ 4              ; **THE ETHERNET CARD** (SPEC.md 72), and
+                                ; not the parallel link, which this line said
+                                ; for a cycle after the cable moved to
+                                ; DRVC_FILE (62.9). apps/dos read it and put
+                                ; a route compare the wrong way round
 DRVC_FILE    equ 5              ; a volume served by somebody answering
                                 ; questions about FILES rather than sectors
                                 ; (SPEC.md 62.9)
@@ -2233,7 +2584,13 @@ W_Y       equ 4             ; word: frame top (y >= MBAR_H - except under
 W_W       equ 6             ; word: frame width, outer
 W_H       equ 8             ; word: frame height, includes title bar
 W_TITLE   equ 10            ; word: near ptr to NUL title string
-W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only
+W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only.
+                            ; **A MOVE DOES NOT CALL IT** - the drag cache
+                            ; replays your pixels instead (SPEC.md 11.96.12),
+                            ; and conditionally, so the mistake it invites
+                            ; passes a casual test. Draw from
+                            ; OSAPI_WM_CONTENT every time; see the rule at
+                            ; the head of this file
 W_ONKEY   equ 14            ; word: near ptr or 0; AL=ascii, AH=scan, SI=win
 W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win.
                             ; GIVE SI BACK AS YOU GOT IT: ui_task arms the
@@ -2535,11 +2892,21 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
 ;
 ;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_REGION_MOVABLE my_reloc        ; ...or with a fix-up of your own
 ;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
 ;
-; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
-; and jumps over it, so there is no second thing to place and no way to declare
-; without one.
+; Both are self-contained: with no argument OS88_REGION_MOVABLE carries its own
+; relocation proc and jumps over it, so there is no second thing to place and
+; no way to declare without one.
+;
+; THE ARGUMENT IS FOR THE PACKAGE THAT HAS A WORD OF ITS OWN TO FIX, and it
+; exists so that such a package declares in the SAME VOCABULARY as every other
+; one rather than hand-rolling the call. Name a near proc of yours; it is
+; entered with BX = the base the region WAS at and DX = where it is now, and it
+; must preserve every register and `ret`. Two things make a package need one -
+; it stamped its own segment somewhere the kernel does not know about, or it
+; handed a far pointer into itself to something that outlives the callback -
+; and both are rare enough that the bare form is the one to reach for.
 ;
 ; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
 ; offset in it survives a move untouched - and every word that NAMES your
@@ -2558,25 +2925,42 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; must NOT pair the two blanket-fashion: declare this as a window instead -
 ; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
 ; -----------------------------------------------------------------------------
-%macro OS88_REGION_MOVABLE 0
+%macro OS88_REGION_MOVABLE 0-1
+    pushf                       ; AND THE FLAGS: an entry proc carries the CF
+                                ; it owes the loader, and OSAPI_MEM_MOVABLE
+                                ; writes one. Nothing acts on that answer - a
+                                ; refusal can only mean the region is not ours,
+                                ; which cannot happen from inside it - so the
+                                ; two bytes buy the right to put this line
+                                ; anywhere the window already exists, which is
+                                ; what makes it a one-line adoption
     push ax
     push dx                     ; DX is the instance index in an entry proc
     mov dx, cs                  ; ...and OUR REGION is the claim
-    mov ax, %%reloc
+  %if %0 == 0
+    mov ax, %%reloc             ; no proc named: ours, just below
+  %else
+    mov ax, %1                  ; the caller's own fix-up (see the header)
+  %endif
     call OSAPI_MEM_MOVABLE
     pop dx
     pop ax
+    popf
+  %if %0 == 0
     jmp short %%over
 %%reloc:                        ; BX = the base it WAS at, DX = where it is now
     ret
 %%over:
+  %endif
 %endmacro
 
 %macro OS88_WORKER_RESTARTABLE 1
-    push ax
-    mov ax, %1
-    call OSAPI_TASK_RESTARTABLE
-    pop ax
+    pushf                       ; flags for OS88_REGION_MOVABLE's reason:
+    push ax                     ; inst_restart_set answers in CF (it `clc`s on
+    mov ax, %1                  ; the way out precisely because inst_fhome_idx
+    call OSAPI_TASK_RESTARTABLE ; clobbers them), and the site this goes at is
+    pop ax                      ; a spawn whose OWN CF the caller is usually
+    popf                        ; still carrying
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -3058,7 +3442,7 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; hold on the machine rather than only where you asked for it.
 OSAPI_CUR_ARROW equ 0           ; the default, and what W_FLAGS arrives holding
 OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
-; ...and there is NO third value to pass here. The hourglass belongs to a
+; ...and there is NO third value to pass here. The clock belongs to a
 ; gfx-lock HOLD rather than to a window (SPEC.md 7.5), so it is asked for with
 ; OSAPI_CUR_BUSY below and this slot refuses it - a window record that could
 ; carry it would be a program declaring the machine permanently busy over its
@@ -3087,7 +3471,7 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
 %define OSAPI_CUR_BUSY      KERNEL_SEG:0x0540   ; I AM ABOUT TO GO QUIET FOR
                                                 ; A WHILE (SPEC.md 7.5). NO
                                                 ; ARGUMENT. The pointer becomes
-                                                ; an HOURGLASS for the rest of
+                                                ; a CLOCK for the rest of
                                                 ; the gfx-lock hold you are
                                                 ; inside, and OSAPI_GFX_UNLOCK
                                                 ; puts the old one back - so
@@ -3100,8 +3484,8 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; decode, a compression pass, a
                                                 ; long compute - and NOT around
                                                 ; an ordinary repaint: the
-                                                ; pointer would flicker to an
-                                                ; hourglass and back on every
+                                                ; pointer would flicker to a
+                                                ; clock and back on every
                                                 ; one, which is why the kernel
                                                 ; does not do this for every
                                                 ; lock hold itself. A FILE
@@ -3245,6 +3629,41 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ; and no cursor, so you may write between two reads. That is the point - the
 ; loop this exists for is read -> write -> read, and the write walks
 ; directories and the FAT.
+; --- SPEC.md 19.2.4: where am I standing? ------------------------------------
+; **THE ONLY WAY TO GET A PATH**, and the reason it is a slot rather than
+; something you assemble: `OSAPI_FILE_FIND` never reports `.` or `..`
+; (`dsk_find` drops the on-disk dot links outright), so nothing outside the
+; kernel can walk upward at all. `OSAPI_FT_UP` in the type list belongs to the
+; Disk window's LISTING (SPEC.md 19.5), which is a different structure.
+;
+; Three packages each built a descent stack for want of this - ftpd's 16-level
+; FD_CDMAX, the DOS box's self-maintained `AH=47h` string, and Tank Attack's
+; walk to SYSTEM\APPDATA. If you are about to write a fourth, this is it.
+;
+; **IT COSTS ONE MOUNT AND THEN NOTHING.** The kernel walks with the directory
+; walker, which takes a cluster and stands nowhere, so no level re-mounts and
+; no level re-reads LBA 0 - which is what a walk built out of
+; `OSAPI_FILE_GOTO_QM` does once per directory, because `dsk_here_ok` can only
+; skip a mount when you are ALREADY AT that exact cluster and a walk never is.
+; The sectors it does read come through SPEC.md 19.2.3's cached window.
+;
+; The answer starts with a separator and does not carry the drive: `\APPS\ID`,
+; or `\` at the root. `OSAPI_FILE_HERE` already told you the volume. DOS's own
+; `AH=47h` wants neither the separator nor the drive, so a DOS shim steps one
+; byte in.
+;
+; A buffer that is too small is REFUSED with FERR_BIG and nothing is written -
+; it never truncates, because a truncated path resolves somewhere real.
+%define OSAPI_FILE_PATH     KERNEL_SEG:0x0558   ; ES:DI = your buffer, CX = its
+                                 ; size in bytes (>= 2); out CF=0, a NUL
+                                 ; `\DIR\DIR` written there and CX = its
+                                 ; length not counting the NUL, DI unchanged.
+                                 ; CF=1 and AX = FERR_BIG (buffer too small),
+                                 ; FERR_IO, FERR_NAME (the chain is corrupt or
+                                 ; over 32 deep) or FERR_NOENT (a parent does
+                                 ; not name its own child - a cross-linked
+                                 ; disk). UI-task context, like every file cell
+
 ; --- SPEC.md 18.9.3: the batch bracket ---------------------------------------
 ; "The interface is frozen and the disk is the same disk." Between these two,
 ; a FLOPPY may reuse its banked BPB instead of re-reading LBA 0 at every volume
@@ -3891,6 +4310,48 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; template taller than the whole adapter is
                                  ; still cut - and on a machine where you fit
                                  ; the band, this changes nothing at all.
+; -----------------------------------------------------------------------------
+; OSAPI_DOS_HANDOFF - hand the whole machine to kern_dos (SPEC.md 96.40)
+; in:  ES:SI = a KDH_* record in YOUR segment
+; out: CF=0 posted, CF=1 refused
+;
+; **IT ONLY RECORDS.** What it asks for detaches every driver and takes the
+; screen, and a package's callback is the one place that may not happen: the
+; kernel keeps a FAR POINTER to your record and reads it at ui_task's step 0,
+; with nothing held. So the record must live in your IMAGE or your BSS and not
+; on a stack, and it must still be there when you return.
+;
+; This is the DOS box's slot and nothing else in the tree calls it. It is
+; published rather than private because the alternative is a second copy of
+; the layout below in two places that cannot see each other, and
+; tests/unit/t_mirror.py is what keeps this one honest against the kernel's.
+KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_VOL     equ 4               ; db the volume your package's FILE is on
+KDH_PAD     equ 5               ; db 0
+KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
+KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
+KDH_POFF    equ 21              ; dw the kern_dos part's first file SECTOR
+KDH_PLEN    equ 23              ; dd its packed bytes
+KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
+KDH_LB      equ 31              ; db[512] the launch block, verbatim
+KDH_WIN     equ 543             ; dw the window to wake on the way back - the
+                                ; box's, because only the box knows it
+KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
+                                ; RESTORED kernel, KDH_NOCODE until then
+KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
+KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
+KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
+                                ; goes, so the stub reads TWO parts (SPEC.md
+                                ; 96.44.5.4) and only the box knows where
+                                ; either sits in the file
+KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
+                                ; segment - CORE_ORG, which only the box knows
+KDH_SIZE    equ 559
+KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
+%define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;
+                                                ; out CF=0 posted
+
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

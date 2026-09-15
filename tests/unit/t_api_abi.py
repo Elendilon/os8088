@@ -110,6 +110,9 @@ ALIAS = {
     # body - 0x0448 goes through OSAPI_XSTUB and overwrites ES, 0x04A0 through
     # the ordinary SLOT and does not (SPEC.md 20.11.2).
     "OSAPI_DRV_CALL_AT":  "drv_pkg_call_x",
+    # SPEC.md 51.11. `_x` is this file's own convention for the body
+    # behind a cell, and the derived name would be drv_suspend.
+    "OSAPI_DRV_SUSPEND":  "drv_suspend_x",
     # SPEC.md 6.6.4: the SDK spelling says what the call COSTS and the kernel
     # routine keeps the name SPEC.md 6 documents it under. The slot numbers did
     # not move - 0x0060 and 0x0068 are what they always were - so this is a
@@ -142,6 +145,7 @@ ALIAS = {
     "OSAPI_FILE_DELETE":  "dskw_delete",
     "OSAPI_FILE_APPEND":  "dskw_append",
     "OSAPI_FILE_READ_AT": "dskw_read_at",
+    "OSAPI_FILE_WRITE_AT": "dskw_write_at",   # ...and its other half (18.4.7)
     "OSAPI_FILE_MKDIR":   "dskw_mkdir",
     "OSAPI_FILE_RMDIR":   "dskw_rmany",
     "OSAPI_TASK_SPAWN":   "inst_pkg_spawn",

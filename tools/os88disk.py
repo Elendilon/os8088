@@ -72,6 +72,7 @@ drive folder on the RUNCPM disk holds 78 (SPEC.md 71.3).
 """
 import argparse
 import os
+import hashlib
 import struct
 import sys
 
@@ -79,7 +80,8 @@ SECTOR = 512
 MAX_FILES = 32                # kernel listing cap (SPEC.md section 19)
 VOL_LABEL = b"OS8088APPS "    # 11 bytes, BS_VolLab == root label entry
 SYS_LABEL = b"OS8088SYS  "    # ...and what a --boot/--kernel disk is called
-VOL_ID = 0x88000888           # fixed serial -> deterministic images
+VOL_ID = 0x88000888           # the FALLBACK serial, and the value every
+                              # os8088 volume used to carry. See vol_id().
 FIXED_DATE = 0x5C21           # 2026-01-01 in FAT date encoding
 FIXED_TIME = 0x0000
 NAME_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -481,9 +483,46 @@ def dirent(name11: bytes, attr: int, clus: int, size: int,
     return bytes(e)
 
 
+def vol_id(content: bytes) -> int:
+    """BS_VolID for a volume holding `content` - DERIVED, not pinned.
+
+    **THIS IS THE ONLY THING THAT TELLS TWO os8088 DISKS APART.** SPEC.md
+    18.8.2's `dsk_bpb_sig` signs LBA 0 and nothing else, and SPEC.md 18.95's
+    sector cache and SPEC.md 18.8's FAT window are both keyed on that
+    signature - so two volumes whose boot sectors are byte-identical are one
+    volume as far as the running machine is concerned. Swap one for the other
+    and every cached sector, the FAT window included, stays valid against a
+    platter it did not come from: the listing is the old disk's, a file
+    "cannot be read", and a write puts the old disk's FAT onto the new one.
+
+    A fixed serial made every non-bootable disk of a geometry identical -
+    MEASURED, 23 of them signing 0x2D68 - which on a 360KB machine is every
+    data floppy the project ships. 18.8.2 called that residual "accepted
+    deliberately" on the grounds that "a full mount re-validates"; the full
+    mount does re-read LBA 0 and does bypass the cache, and it re-reads 512
+    bytes that are the same 512 bytes, so the re-validation could never have
+    caught it. The ground was wrong when it was written, not made wrong later.
+
+    Deriving it from the volume's own bytes keeps the property the pin was
+    for - the same inputs build the same image, byte for byte - and drops the
+    one it never should have had. The digest is over the FAT, the root
+    directory and the data area, which is the whole volume EXCEPT this sector,
+    so there is no circularity to resolve.
+
+    Two volumes with identical content get the same serial, which is correct:
+    they are the same disk, and nothing on the machine could act on a
+    difference that does not exist.
+    """
+    d = hashlib.sha256(content).digest()
+    v = struct.unpack("<I", d[:4])[0]
+    return v or VOL_ID                           # 0 is a legal serial but
+                                                 # reads as "unset" to tools
+
+
 def boot_sector(spt, heads, tot, spc, fatsz, root_ent, media,
                 lay: Layout, code: bytes = None, label: bytes = None,
-                hidden: int = 0, drvnum: int = 0, ksecs: int = 0) -> bytes:
+                hidden: int = 0, drvnum: int = 0, ksecs: int = 0,
+                volid: int = None) -> bytes:
     """One BPB, three uses. `code` is os8088's own 512-byte boot sector -
     boot/boot.asm's on a floppy, boot/boothd.asm's under --hdd: either way
     its first three bytes are already EB 3C 90 and bytes 62.. are its
@@ -518,7 +557,8 @@ def boot_sector(spt, heads, tot, spc, fatsz, root_ent, media,
     struct.pack_into("<I", bs, 28, hidden)      # BPB_HiddSec
     bs[36] = drvnum                             # BS_DrvNum
     bs[38] = 0x29                               # BS_BootSig
-    struct.pack_into("<I", bs, 39, VOL_ID)      # BS_VolID
+    struct.pack_into("<I", bs, 39,
+                     VOL_ID if volid is None else volid)   # BS_VolID
     bs[43:54] = label or VOL_LABEL              # BS_VolLab
     bs[54:62] = b"FAT12   " if lay.fat12 else b"FAT16   "
     if not code:
@@ -906,14 +946,17 @@ def build(args) -> int:
             name11, sys_attr(name11, boot), chain[0], len(body), body)
         slot += 1
 
+    # THE SERIAL IS DERIVED FROM WHAT IS ON THE VOLUME (vol_id): it is the
+    # only field that tells two os8088 disks of one geometry apart, and the
+    # machine's whole swap detector is a signature over this sector.
+    body = bytes(fat.buf + fat.buf + root + data_area)
     image = bytearray(boot_sector(spt, heads, tot, spc, fatsz, root_ent,
                                   media, lay, boot, label,
                                   hidden=HDD_BASE if args.hdd else 0,
                                   drvnum=0x80 if args.hdd else 0,
-                                  ksecs=ksecs if args.hdd else 0))
-    image += fat.buf + fat.buf                   # FAT2 = FAT1
-    image += root
-    image += data_area
+                                  ksecs=ksecs if args.hdd else 0,
+                                  volid=vol_id(body)))
+    image += body
     assert len(image) == tot * SECTOR
 
     if args.hdd:

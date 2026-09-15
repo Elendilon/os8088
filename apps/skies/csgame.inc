@@ -69,6 +69,11 @@ cs_fsx_main:
     mov byte [cs_quit], 0
     mov byte [cs_pause], 0
     mov word [cs_tone], 0
+    mov word [cs_sndtk], 0          ; ...the tick the sound last serviced,
+    mov word [cs_eng], 0            ; ...and the engine's own note with it, or
+                                    ; the first tick of a Cessna would GLIDE
+                                    ; DOWN from the Magister the last flight
+                                    ; left in it (SPEC.md 88.8.2.1)
     mov ax, [cs_vw]                 ; the panel's horizontal scale, in eighths
     mov bx, 8
     mul bx
@@ -950,7 +955,12 @@ cs_k_alt:                           ; feet: metres x 3.281
     call cs_shr32
     ret
 cs_k_hdg:                           ; degrees: hdg x 360 / 65536
-    mov ax, [cs_hdg]
+    mov ax, [cs_hdg]                ; ...of the NOSE'S HORIZONTAL PROJECTION
+    mov bx, [cs_pitch]              ; (SPEC.md 88.9.2.6), which past the
+    add bx, 16384                   ; vertical is the heading's RECIPROCAL:
+    jns .fwd                        ; the panel read 220 in an aeroplane
+    xor ah, 0x80                    ; flying 040
+.fwd:
     mov bx, 360
     mul bx
     mov ax, dx

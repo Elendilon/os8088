@@ -5412,9 +5412,22 @@ fd_upcase:
 ; fd_enter - SI = one component; step into it. out CF=1 = there is no such folder
 ;
 ; A folder's first cluster comes out of OSAPI_FILE_FIND's +16, which is what
-; OSAPI_FILE_GOTO_QM takes. '..' is a REAL ROW here (type OSAPI_FT_UP, SPEC.md
-; 19.5) carrying the parent's cluster, so stepping up needs no special case -
-; the walk finds it like any other entry.
+; OSAPI_FILE_GOTO_QM takes.
+;
+; **'..' NEVER ARRIVES HERE, AND THIS COMMENT USED TO SAY IT DID.** It claimed
+; the up-entry was a real row (type OSAPI_FT_UP) that the walk found like any
+; other, so stepping up needed no special case. It is not and it does not:
+; dsk_find_x drops every on-disk dot link outright (`cmp al, '.' / je .skip`),
+; and the synthesized type-3 parent row belongs to disk_mount's LISTING (SPEC.md
+; 19.5), which is a different thing a package cannot reach. FD_CDMAX's comment
+; at the top of this file has said so correctly all along, and fd_walk handles
+; '..' BEFORE it ever reaches here (see its `cmp ax, '..'`), which is why the
+; wrong comment never became a wrong program.
+;
+; The OSAPI_FT_UP compare below is therefore defensive and unreachable. It is
+; left in place because it costs four bytes and is right if the fence ever
+; moves; what was costing was the sentence above it, which sent a reader
+; looking for an up-row that the kernel does not hand out.
 ; -----------------------------------------------------------------------------
 fd_enter:
     push ax

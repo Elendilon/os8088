@@ -116,9 +116,12 @@ DRV_MAX     equ 4               ; **kern_small HAS NO RAM DISK** (SPEC.md
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_NET    equ 4               ; the parallel link (docs/plans/completed/NET-PLAN.md). A
-                                ; SECOND block-serving class beside DRVC_DISK,
-                                ; which is what DV_CLASS exists for
+DRVC_NET    equ 4               ; **THE ETHERNET CARD** (SPEC.md 72) - and
+                                ; not the parallel link, which this line said
+                                ; for a cycle after the cable moved to
+                                ; DRVC_FILE (62.9) to serve a volume. A SECOND
+                                ; block-serving class beside DRVC_DISK, which
+                                ; is what DV_CLASS exists for
 DRVC_RETIRED3 equ 3             ; WAS the serial monitor's, and the driver is
                                 ; gone (SPEC.md 58). THE NUMBER STAYS: a class
                                 ; is an index into drv_fptr* below, which
@@ -286,6 +289,30 @@ DRVV_READY  equ 3               ; "your services are published and the kernel
                                 ; the publication slot, and attach runs before
                                 ; it is armed (SPEC.md 51.2.2). Optional: a
                                 ; driver that does not implement it returns.
+; --- the record drv_suspend fills, one per driver that answered ---------------
+DQ_CLASS    equ 0               ; db: the DRVC_* this row is about
+DQ_FLAGS    equ 1               ; db: bit 0 = it went
+DQ_A        equ 2               ; dw: the CLASS's own three words - for
+DQ_B        equ 4               ; dw: DRVC_SOUND, the DSP base port, then
+DQ_C        equ 6               ; dw: (IRQ | DMA<<8), then the DSP version
+DQ_SIZE     equ 8
+DQ_MAXREC   equ 8               ; the most records one call can write. It is
+%if DRV_MAX > DQ_MAXREC         ; MIRRORED in apps/os88api.inc, so a caller can
+%error "DRV_MAX exceeds DQ_MAXREC - widen it here AND in apps/os88api.inc"
+%endif                          ; size a buffer without mirroring DRV_MAX - and
+                                ; a row added here without widening it would
+                                ; write past the end of somebody's buffer,
+                                ; which is why the assertion is next to it
+
+DRVV_HWINFO equ 4               ; "WHERE IS YOUR HARDWARE?" (SPEC.md 51.11).
+                                ; No inputs. out CF=0 with AX/BX/CX the
+                                ; CLASS's own three words - for DRVC_SOUND,
+                                ; AX = the DSP base port, BL = its IRQ,
+                                ; BH = its DMA channel, CX = the DSP version
+                                ; - or CF=1 for a driver with nothing to say.
+                                ; Optional, and asked ONLY by drv_suspend, on
+                                ; the way past: a driver that is about to be
+                                ; unloaded is the last thing that knows.
 DRVV_TIER   equ 2               ; in AH = SND_RT_*: how much of itself the
                                 ; user wants (SPEC.md 34.8). out CF=0 and
                                 ; SI = its service table, RE-COPIED because
@@ -1321,6 +1348,19 @@ drv_owns_seg_x:
 ; nothing went wrong" is the absence of both. Only a FAILURE has a stored
 ; code, which is the only one of the three that could not be re-derived.
 ; -----------------------------------------------------------------------------
+section .modc                   ; CTRL.DRV's image (SPEC.md 2.8): the Drivers
+                                ; page is this routine's only caller, twice,
+                                ; and the page is `.modc` on BOTH builds. It
+                                ; calls NOTHING out - every operand is either a
+                                ; register or DS-relative kernel data, and DS
+                                ; is still KERNEL_SEG inside an image - so it
+                                ; takes no shim with it and the whole 40 bytes
+                                ; leave `.cold` rather than a net share of it.
+                                ; The strings it hands back (drv_errstr,
+                                ; drv_s_off, drv_e0) STAY in `.text`: it
+                                ; answers an ADDRESS and the caller draws it
+                                ; through DS, so they are not module data and
+                                ; want no `cs:`.
 drv_status_x:
     push ax
     mov al, [bx+DRVR_ERR]       ; A REPORTED REASON OUTRANKS 'Loaded', which is
@@ -1333,17 +1373,19 @@ drv_status_x:
     mov si, ax                  ; existing row's caption moves. A code from a
     mov si, [si+drv_errstr]     ; future version still says nothing rather than
     pop ax                      ; indexing past the table
-    retf
+    ret
 .noerr:
     cmp word [bx+DRVR_SEG], 0
     jne .loaded
     mov si, drv_s_off
     pop ax
-    retf
+    ret
 .loaded:
     mov si, drv_e0
     pop ax
-    retf
+    ret
+section .cold
+
 
 ; -----------------------------------------------------------------------------
 ; drv_row - row index to row pointer (module internal)
@@ -2051,7 +2093,7 @@ drv_blob_of:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_drv_dlg - the Standard File dialog, for a driver's page (SPEC.md 51.10)
+; osapi_drv_dlg - the Standard File dialog, for a driver's page (SPEC.md 51.11)
 ; in:  AL = FDLG_OPEN / FDLG_SAVE, ES:SI = a NUL default name in the CALLER'S
 ;      segment (0 = none), DI = the caller's own near completion proc
 ; out: CF = 0 the dialog is up; CF = 1 refused - not a published driver, no
@@ -2102,7 +2144,7 @@ osapi_drv_dlg_x:
                                 ; far as the stores below would replace the
                                 ; first driver's arming and then be refused
                                 ; there, leaving the live dialog's commit with
-                                ; nothing to dispatch into (SPEC.md 51.10)
+                                ; nothing to dispatch into (SPEC.md 51.11)
     mov ah, al                  ; the MODE rides in AH across the fences: AL is
     mov bx, es                  ; what drv_row_ix_of answers in
     call drv_pub_seg            ; a published driver's, and nobody else's
@@ -2111,7 +2153,7 @@ osapi_drv_dlg_x:
     jc .no
     call drv_row_x              ; BX = the row this segment is running
     mov [drv_dlg_mode], ah      ; NOTHING IS WRITTEN UNTIL BOTH FENCES PASS
-    mov [drv_dlg_cb], di        ; (SPEC.md 51.10): a refused caller used to
+    mov [drv_dlg_cb], di        ; (SPEC.md 51.11): a refused caller used to
                                 ; disarm the dialog a driver already had up on
                                 ; its way to CF = 1, and any .O88 can reach
                                 ; this slot. The pre-emptive disarm that stood
@@ -4306,7 +4348,7 @@ drv_wcnt:   resb 1              ; live driver worker tasks: +1 inside the
 %ifdef KERN_BIG                 ; kern_small's slot is a refusing stub, so it
                                 ; needs none of this state (SPEC.md 62.9.15)
 drv_dlg_row: resw 1             ; the row that asked for a file dialog, 0 =
-                                ; nobody (SPEC.md 51.10)
+                                ; nobody (SPEC.md 51.11)
 drv_dlg_seg: resw 1             ; ...the image it was in, so a detach between
                                 ; the ask and the answer refuses
 drv_dlg_cb: resw 1              ; ...and its near completion proc
@@ -4319,6 +4361,9 @@ drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
 drv_cpname: resb DRV_CPNSZ      ; ONE staged Control Panel page
                                 ; name; empty = that class has no page
+drv_susp:   resw 1              ; the rows drv_suspend took out, to put back
+drv_sp_n:   resb 1              ; ...and how many answered DRVV_HWINFO
+drv_sp_cls: resb 1
 drv_svc:    resb DSV_SIZE*(DRVC_MAX-1) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
@@ -4660,9 +4705,11 @@ drv_task_x:
 drv_cp_count_x:
     xor al, al                  ; no class publishes a Control Panel page
     retf
-drv_status_x:
-    mov si, drv_s_off           ; the one status a row could ever have
-    retf
+section .modc                   ; ...and the stub goes where the body went, or
+drv_status_x:                   ; the two builds would put one name in two
+    mov si, drv_s_off           ; different segments (the one status a row
+    ret                         ; could ever have)
+section .cold
 
 section .ovlw                   ; ...and these two are BOOT-OVERLAY code on the
                                 ; live arm (SPEC.md 2.5.2), reached near from
@@ -4775,3 +4822,201 @@ section .text                   ; ...and the file ends in .text, where it began
                                 ; pointer here any more: drv_pkg_call far-calls
                                 ; the class's own drv_fptr pair, because a
                                 ; staged one is a word two tasks share
+
+; =============================================================================
+; DRIVERS, OUT OF THE WAY (SPEC.md 51.11)
+; =============================================================================
+; An exclusive fullscreen app that is about to program the hardware ITSELF - a
+; DOS program driving a Sound Blaster, a demo taking the OPL - needs the
+; drivers that own that hardware to stop owning it. This is the door, and it
+; is deliberately NOT sound-specific: what the caller says is "get out of my
+; way", and each class decides what that means for it.
+;
+; IT IS AN UNLOAD AND A RELOAD, and that is the whole design. The alternative
+; - a dormant state each driver polices for itself - has to be written once
+; per driver, and gets the KERNEL's copy of the service table wrong the first
+; time somebody forgets: `drv_svc` is a COPY taken at attach, so a driver
+; clearing its own table changes nothing the kernel reads, and DSV_TICK would
+; still be far-called from inside IRQ0 at a card somebody else is programming.
+; An unload puts the service table back, waits the worker out, unhooks the
+; vector and gives the memory back - all of it already written, and this tree
+; ships the pair twice (hbm_detach/hbm_reload around a hibernate, ss_reap_x
+; after a screen saver).
+;
+; THE WORKER IS WHY THIS WORKS AT ALL, and it is worth stating because it
+; reads like a hazard: a driver's refill worker is TF_SERVICE (SPEC.md 53.2),
+; so it KEEPS RUNNING inside the bracket by design - which is both the danger
+; and the cure. drv_unload waits on that worker, and the wait can only finish
+; because the freeze lets that one task run.
+;
+; THE SKIP LIST IS hbm_detach's, for hbm_detach's reason: DRVC_DISK is memory
+; and the ROM's int 13h, DRVC_FILE is the RAM disk, and both are things a DOS
+; program WANTS rather than fights - neither owns a chip anyone is about to
+; take.
+
+; -----------------------------------------------------------------------------
+; drv_suspend_x - slot 0x0550 (SPEC.md 51.11)
+; in:  AL = 1 suspend / 0 resume; ES:DI = a DQ_SIZE-record buffer, or DI = 0
+; out: CF=0 with AX = a bitmap of the DRVC_* classes that went and CX = the
+;      records written. CF=1 = a SUSPEND from outside an fsx bracket, or from
+;      a task that does not own it.
+;
+; A RESUME IS NOT FENCED ON THE BRACKET, and that is deliberate rather than
+; forgotten: the put-back has to be possible AFTER the bracket has ended,
+; which is where an app that has finished with the screen actually is. It only
+; ever reloads rows a suspend noted, so a caller with nothing suspended
+; reloads nothing.
+; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS
+drv_suspend_x:
+    push bx
+    push dx
+    push si
+    push di
+    push bp
+    or al, al
+    je .resume
+
+                                ; **NO FENCE ON EITHER HALF** (SPEC.md 51.11.1).
+                                ; Suspend was fsx_mine's, on the reading that
+                                ; only the app holding the screen may take the
+                                ; hardware - and that made the slot's own
+                                ; headline use impossible: 96.35 unmounts the
+                                ; sound driver so the DOS ARENA CLAIM can have
+                                ; the 14KB, and the claim is on an EVT_WAKE,
+                                ; long before any bracket, because
+                                ; OSAPI_MEM_COMPACT_WAKE needs the caller to
+                                ; RETURN from its callback. This is real mode:
+                                ; a package that wants the card can program the
+                                ; DSP itself, so the fence bought tidiness and
+                                ; not safety. The contract is the RESUME
+                                ; OBLIGATION, on both halves
+    mov word [drv_susp], 0
+    mov byte [drv_sp_n], 0
+    xor si, si                  ; SI = the class bitmap
+    xor dx, dx                  ; DX = the row index
+.row:
+    mov al, dl
+    call COLD_SEG:drvf_drv_row  ; BX = the row, readable through DS
+    cmp word [bx+DRVR_SEG], 0
+    je .next
+    mov al, [bx+DRVR_CLASS]
+    cmp al, DRVC_DISK
+    je .next
+    cmp al, DRVC_FILE
+    je .next
+    cmp al, DRVC_NET            ; **AND THE WIRE, FOR A NARROWER REASON THAN
+    je .next                    ; THE OTHER TWO** (SPEC.md 96.23.6). Those are
+                                ; things a DOS program WANTS; this one it
+                                ; would happily fight - except that the DOS
+                                ; box's packet driver is the only route a DOS
+                                ; program here HAS to the card, and it is
+                                ; built on the driver staying mounted. A
+                                ; program wanting raw ports would need the I/O
+                                ; base out of DRVV_HWINFO, which no NIC driver
+                                ; in this tree implements - so the suspend was
+                                ; taking the card away to serve a program that
+                                ; could not have used the result
+    mov [drv_sp_cls], al
+
+    mov cl, al                  ; its CLASS, into the answer
+    mov ax, 1
+    shl ax, cl
+    or si, ax
+    mov cl, dl                  ; ...and its ROW, into the put-back mask
+    mov ax, 1
+    shl ax, cl
+    or [drv_susp], ax
+
+    or di, di                   ; ASK IT WHERE ITS HARDWARE IS, on the way
+    jz .unload                  ; past: it is about to stop existing, and it
+    mov bp, [bx+DRVR_ENT]       ; is the last thing that knows
+    mov al, DRVV_HWINFO
+    call COLD_SEG:drvf_drv_call
+    jc .unload
+    push ax
+    push bx
+    push cx
+    mov al, [drv_sp_cls]
+    mov [es:di+DQ_CLASS], al
+    mov byte [es:di+DQ_FLAGS], 1
+    pop ax
+    mov [es:di+DQ_C], ax
+    pop ax
+    mov [es:di+DQ_B], ax
+    pop ax
+    mov [es:di+DQ_A], ax
+    add di, DQ_SIZE
+    inc byte [drv_sp_n]
+.unload:
+    mov al, dl
+    call COLD_SEG:drvf_drv_unload
+.next:
+    inc dx
+    cmp dx, DRV_MAX
+    jb .row
+    mov cl, [drv_sp_n]
+    xor ch, ch
+    mov ax, si
+    clc
+    jmp short .out
+
+.resume:
+    mov dx, [drv_susp]
+    mov word [drv_susp], 0
+    xor cx, cx
+    or dx, dx
+    jz .rdone
+.rrow:
+    shr dx, 1
+    jnc .rnext
+    mov al, cl
+    call COLD_SEG:drvf_drv_load ; a failure shows on the Drivers page, as it
+.rnext:                         ; does at boot - there is nothing better to do
+    inc cx                      ; with it here, and an app cannot fix it
+    cmp cx, DRV_MAX
+    jb .rrow
+.rdone:
+    xor ax, ax
+    xor cx, cx
+    clc
+.out:                           ; ...and there is no refusing arm any more:
+                                ; the fsx fence was the only thing that took
+                                ; one, and 51.11.1 withdrew it
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop bx
+    ret
+
+%else
+; -----------------------------------------------------------------------------
+; drv_suspend_x - the same slot on a kernel with NO DRIVER LAYER
+;
+; OS88_DRIVERS is KERN_BIG's, and every byte the body above touches - the
+; suspended-row bitmap, the DRVV_HWINFO staging, drvf_drv_call/load/unload -
+; goes with it. The CELL cannot go with them: a package is built once and runs
+; on both kernels at the same table offsets (`make smallapps` is a disk
+; choice, not a second ABI), so 0x0550 has to answer here too.
+;
+; **IT ANSWERS SUCCESS, NOT A REFUSAL**, which is the unusual half and is the
+; honest one: the question is "did anything get out of my way", and on a
+; kernel with no driver layer the truthful answer is "nothing had to". AX = 0
+; classes went and CX = 0 records written is exactly that, and it costs the
+; caller no special case - where a refusing stub would make every caller test
+; CF for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md
+; section 10: a stub is only free when the caller tests CF, and most do not).
+;
+; The stub used to keep the fsx fence so the contract read identically on both
+; kernels. **51.11.1 WITHDREW THAT FENCE**, so keeping it here would invert the
+; very reason it was kept: a package would learn on kern_small that it may not
+; ask outside a bracket, and then find on kern_big that it may. Neither verb
+; refuses now, on either kernel, and the stub is four instructions.
+; -----------------------------------------------------------------------------
+drv_suspend_x:
+    xor ax, ax
+    xor cx, cx
+    clc
+    ret
+%endif

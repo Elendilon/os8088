@@ -1616,3 +1616,261 @@ carries real colour and `blitpair`'s red channel separates `0xAA0000` from
 Both are true and neither is a default. `paintpack` passes `--gif` now, which
 is what `blitpair`'s own comment asks for: it is the caller that builds the
 disk.
+
+---
+
+## G1. THIRTEEN DOS rows FAIL where they mean nothing at all — a bare `build/` existence check in front of a boot that would have worked
+
+**Reproduced exactly, and it is not the prewarm.** `os88soak.py start -k
+'doscom' --anyway` on a tree with no gate disk:
+
+```
+os88soak: the run reads build/trees/plain-0113a176, so build/ is yours ...
+  doscom: FAIL: build/doscom360.img is missing - `make doscom` builds the gate disk
+os88test: 0 passed, 1 failed, 0 skipped in 0.1s
+$ ls build/trees/plain-0113a176/doscom360.img
+build/trees/plain-0113a176/doscom360.img            # ...it is RIGHT THERE
+```
+
+`_frozen_targets` did its job: the row DECLARES `build/doscom360.img` through
+`wants=`, the union was taken, and the frozen tree holds it. What fails is the
+row's own preflight:
+
+```python
+COM = "build/doscom360.img"
+for p in (SYS, COM):
+    if not os.path.exists(p):
+        fail("%s is missing - `make doscom` builds the gate disk" % p)
+```
+
+`os.path.exists` looks in the CHECKOUT. Under a run `$OS88_TREE` points at the
+frozen tree, and `os88build.at` is what resolves a `build/...` string against
+it — which `os88ui.boot(SYS, apps=COM)` on the very next line already does
+internally. **So the row dies in its own guard, in 0.1 s, immediately before
+the boot that would have succeeded.**
+
+**Ten rows have that exact shape** — `dosargs`, `doscom`, `dosdir`, `dosexe`,
+`dosexec`, `dosfile`, `dosirq`, `dosmouse`, `dossnd`, `dosxms` — plus
+`dosxmsq`, which is 13 with `doslnk` below. It is B4's *"three rows FAIL where
+they mean SKIP"* one turn worse: these do not even mean SKIP, because the
+artefact exists and the row could have run.
+
+**The fix is one line each**: `if not os.path.exists(os88build.at(p))`. What is
+worth doing at the same time is asking why the check is there — `wants=`
+already guarantees the artefact and the runner already builds it, so on a
+declared row the guard only fires when the resolver is being bypassed.
+`tests/dospkt.py` and `tests/dosxlat.py` are the two that already call
+`os88build.at` in the check and are the pattern to copy.
+
+**This is why the whole `dos*` family reads as 13 simultaneous failures in 35
+seconds**, which looks like the DOS box being broken and is a harness path
+bug. It cost this session two runs before `make doscom` by hand made all 13
+pass.
+
+### G1.1 `doslnk` is the same root cause, one site along — FIXED, and it is the worked example
+
+`doslnk` flushed the guest's live B: to `os.path.abspath(FLUSHED)` — the
+checkout — and then booted stage 3 with `os88ui.boot(apps=FLUSHED)`, which
+resolves the same string through `os88build.at`. So stage 3 booted a file
+nothing had written, and the row died with a `FileNotFoundError` naming
+`build/trees/plain-<hash>/`.
+
+It **passed every time it was run standalone**, because with no `$OS88_TREE`
+set `at` is the identity function and the two spellings agree — so this only
+ever failed inside a soak, which is where it failed three times in one
+session. Fixed: the path is resolved once at the top (`FLUSHED_AT`) and all
+three uses take it.
+
+**The rule G1 and G1.1 are two halves of**: a row may name `build/x` as a
+STRING, but every use of it — an existence check, a flush destination, a boot
+argument, a reader — has to go through the same resolver, or two of them
+disagree and only under a frozen run.
+
+## G2. `socktest` is unregistered, fails its own assertion, and its exemption reason is wrong
+
+Three things, found while writing `tests/doscable.py` (which is the same
+arrangement one layer up and IS registered).
+
+**Its exemption reason was false.** `t_registry` carried *"needs `make
+socktest` and QEMU networking"*. It needs no NIC anywhere: it runs under
+MartyPC with `tests/lptlink/partner.py` as the far end of the parallel cable
+and real host sockets behind that. Corrected in place, with the real reason —
+it is MINUTES.
+
+**It fetches its page correctly and then fails.** A full run:
+
+```
+Got: 00232 bytes err 00000
+Head: HTTP/1.0 200 OK__Content-Type:
+4 RECV(s), 1 empty-while-up, server gap yes
+FAIL: 8 of 4 handles free after the close - one leaked
+socktest: FAILED
+```
+
+Assertions 0 to 3 all pass — including the one with teeth, that a zero-length
+`NETV_RECV` on a live socket is not end-of-stream. Only assertion 4 fails, and
+*"8 of 4 handles free"* is not a leak: it is **more** free than the total,
+which is a comparison the wrong way round or against the wrong constant
+(`NET_SOCKS` is 8 and the message's 4 is not it). **Read the assertion before
+reading the driver** — nothing here suggests the handle was not given back.
+
+**Nobody has been running it to notice**, which is the B4/G1 lesson again: the
+row is worth having, it has never been in the suite, and the one number it
+reports wrongly is the one that decides its verdict. Registering it wants a
+`secs` measured first — the run above was **~13 minutes**, and
+`tests/doscable.py`'s 250 s says why: that row steps the guest's non-wire
+phases coarsely (`Partner.idle_until_wire`) and `socktest` does not, so the
+same treatment is probably most of the difference.
+
+## G3. `dossnd` declares 30 s and TIMED OUT at 150 as the tail of a four-lane run
+
+It passes **alone in 18.6 s**, twice. What it did once, as the last row still
+running with three lanes idle beside it, was exceed a 150 s timeout having got
+as far as `SOUND.DRV mounted itself at boot, segment 9E80`.
+
+Not classified. It is B5's shape — `settle()` is host wall-clock, so an
+emulator row's thoroughness moves with the box — but B5's own finding is that
+contention makes a row LESS THOROUGH rather than slower, and this one got
+slower. Worth one `os88bisect.py classify dossnd` before anything is
+concluded, because N=1 is not a rate (E1).
+
+
+## G4. A `.COM` in the ROOT of a 360KB B: will not load on `os8088_5150_herc_gla`
+
+Found while photographing SPEC.md 96.32's new window on all three adapters,
+and **it is not that change's doing**: the identical probe against the DOS box
+as it stood one commit earlier answers the same thing.
+
+```
+  os8088_xt_vga         + build/doscom360.img   ->  state=2 (DST_RAN)
+  os8088_5150_herc_gla  + build/doscom360.img   ->  state=3 (DST_ERR) err=2
+```
+
+`err=2` is `DER_READ` — `dos_load`'s `dos_be_read` refused — so the box
+navigated to the file and could not read it. Pressing **Run** afterwards, with
+the same name and the same volume, works: `state=2`, program on the glass. So
+the disk is readable and the failure is in the FIRST load of a session on that
+profile.
+
+**Nothing in the suite covers this pair.** `doscom` launches the same
+`DOSHELLO.COM` off the same image and passes, because it calls
+`os88ui.boot(SYS, apps=COM)` with **no machine** and gets the default;
+`dosargs` and `doslnk` do use `os8088_5150_herc_gla`, and both launch out of
+`B:/BIN/` rather than the volume root. So the uncovered combination is
+narrow — *herc_gla, 360KB, a program in the ROOT* — and either of those two
+rows moving its program up a directory would have found it.
+
+Not classified. Worth knowing which of the three it is before anything else:
+the profile's drive geometry, the root directory specifically (`dos_be_goto`
+with cluster 0 against a subdirectory's cluster), or the first mount of a
+session. `tools/os88dosdbg.py trace DOSHELLO.COM --disk build/doscom360.img`
+against that machine is the instrument, and SPEC.md 96.29.1's part means the
+ring no longer competes with the arena for room.
+
+## G5. `heapcheck` check 13 — "ceiling packed up" is RED and predates SPEC.md 66.10.4
+
+Found on a scoped soak (`-k 'dos*' -k 'heap*' -k '*move*' -k 'reg*'`, 49 rows,
+47 ok) at build 91c8abf. **Checks 1–12 and 14 all pass; only 13 fails**, which
+is exactly the shape `heapcheck`'s own docstring says it verified by
+amputation — *"checks 1..12 pass and only 13 goes red"* is what patching
+`mem_compact`'s `.flip` arm to `jmp .undo` produced. So the row is reporting
+*the descending pass did not run, or did not move the block*.
+
+**It is NOT SPEC.md 66.10.4's.** A/B'd on one tree with the single line of that
+change reverted (`mem_avail_lvl_x` back on `mem_cp_plan` instead of
+`mem_cp_room`), rebuilt, re-run: **check 13 fails identically**, same 1
+UNEXPECTED, everything else green. The change shifts what `OSAPI_MEM_AVAIL`
+reports and therefore the SIZE of every block `heapfrag` asks for, so the map
+differs between arms — but the verdict does not.
+
+The map the failing run leaves, read out of `mem_tab`:
+
+```
+  1b60     3 KB owner 0000 MOVABLE
+  1c20     3 KB owner ff06 MOVABLE
+  1ce0    65 KB owner 9f80 MOVABLE
+  2d20    65 KB owner 9f80 MOVABLE
+  3d60    65 KB owner 9f80 MOVABLE
+        238 KB HOLE
+  8920    65 KB owner 9f80          <-- check 13's block, and it did not rise
+         24 KB HOLE
+  9f80     2 KB owner 0001 dma
+```
+
+The block at `8920` is the one check 13 needs to pack UP into the 24 KB above
+it; `heapfrag`'s own test is `cmp ax, [bx+hf_base0] / jbe .ceilbad`, so it
+reads red when the base did not increase.
+
+**What to rule out first, in this order.** `heapcheck` has not been touched
+since #172, so the candidate is a KERNEL change under it, and the branch
+carries two that reach this exact pass: **`1625361` — "the read-ahead window
+claims no DMA page, and MOVES" (SPEC.md 18.95.7, 50.6.7)** is the obvious
+suspect, because it changed both the placement freedom and the movability of
+the one claim sitting at the arena floor, and SPEC.md 66.10.4 is a second
+defect the same commit caused. `6232003` (the purge floor) is the other.
+`python3 tools/os88bisect.py classify heapcheck` is the protocol; sample N>1,
+because `heapfrag` sizes every block from a live `OSAPI_MEM_AVAIL` and a map
+that differs run to run is not the same experiment twice.
+
+Left red deliberately rather than guessed at: the row is about the compactor's
+descending pass, it is reproducible, and it is cheaper to bisect once than to
+reason about from the map.
+
+## G6. `dispmcfs` was failing **10/10** and nobody knew — the desktop under the system MENU does not come back
+
+`dispmcfs` fails on `VGA is stale after the round trip`. It was investigated
+because it appeared in a scoped soak beside a `kernel/wm.inc` change, and the
+result was the reverse of what it looked like — which is the whole reason this
+row is written down rather than fixed in passing.
+
+**The rates, `os88bisect.py sample dispmcfs -n 10` over one commit:**
+
+| commit | rate |
+|---|---|
+| `02e323e` — before SPEC.md 30.3.4's `[wm_dmg_mine]` | **BAD, 10/10 failed** |
+| `9b7ba91` — after it | INTERMITTENT, **2/10** |
+
+So it was failing EVERY TIME, on a commit nobody had associated with it, and
+the change under suspicion took it from always to sometimes. `classify` had
+already refused to bisect it — *"INTERMITTENT AT HEAD 1/5. A rate is not a
+side"* — which is what stopped a wrong attribution: a single A/B run would
+have said `dispmcfs` passes without the change, and one before it (below) did.
+
+**What it actually is, and the box says it.** The row reported a COUNT and no
+place, so every reading of it was a guess; it reports a bounding box now, and
+a failing run reads **240 differing pixels in (24,45)..(63,56), 40x12**.
+
+- Rendered from a passing capture, that region is **pure 50% desktop dither** —
+  no icon, no glyph, nothing.
+- A 50% dither has 240 lit pixels in a 480-pixel box, and the VGA's lit total
+  falls 186458 -> 186214, a loss of 244. **The box went BLACK**: every lit
+  pixel lost and none gained. The extra 4 is the menu bar's clock, which the
+  comparison skips and the total does not.
+- `dispcp.open_panel` drops the system menu at `SYS_X, SYS_Y = 12, 8`, and the
+  rectangle sits squarely inside that dropdown. So the desktop under a menu
+  that has posted and unposted does not always come back.
+
+**IT IS THE ROW'S CONTROL THAT IS WRONG, NOT THE THING IT TESTS.** The fourth
+capture — "after a forced repaint", taken by opening and closing the Control
+Panel — is the reference the third is compared against, and it is the one
+holding the black patch. The three captures before it agree with each other
+(VGA lit 186456, 186463, 186458) and the fourth agrees with none of them. The
+row's own comment anticipates exactly this: *"if it still differs, the first
+capture is the odd one and the assertion is measuring the wrong thing."*
+
+**Left red deliberately.** The row is right to fail — there really is a patch
+of desktop missing — and relaxing the assertion would hide a repaint defect to
+make a test green. What it is NOT is a Mode X round-trip defect, which is what
+its name and its message both say, so anyone reading `VGA is stale after the
+round trip` is being pointed at the wrong half of the run.
+
+**The trap that cost two wrong conclusions here**, and it is not the row's:
+
+1. `git stash push kernel/wm.inc` on a file that is already COMMITTED stashes
+   nothing, silently. The "A/B without the change" then runs WITH it. It
+   passed, which read as proof — and at a 20% rate one pass is proof of
+   nothing anyway.
+2. The count alone fits several suspects equally well. ~180-240 lit pixels is
+   also arrow-sized, the parked pointer at (300,300) is on the VGA and in both
+   captures, and that hypothesis survived until the box put the pixels 276
+   columns away from it.

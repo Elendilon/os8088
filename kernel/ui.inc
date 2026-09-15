@@ -48,6 +48,11 @@ UI_RBQ_FLUSH   equ 1            ; flush the Control Panel on the way out
 UI_RBQ_NOFLUSH equ 2            ; ...and do not go near a disk at all
 UI_RBQ_HIBER   equ 3            ; SPEC.md 87: write the image and stop
 UI_RBQ_RESUME  equ 4            ; ...put an image back
+UI_RBQ_DOSRUN  equ 6            ; SPEC.md 96.40: hand the machine to kern_dos.
+                                ; It needs no arm of its own in ui_task - the
+                                ; `cmp al, UI_RBQ_HIBER / jb` below already
+                                ; routes everything above it to hbf_perform,
+                                ; which is where the module is
 UI_RBQ_ASK     equ 5            ; ...and ask whether to, at boot. All three
                                 ; are spent by the same top-of-pass site as
                                 ; a restart, for the same reason (20.10):
@@ -94,6 +99,21 @@ ui_task:
     sub al, UI_RBQ_FLUSH        ; 0 = flush the panel first, non-0 = do not
     call ui_cmd_reboot
 .keys:
+    ; --- 0a. …and a posted COMPACTION, for the same reason (SPEC.md 66.4.3) --
+    ; A package may not compact its own region from inside its own callback -
+    ; a frame is standing in it, which is exactly what mem_in_nest reports - so
+    ; OSAPI_MEM_COMPACT_WAKE records the wish and this is where it is spent.
+    ; HERE and not in wm_pkgcall's return path: mem_compact's park request
+    ; drops [sch_lock] for up to INST_PARKW ticks, which from inside a repaint
+    ; holding the gfx lock is a deadlock against OSAPI_MEM_PARKSAFE and not a
+    ; slow path. At the top of this loop nothing is held and [wm_pkgd] is 0,
+    ; so mem_frameless answers "movable" for the asker's region with no
+    ; predicate changed - the feature is WHERE this runs, not new code to let
+    ; it run.
+    cmp word [mem_cpq], 0
+    je .keys2
+    call COLD_SEG:mem_cpq_run_x
+.keys2:
     ; --- 1. keyboard: poll, and feed the front window's key handler ----------
     mov ah, 0x01                ; any key pending?
     int 0x16

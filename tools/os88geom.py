@@ -140,6 +140,18 @@ _MIRROR = {
     # agree with itself while every kern_small script decoded garbage.
     "WIN_SIZE": ("kernel/wm.inc", {"big": 34, "small": 28}),
     "MAX_WIN": ("kernel/wm.inc", {"big": 12, "small": 6}),
+    # kernel/driver.inc - a driver row (SPEC.md 51.2). DRVR_SEG is "is it
+    # loaded", which is the only way a host-side script can SEE a driver
+    # come and go - tests/xmcheck.py watches XMEM.DRV arrive and
+    # tests/dossnd.py watches SOUND.DRV get out of a DOS program's way
+    # (SPEC.md 51.11).
+    # kernel/hiber.inc - where kern_dos lands (SPEC.md 96.40.2), mirrored in
+    # kerndos/kdlayout.inc because the kernel STAGES the handoff and kern_dos
+    # IS the handoff. Two host scripts read it now: tests/kdos.py builds the
+    # gate blob at it, and tests/unit/t_kdapi.py scans the assembled images
+    # for far calls carrying it as a segment (SPEC.md 96.44.6).
+    "KD_SEG": ("kernel/hiber.inc", 0x0060),
+    "DRVR_SEG": ("kernel/driver.inc", 2),
     "W_FLAGS": ("kernel/wm.inc", 0),
     "W_X": ("kernel/wm.inc", 2),
     "W_Y": ("kernel/wm.inc", 4),
@@ -728,8 +740,16 @@ def snapw(w, flush=False, x=None, screen=None):
     return down if down > c else w
 
 
-def snapx(x, nosnap=False):
+def snapx(x, nosnap=False, span=False):
     """Where a frame asked to sit at `x` ACTUALLY lands (SPEC.md 11.94).
+
+    `span` IS THE CASE snapw's docstring said no test subject was. SPEC.md
+    96.32's DOS window is one now: 80 columns is 640 pixels of content and VGA
+    and CGA are 640 wide, so its frame spans the screen and 11.95.2 gives it no
+    left border - which makes its CONTENT origin W_X itself rather than W_X+1,
+    so the snap is `x & ~7` and an x of 0 is already where it belongs. Model it
+    with the +7 form and a drag to 0 is predicted to land at 7, the window
+    correctly lands at 0, and the harness calls the window manager wrong.
 
     `wm_snap_win` rounds a window's CONTENT origin down to a multiple of 8 -
     content left is W_X + 1, so the frame x it hands back is
@@ -754,6 +774,9 @@ def snapx(x, nosnap=False):
     """
     if nosnap:
         return x
+    if span:
+        return x & 0xFFF8           # no left border: the content origin IS
+                                    # the frame's, so 0 stays 0
     c = ((x + 1) & 0xFFF8) - 1
     return c if c >= 0 else c + 8
 

@@ -584,6 +584,12 @@ pt_entry:
     jc .out                         ; no window: nothing to flag, nothing to
                                     ; claim - the region stays untouched
     mov [pt_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     push ax
     mov ax, pt_onup                 ; SPEC.md 13.7/13.8.1: Apply fires on the
     call OSAPI_WM_ONMOUSEUP         ; RELEASE and follows the pointer between
@@ -13739,7 +13745,7 @@ pt_load:
                                     ; rather than after it (SPEC.md 59.4)
     call OSAPI_CUR_BUSY             ; ...AND THE POINTER SAYS IT TOO (SPEC.md
                                     ; 7.5.4). The message names the operation
-                                    ; ONCE and then sits there; the hourglass
+                                    ; ONCE and then sits there; the clock
                                     ; is what a hand moving over a dead machine
                                     ; asks and gets an answer to. No teardown:
                                     ; the kernel took the lock around this

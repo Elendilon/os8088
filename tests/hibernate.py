@@ -6,8 +6,19 @@
 
 A fixture volume out of tools/os88hdd.py, with HIBER.DRV, CTRL.DRV and
 HDD.DRV in its root, on MartyPC's os8088_xt_hdd - XT-IDE's option ROM, which
-is rung 0 (SPEC.md 52.1), the transport the field machine has and the only
-one the resume stub speaks.
+is rung 0 (SPEC.md 52.1), the same RUNG the field machine's controller is and
+the only transport the resume stub speaks.
+
+**THE SAME RUNG IS NOT THE SAME TIMING, and this row asserts behaviour and
+never speed.** The field machine is an ST-225 on an ST-11M and this is an
+XT-IDE, and they are 8-13x apart: MartyPC's hard disk has NO timing model -
+the mechanical one this tree wrote and field-checked
+(tools/martypc/patches/04-floppy-disk-timing.patch, PERFORMANCE.md Part 9 Set
+37) is the FLOPPY's, and the ATA device carries a 200ms reset constant and
+nothing per sector - so every second here is the 8088 grinding through the
+option ROM's byte-at-a-time PIO. A session quoting this row's wall time as
+"what a hibernate costs" read 43 guest seconds for an operation the owner
+measures at ~4 on iron (docs/reports/KERN-DOS-BUDGET-2026-09-13.md 3.2).
 
 Two passes, and each ASSERTS out of the guest's memory rather than out of a
 screenshot, because the thing under test is that memory:

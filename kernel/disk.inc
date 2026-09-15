@@ -840,7 +840,13 @@ dsk_icofld:  db 0xFF            ; ...and the body every FOLDER shares, 0xFF
                                 ; claims one. It used to be a 64-byte copy of
                                 ; the same bytes per folder
 %endif
+%ifdef DSK_WANT_ICONS
 dsk_ioff:    dw disk_icons       ; icon slot 0's offset in it
+%else
+dsk_ioff:    dw 0                ; NO HARVEST IN THIS BUILD (SPEC.md 96.44.7):
+                                ; the cell stays, because every reader goes
+                                ; through it and none of them runs here
+%endif
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
 
 ; The current directory (SPEC.md 19.2) - the one disk_dir lists and the one
@@ -981,6 +987,15 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; machine's drives, and a Tandon TM100 is not a place to substitute guesses.
 ; Only a machine with no vector at all falls back to the values above.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
                                 ; docs/plans/LAST-DROP-BYTES.md row 12): kmain runs
                                 ; this once, before the first mount, and
@@ -1022,6 +1037,7 @@ dsk_dpt_init_x:
     pop ax
     retf
 
+%endif                              ; KD_BUILD
 section .cold                   ; ...and back to resident cold code
 
 ; -----------------------------------------------------------------------------
@@ -1651,6 +1667,15 @@ dsk_vol_row_x:
 ; row is describing a volume the machine has just successfully read a kernel
 ; out of, which is a stronger statement than any of the bounds would make.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
                                 ; docs/plans/LAST-DROP-BYTES.md row 4): which volume
                                 ; the machine came off, asked once by kmain
@@ -1782,6 +1807,7 @@ dsk_bootltr:
     pop bx
     pop ax
     ret
+%endif                              ; KD_BUILD
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
@@ -1866,6 +1892,15 @@ dsk_geom_pick:
 ; machine nothing has taken a row yet, so they are C: and D: - which is what
 ; DOS 4 and earlier called them, and what the drive-select lines mean.
 ; -----------------------------------------------------------------------------
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw                  ; ...and row 9, for the same reason one
                                 ; screen down: desk_init is ALREADY in the
                                 ; overlay and reaches this through a `.text`
@@ -1942,6 +1977,7 @@ dsk_flop_add_x:
 ; One predicate, so the desktop and OSAPI_VOL_KIND cannot drift: the same
 ; question is now asked once and answered once.
 ; -----------------------------------------------------------------------------
+%endif                              ; KD_BUILD
 section .cold                   ; ...and back to resident cold code
 dsk_vol_fixed_x:
     push bx
@@ -2006,6 +2042,18 @@ dsk_vol_slot_x:
     stc
     ret
 
+%ifndef KD_BUILD                ; **NO DRIVER-BACKED VOLUME UNDER kern_dos**
+                                ; (SPEC.md 96.44.9). A `DVK_DRV` volume's
+                                ; transport is a loadable driver and a
+                                ; `DVK_FILE` one has no sectors at all - and
+                                ; neither survives the handoff, which is not a
+                                ; hope: `hbm_*`'s gather writes every NON-BIOS
+                                ; row `DVK_FREE` into the launch block
+                                ; (kernel/hiber.inc), so kern_dos's own table
+                                ; can hold only DVK_BIOS and DVK_FREE by
+                                ; construction. The RAM disk keeps working in
+                                ; the WINDOW, which is this same file with
+                                ; KD_BUILD undefined
 ; -----------------------------------------------------------------------------
 ; dsk_vol_kind - what kind of volume is mounted right now?
 ; in:  nothing
@@ -2284,6 +2332,10 @@ dsk_vol_drop_drv_x:
     jb .next
     jmp kretc_cx
 
+%endif                          ; KD_BUILD - and `dsk_list_floor`/`dsk_list_pick`
+                                ; below are NOT in the band: the mount calls
+                                ; them, and the listing stays for 96.47's
+                                ; resume (96.44.7.1)
 ; -----------------------------------------------------------------------------
 ; dsk_list_floor - point the listing at the .lowbss buffers (module internal)
 ; in:  nothing
@@ -2292,7 +2344,9 @@ dsk_vol_drop_drv_x:
 dsk_list_floor:
     mov word [dsk_dseg], LOW_SEG
     mov word [dsk_doff], disk_dir
+%ifdef DSK_WANT_ICONS
     mov word [dsk_ioff], disk_icons
+%endif
     mov word [dsk_nmax], DSK_NENT
     ret
 
@@ -2352,6 +2406,10 @@ dsk_list_pick:
 ; transport nobody published.
 ; =============================================================================
 
+%ifndef KD_BUILD                ; ...and the SLOTS a driver registers one
+                                ; through, which are reachable only via the
+                                ; API table - and since 96.44.6 kern_dos has
+                                ; no table at all
 ; -----------------------------------------------------------------------------
 ; osapi_vol_fence - is the caller the published disk driver? (internal)
 ; in:  ES = the caller's segment (the slot's X stub, or the caller's own DS)
@@ -2543,6 +2601,7 @@ osapi_vol_paint_x:
 ; case DOS special-cases with two buffers; nine sectors makes it disappear.
 ; =============================================================================
 
+%endif                          ; KD_BUILD
 ; -----------------------------------------------------------------------------
 ; dsk_fat_ofs - where a cluster's FAT entry lives (module internal)
 ; in:  AX = cluster (already range-checked by the caller)
@@ -2775,10 +2834,18 @@ disk_mount_x:
 .cwd_kept:                      ; caller, which is how navigation reuses
                                 ; this whole validated pipeline (19.2)
 
+%ifndef KD_BUILD
     cmp byte [dsk_vkind], DVK_FILE  ; a REDIRECTED volume (SPEC.md 62.9) has
     jne .bpbread                    ; no boot sector, no BPB, no FAT window
     jmp .fsmount                    ; and no directory to walk: everything
-.bpbread:                           ; between here and the listing is SECTORS
+%endif                              ; between here and the listing is SECTORS.
+                                    ; **AND kern_dos CANNOT HAVE ONE** (SPEC.md
+                                    ; 96.44.9): `[dsk_vkind]` is written from a
+                                    ; table whose non-BIOS rows the gather
+                                    ; already turned FREE, so the test is one
+                                    ; that can only answer `jne` and the arm
+                                    ; below is reached by falling through
+.bpbread:
 
     ; --- 1. boot sector: read LBA 0, validate the BPB (SPEC.md 18.2) ---
     ; ...unless this volume is FIXED and we have validated it before, in which
@@ -2967,6 +3034,12 @@ disk_mount_x:
     ; Blank EVERY icon slot up front so none ever carries a previous mount's
     ; bytes (SPEC.md 18.3 step 4: fully rewritten every mount) - the harvest
     ; below then only fills the slots that earn an icon.
+%ifdef DSK_WANT_ICONS           ; **STEP 4 IS THE DISK WINDOW'S** (SPEC.md
+                                ; 96.44.7): a build with nothing to draw an
+                                ; icon on has no `disk_icons` to blank and
+                                ; nothing to harvest into it. The LISTING
+                                ; above stays - 96.47's live resume finds
+                                ; HIBERNAT.IMG through it
 %ifdef KERN_SMALL
     mov di, dsk_icoix           ; SPEC.md 25.8: blanking the INDEX is what
     mov cx, [dsk_nmax]          ; retires a listing, and the bodies below it
@@ -3141,6 +3214,7 @@ disk_mount_x:
     jmp short .fsico
 
 .harvested:
+%endif                          ; DSK_WANT_ICONS
 
 %ifdef OS88_ASSOC
     ; --- 4b. document icons (SPEC.md 54.3) ------------------------------
@@ -3196,6 +3270,7 @@ disk_mount_x:
     ; the root directory's extent - and a DRVC_FILE volume has none of them.
     ; What replaces the lot is one question: stand in this folder, and say
     ; what is above it.
+%ifndef KD_BUILD                ; ...and the arm itself (SPEC.md 96.44.9)
 .fsmount:
     mov byte [dsk_spc], 1       ; FSV_DFREE answers BYTES and dsk_free_clus
                                 ; answers CLUSTERS, so a redirected volume's
@@ -3243,6 +3318,7 @@ disk_mount_x:
                                 ; places deciding a listing's order is how a
                                 ; display index stops meaning what the
                                 ; hit-test thinks it means (19.4)
+%endif                          ; KD_BUILD
 
 .fail:
     mov word [disk_spt], 9      ; leave sane fallback geometry behind
@@ -4889,17 +4965,34 @@ DSK_RAH_SECS equ 9               ; sectors per chunk: ONE REVOLUTION on the
                                  ; calibrated against. The simulation is
                                  ; monotone in this and the track is the
                                  ; ceiling - a CHS call cannot cross one
-DSK_RAH_RUNS equ 14              ; ...and how many chunks are kept. Simulated
-                                 ; against the install's own trace: 1 slot is
-                                 ; 156 calls, 2 is 123, 4 is 108, 8 is 102,
-                                 ; 14 is 93 and 16 is 92. FOURTEEN IS THE
-                                 ; CEILING AND NOT A CHOICE - see the assert
-                                 ; below - and it is worth taking because it
-                                 ; is where the working set fits: the three
-                                 ; calls it buys over eight are the same ones
-                                 ; a resumable FIND cursor would have bought
-                                 ; (§18.95.2), at heap instead of an ABI
-                                 ; change. §18.95.4
+DSK_RAH_RUNS equ 7               ; ...and how many chunks are kept. IT WAS 14,
+                                 ; the segment-offset ceiling the assert below
+                                 ; derives, chosen on the INSTALL trace alone:
+                                 ; 1 slot is 156 calls, 2 is 123, 4 is 108, 8
+                                 ; is 102, 14 is 93. §18.95.6 measured a
+                                 ; SECOND workload of a different shape - a DOS
+                                 ; program loading off a floppy, which opens
+                                 ; few files and reads them in big pieces - and
+                                 ; the curve there is FLATTER: 4 slots is 71%
+                                 ; of the saving where the install trace's own
+                                 ; low end reads 93%, and 7 is 87%.
+                                 ;
+                                 ; So the five calls between 7 and 14 buy 31KB,
+                                 ; and three things want them more. The DOS
+                                 ; program, whose arena this comes straight out
+                                 ; of (§96.24's heap map is 419.0K of arena
+                                 ; with the full cache sitting under it). Every
+                                 ; machine between the old 126KB free-run bar
+                                 ; and the new 64KB one, which got NO cache at
+                                 ; all - §18.95.4 named that band as what the
+                                 ; ceiling costs. And the PLACEMENT: the whole
+                                 ; claim is its own 64KB DMA head, so a 63KB
+                                 ; block may only begin in the first 1KB of a
+                                 ; physical page - ten legal bases in a 640KB
+                                 ; machine - where a 32KB one may begin
+                                 ; anywhere in the first half of one.
+                                 ;
+                                 ; §18.95.4, §18.95.6
 DSK_RAH_KB   equ (DSK_RAH_SECS * 512 * DSK_RAH_RUNS) / 1024   ; the CEILING's
                                  ; size. The live width is [dsk_rah_runs],
                                  ; solved for from the machine (SPEC.md
@@ -4941,7 +5034,10 @@ above the ceiling it can never be satisfied so the cache is dead code"
 (dsk_rah_have shifts slot*SECS+delta left by 9), so RUNS*SECS*512 must fit a \
 segment: RUNS*SECS <= 128. At SECS=9 that is 14 runs, and 15 would wrap the \
 offset silently - dsk_rah_take would serve a sector from the front of the \
-cache and nothing would report it. More than 63KB needs a segment per slot"
+cache and nothing would report it. More than 63KB needs a segment per slot. \
+THE SHIPPED WIDTH IS BELOW THIS CEILING AND IS A DECISION (§18.95.6), so this \
+assert no longer picks it: putting DSK_RAH_RUNS back to 14 would assemble, and \
+would spend 31KB of every machine to save five int 13h"
 %endif
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
@@ -5261,6 +5357,35 @@ dsk_rah_wr:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_rah_reloc - the compactor moved the window (§66.2, §50.6.7)
+;
+; ONE WORD, asc_reloc's shape exactly: mem_pg_own names [dsk_rah_seg] and
+; nothing else, dsk_rah_tab holds LBAs and lengths rather than addresses, and
+; the one disk read that targets the cache is the fill - which dsk_xfer pins
+; for its duration (§66.3 rule 5), so mem_can_move has already refused by then.
+; -----------------------------------------------------------------------------
+section .text                   ; **.text AND NOT .cold**, and nothing static
+                                ; can catch it if this is wrong: mem_reloc_call
+                                ; reaches a kernel proc through cw_mem_disp,
+                                ; which is `call bp` in KERNEL_SEG, and the
+                                ; offset comes out of MC_RLOC at run time - so
+                                ; a .cold body here is executed against the
+                                ; kernel segment and the machine walks into
+                                ; whatever is at that offset. os88ovlchk reads
+                                ; CALL SITES and there is no call site to read.
+                                ; Measured: the 192KB floor machine stopped
+                                ; reaching a desktop at all, because mem_unblob
+                                ; compacts at the end of kmain and the window
+                                ; is the first thing it moves
+dsk_rah_reloc:
+    cmp bx, [dsk_rah_seg]
+    jne .out
+    mov [dsk_rah_seg], dx
+.out:
+    ret
+section .cold                   ; ...and back, or every routine below joins it
+
+; -----------------------------------------------------------------------------
 ; dsk_rah_want - take the cache if we do not hold it
 ; preserves every register and the flags
 ;
@@ -5318,11 +5443,33 @@ dsk_rah_want:
     inc ax
     shr ax, 1                   ; ...and KB = ceil(n * 4.5), a chunk being
                                 ; 4,608 bytes. Exact at 14: (126+1)>>1 = 63
-    mov cx, ax
-    mov bx, MEM_P_DIRW          ; ...the WHOLE of it inside one 64KB DMA page
-    call mem_claim_dma_x          ; (SPEC.md 50.3), so dsk_runcap never splits a
-    jc .none                    ; fill and a fill is exactly one call
+    mov bx, MEM_P_DIRW          ; NO 64KB PAGE HEAD (§18.95.7). It used to
+    call mem_claim_x            ; claim the WHOLE block as one, so that
+    jc .none                    ; dsk_runcap never split a fill - and that is
+                                ; an OPTIMISATION and not a rule: dsk_runcap
+                                ; caps a run at the page boundary and dsk_xfer
+                                ; carries on from there, so a straddling fill
+                                ; is two int 13h and the right data either way.
+                                ;
+                                ; What it cost was the PLACEMENT. A block that
+                                ; must sit inside one physical page may only
+                                ; begin in the part of a page it fits in, so
+                                ; first fit skipped every hole below the next
+                                ; page boundary - measured on the 192KB floor
+                                ; machine, 19KB of a 77KB heap walled off at
+                                ; the desktop with nothing yet open, and the
+                                ; largest free run 32KB where 46 was there
+                                ; (§18.95.7). Prince of Persia pays 8 int 13h
+                                ; of 148 for it, and no measurable time
     mov [dsk_rah_seg], dx
+    push ax                     ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
+    push bx                     ; shape and for its reason: this claim is taken
+    mov ax, dsk_rah_reloc       ; at a MOUNT, so after a shed it comes back
+    mov bx, MEM_P_DIRW          ; wherever the arena had room and stands there
+    call mem_movable_x          ; pinned for the session. ONE WORD names it
+    pop bx                      ; (mem_pg_own says so), the slot table holds
+    pop ax                      ; LBAs and not addresses, and a fill in flight
+                                ; is already pinned by mem_in_xfer
     call dsk_rah_flush          ; ...and it holds nothing yet. THE ONLY place
                                 ; that is established: .bss arrives at whatever
                                 ; -f bin left there, and dsk_rah_have would
@@ -5700,15 +5847,41 @@ dsk_chdir_q_x:
 ; the byte reads 0, which means "validate", which is what we do today.
 ; -----------------------------------------------------------------------------
 dsk_here_ok:
-    push ax
-    push bx
-    push es
     cmp byte [dsk_mntok], 0     ; the last mount of this volume worked...
     je .no
     cmp dl, [disk_drive]        ; ...it is this volume...
     jne .no
     cmp ax, [dsk_cwd]           ; ...and this directory
     jne .no
+    jmp dsk_media_ok            ; ...and the MEDIA half answers the rest
+                                ; (SPEC.md 18.9.1.1). NO PUSH: the identity
+                                ; half only COMPARES, so the contract's "every
+                                ; register preserved" needs nothing spent to
+                                ; keep it, and the media half banks its own
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_media_ok - can the MEDIUM under this mounted volume have changed?
+; in:  DL = volume
+; out: CF=0 = it cannot have, so a mount may be skipped; CF=1 = it might have
+; clobbers: CF only (every register preserved)
+;
+; SPEC.md 18.9.1's second half, named. It was the tail of dsk_here_ok and is
+; split out because the IDENTITY half and the MEDIA half are two questions and
+; only one caller wants both: `fcp_goto` (SPEC.md 18.9.1.1) moves between
+; folders INSIDE one mounted volume with no I/O, which is what makes
+; OSAPI_FILE_PATH's walk cost one mount and then nothing - so it may not ask
+; "are we at the same cluster", and it absolutely must ask "is it the same
+; disk". It had been asking neither, and a floppy swapped under a running
+; package was served the old disk's directory out of SPEC.md 18.95's cache
+; until the package was closed and reopened.
+; -----------------------------------------------------------------------------
+dsk_media_ok:
+    push ax
+    push bx
+    push es
     mov bl, dl
     call dsk_vol_row_x
     jc .no
@@ -5787,6 +5960,298 @@ dsk_relist_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_path - the calling directory's path from the volume root (SPEC.md 19.2.4)
+; in:  ES:DI = the caller's buffer, CX = its size in bytes (>= 2)
+; out: CF=0, a NUL-terminated `\DIR\DIR` written there, CX = its length not
+;      counting the NUL, DI unchanged. The root answers `\` and CX=1.
+;      CF=1 and AX = FERR_*: FERR_BIG (the buffer is too small), FERR_IO (a
+;      directory would not read), FERR_NAME (the chain is corrupt or deeper
+;      than DSK_PATH_MAX), FERR_NOENT (a parent does not name its own child,
+;      which is a cross-linked disk).
+; clobbers: AX, CX (the outputs), flags.
+;
+; **WHY THIS IS KERNEL CODE** (docs/plans/PATH-WAVE-PLAN.md). SPEC.md 19.2 says
+; going up needs no path stack *because the disk records the parent* - true of
+; this file and of nothing outside it, because dsk_find drops the on-disk dot
+; links outright (`cmp al, '.'` / `je .skip`) so no package can see '..'.
+; Three have each built a descent stack for want of this one answer:
+; apps/ftpd's 16-level FD_CDMAX, the DOS box's self-maintained AH=47h string,
+; and apps/tank's walk to SYSTEM\APPDATA.
+;
+; **AND THE READ COUNT IS THE POINT.** A package walking with the published
+; slots calls OSAPI_FILE_GOTO_QM per level, which is dsk_chdir_q - and
+; dsk_here_ok can only answer "no-op" when the caller is ALREADY STANDING at
+; that exact cluster, which a walk never is. So every level re-mounts, and a
+; floppy mount outside a batch bracket re-reads **LBA 0** to recompute
+; [dsk_sigcur]: one seek to the boot sector and one revolution PER LEVEL.
+;
+; This walks with dsk_dirw_start/dsk_dirw_get, which take a CLUSTER and stand
+; nowhere - so there is **no chdir, no mount and no LBA 0 read at any level**,
+; and the sectors it does read come through 19.2.3's cached window. That is
+; also why it needs no batch bracket: there is no mount for one to elide.
+;
+; It builds BACKWARDS into the tail of the caller's buffer and shuffles the
+; result down at the end, because the walk discovers names deepest-first and a
+; path reads root-first. Banking the cluster chain and walking down it instead
+; would cost a second read of every directory and a resident array.
+;
+; SEGMENTS: ES is the CALLER's throughout and is never reloaded - dsk_secbuf
+; is `.lowbss` and reached through SS (SPEC.md 2.1), the scratch name is the
+; kernel's own and reached through DS, and the one copy that crosses is a
+; plain `rep movsb`, which is DS:SI -> ES:DI and so is exactly right.
+; -----------------------------------------------------------------------------
+DSK_PATH_MAX equ 32              ; levels. FAT12 has no depth limit, and
+                                 ; dsk_path_up's range check stops a WILD '..'
+                                 ; but cannot see a CYCLE - a disk whose '..'
+                                 ; points at a descendant walks for ever. This
+                                 ; is that bound, and 32 is past any depth a
+                                 ; 1.44MB volume can hold a use for
+dsk_path_x:
+    push bx
+    push dx
+    push si
+    push di
+    cmp cx, 2
+    jb .toobig                  ; cannot hold even `\` and its NUL
+
+    mov [dsk_pbase], di         ; the buffer's base, for the shuffle at the end.
+                                ; IN MEMORY AND NOT IN BP, which is not a style
+                                ; choice: dsk_dirw_get does not preserve BP, so
+                                ; holding the base there gave the shuffle a
+                                ; garbage destination and wrote the path into
+                                ; the middle of the CALLER's image - which
+                                ; presented as a window title that read as
+                                ; machine code, twenty steps from the cause
+    add di, cx
+    dec di
+    mov [dsk_pnul], di          ; the NUL's home, and the end of the result
+    mov byte [es:di], 0
+    mov byte [dsk_pdep], 0
+
+    mov ax, [dsk_cwd]
+.level:
+    or ax, ax
+    jz .done                    ; 0 is the root: the walk is over
+    inc byte [dsk_pdep]
+    cmp byte [dsk_pdep], DSK_PATH_MAX
+    ja .corrupt
+
+    mov [dsk_pcur], ax
+    call dsk_path_up            ; AX = the parent, without standing in it
+    jc .corrupt
+    mov [dsk_ppar], ax
+    call dsk_path_name          ; dsk_pname = the child's name, CX = length
+    jc .noname
+
+    mov bx, di                  ; room for the name and its separator?
+    sub bx, cx
+    dec bx
+    cmp bx, [dsk_pbase]
+    jb .toobig                  ; REFUSED, never truncated (SPEC.md 47)
+
+    sub di, cx
+    push di
+    mov si, dsk_pname
+    cld
+    rep movsb                   ; DS:SI is ours, ES:DI is the caller's
+    pop di
+    dec di
+    mov byte [es:di], '\'
+
+    mov ax, [dsk_ppar]
+    jmp short .level
+
+.done:
+    cmp byte [dsk_pdep], 0
+    jne .shuffle
+    dec di                      ; standing at the root and nothing was
+    mov byte [es:di], '\'       ; prepended: the answer is the one separator
+.shuffle:
+    mov si, di                  ; [SI .. dsk_pnul] -> the base, NUL included
+    mov di, [dsk_pbase]
+    mov cx, [dsk_pnul]
+    sub cx, si
+    inc cx
+    push cx
+.mv:
+    mov al, [es:si]             ; BOTH ends are the caller's, so this cannot
+    mov [es:di], al             ; be movsb - that would read DS:SI
+    inc si
+    inc di
+    dec cx
+    jnz .mv
+    pop cx
+    dec cx                      ; the length the caller is told excludes the NUL
+    pop di                      ; ...and DI comes back as it arrived
+    pop si
+    pop dx
+    pop bx
+    clc
+    retf                        ; FAR: the only entry here reached from the
+                                ; kernel segment (SPEC.md 2.6.1)
+
+.corrupt:
+    mov ax, FERR_NAME
+    jmp short .fail
+.noname:
+    mov ax, FERR_NOENT
+    jmp short .fail
+.toobig:
+    mov ax, FERR_BIG
+.fail:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; dsk_path_up - the parent of cluster AX, WITHOUT standing there
+; in:  AX = a directory's first cluster (non-zero)
+; out: CF=0 and AX = the parent (0 = the root); CF=1 = missing or unreadable
+; clobbers: AX, flags
+;
+; dsk_dotdot's body against an ARGUMENT rather than against [dsk_cwd], because
+; the walk needs the parent of a cluster it is not standing in - and standing
+; in it is the entire cost this routine exists to avoid.
+; -----------------------------------------------------------------------------
+dsk_path_up:
+    push si
+    call dsk_dirw_start_x
+    call dsk_dirw_get_x         ; the directory's very first sector
+    jc .bad
+    mov si, dsk_secbuf + DSK_DE_SIZE   ; entry 1 is '..' by spec
+    cmp byte [ss:si], '.'
+    jne .bad
+    cmp byte [ss:si+1], '.'
+    jne .bad
+    mov ax, [ss:si+DSK_R_CLUS]
+    cmp ax, [dsk_maxclus]
+    ja .bad                     ; a corrupt '..' must not become a cwd
+    pop si
+    clc
+    ret
+.bad:
+    pop si
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_path_name - what is [dsk_pcur] called inside [dsk_ppar]?
+; out: CF=0, dsk_pname = the NUL 8.3 name and CX = its length; CF=1 = the
+;      parent does not name it
+; clobbers: CX (the output), flags
+;
+; ONE PASS over the parent's sectors, which is the difference from doing this
+; across the API: OSAPI_FILE_FIND is ordinal-based and restarts the directory
+; walk on every call, so a parent of K entries would cost K far calls each
+; re-walking from entry 0. Here the directory is read once.
+; -----------------------------------------------------------------------------
+dsk_path_name:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov ax, [dsk_ppar]
+    call dsk_dirw_start_x
+.sector:
+    call dsk_dirw_get_x         ; banks BX/CX/DX/ES itself, so DX survives
+    jc .no
+    mov si, dsk_secbuf
+    mov dx, 512 / DSK_DE_SIZE
+.entry:
+    mov al, [ss:si]
+    test al, al
+    jz .no                      ; 0x00 ends the directory, per spec
+    cmp al, 0xE5
+    je .next                    ; deleted
+    cmp al, '.'
+    je .next                    ; the dot links themselves
+    test byte [ss:si+DSK_R_ATTR], 0x10
+    jz .next                    ; only a subdirectory can be on this path
+    mov ax, [ss:si+DSK_R_CLUS]
+    cmp ax, [dsk_pcur]
+    je .found
+.next:
+    add si, DSK_DE_SIZE
+    dec dx
+    jnz .entry
+    jmp short .sector
+.found:
+    call dsk_path_8_3           ; SS:SI -> dsk_pname, CX = its length
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_path_8_3 - SS:SI = a raw 11-byte FAT name -> dsk_pname, NUL-terminated
+; out: CX = the length; SI unchanged
+;
+; A subdirectory's extension is almost always blank, but FAT permits one and a
+; name that dropped it would not resolve - so it is emitted when present.
+; -----------------------------------------------------------------------------
+dsk_path_8_3:
+    push ax
+    push dx
+    push si
+    push di
+    mov di, dsk_pname
+    xor cx, cx
+    mov dx, 8
+.nm:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .nmpad
+    mov [di], al
+    inc di
+    inc cx
+    inc si
+    dec dx
+    jnz .nm
+    jmp short .ext
+.nmpad:
+    add si, dx                  ; step over the padding, so SI lands on +8
+.ext:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .fin                     ; no extension, which is the ordinary case
+    mov byte [di], '.'
+    inc di
+    inc cx
+    mov dx, 3
+.ex:
+    mov al, [ss:si]
+    cmp al, ' '
+    je .fin
+    mov [di], al
+    inc di
+    inc cx
+    inc si
+    dec dx
+    jnz .ex
+.fin:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_dotdot - the current directory's parent (SPEC.md 19.2)
 ; in:  nothing; [dsk_cwd] must be non-zero (inside a subdirectory)
 ; out: CF=0, AX = the parent's first cluster, 0 = the root; CF=1 = the '..'
@@ -5856,6 +6321,25 @@ dsk_dotdot_x:
 ; remain is corruption (the FAT spec keeps bad/EOC marks clear of valid
 ; cluster numbers under correct type detection).
 ; -----------------------------------------------------------------------------
+; --- dsk_write_chain - dsk_read_chain, the other way (SPEC.md 18.4.7) -------
+; in/out: dsk_read_chain's exactly, with ES:BX the SOURCE of the bytes.
+;
+; ONE BYTE OF STATE AND ONE BRANCH, because the walk below is already
+; direction-agnostic: the run coalescing, the corruption tests, the progress
+; widget and [dsk_chain_end] are all about the CHAIN, and the only
+; read-specific instruction in it is the `call` inside `.flush`. A write gets
+; the coalescing a read already had - a contiguous span goes out as one
+; dsk_xfer either way.
+;
+; IT DOES NOT ALLOCATE. The chain has to be long enough already; a link past
+; the end is the same corruption a read would report. Growing a file is
+; dskw_append's, where §18.4's commit order lives.
+dsk_write_chain_x:
+    mov byte [dsk_chwr], 1
+    call dsk_read_chain_x
+    mov byte [dsk_chwr], 0      ; ...and the flags ride through: `mov` leaves
+    ret                         ; them alone, so CF is still the walk's answer
+
 dsk_read_chain_x:
     push ax
     push bx
@@ -5883,6 +6367,14 @@ dsk_read_chain_x:
     ; sector count as its scale, which is as true of a cable as of a floppy.
     cmp byte [dsk_vkind], DVK_FILE
     jne .walk
+    mov [dsk_chain_end], ax     ; the handle, where .done's own store would
+                                ; have put it: SI is READAT's OFFSET below,
+                                ; so it cannot bank it any more. Nothing has
+                                ; ever read it on this arm - fcp_rdnext is
+                                ; the one caller that resumes a chain and it
+                                ; branches to its own redirected arm long
+                                ; before here - and it is kept rather than
+                                ; dropped at three bytes (SPEC.md 62.9.18)
     push ax                     ; the handle, across the arithmetic
     mov ax, dx                  ; the capacity is exactly what was asked for:
     mov cx, 512                 ; DX sectors, in 32 bits, so the driver can
@@ -5891,13 +6383,28 @@ dsk_read_chain_x:
     mov cx, ax
     mov dx, es                  ; DX:BX = the destination - DX and not ES,
     pop ax                      ; because ES is KERNEL_SEG inside a driver
-    mov si, ax                  ; banked for [dsk_chain_end] below
     push bp
-    mov bp, FSV_READ
+    ; **THE VERB IS READAT AND NOT READ** (SPEC.md 62.9.18). This routine's
+    ; contract is `read DX SECTORS`, which the FAT walk below does by simply
+    ; stopping; FSV_READ is `the WHOLE file` and a driver serving it must
+    ; REFUSE a file longer than the buffer rather than truncate, because
+    ; OSAPI_FILE_READ sits on the same verb. The two agree for every file at
+    ; most as long as the ask and disagree for exactly one species - a
+    ; package carrying PARTS, whose file is bigger than the image step 6 asks
+    ; for (SPEC.md 20.12) - which is why every package on a RAM disk loaded
+    ; until one had parts. READAT at offset 0 is the same bytes, CLAMPED.
+    mov bp, FSV_READ            ; over 64KB there is no 16-bit verb to ask
+    or di, di                   ; with, and no caller of THIS arm can ask it:
+    jnz .fsgo                   ; the loader's is a region (APP_MAX_SIZE) and
+    mov bp, FSV_READAT          ; assoc's is ASC_KB*2 sectors (54.7.1)
+    xor si, si                  ; DI:SI = offset 0, DI being zero already
+.fsgo:
     call drv_fs_call
     pop bp
     jc .fsfail
-    jmp .done                   ; the shared tail: fpg_end, the pops, CF=0
+    jmp .done2                  ; the shared tail: fpg_end, the pops, CF=0 -
+                                ; joined BELOW the chain-end store, which
+                                ; this arm has already made
 .fsfail:
     jmp .fail1                  ; a refusal is LD_EDISK, the same verdict a
                                 ; failed sector read gets - the loader has no
@@ -5946,9 +6453,10 @@ dsk_read_chain_x:
 .final:
     call .flush
     jc .fail1
-.done:                          ; ...and where the redirected read above joins
+.done:
     mov [dsk_chain_end], si     ; where a chunked caller resumes from
-    clc
+.done2:                         ; ...and where the redirected read above joins,
+    clc                         ; having stored its handle already
     call KERNEL_SEG:fpg_end                   ; preserves CF, so it sits either side of the
                                 ; clc without comment (SPEC.md 12.8)
     jmp kretc_bp
@@ -5969,10 +6477,16 @@ dsk_read_chain_x:
     mov al, [dsk_cherr]
     stc
     ret
-.flush:                         ; read the pending run (DI = LBA, CX = len)
-    push ax                     ; to ES:BX; advance BX; CF through. AX is
-    mov ax, di                  ; the caller's take count - preserved
+.flush:                         ; move the pending run (DI = LBA, CX = len)
+    push ax                     ; to or from ES:BX; advance BX; CF through. AX
+    mov ax, di                  ; is the caller's take count - preserved
+    cmp byte [dsk_chwr], 0      ; THE ONE DIRECTION-SPECIFIC INSTRUCTION in
+    jne .flwr                   ; this whole routine (SPEC.md 18.4.7.1)
     call disk_read_x              ; in: AX=LBA, CX=count, ES:BX
+    jmp short .flgot
+.flwr:
+    call disk_write_x
+.flgot:
     jc .flret
     mov ax, cx                  ; BX += len*512 (disk_read preserves BX;
     push cx                     ; only its internal pointer advanced)
@@ -6568,6 +7082,15 @@ dsk_rb_go:                      ; the last instruction of the GUI, in .cold
 ; Reached by a near call from desk_init, which is also .ovl (same section, same
 ; vstart), and disk.inc is %included first so it is a backward reference.
 ; =============================================================================
+%ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
+                                    ; (SPEC.md 96.43.2): there is no kmain to
+                                    ; run it, the DPT arrives in the launch
+                                    ; block (96.40.2) and the volume the
+                                    ; program came off is named rather than
+                                    ; enumerated - so nothing in that root
+                                    ; calls one of these and they are 762
+                                    ; bytes of a build whose every byte is a
+                                    ; byte off the DOS program
 section .ovlw
 %ifndef NO_FDDPROBE              ; `make FDDPROBE=0` takes the BODY out too, not
                                  ; just desk_init's call: the A/B is meant to be
@@ -7079,6 +7602,7 @@ fdd_wait:
     ret
 
 %endif                           ; NO_FDDPROBE
+%endif                              ; KD_BUILD
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -7175,10 +7699,20 @@ dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
                                 ; so a chunked read can resume (SPEC.md 18)
 dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
                                 ; register-restore epilogue
+dsk_chwr:     resb 1            ; ...and which way it is moving (SPEC.md
+                                ; 18.4.7.1). Zero is a READ, which is what
+                                ; .bss already is and what every existing
+                                ; caller means
 
 ; --- the directory walker's scratch (SPEC.md 19.2) --------------------------
 ; Safe in .bss: dsk_dirw_start writes all three before any walk reads them.
 ; [dsk_cwd] and [dsk_keepcwd] are NOT - see the module data block up top.
+dsk_pcur:     resw 1            ; dsk_path: the child being named...
+dsk_ppar:     resw 1            ; ...the parent being searched for its name
+dsk_pnul:     resw 1            ; ...where the NUL went, = the result's end
+dsk_pbase:    resw 1            ; ...the caller's buffer base (NOT bp: 19.2.4)
+dsk_pdep:     resb 1            ; ...levels walked, against DSK_PATH_MAX
+dsk_pname:    resb 13           ; ...one 8.3 name, NUL-terminated
 dsk_wclus:    resw 1            ; dirw: the cluster being walked, 0 = root
 dsk_wsec:     resw 1            ; dirw: sector index inside it
 dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up
