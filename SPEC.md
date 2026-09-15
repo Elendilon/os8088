@@ -128037,6 +128037,51 @@ resolves every name to a plausible wrong address and nothing says so. Its
 fourth assertion is the one that refuses the easy fix — shrinking the arena
 satisfies the other three and leaves the program 32 KB worse off.
 
+##### 96.44.11.2 …and the fixture the rungs needed
+
+`tests/kdarena.py` cannot see a rung, because the handover reaches the bottom
+however many steps the ladder has. `.loadtry` is the only site where a rung
+means anything, and **nothing already in the tree could reach it**: it wants a
+file between the arena's capacity with the cache and its capacity without.
+Measured on a 640 KB 5150 — the 360 KB and the mixed-geometry profiles agree to
+the byte — `dos_load`'s capacity is `([dos_ldpara] − 16) × 16`, so the ladder
+moves it:
+
+| cache held | capacity, in file bytes |
+|---|---|
+| 32 KB (`DSK_RAH_RUNS`) | 569,952 |
+| 18 KB (`KD_RAH_L1`) | 584,288 |
+| 9 KB (`KD_RAH_L2`) | 593,504 |
+| none | 602,720 |
+
+`tests/dosbig/big.asm` is a hand-built MZ .EXE at **586,752 bytes**, the middle
+of that band, so it is refused twice and loads on the third try. **The size IS
+the fixture**, and the middle is chosen for slack rather than tidiness: ~16 KB
+on each side is sixteen rungs of `KD_IMG_KB` in either direction, and
+`tests/kdbigexe.py` re-derives all four capacities off the running guest and
+says which way the fixture has drifted if it ever stops landing between them —
+so this can never fail as a mystery.
+
+**The windowed run is the control, and it must FAIL.** 586 KB does not fit the
+box's ~437 KB arena, so the machine is in `DST_ERR` before the third arm is
+picked: a program that would have run anywhere could not pass this row. What
+the fixture then checks about its own load is the part a *did it start* row
+would miss — the first eight bytes of the image, read from code **585 KB above
+them**, so a short read or a `dos_movedown` that bound at 64 KB is caught
+rather than assumed, plus a relocation applied at the far end of the image.
+
+The ladder itself is read through a breakpoint at the top of the retry loop,
+recording `[dsk_rah_runs]` at every attempt: the row asserts the widths are a
+prefix of 7 → 4 → 2 → 0 and that the load happened on the **first rung with
+room**, which is the whole reason for shedding a rung at a time rather than
+all of it. It is armed only across the launch, because `KD_SEG` and
+`KERNEL_SEG` are the same paragraph and that flat address is live kernel code
+until the handoff replaces it.
+
+Checked red twice on purpose: with `.loadtry` deleted the guest says *"kern_dos:
+the program could not be loaded"*, and with the rungs collapsed to one step the
+recorded widths read `[7, 0]` against `[7, 4, 2, 0]`.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
