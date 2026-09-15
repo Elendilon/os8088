@@ -401,9 +401,13 @@ kd_entry:
 kd_giveback:
     push ax
 .rung:
-    call kd_shed
-    jnc .rung                   ; ...and the day a caller wants a FIGURE, this
-    call kd_arena               ; is the line that becomes a comparison
+    mov ax, [dsk_rah_runs]      ; ...and the day a caller wants a FIGURE, THIS
+    cmp ax, KD_RAH_KEEP         ; is the comparison it becomes (SPEC.md
+    jbe .kept                   ; 96.44.11.4). At KD_RAH_KEEP = 0 the loop runs
+    call kd_shed                ; to the bottom exactly as it always did
+    jnc .rung
+.kept:
+    call kd_arena
     mov byte [kd_spent], 1      ; **AND THE ALLOCATOR IS CLOSED** (SPEC.md
                                 ; 96.44.11.3). Everything below `[kd_top]` is
                                 ; the program's block and its file window from
