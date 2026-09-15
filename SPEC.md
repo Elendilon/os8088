@@ -128372,6 +128372,61 @@ Checked red twice on purpose: with `.loadtry` deleted the guest says *"kern_dos:
 the program could not be loaded"*, and with the rungs collapsed to one step the
 recorded widths read `[7, 0]` against `[7, 4, 2, 0]`.
 
+##### 96.44.11.3 A mount after the handover re-claimed the cache THROUGH the program
+
+`kern_dos`'s allocator is a bump allocator downward from `[kd_top]`
+(KERN-DOS-PLAN 6.2): a claim is `[kd_top] -= size` and the claim lives at the
+new ceiling. `kd_arena` then carves the DOS program's block and §96.11's file
+window off **that same word** — `[dos_wseg] = [kd_top] - window`, and
+`[dos_apara]` is everything below it. So after `kd_giveback` there is no
+frontier left: every paragraph under the ceiling is the program's or its
+window's, and `[kd_top]` is not where free memory starts, it is where the
+window ends.
+
+`dsk_rah_want` did not know that. It is called from `disk_mount` — *"so a shed
+is repaired at the next mount rather than never"* — it refuses only when
+`[dsk_rah_seg]` is already non-zero, and `kd_giveback`'s own ladder had just
+set that word to **zero**. Every named `INT 21h` mounts (§96.6.2), so the first
+file the program opened re-claimed the full `DSK_RAH_RUNS` ceiling:
+
+```
+kd_top=9800  dsk_rah_seg=9800  dsk_rah_runs=7       cache   9800..9FE0
+dos_arena=0AC0  dos_apara=9340  dos_wseg=9E00       program 0AC0..9E00
+dos_wbytes=2000                                     window  9E00..A000
+```
+
+**24 KB of the running program and 7.5 KB of the file window, sold twice.**
+
+What it looks like from above is a file read that delivers the wrong part of
+the right file, and the two transfers are consecutive in one `INT 21h`:
+
+```
+dskw_read_at_x  AX=0C00 CX=2000 ES:BX=9E00:0000     the window's refill
+dsk_xfer        AX=0232 CX=0010 ES=9E00 BX=0000     LBA 562, 16 sectors - RIGHT
+dsk_xfer        AX=0240 CX=0009 ES=9800 BX=5A00     the read-ahead's own fill
+```
+
+The fill is nine sectors from LBA 576 into slot 5 of a cache whose base is
+`9800`, which is `9DA00..9EC00` — the window's first 3 KB. So the refill was
+correct and then overwritten before the copy, and `window[15h]` handed back
+`10h` where `PV.DAT` holds `E7h`. Prince of Persia checksums every record it
+reads (`cmp dl, dh` at its own `A52D`), so the byte that lost the compare was
+the last one written rather than the one read: **"Please insert Prince of
+Persia Disk into Drive B:"**, about a disk it had read correctly forty times.
+
+**The fix is the allocator and not the cache.** `kd_giveback` sets
+`[kd_spent]`; `mem_claim_x` refuses while it is set and `mem_avail_lvl_x`
+answers 0. Answering 0 matters as much as refusing: `dsk_rah_want` solves its
+WIDTH from the available figure and stores `[dsk_rah_runs]` before it claims,
+so a refusal further down would leave that word describing a cache that does
+not exist. Nothing is lost by it — `kd_giveback` runs the ladder to the bottom
+by design, so **zero is what the cache is supposed to be for the whole of the
+program's run**, and this only stops it coming back.
+
+**Why the windowed arm never showed it**: there `mem_claim_x` is the kernel's
+real allocator with real records, and a claim that would land on a package's
+region is refused rather than granted.
+
 ##### 96.44.13.1 ...and never an empty set, on either arm
 
 Taking the drivers where the row is read fixes the arm that had a Sound

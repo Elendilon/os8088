@@ -404,6 +404,13 @@ kd_giveback:
     call kd_shed
     jnc .rung                   ; ...and the day a caller wants a FIGURE, this
     call kd_arena               ; is the line that becomes a comparison
+    mov byte [kd_spent], 1      ; **AND THE ALLOCATOR IS CLOSED** (SPEC.md
+                                ; 96.44.11.3). Everything below `[kd_top]` is
+                                ; the program's block and its file window from
+                                ; here; a mount later in the session would
+                                ; otherwise call `dsk_rah_want`, find
+                                ; `[dsk_rah_seg]` zero because THIS loop zeroed
+                                ; it, and re-claim 32 KB straight through both
     pop ax
     ret
 

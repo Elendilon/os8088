@@ -251,11 +251,30 @@ section .bss
 kd_top:           resw 1        ; the ceiling, in paragraphs: the first
                                 ; paragraph NOT ours
 kd_floor:         resw 1        ; ...and where the DOS program's memory starts
+kd_spent:         resb 1        ; **AND WHETHER THE ARENA IS STILL OURS TO
+                                ; SPEND** (SPEC.md 96.44.11.3). `kd_giveback`
+                                ; sheds the last rung, `kd_arena` publishes
+                                ; `[dos_apara]` and `[dos_wseg]` off the raised
+                                ; `[kd_top]`, and from that instant every
+                                ; paragraph below the ceiling belongs to the
+                                ; PROGRAM or to its file window - so a later
+                                ; claim does not take free memory, it takes
+                                ; theirs
 
 section .text
 ; in: AX = KB, BX = owner (ignored); out CF=0 and DX = the segment
+;
+; **A CLAIM AFTER THE HANDOVER IS A CLAIM ON THE PROGRAM** (SPEC.md
+; 96.44.11.3). This allocator hands out `[kd_top] - size` and lowers the
+; ceiling, and `kd_arena` carves the arena and the file window off that same
+; ceiling - so the two are the same word and there is nothing left over.
+; Before the handover that is the point; after it, `[kd_top]` is the window's
+; TOP rather than a frontier, and lowering it again re-sells memory the
+; program is already using.
 mem_claim_x:
     push ax
+    cmp byte [kd_spent], 0
+    jne .no
     mov cl, 6
     shl ax, cl                  ; KB -> paragraphs
     jc .no
@@ -284,10 +303,14 @@ mem_free_x:
 ; out: AX = KB claimable. There is one level here (KERN-DOS-PLAN 6.1 lever 4),
 ; so AL's level argument is read and discarded.
 mem_avail_lvl_x:
-    mov ax, [kd_top]
-    sub ax, [kd_floor]
-    mov cl, 6
-    shr ax, cl
+    xor ax, ax                  ; NOTHING, once the program owns the arena
+    cmp byte [kd_spent], 0      ; (SPEC.md 96.44.11.3) - and answering 0 rather
+    jne .out                    ; than letting the claim be refused is what
+    mov ax, [kd_top]            ; keeps `dsk_rah_want` off its own floor test:
+    sub ax, [kd_floor]          ; it solves a WIDTH from this, stores it, and
+    mov cl, 6                   ; only then claims, so a refusal further down
+    shr ax, cl                  ; would leave `[dsk_rah_runs]` describing a
+.out:                           ; cache that does not exist
     ret
 
 ; SPEC.md 66.2's opt-in. Nothing compacts here, so a claim is as movable as it
