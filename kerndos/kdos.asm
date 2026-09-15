@@ -51,42 +51,28 @@ kd_text_start:
 kd_lbp:  dw kd_lblock               ; KD_H_LBP
 kd_lbsz: dw KDL_SIZE                ; KD_H_LBSZ
 
-; --- AND THE API TABLE'S GROUND, WHICH IS A WALL OF REFUSALS ----------------
-; **`KERNEL_SEG` IS THIS SEGMENT HERE** (kdlayout.inc), so every
-; `call OSAPI_X` that survives into this image is a far call to KD_SEG:0xNNNN
-; - which without this is a jump into the middle of the disk layer, with the
-; caller's registers, and no way to tell afterwards where it went.
+; --- AND NO API TABLE AT ALL (SPEC.md 96.44.6) ------------------------------
+; **THERE WAS A WALL OF REFUSALS HERE AND IT IS GONE, BECAUSE THE CALLS ARE.**
+; `KERNEL_SEG` is this segment, so a `call OSAPI_X` that survived into this
+; image was a far call to KD_SEG:0xNNNN - a jump into the middle of the disk
+; layer with the caller's registers. The answer was 179 cells of `stc`/`retf`
+; spanning 0x0010..0x05A8, which turned a wild jump into a diagnosable wrong
+; ANSWER and cost 1,432 bytes of the image plus the `CORE_ORG` it forced to
+; 0x0600.
 ;
-; It is not a corner case: `apps/dos/dos.asm` is included WHOLE and has 96
-; `OSAPI_*` call sites. Wave 2 measured the LOAD path at 21 procs reaching
-; none of them and that measurement stands; what it did not cover is the RUN
-; path, where `dos_getkey` polls `dos_mou_read` - so every DOS program that
-; waits for a keystroke made one. It presented as a machine spinning in the
-; ROM with a key already in the BIOS ring.
+; What ended it is that the CALLS went. W8 gated the window half out of this
+; root and nobody re-read the wall; scanning the two images for opcode 9A with
+; segment KD_SEG found **six sites in four cells and none of them in
+; `kerndos.bin`** - `dos_keeph`'s two, which were a window routine mis-marked
+; core, and `dosh.inc`'s four, which are the COPY buffer and the sorted DIR
+; listing reaching a heap only the windowed host has. The first moved and the
+; other four became `DHK_CLAIM`/`DHK_FREE` (SPEC.md 96.44.3's table, two rows
+; longer).
 ;
-; So the cells exist and REFUSE. `stc`/`retf` is the published meaning of a
-; slot that cannot do what was asked (SPEC.md 20.8), every caller in the tree
-; has that path, and a wrong one is then a wrong ANSWER rather than a wild
-; jump - which is diagnosable by breakpointing this span. It costs 1,432
-; bytes of the image and NOT ONE BYTE OF THE ARENA: the arena's floor is
-; LOW_SEG, which KD_IMG_KB fixes, and the image has thousands of bytes of that
-; rung spare. Compressed it is a few dozen bytes of the part, being 179 copies
-; of one 8-byte row.
-KD_API_LO   equ 0x0010              ; the first published cell, and the last -
-KD_API_HI   equ 0x05A0              ; apps/os88api.inc owns both, and
-                                    ; tests/unit/t_kdapi.py is what stops them
-                                    ; drifting apart. 0x0000 and 0x0008 are not
-                                    ; published, which is what leaves room for
-                                    ; the fixed header above
-    times KD_API_LO - ($ - $$) db 0
-%rep (KD_API_HI - KD_API_LO) / 8 + 1
-    stc
-    retf
-    times 6 db 0
-%endrep
-%if $ - $$ != KD_API_HI + 8
-  %error "kern_dos's refusal table does not end where the API table does"
-%endif
+; **AND THE CHECK IS BETTER THAN THE WALL WAS**: `tests/unit/t_kdapi.py`
+; scans the assembled images for that opcode and fails the build on one, so a
+; stray `OSAPI_*` is caught at the wave that writes it rather than refused at
+; runtime on a machine with no operating system left to say so.
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
 ; The same reservation the box makes, for the same reason and at the same
@@ -98,8 +84,8 @@ KD_API_HI   equ 0x05A0              ; apps/os88api.inc owns both, and
 ; CORE_MAX, which is the one number that keeps them honest.
 %ifdef DOS_EXTCORE                  ; ...only when the core really IS a part
 %if $ - $$ > CORE_ORG
-  %error "the refusal table reached CORE_ORG - apps/os88api.inc owns those \
-cell offsets, so CORE_ORG has to rise rather than the table move"
+  %error "kern_dos's fixed header reached CORE_ORG - the header is a contract \
+with the stub (kdlayout.inc) and cannot move, so CORE_ORG has to rise"
 %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0

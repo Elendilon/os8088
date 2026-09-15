@@ -840,7 +840,13 @@ dsk_icofld:  db 0xFF            ; ...and the body every FOLDER shares, 0xFF
                                 ; claims one. It used to be a 64-byte copy of
                                 ; the same bytes per folder
 %endif
+%ifdef DSK_WANT_ICONS
 dsk_ioff:    dw disk_icons       ; icon slot 0's offset in it
+%else
+dsk_ioff:    dw 0                ; NO HARVEST IN THIS BUILD (SPEC.md 96.44.7):
+                                ; the cell stays, because every reader goes
+                                ; through it and none of them runs here
+%endif
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
 
 ; The current directory (SPEC.md 19.2) - the one disk_dir lists and the one
@@ -2322,7 +2328,9 @@ dsk_vol_drop_drv_x:
 dsk_list_floor:
     mov word [dsk_dseg], LOW_SEG
     mov word [dsk_doff], disk_dir
+%ifdef DSK_WANT_ICONS
     mov word [dsk_ioff], disk_icons
+%endif
     mov word [dsk_nmax], DSK_NENT
     ret
 
@@ -2997,6 +3005,12 @@ disk_mount_x:
     ; Blank EVERY icon slot up front so none ever carries a previous mount's
     ; bytes (SPEC.md 18.3 step 4: fully rewritten every mount) - the harvest
     ; below then only fills the slots that earn an icon.
+%ifdef DSK_WANT_ICONS           ; **STEP 4 IS THE DISK WINDOW'S** (SPEC.md
+                                ; 96.44.7): a build with nothing to draw an
+                                ; icon on has no `disk_icons` to blank and
+                                ; nothing to harvest into it. The LISTING
+                                ; above stays - 96.47's live resume finds
+                                ; HIBERNAT.IMG through it
 %ifdef KERN_SMALL
     mov di, dsk_icoix           ; SPEC.md 25.8: blanking the INDEX is what
     mov cx, [dsk_nmax]          ; retires a listing, and the bodies below it
@@ -3171,6 +3185,7 @@ disk_mount_x:
     jmp short .fsico
 
 .harvested:
+%endif                          ; DSK_WANT_ICONS
 
 %ifdef OS88_ASSOC
     ; --- 4b. document icons (SPEC.md 54.3) ------------------------------

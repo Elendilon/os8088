@@ -962,13 +962,23 @@ dsh_bufget:
     mov byte [dsh_cpheap], 0
     cmp word [dos_arena], 0
     jne .try
+    cmp word [dos_hkv + DHK_CLAIM], 0
+    je .none                        ; **NO ARENA AND NO HEAP** (SPEC.md
+                                    ; 96.44.6): that pair is `kern_dos`, where
+                                    ; the program owns everything above the
+                                    ; floor and there is nothing to claim
+                                    ; from. It cannot arise there - `kd_entry`
+                                    ; sets [dos_arena] before any door and
+                                    ; there is no prompt to reach this without
+                                    ; one - and saying so is what lets the core
+                                    ; hold no `OSAPI_*` call at all
     mov byte [dsh_cpheap], 1        ; ...the prompt's arm, decided ONCE so the
 .try:                               ; put below cannot free the other one
     mov [dsh_cpkb], ax
     push bx
     cmp byte [dsh_cpheap], 0
     je .arena
-    call OSAPI_MEM_CLAIM            ; AX = KB -> DX = the base segment
+    call word [dos_hkv + DHK_CLAIM] ; AX = KB -> DX = the base segment
     mov ax, dx                      ; ...and this arm answers where the other
     jmp short .did                  ; one does, in AX
 .arena:
@@ -1005,8 +1015,8 @@ dsh_bufput:
     cmp byte [dsh_cpheap], 0
     je .arena
     mov dx, ax
-    call OSAPI_MEM_FREE
-    jmp short .gone
+    call word [dos_hkv + DHK_FREE]  ; ...and only ever the host that CLAIMED it:
+    jmp short .gone                 ; [dsh_cpheap] was decided once, at the get
 .arena:
     mov es, ax
     call dos_mcb_free
@@ -1834,8 +1844,8 @@ dsh_sfree:
     push dx
     mov dx, [dsh_sseg]
     or dx, dx
-    jz .out
-    call OSAPI_MEM_FREE
+    jz .out                         ; ...and a host with no heap never set it,
+    call word [dos_hkv + DHK_FREE]  ; so the hook cannot be reached unarmed
     mov word [dsh_sseg], 0
 .out:
     mov word [dsh_sn], 0
@@ -1896,8 +1906,15 @@ dsh_scmp:
 ; clobbers: AX, BX, CX, DX, SI, DI, ES, flags
 dsh_sbuild:
     call dsh_sfree                  ; a listing abandoned mid-page leaves one
+    cmp word [dos_hkv + DHK_CLAIM], 0
+    je .no                          ; **A HOST WITH NO HEAP TAKES THE SAME EXIT
+                                    ; A REFUSAL DOES** (SPEC.md 96.44.6), which
+                                    ; is why this pair is a hook rather than a
+                                    ; door: under `kern_dos` a DIR lists in
+                                    ; directory order, which is real DOS's and
+                                    ; is the behaviour already written below
     mov ax, DSH_SKB
-    call OSAPI_MEM_CLAIM            ; out DX = base segment
+    call word [dos_hkv + DHK_CLAIM] ; out DX = base segment
     jc .no                          ; **REFUSED IS NOT FATAL**: fall through to
     mov [dsh_sseg], dx              ; directory order, which is real DOS's
 

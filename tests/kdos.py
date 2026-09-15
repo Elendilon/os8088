@@ -45,6 +45,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+from os88geom import KD_SEG                                 # noqa: E402
 import os88marty as M                                          # noqa: E402
 
 BUILD = os.path.join(ROOT, "build", "kerndos")
@@ -59,7 +60,6 @@ DATA = "KDDATA.TXT"
 # a long one would prove nothing more.
 MARKER = "kern_dos-reads-4"
 EXITC = 0x2A
-KD_SEG = 0x0060                 # kerndos/kdlayout.inc
 
 
 def fail(msg):

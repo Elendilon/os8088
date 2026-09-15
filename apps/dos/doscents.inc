@@ -16,6 +16,14 @@
 ; would say so. **APPEND, never insert**, and `tests/unit/t_doscore.py` is
 ; what notices.
 ;
+; **`dos_keeph` CAME OFF THIS LIST** (SPEC.md 96.44.6) and that is not a
+; breach of the rule above: nothing SHIPS an old core against a new host - the
+; two halves are parts of one `DOS.O88` and `make` rebuilds both from this
+; file - so what the rule protects against is a half-rebuild, which the
+; Makefile cannot produce. What it was is a pure window routine marked core,
+; whose only caller was in the window half all along, and it was carrying the
+; last two `OSAPI_*` far calls in the core.
+;
 ; THE TWO POPULATIONS ARE NOT THE SAME KIND OF THING. A DOSC_E is CODE and its
 ; slot is a `jmp near`, so a host calls it exactly as it did when the core was
 ; inline. A DOSC_D is DATA and its slot is a WORD holding the address, so
@@ -39,7 +47,6 @@
     DOSC_E dos_hexd
     DOSC_E dos_hook_vectors
     DOSC_E dos_is_exe
-    DOSC_E dos_keeph
     DOSC_E dos_load
     DOSC_E dos_prog_enter
     DOSC_E dos_save_machine

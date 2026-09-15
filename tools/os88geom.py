@@ -145,6 +145,12 @@ _MIRROR = {
     # come and go - tests/xmcheck.py watches XMEM.DRV arrive and
     # tests/dossnd.py watches SOUND.DRV get out of a DOS program's way
     # (SPEC.md 51.11).
+    # kernel/hiber.inc - where kern_dos lands (SPEC.md 96.40.2), mirrored in
+    # kerndos/kdlayout.inc because the kernel STAGES the handoff and kern_dos
+    # IS the handoff. Two host scripts read it now: tests/kdos.py builds the
+    # gate blob at it, and tests/unit/t_kdapi.py scans the assembled images
+    # for far calls carrying it as a segment (SPEC.md 96.44.6).
+    "KD_SEG": ("kernel/hiber.inc", 0x0060),
     "DRVR_SEG": ("kernel/driver.inc", 2),
     "W_FLAGS": ("kernel/wm.inc", 0),
     "W_X": ("kernel/wm.inc", 2),
