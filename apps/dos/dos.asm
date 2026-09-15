@@ -747,6 +747,22 @@ dos_entry:
 .idle:
     mov byte [dos_state], DST_IDLE
 .ok:
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    ; **THE PROMPT, HERE AND NOT IN `dos_con_start`** (SPEC.md 96.33.2.1).
+    ; Both doors converge on this label and `[dos_vol]` is settled at it: the
+    ; empty one left `dos_con_start`'s OSAPI_FILE_HERE answer standing, and
+    ; the document one has been through `OSAPI_ARG_FILE` and `dos_lnk_open` -
+    ; either of which can name another drive. Written any earlier it names the
+    ; drive the PACKAGE came off, which is only the document's by luck.
+    ;
+    ; It self-corrected on every path that RAN something, because
+    ; `dos_con_ended` writes a fresh one - so what the field saw was the case
+    ; where nothing runs: a `.LNK` on B:, arm 3, and Cancel at SPEC.md 96.42's
+    ; question. `dos_wholedone` records the refusal and returns with
+    ; `[dos_state]` still DST_READY and nothing to undo, which is right - and
+    ; left `A:\>` on the glass over a box standing on B:.
+    call dos_prompt                 ; ...and BEFORE the `clc`: it spends the
+%endif                              ; flags, and the CF here is the loader's
     mov bx, [dos_win]
     clc
 .out:

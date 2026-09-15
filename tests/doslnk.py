@@ -249,11 +249,31 @@ def main():
         # with the guest free-running - and the DOS box's region MOVES now, so
         # a segment taken before that call can be stale by the time it is
         # used. It read nine bytes of machine code out of `[dos_path]`.
+        # **AND THE VERB CONFIRMS ON THE WINDOW, WHICH THE ENTRY PROC REACHES
+        # FIRST.** `OSAPI_WM_CREATE` is a third of the way down `dos_entry`
+        # and `dos_path_make` is near its end, with `OSAPI_ARG_FILE` and
+        # `dos_lnk_open` in between - so `ui.path` returns, correctly, while
+        # the field it is about is still empty. Sampled once, this read a
+        # buffer that was already right and an `LN_LEN` that was not yet:
+        # `LN_LEN is 32518`, the same word a moment earlier. It went red once
+        # in a loaded lane and passes alone every time, which is the signature
+        # (docs/WRITING-TESTS.md 59, 60).
+        #
+        # BOTH FIELDS EVERY ROUND, and the segment with them: the box's region
+        # is movable (SPEC.md 66.6.1.2), so re-reading one of a pair against a
+        # base taken before the other is its own race.
         _dm = dosmap.package()
-        _ps = dosmap.instance(m)
-        _buf = m.read((_ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
-        _len = int.from_bytes(
-            m.read((_ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+
+        def _pathbox(mm):
+            ps = dosmap.instance(mm)
+            buf = mm.read((ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
+            ln = int.from_bytes(
+                mm.read((ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+            return buf, ln
+
+        os88marty.until(m, lambda mm: _pathbox(mm)[1] == len(_pathbox(mm)[0]),
+                        "the entry proc to fill the path box", limit=60.0)
+        _buf, _len = _pathbox(m)
         if not _buf.upper().endswith(b"DOSARGS.COM"):
             fail("an association launch left [dos_path] = %r, and the entry "
                  "proc composes it from OSAPI_ARG_FILE (SPEC.md 96.32.3)"
@@ -400,6 +420,22 @@ def main():
         if not ui.path(where):
             fail("double-clicking the shortcut opened no window - the .LNK "
                  "association is dos.o88's third (SPEC.md 96.21)")
+        # --- 3a. ...AND THE CONSOLE SAYS WHICH DRIVE IT IS ON ---------------
+        # (SPEC.md 96.33.2.1) The prompt is the first line the box writes and
+        # the last thing a user reads to find out where they are, and
+        # `dos_con_start` wrote it BEFORE `OSAPI_ARG_FILE` and `dos_lnk_open`
+        # had said which drive that is - so a shortcut on B: opened `A:\>`.
+        # It self-corrected on every path that RAN something (`dos_con_ended`
+        # writes a fresh one), which is why the field found it on a path where
+        # nothing runs: arm 3, and Cancel at 96.42's question. Read BEFORE the
+        # program's own output, for exactly that reason.
+        want = "%s:\\>" % where[0]
+        first = con_prompt(m, ui)
+        if first != want:
+            fail("the console opened on %r and the shortcut is on %s: - the "
+                 "prompt names the drive DOS.O88 came off, not the one the "
+                 "box is standing on (SPEC.md 96.33.2.1)" % (first, where[0]))
+        print("doslnk: the console opened on %r" % first)
         out = wait_ready(m)
         print("doslnk: the shortcut ran:")
         for r in out.splitlines()[:8]:
@@ -470,6 +506,27 @@ def main():
 
     print("doslnk: ok")
     return 0
+
+
+def con_prompt(m, ui):
+    """The FIRST prompt in the box's console, as `X:\\...>`.
+
+    `con_scr` is the 80x25 char/attr buffer the band renders (apps/os88con.inc),
+    so this reads the same cells the user does - a screenshot would need a
+    glyph reader and would be asserting the font. The prompt is the first row
+    that ends in `>`, the two above it being the shell's VER line and its hint.
+    """
+    dm = dosmap.package()
+    pseg = dosmap.instance(m)
+    raw = bytes(m.read((pseg << 4) + dm["con_scr"], dm["CON_SCRSZ"]))
+    cols = dm["CON_COLS"]
+    rows = [bytes(raw[i:i + 2 * cols:2]).decode("latin-1").rstrip()
+            for i in range(0, dm["CON_SCRSZ"], 2 * cols)]
+    for r in rows:
+        if r.endswith(">"):
+            return r
+    fail("the console has no prompt in it at all: %r"
+         % [r for r in rows if r][:6])
 
 
 def read_lnk(img):

@@ -123785,6 +123785,39 @@ thing the DOS default would buy is nothing: `A>` is what DOS shows when
 `AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
 that line would have run.
 
+###### 96.33.2.1 …and it is written where the drive is SETTLED, not at `dos_con_start`
+
+The paragraph above ends *"`[dos_vol]` is zero out of bss and zero is drive
+A:"*, and the same trap was still live one step further along. `dos_con_start`
+asked `OSAPI_FILE_HERE`, stored the answer and printed the prompt — and it runs
+**before** `dos_entry`'s `OSAPI_ARG_FILE` branch, which overwrites
+`[dos_vol]`/`[dos_dir]` from the document, and before `dos_lnk_open`, which can
+overwrite them again with a shortcut's target. So a box opened on a document
+printed the drive its own `DOS.O88` came off, and that is the document's drive
+only by luck.
+
+It self-corrected on every path that ran anything, because `dos_con_ended`
+writes a fresh prompt when the program stops — which is why it took a path
+where **nothing runs** to show it. Reported from the field: a `.LNK` on B:,
+arm 3, and Cancel at §96.42's question. `dos_wholedone` records the refusal
+and returns with `[dos_state]` still `DST_READY` and nothing to undo, which is
+correct, and left `A:\>` on the glass over a box standing on B:. Typing `DIR`
+there listed B: — the *prompt* was the only thing that was wrong, which is the
+worst shape for this particular defect: the console is the one place a user
+looks to find out where they are.
+
+`dos_con_start` opens the console and says its `VER` line and its hint;
+`dos_entry` writes the prompt at `.ok`, where the empty door and the document
+door converge and `[dos_vol]` is settled either way. Before the `clc`, because
+the prompt spends the flags and the CF at that label is the loader's.
+
+The **folder** does not follow the document — the paragraph above is why, and a
+shortcut to `B:\BIN\DOSARGS.COM` still opens `B:\>`. What was wrong was the
+drive alone.
+
+`tests/doslnk.py` step 3 is the gate: it already opens a `.LNK` on B: in a
+fresh instance, so the assertion is the console's first prompt.
+
 ##### 96.33.12 The dirty bitmap is per ROW, and a text screen wants a CELL
 
 Asked from the field, about the full-screen bracket on CGA: *"writing 80 chars

@@ -53,7 +53,11 @@ dos_con_start:
     call con_say                    ; a DOS machine opens with - and sharing it
     mov si, dos_c_hint              ; means the version is stated in one place
     call con_say
-    call dos_prompt
+    ; **AND THE PROMPT IS NOT WRITTEN HERE** (SPEC.md 96.33.2.1), which is the
+    ; sentence three lines up taken seriously: a prompt is a statement about
+    ; where the shell is STANDING, and on the document path this routine runs
+    ; BEFORE the drive is known. `dos_entry` writes it at `.ok`, where both
+    ; doors converge and `[dos_vol]` is settled either way.
     ret
 
 ; -----------------------------------------------------------------------------
