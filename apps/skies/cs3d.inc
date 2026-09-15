@@ -716,6 +716,14 @@ cs_drawpass:
     cmp al, [cs_pass]
     jne .next
     call cs_drawobj
+    call cs_sound_step              ; ...AND THE ENGINE, between objects
+                                    ; (SPEC.md 88.8.2.1.2): cs_scene is 78% of
+                                    ; a frame, so this is where the ticks
+                                    ; actually elapse. It is one far call to
+                                    ; OSAPI_GET_TICKS on the object that has
+                                    ; not crossed one - 46.7 us against a
+                                    ; scene of 128 ms - and CX and SI are the
+                                    ; loop's own, saved either side of here
 .next:
     pop si
     pop cx

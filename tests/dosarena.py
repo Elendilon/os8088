@@ -26,7 +26,7 @@ a RE-HOMED package - and a re-homed package's region is the loader's CARVE,
 whose base is not the segment the program runs in. `OS88_REGION_MOVABLE` was
 refused (`mem_find_own` could not match it), so the wall came back and the
 card cost 426 KB against 440: exactly SOUND.DRV's 6,144-byte image plus its
-8,192-byte ring, in a hole above a pinned region. SPEC.md 66.6.1.1 is the
+8,192-byte ring, in a hole above a pinned region. SPEC.md 66.6.1.2 is the
 kernel fix and this row is what said it worked - **445 against 445**, and the
 14 KB is back.
 
@@ -39,7 +39,7 @@ WHAT IT WOULD CATCH:
   - the wake arriving and the claim       -> the card machine is short by
     being made against the OLD number        whatever the pass moved
   - the re-homed carve pinned again      -> ...the same again, and SPEC.md
-    (SPEC.md 66.6.1.1)                      66.6.1.1 names the four things
+    (SPEC.md 66.6.1.2)                      66.6.1.2 names the four things
                                             that have to stay offset-aware
 
 It runs on MartyPC and must: no other emulator here models a Sound Blaster
@@ -110,7 +110,7 @@ def rloc_of(m, ui, seg):
     """`MC_RLOC` of the claim the package at `seg` is RUNNING IN, or None.
 
     **THE CLAIM THAT CONTAINS IT AND NOT THE ONE BASED AT IT** (SPEC.md
-    66.6.1.1), which is the whole subject: this package is PART 0 of a
+    66.6.1.2), which is the whole subject: this package is PART 0 of a
     re-homed DOS.O88, so its region is the loader's carve and its base is a
     few paragraphs below `cs`. A reader that matched the base would find no
     record and report the fix missing on a kernel that has it.
@@ -149,7 +149,7 @@ def main():
              "region is PINNED. OS88_REGION_MOVABLE is one line of "
              "apps/dos/dos.asm and it is refused when mem_find_own cannot "
              "match a caller's own segment INSIDE its claim - which is the "
-             "shape of every re-homed package (SPEC.md 66.6.1.1). Everything "
+             "shape of every re-homed package (SPEC.md 66.6.1.2). Everything "
              "below would then be short by the driver's image and its ring "
              "and read as SPEC.md 96.35 breaking instead"
              % ("None (no claim contains it at all)" if crloc is None
@@ -177,7 +177,7 @@ def main():
              "happening before the claim, or the posted compaction is not "
              "reaching the hole it leaves (SPEC.md 96.35), or the box's own "
              "REGION has stopped moving, which for this package means the "
-             "re-homed carve went back to being a wall (SPEC.md 66.6.1.1)"
+             "re-homed carve went back to being a wall (SPEC.md 66.6.1.2)"
              % (bkb - ckb))
 
     print("dosarena: the unmount happened and the card costs the program %d "

@@ -809,6 +809,12 @@ cy_entry:
     call OSAPI_WM_CREATE
     jc .fail
     mov [cy_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
 
     ; We paint every pixel of our content ourselves - the field is black and
     ; the kernel's white fill before W_PAINT would be a full-content flash on
@@ -1090,6 +1096,15 @@ cy_hire:
     call OSAPI_TASK_SPAWN
     jc .nope                        ; transient - try again next paint
     mov byte [cy_hired], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame before its
+    ; first instruction, so mem_frameless pins a region with an
+    ; undeclared worker however that region is declared. What a restart
+    ; costs is one pass of the loop - the park is inside
+    ; OSAPI_TASK_ALIVE and nowhere else (this package is not
+    ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
+    ; that outlives a pass is a static and moves with us.
+    OS88_WORKER_RESTARTABLE cy_worker
 .nope:
     pop bx
     pop ax

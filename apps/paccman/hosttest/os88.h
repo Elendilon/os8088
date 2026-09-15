@@ -84,6 +84,7 @@ int   os88_snd_tone(int hz, int ticks, int prio);
 
 void *os88_wm_top(void);
 int   os88_task_spawn(void *win);
+int   os88_task_restartable(int on);
 void  os88_task_alive(void *win);
 void  os88_task_sleep(int ticks);
 void  os88_task_yield(void);

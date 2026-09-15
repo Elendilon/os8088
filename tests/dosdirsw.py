@@ -70,7 +70,7 @@ class Box(object):
 
     @property
     def base(self):
-        # **RESOLVED PER ACCESS, NOT CACHED** (SPEC.md 66.6.1.1): the DOS
+        # **RESOLVED PER ACCESS, NOT CACHED** (SPEC.md 66.6.1.2): the DOS
         # box's region MOVES now - it is a re-homed carve and was pinned only
         # until that section - so a base banked in __init__ names the bytes
         # the package used to occupy, and decodes as plausible rubbish.

@@ -134,7 +134,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | **ArtfulType** document + undo/redo arena | **MOVABLE** | §66.5.7. `at_reloc`, two words; `at_dmov` pins across both file operations. The clip slice left the arena at §46.6.1 - the clipboard is the kernel's claim now |
 | **Fractal** run cache | **MOVABLE** | §66.5.7. `fr_reloc`, one word — every cursor into it is an offset |
 | **ModPlug** module (up to 116KB) | **MOVABLE** | §66.5.8. `mpp_reloc`, 36 words. §56.1's bill: the replayer is an independent copy of Tracker's at *different strides* (`MPS_SZ` 12, `MPM_CHSZ` 40), so a renamed `trk_reloc` walks the tables wrong and yields plausible garbage |
-| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. Eighteen regions in the tree are movable today, every C package's among them |
+| every package **region** | **see *Regions* below** | a region's base is its CS, and this row said `PINNED (forever)` until §66.6.1 opened that door. It is not a data claim and the two columns here do not decide it — the *worker* does. **42 of the tree's 44 packages declare today** and `tests/unit/t_movable.py` is what keeps it that way (§66.6.1.1): the other three are registered in `tests/movable.txt` with a reason each |
 
 ### Undeclared
 
@@ -214,6 +214,11 @@ holder is unusual: **every word that names it is the KERNEL's**, so its
 relocation proc is very nearly always a `ret` and `OS88_REGION_MOVABLE` emits
 one. What actually decides a region is the *worker*.
 
+**42 of 44 packages declare, and the two that do not are a list rather than a
+shrug** — §66.6.1.1's ratchet, `tests/unit/t_movable.py`, `tests/movable.txt`.
+The table below names the ones with something to say; everything not in it
+declares the bare form and moves on `I_TASK == 0xFF`.
+
 | package | region | verdict | note |
 |---|---:|---|---|
 | **SHEET** | 48.5KB | **MOVABLE** | §66.6.1's first customer, and worker-less, so it moves on `I_TASK == 0xFF` alone |
@@ -226,8 +231,16 @@ one. What actually decides a region is the *worker*.
 | **driver images** | 48KB | **MOVABLE** | §66.6.3. SOUND 6KB, HDD 8KB, ETHER 18KB, RAMDISK 9KB, NET 6KB, VMMOUSE 1KB (`drv_memk`). Every one of them, the sound driver's included: §66.6.3.1 patches the **sixteen hardware IRQ vectors** instead of refusing on the table, and the copy runs at IF=0 so no ISR can be taken between it and the rewrite. Sixteen and not 256 is load-bearing — unused vectors are SCRATCH, and a full sweep rewrote an XT-IDE option ROM's word and left the machine with no hard disk. The other side of it is a contract: a driver may hook its own IRQ vector and nothing else. `tests/drvmove.py` and `tests/sndmove.py` are the gates |
 | **every C package** | — | **MOVABLE** | `crt0.asm` declares it at entry; `cc_regreloc` is `cc_ovbind` where there is an overlay, because its `.res` loop writes the live `CS` into the return vectors and inside a relocation proc that CS is the new base |
 | **CWORD**, **RUNCPM** | 60.8 / 56.6KB | **+ RESTARTABLE** | `os88_task_restartable(1)` after the spawn takes; both workers are `for(;;)` polls over statics |
-| ArtfulType, Fractal, Frotz, ModPlug, Note Pad, Tracker | | **MOVABLE, NOT restartable** | the six that declare `OSAPI_MEM_PARKSAFE`. That lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration for them is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Not taken yet |
-| WEAVE, C64, LOOM | | **MOVABLE** | C64 and LOOM hire no worker at all and say so in their own source; WEAVE's worker trampolines into `WEAVE.WSM`, so its restartability is that module's |
+| ArtfulType, Fractal, ModPlug, Note Pad | | **MOVABLE, NOT restartable** | the four that declare `OSAPI_MEM_PARKSAFE` and still hire a worker (Tracker declares both — it is park-safe *and* restartable, and §66.4.3.3 is what that cost). Park-safe lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Registered `worker` in `tests/movable.txt` |
+| **Frotz** | | **MOVABLE, NOT restartable** | not for the park-safe reason: it has **two** park points and one is inside the Z-machine's own execute loop (`zexec.inc`), so a restart restarts the STORY — the interpreter's position is its call chain and not a static |
+| Arkanoid, Cyclone, Dot Delirium, Missile, Pac-Man, TameGram, Task Manager, Telnet, The Wire, WIREFRAME | | **MOVABLE + RESTARTABLE** | the ten converted in one pass, and they are one argument: none declares `OSAPI_MEM_PARKSAFE`, so the only park point is `OSAPI_TASK_ALIVE`, each has exactly one and it is at the top of the outer loop, and every byte that outlives a pass is a static. Six of them open `GET_TICKS; mov [x_due], ax` above that loop, so the restart *re-seeds* the frame deadline |
+| **PACCMAN** | | **MOVABLE + RESTARTABLE** | the C one of that set, and the one a grep missed: its worker is hired from `os88_paint`. The single automatic crossing its park (`due`) is re-seeded by the restarted entry, which is `cc_worker` and not `os88_worker` — the SDK names the offset so a C author cannot pick the wrong one |
+| Calculator, Chart, Font View, Hello, Mines, Paint, Piano, Recorder, Solitaire, TexPad, and the rest | | **MOVABLE** | no worker, nothing of their own to fix: the bare form, moving on `I_TASK == 0xFF` alone |
+| **WEAVE** | | **MOVABLE, NOT restartable** | its worker trampolines into `WEAVE.WSM`, so its restartability is that module's and a WEAVE-SPEC decision rather than a declaration |
+| C64, LOOM, APPLE2, CWORD, RUNCPM | | **MOVABLE** | C packages that hire no worker; `crt0.asm` declares for them |
+| **SCRIBE** | 42.8KB | **PINNED — registered** | stamps its own segment into a hand-rolled pre-parts `.ovl` module (`sc_pkgseg`, and `sc_ovbind`'s vector table), so a bare `ret` leaves both naming the old base. The fix is to stop stamping segments — move the overlay onto parts (§20.12) — which is its own phase |
+| **SKIES** | 44.2KB | **MOVABLE (`cs_reloc`)** | the tree's only re-homed program (§20.12.10) and the second package after Sheet to need a proc that is not a `ret`. csload named the title art by **absolute segment** and the art is *inside its own carve*, so it moves with the region and the word naming it does not — `cs_reloc` adds `DX-BX` to `[cs_artseg]` and to `cs_hand`'s `CSH_ART`, guarding the zero a refused part leaves. **It is ONE word pair and not four**: `CSH_WDIR`'s nine rows are (sector, packed length) and `CSH_CLB` is bytes per cluster, so neither is a segment, and `[cs_shseg]`/`[cs_wgseg]`/`[cs_gseg]` are two claims of their own and the kernel's glyph table. Accepted on 1.44MB alone, where 512-byte clusters put the program at the carve base; read back off the machine at `MC_RLOC=0167`, which is `cs_reloc`'s own offset. `tests/rehomemove.py` is the shape and `rp_reloc` the model |
+| **CSLOAD** | | **nothing to declare** | Skies' launch image only: it reads the parts, hands off through `OSAPI_PKG_REHOME` and its region is freed inside that call — and until then it *is* `[ld_base]`, which `mem_frameless` pins anyway |
 
 `tests/regapp.py` reads `MC_RLOC` and `inst_restart` back out of the kernel for
 every row above that ships, because a declaration the owner fence refused is

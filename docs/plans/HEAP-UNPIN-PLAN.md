@@ -957,7 +957,7 @@ build of the same package gets the full 440, because there its region really is
 `cs` and `OS88_REGION_MOVABLE` takes. The declaration is still in
 `apps/dos/dos.asm`; it is simply refused.
 
-**BUILT — SPEC.md 66.6.1.1, and it was FOUR readings and not one.** The
+**BUILT — SPEC.md 66.6.1.2, and it was FOUR readings and not one.** The
 estimate above ("one line of arithmetic") was right about `mem_rr_tab` and
 wrong about the scope: `mem_is_region`'s equality, `mem_frameless` asking
 `mem_in_nest` about the claim's base, the walk's exact match, and

@@ -35377,7 +35377,7 @@ it is running in by name.** `mem_find_own` matches `MC_OWN == the caller's
 segment` or `MC_SEG == it`, and a slot is neither — so `OSAPI_MEM_FREE` with
 the carve's **base** refuses, which is the correct answer and still does.
 
-**IT USED TO KEEP THE CARVE PINNED AS WELL, AND THAT IS OVER** (§66.6.1.1).
+**IT USED TO KEEP THE CARVE PINNED AS WELL, AND THAT IS OVER** (§66.6.1.2).
 The reason was real and is worth keeping written down, because it was one of
 four of its kind: `mem_rr_tab` rewrote `inst_tab + I_SPTR` by matching the
 **old base**, and `I_SPTR` is the *part's* segment where the claim's base is the
@@ -35401,12 +35401,12 @@ on a 1.44MB one, where it is therefore ZERO**. So:
 
 | head slack | the program sits | and the carve is |
 |---|---|---|
-| non-zero (1KB+ clusters) | **inside** the carve | its region, reached by `mem_find_own`'s **containment** arm and moved with `[mem_rgoff]` (§66.6.1.1). It was pinned until that section |
+| non-zero (1KB+ clusters) | **inside** the carve | its region, reached by `mem_find_own`'s **containment** arm and moved with `[mem_rgoff]` (§66.6.1.2). It was pinned until that section |
 | zero (512-byte clusters) | **at** the carve's base | its region by the obvious reading too: `MC_SEG == I_SPTR`, and every compactor question has one answer either way |
 
 **Both are the same thing now, and neither the kernel nor the package needs to
 know which one it got** — a package declares `OS88_REGION_MOVABLE` and a
-relocation proc is handed *its own* two segments, re-homed or not (§66.6.1.1).
+relocation proc is handed *its own* two segments, re-homed or not (§66.6.1.2).
 What is still refused in both shapes is naming the carve's **base**: the
 widening is gated on the caller naming its own segment, so the fence became a
 containment rather than a hole, and `tests/rehome/rhprog.asm`'s check 4 asserts
@@ -35425,7 +35425,7 @@ any other region** — measured at a zero slack, `1E40 → 1D00`, with `I_SPTR`,
 `W_SEG` and the claim owner all following through `mem_rr_tab`.
 
 **`rehomemove360` is the same row in the shape that was pinned**, and it is the
-gate on §66.6.1.1 where the row above is not: at a zero slack all four of that
+gate on §66.6.1.2 where the row above is not: at a zero slack all four of that
 section's questions have the same answer either way, so only a non-zero slack
 can tell them apart. Measured there: head slack **32 paragraphs**, the region
 `9F20 → 9F60`, the proc called, and the package's own vector into the asset
@@ -49908,6 +49908,48 @@ working exactly as intended. The machine really has no card.
   still jitters at tick scale behind the mouse ISR. Interrupt-paced
   speaker PCM is the same arithmetic and is rejected with it: speaker PCM
   is the §34.4 busy loop or nothing.
+#### 34.1.1 The mode word goes in ONCE, so a GLIDE does not restart the wave
+
+`spk_tone` wrote `0xB6` to 0x43 on **every** frequency change. Writing the
+control word to an 8253/8254 resets the counter's output to its initial state
+and inhibits it until a count is loaded — so each change **restarted the square
+wave** rather than retuning it.
+
+For one beep that is invisible. For a **glide** it is not. A package that moves
+its tone every tick is asking for 18 restarts a second, and each one truncates
+the cycle in progress and forces OUT high: the pitch wobbles around the glide
+instead of following it. It was reported off CLEAR SKIES' jet (§88.8.2.1),
+which sweeps 180 → 700 Hz, and the shape of the report is what identifies the
+cause — *"if I change it between just two throttle ranges, sounds great, no
+up/down. But when I change it straight from 0-100 as fast as possible the ramp
+is 'up, down a bit, up a bit more, down a bit'"*. Measured on the guest, that
+sweep changes the tone on **149 of 149 consecutive ticks**, and the note itself
+is strictly monotone throughout: nothing above the port writes can account for
+a down.
+
+**The fix needs no new state**: `snd_ch2mode` already says whether a tone is
+sounding, so the control word is written when it is not 1 and skipped when it
+is. Mode 3 loads a new count at the end of the current half-cycle, which is a
+clean retune, and mode 3 is the chip's resting state here anyway — §34.4's PWM
+is the only thing that leaves it, and `spk_pcm_idle` latches the bare mode-3
+word back on the way out. So a tone episode costs one control word however many
+times its frequency moves, and every path that reaches silence re-establishes
+it. **7 bytes**, measured on the symbol span — `kernel.bin` is the SAME LENGTH
+either way, section padding having swallowed it whole, which is CLAUDE.md's
+rungs rule catching a reader who measures the artefact. `KERN_BUDGET` keeps
+18,432 spare and no rung moves.
+
+**It changes what CONSECUTIVE NOTES sound like, and that is a decision rather
+than a side effect.** Two non-zero tones with no silence between them used to
+be separated by the restart's click; they are now connected, which is legato
+where it was marcato. A tune that wants articulation gets it by going through
+zero — which is what a rest is, and what `.off` already does to the gate. No
+shipped package's gate can see the difference: every one of them asserts
+FREQUENCIES, and the frequencies are unchanged. That is worth stating rather
+than leaving implied — **this fix is verified by the mechanism and by a
+listener, and not by the suite**, which is the same standing as every other
+number in §88.8.2.2.
+
 ### 34.2 Capabilities and the speaker driver
 
 There is no driver table any more — a table with one row is a lie about
@@ -63563,6 +63605,104 @@ reference build: `File too big` / `No module loaded`, not a short module.
 same disk and same clicks:** the 300KB module is `File too big` /
 `No module loaded` before, and `OS8088 300K TEST` / `Playing` after. The
 `.o88` grows 73 bytes.
+
+#### 45.3.2 …and the refusal asks for the room first (§66.4.3)
+
+§45.3.1 leaves `trk_fdone` asking `OSAPI_MEM_AVAIL` before it stops the
+music, frees the old blob or turns the drive, so **a refusal costs nothing**
+— whatever was playing keeps playing. What that refusal could not say is
+whether the machine could have *found* the room. A package may not compact
+its own region from inside its own callback (§66.6.1), so the largest run
+Tracker is quoted is the largest run with Tracker's own 49KB standing in the
+middle of the heap, and the answer to "is 400KB fundable" is being given by
+a plan that is forbidden to move the asker.
+
+**Tracker is the exact-requirement consumer §66.4.3 was written for**, and
+the distinction it draws is the one that decides whether the feature is
+worth its bytes. A program that wants *all* of the heap can just claim and
+find out; Tracker wants **this module or no module**, and a claim that fails
+is destructive — `mem_claim`'s refusal path sheds every purgeable cache on
+the way down (§50.6.4), so the read-ahead and the FAT windows go and cost
+seconds of `int 13h` to rebuild. A package with an exact requirement that
+guesses wrong therefore **pays for its refusal twice**. So `trk_cpq_try`
+asks `OSAPI_MEM_AVAIL_MAX` — the same plan with the asker's own region
+excused — and only says `Too big for free memory` once the answer is *not
+even if the machine emptied itself for me*.
+
+When the what-if says yes, it posts `OSAPI_MEM_COMPACT_WAKE` at
+`MEM_LVL_TOP`, puts **`Making room...`** on the status line and **returns
+having touched nothing**. `ui_task` step 0a runs the compaction with
+nothing held (§66.4.3), and the `EVT_WAKE` that follows re-enters
+`trk_fdone` through `trk_cpqload` with the name and size already banked in
+this package's own segment — so the retry is `trk_argload`'s shape with no
+`OSAPI_FILE_GOTO` to do, and it re-asks plain `OSAPI_MEM_AVAIL` rather than
+trusting the what-if. The message is composed **before** the return and not
+after, because the callback returns *into* a pass that freezes the machine
+for hundreds of milliseconds, and a sentence that arrives after the freeze
+is a sentence nobody reads.
+
+**`[trk_cpq]` is one byte doing two jobs and they are the same job.** It
+tells `trk_onwake` that this wake is the same load attempt continuing rather
+than a new one, and it tells `trk_cpq_try` that this attempt has already had
+its one question. `trk_fdone` clears it at its single exit and the posted
+path jumps past that clear (`.outq`), so a load posts **once**: a second
+post because the first did not give the what-if's number is how a program
+spins, and the wake's own `OSAPI_MEM_AVAIL` is the number to decide on.
+
+**It cost the region two declarations, and the second is what makes the
+first mean anything.** `OS88_REGION_MOVABLE` sits at the end of `trk_entry`
+with a `clc` behind it, because `OSAPI_MEM_MOVABLE` writes CF and the
+loader's success is riding in it — every other call in that chain preserves
+the flags on purpose. `OS88_WORKER_RESTARTABLE trk_worker` goes in
+`trk_hire` right after the spawn, and without it `mem_frameless` pins the
+region however it is declared: the kernel wrote Tracker's segment into the
+mixer's frame before its first instruction (§66.6.2). Tracker is **park-safe**
+(§66.5.4), so the kernel may park that worker blocked in `OSAPI_GFX_LOCK` as
+well as at `OSAPI_TASK_ALIVE` — and the only lock it ever blocks on is
+`trk_render`'s, taken with `[trk_inrend]` already 1 and nothing drawn yet.
+Restarted there the frame is lost, which is what a restart costs, and the
+flag would stay set for ever with `trk_fs_enter`'s drain waiting on a worker
+that is no longer inside `trk_render`. So `trk_worker`'s own head clears it,
+which is where the restart lands. **`[trk_mixing]` needs no such line** and
+the reason is worth keeping: `trk_feed` blocks on nothing, so neither park
+point is ever inside a feed pass.
+
+**Measured**, `tests/trkcompact.py` on a 4.77MHz 8088 with 640KB: nine
+Tracker instances stacked down from the ceiling leave a 79KB floor run, the
+topmost is closed to put a 49KB hole above the survivor, and
+`BEVERLY.MOD` — 114KB — is loaded into it. Before this the load is `Too big
+for free memory`; after it, the asker's own region moves `8780` → `93c0`,
+the two runs merge, and the module plays. The `.o88` grows **128 bytes**,
+none of it resident.
+
+**And measured again on the session the feature was asked for**, which is
+worth carrying because it is a machine somebody would actually sit at rather
+than a heap a gate built: a 640KB Hercules 5150
+(`os8088_5150_herc_sb_gla_144`) booted with `SOUND.DRV` **not mounted**, then
+Sheet, then Paint, then Clear Skies, then `SOUND.DRV` mounted **mid-session**
+from the Control Panel, then Tracker — so the driver's image and pool land
+UNDER three regions that already hold the ceiling, and Tracker's region lands
+under those — and then the three are closed and a **397KB** ProTracker module
+is opened. The heap at that moment is **365KB free below Tracker and 92KB
+above the driver**, the module wants 397, and the two runs are what
+§66.4.3.2's what-if can see and plain `mem_avail` cannot: Tracker's own 49KB
+region is the barrier between them. It posts, and the descending pass packs
+all three top-down claims into the ceiling hole — Tracker's region `7940` →
+`9040`, the sound pool `8580` → `9c80`, the driver's own image `8780` →
+`9e80`, every one of them **92KB** — leaving a 457KB floor run out of which
+the 397KB claim is taken. **A/B on the same machine, the same disk and the
+same clicks**, with only `trk_cpq_try`'s call removed: `Too big for free
+memory`, nothing moved, no module. This is HEAP-UNPIN-PLAN §2.0's
+mount-mid-session wall and SPEC.md 66.4.3's pin measured as one thing, and
+what makes it a demonstration rather than a construction is that every step
+of it is something a user does.
+
+`tests/trkbigmod.py` is that run kept runnable, at 78 seconds. The module is
+the one thing it could not keep — every real one this size is somebody's file
+— so `tools/os88mkmod.py` generates a valid M.K. module at an exact length,
+and it is a real module rather than a blob because a file `mp_load` refused
+would exercise the claim and then fail the load, which is a green row about a
+machine that never played anything.
 
 ### 45.4 Memory layout
 
@@ -83827,6 +83967,27 @@ poster's rank reaching `mem_cp_drop` is what would have caught it, and
 stopped being true when §66.4.3 cut a second door past it — the same shape as
 that section's own warning about `mem_shed_one`, one mechanism along.
 
+#### 66.4.3.4 Tracker is the first consumer, and it is the exact-requirement one
+
+§45.3.2 is the adoption and the shape to copy. It is worth naming here
+because the two halves of the door are used by **different kinds of
+program**, and only one of them needs the what-if at all. A package that
+wants *whatever is going* — a DOS arena, a scratch heap — can post, return,
+and claim the largest run the wake reports; `OSAPI_MEM_AVAIL_MAX` tells it
+nothing it will act on. Tracker wants **this module or no module**, and for
+it the what-if is the whole feature: a claim that fails sheds every
+purgeable cache on its way down, so a refusal that could have been avoided
+is paid for twice, and `Too big for free memory` has to mean *not even if
+the machine emptied itself for me*.
+
+**Adoption is also where the two declarations get tested against a real
+program rather than against `tests/heapfrag`.** Tracker owns a worker, so
+`OS88_REGION_MOVABLE` alone buys nothing (§66.6.2), and it is **park-safe**,
+so `OS88_WORKER_RESTARTABLE` reaches a park point that is *not* the top of
+its loop — which is exactly the case the SDK note warns about and the one
+`tests/heapfrag`'s pump-shaped worker cannot exercise. What that cost was
+one line of `trk_worker`'s head, and §45.3.2 says which line and why.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is
@@ -84784,7 +84945,60 @@ caller's region and can be nothing else, so that is the second way to match.
 No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
 door.
 
-##### 66.6.1.1 A RE-HOMED package's region is the loader's CARVE, and four things assumed otherwise
+##### 66.6.1.1 …and every package declares, or says here why not
+
+**The door opened and twenty-eight packages did not walk through it.** Six asm
+packages declared, `apps/cc/crt0.asm` took every C one along for free, and the
+rest of `apps/` stayed pinned for a whole cycle — because an undeclared region
+is **invisible from inside the package**: nothing refuses, nothing warns, the
+program runs perfectly and the heap quietly cannot pack. That is §6.6's
+transparent-text failure one mechanism along, and it gets §6.6's answer.
+
+`tests/unit/t_movable.py` (fast tier) walks every package under `apps/` and
+fails the build for one that does not declare, or that hires a worker and never
+declares it restartable. **Both halves, because half a declaration buys
+nothing**: §66.6.2's frame pins the region however it is declared, so a region
+declaration on a worker-owning package is *inert*, and inert is the most
+expensive shape available — it reads as done. An exemption is a line in
+`tests/movable.txt` carrying a reason, and the list turns **one way**: a line
+for a package that now declares is a failure, so it cannot rot into a register
+of things that used to be true.
+
+**A package with a fix-up of its own declares in the same vocabulary.**
+`OS88_REGION_MOVABLE` takes an optional near proc (`0-1`), so the package that
+has a word to put right is not pushed into hand-rolling the call — which
+`sheet.asm` was, and which made a search for the macro report it as a gap. Both
+it and `OS88_WORKER_RESTARTABLE` preserve the **flags**: the slots answer in
+CF, the site is an entry proc or a spawn that is carrying a CF of its own
+(§20.2), and nothing acts on the answer — a refusal can only mean the region is
+not ours, which cannot happen from inside it.
+
+**Two shapes genuinely cannot take the bare form.** A package that has
+**stamped its own segment** somewhere the kernel does not know about —
+`apps/scribe`, into the vector table of a hand-rolled pre-parts `.ovl` module —
+and a **re-homed** program (§20.12.10), whose loader named its assets by
+absolute segment and whose assets are *inside its own carve*, so they move with
+it. For those a bare `ret` is **silent corruption** rather than a missed
+optimisation, and `tests/rehomemove.py` is the row that proves the non-trivial
+proc is what a re-homed program owes.
+
+**`apps/skies` is the second shape and it DECLARES** — `cs_reloc`, which adds
+`DX−BX` to `[cs_artseg]` and to `cs_hand`'s own `CSH_ART`. Two things about it
+generalise. **The handoff carries less than it looks like**: `CSH_WDIR`'s nine
+rows are *(sector, packed length)* and `CSH_CLB` is bytes per cluster, so only
+one word of that block is a segment at all — and the three segments the package
+*does* bank are two claims of its own, which a region move does not touch, and
+the kernel's glyph table. **And the zero is a state**: `[cs_artseg]` is 0 when
+the part was refused, every reader tests for it, and a delta added to 0 turns a
+refusal into a wild segment — so a proc guards its zeros rather than assuming
+them away. **It used to be accepted on 1.44MB alone**, where 512-byte clusters
+put the program at the carve base; below that `mem_find_own` did not reach it
+and there was nothing to move. §66.6.1.2 ended that, so a re-homed region moves
+at every geometry — which makes `cs_reloc` load-bearing on the 360KB disks
+where it was inert, and makes the bare `ret` two paragraphs up a corruption
+that can now actually happen.
+
+##### 66.6.1.2 A RE-HOMED package's region is the loader's CARVE, and four things assumed otherwise
 
 Every rule above says *"the region's base IS the package's segment"*, and that
 was true of every package in the tree until one was not.
@@ -108096,7 +108310,9 @@ inside the part as a run of zeros (§20.12.10) and LZ4 is best at exactly that,
 so `SKIES.O88` does not measurably grow; what grows is the heap claim, from
 49,216 bytes to 51,776. `CS_VOCAB_AT` moves 0xB400 → 0xBE00 to make room —
 the overlay's address is part of the contract with `tools/csworlds.py`, so
-that constant is where the claim is sized. Clear Skies takes the whole machine
+that constant is where the claim is sized. *(It is DERIVED now and no longer
+moved by hand: §88.10.6, which this section's own refusal is the argument
+for.)* Clear Skies takes the whole machine
 for as long as it runs, it is in `SMALLOMIT_GAMES` so the 128 KB floor machine
 never loads it at all, and a `kern_big` desktop has the 2.5 KB many times
 over. **This is a memory-for-speed trade taken on the owner's decision**, and
@@ -111324,9 +111540,12 @@ would enter at, and they cost nothing.
 **It is not disk and it is not a rung; it is SEGMENT.** `build/skies.bin` is
 padded out to cover the overlay at `CS_VOCAB_AT` (§88.10.5), so the part is
 49,216 bytes either way and the floppy does not move. What moves is the top
-of the program's own code, and `APP_MAX_SIZE` — 60 KB of one segment — is
-what Clear Skies is actually short of: the `CSDIAG=1` arm is over it by
-hundreds of bytes and cannot be built.
+of the program's own code, and what it is measured against is the **gap**
+below the overlay. *(Written when that gap was hundreds of bytes and the
+`CSDIAG=1` arm could not be built. §88.10.6 has since made `CS_VOCAB_AT`
+derived rather than hand-set: the gap is 9,872 bytes and every arm builds. The
+sentence below is still the rule — a padded artefact is not the measure — and
+the shortage it was written against is gone.)*
 
 **Nothing here found it.** `tests/unit/t_deadcode.py` is the kernel's, and
 there is no package equivalent; a package's unreachable code costs its own
@@ -111951,8 +112170,8 @@ typed, `OSAPI_KEY_DOWN` (§9.7) for what is held:
 | `A` / `D` | rudder, and the wheels on the ground | `Esc`, `F` | leave (§11.2.1) |
 | | | `B` | brakes on / off (§88.7.10.1) |
 
-The engine is a speaker tone whose pitch follows the throttle
-(`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
+The engine is a speaker tone off the aeroplane's own engine record (§88.8.2,
+`OSAPI_SND_TONE`, re-issued when the note changes), a stall is a repeated
 beep, a crash a low blast; the tone is released at exit and `M` mutes all of
 it.
 
@@ -112009,6 +112228,284 @@ one leaves none. It has to be taken on the FIRST crackle of the crash: on the
 second and every later one the crack is already in the shadow wherever nothing
 refilled it, so drawing it again changes only the rows something else marked,
 and a check taken there reads 51 rows and 0 loose on the broken build too.
+
+#### 88.8.2 An engine each, and what a square wave can say about one
+
+Every aeroplane used to make the same noise. `cs_sound_step` was
+
+```
+    mov ax, [cs_thr]        ; 0..100
+    or ax, ax
+    jz .st
+    add ax, 50              ; ...so the engine is 51..150 Hz, whatever it is
+```
+
+— so a **Fouga Magister and an Icon A5 were the same note at the same lever**,
+and the only aeroplane that sounded like itself was the one that made no sound
+at all. `CSP_SND` (offset 46, **appended** for `CSP_INDK`'s reason) points at a
+seven-byte engine record, and 0 means *no engine*: the Bijave's, which is the
+silence §88.7.6.1 already gave it.
+
+**The instrument is one square wave and that is binding.** `OSAPI_SND_TONE`
+takes `AX` = Hz and nothing else — no waveform, no volume — and §53.7 forbids
+touching channel 2 directly, so there is no PWM engine note to be had. A
+per-aeroplane engine can therefore only be a **frequency law**:
+
+> `Hz = CSS_IDLE + (source × CSS_SPAN) / 100`
+
+with the source the throttle **lever**, or the thrust the engine actually
+**has** when `CSSF_SPOOL` is set. A `CSS_IDLE` of 0 *is* silence at a shut
+throttle, so the field is the switch as well as the number and no code tests
+for it.
+
+| | idle → full | source |
+|---|---|---|
+| **Cessna 172** | **60 → 105 Hz** | lever |
+| **Pitts Special** | **75 → 160** | lever |
+| **Fouga Magister** | **180 → 700** | **spool** |
+| **Icon A5** | **95 → 170** | lever |
+| **Wassmer Bijave** | *no record* | — |
+
+**These numbers have been LISTENED TO**, which is the only way any of them
+could have been settled — §88.8.2.2 is why, and it is the shape of the whole
+section: an emulator synthesises a square wave with none of a real speaker's
+response, so the first set was arithmetic and the field corrected two of the
+four tops and deleted a feature.
+
+What the arithmetic got right is the ORDER and the idles. A listener
+identifies a piston aeroplane by its propeller's blade pass, which on a
+four-cylinder four-stroke is the firing rate too: 2 × rpm / 60. A Cessna at
+2,700 rpm is 90 Hz, a six-cylinder Pitts firing three times a revolution is
+135, and a Rotax 912 turning 5,800 through a 2.43:1 gearbox fires at 193 — so
+the amphibian really is the highest-pitched piston and the jet is not in the
+same octave as any of them. Every **idle** is raised, because a Cessna idles at
+700 rpm, which is 23 Hz, and no PC speaker will say 23 at a useful volume; the
+field's *"idle is audible"* and *"sounds pretty good at idle"* are what settled
+those.
+
+What the arithmetic got wrong is what a room does to the top of the range. The
+Magister was 260 → **1,200**, which is arithmetically a turbojet and audibly
+*"much too high pitched for human ears"* — 1,200 Hz sits in the band a PC
+speaker is harshest in. It is 180 → 700 now, down a fifth and a bit, still an
+octave and a half clear of every piston. The A5 was 95 → **190**, *"slightly
+high pitched at full. Probably accurate, but again, human ears and all"*, and
+is 95 → 170: still the highest piston, by less.
+
+**A shut throttle is an IDLE and not silence**, which is the change that does
+most of the work: each aeroplane announces itself on the runway before anything
+is touched. `CSS_IDLE` = 0 *is* silence, so the field is the switch as well as
+the number and no code tests for it.
+
+**The Fouga follows `[cs_thracc]` directly, at 8.8.** §88.7.5 has modelled a
+5.3-second spool since the jet shipped and nothing could ever *hear* it. It is
+also the one source on the machine with resolution to spare — the lever is
+fifty whole steps and the spool is a 16-bit fixed-point number — so the jet
+scales straight off it and never rounds through a percentage first, which is
+§88.8.2.1's problem avoided rather than smoothed.
+
+##### 88.8.2.1 There is no beat, and the note has inertia instead
+
+**The first build had a BEAT** — the note dropped a few hertz on a fixed share
+of the ticks, a piston's roughness, its phase off the wall clock so that
+`cs_steps`' dropped sim ticks could not drag its period. It was the one part of
+the design this document flagged as needing a listen, and the listen killed it:
+
+> *"Once revved up there is a periodic 'dip' in the sound that does sound like
+> a bug, rather than an engine."* — the Cessna, one tick in four
+>
+> *"A much more frequent 'bug'. The varying framerate making the rate of the
+> sound vary is hurting this, too, so constant may be what we need."* — the
+> Pitts, every other tick
+
+Both halves are worth keeping. The beat read as a **fault** and not as an
+engine, which no amount of tuning the depth was going to fix; and its rate
+moved with the frame rate *anyway* — the aliasing §88.12.1's frame times
+predict, heard in a room, through a defence that was only ever half of one. The
+wall clock fixes a beat's **period** and cannot fix its **sampling**: at
+`turnhold` the frame spans 5.15 ticks and only `CS_MAXSTEP` = 3 are stepped.
+`CSS_BEAT` and `CSS_MASK` are deleted, and the record is six bytes.
+
+**What replaced it is the opposite of a modulation.** The field's other note
+was about the transitions:
+
+> *"The stepping, between throttle levels, sounds more like it is playing a
+> note than switching engine pitches."*
+
+A throttle that moves in one step used to move the note in one tick, and a
+square wave that jumps between two steady values is a synthesiser retuning.
+`[cs_eng]` closes on what the engine wants instead, by **the lower of two
+steps**, and never by less than one hertz:
+
+| | a share of | what it is |
+|---|---|---|
+| `CSS_LAG` | the **gap** | the engine responding — fast when there is far to go |
+| `CSS_CAP` | the **note** | a ceiling in **interval**, the same at the bottom of a range as at the top |
+
+**The second one is the correction, and the first alone is what shipped and
+was wrong.** A share of the gap is a constant fraction in *hertz* and a wild
+one in *interval*: the Magister's first step out of idle was 520 >> 3 = 65 Hz
+at 180 Hz, which is a musical **fourth**, and the field heard it as precisely
+that — *"this one still 'plays notes' as it goes up or down"*. The complaint
+tracked the arithmetic exactly, across all four aeroplanes: the Cessna's first
+step is 290 cents and was *"Good"*, the Pitts' 400 and was *"slightly steppy"*,
+the Magister's 500 and *"plays notes"*. A share of the **note** is a constant
+interval by construction, so a range glides at the same rate wherever it is,
+and the time a glide takes is proportional to the **octaves** it crosses rather
+than to the hertz.
+
+Measured, with the lever shut in one step: the Cessna glides 105 → 60 Hz
+through **15** distinct notes in 19 ticks, and the Magister 625 → 180 through
+**97** in 101 — 1.8 octaves at about 22 cents a tick, which is a portamento and
+not a scale. The Magister's is slow *and should be*: `CSP_SPOOL` gives the
+thrust 5.3 seconds and the note now takes about the same.
+
+**It is honest about what it cannot do.** During a *sustained* sweep the note
+cannot be finer than the thing it follows — the lever has fifty whole steps,
+so a piston's sweep is ~1 Hz a tick and stays there. What the pair fixes is
+every transition that is not a sustained sweep: a tap, a cut, the brake
+(§88.7.10), the reset. Where `CSS_CAP` is *tighter* than the lever's own step
+it does better than track — the Pitts' lever moves 1.7 Hz a tick at 39 cents
+and its note moves 1–2 at 23, which is the *"slightly steppy"* answered — and
+the one source with real resolution to give is the jet's, `[cs_thracc]` being
+8.8 where the lever is fifty steps.
+
+##### 88.8.2.1.2 The note moves on the WALL CLOCK, not on the frame
+
+`cs_sound_step` ran once per **simulation** tick, which is not the same thing
+as once per tick. `cs_steps` owes a frame up to `CS_MAXSTEP` = 3 of them and
+the `.sim` loop runs them **back to back** at the top, so the note moved three
+times in a burst and then stood still for the 130–280 ms the frame took to
+draw. What the ear got was **one change a frame** — 4 to 8 a second on a
+4.77 MHz machine — and the steps had to be that much bigger to cover the
+ground. It was reported as the last of the stepping, and correctly diagnosed
+from the outside: *"the sound only changes as the frame draws, and a 4.77 MHz
+running a 3d game is slow."*
+
+**The tick is the gate and the call is free when it has not moved.**
+`cs_sound_step` reads `OSAPI_GET_TICKS` and returns at once unless the tick has
+changed since `[cs_sndtk]`. Two things follow. The `.sim` burst collapses to one
+step, which is *right* — a burst is catching up on **simulation**, not on time,
+and three steps in a millisecond were never three steps of glide. And the call
+becomes cheap enough to make from inside the draw, so **`cs_scene` calls it once
+per object**: that routine is 78% of a frame (§88.12.1), which is where the
+ticks actually elapse, and servicing them where they fall is what turns 4–8
+changes a second into **18.2**.
+
+The stall's cadence gets the same correction for nothing: `[cs_stallt]` counted
+CALLS and now counts ticks, so its beep no longer runs faster on a machine with
+a faster frame.
+
+**And `cs_sound_step` has to test the pause itself now**, which §88.8.1
+deliberately avoided: it put the release on the KEY *so that the frame would
+not have to carry a compare*, and that was sound while the only caller was the
+sim loop — a pause being exactly the thing that skips it. The render reaches
+here now and **a render runs while paused**, so `P` released the tone and the
+very next object put it straight back. `tests/skies.py` caught it on all three
+adapters within one soak, which is that row doing the job it is there for. The
+compare sits **before** the far call, so a paused frame costs one `cmp` an
+object and nothing else.
+
+**What it costs is one far call per drawn object, and it is MEASURED**:
+`tests/skiesperf.py` carries it as a stage, so the cost is A/B'd against a
+pinned scene with the world paused and re-measurable for ever rather than
+argued from a table.
+
+| scene | objects | frame | without the sound |
+|---|---:|---:|---|
+| runway | 7 | 159.02 ms | −0.22 ms, **0.1%** |
+| city | 13 | 161.01 | −0.23, **0.1%** |
+| tower | 11 | 180.07 | −0.32, **0.2%** |
+| citybank | 16 | 232.78 | −0.31, **0.1%** |
+
+**0.1–0.2% of a frame, on every scene the table has**, and the city figure
+repeats to the hundredth of a millisecond across runs. The arithmetic that
+preceded it said 0.3% and was pessimistic by two to three times: it priced each
+call at PERFORMANCE.md Part 2's **46.7 µs** for an `OSAPI_*` far call, and
+these divide out at **~18 µs** — `OSAPI_GET_TICKS` returns a word and has
+almost no body, where the published figure is a round trip against a slot that
+does something. Recorded as an observation of this one slot and not as a
+re-derivation of the table.
+
+`CX` and `SI` are the cull loop's own and are saved either side of the call
+site, so nothing else in `cs_scene` had to change.
+
+**The alternative was an interrupt and it is REFUSED.** Hooking `int 08h` for
+the bracket is proven in this very package — `CSDIAG=1` does exactly that
+(§88.14) — and it would give a perfectly even 18.2 Hz instead of one quantised
+to wherever a call site falls. It is refused on the contract and not on the
+mechanism: `OSAPI_SND_TONE` is documented worker-safe *by construction* because
+`snd_req_inst` resolves the **running task's** instance, and an ISR is not a
+task. Calling it from one would work here — the bracket is exclusive, so the
+interrupted task is always ours — and "works because of who happens to be
+running" is the kind of reasoning §20.3 exists to refuse. The measurement that
+made it thinkable is kept because it cost something to take: the whole render
+chain runs on the UI task's **512-byte** `STK0`, and the deepest routine in it
+(`cs_seg`) enters at **114 bytes** — so 398 were free and the stack was never
+what stood in the way.
+
+##### 88.8.2.1.1 A flight starts AT its idle, and does not ramp to it
+
+`[cs_eng]` begins at 0, so the first build glided **up to idle** on entering the
+bracket: every flight opened with a rising note no aeroplane makes. The field:
+*"on entry to the scene they all start at one point, and change to another
+point. They should probably all start at their 'idle' point without ramping to
+it."*
+
+**A note of 0 is the sentinel for "not running yet"** and the first tick
+**snaps** to whatever the engine wants rather than slewing to it — which
+generalises correctly, because a later flight carries the throttle the last one
+left (§88.8) and starting at *that* engine's note is the same rule. It is
+cleared at bracket entry beside `[cs_tone]`, or a Cessna's first tick would
+glide down from the Magister the last flight left in it.
+
+`tests/skiessound.py` watches it from **outside** the bracket: the breakpoint
+goes on before the `F`, so the first stop is the flight's own first tick. By
+the time a test has confirmed the mode, a ramp would be long over.
+
+`[cs_eng]` is the **engine's** note and `[cs_tone]` is what is playing, which
+is why they are two words: the stall beep and the crash blast stand in front of
+the engine without disturbing it, so a stall does not leave the note gliding
+down from 900 Hz afterwards. It is cleared at bracket entry beside `[cs_tone]`,
+or a Cessna's first tick would glide down from the Magister the last flight
+left in it.
+
+##### 88.8.2.2 What it costs, and why an emulator could not settle it
+
+**180 bytes of image**, measured on the gap (§88.10.6): no bss beyond
+`[cs_eng]`'s word, no kernel byte, and `SKIES.O88` is **44,226 bytes** — three
+*fewer* than before any of this — so no floppy in any of the four geometries
+moves a cluster. The bytes come out of a run of zeros that LZ4 had all but
+deleted anyway.
+
+The cycles are not the question but they are small. `OSAPI_SND_TONE` costs
+**1,997 cycles = 418.4 µs**, measured (PERFORMANCE.md Set 146), and the added
+arithmetic about 600 a sim tick, predicted from PERFORMANCE.md Part 2. At the
+worst case of three sim ticks a frame, against §88.12.1's 164.5 ms cruise
+frame, the law is **0.22%**. A glide re-issues the tone on the ticks it moves,
+which is at most three a frame and **0.98%** — and it is brief, where the beat
+it replaced was for ever.
+
+**The part worth keeping is the method.** Every acceptance question in this
+section was settled by a person listening on a real machine, and not one of
+them could have been settled here:
+
+| the guess | what the room said |
+|---|---|
+| a 1,200 Hz jet is arithmetically right | *"much too high pitched for human ears"* |
+| a 190 Hz Rotax is arithmetically right | *"slightly high pitched at full… human ears and all"* |
+| a beat is a piston's roughness | *"does sound like a bug, rather than an engine"* |
+| the wall clock defends the beat's rate | *"the varying framerate… is hurting this, too"* |
+| a note per throttle level is an engine | *"sounds more like it is playing a note"* |
+| a share of the GAP is a smooth glide | *"still plays notes as it goes up or down"* — it is a fourth at the bottom of a wide range |
+| gliding up to idle on entry is an engine starting | *"they should probably all start at their idle point without ramping to it"* |
+
+A synthesised square wave has none of a real speaker's rolloff or resonance,
+and a container has no ears at all. `tests/skiessound.py` gates what *is*
+checkable — each aeroplane plays its own record's law, the Bijave plays
+nothing, the note is ONE value over sixteen settled ticks, it GLIDES rather
+than snapping, it is AT its note from a flight's first tick, and the Fouga
+plays the thrust it HAS and not what the lever asks for — and everything above
+came from docs/FIELD-MACHINES.md instead.
 
 #### 88.8.1 A paused aeroplane is silent
 
@@ -113185,6 +113682,140 @@ back is the address the guest will have. It uses nasm's `[map all]` rather than
 a listing, because a mesh is declared by a macro (`CS_PYR cs_m_lcy_shd, 28,
 306, 28`) and a listing renders the macro's *body*, `%1:` and all, so the
 label's own name never appears in the file.
+
+#### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
+
+`CS_VOCAB_AT` is computed in `tools/csworlds.py` and emitted into
+`build/cswidx.inc`. There is no number here to tune. **It was
+`APP_MAX_SIZE - CS_VOCAB_MAX - CS_WLD_MAX` — 0xE3C0, the top of the segment —
+for one cycle, and §88.10.6.1 replaces that with the program's own top**: the
+argument below is why the address must not be HAND-SET, and it is not an
+argument for putting it at the ceiling. Read this section for the failure, and
+§88.10.6.1 for what the address is today.
+
+**It was hand-set, and that is the thing that went wrong.** `skies.asm`
+declares its bss as `(CS_VOCAB_AT - image_end) + CS_VOCAB_MAX + CS_WLD_MAX`, so
+
+> `image + bss` = `CS_VOCAB_AT + CS_VOCAB_MAX + CS_WLD_MAX`
+
+— a **constant**, whatever the program's own size. Two things follow and both
+are counter-intuitive. The first is §88.4.5.5's: this address IS the heap
+claim, and a change that grows the image grows no claim at all. The second is
+that **`image + bss` cannot see the program** — a gate reading that field
+watches a number that a 2,000-byte addition does not move, and the only honest
+reading of how much room is left is the **gap**, the middle of the three
+`times` at the end of `skies.asm`.
+
+Hand-set, the address tracked nothing. It went 0xB400 → 0xBE00 when
+§88.4.5.5's end tables landed, and then **stayed there** while §88.10.2,
+§88.10.3, §88.10.4 and §88.10.5 took the packed art, the reader, the body and
+the nine worlds out of the image. The program got smaller by thousands of
+bytes and its growth room did not get bigger by one. What that cost, measured
+before this section:
+
+| | |
+|---|---|
+| the gap on the shipped build | **208 bytes** |
+| `-DCSPROBE`, `tests/skiescount.py`'s instrument | **167 bytes OVER: did not assemble** |
+| the workaround in the tree | a `--vocab-at 0xC200` knob, wired to `CSDIAGDEF`, buying the diag trees one rung back |
+| `skies.asm`'s own comment | *"The gap is 1,444 bytes today"* — stale by 1,236 |
+
+**THE PROJECT HAD ALREADY HAD THIS ARGUMENT AND SETTLED IT THE OTHER WAY.**
+§88.4.5.5's end tables were refused against this gap — *"the arithmetic that
+refused it was correct… and it never asked what that gap was protecting"* — and
+the answer then is the answer now: **nothing**. The gap is claimed RAM that no
+instruction reads. The three facts §88.4.5.5 checked hold unchanged here: the
+bss ships inside the part as a run of zeros and LZ4 all but deletes it, so the
+floppy does not notice; `SKIES` is in `SMALLOMIT_GAMES`, so the 128 KB floor
+machine never loads it; and the claim is heap on a machine this program takes
+whole for as long as it runs.
+
+**And the size it settles at is one this program has already shipped at.** The
+claim goes 51,776 → **61,440**, which is 340 bytes above the 61,100 that
+`image + bss` measured before §88.10.3 — a configuration that ran on every
+machine in the tree. What it buys is the gap: **208 → 9,872 bytes**, with
+`CSDIAG` at 9,096 and `CSPROBE`, which could not be built at all, at 8,473.
+
+Three things go with it. `--vocab-at` is **deleted** — the address is the top
+of the segment and there is nowhere to raise it to — and so is the Makefile's
+`CSVOCABAT`, so a diag tree and a shipped tree now assemble against one
+`cswidx.inc`. `tools/os88pkg.py` becomes a prerequisite of that file, because
+`APP_MAX_SIZE` is imported from it rather than copied: a mirror is what this
+section is about.
+
+**What it does NOT buy is room past `APP_MAX_SIZE`.** The segment is 61,440
+bytes because a package addresses itself with 16-bit offsets, the overlay is
+now hard against that ceiling, and the gap is the last of it. The next time
+Clear Skies runs out, the answer is another part — not another address.
+
+##### 88.10.6.1 …and it is derived from the PROGRAM, not from the ceiling
+
+The section above is right about the failure and wrong about the fix, and the
+two are easy to run together. *Do not hand-set the address* and *put the
+address at the ceiling* are *different propositions*: both are staleness-proof,
+and only one of them is free.
+
+**The ceiling is not free, because the gap is not free.** §88.4.5.5's own
+sentence says `image + bss` is `CS_VOCAB_AT` plus the overlay whatever the
+image does — so the address **IS** the claim, and every byte it is raised by is
+claimed RAM no instruction reads, on every instance, for the life of the
+program. Measured:
+
+| | at the ceiling | derived from the program |
+|---|---:|---:|
+| image | 31,887 | 31,887 |
+| declared bss (`CS_BSS`) | 16,803 | 16,803 |
+| **the gap** | **9,614** | **14** |
+| overlay | 3,136 | 3,136 |
+| **`CS_VOCAB_AT`** | 0xE3C0 | **0xBE40** |
+| **the claim** | **61,440** | **51,840** |
+
+Clear Skies also claims a 32KB shadow inside its fsx bracket, so the ceiling
+put its peak at 93KB where the program needs 83KB.
+
+> **`CS_VOCAB_AT` = the image plus the ZWORD chain, rounded UP to a paragraph.**
+
+Rounded to a paragraph because `skies.asm` hands the overlay to `cs_wldget` as
+`CS_VOCAB_AT / 16` — a paragraph count, so an address that is not a multiple of
+16 reads the stream in at the wrong place and **nothing faults**.
+
+**THE CIRCULARITY AND THE CUT.** The size is only known once `skies.asm` has
+assembled, and `skies.asm` cannot lay out its bss until the address is known —
+`OS88_BSS` is told the distance from `os88_image_end` to the top of the
+overlay. So the build is **two passes**:
+
+1. `csworlds.py` at the **ceiling** — provisional, and it always assembles,
+   because nothing can be above it;
+2. a `-DCS_SIZEPROBE` assembly, whose object is the **image followed by one
+   word of `CS_BSS`** — the three `times` fills at the end of `skies.asm`
+   become `dw CS_BSS`, so `image_end = len − 2` and the bss is the last word;
+3. `csworlds.py --vocab-from` that object, which lays the worlds at the derived
+   org and writes the real `build/cswidx.inc`.
+
+No listing is parsed and no symbol table is read. The probe does not care
+whether the provisional address is right: every `cs_*` symbol in `cswidx.inc`
+is an immediate or an absolute `disp16`, so its **value** cannot change an
+encoding's length, and the fills that would care are the ones the probe
+replaces.
+
+**EVERY TREE DERIVES ITS OWN**, which is strictly better than the one address
+every tree shared. `CSDIAG`, `CSPROBE` and `CSHZPROBE` each build into a
+`$(BUILD)` of their own and `$(CSDIAGDEF)` is passed to the **probe** as well,
+so `-DCSPROBE` sizes the overlay against the `-DCSPROBE` image — which is the
+build that stopped assembling at all when the address was a shipped constant.
+
+**GROWING IS STILL FREE TO GET WRONG**, which is the property the ceiling was
+bought for and this keeps: add a routine or a `ZWORD` and the address **moves**,
+because `build/cswidx.inc` depends on `$(SKIES_SRC)` and is measured again.
+What changes is that the claim tracks the program **down** as well as up. The
+middle `times` stays a separate subtraction so it goes **negative**, and nasm
+refuses the file, if the derivation is ever stale — that is the backstop now
+rather than the mechanism.
+
+**And running out still means another part, not another address.** If the
+derived top ever exceeds the ceiling, `csworlds.py` refuses with the
+arithmetic, naming §20.12 — because at that point there is nowhere to raise it
+to, which is the sentence above this one, unchanged.
 
 ### 88.13 The settings (SPEC.md 88.13)
 
@@ -125495,7 +126126,7 @@ from inside its own callback is pinned by the act of asking (§66.4.3).
 It made no difference for a release and the reason is worth keeping: this
 region could not move at all. The box is part 0 of a re-homed `DOS.O88`
 (§96.40.3) and the carve was refused its `OSAPI_MEM_MOVABLE` declaration, so
-the excuse bought nothing and the two slots agreed **by accident**. §66.6.1.1
+the excuse bought nothing and the two slots agreed **by accident**. §66.6.1.2
 unpinned it and the accident ended — measured on a 360KB desktop, the page
 said 442K/474K where the launch handed out 445K/477K, under-promising by the
 3KB the region's own move recovers. `tests/dirwshed.py` asserts the two agree
@@ -125644,7 +126275,7 @@ happened to that gate when the package became four pieces.
 ##### 96.35.4.1 …and the PARTED package cannot make that declaration at all
 
 **Shipping §96.44.5's four pieces gave the 14 KB straight back, on a designed
-refusal rather than a regression in this package — and §66.6.1.1 has since
+refusal rather than a regression in this package — and §66.6.1.2 has since
 taken the refusal away.** What follows is why it stood, kept because the
 refusal was correct on the kernel it was written against. The box is PART 0
 now, reached by `OSAPI_PKG_REHOME`, and a re-homed package's region is **the
@@ -125672,7 +126303,7 @@ The arithmetic that follows is the same as §96.35.4's with the sign flipped:
 …and 17,408 bytes sit above the pinned region where `SOUND.DRV`'s 6,144-byte
 image and 8,192-byte ring were, reachable by nothing.
 
-**AND IT IS FIXED — §66.6.1.1 IS THE KERNEL CHANGE AND THE 14 KB IS BACK.**
+**AND IT IS FIXED — §66.6.1.2 IS THE KERNEL CHANGE AND THE 14 KB IS BACK.**
 The line in `dos.asm` never moved; what moved is that the compactor stopped
 reading *the claim's base* where it meant *the segment the package runs in*, in
 the four places it did so. `mem_find_own` grew a containment arm for a caller
@@ -125685,7 +126316,7 @@ holder's own pair.
 | | with a Sound Blaster | without one | the card costs |
 |---|---:|---:|---:|
 | the re-homed carve pinned | 426 KB | 440 KB | **14 KB** |
-| …and unpinned (§66.6.1.1) | **445 KB** | **445 KB** | **0** |
+| …and unpinned (§66.6.1.2) | **445 KB** | **445 KB** | **0** |
 
 `tests/dosarena.py` is back to asserting that the two machines AGREE, which is
 what it said before the package became four pieces — and it reads the carve's

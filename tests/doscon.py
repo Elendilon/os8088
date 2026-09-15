@@ -81,9 +81,9 @@ def fail(msg):
 class Box(object):
     """The live instance, and the two reads every assertion is made of.
 
-    **THE SEGMENT IS RESOLVED PER ACCESS AND NOT CACHED** (SPEC.md 66.6.1.1).
+    **THE SEGMENT IS RESOLVED PER ACCESS AND NOT CACHED** (SPEC.md 66.6.1.2).
     It used to be taken once in `__init__`, which was safe for exactly as long
-    as the DOS box's region could not move - and since 66.6.1.1 unpinned the
+    as the DOS box's region could not move - and since 66.6.1.2 unpinned the
     re-homed carve it moves like any other region, at any compaction, which is
     every time the box claims the arena. A banked base then names the bytes the
     package USED to occupy: `doslnk` read `[dos_path]` and got nine bytes of

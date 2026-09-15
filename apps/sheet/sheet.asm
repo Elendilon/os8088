@@ -677,14 +677,13 @@ sh_entry:
     ; puts those right; sh_reloc is named here because a proc is required and
     ; because it is the one that would have work to do if this package ever
     ; grew a word of its own.
-    push dx                     ; **DX IS STILL THE CHART CLAIM** and the BMP
-    mov dx, cs                  ; header copy below reads it as ES. Banked
-    mov ax, sh_reloc            ; rather than reordered because the declaration
-    call OSAPI_MEM_MOVABLE      ; belongs beside the others; without the bank
-    pop dx                      ; the 118-byte header landed at offset 0 of
-                                ; this package's OWN image, over the .o88
-                                ; header, and the window opened with an empty
-                                ; title. DS = CS for a package (SPEC.md 20.1)
+    ; The macro banks DX for us - **IT IS STILL THE CHART CLAIM** and the BMP
+    ; header copy below reads it as ES. Banked rather than reordered because
+    ; the declaration belongs beside the others; without the bank the 118-byte
+    ; header landed at offset 0 of this package's OWN image, over the .o88
+    ; header, and the window opened with an empty title. DS = CS for a package
+    ; (SPEC.md 20.1).
+    OS88_REGION_MOVABLE sh_reloc
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN

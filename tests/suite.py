@@ -519,15 +519,23 @@ FAST = [
         "because a stale one does not fault: it far-calls a dispatcher in "
         "freed memory on the next volume access",
         wants=("build/regmove360.img",)),
-    Row("regapp", "soak", py("tests/regapp.py"), 150.0,
-        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: five that hire a worker "
-        "declare OS88_REGION_MOVABLE and OS88_WORKER_RESTARTABLE, and a "
-        "declaration the owner fence refused is indistinguishable from one "
-        "that took, from inside the package (66.5.6.2). So this reads MC_RLOC "
-        "and inst_restart back out of the kernel's own tables. regwork proves "
-        "the move; this proves the packages - and it found the region "
-        "declaration placed at the SPAWN, where a package that hires no "
-        "worker never reaches it",
+    Row("regapp", "soak", py("tests/regapp.py"), 210.0,
+        "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: seven declare "
+        "OS88_REGION_MOVABLE, and those that hire a worker declare "
+        "OS88_WORKER_RESTARTABLE too - a declaration the owner fence refused "
+        "is indistinguishable from one that took, from inside the package "
+        "(66.5.6.2). So this reads MC_RLOC and inst_restart back out of the "
+        "kernel's own tables. Since 66.6.1.1 it carries the two SHAPES the "
+        "original five did not: CALC, which hires no worker at all, and "
+        "PACMAN, the canonical restartable pair. All five originals hire one, "
+        "so the row proved the RESTART half five times over and the plain "
+        "declaration not once - and the plain one is what 39 of the tree's 41 "
+        "are. 150s was five apps and this is seven, scaled at the same "
+        "per-app rate: measured at 122s on an idle 4-core container, so the "
+        "declaration keeps the original's headroom rather than this box's. "
+        "regwork proves the move; this proves the packages - and it found the "
+        "region declaration placed at the SPAWN, where a package that hires "
+        "no worker never reaches it",
         wants=("build/regapp360.img",)),
     Row("regwork", "soak", py("tests/regwork.py"), 170.0,
         "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
@@ -882,6 +890,20 @@ FAST = [
         "compilers agree - `soak -k 'lmpack'`, which is what a change to "
         "either one runs",
         needs=()),
+    Row("movable", "fast", py("tests/unit/t_movable.py"), 0.6,
+        "SPEC.md 66.6.1's ratchet: a package's region is born PINNED, so a "
+        "package that never declares OS88_REGION_MOVABLE is a WALL in the "
+        "arena for the life of the instance - and it is invisible from "
+        "inside, because nothing refuses and the program runs perfectly. The "
+        "door opened with six asm packages through it and twenty-eight that "
+        "were never followed up, for a cycle. Every package under apps/ now "
+        "declares or carries a line in tests/movable.txt saying why not, and "
+        "the list only turns one way. Checks the WORKER half too (66.6.2): a "
+        "region declaration on a package that hires a worker is INERT, which "
+        "is the most expensive shape there is because it reads as done. FAST "
+        "and not soak on t_textrules.py's argument - it is a rule about how "
+        "every package is written, so the place it belongs is in front of "
+        "the next `make` rather than the next soak run"),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
@@ -1661,7 +1683,7 @@ SOAK = [
         "shape: a 512-byte-cluster volume gives op_claim a ZERO head slack, "
         "so the program sits AT the carve's base and the claim is its region "
         "in the obvious sense. `rehomemove360` is the same row in the shape "
-        "that was PINNED until SPEC.md 66.6.1.1, and that one is the gate on "
+        "that was PINNED until SPEC.md 66.6.1.2, and that one is the gate on "
         "the fix. tests/filler forces the compaction, "
         "tests/regmove.py's own idiom. FIVE ASSERTIONS: the claim moved at "
         "all; the package's proc was CALLED; the kernel's words followed "
@@ -1677,7 +1699,7 @@ SOAK = [
         "outside the new extent and a zero delta. Needs `make rehome`.",
         needs=("marty",), serial=True, wants=("build/rehomemove.img",)),
     Row("rehomemove360", "soak", py("tests/rehomemove.py", "360"), 75.0,
-        "THE SAME MOVE IN THE SHAPE THAT WAS PINNED (SPEC.md 66.6.1.1). The "
+        "THE SAME MOVE IN THE SHAPE THAT WAS PINNED (SPEC.md 66.6.1.2). The "
         "row above runs on a 512-byte-cluster volume, where op_claim's head "
         "slack is ZERO and the program sits AT its carve's base; at 360KB the "
         "slack is non-zero and the program sits INSIDE the carve, which was "
@@ -4030,6 +4052,37 @@ SOAK = [
         " its OWN rotate speed (88.7.9). --clobber-lag, --clobber-amphib and"
         " --clobber-water are the three red runs",
         needs=("marty",), serial=True),
+    Row("skiessound", "soak", py("tests/skiessound.py"), 120.0,
+        "SPEC.md 88.8.2: an ENGINE each. Every aeroplane used to be"
+        " [cs_thr] + 50, so a Fouga Magister and an Icon A5 were the same"
+        " note at the same lever; each reads its own record now, and this"
+        " asks the GUEST what it is playing rather than the table what it"
+        " should. Every powered aeroplane's tone is its own record's law at"
+        " idle, half and full, computed on the host off the record the guest"
+        " holds - and the jet's off [cs_thracc] at 8.8, which is the"
+        " resolution the sound actually uses. The four of them are four"
+        " DIFFERENT notes at full power, which is the whole of the ask and"
+        " the one check a shared record cannot pass. A shut throttle is an"
+        " IDLE and not silence. The Bijave plays nothing, and the rule behind"
+        " that is checked per row rather than as a special case: an aeroplane"
+        " has an engine record exactly when it has CSP_THRUST, so a sixth is"
+        " covered by arriving. THE NOTE IS STEADY - one value over sixteen"
+        " settled ticks, which is what replaced a beat the field heard as a"
+        " bug - and it GLIDES at a constant INTERVAL, 15 distinct notes on"
+        " the Cessna and 97 on the Magister when the lever shuts in one step,"
+        " which is CSS_CAP's ceiling and not CSS_LAG's share of the gap: a"
+        " share of the gap was a musical FOURTH at the bottom of the jet's"
+        " range (88.8.2.1). It is AT its note from a flight's FIRST TICK,"
+        " watched from outside the bracket because a ramp would be over"
+        " before a test could confirm the mode. And the Magister plays the"
+        " thrust it HAS - 426 Hz at a half-open lever against the 440 the"
+        " lever asks for, the two separable because cs_step rounds its target"
+        " to whole units. --clobber-lag, --clobber-shared and --clobber-spool"
+        " are the three red runs. Its breakpoint is cs_sound_step's OWN"
+        " .tick and not cs_step: 88.8.2.1.2 put a wall-clock gate in front of"
+        " the body, so cs_step runs up to CS_MAXSTEP times a frame and only"
+        " the first of them crosses a tick",
+        needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 34.0,
         "SPEC.md 88.7.3: the horizon captures the approach - held toward"
         " level both aeroplanes land EXACTLY on it on both axes, the Pitts"
@@ -6016,6 +6069,26 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("trackmove", "soak", py("tests/trackmove.py"), 150.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
+        needs=("marty",), serial=True,
+        wants=("build/trackmove360.img",)),
+    Row("trkbigmod", "soak", py("tests/trkbigmod.py"), 80.0,
+        "THE WHOLE DANCE (SPEC.md 45.3.2): boot 640K Hercules with SOUND.DRV"
+        " down, open Sheet/Paint/Clear Skies, mount the sound driver"
+        " MID-SESSION so its image is a wall under three regions that hold the"
+        " ceiling, open Tracker under that, close the three - and open a 397KB"
+        " module the 365KB run left cannot fund. The module is generated at an"
+        " exact size (tools/os88mkmod.py), because every real one that size is"
+        " somebody's file",
+        needs=("marty",), serial=True,
+        wants=("build/trkbig.img",)),
+    Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
+        "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
+        " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
+        " OSAPI_MEM_COMPACT_WAKE. It stacks instances down from the ceiling"
+        " until the floor run is under the module's size, closes the topmost"
+        " so the survivor has a hole above it, and asserts the guest's own"
+        " verdict: [trk_cpq] seen set is the post, and the module playing is"
+        " a load that the same heap refused before the feature",
         needs=("marty",), serial=True,
         wants=("build/trackmove360.img",)),
     Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,

@@ -220,7 +220,7 @@ def main():
         # dos_fld_init had left LN_LEN at 0 and dos_path_make wrote the buffer
         # without re-measuring. A check that read the buffer would have been
         # green throughout.
-        # **THE MAP FIRST, THE SEGMENT SECOND** (SPEC.md 66.6.1.1).
+        # **THE MAP FIRST, THE SEGMENT SECOND** (SPEC.md 66.6.1.2).
         # `dosmap.package()` shells out to nasm, which is seconds of host time
         # with the guest free-running - and the DOS box's region MOVES now, so
         # a segment taken before that call can be stale by the time it is

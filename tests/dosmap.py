@@ -150,7 +150,7 @@ def instance(m, slot=0):
     add and nothing to subtract.
 
     **ASK AT THE POINT OF USE, AND NEVER BANK IT ACROSS A DELAY** (SPEC.md
-    66.6.1.1). "Never relocated" is about the package's own near offsets and
+    66.6.1.2). "Never relocated" is about the package's own near offsets and
     not about where its segment IS: the DOS box's region MOVES under the
     compactor, at every arena claim, since the re-homed carve was unpinned.
     A base taken earlier names the bytes the package used to occupy - and a

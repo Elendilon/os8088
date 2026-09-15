@@ -179,6 +179,12 @@ te_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [te_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     mov word [te_line + LN_BUF], te_hbuf    ; **THE BLOCK'S BUFFER WORDS, and
     mov word [te_line + LN_MAX], TE_HOSTMAX ; they are not optional**: bss
                                             ; arrives ZEROED (SPEC.md 21 step
@@ -1030,6 +1036,15 @@ te_hire:
     call OSAPI_TASK_SPAWN
     jc .out
     mov byte [te_spawned], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame before its
+    ; first instruction, so mem_frameless pins a region with an
+    ; undeclared worker however that region is declared. What a restart
+    ; costs is one pass of the loop - the park is inside
+    ; OSAPI_TASK_ALIVE and nowhere else (this package is not
+    ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
+    ; that outlives a pass is a static and moves with us.
+    OS88_WORKER_RESTARTABLE te_worker
 .out:
     pop bx
     pop ax
