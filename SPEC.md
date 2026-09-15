@@ -127930,6 +127930,113 @@ machine, because the windowed box passes every row of this table and always
 did: a defect that lives only in the joint is only visible to a row that runs
 the joint.
 
+#### 96.44.11 The arena was sized before the mount claimed, and the cache is now a LADDER
+
+`kd_entry` sizes the DOS program's block out of `[kd_top]` and then mounts the
+volume the program came off. **The mount CLAIMS.** `dsk_rah_want` takes §18.95's
+read-ahead out of the same bump allocator `kdshim.inc` publishes as
+`mem_claim_x`, which is `[kd_top] -= size` — so the ceiling the arena was cut
+from moved 32 KB down *after* the cut, and nothing re-read it.
+
+What that produced is not an over-report, it is an **overlap**:
+
+| | measured, base | measured, now |
+|---|---|---|
+| `[kd_top]` | `0x9800` | `0xA000` |
+| `[dos_arena] + [dos_apara]` | `0x9E00` | `0x9E00` |
+| `[dos_wseg]` (§96.11's window) | `0x9E00` | `0x9E00` |
+| `[dsk_rah_seg]` / `[dsk_rah_runs]` | `0x9800` / 7 | `0` / 0 |
+| the program's own figure | **588 KB** | **588 KB** |
+
+The top **24 KB of the program's block was the cache**, and the 8 KB file
+window sat inside the cache outright. **THE NUMBER ON THE GLASS WAS RIGHT THE
+WHOLE TIME**, which is the whole reason no row saw it — 588 KB is 588 KB
+whether or not something else is living in the top of it — and it is why
+`tests/kdarena.py` checks the four words kern_dos laid out against the ceiling
+they were cut from rather than anything the program prints.
+
+Two things it cost, and the second is the sharper one. A program that used its
+top pages wrote over the cache, and `dsk_rah_have` then served **the program's
+own bytes back as disk sectors** for the rest of the session. And
+`[dos_ldpara]` is what bounds `dos_load`'s READ, so an image large enough to
+reach the cache was read straight over it — on exactly the large programs this
+arm exists for.
+
+**`kd_arena` is the fix and it is a re-read, not a delta.** The arena is
+`[kd_floor]` to `[kd_top]` and always was; `kd_arena` recomputes all four
+figures from `[kd_top]` — `[dos_apara]`, `[dos_akb]`, `[dos_wseg]` and
+`[dos_ldpara]` — so it cannot drift however many times the ceiling moves. It
+runs immediately after `disk_mount_x`, which is **before** `dos_fh_setup` and
+before `[dos_ldpara]` bounds the load. `[dos_wbytes]` is 0 until that routine
+has run, so the same three stores are right on both sides of it, and the window
+moves with the ceiling rather than being left as a hole in the middle of the
+block. It stores nothing until every check has passed, and it repeats
+`dos_fh_setup`'s own `DOS_PSPP + 0x100` floor so that it is total rather than
+correct only because every caller happens to RAISE the top.
+
+##### 96.44.11.1 The ladder, and where its rungs can actually fire
+
+The cache is **purgeable** here, in rungs: `kd_shed` steps `[dsk_rah_runs]`
+7 → `KD_RAH_L1` → `KD_RAH_L2` → 0, which is **32 KB → 18 → 9 → gone**. Not
+32/16/8: a slot is `DSK_RAH_SECS` = 9 sectors and the kernel sizes the claim as
+`ceil(n × 4.5 KB)` (§18.95.5), so the reachable widths are multiples of 4.5.
+`KD_RAH_L1` = 4 slots is `DSK_RAH_MIN` exactly — the kernel's own documented
+floor, *"18KB of claim behind a 36KB bar and 93% of what the ceiling saves"* —
+and `KD_RAH_L2` = 2 is deliberately below it, because at that point the
+alternative on offer is not a wider cache, it is no cache.
+
+Shedding is three stores and `dsk_rah_arm` makes the same three for the same
+reasons: `dsk_rah_flush` clears **all** `DSK_RAH_RUNS` records so none names a
+chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
+back to 0, **which is the one that would be silent**, being the round-robin
+cursor that `dsk_rah_fill` spends before bounding the next; and
+`[dsk_rah_runs]` is the bound every other loop reads. The base moves **up**:
+a claim here is `[kd_top] -= size`, so what is released is the BOTTOM of the
+block and what survives is its top, where the surviving slots already are.
+
+**AND IT IS GUARDED ON THE CACHE BEING THE LOWEST CLAIM.** All `kd_shed` does
+is raise `[kd_top]`, so the span it hands over is whatever sits at the bottom —
+the cache only while nothing was claimed after it. On the launch mount nothing
+is: `dsk_rah_want` runs first and `dsk_fatw_want` then takes the **pinned**
+`FAT_SEG` rather than the heap (§18.8.3), so `[dsk_rah_seg]` and `[kd_top]`
+agree to the paragraph. That is an ordering in `kernel/disk.inc` rather than a
+property of this file, and the failure if it ever changes is a program handed a
+live FAT window as free memory — so it is checked, and a shed that cannot prove
+it simply keeps the cache.
+
+**The ladder has two sites and they are not the same question.**
+
+`kd_giveback`, at `.ready:`, runs it to the **bottom**. That is a property of
+the handover rather than of the ladder: `dos_build_psp` hands a program
+everything, because that is what DOS does with a .COM (§96.38.2, and PSP:0002
+is how it finds out), and `dos_exe_setup` reads MINALLOC and not MAXALLOC — so
+nothing downstream ever wants less than all of it and **no intermediate rung
+can fire here**. `kd_shed` is a rung at a time anyway: the day a caller wants a
+FIGURE rather than everything, the policy is one `jnc` and nothing else
+changes.
+
+`.loadtry`, around `dos_load`, is where the rungs are real. The arena is honest
+now, so an image between `[kd_top]` and the machine's own ceiling is REFUSED
+rather than read over the cache — `dskw_read_x` answers `FERR_BIG` before any
+data I/O and leaves the destination untouched. A refusal is better than the
+corruption it replaces and is still not the right answer, because the memory
+exists, a cache is sitting in it, and the program has just asked. So a failed
+load sheds one rung and reads again, and only a ladder with nothing left on it
+lets the refusal stand. **Retrying is safe precisely because `FERR_BIG` writes
+nothing.**
+
+The load keeps the cache for the whole of the work the cache is for — the
+mount, the directory walk and `dos_load`'s own read of the image — and pays
+nothing for the shed: `m.disk()` bracketed around the launch reads **19 reads /
+100 sectors on both arms**, identical.
+
+`tests/kdarena.py` is the gate. It re-assembles kern_dos for a map and compares
+the BINARY with `build/kerndos.bin` before trusting an offset, which is
+`tools/os88sym.py`'s discipline for the same reason: a map of another build
+resolves every name to a plausible wrong address and nothing says so. Its
+fourth assertion is the one that refuses the easy fix — shrinking the arena
+satisfies the other three and leaves the program 32 KB worse off.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

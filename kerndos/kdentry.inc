@@ -188,6 +188,22 @@ kd_entry:
     call disk_mount_x           ; DOS drive IS the volume index
     jc .nomount
 
+    ; --- AND THE ARENA AGAIN, BECAUSE THE MOUNT CLAIMED (SPEC.md 96.44.11) ----
+    ; The block above sized the arena from `[kd_top]` and the mount then LOWERED
+    ; it: `dsk_rah_arm` solves the read-ahead's width from `mem_avail_lvl_x`,
+    ; which here answers the whole arena, so it takes the `DSK_RAH_RUNS` ceiling
+    ; - 32 KB off the top, every launch. Nothing re-read `[kd_top]` afterwards,
+    ; so the program was told it owned memory the cache was sitting in.
+    ;
+    ; **RE-READING IS NOT COSMETIC AND IT IS NOT THE HANDOVER'S JOB**: this is
+    ; before `dos_fh_setup`, which carves 96.11's window off the ceiling, and
+    ; before `dos_ldpara` bounds `dos_load`'s READ. Left overstated, a program
+    ; image big enough to reach the cache is read straight over it and the next
+    ; `dsk_rah_have` hit serves the program's own bytes as disk sectors - on
+    ; exactly the large programs this arm exists for.
+    call kd_arena
+    jc .noroom
+
     ; --- the load geometry, which is dos_run's and is NOT the arena's ---------
     ; [dos_ldpsp] is the PSP and not the arena base: dos_build_psp lays the
     ; environment's MCB at paragraph 0 and the PSP at 10, so a base handed to
@@ -212,8 +228,24 @@ kd_entry:
 .stood:
 
     ; --- load it ---------------------------------------------------------------
+    ; **AND THE LADDER IS UNDER IT** (SPEC.md 96.44.11). The arena is honest
+    ; now, so an image between `[kd_top]` and the machine's own ceiling no
+    ; longer overruns the cache - `dskw_read_x` answers `FERR_BIG` before any
+    ; data I/O and leaves the destination untouched. A refusal is better than
+    ; the corruption it replaces and is still not the right answer: the memory
+    ; EXISTS, a cache is sitting in it, and the program has just asked. So a
+    ; failed load sheds a rung and reads again, and only a ladder with nothing
+    ; left on it lets the refusal stand. Retrying is safe precisely because
+    ; FERR_BIG writes nothing.
+.loadtry:
     call dos_load               ; ...through dos_be_read, which is kdback's
+    jnc .loaded
+    call kd_shed                ; 32 KB -> 18 -> 9 -> gone, a rung a try
+    jc .noload                  ; nothing left: the program really is too big
+    call kd_arena               ; ...and the room it gave back is the arena's
     jc .noload
+    jmp short .loadtry
+.loaded:
     call dos_is_exe             ; the answer is in the FILE and not in the
     jnc .isCOM                  ; name (SPEC.md 96.8)
     call dos_exe_setup
@@ -223,6 +255,22 @@ kd_entry:
 .isCOM:
     mov byte [dos_isexe], 0
 .ready:
+
+    ; --- THE CACHE, BACK TO THE PROGRAM (SPEC.md 96.44.11) --------------------
+    ; The load is done, and it is what the read-ahead was for: the mount, the
+    ; directory walk and `dos_load`'s own read of the image - TD3 is 137,845
+    ; bytes of `.EXE`. What comes next is `dos_build_psp`, which hands the
+    ; program EVERYTHING (96.38.2's two blocks, and PSP:0002 is how it finds
+    ; out), so from here the cache is memory the program owns and cannot see.
+    ;
+    ; **THIS IS WHERE THE LADDER ENDS AT ZERO, AND THAT IS A PROPERTY OF THE
+    ; HANDOVER RATHER THAN OF THE LADDER.** `dos_build_psp` gives a program the
+    ; whole arena because that is what DOS does with a .COM, and `dos_exe_setup`
+    ; reads MINALLOC and not MAXALLOC - so nothing here ever wants less than
+    ; all of it and the loop below runs to the bottom. `kd_shed` is a rung at a
+    ; time anyway: the day a caller wants a FIGURE rather than everything, the
+    ; policy is the `jnc` below and nothing else changes.
+    call kd_giveback
 
     ; --- the machine, banked, and the program built on top of it ---------------
     ; [dos_inbr] = 1 FOR EVER here and it is a finding rather than a setting
@@ -334,6 +382,86 @@ kd_entry:
 .sayd:
     mov byte [kd_code], 0xFF
     jmp kd_leave
+
+; -----------------------------------------------------------------------------
+; kd_giveback - the read-ahead's rungs, into the DOS program's block
+; in:  nothing; out: nothing; every register preserved
+;
+; `kd_shed` a rung at a time until there is none left, then put what came back
+; into the three figures `dos_build_psp` is about to read. The arena's top IS
+; `[kd_top]` - that is the whole of what 96.44.11 fixes - so this recomputes
+; from it rather than adding a delta, which cannot drift.
+;
+; THE WINDOW MOVES WITH THE TOP. §96.11's file window is carved off the arena's
+; ceiling by `dos_fh_setup`, which ran before the load; leaving it where it was
+; would put a hole in the middle of the program's block. Nothing owns it yet -
+; `dos_load` reads through `dos_be_read` and not through a handle - so moving
+; it is a store rather than a flush.
+; -----------------------------------------------------------------------------
+kd_giveback:
+    push ax
+.rung:
+    call kd_shed
+    jnc .rung                   ; ...and the day a caller wants a FIGURE, this
+    call kd_arena               ; is the line that becomes a comparison
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; kd_arena - the arena, re-read off [kd_top]
+; in:  nothing; out: CF=1 = there is no room at all; every register preserved
+;
+; THE ARENA IS `[kd_floor]` TO `[kd_top]` AND ALWAYS WAS - what 96.44.11 fixes
+; is that it was computed once, before the mount claimed, and never re-read.
+; Every caller here has just MOVED `[kd_top]`, so this recomputes from it
+; rather than adding a delta, which cannot drift.
+;
+; THE WINDOW MOVES WITH THE CEILING. 96.11's file window is carved off the
+; arena's top by `dos_fh_setup`; leaving it where it was would put a hole in
+; the middle of the program's block. `[dos_wbytes]` is 0 until that routine has
+; run, so the same three stores are right before it and after it. Nothing owns
+; the window on any of these paths - `dos_load` reads through `dos_be_read`
+; and not through a handle - so moving it is a store rather than a flush.
+; -----------------------------------------------------------------------------
+kd_arena:
+    push ax
+    push cx
+    push dx
+    mov dx, [kd_top]
+    sub dx, [dos_arena]
+    jbe .no                     ; DX = the arena BEFORE the window, which is
+                                ; what `dos_akb` is in the windowed box too
+    mov ax, [dos_wbytes]        ; 0 before dos_fh_setup has placed one
+    mov cl, 4
+    shr ax, cl                  ; bytes -> paragraphs; a window is a cluster
+    mov cx, dx                  ; multiple and so paragraph-round (96.11)
+    sub cx, ax                  ; CX = the arena the program is TOLD about
+    jc .no                      ; `dos_fh_setup`'s OWN floor, repeated so that
+    cmp cx, DOS_PSPP + 0x100    ; this routine is total rather than correct only
+    jb .no                      ; because every caller happens to RAISE the top
+
+    mov [dos_apara], cx         ; ...and only here does anything land, so a
+    mov ax, cx                  ; refusal leaves all four figures as it found
+    add ax, [dos_arena]         ; them
+    mov [dos_wseg], ax
+    mov ax, cx
+    sub ax, DOS_PSPP            ; ...and the LOAD geometry's copy of it, which
+    mov [dos_ldpara], ax        ; `dos_psp_make` sizes the block and the .COM
+    mov ax, dx                  ; stack from
+    mov cl, 6
+    shr ax, cl
+    mov [dos_akb], ax
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; kd_vtab - the KERNEL's volume table, into ours (SPEC.md 96.46)
