@@ -813,19 +813,17 @@ dsh_copy_go:
     cmp byte [dsh_del], 0
     je .justcopy
 
-    push ds                         ; A MOVE FIRST: on one volume this rewrites
-    pop es                          ; the directory entry and reads no data at
-    mov si, dsh_fname               ; all (SPEC.md 22.25). AX=0 is "not
-    mov bl, [dsh_sdrv]              ; attempted", and only then is a copy worth
-    mov bh, [dsh_ddrv]              ; its cost
-    mov dx, [dsh_sclus]
-    mov cx, [dsh_dclus]
+    mov si, dsh_fname               ; THE ENGINE FIRST: on one volume this
+    mov bl, [dsh_sdrv]              ; rewrites the directory entry and reads no
+    mov bh, [dsh_ddrv]              ; data at all, and elsewhere it copies and
+    mov dx, [dsh_sclus]             ; deletes through ITS buffer (SPEC.md
+    mov cx, [dsh_dclus]             ; 22.24)
     call dos_be_move
     jnc .moved
-    or ax, ax
-    jnz .ioerr
-    call dsh_stream                 ; ...and the copy half of the fallback
-    jc .ioerr
+    cmp ax, FERR_FULL               ; ...which inside a bracket it cannot claim
+    jne .ioerr                      ; (96.30.6): nothing was written, so stream
+    call dsh_stream                 ; through OURS - the copy half of the
+    jc .ioerr                       ; fallback - and then delete the source
     mov dx, [dsh_sclus]             ; ...then the source, once it is whole
     mov bl, [dsh_sdrv]
     call dos_be_goto

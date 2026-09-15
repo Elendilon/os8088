@@ -93,7 +93,10 @@ CELL = 8
 # new code uses the KB slots at 0x0200+. They are not a free list.
 COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
           0x01C0: "main's OSAPI_MEM_FREE (paragraphs)",
-          0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)"}
+          0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)",
+          # SPEC.md 20.3.1's free list: it was OSAPI_FILE_MOVE, folded into
+          # 0x0578's verb byte (22.25). stc/ret, no SDK name.
+          0x0580: "RETIRED OSAPI_FILE_MOVE (SPEC.md 22.25)"}
 
 # Slots whose published name is not its routine's name. Every entry is a
 # deliberate ABI decision; adding one means the SDK and the kernel have

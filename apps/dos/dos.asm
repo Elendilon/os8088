@@ -4064,12 +4064,16 @@ DBE_XFREE   equ 24                  ; DX:AX = a base
 DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
 DBE_RENAME  equ 28                  ; SI = the old name, DI = the new, both in
                                     ; the CURRENT directory (SPEC.md 96.31)
-DBE_COPY    equ 30                  ; ES:SI = source name, ES:DI = destination
-                                    ; name, BL/DX = the source place, BH/CX =
-                                    ; the destination's (SPEC.md 22.24)
-DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
-                                    ; places, ONE volume (SPEC.md 22.25). AX=0
-                                    ; with CF is NOT ATTEMPTED, not an error
+DBE_COPY    equ 30                  ; SI = the name, BL/DX = the source place,
+                                    ; BH/CX = the destination's (SPEC.md 22.24)
+DBE_MOVE    equ 32                  ; the same registers, the same engine's
+                                    ; MOVE verb: re-linked on one volume,
+                                    ; copied and deleted otherwise. FERR_FULL
+                                    ; means the engine could not claim ITS
+                                    ; buffer (inside a bracket the heap is the
+                                    ; program's, 96.30.6) and nothing was
+                                    ; written - the caller may stream with its
+                                    ; own
 DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
                                     ; the length (SPEC.md 19.2.4)
 DBE_VSTAT   equ 36                  ; out AX/BX/CX/DX = AH=36h's four (18.4.6)
@@ -4370,15 +4374,15 @@ dos_k_rename:
     ret
 
 dos_k_copy:
-    call OSAPI_FILE_COPY            ; the file manager's own engine, published
-    ret                             ; (SPEC.md 22.24) - so the built-in COPY
-                                    ; below is not a second one, and gets the
-                                    ; partial-destination undo for nothing
-
+    mov al, OSAPI_FCP_COPY          ; the file manager's own engine, published
+    jmp short dos_k_fcp             ; as ONE cell with a verb (SPEC.md 22.24)
 dos_k_move:
-    call OSAPI_FILE_MOVE            ; ...and its re-link (22.25). AX=0 with CF
-    ret                             ; is "not attempted" and the shell's MOVE
-                                    ; falls back to copy-then-delete on it
+    mov al, OSAPI_FCP_MOVE          ; ...whose move is the engine's Cut: the
+dos_k_fcp:                          ; re-link first, copy-then-delete where it
+    call OSAPI_FILE_COPY            ; declines. The shell's MOVE streams with
+    ret                             ; its own buffer only on FERR_FULL, which
+                                    ; is the engine unable to claim ITS buffer
+                                    ; inside a bracket (96.30.6)
 
 dos_k_xcopy:
     call OSAPI_XMEM_COPY
