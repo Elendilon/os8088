@@ -6172,9 +6172,9 @@ fm_dgdrop:
     mov bx, [si+18]             ; a folder (or '..'): into THAT one
 .have:
     mov al, [fm_dgdrv]
-    cmp al, [fcp_drv]           ; the same folder it came from? then the
+    cmp al, [fcp_cbdrv]           ; the same folder it came from? then the
     jne .go                     ; drag went nowhere and there is nothing
-    cmp bx, [fcp_cwd]           ; to do - not a copy of it into itself
+    cmp bx, [fcp_cbcwd]           ; to do - not a copy of it into itself
     je .out
 .go:
     push ax

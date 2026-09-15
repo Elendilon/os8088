@@ -33503,7 +33503,11 @@ source that assembles can be naming it.
    population, because this tree hosts every package written for this OS
    (§20.8 rule 4). One grep settles it.
 
-**The free list today is EMPTY.** 0x01F0 went to `wm_onmouseup` and 0x01E8 —
+**The free list today holds ONE cell: 0x0580**, `OSAPI_FILE_MOVE`, folded
+into `OSAPI_FILE_COPY`'s verb byte (§22.25) — `stc`/`ret`, SDK name deleted,
+and `tests/unit/t_api_abi.py`'s `COMPAT` row is what lets the gate see a cell
+published nowhere. Before it the list was empty: 0x01F0 went to
+`wm_onmouseup` and 0x01E8 —
 `dskw_gone`, §18.4.1's retired readbig — went to `OSAPI_VOL_KIND` (§18.7.2),
 which is the second cell this rule has paid for and the first to be found by
 looking rather than by appending. Three more — 0x0198, 0x01A0, 0x01A8, the XMS
@@ -39768,190 +39772,117 @@ whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 `fcp_xfer` moves one file's bytes from a source directory to a destination:
 it streams in chunks through a buffer it claims, hands a remote-to-remote pair
 to the redirector's own `FSV_COPY`, and **deletes a partial destination if
-anything fails**. It had one caller — Paste — and lived behind a header
-sentence saying *"UI-task context only, gfx lock held by the caller"*.
+anything fails**. `fcp_relink` moves an entry between two folders of one
+volume by rewriting its directory entry and touching no data. Both had one
+caller — Paste — behind a header sentence saying *"UI-task context only, gfx
+lock held by the caller"*, which describes the callers and not the engine:
+nothing on the copy path draws, and the two bodies it streams through are the
+same two `OSAPI_FILE_WRITE` and `OSAPI_FILE_APPEND` have published since §18.4.
 
-**That sentence describes its callers and not the engine**, and the difference
-matters because it is what made the copy look unshareable. Nothing on the copy
-path draws. The exclusion the disk layer needs is `[sch_lock]`, which
-`dsk_xfer` raises itself; the two bodies `fcp_xfer` streams through —
-`dskw_write_x` and `dskw_append_x` — are the **same two** `OSAPI_FILE_WRITE`
-and `OSAPI_FILE_APPEND` have published to any package since §18.4. So the
-engine was never more lock-bound than the write slot next to it.
+So it is published, as **one N cell with a verb**. `SI` is the 8.3 name in the
+caller's segment (staged by `api_n`, which also runs `inst_vol_enter`), `AL`
+the verb — `OSAPI_FCP_COPY` (0) or `OSAPI_FCP_MOVE` (1) — `BL`/`DX` the source
+drive and its folder's first cluster, `BH`/`CX` the destination's. **That is
+exactly the pair `OSAPI_FILE_HERE` answers and `OSAPI_FILE_GOTO` takes**
+(§19.2.4). Out `CF`=0 with `AX`=0, or `CF`=1 with `AX` = `FERR_*`.
 
-So it is published. `ES:SI` is the source 8.3 name and `ES:DI` the
-destination's, both in the caller's segment; `BL`/`DX` are the source drive
-and its folder's first cluster, `BH`/`CX` the destination's. **That is exactly
-the pair `OSAPI_FILE_HERE` answers and `OSAPI_FILE_GOTO` takes** (§19.2.4), so
-*"copy this to where I was standing a moment ago"* needs no vocabulary of its
-own.
+**The body is a FILLER for the engine's own paste path, and nothing else.**
+`fcp_paste` copies the clipboard record — op, drive, folder, type, name,
+`FCP_CBSZ` = 19 bytes — into the *operation record* and enters `fcp_run`;
+`fcp_door` fills the same record from the registers and enters `fcp_run2`. So
+a package's copy and the user's paste are one path: the tree walk, the
+self-paste refusal (`fcp_selfchk`), the replace, the partial-destination undo
+and the listing debt are all the paste's own. What the door adds is only what
+a package cannot be assumed to have done: the busy test (the user's operation
+may be suspended on its question, and its record must not be touched — hence
+`FERR_NODISK` then, `fcp_pfail`'s precedent), the verb check (`FERR_NAME` for
+a verb the SDK does not name — a caller that left `AL` alone must not find its
+file moved), and one stat of the source to learn whether it is a **folder**,
+which the paste has for free from the listing and which decides the tree walk,
+the self-paste refusal and the re-link's `..` fix-up. `[fcp_all]` = 1 is the
+*replace all* a paste's user would have answered, so `FCPS_ASK` cannot come
+back and a file of that name at the destination is replaced.
 
-**What the public body adds is only what a package cannot be assumed to have
-done**, and each of the three is a defect if it is left out:
+**A move is a Cut.** On one volume `fcp_relink` rewrites the directory entry —
+a 100KB file changes parent for the cost of a directory write — and where it
+declines (two volumes, a destination that already holds the name, a folder
+with no reusable slot, a redirected volume) the engine copies and then deletes
+the source, exactly as a Paste of a Cut does. There is no *not attempted*
+answer any more, because the caller had nothing to do with one except copy
+and delete, which is what the engine does better. **The re-link is tried
+BEFORE the buffer is claimed**: `fcp_step` claims it at `.copyit` (`fcp_claim`)
+rather than `fcp_paste` claiming it ahead of the first step, so a same-volume
+move needs no free heap at all — which is the case the DOS shell reaches it
+from inside an fsx bracket, where the heap is the program's and `fcp_bufget`
+answers `FERR_FULL` (§96.30.6). That answer is also what the shell's `MOVE`
+falls back to its own arena stream on: nothing was written.
 
-- **the buffer**, claimed and given back — `fcp_bufget` wants a DMA-page-aligned
-  run and falls back to an ordinary one (§22.5.1);
-- **where the caller was standing**, put back — `fcp_goto` moves the current
-  directory, and a package that called a copy and then found itself in another
-  folder would be reading the wrong disk with no way to know;
-- **the listing debt**, paid — `[dsk_lstale]` and the write batch, so a Disk
-  window showing either folder is correct afterwards.
+**The answer is read out of `[fcp_err]`**, which `fcp_run` leaves as
+`FERR_OK`, as `FERR_EXIST` when the destination is the folder the entry is
+already in (`fcp_here`: nothing to do and nothing written — a paste treats it
+as done, a door says so, and doing it would truncate the entry being read), or
+as the `FERR_*` behind an `FCPS_ERR`. It lands under the **same name**; a copy
+that renames is a copy and then `OSAPI_FILE_RENAME`. A folder goes with
+everything under it.
 
-**The two names may differ**, which Paste never needed: `fcp_fname` was used
-for both ends, and the destination now has `fcp_dname` beside it. `fcp_fnames`
-sets the two the same, so every existing path is unchanged to the byte — and
-the redirector's one-name `FSV_COPY` fast path is taken only when they still
-match.
+**The listing debt.** `fcp_unbatch` ends the batch with `dskw_sync_x` rather
+than `dsk_relist_x`: the latter is an unconditional remount whenever a quiet
+switch left `[dsk_lstale]` set, whose only product is the global listing —
+which no Disk window is drawn from (`fmv_gneed`), and which `fm_paste_res`'s
+`fmv_reload_all` already makes coherent after every paste. So the file manager
+sees what it always saw, and a package's door call no longer buys a remount
+per file for a listing nothing reads.
 
-**It refuses with `FERR_NODISK` while a Cut or Copy/Paste is running**, or is
-suspended on its overwrite question. The module has one set of state words and
-the user's own operation owns them; `fcp_pfail` already answers that way for
-the same reason, and "the machinery is not available to you right now" is the
-nearest true thing this code has to say.
+**On `kern_small` it is the module's fourth entry** (§22.3.0), so the body is
+`FILECP.DRV`'s and not resident; the resident half is the cell, a six-byte
+thunk, the far entry and a sixteen-byte loading stub that answers
+`FERR_NODISK` when the system disk is not there to read the image from.
 
-**On `kern_small` it is the module's fourth entry** (§22.3.0), so the bytes are
-`FILECP.DRV`'s and not resident — which is the shape this door wanted anyway:
-a copy is something a machine does occasionally, and the image is dropped when
-it is done.
+### 22.25 `OSAPI_FILE_MOVE` — RETIRED into the verb byte
 
-### 22.25 `OSAPI_FILE_MOVE` — the same engine's re-link, and the answer that means *nothing happened*
+**0x0580 is on §20.3.1's free list**: a `stc`/`ret` cell whose SDK name is
+deleted, so a stale caller fails to assemble rather than moving nothing. It
+was a second door on the same engine — the re-link with §22.24's registers in
+front of it and an `AX` = 0 *not attempted* answer for the four cases the
+re-link declines — and the fold is the size pass's finding: one cell, one
+thunk, one far entry and one loading stub fewer, and the two bodies that
+"differed only in their middles" replaced by a filler that has no middle of
+its own.
 
-A move between two folders of one volume moves **no data at all**: the file's
-clusters are already where they belong, and the only thing that has to change
-is which directory names them. `fcp_relink` has done exactly that since §22.6
-— it is what a same-volume Paste of a Cut takes — and the whole of this slot
-is that body with §22.24's registers in front of it.
+#### 22.25.1 What the two doors cost, and why the fold was refused the first time
 
-The arithmetic is why it is a slot and not a convenience. A 100KB file moved
-by copy-then-delete is 100KB read through a buffer, 100KB written back, and
-then a delete; on a 4.77MHz 8088 that is disk revolutions in the hundreds. Re-
-linked, it is one directory write. **The two are not fast and slow versions of
-each other** — one of them touches the data and one of them does not.
+The first record argued the fold was worth the 17 bytes of a door and not the
+98 of a body, because the body was the work — `fcp_relink` needing six words
+set, the batch taken and the caller put back — and because a `DI` sentinel
+meaning *move* would delete the original of a caller who forgot it. Both
+premises went. **The body was not the work**: every word the door set is a
+word the paste's own path sets from the clipboard, so a door that copies the
+register pair into the operation record and enters that path carries no
+engine behaviour of its own; and **the verb is a checked byte, not a
+sentinel** — `AL` outside {0, 1} is `FERR_NAME`. The rename arm (a second
+13-byte name, `fcp_same13`'s guard on `FSV_COPY`, a second copy in
+`fcp_fnames`) had one intended consumer, the DOS box's `COPY`, which by
+§96.30.6 streams through its own arena and never calls the door at all; the
+walk home (`[fcp_svdrv]`/`[fcp_svcwd]`) redid what `inst_vol_enter` does on
+the next slot anyway (§19.2.1); the batch bank had no second batcher to bank.
 
-`ES:SI` is the 8.3 name — one name, because a move that renames is a rename
-this call does not do — with `BL`/`DX` the source drive and its folder's first
-cluster and `BH`/`CX` the destination's, the same pair `OSAPI_FILE_HERE`
-answers. A **folder** moves with everything under it and its `..` follows,
-which `[fcp_type]` = 2 is what tells `fcp_relink`; the attribute is read off
-the entry a stat leaves in `dskw_raw`, one walk more than the minimum and
-cheaper than writing a wrong parent link.
-
-**`AX` = 0 with `CF` set is the whole design, and it does not mean an error.**
-It means *not attempted* — nothing was written, the file is still where it
-was, and the caller should copy it and delete the source instead. There are
-four ways to get it, and `fcp_relink` declines all of them having written
-nothing:
-
-- **two volumes.** Refused before anything is opened. The two FATs share
-  nothing, so there is no entry to move — and this is refused rather than
-  quietly turned into a copy, because a caller that asked for a move and got a
-  copy has paid for the data twice without being told.
-- **a redirected volume** (§75), which has no raw directory slots to rewrite.
-- **the destination already holds the name.** The public door has no overwrite
-  question to ask — §22.24's has none either — so it declines and the caller
-  decides.
-- **no reusable slot** in the destination folder.
-
-**A caller that cannot tell those from a real failure loses files**, which is
-why the answer is a distinct value rather than a `FERR_*`, and why both the
-SDK cell and `os88.h` say so in capitals. The shape is the file manager's own:
-a fast path with a fallback, and the fallback is two calls that already exist.
-
-**The refusals that are not that one** are `FERR_*` with `CF`, and one of them
-is `FERR_NODISK` while a Cut or Copy/Paste is running — §22.24's reason, one
-set of state words owned by the user's operation. On `kern_small` the loading
-stub answers **`AX` = 0** instead when the image cannot be read, and that is
-deliberate: a system disk that is not in the drive genuinely has not attempted
-anything, so there the true answer and the useful one are the same.
-
-**It is the module's fifth entry on `kern_small`** (§22.3.0), so like the copy
-it costs `FILECP.DRV` bytes rather than resident ones.
-
-#### 22.25.1 Why a slot of its own — and why that question is worth less than it looks
-
-The cheaper-looking change was a destination-folder argument on
-`OSAPI_FILE_RENAME`, and the first argument against it was the wrong one. It
-was that the slot has five callers — the DOS box's `AH=56h`, `apps/ftpd`, the
-C SDK's `rename()` in `os88thunk.asm`, and two in `tests/filetest` — and that
-**not one of them sets `BX` or `AL`**, so a new parameter would read whatever
-the caller last left there. That is true, and it is not a reason: **every one
-of those five is in this tree**, exactly as much ours to edit as the kernel
-is, and setting a register in five places is a sweep rather than a risk.
-
-The reason is arithmetic, and it is the same answer for any existing slot:
-
-| | bytes |
-|---|---|
-| the DOOR — an 8-byte `OSAPI_XCELL` and a 9-byte `.text` thunk | **17** |
-| the BODY — `fcp_move`, in `.cold` (`FILECP.DRV`'s on `kern_small`) | **98** |
-
-**Folding the move into an existing slot saves the 17 and not the 98**, because
-the body is the work: `fcp_relink` needs `[fcp_drv]`, `[fcp_cwd]`,
-`[fcp_ddrv]`, `[fcp_dcwd]`, `[fcp_name]` and `[fcp_type]` set, the write batch
-taken, and the caller put back where they were standing, and no other slot
-does any of that already. Nor does the rename path get there cheaply — it ends
-in `dskw_rename_x`, which rewrites a name **in place**; taking an entry out of
-one directory and putting it in another is `fcp_relink`, a different file and,
-on `kern_small`, a module load that a rename has never needed.
-
-So the best fold available was never rename at all — it was
-`OSAPI_FILE_COPY`, which already takes `BL`/`DX` and `BH`/`CX` for exactly
-these two places and would need only a sentinel in `DI` to mean *move*. That
-saves the same 17 bytes and costs the copy slot the one property worth having:
-**a caller who forgets `DI` would get a move where they asked for a copy**,
-which deletes the original. Seventeen bytes is not the price of that.
-
-**The saving that WAS there was in the body, and it is three times bigger.**
-The second door is what made the duplication visible: `fcp_copy` and
-`fcp_move` differ only in their middles — one streams bytes through a claimed
-buffer, the other rewrites a directory entry — and agreed to the instruction
-on both ends. `fcp_enter` and `fcp_leave` are those two ends factored out: the
-busy test on the module's one set of state words, the bank of `[disk_drive]`,
-`[dsk_cwd]` and `[dskw_batch]`, and the walk home through `dskw_sync_x` and
-`fcp_goto`. Measured, `.cold` **40,216 → 40,162: 54 bytes**, against the 17 a
-fold would have returned.
-
-That is the general shape and it is worth keeping: **when a second caller makes
-a slot look expensive, the duplication is usually in the body and not in the
-door.** A door here is 17 bytes; nothing is ever going to make it 9.
-
-The C sources are a data point rather than the argument, now that the argument
-is a number — but the data point is real, and it can be read rather than
-assumed because the sources are all in this tree. `os88_file_rename` has
-exactly **one** caller, RunCPM's `ovl_fs_rename` (§74), which does this two
-lines before it:
-
-```c
-rc_fcb[16] = rc_fcb[0];                  /* no move between folders */
-```
-
-CP/M's `F_RENAME` cannot move a file between folders, so the slot's one C
-consumer is actively forcing the two ends together. That does not veto
-anything — it would pass the same cluster twice and be fine — but a parameter
-whose only existing user exists to suppress it is a parameter looking for a
-call site, and the call site it was looking for is the DOS box, which has the
-sibling slot instead.
+Measured on the tree it landed on, `kern_big` `.text` 49,909 → 49,897,
+`.bss` 6,014 → 6,015, `.cold` 41,189 → 40,985: **−215 resident bytes** against
+the two slots' 374 (the cells and thunks, `fcp_enter`/`fcp_leave`, the two
+bodies, `fcp_cpname`, `fcp_same13`, the rename plumbing and 17 of `.bss`).
+`kern_small` −34: the retired cell still costs its eight bytes of table, and
+the operation record is resident there — `fcp_name` is handed to resident
+`dskw_stat_x` as a `DS` pointer, and a `.modpb` label is an image offset
+reached through `CS`.
 
 #### 22.25.2 `os88_file_copy` and `os88_file_move` — the C doors
 
 `apps/cc/os88.h` publishes both, over `struct os88_place` — the record
-`os88_file_here()` fills and `os88_file_goto()` takes, so a C package names a
-folder with the same two words the assembly SDK does.
-
-The copy returns 0 or −1 with `os88_ferr()` set, which is every other file
-call's shape. **The move returns three things**, and the middle one is why:
-
-```
-     0   moved.
-     1   NOT ATTEMPTED - nothing was written, copy and delete instead.
-    -1   failed; os88_ferr() says why, and the file MAY be half-moved.
-```
-
-The kernel says *not attempted* with `AX` = 0 and `CF`, which is the one value
-in that register that is not a `FERR_*`. Collapsing it into −1 would make a C
-caller give up on a move it could make; collapsing it into 0 would make one
-delete a source that never went anywhere. A third return is the smallest
-honest shape, and `> 0` is the fallback test.
+`os88_file_here()` fills and `os88_file_goto()` takes — and
+`apps/cc/os88thunk.asm` carries them as **one thunk with two entries** that
+differ in the verb byte. Both answer 0, or −1 with `os88_ferr()` set, which is
+every other file call's shape; the three-answer move is gone with the answer
+it existed for.
 
 ### 22.22 `Compress` — the file manager makes a file smaller
 
@@ -75157,8 +75088,10 @@ else. `kern_small` emits the same bodies into `.modp`, which
 heap claim when the user copies, and `fcp_fin` gives it back when the
 operation ends. `KERN_SIZE` 92,160 → 90,624.
 
-**Three entry points, not five.** `fcp_arm`, `fcp_paste` and `fcp_answer`.
-Two public names that look like entries are not:
+**Four entry points, not six.** `fcp_arm`, `fcp_paste`, `fcp_answer` and
+`fcp_door` — `OSAPI_FILE_COPY`'s body, both verbs (§22.24), the one entry in
+the image reached from outside the file manager. Two public names that look
+like entries are not:
 
 - **`fcp_ncopy` is `equ dsk_ncopy`** — `disk.inc`'s routine under a second
   name. It is resident on both builds and a caller of it reads no disk.
@@ -123067,10 +123000,13 @@ too, and here it would also renumber the ordinals it is walking.
 
 ##### 96.30.4 What it inherits, and what it does not
 
-**`MOVE` tries the re-link first.** `OSAPI_FILE_MOVE` (§22.25) rewrites the
-directory entry and reads no data; `AX` = 0 with `CF` means *not attempted*,
-and only then does the fallback pay for a copy and a delete. On one volume a
-`MOVE` of a 100KB file is a directory write.
+**`MOVE` goes through the engine first.** `OSAPI_FILE_COPY`'s move verb
+(§22.24) rewrites the directory entry on one volume and reads no data, and
+copies then deletes through the engine's own buffer elsewhere; only
+`FERR_FULL` — the engine unable to claim that buffer, which inside a bracket
+it cannot (§96.30.6), having written nothing — sends the shell to its own
+arena stream and delete. On one volume a `MOVE` of a 100KB file is a
+directory write, and needs no heap at all.
 
 **A path is one component past the root**, which is `dos_fh_core`'s own limit
 (a separator anywhere past a leading one is code 3, "path not found") and not
@@ -123086,7 +123022,7 @@ back around the whole command.
 **No `OSAPI_*` file slot is called from this file.** §96.4's back-end rule is
 not relaxed for the shell: every file action is a `dos_be_*`, which is what
 keeps §14's hibernate phase a second back end rather than a rewrite. Two verbs
-were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24 and §22.25.
+were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24's two verbs.
 
 ##### 96.30.0 It finishes the program it was written for
 

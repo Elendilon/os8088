@@ -1988,8 +1988,8 @@ SOAK = [
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
     Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
-        "OSAPI_FILE_COPY AND OSAPI_FILE_MOVE, THE PUBLISHED ENGINE (SPEC.md "
-        "22.24, 22.25). EVERY "
+        "OSAPI_FILE_COPY, THE PUBLISHED ENGINE, BOTH VERBS (SPEC.md "
+        "22.24). EVERY "
         "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
         "cross-links two chains or writes a directory entry pointing at "
         "nothing, and all three look perfectly fine from inside the guest - "

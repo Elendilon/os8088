@@ -4082,35 +4082,33 @@ apic_wm_destroy:
                                   ;          expensive field is LAST, so a
                                   ;          short buffer does not pay for the
                                   ;          FAT walk
-    OSAPI_XCELL osapi_file_copy   ; 0x0578 - COPY ONE FILE, source directory to
-                                  ;          destination (SPEC.md 22.24). ES:SI
-                                  ;          = the source 8.3 name and ES:DI
-                                  ;          the destination's, BL/DX the
-                                  ;          source drive and folder cluster,
-                                  ;          BH/CX the destination's - the
-                                  ;          pair OSAPI_FILE_HERE answers.
-                                  ;          X, because both names are package
-                                  ;          data. It is the file manager's
-                                  ;          OWN engine, which streams in
-                                  ;          chunks through a buffer it claims
-                                  ;          and undoes a partial destination
-                                  ;          on failure; a package that rolled
-                                  ;          its own would get the second half
-                                  ;          wrong
-    OSAPI_XCELL osapi_file_move   ; 0x0580 - MOVE ONE FILE between two folders
-                                  ;          of ONE volume, by re-linking its
-                                  ;          directory entry (SPEC.md 22.25).
-                                  ;          ES:SI = the 8.3 name, BL/DX the
-                                  ;          source drive and folder cluster,
-                                  ;          BH/CX the destination's - copy's
-                                  ;          registers, one name. Out CF=0 it
-                                  ;          moved; CF=1 with AX = FERR_*, or
-                                  ;          **AX = 0 meaning NOT ATTEMPTED**,
-                                  ;          which is the answer for two
-                                  ;          volumes and for the three cases
-                                  ;          the re-link declines: copy then
-                                  ;          delete instead. X, because the
-                                  ;          name is package data
+    OSAPI_NCELL osapi_file_copy   ; 0x0578 - COPY OR MOVE ONE ENTRY, source
+                                  ;          folder to destination (SPEC.md
+                                  ;          22.24). SI = its 8.3 name, AL =
+                                  ;          the verb (OSAPI_FCP_COPY or
+                                  ;          OSAPI_FCP_MOVE), BL/DX the source
+                                  ;          drive and folder cluster, BH/CX
+                                  ;          the destination's - the pair
+                                  ;          OSAPI_FILE_HERE answers. Out CF=0
+                                  ;          AX=0, else AX = FERR_*. N, because
+                                  ;          the name is package data and the
+                                  ;          stage is what api_n does. It is
+                                  ;          the file manager's OWN engine
+                                  ;          entered where a Paste enters it:
+                                  ;          a move is a Cut - re-linked on
+                                  ;          one volume, copied and deleted
+                                  ;          where the re-link declines - and
+                                  ;          a copy streams through a buffer
+                                  ;          the engine claims and undoes a
+                                  ;          partial destination on failure
+    OSAPI_XCELL gfx_linit         ; 0x0580 - RETIRED (SPEC.md 20.3.1's free
+                                  ;          list): stc/ret. It was
+                                  ;          OSAPI_FILE_MOVE, a second door on
+                                  ;          the same engine, folded into
+                                  ;          0x0578's verb byte (22.25) - the
+                                  ;          SDK name is deleted, so a stale
+                                  ;          caller fails to assemble rather
+                                  ;          than moving nothing
     OSAPI_NCELL dskw_write_at     ; 0x0588  N: SI = name, ES:BX = bytes, CX =
                                   ;         count (a 512 multiple), DX:AX =
                                   ;         the byte offset (a CLUSTER
@@ -5568,23 +5566,12 @@ osapi_vol_stat:
 
 ; ---- osapi_file_copy - the file manager's copy engine, published (22.24) -----
 ; The body is `.cold` on kern_big and FILECP.DRV's on kern_small, and the far
-; entry is the same name in both - so this thunk is three instructions and
-; knows about neither. inst_vol_enter first, for osapi_vol_stat's reason: the
-; two folders the caller names are on ITS volume (19.2.1) and not on whichever
-; the machine last touched.
+; entry is the same name in both - so this thunk is two instructions and
+; knows about neither. An N cell, so api_n has already staged the name and
+; run inst_vol_enter (19.2.1) before this is reached. It USED to be two cells
+; and two thunks, one per verb (22.25): the verb rides in AL now.
 osapi_file_copy:
-    call inst_vol_enter
-    call COLD_SEG:fcpf_fcp_copy     ; its AX and CF are ours
-    ret
-
-; ---- osapi_file_move - the same engine's RE-LINK, published (22.25) ---------
-; One volume, no data moved: a 100KB file changes parent for the cost of a
-; directory write. The half that makes it safe to publish is the answer it
-; gives when it cannot - AX=0 with CF, "not attempted" - so a caller falls
-; back to osapi_file_copy plus osapi_file_delete having lost nothing.
-osapi_file_move:
-    call inst_vol_enter
-    call COLD_SEG:fcpf_fcp_move     ; its AX and CF are ours
+    call COLD_SEG:fcpf_fcp_door     ; its AX and CF are ours
     ret
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)
