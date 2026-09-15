@@ -4071,17 +4071,17 @@ apic_wm_destroy:
                                   ;          SLOT of its own because BL on the
                                   ;          old one is whatever an older
                                   ;          package left there
-    OSAPI_SLOT osapi_vol_stat     ; 0x0570 - EVERY FACT ABOUT THE VOLUME YOU
-                                  ;          ARE STANDING ON, in one record
-                                  ;          (SPEC.md 18.4.6). ES:DI = your
-                                  ;          buffer, CX = its size; out CF=0
-                                  ;          with CX = bytes written, CF=1
-                                  ;          with AX = FERR_*. One door for a
-                                  ;          FAMILY of questions - DOS alone
-                                  ;          asks it four ways - and the
-                                  ;          expensive field is LAST, so a
-                                  ;          short buffer does not pay for the
-                                  ;          FAT walk
+    OSAPI_SLOT osapi_vol_stat     ; 0x0570 - THE VOLUME YOU ARE STANDING ON,
+                                  ;          in four registers (SPEC.md
+                                  ;          18.4.6): out CF=0 with AX =
+                                  ;          sectors per cluster, BX = free
+                                  ;          clusters, CX = bytes per sector,
+                                  ;          DX = total clusters; CF=1 with
+                                  ;          AX = FERR_NODISK. DOS AH=36h's own
+                                  ;          shape, the DOS box being its one
+                                  ;          caller - it was a 12-byte record
+                                  ;          until the size pass found no
+                                  ;          caller read more than these four
     OSAPI_XCELL osapi_file_copy   ; 0x0578 - COPY ONE FILE, source directory to
                                   ;          destination (SPEC.md 22.24). ES:SI
                                   ;          = the source 8.3 name and ES:DI
@@ -5557,13 +5557,13 @@ osapi_file_dfree:
                                     ; one is an API cell or a kind template,
                                     ; where the near entry is the contract
 
-; ---- osapi_vol_stat - the volume this app stands on, in one record ---------
+; ---- osapi_vol_stat - the volume this app stands on, in four registers ------
 ; osapi_file_dfree's V and for its reason (SPEC.md 19.2.1): an app asks this
 ; about the disk its writes are going to, so an answer about the machine's
 ; idea of "current" would be about the wrong one.
 osapi_vol_stat:
     call inst_vol_enter
-    call COLD_SEG:dwf_dskw_vstat    ; its CX and CF are ours
+    call COLD_SEG:dwf_dskw_vstat    ; AX/BX/CX/DX and CF are ours
     ret
 
 ; ---- osapi_file_copy - the file manager's copy engine, published (22.24) -----

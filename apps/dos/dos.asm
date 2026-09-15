@@ -2654,7 +2654,11 @@ dos_int21:
 .df1:
     dec al                          ; 1-based -> a volume index
 .dfv:
-    mov bh, [dos_vol]               ; where to come back to
+    mov bh, [dos_vol]               ; where to come back to...
+    mov di, bx                      ; ...banked in DI's high byte, because BX
+                                    ; is about to be an ANSWER (the free
+                                    ; count), and .dfhome used to read the
+                                    ; home drive out of BH AFTER that load
     cmp al, bh
     je .dfask                       ; the common case by far: a program selects
                                     ; the drive and then asks about it
@@ -2663,21 +2667,15 @@ dos_int21:
     cmp al, [dos_vol]               ; place that knows how to put itself back
     jne .dfbad                      ; if the mount refuses
 .dfask:
-    push ds
-    pop es                          ; the record lands in OUR bss, not the
-    mov di, dos_vsbuf               ; program's: nothing here is the caller's
-    mov cx, VS_SIZEOF               ; buffer and DOS gives us nowhere to put one
-    call dos_be_vstat               ; ...and THROUGH THE BACK END (96.4.1): the
-                                    ; slot mounts the volume and reads its FAT,
-                                    ; which is disk work on the program's stack
+    call dos_be_vstat               ; AX = sectors per cluster, BX = free
+                                    ; clusters, CX = bytes per sector, DX =
+                                    ; total clusters - AH=36h's own four, which
+                                    ; is the slot's shape BECAUSE this is its
+                                    ; caller (SPEC.md 18.4.6). THROUGH THE BACK
+                                    ; END (96.4.1): the slot mounts the volume
+                                    ; and reads its FAT, which is disk work on
+                                    ; the program's stack
     jc .dfback
-    cmp cx, VS_SIZEOF
-    jb .dfback                      ; a short answer has no free count in it,
-                                    ; and three quarters of a reply is not one
-    mov ax, [dos_vsbuf+VS_SPC]
-    mov bx, [dos_vsbuf+VS_FREE]
-    mov cx, [dos_vsbuf+VS_BPS]
-    mov dx, [dos_vsbuf+VS_CLUS]
     call .dfhome
     pop es
     pop di
@@ -2695,10 +2693,12 @@ dos_int21:
     add sp, 2
     jmp .ok
 ; --- .dfhome - back to the drive we were standing on, if we left it ---------
+; in: DI's high byte = that drive; preserves everything (dos_drv_sel does)
 .dfhome:
     push ax
     push dx
-    mov dl, bh
+    mov dx, di
+    mov dl, dh
     cmp dl, [dos_vol]
     je .dfh
     call dos_drv_sel
@@ -4065,7 +4065,7 @@ DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
                                     ; with CF is NOT ATTEMPTED, not an error
 DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
                                     ; the length (SPEC.md 19.2.4)
-DBE_VSTAT   equ 36                  ; ES:DI = a VS_SIZEOF record, CX = its size
+DBE_VSTAT   equ 36                  ; out AX/BX/CX/DX = AH=36h's four (18.4.6)
 DBE_WRAT    equ 38                  ; SI = name, ES:BX = bytes, CX = count,
                                     ; DX:AX = the offset (SPEC.md 18.4.7)
 DBE_HERE    equ 40                  ; out DX = where this instance stands,
@@ -9657,11 +9657,6 @@ DOS_CBASE   equ os88_image_end
                                  ; DBE_* indexes this and the HOST fills it,
                                  ; because the core is one object and there are
                                  ; two back ends behind it
-    DBSS DOS_B_VSBUF, VS_SIZEOF  ; OSAPI_VOL_STAT's record (SPEC.md 18.4.6),
-%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-%endif
-                                 ; for AH=36h. OURS and not the program's:
-                                 ; DOS gives that call nowhere to put a buffer
     HBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -14723,7 +14718,6 @@ dos_pbuf    equ DOS_CBASE + DOS_B_PBUF    ; the program's own path
 dos_ln equ dos_hbss + DOS_B_LN      ; the field's os88line block
 dos_hkv     equ DOS_CBASE + DOS_B_HKV     ; DHK_NENT words (96.44.3)
 dos_bevec   equ DOS_CBASE + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
-dos_vsbuf   equ DOS_CBASE + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 %ifdef DOSKPART
 dos_pkgname equ dos_hbss + DOS_B_PKGNAME  ; 13: our own 8.3 file name
 dos_pkgdir equ dos_hbss + DOS_B_PKGDIR   ; word: its folder's cluster

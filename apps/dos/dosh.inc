@@ -2222,33 +2222,13 @@ dsh_dirtot:
 ; out: CF=0 with DX:AX the byte count; CF=1 = the volume would not answer
 ; clobbers: AX, BX, CX, DX, DI, ES, flags
 ;
-; free CLUSTERS x sectors-per-cluster is a 32-bit sector count, and x 512 is
-; nine shifts of it - no 32x16 multiply, and no overflow inside FAT12's own
-; 32MB ceiling.
+; OSAPI_FILE_DFREE answers in bytes already, so this is the door and nothing
+; else. It used to ask OSAPI_VOL_STAT for its record and multiply the free
+; cluster count up by hand - the same FAT walk, and then the same arithmetic
+; the kernel had just done on the way to a field it did not read.
 dsh_dfree:
-    push si
-    push ds
-    pop es
-    mov di, dos_vsbuf
-    mov cx, VS_SIZEOF
-    call dos_be_vstat
-    jc .no
-    cmp cx, VS_SIZEOF
-    jb .no                          ; a short answer carries no free count, and
-    mov ax, [dos_vsbuf+VS_FREE]     ; three quarters of a reply is not one
-    mul word [dos_vsbuf+VS_SPC]     ; DX:AX = free SECTORS
-    mov cx, 9
-.sh:
-    shl ax, 1                       ; ...x 512, through the high half
-    rcl dx, 1
-    loop .sh
-    pop si
-    clc
-    ret
-.no:
-    pop si
-    stc
-    ret
+    call dos_be_dfree               ; DX:AX = free bytes, BX = sectors per
+    ret                             ; cluster; CF=1 with AX = FERR_*
 
 ; --- dsh_num32 - DX:AX as decimal, right-aligned in eight columns -----------
 ; clobbers: AX, BX, CX, DX, SI, DI, flags

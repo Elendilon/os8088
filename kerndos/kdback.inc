@@ -167,7 +167,8 @@ dos_k_dfree:
     call dskw_dfree_x
     ret
 
-; in: ES:DI = a VS_SIZEOF record, CX = its size
+; out: AX = sectors per cluster, BX = free clusters, CX = bytes per sector,
+;      DX = total clusters (SPEC.md 18.4.6)
 dos_k_vstat:
     call COLD_SEG:dwf_dskw_vstat ; FAR. In the kernel this is the same call
                                 ; behind an inst_vol_enter that stands the

@@ -361,27 +361,6 @@ dskw_wrap7:
     pop bx
     ret
 
-; --- OSAPI_VOL_STAT's record (SPEC.md 18.4.6) --------------------------------
-; MIRRORED IN apps/os88api.inc and compared as TEXT by tests/unit/t_mirror.py,
-; which is the only thing that can stop the two drifting: there is no linker
-; here and a package reading a field at the wrong offset gets a plausible
-; number rather than an error.
-;
-; THE ORDER IS THE INTERFACE. Everything up to VS_NOFREE is a read of resident
-; state; VS_FREE is a walk of the whole FAT. A caller passes the size it wants
-; and pays for exactly that.
-VS_BPS    equ 0                 ; word: bytes per sector
-VS_SPC    equ 2                 ; word: sectors per cluster
-VS_CLUS   equ 4                 ; word: total clusters (CountOfClusters)
-VS_MEDIA  equ 6                 ; byte: the BPB media descriptor
-VS_FAT    equ 7                 ; byte: 12 or 16, the FAT width in BITS
-VS_KIND   equ 8                 ; byte: VK_REMOVABLE / VK_FIXED, 0xFF unknown
-VS_TRANS  equ 9                 ; byte: VT_BIOS / VT_DRIVER, 0xFF unknown
-VS_NOFREE equ 10                ; ...and the size that stops HERE, before the
-                                ; expensive field below
-VS_FREE   equ 10                ; word: free clusters
-VS_SIZEOF equ 12
-
 ; -----------------------------------------------------------------------------
 ; dskw_dfree - free space on the mounted volume (SPEC.md 18.4, slot 0x0140)
 ; in:  nothing
@@ -397,10 +376,8 @@ VS_SIZEOF equ 12
 ; before asking it once per chunk and spending 44% of an upload in it.
 ; -----------------------------------------------------------------------------
 dskw_dfree_x:
-    push cx
-    push si
-    push di
-    push es
+    push cx                     ; the shift count below; dsk_free_clus_x
+                                ; banks everything but AX itself
     call dsk_free_clus_x ; AX = free clusters - ONE counting body for
     jc .bad                     ; this cell and for the status line's figure
     mov bl, [dsk_spc]           ; (SPEC.md 22.7), so the two cannot disagree.
@@ -419,113 +396,44 @@ dskw_dfree_x:
     mov ax, FERR_NODISK
     stc
 .out:
-    pop es
-    pop di
-    pop si
     pop cx
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_vstat - EVERY FACT ABOUT THE MOUNTED VOLUME, in one record (SPEC.md 18.4.6)
-; in:  ES:DI = the caller's buffer, CX = its size in bytes
-; out: CF=0 with CX = bytes written; CF=1 with AX = FERR_* and CX untouched
-; clobbers: CX (the output), AX on the refusal, flags
+; dskw_vstat - the volume's geometry and its free count, in FOUR REGISTERS
+;              (SPEC.md 18.4.6)
+; in:  nothing
+; out: CF=0 with AX = sectors per cluster, BX = free clusters, CX = bytes
+;      per sector, DX = total clusters (CountOfClusters); CF=1 with
+;      AX = FERR_NODISK
+; clobbers: AX/BX/CX/DX (the outputs), CF
 ;
-; ONE DOOR FOR A FAMILY OF QUESTIONS, which is why it is a record and not four
-; registers. DOS alone asks this four ways - AH=36h wants sectors per cluster,
-; bytes per sector, total clusters and free clusters; AH=1Bh and AH=1Ch want
-; the media descriptor with three of those; AH=32h wants most of it again -
-; and a slot apiece would be four cells of a table that cannot grow (SPEC.md
-; 20.3.1). It also folds in OSAPI_VOL_KIND's two answers, so "what IS this
-; volume" is one call rather than two.
+; DOS AH=36h's own register shape, and that is not an accident: the DOS box
+; is this slot's only caller and it forwards these four to the program
+; unchanged. It used to be a twelve-byte RECORD with eight fields and a
+; "the size you pass is the request" rule, so that a short buffer skipped
+; the FAT walk - and no caller ever passed a short buffer, or read any field
+; but these four (SPEC.md 18.4.6.1). The record cost 147 bytes; this is 26.
 ;
-; THE EXPENSIVE FIELD IS LAST, AND THAT IS THE INTERFACE. dsk_free_clus_x
-; counts every entry in the resident FAT - ~105 ms on a 20MB hard disk on a
-; 4.77MHz 8088 (SPEC.md 18.4.5) - and most of the callers above do not want it.
-; So the count is taken only when the caller's buffer REACHES it: pass
-; VS_NOFREE bytes and the answer is the cheap fields and no walk, pass
-; VS_SIZEOF and you have paid for the count. The size is the request.
-;
-; ...and the record may GROW without an ABI break for the same reason: a
-; caller that knows 12 bytes passes 12 and gets 12, whatever a later kernel
-; knows how to say.
+; Bytes per sector is a constant here because the mount makes it one - rule 3
+; (disk.inc) refuses any BPB whose BytsPerSec is not 512 - and a redirected
+; volume answers with [dsk_spc] = 1 and SECTORS in BX, exactly as
+; dskw_dfree_x above does, because dsk_free_clus_x is the one counting body
+; for both (SPEC.md 22.7).
 ; -----------------------------------------------------------------------------
 dskw_vstat_x:
-    push ax
-    push bx
-    push dx
-    push si
-    push di
-    call dskw_mounted           ; CF=1, AX = FERR_NODISK
-    jc .out
-    cmp cx, VS_NOFREE
-    jb .small
-    mov si, 0xFFFF              ; SI = free clusters, 0xFFFF = not asked for
-    cmp cx, VS_SIZEOF
-    jb .fill                    ; ...and not paid for: no walk
-    push cx
-    push di
-    push es                     ; dsk_free_clus_x is dskw_dfree_x's own body
-    call dsk_free_clus_x        ; and banks none of these
-    pop es
-    pop di
-    pop cx
-    jc .nofree
-    mov si, ax
-    jmp short .fill
-.nofree:
-    mov cx, VS_NOFREE           ; the count refused (a volume that went away
-                                ; mid-call): say so by writing LESS, which a
-                                ; caller already has to handle
-.fill:
-    mov ax, [dsk_bpb+DSK_B_BPS]
-    mov [es:di+VS_BPS], ax
+    call dsk_free_clus_x        ; AX = free clusters; CF=1 = no volume - and
+    jc .bad                     ; it banks every other register itself
+    mov bx, ax
     mov al, [dsk_spc]
-    xor ah, ah
-    mov [es:di+VS_SPC], ax
-    mov ax, [dsk_maxclus]       ; CountOfClusters + 1 is what the mount stored
-    dec ax                      ; (SPEC.md 19 rule 15), and the COUNT is what
-    mov [es:di+VS_CLUS], ax     ; every caller of this means
-    mov al, [dsk_bpb+DSK_B_MEDIA]
-    mov [es:di+VS_MEDIA], al
-    mov al, 12                  ; the BITS, not dsk_fattype's 0/1: a record a
-    cmp byte [dsk_fattype], 0   ; package reads should say what it means
-    je .f12
-    mov al, 16
-.f12:
-    mov [es:di+VS_FAT], al
-    mov bl, [disk_drive]
-    push cx
-    call dsk_vol_fixed_x        ; AL = VK_*, AH = VT_* (SPEC.md 18.7.2)
-    pop cx
-    jc .nokind
-    mov [es:di+VS_KIND], al
-    mov [es:di+VS_TRANS], ah
-    jmp short .sized
-.nokind:
-    mov word [es:di+VS_KIND], 0xFFFF   ; both bytes, one store: a volume the
-                                ; table cannot classify says so rather than
-                                ; leaving the caller's buffer to speak
-.sized:
-    cmp cx, VS_SIZEOF
-    jb .short
-    mov [es:di+VS_FREE], si
-    mov cx, VS_SIZEOF
-    clc
-    jmp short .out
-.short:
-    mov cx, VS_NOFREE
-    clc
-    jmp short .out
-.small:
-    mov ax, FERR_BIG            ; a buffer too small to hold even the cheap
-    stc                         ; fields. FERR_BIG is "larger than the buffer"
-.out:                           ; and that is exactly what this is
-    pop di
-    pop si
-    pop dx
-    pop bx
-    pop ax
+    xor ah, ah                  ; ...which also leaves CF=0 for the `ret`
+    mov cx, 512                 ; mount rule 3
+    mov dx, [dsk_maxclus]       ; CountOfClusters + 1 is what the mount stored
+    dec dx                      ; (SPEC.md 19 rule 15), and the COUNT is what
+    ret                         ; the caller means
+.bad:
+    mov ax, FERR_NODISK
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

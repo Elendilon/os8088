@@ -27333,51 +27333,49 @@ is one nobody reads the third time). Without the first the kernel reports 4,
 without the second 27, with both **2** — and those two were the two halves of
 this bug, so the check lands with no exception list at all.
 
-#### 18.4.6 `OSAPI_VOL_STAT` — one door for a family of questions about a volume
+#### 18.4.6 `OSAPI_VOL_STAT` — the volume's size, in DOS's own four registers
 
 `OSAPI_FILE_DFREE` answers free bytes and the cluster size and stops there, and
-nothing published answers a volume's **size**. That gap is what left §96.26's
-`AH=36h` unimplementable, and the obvious fix — a slot for the total cluster
-count — is the wrong shape: DOS asks about a volume four different ways
-(`AH=36h`, `AH=1Bh`, `AH=1Ch`, `AH=32h`), so a slot per question is four cells
-of a table that cannot grow (§20.3.1).
+nothing published answered a volume's **size**. That gap is what left §96.26's
+`AH=36h` unimplementable, and this is the slot that fills it. It answers for
+the volume the **caller** stands on — `osapi_file_dfree`'s V and for its
+reason (§19.2.1) — and it answers in registers:
 
-So it is **one slot and a record**: `ES:DI` = the caller's buffer, `CX` = its
-size; out `CF=0` with `CX` = bytes written, `CF=1` with `AX = FERR_*`.
+| out | |
+|---|---|
+| `AX` | sectors per cluster |
+| `BX` | free clusters |
+| `CX` | bytes per sector — **512**, because mount rule 3 (§18.2) refuses any other |
+| `DX` | total clusters — `CountOfClusters`, which the mount already computed for rule 15 and stored as `[dsk_maxclus]` + 1 |
 
-| field | | |
-|---|---|---|
-| `VS_BPS` | 0, word | bytes per sector |
-| `VS_SPC` | 2, word | sectors per cluster |
-| `VS_CLUS` | 4, word | total clusters — `CountOfClusters`, which the mount already computed for rule 15 and stored as `[dsk_maxclus]` + 1 |
-| `VS_MEDIA` | 6, byte | the BPB media descriptor |
-| `VS_FAT` | 7, byte | 12 or 16 — the width in BITS, not `dsk_fattype`'s 0/1 |
-| `VS_KIND` | 8, byte | `VK_REMOVABLE` / `VK_FIXED`, `0xFF` unknown |
-| `VS_TRANS` | 9, byte | `VT_BIOS` / `VT_DRIVER`, `0xFF` unknown |
-| `VS_FREE` | 10, word | free clusters |
+`CF=1` with `AX = FERR_NODISK` when nothing is mounted. It clobbers all four.
 
-It folds in `OSAPI_VOL_KIND`'s two answers deliberately: *"what is this
-volume"* is one call now rather than two.
+That is `AH=36h`'s register shape exactly, and it is that shape *because* the
+DOS box is the only thing that asks: `dos_k_vstat` forwards the four to the
+program unchanged, and `DFREE.COM` (tests/dostrap) prints them beside an
+independent FAT reader's. The free count is the same FAT walk `DFREE` makes —
+**~105 ms on a 20MB disk on a 4.77MHz 8088** (§18.4.5) — so the same advice
+applies: ask it to decide something, not once per chunk.
 
-##### 18.4.6.1 The size you pass is the request, and that is the interface
+##### 18.4.6.1 It was a record, and the record was never read
 
-Everything up to `VS_NOFREE` is a read of resident state. `VS_FREE` is
-`dsk_free_clus_x` walking the whole FAT — **~105 ms on a 20MB disk on a
-4.77MHz 8088** (§18.4.5), and three of the four DOS calls above do not want
-it. So the expensive field is **last**, and the count is taken only when the
-caller's buffer reaches it: pass `VS_NOFREE` and there is no walk, pass
-`VS_SIZEOF` and you have asked for it. A buffer shorter than `VS_NOFREE` is
-refused with `FERR_BIG`.
+The slot shipped as *one door for a family of questions*: a twelve-byte
+record — bytes per sector, sectors per cluster, total clusters, the media
+descriptor, the FAT width, `VK_*`/`VT_*` and the free count — with the free
+count last, so that a caller passing a shorter buffer skipped the walk, on the
+argument that DOS asks about a volume four ways (`AH=36h`, `1Bh`, `1Ch`, `32h`)
+and three of them do not want the count.
 
-The same property lets the record **grow without an ABI break**: a caller that
-knows twelve bytes passes twelve and is written twelve, whatever a later
-kernel has learned to say. Read `CX` back rather than assuming it.
-
-**It answers for the volume the CALLER stands on**, `osapi_file_dfree`'s V and
-for its reason (§19.2.1): an app asks this about the disk its writes are going
-to, so an answer about the machine's idea of "current" would be about the
-wrong one. A caller wanting another volume moves to it, which is what
-`OSAPI_FILE_GOTO_QM` is for and what the DOS box does.
+None of that was ever exercised. The DOS box implements `AH=36h` alone, passes
+the full size on every call, and reads **these four fields and no other**;
+`DIR`'s *bytes free* asked for the same record and multiplied the free count
+back up into what `OSAPI_FILE_DFREE` had always answered. So the size pass
+reduced the body from **147 bytes to 26**: the mount fixes the sector size, the
+free count comes off `dsk_free_clus_x` as `DFREE`'s does (one counting body,
+§22.7), and the record, its `VS_*` layout, its size-as-request rule and the
+box's own copy of the buffer are all gone. When `AH=1Bh`, `1Ch` or `32h` is
+wanted, the media descriptor and the FAT width are the two facts to add — as a
+register, if there is one free, and not as a record.
 
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
@@ -126641,10 +126639,9 @@ Out: `AX` = sectors per cluster, `BX` = free clusters, `CX` = bytes per sector,
 `DX` = total clusters — and **`AX = FFFFh` for a drive that is not there**,
 which is the part a program can act on.
 
-All four come from one `OSAPI_VOL_STAT` (§18.4.6), which is why that slot is a
-record rather than the total-cluster cell this call alone needed: `AH=1Bh`,
-`AH=1Ch` and `AH=32h` are the same questions in a different order, and each
-will read a different field of the same reply rather than earning a slot.
+All four come from one `OSAPI_VOL_STAT` (§18.4.6), which answers in exactly
+these four registers because this call is the one that asks: the box forwards
+them to the program unchanged and composes nothing.
 
 **The drive the program is not standing on costs a mount**, and the box already
 owns that: `dos_drv_sel` switches, mounts, and puts itself back if the mount
@@ -126652,9 +126649,12 @@ refuses (§96.6.1). So `AH=36h` on another drive is select, ask, select back —
 and the trace above is why that path is rare enough not to matter: a program
 that wants to know about a drive selects it first.
 
-The record lands in the box's **own** bss and not the program's. DOS gives this
-call nowhere to put a buffer, so there is no caller's memory to write into and
-none is invented.
+Nothing lands in memory at all: DOS gives this call nowhere to put a buffer,
+and the slot needs none — which is also what put right the box's own return
+trip. It banked the home drive in `BH` and read it back *after* loading the
+free count into `BX`, so an `AH=36h` about a drive the program was not standing
+on came home to whichever drive the free count's high byte named; it is banked
+in `DI` now, which nothing on the path touches.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
