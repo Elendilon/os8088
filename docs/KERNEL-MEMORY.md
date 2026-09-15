@@ -267,10 +267,10 @@ had added.
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 4242,
+    "bss": 4170,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 26197,
+    "cold": 26514,
     "coldpara": 1664,
     "fatpara": 64,
     "imgpara": 2624,
@@ -283,7 +283,7 @@ had added.
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 37453,
+    "text": 37399,
     "vgabuf": 0,
     "vgabufpara": 0
   }
