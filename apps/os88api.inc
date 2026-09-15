@@ -2007,19 +2007,37 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; you specifically need this; the claim must
                                  ; also be PINNED (the default, SPEC.md 66), or
                                  ; a compaction moves it under the driver.
-; --- DRIVERS, OUT OF MY WAY (SPEC.md 51.11) ----------------------------------
+; --- THE MACHINE, OUT OF MY WAY (SPEC.md 51.11) -------------------------------
 ; An exclusive fullscreen app about to program the hardware ITSELF - a DOS
 ; program driving a Sound Blaster, a demo taking the OPL - needs the drivers
 ; that own that hardware to stop owning it. This is the door, and it is NOT
 ; sound-specific: what you say is "get out of my way", and each class decides
-; what that means for it.
+; what that means for it. ONE cell, THREE verbs in AL:
+;
+;   AL = 1  SUSPEND: every driver that owns a chip is unloaded. ES:DI = a
+;           buffer of DQ_MAXREC DQ_SIZE records, or DI = 0; each driver is
+;           asked DRVV_HWINFO on the way out and the ones with an answer get
+;           a record. Out CX = records written.
+;   AL = 0  RESUME: the rows a suspend took out are loaded again, and only
+;           those - with nothing suspended it reloads nothing. Out CX = 0.
+;   AL = 2  HAND THE WHOLE MACHINE TO kern_dos (SPEC.md 96.40): ES:SI = a
+;           KDH_* record in YOUR image or bss, never on a stack. It only
+;           RECORDS and returns - see the KDH_* layout below.
+;
+; Out CF=0 done; CF=1 refused, and a refusal is the DISK's: the sweep lives
+; in HIBER.DRV, an on-demand module read off the system disk, so a suspend or
+; a resume refuses only when that disk cannot be read (and a handoff when a
+; post already stands). A refused suspend moved nothing and owes no resume.
+; AX, BX, CX, DX, SI and DI are clobbered.
 ;
 ; IT IS AN UNLOAD AND A RELOAD, which is why it is honest: the service table
 ; the kernel dispatches through is a COPY taken at attach, so a driver going
 ; quietly dormant would change nothing the kernel reads - DSV_TICK would still
 ; be far-called from inside IRQ0 at a card you are programming. An unload puts
 ; that table back, waits the driver's worker out, unhooks its vector and gives
-; its memory back, and you get the memory too.
+; its memory back, and you get the memory too. It is the hibernate's own
+; detach and reload, in the hibernate's module: the module is read for the
+; call and dropped after it, so ask BEFORE you claim the heap.
 ;
 ; NEITHER HALF IS FENCED, and the whole contract is therefore yours: **CALL THE
 ; RESUME ON EVERY EXIT PATH YOU HAVE**, including the ones that refuse. Nothing
@@ -2033,7 +2051,12 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
 ;
 ; DRVC_DISK and DRVC_FILE are NOT touched - memory and the ROM's int 13h, and
 ; the RAM disk - because both are things a fullscreen program WANTS rather
-; than fights, and neither owns a chip anyone is about to take.
+; than fights, and neither owns a chip anyone is about to take. Nor is
+; DRVC_NET, for a narrower reason (SPEC.md 96.23.6).
+;
+; ON kern_small the suspend and the resume answer CF=0 with CX = 0 - there is
+; no driver layer, so nothing had to get out of the way - and the handoff
+; refuses (SPEC.md 51.11.3).
 DQ_CLASS   equ 0                 ; db: the DRVC_* this record is about
 DQ_FLAGS   equ 1                 ; db: bit 0 = it went
 DQ_A       equ 2                 ; dw: the class's own three words. For
@@ -2046,15 +2069,12 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; which is 6, 5 or 4 depending on the
                                  ; build and is asserted against this at
                                  ; assembly time (SPEC.md 51.11.2)
-%define OSAPI_DRV_SUSPEND   KERNEL_SEG:0x0550   ; AL = 1 suspend / 0 resume,
-                                 ; ES:DI = a buffer of DQ_SIZE records or
-                                 ; DI = 0 for none. out CF=0 with AX = a
-                                 ; bitmap of the DRVC_* classes that went and
-                                 ; CX = records written; CF=1 = nothing went.
-                                 ; A driver with nothing to
-                                 ; say about its hardware simply gets no
-                                 ; record, so CX may be less than the bits in
-                                 ; AX.
+%define OSAPI_DRV_SUSPEND   KERNEL_SEG:0x0550   ; AL = 1 suspend / 0 resume /
+                                 ; 2 handoff (above). ES:DI = a buffer of
+                                 ; DQ_SIZE records or DI = 0 (suspend), ES:SI
+                                 ; = a KDH_* record (handoff). out CF=0 with
+                                 ; CX = records written; CF=1 = refused,
+                                 ; nothing moved
 ;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
@@ -4297,9 +4317,9 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; still cut - and on a machine where you fit
                                  ; the band, this changes nothing at all.
 ; -----------------------------------------------------------------------------
-; OSAPI_DOS_HANDOFF - hand the whole machine to kern_dos (SPEC.md 96.40)
+; THE DOS HANDOFF's record - OSAPI_DRV_SUSPEND with AL = 2 (SPEC.md 96.40)
 ; in:  ES:SI = a KDH_* record in YOUR segment
-; out: CF=0 posted, CF=1 refused
+; out: CF=0 posted, CF=1 refused (a post already stands)
 ;
 ; **IT ONLY RECORDS.** What it asks for detaches every driver and takes the
 ; screen, and a package's callback is the one place that may not happen: the
@@ -4307,10 +4327,13 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
 ; with nothing held. So the record must live in your IMAGE or your BSS and not
 ; on a stack, and it must still be there when you return.
 ;
-; This is the DOS box's slot and nothing else in the tree calls it. It is
-; published rather than private because the alternative is a second copy of
-; the layout below in two places that cannot see each other, and
-; tests/unit/t_mirror.py is what keeps this one honest against the kernel's.
+; This is the DOS box's verb and nothing else in the tree uses it. It had a
+; cell of its own for one cycle (0x05A0, withdrawn - SPEC.md 51.11.3) and is a
+; verb of the door the drivers leave through now, because the two are one
+; family: "get out of my way", and how far. The layout is published rather
+; than private because the alternative is a second copy of it in two places
+; that cannot see each other, and tests/unit/t_mirror.py is what keeps this
+; one honest against the kernel's.
 KDH_MAGIC   equ 0               ; dd 'KDH1'
 KDH_VOL     equ 4               ; db the volume your package's FILE is on
 KDH_PAD     equ 5               ; db 0
@@ -4335,9 +4358,6 @@ KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
 KDH_SIZE    equ 559
 KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
-%define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;
-                                                ; out CF=0 posted
-
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

@@ -106526,7 +106526,9 @@ Resident: the three strings, the template, the two file names, the kind row,
 five `.text` thunks and seven `cw_` shims, and in `.cold` the probe, the
 predicate, eleven far entries and the seven thunks that load the module —
 259 bytes of `.text`, 94 of `.bss` and 365 of `.cold`, which crossed both
-rungs; docs/KERNEL-MEMORY.md has the account. (The first cut was 248/94/329;
+rungs; docs/KERNEL-MEMORY.md has the account. (§51.11.3 has since put an
+eighth thunk beside them, `OSAPI_DRV_SUSPEND`'s, and two words of `.bss` for
+the rows it took out and the DOS handoff's posted record.) (The first cut was 248/94/329;
 the review's `app_close_win` hook and `hbf_closed`, the `DVK_FILE` test in
 three places, the keyboard drain and `drv_publish`'s exact-length copy are
 the rest.) The module is `HIBER.DRV` on
@@ -126522,22 +126524,29 @@ is what that byte has always been for (§96.2).
 
 #### 96.35.2 The decision, and why a CAP takes the cheaper road
 
-**With no limit set** — a plain double click — the box wants the maximum, so
-the unmount is unconditional and the question is only whether a compaction adds
-anything:
+**The drivers come out first, on both arms** — `dos_drv_take`, which is what
+*creates* the hole, and which every program needs anyway: the `BLASTER=` in
+its environment is made of what the sound driver says on the way out
+(§96.44.13), so "the sound driver is never touched" was already false the day
+that section landed, the capped arm merely taking it later, inside the
+bracket. It takes it here now because `OSAPI_DRV_SUSPEND` reads `HIBER.DRV`
+into the heap to do its work (§51.11), and a claim of everything leaves no
+room for that.
 
-1. `dos_drv_take` — the drivers out, which is what *creates* the hole;
-2. `a = OSAPI_MEM_AVAIL_LVL(floor)`;
-3. `m = OSAPI_MEM_AVAIL_MAX(floor)` — **the same floor**, or the two are
+**With no limit set** — a plain double click — the box wants the maximum, and
+the question is only whether a compaction adds anything:
+
+1. `a = OSAPI_MEM_AVAIL_LVL(floor)`;
+2. `m = OSAPI_MEM_AVAIL_MAX(floor)` — **the same floor**, or the two are
    answers to different questions (§66.4.3.2);
-4. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
+3. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
 
-**With a limit set**, the order inverts and that is the point: a program that
-asked for 200K on a machine with 300K free needs no compaction and no silence.
+**With a limit set**, the cheaper road: a program that asked for 200K on a
+machine with 300K free needs no compaction.
 
-1. `a = OSAPI_MEM_AVAIL_LVL(floor)`; `a >= N` → claim `N`, **and the sound
-   driver is never touched**;
-2. otherwise unmount, and ask the what-if; `m >= N` → post and return;
+1. `a = OSAPI_MEM_AVAIL_LVL(floor)`; `a >= N` → claim `N` and ask nothing
+   more;
+2. otherwise ask the what-if; `m >= N` → post and return;
 3. otherwise `DER_MEM`, exactly as today.
 
 **On the wake**, plain `OSAPI_MEM_AVAIL_LVL(floor)` is exact — the heap really
@@ -126718,8 +126727,33 @@ at attach (§51.2), so a driver clearing its own table changes nothing the
 kernel reads, and `DSV_TICK` would still be far-called from inside IRQ0 at a
 card somebody else is programming. An unload puts the service table back,
 waits the worker out, unhooks the vector and gives the memory back — all of it
-already written, and this tree ships the pair twice already: `hbm_detach` /
-`hbm_reload` around a hibernate (§87.4), and `ss_reap_x` after a screen saver.
+already written, and this tree shipped the pair twice before the slot existed:
+`hbm_detach` / `hbm_reload` around a hibernate (§87.4), and `ss_reap_x` after
+a screen saver.
+
+**And the slot IS the hibernate's pair now**, rather than a third copy of it.
+The suspend and the resume are `hbm_drvsusp` in `HIBER.DRV` — `hbm_sweep`,
+the one loop `hbm_detach` walks too, with a third skip and a question asked
+on the way past, and `hbm_reload_m`, the one loop `hbm_reload` walks — so
+their bytes are resident only while the call is in flight. What the kernel
+keeps is `kernel.asm`'s six-byte thunk and `drv_suspend_x` in `hiber.inc`'s
+`.cold`, which loads the module, calls its perform entry with the slot's `AL`
+moved up past the `UI_RBQ_*` that entry already dispatches (`HB_P_RESUME`,
+`HB_P_SUSPEND` — the module gains no eighth entry, `MOD_NENT` being 7 and
+`HB_NENT` 7), and **drops the image again on the way out** through
+`hbf_dropck`, which leaves it alone while the Hibernate window has it: the one
+caller in the tree is about to claim the heap the module is sitting in
+(§96.35). §51.11.3 is the ledger, and the cell's third verb.
+
+**A refusal is the disk's and nothing else's.** The sweep cannot refuse; the
+module can fail to be read — the system disk is out — and then `CF=1` with
+nothing moved, so a refused suspend owes no resume and a refused resume keeps
+its rows noted in `[hb_susp]` for the next ask. A caller that is refused a
+suspend runs with the drivers mounted, which is what it did before the slot
+existed. It costs the call one read of `HIBER.DRV` each way — 4,402 bytes on
+the disk, one or two `int 13h` on a floppy, nothing to speak of on the fixed
+disk the field machine runs the DOS box from — beside the ~28-sector reload of
+`SOUND.DRV` the resume already paid.
 
 **The worker is why it works at all**, and it reads like a hazard before it
 reads like a mechanism: a driver's refill worker is `TF_SERVICE` (§53.2), so
@@ -126787,7 +126821,9 @@ and the DSP version — which is what a `BLASTER=` is made of.
 The records land in the **caller's** buffer (`ES:DI`, hence an X cell), one
 `DQ_SIZE` record per driver that answered, and `CX` counts them. A driver that
 does not implement the verb simply gets no record, so `CX` may be smaller than
-the number of bits in `AX`. `DQ_MAXREC` is published in `os88api.inc` so a
+the number of drivers that went — the bitmap of classes the first body also
+answered in `AX` is withdrawn, its one reader having stored it in a word
+nothing read back. `DQ_MAXREC` is published in `os88api.inc` so a
 caller can size that buffer without mirroring the kernel's own `DRV_MAX`,
 which is 6, 5 or 4 depending on the build — and the kernel asserts one against
 the other at assembly time, because a row added here without widening the SDK
@@ -126824,6 +126860,66 @@ is in the machine, found and version-gated, whose 12KB page-safe DMA claim the
 heap refused. Our driver cannot stream from it; a DOS program with the whole
 machine can, and does its own DMA. `BLASTER=` describes the **hardware**, so a
 card we could not use is still a card to name.
+
+#### 51.11.3 One cell, three verbs, and what it costs
+
+`0x0550` answers three things in `AL`, and they are one family — *get out of
+my way, and how far*:
+
+| `AL` | verb | in | out |
+|---|---|---|---|
+| 1 | suspend the hardware drivers | `ES:DI` = a `DQ_SIZE`-record buffer, or `DI` = 0 | `CX` = records written |
+| 0 | put them back | — | `CX` = 0 |
+| 2 | hand the WHOLE machine to `kern_dos` (§96.40) | `ES:SI` = a `KDH_*` record in the caller's image or bss | posted |
+
+`CF=1` refuses: for 1 and 0 the module could not be read, for 2 a post already
+stands. `AX`, `BX`, `CX`, `DX`, `SI` and `DI` are clobbered.
+
+**The handoff was a cell of its own for one cycle** — `OSAPI_DOS_HANDOFF` at
+`0x05A0`, the table's last — and is verb 2 here because it is the same
+question one step further, spent by the same module, posted by the same
+package. Withdrawing it took the cell **and its thunk** off every machine and
+moved `osapi_table_end` back to `0x05A0`; the free list of §20.3.1 stays
+empty, because the table shrank rather than holing. `osapi_dos_handoff_x`
+itself stays in `.cold` and only records (§96.40): it is entered by `je` from
+the dispatcher, and its `stc`/`retf` is the dispatcher's refusal too. It lost
+its `ES = 0` test on the way — `api_x` puts the caller's `DS` in `ES` and a
+package's `DS` is never 0, so the store is `mov [hb_dosseg], es` and no
+register is banked.
+
+**On `kern_small`** there is no driver layer and no hibernate, so the thunk is
+the whole slot: `xor cx, cx` / `cmp al, 2` / `cmc` / `ret` — the suspend and
+the resume ANSWER SUCCESS with no records, because a caller does not test `CF`
+for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md §10),
+and the handoff refuses, the published meaning of a slot that cannot do what
+was asked (§20.8). `cmp` sets `CF` for `AL` below 2 and `cmc` turns that into
+both answers in one byte.
+
+**The ledger**, the two slices sized together at one commit on `kern_big`
+(`kernsize` sections, before → after):
+
+| | `.text` | `.bss` | `.cold` |
+|---|---:|---:|---:|
+| `OSAPI_DRV_SUSPEND` as it shipped | 217 + 8 (cell) | 4 | 0 |
+| the handoff as it shipped | 6 + 8 (cell) | 6 | 37 + 6 |
+| **now, both** | **6 + 8** | **6** | **~49** |
+
+The suspend's rows-out word moved from `driver.inc` to `hiber.inc` as
+`[hb_susp]` — its own word and not `[hb_drvmask]`, because a hibernate can be
+taken while a suspend stands and the two sets come back at different moments.
+The handoff's `hb_doscode` is gone: `hbm_res` reads the BDA mailbox itself as
+it stages `HS_DOSCODE` (§96.41), so the exit code never has to survive a
+module drop and the kernel keeps no cell for it, nor the `.cold` line in
+`hb_probe` that defaulted one. `kern_small` lost the retired cell and the
+handoff's refusing thunk, and its suspend stub is two bytes shorter.
+
+**What moved in the DOS box for it.** `dos_run` takes the drivers out
+**before the sizing on both arms** (§96.35.2): the capped arm used to take
+them inside the bracket, after a claim that may have been everything, and a
+suspend that needs 5KB of heap for its module would have refused there — for a
+program that was going to be handed a `BLASTER=` out of the answer. The
+in-bracket call is gone with it, and so is the `dos_drvmask` word the
+withdrawn `AX` was stored in.
 
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
@@ -126974,8 +127070,10 @@ a program that could not have used the result.
 
 The skip is therefore recorded as a **decision about this wave** rather than a
 property of the class: the day a driver answers `DRVV_HWINFO` for a NIC and a
-DOS program wants raw ports, this is the line that has to be revisited, and
-`AL=2` on the suspend — "and the network too" — is where it would go.
+DOS program wants raw ports, this is the line that has to be revisited — it is
+one `mov dl, DRVC_NET` in `hbm_drvsusp`, the class `hbm_sweep` is told to
+leave standing — and a fourth verb on the slot, "and the network too", is
+where it would go (`AL=2` is the handoff, §51.11.3).
 
 #### 96.23.7 The frame buffer is a heap claim, taken before the arena
 
@@ -127989,7 +128087,8 @@ the shipped images, which makes `kdpart` a wider test than the one it
 replaces: it now answers *did a shipped floppy lose `kern_dos`* rather than
 *did `make kdostest` build its own disk*.
 
-**THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
+**THE PACKAGE POSTS AND RETURNS.** `OSAPI_DRV_SUSPEND` with `AL = 2`
+(§51.11.3 — it was `OSAPI_DOS_HANDOFF` at 0x05A0 for one cycle) takes
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
 it stores the far pointer, sets `[ui_rebootq]` to `UI_RBQ_DOSRUN` and wakes
 `ui_task`. It is `OSAPI_PKG_REHOME`'s shape (§20.12.10) and
@@ -128136,10 +128235,14 @@ copying §87.5's stub and the banked extents into the text framebuffer and
 jumping into it — is ~1,200 bytes of `kern_dos`'s image, and every byte of that
 image is a byte off the DOS program.
 
-**IT COSTS EIGHT RESIDENT BYTES**, measured: `.bss` +2 for `hb_doscode` and
-`.cold` +6 for the line in `hb_probe` that defaults it. Everything else is
-`HIBER.DRV`'s — an on-demand module — the box's own image, or a field on the end
-of a record that already existed.
+**IT COSTS NO RESIDENT BYTE.** It cost eight when it shipped — `.bss` +2 for
+an `hb_doscode` that carried the exit code from `hbm_ask` at the boot to
+`hbm_res` at the resume, two separate loads of the module, and `.cold` +6 for
+the line in `hb_probe` that defaulted it — and §51.11.3's pass found that
+nothing writes the BDA row between those two moments, so `hbm_res` reads the
+mailbox itself as it stages `HS_DOSCODE`. Everything else is `HIBER.DRV`'s —
+an on-demand module — the box's own image, or a field on the end of a record
+that already existed.
 
 **THE KERNEL DECIDES, NOT THE BOX.** Whether there is a fixed disk to come back
 to is `hb_pick`'s question (§87.2), so the box posts the same record either way
@@ -128163,9 +128266,9 @@ Five things the round trip needs, each the cheapest answer to its own question:
   to survive `int 19h` and a boot, which is a much weaker requirement: the BIOS
   sets that area up at POST and never touches it again, `int 19h` is the
   bootstrap and not POST, and os8088's own boot writes nothing below `0x0600`.
-  **Measured on the machine**, byte for byte at a settled desktop. `hbm_ask`
-  reads it once and clears the magic, so a second reader gets nothing rather
-  than a code from a session two boots ago.
+  **Measured on the machine**, byte for byte at a settled desktop. `hbm_res`
+  reads it once, as it stages the code, and clears the magic, so a second
+  reader gets nothing rather than a code from a session two boots ago.
 - **`HS_DOSCODE`**, a word in the staging area. It needs **no stub code at
   all**: `hbm_wake` already reads that segment for `HS_CLK`, and the stub never
   writes into it.

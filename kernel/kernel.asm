@@ -4034,15 +4034,19 @@ apic_wm_destroy:
                                   ;          fullscreen first, and neither zoom
                                   ;          is drawn (SPEC.md 11.99.5).
                                   ;          Preserves every register
-    OSAPI_XCELL drv_suspend_x   ; 0x0550 - DRIVERS, OUT OF MY WAY (SPEC.md
-                                  ;          51.10). AL = 1 suspend / 0
-                                  ;          resume, ES:DI = a DQ_SIZE-record
-                                  ;          buffer or DI = 0; out AX = the
-                                  ;          DRVC_* classes that went, CX =
-                                  ;          records written. X because the
-                                  ;          buffer is the CALLER's and the
-                                  ;          whole point is that the answer
-                                  ;          lands in it
+    OSAPI_XCELL drv_suspend     ; 0x0550 - THE MACHINE, OUT OF MY WAY
+                                  ;          (SPEC.md 51.11): AL = 1 suspend
+                                  ;          the hardware drivers, ES:DI = a
+                                  ;          DQ_SIZE-record buffer or DI = 0,
+                                  ;          out CX = records written; AL = 0
+                                  ;          put them back; AL = 2 hand the
+                                  ;          WHOLE machine to kern_dos, ES:SI
+                                  ;          = a KDH_* record (96.40). X
+                                  ;          because the buffer and the record
+                                  ;          are the CALLER's. The bodies are
+                                  ;          HIBER.DRV's - the same sweep the
+                                  ;          hibernate detaches with - and the
+                                  ;          resident part is the thunk
     OSAPI_XCELL api_file_path   ; 0x0558 - WHERE AM I STANDING? (SPEC.md
                                   ;          19.2.4). ES:DI = your buffer,
                                   ;          CX = its size; out CF=0 with a
@@ -4148,20 +4152,11 @@ apic_wm_destroy:
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
                                   ;          in the region it is going to move
-    OSAPI_XCELL osapi_dos_handoff ; 0x05A0 - X: HAND THE MACHINE TO kern_dos
-                                  ;          (SPEC.md 96.40). ES:SI = a KDH_*
-                                  ;          record in YOUR segment. Out CF=0
-                                  ;          posted, CF=1 refused. It only
-                                  ;          RECORDS - osapi_pkg_rehome's and
-                                  ;          osapi_mem_compact_wake's shape -
-                                  ;          because what it asks for tears the
-                                  ;          machine down and may not happen
-                                  ;          inside your callback. The record
-                                  ;          is read where it LIES, at
-                                  ;          ui_task's step 0, so it must be in
-                                  ;          your own image or bss and not on a
-                                  ;          stack
-osapi_table_end:                  ; 0x05A8
+osapi_table_end:                  ; 0x05A0. The DOS handoff had this cell
+                                  ; for one cycle and is verb 2 of 0x0550
+                                  ; now (SPEC.md 51.11, 96.40): the table
+                                  ; ends where it did before it, and the
+                                  ; free list (20.3.1) stays empty
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4169,8 +4164,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 179 * 8
-%error "os8088 API jump table must be exactly 179 8-byte slots"
+%if OSAPI_TABLE_LEN != 178 * 8
+%error "os8088 API jump table must be exactly 178 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -7151,18 +7146,26 @@ osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
                   ret
 osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
                   ret
-%ifdef KERN_BIG                 ; **kern_small HAS NO HIBERNATE AND SO NO ARM 3**
-osapi_dos_handoff:    call COLD_SEG:osapi_dos_handoff_x
-                  ret           ; X: ES:SI = a KDH_* record (SPEC.md 96.40)
-%else                           ; (SPEC.md 96.40): hiber.inc's body is %ifdef
-osapi_dos_handoff:    stc       ; KERN_BIG, so the thunk had nothing to call
-                  ret           ; and kern_small did not assemble at all. A
-                                ; refusing cell is the published meaning of a
-                                ; slot that cannot do what was asked (20.8),
-                                ; and dos_mem_whole greys the arm on the part
-                                ; table rather than on this - so a kern_small
+%ifdef KERN_BIG                 ; 0x0550's three verbs (SPEC.md 51.11): the
+drv_suspend:          call COLD_SEG:drv_suspend_x   ; suspend, the resume and
+                  ret           ; the DOS handoff are HIBER.DRV's, behind one
+                                ; cold dispatcher, and this is the whole of
+                                ; what stays in the segment
+%else                           ; **kern_small HAS NO DRIVER LAYER AND NO
+drv_suspend:          xor cx, cx    ; HIBERNATE** (SPEC.md 51.11.3). The
+                  cmp al, 2     ; suspend and the resume ANSWER SUCCESS with
+                  cmc           ; no records - nothing had to get out of the
+                  ret           ; way - because a caller does not test CF for
+                                ; a condition that is not an error
+                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md 10); the
+                                ; handoff REFUSES, the published meaning of a
+                                ; slot that cannot do what was asked (20.8) -
+                                ; dos_mem_whole greys the arm on the part
+                                ; table rather than on this, so a kern_small
                                 ; machine carrying a parted DOS.O88 would have
-                                ; offered the arm and been refused here
+                                ; offered the arm and is refused here. `cmp`
+                                ; sets CF for AL below 2 and `cmc` turns that
+                                ; into the two answers in one byte
 %endif
 osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret
