@@ -94,7 +94,7 @@ hf_entry:
 ; hf_wake - W_ONWAKE: checks 17 and 18, which cannot run at suite time
 ; in:  SI = our window; the UI task, no gfx lock (SPEC.md 74.1)
 ;
-; SPEC.md 66.4.3. Check 16 posted OSAPI_MEM_COMPACT_WAKE and RETURNED, which is
+; SPEC.md 66.4.3. Check 16 posted OSAPI_MEM_COMPACT and RETURNED, which is
 ; the only way a package's own region can be planned as movable: at ui_task's
 ; step 0 our callback has returned, [wm_pkgd] is 0, and mem_frameless answers
 ; "movable" for us with no predicate changed. Arriving here at all is check 17.
@@ -176,8 +176,9 @@ hf_key:
     mov [hf_rseg0], ax          ; where we are BEFORE
     call OSAPI_MEM_AVAIL
     mov [hf_rav], ax
-    mov al, MEM_LVL_TOP         ; THE SAME LEVEL AS THE PLAIN SLOT ABOVE, or
-    call OSAPI_MEM_AVAIL_MAX    ; the two are answers to different questions
+    mov ax, MEM_LVL_TOP         ; THE SAME LEVEL AS THE PLAIN SLOT ABOVE, or
+    call OSAPI_MEM_COMPACT      ; the two are answers to different questions
+                                ; (AH = MEMC_WHATIF)
     mov [hf_rmax], ax
     cmp ax, [hf_rav]
     jb .nomax                   ; **NOT STRICTLY GREATER.** The what-if can
@@ -195,8 +196,8 @@ hf_key:
                                 ; reading SHORT, since R4 below is one-sided
 .post:
     mov bx, [hf_win]
-    mov al, MEM_LVL_TOP
-    call OSAPI_MEM_COMPACT_WAKE
+    mov ax, (MEMC_POST << 8) | MEM_LVL_TOP
+    call OSAPI_MEM_COMPACT
     jc .nopost
     call hf_rpass               ; R2: posted - and R3 and R4 are answered in
     jmp short .out              ; hf_wake, because that is the whole shape
@@ -755,7 +756,7 @@ hf_run:
 .av_bad:
     call hf_fail
 
-    ; --- 16. ...and OSAPI_MEM_AVAIL_MAX is never SMALLER --------------------
+    ; --- 16. ...and the what-if is never SMALLER ----------------------------
     ; The what-if plans the same heap with our own region excused, so it can
     ; only ever find more room, never less. Bigger is the interesting case and
     ; needs a hole above this package's region to show - which this package
@@ -763,8 +764,8 @@ hf_run:
     ; asserted here is the half that holds in every layout, and it is the half
     ; a sign error would break.
 .avmax:
-    mov al, MEM_LVL_TOP
-    call OSAPI_MEM_AVAIL_MAX
+    mov ax, MEM_LVL_TOP         ; AH = MEMC_WHATIF
+    call OSAPI_MEM_COMPACT
     mov [hf_avmax], ax
     cmp ax, [hf_av]
     jb .max_bad
@@ -785,8 +786,8 @@ hf_run:
     mov word [hf_hia], 0
 .post2:
     mov bx, [hf_win]
-    mov al, MEM_LVL_TOP         ; every cache may go, an ordinary claim's rank
-    call OSAPI_MEM_COMPACT_WAKE
+    mov ax, (MEMC_POST << 8) | MEM_LVL_TOP  ; every cache may go, an ordinary
+    call OSAPI_MEM_COMPACT      ; claim's rank
     jc .done
     mov byte [hf_posted], 1
 
@@ -1136,7 +1137,7 @@ hf_done    equ os88_image_end + 28   ; byte: the suite has run
 hf_pad     equ os88_image_end + 29   ; byte:
 hf_num     equ os88_image_end + 32   ; 8 bytes: the number formatter
 hf_av      equ os88_image_end + 40   ; word: OSAPI_MEM_AVAIL at check 15
-hf_avmax   equ os88_image_end + 42   ; word: ...and OSAPI_MEM_AVAIL_MAX
+hf_avmax   equ os88_image_end + 42   ; word: ...and the what-if
 hf_avwake  equ os88_image_end + 44   ; word: ...and plain avail ON THE WAKE,
                                   ; which the harness cross-checks against its
                                   ; own model of the claim map (SPEC.md 66.4.3)

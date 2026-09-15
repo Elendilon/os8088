@@ -493,7 +493,7 @@ DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
 DST_ERR     equ 3                   ; it did not; [dos_err] says why
 DST_CPWAIT  equ 4                   ; ...and it is waiting for the heap to be
                                     ; packed (SPEC.md 96.35). A posted
-                                    ; OSAPI_MEM_COMPACT_WAKE runs at ui_task's
+                                    ; OSAPI_MEM_COMPACT's post runs at ui_task's
                                     ; step 0, and the EVT_WAKE it sends lands
                                     ; here - so this is one more state and not
                                     ; a lifecycle, which is why a stale wake
@@ -861,7 +861,7 @@ dos_run:
     ; went back to a heap nobody would ask about again
     ; (docs/plans/DISK-CPU-PLAN.md 5). It comes out HERE now, and what makes
     ; the hole reachable is that a package cannot compact the heap it is
-    ; standing in: OSAPI_MEM_COMPACT_WAKE records the wish and RETURNS, and the
+    ; standing in: OSAPI_MEM_COMPACT's post records the wish and RETURNS, and the
     ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
     cmp byte [dos_cpw], 0
     jne .ask                        ; on the wake the heap IS packed, so plain
@@ -889,8 +889,9 @@ dos_run:
     pop bx
     push bx
     mov al, bl                      ; ...and what it would give with one, AT
-    call OSAPI_MEM_AVAIL_MAX        ; THE SAME LEVEL, or the two are answers to
-    pop bx                          ; different questions (SPEC.md 66.4.3.2)
+    xor ah, ah                      ; THE SAME LEVEL, or the two are answers to
+    call OSAPI_MEM_COMPACT          ; different questions (SPEC.md 66.4.3.2) -
+    pop bx                          ; AH = MEMC_WHATIF
     cmp word [dos_memkb], 0
     jne .capmax
     cmp ax, [dos_akb]               ; no cap: does a pass add anything at all?
@@ -902,8 +903,9 @@ dos_run:
 .post:
     push bx
     mov al, bl                      ; AL = the shed rank the pass must respect,
-    mov bx, [dos_win]               ; which is the same promise the claim makes
-    call OSAPI_MEM_COMPACT_WAKE
+    mov ah, MEMC_POST               ; which is the same promise the claim makes
+    mov bx, [dos_win]
+    call OSAPI_MEM_COMPACT
     pop bx
     jc .ask                         ; refused - a post of ours already stands,
                                     ; or the window is not ours. Carry on with
@@ -6313,9 +6315,9 @@ dos_mem_fix:
 ; get, not an estimate of it (SPEC.md 50.6.6, 96.25.1).
 ;
 ; **AND THE SAME QUESTION IS THE WHAT-IF, NOT PLAIN AVAIL** (SPEC.md 96.25.1.1).
-; dos_run posts OSAPI_MEM_COMPACT_WAKE and claims on the wake, so what it
+; dos_run posts OSAPI_MEM_COMPACT and claims on the wake, so what it
 ; hands the program is a heap that has been packed with OUR OWN REGION IN THE
-; PASS - which is exactly the question OSAPI_MEM_AVAIL_MAX answers and exactly
+; PASS - which is exactly the question the what-if answers and exactly
 ; the one plain avail does not, a package being pinned by the act of asking
 ; (SPEC.md 66.4.3). It made no difference for a release because this region
 ; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
@@ -6331,11 +6333,11 @@ dos_mem_fix:
 dos_mem_figs:
     push bx
     push cx
-    mov al, DOS_PG_FLOOR
-    call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run that leaves the
+    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF
+    call OSAPI_MEM_COMPACT          ; AX = the largest run that leaves the
     push ax                         ; cache alive
-    mov al, MEM_LVL_TOP             ; ...and the one that does not. **AL IS SET
-    call OSAPI_MEM_AVAIL_MAX        ; EITHER WAY** - this slot has no
+    mov ax, MEM_LVL_TOP             ; ...and the one that does not. **AX IS SET
+    call OSAPI_MEM_COMPACT          ; EITHER WAY** - the what-if has no
                                     ; unconditional door of its own the way
                                     ; OSAPI_MEM_AVAIL is OSAPI_MEM_AVAIL_LVL's,
                                     ; so a fall-through here would ask the

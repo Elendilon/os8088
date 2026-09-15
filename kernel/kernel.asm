@@ -3629,6 +3629,8 @@ apic_wm_destroy:
                                   ;          Rule 0's sibling: sort the
                                   ;          %defines by address after every
                                   ;          merge and look for a duplicate)
+apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
+                                  ; 66.4.3): the cell IS the shim, so no cw_
     OSAPI_SLOT wm_wake            ; 0x0450 - BX = a window of yours: post an
                                   ;          EVT_WAKE for it (SPEC.md 74.1).
                                   ;          Any context - ISR- and worker-
@@ -4122,36 +4124,40 @@ apic_wm_destroy:
                                   ;         written, no entry touched and
                                   ;         nothing to roll back. Growing one
                                   ;         is OSAPI_FILE_APPEND's still
-    OSAPI_XCELL osapi_mem_avail_max ; 0x0590 - X: OSAPI_MEM_AVAIL, plus "AND IF MY
-                                  ;          OWN REGION MOVED TOO" (SPEC.md
-                                  ;          66.4.3). Out AX/BX as the plain
-                                  ;          slot. X because the region to
-                                  ;          excuse is the caller's segment and
-                                  ;          the stub already puts it in ES.
-                                  ;          A MEASUREMENT AND NOT A PROMISE:
-                                  ;          claiming this number refuses,
-                                  ;          because you really are standing in
-                                  ;          your region. Post the slot below
-                                  ;          and claim on the wake, where plain
-                                  ;          OSAPI_MEM_AVAIL has become it
-    OSAPI_XCELL osapi_mem_compact_wake ; 0x0598 - X: "compact everything you
-                                  ;          can, INCLUDING MY OWN REGION, then
-                                  ;          wake me". BX = a window of yours,
-                                  ;          AL = the shed rank the pass is to
-                                  ;          respect. Out CF=0 posted - return
-                                  ;          from your callback and do the
-                                  ;          claiming in your wake handler;
-                                  ;          CF=1 refused (BX is not yours, or
-                                  ;          one of your posts is standing).
+    OSAPI_XCELL osapi_mem_compact ; 0x0590 - X: MY OWN REGION IN THE PASS
+                                  ;          (SPEC.md 66.4.3): one door, the
+                                  ;          verb in AH. AH=0 THE WHAT-IF:
+                                  ;          OSAPI_MEM_AVAIL_LVL's answer (AL =
+                                  ;          the level, out AX/BX) planned as
+                                  ;          if YOUR OWN REGION moved too. A
+                                  ;          MEASUREMENT AND NOT A PROMISE:
+                                  ;          claiming it refuses, because you
+                                  ;          really are standing in your
+                                  ;          region. AH=1 THE POST: "compact
+                                  ;          everything you can, INCLUDING MY
+                                  ;          REGION, then wake me" - BX = a
+                                  ;          window of yours, AL = the shed
+                                  ;          rank the pass is to respect. Out
+                                  ;          CF=0 posted - return from your
+                                  ;          callback and claim in your wake
+                                  ;          handler, where plain OSAPI_MEM_AVAIL
+                                  ;          has become the what-if; CF=1 a
+                                  ;          post is already standing.
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
-                                  ;          in the region it is going to move
-    OSAPI_XCELL osapi_dos_handoff ; 0x05A0 - X: HAND THE MACHINE TO kern_dos
+                                  ;          in the region it is going to move.
+                                  ;          X because the what-if excuses the
+                                  ;          caller's segment and the stub
+                                  ;          already puts it in ES. On
+                                  ;          kern_small the what-if IS the
+                                  ;          plain answer and the post refuses
+                                  ;          (SPEC.md 66.0)
+    OSAPI_XCELL osapi_dos_handoff ; 0x0598 - X: HAND THE MACHINE TO kern_dos
                                   ;          (SPEC.md 96.40). ES:SI = a KDH_*
                                   ;          record in YOUR segment. Out CF=0
                                   ;          posted, CF=1 refused. It only
                                   ;          RECORDS - osapi_pkg_rehome's and
-                                  ;          osapi_mem_compact_wake's shape -
+                                  ;          osapi_mem_compact's post's shape -
                                   ;          because what it asks for tears the
                                   ;          machine down and may not happen
                                   ;          inside your callback. The record
@@ -4159,7 +4165,7 @@ apic_wm_destroy:
                                   ;          ui_task's step 0, so it must be in
                                   ;          your own image or bss and not on a
                                   ;          stack
-osapi_table_end:                  ; 0x05A8
+osapi_table_end:                  ; 0x05A0
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4167,8 +4173,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 179 * 8
-%error "os8088 API jump table must be exactly 179 8-byte slots"
+%if OSAPI_TABLE_LEN != 178 * 8
+%error "os8088 API jump table must be exactly 178 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -6720,8 +6726,6 @@ cw_wm_content:          call wm_content
                     retf
 cw_wm_minsize:          call wm_minsize
                     retf
-cw_wm_wake:             call wm_wake    ; mem_cpq_run's, for the posted
-                    retf                    ; compaction's wake (SPEC.md 66.4.3)
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
                     retf                    ; app_tmr_kinit asks for the snap
                                             ; on every kernel (SPEC.md 11.94)
@@ -7142,10 +7146,17 @@ osapi_mem_movable:    call COLD_SEG:osapi_mem_movable_x
                   ret
 osapi_pkg_rehome:     call COLD_SEG:osapi_pkg_rehome_x
                   ret
-osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
+%ifdef OS88_COMPACT
+osapi_mem_compact:    call COLD_SEG:osapi_mem_compact_x
                   ret
-osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
+%else                           ; kern_small MOVES NOTHING (SPEC.md 66.0), so
+                                ; the door is a stub in .text and none of its
+osapi_mem_compact:    or ah, ah ; machinery is assembled: the what-if IS the
+                  jnz .no       ; plain level door's answer, and a post is
+                  jmp osapi_mem_avail_lvl   ; refused - which is the documented
+.no:              stc           ; outcome a caller already carries on from
                   ret
+%endif
 %ifdef KERN_BIG                 ; **kern_small HAS NO HIBERNATE AND SO NO ARM 3**
 osapi_dos_handoff:    call COLD_SEG:osapi_dos_handoff_x
                   ret           ; X: ES:SI = a KDH_* record (SPEC.md 96.40)
