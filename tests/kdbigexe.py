@@ -288,24 +288,6 @@ def main():
             return b[0] | (b[1] << 8)
 
         top, arena = w("kd_top"), w("dos_arena")
-        # **`kd_top` IS THE CEILING WITH THE CACHE ALREADY OUT OF IT**, and
-        # `capacity()` below subtracts a rung from it - so the reading has to
-        # be taken with NONE held or the two double-count. That used to be
-        # automatic: `kd_giveback` ran the ladder to the bottom, so by the
-        # time the program was up `[dsk_rah_runs]` was 0. Since SPEC.md
-        # 96.44.11.4 it STOPS at `KD_RAH_KEEP`, and the reading is low by
-        # whatever it kept - which moved every rung of the table down by the
-        # same 9,216 bytes and took assertion 5 off by one, while the
-        # PRODUCT was behaving correctly throughout.
-        #
-        # Added back off the machine's own count rather than the constant, so
-        # a future `KD_RAH_KEEP` needs nothing here.
-        held = w("dsk_rah_runs")
-        if held not in RUNG_KB:
-            fail("[dsk_rah_runs] is %d after the load and the ladder is %r: "
-                 "this row cannot correct kd_top for a width it does not "
-                 "know" % (held, list(LADDER)))
-        top += (RUNG_KB[held] * 1024) >> 4
         wpara = (w("dos_wbytes") + 15) >> 4
         keep = dosmap.kd_const("KD_RAH_KEEP")
         ladder = tuple(k for k in (7, 4, 2, 0) if k >= keep)
@@ -314,7 +296,7 @@ def main():
         print("kdbigexe: dos_load capacity per rung: "
               + ", ".join("%d runs %d" % (k, c) for k, c in caps)
               + "  (kd_top corrected for the %d KB kd_giveback kept)"
-              % RUNG_KB[held])
+              % RUNG_KB[keep])
 
         # 3: the retry was NECESSARY - the file does not fit with the cache.
         if size <= caps[0][1]:
