@@ -128087,6 +128087,61 @@ cell for that target and require `kdback.inc` to set whatever the stub sets —
 `inst_vol_enter` excepted by name, with the reason above. That is not built,
 and it is the thing to build before the next `kern_dos` door is written.
 
+#### 96.44.13 An EMPTY environment is not an empty environment, and a program that fits never got one
+
+**`[dos_blaster]` is filled by `dos_drv_take`**, out of the record
+`OSAPI_DRV_SUSPEND` hands back for the sound class (§96.17) — and on the
+whole-machine arm `dos_drv_take` runs **only in `.unmount`**, the branch taken
+when the program does NOT fit the arena. The source says so in as many words:
+*"it fits - and the sound driver is never touched"*. `dos_lbfill` then gathers
+`KDL_F dos_blaster, 32` from a cell nothing had written.
+
+So `kern_dos` built the program's environment with **no rows in it**, and the
+block a DOS program was handed began with its own terminator:
+
+    windowed   BLASTER=A220 D1 T3\0 \0 \x01\0 B:\PRINCE.EXE\0
+    kern_dos                      \0 \x01\0 B:\PRINCE.EXE\0
+
+Both are WELL FORMED. The second is an environment with zero variables,
+correctly terminated, with the program path after it exactly where §96.19.3
+puts it. Nothing refuses, nothing is corrupt, and no `INT 21h` answer differs
+— the whole conversation up to this point is identical on both arms, register
+for register and flag for flag.
+
+**And it stops a program dead, because the rows are the ROAD to the path.** DOS
+3 puts a program's own path after the block's terminating NUL and a count
+word, so a program walks the variables to REACH it. Prince of Persia's walk is
+four instructions, measured at `B78F` in its own image:
+
+```
+B78F  mov es,si            ; the environment segment, out of PSP:2Ch
+B791  cmp byte [es:0],0    ; ...is there anything in it?
+B797  jz  B79F             ; no -> skip the walk
+B799  repne scasb          ; yes -> step to the double NUL, and the path
+```
+
+An empty block takes the `jz`. Prince never reaches its own path, cannot work
+out which directory it came from, and says **"Unable to find necessary files.
+Please start program from the default drive and directory."** — about files it
+had already opened successfully. §96.22 describes that exact shape for a
+different cause, and this is a second road to it.
+
+**The fix is one call, at the top of `dos_lbfill`**: take the drivers before
+gathering the row that only taking them can produce. `dos_drv_take` is
+idempotent — `[dos_drvout]` is its own guard — and the drivers cannot survive
+this arm anyway, since `kern_dos` replaces the kernel they are loaded into. So
+the call belongs where the row is READ, not only on the arm that happens to
+need the memory.
+
+**What it cost to find is the general lesson.** Every measurement that a DOS
+box can make said the two arms were identical: the file's bytes, the small read
+Prince actually makes, the CWD, the drive, the program's own path, the command
+tail, the PSP's 256 bytes, the BIOS data area, the registers at entry, and
+every `INT 21h` return register through the fourteenth call. The difference was
+**five bytes of content in a block whose SHAPE was right** — which is why
+§96.21.4's rule generalises past the PSP: *a program reads this without making
+a call, so nothing appears in a trace when it does.*
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
