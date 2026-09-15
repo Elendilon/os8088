@@ -127337,13 +127337,15 @@ to end. It is **3,264** against a measured 3,251, with the ledger in the source
 and an `%if` that fails naming it; `-DCORE_BSS_SIZE=n` is how the exact figure
 is bisected out.
 
-`tests/unit/t_dosbss.py` is the gate and it is **four** hard zeros — no `DBSS`
-row is conditional, no core proc names an `HBSS` cell, no host-varying arm sits
-inside the core, and §96.44.2.1's measured one. It was written against a real
-offender: **`DOS_B_PKTRAW` sat inside the packet driver's own
-`%ifndef KD_BACKEND`**, so it was a thirtieth conditional row, and the failure
-it would have caused is silent state corruption in whichever host was not the
-one the core was built against.
+`tests/unit/t_dosbss.py` is the gate and it is four hard zeros — no `DBSS` row
+is conditional, no core proc names an `HBSS` cell, no host-varying arm sits
+inside the core, and **every `DBSS` row comes out at the same offset in all four
+builds**. It was written against a real offender: **`DOS_B_PKTRAW` sat inside
+the packet driver's own `%ifndef KD_BACKEND`**, so it was a thirtieth
+conditional row, and the failure it would have caused is silent state corruption
+in whichever host was not the one the core was built against. The fourth rule
+came later and for the same failure arriving by a route the first three cannot
+see — §96.44.2.1, which is what to read before trusting any of them.
 
 **Three things the split broke, and each is a class rather than a slip.**
 
@@ -127366,48 +127368,81 @@ one the core was built against.
   feature failing as a red one, which is the safe direction and still cost a
   diagnosis.
 
+#### 96.44.2.1 …and a row's SIZE is part of the layout, which is how six drives met eight
 
-##### 96.44.2.1 A cell's SIZE is as much of the layout as its position, and no source rule sees one
+§96.44.2's rule is *no `DBSS` row is conditional*, and `tests/unit/t_dosbss.py`
+enforced it by READING THE SOURCE: a row inside a `%if` fails. Every row was
+unconditional, all three of its checks were green, **and the two halves still
+laid the block out differently** — because the conditional was not in a row, it
+was in a row's SIZE:
 
-The three rules above read the SOURCE's shape, and **all three passed on a
-build where the box and the core disagreed about 58 of 192 cells.**
+```
+    DBSS DOS_B_DVCWD,  2 * DVOL_MAX
+```
 
-`DOS_B_DVCWD` is *where each drive is standing* — one cluster per volume, so
-`2 * DVOL_MAX` bytes. `DVOL_MAX` is written down three times, because there is
-no linker: `kernel/disk.inc` has the kernel's, `apps/dos/dos.asm` mirrors it
-for the box, and `apps/dos/doscore.asm` carries a default for an assembly that
-has no host. The kernel's went **6 → 8** when a disk driver got four partitions
-of its own; `dos.asm`'s mirror stayed at 6 and `doscore.asm`'s default is 8.
+`DVOL_MAX` is how many drives the box will let a program name, and it is
+`%ifndef KD_BACKEND` so that a host bringing its own disk layer keeps that
+layer's number (§96.38). `apps/dos/dos.asm` said **6**, `apps/dos/doscore.asm`
+says **8**, and `kernel/disk.inc` — which is where `kern_dos` gets it — says 4
+on `kern_small` and 8 on `kern_big`. So the window's copy of the table was 12
+bytes and the core's was 16, **and every `DBSS` cell after `DOS_B_DVCWD` stood
+four bytes apart in the two halves**: the whole shell block, the folder-walk
+cells, the console's own flags, the saved IVT.
 
-So the core laid that cell out **sixteen bytes wide and the box addressed it as
-twelve**, and every core cell after it was **four bytes below** where the core
-kept it. The row is not conditional, no core proc names a host cell, and there
-is no arm inside the core — every source rule was satisfied.
+**What it cost is the console launcher, entirely.** Two cells in that range are
+the launcher's handshake and each broke in the opposite direction:
 
-**IT BROKE THE WINDOW AND NOT THE HANDOFF**, which is why it survived a wave.
-`kern_dos` takes the kernel's 8 through `disk.inc`, so it agreed with the core
-exactly; the box did not. Arm 3 was perfect and the console was wrong — the
-window wrote `dsh_a1` and the core read the four bytes in front of it, so a
-bare name at the prompt answered `Bad command or file name` about a program
-`DIR` had just listed, `DIR /P` never paged, `RENAME` hung, and a `.O88` would
-not launch. **And nothing found it for a wave**, because the parted package
-rode a gate disk (§96.40.3) and not one row on that disk typed a name into the
-console. Ungating the arm ran eleven console rows against the parted box for
-the first time and ten went red at once.
+| cell | written by | read by | what happened |
+|---|---|---|---|
+| `dsh_exec` | the window, before `dsh_run` | the core, at `.unknown` | the core read its own copy — 0, meaning *a `/c` shell* — so it printed `Bad command or file name` itself instead of holding the message back (§96.33.3) |
+| `dsh_why` | the core, at `.unknown` | the window, at `.ranout` | the window read its own copy — never `DSHW_NOCMD` — so **`dos_con_prog` was never called at all** |
 
-**The fix is that the LAYOUT is not the capacity.** `DOS_DVOL_ABI` lives in
-`apps/dos/doscall.inc`, the one file none of the three roots can be assembled
-without, and it is what `DOS_B_DVCWD` is sized by. `DVOL_MAX` stays each host's
-own belief about how many volumes the machine has, every use of it bound-checked
-as before — and `%if DVOL_MAX > DOS_DVOL_ABI` at the row itself refuses the one
-combination that could write past the cell. A host may reach fewer volumes than
-the cell holds; it may never reach more.
+The visible result is that **every program typed at the parted box's prompt was
+refused**, from the root and from a subdirectory alike, while the same command
+on the same floppy launched under the inline `build/dos.o88`. It reads exactly
+like a file-resolution bug and is not one: `DIR` listed `PRINCE EXE 126304` one
+line above `Bad command or file name: PRINCE.EXE`.
 
-**And rule 4 is the one that reads what the assembler DID.** It builds all
-three roots and requires every `DBSS` cell to land at one offset in all of
-them, naming the first that parts and by how much. A constant, an include
-order, a macro — any cause is caught, because it asks the question the ABI
-actually poses instead of a proxy for it.
+**AND WHAT KEPT IT HIDDEN FOR A WAVE WAS WHERE THE PARTED PACKAGE LIVED.**
+`$(SYSROOT)` shipped the inline `build/dos.o88` and the parted one rode
+`build/kdos360.img`, a gate disk whose rows drive the HANDOFF — the radio, the
+mouse, the volume table, the return — and **not one of them ever typed a name
+at the prompt**. So the eleven console rows all booted the inline box, where
+one `DVOL_MAX` sizes both halves and nothing can disagree. §96.40.3 pointing
+`$(SYSROOT)` at the parted package is what ran them against it for the first
+time, and **ten went red at once on this one cause**: `doscon`, `dosext`,
+`dospkg`, `dostype`, `dosdirsw`, `dosren`, `dosdrv`, `doslnk`, `dosmedia` and
+`dosmem`. **58 of the 192 `DBSS` cells were out of step** — every one from
+`DOS_B_DVTGT` up.
+
+That is the general shape and it is worth more than the defect: **a build
+configuration that ships on no disk is a build configuration no row exercises**,
+however many rows there are. The gate disk made the parted package *testable*
+and left it *untested* in every respect its own rows were not about.
+
+**The fix is that a `DBSS` row's width is an ABI constant.** `DVOL_CAP equ 8`
+lives in `apps/dos/doscall.inc`, which every half includes and reads the same
+line of; the table is `2 * DVOL_CAP`; and `dos.asm` asserts `DVOL_MAX <=
+DVOL_CAP` so a host that grows past it fails the build naming the rule. With
+the width no longer costing anything per drive, `DVOL_MAX` itself becomes the
+kernel's own widest arm — it is `DVOL_CAP` now, so the two are one number —
+which is what its comment always claimed and had not been true of 6 since
+`assoc.inc` stopped owning the constant. The inline box gains the two drives of
+reach that 6 was quietly costing it on a `kern_big` machine.
+
+**And the gate asks the ASSEMBLER now** — rule 4: `apps/dos/dos.asm` inline,
+`apps/dos/dos.asm` parted, `apps/dos/doscore.asm` and `kerndos/kdos.asm`, one
+`[map all]` each, every `DBSS` name compared across all four. A cleverer
+source-reading rule was not attempted and should not be: the size expression is
+arbitrary arithmetic over constants defined in four files, and nasm already
+knows the answer. It is 1.6 seconds, and it goes red on this defect naming
+`DOS_B_DVTGT` first with both offsets beside it.
+
+> The trap inside the gate is worth the line it takes: **`[map all <path>]` goes
+> through the preprocessor**, so a map file named after the build's defines came
+> back with `DOSKPART` expanded to the empty string `-DDOSKPART` makes it, and
+> nasm wrote the map somewhere else with `rc` 0 and no complaint. The build
+> names are lower case for that reason.
 
 #### 96.44.3 …and ten conditionals inside the core, of which five matter
 

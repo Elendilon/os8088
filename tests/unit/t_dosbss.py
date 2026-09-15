@@ -14,9 +14,7 @@ That is not hypothetical: §96.43.2 gated twenty-nine window rows out of
 inside the packet driver's own `%ifndef KD_BACKEND` - which would have put the
 whole tail of the core's state at two different offsets in the two hosts.
 
-FOUR RULES NOW, and all of them are hard zeros. The first three read the
-SOURCE's shape; rule 4 assembles all three roots and compares what they came
-out as, which is the only one that could have caught what shipped:
+FOUR RULES, and every one is a hard zero:
 
   1. **No `DBSS` row is conditional.**  A row that only some builds emit
      belongs to a host, and a host's rows are `HBSS` - a second accumulator
@@ -26,42 +24,33 @@ out as, which is the only one that could have caught what shipped:
      marks the core's spans (§96.44); a core routine that reads a host cell
      would resolve it through `dos_hbss`, which is only where it is in THIS
      host.
-
   3. **No host-varying arm inside the core.**  The core is assembled once, so
-     a `%ifdef KD_BACKEND` region inside it is one host's code in the other
-     host's image: it becomes a `DHK_*` hook the host fills (SPEC.md 96.44.3).
+     a `%ifdef KD_BACKEND` in it is one host's code in both hosts' binary.
+  4. **Every `DBSS` row comes out at the SAME offset in all four builds** -
+     and this one reads the ASSEMBLER rather than the source.
 
-  4. **And the three assemblies AGREE, measured.**  Rules 1-3 are shapes a
-     reader can check; this one builds `apps/dos/doscore.asm`, the box
-     (`-DDOSKPART -DDOS_EXTCORE`) and `kerndos/kdos.asm`, and requires every
-     `DBSS` cell to land at the same offset in all three.
+**RULE 4 EXISTS BECAUSE RULES 1 TO 3 WERE GREEN WHILE THE HALVES DISAGREED**
+(SPEC.md 96.44.2.1).  They read the source and ask whether a ROW is
+conditional; the offender was a row's SIZE - `DBSS DOS_B_DVCWD, 2 * DVOL_MAX`,
+where `DVOL_MAX` is `%ifndef KD_BACKEND` and came out 6 in the window and 8 in
+the core.  Every core cell after that table was four bytes apart in the two
+halves, and what it cost was the whole console launcher: the window set
+`[dsh_exec]` and `dsh_run` read its own copy, so the core printed `Bad command
+or file name` for every program typed at the prompt, and the window's
+`[dsh_why]` never said `DSHW_NOCMD` so `dos_con_prog` was never called at all.
 
-**RULE 4 EXISTS BECAUSE RULES 1-3 ALL PASSED ON A BROKEN BUILD.**  `DVOL_MAX`
-went 6 -> 8 in `kernel/disk.inc`; `apps/dos/dos.asm`'s mirror stayed at 6 and
-`apps/dos/doscore.asm` defaults to 8 - and `DOS_B_DVCWD` is `2 * DVOL_MAX`
-bytes.  The row is not conditional, no core proc names a host cell and there
-is no arm inside the core, so every source-shape rule was satisfied while the
-core laid that cell out SIXTEEN bytes wide and the box addressed it as TWELVE.
-Every core cell after it was four bytes below where the core kept it, in the
-WINDOW only - `kern_dos` takes the kernel's 8 through `disk.inc`, so the
-handoff was perfect and the console was not: a bare name at the prompt
-answered `Bad command or file name` about a program `DIR` had just listed,
-`DIR /P` never paged, and a `.O88` would not launch.  A size is as much of the
-layout as a row is, and no source rule sees a size.
-
-It is fixed at the source too (SPEC.md 96.44.2.1): the width lives in
-`apps/dos/doscall.inc`, which none of the three can be assembled without, and
-`DVOL_MAX` is bound-checked against it.  This rule is what says a SECOND such
-constant has not appeared.
+A source rule cannot see that, and no cleverer source rule should be attempted:
+the assembler already knows the answer, so rule 4 ASKS IT.  Four builds, one
+`[map all]` each, every `DBSS` name compared.
 
 VERIFIED TO FAIL: turning any `HBSS` row back into a `DBSS` one inside the
 packet driver takes rule 1 red naming the row; reading `[dos_win]` from a core
-proc takes rule 2 red naming the proc; and putting `DOS_B_DVCWD` back on
-`2 * DVOL_MAX` with either copy of that constant moved takes rule 4 red
-naming the cell and both offsets.
+proc takes rule 2 red naming the proc; putting `DOS_B_DVCWD` back on
+`2 * DVOL_MAX` takes rule 4 red naming that row and the two offsets.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -73,50 +62,60 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 SRC = os.path.join(ROOT, "apps", "dos", "dos.asm")
 OPEN = re.compile(r"^%(?:if|ifdef|ifndef)\b")
 
-# The three roots that join the ONE core, with the include paths and defines
-# the Makefile gives each. `kerndos/kdos.asm` needs `kernel/` in front of the
-# rest: it %includes the kernel's own disk layer, which is what makes it a
-# second host rather than a second copy.
-APPINC = ("apps", "apps/dos", "drivers/net", "kerndos")
-ROOTS = (
-    ("the core", "apps/dos/doscore.asm", (), APPINC),
-    ("the box", "apps/dos/dos.asm", ("DOSKPART", "DOS_EXTCORE"), APPINC),
-    ("kern_dos", "kerndos/kdos.asm", ("DOS_EXTCORE",),
-     ("kernel", "kerndos", "apps", "apps/dos", "drivers/net")),
+# --- rule 4's four builds ---------------------------------------------------
+# The same `DBSS` table is assembled into all of them and every one of them is
+# something that SHIPS, which is the point: a pair that agrees is not a rule.
+#
+#   inline   build/dos.o88     - the box with the core inside it
+#   parted   build/dosp.bin    - the box that CALLS a core part (-DDOS_EXTCORE)
+#   root     build/doscore.bin - that core part, assembled on its own
+#   kerndos  build/kerndos.bin - the same core over the KERNEL's disk layer,
+#                                which is where DVOL_MAX comes from somebody
+#                                else entirely (kernel/disk.inc: 4 or 8)
+#
+# The `-I` sets are the Makefile's own, per recipe.
+BUILDS = (
+    ("inline",  ["apps/dos/dos.asm"],   [],
+     ["apps/", "apps/dos/", "drivers/net/"]),
+    ("parted",  ["apps/dos/dos.asm"],   ["DOSKPART", "DOS_EXTCORE"],
+     ["apps/", "apps/dos/", "drivers/net/", "kerndos/"]),
+    ("root",    ["apps/dos/doscore.asm"], [],
+     ["apps/", "apps/dos/", "drivers/net/", "kerndos/"]),
+    ("kerndos", ["kerndos/kdos.asm"],   ["DOS_EXTCORE"],
+     ["kernel/", "kerndos/", "apps/", "apps/dos/", "drivers/net/"]),
 )
 
 
-def nasm_map(src, defines, incs):
-    """Every symbol one root assembles to, out of nasm's own `[map all]`.
+def bss_of(tag, src, defines, incs, d):
+    """{DOS_B_x: value} out of nasm's own map - the assembler's answer.
 
-    The source is copied rather than edited, for `tests/dosmap.py`'s reason:
-    the map directive is appended to a COPY in a temp directory and the real
-    include paths are given with -I, so nothing under apps/ is touched.
+    **THE FILE NAMES MAY NOT CARRY THE DEFINES**, which is not fussiness: the
+    `[map all <path>]` line goes through the PREPROCESSOR, so a path with
+    `DOSKPART` in it comes back as the empty string that `-DDOSKPART` makes it
+    and nasm writes the map somewhere else entirely - with rc 0 and no
+    complaint.  The build name is lower case and collides with nothing.
     """
-    d = tempfile.mkdtemp(prefix="os88dosbss")
-    a, mp = os.path.join(d, "x.asm"), os.path.join(d, "x.map")
-    with open(a, "w") as f:
-        f.write(open(os.path.join(ROOT, src)).read() + "\n[map all %s]\n" % mp)
-    args = ["nasm", "-f", "bin", "-w+error", "-o", os.path.join(d, "x.bin")]
+    a = os.path.join(d, tag + ".asm")
+    mp = os.path.join(d, tag + ".map")
+    open(a, "w").write(open(os.path.join(ROOT, src)).read() +
+                       "\n[map all %s]\n" % mp)
+    args = ["nasm", "-f", "bin", "-w+error"]
     for i in incs:
-        args += ["-I", os.path.join(ROOT, i) + os.sep]
-    args += ["-D" + x for x in defines] + [a]
-    r = subprocess.run(args, capture_output=True, text=True, cwd=ROOT)
+        args += ["-I", os.path.join(ROOT, i)]
+    args += ["-D" + x for x in defines]
+    args += ["-o", os.path.join(d, tag + ".bin"), a]
+    r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode:
-        return None, (r.stderr or r.stdout)[-600:]
-    out = {}
+        return None, r.stderr.strip().split("\n")[-1][:200]
+    out, nos = {}, False
     for line in open(mp):
-        p = line.split()
-        if len(p) == 3:
-            try:
-                out[p[2]] = int(p[0], 16)
-            except ValueError:
-                pass
-        elif len(p) == 2:
-            try:
-                out.setdefault(p[1], int(p[0], 16))
-            except ValueError:
-                pass
+        if line.startswith("---- "):
+            nos = line.startswith("---- No Section")
+            continue
+        f = line.split()
+        if nos and len(f) == 2 and f[1].startswith("DOS_B_") \
+                and re.fullmatch(r"[0-9A-Fa-f]+", f[0]):
+            out[f[1]] = int(f[0], 16)
     return out, None
 
 
@@ -201,34 +200,39 @@ def main():
           "\n  the core is assembled once: make it a DHK_* hook the host "
           "fills (SPEC.md 96.44.3)")
 
-    # --- rule 4: ...and the three assemblies AGREE ---------------------------
-    # The only rule that reads what the assembler DID rather than what the
-    # source looks like - see the header for why that is the one that matters.
-    cells = re.findall(r"^\s*DBSS\s+(DOS_B_[A-Z0-9_]+)", "\n".join(L), re.M)
-    maps, errs = {}, []
-    for label, src, defines, incs in ROOTS:
-        mp, err = nasm_map(src, defines, incs)
-        if err:
-            errs.append("  %s (%s) did not assemble:\n%s" % (label, src, err))
-        maps[label] = mp or {}
-    check(not errs, "all three roots assemble", "\n".join(errs))
-    if errs:
-        return done("t_dosbss")
-
-    base = maps["the core"]
-    bad = []
-    for label in ("the box", "kern_dos"):
-        for n in cells:
-            if n in maps[label] and n in base and maps[label][n] != base[n]:
-                bad.append("  %-18s %s=0x%04X  the core=0x%04X  (%+d)"
-                           % (n, label, maps[label][n], base[n],
-                              base[n] - maps[label][n]))
-    check(not bad, "every DBSS cell is at one offset in all three hosts",
-          "\n".join(bad[:8]) +
-          "\n  %d of %d cells disagree. The core is assembled ONCE and both "
-          "hosts address it, so a cell that is not at one offset is one host "
-          "reading another's bytes - and the first disagreeing name is where "
-          "the layouts part (SPEC.md 96.44.2, 96.44.2.1)" % (len(bad), len(cells)))
+    # --- rule 4 -------------------------------------------------------------
+    # The rows to compare are the DBSS ones, read off the source; their VALUES
+    # come from four assemblies of it.  An HBSS row is expected to differ - a
+    # host's block is the host's - so it is not in this set.
+    rows = [m.group(1) for l in L
+            for m in [re.match(r"^\s*DBSS\s+([A-Z_][A-Z0-9_]*)\s*,", l)] if m]
+    d = tempfile.mkdtemp(prefix="t_dosbss")
+    try:
+        maps, broke = {}, []
+        for name, src, defs, incs in BUILDS:
+            got, err = bss_of(name, src[0], defs, incs, d)
+            if err:
+                broke.append("  %-8s %s" % (name, err))
+            else:
+                maps[name] = got
+        check(not broke, "all four hosts assemble",
+              "\n".join(broke) + "\n  rule 4 cannot answer without them")
+        if not broke:
+            off = []
+            for r in rows:
+                seen = {n: m[r] for n, m in maps.items() if r in m}
+                if len(set(seen.values())) > 1:
+                    off.append("  %-22s %s" % (r, "  ".join(
+                        "%s=%d" % (n, v) for n, v in sorted(seen.items()))))
+            check(not off, "every DBSS row is at one offset in all four hosts",
+                  "\n".join(off[:8]) +
+                  "\n  the core is assembled ONCE and joined to either host, so "
+                  "a cell at two offsets is silent state corruption in whichever "
+                  "host the core was not built against. It is usually a row's "
+                  "SIZE naming a per-host constant - DVOL_MAX was the first "
+                  "(SPEC.md 96.44.2.1)")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
     done("t_dosbss")
 
 

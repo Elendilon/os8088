@@ -2868,7 +2868,7 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
-    Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 3.0,
+    Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
         "a part BOTH the box and kern_dos join, so it is assembled once and "
@@ -2877,10 +2877,17 @@ SOAK = [
         "Not hypothetical: 96.43.2 gated twenty-nine window rows out of "
         "kern_dos and a thirtieth (DOS_B_PKTRAW) sat inside the packet "
         "driver's own %ifndef, which would have put the whole tail of the "
-        "core's state at two different offsets. Two hard zeros: no DBSS row is "
-        "conditional (a row only some builds emit is a HOST's and belongs to "
-        "the second accumulator), and no core proc names an HBSS cell. "
-        "FOUR rules now, and rule 4 is the one that ships: it assembles all THREE roots - the core, the box and kern_dos - and requires every DBSS cell to land at one offset in all of them. Rules 1-3 read the source's SHAPE and all three passed on a build where 58 of 192 cells disagreed: DVOL_MAX went 6 to 8 in kernel/disk.inc, dos.asm's mirror stayed at 6, and DOS_B_DVCWD is 2 * DVOL_MAX - so the core laid that cell out 16 bytes wide and the box addressed it as 12. A SIZE is as much of the layout as a row is and no source rule sees a size (SPEC.md 96.44.2.1). It broke the WINDOW only - kern_dos takes the kernel's 8 through disk.inc - so every bare name at the console answered `Bad command or file name` about a program DIR had just listed while the handoff was perfect. Host-side, three assemblies, and it fails naming the row, the proc or the first cell that parts.",
+        "core's state at two different offsets. FOUR hard zeros: no DBSS row "
+        "is conditional (a row only some builds emit is a HOST's and belongs "
+        "to the second accumulator), no core proc names an HBSS cell, no "
+        "host-varying arm sits inside the core - and every DBSS row comes out "
+        "at the SAME OFFSET in all four builds, which is rule 4 and reads the "
+        "ASSEMBLER rather than the source. Rule 4 exists because the other "
+        "three were green while the halves disagreed by four bytes (96.44.2.1): "
+        "the offender was a row's SIZE, `2 * DVOL_MAX`, and what it cost was "
+        "every program typed at the parted box's prompt answering `Bad command "
+        "or file name`. Host-side; four nasm runs, and it fails naming the row "
+        "and both offsets.",
         ),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
         "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "

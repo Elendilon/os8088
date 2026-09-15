@@ -4952,8 +4952,16 @@ $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
 # the one they replace: they now assert what a user has rather than what a
 # gate disk was built to have.
 
+# ...AND THE 720KB ONE IS `$(IMG720)`, build/os8088-720.img. The other lane
+# added a `kdos720.img` beside the two gate disks for
+# `os8088_5150_herc_sb_720_gla` - this tree's 720KB machine, the geometry a
+# period game disk is actually on (Prince of Persia's PRINCE\ folder is 500KB)
+# - and with $(SYSROOT) flipped it built byte-identical to the shipped 720KB
+# system disk, exactly as the other two did. So there is no rule here: boot
+# build/os8088-720.img.
+
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img."

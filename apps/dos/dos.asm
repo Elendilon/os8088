@@ -9702,40 +9702,34 @@ DOS_PFSEPN  equ 14                  ; ...and the separators above the blank
                                     ; nasm's %ifndef tests for a MACRO, and an
                                     ; `equ` is a symbol - so the obvious guard
                                     ; compiles and does nothing
-DVOL_MAX    equ 8                   ; MIRRORS the kernel's (kernel/disk.inc),
-                                    ; and since SPEC.md 96.44.5 it is an ABI
-                                    ; rather than a capacity trim - which is
-                                    ; why it is 8 and not the 6 it sat at for
-                                    ; a year.
-                                    ;
-                                    ; **IT SIZES A CELL IN THE CORE'S BSS**
-                                    ; (`DOS_B_DVCWD`, `2 * DVOL_MAX`), and the
-                                    ; core is a PART now: assembled once, at
-                                    ; `org CORE_ORG`, and addressed by two
-                                    ; hosts that were assembled separately. So
-                                    ; the three copies of this number are not
-                                    ; three capacities, they are one LAYOUT -
-                                    ; `apps/dos/doscore.asm` says 8, and
-                                    ; `kerndos/kdos.asm` gets the kernel's own
-                                    ; 8 through `disk.inc`. At 6 the box put
-                                    ; every core cell after `DOS_B_DVCWD` FOUR
-                                    ; BYTES BELOW where the core keeps it, so
-                                    ; the window's console wrote `dsh_a1` and
-                                    ; the core read the four bytes before it:
-                                    ; every bare name at the prompt answered
-                                    ; `Bad command or file name` about a
-                                    ; program DIR had just listed. It was
-                                    ; invisible while the parted package rode
-                                    ; a gate disk and no row typed a name into
-                                    ; it. `tests/unit/t_doscore.py` compares
-                                    ; the two maps now, so a third value
-                                    ; cannot be introduced silently.
-                                    ;
-                                    ; Every use below is still bound-checked,
-                                    ; which is what makes a kernel that grows
-                                    ; a NINTH volume cost this box reach and
-                                    ; never a write past its own bss - but the
-                                    ; gate is what makes the layout agree.
+DVOL_MAX    equ DVOL_CAP            ; MIRRORS the kernel's WIDEST arm, which is
+                                    ; `kernel/disk.inc`'s 8 (it is 4 on
+                                    ; kern_small) and which `DVOL_CAP` already
+                                    ; is - so the two are one number and the
+                                    ; table below cannot be sized from the
+                                    ; wrong one again (SPEC.md 96.44.2.1).
+                                    ; **IT WAS 6, AND 6 IS NEITHER**: the
+                                    ; comment said `assoc.inc` and that file
+                                    ; has not owned the constant for some time.
+                                    ; It cost the INLINE box two drives of
+                                    ; reach on a kern_big machine, and it cost
+                                    ; the PARTED box the whole console
+                                    ; launcher, `apps/dos/doscore.asm` saying 8
+                                    ; where this said 6.
+                                    ; **AND IT STAYED HIDDEN BECAUSE THE
+                                    ; PARTED PACKAGE RODE A GATE DISK**: no row
+                                    ; on it ever typed a name at the prompt, so
+                                    ; the first thing that found this was
+                                    ; SPEC.md 96.40.3 pointing `$(SYSROOT)` at
+                                    ; that package - ten console rows went red
+                                    ; at once, on one cause.
+                                    ; It is still a CAPACITY rather than a fact
+                                    ; about the machine, and every use of it
+                                    ; below is bound-checked - so a kernel that
+                                    ; grows a ninth volume costs this box reach
+                                    ; and can never cost it a write past its
+                                    ; own bss, which is somebody else's heap
+                                    ; claim
 %endif
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -14228,19 +14222,11 @@ dos_fh_fill:
 ; root is its volume's root, so a slot nobody has touched is 0 - which .bss
 ; already is, and which is exactly right. No "has this been initialised" flag,
 ; because there is no state a fresh drive could be in other than its root.
-; **SIZED BY THE ABI AND NOT BY THIS HOST'S `DVOL_MAX`** (SPEC.md 96.44.2.1).
-; The cell is in the CORE's block, which is laid out once; `DVOL_MAX` is what
-; this host thinks the machine holds. They were the same symbol and the core
-; and the box disagreed about it - see `apps/dos/doscall.inc` for what that
-; cost. The `%if` is the bound the old comment claimed: a host may reach FEWER
-; volumes than the cell holds and may never reach more.
-%if DVOL_MAX > DOS_DVOL_ABI
-  %error "DVOL_MAX is wider than DOS_DVOL_ABI, so this host would write past \
-DOS_B_DVCWD and into the core's next cell. Raise DOS_DVOL_ABI in \
-apps/dos/doscall.inc - it is 2 bytes of EVERY host's core bss per volume - \
-and rebuild all three roots."
-%endif
-    DBSS DOS_B_DVCWD,  2 * DOS_DVOL_ABI
+    DBSS DOS_B_DVCWD,  2 * DVOL_CAP  ; **`DVOL_CAP`, NOT `DVOL_MAX`** (SPEC.md
+                                     ; 96.44.2.1): the reach is a per-host
+                                     ; number and this table is the CORE's bss,
+                                     ; so its width has to be one both halves
+                                     ; read from apps/dos/doscall.inc
     DBSS DOS_B_DVTGT,  1            ; the drive a switch is going TO, banked
                                     ; because OSAPI_VOL_KIND promises nothing
                                     ; about DX
@@ -14397,6 +14383,11 @@ and rebuild all three roots."
  %error "the DOS core's bss outgrew CORE_BSS_SIZE - raise it in \
 apps/dos/doscall.inc, and note that EVERY host reserves the whole of it \
 whether it uses the cells or not"
+%endif
+%if DVOL_MAX > DVOL_CAP
+ %error "this host reaches more drives than dos_dvcwd has room for - raise \
+DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
+table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DOS_CORE_INLINE
 DOS_BSS_SIZE equ CORE_BSS_SIZE + HB ; the core's cells are in here too

@@ -87,30 +87,20 @@ CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 CORE_BSS_AT equ CORE_ORG + CORE_MAX
 
-; --- HOW WIDE A CORE CELL SIZED PER VOLUME IS (SPEC.md 96.44.2.1) -----------
-; **THE LAYOUT IS THIS FILE'S, THE CAPACITY IS THE HOST'S, AND THEY ARE NOT
-; THE SAME NUMBER.** `DOS_B_DVCWD` is `2 * DOS_DVOL_ABI` bytes of the CORE's
-; bss - laid out once, when the core is assembled - so its width has to come
-; from somewhere all three roots include, which is here. `DVOL_MAX` is how
-; many volumes THIS host believes the machine can have, and every use of it is
-; bound-checked; it may be smaller than this and it may never be larger, which
-; is the `%if` at the row itself.
+; --- A `DBSS` ROW'S SIZE IS PART OF THE LAYOUT (SPEC.md 96.44.2.1) ----------
+; `DOS_B_DVCWD` is a word per drive and was written `2 * DVOL_MAX` - which is
+; the box's per-drive REACH, and that one is `%ifndef KD_BACKEND` so a host
+; bringing its own disk layer keeps that layer's number (96.38).  The window
+; said 6, the core said 8, and every core cell after the table was then FOUR
+; BYTES APART in the two halves - the exact failure 96.44.2's rule is about,
+; arrived at through a row's size rather than through the row.
 ;
-; IT WAS SIZED BY `DVOL_MAX` AND THAT SHIPPED BROKEN. The kernel's went 6 -> 8
-; (kernel/disk.inc, four partitions plus two floppies plus room), `dos.asm`'s
-; mirror stayed at 6, and `doscore.asm` defaults to 8 - so the core laid
-; `DOS_B_DVCWD` out 16 bytes wide and the box addressed it as 12. Every core
-; cell after it was FOUR BYTES BELOW where the core keeps it: the window's
-; console wrote `dsh_a1` and the core read the four bytes before it, so every
-; bare name at the prompt answered `Bad command or file name` about a program
-; `DIR` had just listed, `DIR /P` never paged, and a `.O88` would not launch.
-; `kern_dos` was unaffected, taking the kernel's 8 through `disk.inc` - which
-; is why the handoff worked perfectly and only the WINDOW was wrong.
-;
-; The three copies of a number are not three capacities when one of them sizes
-; a shared cell; they are one LAYOUT. This constant is that layout, in the one
-; file none of the three can be assembled without.
-DOS_DVOL_ABI equ 8
+; So the WIDTH is an ABI constant and lives here, where both halves read the
+; same line, and `DVOL_MAX` goes back to being only a bound.  It is the widest
+; any host can ask for (`kernel/disk.inc`: 4 on kern_small, 8 on kern_big), and
+; `apps/dos/dos.asm` asserts that whatever this build's `DVOL_MAX` turns out to
+; be still fits it.
+DVOL_CAP    equ 8
 
 DOSC_STRIDE equ 3               ; a `jmp near` - see the header
 
