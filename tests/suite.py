@@ -3678,7 +3678,19 @@ SOAK = [
         "directory; two strings sharing one buffer put the program's name in "
         "the filename field; and the field reload called os88line_set with no "
         "DI, copying a stale pointer over the very arguments it was showing - "
-        "which is why os88line_resync exists (96.21.1).",
+        "which is why os88line_resync exists (96.21.1). STEP 5 IS THE SECOND "
+        "TRY (96.21.2.1): WORKING_DIR is written FULLY QUALIFIED now - "
+        "`B:\\BIN` - which is right until the floppy turns up in another "
+        "drive, so the box tries the drive the link NAMES and then the drive "
+        "the link IS ON. The row forges that rather than hoping for it: one "
+        "byte of a COPY of the link is patched from `B` to `A` and the copy "
+        "is added to the ROOT of the same floppy, so try 1 walks A:\\BIN - the "
+        "system disk, which has no BIN - and try 2 walks B:\\BIN, which does. "
+        "THE PLACEMENT IS THE TEST: a link beside its program resolves "
+        "whether or not the fallback exists, because the folder it falls back "
+        "to is the one it was already in. VERIFIED RED by deleting the second "
+        "call - the box then keeps the link's own folder, B:\\, and starts no "
+        "program at all.",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,

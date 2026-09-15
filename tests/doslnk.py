@@ -23,6 +23,18 @@ one - so the row asserts BOTH halves of that decision:
      not that the bytes came back - it is that the arena the box claimed obeys
      the limit the link carried.  A setting that round-trips and is then
      ignored looks identical to one that works, from the file.
+  5  THE SECOND TRY, when the disk has moved (SPEC.md 96.21.2.1).
+     `WORKING_DIR` is written QUALIFIED now - `B:\BIN` - which is right until
+     the floppy turns up in a different drive, so the box tries the drive the
+     link NAMES and then the drive the link IS ON.  The row forges that: one
+     byte of a copy of the link is patched from `B` to `A`, and the copy is
+     put in the ROOT of the same floppy rather than beside the program.  So
+     try 1 walks `A:\BIN`, which is the system disk and has no BIN; try 2
+     walks `B:\BIN`, which does.  **THE PLACEMENT IS THE WHOLE TEST**: a link
+     sitting beside its program resolves whether or not the fallback exists,
+     because the folder it falls back to is the one it was already in.  From
+     the root, a box with no second try looks for DOSARGS.COM in `B:\` and
+     does not find it.
 
 The disk is a SCRATCH image because step 1 writes to it.
 """
@@ -34,6 +46,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
+import os88fat                                                 # noqa: E402
 import dosmap                                                  # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
@@ -48,6 +61,13 @@ SYS = "build/os8088-360.img"
 LNK = "build/doslnk360.img"
 WHERE, FOLDER = [], []
 FLUSHED = "build/doslnk-out.img"   # ...the guest's live copy, flushed out
+MOVED = "MOVED.LNK"                # step 5's forged copy, in the ROOT of B:
+WDIR = "B:\\BIN"                    # what WORKING_DIR must say: the program is
+                                   # at B:/BIN/DOSARGS.COM and the link is
+                                   # written fully qualified (SPEC.md 96.21.2.1)
+WDIR_OFF = 78                      # 76-byte header, then WORKING_DIR's 2-byte
+                                   # count: the drive letter is the first
+                                   # character of the first StringData
 
 # **AND IT IS RESOLVED ONCE, THROUGH os88build.at, BECAUSE THREE USES OF IT
 # DID NOT AGREE.** The flush wrote `os.path.abspath(FLUSHED)` - the checkout -
@@ -137,14 +157,18 @@ def dos_state(m, ui):
             w16(dm["dos_akb"]))
 
 
-def wait_ready(m, limit=120.0):
+def wait_ready(m, limit=120.0, why=None):
     end = time.time() + limit
     while time.time() < end:
         rows = m.screen() or []
         if any("READY" in r for r in rows):
             return "\n".join(r.rstrip() for r in rows)
         time.sleep(0.3)
-    fail("the program never reached READY")
+    # **`why` NAMES THE MECHANISM, because a program that never started looks
+    # the same from here whatever stopped it.** Step 5's own failure is a box
+    # that found no program to run, and "never reached READY" points at the
+    # program rather than at the folder it was looked for in.
+    fail(why or "the program never reached READY")
 
 
 def parse_lnk(b):
@@ -331,6 +355,40 @@ def main():
              "(SPEC.md 96.36 - DOS_MEM_KEEP is 0 now, where the check box's "
              "ticked ON byte was 1, so the polarity is the other way up)"
              % (got["keep"], DOS_MEM_DUMP))
+    # **AND WORKING_DIR CARRIES THE DRIVE** (SPEC.md 96.21.2.1).
+    # OSAPI_FILE_PATH answers no drive letter by design (19.2.4), so the box
+    # wrote `\BIN` and the link resolved against whichever volume it happened
+    # to be READ from - right exactly as often as the shortcut and its program
+    # sit on one disk, and silently wrong otherwise.
+    if got["workdir"] != WDIR:
+        fail("WORKING_DIR is %r and the program is at B:/BIN/DOSARGS.COM - a "
+             "shortcut is written FULLY QUALIFIED (SPEC.md 96.21.2.1), so "
+             "this is %s" % (got["workdir"],
+                             "drive-less" if got["workdir"].startswith("\\")
+                             else "the wrong folder"))
+    if raw[WDIR_OFF:WDIR_OFF + len(WDIR)].decode("latin1") != WDIR:
+        fail("WORKING_DIR parses as %r but is not at byte %d - the forgery "
+             "below patches that byte and would silently edit something else"
+             % (got["workdir"], WDIR_OFF))
+    print("doslnk: WORKING_DIR is %r - qualified" % got["workdir"])
+
+    # --- the forged copy, for step 5 ---------------------------------------
+    # ONE BYTE, so every count and offset in the file is untouched: `B:\BIN`
+    # becomes `A:\BIN`, which is the system disk and has no BIN on it. And it
+    # goes in the ROOT rather than beside the program, which is what makes the
+    # fallback observable at all - see the docstring.
+    forged = bytearray(raw)
+    forged[WDIR_OFF] = ord("A")
+    tmp = os.path.join(os.path.dirname(FLUSHED_AT), "doslnk-moved.lnk")
+    with open(tmp, "wb") as f:
+        f.write(forged)
+    v = os88fat.Fat12(FLUSHED_AT)
+    if v.find(MOVED)[2] is not None:
+        v.delete(MOVED)
+    v.add(tmp, MOVED)
+    v.save()
+    print("doslnk: forged %s into the ROOT of B: - WORKING_DIR %r, a drive "
+          "that has no BIN" % (MOVED, "A:" + WDIR[2:]))
 
     # --- 3: os8088 reads its own back ---------------------------------------
     with os88ui.boot(SYS, apps=FLUSHED_AT,
@@ -379,6 +437,35 @@ def main():
             fail("the box claimed %dK against a %dK limit - the setting "
                  "reached [dos_memkb] and dos_run ignored it (SPEC.md 96.25.1)"
                  % (akb, LIMIT))
+        m.type_text("x")
+
+    # --- 5: THE SECOND TRY, when the disk has moved (SPEC.md 96.21.2.1) -----
+    # A fresh boot, because this is a second double-click from the desktop and
+    # a second box on the same screen would make `wait_ready` ambiguous about
+    # which console it is reading.
+    with os88ui.boot(SYS, apps=FLUSHED_AT,
+                     machine="os8088_5150_herc_gla") as ui:
+        m = ui.m
+        if not ui.path("B:/" + MOVED):
+            fail("double-clicking B:/%s opened no window" % MOVED)
+        out = wait_ready(m, why=(
+            "a shortcut naming A:\\BIN, sitting in the ROOT of B:, started no "
+            "program at all. The drive it NAMES is not there, so the second "
+            "try is the drive it IS ON - B: - with the same path (SPEC.md "
+            "96.21.2.1). Without that try the box keeps the link's own "
+            "folder, which is B:\\ here, and DOSARGS.COM is not in it"))
+        if field(out, "ARGS") != TYPED:
+            fail("the moved shortcut ran with ARGS %r and it carries %r"
+                 % (field(out, "ARGS"), TYPED))
+        if field(out, "MYPATH") != "B:\\BIN\\DOSARGS.COM":
+            fail("a shortcut naming A:\\BIN, sitting in the ROOT of B:, made "
+                 "the box become %r. The drive it NAMES is not there, so the "
+                 "second try is the drive it IS ON - B: - with the same path "
+                 "(SPEC.md 96.21.2.1). Without that try the box keeps the "
+                 "link's own folder, which is B:\\ here, and DOSARGS.COM is "
+                 "not in it" % field(out, "MYPATH"))
+        print("doslnk: the moved shortcut ran from %s - the second try found "
+              "it on the drive the link was on" % field(out, "MYPATH"))
         m.type_text("x")
 
     print("doslnk: ok")

@@ -1541,7 +1541,7 @@ neither needs an emulator run to be set up specially.
 
 ---
 
-## 43. Prince of Persia will not start under the WHOLE-MACHINE arm (OPEN — three causes found and fixed; the third is the one the reporter's 286 shows, and awaits their confirmation)
+## 43. Prince of Persia will not start under the WHOLE-MACHINE arm (CLOSED — three causes, and the third was `kern_dos` crossing a head on a ROM that cannot: SPEC.md §96.44.14)
 
 Reported off an 86Box 286 with an OTI-067 VGA, three floppies and a 128MB VHD
 (so the third floppy lands on D:, §18.7.1): *"Prince, when run from a
@@ -1731,10 +1731,10 @@ byte plus `kd_top`'s low byte. Measured inside a live `kern_dos`: `kd_top` =
 machines that earned §18.91.1's cylinder run keep it; `soak -k kdcylrun` is
 the gate and it goes red both ways.
 
-**It is not confirmed on the machine yet** — no emulator here can show the
-symptom, because GLaBIOS, SeaBIOS and MartyPC all cross a head correctly, and
-the row therefore reads the CELL rather than looking for corruption. What the
-reporter's machine will say is whether Prince now starts.
+**CONFIRMED ON THE MACHINE**: *"That was it - confirmed loading prince on the
+286 mrbios machine works!"* No emulator here can show the symptom — GLaBIOS,
+SeaBIOS and MartyPC all cross a head correctly — so the row reads the CELL
+rather than looking for corruption, and the 286 is what closed it.
 
 **What is worth keeping either way**: `PRINCE.EXE` carries a 25-entry table
 mapping each data file to a disk number, so *"Disk 1"* is exactly

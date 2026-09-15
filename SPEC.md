@@ -125968,7 +125968,7 @@ recognisable, and because every field needed already has a home:
 
 | what | where it goes |
 |---|---|
-| the folder | `WORKING_DIR` |
+| the folder | `WORKING_DIR`, written **fully qualified** — `B:\PRINCE` (§96.21.2.1) |
 | the program | `RELATIVE_PATH`, written `.\NAME.EXT` — valid Windows spelling *and* parseable here |
 | the arguments | `COMMAND_LINE_ARGUMENTS` |
 | the environment | an `ExtraData` block under a signature of our own |
@@ -126017,6 +126017,67 @@ It is written by **Save Shortcut**, through the kernel's Standard File dialog
 in save mode (§38), defaulting to the program's own name with `.LNK` on it.
 The dialog refusing — one is already up — needs no report: the user pressed a
 button and nothing happened, which is what a busy dialog looks like.
+
+##### 96.21.2.1 Fully qualified, and then tried a SECOND time on the link's own drive
+
+`WORKING_DIR` was written as `OSAPI_FILE_PATH` answers it, and that slot
+**carries no drive letter** by design (§19.2.4: `OSAPI_FILE_HERE` already
+answered that question). So a shortcut said `\PRINCE` and resolved against
+whichever volume the `.LNK` happened to be read from — which is right exactly
+as often as the shortcut and its program sit on the same disk, and silently
+wrong the rest of the time. A link saved beside a program on B: and then
+double-clicked on C: walked `C:\PRINCE`.
+
+**So it is written qualified**: the box's own volume letter in front of the
+path, `B:\PRINCE`. With `RELATIVE_PATH` still `.\NAME.EXT` the pair composes
+the whole target, which is what "fully qualified" means in this format — the
+drive belongs on the directory and not on the relative path, and that keeps
+the `.\` spelling Windows wants (§96.21).
+
+**And it is tried TWICE.** Media moves. A disk written in B: turns up in A:
+next week, and a shortcut that names a drive is a shortcut that breaks when it
+does — which is the whole reason the drive-less form existed. So:
+
+1. **the drive the shortcut NAMES.** `dos_fh_stand` on it and walk;
+2. **and failing that, the drive the shortcut IS ON** — `[dos_vol]`, the
+   volume the `.LNK` itself was read from — with the same path.
+
+The second try is the old behaviour exactly, so a link written before this
+still resolves: it carries no drive, try 1 *is* try 2, and the second is
+skipped rather than repeated.
+
+**What that fixes and what it deliberately does not.** It fixes the two cases
+worth fixing — the shortcut and its program on one disk, wherever that disk is
+plugged in; and a shortcut naming another drive that is still there. It does
+**not** fix a shortcut on C: naming a program on B: after the B: disk has
+moved to A:, and nothing short of **hunting every drive** would — which this
+box will not do: a machine may have eight volumes, a hunt is a mount each, and
+the one it finds first is not necessarily the one the user meant. A wrong
+program launched confidently is worse than a refusal that names the path.
+
+**Writing it qualified needed one fix underneath.** `OSAPI_FILE_PATH` answers
+for where the **machine** is standing (§96.48), not for the pair the box holds
+in `[dos_vol]`/`[dos_dir]` — and a program that has called `AH=3Bh` or `AH=0Eh`
+has moved it. `dos_sav_go` already builds the link *before* the Save dialog
+opens so the dialog's own navigation cannot reach this; the program is the
+other mover, and it was never covered. Un-qualified that was a wrong folder;
+qualified it would be a wrong folder under a confident drive letter. So
+`dos_lnk_wdir` opens with the same `dos_be_goto` that `dos_path_make` does.
+
+**And reading it back costs six bytes rather than a core entry.** The walk on
+the other side is `dos_walk_pbuf`, which is on `doscents.inc`'s published list
+(§96.44.5) and takes no pointer — it reads `dos_pbuf` itself. `dos_walk_at`,
+the one that takes SI, is not on that list. Appending it would grow the core
+ABI permanently (the list's rule is *append, never insert*) to save a
+six-byte copy, so the drive prefix is parsed off the front and the rest of the
+path shifted down two inside `dos_pbuf` instead. A link written before this
+carries no prefix, never reaches the shift, and walks identical code.
+
+**The volume is committed with the folder.** `dos_lnk_cd` set `[dos_dir]`
+alone, which was sufficient while the link could only ever mean the drive it
+was on; a qualified link may name another, so the try that won writes
+`[dos_vol]` too. A refusal writes neither, and the user gets the ordinary "it
+could not be read" naming the program — §96.21.1's rule, unchanged.
 
 #### 96.21.3 `os88line_resync` — the buffer the field already owns
 

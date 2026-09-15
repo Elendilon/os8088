@@ -7883,22 +7883,49 @@ dos_lnk_str:
 ; whole routine - so the working directory was written and then OVERWRITTEN by
 ; the next string, and every field in the file came out one place early.
 dos_lnk_wdir:
+    push ax
+    push bx
     push cx
+    push dx
     push si
+    ; **STAND WHERE THE PROGRAM IS, FIRST** - dos_path_make's own opening, and
+    ; for the same reason: `OSAPI_FILE_PATH` answers for where the MACHINE is
+    ; standing (SPEC.md 96.48), which a program that has walked away with
+    ; AH=3Bh or AH=0Eh has moved. `dos_sav_go` already orders the build before
+    ; the dialog, so the DIALOG's navigation cannot reach this; the program is
+    ; the other mover, and until 96.21.2.1 it could only ever write a wrong
+    ; FOLDER - under a drive letter it is a wrong folder stated confidently.
+    mov dx, [dos_dir]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    jc .bare
     push di                         ; ...only across the CALL that needs it as
-    mov di, dos_pbuf                ; a destination of its own
-    mov cx, DOS_PBUF
+    mov di, dos_pbuf + 2            ; a destination of its own - and TWO ALONG,
+    mov cx, DOS_PBUF - 2            ; because the drive goes in front of it
+                                    ; (SPEC.md 96.21.2.1)
     call OSAPI_FILE_PATH            ; ES is the caller's DS: an X cell sets it
     pop di
-    jc .bare
-    mov si, dos_pbuf
-    jmp short .w
+    jnc .drv
 .bare:
-    mov si, dos_lnk_root            ; a refusal is not fatal - `\` is a folder
-.w:                                 ; and the link still resolves from it
+    mov byte [dos_pbuf+2], '\'      ; a refusal is not fatal - `\` is a folder
+    mov byte [dos_pbuf+3], 0        ; and the link still resolves from it
+.drv:
+    ; **AND THE DRIVE, WHICH OSAPI_FILE_PATH DOES NOT ANSWER** (SPEC.md
+    ; 19.2.4: OSAPI_FILE_HERE answers that question, so the path slot does
+    ; not). Without it a shortcut says `\PRINCE` and resolves against
+    ; whichever volume it was READ from, which is right exactly as often as
+    ; the link and its program are on one disk.
+    mov al, [dos_vol]               ; the box's own volume, which is the one
+    add al, 'A'                     ; dos_run resolves the program on
+    mov [dos_pbuf+0], al
+    mov byte [dos_pbuf+1], ':'
+    mov si, dos_pbuf
     call dos_lnk_str                ; ...and DI comes out ADVANCED
     pop si
+    pop dx
     pop cx
+    pop bx
+    pop ax
     ret
 
 ; --- dos_lnk_rel - `.\NAME.EXT`, which is BOTH spellings --------------------
@@ -8123,16 +8150,90 @@ dos_lnk_parse:
 ; -----------------------------------------------------------------------------
 dos_lnk_cd:
     push ax
+    push bx
     push dx
+    push si
     cmp byte [dos_pbuf], 0
     je .out                         ; no working directory in the link
-    call dos_walk_pbuf
-    jc .out                         ; A REFUSAL IS NOT FATAL: [dos_dir] keeps
-    mov [dos_dir], dx               ; the link's own folder, which is where a
-.out:                               ; shortcut saved beside its program
-    pop dx                          ; resolves anyway. What the user then sees
-    pop ax                          ; is the ordinary "it could not be read",
-    ret                             ; naming the program
+
+    ; --- WHERE IT SAYS, AND THEN WHERE IT IS (SPEC.md 96.21.2.1) -----------
+    ; BH is the drive the .LNK ITSELF was read from - `dos_lnk_open`'s own
+    ; input - and it is BOTH the second try and the ONLY try for a link
+    ; written before the drive was recorded, whose path begins at `\`.
+    mov bh, [dos_vol]
+    mov bl, bh
+    cmp byte [dos_pbuf+1], ':'
+    jne .try
+    mov al, [dos_pbuf]
+    call dos_upc
+    sub al, 'A'
+    cmp al, DVOL_MAX
+    jae .strip                      ; a letter no volume here can have: the
+    mov bl, al                      ; fallback is the only answer left
+.strip:
+    ; **THE DRIVE COMES OFF THE FRONT, AND THE PATH MOVES DOWN TWO.** The walk
+    ; is `dos_walk_pbuf`, which is a PUBLISHED core entry (SPEC.md 96.44.5) and
+    ; takes no pointer - it reads `dos_pbuf` itself - so the buffer is the
+    ; argument and the prefix has to leave it. `dos_walk_at` is the one that
+    ; takes SI, and it is not on `doscents.inc`'s list; appending it there to
+    ; save six bytes would grow the core ABI for ever (its own rule is APPEND,
+    ; never insert) when the same six bytes here answer it once. The link
+    ; written before 96.21.2.1 carries no prefix, so it never reaches this and
+    ; both shapes walk identical code.
+    push di
+    mov si, dos_pbuf + 2
+    mov di, dos_pbuf
+.sh:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jnz .sh
+    pop di
+.try:
+    call dos_lnk_walk
+    jnc .got
+    cmp bl, bh
+    je .out                         ; that WAS the fallback - one try, spent
+    mov bl, bh                      ; ...and again on the drive it is ON, which
+    call dos_lnk_walk               ; is what makes a disk moved between drives
+    jc .out                         ; keep working
+.got:
+    mov [dos_dir], dx               ; A REFUSAL IS NOT FATAL: [dos_dir] and
+    mov [dos_vol], bl               ; [dos_vol] keep the link's own folder, and
+                                    ; the user sees the ordinary "it could not
+                                    ; be read" naming the program. THE VOLUME
+                                    ; GOES WITH THE FOLDER now: a qualified
+                                    ; link may name another drive, where
+                                    ; before this it could only ever mean the
+                                    ; one it was sitting on
+.out:
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_walk - stand on volume BL and walk dos_pbuf from its ROOT ------
+; out: CF=0 with DX = the folder's cluster; CF=1 = no such volume, or a
+;      component is not there - and where the machine stands is then undefined,
+;      which is why the caller's second try stands again rather than walking on
+dos_lnk_walk:
+    push ax
+    push si
+    mov dl, bl
+    call dos_fh_stand               ; **THE MACHINE, NOT THE BOX** (SPEC.md
+    jc .no                          ; 96.48.2), exactly as dos_path_take does
+    call dos_walk_pbuf              ; ...and from the volume ROOT, which the
+    pop si                          ; stand above has just made [dos_pvol]
+    pop ax
+    ret
+.no:
+    pop si
+    pop ax
+    stc
+    ret
 %endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
