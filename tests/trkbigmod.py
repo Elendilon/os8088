@@ -107,6 +107,17 @@ def main():
                     print("    %04x %5d KB cache %02x (counts as free)"
                           % (bs, pa // 64, ow >> 8))
                     continue
+                if rl and not (dma & MC_DMA_HI):
+                    # A MOVABLE FLOOR CLAIM PACKS, and modelling it as a
+                    # barrier is the error tests/trkcompact.py's second shape
+                    # made: plain OSAPI_MEM_AVAIL plans the ascending pass
+                    # (SPEC.md 66.10.3), so the two 3 KB claims above the
+                    # floor caches slide down over them and the run below
+                    # the regions is 132 KB where a barrier model reads 95
+                    print("    %04x %5d KB owner %04x     MOVABLE  (packs to %04x)"
+                          % (bs, pa // 64, ow, fill))
+                    fill += pa
+                    continue
                 if bs > fill:
                     free_at[fill] = bs - fill
                     if bs - fill > big:
