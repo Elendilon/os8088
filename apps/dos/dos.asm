@@ -598,35 +598,38 @@ dos_entry:
                                     ; ordinary reason: every word that names
                                     ; this region is the kernel's
                                     ;
-                                    ; **AND SINCE SPEC.md 96.40.3 IT IS
-                                    ; REFUSED, BY DESIGN, IN THE PACKAGE THAT
-                                    ; SHIPS** (SPEC.md 96.35.1). We are PART 0
-                                    ; of a parted DOS.O88 now, reached by
+                                    ; **IT WAS REFUSED IN THE PACKAGE THAT
+                                    ; SHIPS, AND THAT IS OVER** (SPEC.md
+                                    ; 66.6.1.1). We are PART 0 of a parted
+                                    ; DOS.O88 (SPEC.md 96.40.3), reached by
                                     ; `OSAPI_PKG_REHOME` - and a re-homed
                                     ; package's region is the loader's CARVE,
-                                    ; re-stamped to the instance SLOT.
-                                    ; `mem_find_own` matches MC_OWN or MC_SEG
-                                    ; against the caller's segment and a slot
-                                    ; is neither, so `OSAPI_MEM_MOVABLE`
-                                    ; refuses us our own carve -
-                                    ; kernel/loader.inc's `.rehome` says so in
-                                    ; as many words, and it is RIGHT: I_SPTR
-                                    ; is the PART's segment where the claim's
-                                    ; base is the carve's, and `mem_rr_tab`
-                                    ; rewrites I_SPTR by matching the old
-                                    ; BASE. Measured on this package: the
-                                    ; carve is at 0x8FC0 and I_SPTR is 0x8FE0,
-                                    ; 512 bytes apart, so a move would leave
-                                    ; I_SPTR naming where the program used to
-                                    ; be.
+                                    ; re-stamped to the instance SLOT, whose
+                                    ; base sits a few paragraphs BELOW the
+                                    ; segment we run in: 0x8FC0 against
+                                    ; I_SPTR's 0x8FE0 on this package, the 512
+                                    ; bytes of cluster-alignment slack op_claim
+                                    ; leaves at the head (SPEC.md 20.12.2).
+                                    ; `mem_find_own` matched MC_OWN or MC_SEG
+                                    ; against the caller's segment, a slot is
+                                    ; neither, and the declaration was refused
+                                    ; - so the wall came straight back and the
+                                    ; card cost 426KB against 440, which is
+                                    ; the image and the ring to the byte.
                                     ;
-                                    ; So the 14KB came back. The LINE STAYS -
-                                    ; it is still right in the one-image build
-                                    ; and a refusal costs nothing - and what it
-                                    ; needs is a kernel that can relocate a
-                                    ; re-homed carve, which is 96.35.1's open
-                                    ; question and not this package's to
-                                    ; decide
+                                    ; The kernel answers all four readings of
+                                    ; that offset now (SPEC.md 66.6.1.1): the
+                                    ; claim CONTAINS the caller, the walk
+                                    ; rewrites the carve AND the segment, the
+                                    ; relocation frame carries the PROGRAM's
+                                    ; pair rather than the carve's, and
+                                    ; `mem_frameless` asks about I_SPTR. This
+                                    ; package reads 445 against 445 now, and
+                                    ; `tests/dosarena.py` asserts the two
+                                    ; machines agree AND that MC_RLOC is
+                                    ; non-zero - because a refusal and a
+                                    ; compaction that cannot reach the hole
+                                    ; are the same number and different bugs
 
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
@@ -6286,14 +6289,36 @@ dos_mem_fix:
 ; Both come from the kernel rather than from arithmetic here, and they are the
 ; SAME question dos_run asks - so what the page shows is what the program will
 ; get, not an estimate of it (SPEC.md 50.6.6, 96.25.1).
+;
+; **AND THE SAME QUESTION IS THE WHAT-IF, NOT PLAIN AVAIL** (SPEC.md 96.25.1.1).
+; dos_run posts OSAPI_MEM_COMPACT_WAKE and claims on the wake, so what it
+; hands the program is a heap that has been packed with OUR OWN REGION IN THE
+; PASS - which is exactly the question OSAPI_MEM_AVAIL_MAX answers and exactly
+; the one plain avail does not, a package being pinned by the act of asking
+; (SPEC.md 66.4.3). It made no difference for a release because this region
+; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
+; refused its declaration, so the excuse bought nothing and the two slots
+; agreed by accident. SPEC.md 66.6.1.1 unpinned it and the accident ended -
+; measured on a 360KB desktop, the page said 442K/474K and the launch handed
+; out 445K/477K, under-promising by the 3KB the region's own move recovers.
+;
+; The what-if is documented as a measurement rather than a promise, and for
+; THIS package it is the promise: the post is what makes it true, and dos_run
+; sends one whenever a pass would add anything (SPEC.md 66.4.3.2).
 ; -----------------------------------------------------------------------------
 dos_mem_figs:
     push bx
     push cx
     mov al, DOS_PG_FLOOR
-    call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run that leaves the
+    call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run that leaves the
     push ax                         ; cache alive
-    call OSAPI_MEM_AVAIL            ; ...and the one that does not
+    mov al, MEM_LVL_TOP             ; ...and the one that does not. **AL IS SET
+    call OSAPI_MEM_AVAIL_MAX        ; EITHER WAY** - this slot has no
+                                    ; unconditional door of its own the way
+                                    ; OSAPI_MEM_AVAIL is OSAPI_MEM_AVAIL_LVL's,
+                                    ; so a fall-through here would ask the
+                                    ; floor's question twice and draw one
+                                    ; number in both places
     mov dx, ax
     pop ax
     pop cx

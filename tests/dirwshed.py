@@ -20,20 +20,36 @@ Four assertions, and each is a separate thing that can be missing:
   3  ...and so does what a program is actually HANDED.  [dos_akb] is banked by
      dos_run from the same slot the page asked, so a page that displayed the
      right pair while the launch used the wrong one fails here alone.
-  4  and the cache really is GONE afterwards - [dsk_rah_seg] = 0, the kernel's
-     own word.  Without this the row would pass on a box that asked for the
-     bigger number and was quietly given the smaller.
+  4  and the cache really WENT - [dsk_rah_seg], the kernel's own word, read
+     under each arm while the program is running.  Without this the row would
+     pass on a box that asked for the bigger number and was quietly given the
+     smaller.  **IT IS READ INSIDE THE BRACKET AND NOT AFTER IT**, which is
+     not a nicety: the window is claimed at a MOUNT (SPEC.md 18.95.5) and the
+     box re-mounts every volume on the way out of an fsx bracket, so a read
+     taken once the program has exited finds the cache back and says the shed
+     never happened.
 
 **IT READS STATE AND NOT THE GLASS.**  Every number is a word in the kernel's
 own table or the package's own bss; the digits on the page are a font.
 
-THE ORDER IS LOAD-BEARING and is the row's own trap, twice over.  The page must
-be read BEFORE any launch, because the keepc=0 launch SHEDS the cache and a
-page read after it correctly reports two equal numbers about a machine that no
-longer has one.  And the launches must happen with the console up, because the
-console is the MAIN page's band (§96.33): with Environment showing there is
-nothing to type at, and every [dos_akb] reads 0 - a failure that names the
-arena and is really the test's own navigation.
+THE ORDER IS LOAD-BEARING and is the row's own trap, three times over.  The
+page must be read BEFORE any launch, because a DOS_MEM_DUMP launch SHEDS the
+cache and a page read after it correctly reports two equal numbers about a
+machine that no longer has one.  The launches then go KEEP first and DUMP
+second, because assertion 4 is about what the DUMP left behind.  And they must
+happen with the console up, because the console is the MAIN page's band
+(§96.33): with Environment showing there is nothing to type at, and every
+[dos_akb] reads 0 - a failure that names the arena and is really the test's own
+navigation.
+
+**[dos_keepc] IS A RADIO AND ITS ARM 0 MEANS KEEP** (§96.36).  That is the
+polarity this row had backwards: it was written against the CHECK BOX whose ON
+byte was 1 for "keep", the third arm turned the control into an OS88UI_RD_SEL
+where 0 is DOS_MEM_KEEP and 1 is DOS_MEM_DUMP, and nothing re-read the row.
+Both labels and both comparisons ran the wrong way, and it failed naming a
+spread of -32 against a 32KB cache - the right quantity with the wrong sign,
+which is the sharpest shape a polarity bug has.  tests/dosmem.py's header names
+this trap in as many words.
 """
 import os
 import sys
@@ -55,6 +71,10 @@ PROG = "DOSHELLO"
 
 MEM_MAX = 32
 P_DIRW = 0xFE02                  # MEM_PG_HIGH<<8 | 2 (SPEC.md 50.6)
+# [dos_keepc]'s arms, which are OS88UI_RD_SEL's index and NOT a tick (SPEC.md
+# 96.36).  Arm 2, DOS_MEM_WHOLE, is not this row's subject - it takes os8088
+# itself and never reaches [dos_akb].
+MEM_KEEP, MEM_DUMP = 0, 1
 SLACK = 2                        # KB: both figures round DOWN to whole KB and
                                  # the two roundings need not land together
 
@@ -88,13 +108,22 @@ def main():
             fail("could not launch %s" % BOX)
         os88marty.settle(m)
         dm = dosmap.package()
-        pb = dosmap.instance(m) << 4
+
+        # **RESOLVED PER READ AND NOT BANKED** (SPEC.md 66.6.1.1). The DOS
+        # box's region is a re-homed carve and MOVES under the compactor now,
+        # which on this row is guaranteed rather than possible: the whole
+        # subject here is the arena claim SHEDDING the directory cache, and a
+        # shed is a compaction. A base taken before the run named the bytes
+        # the package used to occupy, so `inbr` read a stale byte for ever and
+        # the row waited out 600 guest seconds for a program that had started.
+        def pb():
+            return dosmap.instance(m) << 4
 
         def word(name):
-            return int.from_bytes(m.read(pb + dm[name], 2), "little")
+            return int.from_bytes(m.read(pb() + dm[name], 2), "little")
 
         def digits(name):
-            raw = m.read(pb + dm[name], 8).split(b"\0")[0].decode("latin-1")
+            raw = m.read(pb() + dm[name], 8).split(b"\0")[0].decode("latin-1")
             try:
                 return int(raw.rstrip("K").strip())
             except ValueError:
@@ -103,7 +132,7 @@ def main():
                      "(SPEC.md 96.25)" % (name, raw))
 
         def inbr(_=None):
-            return m.read(pb + dm["dos_inbr"], 1)[0]
+            return m.read(pb() + dm["dos_inbr"], 1)[0]
 
         # --- 1: the cache is actually there ---------------------------------
         rec, para = dirw(m)
@@ -135,59 +164,74 @@ def main():
         # dos_brect is composed at paint time and lives in the package's bss,
         # so this is a position resolved out of the guest rather than one
         # remembered from a screenshot (docs/WRITING-TESTS.md).
-        r = [int.from_bytes(m.read(pb + dm["dos_trect"] + i * 2, 2), "little")
+        r = [int.from_bytes(m.read(pb() + dm["dos_trect"] + i * 2, 2), "little")
              for i in range(4)]
         ui.mo.click((r[0] + r[2]) // 2, (r[1] + r[3]) // 2)
         os88marty.settle(m)
-        if m.read(pb + dm["dos_page"], 1)[0] != 0:
+        if m.read(pb() + dm["dos_page"], 1)[0] != 0:
             fail("clicking Return at %r left the box on page %d, so there is "
-                 "no console to type at" % (r, m.read(pb + dm["dos_page"], 1)[0]))
+                 "no console to type at" % (r, m.read(pb() + dm["dos_page"], 1)[0]))
 
         # --- 3: what a program is actually handed ---------------------------
         m.type_text("B:\n")
         os88marty.settle(m)
-        got = {}
-        for tick in (1, 0):
-            m.write(pb + dm["dos_keepc"], bytes([tick]))
+        got, rah = {}, {}
+        for arm in (MEM_KEEP, MEM_DUMP):
+            m.write(pb() + dm["dos_keepc"], bytes([arm]))
             m.type_text("%s\n" % PROG)
             # **INTO THE BRACKET AND BACK OUT OF IT.** DOSHELLO waits on AH=08h
             # so its screen can be read, so a run left undismissed keeps
             # [dos_inbr] = 1 - no desktop, and the next thing typed goes to the
-            # program.  The keepc=0 arm is also the SLOW one: it sheds the
-            # cache it is claiming over, so the load that follows has no
-            # read-ahead at all.
+            # program.  The DUMP arm is also the SLOW one: it sheds the cache
+            # it is claiming over, so the load that follows has no read-ahead
+            # at all.
             os88marty.until(m, inbr, "%s to be running" % PROG,
                             limit=300.0, guest=600.0)
-            got[tick] = word("dos_akb")
-            print("dirwshed: keep-the-cache %d -> the arena is %d KB"
-                  % (tick, got[tick]))
+            got[arm] = word("dos_akb")
+            rah[arm] = int.from_bytes(
+                m.read(os88sym.linear("dsk_rah_seg"), 2), "little")
+            print("dirwshed: arm %d, %s the cache -> the arena is %d KB, "
+                  "[dsk_rah_seg]=%04X"
+                  % (arm, "keep" if arm == MEM_KEEP else "take", got[arm],
+                     rah[arm]))
             m.type_text(" ")
             os88marty.until(m, lambda _=None: not inbr(), "%s to exit" % PROG,
                             limit=120.0)
             os88marty.settle(m)
-        if not got[1] or not got[0]:
+        if not got[MEM_KEEP] or not got[MEM_DUMP]:
             fail("a launch banked an arena of %d/%d KB - dos_run never got as "
                  "far as the claim, so nothing here is about memory"
-                 % (got[1], got[0]))
-        if got[0] - got[1] < cache_kb - SLACK:
+                 % (got[MEM_KEEP], got[MEM_DUMP]))
+        if got[MEM_DUMP] - got[MEM_KEEP] < cache_kb - SLACK:
             fail("a launch gets %d KB with the cache kept and %d KB with it "
                  "taken, a spread of %d where the cache is %d KB. dos_run asks "
                  "the same slot the page did (SPEC.md 96.24)"
-                 % (got[1], got[0], got[0] - got[1], cache_kb))
-        if abs(got[1] - keep) > SLACK or abs(got[0] - take) > SLACK:
+                 % (got[MEM_KEEP], got[MEM_DUMP],
+                    got[MEM_DUMP] - got[MEM_KEEP], cache_kb))
+        if (abs(got[MEM_KEEP] - keep) > SLACK
+                or abs(got[MEM_DUMP] - take) > SLACK):
             fail("the page promised %dK/%dK and the launch took %dK/%dK - the "
                  "figure SHOWN is not the figure the program GETS (SPEC.md "
-                 "96.25.1)" % (keep, take, got[1], got[0]))
+                 "96.25.1)"
+                 % (keep, take, got[MEM_KEEP], got[MEM_DUMP]))
 
-        # --- 4: ...and the cache really went ---------------------------------
-        if int.from_bytes(m.read(os88sym.linear("dsk_rah_seg"), 2),
-                          "little") != 0:
-            fail("the box asked for %d KB at MEM_LVL_TOP and [dsk_rah_seg] is "
-                 "still live, so the claim was satisfied without the cache - "
-                 "the arena figure and the arena disagree" % got[0])
+        # --- 4: ...and the cache really went, and only under the arm that
+        #        asked for it -------------------------------------------------
+        if rah[MEM_DUMP] != 0:
+            fail("the box asked for %d KB at MEM_LVL_TOP and [dsk_rah_seg] was "
+                 "still %04X while the program ran, so the claim was satisfied "
+                 "without the cache - the arena figure and the arena disagree"
+                 % (got[MEM_DUMP], rah[MEM_DUMP]))
+        if rah[MEM_KEEP] == 0:
+            fail("[dsk_rah_seg] was already 0 while the DOS_MEM_KEEP program "
+                 "ran, so the cache went for an arm that asked to keep it. "
+                 "That is SPEC.md 50.6.6's floor - `compact the disk cache, do "
+                 "not destroy it` - and the two figures above then describe a "
+                 "machine with one cache between them")
 
     print("dirwshed: ok - the window is %d KB, the page offers it, a launch "
-          "collects it and the cache is gone afterwards" % cache_kb)
+          "collects it, and only the arm that asked for it lost the cache"
+          % cache_kb)
 
 
 if __name__ == "__main__":

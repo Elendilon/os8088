@@ -79,13 +79,33 @@ def fail(msg):
 
 
 class Box(object):
-    """The live instance, and the two reads every assertion is made of."""
+    """The live instance, and the two reads every assertion is made of.
+
+    **THE SEGMENT IS RESOLVED PER ACCESS AND NOT CACHED** (SPEC.md 66.6.1.1).
+    It used to be taken once in `__init__`, which was safe for exactly as long
+    as the DOS box's region could not move - and since 66.6.1.1 unpinned the
+    re-homed carve it moves like any other region, at any compaction, which is
+    every time the box claims the arena. A banked base then names the bytes the
+    package USED to occupy: `doslnk` read `[dos_path]` and got nine bytes of
+    machine code, and `doscon` and `dosdirsw` read a console that had moved out
+    from under them. A stale base decodes as plausible rubbish rather than as
+    an error, which is `tests/dosarena.py`'s own note one row along.
+
+    The re-read is a window-record lookup in the guest - cheap beside the
+    debug round trip every access already costs.
+    """
 
     def __init__(self, m):
         self.m = m
         self.dm = dosmap.package()
-        self.seg = dosmap.instance(m)
-        self.base = self.seg << 4
+
+    @property
+    def seg(self):
+        return dosmap.instance(self.m)
+
+    @property
+    def base(self):
+        return self.seg << 4
 
     def w(self, name):
         return int.from_bytes(self.m.read(self.base + self.dm[name], 2),

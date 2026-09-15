@@ -6568,15 +6568,25 @@ $(BUILD)/rehome360.img: $(BUILD)/rehome.o88 tools/os88disk.py | $(BUILD)
 	@python3 tools/os88disk.py --verify $@
 
 # ...AND THE SAME PACKAGE BESIDE tests/filler, for the move (SPEC.md
-# 20.12.10.5). 1.44MB ONLY, and the geometry is the experiment rather than a
-# convenience: a 512-byte-cluster volume gives op_claim a ZERO head slack, so
-# the program sits AT the carve's base and the claim is its region in every
-# sense - mem_is_region holds, mem_find_own reaches it, and the declaration
-# takes. At 360KB the same package is refused the declaration, correctly, and
-# there would be nothing to move.
+# 20.12.10.5). **TWO GEOMETRIES, AND THE SECOND ONE IS THE EXPERIMENT NOW.**
+# `op_claim`'s head slack is the gap between a part's 512-byte file boundary
+# and the CLUSTER boundary a read may start on: a 512-byte-cluster volume
+# gives ZERO, so the program sits AT the carve's base and the claim is its
+# region in the obvious sense. At 360KB the slack is non-zero and the program
+# sits INSIDE the carve - which was REFUSED the declaration until SPEC.md
+# 66.6.1.1, on four separate readings of "the claim's base" that meant "the
+# segment the package runs in". So the 1.44MB disk is the easy shape and the
+# 360KB one is the shape that was pinned; both must move now, and the 360KB
+# arm is what would go red if any of those four went back.
 $(BUILD)/rehomemove.img: $(BUILD)/rehome.o88 $(BUILD)/filler.o88 \
                          tools/os88disk.py | $(BUILD)
 	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/rehome.o88 $(BUILD)/filler.o88
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/rehomemove360.img: $(BUILD)/rehome.o88 $(BUILD)/filler.o88 \
+                            tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 \
 		$(BUILD)/rehome.o88 $(BUILD)/filler.o88
 	@python3 tools/os88disk.py --verify $@
 
@@ -6599,10 +6609,12 @@ $(BUILD)/rehomeabort.img: $(BUILD)/rehomex.o88 tools/os88disk.py | $(BUILD)
 
 #   make rehome                          builds all four fixture disks
 #   python3 tests/rehome.py 360          runs the gate on MartyPC
-#   python3 tests/rehomemove.py          ...and the move
+#   python3 tests/rehomemove.py          ...and the move, program AT the base
+#   python3 tests/rehomemove.py 360      ...and INSIDE it, which is the shape
+#                                        SPEC.md 66.6.1.1 unpinned
 #   python3 tests/rehomeabort.py         ...and the unwind
 rehome: $(BUILD)/rehome.img $(BUILD)/rehome360.img $(BUILD)/rehomemove.img \
-        $(BUILD)/rehomeabort.img
+        $(BUILD)/rehomemove360.img $(BUILD)/rehomeabort.img
 
 # --- MSEG, the parts standard's consumer (ON DEMAND: `make mseg`) -----------
 # SPEC.md 20.12: a package that carries its parts in its own file. It is a
