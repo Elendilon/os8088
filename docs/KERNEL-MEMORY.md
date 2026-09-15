@@ -224,7 +224,7 @@ had added.
     "bss": 5987,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40182,
+    "cold": 40011,
     "coldpara": 2528,
     "fatpara": 288,
     "imgpara": 3488,
@@ -237,7 +237,7 @@ had added.
     "ovl": 1417,
     "ovlw": 5052,
     "stk0": 512,
-    "text": 49535,
+    "text": 49517,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -267,10 +267,10 @@ had added.
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 4170,
+    "bss": 4165,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 26514,
+    "cold": 26428,
     "coldpara": 1664,
     "fatpara": 64,
     "imgpara": 2624,
@@ -283,7 +283,7 @@ had added.
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 37399,
+    "text": 37371,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -632,14 +632,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,311 | 36.0% |
-| the window system and its furniture | 24,603 | 27.4% |
+| the file system, end to end | 32,311 | 36.1% |
+| the window system and its furniture | 24,603 | 27.5% |
 | drawing: adapters, primitives, glyphs, icons | 13,167 | 14.7% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,885 | 9.9% |
-| the kernel proper: API table, heap, scheduler, events | 8,632 | 9.6% |
+| the kernel proper: API table, heap, scheduler, events | 8,443 | 9.4% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 577 | 0.6% |
-| **total** | **89,717** | |
+| **total** | **89,528** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -652,8 +652,8 @@ there and nowhere else.
 | `fdlg.inc` — the Standard File dialog (§38) | 95 | 5,053 | **5,148** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,874 | **4,956** | 162 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 4,009 | — | **4,009** | 151 | 128 | — |
-| `memory.inc` — the claim heap (§50) | 209 | 3,219 | **3,428** | 25 | 324 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,411 | — | **3,411** | 58 | — | — |
+| `memory.inc` — the claim heap (§50) | 209 | 3,048 | **3,257** | 25 | 324 | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,794 | 177 | **2,971** | 197 | 84 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 518 | 2,031 | **2,549** | 262 | — | — |
 | `assoc.inc` — file type associations (§54) | 480 | 2,010 | **2,490** | 43 | — | — |
@@ -693,8 +693,8 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,252 | 18 | **3,270** | — | — | 421 |
-| **total** | **49,535** | **40,182** | **89,717** | **5,987** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,234 | 18 | **3,252** | — | — | 421 |
+| **total** | **49,517** | **40,011** | **89,528** | **5,987** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
