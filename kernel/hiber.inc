@@ -531,6 +531,12 @@ hbf_perform:
     call hbf_dropck
     retf
 .no:
+    ; **A POST THAT CANNOT BE SPENT IS WITHDRAWN** (SPEC.md 96.40.6). The
+    ; module could not be read, so nothing below `hbm_dosrun` runs - and that
+    ; one clears the latch on every arm it has. Unconditional because
+    ; `[hb_dosseg]` is zero unless a DOS handoff is what was posted, and
+    ; `ui_rebootq` holds one post at a time.
+    mov word [hb_dosseg], 0
     cmp al, UI_RBQ_ASK          ; a question that cannot be asked is not
     je .quiet                   ; worth a toast: the pointer stays for a
     call hbf_nodisk             ; boot that has the system disk in
@@ -2657,17 +2663,32 @@ hbm_wake:
     ; handler and already services `DST_RAN`, so the way home needed no slot
     ; and no second mechanism.
     call hbm_stageseg
+    mov bx, [hb_dosseg]
+    mov word [hb_dosseg], 0     ; **SPENT ON EVERY WAKE, AND THAT IS THE FIX**
+                                ; (SPEC.md 96.40.6). It used to be spent only
+                                ; on the arm below - the one where a DOS
+                                ; program really did come back with a code -
+                                ; and `hbm_dosrun` takes the picture with the
+                                ; post STANDING, on purpose, so the image
+                                ; carries a live latch. Resume that image any
+                                ; other way (a cold boot and Resume, where
+                                ; `HS_DOSCODE` is `KDH_NOCODE`) and the latch
+                                ; came back with it and nothing ever spent it:
+                                ; `osapi_dos_handoff_x` refuses a second post
+                                ; while one stands, so arm 3 was dead for the
+                                ; whole of the restored session. It read as
+                                ; "Not enough memory" on a machine with 425K
+                                ; free, because the box mislabelled the
+                                ; refusal (96.40.6 again)
     mov ax, [es:HS_DOSCODE]
     cmp ax, KDH_NOCODE
     je .nodos
-    mov bx, [hb_dosseg]
     or bx, bx
     jz .nodos
     mov es, bx
     mov di, [hb_dosoff]
     mov [es:di+KDH_CODE], ax
     mov bx, [es:di+KDH_WIN]
-    mov word [hb_dosseg], 0     ; spent HERE, where it was left standing
     or bx, bx
     jz .nodos
     mov bp, wm_wake

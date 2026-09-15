@@ -510,6 +510,16 @@ DER_BADEXE  equ 6
 DER_FIT     equ 7                   ; ...and THIS program will not fit in the
                                     ; arena we got, which is a different
                                     ; sentence from not getting one (96.14.3)
+DER_HAND    equ 8                   ; ARM 3 WAS REFUSED, AND IT IS NEVER ABOUT
+                                    ; MEMORY (SPEC.md 96.40.6).
+                                    ; `osapi_dos_handoff_x` refuses exactly
+                                    ; twice: a null segment, and a post that is
+                                    ; already standing. This said DER_MEM, so a
+                                    ; machine with 425K free reported "Not
+                                    ; enough memory" about the one arm that
+                                    ; does no sizing at all - it tears the
+                                    ; kernel out and hands the program ~600K,
+                                    ; so anything DOS could launch will launch
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
@@ -844,8 +854,16 @@ dos_run:
     jne .notwhole
     call dos_handoff
     jnc .out                        ; POSTED - ui_task's step 0 spends it with
-    mov al, DER_MEM                 ; nothing held, and the machine does not
-    jmp .err                        ; come back
+    mov al, DER_HAND                ; nothing held, and the machine does not
+    jmp .err                        ; come back.
+                                    ;
+                                    ; **AND THE REFUSAL IS NOT A MEMORY ONE**
+                                    ; (SPEC.md 96.40.6): the slot does no
+                                    ; sizing, because this arm does none - the
+                                    ; kernel is torn out and the program is
+                                    ; handed the machine, so a program DOS
+                                    ; could launch will launch. It can only
+                                    ; refuse a post that is already standing
 .notwhole:
 %endif
     mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
@@ -8808,13 +8826,16 @@ dos_exitd:   db '000', 0
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
-    dw dos_e_badexe, dos_e_fit
+    dw dos_e_badexe, dos_e_fit, dos_e_hand
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_goto:  db 'Its folder could not be opened.', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_mem:   db 'Not enough memory.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_e_hand:  db 'A handover is already under way.', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_read:  db 'It could not be read.', 0

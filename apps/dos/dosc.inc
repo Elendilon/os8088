@@ -755,6 +755,21 @@ dos_con_ext:
 ; being a sentence that is true until the next launch overwrites it.
 ; -----------------------------------------------------------------------------
 dos_con_ended:
+    ; --- A LINE OF ITS OWN (SPEC.md 96.33.20) ------------------------------
+    ; The shell prints a prompt and leaves the cursor sitting after it, and a
+    ; launch that did NOT come from the console - a Run click, a .LNK, a
+    ; document - emits nothing before this. So the result was glued to the
+    ; prompt it followed: `A:\>PRINCE.EXE: A handover is already under way.`
+    ;
+    ; **THE COLUMN IS THE TEST AND NOT `[dos_fromcon]`**: a typed command has
+    ; already echoed its own CRLF, so an unconditional one would give it a
+    ; blank line, and the console's own cursor is the only thing that knows
+    ; which of the two happened.
+    cmp word [con_cx], 0
+    je .fresh
+    mov si, dos_c_crlf
+    call con_say
+.fresh:
     cmp byte [dos_state], DST_ERR
     jne .name
     cmp byte [dos_fromcon], 0
@@ -769,7 +784,18 @@ dos_con_ended:
     call con_say                    ; the user never had is a sentence that
     jmp short .out                  ; sends them looking at the drive
 .name:
+    ; **THE FULLY QUALIFIED PATH** (SPEC.md 96.33.20), which is what the box's
+    ; own path field holds and what Save Shortcut writes: a bare `PRINCE.EXE`
+    ; in a log line is ambiguous the moment the console has stood anywhere
+    ; else, and this line is most often about a program on the OTHER drive.
+    ; `dos_path_make` fills it on both launch doors and leaves the bare name
+    ; there when it cannot resolve one, so the fallback is for a box that has
+    ; never launched at all.
+    mov si, dos_path
+    cmp byte [si], 0
+    jne .said
     mov si, dos_name
+.said:
     call con_say
     cmp byte [dos_state], DST_ERR
     je .err
