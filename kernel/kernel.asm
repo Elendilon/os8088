@@ -4052,25 +4052,25 @@ apic_wm_destroy:
                                   ;          CALLER's - and a slot at all
                                   ;          because dsk_find drops the dot
                                   ;          links, so no package can walk up
-    OSAPI_SLOT osapi_mem_avail_lvl ; 0x0560 - HOW MUCH MAY I HAVE WITHOUT
-                                  ;          DESTROYING WHAT I NAME? (SPEC.md
-                                  ;          50.6.5). AL = a purge level;
-                                  ;          caches strictly BELOW it count as
-                                  ;          free and the rest do not, so
-                                  ;          AL = MEM_LVL_TOP is
-                                  ;          OSAPI_MEM_AVAIL exactly and
-                                  ;          AL = MEM_PG_HIGH is "...but leave
-                                  ;          the disk cache alone". Out as
-                                  ;          OSAPI_MEM_AVAIL
-    OSAPI_XCELL osapi_mem_claim_lvl ; 0x0568 - ...AND THEN CLAIM IT WITHOUT
-                                  ;          DESTROYING IT. X: AX = KB,
-                                  ;          BL = the same level, and neither
-                                  ;          the shed nor the compactor's drop
-                                  ;          may take a cache at or above it.
-                                  ;          Out CF/DX as OSAPI_MEM_CLAIM. A
-                                  ;          SLOT of its own because BL on the
-                                  ;          old one is whatever an older
-                                  ;          package left there
+    OSAPI_SLOT osapi_mem_floor    ; 0x0560 - "COMPACT THE DISK CACHE, DO NOT
+                                  ;          DESTROY IT" (SPEC.md 50.6.6). AL =
+                                  ;          a purge level, and it is THIS
+                                  ;          TASK's floor from here on: every
+                                  ;          claim it makes sheds and drops only
+                                  ;          caches strictly BELOW it, and
+                                  ;          OSAPI_MEM_AVAIL answers net of the
+                                  ;          same rule. MEM_LVL_TOP lifts it,
+                                  ;          and so does the instance's own
+                                  ;          teardown. Preserves every register
+                                  ;          AND the flags, so it can sit
+                                  ;          between a claim and its `jnc`
+    OSAPI_SLOT gfx_line           ; 0x0568 - RETIRED (SPEC.md 50.6.6.1): it was
+                                  ;          OSAPI_MEM_CLAIM_LVL, a claim with
+                                  ;          the floor as an argument, and the
+                                  ;          floor above made it one cell and
+                                  ;          sixty bytes of body for nothing.
+                                  ;          stc/ret, and the ONE package that
+                                  ;          ever called it is in this tree
     OSAPI_SLOT osapi_vol_stat     ; 0x0570 - EVERY FACT ABOUT THE VOLUME YOU
                                   ;          ARE STANDING ON, in one record
                                   ;          (SPEC.md 18.4.6). ES:DI = your
@@ -7124,11 +7124,9 @@ osapi_cm_free:        call COLD_SEG:osapi_cm_free_x
                   ret
 osapi_mem_avail:      call COLD_SEG:mmf_osapi_mem_avail
                   ret
-osapi_mem_avail_lvl:  call COLD_SEG:mmf_osapi_mem_avail_lvl
-                  ret
 osapi_mem_claim:      call COLD_SEG:mmf_osapi_mem_claim
                   ret
-osapi_mem_claim_lvl:  call COLD_SEG:mmf_osapi_mem_claim_lvl
+osapi_mem_floor:      call COLD_SEG:mmf_osapi_mem_floor
                   ret
 osapi_mem_claim_dma:  call COLD_SEG:mmf_osapi_mem_claim_dma
                   ret

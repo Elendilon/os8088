@@ -1162,11 +1162,7 @@ ld_start:
     ; (SPEC.md 20.12.10.6): a package's word about its windows is never what
     ; protects a free. Here, before ld_hdr_ok, so a re-home that goes on to
     ; abort is not swept twice.
-    call KERNEL_SEG:cw_gfx_lock
-    mov ax, [ld_base]
-    mov bp, wm_destroy_seg
-    call KERNEL_SEG:cw_mem_disp
-    call KERNEL_SEG:cw_gfx_unlock
+    call .sweep
     mov es, [ld_rehome]
     xor si, si
     mov al, 3                   ; ...and it is a PACKAGE header or it is not a
@@ -1219,32 +1215,30 @@ ld_start:
     ; The parts carve is claimed BY THE LOADER, whose segment is about to stop
     ; existing, and it is the block the program is now running in. Re-stamped
     ; to the instance SLOT, which is how ld_alloc owns a region (step 5).
-    ; Nobody but this program can name it: mem_find_own matches MC_OWN == the
-    ; caller's segment or MC_SEG == it, and a slot is neither - so a package
-    ; that got hold of our carve's base is refused it.
     ;
-    ; **WHAT IT IS NOT IS A FENCE AGAINST THE PROGRAM ITSELF**, and it never
-    ; was for anybody else: mem_find_own's `cmp dx, bx` arm (SPEC.md 66.6.1)
-    ; has always let an ORDINARY package name its own region with `mov dx, cs`
-    ; and free or regrow it, which is a package shooting itself and not a
-    ; thing the kernel undertakes to prevent. Until 66.6.1.2 a re-homed one
-    ; was accidentally exempt - the carve's base is not its `cs`, so the
-    ; compare missed - and the containment arm ends the exemption along with
-    ; the pin, which is the point: re-homed or not, a package sees ONE story.
-    ; The three call sites that reach are OSAPI_MEM_MOVABLE, OSAPI_MEM_FREE
-    ; and OSAPI_MEM_REGROW, exactly as for every other package.
+    ; **AND TRIMMED TO THE PROGRAM** (SPEC.md 20.12.10.5). op_claim reads the
+    ; run from the cluster boundary at or below it, so the program sits a HEAD
+    ; SLACK up the carve - 512 bytes on the shipped DOS.O88, up to a cluster
+    ; less 512 in general, and zero on a 512-byte-cluster volume. That slack
+    ; is alignment the read needed and nothing needs afterwards, and while it
+    ; stayed inside the claim the region's base was not the program's segment
+    ; - which is the one thing every rule in the compactor assumes. For a
+    ; cycle the region was PINNED over it, at 14KB of every DOS program on a
+    ; Sound Blaster machine (96.35.4.1); then unpinned with an offset, a second
+    ; name and a containment arm that followed the slack through four
+    ; routines (66.6.1.2, +155 bytes). mem_reown_x moves the claim's base up
+    ; to [ld_rehome] instead, and the slack is heap again: the base IS the
+    ; segment, mem_own finds the program by the ordinary claim-base test from
+    ; its entry proc onwards, and a re-homed region is a region in every sense
+    ; the compactor already had.
     ;
-    ; **IT USED TO SAY "AND IT MUST STAY PINNED" AND THAT IS OVER** (SPEC.md
-    ; 66.6.1.2). The reason was real - mem_rr_tab rewrote inst_tab + I_SPTR by
-    ; matching the OLD BASE, and I_SPTR is the part's segment where this
-    ; claim's base is the carve's, so a move left I_SPTR naming where the
-    ; program used to be - and it was one of FOUR places that read the base
-    ; where they meant the segment the package runs in. All four take
-    ; [mem_rgoff] now, mem_find_own has a containment arm for a caller naming
-    ; its OWN segment, and a re-homed region moves like any other. What it
-    ; cost while it stood: 14KB of every DOS program on a Sound Blaster
-    ; machine (96.35.4.1), and a permanent wall at whatever depth the heap had
-    ; when any re-homing package launched.
+    ; What the slot fence is NOT is a fence against the program itself, and it
+    ; never was for anybody else: mem_find_own's `cmp dx, bx` arm (SPEC.md
+    ; 66.6.1) has always let a package name its own region with `mov dx, cs`
+    ; and free, regrow or unpin it, which is a package shooting itself and not
+    ; a thing the kernel undertakes to prevent. Re-homed or not, a package
+    ; sees ONE story; what stays refused is the carve's OLD base, which after
+    ; the trim names no claim at all (tests/rehome/rhprog.asm's check 4).
     mov di, [ld_rec]            ; **ld_slot READS DI**, and this is where it
                                 ; comes from. Nothing else on this path sets
                                 ; it: step 8 above loaded it for
@@ -1265,15 +1259,17 @@ ld_start:
     call ld_slot                ; BX = this record's slot
     mov dx, bx                  ; DX = the owner to write...
     mov bx, [ld_base]           ; ...and BX the one to match: the loader's
-    call mem_reown_x            ; segment, which every claim it made carries
+    mov ax, [ld_rehome]         ; segment, which every claim it made carries -
+    call mem_reown_x            ; and AX where the program RUNS, which is
+                                ; where the carve's base goes (below)
 
     ; --- and the LOADER'S OWN REGION, freed ---------------------------------
     mov di, [ld_rec]            ; ...and again, mem_reown_x having no reason to
     call ld_slot                ; preserve DI. Owned by the slot since step 5,
     mov dx, [ld_base]           ; so this is one claim BY BASE and not a sweep
     call mem_free_x             ; - the re-owned carve is on the same owner
-                                ; word now and must not go with it
-    mov ax, [ld_rehome]
+                                ; word now and must not go with it. AX is
+                                ; still [ld_rehome]: both calls preserve it
     mov word [ld_rehome], 0     ; ONCE, AND THIS IS THE INSTRUCTION THAT SAYS
                                 ; SO. The cell's own "already asked" test only
                                 ; stops a second CALL; without this the test
@@ -1298,11 +1294,7 @@ ld_start:
     ; stamped itself. BEFORE ld_unreserve, so no window outlives the region
     ; its procs live in - a survivor's repaint would far-call a freed claim.
     ; The reserved instance record was never published, so it needs nothing.
-    call KERNEL_SEG:cw_gfx_lock
-    mov ax, [ld_base]
-    mov bp, wm_destroy_seg
-    call KERNEL_SEG:cw_mem_disp
-    call KERNEL_SEG:cw_gfx_unlock
+    call .sweep
     ; ...but NOT its toast (SPEC.md 20.12.4). A refusal the entry proc SAID -
     ; os88parts.inc's four, a C package's - carries the reserved slot as its
     ; raiser, because step 8's stamp is in force for the whole of the call
@@ -1327,6 +1319,18 @@ ld_start:
     call ld_unreserve           ; the region, and anything the entry proc
                                 ; claimed before it declared itself broken
     mov al, LD_EABORT
+    ret
+
+.sweep:
+    ; Every window whose W_SEG is the region being launched, destroyed - the
+    ; five instructions .abort and .rehome share, once. A re-home that goes on
+    ; to abort runs it twice and the second pass finds nothing, which is
+    ; cheaper than the twenty bytes a second copy cost
+    call KERNEL_SEG:cw_gfx_lock
+    mov ax, [ld_base]
+    mov bp, wm_destroy_seg
+    call KERNEL_SEG:cw_mem_disp
+    call KERNEL_SEG:cw_gfx_unlock
     ret
 
 ; -----------------------------------------------------------------------------

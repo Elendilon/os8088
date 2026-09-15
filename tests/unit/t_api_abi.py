@@ -93,7 +93,11 @@ CELL = 8
 # new code uses the KB slots at 0x0200+. They are not a free list.
 COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
           0x01C0: "main's OSAPI_MEM_FREE (paragraphs)",
-          0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)"}
+          0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)",
+          # SPEC.md 50.6.6.1: OSAPI_MEM_CLAIM_LVL, a claim carrying the purge
+          # floor as an argument, retired the day the floor became a thing a
+          # task SETS (OSAPI_MEM_FLOOR, 0x0560). stc/ret, not published.
+          0x0568: "OSAPI_MEM_CLAIM_LVL, retired (SPEC.md 50.6.6.1)"}
 
 # Slots whose published name is not its routine's name. Every entry is a
 # deliberate ABI decision; adding one means the SDK and the kernel have
