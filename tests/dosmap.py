@@ -21,6 +21,7 @@ itself, not PSP+0x10. With the segment biased by a paragraph-of-0x100 the
 first reading of this was `lastflags=0000` for a program that had recorded a
 SYN|ACK, which points at the box and is a bug in the reader.
 """
+import io
 import os
 import re
 import subprocess
@@ -175,6 +176,38 @@ def centre(m, pseg, dm, name):
     """...and the middle of it, which is what a click wants."""
     x1, y1, x2, y2 = rect(m, pseg, dm, name)
     return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def kd_const(name, default=None):
+    """One `equ` out of `kerndos/`, by name.
+
+    **SCRAPED RATHER THAN MIRRORED.** A row that needs `KD_RAH_KEEP` needs the
+    number the kernel was BUILT with, and a copy of it in Python is a second
+    definition that `tests/unit/t_mirror.py` would have to police and that
+    goes stale silently in between - which is exactly how `kdarena` and
+    `kdbigexe` came to assert a ladder that shed to nothing after SPEC.md
+    96.44.11.4 made it stop at a width.
+
+    It is a regex over the source and it says so: an `equ` behind an `%ifdef`,
+    or one computed from another, is out of its reach. Those are worth a
+    refusal rather than a wrong number, so an unparsable value raises unless
+    the caller passed a `default`.
+    """
+    pat = re.compile(r"^\s*%s\s+equ\s+([0-9]+)\s*(?:;.*)?$" % re.escape(name),
+                     re.M)
+    for fn in sorted(os.listdir(os.path.join(ROOT, "kerndos"))):
+        if not fn.endswith((".inc", ".asm")):
+            continue
+        m = pat.search(io.open(os.path.join(ROOT, "kerndos", fn),
+                               encoding="utf-8", errors="replace").read())
+        if m:
+            return int(m.group(1))
+    if default is not None:
+        return default
+    raise RuntimeError("no plain `%s equ <number>` under kerndos/ - it has "
+                       "moved, been made conditional, or been computed from "
+                       "something else, and a row that guessed would assert "
+                       "the wrong ladder" % name)
 
 
 def probe(name="dospkt"):
