@@ -4163,8 +4163,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 178 * 8
-%error "os8088 API jump table must be exactly 178 8-byte slots"
+%if OSAPI_TABLE_LEN != 177 * 8
+%error "os8088 API jump table must be exactly 177 8-byte slots"
 %endif
 
 ; =============================================================================
