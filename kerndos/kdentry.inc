@@ -549,8 +549,17 @@ kd_vtab:
                                 ; mounts on the floppy fallback and fails
     mov al, [si+KDL_BOOTV]
     cmp al, DVOL_MAX
-    jae .out
+    jae .cyl
     mov [dsk_bootvol], al
+.cyl:
+    ; ...and the KERNEL's finding about this machine's FDC (SPEC.md 96.44.14).
+    ; It is a whole WORD over here for `dsk_geom_check`'s `cmp word`, and the
+    ; block carries one byte, so the high half is cleared rather than left as
+    ; whatever the bss clear did NOT reach - which is the defect this field
+    ; exists because of.
+    xor ah, ah
+    mov al, [si+KDL_CYLRUN]
+    mov [boot_cylrun], ax
 .out:
     pop di
     pop si
