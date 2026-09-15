@@ -2104,7 +2104,21 @@ dos_psp_make:
                                     ; rather than one obviously unnamed
                                     ; (SPEC.md 96.21.6)
 
-    ; --- the stack -----------------------------------------------------------
+    ; --- the stack, AND ONLY A .COM HAS ONE HERE (SPEC.md 96.3.1) ------------
+    ; An .EXE brings its own SS:SP out of its header and DOS does not touch
+    ; it. This ran for both kinds, and for an .EXE `PSP:FFFC` is not a stack
+    ; top - it is **64KB into the program's own image**, so every .EXE bigger
+    ; than that had two bytes of itself zeroed at load.
+    ;
+    ; Test Drive III is 137,845 bytes and the word landed in the middle of a
+    ; routine: `mov [0B85Eh], bh` became `mov [0005Eh], bh`, which is two
+    ; bytes shorter, so every instruction boundary after it moved - and three
+    ; instructions later the 8086 met `C0`, an UNDOCUMENTED alias for `RET
+    ; imm16`, which popped a byte pair as an address and added 2274h to SP.
+    ; The program ran for two minutes before reaching that routine, and what
+    ; the field saw was a freeze at the menu.
+    cmp byte [dos_isexe], 0
+    jne .nostk
     mov ax, [dos_ldpara]            ; a .COM gets SP at the top of its own
     cmp ax, 0x1000                  ; 64KB when the block holds one, and the
     jb .small                       ; top of the block when it does not
@@ -2119,6 +2133,7 @@ dos_psp_make:
     sub bx, 2                       ; ...and the 0 word DOS pushes, which is
     mov [dos_prgsp], bx             ; the offset half of that PSP:0000 return
     mov word [es:bx], 0
+.nostk:
     pop es
     pop di
     pop dx

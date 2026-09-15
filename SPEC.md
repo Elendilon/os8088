@@ -121837,6 +121837,55 @@ Manager, which cannot run inside a bracket.
 respects its PSP allocation is contained by arithmetic and one that scribbles
 at a hardcoded address is not, exactly as under DOS.
 
+#### 96.3.1 The `.COM` stack word is a `.COM`'s, and it was zeroing two bytes of every large `.EXE`
+
+DOS gives a `.COM` `SP = FFFEh` — the top of its own 64KB, or the top of the
+block when the block is smaller — and pushes a zero word there, so that a
+program ending in a bare `ret` lands on `PSP:0000` and takes the `INT 20h`
+door. An `.EXE` gets none of that: its `SS:SP` comes out of its header,
+relocated with everything else, and DOS writes nothing.
+
+`dos_psp_make` did it for both kinds. For an `.EXE` whose block is at least
+1000h paragraphs the word goes to `PSP:FFFC`, which is not a stack top — it is
+**exactly 64KB into the program's own image**. So every `.EXE` larger than that
+had two bytes of itself replaced with zeros at load time, silently, before its
+first instruction ran.
+
+What it cost is worth writing down, because the distance between the cause and
+the symptom is the whole point. Test Drive III is 137,845 bytes. The word
+landed inside a routine, turning
+
+```
+    88 3e 5e b8     mov [0B85Eh], bh        a0 82 b8   mov al, [0B882h]
+```
+
+into
+
+```
+    88 3e 5e 00     mov [0005Eh], bh        00 82 b8 0a  add [bp+si+0AB8h], al
+```
+
+— two bytes shorter, so **every instruction boundary after it moved**. Three
+instructions later the CPU met `C0`, which on an 8086 is an undocumented alias
+for `C2` (`RET imm16`): it popped `0008` as a return address and added `2274h`
+to `SP`, putting the stack 63KB from where it belonged, in the middle of the
+program's data. The program then ran on garbage — a wild `CS`, a stack inside
+the interrupt vector table, and finally an all-zero IVT as it pushed over it.
+
+None of that is visible from this side. The `INT 21h` conversation is identical
+to a real IBM DOS 3.30's, call for call, for **two minutes** — because the
+corrupted routine is only reached when the game leaves its intro. The field
+report was "it freezes at the menu".
+
+It was found by diffing our unpacked memory against the same program's under a
+real DOS (`docs/DOS-DEBUGGING.md`): 170KB of image, 86 bytes different once the
+load-segment delta is cancelled, and of those the two that mattered. The rest
+of the hunt is a record of what it was NOT: the loader is byte-perfect
+(137,333 of 137,333 against the file at `kd_giveback`), the block size is not
+it (`KD_RAH_KEEP=0` hands the program 603,136 bytes against DOS's 604,896 and
+the two bytes come out identically wrong), and the entry registers are not it
+(poking DOS's `BX`/`CX`/`SI`/`DI`/`BP` in at the entry point changes nothing).
+
 ### 96.4 The back end — every kernel call goes through a table
 
 **The navigation is `OSAPI_FILE_GOTO_QM` and never `_Q`.** `GOTO_Q` moves the

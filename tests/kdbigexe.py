@@ -30,6 +30,12 @@ WHAT IT WOULD CATCH:
                                              program still runs, which is the
                                              one failure a "did it start" row
                                              would pass
+  - a .COM's stack word written into      -> the marker at image offset 0FEFCh
+    an .EXE (SPEC.md 96.3.1)                 comes back zeroed. It is the
+                                             defect this fixture SAT THROUGH
+                                             for a cycle, because a pad of
+                                             zeros cannot see a zero written
+                                             into it
   - the ladder collapsing to one step     -> the recorded widths are [7, 0]
                                              rather than a prefix of
                                              [7, 4, 2, 0]
@@ -253,14 +259,15 @@ def main():
         # --- what the program itself says ------------------------------------
         for want in ("os8088 DOS gate - BIG.EXE",
                      "image head 585KB down: OK",
-                     "relocation at the far end: OK"):
+                     "relocation at the far end: OK",
+                     "the .COM stack word: OK"):
             if not any(want in r for r in rs):
                 fail("%r is not on the screen. The program started but did "
                      "not verify: a partial read or a move that gave up would "
                      "look exactly like this. Screen: %r"
                      % (want, [r for r in rs if r.strip()]))
-        print("kdbigexe: 2/5 it ran, and the image head 585KB below the code "
-              "reads back")
+        print("kdbigexe: 2/5 it ran, the image head 585KB below the code "
+              "reads back, and PSP:FFFC still holds the fixture's own marker")
 
         # --- the numbers kern_dos laid out ------------------------------------
         def w(name):
@@ -268,10 +275,30 @@ def main():
             return b[0] | (b[1] << 8)
 
         top, arena = w("kd_top"), w("dos_arena")
+        # **`kd_top` IS THE CEILING WITH THE CACHE ALREADY OUT OF IT**, and
+        # `capacity()` below subtracts a rung from it - so the reading has to
+        # be taken with NONE held or the two double-count. That used to be
+        # automatic: `kd_giveback` ran the ladder to the bottom, so by the
+        # time the program was up `[dsk_rah_runs]` was 0. Since SPEC.md
+        # 96.44.11.4 it STOPS at `KD_RAH_KEEP`, and the reading is low by
+        # whatever it kept - which moved every rung of the table down by the
+        # same 9,216 bytes and took assertion 5 off by one, while the
+        # PRODUCT was behaving correctly throughout.
+        #
+        # Added back off the machine's own count rather than the constant, so
+        # a future `KD_RAH_KEEP` needs nothing here.
+        held = w("dsk_rah_runs")
+        if held not in RUNG_KB:
+            fail("[dsk_rah_runs] is %d after the load and the ladder is %r: "
+                 "this row cannot correct kd_top for a width it does not "
+                 "know" % (held, list(LADDER)))
+        top += (RUNG_KB[held] * 1024) >> 4
         wpara = (w("dos_wbytes") + 15) >> 4
         caps = [(k, capacity(top, arena, wpara, RUNG_KB[k])) for k in LADDER]
         print("kdbigexe: dos_load capacity per rung: "
-              + ", ".join("%d runs %d" % (k, c) for k, c in caps))
+              + ", ".join("%d runs %d" % (k, c) for k, c in caps)
+              + "  (kd_top corrected for the %d KB kd_giveback kept)"
+              % RUNG_KB[held])
 
         # 3: the retry was NECESSARY - the file does not fit with the cache.
         if size <= caps[0][1]:
