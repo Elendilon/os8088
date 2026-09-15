@@ -1541,7 +1541,7 @@ neither needs an emulator run to be set up specially.
 
 ---
 
-## 43. Prince of Persia will not start under the WHOLE-MACHINE arm (OPEN — two causes found and fixed, a third remains)
+## 43. Prince of Persia will not start under the WHOLE-MACHINE arm (OPEN — three causes found and fixed; the third is the one the reporter's 286 shows, and awaits their confirmation)
 
 Reported off an 86Box 286 with an OTI-067 VGA, three floppies and a 128MB VHD
 (so the third floppy lands on D:, §18.7.1): *"Prince, when run from a
@@ -1697,3 +1697,49 @@ that would catch the fourth.
 → Memory → the third arm, Return, type `B:\PRINCE.EXE` in the path box, Run,
 Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
 startup in 114 calls.
+
+### 43.1 …and the cause on the reporter's own machine is the BIOS, not the disk (SPEC.md §96.44.14)
+
+**The reporter narrowed it, and the narrowing is the finding.** A photograph
+of the screen settled what the message was — `Please insert / Prince of Persia
+Disk 1 / into Drive B: / and press <ENTER>`, which names **the right drive**
+and is that program's *retryable* prompt rather than its `Unable to find
+necessary files` bail-out. So it is an open or a read failing while Prince is
+standing exactly where it should be. Then, one variable at a time on the same
+286:
+
+| changed | result |
+|---|---|
+| ENTER at the prompt | comes straight back — **consistent**, not a transient |
+| `PRINCE.EXE stdsnd` (PC speaker instead of the Sound Blaster) | same prompt |
+| the same disks and program on an **IBM 5150**, three floppies and the disk | **works** |
+| 286, one 360KB + one 720KB drive, no third floppy | same prompt |
+| 286, **both drives 720KB** — media and drive matched | same prompt |
+| 286, hard disk removed | same prompt |
+
+That leaves the CPU and the ROM, and this file already knew which: **note 31
+measured MR BIOS 286 (86Box `mr286`) as a ROM that will not cross a head** —
+it answers `CF = 0` for the whole request and transfers the first half only.
+
+`kern_dos` was crossing one on every machine, with nothing behind it:
+`boot_cylrun` is a WORD the loader writes after §18.93.1's canary, and in
+`kerndos/kdshim.inc` it was declared **`resb 1`** with `kd_top` — the bump
+allocator's ceiling — declared next, so `dsk_geom_check`'s `cmp word` read the
+byte plus `kd_top`'s low byte. Measured inside a live `kern_dos`: `kd_top` =
+`9DC0`, the word = `C000`, `[dsk_cylrun]` = **1**. Fixed as `resw 1`, with
+§96.44.14.1 carrying the kernel's own verdict across in `KDL_CYLRUN` so the
+machines that earned §18.91.1's cylinder run keep it; `soak -k kdcylrun` is
+the gate and it goes red both ways.
+
+**It is not confirmed on the machine yet** — no emulator here can show the
+symptom, because GLaBIOS, SeaBIOS and MartyPC all cross a head correctly, and
+the row therefore reads the CELL rather than looking for corruption. What the
+reporter's machine will say is whether Prince now starts.
+
+**What is worth keeping either way**: `PRINCE.EXE` carries a 25-entry table
+mapping each data file to a disk number, so *"Disk 1"* is exactly
+`PRINCE.DAT`, `DIGISND1.DAT`, `DIGISND3.DAT`, `IBM_SND1.DAT` and
+`MIDISND1.DAT` and nothing else — every video set is Disk 2. And it takes
+command-line switches, which is what made the sound arm above a one-word test:
+video `vga mcga tga ega hga herc cga`, sound `stdsnd adlib covox gblast ibmg
+sblast tandy`, plus `bypass` and `megahit`.

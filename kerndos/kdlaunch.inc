@@ -183,7 +183,19 @@ KDL_KSEG    equ 86              ; dw ...and the DS it comes back WITH, which
                                 ; spell this as `KERNEL_SEG`, an assembly
                                 ; constant that means 0x0060 in this host
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on - `hb_pick`'s
-KDL_HBPAD   equ 89              ; db 0, and the word above stays even
+KDL_CYLRUN  equ 89              ; db MAY A TRANSFER RUN CROSS A HEAD on this
+                                ; machine? (SPEC.md 96.44.14) 1 = the KERNEL's
+                                ; loader crossed one and its canary said the
+                                ; bytes came back right (18.93.1); 0 = every
+                                ; other case, which is the cautious answer and
+                                ; the one an absent field gives. kern_dos has
+                                ; no loader and no canary, so it cannot ask
+                                ; this question itself and its own
+                                ; `boot_cylrun` is never written - carrying the
+                                ; finding is what keeps 18.91.1's cylinder run
+                                ; on the machines that earned it. It was
+                                ; KDL_HBPAD, a pad nothing read, so the word
+                                ; below still starts even and no row moved
 KDL_CLK     equ 90              ; db[10] the kernel's OWN clock block, because
                                 ; `hbm_wake` copies these ten into `clk_sec`
                                 ; and two of them are `clk_rtc`/`clk_dirty` -

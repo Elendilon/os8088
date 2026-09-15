@@ -122,6 +122,7 @@ KDL_VTAB    equ 34              ; db kind, db unit, dd base - per volume
 KDL_WAKE    equ 82              ; dd where a live resume re-enters the kernel
 KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.49)
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on
+KDL_CYLRUN  equ 89              ; db may a run cross a HEAD over there (96.44.14)
 KDL_CLK     equ 90              ; db[10] the kernel's own clock block
 KDL_VROW    equ 6
 KDL_VMAX    equ 8
@@ -2033,6 +2034,20 @@ hbm_dosrun:
     mov [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], ax
     mov ax, [dsk_boothds]
     mov [cs:hbm_dosrec + KDH_LB + KDL_HDHDS], ax
+    ; --- AND WHETHER A RUN MAY CROSS A HEAD (SPEC.md 96.44.14) ------------
+    ; The LOADER settled that with a canary over its own transfer and nothing
+    ; over there can ask it again - kern_dos has no stage 2 and no canary - so
+    ; without this the cautious answer is the only honest one it has, and
+    ; 18.91.1's cylinder run is lost on every machine that earned it. Carried
+    ; as a BOOLEAN and not as the kernel's word: what the far side needs is
+    ; the verdict, and a word whose meaning is "non-zero" invites the next
+    ; reader to put arithmetic on it.
+    mov al, 0
+    cmp word [boot_cylrun], 0
+    je .nocyl
+    inc al
+.nocyl:
+    mov [cs:hbm_dosrec + KDH_LB + KDL_CYLRUN], al
     ; **`hbm_geom` IS CALLED IN THE LOOP AND IT WRITES `hb_*`**, which step 3
     ; filled with DOS.O88's OWN volume and which step 5 stages under HS_UNIT -
     ; so without this the stub would read `kern_dos` off the wrong drive. Ten

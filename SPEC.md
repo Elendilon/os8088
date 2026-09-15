@@ -27735,6 +27735,57 @@ happened) but it is a second mechanism touching `[disk_drive]` and the
 per-volume arrays `dsk_fatww` and `dsk_bpbv`, against six bytes and a skipped
 row for the version above.
 
+##### 18.7.1.1 …and a BIOS UNIT is not a volume index, which the boot arm assumed
+
+`dsk_boot_from`'s floppy arm was one store — `mov [dsk_bootvol], dl` — under a
+comment saying *"A FLOPPY BOOT CHANGES NOTHING AT ALL: DL is 0 or 1, that is
+already a live row whose unit matches"*. The first clause is the contract and
+nothing enforced it: `boot/boot.asm`'s range check (§2.9.11) passes **0 to 3**,
+because a unit above 3 is not a drive that sector can have come from and 2 and
+3 are. So a boot from a third or fourth floppy stored a **unit** where a
+**volume index** belongs.
+
+The two are the same number for units 0 and 1 and for nothing else, and this
+very section says why: row 2 is C:, reserved for the hard disk whether or not
+one turns up, and `dsk_flop_add` skips it — so a three-drive machine reads
+**A, B, D** and unit 2 is volume **3**. `[dsk_bootvol] = 2` then names a row
+whose `DV_KIND` is `DVK_FREE`.
+
+**What that costs is not small, and none of it says anything.** `mod_need` goes
+to `[dsk_bootvol]` and only there (§2.8), so `CTRL.DRV`, `HIBER.DRV`,
+`FORMAT.DRV` and `CLONE.DRV` are all looked for on a volume that does not
+exist; so are `SYSTEM.CFG`, `ASSOC.DAT` and `SYSTEM/FONTS`; `drv_mounted`
+leaves `[disk_drive]` naming the free row with `[dsk_mntok]` clear; and
+`dsk_bootltr` stamps **C:** into the three messages that tell the user which
+disk the system files are on.
+
+So the arm **checks the row it is about to name**: a live row whose index is
+DL, or 0. At this point in `kmain` rows 0 and 1 are live from the initialiser
+and every other row is free, so the test answers exactly *"is DL also a volume
+index"* — and it is written as that question rather than as `cmp dl, 1`, so it
+stays right if the initialiser ever changes.
+
+**Booting from an external floppy is therefore NOT supported, and the fallback
+is deliberate.** Getting it right means claiming the boot drive's row here,
+which is `desk_init`'s job three phases later (the third convention above), and
+then teaching `dsk_flop_add` not to add the same unit twice — a change to the
+lettering policy and its ordering, for a machine class that has never been
+reported. A: is what the old out-of-range arm already chose, and it names a
+volume that exists.
+
+**HOW IT WAS FOUND, which is worth writing down because the machine was
+fiction.** Chasing a field report of Prince of Persia asking for its disk, a
+MartyPC machine was built with three floppies and an XT-IDE disk to match the
+reporter's 86Box. It failed — and it failed for its own reason: with an inline
+`[machine.fdc]` of three drives beside an inline `[machine.hdc]`, **that
+emulator serves the `fd:0` image on unit 2**, so GLaBIOS correctly booted unit
+2 and correctly handed the boot sector `DL = 2`. Measured at `0000:7C00` on
+four machines: `DL` is **02** there and **00** with two floppies, with three
+floppies and no disk, and with two floppies and the disk. The config models no
+real machine — but the kernel's answer to a legitimate `DL = 2` was wrong on
+its own terms, and `tests/dljunk.py` now asserts it on a plain two-drive
+machine by poking the register rather than by owning a third drive.
+
 #### 18.7.2 The medium and the transport are two questions
 
 `DV_KIND` is the **transport** — `DVK_BIOS` means int 13h, `DVK_DRV` means a
@@ -28817,6 +28868,58 @@ calls** with the batching and 12 in 12 with the knob.
 **Field-confirmed.** Reported fixed on PCem — a real BIOS and period timing —
 with the batching on. `FLOPPY1=1` remains the bracket for the next time
 something in this area is in doubt.
+
+#### 18.92.1 …and owning it FOR EVER is a bet about the BIOS, which `DPTROM=1` takes the other side of
+
+§18.92 takes the vector for **one byte** and then never gives it back. That is
+exactly right on an XT, where the ROM has ONE diskette parameter table and no
+media to choose between — and it is a claim about every other machine, which
+nothing in this tree has ever checked.
+
+**An AT-class BIOS chooses its parameters from the MEDIA it has determined**,
+and the media is per drive and changes when a disk does. Owning `0000:0078`
+from stage 1 to power-off freezes whatever table was current at the moment
+the boot sector ran, which is the BOOT drive's — so every other drive is then
+driven with the boot media's step rate, head settle, motor timing and gap. On
+a machine whose drives all take the same media that costs nothing and has cost
+nothing for years. On one where they do not, it is the difference between the
+two drives.
+
+**docs/FIELD-NOTES.md 32 candidate 1 wrote this down before there was a
+symptom for it**, about a WRITE that damaged a disk's ID address marks, and
+asked for exactly one thing: *"which drive, and is the BIOS AT-class? A
+genuine 360KB drive on an XT BIOS nearly rules it out."*
+
+**The field answered it, from the READ side.** Prince of Persia, launched out
+of `B:\PRINCE\` on 720KB media, put its own retryable prompt up — *"Please
+insert Prince of Persia Disk 1 into Drive B:"*, which is what that program
+does when an open or a read of one of its data files fails while it is
+standing in the right place. The reporter then ran **the same disks, the same
+three-floppy-plus-fixed-disk layout and the same program on an IBM 5150**, and
+it worked. The difference is the DRIVE: the 286's B: is a 1.44MB drive holding
+720KB media and the 5150's is a 720KB drive.
+
+**No emulator here can show it**, which note 32 also predicted — 86Box, QEMU
+and MartyPC present a floppy as an array of sectors, so parameters that are
+wrong for the media still land in the right slot. Measured anyway, to make the
+negative result explicit rather than assumed: MartyPC offers no 1.44MB drive
+type at all, and under QEMU with `isa-fdc.fdtypeB=144` and a 720KB image the
+whole 126KB of `PRINCE.EXE` reads off B: without a single retry.
+
+So the A/B is a knob and the machine that answers it is the reporter's.
+**`DPTROM=1` leaves the vector pointing at the ROM's table in all three places
+that take it** — stage 1, stage 2 and `dsk_dpt_init` — so a BIOS that swaps
+tables per media keeps doing so. `dsk_xfer`'s per-transfer EOT write then
+lands in a copy nobody reads, which is the whole reason this is a DIAGNOSTIC
+and not an arm: on a ROM whose EOT really is 8 the knob build reads nine
+sectors where the table allows eight, and that is §18.92's own defect put
+back. Point it at an AT-class machine and nowhere else.
+
+**What it cannot tell us on its own** is *which* of the eleven bytes matters,
+and there is a cheaper question to ask first: put the same program on **1.44MB
+media in the same 1.44MB drive**. If it runs there, the mismatch is the
+variable and this section is the cause; if it still fails, the parameters are
+not it and the BIOS is.
 
 ### 18.93 The boot sector batches too, and it is the largest single win
 
@@ -129397,6 +129500,94 @@ source and decides near or far from the body. The same walk can read the box's
 cell for that target and require `kdback.inc` to set whatever the stub sets —
 `inst_vol_enter` excepted by name, with the reason above. That is not built,
 and it is the thing to build before the next `kern_dos` door is written.
+
+#### 96.44.14 `kern_dos` crossed a HEAD it had never been given leave to cross
+
+**`boot_cylrun` is a WORD in the kernel and was a BYTE over here**, and the
+byte after it was the bump allocator's ceiling.
+
+§18.93.1 settles, once, whether this machine's FDC may carry a transfer run
+onto the other head: the LOADER crosses one deliberately, a canary verifies
+the bytes came back, and it writes `boot_cylrun` on that path and on no other.
+`dsk_geom_check` then asks `cmp word [boot_cylrun], 0` at **every mount** and
+sets `[dsk_cylrun]` from it, so zero — the image's own value — means *it fell
+back, it never had cause to look, or this build predates the canary*, all at
+once and all cautiously.
+
+`kern_dos` has no stage 2, no loader and no canary (§96.43.2), so it can never
+answer that question and nothing over there writes the cell. Zero is therefore
+the only honest value it could hold — and `kerndos/kdshim.inc` declared it
+**`resb 1`**, one byte, at the end of a run of shims, with `kd_top` declared
+next. The word read was `boot_cylrun` plus **`kd_top`'s low byte**.
+
+MEASURED inside a live `kern_dos`, running Prince of Persia off a 720KB
+floppy:
+
+```
+boot_cylrun = 00      the byte itself, correctly zero
+kd_top      = 9DC0    the allocator's ceiling, once the read-ahead is claimed
+WORD @ boot_cylrun = C000
+dsk_cylrun  = 01      head crossing ON
+```
+
+So **every mount under `kern_dos` turned head crossing on, on every machine,
+with nothing behind it.** `[kd_top]` is 0xA000 at entry on a 640KB machine —
+low byte zero, which is why a bare gate run never showed it — and
+§96.44.11.4's read-ahead lowers it to 0x9DC0 before any program mounts
+anything.
+
+**What it costs is a BIOS class, and the field found it.** docs/FIELD-NOTES.md
+31 measured MR BIOS 286 (86Box `mr286`) as a ROM that **will not cross a
+head**: it answers `CF = 0` for the whole request and transfers only the first
+half, which is the hazard §18.93.1's canary exists for and is silent by
+construction. Under `kern_dos` on such a machine the back half of every
+crossing run is left as whatever was in the buffer — deterministic, the same
+sectors every time, no error anywhere.
+
+Reported as Prince of Persia putting its own retryable prompt up — *"Please
+insert Prince of Persia Disk 1 into Drive B:"*, which that program does when
+an open or a read of one of its data files fails while it is standing in the
+right place. The reporter narrowed it themselves, and the narrowing is what
+makes this section short: the same disks and the same program on an IBM 5150
+worked; a third floppy, the drive TYPE (720KB media in a 1.44MB drive against
+a matched pair) and the fixed disk were each removed in turn and **none of
+them was the variable**. What was left was the BIOS.
+
+**No emulator here can show it.** GLaBIOS, SeaBIOS and MartyPC's ROMs all
+cross a head correctly, so the wrong answer is the right one on every machine
+in this tree — which is also why the cell had been read this way since
+`kern_dos` existed.
+
+##### 96.44.14.1 …and the fix carries the KERNEL's finding rather than giving up
+
+`resw 1` alone makes the cell honest, and honest here means **always
+track-bounded** — §18.91.1's cylinder run is 9 sectors an `int 13h` instead of
+18, and a DOS program's load pays double the calls on every machine, including
+the ones that earned it.
+
+So the launch block carries the verdict, which is what it already does for the
+diskette parameter table, the volume table and the fixed disk's geometry
+(§96.40.2). **`KDL_CYLRUN` at offset 89** is a byte: 1 where the kernel's
+canary crossed a head and came back right, 0 everywhere else. It was
+`KDL_HBPAD`, a pad nothing read or wrote, so **no row moved and `KDL_VER` does
+not bump** — which is the rule that field's own comment states.
+
+It crosses as a BOOLEAN and not as the kernel's word. What the far side needs
+is the verdict; a word whose meaning is *non-zero* invites the next reader to
+do arithmetic on it, and the high half is cleared on arrival rather than left
+to a bss clear — which is the defect this field exists because of.
+
+Measured on one machine, the same run three ways:
+
+| | word at `boot_cylrun` | `dsk_cylrun` | |
+|---|---|---|---|
+| before | `C000` | 1 | wrong, and uncanaried |
+| `resw 1` alone | `0000` | 0 | honest, always track-bound |
+| + `KDL_CYLRUN` | `0001` | 1 | honest, and keeps §18.91.1 |
+
+The kernel's own sections do not move — `hbm_dosrun` is `HIBER.DRV`'s, an
+on-demand module — so the whole of it is **+16 bytes of `HIBER.DRV` and +8 of
+`DOS.O88`**, neither resident.
 
 #### 96.44.13 An EMPTY environment is not an empty environment, and a program that fits never got one
 

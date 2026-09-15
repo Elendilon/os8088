@@ -2870,6 +2870,36 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
         wants=("build/os8088-360.img", "build/doscom360.img")),
+    Row("kdcylrun", "soak", py("tests/kdcylrun.py"), 40.0,
+        "kern_dos DOES NOT CROSS A HEAD IT WAS NEVER GIVEN LEAVE TO CROSS "
+        "(SPEC.md 96.44.14). SPEC.md 18.93.1 settles that ONCE, in the "
+        "loader, with a canary over its own transfer, and writes "
+        "`boot_cylrun`; `dsk_geom_check` reads it at EVERY MOUNT with a "
+        "`cmp word` and sets [dsk_cylrun]. kern_dos has no loader and no "
+        "canary, so nothing over there writes the cell - and it was declared "
+        "`resb 1`, ONE BYTE, with `kd_top` next. The word read was the byte "
+        "plus the ALLOCATOR CEILING's low byte, 0xC0 once the read-ahead is "
+        "claimed, so every mount under kern_dos turned head crossing ON, on "
+        "every machine, with nothing behind it. On a BIOS that will not cross "
+        "one - MR BIOS 286, docs/FIELD-NOTES.md 31 - that ROM answers CF=0 "
+        "for the whole request and transfers the first half only, so the back "
+        "half of every crossing run is whatever was in the buffer: silent, "
+        "deterministic, and reported from the field as Prince of Persia "
+        "asking for its own disk. THREE CHECKS AND NONE STANDS IN FOR "
+        "ANOTHER: the word is 0 or 1 (the defect itself reads 0xC000), "
+        "[dsk_cylrun] agrees with it (dsk_geom_check ran), and it MATCHES the "
+        "kernel's own finding read off this same machine before the handover "
+        "- which is 96.44.14.1's KDL_CYLRUN, without which the honest answer "
+        "costs 18.91.1's cylinder run on every machine that earned it. "
+        "VERIFIED TO FAIL both ways: `resb 1` takes check 1 red at 0xC000, "
+        "and removing the KDL_CYLRUN store from hbm_dosrun takes check 3 red "
+        "with 0 against the kernel's 1. NO EMULATOR HERE CAN SHOW THE "
+        "SYMPTOM - GLaBIOS, SeaBIOS and MartyPC all cross a head correctly, "
+        "which is why this reads the CELL rather than looking for corruption. "
+        "MartyPC: the cells are kern_dos's own, read while the program is up.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/doscom360.img",
+               "build/kerndos.bin")),
     Row("kdarena", "soak", py("tests/kdarena.py"), 40.0,
         "THE ARENA AND THE READ-AHEAD DO NOT OVERLAP (SPEC.md 96.44.11). "
         "kern_dos sizes the DOS program's block and THEN mounts the volume "
