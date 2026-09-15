@@ -1619,6 +1619,29 @@ whole-machine arm's two numbers are **nowhere in the file**, and 5939 is past
 the end of it. So the six bytes are right and what is computed from them is
 not.
 
+**THE INSTRUMENT WAS WRONG, AND FIXING IT IS MOST OF WHAT THIS ROUND ADDED.**
+`os88intmon`'s `--time` computed the return site as `CS:IP + 2` — but
+MartyPC's INT breakpoint stops INSIDE the handler with the vector already
+fetched, so `cs:ip` is the handler's entry (the same `05C9` for every call in
+both arms, which is the tell) and `+2` is two bytes into the handler. Every
+`--time` figure it ever printed was ~20 cycles, and the TD3 run that reported
+`0.0 ms in-BIOS` was the same defect on `int 13h`. The return site is the
+three words the CPU pushed at `SS:SP`. With that right, the stop is already
+being made, so the ANSWER costs one `regs` call — and an entry-only trace
+cannot see this family of failure at all, which is the point: the answers were
+what needed comparing.
+
+**AND THE ANSWERS ARE IDENTICAL THROUGH THE SIX-BYTE READ.** Fourteen calls,
+both arms, every return register and flag:
+
+    AH=30h 1E03 · 4Ah 4A5A · 30h 1E03 · 35h/25h · 44h A0C0 80C0 80D3 80D3 80D3
+    19h 1901 (drive B) · 47h AX=0100 CX=0001 CF=0 · 3Dh AX=0005 (the handle)
+    3Fh six bytes, AX=0006, CF=0
+
+Then `AH=48h` asks for 38 paragraphs on one arm and 377 on the other, with no
+call in between. **The ruled-out list above is now exhaustive over everything
+`int 21h` can say**, and what is left is not a DOS answer.
+
 **The one thread left is that every one of Prince's data pointers is exactly
 TWELVE BYTES higher under `kern_dos`** — the open's `DS:DX`, the read's
 buffer, the `AH=47h` buffer, all `+12` — while its DS sits at the same
@@ -1626,6 +1649,18 @@ buffer, the `AH=47h` buffer, all `+12` — while its DS sits at the same
 these are computed; `dos_exe_setup` takes SS and SP straight from the MZ
 header with no clamp, so it is not the stack the loader sets. That is where to
 start.
+
+**A THIRD instance of §96.44.10's CLASS was found looking for this and is
+fixed** (§96.44.11), though it is not this bug: `dos_k_find` binds
+`dsk_find_x` directly and so passed it **whatever `AL` the core was holding**,
+where `AL` is §19.6.1's fence between a package and a driver — a stray 1 shows
+a DOS program `SYSTEM.CFG` and the kernel's own files — and left
+`[dsk_fdraw]` at whatever `api_file_find_raw` last set, which reports a
+compressed file's PACKED size where the program will be handed its expanded
+one. The Prince disk has neither a hidden file nor a compressed one, so it
+changes nothing here; it is in the tree because the CLASS is what keeps
+costing this program, and §96.44.11 is the class written down with the gate
+that would catch the fourth.
 
 **To reproduce**: `make kdostest`, then `build/os8088-720.img` in A: and a
 720KB Prince disk in B: on `os8088_5150_herc_sb_720_gla`; open the box, Setup

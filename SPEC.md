@@ -127930,6 +127930,57 @@ machine, because the windowed box passes every row of this table and always
 did: a defect that lives only in the joint is only visible to a row that runs
 the joint.
 
+#### 96.44.11 The CELL is part of the door, and `kern_dos` binds the ROUTINE
+
+§96.44.10 is one instance of a class, and the class is worth more than the
+instance. The box reaches every file door through an `OSAPI_*` **cell**, and a
+cell is not a call — it is a stub that does work on both sides of the routine:
+
+| the box's door | the cell's stub does | `kern_dos` binds |
+|---|---|---|
+| `dos_k_read`, `_rdat`, `_write`, `_append`, `_delete`, `_mkdir`, `_rename` | `api_n`: stages the name into the kernel's own 13-byte `api_name`, then `inst_vol_enter` | the routine |
+| `dos_k_find` | `api_file_find`: **`[dsk_fdraw] = 0`**, `inst_vol_enter`, then **`AL` = the driver fence** | the routine |
+| `dos_k_path` | `api_file_path`: `inst_vol_enter`, and `api_x` puts the caller's DS in **ES** | the routine |
+
+**`kern_dos` binds the routine and gets none of it**, and that is correct for
+exactly one of the three columns: `inst_vol_enter` stands the CALLING INSTANCE
+on its own folder and there are no instances here, so skipping it is the right
+answer rather than a gap. The other two are inputs, and an input a caller does
+not set is whatever the register or the cell happened to be holding.
+
+**Three defects, one shape**, and the third is the one that says the shape is
+real rather than a story told about two:
+
+1. **`dos_k_path` inherited ES** — §96.44.10. The program's own path in the
+   environment came out as `B:`.
+2. **`dos_k_find` inherited AL**, which `dsk_find_x` documents as *"1 if the
+   caller may see hidden and system entries"* — §19.6.1's fence between a
+   package and a driver, computed in the box's stub from `dvf_drv_owns_seg`.
+   Passed a stray 1, a DOS program's `DIR` sees `SYSTEM.CFG` and the kernel's
+   own files, which no package can.
+3. **`dos_k_find` inherited `[dsk_fdraw]`**, which `api_file_find_raw` sets to
+   1 to get a compressed file's PACKED size instead of its expanded one
+   (§20.14.3). Left at 1, `AH=4Eh` tells a program a file is the size it
+   occupies and `AH=3Fh` then hands it more bytes than it asked about.
+
+A DOS program is a PACKAGE by every rule this system has, so both of the
+second door's answers are constants: `AL = 0`, `[dsk_fdraw] = 0`. **Writing
+them down at the call site is the fix**, because the value is not visible
+there — which is the whole reason the first one survived a wave.
+
+**The trap in writing it** is worth the line, because the obvious spelling is
+wrong: a `push ax` / `pop ax` bracket around `dos_k_find` restores the caller's
+AX and throws away the `FERR_*` the routine answers on CF=1. `AL` is the only
+half that is an input and `AH` is not read, so `xor al, al` alone is both the
+setup and the safety.
+
+**What would catch the next one** is `tests/unit/t_kdfar.py`'s shape one step
+along: it already reads every target `kdback.inc` names out of the kernel
+source and decides near or far from the body. The same walk can read the box's
+cell for that target and require `kdback.inc` to set whatever the stub sets —
+`inst_vol_enter` excepted by name, with the reason above. That is not built,
+and it is the thing to build before the next `kern_dos` door is written.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
