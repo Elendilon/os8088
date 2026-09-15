@@ -84851,6 +84851,19 @@ carve's — `BX` = the segment it was at, `DX` = where it is now — so a proc
 written for an ordinary package needs no change and cannot tell the difference.
 That is the whole point: re-homed or not, a package sees one story.
 
+**WHAT IT COST: +155 resident bytes** — `.text` +41, `.cold` +110, `.bss` +2
+(`[mem_rr_alt]`), `.lowbss` +2 (`[mem_rgoff]`) — A/B'd at one commit, no rung
+crossed, and `kern_small` **byte-identical**, `OS88_COMPACT` being `KERN_BIG`
+only (§66.0). Against it: 14 KB of every DOS program on a Sound Blaster
+machine (§96.35.4.1), and a permanent mid-arena wall at whatever depth the
+heap had when any re-homing package launched.
+
+**The gate is `rehomemove360` and the 1.44MB row is not one.** A
+512-byte-cluster volume gives `op_claim` a zero head slack, so the program
+sits AT its carve's base and all four questions above have the same answer
+either way; only a geometry with a real slack can tell. Three of the four fail
+by CORRUPTING rather than refusing, and all four are silent.
+
 #### 66.6.2 …and past the worker: the package gives its worker back
 
 `OSAPI_TASK_RESTARTABLE` (slot `0x0518`, `inst_restart_set`) — `AX` = a near
@@ -125485,6 +125498,16 @@ the what-if and plain avail are the same number anyway.
 `OSAPI_MEM_AVAIL` is `OSAPI_MEM_AVAIL_LVL`'s, so **both** calls set AL. A
 fall-through would ask the floor's question twice and draw one number in both
 places, which is the failure §50.6.6 is about with the two figures swapped.
+
+**ONE ASYMMETRY STAYS, AND IT IS NOT A DEFECT**: on a machine with a sound
+card the launch also UNMOUNTS the driver (§96.35), which the page does not and
+must not — drawing a number is not a reason to stop the audio — so the page
+reads ~14 KB low there and the program is handed more than it was promised.
+That is the direction §96.25.1 exists to forbid the other way round, it
+predates the what-if by a release, and the alternative costs a user their
+music every time they open a page. `tests/dirwshed.py` runs on a machine with
+no card and so cannot see it; `tests/dosarena.py` is the row that measures the
+14 KB, on a pair of machines, which is where the quantity belongs.
 
 #### 96.25.2 …and a SECOND `ExtraData` block, not two more fields on the first
 

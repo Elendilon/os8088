@@ -53,6 +53,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dosmap                                                  # noqa: E402
+import os88build                                               # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
@@ -61,7 +62,15 @@ from os88geom import KD_SEG                                    # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SYS = "build/os8088-360.img"
 COM = "build/doscom360.img"
-KDBIN = os.path.join(ROOT, "build", "kerndos.bin")
+# **THROUGH THE RUN'S TREE** (tools/os88build.at). A soak reads a FROZEN
+# tree and not `build/`, and these two are the only paths here the host
+# opens directly rather than handing to os88marty, which resolves them
+# itself - so a literal `build/` path reports "not built" about an
+# artefact the run has, which reads as `make kdostest` never having been
+# typed.  os.path.join keeps it ROOT-anchored when no tree is applied and
+# leaves an absolute tree path alone, join discarding everything before
+# an absolute component.
+KDBIN = os.path.join(ROOT, os88build.at("build/kerndos.bin"))
 MACH = "os8088_5150_cga_gla"
 
 RD_N, RD_SEL, RD_PITCH, RD_DIS = 10, 12, 14, 16

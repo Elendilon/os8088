@@ -931,10 +931,11 @@ built.
 
 `OSAPI_PKG_REHOME` (SPEC.md 20.12.10) hands a loader's identity to one of its
 parts, and what the program then runs in is **the loader's CARVE re-stamped to
-the instance SLOT**. `mem_find_own` matches `MC_OWN` or `MC_SEG` against the
-caller's segment and a slot is neither, so the program is refused
-`OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE` on its own region.
-`kernel/loader.inc`'s `.rehome` arm is explicit that this is deliberate:
+the instance SLOT**. `mem_find_own` matched `MC_OWN` or `MC_SEG` against the
+caller's segment and a slot is neither, so the program was refused
+`OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE` on its own region — the first of
+those is still right and the second is what this section is about.
+`kernel/loader.inc`'s `.rehome` arm was explicit that it was deliberate:
 
 > IT MUST STAY PINNED: `mem_rr_tab` rewrites `inst_tab + I_SPTR` by matching
 > the OLD BASE, and `I_SPTR` is the part's segment where the claim's base is
@@ -968,8 +969,10 @@ one it fixed.
 What shipped is one number computed once — `[mem_rgoff]`, the program's
 paragraph offset into the moving claim — plus `mem_reg_seg`, which takes the
 claim's base as an INPUT because `mem_reloc_call` asks about a record whose
-base has already been rewritten. **+151 bytes** (`.text` +40, `.cold` +107,
-`.bss` +2, `.lowbss` +2), no rung crossed. Measured: the DOS box's arena goes
+base has already been rewritten. **+155 bytes** (`.text` +41, `.cold` +110,
+`.bss` +2, `.lowbss` +2), A/B'd at ONE commit and no rung crossed — and
+`kern_small` is byte-identical, `OS88_COMPACT` being `KERN_BIG` only.
+Measured: the DOS box's arena goes
 **426 KB to 445** on a Sound Blaster machine, equal to the machine with no
 card; `soak -k rehomemove360` is the gate, and `rehome`/`rehomemove` at a zero
 head slack cannot be one — all four questions have the same answer there.
