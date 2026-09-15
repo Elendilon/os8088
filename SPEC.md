@@ -35729,7 +35729,7 @@ because a package may not compact its own region — `mem_frameless` asks
 `mem_in_nest`, and a package reaches `mem_claim` only from inside its own
 callback. **That is true of a synchronous claim and it is NOT the situation
 here**, because §66.4.3's posted request exists precisely for it and is
-BUILT: `OSAPI_MEM_COMPACT_WAKE` (0x0598) records the wish and returns,
+BUILT: `OSAPI_MEM_COMPACT`'s post (0x0590) records the wish and returns,
 `ui_task` step 0 spends it through `mem_cpq_run_x` with nothing held, and
 `apps/dos/dos.asm` has posted one since §96.35. `[dos_cpw]` reads 1 on the
 machine, so the pass really runs.
@@ -36823,13 +36823,13 @@ that is the same rule every other by-name call in this SDK already has.
 #### 21.5.1 Why it is one cell and was briefly two
 
 It shipped as two — `OSAPI_PKG_START` here, taking an image, and
-`OSAPI_PKG_START` at 0x05A0, taking a name — and that is the failure §20.8
+`OSAPI_PKG_START` in a second cell at the table's end, taking a name — and that is the failure §20.8
 rule 4 names in as many words: *a successor slot beside a permanent
 no-consumer path, which is a worse spec than the one the freeze was
 defending.* Two published cells whose names both mean *run a package* is a
 question at every call site that has no good answer, and the table is
 **unfrozen** precisely so a wrong contract is edited rather than shipped
-around. 0x05A0 is withdrawn; the merged cell takes 0x0520, which the
+around. The second cell is withdrawn; the merged cell takes 0x0520, which the
 re-contract rule permits here because `apps/`, `drivers/` and `tests/` are the
 complete set of callers and `make` rebuilds every one of them.
 
@@ -63761,11 +63761,11 @@ is destructive — `mem_claim`'s refusal path sheds every purgeable cache on
 the way down (§50.6.4), so the read-ahead and the FAT windows go and cost
 seconds of `int 13h` to rebuild. A package with an exact requirement that
 guesses wrong therefore **pays for its refusal twice**. So `trk_cpq_try`
-asks `OSAPI_MEM_AVAIL_MAX` — the same plan with the asker's own region
-excused — and only says `Too big for free memory` once the answer is *not
-even if the machine emptied itself for me*.
+asks `OSAPI_MEM_COMPACT`'s what-if — the same plan with the asker's own
+region excused — and only says `Too big for free memory` once the answer is
+*not even if the machine emptied itself for me*.
 
-When the what-if says yes, it posts `OSAPI_MEM_COMPACT_WAKE` at
+When the what-if says yes, it posts through the same door at
 `MEM_LVL_TOP`, puts **`Making room...`** on the status line and **returns
 having touched nothing**. `ui_task` step 0a runs the compaction with
 nothing held (§66.4.3), and the `EVT_WAKE` that follows re-enters
@@ -83777,7 +83777,9 @@ terminates in at most **three** plans: `[mem_parked]` admits one park and
 plan is made against the layout as it stands, so whichever single pass
 satisfies the claim is the one that runs — ascending first, being the cheaper,
 then descending. Only when neither alone funds the claim does `mem_compact`
-run both, cheapest first.
+run both — **the ceiling first, then the floor**, the order §66.4.3.1's plan
+models, because the two orders cut the same free space differently and
+`mem_avail` has already promised one of the cuts.
 
 **They used to be ALTERNATIVES, and that was a defect rather than a trade.**
 The rule read *"whichever single pass satisfies the claim is the one that
@@ -83787,25 +83789,25 @@ got **neither half**: nothing was copied, `mem_compact` answered CF = 1, and
 the claim fell through to the shed with the room standing there in two runs.
 `mem_claim`'s retry loop could not sequence them either, because it re-enters
 only after a CF = 0 that means the claim already fits. `mem_avail` had the
-same hole from the reporting side and still has the harmless half of it: it
-plans ascending alone, so it under-reports until a pass has run, and reads
-exactly once one has — which is what makes a *deferred* compaction able to
-report its own result with no combined plan
-(`docs/plans/REGION-SELF-COMPACT-PLAN.md`).
+same hole from the reporting side — it planned ascending alone, so it
+under-reported until a pass had run — and §66.4.3.1 is where it learned to
+plan the pair.
 
 **Nothing is speculative at the pair.** The descending plan has already said
 the expensive pass alone is short, so the cheap copy is needed rather than
-guessed at — and the ascending pass cannot make the largest run *smaller*, only
-slide bottom-up claims onto floor paragraphs the walk has already passed, so a
-claim that is refused anyway is left on a better-packed heap. It costs **35
-bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of it.
+guessed at — and neither pass can make the largest run *smaller*, only
+slide a claim onto paragraphs the walk has already passed, so a claim that is
+refused anyway is left on a better-packed heap whichever runs first. It costs
+**35 bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of
+it.
 
 **A claim the pair still cannot fund pays for the copies before it is
 refused**, which is the one case the old rule was right about and is priced at
 `rep movsw`'s 13.3 cycles a byte (PERFORMANCE.md Set 117.2) — 2.86 ms a KB
-moved. A combined *plan* would refuse before copying and costs ~150–250 bytes
-to answer a question no caller has to ask;
-`docs/plans/REGION-SELF-COMPACT-PLAN.md` 3.4 is that arithmetic.
+moved. The combined *plan* exists now (§66.4.3.1) and `mem_avail` answers
+through it, so a caller that asks first is refused before a byte is copied;
+`mem_compact` itself still runs the pair on its own single-pass plans, because
+a claim that reaches `.both` has already been priced short by both.
 
 **Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
 round: the descending walk takes the live claim with the **highest** base at or
@@ -83897,20 +83899,37 @@ nothing can ever merge.
 
 **The fix is not a new predicate. It is a later moment.**
 
-`OSAPI_MEM_COMPACT_WAKE` (slot `0x0558`) records the wish and returns:
+`OSAPI_MEM_COMPACT` (slot `0x0590`) is **one door with the verb in `AH`**,
+because its two halves are two halves of one question:
 
-> `BX` = a window of yours, `AL` = the shed rank the pass must respect. CF = 0
-> posted — **return from your callback**; an `EVT_WAKE` arrives once the pass
-> has run. CF = 1 refused: `BX` is not your window, or a post of yours is
-> already standing.
+> `AH = MEMC_WHATIF` (0): `AL` = a purge level, exactly as
+> `OSAPI_MEM_AVAIL_LVL`'s. Out `AX`/`BX` as that slot, planned **as if the
+> caller's own region and claims could move** (§66.4.3.2).
+>
+> `AH = MEMC_POST` (1): `BX` = a window of yours, `AL` = the shed rank the pass
+> must respect. CF = 0 posted — **return from your callback**; an `EVT_WAKE`
+> arrives once the pass has run. CF = 1 refused: a post is already standing.
+>
+> **Set `AX`, not `AL`.** `AH` picks the verb, so a `mov al, level` alone
+> leaves whatever `AH` held to choose it.
 
-This is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you are
-still executing in the region this is going to move, so nothing may happen
-until you have returned* — and it is spent where the posted restart is spent,
-at `ui_task`'s step 0, **with nothing held**. `[wm_pkgd]` is 0 there by
-construction, every `wm_pkgcall` on that task having returned, so
+It shipped as two cells, `OSAPI_MEM_AVAIL_MAX` at `0x0590` and
+`OSAPI_MEM_COMPACT_WAKE` at `0x0598`, and the size pass merged them: a cell
+and its near thunk are 14 resident bytes of a table that cannot grow, and
+`OSAPI_VOL_STAT` (§18.4.6) is the precedent for a family behind one door.
+The table ends at `0x0598` now: the DOS handoff that sat above it for one
+cycle is verb 2 of `OSAPI_DRV_SUSPEND` (§51.11, §96.40).
+
+The post is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you
+are still executing in the region this is going to move, so nothing may
+happen until you have returned* — and it is spent where the posted restart is
+spent, at `ui_task`'s step 0a, **with nothing held**. `[wm_pkgd]` is 0 there
+by construction, every `wm_pkgcall` on that task having returned, so
 `mem_frameless` answers *movable* for the asker's own region **with no
-predicate changed**. The feature is *where* the compaction runs.
+predicate changed**. The feature is *where* the compaction runs. It does not
+ride `[ui_rebootq]` beside the restart it resembles: `hbf_perform` loads the
+hibernate module before it dispatches, and a compaction is not worth a disk
+read.
 
 It is not `wm_pkgcall`'s return path, and that is not tidiness: `mem_compact`'s
 park request drops `[sch_lock]` for up to `INST_PARKW` ticks (§66.5), which
@@ -83920,12 +83939,30 @@ from inside a repaint holding the gfx lock is a deadlock against
 **The rank rides on the request.** `mem_compact` takes the rank a cache must be
 cheaper than from the *pending claim's* owner, and there is no pending claim
 here — the pass runs after the asking package's turn is over — so without it
-the pack would stop at the first purgeable barrier.
+the pack would stop at the first purgeable barrier (§66.4.3.3).
 
-**One post may stand per package.** A second before the first is serviced is
+**One post may stand at a time.** A second before the first is serviced is
 refused rather than queued: the answer to *"I asked and nothing has happened"*
 is to wait for the wake, and a queue would let a package spend the machine on
-compactions it has already been promised.
+compactions it has already been promised. `BX` is trusted, as `OSAPI_WM_WAKE`
+trusts it — the sibling every worker wakes its window through — and the post
+sets no wake byte of its own: it is made from a callback *on* the UI task,
+whose pass ends at `task_sleep(1)` (§8.1.2), so the service is within one tick
+either way.
+
+**On `kern_small` the cell is a nine-byte stub in `.text`** (§66.0): the
+what-if *is* `OSAPI_MEM_AVAIL_LVL`'s answer, since nothing there moves, and a
+post is refused — the documented outcome, which every caller already carries
+on from by claiming what is there. None of the door's machinery is assembled
+on that kernel, where the first build carried the cells, the thunks, the
+service hook and the queue words for a compactor it does not have.
+
+**What it costs**, measured at the size pass against the three routines it
+replaced: on `kern_big` `.text` −18 (one cell, one thunk, the `cw_wm_wake`
+shim — `mem_cpq_run_x` reaches the wake through the published cell's own
+`apic_wm_wake` label) and `.cold` −171, **−189 resident bytes**, the feature
+standing at ~180 where it shipped at 367; on `kern_small` −119 (`.text` −28,
+`.bss` −5, `.cold` −86), all of it machinery for a pass that kernel cannot run.
 
 #### 66.4.3.1 …and `mem_avail` had to learn to plan BOTH passes
 
@@ -83954,30 +83991,64 @@ beneath it never reaches the ceiling, and once that pass has left it there it
 is a barrier to the ascending pass in turn. An over-report is the worst answer
 available here — memory promised that `mem_claim` cannot produce.
 
-So the walk is **ascending**, as the second pass is, and a top-down claim is a
-barrier at the base the *first* pass would have left it at. That base is
-`mem_cp_newbase` and it takes **no scratch**:
+**ONE ASCENDING WALK, AND THE DESCENDING PASS IS A DEFERRED SUM.** What that
+pass does to a top-down claim is slide it up until it meets the next thing
+above that does not move with it — a bottom-up claim, a pinned one, or the
+ceiling — so a *run* of top-down movers ends packed solid under that barrier
+`B`, and the hole it leaves is **below** the run:
 
-> `newbase = B − S`, where `B` is the base of the lowest claim above this one
-> that the descending pass may not move (`[mem_top]` if there is none), and `S`
-> the paragraphs of every ceiling mover from this one up to `B`.
+> `hole = B − S − fill`, `S` being the run's paragraphs and `fill` the point the
+> floor has packed up to.
 
-Two `O(MEM_MAX)` scans, so the plan stays `O(MEM_MAX²)` like every other walk
-here. It is exact because the descending pass preserves **order** — a claim
-only ever slides up onto paragraphs the walk has already passed, so no mover
-crosses another claim and everything between one and its barrier packs solid.
-A `MEM_MAX`-word table of new bases was the alternative and is 64 bytes of
-`.bss` resident for a question nothing asks per frame.
+That is what the walk measures when it *arrives* at `B`, and it needs only two
+things to do so: the fill point every walk in `memory.inc` already carries, and
+whether a run is pending. So a top-down mover **adds its size to the fill
+point** as if it had packed there — it has not, but the hole it leaves is the
+same size wherever the run finally stands — and raises the flag; a bottom-up
+mover with the flag up, or a pinned claim, is where the run stops: the hole is
+`base − fill`, which is `B − S − fill`, and the fill point resumes past it. A
+bottom-up mover with no run pending packs onto the fill point and is no barrier
+at all, which is the ascending pass exactly. Every live claim is visited once,
+so the **total** rides the same walk (`BX` on the way out) and the second
+`O(MEM_MAX)` loop `mem_avail_lvl_x` kept for it is `kern_small`'s alone now.
+
+It shipped as this walk asking `mem_cp_newbase` *"where would the descending
+pass put this claim"* per top-down mover — two `O(MEM_MAX)` scans a claim,
+`B − S` looked up ahead of time, 108 bytes with its `mem_cp_ceilmv` predicate —
+for the number the walk reaches on its own by waiting for `B`. The two are the
+same arithmetic; the size pass took the plan from 202 bytes to 96, total
+included. It is exact because the descending pass preserves **order** — a
+claim only ever slides up onto paragraphs the walk has already passed, so no
+mover crosses another claim and everything between one and its barrier packs
+solid. `tools/heapwhatif.py` is the arithmetic on the host, and
+`tests/heapcheck.py`'s `both_passes()` a second reader of it written from the
+spec — in the look-ahead form, deliberately, so the two spellings check each
+other.
+
+**The order is the point, and `mem_compact` was running the other one.** The
+plan models the ceiling packed first and then the floor — `heapwhatif.py`'s
+`true_combined` and `heapcheck.py`'s model both say so — and `.both` ran the
+floor first, on the sentence *"cheapest first"*. The two orders leave the same
+**total** of free space cut at **different places**: a run of top-down movers
+takes the gap between its top and the bottom-up claim above it *with* it
+ceiling-first and leaves it *above* floor-first, and neither cut dominates the
+other. So a plan of one order against a compactor of the other can promise a
+run the pass never produces — `[H][L][60][H][60][L]` packs to two runs of 60
+floor-first where the plan reads 120 — which is the over-report this section
+exists to forbid. `.both` now runs the ceiling first, the order it was
+verified against; the *"cheapest first"* argument is that neither pass can
+make the largest run smaller, and that is true of both passes, so it never
+chose between them.
 
 **PLAN ONLY.** There is no `mem_cp_both_run` and there must not be: one walk
 may plan both directions and may **not** run them, because packing a top-down
 claim up inside an ascending walk writes onto claims the walk has not visited
 yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
 
-#### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
+#### 66.4.3.2 The what-if is a measurement, not a promise
 
-Slot `0x0590`: `OSAPI_MEM_AVAIL`'s answer at a level of the caller's naming, planned as if the caller's own
-region could move.
+`OSAPI_MEM_COMPACT` with `AH = MEMC_WHATIF`: `OSAPI_MEM_AVAIL`'s answer at a
+level of the caller's naming, planned as if the caller's own region could move.
 
 **`AL` IS THE PURGE LEVEL, on `OSAPI_MEM_FLOOR`'s scale** (§50.6.6),
 and it was missing from the first build — the routine forced `MEM_LVL_TOP` and
@@ -83987,12 +84058,12 @@ hammer the disk and the read-ahead window is the dearest cache in the system
 (§96.24). A what-if fixed at `MEM_LVL_TOP` counts that cache as free where the
 claim beside it will not, so the two numbers are answers to different
 questions — and the difference between them, which is the whole signal this
-slot exists to give, would read non-zero every time and post a compaction the
-caller did not need. Passing `MEM_LVL_TOP` in `AL` is the old behaviour, so the
-fix costs **−2 bytes**: the forced load is deleted and nothing replaces it. `[mem_cp_self]` names the segment and `mem_frameless`
-excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
-service point as they are now, and only the nest is the thing that stops being
-true once the callback has returned.
+verb exists to give, would read non-zero every time and post a compaction the
+caller did not need. `[mem_cp_self]` names the segment — the X stub's `ES`, so
+the region to excuse costs no argument — and `mem_frameless` excuses **the
+nest test alone** — `[ld_base]` and the worker are as true at the service point
+as they are now, and only the nest is the thing that stops being true once the
+callback has returned.
 
 **Claiming this number refuses**, and that is correct rather than a wart: the
 caller really is standing in its region as it asks. The number becomes true by
@@ -84017,9 +84088,12 @@ correct and `.self` was taken five times — the missing 27 KB was three movable
 running, and moved by the pass because the pass parked it. Six bytes at
 `.notslot` close it, and **the caller is the one package in the system
 guaranteed to be running as it asks**, so this is the common case rather than
-an edge.
+an edge. The two arms stay two: `mem_busy_seg` must not ask the nest (a
+package's data claim may move while the package executes, §66.3 rule 2), so an
+excuse placed inside it would still leave the region pinned by `mem_in_nest`
+one call earlier, and moving both tests inward is the same twelve bytes.
 
-`[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
+`[mem_cp_self]` is plan-only by discipline — the what-if sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
 compaction running with it standing would move a region with a frame in it, and
 now a claim out from under a live worker.
@@ -84093,7 +84167,7 @@ because the two halves of the door are used by **different kinds of
 program**, and they want the what-if for different reasons. A package that
 wants *whatever is going* — a DOS arena, a scratch heap — posts, returns and
 claims the largest run the wake reports, and does not act on
-`OSAPI_MEM_AVAIL_MAX` **to size anything**. Tracker wants **this module or no
+the what-if **to size anything**. Tracker wants **this module or no
 module**, and for it the what-if is the whole feature: a claim that fails sheds every
 purgeable cache on its way down, so a refusal that could have been avoided
 is paid for twice, and `Too big for free memory` has to mean *not even if
@@ -126466,10 +126540,10 @@ saying so is cheaper than a program that dies on its first allocation.
 
 ##### 96.25.1.1 The page asks the WHAT-IF, because that is what the launch delivers
 
-`dos_mem_figs` asks `OSAPI_MEM_AVAIL_MAX` at both ranks and not
+`dos_mem_figs` asks `OSAPI_MEM_COMPACT`'s what-if at both ranks and not
 `OSAPI_MEM_AVAIL` with and without the floor. The rule this page is held to is that
 the figure SHOWN is the figure the program GETS, and the launch is not a plain
-claim: `dos_run` posts `OSAPI_MEM_COMPACT_WAKE` and claims on the wake
+claim: `dos_run` posts `OSAPI_MEM_COMPACT` and claims on the wake
 (§96.35), so the heap it claims out of has been packed **with this package's
 own region in the pass**. That is precisely the question the what-if answers
 and precisely the one plain `mem_avail` does not, because a package asking
@@ -126489,10 +126563,11 @@ and for this package it is the promise: the post is what makes it true, and
 `dos_run` sends one whenever a pass would add anything. Where it would not,
 the what-if and plain avail are the same number anyway.
 
-`OSAPI_MEM_AVAIL_MAX` takes its level in AL rather than reading the task's
-floor the way `OSAPI_MEM_AVAIL` does (§50.6.6.1), so **both** calls set AL. A
-fall-through would ask the floor's question twice and draw one number in both
-places, which is the failure §50.6.6 is about with the two figures swapped.
+The what-if takes its level in AL rather than reading the task's floor the
+way `OSAPI_MEM_AVAIL` does (§50.6.6.1), so **both** calls set AX — `AH` being
+the verb (§66.4.3). A fall-through would ask the floor's question twice and
+draw one number in both places, which is the failure §50.6.6 is about with
+the two figures swapped.
 
 **ONE ASYMMETRY STAYS, AND IT IS NOT A DEFECT**: on a machine with a sound
 card the launch also UNMOUNTS the driver (§96.35), which the page does not and
@@ -126549,13 +126624,13 @@ both are somebody else's, which is why this section is short:
   the claim at all; that fence is withdrawn;
 - and a package cannot compact the heap it is standing in, because
   `mem_frameless` pins the asker's own region by the act of asking. §66.4.3's
-  `OSAPI_MEM_COMPACT_WAKE` **records the wish and returns** — the pass runs at
+  `OSAPI_MEM_COMPACT`'s post **records the wish and returns** — the pass runs at
   `ui_task`'s step 0 with nothing held, and an `EVT_WAKE` brings the answer.
 
 #### 96.35.1 Why `dos_run` was already the right place
 
 `dos_wake` runs the program on an `EVT_WAKE`, on `ui_task`, with no gfx lock —
-which is exactly the shape `OSAPI_MEM_COMPACT_WAKE` demands of a caller, *return
+which is exactly the shape `OSAPI_MEM_COMPACT`'s post demands of a caller, *return
 from your callback*. So the box gains a state rather than a lifecycle:
 `DST_READY` sizes and decides, `DST_CPWAIT` waits for the pass, `DST_RAN` is
 unchanged. A stale wake still finds the state advanced and does nothing, which
@@ -126576,7 +126651,7 @@ room for that.
 the question is only whether a compaction adds anything:
 
 1. `a = OSAPI_MEM_AVAIL()`, net of the floor `.sized` set;
-2. `m = OSAPI_MEM_AVAIL_MAX(floor)` — **the same floor**, or the two are
+2. `m = OSAPI_MEM_COMPACT(MEMC_WHATIF, floor)` — **the same floor**, or the two are
    answers to different questions (§66.4.3.2);
 3. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
 
@@ -126606,7 +126681,7 @@ not, does not.
 **The unmount alone recovers nothing, and that is the half that was measured
 rather than reasoned.** With the fence gone and the post in place,
 `[dos_drvout]` read 1 — the driver really was out before the claim — and both
-`OSAPI_MEM_AVAIL` and `OSAPI_MEM_AVAIL_MAX` still answered **435 KB**
+`OSAPI_MEM_AVAIL` and the what-if still answered **435 KB**
 against **449** on the same machine with no card. Exactly the driver's image
 plus its ring, sitting in a hole at the top of the heap that nothing would
 merge.
@@ -126812,7 +126887,7 @@ and the case that withdrew it is the one the slot was built for.
 
 §96.35 has the DOS box unmount the sound driver **so that the arena claim can
 have the 14KB back**, and the claim happens on an `EVT_WAKE` long before any
-bracket is entered — it has to, because `OSAPI_MEM_COMPACT_WAKE` (§66.4.3)
+bracket is entered — it has to, because `OSAPI_MEM_COMPACT`'s post (§66.4.3)
 requires the caller to *return from its callback*, which nothing inside an fsx
 bracket can do. So the bracket fence made the slot's own headline use
 impossible: the driver came out **after** the arena was sized, freeing memory
@@ -126916,8 +126991,10 @@ stands. `AX`, `BX`, `CX`, `DX`, `SI` and `DI` are clobbered.
 `0x05A0`, the table's last — and is verb 2 here because it is the same
 question one step further, spent by the same module, posted by the same
 package. Withdrawing it took the cell **and its thunk** off every machine and
-moved `osapi_table_end` back to `0x05A0`; the free list of §20.3.1 stays
-empty, because the table shrank rather than holing. `osapi_dos_handoff_x`
+moved `osapi_table_end` down — to `0x0598`, one cell below where it stood
+before the handoff, because `OSAPI_MEM_COMPACT_WAKE`'s cell went in the same
+pass (§66.4.3); the free list of §20.3.1 stays empty, because the table shrank
+rather than holing. `osapi_dos_handoff_x`
 itself stays in `.cold` and only records (§96.40): it is entered by `je` from
 the dispatcher, and its `stc`/`retf` is the dispatcher's refusal too. It lost
 its `ES = 0` test on the way — `api_x` puts the caller's `DS` in `ES` and a
@@ -128129,7 +128206,7 @@ replaces: it now answers *did a shipped floppy lose `kern_dos`* rather than
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
 it stores the far pointer, sets `[ui_rebootq]` to `UI_RBQ_DOSRUN` and wakes
 `ui_task`. It is `OSAPI_PKG_REHOME`'s shape (§20.12.10) and
-`OSAPI_MEM_COMPACT_WAKE`'s (§66.4.3) for their reason: what it asks for
+`OSAPI_MEM_COMPACT`'s post's (§66.4.3) for their reason: what it asks for
 detaches every driver and takes the screen, and the caller is executing
 inside a region the teardown is about to stop caring about, with the gfx
 lock held. `ui_task`'s step 0 spends the post with nothing held.
@@ -128237,7 +128314,7 @@ things it owes that no loader does for it:
   `[kd_lbp]` rather than at assembly time.
 - **The API table's ground.** `KERNEL_SEG` *is* this segment here, so every
   `call OSAPI_X` that survives into the image is a far call to `KD_SEG:0xNNNN`.
-  Cells 0x0010 to 0x05A0 exist and **refuse** — `stc`/`retf`, the published
+  Cells 0x0010 to 0x0598 exist and **refuse** — `stc`/`retf`, the published
   meaning of a slot that cannot do what was asked (§20.8) — so a wrong one is
   a wrong answer rather than a wild jump. It costs 1,432 bytes of the image
   and not one byte of the arena, the arena's floor being `LOW_SEG`.
