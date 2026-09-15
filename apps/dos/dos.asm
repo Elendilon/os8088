@@ -107,8 +107,9 @@
                                     ; make a second one here
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
-apps/dos/doscall.inc, and note that kern_dos's published API cells end at \
-0x05A8 so it may not go DOWN"
+apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
+header, the icon and the association block end at 112 and kern_dos's own \
+fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0
@@ -529,7 +530,7 @@ dos_entry:
                                 ; 96.44.1): the core stores a DBE_* ordinal and
                                 ; dos_be_go resolves it here, so a host that
                                 ; did not bind would jump through a zeroed bss
-    call dos_hk_bind            ; ...and the four hooks beside them (96.44.3)
+    call dos_hk_bind            ; ...and the six hooks beside them (96.44.3)
 %ifdef DOSKPART
     call dos_pkgwhere           ; **NOW OR NEVER** - SPEC.md 96.40, and the
 %endif                          ; routine's own header says why
@@ -4031,7 +4032,15 @@ DHK_SNAP    equ 0                   ; the last screen, before the restore (96.34
 DHK_POLL    equ 2                   ; the packet driver's third poll (96.23.4)
 DHK_TTY     equ 4                   ; AH=02h/09h: CF=0 = the host took it (96.33)
 DHK_MOUSE   equ 6                   ; INT 33h's state; absent = a still pointer
-DHK_NENT    equ 4
+DHK_CLAIM   equ 8                   ; AX = KB -> DX = segment, CF=1 refused; the
+                                    ; host's HEAP, which only the windowed one
+                                    ; has (96.44.6). ABSENT is not a refusal to
+                                    ; be retried - it is "there is no heap in
+                                    ; this host", and `dsh_bufget` reads it as
+                                    ; a reason to take the arena arm it always
+                                    ; takes here anyway
+DHK_FREE    equ 10                  ; DX = a segment DHK_CLAIM answered with
+DHK_NENT    equ 6
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_be_goto:
@@ -4364,11 +4373,11 @@ dos_be_bind:
 
 
 ; -----------------------------------------------------------------------------
-; dos_hk_bind - the four hooks the BOX wants (SPEC.md 96.44.3)
+; dos_hk_bind - the six hooks the BOX wants (SPEC.md 96.44.3)
 ; in:  nothing; out: nothing, every register preserved
 ;
 ; Beside `dos_be_bind` and called with it. `kern_dos` has no equivalent and
-; wants none: its four cells stay the zero a bss arrives as, which is what
+; wants none: its six cells stay the zero a bss arrives as, which is what
 ; "this host does not want it" is spelled as.
 ; -----------------------------------------------------------------------------
 dos_hk_bind:
@@ -4377,7 +4386,23 @@ dos_hk_bind:
     mov word [dos_hkv + DHK_POLL], dos_hk_poll
     mov word [dos_hkv + DHK_TTY],  dos_hk_tty
     mov word [dos_hkv + DHK_MOUSE], dos_hk_mouse
+    mov word [dos_hkv + DHK_CLAIM], dos_hk_claim
+    mov word [dos_hkv + DHK_FREE],  dos_hk_free
     pop ax
+    ret
+
+; --- dos_hk_claim / dos_hk_free - DHK_CLAIM/DHK_FREE: the host's heap --------
+; in:  AX = KB; out: DX = the base segment, CF=1 refused / in: DX = it back
+;
+; The kernel's heap, which is the windowed host's and no other's: under
+; `kern_dos` the program owns everything above the floor and there is nothing
+; to claim from, which is why these two are a HOOK and not a door (SPEC.md
+; 96.44.6). They were the last four `OSAPI_*` far calls in the core.
+dos_hk_claim:
+    call OSAPI_MEM_CLAIM            ; AX = KB -> DX = the base segment
+    ret
+dos_hk_free:
+    call OSAPI_MEM_FREE             ; DX = the segment
     ret
 
 ; --- dos_hk_poll - DHK_POLL: drain the packet driver if there is one ---------
@@ -5201,7 +5226,7 @@ dos_path_take:
     pop ax
     ret
 %endif                              ; KD_BACKEND
-%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_keeph - a CGA window may hang over the dock (SPEC.md 11.93)
@@ -5212,6 +5237,13 @@ dos_path_take:
 ; set on a VGA raises the height ceiling by the dock's rows on a screen with
 ; no shortage of them, and this is reachable from a resize where the adapter
 ; can have gone the other way.
+;
+; **IT WAS MARKED CORE AND IT IS PURE WINDOW WORK** (SPEC.md 96.44.6). Its
+; only caller in 13,000 lines is `dos_entry`'s, which is inside this same
+; block, and nothing in the core names it - so its entry in
+; `apps/dos/doscents.inc` was a table row nobody crossed. What it cost while
+; it sat there was the two `OSAPI_*` far calls below, which were TWO of the
+; SIX that made 96.40.2's refusal wall necessary.
 ; -----------------------------------------------------------------------------
 dos_keeph:
     pushf
@@ -5238,8 +5270,6 @@ dos_keeph:
     pop ax
     popf
     ret
-%endif                              ; DOS_EXTCORE
-%ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
 ; dos_btn_rect - the page button's rect, into dos_brect

@@ -38,11 +38,23 @@
 ; plan is a budget for. Core-LOW has no hole at all: each host's own code
 ; simply starts above a fixed-size core.
 ;
-; `CORE_ORG` clears the two things that cannot move. In `kern_dos` the
-; published API cells run to 0x05A8 (SPEC.md 96.40.2 - `apps/os88api.inc`
-; owns those offsets); in the box the package header is at 0x00 and
-; `OSAPI_PKG_REHOME` step 8 dispatches through it. 0x0600 clears both.
-CORE_ORG    equ 0x0600
+; `CORE_ORG` clears the two things that cannot move, and since SPEC.md 96.44.6
+; there is only one of them worth clearing. It was **0x0600**, set by
+; `kern_dos`'s refusal wall - 179 `stc`/`retf` cells covering every published
+; `OSAPI_*` offset to 0x05A8, so that a surviving far call refused instead of
+; jumping into the disk layer. The wall is gone because the CALLS are: the core
+; now makes none (the two in `dos_keeph` were a window routine mis-marked core,
+; and `dosh.inc`'s four became `DHK_CLAIM`/`DHK_FREE`), and
+; `tests/unit/t_kdapi.py` scans both images for the opcode rather than
+; reserving address space against it.
+;
+; What is left to clear is the BOX's own low bytes - the package header at
+; 0x00, the 16x16 icon at 0x20 and the association block at 0x60, which
+; `OS88_ASSOC16_END` pads to **112** - and `kern_dos`'s eight-byte fixed
+; header. 0x0080 clears both with sixteen bytes over, and each host asserts
+; its own side. **1,408 bytes out of BOTH hosts**, which on `kern_dos` is a
+; kilobyte of `KD_IMG_KB` and so a kilobyte of the DOS program.
+CORE_ORG    equ 0x0080
 ; `CORE_MAX` is a BUDGET WITH ONE CLAIMANT, which is the other half of why low
 ; beats high: the plan's `CORE_ORG` is a ledger two hosts push on from
 ; opposite sides, so growing either one costs the other. This is a rung the

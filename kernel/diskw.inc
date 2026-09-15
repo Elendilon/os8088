@@ -927,8 +927,19 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
 DSKW_RT_MAX equ 4096            ; iterations: one per entry removed or level
                                 ; crossed. A 1.44MB volume cannot legitimately
                                 ; need this many; a cyclic '..' would spin
-                                ; forever without it
+                                ; forever without it. **OUTSIDE THE BAND**: it
+                                ; emits nothing, and `dskw_append`'s own chain
+                                ; walk bounds itself with it too
 
+%ifndef KD_BUILD                ; **DOS HAS NO RECURSIVE DELETE** (SPEC.md
+                                ; 96.44.8): AH=3Ah removes an EMPTY directory
+                                ; and refuses a populated one, which is
+                                ; `dskw_rmdir` with AL=0 - the strict arm
+                                ; `dos_k_rmdir` already takes. This pipeline is
+                                ; the file manager's Trash verb, and its only
+                                ; callers outside itself are `files.inc` and
+                                ; `filecp.inc`, neither of which is in a
+                                ; kerndos root
 dskw_rmtree:
     mov ax, dskw_rtbody
     jmp dskw_wrap7
@@ -1141,6 +1152,10 @@ dskw_chdir_dl:
     pop dx
     ret
 
+%endif                          ; KD_BUILD - and `dskw_clok` below is NOT in the
+                                ; band: `dskw_rmdir` asks it too (the header
+                                ; below says ten places do)
+
 ; -----------------------------------------------------------------------------
 ; dskw_clok - is AX inside [2, dsk_maxclus], i.e. a cluster that could exist?
 ; in:  AX; out: CF=1 = no. Preserves AX and every other register.
@@ -1163,6 +1178,7 @@ dskw_clok:
     stc
     ret
 
+%ifndef KD_BUILD                ; ...and the second band of the same pipeline
 ; -----------------------------------------------------------------------------
 ; dskw_rt_scan - the first entry of the CURRENT directory that is not '.',
 ;                '..' or free
@@ -1344,6 +1360,10 @@ dskw_rt_zap:
 ; entries (SPEC.md 18.4), so it also declines to delete the directory they
 ; sit in.
 ; -----------------------------------------------------------------------------
+%endif                          ; KD_BUILD - **`dskw_isempty` IS LIVE** and is
+                                ; why the band stops here: `dskw_rmdir` calls
+                                ; it to refuse a populated directory, which is
+                                ; exactly what AH=3Ah is
 dskw_isempty:
     push bx
     push cx
@@ -5361,11 +5381,14 @@ dwf_dskw_append_sys:    call dskw_append_sys_x
 ; THE AL DISPATCH IS HERE, in the COLD far entry, and not in a second resident
 ; thunk: both bodies are already cold, so branching here costs one far entry
 ; and one `.text` thunk instead of two of each (SPEC.md 18.6).
+%ifndef KD_BUILD            ; ...and AL=1 is the tree arm, gated with it
 dwf_dskw_rmany:         or  al, al
                     jz  .empty
                     call dskw_rmtree
                     retf
 .empty:             call dskw_rmdir
                     retf
+%endif                      ; KD_BUILD - the file manager is the only caller
+                            ; and no kerndos root has one
 
 section .text
