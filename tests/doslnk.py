@@ -39,12 +39,10 @@ import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88build                                               # noqa: E402
 import os88ui                                                  # noqa: E402
-import importlib.util                                          # noqa: E402
-_spec = importlib.util.spec_from_file_location(
-    "os88dosdbg", os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "..", "tools", "os88dosdbg.py"))
-dbg = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(dbg)
+# **`os88dosdbg` IS NOT IMPORTED ANY MORE**, and the deletion is the point:
+# it was here for `dos_bss` and `package_image_size`, which between them read
+# the DOS box's settings at an address belonging to a package that is not on
+# the disk (see `dos_state`). One map of the running package answers both.
 
 SYS = "build/os8088-360.img"
 LNK = "build/doslnk360.img"
@@ -97,37 +95,46 @@ def field(text, name):
 def dos_state(m, ui):
     """[dos_memkb], [dos_keepc] and [dos_akb] out of the live instance.
 
-    The offsets come from tools/os88dosdbg.py, which makes the ASSEMBLER emit
-    them - nasm prints no symbols and `-f bin` writes no map, so a layout
-    transcribed here would decode plausible nonsense the day a field moves.
     **BY SYMBOL AND NOT BY CELL ORDINAL** (SPEC.md 96.44.2): `DOS_B_MEMKB`
     used to BE the offset from `os88_image_end` and is now an offset inside
-    whichever of the two blocks owns the cell, so `dos_bss` asks for
-    `dos_memkb - os88_image_end` instead - which is the same answer today and
-    the right one whatever the layout does next.  The day the table split,
-    this routine read three plausible zeroes and the row failed saying the
-    link had been written and not read.
-    The image size is taken off SYS and not off the apps floppy for the same
-    reason: the bss begins at os88_image_end, so it is the DOS.O88 that was
-    LOADED that decides where it starts - and that one is on the system disk
-    (SPEC.md 24.3), which is also the disk a knob build would change.
+    whichever of the two blocks owns the cell.  The day the table split, this
+    routine read three plausible zeroes and the row failed saying the link had
+    been written and not read.
+
+    **AND IT IS `dosmap` AND NOT `os88dosdbg.dos_bss`**, which is the second
+    time the same cell has been read at the wrong address.  That route asks
+    the assembler for `name - os88_image_end` and then adds the image size off
+    the DOS.O88 on the system disk - two right answers about two DIFFERENT
+    packages since SPEC.md 96.40.3 put the PARTED one there: it was mapping
+    `dos.asm` with no defines (the box is `-DDOSKPART -DDOS_EXTCORE` now, so
+    every offset past the core's reservation moves ~1,800 bytes) and adding
+    the LOADER's 2,092-byte image where the box's own bss begins.  It read
+    `memkb=25971 keep=116` - two characters of a string.  `dosmap.package()`
+    is one map of the package that is actually running, its default is the
+    shipped build (see that file), and the offsets it answers are from the
+    instance's own segment with nothing to add.
     """
-    sym = dbg.dos_bss(["dos_memkb", "dos_keepc", "dos_akb"], defines=())
+    want = ("dos_memkb", "dos_keepc", "dos_akb")
+    dm = dosmap.package()
     base = None
     for w in os88geom.windows(m, ui.sym):
         if w.used and w.visible and w.title.startswith("DOS"):
             raw = bytes(m.read(ui.sym("wm_wins") + w.i * os88geom.WIN_SIZE,
                                os88geom.WIN_SIZE))
             seg = struct.unpack_from("<H", raw, os88geom.W_SEG)[0]
-            base = (seg << 4) + dbg.package_image_size(SYS)
+            base = seg << 4
             break
     if base is None:
         fail("no DOS window to read the settings out of")
+    missing = [n for n in want if n not in dm]
+    if missing:
+        fail("dosmap has no %s - the box's map does not carry the cells this "
+             "row is about" % ", ".join(missing))
     def w16(o):
         return struct.unpack("<H", bytes(m.read(base + o, 2)))[0]
-    return (w16(sym["dos_memkb"]),
-            bytes(m.read(base + sym["dos_keepc"], 1))[0],
-            w16(sym["dos_akb"]))
+    return (w16(dm["dos_memkb"]),
+            bytes(m.read(base + dm["dos_keepc"], 1))[0],
+            w16(dm["dos_akb"]))
 
 
 def wait_ready(m, limit=120.0):

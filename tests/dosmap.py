@@ -2,7 +2,8 @@
 """Symbol offsets for the DOS box and for a probe running INSIDE it.
 
     import dosmap
-    dm = dosmap.package("DOSNET_CARD")      # DOS.O88's own near offsets
+    dm = dosmap.package()                   # DOS.O88's own near offsets
+    dm = dosmap.package("DOSNET_CARD")      # ...plus a knob, if the disk has one
     pm = dosmap.probe()                     # DOSPKT.COM's, org 100h
 
 WHY NOT `dispapps._map`. That one takes `defines` and means exactly ONE thing
@@ -81,27 +82,42 @@ def _map(src, defines, incs):
     return out
 
 
-# **THE kdos BUILD IS TWO DEFINES AND NOT ONE** (SPEC.md 96.44.5). The box on
-# `build/kdos360.img` is assembled `-DDOSKPART -DDOS_EXTCORE`, and the second
-# one moves EVERY offset in the map: the core comes out of the image and the
-# reservation goes in, so `os88_image_end` and every bss cell hanging off it
-# shift by about 1,800 bytes. A row that asks for `DOSKPART` alone is handed a
-# map of a package that is not on the disk it is driving - and that does not
-# fail, it reads a rect of rubble and CLICKS AT A COORDINATE THAT DOES NOT
-# EXIST, which hangs in `os88mouse` waiting for a cursor that can never
-# arrive. Named here rather than spelled at three call sites, so it tracks the
-# Makefile's `$(BUILD)/dosp.bin` rule in one place.
-KDBOX = ("DOSKPART", "DOS_EXTCORE")
+# **THE SHIPPED BOX IS TWO DEFINES AND NOT NONE** (SPEC.md 96.44.5, 96.40.3).
+# `$(SYSROOT)` is the PARTED package now, so the DOS.O88 in APPS/ of every
+# system disk is `apps/dos/dos.asm` assembled `-DDOSKPART -DDOS_EXTCORE` - and
+# the second define moves EVERY offset in the map: the core comes out of the
+# image and the reservation goes in, so `os88_image_end` and every bss cell
+# hanging off it shift by about 1,800 bytes.
+#
+# **SO IT IS THE DEFAULT AND NOT AN OPT-IN.** It was a constant three rows
+# passed by hand while `package()` with no arguments meant the plain box, and
+# the moment the shipped package changed that default became a map of
+# something no disk carries - which does not fail, it reads a rect of rubble
+# and CLICKS AT A COORDINATE THAT DOES NOT EXIST, hanging in `os88mouse`
+# waiting for a cursor that can never arrive, or (`dosmedia`, which is how
+# this was caught) reports `the box is on volume 16`. A caller with a knob of
+# its own passes it ON TOP: `package("DOSNET_CARD")` is the shipped box plus
+# that, which is what `make DOSNETCARD=1` builds.
+SHIPPED = ("DOSKPART", "DOS_EXTCORE")
 
 
-def package(*defines):
+def package(*defines, shipped=True):
     """Every label and equate in apps/dos/dos.asm, as a near offset.
 
     Packages are assembled at org 0 and never relocated (SPEC.md 20), so the
     map value IS the offset inside the instance's segment - bss included,
     since `dos_pkt_xl` and friends are `equ os88_image_end + N`.
+
+    `SHIPPED` is in the define set unless `shipped=False`: see the block
+    above. **Pass `shipped=False` only to ask about the box as ONE image** -
+    `tools/os88doscost.py` does, because its whole subject is splitting the
+    core from the window and `-DDOS_EXTCORE` has already taken the core's
+    image and bss out. Nothing on a disk is built that way, so a row that
+    reads a live machine never wants it.
     """
-    return _map(os.path.join(ROOT, "apps", "dos", "dos.asm"), defines,
+    base = list(SHIPPED) if shipped else []
+    want = base + [d for d in defines if d not in base]
+    return _map(os.path.join(ROOT, "apps", "dos", "dos.asm"), want,
                 ("apps", os.path.join("apps", "dos"),
                  os.path.join("drivers", "net"),
                  "kerndos"))          # -DDOSKPART's launch block (96.40)

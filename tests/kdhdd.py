@@ -139,7 +139,7 @@ def arm3_run(m, mo):
     and re-driving it here would make this row fail for somebody else's
     defect.
     """
-    dm = dosmap.package(*dosmap.KDBOX)
+    dm = dosmap.package()
     pseg = dosmap.instance(m)
     m.write((pseg << 4) + dm["dos_keepc"], bytes([2, 0]))
     mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))

@@ -597,6 +597,36 @@ dos_entry:
                                     ; the macro carries is a `ret` for the
                                     ; ordinary reason: every word that names
                                     ; this region is the kernel's
+                                    ;
+                                    ; **AND SINCE SPEC.md 96.40.3 IT IS
+                                    ; REFUSED, BY DESIGN, IN THE PACKAGE THAT
+                                    ; SHIPS** (SPEC.md 96.35.1). We are PART 0
+                                    ; of a parted DOS.O88 now, reached by
+                                    ; `OSAPI_PKG_REHOME` - and a re-homed
+                                    ; package's region is the loader's CARVE,
+                                    ; re-stamped to the instance SLOT.
+                                    ; `mem_find_own` matches MC_OWN or MC_SEG
+                                    ; against the caller's segment and a slot
+                                    ; is neither, so `OSAPI_MEM_MOVABLE`
+                                    ; refuses us our own carve -
+                                    ; kernel/loader.inc's `.rehome` says so in
+                                    ; as many words, and it is RIGHT: I_SPTR
+                                    ; is the PART's segment where the claim's
+                                    ; base is the carve's, and `mem_rr_tab`
+                                    ; rewrites I_SPTR by matching the old
+                                    ; BASE. Measured on this package: the
+                                    ; carve is at 0x8FC0 and I_SPTR is 0x8FE0,
+                                    ; 512 bytes apart, so a move would leave
+                                    ; I_SPTR naming where the program used to
+                                    ; be.
+                                    ;
+                                    ; So the 14KB came back. The LINE STAYS -
+                                    ; it is still right in the one-image build
+                                    ; and a refusal costs nothing - and what it
+                                    ; needs is a kernel that can relocate a
+                                    ; re-homed carve, which is 96.35.1's open
+                                    ; question and not this package's to
+                                    ; decide
 
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
@@ -5780,13 +5810,20 @@ dos_mrad_place:
 ; out: CF = 1 it may not, and SI = the reason to put on the glass
 ;      CF = 0 it may, and SI = 0. Every other register preserved.
 ;
-; **THIS ROUTINE IS THE WHOLE OF WHAT THE PLAN'S W6 CHANGES.** The arm names
-; docs/plans/KERN-DOS-PLAN.md, none of which is written, so today it refuses
-; every machine and says so - which is SPEC.md 47 rule 5's "grey a FACT": this
-; build genuinely cannot do it. When the mechanism lands the body becomes
-; hb_pick's question (SPEC.md 87.2) - is there a fixed disk to come back to -
-; and the reason becomes the one beside it. The layout, the record, the three
-; call sites and the .LNK format do not move.
+; **THE QUESTION IS "AM I THE PARTED PACKAGE", AND IT IS ASKED OF THE IMAGE.**
+; The arm hands the machine to `kern_dos`, which ships as part 2 of DOS.O88
+; (SPEC.md 96.44.5), so a build with no part table cannot do it whatever the
+; machine underneath is - which is SPEC.md 47 rule 5's "grey a FACT" rather
+; than a guess about hardware.
+;
+; THE ANSWER IS NOW YES ON EVERY SHIPPED DISK. It was no for four waves:
+; $(SYSROOT) carried the plain compressed package because §96.44.4's parted
+; shape was RAW, and the arm was live on a gate disk alone. §96.44.5's four
+; pieces put a 2,092-byte loader in front of three compressed parts and the
+; Makefile flipped, at 17 clusters of the 360KB system disk and +750 ms a
+; launch - the two extra reads being this file's own host image and part 1.
+; So the greyed arm is what a build WITHOUT `-DDOSKPART` still shows, and
+; `tests/kdhand.py` is what would go red if a disk lost the part again.
 ;
 ; It runs on EVERY PAINT (SPEC.md 47 rule 5's corollary), so it must stay
 ; cheap: two instructions today, and a byte somebody else already computed
@@ -9679,6 +9716,13 @@ DVOL_MAX    equ DVOL_CAP            ; MIRRORS the kernel's WIDEST arm, which is
                                     ; the PARTED box the whole console
                                     ; launcher, `apps/dos/doscore.asm` saying 8
                                     ; where this said 6.
+                                    ; **AND IT STAYED HIDDEN BECAUSE THE
+                                    ; PARTED PACKAGE RODE A GATE DISK**: no row
+                                    ; on it ever typed a name at the prompt, so
+                                    ; the first thing that found this was
+                                    ; SPEC.md 96.40.3 pointing `$(SYSROOT)` at
+                                    ; that package - ten console rows went red
+                                    ; at once, on one cause.
                                     ; It is still a CAPACITY rather than a fact
                                     ; about the machine, and every use of it
                                     ; below is bound-checked - so a kernel that

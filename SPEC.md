@@ -83792,7 +83792,9 @@ halves.**
 
 Measured on `build/kdos360.img` with §20.12.10.8's carve forced bottom-up
 (`os8088_5150_cga_gla`, `DOSHELLO.COM` off B:, `mem_tab` read at a breakpoint
-in `mem_cpq_run_x`). Drive B:'s FAT window is `MEM_P_FATW|1`, 5,120 bytes at
+in `mem_cpq_run_x`) — that disk being the shipped 360KB system disk with the
+parted `DOS.O88` on it, which §96.40.3 has since made the shipped disk itself,
+so `build/os8088-360.img` is where the run repeats. Drive B:'s FAT window is `MEM_P_FATW|1`, 5,120 bytes at
 `MEM_PG_MED`, and the box posts at `DOS_PG_FLOOR` = `MEM_PG_HIGH`:
 
 | | the posted pass does | region | interior hole | arena |
@@ -125490,7 +125492,56 @@ and the DOS box did not. The box owns no worker, so there is no
 claim it can get, and whose own region sits below the space it wants, is
 asking the compactor to move *it* — so declaring the region is not an
 optimisation there, it is the feature. `tests/dosarena.py` is the gate and it
-went red against each of these two causes in turn.
+went red against each of these two causes in turn — and §96.35.4.1 is what
+happened to that gate when the package became four pieces.
+
+
+##### 96.35.4.1 …and the PARTED package cannot make that declaration at all
+
+**Shipping §96.44.5's four pieces gave the 14 KB straight back, and it is a
+designed refusal rather than a regression in this package.** The box is PART 0
+now, reached by `OSAPI_PKG_REHOME`, and a re-homed package's region is **the
+loader's CARVE re-stamped to the instance SLOT**. `mem_find_own` matches
+`MC_OWN` or `MC_SEG` against the caller's segment and a slot is neither, so
+`OSAPI_MEM_MOVABLE` refuses the program its own carve — `kernel/loader.inc`'s
+`.rehome` arm says exactly that, and says why it must:
+
+> `mem_rr_tab` rewrites `inst_tab + I_SPTR` by matching the OLD BASE, and
+> `I_SPTR` is the part's segment where the claim's base is the carve's, so a
+> move would leave `I_SPTR` naming where the program used to be.
+
+**MEASURED on the shipped package**, `os8088_5150_herc_sb_gla`, the box open
+and idle: the carve is at **0x8FC0** and `I_SPTR` is **0x8FE0** — 512 bytes
+apart, the loader's own image sitting at the head of the carve. So the premise
+of the refusal is not hypothetical here, it is the layout.
+
+The arithmetic that follows is the same as §96.35.4's with the sign flipped:
+
+| | region | `MC_RLOC` | the program gets |
+|---|---|---|---:|
+| the one-image package | `91C0`, 44,032 | `00A4` movable | **440 KB** |
+| the four-piece one | `8FC0`, 49,152 | `0000` **pinned** | **426 KB** |
+
+…and 17,408 bytes sit above the pinned region where `SOUND.DRV`'s 6,144-byte
+image and 8,192-byte ring were, reachable by nothing.
+
+**THE LINE STAYS IN `dos.asm`.** It is still right in the one-image build, a
+refusal costs nothing, and the day the kernel can relocate a re-homed carve it
+starts working again with no package change.
+
+**WHAT IT WOULD TAKE is a kernel change and it is the OWNER'S to weigh**, not
+this package's to work around: `mem_rr_tab` would have to rewrite `I_SPTR` by
+DELTA — `I_SPTR += new_base - old_base` — rather than by matching the old
+base, and the carve would then be unpinnable. That is §66.6.1's contract, and
+docs/plans/HEAP-UNPIN-PLAN.md is where it belongs. **It is not only the DOS
+box**: every re-homing package is a permanent wall at the top of the heap, and
+`apps/c64` and Clear Skies re-home too.
+
+`tests/dosarena.py` is re-aimed on this. Its A/B can no longer tell §96.35's
+three failure modes apart — a suspend that never happened and a hole that
+cannot be reached give the same 14 KB — so the row asserts `[dos_drvout]`,
+which is the mechanism, and holds the loss to **exactly the driver's image
+plus its ring** so that anything larger is a new fault.
 
 #### 96.35.5 The resume obligation is the whole price of the fence going
 
@@ -126014,15 +126065,22 @@ The click path needs no consumer of its own: `os88ui_radhit` reads the DIS bit
 itself and swallows the press, which is §47 rule 6 — greyed, so say nothing
 more.
 
-**Today the predicate refuses unconditionally**, with *"not in this build
-yet"*, because the mechanism behind the arm is docs/plans/KERN-DOS-PLAN.md and
-none of it is written. That is a fact rather than a guess (§47 rule 5): this
-build genuinely cannot do it, and saying so on the glass is what the greying
-standard is for. When the plan's W6 lands, the body of that one routine
-becomes `hb_pick`'s question — *is there a fixed disk to come back to* (§87.2,
-and the plan's §9) — and the reason becomes *"needs a hard disk to come back
-to"*. **Nothing else moves**: not the layout, not the record, not the three
-call sites, not the `.LNK` format.
+**The predicate is one compare, and it asks the IMAGE rather than the
+machine**: `cmp word [dos_kdrow + OP_R_LEN], 0`, the length `os88pkg.py` wrote
+into part 2's row. A build carrying `kern_dos` says a number there and one
+that does not says zero, and a machine cannot be asked whether it has a
+feature its own image was not built with. That is a fact rather than a guess
+(§47 rule 5), and it is cheap enough to run on every paint.
+
+It refused unconditionally for four waves, with *"not in this build yet"*,
+because the mechanism behind the arm was unwritten — and then for two more
+because it was written and did not SHIP: `$(SYSROOT)` carried the plain
+compressed package and the part rode a gate disk, on §96.40.3's measurement.
+**Both are over.** §96.44.5's four pieces made the parted package cheap
+enough, the Makefile flipped, and the arm is live on every shipped system
+disk. **Nothing else moved on the way**: not the layout, not the record, not
+the three call sites, not the `.LNK` format — which is what §96.36 claimed
+when the arm was drawn and nothing behind it existed.
 
 #### 96.36.2 What it cost the page's layout, measured on the adapter that binds
 
@@ -126738,19 +126796,21 @@ re-argued at the copy or it is a value nobody chose. This is the first row
 where the two kernels' answers differed and the third machine wanted
 neither's by default.
 
-#### 96.40.3 …and why the part is not on the shipped system disks
+#### 96.40.3 …and what the part costs the shipped system disks
 
 `dos_mem_whole` greys the arm by reading the part table's own length word
-(§96.36.1), so a `DOS.O88` that does not carry `kern_dos` offers nothing —
-which is what every shipped system disk does today, the part riding
-`build/kdos360.img` instead.
+(§96.36.1), so a `DOS.O88` that does not carry `kern_dos` offers nothing. For
+two waves that was every shipped system disk, the part riding
+`build/kdos360.img` instead. **It ships now**, and this section is the two
+measurements that decided it — kept because the refusal was right on the
+package it was taken against and the number is what changed, not the argument.
 
-**IT WAS TRIED, AND THE COST IS NOT ONLY DISK.** `os88pkg.py` refuses
-`--compress` beside parts — a part's offset is measured from the image — so a
-parted package's image is RAW, and `DOS.O88` goes **26,723 → 57,272 bytes**.
-That is 30 of the 360KB system disk's 50 free clusters, which it has; what it
-also is, is a slower box. **MEASURED, same machine, same click, opening
-`B:\BIN\DOSARGS.COM`:**
+**THE FIRST SHAPE WAS REFUSED, AND THE COST WAS NOT ONLY DISK.**
+`os88pkg.py` refuses `--compress` beside parts — a part's offset is measured
+from the image — so §96.44.4's two-piece package, whose image was the BOX, was
+RAW: `DOS.O88` went **26,723 → 57,272 bytes**. That is 30 of the 360KB system
+disk's 50 free clusters, which it has; what it also was, is a slower box.
+**MEASURED, same machine, same click, opening `B:\BIN\DOSARGS.COM`:**
 
 | | `int 13h` reads | sectors | transfer |
 |---|---:|---:|---:|
@@ -126764,11 +126824,41 @@ launch over eight launches is what tipped them. A row that fails because the
 machine under it got slower is telling the truth, and the honest answer is not
 to raise the wait.
 
-So the arm stays on the gate disk until docs/plans/KERN-DOS-PLAN.md 4.1.3.1's
-four pieces land — a ~2 KB raw loader in front of three COMPRESSED parts,
-which is ~15 clusters and puts the launch back where it was. `SYSROOT` in the
-Makefile is the one variable, and `tests/unit/t_pkg.py` reads it rather than
-preferring one answer, because it has been both.
+**THE FOUR-PIECE SHAPE IS WHAT THAT REFUSAL ASKED FOR** (§96.44.5): a
+2,092-byte raw loader in front of three COMPRESSED parts, two of them
+`OP_LAZY`. **MEASURED on `os8088_5150_cga_gla`, the double-click alone, first
+launch of a fresh boot** — `m.disk()` at the controller, so the counts are
+exact under any host load, and the bracket ends when `ui.open` confirms the
+window off the guest's own table rather than when a `settle` goes quiet:
+
+| | file | 360KB clusters used | reads | sectors | launch |
+|---|---:|---:|---:|---:|---:|
+| the plain package | 26,901 | 304 | 4 | 53 | 4,200 ms |
+| the four-piece one | 44,337 | 321 | 6 | 69 | 4,950 ms |
+| | | **+17** | **+2** | **+16** | **+750 ms** |
+
+So the price of the arm being live is **17 clusters and +750 ms**, against the
+30 and +932 that were refused, with **33 clusters still free** at the geometry
+that binds. `SYSROOT` in the Makefile is the one variable, and
+`tests/unit/t_pkg.py` reads it rather than preferring one answer, because it
+has been both.
+
+**THE +750 DOES NOT GO AWAY AND IT IS NOT A ROUNDING OF THE +932.** The two
+extra reads are the loader's own image and **part 1, the INT 21h core**, which
+`dsl_core` fetches at launch, copies into the hole at `CORE_ORG` inside part 0
+and drops again. Part 1 is `OP_LAZY` precisely so `op_size` does not claim room
+for it in the carve (§96.44.5.1), so that read is the RAM it buys and not an
+oversight — the launch got cheaper than the refused shape by the whole of part
+2, which is never read at all on this path.
+
+**AND THE GATE DISKS ARE GONE WITH IT.** `build/kdos360.img` and
+`build/kdos144.img` were the shipped system disks with the parted package
+swapped in; with `$(SYSROOT)` flipped they built byte-identical to
+`$(IMG360)` and `$(IMG)`, which is two names for one artefact — the false
+green docs/plans/SOAK-PARALLEL.md §6 is about. The rows that drove them boot
+the shipped images, which makes `kdpart` a wider test than the one it
+replaces: it now answers *did a shipped floppy lose `kern_dos`* rather than
+*did `make kdostest` build its own disk*.
 
 **THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
@@ -127325,11 +127415,28 @@ crossing cells are the ones the prompt and the built-ins share —
 | `dsh_exec`, `dsh_why` | the launcher's handshake, above |
 | `dsh_more`, `dsh_pat`, `dsh_skip` | **`DIR /P`'s suspended listing** (§96.33.9). `dos_con_run` reads `[dsh_more]` to know a page stopped mid-listing and owes no prompt; it read its own copy, never set, so the parted box drew a prompt under `Strike a key` and the next key went to the line editor instead of resuming — the rest of the directory unreachable |
 
-`tests/dosdirsw` could not see that second one and is not at fault for it: every
-`dos*` row boots the INLINE box, where there is no seam, and the rows that boot
-the parted one are `kd*` and about the handover. **A defect that only exists in
-the joint is only visible to a row that runs the joint**, which is the rule the
-720 KB gate disk exists to make cheap.
+**Of the 58 cells that shifted, NINE are ones both halves NAME**, and a
+shifted cell matters nowhere else. That set is exact because `dosh.inc` is
+included inside the core's span and `dosc.inc` inside the window's, so the
+crossing cells are the ones the prompt and the built-ins share — which is why
+the damage was the console and only the console.
+
+**AND WHAT KEPT IT HIDDEN FOR A WAVE WAS WHERE THE PARTED PACKAGE LIVED.**
+`$(SYSROOT)` shipped the inline `build/dos.o88` and the parted one rode
+`build/kdos360.img`, a gate disk whose rows drive the HANDOFF — the radio, the
+mouse, the volume table, the return — and **not one of them ever typed a name
+at the prompt**. So the eleven console rows all booted the inline box, where
+one `DVOL_MAX` sizes both halves and nothing can disagree. §96.40.3 pointing
+`$(SYSROOT)` at the parted package is what ran them against it for the first
+time, and **ten went red at once on this one cause**: `doscon`, `dosext`,
+`dospkg`, `dostype`, `dosdirsw`, `dosren`, `dosdrv`, `doslnk`, `dosmedia` and
+`dosmem`. **58 of the 192 `DBSS` cells were out of step** — every one from
+`DOS_B_DVTGT` up.
+
+That is the general shape and it is worth more than the defect: **a build
+configuration that ships on no disk is a build configuration no row exercises**,
+however many rows there are. The gate disk made the parted package *testable*
+and left it *untested* in every respect its own rows were not about.
 
 **The fix is that a `DBSS` row's width is an ABI constant.** `DVOL_CAP equ 8`
 lives in `apps/dos/doscall.inc`, which every half includes and reads the same
@@ -127726,7 +127833,58 @@ Every name in the band was confirmed by grep before it was gated, and that is
 the method this section recommends — the walk finds candidates and the grep
 decides them.
 
-#### 96.44.9 An X cell's ES is part of the door, and `kern_dos` had to put it back
+#### 96.44.9 A driver-backed volume cannot exist under `kern_dos`
+
+`DVK_DRV` is a volume whose transport is a loadable driver — the RAM disk, a
+hard-disk driver's partitions — and `DVK_FILE` is a redirected one with no
+sectors at all (§62.9). **Neither can reach `kern_dos`, and that is a fence
+rather than a hope.** `hbm_*`'s gather in `kernel/hiber.inc` stages the
+kernel's volume table into the launch block a row at a time and writes every
+**non-BIOS row `DVK_FREE`**:
+
+```
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .vfree
+```
+
+So `kd_vtab` can only ever copy `DVK_BIOS` and `DVK_FREE` into `dsk_vtab`, and
+`[dsk_vkind]` can only ever hold those. The driver whose transport it was is
+gone with the kernel, and so is the RAM it served.
+
+Three bands under `%ifndef KD_BUILD`, **581 bytes**: `dsk_vol_kind` through
+`dsk_vol_drop_drv_x`, the `osapi_vol_*` registration slots, and
+`disk_mount_x`'s `.fsmount` arm with the `cmp` that reaches it. The slots are
+dead twice over — a driver registers a volume through the API table, and since
+§96.44.6 `kern_dos` has no table at all.
+
+**`KD_IMG_KB` does NOT move**, and it is not made to. The rung keeps 962 bytes
+spare against 381 before, and §1's banner is why the work was taken anyway:
+the byte is the unit, the rung is not a design input, and the next 62 bytes of
+anything cross it. `kern_dos` is a build that grows — §96.49's live resume
+spent 996 in one wave — so the slack has a claimant.
+
+##### 96.44.9.1 What STAYS, and the windowed RAM disk
+
+Four things inside the same span are live and the bands are cut around them.
+`dsk_vol_row_x` and `dsk_vol_slot_x` are called from the mount; `dsk_vol_fixed`
+is `DBE_VKIND`'s whole body, the door `dos_k_vkind` answers `AH=1Ch` with; and
+`dsk_list_floor`/`dsk_list_pick` sit in the middle of the first band because
+the mount calls them and the listing stays (§96.44.7.1).
+
+**The RAM disk is untouched in the window.** The gate is `%ifndef KD_BUILD`, so
+`kernel/disk.inc` compiled for the kernel keeps every byte — a windowed DOS box
+reaches a `DVK_DRV` volume exactly as it did, through the kernel's own layer.
+What the gate removes is code in a second assembly of the same file for a
+machine on which no such volume can be mounted.
+
+**The `DVK_FILE` branches inside the read paths are deliberately LEFT.**
+`dsk_find_x`, `dsk_free_clus_x`, `dsk_read_chain_x`, `dskw_rbody`,
+`dskw_stat_x`, `dskw_read_at_x` and `dsk_synth_up` each carry a
+`cmp byte [dsk_vkind], DVK_FILE` and an arm. They are unreachable for the same
+reason, and gating them means threading a conditional through seven live read
+paths for a few hundred bytes — a worse trade than the bytes are worth, and
+the one shape of this work that has a real chance of breaking something.
+#### 96.44.10 An X cell's ES is part of the door, and `kern_dos` had to put it back
 
 Two of the twenty-two doors are **X** cells — `OSAPI_FILE_FIND` and
 `OSAPI_FILE_PATH` — and an X cell is not just a calling convention, it is a

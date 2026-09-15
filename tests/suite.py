@@ -2565,7 +2565,7 @@ SOAK = [
         "block's line mask overlapping the base's own high byte it reads "
         "the same thing while kern_dos drives a UART at 0x10F8.",
         needs=("marty",), serial=True,
-        wants=("build/kdos360.img", "build/dosmou360.img")),
+        wants=("build/os8088-360.img", "build/dosmou360.img")),
     Row("dosfile", "soak", py("tests/dosfile.py"), 35.0,
         "THE DOS FILE-HANDLE GATE (SPEC.md 96.11): os8088 has no file handle "
         "anywhere - the published API is by NAME and by WHOLE FILE - so the "
@@ -2807,8 +2807,8 @@ SOAK = [
         "three cannot fool. It also checks the extent COUNT against HS_XMAX, "
         "because the staging area is fixed at assembly time and a floppy "
         "written to for a year is where a too-fragmented part would first "
-        "show up. Host-side, one second, and it needs `make kdostest`.",
-        wants=("build/kdos360.img", "build/kerndos.bin")),
+        "show up. Host-side, one second, and it reads THE SHIPPED SYSTEM DISK: since SPEC.md 96.44.5 flipped $(SYSROOT) to the parted package there is no gate disk to read instead, so this row also answers `did a shipped floppy lose kern_dos`.",
+        wants=("build/os8088-360.img", "build/kerndos.bin")),
     Row("kdhand", "soak", py("tests/kdhand.py"), 40.0,
         "THE DOS HANDOFF, END TO END (SPEC.md 96.40, "
         "docs/plans/KERN-DOS-PLAN.md 7): run a .COM in the window, then run "
@@ -2827,8 +2827,8 @@ SOAK = [
         "the outgoing kernel's bytes, and `OSAPI_MOUSE` surviving into an "
         "image where KERNEL_SEG is its own segment. MartyPC and it must be: "
         "the whole point is a real 8088 running a DOS program with the "
-        "operating system gone. It needs `make kdostest`.",
-        wants=("build/kdos360.img", "build/doscom360.img")),
+        "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
+        wants=("build/os8088-360.img", "build/doscom360.img")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 55.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "
@@ -2844,8 +2844,8 @@ SOAK = [
         "half and not the other is exactly the shape of the report - and then "
         "under kern_dos on the third arm. `build/doscom144.img` is built with "
         "NO `--fatcap`, deliberately, so its FAT is the nine sectors a real "
-        "DOS writes. MartyPC; it needs `make kdostest`.",
-        wants=("build/kdos360.img", "build/doscom144.img")),
+        "DOS writes. MartyPC; `make kdostest` builds the B: floppy.",
+        wants=("build/os8088-360.img", "build/doscom144.img")),
     Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
@@ -2891,7 +2891,7 @@ SOAK = [
         ),
     Row("kdcwd", "soak", py("tests/kdcwd.py"), 50.0,
         "WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine "
-        "(SPEC.md 96.44.9). CWDHERE.COM in B:\\SUB\\ with the only copy of "
+        "(SPEC.md 96.44.10). CWDHERE.COM in B:\\SUB\\ with the only copy of "
         "HERE.TXT beside it prints four things - AH=19h's drive, AH=47h's "
         "directory, a BARE-name open of the file that is only in that folder, "
         "and the program path DOS 3+ leaves in the environment's tail - and "
@@ -2906,7 +2906,7 @@ SOAK = [
         "three rows were green throughout, which is why all four are printed. "
         "MartyPC, the 720KB Hercules twin.",
         needs=("marty",),
-        wants=("build/kdos720.img", "build/cwdsub.img")),
+        wants=("build/os8088-720.img", "build/cwdsub.img")),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
         "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "
         "96.44.6). KERNEL_SEG is kern_dos's own segment, so a `call OSAPI_X` "
@@ -2964,8 +2964,16 @@ SOAK = [
         "THE MEMORY PAGE'S THREE ARMS (SPEC.md 96.36, 96.25, 47): the choice "
         "of how much of the machine a DOS program gets was a CHECK BOX, which "
         "holds two answers, and there are three - the third being os8088 "
-        "itself (docs/plans/KERN-DOS-PLAN.md), greyed because nothing behind "
-        "it is built. It is os88ui_rad's FIRST caller in the tree. A 1bpp "
+        "itself. **EVERY ASSERTION IS INVERTED since SPEC.md 96.40.3**: the "
+        "arm was greyed for four waves, first because kern_dos was unwritten "
+        "and then because it rode a gate disk while $(SYSROOT) shipped the "
+        "plain package, and it is LIVE on every shipped disk now. So the row "
+        "catches the opposite: a floppy that lost the part, a dos_mem_whole "
+        "that has started refusing, an arm offered and not pickable, or the "
+        "reason still drawn beside a live arm - where it sits at the labels' "
+        "own indent and reads as a fourth arm that works. tests/kdpart.py "
+        "says the same thing about the DISK; this one says it about the "
+        "GLASS. It is os88ui_rad's FIRST caller in the tree. A 1bpp "
         "adapter on purpose (SPEC.md 47.2): grey rounds to black in text "
         "there, so 'is this row disabled' is a PIXEL fact - the row counts "
         "horizontally adjacent dark pairs, which a stipple has almost none of "
@@ -2977,7 +2985,11 @@ SOAK = [
         "'redrew something' until the POINTER was parked before the capture, "
         "crop_rgb reading the card's rendered framebuffer with the arrow in "
         "it; and step 8's demotion read 2 while dos_mem_fix hung off dos_run, "
-        "which an empty path box never reaches.",
+        "which an empty path box never reaches. What the inversion COST it is "
+        "one assertion it can no longer make - the demotion itself needs a "
+        "box whose package has no part, and no shipped disk carries one - so "
+        "step 8 asserts the other side of the same consumer: a pick the "
+        "machine CAN honour must survive the commit.",
         needs=("marty",), serial=True),
     Row("dosarena", "soak", py("tests/dosarena.py"), 35.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
@@ -2994,7 +3006,20 @@ SOAK = [
         "writing it and against each of two separate causes: 435KB against "
         "449 while the suspend was still bracket-only, and 435 against 449 "
         "again with the unmount happening and the DOS REGION not declared "
-        "movable, so the hole sat above a wall.",
+        "movable, so the hole sat above a wall. **AND THE A/B IS RETIRED "
+        "since SPEC.md 96.40.3 shipped the four-piece DOS.O88** (96.35.4.1): "
+        "the box is PART 0 of a RE-HOMED package now, whose region is the "
+        "loader's carve re-stamped to the instance slot - so mem_find_own "
+        "cannot match it and OSAPI_MEM_MOVABLE is refused, by design and "
+        "correctly (I_SPTR is the part's segment at 0x8FE0 where the claim's "
+        "base is the carve's at 0x8FC0, and mem_rr_tab rewrites I_SPTR by "
+        "matching the old BASE). 426KB against 440, the driver's image plus "
+        "its ring, in a hole above a pinned region. A suspend that never "
+        "happened gives the SAME number, so the delta discriminates nothing: "
+        "the row asserts [dos_drvout] - the mechanism the A/B used to prove "
+        "indirectly - and holds the loss to the driver's own bytes, going red "
+        "if it GROWS (a second claim stopped moving) or SHRINKS (the kernel "
+        "learned to relocate a re-homed carve, and this row is stale).",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,

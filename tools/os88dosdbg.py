@@ -297,7 +297,7 @@ def package_on_disk(img_path, name):
     THE IMAGE SIZE IS WHY THIS EXISTS.  Every bss offset in `syms` is measured
     from `os88_image_end`, so reading the ring needs the image size of the
     package THE GUEST IS RUNNING - and a DOSTRACE build is a different size
-    from the shipped one.  Taking it from build/dos.o88 gives a plausible
+    from the shipped one.  Taking it from $(SYSROOT) gives a plausible
     number that is wrong by the difference, and the ring then reads as empty
     from an address a few hundred bytes off.  So it is read off the disk that
     is about to be booted, which cannot disagree with itself.
@@ -376,17 +376,45 @@ def trace_costs(kb=None):
         % much)
 
 
+def sysroot():
+    """WHICH FILE THE SYSTEM DISK'S APPS/DOS.O88 IS COPIED FROM.
+
+    $(SYSROOT) in the Makefile, read rather than guessed, because it has been
+    both: `build/dos.o88`, the plain compressed package, and since SPEC.md
+    96.40.3 `build/kdos/DOS.O88`, the four-piece one that carries `kern_dos`
+    as a part and makes the Memory page's third arm live.  A hard-coded
+    preference here writes the traced package over a file the disk rule does
+    not read, so the disk comes out SHIPPED - which is exactly the silent
+    failure the ordering note below is about, arriving by a different route.
+    (The verify at the end of build_trace_disk catches it either way, which is
+    why that verify is not belt and braces.)
+    """
+    mk = os.path.join(ROOT, "Makefile")
+    for ln in open(mk):
+        if ln.startswith("SYSROOT :="):
+            rel = ln.split(":=", 1)[1].strip().replace("$(BUILD)", "build")
+            return os.path.join(ROOT, *rel.split("/"))
+    raise RuntimeError("no `SYSROOT :=` line in %s" % mk)
+
+
 def build_trace_disk(system_img, out_img, verbose=True):
     """A system floppy carrying the DOSTRACE build of apps/dos.
 
     THE ORDER MATTERS AND GETTING IT WRONG IS SILENT.  `make` rebuilds
-    build/dos.o88 from apps/dos/dos.asm whenever the source is newer, so a copy
+    $(SYSROOT) from apps/dos/dos.asm whenever the source is newer, so a copy
     made BEFORE make is overwritten by it - and the disk then carries the
     SHIPPED package while every symptom points at the guest.  That cost a whole
     debugging round: the ring read as empty and the guest looked broken.
 
     So: make first, copy second, verify third, and put build/ back.  The verify
     is not belt and braces; it is the only thing that catches the above.
+
+    **THE TRACED PACKAGE IS A PLAIN ONE AND THE THIRD RADIO ARM IS GREYED ON
+    THIS DISK.**  A DOSTRACE build is one image with no part table, so
+    `dos_mem_whole` reads zero and refuses (SPEC.md 96.36.1) - which is right:
+    the ring this tool reads lives in the box's own bss, and there is no box
+    on the other side of the handoff.  Tracing a program under `kern_dos` is a
+    different instrument, not this one with a flag.
     """
     say = (lambda *a: print(*a)) if verbose else (lambda *a: None)
 
@@ -397,7 +425,7 @@ def build_trace_disk(system_img, out_img, verbose=True):
             raise RuntimeError("`make %s` failed:\n%s"
                                % (" ".join(args), (r.stderr or r.stdout)[-3000:]))
 
-    pkg = os.path.join(ROOT, "build", "dos.o88")
+    pkg = sysroot()
     binp = os.path.join(ROOT, "build", "dos.bin")
     run(system_img)                                   # dos.bin newer than dos.asm
     d = tempfile.mkdtemp(prefix="os88dosdbg-")
@@ -424,7 +452,7 @@ def build_trace_disk(system_img, out_img, verbose=True):
         for p in (pkg, binp):
             if os.path.exists(p):
                 os.unlink(p)
-        run(system_img, "build/dos.o88")              # build/ back to the shipped one
+        run(system_img, os.path.relpath(pkg, ROOT))   # build/ back to the shipped one
         shutil.rmtree(d, ignore_errors=True)
 
     # ...and prove it, because the failure above is invisible
@@ -494,7 +522,7 @@ def cmd_trace(a):
     img = a.kernel
     if a.build:
         img = build_trace_disk(a.system, a.kernel)
-    # off the DISK, never off build/dos.o88: see package_on_disk
+    # off the DISK, never off $(SYSROOT): see package_on_disk
     imgsz = package_image_size(img)
 
     with os88ui.boot(img, apps=a.disk, machine=a.machine) as ui:

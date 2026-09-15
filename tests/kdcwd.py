@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine (96.44.9).
+"""WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine (96.44.10).
 
     make kdostest && python3 tests/kdcwd.py
 
@@ -42,7 +42,11 @@ import os88ui                                                  # noqa: E402
 from kdhand import rec, RD_SEL, RD_PITCH, wait_text            # noqa: E402
 
 MACH = "os8088_5150_herc_sb_720_gla"
-SYS = "build/kdos720.img"
+# **THE SHIPPED 720KB SYSTEM DISK**, not a gate disk: §96.40.3 pointed
+# $(SYSROOT) at the parted package, so every disk a user holds carries
+# kern_dos and a separate `kdos720.img` built byte-identical to this one -
+# two names for one artefact, which is a false green rather than a test.
+SYS = "build/os8088-720.img"
 APPS = "build/cwdsub.img"
 PROG = "B:/SUB/CWDHERE.COM"
 WHOLE = 2                            # the Memory page's third arm
@@ -81,7 +85,7 @@ def main():
     with os88ui.boot(SYS, apps=APPS, machine=MACH) as ui:
         m = ui.m
         ui.path(PROG)                # the association RUNS it, windowed
-        dm = dosmap.package(*dosmap.KDBOX)
+        dm = dosmap.package()
         mo = os88mouse.Mouse(marty=m)
 
         # --- 1: the WINDOW's own DOS ----------------------------------------

@@ -163,7 +163,7 @@ dos_k_vkind:
     ret
 
 ; in: ES:DI = a buffer, CX = its size; out CX = the length
-; **ES = OUR DS, WHICH THE BOX'S DOOR GETS FOR FREE** (SPEC.md 96.44.9).
+; **ES = OUR DS, WHICH THE BOX'S DOOR GETS FOR FREE** (SPEC.md 96.44.10).
 ; `OSAPI_FILE_PATH` is an **X** cell - one of exactly two among the twenty-two
 ; doors, the other being `OSAPI_FILE_FIND` - so `api_x` puts the caller's DS in
 ; ES before the stub runs, and the core's callers pass a plain DS offset in DI

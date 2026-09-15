@@ -116,13 +116,25 @@ Use it whenever you want to poke at the box's state from the host.
 
 A system floppy carrying the `DOSTRACE` build of `apps/dos`.
 
-**The order matters and getting it wrong is silent.** `make` rebuilds
-`build/dos.o88` from `apps/dos/dos.asm` whenever the source is newer, so a copy
-made *before* `make` is overwritten by it — and the disk then carries the
-**shipped** package while every symptom points at the guest. That cost a whole
-debugging round: the ring read as empty. So the tool runs `make`, *then*
+**The order matters and getting it wrong is silent.** `make` rebuilds the
+system disk's `DOS.O88` from `apps/dos/dos.asm` whenever the source is newer,
+so a copy made *before* `make` is overwritten by it — and the disk then carries
+the **shipped** package while every symptom points at the guest. That cost a
+whole debugging round: the ring read as empty. So the tool runs `make`, *then*
 copies, *then* extracts the package back off the finished image and compares it
 byte for byte. `build/` is put back to the shipped package either way.
+
+**And WHICH file it copies over is read out of the Makefile**, because
+`$(SYSROOT)` has been two things: `build/dos.o88`, the plain compressed
+package, and since SPEC.md 96.40.3 `build/kdos/DOS.O88`, the four-piece one
+carrying `kern_dos`. Writing the traced package over the file the disk rule
+does **not** read is the same silent failure by a second route, which is why
+the verify above exists rather than being belt and braces.
+
+**The third radio arm is greyed on a trace disk**, and that is correct rather
+than a limitation: a `DOSTRACE` build is one image with no part table, so
+`dos_mem_whole` reads zero (SPEC.md 96.36.1). The ring this tool reads lives in
+the box's own bss, and past the handoff there is no box.
 
 ### `trace PROG.EXE --disk IMG [--state] [--until N]`
 
@@ -602,9 +614,11 @@ print one line per case, and wait for a key. Keep it assembling with
   correctly and verifies; do not hand-roll the copy.
 - **The image size is not a constant.** Every bss offset is measured from
   `os88_image_end`, so a `DOSTRACE` build's offsets differ from the shipped
-  one's. The tool reads the package **off the disk it is about to boot**;
-  taking it from `build/dos.o88` gives a plausible number that is wrong by the
-  difference, and the ring reads as empty.
+  one's — and since SPEC.md 96.40.3 the shipped one is the parted package,
+  whose `-DDOS_EXTCORE` moves them again by about 1,800 bytes. The tool reads
+  the package **off the disk it is about to boot**; taking it from
+  `$(SYSROOT)` gives a plausible number that is wrong by the difference, and
+  the ring reads as empty.
 - **`m.screen()` inside the bracket.** The program owns the adapter. Read the
   ring from memory.
 - **A ring that wrapped.** 169 calls into a 64-entry ring threw away the first

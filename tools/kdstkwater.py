@@ -97,7 +97,7 @@ def main(argv):
         K.wait_text(m, "READY", what="the windowed run")
         m.type_text("x")
         os88marty.settle(m)
-        dm, pseg = dosmap.package("DOSKPART"), dosmap.instance(m)
+        dm, pseg = dosmap.package(), dosmap.instance(m)
         mo, base = os88mouse.Mouse(marty=m), None
         base = pseg << 4
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))

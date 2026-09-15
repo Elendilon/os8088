@@ -2909,23 +2909,46 @@ SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 # that looks in SYSTEM/. APPS/ is rung 4, and assoc_dfold's built-in row for
 # DOS says 1, which is what makes the rung land there.
 #
-# **AND IT IS THE PLAIN ONE, ON A MEASUREMENT** (SPEC.md 96.40.3). Pointing it
-# at $(BUILD)/kdos/DOS.O88 makes the Memory page's third arm LIVE on the
-# ordinary system disks instead of on a gate disk, and it was tried: a parted
-# package's image is RAW - os88pkg.py refuses `--compress` beside parts, a
-# part's offset being measured from the image - so DOS.O88 goes 26,723 to
-# 57,272 bytes, which costs the 360KB system disk 30 of its 50 free clusters
-# AND makes every DOS launch slower. MEASURED, on the same machine and the
-# same click: 23 int 13h reads / 125 sectors / 2,690 ms of transfer plain
-# against 25 / 146 / 3,622 parted - **+932 ms, 35%** - and twelve soak rows
-# that sat about two seconds inside a fifteen-second wait went red at once.
+# **AND IT IS THE PARTED ONE, ON A MEASUREMENT THAT MOVED** (SPEC.md 96.40.3,
+# 96.44.5). Pointing this at $(BUILD)/kdos/DOS.O88 makes the Memory page's
+# third arm - `Give DOS the whole machine`, SPEC.md 96.36 - LIVE on the
+# ordinary system disks rather than on a gate disk, because `dos_mem_whole`
+# greys the arm on the one fact it can check: whether the package it is
+# running from carries kern_dos as a part.
 #
-# So the part rides `build/kdos360.img` until
-# docs/plans/KERN-DOS-PLAN.md §4.1.3.1's four pieces land: a ~2 KB raw loader
-# in front of three COMPRESSED parts, which is ~15 clusters and puts the
-# launch back where it was. ONE VARIABLE either way.
-SYSROOT := $(BUILD)/dos.o88
-SYSROOTARG := APPS:$(BUILD)/dos.o88
+# IT WAS TRIED ONCE AND REFUSED, and what was refused was a DIFFERENT PACKAGE.
+# §96.44.4's two-piece shape made the BOX the image, and os88pkg.py refuses
+# `--compress` beside parts - a part's offset is measured from the image - so
+# DOS.O88 went 26,723 to 57,272 RAW bytes: 30 of the 360KB system disk's 50
+# free clusters, and +932 ms on every launch (23 int 13h / 125 sectors / 2,690
+# ms plain against 25 / 146 / 3,622). Twelve soak rows that sat about two
+# seconds inside a fifteen-second wait went red at once.
+#
+# §96.44.5's FOUR pieces are what that refusal asked for: a 2,092-byte raw
+# loader in front of three COMPRESSED parts, two of them OP_LAZY. MEASURED on
+# os8088_5150_cga_gla, the same click on the same machine, first launch of a
+# fresh boot:
+#
+#   |            | file   | 360KB clusters | reads | sectors | launch  |
+#   |------------|-------:|---------------:|------:|--------:|--------:|
+#   | plain      | 26,901 |            304 |     4 |      53 | 4,200ms |
+#   | four-piece | 44,337 |            321 |     6 |      69 | 4,950ms |
+#
+# So the price of the capability being live is **17 clusters and +750 ms**,
+# against the 30 and +932 that were refused - and 33 clusters are still free.
+# THE +750 IS NOT A ROUNDING OF THE +932 AND DOES NOT GO AWAY: the two extra
+# reads are the loader's own image and part 1, the INT 21h core, which
+# `dsl_core` fetches at launch and drops again (apps/dos/dosload.asm). Part 1
+# is OP_LAZY precisely so `op_size` does not claim room for it in the carve,
+# so the read is the RAM it buys and not an oversight.
+#
+# ONE VARIABLE EITHER WAY, and the plain package is still built: $(ASSOCICO)
+# reduces its icon on the host, and pointing THAT at the parted package would
+# hang the kernel's own generated include off kerndos.bin, which is assembled
+# over the kernel's sources. Both roots %include apps/dos/dosicon.inc, so the
+# icon and the association block cannot drift.
+SYSROOT := $(BUILD)/kdos/DOS.O88
+SYSROOTARG := APPS:$(BUILD)/kdos/DOS.O88
 # ...and the SUBSET an APPS disk carries: the Task Manager alone, for the
 # single-floppy machine above. THEWIRE.O88 is on NO apps disk (CLAUDE.md,
 # SPEC.md 92.11): the desktop zone launches it out of the BOOT volume's
@@ -4824,9 +4847,16 @@ KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
 #   make KDSTKDIAG=1 kdostest && python3 tools/kdstkwater.py
 #
 # **AND IT IS STAMPED, for $(VIDSTAMP)'s reason**: without that, make sees an
-# up-to-date kerndos.bin, builds the gate disk round the OTHER arm, and the
-# reader scans a machine with no sentinel in it - which reads exactly like a
-# stack that was never used.
+# up-to-date kerndos.bin, writes the OTHER arm onto the disk, and the reader
+# scans a machine with no sentinel in it - which reads exactly like a stack
+# that was never used.
+#
+# **AND IT REACHES THE SHIPPED DISKS NOW.** kern_dos is a part of $(SYSROOT),
+# which every SYSTEM disk carries, so a KDSTKDIAG build leaves a diagnostic
+# kern_dos in build/os8088*.img - the knob-kernel-in-build/ trap one device
+# along (CLAUDE.md, Testing). Deleting $(BUILD)/kdos/DOS.O88 is what un-does
+# it: every system disk names $(SYSROOT) as a prerequisite, so all of them
+# rebuild off the arm that is now current. Nothing here has to list them.
 ifeq ($(KDSTKDIAG),1)
 KDSTKDIAGDEF := -DKDSTKDIAG
 endif
@@ -4834,8 +4864,7 @@ KDSTAMP := $(BUILD)/.kerndos$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))
 $(shell mkdir -p $(BUILD); \
         [ -f $(KDSTAMP) ] || { rm -f $(BUILD)/.kerndos-* $(BUILD)/.kerndos \
                                      $(BUILD)/kerndos.bin \
-                                     $(BUILD)/kdos/DOS.O88 \
-                                     $(BUILD)/kdos360.img; \
+                                     $(BUILD)/kdos/DOS.O88; \
                                touch $(KDSTAMP); })
 
 $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
@@ -4912,51 +4941,24 @@ $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
 	        -o $@ apps/dos/dosload.asm
 	@echo "dosload: $(call FILESIZE,$@) bytes of parts loader"
 
-# The gate's SYSTEM disk: the shipped one with the parted DOS.O88 in place of
-# the ordinary one, so the machine a test boots is the machine a user would
-# have if docs/plans/KERN-DOS-PLAN.md §4.1 had shipped. Everything else on
-# it is unchanged.
-$(BUILD)/kdos360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
-                      $(BUILD)/kdos/DOS.O88 $(COREAPPS360) $(SYSDOC) $(SYSLOGO) \
-                      $(FACES360) $(FACELIC) tools/os88disk.py Makefile
-	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
-		$(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
-		$(APPDATAFOLDER)
+# THE GATE DISKS ARE GONE, AND THAT IS THE POINT OF THIS WAVE.
+# `build/kdos360.img` and `build/kdos144.img` were the shipped system disks
+# with the parted DOS.O88 swapped in, because $(SYSROOT) above carried the
+# plain one and the Memory page's third arm was greyed on every disk a user
+# would ever hold. $(SYSROOT) is the parted package now, so both gate disks
+# built BYTE-IDENTICAL to $(IMG360) and $(IMG) - two names for one artefact,
+# which is the false green docs/plans/SOAK-PARALLEL.md 6 is about. The rows
+# that drove them boot the shipped images instead, which is a WIDER test than
+# the one they replace: they now assert what a user has rather than what a
+# gate disk was built to have.
 
-# ...AND A 1.44MB ONE, because a program worth handing the whole machine to is
-# usually bigger than a 360KB floppy. TD3.EXE alone is 137,845 bytes and its
-# scenes are 169KB and 209KB, so the disk it ships on is the only geometry it
-# has - and A: has to match the DRIVE, not the program: os8088_5150_herc_gla_144
-# is two 1.44MB drives and a 360KB image in one of them is a different medium.
-$(BUILD)/kdos144.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
-                      $(BUILD)/kdos/DOS.O88 $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
-                      $(FACES) $(FACELIC) tools/os88disk.py Makefile
-	python3 tools/os88disk.py -o $@ --size 1440 \
-		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
-		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(APPDATAFOLDER)
-
-# ...AND A 720KB ONE. `os8088_5150_herc_sb_720_gla` is this tree's 720KB
-# machine (tools/os88fat.py reach names it), both of its drives are 720KB, and
-# A: has to match the DRIVE rather than the program - so a 360KB image in one
-# of them is a different medium. It is the geometry a period game disk is
-# actually on: Prince of Persia's PRINCE\ folder is 500KB.
-#
-# **THE BOOT SECTOR IS boot360.bin**, which is not a shortcut - see its own
-# rule above: a 720KB DD floppy is 80 cylinders of the same 9-sector two-head
-# track shape, boot/boot.asm knows only SPT and HEADS, and os88disk.py writes
-# the BPB over the first 62 bytes. A boot720.bin would be byte-identical.
-$(BUILD)/kdos720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
-                      $(BUILD)/kdos/DOS.O88 $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
-                      $(FACES) $(FACELIC) tools/os88disk.py Makefile
-	python3 tools/os88disk.py -o $@ --size 720 \
-		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
-		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(APPDATAFOLDER)
+# ...AND THE 720KB ONE IS `$(IMG720)`, build/os8088-720.img. The other lane
+# added a `kdos720.img` beside the two gate disks for
+# `os8088_5150_herc_sb_720_gla` - this tree's 720KB machine, the geometry a
+# period game disk is actually on (Prince of Persia's PRINCE\ folder is 500KB)
+# - and with $(SYSROOT) flipped it built byte-identical to the shipped 720KB
+# system disk, exactly as the other two did. So there is no rule here: boot
+# build/os8088-720.img.
 
 # --- ...AND THE ONE THAT ASKS WHERE IT IS STANDING (SPEC.md 96.44.6) --------
 # CWDHERE.COM in a SUBDIRECTORY, with the only copy of HERE.TXT beside it, so
@@ -4975,9 +4977,11 @@ $(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
 		SUB:$(BUILD)/CWDHERE.COM SUB:$(BUILD)/HERE.TXT $(BUILD)/CWDHERE.COM
 
 .PHONY: kdostest
-kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/kdos720.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img
-	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
-	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img
+	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
+	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
+	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"
+	@echo "          and build/cwdsub.img for tests/kdcwd.py."
 	@echo "          Run it with: python3 tests/kdpart.py"
 
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------
@@ -9963,16 +9967,40 @@ field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 # ctrl.drv, format.drv and clone.drv out of it (SPEC.md 2.8).
 FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS) $(BIGMODS),$(DRIVERS))
 
+# --- WHY NO FIELD BENCH DISK CARRIES DOS.O88 --------------------------------
+# It used to, and `make field` was BROKEN because of it. These five are
+# measurement disks for docs/FIELD-MACHINES.md's machines - kernel, drivers,
+# the bench packages and their data - and the calibration machine has ONE
+# floppy drive, so every cluster on them is spoken for. $(SYSROOTARG) was
+# added to all of them when DOS.O88 became a system-disk file, and the 360KB
+# ones have not fitted since: `herc.img` wanted 376 of 354 clusters with the
+# PLAIN package on it and 393 with SPEC.md 96.40.3's parted one. Nothing on
+# these disks opens a .COM - there is no apps floppy to put one on and no
+# second drive to hold it - so the fix is to take it off rather than to find
+# room for it: 348 of 354, with six to spare.
+#
+# THE OVERFLOW WAS HIDDEN BY A SECOND DEFECT until the parted package made it
+# worse, and the pair is the thing to remember: `$(BUILD)/herc.img: KMODDIR :=
+# $(HERCDIR) $(SYSROOT)` set the variable to TWO paths, so $(KMODS) named
+# `build/herck build/dos.o88/ctrl.drv` and os88disk stopped at `cannot read
+# build/herck: Is a directory` BEFORE it ever counted a cluster. One broken
+# target reporting the other one's error is why neither was fixed.
+
 # its kernel is $(HERCDIR)'s, so its modules are too
-$(BUILD)/herc.img: KMODDIR := $(HERCDIR) $(SYSROOT)
+# **$(SYSROOT) BELONGED ON THE PREREQUISITE LINE AND NOT THIS ONE.** It was
+# appended here as well, which set KMODDIR to TWO paths for this target - so
+# $(KMODS) expanded to `build/herck build/dos.o88/ctrl.drv`, a directory that
+# has never existed, and the disk asked os88disk for it. Every other
+# `KMODDIR :=` line in this file is one word; this one was not.
+$(BUILD)/herc.img: KMODDIR := $(HERCDIR)
 
 $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
-                   $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py $(SYSROOT)
+                   $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(HERCDIR)/boot360.bin --kernel $(HERCDIR)/$(KERNNAME) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@python3 tools/fieldsize.py $(BUILD)/kernel.bin $(HERCDIR)/kernel.bin
 	@echo "field: $@ - the PROBE kernel; on a machine holding both cards it"
 	@echo "       finds the Hercules (SPEC.md 39.1)"
@@ -9980,12 +10008,12 @@ $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
 # its kernel is $(CGADIR)'s, so its modules are too
 $(BUILD)/cga.img: KMODDIR := $(CGADIR)
 
-$(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/$(KERNNAME) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - VIDEO=cga, so the Hercules is ignored and the CGA"
 	@echo "       column can be taken without opening the machine"
 
@@ -10002,12 +10030,12 @@ $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.
 # its kernel is $(CGADIR)'s, so its modules are too
 $(BUILD)/cga720.img: KMODDIR := $(CGADIR)
 
-$(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/$(KERNNAME) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - the CGA disk on 720KB 3.5\" DD media"
 
 # ...and the A/B disk. FLOPPY1=1 puts dsk_xfer back to one sector per int 13h
@@ -10027,12 +10055,12 @@ $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88di
 # its kernel is $(F1DIR)'s, so its modules are too
 $(BUILD)/flop1.img: KMODDIR := $(F1DIR)
 
-$(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(F1DIR)/boot360.bin --kernel $(F1DIR)/$(KERNNAME) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - FLOPPY1=1, one sector per int 13h. The A/B against"
 	@echo "       herc.img for docs/FIELD-NOTES.md 7 - run SYSBENCH on both"
 
@@ -10053,12 +10081,12 @@ $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88dis
 # its kernel is $(CQDIR)'s, so its modules are too
 $(BUILD)/cqdiag.img: KMODDIR := $(CQDIR)
 
-$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(FIELDBENCH) tools/os88disk.py
+$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
 	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/$(KERNNAME) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - BOOTDIAG=1. A boot that fails prints int 13h's status"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the

@@ -151,7 +151,7 @@ def main():
         M.settle(m)
         print("kdreturn: windowed, %d KB above the PSP" % win_kb)
 
-        dm = dosmap.package(*dosmap.KDBOX)
+        dm = dosmap.package()
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
         m.write((pseg << 4) + dm["dos_keepc"], bytes([2, 0]))
