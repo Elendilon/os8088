@@ -148,6 +148,21 @@ def instance(m, slot=0):
     A package is loaded at a paragraph boundary and never relocated (SPEC.md
     20), so the map value IS the offset inside this segment - no image size to
     add and nothing to subtract.
+
+    **ASK AT THE POINT OF USE, AND NEVER BANK IT ACROSS A DELAY** (SPEC.md
+    66.6.1.1). "Never relocated" is about the package's own near offsets and
+    not about where its segment IS: the DOS box's region MOVES under the
+    compactor, at every arena claim, since the re-homed carve was unpinned.
+    A base taken earlier names the bytes the package used to occupy - and a
+    heap block the compactor copied DOWN is not scrubbed, so a stale base
+    decodes as plausible rubbish rather than as an error.
+
+    Four harnesses banked it in `__init__` and read across whole sessions;
+    `tests/doslnk.py` banked it across a `dosmap.package()` call, which shells
+    out to nasm for seconds of host time with the guest free-running, and read
+    nine bytes of machine code out of `[dos_path]`. All five resolve per
+    access now. It is one window-record lookup - cheap beside the debug round
+    trip every read already costs.
     """
     import dispapps
     g = dispapps.pkg_seg(m, slot)

@@ -66,8 +66,18 @@ class Field(object):
     def __init__(self, m):
         self.m = m
         self.dm = dosmap.package()
-        self.seg = dosmap.instance(m)
-        self.at = (self.seg << 4) + self.dm["dos_pln"]
+
+    @property
+    def seg(self):
+        # **RESOLVED PER ACCESS, NOT CACHED** (SPEC.md 66.6.1.1): the DOS
+        # box's region MOVES now - it is a re-homed carve and was pinned only
+        # until that section - so a base banked in __init__ names the bytes
+        # the package used to occupy, and decodes as plausible rubbish.
+        return dosmap.instance(self.m)
+
+    @property
+    def at(self):
+        return (self.seg << 4) + self.dm["dos_pln"]
 
     def w(self, name):
         off = self.at + self.dm[name]

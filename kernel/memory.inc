@@ -122,6 +122,16 @@ MC_SIZE  equ 10
 MC_DMA_HI   equ 0x8000          ; MC_DMA bit 15: the top-down door
 MC_DMA_HEAD equ 0x7FFF          ; ...and the mask every reader of the head takes
 
+MEM_RG_NONE equ 0xFFFF          ; [mem_rgoff]'s "this block is not a package
+                                ; REGION at all" (SPEC.md 66.6.1.1). A real
+                                ; offset is how far into the claim the program
+                                ; sits and is 0 for every package but a
+                                ; re-homed one, so the sentinel has to be a
+                                ; value no offset can take: 0xFFFF paragraphs
+                                ; is 1MB and a carve is refused at 64KB
+                                ; (apps/os88partsbody.inc's op_size), which is
+                                ; four bits of margin
+
 MEM_K_SAVE equ 0xFF01           ; kernel tags (SPEC.md 50.2): menu save-under
 MEM_K_DRV  equ 0xFF03           ; a loaded driver's image (SPEC.md 51.3)
 MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
@@ -1768,21 +1778,36 @@ mem_cp_both:
     ret
 
 ; -----------------------------------------------------------------------------
-; mem_is_region - is the claim at SI a package's REGION? (module internal)
-; in:  SI = record, BX = its owner (an instance slot, already tested)
-; out: CF = 1 it is a region (so: pinned), CF = 0 it is a data claim
-; clobbers: nothing else (flags)
+; mem_reg_seg - the segment a package RUNS IN, for the claim at SI (internal)
+; in:  SI = record, BX = its owner (an instance slot, already tested),
+;      AX = the claim's base segment
+; out: CF = 1 and AX = the package's own segment; CF = 0 = not a region
+; clobbers: AX (the output) and flags
 ;
-; A region is the one claim whose base IS the instance's I_SPTR, and only a
-; KIND_PKG record has one - a built-in stamps its DATA claims with its slot too
-; (the Disk window's listing cache), which is the distinction that made SPEC.md
+; **THE BASE IS AN INPUT AND NOT `MC_SEG`, WHICH IS THE WHOLE REASON THIS IS A
+; ROUTINE** (SPEC.md 66.6.1.1). `mem_reloc_call` asks it about a record whose
+; base has ALREADY been rewritten to where the block is going, so a test that
+; read the field would be comparing a live `I_SPTR` against a base that does
+; not exist yet. Every other caller passes `MC_SEG` and gets the obvious thing.
+;
+; A region is the claim a KIND_PKG instance RUNS INSIDE, and only a KIND_PKG
+; record has one - a built-in stamps its DATA claims with its slot too (the
+; Disk window's listing cache), which is the distinction that made SPEC.md
 ; 50.6.1's purgeable ceiling dead on arrival before that ceiling was deleted
-; outright. This test OUTLIVED it: mem_can_move is the caller it still has, and
-; "a region can never move, because its base IS its CS" is the older rule.
+; outright.
+;
+; **IT USED TO SAY `MC_SEG == I_SPTR` AND THAT IS TRUE OF EVERY PACKAGE BUT
+; ONE.** A re-homed one (SPEC.md 20.12.10) runs inside the LOADER'S CARVE: the
+; loader's identity passes to a part, its own region is freed, and the carve is
+; re-stamped to the slot - so the region's base is the carve's and `I_SPTR` is
+; the part's, 512 bytes further up on the shipped `DOS.O88`. Equality answered
+; NO for it, which quietly made four separate things wrong at once (§66.6.1.1),
+; and containment answers yes for both shapes with no special case.
 ; -----------------------------------------------------------------------------
-mem_is_region:
-    push ax
+mem_reg_seg:
+    push cx
     push di
+    mov cx, ax                  ; CX = the claim's base, across inst_ptr
     mov ax, bx                  ; the slot to its record - inst_ptr's own job
     call KERNEL_SEG:cw_inst_ptr ; (SPEC.md 29.4), and the shim already exists.
                                 ; mem_can_move has tested cmp bx, INST_MAX /
@@ -1790,17 +1815,34 @@ mem_is_region:
                                 ; zeroes it anyway
     test byte [di+I_KIND], KIND_PKG
     jz .no
-    mov ax, [ss:si+MC_SEG]
-    cmp ax, [di+I_SPTR]
-    jne .no
+    mov ax, [di+I_SPTR]
+    sub cx, ax
+    neg cx                      ; CX = how far into the claim the package sits,
+                                ; and an I_SPTR BELOW the base wraps to a huge
+                                ; number, which the compare below refuses
+    cmp cx, [ss:si+MC_PARA]
+    jae .no
     pop di
-    pop ax
+    pop cx
     stc
     ret
 .no:
     pop di
-    pop ax
+    pop cx
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_is_region - is the claim at SI a package's REGION? (module internal)
+; in:  SI = record, BX = its owner (an instance slot, already tested)
+; out: CF = 1 it is a region, CF = 0 it is a data claim
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+mem_is_region:
+    push ax
+    mov ax, [ss:si+MC_SEG]
+    call mem_reg_seg
+    pop ax                      ; pop writes no flag: the answer survives it
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1869,7 +1911,23 @@ mem_frameless:
     cmp word [bx+inst_restart], 0
     je .nope
 .seg:
-    mov bx, [ss:si+MC_SEG]
+    mov bx, [di+I_SPTR]         ; **THE SEGMENT THE PACKAGE RUNS IN, AND NOT
+                                ; THE CLAIM'S BASE** (SPEC.md 66.6.1.1). They
+                                ; are the same word for every package but a
+                                ; RE-HOMED one, which runs inside the loader's
+                                ; carve - and all three tests below speak the
+                                ; former: `wm_pkgs` records the segment a
+                                ; callback is standing in, `[ld_base]` is the
+                                ; part's after step 8a re-homes, and
+                                ; mem_busy_seg's own header says "a segment
+                                ; that owns claims". Asked with the carve's
+                                ; base instead, mem_in_nest matches NOTHING and
+                                ; this routine calls a region frameless while a
+                                ; callback is standing in it. DI is the
+                                ; instance record, still live from the inst_ptr
+                                ; above - and it has to come from there rather
+                                ; than from BX, which the worker arm has
+                                ; already shifted
     cmp bx, [ld_base]
     je .nope                    ; the loader is standing in it
     cmp bx, [mem_cp_self]       ; ...UNLESS THIS IS THE WHAT-IF ASKING ABOUT
@@ -2635,13 +2693,30 @@ mem_rr_walk:
     mov cl, al
     xor ch, ch
     mov al, ah
-    xor ah, ah                  ; AX = the stride; a SCALAR row's is 0 and its
+    xor ah, ah
+    mov bp, ax                  ; BP = the stride; a SCALAR row's is 0 and its
 .l:                             ; count 1, so it never uses it
-    cmp [es:di], bx
-    jne .n
-    mov [es:di], dx
-.n:
-    add di, ax
+    mov ax, [es:di]
+    cmp ax, bx
+    je .hit
+    cmp ax, [mem_rr_alt]        ; **A REGION CAN GO BY TWO NAMES** (SPEC.md
+    jne .n                      ; 66.6.1.1): its claim's base, and - when the
+                                ; package was RE-HOMED - the segment it
+                                ; actually runs in, a little way up the
+                                ; loader's carve. `W_SEG`, `I_SPTR` and a data
+                                ; claim's `MC_OWN` are all the SECOND of those,
+                                ; so an exact match on the base alone rewrote
+                                ; none of them and the package came back from a
+                                ; move with the kernel still pointing at where
+                                ; it used to be. The alternate is the base
+                                ; itself when there is no second name, so this
+                                ; compare costs four bytes and never fires
+.hit:
+    sub ax, bx                  ; ONE DELTA SERVES BOTH, which is what makes
+    add ax, dx                  ; this two instructions rather than a second
+    mov [es:di], ax             ; pair of registers: the two names are a fixed
+.n:                             ; distance apart and the block moves as one
+    add di, bp
     loop .l
     jmp short .row
 .done:
@@ -2679,7 +2754,21 @@ mem_region_reloc:
     push cx
     push si
     push di
+    push bp
     push es
+    ; --- THE SECOND NAME, or the first one again (SPEC.md 66.6.1.1) --------
+    ; mem_reloc_call staged how far into this claim the package runs. Adding it
+    ; to the OLD base gives the segment every kernel word that names a package
+    ; is actually holding; leaving the alternate equal to BX is what makes the
+    ; walk's extra compare a no-op for the other ~99% of blocks, which are not
+    ; re-homed packages and are not packages at all.
+    mov ax, [ss:mem_rgoff]
+    cmp ax, MEM_RG_NONE
+    jne .haveoff
+    xor ax, ax
+.haveoff:
+    add ax, bx
+    mov [mem_rr_alt], ax
     cld                         ; mem_rr_walk reads its rows with `lodsw`
     mov si, mem_rr_tab
     push ds
@@ -2704,22 +2793,40 @@ mem_region_reloc:
     ; above has already put every I_SPTR right, so the record that matches BX
     ; no longer exists and DX is the only thing that finds it. Moving this
     ; above the walk would silently stop finding anything.
+    ;
+    ; **AND IT IS THE PACKAGE'S SEGMENT AND NOT THE CLAIM'S** (SPEC.md
+    ; 66.6.1.1), which are the same word unless the package was re-homed.
+    ; `inst_of_seg` matches `I_SPTR` and `sch_wk_restart` writes the worker's
+    ; new `CS`/`DS`, so both want the segment the program RUNS IN - and the
+    ; offset is the one [mem_rr_alt] was built from, recovered here rather than
+    ; banked because BX is still the old base at this instruction.
     push bx
+    mov ax, [mem_rr_alt]
+    sub ax, bx                  ; AX = the carve offset, 0 for an ordinary one
     mov bx, dx
-    call inst_of_seg            ; DI = the live KIND_PKG record at the new base
-    jc .nowk
+    add bx, ax                  ; BX = the package's NEW segment
+    push bx                     ; ...which sch_wk_restart wants too, and
+    call inst_of_seg            ; inst_fhome_idx overwrites BX on the way
+    jc .nowkp
     mov al, [di+I_TASK]
     cmp al, 0xFF
-    je .nowk                    ; no worker: nothing to re-enter
+    je .nowkp                   ; no worker: nothing to re-enter
     call inst_fhome_idx         ; BX = the slot, the one place the side tables'
     shl bx, 1                   ; indexing lives
     mov cx, [bx+inst_restart]
-    jcxz .nowk                  ; never declared: it cannot have moved, and if
-    mov bx, dx                  ; it did, the wrong thing to do is guess
+    jcxz .nowkp                 ; never declared: it cannot have moved, and if
+    pop bx                      ; it did, the wrong thing to do is guess
+    push bx
     call sch_wk_restart         ; AL = slot, BX = the new segment, CX = entry
+.nowkp:
+    pop bx                      ; the package's new segment, spent
 .nowk:
     pop bx
     pop es
+    pop bp                      ; mem_rr_walk holds the row's STRIDE in BP now,
+                                ; and this proc is reached as a driver's own
+                                ; relocation proc as well (driver.inc), where
+                                ; BP is the dispatcher's
     pop di
     pop si
     pop cx
@@ -2855,6 +2962,47 @@ mem_reloc_call:
                                 ; read the kernel structures it always reads.
                                 ; NAMED and not `push cs`, which in .cold is
                                 ; COLD_SEG and would be quietly wrong
+    mov ds, ax                  ; ...and inst_tab's, for the offset below. The
+                                ; kernel's half re-loads it anyway
+
+    ; --- WHERE IN THIS CLAIM THE PACKAGE ACTUALLY RUNS (SPEC.md 66.6.1.1) ---
+    ; Zero for every block on the heap except one: a RE-HOMED package's region
+    ; is the LOADER'S CARVE, and the program sits a little way up it. Three
+    ; things below are wrong by exactly this much without it - the table walk
+    ; would rewrite no `I_SPTR` and no `W_SEG`, the dispatch would far-call
+    ; PKG_DISP in the carve's HEAD SLACK rather than in the program, and the
+    ; holder's own proc would be handed the carve's two bases instead of its
+    ; own. It is computed HERE, before the kernel's half, because that is the
+    ; first of the three; and against BX rather than `MC_SEG` because
+    ; mem_cp_run has already re-based the record (see .pkg below).
+    mov word [ss:mem_rgoff], MEM_RG_NONE
+    mov ax, [ss:si+MC_OWN]
+    cmp ax, INST_MAX
+    jae .nooff                  ; a segment or a kernel tag: never a carve
+    push bx
+    push cx
+    mov cx, bx                  ; CX = the OLD base, across the call
+    mov bx, ax
+    mov ax, cx
+    call mem_reg_seg            ; AX = the segment the package runs in
+    jnc .nooffp
+    sub ax, cx
+    mov [ss:mem_rgoff], ax      ; ...and 0 is the ordinary package, whose
+.nooffp:                        ; region IS its segment
+    pop cx
+    pop bx
+.nooff:
+    mov ax, KERNEL_SEG          ; **RE-LOADED, because the two lines below read
+                                ; it and say so** - `mem_fptr+2` used to be
+                                ; stamped from the AX the `mov es, ax` above
+                                ; left, and the block between them clobbers it
+                                ; now. Getting this wrong far-calls the
+                                ; kernel's own half of the move through a
+                                ; GARBAGE segment: the machine wandered off at
+                                ; the end of `kmain`, where mem_unblob does the
+                                ; first compaction of the session, and sat
+                                ; re-reading the disk for ever behind a splash
+                                ; reading 100%
 
     ; THE KERNEL IS A HOLDER OF CLAIMS IT DOES NOT OWN (SPEC.md 66.5.10.2).
     ; osapi_vol_add's DX is a DONATED listing claim: the driver owns it, so the
@@ -2890,14 +3038,33 @@ mem_reloc_call:
 .notk:
     cmp ax, INST_MAX
     jae .pkg                    ; a package's or a driver's own SEGMENT
-    push bx                     ; an instance slot, and it is TWO things now
-    mov bx, ax                  ; (SPEC.md 66.6.1): a built-in's data claim,
-    call mem_is_region          ; whose proc is the kernel's, or a package's
-    pop bx                      ; REGION, whose holder is the package itself
-    jnc .kernel                 ; (pop writes no flags)
+                                ; an instance slot, and it is TWO things
+                                ; (SPEC.md 66.6.1): a built-in's data claim,
+                                ; whose proc is the kernel's, or a package's
+                                ; REGION, whose holder is the package itself.
+                                ; **ASKED ONCE, AT THE TOP.** It used to call
+                                ; mem_is_region here, which reads MC_SEG - and
+                                ; mem_cp_run has already written the NEW base
+                                ; into that field, so for a re-homed package
+                                ; the test compared a live I_SPTR against a
+                                ; base the program is not at yet, answered NO,
+                                ; and fell into .kernel - which far-calls the
+                                ; PACKAGE's proc offset as a kernel near proc
+                                ; (SPEC.md 66.6.1.1)
+    cmp word [ss:mem_rgoff], MEM_RG_NONE
+    je .kernel
     mov ax, [ss:si+MC_SEG]      ; ...AT ITS NEW BASE, which mem_cp_run wrote
                                 ; before calling this. The old one is BX and
                                 ; there is nothing there any more
+    ; **AND THE PACKAGE IS NOT AT THE BASE WHEN IT WAS RE-HOMED** (SPEC.md
+    ; 66.6.1.1). PKG_DISP is a fixed offset in the PROGRAM's image, so a far
+    ; call to the carve's base lands in the head slack; and a relocation proc
+    ; is written to fix up words that name the package's own segment, so the
+    ; pair it is handed has to be the program's two and not the carve's. One
+    ; word, added three times.
+    add ax, [ss:mem_rgoff]
+    add bx, [ss:mem_rgoff]
+    add dx, [ss:mem_rgoff]
 .pkg:
     mov word [ss:mem_fptr], PKG_DISP
     jmp short .go               ; DS = the holder's own segment below: the
@@ -3303,10 +3470,49 @@ mem_find_own:
 .next:
     add si, MC_SIZE
     loop .scan
+%ifdef OS88_COMPACT
+    ; --- NOTHING IS BASED AT DX AT ALL (SPEC.md 66.6.1.1) -------------------
+    ; A RE-HOMED package (SPEC.md 20.12.10) runs inside the loader's CARVE, so
+    ; `mov dx, cs` - the only thing a package can say about its own region -
+    ; names no claim's base and every test above missed on the first compare.
+    ; `OS88_REGION_MOVABLE` was therefore refused for the one shape of package
+    ; that most needs it, silently, because a refusal is a legal answer.
+    ;
+    ; **THE ARM IS GATED ON `DX == BX` AND THAT IS THE WHOLE SAFETY OF IT**, on
+    ; the arm above's own argument one step further: BX is the CALLER's own
+    ; segment, a running segment lies inside exactly ONE claim, and that claim
+    ; is by definition the one the caller is executing in. It widens the fence
+    ; to a containment rather than holing it; a caller naming somebody else's
+    ; segment still has to match a base and an owner as before.
+    cmp dx, bx
+    jne .fail                   ; not the caller's own: no widening at all
+    push ax
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.cscan:
+    cmp word [ss:si+MC_SEG], 0
+    je .cnext                   ; a free record, as above
+    mov ax, dx
+    sub ax, [ss:si+MC_SEG]
+    cmp ax, [ss:si+MC_PARA]
+    jb .cfound                  ; DX is INSIDE this claim
+.cnext:
+    add si, MC_SIZE
+    loop .cscan
+    pop ax
+.fail:
+%endif
     stc
 .out:
     pop cx                      ; pop writes no flag: the answer survives it
     ret
+%ifdef OS88_COMPACT
+.cfound:
+    pop ax                      ; AX is mem_movable's PROC and is live across
+    pop cx                      ; this whole routine (pop writes no flag, and
+    clc                         ; the carry has to be CLEARED here rather than
+    ret                         ; inherited: the `jb` that got us here set it)
+%endif
 
 mem_movable_x:
 %ifndef OS88_COMPACT
@@ -4635,12 +4841,35 @@ mem_fptr: resw 2                  ; mem_reloc_call's staged far pointer. HERE
                                   ; at the instruction that reads it, and SS
                                   ; is the one segment register the compactor
                                   ; can count on (SPEC.md 66.3)
+mem_rgoff: resw 1                 ; ...and HOW FAR INTO THE MOVING CLAIM the
+                                  ; package that owns it actually runs, in
+                                  ; paragraphs - 0 for every block but a
+                                  ; RE-HOMED package's carve (SPEC.md
+                                  ; 66.6.1.1). Staged once at the top of
+                                  ; mem_reloc_call because three separate
+                                  ; things downstream need it and only the
+                                  ; record knows it: the walk's second name,
+                                  ; the dispatch segment, and the pair the
+                                  ; holder's own proc is handed. Same .lowbss
+                                  ; and same ss: prefix as mem_fptr, for the
+                                  ; same reason - and safe for the same one,
+                                  ; the compactor not being re-entrant
 
 %endif                          ; OS88_COMPACT - mem_reloc_call's, and it is
                                 ; the only thing in this file that names it
 section .bss
 
 
+%ifdef OS88_COMPACT
+mem_rr_alt: resw 1                ; mem_rr_walk's SECOND name for the block that
+                                  ; is moving (SPEC.md 66.6.1.1) - the segment
+                                  ; a RE-HOMED package runs in, or the claim's
+                                  ; own base again when there is no second one.
+                                  ; .bss and not .lowbss, unlike mem_fptr and
+                                  ; mem_rgoff beside it: DS is KERNEL_SEG for
+                                  ; the whole of mem_region_reloc, which is the
+                                  ; only thing that reads or writes it
+%endif
 mem_dir:  resw 1                  ; 0 = mem_claim (bottom up), 1 = mem_claim_hi
                                   ; (top down, a package's region). A word so
                                   ; the entries can stage it in a register and

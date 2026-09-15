@@ -35363,7 +35363,7 @@ mechanism exists for — is exactly that shape, and `tests/rehome.py` asserts th
 word. The value is the **program's** `image + bss` and not the carve's extent:
 the carve holds the other parts too, and they are not the region.
 
-##### 20.12.10.5 The carve is re-owned to the SLOT, and stays PINNED
+##### 20.12.10.5 The carve is re-owned to the SLOT, and may not be freed by its base
 
 The parts carve is claimed by the **loader**, through `OSAPI_MEM_CLAIM`, so its
 `MC_OWN` is the loader's segment — which is about to stop existing. Left alone
@@ -35372,16 +35372,22 @@ segment) or leaked for the session. `mem_reown_x` re-stamps it, and every other
 claim on that owner word, to the instance **SLOT** — which is how `ld_alloc`
 owns a region in the first place (§21 step 5).
 
-**The slot is not merely tidy: it is what keeps the carve pinned, and it must
-be.** `mem_find_own` matches `MC_OWN == the caller's segment` or `MC_SEG ==
-it`, and a slot is neither — so `OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE` both
-**refuse the program its own carve**. That is the correct answer, because a
-move would corrupt it: `mem_rr_tab` rewrites `inst_tab + I_SPTR` by matching
-the **old base**, and `I_SPTR` is the *part's* segment where the claim's base is
-the *carve's* — the two differ by the run's cluster alignment (§20.12.2) — so a
-compaction would leave `I_SPTR` naming where the program used to be. A re-homed
-carve is therefore **not** a region in `mem_is_region`'s sense, and must not be
-made to look like one.
+**The slot is not merely tidy: it is what stops the program freeing the block
+it is running in by name.** `mem_find_own` matches `MC_OWN == the caller's
+segment` or `MC_SEG == it`, and a slot is neither — so `OSAPI_MEM_FREE` with
+the carve's **base** refuses, which is the correct answer and still does.
+
+**IT USED TO KEEP THE CARVE PINNED AS WELL, AND THAT IS OVER** (§66.6.1.1).
+The reason was real and is worth keeping written down, because it was one of
+four of its kind: `mem_rr_tab` rewrote `inst_tab + I_SPTR` by matching the
+**old base**, and `I_SPTR` is the *part's* segment where the claim's base is the
+*carve's* — the two differ by the run's cluster alignment (§20.12.2) — so a
+compaction left `I_SPTR` naming where the program used to be. `mem_is_region`,
+`mem_frameless` and `mem_reloc_call` each read the base for the same wrong
+reason. All four take `[mem_rgoff]` now; `mem_find_own` has a containment arm
+for a caller naming its **own segment**, which is the only way a re-homed
+program can name its region at all; and a re-homed carve is a region in every
+sense the compactor has.
 
 The loader's own region is then freed **by base** (`mem_free_x` with `DX =
 [ld_base]`, `BX =` the slot) and not by owner: the re-owned carve is on the same
@@ -35395,28 +35401,35 @@ on a 1.44MB one, where it is therefore ZERO**. So:
 
 | head slack | the program sits | and the carve is |
 |---|---|---|
-| non-zero (1KB+ clusters) | **inside** the carve | not a region by `mem_is_region`: `MC_SEG != I_SPTR`. Unreachable to the program, pinned, and it must stay so |
-| zero (512-byte clusters) | **at** the carve's base | the program's region **in every sense** — `mem_is_region` holds, `mem_find_own`'s `MC_SEG == the caller's own segment` arm reaches it, and `mem_rr_tab` would rewrite `I_SPTR` correctly on a move |
+| non-zero (1KB+ clusters) | **inside** the carve | its region, reached by `mem_find_own`'s **containment** arm and moved with `[mem_rgoff]` (§66.6.1.1). It was pinned until that section |
+| zero (512-byte clusters) | **at** the carve's base | its region by the obvious reading too: `MC_SEG == I_SPTR`, and every compactor question has one answer either way |
 
-**Both are coherent, and for different reasons**, which is why neither the
-kernel nor the package needs to know which one it got. In the second shape a
-re-homed program may free or unpin its own carve exactly as any package may
-free or unpin its own region (§66.6.1) — that is not a hole the re-home opened,
-it is the ordinary right, arriving because the two really are the same block.
-What must never happen is the first shape being treated as the second, and
-`mem_reown_x` stamping the **slot** is what prevents it.
+**Both are the same thing now, and neither the kernel nor the package needs to
+know which one it got** — a package declares `OS88_REGION_MOVABLE` and a
+relocation proc is handed *its own* two segments, re-homed or not (§66.6.1.1).
+What is still refused in both shapes is naming the carve's **base**: the
+widening is gated on the caller naming its own segment, so the fence became a
+containment rather than a hole, and `tests/rehome/rhprog.asm`'s check 4 asserts
+exactly that.
 
-`tests/rehome.py` asserts the shape its geometry implies rather than one
-outcome, and runs at **360KB** in the suite because that is the shape §50.3.4's
-fence exists for. On a 512-byte-cluster volume `mem_own`'s old claim-base proxy
-answers correctly by accident, so a 1.44MB-only row would have tested nothing.
+`tests/rehome.py` runs at **360KB** in the suite because that is the shape
+§50.3.4's fence exists for: on a 512-byte-cluster volume `mem_own`'s old
+claim-base proxy answers correctly by accident, so a 1.44MB-only row would have
+tested nothing. `rehomemove360` is the same argument for the move.
 
-##### 20.12.10.5.1 …and in the second shape it MOVES, with one word of its own
+##### 20.12.10.5.1 …and it MOVES, in BOTH shapes, with one word of its own
 
-`tests/rehomemove.py` takes the zero-slack shape the other way: the program
-declares itself movable, `tests/filler` forces the compaction, and the carve
-**packs down like any other region** — measured, `1E40 → 1D00`, with `I_SPTR`,
+`tests/rehomemove.py` takes it the other way: the program declares itself
+movable, `tests/filler` forces the compaction, and the carve **packs down like
+any other region** — measured at a zero slack, `1E40 → 1D00`, with `I_SPTR`,
 `W_SEG` and the claim owner all following through `mem_rr_tab`.
+
+**`rehomemove360` is the same row in the shape that was pinned**, and it is the
+gate on §66.6.1.1 where the row above is not: at a zero slack all four of that
+section's questions have the same answer either way, so only a non-zero slack
+can tell them apart. Measured there: head slack **32 paragraphs**, the region
+`9F20 → 9F60`, the proc called, and the package's own vector into the asset
+following `9F40 → 9F80` and reading back through the fixed pointer.
 
 **Its relocation proc is not a `ret`, and it is the first in the tree that
 cannot be.** `OS88_REGION_MOVABLE` ships a bare `ret` because every word naming
@@ -84771,6 +84784,73 @@ caller's region and can be nothing else, so that is the second way to match.
 No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
 door.
 
+##### 66.6.1.1 A RE-HOMED package's region is the loader's CARVE, and four things assumed otherwise
+
+Every rule above says *"the region's base IS the package's segment"*, and that
+was true of every package in the tree until one was not.
+
+`OSAPI_PKG_REHOME` (§20.12.10) hands a loader's identity to one of its parts:
+the loader's own region is freed, the parts CARVE is re-stamped to the instance
+slot, and the program runs **inside** that carve — a little way up it, because
+`op_claim`'s head slack is the cluster alignment the read needed (§20.12.2).
+**MEASURED on the shipped four-piece `DOS.O88`: the carve is at `0x8FC0` and
+`I_SPTR` is `0x8FE0`.** 512 bytes, and every kernel word that names a package
+holds the second number.
+
+So the region had to be **PINNED**, and `kernel/loader.inc`'s `.rehome` arm
+said so. That cost the DOS box **14 KB on a Sound Blaster machine** — §96.35's
+whole recovery, given straight back the day §96.40.3 shipped the parted package
+— and it made every re-homing package a permanent wall at whatever depth the
+heap had when it launched, which is docs/plans/HEAP-UNPIN-PLAN.md 2.0
+arriving by a second route. `apps/c64` and Clear Skies re-home too.
+
+**THE PIN WAS LOAD-BEARING, AND THAT IS THE FINDING.** Un-pinning it alone
+would not have been a smaller bug than the one it fixed: **four** separate
+things in the compactor read *the claim's base* where they meant *the segment
+the package runs in*, and each fails differently and silently.
+
+| | what it asked | what it would have done |
+|---|---|---|
+| `mem_is_region` | `MC_SEG == I_SPTR` | answered **NO** for a re-homed region, so `mem_reloc_call` took its built-in arm and far-called the PACKAGE's proc offset as a kernel near proc |
+| `mem_frameless` | `mem_in_nest(MC_SEG)` | `wm_pkgs` records the segment a callback is standing in, so the nest matched **nothing** and a region was called frameless while a callback stood in it |
+| `mem_rr_walk` | `word == old base` | rewrote **no** `W_SEG`, **no** `I_SPTR` and no data claim's `MC_OWN`: the package came back from a move with the whole kernel still pointing where it used to be |
+| `mem_reloc_call` | `PKG_DISP` at `MC_SEG` | far-called the carve's **head slack**, which is alignment padding |
+
+**The fix is one number, computed once.** `[mem_rgoff]` is how far into the
+moving claim the program sits, in paragraphs — `0` for every ordinary package,
+`MEM_RG_NONE` for a block that is not a package region at all. It is staged at
+the top of `mem_reloc_call`, because that is the first of the three places
+downstream that need it, and it is taken against the **old** base: `mem_cp_run`
+re-bases the record before it calls, so a test that read `MC_SEG` there would
+compare a live `I_SPTR` against a base the program is not at yet.
+
+`mem_reg_seg` is the one primitive — *the segment a package runs in, for this
+claim* — and it takes the base as an **input** for exactly that reason.
+`mem_is_region` is now four instructions on top of it, so there is no second
+copy of the rule to keep in step.
+
+**A REGION GOES BY TWO NAMES AND THE WALK MATCHES BOTH**, at four bytes and one
+compare: `[mem_rr_alt]` is the old base plus the offset, and is *the old base
+again* when there is no second name, so the extra compare never fires for the
+~99% of blocks that are not re-homed packages. One delta serves both names —
+they are a fixed distance apart and the block moves as one — so the rewrite is
+`sub`/`add` rather than a second pair of registers.
+
+**And `mem_find_own` widened a second time.** A re-homed package can say only
+`mov dx, cs` about its own region, which names **no claim's base**, so
+`OSAPI_MEM_MOVABLE` was refused for the one shape of package that most needs
+it — and a refusal is a legal answer, so nothing said a word. The new arm is
+gated on `DX == BX`, which is the paragraph above's argument one step further:
+BX is the caller's own segment, a running segment lies inside exactly **one**
+claim, and that claim is by definition the one it is executing in. It widens
+the fence to a containment rather than holing it; a caller naming somebody
+else's segment still has to match a base and an owner.
+
+**What a holder's relocation proc is handed is the PROGRAM's pair**, not the
+carve's — `BX` = the segment it was at, `DX` = where it is now — so a proc
+written for an ordinary package needs no change and cannot tell the difference.
+That is the whole point: re-homed or not, a package sees one story.
+
 #### 66.6.2 …and past the worker: the package gives its worker back
 
 `OSAPI_TASK_RESTARTABLE` (slot `0x0518`, `inst_restart_set`) — `AX` = a near
@@ -125376,6 +125456,36 @@ claim does not carry out (§50.6.6). `DOS_MIN_KB` still refuses below 64KB —
 a limit under it is a machine with nothing worth running a DOS program in, and
 saying so is cheaper than a program that dies on its first allocation.
 
+##### 96.25.1.1 The page asks the WHAT-IF, because that is what the launch delivers
+
+`dos_mem_figs` asks `OSAPI_MEM_AVAIL_MAX` at both ranks and not
+`OSAPI_MEM_AVAIL_LVL`/`OSAPI_MEM_AVAIL`. The rule this page is held to is that
+the figure SHOWN is the figure the program GETS, and the launch is not a plain
+claim: `dos_run` posts `OSAPI_MEM_COMPACT_WAKE` and claims on the wake
+(§96.35), so the heap it claims out of has been packed **with this package's
+own region in the pass**. That is precisely the question the what-if answers
+and precisely the one plain `mem_avail` does not, because a package asking
+from inside its own callback is pinned by the act of asking (§66.4.3).
+
+It made no difference for a release and the reason is worth keeping: this
+region could not move at all. The box is part 0 of a re-homed `DOS.O88`
+(§96.40.3) and the carve was refused its `OSAPI_MEM_MOVABLE` declaration, so
+the excuse bought nothing and the two slots agreed **by accident**. §66.6.1.1
+unpinned it and the accident ended — measured on a 360KB desktop, the page
+said 442K/474K where the launch handed out 445K/477K, under-promising by the
+3KB the region's own move recovers. `tests/dirwshed.py` asserts the two agree
+to within 2KB and is what found it.
+
+The what-if is documented as a measurement rather than a promise (§66.4.3.2),
+and for this package it is the promise: the post is what makes it true, and
+`dos_run` sends one whenever a pass would add anything. Where it would not,
+the what-if and plain avail are the same number anyway.
+
+`OSAPI_MEM_AVAIL_MAX` has no unconditional door of its own the way
+`OSAPI_MEM_AVAIL` is `OSAPI_MEM_AVAIL_LVL`'s, so **both** calls set AL. A
+fall-through would ask the floor's question twice and draw one number in both
+places, which is the failure §50.6.6 is about with the two figures swapped.
+
 #### 96.25.2 …and a SECOND `ExtraData` block, not two more fields on the first
 
 §96.21's block is the environment: a set of NUL-terminated rows ending in a
@@ -125498,8 +125608,10 @@ happened to that gate when the package became four pieces.
 
 ##### 96.35.4.1 …and the PARTED package cannot make that declaration at all
 
-**Shipping §96.44.5's four pieces gave the 14 KB straight back, and it is a
-designed refusal rather than a regression in this package.** The box is PART 0
+**Shipping §96.44.5's four pieces gave the 14 KB straight back, on a designed
+refusal rather than a regression in this package — and §66.6.1.1 has since
+taken the refusal away.** What follows is why it stood, kept because the
+refusal was correct on the kernel it was written against. The box is PART 0
 now, reached by `OSAPI_PKG_REHOME`, and a re-homed package's region is **the
 loader's CARVE re-stamped to the instance SLOT**. `mem_find_own` matches
 `MC_OWN` or `MC_SEG` against the caller's segment and a slot is neither, so
@@ -125525,23 +125637,29 @@ The arithmetic that follows is the same as §96.35.4's with the sign flipped:
 …and 17,408 bytes sit above the pinned region where `SOUND.DRV`'s 6,144-byte
 image and 8,192-byte ring were, reachable by nothing.
 
-**THE LINE STAYS IN `dos.asm`.** It is still right in the one-image build, a
-refusal costs nothing, and the day the kernel can relocate a re-homed carve it
-starts working again with no package change.
+**AND IT IS FIXED — §66.6.1.1 IS THE KERNEL CHANGE AND THE 14 KB IS BACK.**
+The line in `dos.asm` never moved; what moved is that the compactor stopped
+reading *the claim's base* where it meant *the segment the package runs in*, in
+the four places it did so. `mem_find_own` grew a containment arm for a caller
+naming its own segment — the only thing a re-homed program can say about its
+region — and `[mem_rgoff]` carries the offset to the walk, the dispatch and the
+holder's own pair.
 
-**WHAT IT WOULD TAKE is a kernel change and it is the OWNER'S to weigh**, not
-this package's to work around: `mem_rr_tab` would have to rewrite `I_SPTR` by
-DELTA — `I_SPTR += new_base - old_base` — rather than by matching the old
-base, and the carve would then be unpinnable. That is §66.6.1's contract, and
-docs/plans/HEAP-UNPIN-PLAN.md is where it belongs. **It is not only the DOS
-box**: every re-homing package is a permanent wall at the top of the heap, and
-`apps/c64` and Clear Skies re-home too.
+**MEASURED, same two machines, same program:**
 
-`tests/dosarena.py` is re-aimed on this. Its A/B can no longer tell §96.35's
-three failure modes apart — a suspend that never happened and a hole that
-cannot be reached give the same 14 KB — so the row asserts `[dos_drvout]`,
-which is the mechanism, and holds the loss to **exactly the driver's image
-plus its ring** so that anything larger is a new fault.
+| | with a Sound Blaster | without one | the card costs |
+|---|---:|---:|---:|
+| the re-homed carve pinned | 426 KB | 440 KB | **14 KB** |
+| …and unpinned (§66.6.1.1) | **445 KB** | **445 KB** | **0** |
+
+`tests/dosarena.py` is back to asserting that the two machines AGREE, which is
+what it said before the package became four pieces — and it reads the carve's
+`MC_RLOC` beside the arena now, because those two fail differently: a refused
+declaration would otherwise show up as §96.35's mechanism breaking.
+
+**It was never only the DOS box.** Every re-homing package was a permanent wall
+at whatever depth the heap had when it launched; `apps/c64` and Clear Skies
+re-home too, and both move now.
 
 #### 96.35.5 The resume obligation is the whole price of the fence going
 

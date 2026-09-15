@@ -220,8 +220,13 @@ def main():
         # dos_fld_init had left LN_LEN at 0 and dos_path_make wrote the buffer
         # without re-measuring. A check that read the buffer would have been
         # green throughout.
-        _ps = dosmap.instance(m)
+        # **THE MAP FIRST, THE SEGMENT SECOND** (SPEC.md 66.6.1.1).
+        # `dosmap.package()` shells out to nasm, which is seconds of host time
+        # with the guest free-running - and the DOS box's region MOVES now, so
+        # a segment taken before that call can be stale by the time it is
+        # used. It read nine bytes of machine code out of `[dos_path]`.
         _dm = dosmap.package()
+        _ps = dosmap.instance(m)
         _buf = m.read((_ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
         _len = int.from_bytes(
             m.read((_ps << 4) + _dm["dos_pln"] + 12, 2), "little")

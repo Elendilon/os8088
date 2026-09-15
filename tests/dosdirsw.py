@@ -67,7 +67,14 @@ class Box(object):
     def __init__(self, m):
         self.m = m
         self.dm = dosmap.package()
-        self.base = dosmap.instance(m) << 4
+
+    @property
+    def base(self):
+        # **RESOLVED PER ACCESS, NOT CACHED** (SPEC.md 66.6.1.1): the DOS
+        # box's region MOVES now - it is a re-homed carve and was pinned only
+        # until that section - so a base banked in __init__ names the bytes
+        # the package used to occupy, and decodes as plausible rubbish.
+        return dosmap.instance(self.m) << 4
 
     def w(self, name):
         return int.from_bytes(self.m.read(self.base + self.dm[name], 2),

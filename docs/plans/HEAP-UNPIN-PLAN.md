@@ -927,7 +927,7 @@ between them show that three of the four `MC_DMA` claims in the tree have no bus
 master on them at all, and that the fourth already has both halves of its quiesce
 built.
 
-### 4.6.1 …AND A SECOND LIMIT, MEASURED SINCE: a RE-HOMED package is pinned whatever its worker does
+### 4.6.1 …AND A SECOND LIMIT, MEASURED AND THEN FIXED: a RE-HOMED package was pinned whatever its worker did
 
 `OSAPI_PKG_REHOME` (SPEC.md 20.12.10) hands a loader's identity to one of its
 parts, and what the program then runs in is **the loader's CARVE re-stamped to
@@ -956,11 +956,23 @@ build of the same package gets the full 440, because there its region really is
 `cs` and `OS88_REGION_MOVABLE` takes. The declaration is still in
 `apps/dos/dos.asm`; it is simply refused.
 
-**THE FIX IS ONE LINE OF ARITHMETIC AND IT IS NOT THE PACKAGE'S.** `mem_rr_tab`
-would rewrite `I_SPTR` by DELTA — `I_SPTR += new_base - old_base` — instead of
-by matching the old base, after which the carve can be unpinned like any other
-region and every mechanism above reaches it. Bill it with §4.2's region
-predicate, which it otherwise shares.
+**BUILT — SPEC.md 66.6.1.1, and it was FOUR readings and not one.** The
+estimate above ("one line of arithmetic") was right about `mem_rr_tab` and
+wrong about the scope: `mem_is_region`'s equality, `mem_frameless` asking
+`mem_in_nest` about the claim's base, the walk's exact match, and
+`mem_reloc_call` far-calling `PKG_DISP` into the carve's head slack were all
+the same mistake, and three of them CORRUPT rather than refuse. **The pin was
+load-bearing**: unpinning it alone would not have been a smaller bug than the
+one it fixed.
+
+What shipped is one number computed once — `[mem_rgoff]`, the program's
+paragraph offset into the moving claim — plus `mem_reg_seg`, which takes the
+claim's base as an INPUT because `mem_reloc_call` asks about a record whose
+base has already been rewritten. **+151 bytes** (`.text` +40, `.cold` +107,
+`.bss` +2, `.lowbss` +2), no rung crossed. Measured: the DOS box's arena goes
+**426 KB to 445** on a Sound Blaster machine, equal to the machine with no
+card; `soak -k rehomemove360` is the gate, and `rehome`/`rehomemove` at a zero
+head slack cannot be one — all four questions have the same answer there.
 
 **It is not only the DOS box.** Every package that re-homes is a permanent wall
 at whatever depth the heap had when it launched: `apps/c64` and Clear Skies

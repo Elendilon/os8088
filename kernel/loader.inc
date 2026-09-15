@@ -1205,13 +1205,22 @@ ld_start:
     ; The parts carve is claimed BY THE LOADER, whose segment is about to stop
     ; existing, and it is the block the program is now running in. Re-stamped
     ; to the instance SLOT, which is how ld_alloc owns a region (step 5) and
-    ; is what makes it unreachable to the program: mem_find_own matches
-    ; MC_OWN == the caller's segment or MC_SEG == it, and a slot is neither -
-    ; so OSAPI_MEM_FREE and OSAPI_MEM_MOVABLE both refuse the program its own
-    ; carve, which is exactly right. IT MUST STAY PINNED: mem_rr_tab rewrites
-    ; inst_tab + I_SPTR by matching the OLD BASE, and I_SPTR is the part's
-    ; segment where the claim's base is the carve's, so a move would leave
-    ; I_SPTR naming where the program used to be (SPEC.md 66.6.1).
+    ; is what makes it unreachable BY ITS BASE to the program: mem_find_own
+    ; matches MC_OWN == the caller's segment or MC_SEG == it, and a slot is
+    ; neither - so OSAPI_MEM_FREE refuses the program its own carve, which is
+    ; exactly right.
+    ;
+    ; **IT USED TO SAY "AND IT MUST STAY PINNED" AND THAT IS OVER** (SPEC.md
+    ; 66.6.1.1). The reason was real - mem_rr_tab rewrote inst_tab + I_SPTR by
+    ; matching the OLD BASE, and I_SPTR is the part's segment where this
+    ; claim's base is the carve's, so a move left I_SPTR naming where the
+    ; program used to be - and it was one of FOUR places that read the base
+    ; where they meant the segment the package runs in. All four take
+    ; [mem_rgoff] now, mem_find_own has a containment arm for a caller naming
+    ; its OWN segment, and a re-homed region moves like any other. What it
+    ; cost while it stood: 14KB of every DOS program on a Sound Blaster
+    ; machine (96.35.4.1), and a permanent wall at whatever depth the heap had
+    ; when any re-homing package launched.
     mov di, [ld_rec]            ; **ld_slot READS DI**, and this is where it
                                 ; comes from. Nothing else on this path sets
                                 ; it: step 8 above loaded it for
