@@ -9066,6 +9066,16 @@ with no promise outstanding, and the first painter after the transfer would
 draw straight through it** — §7.1.4's permanent smear, bought back at full
 price.
 
+**The code that does it is `cur_busy_on`'s DOWN arm (§7.5.3), and the arrow
+comes back as the clock.** It was a block of its own in `fpg_arm` first, with
+the clock's take added inside it — and that block was the DOWN arm's own tests
+and its own three instructions written out a second time, forty-three bytes
+of `.text` for a case the measurement in §7.5.3 found fired 0 of 3, so
+`fpg_arm` makes one call now and the arm is the block. The one thing the fold
+changed is a refusal the block never made and should have: a saver session's
+hide (§79.6.1) is not this hold's to settle either, and `cur_busy_on` tests
+`[blk_sv]` before it touches anything.
+
 It rides `fpg_arm` rather than `dsk_xfer` for one reason: the widget's lifetime
 **is** the freeze (§12.8.3), so this shows once at the start and is settled once
 at the end. Hung off the transfer instead it would show and hide per
@@ -9077,14 +9087,18 @@ Four conditions, and the first is what makes the rest sound:
 1. **The lock is held**, and `fpg_arm` has already refused another task's, so
    it is ours. A free lock needs none of this — nothing spent the promise
    because there was no hold to make one, which the `PAINT.O88` launch
-   confirms at `cur_level` 0 for 67 samples of 79.
+   confirms at `cur_level` 0 for 67 samples of 79 — and a −1 under a free
+   lock is somebody else's hide (§7.5.3).
 2. **`[cur_level]` is exactly −1.** A refcount we did not take is not ours to
    undo.
 3. **No clip region is armed** — the ISR would not move it anyway (§7.4.2), and
    lit-but-frozen is the thing §7.1.4.3 rejected.
 4. **The pointer is below the bar**, read from `[mouse_y]` and *not*
    `[cur_drawn_y]`: the drawn position is meaningless while the arrow is
-   hidden, and `cursor_show` draws at the live one.
+   hidden, and `cursor_show` draws at the live one. **Not a corner case**:
+   picking the first item of a menu leaves the hand exactly there, and a
+   pointer shown on those rows would be hidden again by `fpg_arm`'s own bar
+   composition an instant later — a flash, for PERFORMANCE.md rule 2.
 
 #### 7.4.4 What it does and does not buy
 
@@ -9199,25 +9213,29 @@ going to run anyway writes, and `cur_put`/`cur_get` are bounded by
 `CUR_GW`/`CUR_GH`/`CUR_SPAN` and not by what is in the cell (§7.2). Neither
 renderer looks at a single bit of the picture to decide how much work to do.
 
-`cur_busy_undo` sits **above** `gfx_unlock`'s `cmp byte [cur_lazy], 0` and not
-below it, and that placement is load-bearing: `cur_shape_set` spends the
-promise, which is what sends the test to the `cursor_show` arm and draws the
-restored picture. Below it, the test would take `.never` — *"the arrow never
-left the screen"* — and the clock would stay on it.
+The restore — `cur_shape_set` of the banked shape, six instructions inside
+`gfx_unlock` and no routine of its own — sits **above** `gfx_unlock`'s
+`cmp byte [cur_lazy], 0` and not below it, and that placement is load-bearing:
+`cur_shape_set` spends the promise, which is what sends the test to the
+`cursor_show` arm and draws the restored picture. Below it, the test would take
+`.never` — *"the arrow never left the screen"* — and the clock would stay on it.
 
-**The bank is conditional**, and the four bytes that make it so are not
-optional: a *second* take inside one hold — a package that called the slot and
-then touched a file — would otherwise bank the clock as the thing to go
-back to, and `gfx_unlock` would restore it for ever. `cur_shape_set` is already
-a compare and a return when the picture is on, so a `cmp`/`je` above the store
-is the whole of the fix.
+**The bank is guarded by the first arm**, and it has to be: a *second* take
+inside one hold — a package that called the slot and then touched a file —
+would otherwise bank the clock as the thing to go back to, and `gfx_unlock`
+would restore it for ever. `cur_busy_on` tests `[cur_shape]` for the clock
+before anything else, so the second call is four instructions and the bank
+below it is a plain store.
 
 **The shape that goes back is BANKED, in `[cur_shprev]`**, rather than
 restoring the arrow and posting `[cur_shchk]` for the UI pass to correct. Over
 a window that named a shape, the cheap version is arrow-then-crosshair one pass
 later, which is PERFORMANCE.md Part 1 rule 2 with the pointer itself as the
-double draw. `[cur_shchk]` is posted **as well**, because a hold can be seconds
-long and the pointer may have left the window the banked shape belonged to.
+double draw. **And nothing is posted**: a hold can be seconds long and the
+pointer may have left the window the banked shape belonged to, but every
+pointer movement posts `[cur_shchk]` from the ISR and every raise, hide,
+destroy and drag posts it from `wm.inc`, so the pass already re-asks in
+exactly the cases the restore could be wrong in.
 
 #### 7.5.3 THREE pointer states, and §7.4.3.1's block covers one of them
 
@@ -9246,50 +9264,53 @@ one the plan's "free" placement missed entirely.
 So the picture is swapped **where the pointer actually is**, in `cur_busy_on`,
 and it has three arms:
 
-- **already wearing it** — §7.4.3.1's block got there first, or a package asked
-  before it touched a file. Four instructions, and it is tested first because
-  it is the arm the second call always takes.
+- **already wearing it** — a package asked before it touched a file. Four
+  instructions, tested first because it is the arm the second call always
+  takes, and it is what lets the bank below be unconditional (§7.5.2).
 - **down** (`[cur_level]` = −1) — swap, re-arm `[cur_lazy]`, `cursor_show`.
-  That is §7.4.3.1's own sequence, and it is what a package's hold is normally
-  in. **And only with the lock HELD**, which is §7.4.3.1's own test: `cur_unlazy`
-  above has just spent the hold's promise, so a −1 under a held lock is that
-  hide and this show settles it. Under a *free* lock a −1 is somebody else's —
-  `fpg_arm`'s own bar-row hide (§12.8.4, repaid by `fpg_finish`) or a saver
-  session's for-the-session hide (§79.6.1, repaid by `ss_set_x`) — and a show
-  here would settle that debt twice, leaving `[cur_level]` at +1 for good:
-  `cursor_hide` never erases again while the ISR keeps drawing, §7.1.4's
-  permanent smear. The measurement above found this arm 0 of 3 lock-free, so
-  refusing it costs nothing measured.
+  **That IS §7.4.3.1** — the block `fpg_arm` used to run before this call was
+  this arm's tests and its three instructions a second time, and is folded in
+  — and it is what a package's hold is normally in. **And only with the lock
+  HELD**: `cur_unlazy` above has just spent the hold's promise, so a −1 under
+  a held lock is that hide and this show settles it. Under a *free* lock a −1
+  is somebody else's — `fpg_arm`'s own bar-row hide (§12.8.4, repaid by
+  `fpg_finish`) or a saver session's for-the-session hide (§79.6.1, repaid by
+  `ss_set_x`) — and a show here would settle that debt twice, leaving
+  `[cur_level]` at +1 for good: `cursor_hide` never erases again while the ISR
+  keeps drawing, §7.1.4's permanent smear. The measurement above found this
+  arm 0 of 3 lock-free, so refusing it costs nothing measured.
 - **lit** (`[cur_level]` = 0) — and this is the common one. The picture may only
   change while the cursor is off the glass (§7.2.2) and here there is no
   hide/show pair already happening to change it inside, **so this arm buys one:
   one cell erase and one cell draw, once per freeze.** Against `FPG_WARM` = 3
   sectors — the floor a freeze has to clear before the widget appears at all,
   ~72 ms on the field machine — that is under a tenth of a percent, and every
-  freeze worth reporting is seconds.
+  freeze worth reporting is seconds. It leaves `[cur_lazy]` exactly as it
+  found it, which under `CURBAR_ON` (§7.4.3) is a promise `cur_unlazy` KEPT
+  for an arrow the bar cannot reach; the DOWN arm's re-arm is an `or` of a
+  register that is 1 on that arm and 0 on this one.
 
-`cur_busy_take`'s three-byte call stays inside §7.4.3.1's block anyway, so that
-the day it *does* fire the swap is free and nothing is drawn twice.
-
-The five refusals below the first arm are each somebody else's rule rather than
-this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **saver
-session** (§79.6.1, `wm_clip_set`'s test and `kern_big`'s alone — the overlay
-owns the glass and its hide is the session's), a **clip
-region armed** (§7.4.2's third condition — a clipped painter that already asked
-`cur_lazyck` and was told the pointer was out of reach would draw straight
-through one put up behind its back), **the menu bar's own rows** (§7.4.3, where
-this widget is about to draw — and `[mouse_y]`, not `[cur_drawn_y]`, because
-`cursor_show` draws at the live one), and **a refcount that is not ours** to
-undo.
+The two arms share one tail — bank `[cur_shape]` into `[cur_shprev]`, set the
+clock, `cursor_show` — and the refusals below the first arm are each somebody
+else's rule rather than this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own
+first test), a **saver session** (§79.6.1, `wm_clip_set`'s test and
+`kern_big`'s alone — the overlay owns the glass and its hide is the
+session's), a **clip region armed** (§7.4.2's third condition — a clipped
+painter that already asked `cur_lazyck` and was told the pointer was out of
+reach would draw straight through one put up behind its back), **the menu
+bar's own rows** (§7.4.3, where this widget is about to draw — `[mouse_y]`
+and not `[cur_drawn_y]`, because `cursor_show` draws at the live one; and not
+a corner case, since the first item of every menu is on those rows), and **a
+refcount that is not ours** to undo.
 
 ##### 7.5.3.1 It lives INSIDE `%ifndef NOCURDISK`, and `tests/curdisk.py` says why
 
 `NOCURDISK=1` is the A/B for the whole of §7.4 — the freeze the pointer took
 before it — and its contract is that **nothing puts a pointer on the glass
 during a disk transfer**. `cur_busy_on` shows one, so the call reached from
-`fpg_arm` is inside that gate with the rest of §7.4.3.1's block. It was outside
-it for one commit and `tests/curdisk.py` caught it in the only way that
-matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
+`fpg_arm` is inside that gate, and it is the whole of what the gate encloses
+now that §7.4.3.1 is that call's DOWN arm. It was outside it for one commit
+and `tests/curdisk.py` caught it in the only way that matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
 cannot"* — a knob build measuring a kernel it no longer describes, which is the
 one failure a knob exists to make impossible.
 
@@ -9299,8 +9320,8 @@ the disk freeze, not about a package that says it is busy.
 
 #### 7.5.4 …and the window half is one slot with no argument
 
-`OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and answers CF. It is for the case
-the kernel cannot see: **a package about to spend seconds inside its own code
+`OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and **answers nothing, flags
+included**. It is for the case the kernel cannot see: **a package about to spend seconds inside its own code
 without drawing** — Paint's LZW decode of a GIF and its row-by-row BMP read
 (§42.6) are the first two callers — where the callback holds the lock the UI
 task took around it, so nothing paints and no pointer moves, and the kernel has
@@ -9314,8 +9335,8 @@ hold from a four-millisecond one *in front of it*, and by the time it could the
 flicker has already happened. The program can, and it is the only thing that
 can.
 
-The slot is a **door in front of `cur_busy_on`**, twenty bytes of it, and all
-it adds is *the caller must hold the lock itself*. That buys two things: the
+The slot is a **door in front of `cur_busy_on`**, ten bytes of it, and all it
+adds is *the caller must hold the lock itself*. That buys two things: the
 hold is the lifetime `gfx_unlock` ends, so a package cannot leave a clock
 to be cleared by somebody else's unlock; and it hands the drawing below the
 same guarantee the mouse ISR gets from a free lock (§7.4.2.1) — that no task is
@@ -9323,39 +9344,47 @@ inside a primitive — which a package's **worker** could otherwise break.
 `fpg_arm` enters below that test and is right to: it is the one painter in the
 machine that draws with the lock free (§12.8.4), and in that state the ISR is
 already drawing the pointer at arbitrary positions on exactly this argument.
+**One compare asks both questions** — is the lock held, and is it ours —
+because `gfx_unlock` stamps 0xFF into `[gfx_lock_own]` before it drops the
+flag and no task slot is 0xFF, so `[sch_cur]` against the owner is the whole
+door.
 
-A refusal costs the caller the picture and nothing else, so the flag is safe to
-ignore — Paint ignores it, and the `pushf` already round its decode is what
-would have carried it anyway.
+A refusal costs the caller the picture and nothing else, so there is nothing
+for a caller to do with one — Paint never read the flag that used to say so —
+and the slot answers no flag at all: the success and every refusal share one
+`pop ax` / `ret`.
 
 #### 7.5.5 What it costs
 
-**176 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
-`.lowbss`** — measured with `tools/kernsize.py`, `kern_big` 49,315 → 49,491 and
-`kern_small` 37,261 → 37,437.
+**87 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
+`.lowbss`** — measured with `tools/kernsize.py` as the difference the feature
+makes to the tree it stands in. It shipped at 176 and was cut to this in the
+size pass that followed (docs/plans/completed/HANDOFF-KERNEL-SIZE.md's method),
+which found the same 89 bytes on `kern_big` and on `kern_small`:
 
 | piece | bytes |
 |---|---:|
 | the picture — two 12-byte tables, `cur_shtab`, `cur_shhot` | 28 |
-| `cur_busy_on` — the three arms and their four refusals | 71 |
-| `cur_busy` — the package's door, and the lock test in it | 20 |
-| `cur_busy_take` / `cur_busy_undo` / `[cur_shprev]` | 33 |
+| `cur_busy_on` — the three arms, four refusals and the shared tail | 68 |
+| `cur_busy` — the package's door, one compare | 10 |
+| the shared epilogue, and `[cur_shprev]` | 3 |
 | the API table's 167th slot | 8 |
-| `fpg_arm`'s two calls | 6 |
-| `gfx_unlock`'s compare, branch and call | 10 |
+| `fpg_arm`'s one call | 3 |
+| `gfx_unlock`'s compare, branch and the six-instruction restore | 14 |
+| **against**: §7.4.3.1's own block in `fpg_arm`, folded into the DOWN arm | −43 |
 
-Dropping the package half — the slot, its door and the `gfx_unlock` compare it
-needs — leaves the file-operation half at **67 bytes** with the restore moved
-under `fpg_finish`'s own gate, where it costs nothing at all. That is the
-measured alternative, not an estimate.
+Where the 89 came from, because each is a rule worth keeping: **the fold**
+(§7.4.3.1 was `cur_busy_on`'s DOWN arm written out a second time in the
+caller, 43 bytes); `cur_busy_take` and `cur_busy_undo` **inlined** at their
+only sites, 32 bytes of two routines against 11 of one shared tail; the door's
+**two tests made one** (10 bytes for 19); the `[cur_shchk]` post **deleted**
+as redundant (§7.5.2); and the slot's **carry answer** given up, which nobody
+read.
 
-**No rung is crossed on either kernel**, and that is luck rather than design:
-the tree it landed on had **477 bytes** of image-rung headroom (`accrued image
-35/512`), so `KERN_SIZE` stays at 110,592 on `kern_big` and 75,776 on
-`kern_small`. It is worth writing down that the *same 176 bytes* did cross one
-on the branch this was first built against, which had 62 bytes left — §1's
-banner exactly: the rung is a property of who was standing there, the byte is
-the property of the change, and **176 is the figure to quote either way**.
+**No rung is crossed on either kernel** by the feature as it stands, and
+§1's banner says why that is not the figure to quote: the rung is a property
+of who was standing there, the byte is the property of the change, and **87
+is the figure either way**.
 
 One hazard is closed by construction rather than by the gate, and it is worth
 naming because it is invisible: on the **lit** arm `cur_shape_set`'s own
@@ -22447,7 +22476,7 @@ here samples, and no timer is armed unless a thumb is actually being dragged.
 
 **The element owns the arithmetic and the caller owns the timer**, which is
 §13.10.1 again and not a compromise: a timer belongs to a WINDOW and a gesture
-belongs to the element, so the caller arms `OSAPI_WM_TIMER` in its own
+belongs to the element, so a package arms `OSAPI_WM_TIMER` in its own
 `W_ONDRAG`, cancels it in its `W_ONMOUSEUP`, and asks the element one question
 from its `W_ONTIMER`:
 
@@ -22460,6 +22489,32 @@ from its `W_ONTIMER`:
 
 It is `os88ui_sbdrop` with the spend taken out — the one thing a caller cannot
 write for itself, because `os88ui_sbd_pos` is the element's private state.
+
+###### In the kernel the release proc IS the timer proc
+
+The kernel's two bars have no `W_ONTIMER` proc of their own: `fm_kinit` and
+`fdlg_open` store the same near pointer they gave `wm_onmouseup` into
+`W_ONTIMER` (a plain store, which is all `wm_ontimer` is), and the release
+handler runs on both edges. What tells them apart is a word the UI task
+already keeps: **it clears `[ui_armw]` before it dispatches a release**
+(ui.inc's `.mup`), while a timer firing mid-drag runs with the press still
+armed on the window. So the kernel's `os88ui_sbdrop` spends the record only
+when nothing is armed — a pause answers the pos and keeps the gesture, a
+release answers it and ends it. The ISR's `[mouse_btn]` would NOT do: a
+release queued behind a long commit reads a second press as the first one
+still held, and a gesture would outlive its release. `os88ui_sbowed` and the
+two `*_ontimer` handlers are therefore package-only; the kernel copy of the
+element does not assemble the former. A timer that outlived its gesture — the
+lost-release door of §13.10.5.7 — now arrives with nothing armed and is spent
+as the release it stands in for, where it used to draw nothing. The cancel in
+each release proc stays and is a store of `wm_timer`'s own sentinel: with the
+release proc as the handler, a release-then-press inside `SB_IDLE` would
+otherwise fire a header button early.
+
+This took the kernel's cost from `.text` +20 / `.cold` +136 to **`.text` +4 /
+`.cold` +43** — one `cw_wm_timer` wrapper for the arm, the two arms, two
+one-word installs and two one-word cancels — measured on the size pass that
+followed. The cost table below is what it shipped at.
 
 ###### The idle count is a property of the HAND, so it takes no tier pair
 

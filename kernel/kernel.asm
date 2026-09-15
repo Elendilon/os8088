@@ -4004,12 +4004,14 @@ apic_wm_destroy:
                                   ;          puts the old one back - so there
                                   ;          is no "off" to forget and no way
                                   ;          to leave one on the screen.
-                                  ;          out CF=1 refused: no hold of the
-                                  ;          caller's own, a clip region armed,
-                                  ;          an fsx bracket, or a pointer
-                                  ;          something else is holding down.
-                                  ;          A refusal costs the caller nothing
-                                  ;          but the picture
+                                  ;          out NOTHING, flags included: it
+                                  ;          refuses on its own - no hold of
+                                  ;          the caller's own, a clip region
+                                  ;          armed, an fsx bracket, a pointer
+                                  ;          something else is holding down -
+                                  ;          and a refusal costs the caller
+                                  ;          nothing but the picture, so there
+                                  ;          is nothing for it to act on
     OSAPI_SLOT inst_minimize      ; 0x0548 - SEND MY OWN WINDOW TO THE DOCK
                                   ;          (SPEC.md 29.6). BX = a window of
                                   ;          yours, the gfx lock held - the
@@ -6731,16 +6733,14 @@ cw_wm_onmouseup:        call wm_onmouseup
 cw_wm_ondrag:           call wm_ondrag
                     retf
 %ifdef OS88UI_SBDRAG
-cw_wm_ontimer:          call wm_ontimer     ; SPEC.md 13.10.5.4.2's PAUSE
-                    retf                    ; commit: the kernel's two bars arm
-cw_wm_timer:            call wm_timer       ; the same one-shot a package does,
-                    retf                    ; through the same two routines.
-                                            ; wm_ontimer is a pure store and a
-                                            ; cold store would do - wm_timer is
-                                            ; NOT (it sets [wm_tarm] and
-                                            ; [ui_post]), so the pair goes
-                                            ; through wrappers together rather
-                                            ; than one of each shape
+cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
+                    retf                    ; commit: the kernel's two bars ARM
+                                            ; the same one-shot a package does.
+                                            ; Only the arm needs a wrapper -
+                                            ; it sets [wm_tarm] and [ui_post] -
+                                            ; where the install (wm_ontimer)
+                                            ; and the cancel are each one
+                                            ; store, made in place
 %endif                                      ; OS88UI_SBDRAG
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
@@ -6896,11 +6896,8 @@ fm_onclick:           call COLD_SEG:fmf_fm_onclick
 fm_onup:              call COLD_SEG:fm_onup_x
                     ret
 fm_ondrag:            call COLD_SEG:fmf_fm_ondrag
-                    ret
-%ifdef OS88UI_SBDRAG                    ; 13.10.5.4.2's PAUSE commit, behind
-fm_ontimer:           call COLD_SEG:fmf_fm_ontimer ; SBDRAG and not KERN_BIG:
-                    ret                 ; SBDRAGOFF leaves that one set
-%endif
+                    ret                 ; ...and 13.10.5.4.2's PAUSE commit is
+                                        ; fm_onup itself, installed twice
 %endif
 fm_oncmd:             call COLD_SEG:fm_oncmd_x
                     ret
@@ -6913,11 +6910,10 @@ fdlg_onup:            call COLD_SEG:fdf_fdlg_onup   ; SPEC.md 13.8.3's release
                   ret                               ; and tracking edges - the
 fdlg_ondrag:          call COLD_SEG:fdf_fdlg_ondrag ; window record holds these
                   ret                               ; as NEAR pointers, so the
-%ifdef OS88UI_SBDRAG                                ; the third is 13.10.5.4.2's
-fdlg_ontimer:         call COLD_SEG:fdf_fdlg_ontimer ; PAUSE commit, and it is
-                  ret                               ; behind SBDRAG and not
-%endif                                              ; KERN_BIG: SBDRAGOFF
-%endif                                              ; leaves that one set
+                                                    ; thunk has to be resident.
+                                                    ; 13.10.5.4.2's PAUSE commit
+                                                    ; is fdlg_onup, twice over
+%endif
 fdlg_onclick:         call COLD_SEG:fdlg_onclick_x
                     ret
 fdlg_onkey:           call COLD_SEG:fdlg_onkey_x
