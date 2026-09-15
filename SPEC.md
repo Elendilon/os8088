@@ -109936,18 +109936,21 @@ the near model where the far one was wrong and nowhere else — at Moderate
 every threshold in the tree but the Nile's is already past its radius, so
 the scenes the frame budget was measured on (§88.12) draw what they drew.
 
-The first half of the report is §88.7.7.3's decision and stands: the strip
-runs 075 across the bay with Sugarloaf 40 degrees off the nose, outside
-both the Hercules field of 49 degrees and Mode X's 60, so a departure sees
-water to the far shore on either adapter.
+The first half of the report was §88.7.7.3's decision: the strip ran 075
+across the bay with Sugarloaf 40 degrees off the nose, outside both the
+Hercules field of 49 degrees and Mode X's 60, so a departure saw water to
+the far shore on either adapter. §88.7.7.5 lays it down the bay at the rock,
+and that moved Rio's spawn inside the bay's threshold at every rung, so the
+gate below flies the other three.
 
-`tests/skieswater.py` is the gate: the A5 on the strip at Near, at all four
-locations, and the piece under it must enter `cs_flatverts` as its NEAR
+`tests/skieswater.py` is the gate: the A5 on the strip at Near, at the
+locations still past the scaled threshold — Le Bourget, London City and
+JFK — and the piece under it must enter `cs_flatverts` as its NEAR
 model — asked of the guest, not of the pixels — with the rows under the
 horizon carrying the water's stripes on Hercules as a second reading.
 `--clobber-guard` NOPs the compare and the load, which is the switch exactly
 as it shipped, and every location goes red: the piece enters `cs_flatverts`
-as its centreline and never as its ribbon, and at three of the four the
+as its centreline and never as its ribbon, and at two of the three the
 rows under the horizon read 0 lit edge to edge where the guard reads 25 to
 27 of 53. JFK's rows stay striped in both arms, because the Hudson is a
 second piece under that eye and inside its own threshold.
@@ -111675,11 +111678,14 @@ the Arc de Triomphe at 173, La Défense at 172.
 | London City, the Thames | 095 | **275** | 172.6 → **5.8** |
 | San Francisco, the Bay | 090 | **270** | 97.0 → **20.9** |
 
-**Santos Dumont is deliberately left alone**, and it is what stopped this
-being "point every strip at the city". Rio's landmarks stand on *both* sides
-of the water: as it is, Sugarloaf and Morro da Urca are 40 degrees off the
-nose and Corcovado is behind; reversed, Christ the Redeemer is 27 off and the
-other two are behind. That is a scene, not a defect, and no heading wins it.
+**Santos Dumont was deliberately left alone** at the time, and it is what
+stopped this being "point every strip at the city". Rio's landmarks stand on
+*both* sides of the water: on 075, Sugarloaf and Morro da Urca were 40
+degrees off the nose and Corcovado behind; reversed, Christ the Redeemer 27
+off and the other two behind. That read as a scene rather than a defect, and
+the owner disagreed from the glass — 40 degrees is outside BOTH fields, so
+the departure looked at nothing — which is §88.7.7.5: the strip is laid down
+the bay at Sugarloaf now.
 The other five — Cairo, Miami, Lukla, JFK and Paris-Issy — were already
 right; Issy's mean turn is 26.7 degrees and it takes off along the Seine
 straight at the tower.
@@ -111691,9 +111697,10 @@ interest by more than 45 degrees.** One entry per NAME, because the Golden
 Gate is four objects and Christ the Redeemer three and a per-object mean
 would weight a location by how finely its landmarks happen to be modelled.
 The margin is defended by the numbers either side of it — with the strips
-laid right the largest gain available anywhere is Rio's 29.9, and laying any
-of the four wrong gains 76.2 or more — and `--clobber-hdg <loc>` is the arm
-that shows it: red on LBG, LCY, SFO and Issy, green on SDU. The row also
+laid right the largest gain available anywhere was Rio's 29.9 (and since
+§88.7.7.5 no reversal gains at all: Rio's loses 18.6), and laying any of the
+four wrong gains 76.2 or more — and `--clobber-hdg <loc>` is the arm that
+shows it: red on LBG, LCY, SFO and Issy, green on SDU. The row also
 holds the spawn point to §88.7.7.1's own point-in-polygon, because `cs_reset`
 sets `[cs_onwater]` = 1 without asking and an A5 whose strip has been moved
 off the river would float on grass in silence.
@@ -111728,6 +111735,40 @@ there is no package equivalent; a package's unreachable code costs its own
 segment and nobody else's, which is exactly why it goes unnoticed until that
 segment is the binding constraint. It was found by reading the callers of
 `CSA_WHDG` while §88.7.7.3 was being written.
+
+#### 88.7.7.5 Santos Dumont's strip is laid down the bay at Sugarloaf
+
+§88.7.7.3 left Rio's strip on 075 on the argument that no heading wins it,
+and the owner overruled that from the glass: *"making them take off looking
+at nothing at all is bad ... point it at whatever POI is most convenient, or
+even completely move where the water runway is."* On 075 Sugarloaf was 40
+degrees off the nose, outside the Hercules field of 49 degrees and Mode X's
+60 alike, so an A5 departure at the default Draw Distance — Moderate, on
+every adapter — saw Guanabara Bay to the far shore and nothing standing on
+it.
+
+The strip now runs **122** from (−2,500, 1,550), 1,800 m long and 200 wide:
+the bay's own axis of 110 turned twelve degrees toward the rock. The A5
+spawns at the north-west end, (−3,212, 1,995), with **Sugarloaf dead ahead
+at 3,781 m and Morro da Urca two degrees right of it at 3,208** — the pair
+the world exists to show, on the axis Runway 11 already has them on, so the
+water departure is the runway's with 1.5 km more room to turn. At Moderate
+the rock is its far model at the spawn and its three-level near model from
+3,500 m, which is where the climb meets it; photographed on MartyPC on both
+adapters, the rock on the horizon over striped water at the spawn and
+standing up into the sky at 38 m of climb. The whole strip is in the bay —
+the south-east end 171 m off the quay shore, the north-west end 570 — and
+the Rio-Niteroi bridge's first span now crosses the strip's line 350 m
+BEHIND the spawn rather than 600 m into the take-off run, which is where
+the 075 strip had it.
+
+`tests/unit/t_csamph.py` still decides it and its worked number moved:
+reversing this strip makes the mean turn to the four names WORSE, 78.5 to
+97.1, where the old one gained 29.9 — so with every strip laid right no
+reversal gains at all, and the margin's lower defence is now zero rather
+than 29.9. It also took Rio off §88.6.1.1's list: the spawn is 702 m from
+the bay's origin, inside the far-model threshold at every rung, so
+`tests/skieswater.py` flies the three locations that remain.
 
 #### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
 
@@ -114941,13 +114982,14 @@ drop-downs get a release the title page never armed.
   `--clobber-amphib` clears `CSP_FLAGS` and takes the water start and the
   splash red while everything else about the A5 still passes.
 - `tests/skieswater.py` (soak, MartyPC, Hercules): §88.6.1.1. The A5 on the
-  water strip at Draw Distance = Near at Rio, Le Bourget, London City and
-  JFK — the four spawns whose water piece is wider than its scaled `CSO_LOD`
-  — and the piece under the aeroplane must enter `cs_flatverts` as its NEAR
-  model, read off the guest at the breakpoint; on Hercules the rows under the
-  horizon must then be the river's stripes and not the ground's 12.5%.
-  `--clobber-guard` NOPs the radius clamp and all four go red, the A5
-  floating on ground with a line across it.
+  water strip at Draw Distance = Near at Le Bourget, London City and JFK —
+  the spawns whose water piece is wider than its scaled `CSO_LOD` (Rio's
+  was the fourth until §88.7.7.5 moved it inside) — and the piece under the
+  aeroplane must enter `cs_flatverts` as its NEAR model, read off the guest
+  at the breakpoint; on Hercules the rows under the horizon must then be the
+  river's stripes and not the ground's 12.5%. `--clobber-guard` NOPs the
+  radius clamp and all three go red, the A5 floating on ground with a line
+  across it.
 - `tests/skiesgeom.py` also carries §88.5.4.1's check: `cs_rect` has exactly
   one caller, so any stop there is an impostor, and its rectangle must be
   within `CS_LODPX` — read out of `skies.asm` rather than mirrored.

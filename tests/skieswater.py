@@ -12,8 +12,11 @@ model past CSO_LOD scaled by the rung, and at Near the 0.6 puts Rio's bay -
 CSM_RAD 1,926 against a threshold of 1,564 - on its centreline while the A5
 spawns 1,685 m from its origin, INSIDE it. The water is then a line at the
 horizon and what is under the aeroplane is the horizon band's own ground:
-12.5% dither on Hercules, green on Mode X. Four of the nine water strips do
-it, and this row flies all four.
+12.5% dither on Hercules, green on Mode X. Four of the nine water strips did
+it; Rio's has since been re-laid down the bay at Sugarloaf (SPEC.md 88.7.7.5)
+and spawns 702 m from the bay's origin, inside every rung's threshold, so
+this row flies the three that still sit past it - Le Bourget, London City
+and JFK.
 
 For each of them, at Draw Distance = Near:
 
@@ -29,7 +32,7 @@ For each of them, at Draw Distance = Near:
 
 --clobber-guard NOPs the compare and the load that clamp the threshold to
 CSM_RAD, which is the switch exactly as it shipped, and every location goes
-red on 2. Check 3 goes red with it at three of the four: at JFK the Hudson
+red on 2. Check 3 goes red with it at two of the three: at JFK the Hudson
 is a second piece under the eye, 1,089 m down the nose against a threshold
 of 1,804, so its stripes are under the horizon in both arms and only the
 East River's centreline says which arm this is.
@@ -47,7 +50,10 @@ import os88ui                                               # noqa: E402
 import dispapps                                             # noqa: E402
 
 PORTS = ["SPX", "LCY", "MIA", "VNLK", "JFK", "ISSY", "LBG", "SDU", "SFO"]
-LOCS = ["SDU", "LBG", "LCY", "JFK"]     # the four the scan in 88.6.1.1 names
+LOCS = ["LBG", "LCY", "JFK"]            # the three of 88.6.1.1's four whose
+                                        # spawn is still past the scaled
+                                        # threshold: Rio's strip moved
+                                        # (88.7.7.5) and is inside it now
 NEAR_SCALE = 154                        # cs_lodscl[CSL_NEAR], 8.8
 FAILS = []
 
