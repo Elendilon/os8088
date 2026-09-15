@@ -273,6 +273,14 @@ snd_tier:
 ; a program to reset a DSP that will never answer - which is a hang where "no
 ; XMS" would have been a fallback (the shape SPEC.md 96.15.1 argues at one
 ; level down).
+;
+; **AND THAT SENTENCE WAS A CLAIM AND NOT A FACT UNTIL SPEC.md 51.11.2.1**:
+; `[sbl_base]` is the scan's CURSOR as well as its answer, and a scan that
+; found nothing used to leave `0x220` in it from its own slow retry - so this
+; routine read a base, answered CF=0, and an AdLib machine published
+; `BLASTER=A220 D1 T1`. It is `[sbl_base]` and not `[sbl_up]` on purpose: a
+; card that is really there but whose DMA claim failed is still a card a DOS
+; program can have, and `.nomem` must not hide it.
 ; -----------------------------------------------------------------------------
 snd_hwinfo:
     mov ax, [sbl_base]
