@@ -65,7 +65,17 @@ APPS = {"word":    ("WORD.O88", "Word"),
         "tank":    ("TANK.O88", "Tank"),
         "ftpd":    ("FTPD.O88", "FTP"),
         "browser": ("BROWSER.O88", "Browser"),
-        "audio":   ("AUDIO.O88", "Audio")}
+        "audio":   ("AUDIO.O88", "Audio"),
+        # ...and the two SHAPES the five above do not carry (SPEC.md
+        # 66.6.1.1). All five hire a worker, so this row proved the RESTART
+        # half five times over and the plain declaration not once - and the
+        # plain one is what 39 of the tree's 41 are. Calc has no worker at
+        # all, so it is movable on I_TASK == 0xFF and asserts MC_RLOC alone;
+        # Pac-Man is the canonical pair, and its worker is hired from the
+        # PAINT rather than the entry, so the ten seconds below is also what
+        # gives it a frame to hire in.
+        "calc":    ("CALC.O88", "Calculator"),
+        "pacman":  ("PACMAN.O88", "Pac-Man")}
 
 
 def main():

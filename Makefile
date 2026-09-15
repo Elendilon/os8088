@@ -5761,18 +5761,32 @@ CSWORLDS_Z := $(BUILD)/csw0.z $(BUILD)/csw1.z $(BUILD)/csw2.z \
               $(BUILD)/csw3.z $(BUILD)/csw4.z $(BUILD)/csw5.z \
               $(BUILD)/csw6.z $(BUILD)/csw7.z $(BUILD)/csw8.z
 
-# A DIAG TREE MOVES THE OVERLAY UP, and only a diag tree. `CSDIAGDEF` is empty
-# for every shipped build and set for skiesdiag/skiesprobe/skieshz, whose extra
-# image and counters spend the growth headroom under the shipped 0xBE00 - the
-# -DCSPROBE arm outgrew it by 331 bytes and stopped ASSEMBLING, which nothing in
-# `all` builds and so nothing in `all` could catch. It costs those trees a
-# bigger heap claim and costs the floppies nothing.
-CSVOCABAT := $(if $(CSDIAGDEF),--vocab-at 0xC200,)
-
-$(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py $(CSWORLDS) \
+# TWO PASSES, AND THE CIRCULARITY IS WHY (SPEC.md 88.10.6.1). `CS_VOCAB_AT` is
+# derived from the PROGRAM - the image plus the ZWORD chain, rounded to a
+# paragraph - so the claim is what Clear Skies actually needs; but that size is
+# only known once skies.asm has assembled, and skies.asm cannot lay out its bss
+# until the address is known. So: csworlds at the CEILING (provisional, and it
+# always assembles because nothing can be above it), a -DCS_SIZEPROBE assembly
+# whose object IS the image followed by one word of CS_BSS, then csworlds again
+# with the address read off it.
+#
+# A DIAG TREE STILL DOES NOT MOVE THE OVERLAY UP BY HAND - it derives its own,
+# which is strictly better than the one address every tree shared: $(CSDIAGDEF)
+# is passed to the PROBE as well, so -DCSPROBE sizes the overlay against the
+# -DCSPROBE image. That is what stopped it assembling at all when the address
+# was a shipped constant.
+#
+# IT DEPENDS ON $(SKIES_SRC) NOW, which is the whole point: touch any source
+# the program is built from and the address is measured again. There is no
+# cycle - cswidx.inc is generated FROM those sources and is not one of them.
+$(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py tools/os88pkg.py \
+                     $(CSWORLDS) $(SKIES_SRC) \
                      apps/skies/cswone.asm apps/skies/cswdefs.inc \
                      apps/skies/cswmac.inc apps/skies/csvocab.inc | $(BUILD)
-	python3 tools/csworlds.py --out $(BUILD) $(CSVOCABAT)
+	@python3 tools/csworlds.py --out $(BUILD) >/dev/null
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) \
+		-DCS_SIZEPROBE -o $(BUILD)/csprobe.bin apps/skies/skies.asm
+	python3 tools/csworlds.py --out $(BUILD) --vocab-from $(BUILD)/csprobe.bin
 
 $(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
 
@@ -6001,6 +6015,30 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
+# --- the 397KB module, and the disk the OWNER'S SCENARIO is driven on --------
+# SPEC.md 45.3.2 / 66.4.3. The heap question only shows up at a SIZE, and every
+# module big enough to show it is somebody's copyrighted file - so this one is
+# GENERATED, at an exact length, by tools/os88mkmod.py (which is a real M.K.
+# module and not a blob: a file mp_load refused would exercise the claim and
+# then fail the load, which is a green row about a machine that never played
+# anything). --selfcheck in the recipe, weavesim's shape.
+#
+# 397KB because that is the size the scenario was reported at, and 1.44MB
+# because a 397KB file does not go on a 360KB floppy. SHEET, PAINT and SKIES
+# ride with it: they are the three programs whose regions hold the ceiling
+# while SOUND.DRV is mounted underneath them, which is the whole construction.
+$(BUILD)/bigmod.mod: tools/os88mkmod.py | $(BUILD)
+	python3 tools/os88mkmod.py --selfcheck
+	python3 tools/os88mkmod.py -o $@ --kb 397
+
+$(BUILD)/trkbig.img: $(BUILD)/tracker.o88 $(BUILD)/sheet.o88 \
+                     $(BUILD)/paint.o88 $(BUILD)/skies.o88 \
+                     $(BUILD)/bigmod.mod tools/os88disk.py
+	cp $(BUILD)/bigmod.mod $(BUILD)/BIGMOD.MOD
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/tracker.o88 \
+		$(BUILD)/sheet.o88 $(BUILD)/paint.o88 $(BUILD)/skies.o88 \
+		$(BUILD)/BIGMOD.MOD
+
 # --- the FILLER, and the region mover's disk (SPEC.md 66.6.1) ---------------
 # tests/radtest is the RADIO GROUP's gate (SPEC.md 13.17). It is the only thing
 # in the tree that defines OS88UI_RAD, which is deliberate twice over: it is
@@ -6142,8 +6180,16 @@ $(BUILD)/sndmove360.img: $(BUILD)/filler.o88 $(BUILD)/sbtest.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/sbtest.o88
 
+# ...and CALC and PACMAN since SPEC.md 66.6.1.1, which are the two SHAPES the
+# five above do not carry. Every one of them hires a worker, so the row proved
+# the restart half and never once proved the plain one - and the plain one is
+# what 39 of the tree's 41 declarations are. CALC is the bare form with no
+# worker at all (movable on I_TASK == 0xFF alone); PACMAN is the canonical
+# worker pair, restartable at the top of a loop it re-seeds. Both are ~5KB, so
+# the disk pays almost nothing for them.
 REGAPPS := $(BUILD)/word.o88 $(BUILD)/tank.o88 $(BUILD)/ftpd.o88 \
-           $(BUILD)/browser.o88 $(BUILD)/audio.o88
+           $(BUILD)/browser.o88 $(BUILD)/audio.o88 \
+           $(BUILD)/calc.o88 $(BUILD)/pacman.o88
 $(BUILD)/regapp360.img: $(BUILD)/filler.o88 $(BUILD)/paint.o88 $(REGAPPS) \
                         tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \

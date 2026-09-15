@@ -600,7 +600,7 @@ dos_entry:
                                     ;
                                     ; **IT WAS REFUSED IN THE PACKAGE THAT
                                     ; SHIPS, AND THAT IS OVER** (SPEC.md
-                                    ; 66.6.1.1). We are PART 0 of a parted
+                                    ; 66.6.1.2). We are PART 0 of a parted
                                     ; DOS.O88 (SPEC.md 96.40.3), reached by
                                     ; `OSAPI_PKG_REHOME` - and a re-homed
                                     ; package's region is the loader's CARVE,
@@ -618,7 +618,7 @@ dos_entry:
                                     ; the image and the ring to the byte.
                                     ;
                                     ; The kernel answers all four readings of
-                                    ; that offset now (SPEC.md 66.6.1.1): the
+                                    ; that offset now (SPEC.md 66.6.1.2): the
                                     ; claim CONTAINS the caller, the walk
                                     ; rewrites the carve AND the segment, the
                                     ; relocation frame carries the PROGRAM's
@@ -6298,7 +6298,7 @@ dos_mem_fix:
 ; (SPEC.md 66.4.3). It made no difference for a release because this region
 ; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
 ; refused its declaration, so the excuse bought nothing and the two slots
-; agreed by accident. SPEC.md 66.6.1.1 unpinned it and the accident ended -
+; agreed by accident. SPEC.md 66.6.1.2 unpinned it and the accident ended -
 ; measured on a 360KB desktop, the page said 442K/474K and the launch handed
 ; out 445K/477K, under-promising by the 3KB the region's own move recovers.
 ;

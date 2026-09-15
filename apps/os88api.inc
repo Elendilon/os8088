@@ -1174,11 +1174,10 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; has since left; the wake's OSAPI_MEM_AVAIL is the one to claim against, and
 ; posting a second time because the first did not give you what you hoped for
 ; is how a program spins.
-; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL. MEM_LVL_TOP is an ordinary
-; claim's - every cache counts as free, because mem_claim sheds them all - and
-; it is what you want unless you are a cache yourself (SPEC.md 50.6.4). It
-; mirrors kernel/memory.inc's own constant; tests/unit/t_mirror.py says so.
-MEM_LVL_TOP equ 0xFF
+; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL is MEM_LVL_TOP, declared
+; with the purge tiers further down: an ordinary claim's rank, where every
+; cache counts as free because mem_claim sheds them all, and it is what you
+; want unless you are a cache yourself (SPEC.md 50.6.4).
 
 %define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, exactly
                                  ; as OSAPI_MEM_AVAIL_LVL's; out AX/BX as
@@ -2893,11 +2892,21 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; (SPEC.md 66.6.1), and, if you hired a worker, restartable (66.6.2).
 ;
 ;     OS88_REGION_MOVABLE                 ; once, when your window exists
+;     OS88_REGION_MOVABLE my_reloc        ; ...or with a fix-up of your own
 ;     OS88_WORKER_RESTARTABLE my_worker   ; right after OSAPI_TASK_SPAWN took
 ;
-; Both are self-contained: OS88_REGION_MOVABLE carries its own relocation proc
-; and jumps over it, so there is no second thing to place and no way to declare
-; without one.
+; Both are self-contained: with no argument OS88_REGION_MOVABLE carries its own
+; relocation proc and jumps over it, so there is no second thing to place and
+; no way to declare without one.
+;
+; THE ARGUMENT IS FOR THE PACKAGE THAT HAS A WORD OF ITS OWN TO FIX, and it
+; exists so that such a package declares in the SAME VOCABULARY as every other
+; one rather than hand-rolling the call. Name a near proc of yours; it is
+; entered with BX = the base the region WAS at and DX = where it is now, and it
+; must preserve every register and `ret`. Two things make a package need one -
+; it stamped its own segment somewhere the kernel does not know about, or it
+; handed a far pointer into itself to something that outlives the callback -
+; and both are rare enough that the bare form is the one to reach for.
 ;
 ; WHY THE PROC IS A `ret`. Your own code needs no relocation - every near
 ; offset in it survives a move untouched - and every word that NAMES your
@@ -2916,25 +2925,42 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; must NOT pair the two blanket-fashion: declare this as a window instead -
 ; turn it on immediately before OSAPI_TASK_ALIVE and off immediately after.
 ; -----------------------------------------------------------------------------
-%macro OS88_REGION_MOVABLE 0
+%macro OS88_REGION_MOVABLE 0-1
+    pushf                       ; AND THE FLAGS: an entry proc carries the CF
+                                ; it owes the loader, and OSAPI_MEM_MOVABLE
+                                ; writes one. Nothing acts on that answer - a
+                                ; refusal can only mean the region is not ours,
+                                ; which cannot happen from inside it - so the
+                                ; two bytes buy the right to put this line
+                                ; anywhere the window already exists, which is
+                                ; what makes it a one-line adoption
     push ax
     push dx                     ; DX is the instance index in an entry proc
     mov dx, cs                  ; ...and OUR REGION is the claim
-    mov ax, %%reloc
+  %if %0 == 0
+    mov ax, %%reloc             ; no proc named: ours, just below
+  %else
+    mov ax, %1                  ; the caller's own fix-up (see the header)
+  %endif
     call OSAPI_MEM_MOVABLE
     pop dx
     pop ax
+    popf
+  %if %0 == 0
     jmp short %%over
 %%reloc:                        ; BX = the base it WAS at, DX = where it is now
     ret
 %%over:
+  %endif
 %endmacro
 
 %macro OS88_WORKER_RESTARTABLE 1
-    push ax
-    mov ax, %1
-    call OSAPI_TASK_RESTARTABLE
-    pop ax
+    pushf                       ; flags for OS88_REGION_MOVABLE's reason:
+    push ax                     ; inst_restart_set answers in CF (it `clc`s on
+    mov ax, %1                  ; the way out precisely because inst_fhome_idx
+    call OSAPI_TASK_RESTARTABLE ; clobbers them), and the site this goes at is
+    pop ax                      ; a spawn whose OWN CF the caller is usually
+    popf                        ; still carrying
 %endmacro
 
 ; -----------------------------------------------------------------------------

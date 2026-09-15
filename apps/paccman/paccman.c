@@ -536,8 +536,23 @@ void os88_paint(void *win)
      * os88.h). A refusal is normal and transient - the twelve-slot task table
      * can be full - so the flag is only set once the spawn took, and the next
      * paint asks again. */
-    if (!pmc_hired && os88_task_spawn(win) == 0)
+    if (!pmc_hired && os88_task_spawn(win) == 0) {
         pmc_hired = 1;
+        /* ...AND OUR REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2).
+         * crt0.asm declared the region movable before os88_main returned,
+         * and the spawn above just pinned it again: the kernel wrote our
+         * segment into this worker's frame before its first instruction, so
+         * mem_frameless refuses a region whose worker is undeclared however
+         * that region is declared. A declaration without this one is inert.
+         *
+         * WHAT THE RESTART COSTS is one pass of the loop. The park is inside
+         * os88_task_alive() and nowhere else - this package is not
+         * os88_mem_parksafe() - which is the TOP of os88_worker's loop, and
+         * the only automatic that crosses it there is `due`, which the
+         * restarted entry re-seeds from os88_ticks() anyway. Every byte of
+         * the game is a static and moves with us. */
+        os88_task_restartable(1);
+    }
 
     if (pmc_repaint(win) && pmc_about_up)
         os88_about_card_d(win, pmc_about_lines);

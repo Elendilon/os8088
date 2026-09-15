@@ -143,7 +143,7 @@ rp_check:
     ; a package that frees the region it is running in is not a test.
     ;
     ; **WITH A NON-ZERO SLACK THIS IS STILL A REFUSAL, AND THAT IS THE POINT
-    ; OF THE GATE** (SPEC.md 66.6.1.1). The declaration below now takes in
+    ; OF THE GATE** (SPEC.md 66.6.1.2). The declaration below now takes in
     ; BOTH shapes - mem_find_own grew a containment arm - but that arm fires
     ; only when the caller names its OWN SEGMENT. What this check passes is
     ; the carve's BASE, which is not our segment and never was, so the fence
@@ -164,7 +164,7 @@ rp_check:
     inc byte [rp_ok]
 .n4:
     ; --- ...and DECLARE, which BOTH shapes accept now -----------------------
-    ; SPEC.md 20.12.10.5, 66.6.1.1. It used to take only where the head slack
+    ; SPEC.md 20.12.10.5, 66.6.1.2. It used to take only where the head slack
     ; was zero and the claim was our region in mem_is_region's old sense
     ; (`MC_SEG == I_SPTR`); with a non-zero slack the program sits INSIDE the
     ; carve and the declaration was refused - correctly, because four places in

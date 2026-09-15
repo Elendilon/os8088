@@ -109,7 +109,7 @@ def main():
         os88marty.settle(m)
         dm = dosmap.package()
 
-        # **RESOLVED PER READ AND NOT BANKED** (SPEC.md 66.6.1.1). The DOS
+        # **RESOLVED PER READ AND NOT BANKED** (SPEC.md 66.6.1.2). The DOS
         # box's region is a re-homed carve and MOVES under the compactor now,
         # which on this row is guaranteed rather than possible: the whole
         # subject here is the arena claim SHEDDING the directory cache, and a

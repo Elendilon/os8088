@@ -1322,6 +1322,64 @@ overlays = [
 # primary is the VGA, which is also the card os8088's probe answers with
 # (vid_detect's AH=1Ah DCC rung is reached before the equipment word) - so
 # nothing here needs --primary and the boot gate watches card 0 by default.
+# HERCULES, A SOUND BLASTER AND 1.44MB DRIVES, WHICH IS TRACKER'S MEMORY
+# SCENARIO AND NOTHING ELSE. os8088_5150_herc_sb_gla is the same machine with
+# 360KB drives and os8088_5150_herc_gla_144 the same drives with no card, and
+# neither can host the question: a ProTracker module big enough to need
+# SPEC.md 66.4.3's posted compaction does not fit on a 360KB floppy, and
+# SOUND.DRV's ATTACH REFUSES on a machine where neither an OPL nor a DSP
+# answers (drivers/sound/sound.asm, "the refusal is only when NEITHER
+# answers") - so a driver mounted mid-session, which is the mid-heap wall the
+# scenario is built out of, cannot be made to exist there at all.
+#
+# 640KB and Hercules because that is the fork owner's own machine
+# (docs/FIELD-MACHINES.md), less the 5.25" drives.
+#
+# AND NO ADLIB, WHICH IS THE WHOLE REASON THIS IS NOT A COPY OF
+# os8088_5150_herc_sb_gla. The boot overlay sniffs 388h for an OPL2 and sets
+# the sound row's DRVR_WANT when one answers (kernel/driver.inc,
+# drvp_sniff), so a machine with an AdLib in it mounts SOUND.DRV BEFORE THE
+# FIRST PAINT - and "boot with the sound driver not mounted, then mount it
+# mid-session" is then not a state the machine can be put in. The DSP alone
+# is not sniffed (SND_SNIFF_SB is a knob, unset by default), so this machine
+# boots with the row un-wanted and the Control Panel is what mounts it -
+# which is os8088_5150_sbonly's reasoning (SPEC.md 51.3.1) applied to a
+# different question.
+[[machine]]
+name = "os8088_5150_herc_sb_gla_144"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
 [[machine]]
 name = "os8088_xt_vga_herc"
 type = "Ibm5160"

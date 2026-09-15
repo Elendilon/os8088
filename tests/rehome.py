@@ -18,14 +18,14 @@ WHAT THIS ROW ASSERTS, and each line of it goes red on a different half:
      the handoff arrived, the asset is where the loader said, it CAN claim
      memory (SPEC.md 50.3.4's whole gate - red without `mem_own`'s two arms)
      and it may NOT free its own carve - though it MAY now unpin it
-     (SPEC.md 20.12.10.5, 66.6.1.1);
+     (SPEC.md 20.12.10.5, 66.6.1.2);
   3. the program's segment is NOT the base of any claim, which is what makes
      assertion 2's third check mean something - on a geometry where the head
      slack is zero it would pass by accident;
   4. THE LOADER'S REGION IS GONE FROM `mem_tab`. This is the feature: a claim
      based at the loader's old segment must not exist;
   5. the carve's `MC_OWN` is the instance SLOT and its `MC_RLOC` is SET - owned
-     the way `ld_alloc` owns a region, and MOVABLE since SPEC.md 66.6.1.1;
+     the way `ld_alloc` owns a region, and MOVABLE since SPEC.md 66.6.1.2;
   6. closing it returns the heap to the free runs it had before the launch.
 
 WHY 360KB IS THE DEFAULT here where multiseg takes both: its clusters are 1KB,
@@ -242,7 +242,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 "hole under it (SPEC.md 20.12.10.8)")
         # --- 5. ...and its MC_RLOC, WHICHEVER SHAPE IT IS IN -----------------
         # The program declares itself movable either way (rhprog.asm's
-        # rp_reloc) and the kernel takes it either way since SPEC.md 66.6.1.1.
+        # rp_reloc) and the kernel takes it either way since SPEC.md 66.6.1.2.
         # **THIS USED TO ASSERT THE OPPOSITE FOR ONE OF THE TWO SHAPES** - a
         # non-zero head slack puts the program INSIDE its carve, which was
         # refused the declaration on a reading of the compactor that was
@@ -255,13 +255,13 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
                 "refused a declaration it should have taken. The program sits "
                 "%s, and the second of those is the one that has to be said "
                 "out loud: it was correctly refused there until SPEC.md "
-                "66.6.1.1, because four places in the compactor read *the "
+                "66.6.1.2, because four places in the compactor read *the "
                 "claim's base* where they meant *the segment the package runs "
                 "in* - mem_is_region's equality, mem_frameless asking "
                 "mem_in_nest about the wrong segment, mem_rr_walk matching "
                 "the base alone, and mem_reloc_call dispatching PKG_DISP into "
                 "the carve's head slack. A refusal here means one of those "
-                "went back (SPEC.md 66.6.1, 66.6.1.1)"
+                "went back (SPEC.md 66.6.1, 66.6.1.2)"
                 % ("AT the carve's base" if at_base
                    else "INSIDE the carve, a non-zero head slack up"))
 

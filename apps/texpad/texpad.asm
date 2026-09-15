@@ -132,6 +132,12 @@ tp_entry:
     call OSAPI_MENU_SET
     pop si
     mov [tp_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
+    ; exists, and not beside any worker's declaration: a package with
+    ; NO worker is the case that moves most easily, and putting it at
+    ; the spawn left exactly those runs declaring nothing - measured,
+    ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE
     push ax                     ; SPEC.md 13.7/13.8.1: the bar's seven fire on
     mov ax, tp_onup             ; the RELEASE and follow the pointer between
     call OSAPI_WM_ONMOUSEUP     ; the edges. Not template words, so they are

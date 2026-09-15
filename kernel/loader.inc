@@ -1213,7 +1213,7 @@ ld_start:
     ; was for anybody else: mem_find_own's `cmp dx, bx` arm (SPEC.md 66.6.1)
     ; has always let an ORDINARY package name its own region with `mov dx, cs`
     ; and free or regrow it, which is a package shooting itself and not a
-    ; thing the kernel undertakes to prevent. Until 66.6.1.1 a re-homed one
+    ; thing the kernel undertakes to prevent. Until 66.6.1.2 a re-homed one
     ; was accidentally exempt - the carve's base is not its `cs`, so the
     ; compare missed - and the containment arm ends the exemption along with
     ; the pin, which is the point: re-homed or not, a package sees ONE story.
@@ -1221,7 +1221,7 @@ ld_start:
     ; and OSAPI_MEM_REGROW, exactly as for every other package.
     ;
     ; **IT USED TO SAY "AND IT MUST STAY PINNED" AND THAT IS OVER** (SPEC.md
-    ; 66.6.1.1). The reason was real - mem_rr_tab rewrote inst_tab + I_SPTR by
+    ; 66.6.1.2). The reason was real - mem_rr_tab rewrote inst_tab + I_SPTR by
     ; matching the OLD BASE, and I_SPTR is the part's segment where this
     ; claim's base is the carve's, so a move left I_SPTR naming where the
     ; program used to be - and it was one of FOUR places that read the base

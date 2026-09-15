@@ -13,7 +13,7 @@ slack is the gap between a part's 512-byte file boundary and the CLUSTER
 boundary a read may start on. On a 512-byte-cluster volume it is ZERO, so the
 program sits AT the carve's base and the carve is its region in the obvious
 sense. At 360KB the slack is non-zero and the program sits INSIDE the carve -
-and that shape was REFUSED the declaration until SPEC.md 66.6.1.1, on FOUR
+and that shape was REFUSED the declaration until SPEC.md 66.6.1.2, on FOUR
 separate readings of *the claim's base* that meant *the segment the package
 runs in*: `mem_is_region`'s equality, `mem_frameless` asking `mem_in_nest`
 about the wrong segment, `mem_rr_walk` matching the base alone, and
@@ -121,7 +121,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
     say("program at %04X (slot %d), asset at %04X, carve %04X..%04X rloc=%d"
         % (seg0, slot, asset0, carve[0].seg, carve[0].end, carve[0].rloc))
     # **THE HEAD SLACK IS THE SUBJECT AND NOT A PRECONDITION** (SPEC.md
-    # 66.6.1.1). This used to `sys.exit` when the program sat INSIDE the carve
+    # 66.6.1.2). This used to `sys.exit` when the program sat INSIDE the carve
     # rather than at its base, on the ground that the declaration could not be
     # taken there - which was true, and was the defect: four separate places in
     # the compactor read *the claim's base* where they meant *the segment the
@@ -133,7 +133,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
     if carve[0].rloc == 0:
         sys.exit("rehomemove: the carve is PINNED (MC_RLOC 0), so nothing "
                  "below can move it. rhprog.asm declares itself movable and "
-                 "OSAPI_MEM_MOVABLE refused%s (SPEC.md 66.6.1, 66.6.1.1)"
+                 "OSAPI_MEM_MOVABLE refused%s (SPEC.md 66.6.1, 66.6.1.2)"
                  % (" - and the program is INSIDE the carve, which is "
                     "mem_find_own's containment arm gone" if inside else ""))
 
