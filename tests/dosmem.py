@@ -3,8 +3,18 @@
 
 The choice of how much of the machine a DOS program gets used to be a CHECK
 BOX, which holds two answers.  There are three, and the third - take os8088
-itself as well (docs/plans/KERN-DOS-PLAN.md) - is greyed because nothing
-behind it is built yet.
+itself as well - is LIVE on every shipped disk since SPEC.md 96.40.3.
+
+**THIS ROW ASSERTED THE OPPOSITE FOR FOUR WAVES AND WAS RIGHT TO.** Arm 3 was
+greyed with its reason on the glass, first because `kern_dos` was not written
+and then because it rode a gate disk while `$(SYSROOT)` shipped the plain
+package.  `dos_mem_whole` reads the part table's own length word, so the arm
+is live exactly when the package the box is running from carries `kern_dos` -
+and it does now.  So every assertion here is inverted, and what the row
+catches is inverted with it: a shipped floppy that has lost the part, a
+`dos_mem_whole` that has started refusing, or a reason drawn beside an arm
+that works.  `tests/kdpart.py` says the same thing about the DISK; this one
+says it about the GLASS.
 
 WHAT IT WOULD CATCH, and every one was seen FAILING on the way to writing it
 (docs/WRITING-TESTS.md 1):
@@ -21,19 +31,27 @@ WHAT IT WOULD CATCH, and every one was seen FAILING on the way to writing it
                                                  arm 0 is 0, so a copied test
                                                  keeps the cache exactly when
                                                  it should take it
-  - the third arm not greyed at all            -> a control that is offered
-                                                 and then does nothing
-  - the third arm greyed and still PICKABLE    -> os88ui_radhit reading the
+  - the third arm greyed on a shipped disk     -> either the disk lost the
+                                                 part (SPEC.md 96.40.3's one
+                                                 Makefile variable) or
+                                                 dos_mem_whole has started
+                                                 refusing. Both are a
+                                                 capability silently gone
+  - the arm live and NOT pickable              -> os88ui_radhit reading the
                                                  DIS bits wrongly
-  - dos_mem_fix not demoting                   -> a .LNK written on a machine
-                                                 that has the feature sizes
-                                                 the arena against a level
-                                                 nothing implements
+  - the reason still drawn under a live arm    -> it sits at the labels' own
+                                                 indent, so it reads as a
+                                                 fourth arm that works
+  - dos_mem_fix demoting a pick that IS        -> a .LNK asking for the whole
+    honourable                                   machine quietly sized against
+                                                 the arm below
 
 IT RUNS ON A 1bpp ADAPTER ON PURPOSE (SPEC.md 47.2): grey rounds to black in
 text there, so a greyed label is a CHECKERBOARD and a live one is solid - the
 one adapter class where "is this row disabled" is a pixel fact rather than a
 colour.  On VGA both are legible and the assertion would be about CDGRAY.
+That is why the pixel half survives the inversion: `all three labels are
+solid` is as sharp a reading as `one of them is stippled`.
 """
 import os
 import sys
@@ -136,46 +154,52 @@ def main():
                  "keeps the disk cache (SPEC.md 96.25)"
                  % (rec(m, pseg, dm, RD_SEL), KEEP))
         dis = rec(m, pseg, dm, RD_DIS)
-        if not dis & (1 << WHOLE):
-            fail("OS88UI_RD_DIS is 0x%04X - the third arm is NOT greyed, and "
-                 "nothing behind it is built (SPEC.md 96.36.1)" % dis)
-        if dis & 0x8000:
-            fail("OS88UI_RD_DIS bit 15 is set - the WHOLE group is greyed, so "
-                 "the page offers no choice at all")
-        print("dosmem: N=%d SEL=%d DIS=0x%04X - arm %d greyed, the group live"
-              % (NARM, KEEP, dis, WHOLE))
+        if dis & (1 << WHOLE):
+            fail("OS88UI_RD_DIS is 0x%04X - the THIRD ARM IS GREYED on a "
+                 "shipped system disk. dos_mem_whole reads the part table's "
+                 "own length word, so this means the DOS.O88 in APPS/ does "
+                 "not carry kern_dos: $(SYSROOT) in the Makefile is the one "
+                 "variable that decides it (SPEC.md 96.40.3, 96.36.1)" % dis)
+        if dis:
+            fail("OS88UI_RD_DIS is 0x%04X and nothing on this page is supposed "
+                 "to be greyed at all" % dis)
+        print("dosmem: N=%d SEL=%d DIS=0x%04X - every arm live, arm %d "
+              "included" % (NARM, KEEP, dis, WHOLE))
 
-        # --- 3: the greyed row is DITHERED and its live neighbour is not ------
+        # --- 3: EVERY row is SOLID, which is the pixel half of step 2 --------
         # SPEC.md 47 rules 2 and 3, asserted in pixels because that is the only
-        # thing that says the two halves of the control agree.
+        # thing that says the two halves of the control agree - a DIS word with
+        # bit 2 clear and a label still drawn in a stipple is a group that
+        # disagrees with itself, and the user believes the pixels.
         x1, y1, _, _ = rect
         pitch = rec(m, pseg, dm, RD_PITCH)
         lx = x1 + 12 + 6                     # OS88UI_RDBOX + OS88UI_RDGAP
-        for arm, want in ((DUMP, False), (WHOLE, True)):
+        for arm in (KEEP, DUMP, WHOLE):
             ink, pairs = dithered(m, lx, y1 + arm * pitch + 4, 23 * 8, 8)
             if ink < 40:
                 fail("arm %d's label has %d dark pixels - it did not draw at "
                      "all" % (arm, ink))
-            got = pairs * 8 < ink         # a stipple leaves almost no pairs
-            if got != want:
-                fail("arm %d: %d dark pixels in %d adjacent pairs, which reads "
-                     "as %s. SPEC.md 47 rule 2 - the label greys with the "
-                     "ring, or the two halves of the control disagree"
-                     % (arm, ink, pairs, "dithered" if got else "solid"))
-            print("dosmem: arm %d label %d px / %d pairs -> %s"
-                  % (arm, ink, pairs, "dithered" if got else "solid"))
+            if pairs * 8 < ink:           # a stipple leaves almost no pairs
+                fail("arm %d's label is DITHERED: %d dark pixels in %d "
+                     "adjacent pairs. The record says nothing is greyed, so "
+                     "the two halves of the control disagree (SPEC.md 47 "
+                     "rule 2)" % (arm, ink, pairs))
+            print("dosmem: arm %d label %d px / %d pairs -> solid"
+                  % (arm, ink, pairs))
 
-        # --- 4: the reason is on the glass, in the same pen -------------------
-        ink, pairs = dithered(m, lx, y1 + 48 + 2, 21 * 8, 8)
-        if ink < 40:
-            fail("nothing is drawn under the greyed arm - SPEC.md 47 rule 3 "
-                 "wants the words that say WHY NOT")
-        if pairs * 8 >= ink:
-            fail("the reason under the greyed arm is SOLID: %d dark pixels in "
-                 "%d pairs. It sits at the labels' own indent, so drawn live "
-                 "it reads as a fourth arm that works (SPEC.md 96.36.1)"
-                 % (ink, pairs))
-        print("dosmem: the reason is on the glass and greyed with its row")
+        # --- 4: ...and NO reason is drawn under the group --------------------
+        # `dos_mem_whole` answers in SI and the painter draws SI when it is
+        # non-zero. It is zero now, so the strip below the third arm is the
+        # window's own ground - and it has to be: the reason sits at the
+        # LABELS' own indent, so a sentence left there beside three live arms
+        # reads as a fourth arm that works (SPEC.md 96.36.1).
+        ink, _ = dithered(m, lx, y1 + 48 + 2, 21 * 8, 8)
+        if ink >= 40:
+            fail("%d dark pixels are drawn under the third arm and nothing is "
+                 "greyed. That strip is where dos_mem_whole's reason goes, and "
+                 "the routine answers SI = 0 when the arm is live (SPEC.md "
+                 "47 rule 3, 96.36.1)" % ink)
+        print("dosmem: nothing is drawn under the live group")
 
         # --- 5: a press on a LIVE arm moves the pick and only two dots --------
         # **PARK THE POINTER FIRST.** crop_rgb reads the card's RENDERED
@@ -196,20 +220,24 @@ def main():
                  "the two dots that changed (SPEC.md 13.17.4)")
         print("dosmem: arm %d picked, and the group redrew" % DUMP)
 
-        # --- 6: a press on the GREYED arm does nothing at all ----------------
+        # --- 6: ...and a press on the THIRD arm PICKS it ---------------------
+        # This is the assertion the greying used to make from the other side,
+        # and it is the stronger one: a control that is offered has to work.
         mo.to(*arm_centre(m, pseg, dm, WHOLE))
         os88marty.settle(m)
         before = band(m, *rect)
         mo.click(*arm_centre(m, pseg, dm, WHOLE))
         os88marty.settle(m)
-        if rec(m, pseg, dm, RD_SEL) != DUMP:
-            fail("a press on the GREYED arm moved the pick to %d. It is "
-                 "greyed because the machine cannot do it (SPEC.md 96.36.1)"
-                 % rec(m, pseg, dm, RD_SEL))
-        if band(m, *rect) != before:
-            fail("a press on the greyed arm redrew something. SPEC.md 47 rule "
-                 "6: greyed, so say nothing more")
-        print("dosmem: the greyed arm swallowed its press and drew nothing")
+        if rec(m, pseg, dm, RD_SEL) != WHOLE:
+            fail("a press on arm %d left the pick at %d. The record says the "
+                 "arm is live, so os88ui_radhit is reading the DIS bits "
+                 "wrongly or the arm's rect is somewhere else (SPEC.md 96.36)"
+                 % (WHOLE, rec(m, pseg, dm, RD_SEL)))
+        if band(m, *rect) == before:
+            fail("the pick moved to arm %d and NOTHING was redrawn - "
+                 "os88ui_radhit owes the two dots that changed (SPEC.md "
+                 "13.17.4)" % WHOLE)
+        print("dosmem: arm %d picked, and the group redrew" % WHOLE)
 
         # --- 7: ...and back --------------------------------------------------
         mo.click(*arm_centre(m, pseg, dm, KEEP))
@@ -219,13 +247,20 @@ def main():
                  % (KEEP, rec(m, pseg, dm, RD_SEL)))
         print("dosmem: ...and back to arm %d" % KEEP)
 
-        # --- 8: CONSUMER THREE - a pick the machine cannot honour ------------
-        # A .LNK another machine wrote can carry DOS_MEM_WHOLE, and a greyed
-        # control refuses a CLICK and not a FILE (SPEC.md 96.36.1).  Poking the
-        # word is that link with the file system left out of it; LEAVING THE
-        # PAGE is what commits the block, and dos_mem_take is where the pick
-        # meets the machine.  It asserts the demotion and not the arithmetic
-        # that follows it, which is dosarena's subject.
+        # --- 8: CONSUMER THREE - a pick that IS honourable SURVIVES ----------
+        # `dos_mem_fix` asks `dos_mem_whole` at the block's COMMIT point,
+        # because [dos_keepc] can arrive from a .LNK written on another machine
+        # and a greyed control refuses a CLICK and not a FILE (SPEC.md
+        # 96.36.1).  Poking the word is that link with the file system left out
+        # of it, and LEAVING THE PAGE is what commits the block.
+        #
+        # **THE ASSERTION IS THE OTHER WAY ROUND NOW AND IT IS NOT A WEAKER
+        # ONE.** This build CAN honour the arm, so the demotion must NOT fire:
+        # a `dos_mem_fix` that demoted anyway would size a link asking for the
+        # whole machine against the arm below it and say nothing, which is the
+        # same silence the greying exists to prevent. What it can no longer
+        # assert is the demotion ITSELF - that needs a box whose package has no
+        # part, and no shipped disk carries one.
         at = (pseg << 4) + dm["dos_keepc"]
         m.write(at, bytes((WHOLE, 0)))
         if u16(m, at) != WHOLE:
@@ -233,22 +268,23 @@ def main():
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))       # Return
         os88marty.settle(m)
         got = u16(m, at)
-        if got != DUMP:
+        if got != WHOLE:
             fail("leaving the page with the pick at DOS_MEM_WHOLE left it at "
-                 "%d. dos_mem_fix demotes to the arm below, so the page comes "
-                 "back showing what the machine will really do rather than an "
-                 "arm it is quietly ignoring (SPEC.md 96.36.1)" % got)
-        print("dosmem: leaving the page demoted an arm this build cannot do")
+                 "%d. dos_mem_fix demotes when dos_mem_whole refuses, and on "
+                 "this build it does not refuse - so a link asking for the "
+                 "whole machine has been quietly sized against the arm below "
+                 "(SPEC.md 96.36.1)" % got)
+        print("dosmem: a DOS_MEM_WHOLE pick survived the page's commit")
 
         # ...and the CONTROL agrees with it, which is the point of the pick
         # living in the record rather than beside it (SPEC.md 96.36).
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
         os88marty.settle(m)
-        if rec(m, pseg, dm, RD_SEL) != DUMP:
-            fail("the record says arm %d after the demotion wrote %d - "
+        if rec(m, pseg, dm, RD_SEL) != WHOLE:
+            fail("the record says arm %d after the commit left %d - "
                  "[dos_keepc] is OS88UI_RD_SEL's low byte and there is not "
                  "supposed to be a second copy" % (rec(m, pseg, dm, RD_SEL),
-                                                   DUMP))
+                                                   WHOLE))
         print("dosmem: ...and the control came back showing it")
 
         wd, ht, data = m.fbuf()

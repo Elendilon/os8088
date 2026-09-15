@@ -49,7 +49,7 @@ import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
-SYS = "build/kdos360.img"
+SYS = "build/os8088-360.img"
 COM = "build/doscom360.img"
 MACH = "os8088_5150_cga_gla"
 
@@ -150,7 +150,8 @@ def wait_desktop(m, ui, secs=300):
 def main():
     for p in (SYS, COM):
         if not os.path.exists(p):
-            fail("%s is missing - `make kdostest` builds both" % p)
+            fail("%s is missing - `make` builds the system disk and "
+                 "`make kdostest` the B: floppy of DOS programs" % p)
 
     with os88ui.boot(SYS, apps=COM, machine=MACH) as ui:
         m = ui.m
@@ -167,7 +168,7 @@ def main():
             fail("the DOS window is gone after the windowed run: %r"
                  % (ui.titles(),))
 
-        dm = dosmap.package(*dosmap.KDBOX)
+        dm = dosmap.package()
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
 

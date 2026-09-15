@@ -596,6 +596,36 @@ dos_entry:
                                     ; the macro carries is a `ret` for the
                                     ; ordinary reason: every word that names
                                     ; this region is the kernel's
+                                    ;
+                                    ; **AND SINCE SPEC.md 96.40.3 IT IS
+                                    ; REFUSED, BY DESIGN, IN THE PACKAGE THAT
+                                    ; SHIPS** (SPEC.md 96.35.1). We are PART 0
+                                    ; of a parted DOS.O88 now, reached by
+                                    ; `OSAPI_PKG_REHOME` - and a re-homed
+                                    ; package's region is the loader's CARVE,
+                                    ; re-stamped to the instance SLOT.
+                                    ; `mem_find_own` matches MC_OWN or MC_SEG
+                                    ; against the caller's segment and a slot
+                                    ; is neither, so `OSAPI_MEM_MOVABLE`
+                                    ; refuses us our own carve -
+                                    ; kernel/loader.inc's `.rehome` says so in
+                                    ; as many words, and it is RIGHT: I_SPTR
+                                    ; is the PART's segment where the claim's
+                                    ; base is the carve's, and `mem_rr_tab`
+                                    ; rewrites I_SPTR by matching the old
+                                    ; BASE. Measured on this package: the
+                                    ; carve is at 0x8FC0 and I_SPTR is 0x8FE0,
+                                    ; 512 bytes apart, so a move would leave
+                                    ; I_SPTR naming where the program used to
+                                    ; be.
+                                    ;
+                                    ; So the 14KB came back. The LINE STAYS -
+                                    ; it is still right in the one-image build
+                                    ; and a refusal costs nothing - and what it
+                                    ; needs is a kernel that can relocate a
+                                    ; re-homed carve, which is 96.35.1's open
+                                    ; question and not this package's to
+                                    ; decide
 
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
@@ -5750,13 +5780,20 @@ dos_mrad_place:
 ; out: CF = 1 it may not, and SI = the reason to put on the glass
 ;      CF = 0 it may, and SI = 0. Every other register preserved.
 ;
-; **THIS ROUTINE IS THE WHOLE OF WHAT THE PLAN'S W6 CHANGES.** The arm names
-; docs/plans/KERN-DOS-PLAN.md, none of which is written, so today it refuses
-; every machine and says so - which is SPEC.md 47 rule 5's "grey a FACT": this
-; build genuinely cannot do it. When the mechanism lands the body becomes
-; hb_pick's question (SPEC.md 87.2) - is there a fixed disk to come back to -
-; and the reason becomes the one beside it. The layout, the record, the three
-; call sites and the .LNK format do not move.
+; **THE QUESTION IS "AM I THE PARTED PACKAGE", AND IT IS ASKED OF THE IMAGE.**
+; The arm hands the machine to `kern_dos`, which ships as part 2 of DOS.O88
+; (SPEC.md 96.44.5), so a build with no part table cannot do it whatever the
+; machine underneath is - which is SPEC.md 47 rule 5's "grey a FACT" rather
+; than a guess about hardware.
+;
+; THE ANSWER IS NOW YES ON EVERY SHIPPED DISK. It was no for four waves:
+; $(SYSROOT) carried the plain compressed package because §96.44.4's parted
+; shape was RAW, and the arm was live on a gate disk alone. §96.44.5's four
+; pieces put a 2,092-byte loader in front of three compressed parts and the
+; Makefile flipped, at 17 clusters of the 360KB system disk and +750 ms a
+; launch - the two extra reads being this file's own host image and part 1.
+; So the greyed arm is what a build WITHOUT `-DDOSKPART` still shows, and
+; `tests/kdhand.py` is what would go red if a disk lost the part again.
 ;
 ; It runs on EVERY PAINT (SPEC.md 47 rule 5's corollary), so it must stay
 ; cheap: two instructions today, and a byte somebody else already computed
@@ -9635,14 +9672,40 @@ DOS_PFSEPN  equ 14                  ; ...and the separators above the blank
                                     ; nasm's %ifndef tests for a MACRO, and an
                                     ; `equ` is a symbol - so the obvious guard
                                     ; compiles and does nothing
-DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
-                                    ; It is a CAPACITY here rather than a fact
-                                    ; about the machine, and every use of it
-                                    ; below is bound-checked - so a kernel that
-                                    ; grows a seventh volume costs this box
-                                    ; reach and can never cost it a write past
-                                    ; its own bss, which is somebody else's
-                                    ; heap claim
+DVOL_MAX    equ 8                   ; MIRRORS the kernel's (kernel/disk.inc),
+                                    ; and since SPEC.md 96.44.5 it is an ABI
+                                    ; rather than a capacity trim - which is
+                                    ; why it is 8 and not the 6 it sat at for
+                                    ; a year.
+                                    ;
+                                    ; **IT SIZES A CELL IN THE CORE'S BSS**
+                                    ; (`DOS_B_DVCWD`, `2 * DVOL_MAX`), and the
+                                    ; core is a PART now: assembled once, at
+                                    ; `org CORE_ORG`, and addressed by two
+                                    ; hosts that were assembled separately. So
+                                    ; the three copies of this number are not
+                                    ; three capacities, they are one LAYOUT -
+                                    ; `apps/dos/doscore.asm` says 8, and
+                                    ; `kerndos/kdos.asm` gets the kernel's own
+                                    ; 8 through `disk.inc`. At 6 the box put
+                                    ; every core cell after `DOS_B_DVCWD` FOUR
+                                    ; BYTES BELOW where the core keeps it, so
+                                    ; the window's console wrote `dsh_a1` and
+                                    ; the core read the four bytes before it:
+                                    ; every bare name at the prompt answered
+                                    ; `Bad command or file name` about a
+                                    ; program DIR had just listed. It was
+                                    ; invisible while the parted package rode
+                                    ; a gate disk and no row typed a name into
+                                    ; it. `tests/unit/t_doscore.py` compares
+                                    ; the two maps now, so a third value
+                                    ; cannot be introduced silently.
+                                    ;
+                                    ; Every use below is still bound-checked,
+                                    ; which is what makes a kernel that grows
+                                    ; a NINTH volume cost this box reach and
+                                    ; never a write past its own bss - but the
+                                    ; gate is what makes the layout agree.
 %endif
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -14135,7 +14198,19 @@ dos_fh_fill:
 ; root is its volume's root, so a slot nobody has touched is 0 - which .bss
 ; already is, and which is exactly right. No "has this been initialised" flag,
 ; because there is no state a fresh drive could be in other than its root.
-    DBSS DOS_B_DVCWD,  2 * DVOL_MAX
+; **SIZED BY THE ABI AND NOT BY THIS HOST'S `DVOL_MAX`** (SPEC.md 96.44.2.1).
+; The cell is in the CORE's block, which is laid out once; `DVOL_MAX` is what
+; this host thinks the machine holds. They were the same symbol and the core
+; and the box disagreed about it - see `apps/dos/doscall.inc` for what that
+; cost. The `%if` is the bound the old comment claimed: a host may reach FEWER
+; volumes than the cell holds and may never reach more.
+%if DVOL_MAX > DOS_DVOL_ABI
+  %error "DVOL_MAX is wider than DOS_DVOL_ABI, so this host would write past \
+DOS_B_DVCWD and into the core's next cell. Raise DOS_DVOL_ABI in \
+apps/dos/doscall.inc - it is 2 bytes of EVERY host's core bss per volume - \
+and rebuild all three roots."
+%endif
+    DBSS DOS_B_DVCWD,  2 * DOS_DVOL_ABI
     DBSS DOS_B_DVTGT,  1            ; the drive a switch is going TO, banked
                                     ; because OSAPI_VOL_KIND promises nothing
                                     ; about DX

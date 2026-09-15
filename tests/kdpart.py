@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """kern_dos is a PART, and its bytes are reachable as absolute SECTORS.
 
-    make kdostest && python3 tests/kdpart.py
+    make && make kdostest && python3 tests/kdpart.py
 
 docs/plans/KERN-DOS-PLAN.md §4.1.1 is the claim this row makes good, and it is
 the one the whole handoff rests on: *the part is a byte range of `DOS.O88`,
@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88fat                                                  # noqa: E402
 import os88lz                                                   # noqa: E402
 
-IMG = os.path.join(ROOT, "build", "kdos360.img")
+IMG = os.path.join(ROOT, "build", "os8088-360.img")
 KD = os.path.join(ROOT, "build", "kerndos.bin")
 CORE = os.path.join(ROOT, "build", "doscore.bin")
 DOSCALL = os.path.join(ROOT, "apps", "dos", "doscall.inc")
@@ -98,13 +98,14 @@ def dir_entry(v, folder, raw11):
 def main():
     for p in (IMG, KD, CORE):
         if not os.path.exists(p):
-            fail("%s is missing - run `make kdostest` first" % p)
+            fail("%s is missing - `make` builds the system disk and "
+                 "`make kdostest` the DOS pieces" % p)
 
     v = os88fat.Fat12(IMG)
     ent = dir_entry(v, "APPS", b"DOS     O88")
     if ent is None:
-        fail("no DOS.O88 in APPS/ of %s - `make kdostest` did not build the "
-             "disk this row is about" % os.path.basename(IMG))
+        fail("no DOS.O88 in APPS/ of %s - $(SYSROOTARG) is what puts it "
+             "there" % os.path.basename(IMG))
     fclus = struct.unpack_from("<H", ent, 26)[0]
     fsize = struct.unpack_from("<I", ent, 28)[0]
     blob = read_chain(v, fclus, fsize)
@@ -116,8 +117,10 @@ def main():
     flags = blob[3]
     if not flags & 4:
         fail("DOS.O88's flags are 0x%02X and bit 2 (OS88_F_PARTS) is clear - "
-             "this is the SHIPPED package, so `make kdostest` did not put the "
-             "parted one on the disk" % flags)
+             "this is the PLAIN package, so the SHIPPED system disk has lost "
+             "kern_dos and the Memory page's third arm is greyed on every "
+             "machine. $(SYSROOT) in the Makefile is the one variable that "
+             "decides it (SPEC.md 96.40.3)" % flags)
     at = blob.find(PARTS_MAGIC, 0, image)
     if at < 0:
         fail("flags bit 2 is set and there is no 'O88PARTS' table in the image")

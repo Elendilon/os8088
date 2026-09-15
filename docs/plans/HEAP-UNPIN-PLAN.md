@@ -927,6 +927,47 @@ between them show that three of the four `MC_DMA` claims in the tree have no bus
 master on them at all, and that the fourth already has both halves of its quiesce
 built.
 
+### 4.6.1 …AND A SECOND LIMIT, MEASURED SINCE: a RE-HOMED package is pinned whatever its worker does
+
+`OSAPI_PKG_REHOME` (SPEC.md 20.12.10) hands a loader's identity to one of its
+parts, and what the program then runs in is **the loader's CARVE re-stamped to
+the instance SLOT**. `mem_find_own` matches `MC_OWN` or `MC_SEG` against the
+caller's segment and a slot is neither, so the program is refused
+`OSAPI_MEM_FREE` and `OSAPI_MEM_MOVABLE` on its own region.
+`kernel/loader.inc`'s `.rehome` arm is explicit that this is deliberate:
+
+> IT MUST STAY PINNED: `mem_rr_tab` rewrites `inst_tab + I_SPTR` by matching
+> the OLD BASE, and `I_SPTR` is the part's segment where the claim's base is
+> the carve's, so a move would leave `I_SPTR` naming where the program used to
+> be (SPEC.md 66.6.1).
+
+**MEASURED, and the premise holds on a real package** (`os8088_5150_herc_sb_gla`,
+the shipped four-piece `DOS.O88`, the box open and idle): the carve is at
+**0x8FC0** and `I_SPTR` is **0x8FE0**, 512 bytes apart — the loader's own image
+sitting at the head of the carve. The two are not the same word and the
+base-match cannot find the second.
+
+**WHAT IT COSTS IS NOT HYPOTHETICAL EITHER** and it is this file's §2.0 with a
+different cause: `SOUND.DRV`'s 6,144-byte image and 8,192-byte ring are claimed
+top-down ABOVE the DOS box, the box unmounts them so a DOS program can have the
+card (SPEC.md 96.35), and the hole is above a region nothing can move.
+**426 KB against 440** on the same machine with no card — and the one-image
+build of the same package gets the full 440, because there its region really is
+`cs` and `OS88_REGION_MOVABLE` takes. The declaration is still in
+`apps/dos/dos.asm`; it is simply refused.
+
+**THE FIX IS ONE LINE OF ARITHMETIC AND IT IS NOT THE PACKAGE'S.** `mem_rr_tab`
+would rewrite `I_SPTR` by DELTA — `I_SPTR += new_base - old_base` — instead of
+by matching the old base, after which the carve can be unpinned like any other
+region and every mechanism above reaches it. Bill it with §4.2's region
+predicate, which it otherwise shares.
+
+**It is not only the DOS box.** Every package that re-homes is a permanent wall
+at whatever depth the heap had when it launched: `apps/c64` and Clear Skies
+re-home too (SPEC.md 88.10.4 is Clear Skies' own encounter with this arm), and
+the wall does not heal — which is exactly §2.0's complaint about a
+mid-session driver, arriving by a second route.
+
 ### 4.7 Past the limit: tell the package, and let it give its worker back
 
 The limit above is *"the worker's stack holds the segment at depths nothing can

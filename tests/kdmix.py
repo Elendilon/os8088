@@ -44,7 +44,7 @@ import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 import kdhand                                                  # noqa: E402
 
-SYS = "build/kdos360.img"
+SYS = "build/os8088-360.img"
 BIG = "build/doscom144.img"
 MACH = "os8088_5150_cga_gla_mix"
 
@@ -65,7 +65,7 @@ def main():
             fail("could not open DOS.O88 off the system disk")
         os88marty.settle(m)
 
-        dm = dosmap.package(*dosmap.KDBOX)
+        dm = dosmap.package()
         pseg = dosmap.instance(m)
         base = pseg << 4
         mo = os88mouse.Mouse(marty=m)

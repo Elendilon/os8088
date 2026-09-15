@@ -257,7 +257,13 @@ def image_split(show_procs):
 def bss_split():
     sys.path.insert(0, os.path.join(ROOT, "tests"))
     import dosmap
-    dm = dosmap.package()
+    # **THE WHOLE BOX, AS ONE IMAGE** - `shipped=False`, which is the one
+    # caller in the tree that wants it. `dosmap.package()`'s default is the
+    # PARTED package $(SYSROOT) ships (SPEC.md 96.40.3), and that build has
+    # already done this split: `-DDOS_EXTCORE` takes the core's image and bss
+    # out, so `DOS_BSS_SIZE` reads 1,676 against the box's ~3,031 and the core
+    # bucket comes out at 123.6% of it. A percentage over 100 is the tell.
+    dm = dosmap.package(shipped=False)
     total = dm.get("DOS_BSS_SIZE")
     ent = sorted((v, k) for k, v in dm.items() if k.startswith("DOS_B_"))
     buckets, residual = collections.Counter(), []

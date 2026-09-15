@@ -76,6 +76,13 @@ discarded.
 `build/kdos360.img`, `os8088_5150_cga_gla`, `DOSHELLO.COM` off B:, the carve
 forced to `OSAPI_MEM_CLAIM` at `apps/os88partsbody.inc:656`:
 
+> **THE DISK NAME IS STALE AND THE DISK IS NOT.** `kdos360.img` was the
+> shipped 360KB system disk with the parted `DOS.O88` in APPS/, built by `make
+> kdostest`; SPEC.md 96.40.3 has since made the shipped disk itself carry that
+> package, so the gate disk built byte-identical and was deleted. Every
+> `build/kdos360.img` below is `build/os8088-360.img` today, and the snippet
+> in §5 runs unchanged with that one substitution.
+
 | moment | the box's region | interior hole | the arena |
 |---|---|---:|---:|
 | `A:/APPS/DOS.O88` open, **nothing run** | 0x2540 | **0** | — |

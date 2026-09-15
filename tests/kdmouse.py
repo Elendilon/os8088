@@ -52,7 +52,7 @@ import os88mouse                                               # noqa: E402
 import os88mouserel                                            # noqa: E402
 import os88ui                                                  # noqa: E402
 
-SYS = "build/kdos360.img"
+SYS = "build/os8088-360.img"
 MOU = "build/dosmou360.img"
 MACH = "os8088_5150_cga_gla"
 
@@ -119,7 +119,7 @@ def main():
         # focused; Enter on a bare drive letter changes drive and clears it.
         m.type_text("B:\n")
         os88marty.settle(m)
-        dm = dosmap.package(*dosmap.KDBOX)
+        dm = dosmap.package()
         pseg = dosmap.instance(m)
         base = pseg << 4
         mo = os88mouse.Mouse(marty=m)
