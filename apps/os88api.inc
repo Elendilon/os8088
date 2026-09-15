@@ -667,33 +667,36 @@ OSAPI_LZ_LZB equ 1
                                  ; Copy/Paste is running, as the copy slot
                                  ; does.
 %define OSAPI_FILE_WRITE_AT KERNEL_SEG:0x0588   ; SI = a NUL 8.3 name, ES:BX =
-                                 ; the bytes, CX = how many (a multiple of
-                                 ; 512, >= 512), DX:AX = the byte offset (a
-                                 ; multiple of the volume's CLUSTER); out
-                                 ; CF=0 AX=0, else AX = FERR_*.
-                                 ; OSAPI_FILE_READ_AT's other half, and
-                                 ; deliberately the NARROW one: it overwrites
-                                 ; bytes the file ALREADY OWNS and **never
-                                 ; changes its size** (SPEC.md 18.4.7).
-                                 ; Growing a file is OSAPI_FILE_APPEND's.
+                                 ; the bytes, CX = how many (>= 1), DX:AX =
+                                 ; the byte offset (a multiple of the
+                                 ; volume's CLUSTER); out CF=0 AX=0, else
+                                 ; AX = FERR_*. OSAPI_FILE_READ_AT's other
+                                 ; half (SPEC.md 18.4.7), and the offset
+                                 ; decides which of TWO things happens:
+                                 ; INSIDE what the file has allocated (its
+                                 ; size rounded up to a cluster) it
+                                 ; overwrites, allocating nothing and moving
+                                 ; the size only UP and only as far as that
+                                 ; allocation; exactly AT the allocated end
+                                 ; it GROWS the file by CX, which is what
+                                 ; OSAPI_FILE_APPEND is. Past it, or across
+                                 ; it, is FERR_NAME: top the last cluster up
+                                 ; first, then grow.
                                  ; **THE TWO GRANULARITIES DIFFER AND NEITHER
                                  ; IS ARBITRARY**: the offset is a cluster
                                  ; multiple so the walk is exact, and the
-                                 ; count is a SECTOR multiple because the
-                                 ; transfer moves whole sectors - a count
-                                 ; rounded up would write bytes from past YOUR
-                                 ; buffer into the file.
-                                 ; The span is checked against what the file
-                                 ; has ALLOCATED (its size rounded up to a
-                                 ; cluster), not against its size: a
-                                 ; 3,000-byte file on an 8KB-cluster volume
-                                 ; takes a 512-byte write at offset 0.
-                                 ; FERR_NAME = a bad offset, a bad count, or
-                                 ; a span past the allocated end. FERR_NOENT =
-                                 ; no such file; this cannot create one.
-                                 ; FERR_PROT = read-only/hidden/system/label/
-                                 ; directory, or a REDIRECTED volume, whose
-                                 ; driver surface has no write-at verb.
+                                 ; count must be a SECTOR multiple while the
+                                 ; write ends short of the file's size,
+                                 ; because the transfer moves whole sectors
+                                 ; and a rounded tail would write bytes from
+                                 ; past YOUR buffer over bytes the file owns.
+                                 ; At or past the size any count goes and
+                                 ; the tail lands on slack (18.4.7.2).
+                                 ; FERR_NOENT = no such file; this cannot
+                                 ; create one. FERR_PROT = read-only/hidden/
+                                 ; system/label/directory, or a REDIRECTED
+                                 ; volume, whose driver surface has no
+                                 ; write-at verb.
 %define OSAPI_FILE_DFREE    KERNEL_SEG:0x0140   ; out CF=0, DX:AX = free bytes, BX =
                                  ; SECTORS per cluster.
                                  ;
@@ -3667,7 +3670,10 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; not a cluster multiple - refused, never
                                  ; mis-written - and FERR_PROT on a read-only,
                                  ; hidden or system file, which is SPEC.md
-                                 ; 19.6's rule reaching this slot too
+                                 ; 19.6's rule reaching this slot too. It IS
+                                 ; OSAPI_FILE_WRITE_AT with the file's size
+                                 ; for an offset (SPEC.md 18.4.7.3), which is
+                                 ; where that cluster rule comes from
 %define OSAPI_FILE_READ_AT  KERNEL_SEG:0x0358   ; SI = name, ES:BX = buffer,
                                  ; CX = its capacity in BYTES, DX:AX = the
                                  ; offset to read from; out CF=0 and DX:AX =

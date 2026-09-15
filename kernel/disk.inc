@@ -6333,12 +6333,14 @@ dsk_dotdot_x:
 ;
 ; IT DOES NOT ALLOCATE. The chain has to be long enough already; a link past
 ; the end is the same corruption a read would report. Growing a file is
-; dskw_append's, where §18.4's commit order lives.
-dsk_write_chain_x:
+; dskw_wabody's AT-END arm, where §18.4's commit order lives (18.4.7.3).
+%ifndef KERN_SMALL                 ; its one caller is dskw_wabody's INSIDE arm,
+dsk_write_chain_x:              ; which is kern_big's (SPEC.md 18.4.7.4)
     mov byte [dsk_chwr], 1
     call dsk_read_chain_x
     mov byte [dsk_chwr], 0      ; ...and the flags ride through: `mov` leaves
     ret                         ; them alone, so CF is still the walk's answer
+%endif
 
 dsk_read_chain_x:
     push ax
@@ -6480,13 +6482,17 @@ dsk_read_chain_x:
 .flush:                         ; move the pending run (DI = LBA, CX = len)
     push ax                     ; to or from ES:BX; advance BX; CF through. AX
     mov ax, di                  ; is the caller's take count - preserved
+%ifndef KERN_SMALL
     cmp byte [dsk_chwr], 0      ; THE ONE DIRECTION-SPECIFIC INSTRUCTION in
     jne .flwr                   ; this whole routine (SPEC.md 18.4.7.1)
+%endif
     call disk_read_x              ; in: AX=LBA, CX=count, ES:BX
+%ifndef KERN_SMALL
     jmp short .flgot
 .flwr:
     call disk_write_x
 .flgot:
+%endif
     jc .flret
     mov ax, cx                  ; BX += len*512 (disk_read preserves BX;
     push cx                     ; only its internal pointer advanced)
@@ -7699,10 +7705,12 @@ dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
                                 ; so a chunked read can resume (SPEC.md 18)
 dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
                                 ; register-restore epilogue
+%ifndef KERN_SMALL
 dsk_chwr:     resb 1            ; ...and which way it is moving (SPEC.md
                                 ; 18.4.7.1). Zero is a READ, which is what
                                 ; .bss already is and what every existing
                                 ; caller means
+%endif
 
 ; --- the directory walker's scratch (SPEC.md 19.2) --------------------------
 ; Safe in .bss: dsk_dirw_start writes all three before any walk reads them.
