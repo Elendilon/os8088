@@ -127815,6 +127815,58 @@ Every name in the band was confirmed by grep before it was gated, and that is
 the method this section recommends — the walk finds candidates and the grep
 decides them.
 
+#### 96.44.9 A driver-backed volume cannot exist under `kern_dos`
+
+`DVK_DRV` is a volume whose transport is a loadable driver — the RAM disk, a
+hard-disk driver's partitions — and `DVK_FILE` is a redirected one with no
+sectors at all (§62.9). **Neither can reach `kern_dos`, and that is a fence
+rather than a hope.** `hbm_*`'s gather in `kernel/hiber.inc` stages the
+kernel's volume table into the launch block a row at a time and writes every
+**non-BIOS row `DVK_FREE`**:
+
+```
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .vfree
+```
+
+So `kd_vtab` can only ever copy `DVK_BIOS` and `DVK_FREE` into `dsk_vtab`, and
+`[dsk_vkind]` can only ever hold those. The driver whose transport it was is
+gone with the kernel, and so is the RAM it served.
+
+Three bands under `%ifndef KD_BUILD`, **581 bytes**: `dsk_vol_kind` through
+`dsk_vol_drop_drv_x`, the `osapi_vol_*` registration slots, and
+`disk_mount_x`'s `.fsmount` arm with the `cmp` that reaches it. The slots are
+dead twice over — a driver registers a volume through the API table, and since
+§96.44.6 `kern_dos` has no table at all.
+
+**`KD_IMG_KB` does NOT move**, and it is not made to. The rung keeps 962 bytes
+spare against 381 before, and §1's banner is why the work was taken anyway:
+the byte is the unit, the rung is not a design input, and the next 62 bytes of
+anything cross it. `kern_dos` is a build that grows — §96.49's live resume
+spent 996 in one wave — so the slack has a claimant.
+
+##### 96.44.9.1 What STAYS, and the windowed RAM disk
+
+Four things inside the same span are live and the bands are cut around them.
+`dsk_vol_row_x` and `dsk_vol_slot_x` are called from the mount; `dsk_vol_fixed`
+is `DBE_VKIND`'s whole body, the door `dos_k_vkind` answers `AH=1Ch` with; and
+`dsk_list_floor`/`dsk_list_pick` sit in the middle of the first band because
+the mount calls them and the listing stays (§96.44.7.1).
+
+**The RAM disk is untouched in the window.** The gate is `%ifndef KD_BUILD`, so
+`kernel/disk.inc` compiled for the kernel keeps every byte — a windowed DOS box
+reaches a `DVK_DRV` volume exactly as it did, through the kernel's own layer.
+What the gate removes is code in a second assembly of the same file for a
+machine on which no such volume can be mounted.
+
+**The `DVK_FILE` branches inside the read paths are deliberately LEFT.**
+`dsk_find_x`, `dsk_free_clus_x`, `dsk_read_chain_x`, `dskw_rbody`,
+`dskw_stat_x`, `dskw_read_at_x` and `dsk_synth_up` each carry a
+`cmp byte [dsk_vkind], DVK_FILE` and an arm. They are unreachable for the same
+reason, and gating them means threading a conditional through seven live read
+paths for a few hundred bytes — a worse trade than the bytes are worth, and
+the one shape of this work that has a real chance of breaking something.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
