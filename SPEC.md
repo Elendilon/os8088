@@ -29041,16 +29041,11 @@ that fence and §18.4.4.1 is why it had to exist.
 
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
 write half by name and by whole file, so **a program that seeks back and
-rewrites had nothing to call**. This is that half, and it is deliberately the
-*narrow* one: it writes inside the clusters a file already owns, and the only
-thing it ever changes besides the data is the size word — **upward, and never
-past the allocated end** (§18.4.7.2).
-
-That single restriction is what makes it cheap. No cluster is allocated, no
-FAT sector is written, no directory entry is touched and there is nothing to
-roll back — the whole operation is *find the entry, check it, walk to the
-offset, write*. Growing a file stays `OSAPI_FILE_APPEND`'s job, where the
-commit order in §18.4 already lives.
+rewrites had nothing to call**. This is that half. It writes inside the
+clusters a file already owns, moving the size word **upward and never past the
+allocated end** (§18.4.7.2) — and since the size pass it is also
+`OSAPI_FILE_APPEND`'s body (§18.4.7.3): an append is a write-at whose offset is
+the file's size.
 
 | in | |
 |---|---|
@@ -29071,41 +29066,56 @@ caller's buffer** into the file, and a read doing the mirror of that only
 touches the caller's own memory. So the read may be asked for a cluster and
 the write may not be asked for a partial sector.
 
-**`offset + count` must be inside what the file has ALLOCATED** — its size
-rounded up to a whole cluster — and not inside its size. A 3,000-byte file on
-an 8KB-cluster volume owns 8,192 bytes of disk, so a 512-byte write at offset
-0 lands wholly inside a cluster the file already has, and the 5,192 bytes
-after it are slack that was already slack. Testing against the SIZE instead
-would refuse every file whose length is not a cluster multiple, which is
-nearly all of them.
+**The offset decides which of two exclusive things happens**, measured against
+what the file has ALLOCATED — its size rounded up to a whole cluster — and not
+against its size:
+
+- **INSIDE** — `offset + count` fits inside the allocation. A 3,000-byte file on
+  an 8KB-cluster volume owns 8,192 bytes of disk, so a 512-byte write at offset
+  0 lands wholly inside a cluster the file already has, and the 5,192 bytes
+  after it are slack that was already slack. Testing against the SIZE instead
+  would refuse every file whose length is not a cluster multiple, which is
+  nearly all of them. No cluster is allocated, no FAT sector is written, and
+  the only thing touched beyond the data is the size word (§18.4.7.2).
+- **AT THE END** — the offset is *exactly* the allocated end. The file grows by
+  the count, in §18.4's commit order in the only shape an append can have: the
+  new sub-chain is allocated and written first, the FAT is flushed so it is
+  durable, the last existing cluster is linked to it and the FAT flushed again
+  — and only then does the directory entry take the new size, which is the
+  single sector write that makes those bytes part of the file. A crash before
+  that leaks clusters, which is the failure the rule exists to prefer.
+
+Anything else — past the allocated end, or a span that *straddles* it — is
+`FERR_NAME`. A caller with a partly-full last cluster to top up before it
+grows makes two calls, which is what the DOS box's window does by
+construction: its last window ends at the size and the first window past it
+starts at the allocated end (§96.11.6).
 
 The refusals are `READ_AT`'s plus one, and **past the ALLOCATED end is an
 error here where past the SIZE is a normal answer there**: a read past the end
-answers zero bytes because that is how a copy loop terminates, and a write past
-what the file owns is a caller that thinks this can allocate.
+answers zero bytes because that is how a copy loop terminates, and a write
+that starts past what the file owns is a caller that has miscounted.
 
-- `FERR_NAME` — a bad offset, a bad count, or a span past the allocated end.
-  **Growing the file past what it owns is this**, and it is what tells the
-  caller to reach for `OSAPI_FILE_APPEND` instead.
+- `FERR_NAME` — a bad offset, a bad count, or a span past or across the
+  allocated end.
 - `FERR_NOENT` — no such file. It must already exist; this cannot create one.
 - `FERR_PROT` — `DSKW_PROT` (read-only, hidden, system, label, directory),
-  the same mask `dskw_append` uses, **and a redirected volume** (§62.9), whose
-  driver surface has `FSV_READAT` and no write-at verb to pair with it.
+  **and a redirected volume** (§62.9), whose driver surface has `FSV_READAT`
+  and `FSV_APPEND` and no write-at verb to pair with them — so an *append*
+  over a cable is served and an offset is refused.
 
 #### 18.4.7.2 …and it grows a file to the end of what it HAS
 
 `AH=3Dh` needs one thing more than an overwrite: a program that opens an
-existing file, seeks to the end and adds to it. `OSAPI_FILE_APPEND` cannot
-serve that, because its own precondition is that the file's size is a whole
+existing file, seeks to the end and adds to it. An append cannot serve that
+on its own, because its precondition is that the file's size is a whole
 number of clusters (§18.4.4) — and almost no file's is.
 
-So this slot grows a file **as far as the clusters it already owns**, and no
-further. That is not a compromise between the two, it is what makes them
-compose: once the size reaches the allocated end it IS a cluster multiple, so
-`OSAPI_FILE_APPEND`'s precondition is exactly satisfied and the rest of the
-write is its ordinary business. No cluster is allocated here and no FAT sector
-is written; the only thing the slot ever touches beyond the data is the size
-word, and only upward.
+So the INSIDE case grows a file **as far as the clusters it already owns**, and
+no further. That is not a compromise between the two cases, it is what makes
+them compose: once the size reaches the allocated end it IS a cluster
+multiple, so the AT-THE-END case's precondition is exactly satisfied and the
+rest of the write is its ordinary business.
 
 **`offset + count` decides two things and it is one compare.** Call it the END:
 
@@ -29115,33 +29125,85 @@ word, and only upward.
 - **END at or past the size** — the count may be anything, and the transfer
   rounds up to a whole sector. The rounded-up tail lands past the recorded size,
   on slack inside a cluster the file already owns, so there is nothing there to
-  lose. When END is strictly past the size, the size becomes END.
+  lose. When END is strictly past the size, the size becomes END; when it is
+  exactly the size nothing is stored, which is what keeps the DOS box's last
+  window — which ends exactly at the size — from costing a directory write.
 
 That is why the DOS box's window never rounds anything itself: the last window
 of a file ends exactly at the size and the first window past it ends past the
 size, and both are the loose case.
 
+#### 18.4.7.3 One body, two doors
+
+`dskw_append` and `dskw_write_at` were two bodies of one shape — gate, name,
+find, protection mask, cluster arithmetic, walk, transfer, size, sync — a
+hundred lines apart, and the size pass folded them: **`OSAPI_FILE_APPEND` is
+`OSAPI_FILE_WRITE_AT` with the file's size for an offset.** The append door
+enters with the offset's high word `0xFFFF`, which no real offset can carry
+(a volume caps at 32MB, §18.7), and the body substitutes the size once it has
+the entry in hand. That turns the append's own precondition — *the size must
+be a whole number of clusters* — into the same test the write-at makes on any
+offset: it must land on a cluster boundary. Two bodies used to make that test
+two ways. `OSAPI_FILE_APPEND_SYS` is the same door with `[dskw_syswr]` set,
+as before.
+
+Two things the fold changed that a caller can see, both wider rather than
+narrower. A write-at whose offset is exactly the allocated end **grows** where
+it used to answer `FERR_NAME` — the append's own case, now reachable with an
+offset. And the walk to the last cluster is bounded by the entry's size rather
+than by `DSKW_RT_MAX`, so a chain longer than the size says is linked at the
+size's last cluster and the surplus becomes lost clusters, where the old append
+followed it to the true end; the entry's size is what every reader believes,
+and lost clusters are the failure §18.4 prefers.
+
+One defect fell out of putting the two side by side. `dskw_ent_store` consumes
+`[dskw_zapnext]` — *the entry being stored took the end-of-directory marker,
+write a fresh one after it* — and **nothing clears it**: every writer zeroes it
+before its own store, and the original write-at did not. So a create that took
+the marker, followed by a seek-back write to a file *earlier* in the same
+directory, wrote a `00` over the first byte of the entry after that file — and
+every entry from there on vanished from the listing. The unified body zeroes
+it for both modes.
+
+#### 18.4.7.4 What `kern_small` keeps of it
+
+The DOS box is the only caller of the offset door and of `OSAPI_VOL_STAT`,
+and it does not ship on the small disks (§24.5, `SMALLPKGS`). So on
+`kern_small` both cells are `stc`/`ret` stubs — legitimate here because the
+one caller tests `CF` (KERN-SMALL-CUT-PLAN §10) — and with them go the INSIDE
+arm of the body, `dsk_write_chain` and its direction byte, and the two far
+entries: **395 bytes of that kernel** (`.text` −11, `.bss` −1, `.cold` −383).
+The append door keeps the whole body; it only ever arrives with the size for
+an offset, which is the allocated end by its own precondition, so the arm the
+stub removes is one it could never reach.
+
 #### 18.4.7.1 What it cost, and where
 
-**14 bytes of `.text`, 1 of `.bss` and 279 of `.cold`** — measured against the
-tree it landed on, not estimated. The 15 in the 64KB segment window are the
-whole of what it costs `KERN_CODE_MAX`: an 8-byte cell, a 6-byte thunk and
-`[dsk_chwr]`. The body is cold, so the footprint bill is the 294 together and
-it crossed no rung, which is not the same as costing nothing (§1).
+At its first commit the write-at was **14 bytes of `.text`, 1 of `.bss` and
+279 of `.cold`** — an 8-byte cell, a 6-byte thunk, `[dsk_chwr]`, and a cold
+body beside `dskw_append`'s. After the fold the two doors together are **401
+bytes of `.cold`** where they were 564, the four-register `OSAPI_VOL_STAT`
+beside them 26 where it was 147 (§18.4.6.1), and the module's rollback
+epilogues stopped banking `AX` around a routine that preserves it.
 
-It is that small because the machinery was already there twice over and the
-work was finding the seam rather than writing the walk.
-
+It was that small to begin with because the machinery was already there twice
+over and the work was finding the seam rather than writing the walk.
 `dsk_read_chain` is a run-coalescing walk over a cluster chain with the
 progress widget, the corruption tests and the resume point all in it, and its
 only read-specific instruction is **one `call` inside `.flush`**. So it takes
 a direction byte, `dsk_write_chain` is the wrapper that sets it, and the
 coalescing a write gets is the coalescing a read already had — a contiguous
-span goes out as one `dsk_xfer` either way.
+span goes out as one `dsk_xfer` either way. `disk_read_x` and `disk_write_x`
+make that nearly free at the bottom too: they differ by the byte stored in
+`[dsk_op]` and the read-ahead window `disk_write_x` drops, and then share
+`dsk_xfer` entirely.
 
-`disk_read_x` and `disk_write_x` make that nearly free at the bottom too: they
-differ by the byte stored in `[dsk_op]` and the read-ahead window
-`disk_write_x` drops, and then share `dsk_xfer` entirely.
+The fold's own saving was mostly not the duplicated prologue. The 8086 has no
+near `jcc`, so a conditional jump to an epilogue more than 127 bytes away
+assembles as `jcc short; jmp near` — five bytes for two — and a 400-byte body
+with its refusals at the bottom had twelve of them. The epilogues sit in the
+middle now, `.prot` beside the one arm that jumps to it, and every refusal in
+the body is two bytes.
 
 #### 18.4.4.1 A system file could be created and never finished
 

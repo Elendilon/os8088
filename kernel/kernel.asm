@@ -3236,7 +3236,9 @@ apic_osapi_mem_avail:
                                   ;         (SPEC.md 18.4.4). Its precondition
                                   ;         is the file's current size being a
                                   ;         whole number of clusters, which is
-                                  ;         what a chunked write already is
+                                  ;         what a chunked write already is -
+                                  ;         and it is dskw_write_at's body with
+                                  ;         the size for an offset (18.4.7.3)
     OSAPI_NCELL dskw_read_at  ; 0x0358  N: ...and the read half. DX:AX =
                                   ;         the byte offset, CX = capacity;
                                   ;         out DX:AX = bytes delivered, 0 at
@@ -4118,16 +4120,14 @@ apic_wm_destroy:
                                   ;          delete instead. X, because the
                                   ;          name is package data
     OSAPI_NCELL dskw_write_at     ; 0x0588  N: SI = name, ES:BX = bytes, CX =
-                                  ;         count (a 512 multiple), DX:AX =
-                                  ;         the byte offset (a CLUSTER
-                                  ;         multiple). OVERWRITE bytes the file
-                                  ;         already owns (SPEC.md 18.4.7) - it
-                                  ;         never changes the size, which is
-                                  ;         what makes it 26 resident bytes:
-                                  ;         no cluster allocated, no FAT
-                                  ;         written, no entry touched and
-                                  ;         nothing to roll back. Growing one
-                                  ;         is OSAPI_FILE_APPEND's still
+                                  ;         count, DX:AX = the byte offset (a
+                                  ;         CLUSTER multiple). INSIDE what the
+                                  ;         file has allocated it OVERWRITES
+                                  ;         (SPEC.md 18.4.7) - no cluster
+                                  ;         allocated, no FAT written, the size
+                                  ;         moved only up; exactly AT the
+                                  ;         allocated end it GROWS, which is
+                                  ;         what 0x0350 is. One body, two doors
     OSAPI_XCELL osapi_mem_avail_max ; 0x0590 - X: OSAPI_MEM_AVAIL, plus "AND IF MY
                                   ;          OWN REGION MOVED TOO" (SPEC.md
                                   ;          66.4.3). Out AX/BX as the plain
@@ -5561,10 +5561,16 @@ osapi_file_dfree:
 ; osapi_file_dfree's V and for its reason (SPEC.md 19.2.1): an app asks this
 ; about the disk its writes are going to, so an answer about the machine's
 ; idea of "current" would be about the wrong one.
+%ifndef KERN_SMALL
 osapi_vol_stat:
     call inst_vol_enter
     call COLD_SEG:dwf_dskw_vstat    ; AX/BX/CX/DX and CF are ours
     ret
+%else
+osapi_vol_stat:                     ; DOS-only, and the DOS box is not on the
+    stc                             ; small disks (SPEC.md 18.4.7.4): the cell
+    ret                             ; refuses in two bytes
+%endif
 
 ; ---- osapi_file_copy - the file manager's copy engine, published (22.24) -----
 ; The body is `.cold` on kern_big and FILECP.DRV's on kern_small, and the far
@@ -6882,12 +6888,16 @@ dskw_read_at:         call COLD_SEG:dwf_dskw_read_at
                     ret
 dskw_append:          call COLD_SEG:dwf_dskw_append
                     ret
+%ifndef KERN_SMALL
 dskw_write_at:        call COLD_SEG:dwf_dskw_write_at
                     ret
-%ifndef KERN_SMALL
+%else
+dskw_write_at:        stc       ; the DOS box is the one caller (SPEC.md
+                    ret         ; 18.4.7.4) and it does not ship on the
+                                ; small disks: the INSIDE arm, dsk_write_chain
+                                ; and this door are kern_big's, and an append
+                                ; still has the whole body
 %endif
-                                        ; over a far one, neither of which
-                                        ; touches the flags
 fm_kinit:             call COLD_SEG:fm_kinit_x
                     ret
 fm_onclick:           call COLD_SEG:fmf_fm_onclick
