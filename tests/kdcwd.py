@@ -35,12 +35,19 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import subprocess                                               # noqa: E402
+import tempfile                                                 # noqa: E402
+
 import dosmap                                                  # noqa: E402
+import os88build                                               # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 from kdhand import rec, RD_SEL, RD_PITCH, wait_text            # noqa: E402
+from os88geom import KD_SEG                                    # noqa: E402
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CORE_SEG = 0x0060                    # kern_dos's core, where DOS_CBASE sits
 MACH = "os8088_5150_herc_sb_720_gla"
 # **THE SHIPPED 720KB SYSTEM DISK**, not a gate disk: §96.40.3 pointed
 # $(SYSROOT) at the parted package, so every disk a user holds carries
@@ -79,6 +86,107 @@ def answers(rows, arm):
              % (arm, "/".join(miss), "\n".join("   | " + r.rstrip()
                                                for r in rows if r.strip())))
     return got
+
+
+RAHWANT = ("dsk_rah_seg", "dsk_rah_runs", "kd_top", "kd_spent")
+
+
+def kdsyms(want):
+    """{name: offset} for the SHIPPED kern_dos, proved to be its own.
+
+    kdbigexe.py's and kdarena.py's: the Makefile emits no map for
+    build/kerndos.bin, so this assembles the same root again and compares the
+    BINARY before an offset is trusted - a map of another build resolves every
+    name to a plausible wrong address.
+    """
+    kdbin = os.path.join(ROOT, os88build.at("build/kerndos.bin"))
+    if not os.path.exists(kdbin):
+        fail("build/kerndos.bin is not built - `make kdostest`")
+    with tempfile.TemporaryDirectory() as td:
+        binp = os.path.join(td, "k.bin")
+        mapp = os.path.join(td, "k.map")
+        root = os.path.join(td, "root.asm")
+        with open(root, "w") as f:
+            f.write("[map all %s]\n%%include \"%s\"\n"
+                    % (mapp, os.path.join(ROOT, "kerndos", "kdos.asm")))
+        cmd = ["nasm", "-f", "bin", "-w+error", "-DDOS_EXTCORE"]
+        for inc in ("kernel", "kerndos", "apps", "apps/dos", "drivers/net"):
+            cmd += ["-I", os.path.join(ROOT, inc) + os.sep]
+        cmd += ["-o", binp, root]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            fail("kern_dos would not assemble for its map:\n%s" % r.stderr)
+        if open(binp, "rb").read() != open(kdbin, "rb").read():
+            fail("the map describes a DIFFERENT kern_dos to the one on the "
+                 "disk. Rebuild (`make kdostest`) before trusting this")
+        out = {}
+        for ln in open(mapp):
+            p = ln.split()
+            if len(p) == 2 and p[1] in want:
+                out[p[1]] = int(p[0], 16)
+            elif len(p) == 3 and p[2] in want:
+                out[p[2]] = int(p[1], 16)
+        missing = [w for w in want if w not in out]
+        if missing:
+            fail("nasm's map has no %s" % ", ".join(missing))
+        return out
+
+
+def rah_check(m, dm):
+    """THE ARENA IS NOT THE ALLOCATOR'S ANY MORE (SPEC.md 96.44.11.3).
+
+    `kern_dos` claims downward from `[kd_top]` and `kd_arena` carves the
+    program's block and the file window off that same word, so after
+    `kd_giveback` there is no free memory left at the ceiling at all. A mount
+    is what breaks it: `dsk_rah_want` runs from `disk_mount`, refuses only
+    when `[dsk_rah_seg]` is non-zero, and the ladder had just set it to ZERO -
+    so the first file the program opens re-claims 32 KB straight through the
+    running program and its window, and the window's next refill is
+    overwritten between the read and the copy.
+
+    CWDHERE.COM has opened HERE.TXT by the time this runs, which is the mount.
+
+    **TWO CHECKS, AND THE FIRST IS THE ONE THAT BITES HERE.** Commenting the
+    `[kd_spent]` store out of `kd_giveback` and running this takes it red on
+    the LATCH and not on the overlap: CWDHERE is a 462-byte program that opens
+    one file and stops, so the re-claim has not happened yet when the row
+    reads the cells. The overlap check is the net for the shape the field
+    reported - Prince of Persia opens a file every few hundred calls for three
+    minutes, and there the cache is back at 9800..9FE0 against a window at
+    9E00..A000 - and it is kept because the latch is the FIX while the overlap
+    is the DEFECT, and a later design that closes the allocator some other way
+    should still be held to the second.
+    """
+    syms = kdsyms(RAHWANT)
+
+    def w(n):
+        b = m.read((KD_SEG << 4) + syms[n], 2)
+        return b[0] | (b[1] << 8)
+
+    def core(n):
+        b = m.read((CORE_SEG << 4) + dm[n], 2)
+        return b[0] | (b[1] << 8)
+
+    seg, runs, top = w("dsk_rah_seg"), w("dsk_rah_runs"), w("kd_top")
+    spent = w("kd_spent") & 0xFF
+    wseg, wbytes = core("dos_wseg"), core("dos_wbytes")
+    arena = core("dos_arena")
+    print("kdcwd: kern_dos rah_seg=%04X runs=%d kd_top=%04X spent=%d "
+          "arena=%04X wseg=%04X wbytes=%04X"
+          % (seg, runs, top, spent, arena, wseg, wbytes))
+    if not spent:
+        fail("[kd_spent] is 0 after the handover: kd_giveback did not close "
+             "the allocator, so the next mount will re-claim the read-ahead "
+             "out of the program's own memory (SPEC.md 96.44.11.3)")
+    if seg == 0:
+        return
+    lo, hi = seg, seg + ((runs * 9 * 512 + 15) >> 4)
+    plo, phi = arena, wseg + (wbytes >> 4)
+    if lo < phi and plo < hi:
+        fail("the read-ahead cache is INSIDE the program: %04X..%04X against "
+             "the program and window at %04X..%04X. A claim after the "
+             "handover does not take free memory, it takes theirs "
+             "(SPEC.md 96.44.11.3)" % (lo, hi, plo, phi))
 
 
 def main():
@@ -144,6 +252,9 @@ def main():
                                what="the run under kern_dos"), "kern_dos")
         for k in ("DRIVE", "DIR", "BARE", "MYPATH"):
             print("kdcwd: kern_dos %-7s %s" % (k, kd[k]))
+
+        # ...and the memory the program was handed is still ITS OWN
+        rah_check(m, dm)
 
         # --- 3: the two arms are the same program on the same disk ----------
         bad = [k for k in WANT if kd[k] != win[k]]

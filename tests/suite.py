@@ -3004,9 +3004,19 @@ SOAK = [
         "and never reloads ES, so the environment's path came out as `B:` and "
         "Prince of Persia answered `Unable to find necessary files`. The other "
         "three rows were green throughout, which is why all four are printed. "
+        "IT ALSO READS THE ALLOCATOR AFTERWARDS (SPEC.md 96.44.11.3): the "
+        "bare-name open above is a MOUNT, and a mount used to send "
+        "dsk_rah_want at memory kd_giveback had already handed the program - "
+        "kern_dos claims downward from [kd_top] and kd_arena carves the block "
+        "and the file window off that same word, so a later claim takes "
+        "theirs. The row requires [kd_spent] set and the cache either gone or "
+        "clear of the program; broken on purpose the cache comes back at "
+        "9800..9FE0 against a window at 9E00..A000, which is how Prince of "
+        "Persia's PV.DAT record lost its checksum. "
         "MartyPC, the 720KB Hercules twin.",
         needs=("marty",),
-        wants=("build/os8088-720.img", "build/cwdsub.img")),
+        wants=("build/os8088-720.img", "build/cwdsub.img",
+               "build/kerndos.bin")),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
         "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "
         "96.44.6). KERNEL_SEG is kern_dos's own segment, so a `call OSAPI_X` "
