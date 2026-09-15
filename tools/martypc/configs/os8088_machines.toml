@@ -1658,3 +1658,74 @@ overlays = [
     bus_type = "ISA"
     type = "VGA"
     clock_mode = "Default"
+
+# --- PRINCE OF PERSIA'S THREE, AS THREE MACHINES (SPEC.md 96.44.13.1) --------
+# `os8088_5150_herc_sb_720_gla` is the tree's 720KB machine and it has a Sound
+# Blaster in it. Prince of Persia supports the PC speaker, an AdLib and a
+# Sound Blaster and picks between them at start-up, so the three have to be
+# SEPARABLE - and the reason is not the sound. `BLASTER=` is the only
+# environment row either DOS arm produces, so what is in the sound slot decides
+# whether a program is handed an environment with any variables in it at all,
+# which is what 96.44.13 killed Prince over. These two are therefore the A/B
+# for the ENVIRONMENT and not for the audio: a machine with no card is the one
+# that asks whether a DOS program can still find its own path.
+#
+# Both are GLaBIOS twins of that machine for the usual reason - the IBM ROM is
+# not in this tree (see os8088_5150_cga_hdd above) - and the usual caveat
+# applies to neither of these rows, which take no disk or boot timing.
+
+# ...with NOTHING in the sound slot: a PC SPEAKER machine.
+[[machine]]
+name = "os8088_5150_herc_720_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_720k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+
+# ...and with an ADLIB and no Sound Blaster. An OPL2 at 388h and no DSP
+# anywhere, which is the configuration SPEC.md 51.11.2.1 is about: the driver
+# ATTACHES here, so it is still mounted when the DOS box suspends it and is
+# still asked DRVV_HWINFO - where the speaker machine's sound driver is never
+# loaded at all. The two reach the same empty environment by different routes,
+# which is why both exist rather than just the speaker one.
+[[machine]]
+name = "os8088_5150_herc_adlib_720_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_720k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388

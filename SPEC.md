@@ -125837,6 +125837,38 @@ which is 6, 5 or 4 depending on the build — and the kernel asserts one against
 the other at assembly time, because a row added here without widening the SDK
 would write past the end of somebody's buffer.
 
+#### 51.11.2.1 A refused probe left a plausible answer behind, and an AdLib machine advertised a Sound Blaster
+
+`SOUND.DRV` answers this verb out of `[sbl_base]`, and `[sbl_base]` is the
+Sound Blaster scan's **cursor** as well as its result: `sbl_f_probe` walks
+`{220h,240h,210h,230h,250h,260h}` writing each candidate into that word before
+it resets the DSP there, and when the list runs out it writes `0x220` once more
+for a slow retry (§34.2). The `.no` arm returned `AL = 0` and left the word as
+the retry had set it.
+
+`sbl_attach` reads `AL`, so the SB half correctly refused. **`snd_hwinfo` reads
+the word**, so it did not — and an **AdLib-only machine is exactly the
+configuration where that matters**, because the OPL2 at 388h attaches, the
+driver therefore stays mounted, and a mounted driver is one `drv_suspend` asks:
+
+```
+BLASTER=A220 D1 T1
+```
+
+Every field of that is the wreckage of a failed scan rather than a reading of
+any hardware: `A220` is the retry's leftover, `D1` is the constant this driver
+always reports, no `I` appears because `sbl_irq` is still `sbl_state_init`'s
+`0FFh`, and `T1` is a DSP major version of **zero** — a number no DSP that ever
+answered `E1h` could produce. The fix is one store on `.no`; `sbl_state_init`
+cannot cover it, running *before* the probe rather than after it.
+
+**The test stays `[sbl_base]` and not `[sbl_up]`**, which is the part worth
+writing down. They differ on `sbl_attach`'s `.nomem` arm — a card that really
+is in the machine, found and version-gated, whose 12KB page-safe DMA claim the
+heap refused. Our driver cannot stream from it; a DOS program with the whole
+machine can, and does its own DMA. `BLASTER=` describes the **hardware**, so a
+card we could not use is still a card to name.
+
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
 A **packet driver is an interface, not a program**. What the box publishes is
@@ -128327,6 +128359,45 @@ until the handoff replaces it.
 Checked red twice on purpose: with `.loadtry` deleted the guest says *"kern_dos:
 the program could not be loaded"*, and with the rungs collapsed to one step the
 recorded widths read `[7, 0]` against `[7, 4, 2, 0]`.
+
+##### 96.44.13.1 ...and never an empty set, on either arm
+
+Taking the drivers where the row is read fixes the arm that had a Sound
+Blaster. **It fixes nothing on a machine with no card**, and that is not an
+edge: `BLASTER=` is the only row either arm has ever produced, so a PC speaker
+machine and an AdLib machine (§51.11.2.1) both hand out the same zero-variable
+block that stopped Prince, and they do it whichever arm the user picks.
+
+**A real DOS has no such thing.** `COMMAND.COM` puts `COMSPEC=` into every
+environment it passes on, so a DOS program has never met a set with no rows in
+it and the walk that reaches its own path has never had to survive one. The box
+should not be the first machine to show it one.
+
+So a set that would come out empty gets one row instead:
+
+```
+PATH=\0 \0 \x01\0 B:\PRINCE.EXE\0
+```
+
+`PATH=` with an **empty value** is a true statement about this machine — there
+is no search path here and §96.9's resolver does not have one — and it is the
+one row that is safe to invent: nothing will try to execute it, nothing will
+open it, and a program that parses it gets the answer it would get from a real
+DOS booted with no `PATH` set. `COMSPEC=` would have been the more faithful
+copy and is refused for exactly that reason: it names a `COMMAND.COM` that does
+not exist, and a program that shells out would find out the hard way.
+
+It is written at `dos_build_psp`'s `.envend`, where `DI` is the write cursor
+and is still zero precisely when nothing was emitted — so the test is one
+`cmp`, it costs the machines that do have a card nothing, and it is in the CORE
+so both arms get it from one place.
+
+**Measured, on three machines that differ only in what is in the sound slot**
+(`os8088_5150_herc_720_gla`, `os8088_5150_herc_adlib_720_gla`,
+`os8088_5150_herc_sb_720_gla`): the speaker machine's block begins `PATH=`, the
+AdLib machine's begins `PATH=` once §51.11.2.1 stops it claiming a Sound
+Blaster, the SB machine's begins `BLASTER=A220 I5 D1 T3`, and Prince of Persia
+reaches its opening card on all three.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

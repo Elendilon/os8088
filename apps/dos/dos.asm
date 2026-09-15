@@ -1854,6 +1854,34 @@ dos_build_psp:
     loop .envrow
     pop cx
 .envend:
+    ; --- ...AND NEVER AN EMPTY SET (SPEC.md 96.44.13.1) ----------------------
+    ; **A REAL DOS HAS NO SUCH THING**: COMMAND.COM puts `COMSPEC=` in every
+    ; environment it hands out, so the first byte a program reads there is a
+    ; letter and never the set's own terminator. This box's set is BLASTER=
+    ; plus whatever the user typed, and on a machine with no sound card and an
+    ; empty Environment page that is NOTHING - a block that begins with the NUL
+    ; that ends it.
+    ;
+    ; That is well formed and it stops a program dead, because the rows are the
+    ; ROAD to the program's own path: DOS 3 puts the path after the set's
+    ; terminating NUL and a count word (96.19.3), so a program WALKS the
+    ; variables to reach it. Prince of Persia's walk is `cmp byte [es:0],0 /
+    ; jz skip`, and it then cannot tell which directory it came from.
+    ;
+    ; So a set that would be empty gets `PATH=` instead. It is the honest row
+    ; to pick: DOS always has one, an EMPTY value is a true statement about
+    ; this machine, and nothing will try to execute it - where a `COMSPEC=`
+    ; pointing at a COMMAND.COM that is not on any disk here invites a program
+    ; to shell out and fail somewhere further away.
+    or di, di                       ; DI is the write cursor and the set began
+    jnz .envend2                    ; at ZERO, so nothing written = an empty set
+    mov si, dos_s_epath
+.envp:
+    lodsb
+    stosb
+    or al, al
+    jnz .envp
+.envend2:
     xor al, al
     stosb                           ; ...and the NUL that ends the SET
     mov ax, 1
@@ -8774,6 +8802,10 @@ dos_e_fit:   db 'Program too big to fit in memory.', 0  ; DOS 3.30's own words,
 dos_dotdot:  db '..', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_s_epath: db 'PATH=', 0        ; **NEVER AN EMPTY SET** (SPEC.md
+                                  ; 96.44.13.1): a real DOS always has a
+                                  ; row, so a program that walks the set
+                                  ; to reach its own path always can
 dos_s_blast: db 'BLASTER=A', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
