@@ -83686,9 +83686,11 @@ terminates in at most **three** plans: `[mem_parked]` admits one park and
 plan is made against the layout as it stands, so whichever single pass
 satisfies the claim is the one that runs — ascending first, being the cheaper,
 then descending. Only when neither alone funds the claim does `mem_compact`
-run both — **the ceiling first, then the floor**, the order §66.4.3.1's plan
-models, because the two orders cut the same free space differently and
-`mem_avail` has already promised one of the cuts.
+run both, **the floor first** — not the order §66.4.3.1's plan models, and
+not by choice: the ceiling pass moves the asking package's region, a region's
+move restarts its parked worker (§66.6.2), and a floor pass after that finds
+the worker running and pins every claim the package holds. Measured the other
+way round by `heapcheck`'s R4: 223K delivered against 250K planned.
 
 **They used to be ALTERNATIVES, and that was a defect rather than a trade.**
 The rule read *"whichever single pass satisfies the claim is the one that
@@ -83933,20 +83935,26 @@ solid. `tools/heapwhatif.py` is the arithmetic on the host, and
 spec — in the look-ahead form, deliberately, so the two spellings check each
 other.
 
-**The order is the point, and `mem_compact` was running the other one.** The
-plan models the ceiling packed first and then the floor — `heapwhatif.py`'s
-`true_combined` and `heapcheck.py`'s model both say so — and `.both` ran the
-floor first, on the sentence *"cheapest first"*. The two orders leave the same
-**total** of free space cut at **different places**: a run of top-down movers
-takes the gap between its top and the bottom-up claim above it *with* it
-ceiling-first and leaves it *above* floor-first, and neither cut dominates the
-other. So a plan of one order against a compactor of the other can promise a
-run the pass never produces — `[H][L][60][H][60][L]` packs to two runs of 60
-floor-first where the plan reads 120 — which is the over-report this section
-exists to forbid. `.both` now runs the ceiling first, the order it was
-verified against; the *"cheapest first"* argument is that neither pass can
-make the largest run smaller, and that is true of both passes, so it never
-chose between them.
+**The order is the point, and `mem_compact` runs the other one — an OPEN
+mismatch, recorded rather than fixed.** The plan models the ceiling packed
+first and then the floor — `heapwhatif.py`'s `true_combined` and
+`heapcheck.py`'s model both say so — and `.both` runs the floor first. The two
+orders leave the same **total** of free space cut at **different places**: a
+run of top-down movers takes the gap between its top and the bottom-up claim
+above it *with* it ceiling-first and leaves it *above* floor-first, and
+neither cut dominates the other. So a plan of one order against a compactor of
+the other can promise a run the pass never produces — `[H][L][60][H][60][L]`
+packs to two runs of 60 floor-first where the plan reads 120. The size pass
+turned `.both` round to match and **measured it wrong**: the ceiling pass moves
+the asker's region, the region's move restarts its parked worker (§66.6.2),
+and the floor pass then found the asker's three claims pinned — `heapcheck`
+R4 read 223K on the wake against a what-if of 250K, and 250K floor-first. So
+the compactor's order is forced by the park, the plan's is what
+`mem_cp_both` can compute in one ascending walk, and they disagree only where
+a run of ceiling movers has a floor mover above it with a hole between. Nothing
+in the tree builds that layout; a plan of the floor-first order needs the
+next ceiling-run's gap charged *below* the floor mover, which is a second
+deferred quantity and is left for whoever meets it.
 
 **PLAN ONLY.** There is no `mem_cp_both_run` and there must not be: one walk
 may plan both directions and may **not** run them, because packing a top-down
