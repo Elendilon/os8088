@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, and one residual
 each in 33 and 37.
 
 ---
@@ -1538,3 +1538,97 @@ not of the kernel**, and `DSV_TICK` alone moves it 16.
 `tools/stkwater.py` measures what a slice actually reached, and
 `tools/cyunwind` is Cyclone's own unwinder from the first investigation —
 neither needs an emulator run to be set up specially.
+
+---
+
+## 43. Prince of Persia will not start under the WHOLE-MACHINE arm (OPEN — two causes found and fixed, a third remains)
+
+Reported off an 86Box 286 with an OTI-067 VGA, three floppies and a 128MB VHD
+(so the third floppy lands on D:, §18.7.1): *"Prince, when run from a
+subdirectory, goes back to `Please Insert Disk in Drive D:`. The drive is
+right — but I think the CWD being given to it probably doesn't have the
+subdirectory."*  And separately: *"I'm also unable to launch it through our
+console, it just prints `Bad command or file name`. I tried it from B: and
+D:."*
+
+**THE SUBDIRECTORY IS NOT THE VARIABLE, and that is measured four ways.** The
+report's shape points straight at the folder and the folder is innocent:
+
+| | windowed | whole machine |
+|---|---|---|
+| launched from the volume ROOT | runs | **"Unable to find necessary files"**, exit 1 |
+| launched from a SUBDIRECTORY | runs | **"Please insert Prince of Persia Disk 1"** |
+
+What made it look like the folder is the `.LNK`: a shortcut records the arm,
+so double-clicking it takes the third one while opening `PRINCE.EXE` directly
+fits windowed and takes the first. On the reporter's machine the game is in a
+subdirectory AND has a shortcut, so the two moved together.
+
+**TWO CAUSES FOUND AND FIXED.** Both are §96.44 seam defects and each is
+reproduced by a registered row now:
+
+1. **§96.44.2.1** — the core and the window laid the shared bss out four bytes
+   apart, because `DBSS DOS_B_DVCWD, 2 * DVOL_MAX` sized a core table from a
+   per-host constant. That is the console half of the report, entirely: every
+   program typed at the parted box's prompt answered `Bad command or file
+   name`, root or subdirectory. `tests/unit/t_dosbss.py` rule 4.
+2. **§96.44.10** — `OSAPI_FILE_PATH` is an X cell, so `api_x` puts the
+   caller's DS in ES; `kern_dos` bound the door with a far call straight at
+   `dsk_path_x`, which writes to ES:DI and never reloads ES. The program's own
+   path in the environment came out as `B:` — the drive and nothing after it.
+   `tests/kdcwd.py`. With it fixed, Prince opens `B:\PRINCE\prince.dat`
+   correctly and still fails.
+
+**WHAT IS RULED OUT for the third**, each on a measurement rather than on
+reasoning, all taken on one machine with one disk and the two arms as the only
+variable (`os8088_5150_herc_sb_720_gla`, `build/os8088-720.img`):
+
+- **the file's BYTES** — `RDSUM.COM` reads `PRINCE.DAT` whole in 512-byte
+  chunks and answers `len=00000CCE sum=BB77` under both arms, which is what
+  the host computes off the image;
+- **the SMALL read Prince actually makes** — `tests/dostrap/rdsmall.asm` reads
+  six bytes at offset 0, six more, six after a rewind and 512 after a rewind,
+  and prints every one: `DC 0A 00 00 F2 01` under both arms, identical;
+- **the current directory, the drive, a bare-name open and the program's own
+  path** — `tests/kdcwd.py`, all four identical since fix 2;
+- **the command tail, the environment and its count word** — `DOSARGS.COM`
+  under both arms: `COUNT 0 / ARGS (none) / TERM 0 / SET BLASTER=… / MYPATH
+  B:\DOSARGS.COM`;
+- **the registers a program is handed** — `cs:ds`, `ss:sp` and `PSP:0002`
+  printed at entry: a `.COM` gets `DS:FFFC` on both, and the only difference
+  is the block top, which is memory it has more of;
+- **the amount of memory** — capping the arena to 200 KB on the Memory page
+  (`dos_memkb`, which rides the handover) changes nothing;
+- **the drive's CYLINDERS** — `os88fat.py reach` says the machine reaches the
+  whole image, and `PRINCE.DAT` is at cylinder 16 either way.
+
+**WHERE IT DIVERGES, to the instruction.** Both arms make the same fourteen
+calls and then part company on the fifteenth. Prince opens `prince.dat`, reads
+six bytes — `DC 0A 00 00 F2 01`, which is the words `0x0ADC`, `0x0000`,
+`0x01F2` — and then:
+
+| | windowed | whole machine |
+|---|---|---|
+| `AH=48h` paragraphs | `0x0026` (38) | `0x0179` (377) |
+| `AH=42h` seek to | `0x0ADC` = 2780 | `0x1733` = 5939 |
+| `AH=3Fh` read | `0x01F2` = 498 | `0x1728` = 5928 |
+
+2780 + 498 is **3278, the file's exact length** — the windowed arm takes the
+two words straight out of the header and reads the index off the tail. The
+whole-machine arm's two numbers are **nowhere in the file**, and 5939 is past
+the end of it. So the six bytes are right and what is computed from them is
+not.
+
+**The one thread left is that every one of Prince's data pointers is exactly
+TWELVE BYTES higher under `kern_dos`** — the open's `DS:DX`, the read's
+buffer, the `AH=47h` buffer, all `+12` — while its DS sits at the same
+`0x1B13` paragraphs past its own PSP in both. A static buffer cannot move, so
+these are computed; `dos_exe_setup` takes SS and SP straight from the MZ
+header with no clamp, so it is not the stack the loader sets. That is where to
+start.
+
+**To reproduce**: `make kdostest`, then `build/os8088-720.img` in A: and a
+720KB Prince disk in B: on `os8088_5150_herc_sb_720_gla`; open the box, Setup
+→ Memory → the third arm, Return, type `B:\PRINCE.EXE` in the path box, Run,
+Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
+startup in 114 calls.
