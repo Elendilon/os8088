@@ -1587,9 +1587,12 @@ mem_cp_mine:
 ; SPEC.md 66.4.3.1. mem_claim compacts BOTH ways (SPEC.md 66.4.1), so a plan
 ; that models one is a mem_avail smaller than what the allocator would hand
 ; out - and a package with an EXACT requirement refuses a file it could have
-; opened, silently. This is the plan that matches the compactor it has: the
-; ceiling packed up, then the floor packed down, which is the order
-; mem_compact's .both runs them in.
+; opened, silently. This is the plan that matches the compactor it has - the
+; ceiling packed up, then the floor packed down. mem_compact's .both runs
+; them the OTHER way round, for a reason measured there (a region's move
+; restarts the worker the floor pass needs parked), so the two agree except
+; where a run of ceiling movers has a floor mover above it with a hole
+; between; SPEC.md 66.4.3.1 carries that.
 ;
 ; ONE ASCENDING WALK, AND THE DESCENDING PASS IS A DEFERRED SUM. What that
 ; pass does to a top-down claim is slide it up until it meets the next thing
@@ -1625,8 +1628,8 @@ mem_cp_mine:
 ; is the worst answer available here - mem_avail promising memory mem_claim
 ; cannot produce, so the claimant sheds its caches on the way to being
 ; refused anyway. The two passes in the OTHER order are the same trap one
-; level up: the same free space cut at different places, and mem_compact's
-; .both runs them as planned here for that reason.
+; level up - the same free space cut at different places - and .both has to
+; run them that way (see there), which is the one open mismatch.
 ;
 ; THE TOTAL RIDES ALONG. Every live claim passes through .pack exactly once -
 ; mem_cp_next steps past each base - and one that is not a cache this rank may
@@ -3040,20 +3043,23 @@ mem_compact:
     ; slide a claim onto paragraphs the walk has already passed, so a claim
     ; that fails anyway is left on a better-packed heap either way round.
     ;
-    ; THE CEILING FIRST, THEN THE FLOOR - the order mem_cp_both PLANS them in
-    ; (SPEC.md 66.4.3.1), and the order matters: the two produce the same
-    ; total of free space cut differently, and mem_avail promises the cut it
-    ; planned. The floor first was measured against that plan and can leave
-    ; the largest run SMALLER than the number mem_avail had already handed out
-    ; - [H][L][60][H][60][L] packs to 60/60 floor-first where the plan, and
-    ; this order, reach 120.
-    mov word [mem_cp_msk], 0xFFFF
-    call mem_cp_run             ; ...the ceiling packs up
+    ; THE FLOOR FIRST, THEN THE CEILING - AND NOT THE ORDER mem_cp_both PLANS
+    ; THEM IN (SPEC.md 66.4.3.1), which was tried and MEASURED WRONG: the
+    ; ceiling pass moves the asking package's REGION, and a region's move
+    ; restarts its parked worker (SPEC.md 66.6.2), so a floor pass that
+    ; follows finds the worker RUNNING and mem_busy_seg pins every claim the
+    ; package holds. tests/heapcheck.py's R4 read the wake at 223K against a
+    ; what-if of 250K ceiling-first - the 27K being the asker's own three
+    ; claims, left where they stood - and 250K floor-first. The two orders
+    ; cut the same free space differently and the plan models the other one;
+    ; that mismatch is recorded there and is NOT fixed by reordering here.
+    mov word [mem_cp_msk], 0
+    call mem_cp_run             ; ...the floor packs down, under the park
     mov bx, dx                  ; DX = what it moved, banked across the second
                                 ; walk (mem_cp_walk preserves BX, and BX has
                                 ; been spent since .rank)
-    mov word [mem_cp_msk], 0
-    call mem_cp_run             ; ...and then the floor packs down
+    mov word [mem_cp_msk], 0xFFFF
+    call mem_cp_run             ; ...and then the ceiling packs up
     or bx, dx                   ; DID EITHER PASS MOVE ANYTHING? mem_claim's
     call mem_cp_end             ; retry loop rests on CF = 1 when nothing did -
     or bx, bx                   ; a CF = 0 that moved nothing is an infinite

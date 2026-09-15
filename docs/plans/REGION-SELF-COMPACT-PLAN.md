@@ -694,9 +694,13 @@ are the contract as it stands now. Three things changed and one was found:
    ceiling first** — `tools/heapwhatif.py`'s `true_combined` and
    `tests/heapcheck.py`'s `both_passes()` both say ceiling-first, and 7.1's
    *"the order the passes run"* was written against them. The two orders cut
-   the same free space at different places, so the plan could promise a run
-   the pass then failed to produce (`[H][L][60][H][60][L]`: 120 planned, 60
-   delivered). `.both` runs the ceiling first now, at no cost in bytes.
+   the same free space at different places, so the plan can promise a run
+   the pass then fails to produce (`[H][L][60][H][60][L]`: 120 planned, 60
+   delivered). Turning `.both` round was tried and MEASURED WRONG: the
+   ceiling pass moves the asker's region, which restarts its parked worker,
+   and the floor pass then pins the asker's claims (`heapcheck` R4: 223K on
+   the wake against 250K). The order stays floor-first and the mismatch is
+   recorded in SPEC.md 66.4.3.1 as open.
 
 ## 8. Tracker, the first consumer (SPEC.md 45.3.2)
 
