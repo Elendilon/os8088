@@ -5227,6 +5227,17 @@ $(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
 	    $(BUILD)/DOSKID.COM
 
+# ...and the REGISTER gate's (SPEC.md 96.7.1.2). REGS.COM opens ITSELF, so the
+# disk carries nothing but the probe - no fixture to get wrong, and the same
+# binary runs under a real IBM DOS 3.30 off a floppy of its own. It CREATES
+# and DELETES `REGTMP.$$$` beside itself, which the per-instance clone makes
+# safe on our side and a copied DOS floppy makes safe on the reference's.
+$(BUILD)/REGS.COM: tests/dostrap/regs.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/regs.asm
+
+$(BUILD)/dosregs360.img: $(BUILD)/REGS.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/REGS.COM
+
 # ...and the sound gate's. It needs NO SYSTEM.CFG: SPEC.md 51.3.1's boot
 # sniff finds the OPL and mounts SOUND.DRV by itself, which is exactly the
 # case SPEC.md 96.17 is about - the common one, not the configured one.

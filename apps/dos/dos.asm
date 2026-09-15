@@ -2611,6 +2611,13 @@ dos_int21:
     jc .fhbad
     test byte [si+FH_FLAGS], FHF_WRITE
     jz .fhacc
+    or byte [si+FH_FLAGS], FHF_WROTE ; **AH=44h's BIT 6 IS THE ONLY READER**
+                                    ; (SPEC.md 96.7.1.2), and it is set where
+                                    ; the write is ACCEPTED rather than where
+                                    ; it succeeds: DOS clears that bit for a
+                                    ; CX=0 write too (96.11.6.2's truncate),
+                                    ; which moves no bytes at all, and SI is
+                                    ; the record only here
     test byte [si+FH_FLAGS], FHF_INPLC
     jnz .fwinpl                     ; an AH=3Dh handle OVERWRITES (96.11.6)
     mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
@@ -3246,6 +3253,14 @@ dos_int21:
     push si
     push di
     push es
+    push cx                         ; **AND CX, WHICH IS A MEASURED DEFECT**
+                                    ; (SPEC.md 96.7.1.2): the call below spends
+                                    ; it on the buffer length and AH=47h has no
+                                    ; CX output at all, so a program that kept
+                                    ; a count there across "where am I" got the
+                                    ; length of our path buffer back. IBM DOS
+                                    ; 3.30, asked the same question by the same
+                                    ; binary, gives CX back
     push ds
     pop es
     mov di, dos_pbuf
@@ -3267,6 +3282,7 @@ dos_int21:
     stosb
     or al, al
     jnz .cw_byte
+    pop cx
     pop es
     pop di
     pop si
@@ -3274,6 +3290,7 @@ dos_int21:
     mov ax, 0x0100                  ; DOS 3+ leaves AX = 0100h here, and at
     jmp .fhok                       ; least one program checks it
 .cw_bad:
+    pop cx
     pop es
     pop di
     pop si
@@ -3470,14 +3487,29 @@ dos_int21:
     jmp short .ioc_done
 .ioc_file:
     push bx                         ; dos_fh_slot spends BX and SI, and both
-    push si                         ; are the program's here
-    call dos_fh_slot
+    push si                         ; are the program's here - and SI STAYS
+    call dos_fh_slot                ; alive across the reads below, which is
+    jc .ioc_fbad                    ; what the two fixes here both needed
+    mov dl, [si+FH_VOL]             ; **THE HANDLE'S OWN DRIVE, NOT THE BOX'S**
+    and dl, 0x3F                    ; (SPEC.md 96.7.1.2). Bits 0-5 are the drive
+    xor dh, dh                      ; the FILE is on and [dos_vol] is where the
+                                    ; PROGRAM is standing; they are the same
+                                    ; number until a program opens `B:NAME`
+                                    ; from A:, and IBM DOS 3.30 answers 0041h
+                                    ; for exactly that - the file's drive, with
+                                    ; the box on A:. BIT 7 CLEAR = a file,
+                                    ; which is the whole question asked
+    test byte [si+FH_FLAGS], FHF_WROTE
+    jnz .ioc_fok                    ; **BIT 6 IS "HAS NOT BEEN WRITTEN
+    or dl, 0x40                     ; THROUGH"** and it is the row SPEC.md
+.ioc_fok:                           ; 96.7.1.1 recorded and could not fix: it
+    pop si                          ; needed a per-handle flag, and FH_FLAGS
+    pop bx                          ; had a spare bit. Measured on the same
+    jmp short .ioc_done             ; binary: 0041h freshly opened, 0041h
+.ioc_fbad:                          ; freshly CREATED, 0001h once written
     pop si
     pop bx
-    jc .ioc_bad
-    mov dl, [dos_vol]               ; bits 0-5 the drive; BIT 7 CLEAR = a
-    and dl, 0x3F                    ; FILE, which is the whole question asked
-    xor dh, dh
+    jmp short .ioc_bad
 .ioc_done:
     mov ax, dx                      ; DOS answers AX = DX here too, and a
     mov [bp-8], dx                  ; library may read either (SPEC.md 96.7.1)
@@ -9992,6 +10024,13 @@ FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
 FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
+FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
+                                    ; AH=44h's bit 6 - "has NOT been written
+                                    ; through" - is now CLEAR (SPEC.md
+                                    ; 96.7.1.2). NOT FHF_MADE, which means a
+                                    ; window has been FLUSHED: a program that
+                                    ; writes eight bytes and asks has written,
+                                    ; and nothing has reached the disk
 
 DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
                                     ; program's name: "D:NNNNNNNN.EEE" is 14,

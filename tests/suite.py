@@ -2693,6 +2693,40 @@ SOAK = [
         "not 15, on 4Eh, 3Dh and 3Bh alike.",
         needs=("marty",), serial=True,
         wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
+    Row("dosregs", "soak", py("tests/dosregs.py"), 25.0,
+        "DOES INT 21h GIVE BACK EVERY REGISTER IT DOES NOT ANSWER IN? "
+        "(SPEC.md 96.7.1.2). ONE BINARY RUNS ON BOTH - tests/dostrap/regs.asm "
+        "under this box and under a real IBM DOS 3.30 off a real floppy, "
+        "printing the same table - because the two findings before this one "
+        "each came out of a PROGRAM visibly breaking, and 'which register "
+        "does the next one destroy' is not a question reading the code "
+        "answers: 96.7.1 made the argument for SI, DI and ES and left DX out "
+        "of it, and DX was destroyed on 37 opens out of 37. Every register "
+        "the call does not need goes in carrying a sentinel and the whole set "
+        "is pushed THE INSTRUCTION AFTER THE `int` - before the AH=02h that "
+        "prints it, which is itself one of the calls under test. 45 calls: "
+        "every function the box dispatches except AH=4Bh (needs a child - "
+        "dosexec is its gate), AH=01h/07h/08h (they BLOCK on a keystroke), "
+        "AH=4Ch/00h (they do not return) and the memory trio, where a .COM "
+        "owning all of memory makes the comparison about DOS's memory model "
+        "rather than about registers. THE EXPECTED COLUMN IS THE "
+        "MEASUREMENT and not a rule: five functions answer in DX and two in "
+        "ES:BX, so those read a letter on a correct DOS too, and CF rides "
+        "every row because a call that fails on one machine and succeeds on "
+        "the other has a different set of outputs. It found three things - "
+        "AH=47h eating CX (a program that kept a count across `where am I` "
+        "got 132 back), AH=44h's bit 6, which 96.7.1.1 recorded and could "
+        "not fix, and AH=44h's DRIVE bits, which read the box's standing "
+        "drive where DOS answers the FILE's, so the last five rows stand the "
+        "machine on A: and open B:REGS.COM by name. The `57 ` row is RED ON "
+        "PURPOSE and named: AH=57h is unimplemented because "
+        "OSAPI_FILE_FIND's record carries no timestamp, and it is in the "
+        "table so that implementing it FAILS this row rather than quietly "
+        "passing on a stale expectation. VERIFIED RED three ways: dropping "
+        "the FHF_WROTE store, putting [dos_vol] back in the device word, and "
+        "un-pushing CX in .getcwd.",
+        needs=("marty",), wants=("build/dosregs360.img",)),
+
     Row("dosfcb", "soak", py("tests/dosfcb.py"), 30.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "

@@ -57,6 +57,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tools/os88fat.py` | edit a floppy image in place; **say what a drive can reach** |
 | `tests/dostrap/trap.asm` | the TSR that logs a real DOS's `INT 21h` traffic |
 | `tests/dostrap/dosref.asm` | one binary that answers the same questions on both |
+| `tests/dostrap/regs.asm` | ...and the same shape for the REGISTERS: which ones does `INT 21h` give back? (SPEC.md 96.7.1.2) |
 | `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
 | `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |

@@ -122482,6 +122482,96 @@ this box has no per-handle "has been written" bit to answer it from. It is
 recorded rather than guessed at, because the honest answer needs a flag that
 does not exist yet.
 
+#### 96.7.1.2 ...and then the whole surface was SWEPT, one binary on both
+
+§96.7.1 made the register argument and applied it to three registers;
+§96.7.1.1 measured a fourth and found it destroyed on 37 calls of 37. Both
+findings came out of a *program* — Prince of Persia, Test Drive III — which
+means both were found because something visibly broke. `BX` and `CX` had never
+been measured at all, and the question *"which register does the next one
+break?"* has no answer that reading the code reliably gives: §96.7.1's own
+lesson is that a handler can look correct and forget.
+
+So `tests/dostrap/regs.asm` asks all of them at once, and it is the
+`dosref.asm` shape (docs/DOS-DEBUGGING.md): **one binary, run under this box
+and under a real IBM DOS 3.30, printing the same table.** Every register the
+call does not need goes in carrying a sentinel, the ones it does need carry
+real arguments, and the whole set is pushed *the instruction after the `int`* —
+before anything else can touch it, and in particular before the `AH=02h` that
+prints the answer, which is itself one of the calls under test. The mask is
+printed raw and judged nowhere inside the program:
+
+    B C D S I P E G   =  BX CX DX SI DI BP ES DS
+
+A change is not a defect and the probe does not claim it is — five functions
+answer in `DX`, `AH=30h` in `BX` and `CX`, `AH=2Fh` and `AH=35h` in `ES:BX`.
+**The finding is the diff between the two columns**, and `CF` rides every row
+because a call that fails on one machine and succeeds on the other has a
+different set of outputs, so a mask compared without it is comparing two
+different questions.
+
+**45 calls, and the surface is nearly all of it**: every `INT 21h` function
+this box dispatches except the four that cannot be asked this way — `AH=4Bh`
+needs a child (`dosexec` is its gate), `AH=01h`/`07h`/`08h` BLOCK on a
+keystroke, and `AH=4Ch`/`00h` do not return. The memory trio (`48h`, `49h`,
+`4Ah`) is deliberately out too: a `.COM` owns all of memory under a real DOS,
+so what that comparison measures is the two memory models rather than the
+registers (`dosmem` and `dosarena` are its gates).
+
+**41 of the 45 rows agree to the character.** That is the headline and it is
+worth stating plainly, because the expectation going in was the opposite:
+`BX` and `CX` are given back everywhere they should be, and the per-handler
+discipline §96.7.1 distrusted is in fact holding across the whole surface. Three
+findings came out of the four rows that differ.
+
+##### Finding 1 — `AH=47h` eats `CX`, and gives back the length of our path buffer
+
+`.getcwd` sets `CX = DOS_PBUF` for `dos_be_path`'s buffer length and never
+puts it back. `AH=47h` has no `CX` output at all, so a program that kept a
+count in `CX` across *"where am I standing"* got 132 back. Two rows catch it —
+from the root and from a subdirectory — and IBM DOS 3.30, asked by the same
+binary, gives `CX` back on both.
+
+**It is fixed in the handler and not at the gate, and that is a decision the
+sweep is what licenses.** Banking `CX` and `BX` at the gate the way §96.7.1.1
+banked `DX` costs ~60 resident bytes, and — the part that matters — it turns
+eleven handlers that currently answer in `BX` or `CX` into eleven handlers that
+must instead write the banked slot. Each of those is exactly as forgettable as
+a `push`, and its failure is *worse*: a stale value returned as an answer,
+rather than a scratch register clobbered. §96.7.1 preferred the gate because
+nothing would notice a handler forgetting. **Something notices now**, and it
+notices both mistakes rather than one.
+
+##### Finding 2 — the device word, which §96.7.1.1 recorded and could not answer
+
+`AH=44h AL=00h` answered `0001h` where DOS answers `0041h`, and that row was
+left open for want of a per-handle flag. `FH_FLAGS` had a spare bit.
+`FHF_WROTE` is set where `AH=40h` ACCEPTS a write — not where one succeeds,
+because DOS clears bit 6 for a `CX=0` truncate too (§96.11.6.2), which moves
+no bytes — and bit 6 is its complement, *this handle has not been written
+through*. Measured on the same binary, three readings that a single one could
+not have distinguished: **`0041h` freshly opened, `0041h` freshly CREATED,
+`0001h` once written.**
+
+**And the drive bits were wrong in a way no same-drive test could show.** The
+handler read `[dos_vol]` — where the *program* is standing — where bits 0..5
+are the drive the *file* is on. They are the same number until a program opens
+`B:NAME` from A:, so the probe now does exactly that as its last five rows:
+select A:, open `B:REGS.COM` by name, ask. IBM DOS 3.30 answers **`0041h`** —
+the file's drive, with the machine on A:. It reads `[si+FH_VOL]` now, which is
+the field §96.6.2 added for precisely this confusion one layer down.
+
+##### Finding 3 — `AH=57h` is not implemented, and is not implemented here either
+
+DOS answers `CX` = time, `DX` = date for an open handle; this box falls to the
+invalid-function arm and answers `CF=1`, `AX=0001h`. It is **recorded rather
+than guessed at**, which is §96.7.1.1's own treatment of the device word one
+cycle earlier, and for a reason that is a fact about a different layer:
+`OSAPI_FILE_FIND`'s 24-byte record (§19.7.1) **carries no timestamp**, so
+answering `AH=57h` is a published kernel ABI change and not a DOS-box change.
+The probe row stays, red against the reference, as the gate's own record that
+the gap is known and measured rather than unnoticed.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
