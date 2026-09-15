@@ -3658,11 +3658,18 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; size in bytes (>= 2); out CF=0, a NUL
                                  ; `\DIR\DIR` written there and CX = its
                                  ; length not counting the NUL, DI unchanged.
-                                 ; CF=1 and AX = FERR_BIG (buffer too small),
-                                 ; FERR_IO, FERR_NAME (the chain is corrupt or
-                                 ; over 32 deep) or FERR_NOENT (a parent does
-                                 ; not name its own child - a cross-linked
-                                 ; disk). UI-task context, like every file cell
+                                 ; CF=1 and AX = FERR_BIG (buffer too small -
+                                 ; and a CYCLIC '..' chain ends there too, the
+                                 ; buffer being the depth bound), FERR_NAME (a
+                                 ; '..' is missing, wild or would not read),
+                                 ; FERR_NOENT (a parent does not name its own
+                                 ; child - a cross-linked disk), or FERR_NODISK
+                                 ; on kern_small, which carries the cell and no
+                                 ; walker (SPEC.md 19.2.4.3) - so TEST CF and
+                                 ; fall back, as every caller in the tree does.
+                                 ; A folder is spelled exactly as
+                                 ; OSAPI_FILE_FIND spells it. UI-task context,
+                                 ; like every file cell
 
 ; --- SPEC.md 18.9.3: the batch bracket ---------------------------------------
 ; "The interface is frozen and the disk is the same disk." Between these two,
