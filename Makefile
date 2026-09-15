@@ -4977,11 +4977,12 @@ $(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
 		SUB:$(BUILD)/CWDHERE.COM SUB:$(BUILD)/HERE.TXT $(BUILD)/CWDHERE.COM
 
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"
-	@echo "          and build/cwdsub.img for tests/kdcwd.py."
+	@echo "          build/cwdsub.img for tests/kdcwd.py, and"
+	@echo "          build/dosbig144.img for tests/kdbigexe.py."
 	@echo "          Run it with: python3 tests/kdpart.py"
 
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------
@@ -5010,6 +5011,26 @@ $(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 # day. No `--fatcap`: the whole point is the FAT size DOS itself writes.
 $(BUILD)/doscom144.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/DOSHELLO.COM
+
+# --- ...and the LADDER gate's, which is sized rather than written ------------
+# BIG.EXE is an .EXE too big for kern_dos to load until it has given the
+# read-ahead back (SPEC.md 96.44.11.1). `.loadtry` sheds a rung and reads
+# again, and the only thing that can make `dos_load` refuse in the first place
+# is a file between the arena's capacity WITH the cache and its capacity
+# without - 569,952 and 602,720 bytes, both measured on the machine. The
+# fixture's own header comment carries the table and the arithmetic; the size
+# is the middle of that band, so it is refused twice and loads on the third
+# try with ~16KB of slack on either side.
+#
+# 1.44MB because 586KB does not fit a 360KB floppy - which is why
+# tests/kdbigexe.py boots `os8088_5150_cga_gla_mix`, the tree's only machine
+# with two drives of different types. No `--fatcap`, as doscom144 above.
+$(BUILD)/BIG.EXE: tests/dosbig/big.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dosbig/big.asm
+	@echo "dosbig: $(call FILESIZE,$@) bytes of .EXE"
+
+$(BUILD)/dosbig144.img: $(BUILD)/BIG.EXE tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/BIG.EXE
 
 # ...and DIR /P's, which needs one thing no shipped floppy has: a directory
 # with MORE VISIBLE ENTRIES THAN A PAGE (SPEC.md 96.33.9).  A page is

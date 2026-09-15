@@ -2873,6 +2873,38 @@ SOAK = [
         "NO `--fatcap`, deliberately, so its FAT is the nine sectors a real "
         "DOS writes. MartyPC; `make kdostest` builds the B: floppy.",
         wants=("build/os8088-360.img", "build/doscom144.img")),
+    Row("kdbigexe", "soak", py("tests/kdbigexe.py"), 45.0,
+        "THE READ-AHEAD LADDER, UNDER THE LOAD (SPEC.md 96.44.11.1). "
+        "`kdarena` covers the handover, and the BOTTOM is all the ladder can "
+        "ever reach there - `dos_build_psp` hands a program everything and "
+        "`dos_exe_setup` reads MINALLOC, not MAXALLOC, so no intermediate rung "
+        "can fire. The rungs only mean something at the other site: "
+        "`.loadtry`, where `dos_load` is refused, one rung of the cache is "
+        "shed and the read is made again. NOTHING ALREADY IN THE TREE CAN "
+        "REACH IT - it needs a file between the arena's capacity WITH the "
+        "cache and its capacity without, 569,952 and 602,720 bytes on a 640KB "
+        "machine - so `tests/dosbig/big.asm` is a hand-built MZ .EXE sized to "
+        "the middle of that band, which leaves ~16KB of slack on each side "
+        "(sixteen rungs of KD_IMG_KB either way) and a failure message that "
+        "says which way it has drifted. THE WINDOWED RUN IS THE CONTROL and "
+        "must FAIL: 586KB does not fit the box's ~437KB arena, so a program "
+        "that would have run anywhere could not pass. Five assertions - the "
+        "windowed refusal, the program's own check of the image head 585KB "
+        "BELOW its code (a short read or a `dos_movedown` that bound at 64KB "
+        "is the one failure a `did it start` row would pass), that the file "
+        "really does not fit the cache's own capacity, the cache width at "
+        "every load attempt read through a breakpoint at the top of the retry "
+        "loop and checked against the ladder, and that it loaded on the FIRST "
+        "rung with room rather than shedding more than it had to. Checked red "
+        "twice on purpose: with `.loadtry` deleted the guest says `the "
+        "program could not be loaded`, and with the rungs collapsed the "
+        "widths read [7, 0] against [7, 4, 2, 0]. `os8088_5150_cga_gla_mix`, "
+        "the only machine here with two drives of different types, because "
+        "586KB does not fit a 360KB floppy. MartyPC; `make kdostest` builds "
+        "the disk.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/dosbig144.img",
+               "build/BIG.EXE", "build/kerndos.bin")),
     Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
