@@ -1642,13 +1642,43 @@ Then `AH=48h` asks for 38 paragraphs on one arm and 377 on the other, with no
 call in between. **The ruled-out list above is now exhaustive over everything
 `int 21h` can say**, and what is left is not a DOS answer.
 
-**The one thread left is that every one of Prince's data pointers is exactly
-TWELVE BYTES higher under `kern_dos`** — the open's `DS:DX`, the read's
-buffer, the `AH=47h` buffer, all `+12` — while its DS sits at the same
-`0x1B13` paragraphs past its own PSP in both. A static buffer cannot move, so
-these are computed; `dos_exe_setup` takes SS and SP straight from the MZ
-header with no clamp, so it is not the stack the loader sets. That is where to
-start.
+**THE THREAD IS `SP`, AND IT IS NOW EXACT.** Single-stepping the program
+itself — stop at an `INT 21h`'s return, which `do_time` already runs to, then
+`step` — puts a number on what was a shape. At the open's return, before the
+six-byte read:
+
+    windowed   SP=756E  BP=75C0   and every buffer at 75B8, 7574, 75DA
+    kern_dos   SP=757A  BP=75CC   ...and at 75C4, 7580, 75E6
+
+**`SP` differs by exactly 12** — six words — and every "twelve-byte pointer
+shift" in this entry is that one fact seen through `BP`. Prince's data
+pointers are `[bp-n]` locals, so they move with it and nothing is corrupt:
+the program is simply **six pushes deeper** under `kern_dos` than under the
+window by the time it opens its data file, and the numbers it then computes
+come out of different locals.
+
+`dos_exe_setup` takes `SS` and `SP` straight from the MZ header with no clamp,
+so the loader hands both arms the same stack. Six words is a CALL DEPTH, not a
+loader difference: somewhere between the program's first instruction and its
+`AH=3Dh`, one arm takes a branch the other does not — three nested calls, or a
+retry.
+
+**So the next step is bounded and mechanical**: step from the program's entry
+(a breakpoint at the `CS:IP` in its own MZ header) and find the FIRST
+instruction where `SP` parts. Every `INT 21h` answer before that point is
+already known identical, so whatever the branch tests is something the program
+read without a call — and §96.21.4 is the list of those.
+
+**What it is NOT**, and this cost a run each to establish: not the PSP (all 256
+bytes diffed, and the eight fields §96.21.4 fills are correct on both arms —
+`[PSP:0002]` is `PSP + 0x2B13` on both after the program's own resize, and
+`[PSP:0008]`'s far-call segment lands on `PSP:0050` on both, by 8086
+wraparound on the low one); not the BDA (9 of 128 bytes differ and they are
+the tick count, the floppy motor state, the cursor and `MEM KB`); not the
+environment, the command tail or the program's own path; and not the file
+layer — `tests/dostrap/rdsmall.asm` reads the same six bytes into a POISONED
+buffer and reports the span actually written, which is 6 on both arms, from
+the real disk at LBA 300.
 
 **A THIRD instance of §96.44.10's CLASS was found looking for this and is
 fixed** (§96.44.12), though it is not this bug: `dos_k_find` binds
