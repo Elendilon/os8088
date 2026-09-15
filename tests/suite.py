@@ -2889,6 +2889,24 @@ SOAK = [
         "or file name`. Host-side; four nasm runs, and it fails naming the row "
         "and both offsets.",
         ),
+    Row("kdcwd", "soak", py("tests/kdcwd.py"), 50.0,
+        "WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine "
+        "(SPEC.md 96.44.9). CWDHERE.COM in B:\\SUB\\ with the only copy of "
+        "HERE.TXT beside it prints four things - AH=19h's drive, AH=47h's "
+        "directory, a BARE-name open of the file that is only in that folder, "
+        "and the program path DOS 3+ leaves in the environment's tail - and "
+        "the row runs it windowed, then runs the SAME program on the SAME disk "
+        "with the whole machine under it, and requires the two answers to be "
+        "identical. THE PAIR IS THE POINT: the core is ONE object joined to "
+        "two back ends, so a row that runs either alone cannot see them "
+        "disagree. It caught OSAPI_FILE_PATH's X-cell ES - kern_dos bound the "
+        "door with a far call straight at dsk_path_x, which writes to ES:DI "
+        "and never reloads ES, so the environment's path came out as `B:` and "
+        "Prince of Persia answered `Unable to find necessary files`. The other "
+        "three rows were green throughout, which is why all four are printed. "
+        "MartyPC, the 720KB Hercules twin.",
+        needs=("marty",),
+        wants=("build/kdos720.img", "build/cwdsub.img")),
     Row("kdapi", "soak", py("tests/unit/t_kdapi.py"), 0.4,
         "NO `OSAPI_*` FAR CALL MAY SURVIVE INTO A kern_dos IMAGE (SPEC.md "
         "96.44.6). KERNEL_SEG is kern_dos's own segment, so a `call OSAPI_X` "

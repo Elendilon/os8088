@@ -4958,8 +4958,24 @@ $(BUILD)/kdos720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
 		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(APPDATAFOLDER)
 
+# --- ...AND THE ONE THAT ASKS WHERE IT IS STANDING (SPEC.md 96.44.6) --------
+# CWDHERE.COM in a SUBDIRECTORY, with the only copy of HERE.TXT beside it, so
+# "the CWD reads right" and "the CWD RESOLVES" are separate assertions and a
+# bare-name open is the second one.  The root copy is the control.  It is a
+# 720KB disk because both drives of `os8088_5150_herc_sb_720_gla` are 720KB
+# and A: has to match the drive.
+$(BUILD)/CWDHERE.COM: tests/dostrap/cwdhere.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/cwdhere.asm
+
+$(BUILD)/HERE.TXT: | $(BUILD)
+	printf 'this file exists only in SUB\r\n' > $@
+
+$(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 \
+		SUB:$(BUILD)/CWDHERE.COM SUB:$(BUILD)/HERE.TXT $(BUILD)/CWDHERE.COM
+
 .PHONY: kdostest
-kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/kdos720.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
+kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/kdos720.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img
 	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
 	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
 	@echo "          Run it with: python3 tests/kdpart.py"

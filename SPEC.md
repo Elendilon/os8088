@@ -127313,6 +127313,24 @@ on the same floppy launched under the inline `build/dos.o88`. It reads exactly
 like a file-resolution bug and is not one: `DIR` listed `PRINCE EXE 126304` one
 line above `Bad command or file name: PRINCE.EXE`.
 
+**The blast radius is NINE CELLS and they are all the shell's.** A shifted cell
+only matters where both halves NAME it, and that set is exact: `dosh.inc` is
+included inside the core's span and `dosc.inc` inside the window's, so the
+crossing cells are the ones the prompt and the built-ins share —
+
+| cell | and what it is |
+|---|---|
+| `dsh_line` | the typed line. **Harmless**, and the near miss worth recording: `dsh_run` takes the line in SI and never names its own symbol for it, which is the only reason the box looked healthy at all |
+| `dsh_verb`, `dsh_a1`, `dsh_a2` | the verb and its arguments — each written and read on one side, so each half simply used its own buffer |
+| `dsh_exec`, `dsh_why` | the launcher's handshake, above |
+| `dsh_more`, `dsh_pat`, `dsh_skip` | **`DIR /P`'s suspended listing** (§96.33.9). `dos_con_run` reads `[dsh_more]` to know a page stopped mid-listing and owes no prompt; it read its own copy, never set, so the parted box drew a prompt under `Strike a key` and the next key went to the line editor instead of resuming — the rest of the directory unreachable |
+
+`tests/dosdirsw` could not see that second one and is not at fault for it: every
+`dos*` row boots the INLINE box, where there is no seam, and the rows that boot
+the parted one are `kd*` and about the handover. **A defect that only exists in
+the joint is only visible to a row that runs the joint**, which is the rule the
+720 KB gate disk exists to make cheap.
+
 **The fix is that a `DBSS` row's width is an ABI constant.** `DVOL_CAP equ 8`
 lives in `apps/dos/doscall.inc`, which every half includes and reads the same
 line of; the table is `2 * DVOL_CAP`; and `dos.asm` asserts `DVOL_MAX <=
@@ -127707,6 +127725,52 @@ would have made `RMDIR` on a non-empty directory jump into whatever followed.
 Every name in the band was confirmed by grep before it was gated, and that is
 the method this section recommends — the walk finds candidates and the grep
 decides them.
+
+#### 96.44.9 An X cell's ES is part of the door, and `kern_dos` had to put it back
+
+Two of the twenty-two doors are **X** cells — `OSAPI_FILE_FIND` and
+`OSAPI_FILE_PATH` — and an X cell is not just a calling convention, it is a
+segment the CALLER never sets: `api_x` puts the caller's DS in ES and KERNEL in
+DS before the stub runs, so a core routine passes DI as a plain DS offset and
+nothing in the core ever loads ES. `kerndos/kdback.inc` binds the same doors to
+the kernel's own routines with a far call, and a far call carries no such
+promise. `dsk_path_x`'s own note is exact about the consequence: *ES is the
+CALLER's throughout and is never reloaded.*
+
+So under `kern_dos`, `dos_envpath` wrote `B`, `:` into `dos_pbuf`, called
+`dos_be_path`, and the path went to whatever segment the core was holding.
+`dos_pbuf+2` kept its zero, the program's name was appended past a NUL nobody
+would read, and what reached the program in the environment's tail was **`B:`**
+— the drive and nothing else.
+
+MEASURED, with `tests/dostrap/cwdhere.asm` in `B:\SUB\`:
+
+| | windowed | whole machine, before | after |
+|---|---|---|---|
+| `AH=19h` drive | `B:` | `B:` | `B:` |
+| `AH=47h` directory | `\SUB` | `\SUB` | `\SUB` |
+| a BARE-name open beside it | opens | opens | opens |
+| **the environment's own path** | `B:\SUB\CWDHERE.COM` | **`B:`** | `B:\SUB\CWDHERE.COM` |
+
+**The current directory was never the broken half**, which is worth stating
+because the field report's shape points straight at it: three of the four rows
+above already agreed. What does not survive is the string a program reads when
+it wants to know where it came from — and a program that builds its data path
+off its own path then looks in the volume root. `dos_envpath`'s own comment
+already described the DRIVE half of exactly this failure one level up, in the
+same program.
+
+The fix is `push es / push ds / pop es` around the far call in `dos_k_path` and
+`pop es` after it — `pop` writes no flag, so the CF the routine answered rides
+out. `dos_be_find` is the other X cell and needs nothing: **all seven of its
+callers in the core set ES themselves**, and `dos_be_path`'s three are split —
+`AH=47h`'s site does, `dos_envpath` and the `..` walk do not. A door's contract
+is the door's, so the fix is in the door.
+
+`tests/kdcwd.py` is the gate and it runs the probe under BOTH arms of the same
+machine, because the windowed box passes every row of this table and always
+did: a defect that lives only in the joint is only visible to a row that runs
+the joint.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

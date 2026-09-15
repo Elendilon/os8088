@@ -163,9 +163,33 @@ dos_k_vkind:
     ret
 
 ; in: ES:DI = a buffer, CX = its size; out CX = the length
+; **ES = OUR DS, WHICH THE BOX'S DOOR GETS FOR FREE** (SPEC.md 96.44.9).
+; `OSAPI_FILE_PATH` is an **X** cell - one of exactly two among the twenty-two
+; doors, the other being `OSAPI_FILE_FIND` - so `api_x` puts the caller's DS in
+; ES before the stub runs, and the core's callers pass a plain DS offset in DI
+; with no ES of their own.  A far call straight at `dsk_path_x` inherits
+; whatever ES the core was holding, and that routine's own note says ES is the
+; caller's throughout and is never reloaded: the path is written somewhere
+; else, `dos_pbuf` keeps its zero, and `dos_envpath` appends the program's
+; name past a NUL nobody will read.  What reaches the program is `B:` - the
+; drive and nothing after it.
+;
+; The field report is Prince of Persia launched from `B:\PRINCE\` under the
+; whole-machine arm: it loads, because `dos_load` reads by name from where the
+; machine stands, and then asks for its disk, because it builds its data path
+; off ITS OWN PATH and that said the volume root.  `dos_envpath`'s own comment
+; already describes the DRIVE half of this failure one level up.
+;
+; `dos_be_find` is the other X cell and needs nothing here: all seven of its
+; callers in the core set ES themselves.  `tests/unit/t_kdfar.py` is the gate
+; for both.
 dos_k_path:
+    push es
+    push ds
+    pop es
     call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm:4500 says so
-    ret
+    pop es                      ; ...and `pop` writes no flag, so the CF
+    ret                         ; dsk_path_x answered rides out
 
 ; --- the refusals, which are KERN-DOS-PLAN 6.1's levers in code -------------
 ; **A REFUSAL IS A DECISION AND NOT AN OMISSION.** Each of these is a verb the
