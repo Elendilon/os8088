@@ -2600,6 +2600,31 @@ hbm_wake:
     mov bp, dsk_rah_flush
     call COLD_SEG:hbk_bp
     mov word [mem_pinseg], 0    ; dsk_xfer's pin, mid-transfer in the image
+    ; ...AND THE EXTENT LIST THE PICTURE WAS TAKEN OVER (SPEC.md 87.6.1).
+    ; `mem_pinseg` one level up: a word that was true of the machine that
+    ; wrote the image and is meaningless in the machine that reads it - except
+    ; that this one is a CLAIM, so leaving it costs 4KB of the arena for the
+    ; rest of the session rather than nothing.
+    ;
+    ; It is the DOS handoff that puts it here. That path claims the list at
+    ; step 3, writes the image at step 3b and only copies the list into the
+    ; staging area at step 5 (SPEC.md 96.40) - so the picture is taken with
+    ; the claim live, and what comes back is a 4KB HELD block over an extent
+    ; list nothing will ever read again. The user's route in is ordinary: run
+    ; one program with the whole machine, and every DOS arena afterwards is
+    ; short by a block sitting in the middle of the heap.
+    ;
+    ; The guard is not decoration - `hbm_perform`'s own save claims no list at
+    ; all, so a plain hibernate's image has [hb_xseg] = 0 and this is the path
+    ; every resume but one takes.
+    mov dx, [hb_xseg]
+    or dx, dx
+    jz .noxs
+    mov bx, MEM_K_HIB
+    mov bp, mem_free_x
+    call COLD_SEG:hbk_bp
+    mov word [hb_xseg], 0
+.noxs:
     call KERNEL_SEG:fpg_end     ; ...and the progress widget it had up
     ; 4. the desktop, the way fsx_restore gets it back (SPEC.md 53) - before
     ;    any disk work, so the progress widget has a graphics mode to draw in

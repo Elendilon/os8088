@@ -106370,6 +106370,31 @@ needs nothing: the fresh boot's `mouse_init` left the UART and the 8042 in
 the state the image's kernel expects, because the image's kernel set them
 up the same way, and the resume path never calls `mouse_unhook`.
 
+#### 87.6.1 …and the extent list the picture was taken over
+
+`hbm_wake` frees `[hb_xseg]`'s `MEM_K_HIB` claim. It is `[mem_pinseg]` one
+level up — a word that was true of the machine that *wrote* the image and is
+meaningless in the machine that reads it — except that this one is a **claim**,
+so leaving it costs **4KB of the heap for the rest of the session** instead of
+nothing, in a block that is `HELD` and sits wherever the writing machine's heap
+happened to put it.
+
+**It is the DOS handoff that puts it there** (§96.40). That path claims the
+extent list at step 3, writes `HIBERNAT.IMG` at step 3b, and only copies the
+list into the staging area at step 5 — so the picture is taken with the claim
+live, and what the restore brings back is a `HELD` block over an extent list
+nothing will ever read again. §87.5's own resume does not leak it: the claim
+there is made in the machine that is *about to be overwritten*, and
+`hbm_perform`'s save claims no list at all, which is why the free is guarded
+on a non-zero `[hb_xseg]` rather than unconditional.
+
+**The route in is ordinary use.** Run one DOS program with the whole machine,
+come back, and every arena afterwards is short by a block in the middle of the
+heap — reported from the field as `Resume 33C0 4K HELD` on the Task Manager's
+page with the DOS arena short (§28.7). Zeroing the word without freeing the
+record would be worse than leaving it: the claim would then be **orphaned**,
+with nothing left that knows its segment.
+
 ### 87.7 What it costs, and what is owed
 
 Resident: the three strings, the template, the two file names, the kind row,
@@ -124225,6 +124250,32 @@ the box was launched from (§96.33.13) — and the box stands there with
 `dos_be_goto`, which is `OSAPI_FILE_GOTO_QM`: it moves the machine *and* marks
 the instance, which is what `OSAPI_PKG_START`'s own `inst_vol_enter` reads. The
 two agree with nothing to keep in step.
+
+##### 96.33.19 …and the exit line says what the ARENA was
+
+`prince.EXE ended, exit code 001 (Arena: 343KB)`. `dos_con_arena` appends the
+figure `dos_run` banked in `[dos_akb]` — the KB it claimed, before the program
+was loaded into it — to the line a finished program leaves on the log.
+
+**Because the alternative is reading it out of the program's own complaint,
+and that is not the same number.** Prince of Persia says `Requires 318 KBytes
+… 146 KBytes is Available`, which is in the program's units, is about what was
+left *after* it loaded itself, and exists at all only because that program
+refuses out loud; most say nothing. Turning it into the one figure this box is
+answerable for takes two numbers off the glass and an assumption about the
+image's size, and the box knew the answer exactly.
+
+**The RAN path only.** `[dos_akb]` is banked twice — at `.unmount`, as the
+pre-compaction figure the posted pass is decided against, and again at `.cap`
+with what was actually claimed (§96.35) — so on a launch that never reached
+the claim it holds either nothing or a step in the arithmetic. A number that
+reads like an answer and is not one is worse than no number, so the error
+lines say what went wrong and nothing about memory.
+
+The digits come from `dos_mem_num`, whose padding is LEADING BLANKS because
+§96.25's two figures stack and `00419` reads as a different quantity. A log
+line is one line, so `dos_con_arena` steps over them rather than the box
+carrying a second formatter.
 
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
