@@ -83971,14 +83971,28 @@ that section's own warning about `mem_shed_one`, one mechanism along.
 
 §45.3.2 is the adoption and the shape to copy. It is worth naming here
 because the two halves of the door are used by **different kinds of
-program**, and only one of them needs the what-if at all. A package that
-wants *whatever is going* — a DOS arena, a scratch heap — can post, return,
-and claim the largest run the wake reports; `OSAPI_MEM_AVAIL_MAX` tells it
-nothing it will act on. Tracker wants **this module or no module**, and for
-it the what-if is the whole feature: a claim that fails sheds every
+program**, and they want the what-if for different reasons. A package that
+wants *whatever is going* — a DOS arena, a scratch heap — posts, returns and
+claims the largest run the wake reports, and does not act on
+`OSAPI_MEM_AVAIL_MAX` **to size anything**. Tracker wants **this module or no
+module**, and for it the what-if is the whole feature: a claim that fails sheds every
 purgeable cache on its way down, so a refusal that could have been avoided
 is paid for twice, and `Too big for free memory` has to mean *not even if
 the machine emptied itself for me*.
+
+**THE FIRST SHAPE STILL ASKS, AND THIS SECTION USED TO SAY IT HAD NO REASON
+TO.** The DOS box — the *whatever is going* shape, and the program §1 of
+docs/plans/REGION-SELF-COMPACT-PLAN.md is a report about — calls the what-if
+twice, and neither call sizes a claim. `dos_run` asks it to decide **whether
+posting is worth a round trip at all**: where a pass would add nothing, it
+claims what is there instead of returning to the event loop and coming back
+(§96.35), which is the difference between one launch and two passes through
+`ui_task`. And `dos_mem_figs` asks it to **draw the number the launch will
+hand out** (§96.25.1.1), because a page that showed plain `mem_avail` while
+the launch claimed on a wake was under-promising by the caller's own region.
+So the honest split is not *who needs it* but *what they do with the answer*:
+Tracker sizes with it, the DOS box decides and displays with it, and only
+Tracker would be wrong to post without it.
 
 **Adoption is also where the two declarations get tested against a real
 program rather than against `tests/heapfrag`.** Tracker owns a worker, so
