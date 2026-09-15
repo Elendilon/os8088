@@ -1651,7 +1651,7 @@ header with no clamp, so it is not the stack the loader sets. That is where to
 start.
 
 **A THIRD instance of §96.44.10's CLASS was found looking for this and is
-fixed** (§96.44.11), though it is not this bug: `dos_k_find` binds
+fixed** (§96.44.12), though it is not this bug: `dos_k_find` binds
 `dsk_find_x` directly and so passed it **whatever `AL` the core was holding**,
 where `AL` is §19.6.1's fence between a package and a driver — a stray 1 shows
 a DOS program `SYSTEM.CFG` and the kernel's own files — and left
@@ -1659,7 +1659,7 @@ a DOS program `SYSTEM.CFG` and the kernel's own files — and left
 compressed file's PACKED size where the program will be handed its expanded
 one. The Prince disk has neither a hidden file nor a compressed one, so it
 changes nothing here; it is in the tree because the CLASS is what keeps
-costing this program, and §96.44.11 is the class written down with the gate
+costing this program, and §96.44.12 is the class written down with the gate
 that would catch the fourth.
 
 **To reproduce**: `make kdostest`, then `build/os8088-720.img` in A: and a

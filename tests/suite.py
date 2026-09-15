@@ -2829,6 +2829,33 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
         wants=("build/os8088-360.img", "build/doscom360.img")),
+    Row("kdarena", "soak", py("tests/kdarena.py"), 40.0,
+        "THE ARENA AND THE READ-AHEAD DO NOT OVERLAP (SPEC.md 96.44.11). "
+        "kern_dos sizes the DOS program's block and THEN mounts the volume "
+        "the program came off - and the mount CLAIMS, out of the same bump "
+        "allocator, so `dsk_rah_want` lowered `[kd_top]` by 32 KB under an "
+        "arena nothing re-read. The program was handed a block whose top "
+        "24 KB the cache was living in, with SPEC.md 96.11's 8 KB file "
+        "window inside the cache outright. THE FIGURE ON THE GLASS WAS RIGHT "
+        "THROUGHOUT, which is why no row saw it: 588 KB is 588 KB whether or "
+        "not something else is in the top of it - so this row checks the four "
+        "words kern_dos laid out against the ceiling they were cut from, and "
+        "not a number the program prints. Four assertions: the file window is "
+        "the paragraph the arena ends at, the block plus the window ends at "
+        "or below `[kd_top]`, `[dsk_rah_seg]` is 0 after the handover because "
+        "`kd_giveback` ran the ladder to the bottom, and - the one that "
+        "refuses the easy fix - the program still has every KB the ceiling "
+        "allows, since SHRINKING the arena would satisfy the other three and "
+        "leave it 32 KB worse off. Checked red at the base commit, where "
+        "assertion 2 reports the 32 KB by name. The map is re-assembled and "
+        "the BINARY compared with build/kerndos.bin, `os88sym`'s discipline, "
+        "because a map of another build resolves every name to a plausible "
+        "wrong address. MartyPC and it must be: the arm takes os8088 out of "
+        "memory, so every word is read out of a guest with no OS in it. "
+        "`make kdostest` builds the B: floppy.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/doscom360.img",
+               "build/kerndos.bin")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 55.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "

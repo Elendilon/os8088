@@ -137,7 +137,7 @@ dos_k_here:
 ; in: CX = ordinal, ES:DI = an OSAPI_FIND_SZ buffer
 ;
 ; **`AL` AND `[dsk_fdraw]` ARE INPUTS, AND THE BOX'S DOOR SETS BOTH**
-; (SPEC.md 96.44.11). `dsk_find_x` takes `AL = 1 if the caller may see hidden
+; (SPEC.md 96.44.12). `dsk_find_x` takes `AL = 1 if the caller may see hidden
 ; and system entries` - the fence SPEC.md 19.6.1 puts between a package and a
 ; driver - and `api_file_find` computes it from `dvf_drv_owns_seg` before it
 ; calls through; and it clears `[dsk_fdraw]`, which `api_file_find_raw` sets
