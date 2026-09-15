@@ -22,11 +22,20 @@ WHAT IT WOULD CATCH, and the first two were TRUE before 96.44.11:
                                                the cache's, and a program that
                                                uses its top pages corrupts it
                                                silently
-  - the cache never given back              -> `[dsk_rah_seg]` is still live at
-                                               the handover, so `dsk_rah_have`
+  - the cache never given back              -> `[dsk_rah_seg]` is still INSIDE
+                                               the program's block at the
+                                               handover, so `dsk_rah_have`
                                                serves the PROGRAM'S bytes as
                                                disk sectors for the rest of the
-                                               session
+                                               session. What survives is
+                                               KD_RAH_KEEP rungs ABOVE `[kd_top]`
+                                               (SPEC.md 96.44.11.4: one rung is
+                                               9 KB of the program and 4.7x its
+                                               load), and this row used to say
+                                               "shed to nothing" - the design
+                                               as first written - and stayed
+                                               red for a cycle after that
+                                               section measured otherwise
   - `kd_arena` leaving the window where     -> `[dos_wseg]` is not the paragraph
     `dos_fh_setup` put it                      the arena ends at, so 8 KB of
                                                hole sits in the middle of the
@@ -38,13 +47,14 @@ WHAT IT WOULD CATCH, and the first two were TRUE before 96.44.11:
 
 WHAT IT DOES NOT COVER is the ladder under the LOAD - `kd_shed` on a
 `dos_load` refusal - which needs a program big enough to want the cache's
-memory before it has been handed over. The handover's own run to the bottom
-is assertion 3.
+memory before it has been handed over. The handover's own run down to
+KD_RAH_KEEP is assertion 3.
 
 It runs on MartyPC and must: the arm tears os8088 out of memory, so every
 word read here is read out of a guest with no operating system in it.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -259,16 +269,34 @@ def main():
         print("kdarena: 2/4 the block plus the window ends at or below "
               "[kd_top]")
 
-        # 3: the ladder ran to the bottom at the handover.
-        if rseg or runs:
-            fail("[dsk_rah_seg] is 0x%04X with %d runs after the handover: "
-                 "the cache is still live in memory the program owns. "
-                 "`kd_giveback` sheds a rung at a time until there is none "
-                 "left, because `dos_build_psp` hands a program EVERYTHING "
-                 "(SPEC.md 96.38.2) - so there is no width small enough to "
-                 "keep" % (rseg, runs))
-        print("kdarena: 3/4 the read-ahead was shed to nothing at the "
-              "handover")
+        # 3: the ladder ran down to KD_RAH_KEEP at the handover, and what it
+        # kept sits ABOVE the ceiling (SPEC.md 96.44.11.4). The constant is
+        # read off kerndos/kdshim.inc rather than mirrored here: 0 is "shed
+        # to nothing", which is what this check asserted for a cycle after
+        # that section measured one rung at 4.7x the load - so the row was
+        # red against a kern_dos that was doing exactly what the SPEC says.
+        keep = int(re.search(r"^KD_RAH_KEEP\s+equ\s+(\d+)",
+                             open(os.path.join(ROOT, "kerndos/kdshim.inc"))
+                             .read(), re.M).group(1))
+        if runs != keep:
+            fail("[dsk_rah_seg] is 0x%04X with %d runs after the handover and "
+                 "KD_RAH_KEEP is %d: `kd_giveback` sheds a rung at a time "
+                 "until that width is left (SPEC.md 96.44.11.4), so the "
+                 "ladder either stopped early - a rung still inside memory "
+                 "the program owns - or ran past the width the section "
+                 "measured" % (rseg, runs, keep))
+        if keep and rseg != top:
+            fail("the kept cache is at 0x%04X and [kd_top] is 0x%04X: the "
+                 "rungs `kd_giveback` keeps live at the ceiling, adjacent to "
+                 "the block and above it (SPEC.md 96.44.11.4), so a cache "
+                 "anywhere else is either inside the program or a hole "
+                 "between the two" % (rseg, top))
+        if not keep and (rseg or runs):
+            fail("[dsk_rah_seg] is 0x%04X with %d runs after the handover "
+                 "with KD_RAH_KEEP 0: the cache is still live in memory the "
+                 "program owns" % (rseg, runs))
+        print("kdarena: 3/4 the read-ahead was shed down to KD_RAH_KEEP = %d "
+              "rung(s) at the handover, at the ceiling" % keep)
 
         # 4: ...and none of that was bought by giving the program LESS.
         #
