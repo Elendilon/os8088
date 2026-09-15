@@ -3013,6 +3013,16 @@ SOAK = [
         "clear of the program; broken on purpose the cache comes back at "
         "9800..9FE0 against a window at 9E00..A000, which is how Prince of "
         "Persia's PV.DAT record lost its checksum. "
+        "**AND THE PICTURE'S OWN EXTENT LIST IS GONE** (87.6.1): the handoff "
+        "claims MEM_K_HIB at step 3 and writes the image at 3b, so "
+        "HIBERNAT.IMG is a picture of a machine holding a live claim over a "
+        "list that is dead by the time it is restored - a HELD, PINNED block "
+        "wherever the writing machine's heap put it, worth 4KB of every DOS "
+        "arena for the rest of the session and reported from the field as "
+        "`Resume 33C0 4K HELD`. Asserted here because this row already pays "
+        "for the round trip and nothing cheaper can reach the state. VERIFIED "
+        "TO FAIL with hbm_wake's free removed: 2KB at 26C0 on this fixture, "
+        "and the largest free run after the return 393KB against 400. "
         "MartyPC, the 720KB Hercules twin.",
         needs=("marty",),
         wants=("build/os8088-720.img", "build/cwdsub.img",

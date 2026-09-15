@@ -778,6 +778,7 @@ dos_con_ended:
     call dos_fmt_exit               ; SI = the line with the code stamped in -
     mov si, dos_exitd               ; and only its digits are wanted here
     call con_say
+    call dos_con_arena              ; ...AND WHAT IT WAS GIVEN (SPEC.md 96.33.19)
     mov si, dos_c_crlf
     call con_say
     jmp short .out
@@ -792,6 +793,53 @@ dos_con_ended:
     mov byte [dos_fromcon], 0       ; ...spent, so the NEXT launch - a Run
     call dos_prompt                 ; click, or a document - is spelled its own
     ret                             ; way
+
+; -----------------------------------------------------------------------------
+; dos_con_arena - ` (Arena: 343KB)` onto the line a finished program leaves
+; in:  [dos_akb], the figure dos_run banked; out: nothing, AX/SI preserved
+;
+; **THE NUMBER THE PROGRAM WAS ACTUALLY GIVEN**, said once on the console's
+; log line, because the alternative is reading it off a DOS program's own
+; complaint - and those are in the program's units, about what is left AFTER
+; it loaded itself, and only the ones that refuse say anything at all.
+; `prince.EXE ended, exit code 001` with `Requires 318 KBytes… 146 KBytes is
+; Available` above it takes two numbers and an assumption about the image's
+; size to turn into the one figure that is this box's business (SPEC.md
+; 96.25.1): what the arena was.
+;
+; It is the RAN path only. `[dos_akb]` is banked at `.unmount` and again at
+; `.cap`, so on a launch that never reached the claim it holds either nothing
+; or the pre-compaction figure - a number that reads like an answer and is a
+; step in the arithmetic. The error lines say what went wrong instead.
+;
+; The digits come from `dos_mem_num`, which pads with LEADING BLANKS because
+; the memory page stacks its two figures and `00419` reads as a different
+; quantity. A log line is one line, so they are stepped over here rather than
+; given a second formatter.
+; -----------------------------------------------------------------------------
+dos_con_arena:
+    push ax
+    push di
+    push si
+    mov si, dos_c_aren
+    call con_say
+    mov ax, [dos_akb]
+    mov di, dos_arend
+    call dos_mem_num
+    mov si, dos_arend
+.skip:
+    cmp byte [si], ' '
+    jne .say
+    inc si
+    jmp short .skip
+.say:
+    call con_say
+    mov si, dos_c_akb
+    call con_say
+    pop si
+    pop di
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dos_con_draw - spend the marks, under a lock the CALLER holds
@@ -864,6 +912,9 @@ dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
              db 13, 10, 0
 dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
+dos_c_aren:  db ' (Arena: ', 0
+dos_c_akb:   db 'KB)', 0
+dos_arend:   db '00000', 0    ; dos_mem_num's five, leading-BLANK padded
 dos_c_com:   db '.COM', 0     ; ...and the ORDER is the contract
 dos_c_exe:   db '.EXE', 0
 dos_c_o88:   db '.O88', 0     ; ...and this one is not a DOS program at all

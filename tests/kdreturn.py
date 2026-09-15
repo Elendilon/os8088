@@ -26,6 +26,7 @@ nothing.  tests/hibernate.py's fixture, with the parted DOS.O88 and a DOS
 program in the volume's root.
 """
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -33,6 +34,8 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dosmap                                                  # noqa: E402
+import os88geom                                                # noqa: E402
+import os88sym                                                 # noqa: E402
 import os88marty as M                                          # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
@@ -83,6 +86,23 @@ def fixture():
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
          "build/DOSHELLO.COM"])
+
+
+def claims(m):
+    """Every live `mem_tab` record as (base, paragraphs, owner, dma, rloc).
+
+    The table is in `.lowbss`, so it is LOW_SEG-relative and `os88sym.linear`
+    is what resolves it - the same read `tools/heapmap.py` makes, done here
+    rather than imported because this row wants one question answered and not
+    a timeline.
+    """
+    raw = bytes(m.read(os88sym.linear("mem_tab"), 32 * os88geom.MC_SIZE))
+    out = []
+    for i in range(32):
+        rec = struct.unpack_from("<HHHHH", raw, i * os88geom.MC_SIZE)
+        if rec[0]:
+            out.append(rec)
+    return out
 
 
 def wait_text(m, want, secs, what):
@@ -238,6 +258,35 @@ def main():
             fail("0040:00F0 still holds a live record %r - the next resume "
                  "would attach this program's code to another run" % box)
         print("kdreturn: the mailbox is cleared (%s)" % box[:4].hex())
+
+        # --- 5. ...AND THE PICTURE'S OWN EXTENT LIST IS GONE (87.6.1) ----
+        # The handoff claims the list at step 3 and writes the image at step
+        # 3b, so HIBERNAT.IMG is a picture of a machine with a live MEM_K_HIB
+        # claim in its `mem_tab`. Restore that and the claim comes back over
+        # an extent list nothing will read again: a HELD block, PINNED because
+        # nothing declared it, sitting wherever the writing machine's heap put
+        # it - reported from the field as `Resume 33C0 4K HELD` on the Task
+        # Manager's page, and worth 4KB of every DOS arena for the rest of the
+        # session.
+        #
+        # It is asserted HERE because this row already pays for the round
+        # trip, and there is no cheaper way to reach the state: it takes a
+        # whole-machine run and a return to create one claim.
+        #
+        # VERIFIED TO FAIL: with `hbm_wake`'s free taken out, this reads
+        # `2KB at 26C0` on this fixture (the list is sized for the volume, so
+        # the field's 128MB disk gives 4KB) and the largest free run after the
+        # return is 393KB against 400.
+        hib = [r for r in claims(m) if r[2] == 0xFF0C]
+        if hib:
+            fail("MEM_K_HIB is still claimed after the return - %dKB at "
+                 "%04X, rloc=%04X. That is the resume's EXTENT LIST, which "
+                 "the image was written over the top of (SPEC.md 87.6.1): it "
+                 "describes the machine that took the picture and is dead in "
+                 "the one that reads it, and nothing declared it movable so "
+                 "it is a wall as well as a leak"
+                 % (hib[0][1] // 64, hib[0][0], hib[0][4]))
+        print("kdreturn: no MEM_K_HIB claim survived the restore")
     finally:
         m.close()
         for p in (VHD, FLOPPY):

@@ -677,6 +677,51 @@ overlays = [
     type = "VGA"
     clock_mode = "Default"
 
+# ...AND ALL THREE AT ONCE, which is the machine the field reports come off:
+# VGA, a fixed disk AND a Sound Blaster. Every other profile here isolates one
+# of them, and the DOS arena is exactly the quantity that does not decompose -
+# the VGA sets KERN_SIZE (112KB, so a 528KB heap), HDD.DRV is an image at the
+# ceiling, and SOUND.DRV is the ~14KB SPEC.md 96.35 unmounts and compacts into.
+# A shortfall measured on any two of the three is a different shortfall.
+[[machine]]
+name = "os8088_xt_vga_hdd_sb"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
 # ...and the calibration machine as it ACTUALLY is: a 5150 with a Hercules AND
 # a CGA in it, both permanent, each on its own monitor (docs/FIELD-MACHINES.md).
 # This is the configuration SPEC.md 39.11's adapter switching exists for, and
