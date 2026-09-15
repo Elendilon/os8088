@@ -1204,11 +1204,21 @@ ld_start:
     ; --- the carve, and every other claim the loader made, RE-OWNED ---------
     ; The parts carve is claimed BY THE LOADER, whose segment is about to stop
     ; existing, and it is the block the program is now running in. Re-stamped
-    ; to the instance SLOT, which is how ld_alloc owns a region (step 5) and
-    ; is what makes it unreachable BY ITS BASE to the program: mem_find_own
-    ; matches MC_OWN == the caller's segment or MC_SEG == it, and a slot is
-    ; neither - so OSAPI_MEM_FREE refuses the program its own carve, which is
-    ; exactly right.
+    ; to the instance SLOT, which is how ld_alloc owns a region (step 5).
+    ; Nobody but this program can name it: mem_find_own matches MC_OWN == the
+    ; caller's segment or MC_SEG == it, and a slot is neither - so a package
+    ; that got hold of our carve's base is refused it.
+    ;
+    ; **WHAT IT IS NOT IS A FENCE AGAINST THE PROGRAM ITSELF**, and it never
+    ; was for anybody else: mem_find_own's `cmp dx, bx` arm (SPEC.md 66.6.1)
+    ; has always let an ORDINARY package name its own region with `mov dx, cs`
+    ; and free or regrow it, which is a package shooting itself and not a
+    ; thing the kernel undertakes to prevent. Until 66.6.1.1 a re-homed one
+    ; was accidentally exempt - the carve's base is not its `cs`, so the
+    ; compare missed - and the containment arm ends the exemption along with
+    ; the pin, which is the point: re-homed or not, a package sees ONE story.
+    ; The three call sites that reach are OSAPI_MEM_MOVABLE, OSAPI_MEM_FREE
+    ; and OSAPI_MEM_REGROW, exactly as for every other package.
     ;
     ; **IT USED TO SAY "AND IT MUST STAY PINNED" AND THAT IS OVER** (SPEC.md
     ; 66.6.1.1). The reason was real - mem_rr_tab rewrote inst_tab + I_SPTR by

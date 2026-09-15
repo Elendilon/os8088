@@ -84846,6 +84846,18 @@ claim, and that claim is by definition the one it is executing in. It widens
 the fence to a containment rather than holing it; a caller naming somebody
 else's segment still has to match a base and an owner.
 
+**IT REACHES THREE SLOTS AND NOT ONE, AND THAT IS DELIBERATE.**
+`mem_find_own` is the fence `OSAPI_MEM_MOVABLE`, `OSAPI_MEM_FREE` and
+`OSAPI_MEM_REGROW` share, so widening it hands a re-homed package all three
+for its own carve. That is not a new hole: §66.6.1's `cmp dx, bx` arm has
+always let an **ordinary** package name its own region with `mov dx, cs` and
+free or regrow it — a package shooting itself, which the kernel does not
+undertake to prevent. What a re-homed one had was an accidental exemption,
+because the carve's base is not its `cs`, and ending it is the point. Re-homed
+or not, a package sees one story. (`mem_own_drv`, the fourth caller, cannot
+reach the arm at all: it fixes `BX` = `MEM_K_DRV`, so `DX == BX` is a segment
+against a kernel tag.)
+
 **What a holder's relocation proc is handed is the PROGRAM's pair**, not the
 carve's — `BX` = the segment it was at, `DX` = where it is now — so a proc
 written for an ordinary package needs no change and cannot tell the difference.
