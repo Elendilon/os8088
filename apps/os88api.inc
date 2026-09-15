@@ -3494,16 +3494,17 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; OPERATION NEEDS NO CALL: the
                                                 ; kernel already wears it while
                                                 ; SPEC.md 12.8's progress
-                                                ; widget is up. out CF=1
-                                                ; refused - you are not inside
-                                                ; a hold of your own, a clip
-                                                ; region is armed, an fsx
+                                                ; widget is up. out NOTHING,
+                                                ; flags included: it refuses
+                                                ; on its own - you are not
+                                                ; inside a hold of your own, a
+                                                ; clip region is armed, an fsx
                                                 ; bracket owns the screen, or
-                                                ; something else is holding the
-                                                ; pointer down. Nothing else
-                                                ; changes and it is safe to
-                                                ; ignore: a refusal costs you
-                                                ; the picture and nothing more
+                                                ; something else is holding
+                                                ; the pointer down - and a
+                                                ; refusal costs you the picture
+                                                ; and nothing more, so there is
+                                                ; nothing for you to act on
 %define OSAPI_WM_DAMAGE     KERNEL_SEG:0x03B0   ; BX = your window ptr, called
                                                 ; from inside your own W_PAINT.
                                                 ; CF=1 = draw the WHOLE content

@@ -396,12 +396,15 @@ FDBODY fdlg_open_x
 %ifdef KERN_BIG
     mov ax, fdlg_onup           ; the column fires on the RELEASE now (SPEC.md
     call KERNEL_SEG:cw_wm_onmouseup ; 13.8.3) and follows the pointer between
+%ifdef OS88UI_SBDRAG
+    mov [bx+W_ONTIMER], ax      ; ...and the SAME proc is 13.10.5.4.2's PAUSE
+                                ; commit: a timer mid-drag is a release with
+                                ; the hand still down, and os88ui_sbdrop tells
+                                ; them apart off [ui_armw]. A plain store, as
+                                ; wm_ontimer is
+%endif
     mov ax, fdlg_ondrag         ; the two edges - both are .text thunks,
     call KERNEL_SEG:cw_wm_ondrag ; because this module is .cold and wm_pkgcall
-%ifdef OS88UI_SBDRAG
-    mov ax, fdlg_ontimer        ; ...and 13.10.5.4.2's PAUSE commit, the third
-    call KERNEL_SEG:cw_wm_ontimer ; edge of the same gesture
-%endif
                                 ; dispatches a W_SEG-0 window NEAR. NO SECOND
                                 ; W_TITLE store: it used to re-derive the title
                                 ; from [fdlg_mode] and write it again here, and
@@ -2437,12 +2440,16 @@ fdlg_onup_x:
     FDX os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and
     jc .btn                     ; unconditionally - a position the rate refused
     mov bx, si                  ; mid-drag is never lost, and a release that
-    xor ax, ax                  ; landed anywhere still ends the gesture.
-    call KERNEL_SEG:cw_wm_timer ; 13.10.5.4.2's timer is cancelled FIRST - it
-                                ; must not outlive its gesture
+    mov word [bx+W_TIMER], 0    ; landed anywhere still ends the gesture.
+                                ; 13.10.5.4.2's timer is cancelled FIRST - it
+                                ; must not outlive its gesture, because THIS
+                                ; proc is its handler (fm_onup's reason). The
+                                ; store is wm_timer's whole cancel arm
     call fdlg_sbset             ; mid-drag is never lost, and a release that
-    FDX os88ui_sbdrop          ; landed anywhere still ends the gesture
-    jc .btn                     ; CF = 1 = it was the Disk window's bar
+    FDX os88ui_sbdrop          ; landed anywhere still ends the gesture -
+    jc .btn                     ; and FROM THE TIMER it answers the pause's
+                                ; pos and keeps the record (13.10.5.4.2).
+                                ; CF = 1 = it was the Disk window's bar
     cmp ax, [fdlg_scrl]
     je .out                     ; ...but a release on the row the press began
     mov [fdlg_scrl], ax         ; on scrolled nothing, and this list has no
@@ -2569,46 +2576,6 @@ fdlg_ondrag_x:
 fdf_fdlg_ondrag:        call fdlg_ondrag_x
                     retf
 
-%ifdef OS88UI_SBDRAG
-; -----------------------------------------------------------------------------
-; fdlg_ontimer - W_ONTIMER (SPEC.md 13.9): the thumb has been STILL for
-;                FD_SBIDLE ticks (SPEC.md 13.10.5.4.2)
-; in:  SI = window ptr; gfx lock held, on the UI task
-; out: nothing (all registers preserved)
-;
-; fdlg_ondrag re-arms the one-shot on every movement, so reaching here at all
-; says no W_ONDRAG arrived for FD_SBIDLE ticks. It does NOT re-arm: a pause is
-; ONE commit however long it lasts, and the next movement arms it again.
-;
-; ITS OWN `.tout` and not a jump into fdlg_ondrag's `.out`: a local label
-; belongs to whichever non-local one preceded it (SPEC.md 13.10.7.4).
-; -----------------------------------------------------------------------------
-fdlg_ontimer_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    call fdlg_pt                ; ...which is also what refreshes [fdlg_cx]/[cy]
-    call fdlg_sbset             ; for the setter
-    FDX os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not the
-    jc .tout                    ; end of the gesture, so the record survives it
-    cmp ax, [fdlg_scrl]
-    je .tout
-    mov [fdlg_scrl], ax
-    call fdlg_draw_list         ; no incremental tier here: the list and its
-.tout:                          ; bar, whole (SPEC.md 13.10.6.2)
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-fdf_fdlg_ontimer:       call fdlg_ontimer_x
-                    retf
-%endif                          ; OS88UI_SBDRAG - KERN_BIG is not enough here,
-                                ; because SBDRAGOFF leaves that one set
 %endif                          ; KERN_BIG
 
 ; -----------------------------------------------------------------------------
