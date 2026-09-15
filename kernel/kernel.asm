@@ -3631,6 +3631,8 @@ apic_wm_destroy:
                                   ;          Rule 0's sibling: sort the
                                   ;          %defines by address after every
                                   ;          merge and look for a duplicate)
+apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
+                                  ; 66.4.3): the cell IS the shim, so no cw_
     OSAPI_SLOT wm_wake            ; 0x0450 - BX = a window of yours: post an
                                   ;          EVT_WAKE for it (SPEC.md 74.1).
                                   ;          Any context - ISR- and worker-
@@ -4118,42 +4120,41 @@ apic_wm_destroy:
                                   ;          caller fails to assemble rather
                                   ;          than moving nothing
     OSAPI_NCELL dskw_write_at     ; 0x0588  N: SI = name, ES:BX = bytes, CX =
-                                  ;         count, DX:AX = the byte offset (a
-                                  ;         CLUSTER multiple). INSIDE what the
-                                  ;         file has allocated it OVERWRITES
-                                  ;         (SPEC.md 18.4.7) - no cluster
-                                  ;         allocated, no FAT written, the size
-                                  ;         moved only up; exactly AT the
-                                  ;         allocated end it GROWS, which is
-                                  ;         what 0x0350 is. One body, two doors
-    OSAPI_XCELL osapi_mem_avail_max ; 0x0590 - X: OSAPI_MEM_AVAIL, plus "AND IF MY
-                                  ;          OWN REGION MOVED TOO" (SPEC.md
-                                  ;          66.4.3). Out AX/BX as the plain
-                                  ;          slot. X because the region to
-                                  ;          excuse is the caller's segment and
-                                  ;          the stub already puts it in ES.
-                                  ;          A MEASUREMENT AND NOT A PROMISE:
-                                  ;          claiming this number refuses,
-                                  ;          because you really are standing in
-                                  ;          your region. Post the slot below
-                                  ;          and claim on the wake, where plain
-                                  ;          OSAPI_MEM_AVAIL has become it
-    OSAPI_XCELL osapi_mem_compact_wake ; 0x0598 - X: "compact everything you
-                                  ;          can, INCLUDING MY OWN REGION, then
-                                  ;          wake me". BX = a window of yours,
-                                  ;          AL = the shed rank the pass is to
-                                  ;          respect. Out CF=0 posted - return
-                                  ;          from your callback and do the
-                                  ;          claiming in your wake handler;
-                                  ;          CF=1 refused (BX is not yours, or
-                                  ;          one of your posts is standing).
+    OSAPI_XCELL osapi_mem_compact ; 0x0590 - X: MY OWN REGION IN THE PASS
+                                  ;          (SPEC.md 66.4.3): one door, the
+                                  ;          verb in AH. AH=0 THE WHAT-IF:
+                                  ;          OSAPI_MEM_AVAIL_LVL's answer (AL =
+                                  ;          the level, out AX/BX) planned as
+                                  ;          if YOUR OWN REGION moved too. A
+                                  ;          MEASUREMENT AND NOT A PROMISE:
+                                  ;          claiming it refuses, because you
+                                  ;          really are standing in your
+                                  ;          region. AH=1 THE POST: "compact
+                                  ;          everything you can, INCLUDING MY
+                                  ;          REGION, then wake me" - BX = a
+                                  ;          window of yours, AL = the shed
+                                  ;          rank the pass is to respect. Out
+                                  ;          CF=0 posted - return from your
+                                  ;          callback and claim in your wake
+                                  ;          handler, where plain OSAPI_MEM_AVAIL
+                                  ;          has become the what-if; CF=1 a
+                                  ;          post is already standing.
                                   ;          OSAPI_PKG_REHOME's shape: it only
                                   ;          RECORDS, because you are executing
-                                  ;          in the region it is going to move
-osapi_table_end:                  ; 0x05A0. The DOS handoff had this cell
-                                  ; for one cycle and is verb 2 of 0x0550
-                                  ; now (SPEC.md 51.11, 96.40): the table
-                                  ; ends where it did before it, and the
+                                  ;          in the region it is going to move.
+                                  ;          X because the what-if excuses the
+                                  ;          caller's segment and the stub
+                                  ;          already puts it in ES. On
+                                  ;          kern_small the what-if IS the
+                                  ;          plain answer and the post refuses
+                                  ;          (SPEC.md 66.0)
+osapi_table_end:                  ; 0x0598. TWO cells came off the tail in
+                                  ; the size pass: OSAPI_MEM_COMPACT_WAKE
+                                  ; (0x0598) is 0x0590's MEMC_POST verb
+                                  ; now (SPEC.md 66.4.3), and the DOS
+                                  ; handoff (0x05A0, one cycle) is verb 2
+                                  ; of 0x0550 (51.11, 96.40). The table
+                                  ; shrank rather than holing, so the
                                   ; free list (20.3.1) stays empty
 
 ; build-time assertions: the table's start and span are ABI, prove them here
@@ -6713,8 +6714,6 @@ cw_wm_content:          call wm_content
                     retf
 cw_wm_minsize:          call wm_minsize
                     retf
-cw_wm_wake:             call wm_wake    ; mem_cpq_run's, for the posted
-                    retf                    ; compaction's wake (SPEC.md 66.4.3)
 cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
                     retf                    ; app_tmr_kinit asks for the snap
                                             ; on every kernel (SPEC.md 11.94)
@@ -7131,10 +7130,17 @@ osapi_mem_movable:    call COLD_SEG:osapi_mem_movable_x
                   ret
 osapi_pkg_rehome:     call COLD_SEG:osapi_pkg_rehome_x
                   ret
-osapi_mem_avail_max:  call COLD_SEG:mem_avail_self_x
+%ifdef OS88_COMPACT
+osapi_mem_compact:    call COLD_SEG:osapi_mem_compact_x
                   ret
-osapi_mem_compact_wake: call COLD_SEG:osapi_mem_compact_wake_x
+%else                           ; kern_small MOVES NOTHING (SPEC.md 66.0), so
+                                ; the door is a stub in .text and none of its
+osapi_mem_compact:    or ah, ah ; machinery is assembled: the what-if IS the
+                  jnz .no       ; plain level door's answer, and a post is
+                  jmp osapi_mem_avail       ; refused - which is the documented
+.no:              stc           ; outcome a caller already carries on from
                   ret
+%endif
 %ifdef KERN_BIG                 ; 0x0550's three verbs (SPEC.md 51.11): the
 drv_suspend:          call COLD_SEG:drv_suspend_x   ; suspend, the resume and
                   ret           ; the DOS handoff are HIBER.DRV's, behind one

@@ -1130,14 +1130,14 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; own `push ds`, and whatever you pushed yourself - so the kernel pins it for
 ; exactly as long as you are the one asking.
 ;
-; The way past it is to ask, return, and be woken:
+; The way past it is to ask, return, and be woken - ONE DOOR, the verb in AH:
 ;
-;     call OSAPI_MEM_AVAIL          ; AX = what I can have RIGHT NOW
-;     call OSAPI_MEM_AVAIL_MAX      ; AX = ...and if my region moved too
+;     mov ax, MEM_LVL_TOP           ; AH = MEMC_WHATIF (0), AL = the level
+;     call OSAPI_MEM_COMPACT        ; AX = what I could have if I moved too
 ;     ; worth it?  then:
 ;     mov bx, [my_window]
-;     mov al, MEM_LVL_TOP
-;     call OSAPI_MEM_COMPACT_WAKE   ; CF=0: posted
+;     mov ax, (MEMC_POST << 8) | MEM_LVL_TOP
+;     call OSAPI_MEM_COMPACT        ; CF=0: posted
 ;     ret                           ; <- RETURN.  Nothing happens until you do
 ;     ; ...and in your OSAPI_WM_ONWAKE handler:
 ;     call OSAPI_MEM_AVAIL          ; now EXACT, and it is the max
@@ -1146,36 +1146,42 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; ASK BEFORE YOU CLAIM, and that is not politeness: a claim that fails SHEDS
 ; on the way down - the disk caches go, and the read-ahead costs seconds of
 ; int 13h to rebuild - so a package with an exact requirement that guesses
-; wrong pays for its refusal twice. OSAPI_MEM_AVAIL_MAX is how the refusal
-; gets to mean "I could not have had this even trying".
+; wrong pays for its refusal twice. The what-if is how the refusal gets to
+; mean "I could not have had this even trying".
 ;
 ; DECIDE ON THE WAKE, not before it. The what-if measured a state the machine
 ; has since left; the wake's OSAPI_MEM_AVAIL is the one to claim against, and
 ; posting a second time because the first did not give you what you hoped for
 ; is how a program spins.
-; The shed rank OSAPI_MEM_COMPACT_WAKE takes in AL is MEM_LVL_TOP, declared
-; with the purge tiers further down: an ordinary claim's rank, where every
-; cache counts as free because mem_claim sheds them all, and it is what you
-; want unless you are a cache yourself (SPEC.md 50.6.4).
-
-%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, on
-                                 ; OSAPI_MEM_FLOOR's scale; out AX/BX as
-                                 ; OSAPI_MEM_AVAIL, planned as if YOUR OWN
-                                 ; REGION could move. **SET AL** - pass
-                                 ; MEM_LVL_TOP for the unconditional answer,
-                                 ; and otherwise the SAME level you are going
-                                 ; to claim at, or the two numbers you compare
-                                 ; are answers to different questions.
+;
+; **SET AX, NOT AL**: AH is the verb, so `mov al, level` alone leaves whatever
+; AH held to choose it. The level in AL is on OSAPI_MEM_FLOOR's scale, in both
+; verbs - MEM_LVL_TOP for the unconditional answer and an ordinary claim's
+; rank, where every cache counts as free because mem_claim sheds them all;
+; otherwise the SAME level you are going to claim at, or the number you
+; measure and the claim beside it are answers to different questions.
+MEMC_WHATIF equ 0                ; AH: measure - AL = a purge level; out AX/BX
+                                 ; as OSAPI_MEM_AVAIL, planned as if YOUR
+                                 ; OWN REGION (and your claims) could move.
                                  ; A MEASUREMENT AND NOT A PROMISE: claiming
                                  ; this number refuses, because you are
                                  ; standing in your region as you ask
-%define OSAPI_MEM_COMPACT_WAKE KERNEL_SEG:0x0598 ; BX = a window of YOURS,
-                                 ; AL = the shed rank the pass must respect
-                                 ; (MEM_LVL_TOP to let it drop any cache).
-                                 ; out CF = 0 posted, and an EVT_WAKE arrives
-                                 ; once it has run; CF = 1 refused - BX is not
-                                 ; your window, or a post of yours is already
-                                 ; standing
+MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
+                                 ; shed rank the pass must respect. out CF=0
+                                 ; posted, and an EVT_WAKE arrives once it has
+                                 ; run; CF=1 refused - a post is already
+                                 ; standing. BX is trusted, as OSAPI_WM_WAKE
+                                 ; trusts it
+%define OSAPI_MEM_COMPACT   KERNEL_SEG:0x0590   ; AH = MEMC_WHATIF: AL = a
+                                 ; purge level, out AX/BX as OSAPI_MEM_AVAIL_LVL
+                                 ; planned as if YOUR OWN REGION could move;
+                                 ; AH = MEMC_POST: BX = a window of yours, AL =
+                                 ; the rank, out CF=0 posted (an EVT_WAKE
+                                 ; follows the pass) / CF=1 a post of yours is
+                                 ; standing. **SET AX**: AH picks the verb. On
+                                 ; kern_small the what-if is the plain level
+                                 ; door's answer and a post is refused
+                                 ; (SPEC.md 66.0)
 %define OSAPI_MEM_AVAIL     KERNEL_SEG:0x0210   ; out AX = largest free run in
                                  ; KB, BX = total free KB. Size yourself from
                                  ; THIS, not from int 12h: it is the only
