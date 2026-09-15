@@ -1398,11 +1398,15 @@ cs_drawobj:
     mov bx, ax
     pop cx
     pop si
-    mov ax, [cs_ocz]
-    cmp ax, bx                      ; the far model stands in beyond it
-    jl .mdl                         ; (BX is dead past here: cs_sizepx below
-    mov si, cx                      ; clobbers it anyway)
-.mdl:
+    cmp bx, [si + CSM_RAD]          ; ...AND NEVER INSIDE THE NEAR MODEL
+    jge .thr                        ; (88.6.1.1): Near scales the threshold
+    mov bx, [si + CSM_RAD]          ; to 0.6 and four of the water strips are
+.thr:                               ; inside a river wider than that, so the
+    mov ax, [cs_ocz]                ; A5 sat on the bay and saw the horizon
+    cmp ax, bx                      ; band's ground with a line across it.
+    jl .mdl                         ; The far model stands in beyond BX (dead
+    mov si, cx                      ; past here: cs_sizepx below clobbers it
+.mdl:                               ; anyway)
     mov [cs_mdl], si
     call cs_sizepx                  ; under two pixels across: not drawn -
     mov cx, [cs_ocz]                ; the far model's radius, and the true

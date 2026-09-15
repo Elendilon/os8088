@@ -109896,6 +109896,62 @@ vertices, two segments — beyond 2,600 m, so a piece that is a row at the
 horizon is a segment or two and not a dozen transformed vertices. Their
 range is 4,500 m: a 20 m river is a quarter of a pixel wide there.
 
+##### 88.6.1.1 The far model never stands in while the eye is inside the near one
+
+Reported off the machine as *"the Icon A5, when taking off from Rio, has
+nothing in view. On mono, I can't even see the water — it just looks like
+ground? On VGA I can see the water."* The second half is one compare, and it
+is not the adapter's: the two machines were at different Draw Distances.
+
+`cs_drawobj` takes the far model when the object's depth, `cs_ocz`, is past
+`CSO_LOD` scaled by §88.13.2's rung. Rio's bay is `CSM_RAD` 1,926 m with a
+`CSO_LOD` of 2,600 — Paris' river band, copied — so at Moderate the switch
+is 674 m clear of the sheet's edge; at **Near** the threshold is 1,564 m, and
+the A5 spawns on the strip's threshold with the bay's origin 1,686 m down the
+nose. The eye is INSIDE the bay — `cs_inwater` says so and the panel says `ON
+THE WATER` — and the bay is drawn as its far model, a centreline. What is
+under the aeroplane is then the horizon band's own ground: the 12.5% dither
+on Hercules with one white line across it, green with a blue line on Mode X.
+A VGA machine at Moderate shows the water and a Hercules one at Near does
+not, which is the report exactly; both adapters at Near float the A5 on
+grass, photographed on MartyPC either way.
+
+It is not Rio's alone. Every world's water was laid with `CSO_LOD` at 2,600
+or 3,000 against radii up to 3,040, so at Near the A5 spawns inside a piece
+drawn as a line at **four of the nine locations** — Rio (the bay, 1,686 m
+down the nose against a threshold of 1,564), Le Bourget (the Seine's first
+piece, 1,665 against 1,564), London City (the Thames from Tower Bridge to the
+docks, 2,227 against 1,804) and JFK (the East River's first piece, 2,459
+against 1,804) — and San Francisco's bay is 24 m from joining them. Cairo's
+Nile is 3,040 m of radius against a `CSO_LOD` of 3,000, so it can do it at
+**Moderate**, over forty metres of the river.
+
+The rule is that a far model stands in for something SMALL — *"a piece that
+is a row at the horizon"* is what §88.6.1 built it for — and an object whose
+origin is closer than its own radius is not small on any screen; the eye may
+be on it. So the threshold is now the larger of the scaled `CSO_LOD` and the
+near model's `CSM_RAD`: eight bytes at the switch, a compare against
+`[si + CSM_RAD]` and a conditional load, and no world file changes. It costs
+the near model where the far one was wrong and nowhere else — at Moderate
+every threshold in the tree but the Nile's is already past its radius, so
+the scenes the frame budget was measured on (§88.12) draw what they drew.
+
+The first half of the report is §88.7.7.3's decision and stands: the strip
+runs 075 across the bay with Sugarloaf 40 degrees off the nose, outside
+both the Hercules field of 49 degrees and Mode X's 60, so a departure sees
+water to the far shore on either adapter.
+
+`tests/skieswater.py` is the gate: the A5 on the strip at Near, at all four
+locations, and the piece under it must enter `cs_flatverts` as its NEAR
+model — asked of the guest, not of the pixels — with the rows under the
+horizon carrying the water's stripes on Hercules as a second reading.
+`--clobber-guard` NOPs the compare and the load, which is the switch exactly
+as it shipped, and every location goes red: the piece enters `cs_flatverts`
+as its centreline and never as its ribbon, and at three of the four the
+rows under the horizon read 0 lit edge to edge where the guard reads 25 to
+27 of 53. JFK's rows stay striped in both arms, because the Hudson is a
+second piece under that eye and inside its own threshold.
+
 #### 88.6.2 The centreline is dashed where the aeroplane is
 
 A solid centreline gives a take-off roll nothing to move against, and a
@@ -114317,6 +114373,12 @@ range**: Near is for thinning the world out, and thinning out the things you
 navigate by would be a different feature. 112.8 ms at Near against 186.7 at
 Far, over the same scene.
 
+**Neither scale can take a far model inside its own near model.** The
+threshold `cs_drawobj` compares the depth against is the scaled `CSO_LOD` or
+the near model's `CSM_RAD`, whichever is larger (§88.6.1.1): at Near the
+0.6 put four of the nine water strips inside a river drawn as a centreline,
+and the A5 sat on the water and saw ground.
+
 ##### 88.13.2.1 Ultra, which is the impostor turned off
 
 A fourth rung, and the only one on this ladder that is not a distance.
@@ -114878,6 +114940,14 @@ drop-downs get a release the title page never armed.
   too, found by `--clobber-lag` and fixed rather than tolerated.
   `--clobber-amphib` clears `CSP_FLAGS` and takes the water start and the
   splash red while everything else about the A5 still passes.
+- `tests/skieswater.py` (soak, MartyPC, Hercules): §88.6.1.1. The A5 on the
+  water strip at Draw Distance = Near at Rio, Le Bourget, London City and
+  JFK — the four spawns whose water piece is wider than its scaled `CSO_LOD`
+  — and the piece under the aeroplane must enter `cs_flatverts` as its NEAR
+  model, read off the guest at the breakpoint; on Hercules the rows under the
+  horizon must then be the river's stripes and not the ground's 12.5%.
+  `--clobber-guard` NOPs the radius clamp and all four go red, the A5
+  floating on ground with a line across it.
 - `tests/skiesgeom.py` also carries §88.5.4.1's check: `cs_rect` has exactly
   one caller, so any stop there is an impostor, and its rectangle must be
   within `CS_LODPX` — read out of `skies.asm` rather than mirrored.

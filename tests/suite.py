@@ -4045,6 +4045,17 @@ SOAK = [
         " card frames is a fifth of one on Mode X, and under load the row"
         " reported that the key had not changed, which was true and useless",
         needs=("marty",), serial=True),
+    Row("skieswater", "soak", py("tests/skieswater.py"), 20.0,
+        "SPEC.md 88.6.1.1: a far model never stands in while the eye is"
+        " inside the near one. Draw Distance = Near scaled CSO_LOD to 0.6 and"
+        " four of the nine water strips are inside a river wider than that,"
+        " so the A5 spawned on a bay drawn as a centreline and sat on the"
+        " horizon band's ground - 12.5% dither on Hercules, which the field"
+        " read as 'it just looks like ground', green on Mode X. The row puts"
+        " the A5 on all four strips at Near and asks the guest which model"
+        " each piece under it entered cs_flatverts as; --clobber-guard NOPs"
+        " the eight-byte clamp and every location goes red",
+        needs=("marty",), serial=True),
     Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 71.0,
         "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
