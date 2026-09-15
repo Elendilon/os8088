@@ -122103,6 +122103,49 @@ frame from `bp` now. The lesson is the ordinary one about a layout that more
 than one place knows: the gate's shape was written down in a comment and read
 by three pieces of code, and changing it compiled cleanly.
 
+#### 96.7.1.1 ...and `DX`, which is the same defect a second time
+
+§96.7.1 makes an argument — *a program keeps a live pointer in a register a
+call does not answer in, so the gate banks it* — and then applies it to three
+registers out of seven. `DX` was left live because, unlike `ES`, it is a real
+output of five functions, and "mostly an output" was treated as "not bankable".
+It is not a judgement call; it is measurable, and the measurement is flat.
+
+Test Drive III, run off the same floppy under this box and under a real
+**IBM DOS 3.30** on the same machine, makes an `INT 21h` conversation that is
+identical call for call — same function, same order, same registers in, same
+file names — from its first instruction to the one that kills it. Diffing the
+**answers** rather than the questions (`tools/os88intmon.py`'s `do_time`
+arm, which breakpoints the return address too) gives exactly three rows:
+
+| | ours | IBM DOS 3.30 |
+|---|---|---|
+| `AH=3Dh` open, `DX` on return | **destroyed, 37 calls of 37** | `DS:DX` preserved |
+| `AH=43h` attributes, `DX` on return | **destroyed, 7 of 7** | `DS:DX` preserved |
+| `AH=44h` `AL=00h` on a file handle | `0001h` | `0041h` |
+
+The first two are one defect: `dos_fh_stat` answers a file's size in `DX:AX`,
+`.open` reads the size out of `[dos_fent]` instead and never puts `DX` back,
+so the value a program gets back is **the high word of the file's length**
+where it left a pointer. It is §96.7.1's Prince of Persia story with a
+different register, and it is silent for the same reason — the call succeeds,
+the handle is right, the data is right, and the program computes an address
+from it some unbounded number of calls later.
+
+So `DX` is banked at the gate beside `SI`, `DI` and `ES`, and the five
+functions that answer in it — `AH=42h` (`DX:AX` is the new position), `36h`
+(free space), `2Ah` (date), `2Ch` (time) and `44h` (the device word) — write
+the banked slot the way `AH=35h` already writes `ES`'s. The restore happens at
+`.ok`/`.badax` rather than in `.leave`, one instruction earlier than it needs
+to be, so that a `DOSTRACE` build records the register the **program** is
+about to see rather than the one the handler happened to leave.
+
+The third row is a separate, smaller gap and is not fixed here: bit 6 of the
+`AH=44h` device word means *this handle has not been written through*, and
+this box has no per-handle "has been written" bit to answer it from. It is
+recorded rather than guessed at, because the honest answer needs a flag that
+does not exist yet.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not

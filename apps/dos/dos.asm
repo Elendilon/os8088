@@ -2157,8 +2157,9 @@ dos_int21:
     push ds
     mov bp, sp                      ; [bp]=DS [bp+2]=BP [bp+4]=IP [bp+6]=CS
     push si                         ; [bp+8]=FLAGS, all on the PROGRAM's stack
-    push di                         ; ...and [bp-2]=SI [bp-4]=DI [bp-6]=ES,
-    push es                         ; banked here rather than per handler
+    push di                         ; ...and [bp-2]=SI [bp-4]=DI [bp-6]=ES
+    push es                         ; [bp-8]=DX, banked here rather than per
+    push dx                         ; handler (SPEC.md 96.7.1)
     push cs
     pop ds
 %ifdef DOSTRACE
@@ -2576,7 +2577,9 @@ dos_int21:
     mov [si+FH_POS], ax
     mov [si+FH_POS+2], bx
     mov dx, bx
-    jmp .fhok
+    mov [bp-8], dx                  ; **AN ANSWER, SO IT WRITES THE BANKED
+    jmp .fhok                       ; SLOT** (SPEC.md 96.7.1) - the way AH=35h
+                                    ; and AH=2Fh already return ES
 
 ; --- vectors, drives and the DTA (SPEC.md 96.12) -----------------------------
 .setvec:
@@ -2680,6 +2683,7 @@ dos_int21:
     pop di
     pop si
     add sp, 2                       ; BX is an ANSWER: drop the banked one
+    mov [bp-8], dx                  ; ...and so is DX (SPEC.md 96.7.1)
     jmp .ok
 .dfback:
     call .dfhome
@@ -3189,6 +3193,7 @@ dos_int21:
     mov dh, [dos_dm]
     mov dl, [dos_dd]
     call dos_dow                    ; AL = 0 Sunday .. 6 Saturday
+    mov [bp-8], dx                  ; DH/DL are the answer (SPEC.md 96.7.1)
     jmp .ok
 .setdate:
     ; AH=2Bh: CX = year, DH = month, DL = day; out AL = 0 or FFh.
@@ -3216,6 +3221,7 @@ dos_int21:
     ; AH=2Ch: out CH = hours, CL = minutes, DH = seconds, DL = hundredths.
     call dos_date_roll
     call dos_time_now
+    mov [bp-8], dx                  ; DH/DL are the answer (SPEC.md 96.7.1)
     jmp .ok
 .settime:
     ; AH=2Dh: CH/CL/DH/DL as above; out AL = 0 or FFh.
@@ -3379,7 +3385,8 @@ dos_int21:
     xor dh, dh
 .ioc_done:
     mov ax, dx                      ; DOS answers AX = DX here too, and a
-    jmp .ok                         ; library may read either
+    mov [bp-8], dx                  ; library may read either (SPEC.md 96.7.1)
+    jmp .ok
 .ioc_set:
     or dh, dh                       ; DH must be zero: anything else is a
     jne .ioc_bad                    ; device request, and we have no device
@@ -3479,13 +3486,15 @@ dos_int21:
     mov [dos_badfn], ah             ; the window NAMES it (SPEC.md 47): an
     mov ax, 1                       ; unsupported program reports its own gap
 .badax:
-%ifdef DOSTRACE
+    mov dx, [bp-8]                  ; BEFORE the trace, so the trace records
+%ifdef DOSTRACE                     ; what the PROGRAM is about to see
     stc                             ; ...as this exit is about to return it
     call dos_tr_result
 %endif
     or word [bp+8], 1               ; CF=1 in the RETURNED flags
     jmp short .leave
 .ok:
+    mov dx, [bp-8]
 %ifdef DOSTRACE
     clc
     call dos_tr_result
@@ -3506,6 +3515,19 @@ dos_int21:
     ; same guarantee with two documented exceptions, and AH=35h and AH=2Fh
     ; make theirs by writing the BANKED slot rather than the live register -
     ; the way the carry flag is already returned.
+    ;
+    ; **AND SO DOES DX, WHICH IS THE SAME DEFECT MEASURED RATHER THAN
+    ; REASONED ABOUT** (SPEC.md 96.7.1.1). DX was left live because five
+    ; functions answer in it, which is four more than ES has - so the
+    ; argument above was made and then not applied. Diffed against a real
+    ; IBM DOS 3.30 running the same program off the same disk, AH=3Dh
+    ; destroyed DX on **37 calls out of 37** and AH=43h on 7 of 7, where DOS
+    ; preserves DS:DX on both: `dos_fh_stat` answers the file's size in
+    ; DX:AX and `.open` simply never puts it back. A program that keeps a
+    ; pointer in DX across an `open` - which every program may, because DOS
+    ; lets it - reads our file size as an address. The five that really do
+    ; answer in DX (42h, 36h, 2Ah, 2Ch, 44h) write the banked slot, exactly
+    ; as AH=35h does for ES.
     mov si, [bp-2]
     mov di, [bp-4]
     mov es, [bp-6]
