@@ -329,6 +329,14 @@ mem_movable_x:
 ; `(runs * 9 + 1) >> 1` is the KB a width costs - `dsk_rah_arm`'s own
 ; arithmetic, mirrored here because the two have to agree to the byte or the
 ; base moves somewhere the slots do not follow.
+%ifndef KD_RAH_KEEP
+KD_RAH_KEEP equ 2               ; **WHAT THE PROGRAM DOES NOT GET** (SPEC.md
+%endif                          ; 96.44.11.4): the width `kd_giveback` stops
+                                ; at instead of shedding to nothing. 0 is the
+                                ; design as written - `dos_build_psp` hands a
+                                ; program everything - and it is measured, not
+                                ; assumed: see 96.44.11.4 for what each rung
+                                ; costs the program and buys the drive
 KD_RAH_L1   equ 4               ; 7 runs = 32 KB, and the rungs below it:
 KD_RAH_L2   equ 2               ; 4 = 18 KB, 2 = 9 KB, 0 = gone. Two is under
                                 ; `DSK_RAH_MIN`'s "worth having" floor on

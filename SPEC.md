@@ -128427,6 +128427,48 @@ program's run**, and this only stops it coming back.
 real allocator with real records, and a claim that would land on a package's
 region is refused rather than granted.
 
+##### 96.44.11.4 What the cache is worth, measured: 9 KB buys 4.7x and beats IBM DOS
+
+§96.44.11.3 closed the allocator, and with it the cache stayed at the ladder's
+bottom for the whole of a program's run — which is what `kd_giveback` was
+written to do, and which had never actually happened because the re-claim kept
+putting it back. So the design's own figure got measured for the first time.
+
+**Test Drive III's load, one machine, one disk, two operating systems**
+(`os8088_5150_cga_gla_mix`, a 360 KB A: and the 1.44 MB TD3 disk in B:, both
+arms watching `INT 13h` from the launch and ending at the same four-second
+silence):
+
+| | `KD_RAH_KEEP` 0 | **2 (9 KB)** | 4 (18 KB) | IBM DOS 3.30 |
+|---|---|---|---|---|
+| `INT 13h` calls | 310 | **37** | 34 | 57 |
+| sectors moved | 720 | **425** | 398 | 348 |
+| sectors a call | 2.3 | **11.5** | 11.7 | 6.1 |
+| guest s in the BIOS | 68.2 | **12.9** | 12.0 | 15.0 |
+| guest s outside it | 7.0 | **3.2** | 3.1 | 5.7 |
+| **wall, first call to last return** | **75.1 s** | **16.1 s** | 15.1 s | **20.7 s** |
+
+Two things fall out of that table and neither was predictable from the design.
+
+**The knee is the FIRST rung.** Nine kilobytes takes the load from 75 seconds
+to 16; the next nine take it to 15. A `INT 13h` is a disk revolution whatever
+it moves (PERFORMANCE.md), so what matters is the call COUNT, and one rung is
+already enough to coalesce a window refill into one call instead of seven.
+
+**And at one rung the box beats the DOS it is imitating** — 37 calls against
+57, 16.1 seconds against 20.7. That is the read-ahead reading to the end of a
+track where DOS reads what was asked for, and it is the same effect
+docs/plans/DISK-CPU-PLAN.md measured for Prince of Persia off a floppy.
+
+So `KD_RAH_KEEP` is **2**: the program is told about 9 KB less of a ~600 KB
+arena — 1.5% — and loads 4.7 times faster. `kd_giveback` stops at that width
+instead of shedding to nothing, which is the comparison its own comment said
+the loop would one day become. The cache then lives ABOVE `[kd_top]` and the
+window and the program below it, which is exactly the separation 96.44.11.3
+restored; `tests/kdcwd.py` reads both and asserts they do not meet
+(`rah_seg=9DC0 runs=2 kd_top=9DC0 wseg=9BC0 wbytes=2000` — adjacent, and that
+is the point).
+
 ##### 96.44.13.1 ...and never an empty set, on either arm
 
 Taking the drivers where the row is read fixes the arm that had a Sound
