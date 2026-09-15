@@ -127247,12 +127247,15 @@ to end. It is **3,264** against a measured 3,251, with the ledger in the source
 and an `%if` that fails naming it; `-DCORE_BSS_SIZE=n` is how the exact figure
 is bisected out.
 
-`tests/unit/t_dosbss.py` is the gate and it is two hard zeros — no `DBSS` row
-is conditional, and no core proc names an `HBSS` cell. It was written against a
-real offender: **`DOS_B_PKTRAW` sat inside the packet driver's own
-`%ifndef KD_BACKEND`**, so it was a thirtieth conditional row, and the failure
-it would have caused is silent state corruption in whichever host was not the
-one the core was built against.
+`tests/unit/t_dosbss.py` is the gate and it is four hard zeros — no `DBSS` row
+is conditional, no core proc names an `HBSS` cell, no host-varying arm sits
+inside the core, and **every `DBSS` row comes out at the same offset in all four
+builds**. It was written against a real offender: **`DOS_B_PKTRAW` sat inside
+the packet driver's own `%ifndef KD_BACKEND`**, so it was a thirtieth
+conditional row, and the failure it would have caused is silent state corruption
+in whichever host was not the one the core was built against. The fourth rule
+came later and for the same failure arriving by a route the first three cannot
+see — §96.44.2.1, which is what to read before trusting any of them.
 
 **Three things the split broke, and each is a class rather than a slip.**
 
@@ -127274,6 +127277,65 @@ one the core was built against.
   reported *"the second ExtraData block was written and not read"* — a green
   feature failing as a red one, which is the safe direction and still cost a
   diagnosis.
+
+#### 96.44.2.1 …and a row's SIZE is part of the layout, which is how six drives met eight
+
+§96.44.2's rule is *no `DBSS` row is conditional*, and `tests/unit/t_dosbss.py`
+enforced it by READING THE SOURCE: a row inside a `%if` fails. Every row was
+unconditional, all three of its checks were green, **and the two halves still
+laid the block out differently** — because the conditional was not in a row, it
+was in a row's SIZE:
+
+```
+    DBSS DOS_B_DVCWD,  2 * DVOL_MAX
+```
+
+`DVOL_MAX` is how many drives the box will let a program name, and it is
+`%ifndef KD_BACKEND` so that a host bringing its own disk layer keeps that
+layer's number (§96.38). `apps/dos/dos.asm` said **6**, `apps/dos/doscore.asm`
+says **8**, and `kernel/disk.inc` — which is where `kern_dos` gets it — says 4
+on `kern_small` and 8 on `kern_big`. So the window's copy of the table was 12
+bytes and the core's was 16, **and every `DBSS` cell after `DOS_B_DVCWD` stood
+four bytes apart in the two halves**: the whole shell block, the folder-walk
+cells, the console's own flags, the saved IVT.
+
+**What it cost is the console launcher, entirely.** Two cells in that range are
+the launcher's handshake and each broke in the opposite direction:
+
+| cell | written by | read by | what happened |
+|---|---|---|---|
+| `dsh_exec` | the window, before `dsh_run` | the core, at `.unknown` | the core read its own copy — 0, meaning *a `/c` shell* — so it printed `Bad command or file name` itself instead of holding the message back (§96.33.3) |
+| `dsh_why` | the core, at `.unknown` | the window, at `.ranout` | the window read its own copy — never `DSHW_NOCMD` — so **`dos_con_prog` was never called at all** |
+
+The visible result is that **every program typed at the parted box's prompt was
+refused**, from the root and from a subdirectory alike, while the same command
+on the same floppy launched under the inline `build/dos.o88`. It reads exactly
+like a file-resolution bug and is not one: `DIR` listed `PRINCE EXE 126304` one
+line above `Bad command or file name: PRINCE.EXE`.
+
+**The fix is that a `DBSS` row's width is an ABI constant.** `DVOL_CAP equ 8`
+lives in `apps/dos/doscall.inc`, which every half includes and reads the same
+line of; the table is `2 * DVOL_CAP`; and `dos.asm` asserts `DVOL_MAX <=
+DVOL_CAP` so a host that grows past it fails the build naming the rule. With
+the width no longer costing anything per drive, `DVOL_MAX` itself becomes the
+kernel's own widest arm — it is `DVOL_CAP` now, so the two are one number —
+which is what its comment always claimed and had not been true of 6 since
+`assoc.inc` stopped owning the constant. The inline box gains the two drives of
+reach that 6 was quietly costing it on a `kern_big` machine.
+
+**And the gate asks the ASSEMBLER now** — rule 4: `apps/dos/dos.asm` inline,
+`apps/dos/dos.asm` parted, `apps/dos/doscore.asm` and `kerndos/kdos.asm`, one
+`[map all]` each, every `DBSS` name compared across all four. A cleverer
+source-reading rule was not attempted and should not be: the size expression is
+arbitrary arithmetic over constants defined in four files, and nasm already
+knows the answer. It is 1.6 seconds, and it goes red on this defect naming
+`DOS_B_DVTGT` first with both offsets beside it.
+
+> The trap inside the gate is worth the line it takes: **`[map all <path>]` goes
+> through the preprocessor**, so a map file named after the build's defines came
+> back with `DOSKPART` expanded to the empty string `-DDOSKPART` makes it, and
+> nasm wrote the map somewhere else with `rc` 0 and no complaint. The build
+> names are lower case for that reason.
 
 #### 96.44.3 …and ten conditionals inside the core, of which five matter
 

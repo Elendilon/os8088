@@ -145,9 +145,13 @@ KDL_HDHDS   equ 32              ; dw its heads - `int 13h AH=08h`'s answer,
                                 ;    is what a hard disk did here before this
 KDL_VTAB    equ 34              ; the rows themselves, KDL_VROW bytes each
 KDL_VROW    equ 6               ; db kind, db unit, dd the partition base
-KDL_VMAX    equ 8               ; DVOL_MAX's widest arm (kernel/disk.inc), so
+KDL_VMAX    equ DVOL_CAP        ; DVOL_MAX's widest arm (kernel/disk.inc), so
                                 ; the block's shape does not depend on which
-                                ; kernel staged it
+                                ; kernel staged it - which is exactly what
+                                ; `apps/dos/doscall.inc` calls DVOL_CAP, so it
+                                ; is that and not a second literal 8 (SPEC.md
+                                ; 96.44.2.1: two copies of one fact is how the
+                                ; core's bss came to be laid out two ways)
 ; **ONLY THREE FIELDS OF SIXTEEN COME OVER**, and the rest are not an
 ; oversight: `DV_FLAGS` bit 0 is a DESKTOP ZONE and there is no desktop,
 ; `DV_CLASS` is 0 on every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT

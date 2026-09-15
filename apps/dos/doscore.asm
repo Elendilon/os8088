@@ -49,9 +49,16 @@ bits 16
 
 ; --- what a host would otherwise have said ----------------------------------
 %ifndef DVOL_MAX
-DVOL_MAX equ 8                      ; the kernel's own (`assoc.inc` defines it
-%endif                              ; first in every real build, which is why
-                                    ; dos.asm's copy is `%ifndef`'d)
+DVOL_MAX equ DVOL_CAP               ; the kernel's own WIDEST arm, which is
+%endif                              ; `kernel/disk.inc`'s 8 (4 on kern_small)
+                                    ; and which `doscall.inc` above already
+                                    ; calls `DVOL_CAP` - the one number both
+                                    ; halves read.  **IT WAS A LITERAL 8 AND
+                                    ; dos.asm's WAS A LITERAL 6**, which is
+                                    ; SPEC.md 96.44.2.1: the core's own bss
+                                    ; table was sized from it, so the two
+                                    ; halves laid every cell after that table
+                                    ; four bytes apart
 os88_image_end equ CORE_BSS_AT      ; THE CORE NEVER NAMES AN HBSS CELL - it
                                     ; is `tests/unit/t_dosbss.py`'s rule 2 -
                                     ; so this exists only so the equate block

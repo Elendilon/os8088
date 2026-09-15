@@ -9635,14 +9635,27 @@ DOS_PFSEPN  equ 14                  ; ...and the separators above the blank
                                     ; nasm's %ifndef tests for a MACRO, and an
                                     ; `equ` is a symbol - so the obvious guard
                                     ; compiles and does nothing
-DVOL_MAX    equ 6                   ; MIRRORS the kernel's (kernel/assoc.inc).
-                                    ; It is a CAPACITY here rather than a fact
+DVOL_MAX    equ DVOL_CAP            ; MIRRORS the kernel's WIDEST arm, which is
+                                    ; `kernel/disk.inc`'s 8 (it is 4 on
+                                    ; kern_small) and which `DVOL_CAP` already
+                                    ; is - so the two are one number and the
+                                    ; table below cannot be sized from the
+                                    ; wrong one again (SPEC.md 96.44.2.1).
+                                    ; **IT WAS 6, AND 6 IS NEITHER**: the
+                                    ; comment said `assoc.inc` and that file
+                                    ; has not owned the constant for some time.
+                                    ; It cost the INLINE box two drives of
+                                    ; reach on a kern_big machine, and it cost
+                                    ; the PARTED box the whole console
+                                    ; launcher, `apps/dos/doscore.asm` saying 8
+                                    ; where this said 6.
+                                    ; It is still a CAPACITY rather than a fact
                                     ; about the machine, and every use of it
                                     ; below is bound-checked - so a kernel that
-                                    ; grows a seventh volume costs this box
-                                    ; reach and can never cost it a write past
-                                    ; its own bss, which is somebody else's
-                                    ; heap claim
+                                    ; grows a ninth volume costs this box reach
+                                    ; and can never cost it a write past its
+                                    ; own bss, which is somebody else's heap
+                                    ; claim
 %endif
 DOS_WKB     equ 8                   ; the window's floor in KB; a volume whose
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -14135,7 +14148,11 @@ dos_fh_fill:
 ; root is its volume's root, so a slot nobody has touched is 0 - which .bss
 ; already is, and which is exactly right. No "has this been initialised" flag,
 ; because there is no state a fresh drive could be in other than its root.
-    DBSS DOS_B_DVCWD,  2 * DVOL_MAX
+    DBSS DOS_B_DVCWD,  2 * DVOL_CAP  ; **`DVOL_CAP`, NOT `DVOL_MAX`** (SPEC.md
+                                     ; 96.44.2.1): the reach is a per-host
+                                     ; number and this table is the CORE's bss,
+                                     ; so its width has to be one both halves
+                                     ; read from apps/dos/doscall.inc
     DBSS DOS_B_DVTGT,  1            ; the drive a switch is going TO, banked
                                     ; because OSAPI_VOL_KIND promises nothing
                                     ; about DX
@@ -14292,6 +14309,11 @@ dos_fh_fill:
  %error "the DOS core's bss outgrew CORE_BSS_SIZE - raise it in \
 apps/dos/doscall.inc, and note that EVERY host reserves the whole of it \
 whether it uses the cells or not"
+%endif
+%if DVOL_MAX > DVOL_CAP
+ %error "this host reaches more drives than dos_dvcwd has room for - raise \
+DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
+table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DOS_CORE_INLINE
 DOS_BSS_SIZE equ CORE_BSS_SIZE + HB ; the core's cells are in here too

@@ -4939,8 +4939,27 @@ $(BUILD)/kdos144.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
 		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(APPDATAFOLDER)
 
+# ...AND A 720KB ONE. `os8088_5150_herc_sb_720_gla` is this tree's 720KB
+# machine (tools/os88fat.py reach names it), both of its drives are 720KB, and
+# A: has to match the DRIVE rather than the program - so a 360KB image in one
+# of them is a different medium. It is the geometry a period game disk is
+# actually on: Prince of Persia's PRINCE\ folder is 500KB.
+#
+# **THE BOOT SECTOR IS boot360.bin**, which is not a shortcut - see its own
+# rule above: a 720KB DD floppy is 80 cylinders of the same 9-sector two-head
+# track shape, boot/boot.asm knows only SPT and HEADS, and os88disk.py writes
+# the BPB over the first 62 bytes. A boot720.bin would be byte-identical.
+$(BUILD)/kdos720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
+                      $(BUILD)/kdos/DOS.O88 $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+                      $(FACES) $(FACELIC) tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) APPS:$(BUILD)/kdos/DOS.O88 \
+		$(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(APPDATAFOLDER)
+
 .PHONY: kdostest
-kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
+kdostest: $(BUILD)/kdos360.img $(BUILD)/kdos144.img $(BUILD)/kdos720.img $(BUILD)/doscom360.img $(BUILD)/doscom144.img
 	@echo "kdostest: build/kdos360.img  - the system disk with kern_dos as a"
 	@echo "          part of APPS/DOS.O88, and build/doscom360.img in B:."
 	@echo "          Run it with: python3 tests/kdpart.py"

@@ -75,6 +75,21 @@ CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 CORE_BSS_AT equ CORE_ORG + CORE_MAX
 
+; --- A `DBSS` ROW'S SIZE IS PART OF THE LAYOUT (SPEC.md 96.44.2.1) ----------
+; `DOS_B_DVCWD` is a word per drive and was written `2 * DVOL_MAX` - which is
+; the box's per-drive REACH, and that one is `%ifndef KD_BACKEND` so a host
+; bringing its own disk layer keeps that layer's number (96.38).  The window
+; said 6, the core said 8, and every core cell after the table was then FOUR
+; BYTES APART in the two halves - the exact failure 96.44.2's rule is about,
+; arrived at through a row's size rather than through the row.
+;
+; So the WIDTH is an ABI constant and lives here, where both halves read the
+; same line, and `DVOL_MAX` goes back to being only a bound.  It is the widest
+; any host can ask for (`kernel/disk.inc`: 4 on kern_small, 8 on kern_big), and
+; `apps/dos/dos.asm` asserts that whatever this build's `DVOL_MAX` turns out to
+; be still fits it.
+DVOL_CAP    equ 8
+
 DOSC_STRIDE equ 3               ; a `jmp near` - see the header
 
 %ifdef DOS_EXTCORE
