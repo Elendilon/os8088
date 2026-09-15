@@ -10802,10 +10802,31 @@ one step that can permanently mask the real mouse off — §9.5.1's original
 failure — and the two changes above already remove the hitch without it. The
 contest is unchanged; the identify only moves the prior.
 
-The accepted degradation: a mouse whose burst is longer than `MOU_IDMAX` (a
-verbose PnP ID) fails rule 3 and gets **exactly today's behaviour** — no
-stand-down, no threshold drop. Period MS and Logitech parts answer `'M'` and
-`'M3'`, which is what the constant is sized for.
+~~The accepted degradation: a mouse whose burst is longer than `MOU_IDMAX` (a
+verbose PnP ID) fails rule 3 and gets exactly today's behaviour — no
+stand-down, no threshold drop.~~ **THAT DEGRADATION WAS THE FIELD DEFECT, and
+`MOU_IDMAX` is 128 rather than 8 since docs/FIELD-NOTES.md 44** (§9.4.1.1). It
+was sized for the period MS and Logitech parts, which answer `'M'` and `'M3'`;
+a combo PS/2-or-serial mouse answers `'M'` and then a **PnP identifier**,
+measured at **69 bytes** on the reporter's machine, so rule 3 threw out a mouse
+that had already passed rule 2 — and the poller then power-cycled it every
+`MOU_REPOLL` for the life of the session.
+
+**Rule 3 exists to reject a STREAM, and the byte count was never what
+distinguishes one**: rule 4 is, because a stream is exactly a thing that never
+goes quiet. So the cap is now a **line-time** bound rather than a guess at
+what a mouse says — 128 bytes is 0.96 s at 1200 7N1, which is what
+`MOU_DRAINT` covers (§9.4.8) — and rules 2 and 4 carry the discrimination they
+were always doing most of.
+
+**`MOU_IDSTRICT` is DELIBERATELY NOT RAISED WITH IT** and stays at 3. The two
+bars are graded for the reason above: a wrong stand-down costs a later
+hot-plug its reset edges, and a wrong threshold *lets one device claim the
+port and mask the real mouse off for the session*. The reporter's machine
+needs nothing from it — once the stand-down works the port is never reset
+again, and `MOU_LOCKN` = 8 is ~200 ms of continuous motion on a port that is
+now stable — so raising it would buy a third of a second, once, against a
+session-ending failure for somebody with a modem.
 
 **QEMU can neither reproduce the bug nor test the positive half.** Its
 `msmouse` is not a UART-level device: it ignores MCR/DTR entirely and emits
@@ -10865,6 +10886,53 @@ there is the **stand-down** — `poller state 0` where the old code would have
 dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
+
+##### 9.4.1.1 …and the field measurement that resized it
+
+docs/FIELD-NOTES.md 44, read off `MOUROUND=1`'s panel (§9.4.6.5) on the
+reporter's 100 MHz Pentium — one photograph, and every number in it
+cross-checks another:
+
+```
+row  base  idn  b0   last   idt  nd  run      row   rx   err msr mcr
+  0  03F8   00  00   FFFF    0    1   0         0  0000   00  00  0B
+  2  02F8   45  4D   000A    0    1   0         2  029B   00  20  0B
+idany 0  port 0  seen 0  hpst 3                 cyc 000A   hold 1
+win open 0003  used 0013  of 0013 ticks
+```
+
+- **The mouse is on COM2**, and COM1 is live and silent — so this is a
+  two-port machine and `[mou_need]` was `MOU_LOCKN` on both.
+- **`b0` is `4D`**: it answered our rising edge with `'M'`. Rule 2 passed.
+- **`idn` is 0x45 — 69 bytes.** Rule 3 (`MOU_IDMAX` = 8) threw it out.
+- **The count and the timestamp confirm each other.** 69 bytes × 9 bits at
+  1200 7N1 is 0.5175 s = **9.42 ticks**, and `last` independently records the
+  final byte at tick **10**. These are real bytes at the programmed rate, not
+  noise: `err 00` over all 667 says no framing, parity, overrun or break in
+  any of them.
+- **`msr 20`** — DSR asserted. The part is electrically alive. **`mcr 0B`** —
+  we are powering it correctly.
+- **`cyc 000A`**: ten reset edges. `rx 029B` = 667 bytes ≈ ten bursts of ~67,
+  so **every byte the machine has ever received is an identify burst** and not
+  one is a mouse packet.
+- **`used 0013 of 0013`** — the window ran its full ceiling, because §9.4.5's
+  early close requires a port that answered *like a mouse* and rule 3 had
+  denied it. The fix buys that boot time back as well.
+
+**A fourth thing fell out that nothing was looking for**: `MOU_DRAINT` was
+**9** ticks against a burst of **9.42**, so the ceiling expired ~23 ms before
+the PnP ID finished and the last ~3 bytes of every burst were handed to the
+live packet decoder as if they were motion. It is 18 now, and the two
+constants are cut from one quantity — the line time of `MOU_IDMAX` bytes — so
+neither can drift past the other.
+
+**What the photograph could NOT settle**, and it is worth writing down because
+the round was built to answer it: the panel read `phase D`, `hold 1`,
+`t 09D8` — DTR/RTS pinned high for **138 seconds** with `[mou_need]` at 1 —
+and `dt FFFF`, not one byte in that whole time, with the cursor still homed at
+`x 0140`. Either the reporter never moved the mouse while photographing it, or
+the part emits its ID and never streams. The first is fixed by this section;
+the second would not be, and `rx` on row 2 is the one number that says which.
 
 #### 9.4.2 The block a test package reads (registry tag `'MO'`)
 

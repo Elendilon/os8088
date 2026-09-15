@@ -92,7 +92,7 @@ MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
                                 ; unpowered to guarantee its power-on reset)
 MOU_REPOLL  equ 55              ; ticks between hot-plug reset attempts
                                 ; (~3s) while no packet has ever arrived
-MOU_DRAINT  equ 9               ; the CEILING (~0.5s): the longest the ISR
+MOU_DRAINT  equ 18              ; the CEILING (~1.0s): the longest the ISR
                                 ; discards RX after a hot-plug raise (SPEC.md
                                 ; 9.4.8). The burst is bit-6-set bytes the
                                 ; resync rule would read as packet headers -
@@ -128,12 +128,19 @@ MOU_IDBYTE  equ 'M'             ; the Microsoft mouse ID byte (0x4D), which
                                 ; CONNECT, ERROR, BUSY, NO DIALTONE or NO
                                 ; ANSWER - and every one of those IS a
                                 ; well-formed Microsoft packet (SPEC.md 9.5.1)
-MOU_IDMAX   equ 8               ; ...and at most this many bytes in all. A
-                                ; mouse says 'M', maybe '3' or 'Z', and stops;
-                                ; a modem banner is a STREAM. A verbose PnP ID
-                                ; overruns this and gets exactly the behaviour
-                                ; it had before - no stand-down, no threshold
-                                ; drop - which is the accepted degradation
+MOU_IDMAX   equ 128             ; ...and at most this many bytes in all. It
+                                ; was 8, and docs/FIELD-NOTES.md 44 is what
+                                ; that cost: a COMBO PS/2-or-serial mouse
+                                ; answers the raise with 'M' and then a PnP
+                                ; identifier - MEASURED at 69 bytes on the
+                                ; field machine - so rule 3 threw out a mouse
+                                ; that had passed rule 2, and the poller
+                                ; power-cycled it every MOU_REPOLL for the
+                                ; whole session. Rule 3 is there to reject a
+                                ; STREAM, and what distinguishes a stream is
+                                ; rule 4 (it never goes quiet) rather than a
+                                ; byte count; 128 is ~1s of 1200 7N1 line
+                                ; time, which is what MOU_DRAINT now covers
 MOU_IDSTRICT equ 3              ; ...and THIS many to lower [mou_need], which
                                 ; is a tighter bar on purpose (SPEC.md 9.4.1).
                                 ; The two consequences are not symmetrical: a

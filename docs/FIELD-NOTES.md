@@ -1698,7 +1698,7 @@ that would catch the fourth.
 Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
 startup in 114 calls.
 
-## 44. A combo PS/2-or-serial mouse is not found at BOOT, and works when it is HOT-PLUGGED (OPEN — instrumented, SPEC.md 9.4.6.5)
+## 44. A combo PS/2-or-serial mouse is not found at BOOT, and works when it is HOT-PLUGGED (DIAGNOSED — `MOU_IDMAX` was 8 against a 69-byte PnP ID: SPEC.md 9.4.1.1)
 
 Reported on a **100 MHz Pentium**. The mouse is a PS/2 part with a passive
 PS/2-to-serial adapter on it — a "combo" or "hybrid" mouse, which chooses its
@@ -1762,3 +1762,35 @@ exactly as `.low` does, so **a phase change can never strand DTR low**. That is
 bug they reported: a mouse unpowered for the session rather than merely
 unfound.
 
+### 44.3 DIAGNOSED — one photograph, and it is the documented degradation
+
+`MOUROUND=1`'s panel came back off the reporter's machine and named the cause
+outright. **SPEC.md 9.4.1.1 is the reading**; the short form is that the mouse
+is on **COM2**, it answers our rising edge with **`'M'`**, and it then sends
+**69 bytes** where `MOU_IDMAX` was **8** — so `mou_idjudge` threw out a mouse
+that had already passed rule 2, `[mou_idany]` stayed 0, and `mou_hotplug`
+power-cycled it every `MOU_REPOLL` for the whole session (`cyc 000A` — ten
+edges by the time of the photograph).
+
+**It was written down as acceptable before it was a bug.** SPEC.md 9.4.1 said
+in as many words: *"a mouse whose burst is longer than `MOU_IDMAX` (a verbose
+PnP ID) fails rule 3 and gets exactly today's behaviour — no stand-down, no
+threshold drop."* The degradation had a name, a mechanism and a predicted
+symptom, and none of that made it visible until a panel printed `idn 45`.
+
+**What made the photograph conclusive was that its numbers check each other.**
+69 bytes at 1200 7N1 is 9.42 ticks of line time, and the panel's own `last`
+column independently put the final byte at tick 10 — so the count is real
+bytes at the programmed rate, which `err 00` over all 667 then confirms from
+the UART's own error bits. Neither figure alone would have carried it.
+
+**And the instrument found a defect nobody was hunting**: `MOU_DRAINT` was 9
+ticks against that 9.42-tick burst, so the drain ceiling expired before the ID
+finished and its last ~3 bytes reached the packet decoder as fake motion.
+Both constants are now cut from one quantity - the line time of `MOU_IDMAX`
+bytes - so they cannot drift apart again.
+
+**Still open**: whether this part streams at all once the resets stop. The
+round pinned DTR/RTS for 138 seconds with `[mou_need]` at 1 and saw no byte
+(`dt FFFF`, cursor still homed), but it is not known whether the mouse was
+moved in that window. `rx` on row 2 answers it in one number.
