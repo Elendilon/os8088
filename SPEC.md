@@ -11725,6 +11725,58 @@ it is recorded because the next author to say "it lands in the padding" needs
 to know the padding is spent. Nothing is added to the per-interrupt path
 except that one `mov`, and `mou_lockon` runs once in the life of a machine.
 
+### 9.5.4 The WHEEL mouse's fourth byte, and why the contest could never be won
+
+docs/FIELD-NOTES.md 44's second reading, and the actual defect behind the
+report. A Microsoft packet is three bytes — a header with **bit 6 set**, then
+two bytes with **bit 6 clear** — and `mou_byte`'s phase machine decoded exactly
+that, returning to phase 0 at the third byte. **A wheel mouse sends FOUR**: the
+IntelliMouse (`MZ`) protocol appends a byte carrying the wheel delta and the
+middle button, and that byte has **bit 6 clear** like the two before it.
+
+The fourth byte therefore arrived at phase 0, fell through `.chk2` to *"a byte
+with bit 6 clear arriving between packets is a thing the protocol cannot
+produce"*, and **zeroed `[mou_run]`**. Every packet. So the run could never
+exceed 1, and on a two-port machine — where `[mou_need]` is `MOU_LOCKN` = 8 —
+**the contest was unwinnable by construction**: the mouse streamed perfectly
+and the kernel discarded the evidence as fast as it arrived.
+
+**That is the whole of the reporter's bug, and it is why the hot-plug
+workaround worked.** Once a port is settled, `[mou_seen]` is 1 and `mou_claim`
+returns at its first compare — the run is never read again — so every complete
+three-byte group is acted on and the fourth byte costs nothing. Plug a plain
+three-byte mouse in first, let it settle the port, swap the wheel mouse in, and
+it works perfectly for the rest of the session. Nothing about the wheel mouse
+changes; what changes is whether the run still matters.
+
+**The fix is a fourth phase.** `.pkt` sets `[mou_phase]` to **3** instead of 0 —
+*packet complete, and an optional fourth byte may follow* — and phase 3 answers
+two questions the other phases already answered:
+
+- a byte with **bit 6 clear** at phase 3 is the wheel byte: consumed, phase
+  back to 0, **and the run is not broken**;
+- a byte with **bit 6 set** at phase 3 is an ordinary next header from a
+  three-byte mouse whose fourth byte simply never came, so it is `.b0` and
+  **not** a mid-packet resync.
+
+A second bit-6-clear byte after the wheel byte is phase 0 again and breaks the
+run exactly as before, so the stray-byte rule survives intact — the change
+admits **one** such byte per packet and no more, which is precisely what the
+protocol produces.
+
+**It costs a plain three-byte mouse nothing**: its next header arrives at
+phase 3 and takes the same `.b0` it always did. And `mou_newround` still zeroes
+`[mou_phase]` outright, so phase 3 needs no unwind anywhere.
+
+**Why this was invisible for so long**: every mouse in this tree's emulators is
+a three-byte part, the field 5150's is a real Microsoft three-button, and a
+wheel mouse works *perfectly* the moment anything else has settled the port.
+The failure needs a wheel mouse, a two-port machine and a cold boot at the same
+time. `MOU_IDSTRICT` would also have masked it — dropping `[mou_need]` to 1
+makes one packet enough — which is worth recording as a near miss: it would
+have hidden the defect rather than fixed it, and a one-port machine would have
+been left broken.
+
 ### 9.6 The keyboard mouse — the arrows, when there is no mouse
 
 With no mouse on the machine there is no pointer, and with no pointer there

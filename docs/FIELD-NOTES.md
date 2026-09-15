@@ -1698,7 +1698,7 @@ that would catch the fourth.
 Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
 startup in 114 calls.
 
-## 44. A combo PS/2-or-serial mouse is not found at BOOT, and works when it is HOT-PLUGGED (DIAGNOSED — `MOU_IDMAX` was 8 against a 69-byte PnP ID: SPEC.md 9.4.1.1)
+## 44. A WHEEL mouse can never win the packet contest — its fourth byte broke the run (FIXED: SPEC.md 9.5.4, and `MOU_IDMAX` on the way: SPEC.md 9.4.1.1)
 
 Reported on a **100 MHz Pentium**. The mouse is a PS/2 part with a passive
 PS/2-to-serial adapter on it — a "combo" or "hybrid" mouse, which chooses its
@@ -1794,3 +1794,60 @@ bytes - so they cannot drift apart again.
 round pinned DTR/RTS for 138 seconds with `[mou_need]` at 1 and saw no byte
 (`dt FFFF`, cursor still homed), but it is not known whether the mouse was
 moved in that window. `rx` on row 2 answers it in one number.
+
+### 44.4 …and the SECOND photograph, which is the actual defect
+
+The `MOU_IDMAX` build went back and the reporter moved the mouse. **It still
+did not work — and the panel said why in one column.**
+
+```
+row  base  idn  b0   last   idt  nd  run      row   rx   err msr mcr   b0 b1 b2 b3    dt
+  0  03F8   00  00   FFFF    0    8   0         0  0000   00  00  0B   00 00 00 00  FFFF
+  2  02F8   45  4D   000A    1    8   0         2  00A9   00  20  0B   00 00 3F 43  0000
+idany 1  port 0  seen 0  hpst 0   cyc 0000      win open 0003  used 000E of 0013
+```
+
+**9.4.1.1's fix worked exactly as designed** — `idt 1`, `idany 1`, `hpst 0`,
+`cyc 0000`: the port identified, the poller never fired once, and the window
+closed early at 14 ticks against the ceiling's 19. **And the mouse was never
+the problem**: `rx 00A9` is 169 bytes against the boot burst's 69, so **100
+bytes arrived while the reporter moved it**. It streams perfectly.
+
+**The last four bytes are the whole answer.** Newest first they read
+`00 00 3F 43`, so in arrival order: `43 3F 00 00`.
+
+| byte | | |
+|---|---|---|
+| `43` | `0100 0011` | bit 6 **set** — a packet header. Buttons up, Y high 00, X high 11 |
+| `3F` | `0011 1111` | bit 6 clear — X low = 63. With the header, **dx = -1** |
+| `00` | | bit 6 clear — Y low = 0, **dy = 0**. A complete, perfect Microsoft packet |
+| `00` | | bit 6 clear — **A FOURTH BYTE.** Wheel delta 0, middle button up |
+
+It is an **IntelliMouse-compatible wheel mouse**: four bytes to a packet, the
+fourth with bit 6 clear like the two before it. `mou_byte` returned to phase 0
+at the third byte, so the fourth fell through `.chk2` to *"a byte with bit 6
+clear arriving between packets is a thing the protocol cannot produce"* and
+**zeroed `[mou_run]`. Every packet.** The run could never exceed 1, `[mou_need]`
+was `MOU_LOCKN` = 8 on this two-port machine, and **the contest was unwinnable
+by construction** — 100 bytes of flawless mouse data discarded as fast as it
+arrived. `run 0` is in *both* photographs and neither time did it mean
+"nothing arrived".
+
+**And it is exactly why the hot-plug workaround works.** With the port already
+settled `mou_claim` returns at its first compare, the run is never read again,
+and the fourth byte costs nothing. Nothing about the wheel mouse changes when
+you swap it in — what changes is whether the run still matters.
+
+**SPEC.md 9.5.4 is the fix**: a fourth phase, so the byte is recognised by
+position and consumed without breaking the run. Verified by injecting the
+reporter's own four bytes into `mou_byte` **in the guest** — five packets take
+`[mou_run]` to 5 where the kernel before it capped at 1; a plain three-byte
+mouse is unchanged at 5; and a genuine stray byte after the wheel byte still
+zeroes the run, so the rule it relaxes survives.
+
+**The near miss worth recording**: raising `MOU_IDSTRICT` was considered and
+declined in 9.4.1.1 on the grounds that the reporter needed nothing from it.
+That reasoning was wrong — it assumed the run could accumulate — but the
+*decision* was right for a reason it did not know: dropping `[mou_need]` to 1
+makes one packet enough, so it would have **masked this defect rather than
+fixed it**, and left every one-port machine with a wheel mouse still broken.

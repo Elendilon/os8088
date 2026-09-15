@@ -3137,9 +3137,11 @@ mou_byte:
     test al, 0x40               ; bit 6 set -> first byte of a packet
     jz .cont
     cmp byte [bx+mou_phase], 0  ; ...but MID-PACKET it is a resync, and a real
-    je .b0                      ; mouse never causes one: its bytes come in
-    mov byte [bx+mou_run], 0    ; threes with nothing between them. Break the
-.b0:                            ; run of clean packets (SPEC.md 9.5)
+    je .b0                      ; mouse never causes one. Break the run of
+    cmp byte [bx+mou_phase], 3  ; clean packets (SPEC.md 9.5) - EXCEPT out of
+    je .b0                      ; phase 3, which is a complete packet whose
+    mov byte [bx+mou_run], 0    ; optional fourth byte simply never came
+.b0:                            ; (SPEC.md 9.5.4)
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
 .jbout:
@@ -3155,10 +3157,21 @@ mou_byte:
 .chk2:
     cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
     je .pkt                     ; break the run for the same reason: a byte
-    mov byte [bx+mou_run], 0    ; with bit 6 clear arriving between packets is
-    jmp .bout                    ; a thing the protocol cannot produce
+    cmp byte [bx+mou_phase], 3  ; with bit 6 clear arriving between packets is
+    jne .stray                  ; a thing the protocol cannot produce...
+    mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
+    jmp short .bout             ; mouse's packet, which is exactly a bit-6-clear
+                                ; byte in exactly this position (SPEC.md 9.5.4).
+                                ; Consumed, and the run is NOT broken - that
+                                ; break is what made a wheel mouse unable to
+                                ; win the contest at all (docs/FIELD-NOTES.md 44)
+.stray:
+    mov byte [bx+mou_run], 0
+    jmp short .bout
 .pkt:
-    mov byte [bx+mou_phase], 0  ; third byte: Y low 6 bits, packet complete
+    mov byte [bx+mou_phase], 3  ; third byte: Y low 6 bits, packet complete -
+                                ; and phase 3 rather than 0, so the wheel byte
+                                ; that MAY follow is recognised by position
     call mou_claim              ; ...and a RUN of them is PROOF OF MOUSE: the
                                 ; port is settled and the hot-plug poller
                                 ; stands down for the session
@@ -5225,7 +5238,11 @@ mou_old_seg dw 0, 0
 ; odd byte of each pair is padding and costs 4 bytes in all). The two ports
 ; decode independently, which is what stops either one corrupting the other's
 ; packets or resetting the other's run (SPEC.md 9.5).
-mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1
+mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1,
+                                ; 3 packet complete and a wheel mouse's
+                                ; optional FOURTH byte may follow (SPEC.md
+                                ; 9.5.4). 3 behaves as 0 for every other
+                                ; purpose - mou_newround still zeroes it
 mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
