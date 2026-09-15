@@ -225,11 +225,31 @@ def main():
         # with the guest free-running - and the DOS box's region MOVES now, so
         # a segment taken before that call can be stale by the time it is
         # used. It read nine bytes of machine code out of `[dos_path]`.
+        # **AND THE VERB CONFIRMS ON THE WINDOW, WHICH THE ENTRY PROC REACHES
+        # FIRST.** `OSAPI_WM_CREATE` is a third of the way down `dos_entry`
+        # and `dos_path_make` is near its end, with `OSAPI_ARG_FILE` and
+        # `dos_lnk_open` in between - so `ui.path` returns, correctly, while
+        # the field it is about is still empty. Sampled once, this read a
+        # buffer that was already right and an `LN_LEN` that was not yet:
+        # `LN_LEN is 32518`, the same word a moment earlier. It went red once
+        # in a loaded lane and passes alone every time, which is the signature
+        # (docs/WRITING-TESTS.md 59, 60).
+        #
+        # BOTH FIELDS EVERY ROUND, and the segment with them: the box's region
+        # is movable (SPEC.md 66.6.1.2), so re-reading one of a pair against a
+        # base taken before the other is its own race.
         _dm = dosmap.package()
-        _ps = dosmap.instance(m)
-        _buf = m.read((_ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
-        _len = int.from_bytes(
-            m.read((_ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+
+        def _pathbox(mm):
+            ps = dosmap.instance(mm)
+            buf = mm.read((ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
+            ln = int.from_bytes(
+                mm.read((ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+            return buf, ln
+
+        os88marty.until(m, lambda mm: _pathbox(mm)[1] == len(_pathbox(mm)[0]),
+                        "the entry proc to fill the path box", limit=60.0)
+        _buf, _len = _pathbox(m)
         if not _buf.upper().endswith(b"DOSARGS.COM"):
             fail("an association launch left [dos_path] = %r, and the entry "
                  "proc composes it from OSAPI_ARG_FILE (SPEC.md 96.32.3)"
