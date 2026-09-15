@@ -653,6 +653,10 @@ mouse_init:
     mov ax, 0x040B              ; MCR: DTR|RTS|OUT2 - powers the mouse and
     call KERNEL_SEG:ovw_mou_pall               ; gates the IRQ onto the bus; this rising
                                 ; edge is the mouse's reset
+%ifdef MOU_DIAG
+    mov ax, [ticks]             ; SPEC.md 9.4.6.5: the edge mdb_dt is measured
+    mov [mdb_rt], ax            ; from. DATA in .text, which DS reaches from
+%endif                          ; the overlay - only CODE addresses differ here
 
     OVLMARK 44
     ; --- drain the identify burst (IER still 0, the IRQs still masked) -------
@@ -786,6 +790,10 @@ mouse_init:
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 mou_idbyte:
+%ifdef MOU_DIAG
+    call KERNEL_SEG:ovw_mdb_rxb ; SPEC.md 9.4.6.5: the identify window's bytes
+%endif                          ; are wire bytes too, and a mouse that answers
+                                ; ONLY at boot is a reading of its own
     push ax
     push dx
     mov dl, [bx+mou_idn]
@@ -1137,6 +1145,10 @@ mou_hotplug:
                                 ; hand. Beside [mou_idany] and in state 0 ONLY,
                                 ; for the reason spelled out there
 %endif
+%ifdef MOU_ROUND
+    cmp byte [mdb_hold], 0      ; SPEC.md 9.4.6.5: the round has pinned DTR/RTS
+    jne .done                   ; high. Beside [mou_idany] and in state 0 only,
+%endif                          ; for the reason spelled out there
     cmp byte [mou_idany], 0     ; a port answered our reset edge like a mouse
     jne .done                   ; (SPEC.md 9.4.1), so there IS one and it must
                                 ; not be power-cycled under the user's hand.
@@ -1156,11 +1168,20 @@ mou_hotplug:
     mov byte [mou_hpst], 1
     jmp short .done
 .low:
+%ifdef MOU_ROUND
+    cmp ax, [mdb_low]           ; SPEC.md 9.4.6.5: phase C substitutes a ~1.1 s
+%else                           ; hold for MOU_RSTLOW's ~165 ms
     cmp ax, MOU_RSTLOW          ; state 1: low held since the DROP, whose tick
-                                ; [mou_hpt] carries - held low long enough?
+%endif                          ; [mou_hpt] carries - held low long enough?
     jb .done
     mov ax, 0x040B              ; the rising edge a serial mouse resets on
     call mou_pall
+%ifdef MOU_DIAG
+    mov [mdb_rt], bx            ; SPEC.md 9.4.6.5: mdb_dt's reference, and a
+    inc word [mdb_cyc]          ; count of the edges the user's mouse has been
+    mov word [mdb_dt], 0xFFFF   ; offered - which on a mouse that never answers
+    mov word [mdb_dt+2], 0xFFFF ; is the only sign the poller is running at all
+%endif
     mov [mou_hpt], bx           ; re-base the next interval from the raise -
     mov byte [mou_hpst], 3      ; and state 3 is state 0 that HAS dropped, which
                                 ; is 9.4.2's "the poller fired" reading in a
@@ -3050,6 +3071,12 @@ mou_isr_body:
     jz .next                    ; the probe rejected this row
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
+%ifdef MOU_DIAG
+    push ax                     ; SPEC.md 9.4.6.5: ...and the error bits, which
+    and al, 0x1E                ; are read here and NOWHERE else in this kernel
+    or  [bx+mdb_err], al        ; - a mouse at the wrong line rate is framing
+    pop ax                      ; errors and no packets, and looks from every
+%endif                          ; other counter exactly like silence
     test al, 0x01
     jz .next
     sub dx, 5
@@ -3069,6 +3096,9 @@ mou_isr_body:
 ; in:  AL = the byte, BX = the port row; ISR context, IF = 0
 ; -----------------------------------------------------------------------------
 mou_byte:
+%ifdef MOU_DIAG
+    call mdb_rxb                ; SPEC.md 9.4.6.5: before any decision, so the
+%endif                          ; count is of the WIRE and not of what survived
     cmp byte [mou_seen], 0      ; is the mouse's port settled?
     je .drain
     cmp bl, [mou_port]          ; then every other port belongs to somebody

@@ -1697,3 +1697,68 @@ that would catch the fourth.
 → Memory → the third arm, Return, type `B:\PRINCE.EXE` in the path box, Run,
 Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
 startup in 114 calls.
+
+## 44. A combo PS/2-or-serial mouse is not found at BOOT, and works when it is HOT-PLUGGED (OPEN — instrumented, SPEC.md 9.4.6.5)
+
+Reported on a **100 MHz Pentium**. The mouse is a PS/2 part with a passive
+PS/2-to-serial adapter on it — a "combo" or "hybrid" mouse, which chooses its
+protocol at power-up. os8088 does not find it. A plain serial mouse on the
+same machine is found and works.
+
+**The reporter's own workaround is the finding, and it is worth more than the
+symptom:**
+
+> "If I plug in that [plain serial] mouse first and then plug in the hybrid
+> mouse later, the hybrid mouse does work in that case."
+
+So the part is not broken, the adapter is not miswired, and the port is fine.
+What differs is the STATE OF THE PORT the mouse is plugged into. A port the
+kernel has settled — `mou_lockon` has run, `[mou_seen]` = 1, `[mou_hpst]` = 2 —
+differs from a port it is still hunting on in exactly three ways (SPEC.md
+9.4.6.5 enumerates them and the round below does each in turn):
+
+1. **DTR/RTS are up and STAY up.** Until a packet arrives, `mou_hotplug`
+   power-cycles every port every `MOU_REPOLL` — §9.4.1's own arithmetic is
+   **12 ticks of every 58 with the mouse dead**, for ever. A part that needs
+   more than the ~2.85 s of stable power each cycle leaves it to finish
+   powering up and choosing a protocol is reset before it can ever speak.
+   **This is the candidate the report fits best**, because the workaround
+   removes it completely.
+2. **The low hold is `MOU_RSTLOW`, ~165 ms** — a constant sized for the period
+   parts §9.4 names, not for a part that makes a mode decision at power-up.
+3. **The contest is over.** A settled port needs no packets; an unsettled one
+   on a two-port machine owes `MOU_LOCKN` = 8 clean ones in a row, and every
+   reset edge calls `mou_newround` and throws the run away.
+
+**Not yet ruled out, and only the machine can say**: that the part chooses
+**PS/2 mode** and drives the serial RX line not at all. Nothing on a UART can
+tell that from a dead mouse — SPEC.md 9.4.6.5's `msr` column is the only hint,
+and it is a hint.
+
+### 44.1 What was built for it, and why the old table could not answer
+
+`make MOUDIAG=1` was the obvious instrument and **it would have said nothing
+loudly**: every row of it is about the identify window, which is 1.2 s into a
+boot and never runs again, and `idn 00 / b0 00 / ident 0` on both ports is
+exactly what it prints for a machine with no mouse plugged in at all.
+
+SPEC.md 9.4.6.5 adds the half that is about the WIRE and the rest of the
+session — `rx`, `err`, `msr`/`mcr` read live, the last four bytes and `dt`,
+the ticks from our own rising edge to the port's first byte — plus a **round**
+that removes the three differences above one at a time, 15 s each, and freezes
+the moment a packet arrives so the phase left on the glass is the verdict.
+
+**`rx` is the fork the whole report turns on.** 0000 on both ports after a
+full round says the mouse has never put a byte on the wire and the fault is
+electrical or is the part's own mode choice; anything else says it talks and
+this kernel does not believe it, which is a different investigation with a
+different fix.
+
+### 44.2 The trap this must not fall into
+
+`mdb_pin` raises DTR/RTS through the poller's own state 3 and arms the drain
+exactly as `.low` does, so **a phase change can never strand DTR low**. That is
+§9.4's trap in the one shape that would leave the reporter worse off than the
+bug they reported: a mouse unpowered for the session rather than merely
+unfound.
+
