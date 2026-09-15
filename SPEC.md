@@ -83943,6 +83943,15 @@ cheaper than from the *pending claim's* owner, and there is no pending claim
 here — the pass runs after the asking package's turn is over — so without it
 the pack would stop at the first purgeable barrier (§66.4.3.3).
 
+**And the pass takes the park ladder.** A `DI = 0` "compact regardless" pass
+used to jump to `.both` the moment its first plan counted any mover, and on a
+live heap something small always moves — a 5 KB cache it may dissolve — so
+the pair ran with every worker-pinned region still pinned and the park
+`.nowt` asks for (§66.5) never asked: `tests/trkbigmod.py` measured the
+asker's region unmoved under 147 KB of room and the load refused after it had
+posted. It goes down `.nowt` now — park if a worker refused, turn the walk,
+and the second turn is `.both` — at no cost in bytes.
+
 **One post may stand at a time.** A second before the first is serviced is
 refused rather than queued: the answer to *"I asked and nothing has happened"*
 is to wait for the wake, and a queue would let a package spend the machine on

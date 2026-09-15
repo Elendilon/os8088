@@ -2979,10 +2979,24 @@ mem_compact:
     or dx, dx                   ; IS IT WORTH RUNNING? Nothing can move, so not
     jz .nowt                    ; a byte is touched...
     or di, di
-    jz .both                    ; ..."compact regardless" (SPEC.md 66.10.1) is
+    jz .nowt                    ; ..."compact regardless" (SPEC.md 66.10.1) is
                                 ; BOTH passes: nobody is waiting on a size, so
                                 ; there is no plan to satisfy and no reason to
-                                ; leave the other half of the arena unpacked...
+                                ; leave the other half of the arena unpacked -
+                                ; BUT DOWN THE LADDER, not straight to .both.
+                                ; This used to jump to .both the moment the
+                                ; plan counted ANY mover, and the posted
+                                ; self-compaction (SPEC.md 66.4.3) is exactly
+                                ; a DI = 0 pass on a heap where something
+                                ; small always moves - a 5 KB cache it may
+                                ; dissolve - so it ran the pair with every
+                                ; worker-pinned region still pinned, the park
+                                ; .nowt asks for never asked: tests/trkbigmod
+                                ; measured the asker's region unmoved under
+                                ; 147 KB of room and the load refused. .nowt
+                                ; parks if a worker refused, .flip turns the
+                                ; walk, and the second .flip is .both - so
+                                ; the pair still runs, at most three plans in
     cmp cx, di
     jae .doit                   ; ...or IT STILL WOULD NOT FIT, and the caller
 .nowt:                          ; is about to be refused either way: a quarter
