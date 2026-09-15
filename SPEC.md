@@ -128197,6 +128197,102 @@ row would be asserting nothing. The program is on a floppy there on purpose —
 geometry it has not got (docs/plans/KERN-DOS-PLAN.md §12 question 5), while the
 return reads the part off the fixed disk through the extent list either way.
 
+#### 96.41.1 …and the ARENA comes home beside the exit code
+
+**The box cannot work the figure out.** §96.33.19 puts ` (Arena: 343KB)` on the
+console's log line out of `[dos_akb]`, which `dos_run` banks at its claim — and
+on §96.40's arm `dos_run` posts the handoff and *returns*, having claimed
+nothing. The arena there is `kern_dos`'s own arithmetic off `[kd_top]`
+(`kd_arena`, §96.44.11), on a machine the box is not running on. So what stood
+in `[dos_akb]` after a return was the last WINDOWED launch's number, or
+nothing, and both read like an answer.
+
+It travels in the cell next to the exit code, the whole way, on both routes:
+
+| | |
+|---|---|
+| `KDB_AKB` 6 | beside `KDB_CODE` in the BDA mailbox, written by `kd_bda` |
+| `[hb_dosakb]` | **two more resident bytes**, beside `[hb_doscode]`, for its reason: `hbm_ask` reads the mailbox at one boot and `hbm_res` stages it at the next, and those are two separate loads of the module |
+| `HS_DOSAKB` `0x0444` | beside `HS_DOSCODE` in the staging area — written by `hbm_res` on the reboot route and by `kd_resume` on §96.49's live one, so **the two ways home converge where the code does** and `hbm_wake` has one pair of cells to read |
+| `KDH_AKB` 559 | beside `KDH_CODE` on the posted record; `KDH_SIZE` goes 559 → 561 |
+
+**And the console says it on the way in, not on the way out.** `dos_wake`'s
+return arm now calls `dos_con_ended` itself — the run really ended there, and
+`dos_run`'s own `.out` is reached before the program has even started
+(§96.35.1), which is the defect §96.41.2 is about seen from the box's side.
+
+#### 96.41.2 The exit line is for somebody who is going to read it
+
+`kd_leave` printed *"the program has exited, code NNN. Press any key to
+restart."* and waited on `int 16h` — on **every** arm, including the one where
+a session is coming back. There the number has just been posted to a box that
+will put it on its own console a few seconds later, so the machine stopped in
+the middle of coming back for an answer it does not use, and then said the
+thing again.
+
+With `KDLF_HIBER` set the code and the key wait both go, and one line takes
+their place: *"os8088: restarting to put the session back…"*. The screen still
+says why it is about to go, which is this routine's own manner two exits along
+— but reaching that arm at all now means §96.49's `kd_resume` refused, so it is
+the fallback rather than the route, and the sentence says which one the machine
+took. With `KDLF_HIBER` clear nothing changes: there is nowhere for the number
+to go, so it is printed and read.
+
+#### 96.41.3 …and it is read BEFORE the desktop is painted over it
+
+`hbm_wake` read `HS_DOSCODE` at its step 5b, after step 4 had set the graphics
+mode and called `wm_paint_all`. **The staging area is the TEXT framebuffer** —
+0xB800, or 0xB000 on Hercules (§87.5) — and that is precisely where a CGA's
+640×200 desktop and a Hercules' 720×348 one are drawn. So on two adapters of
+three the word it read was a row of pixels, `KDH_NOCODE` never matched, the box
+was never woken, and the session came back with the DOS window still saying what
+it said before the handoff.
+
+On VGA the desktop is at 0xA000 and the cell survived, which is the whole of why
+this was invisible: it worked on every machine anybody looked at.
+
+The read moves to **step 3c**, immediately after the extent list is freed and
+before the mode changes, and banks both cells in `[hb_doscode]`/`[hb_dosakb]`.
+The poke stays at 5b, where it belongs — the box's window has to exist and
+`hbm_reload` has to have run.
+
+`tests/kdreturn.py` did not catch it and could not have: its exit-code assertion
+read `[dos_exit]` and `[dos_state]`, and the row's own **windowed** launch had
+already set both to the same values a successful return would. It zeroes them
+before the handoff now and reads the console's log line as well, which is a
+sentence the return has to have written rather than a byte it has to have left
+alone (docs/WRITING-TESTS.md §1).
+
+#### 96.41.4 …and the box's own handler jumped over it
+
+The second half of the same silence, and the one that would have kept the code
+off the glass on a VGA too. `dos_wake` opens with §96.33.17's *a `.O88` typed at
+the prompt* test:
+
+```
+    cmp byte [dos_pkgq], 0
+    je .notpkg              ; ← the STATE MACHINE, past everything below
+    call dos_pkg_go
+    jmp short .out
+```
+
+`.notpkg` is where the `DST_CPWAIT`/`DST_READY` ladder begins — **after** the
+`%ifdef DOSKPART` block that reads `KDH_CODE`. So every wake with no package
+pending, which is every wake there has ever been bar one, jumped straight over
+the return's own test. The kernel poked the code into the record and woke the
+window exactly as §96.41 describes, and the handler never looked.
+
+The miss lands at `.nopkg` now, immediately after the package arm, and the
+state machine keeps its own entry. Ordering is the whole of it and the block's
+own comment already said so: *"tested BEFORE the state machine … a box sitting
+at `DST_READY` would otherwise launch the program a second time on the very
+wake that says it finished."*
+
+**Together with §96.41.3 this is why nothing ever came home.** The two are
+independent — one in the kernel's wake, one in the package's handler — and
+either alone is enough, which is why the field saw a DOS window that still said
+what it said before the handoff and no error anywhere.
+
 ### 96.42 ...and on a machine with no fixed disk it ASKS FIRST
 
 §96.41's return needs somewhere to come back from. Without one the arm still
@@ -129578,10 +129674,11 @@ heads and fails honestly, which is what a hard disk did here before this.
 `DV_FLAGS` bit 0 is a desktop zone and there is no desktop, `DV_CLASS` is 0 on
 every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT fills — writing them
 here would be staler than not — and `DV_LBL` is a label nothing draws. A
-`DVK_DRV` or `DVK_FILE` row cannot come at all, its transport being a loadable
-driver that does not exist on the other side, so the gather writes `DVK_FREE`
-for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume class* enforced
-at the gather instead of hoped for downstream.
+`DVK_DRV` or `DVK_FILE` row could not come at all, its transport being a
+loadable driver that does not exist on the other side, so the gather wrote
+`DVK_FREE` for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume
+class* enforced at the gather instead of hoped for downstream. **§96.46.1
+asks that as a question instead**, and half the `DVK_DRV` rows answer it.
 
 **A zero count means keep what we have**, which is `KDL_DPT`'s zero one field
 along and for its reason: the W4 gate stages its own block and knows no
@@ -129604,6 +129701,53 @@ the open actually landed on, and "the volume is not there" (`(open failed)`)
 is a different picture from "it opened the wrong drive's copy".
 
 This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.
+
+#### 96.46.1 …and a driver volume the ROM can reach comes over as a BIOS one
+
+The rule above is true of the **driver** and not of the **disk**. `DSV_GEOM`
+sub-function 2 (§51.8) answers `CF=1` for a volume `int 13h` cannot reach, and
+a unit, a partition base and a geometry for one it can — so a `DVK_DRV` volume
+that *answers* is a BIOS volume as far as `kern_dos` is concerned, and the
+gather carries it as one. A volume that refuses is still written `DVK_FREE`.
+Nothing new is being trusted: §87.5 step 1's hibernation stub has rested on
+that exact answer from that exact routine since the day it was written.
+
+**What it fixes is the live resume on a machine that booted off a floppy.**
+§96.49's `kd_resume` mounts `HIBERNAT.IMG`'s volume **by index** against this
+table. `hb_pick` (§87.2) puts the image on the volume the machine booted from
+when that is fixed, and otherwise on the first fixed volume there is — which
+on a floppy-booted machine is driver-backed, because `dsk_boot_from_x` adds a
+`DVK_BIOS` partition row only on its hard-disk arm. So the row said `DVK_FREE`,
+`disk_mount` refused, `kd_leave` fell back to `int 19h`, and the session came
+back the long way: a whole POST, a whole boot, and a restore at the desktop —
+with nothing on the screen to say which route had been taken. The field
+reported it as *"it reboots, does the full boot, THEN restores from
+hibernation"*.
+
+**`KDL_HDSPT`/`KDL_HDHDS` were the second half of the same defect.** They are
+filled from `[dsk_bootspt]`/`[dsk_boothds]`, and `dsk_boot_from_x` asks
+`int 13h AH=08h` **only on its `.hard` arm** — so on a machine that booted off
+a floppy they are ZERO, and every read of a fixed disk over there is aimed with
+the floppy fallback of 9 sectors and 2 heads. The gather now takes them from
+the first driver-backed fixed volume it carries when the boot drive banked
+none; a booted-from fixed disk's own geometry still wins, there being one pair
+for the whole table and that volume being the one the machine is most about.
+
+**The gather moved, and that is what makes it possible at all.** It ran at
+§87.5 step 5, *after* step 4's `drv_shutdown_x` — and `drv_release` drops a
+driver's volumes on the way out, so a gather there sees every `DVK_DRV` row
+already `DVK_FREE` and cannot tell that from a machine which never had one. It
+is step **3c** now, before the teardown, writing the posted record's own copy
+of the launch block; step 5's `rep movsw` carries the lot, which is
+`KDLF_HIBER`'s arrangement one field over. `hbm_geom` writes
+`hb_unit`/`hb_spt`/`hb_heads`/`hb_base`, which step 3 filled with **DOS.O88's**
+volume and which step 5 stages under `HS_UNIT`, so the loop brackets those ten
+bytes on the stack — a second call to put them back can fail where the first
+did not, and that failure is a machine which hands over and cannot load the
+host it handed to.
+
+`kd_resume` needs no change: it mounts by index and reads the row, and the row
+is now right.
 
 ### 96.47 A `goto` inside `kern_dos` was a full MOUNT, listing and all
 

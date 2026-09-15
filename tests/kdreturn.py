@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The DOS handoff comes BACK (SPEC.md 96.41, docs/plans/KERN-DOS-PLAN.md 8).
 
-    python3 tests/kdreturn.py
+    python3 tests/kdreturn.py                 # booted off the fixed disk
+    python3 tests/kdreturn.py --boot floppy   # ...and off a FLOPPY, SPEC.md 96.46.1
 
 W5 gave a DOS program the whole machine and restarted when it exited, because
 there was nothing to return to.  On a machine with a fixed disk there is: the
@@ -20,10 +21,28 @@ WHAT IT ASSERTS, in the order the machine does it:
   4 the mailbox at 0040:00F0 is CLEARED, so the next resume cannot pick up a
     code from this one
 
-IT NEEDS A HARD DISK and boots off one: `hb_pick` is the predicate on both
-sides, so a floppy-only machine takes W5's arm and this row would be asserting
-nothing.  tests/hibernate.py's fixture, with the parted DOS.O88 and a DOS
-program in the volume's root.
+IT NEEDS A HARD DISK: `hb_pick` is the predicate on both sides, so a
+floppy-only machine takes W5's arm and this row would be asserting nothing.
+tests/hibernate.py's fixture, with the parted DOS.O88 and a DOS program in the
+volume's root.
+
+**`--boot floppy` IS THE SAME MACHINE BOOTED THE OTHER WAY, and it is a
+different question** (SPEC.md 96.46.1).  Which volume `HIBERNAT.IMG` lands on
+is `hb_pick`'s: the one the machine booted from when that is fixed, else the
+FIRST FIXED VOLUME THERE IS.  Boot off a floppy and that second arm runs, and
+the volume it names is driver-backed - `dsk_boot_from_x` adds a `DVK_BIOS`
+partition row only on its hard-disk arm.  The launch-block gather wrote
+`DVK_FREE` for a `DVK_DRV` row, so `kd_resume` mounted an index that named no
+volume, refused, and `kd_leave` fell back to `int 19h`: a whole POST, a whole
+boot and a restore at the desktop.  The field reported exactly that and this
+row is what would have caught it - the LIVE_MAX cycle bound below goes red on
+the fallback, which is the whole reason it is a bound and not a screen read.
+
+The fixture is the SHIPPED 360KB system disk with one file added: a SYSTEM.CFG
+asking for the hard-disk driver.  Nothing loads unless SYSTEM.CFG asks (SPEC.md
+51.3), so without it the machine has no C:, `hb_pick` refuses, and the row would
+be asserting §96.42's arm instead.  Bit 1 is the hard disk's and is not its row
+number (`drv_cfgbit`) - it is only coincidentally both.
 """
 import os
 import struct
@@ -51,6 +70,10 @@ KERNEL = "build/kernel.sys"
 # not there and the machine boots to a loading screen and stays on it.
 VHD = os.path.abspath("build/kdreturn-%d.vhd" % os.getpid())
 FLOPPY = os.path.abspath("build/kdreturn-%d.img" % os.getpid())
+# ...and the BOOT floppy, which only the --boot floppy arm builds
+SYSIMG = os.path.abspath("build/kdreturn-sys-%d.img" % os.getpid())
+SHIPSYS = "build/os8088-360.img"
+HDD_CFGBIT = 1                  # kernel/driver.inc's drv_cfgbit, row 1
 
 KDB = 0x4F0                     # 0040:00F0, the exit code's mailbox
 
@@ -86,6 +109,34 @@ def fixture():
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
          "build/DOSHELLO.COM"])
+
+
+def sysfloppy():
+    """The shipped 360KB system disk plus a SYSTEM.CFG that wants the disk driver.
+
+    Copied rather than rebuilt: what this arm is about is a machine booting the
+    disk the field boots, and a system floppy assembled here out of the same
+    parts would be a different artefact with the same contents - so a change to
+    what `all` writes would stop being tested exactly when it mattered.
+    """
+    if not os.path.exists(SHIPSYS):
+        fail("%s is missing - `make` builds the shipped system disks" % SHIPSYS)
+    with open(SHIPSYS, "rb") as f:
+        raw = f.read()
+    with open(SYSIMG, "wb") as f:
+        f.write(raw)
+    # SPEC.md 51.5's container in eighteen bytes: the signature, the
+    # generation, one DW record and the terminator. Every other key ABSENT, so
+    # the reader answers each with its default (rule 3) - writing zeros for the
+    # video mode would be selecting a setting this row has no opinion about.
+    cfg = os.path.abspath("build/kdreturn-cfg-%d.bin" % os.getpid())
+    with open(cfg, "wb") as f:
+        f.write(b"O88CFG\0\0" + (3).to_bytes(2, "little")
+                + b"DW" + bytes([1, 2])
+                + (1 << HDD_CFGBIT).to_bytes(2, "little") + b"\0\0")
+    subprocess.check_call(["python3", "tools/os88fat.py", "add",
+                           SYSIMG, cfg, "SYSTEM.CFG"])
+    os.unlink(cfg)
 
 
 def claims(m):
@@ -154,13 +205,41 @@ def wait_desktop(m, ui, secs=300, stamp=None):
 
 
 def main():
+    from_floppy = "--boot" in sys.argv and "floppy" in sys.argv
     fixture()
-    m = M.launch(None, apps=FLOPPY, machine=MACHINE,
+    boot = None
+    if from_floppy:
+        sysfloppy()
+        boot = SYSIMG
+    m = M.launch(boot, apps=FLOPPY, machine=MACHINE,
                  extra=["--mount", "hd:0:" + VHD])
     try:
         ui = os88ui.UI(m)
         ui.ready(limit=240)
-        print("kdreturn: booted off the fixed disk")
+        print("kdreturn: booted off %s"
+              % ("a 360KB floppy, with the fixed disk on a DRIVER"
+                 if from_floppy else "the fixed disk"))
+        if from_floppy:
+            # **THE HARD DISK HAS TO BE THERE, or this row quietly becomes
+            # §96.42's** - the one where there is nothing to come back to, the
+            # box asks first, and every assertion below about the return is
+            # about a machine that never left. The driver publishes its volume
+            # at attach, so a live row past B: is the fact to read.
+            G = os88geom
+            raw = bytes(m.read(os88sym.linear("dsk_vtab"),
+                               G.DVOL_MAX * G.DV_SIZE))
+            kinds = [raw[v * G.DV_SIZE + G.DV_KIND] for v in range(G.DVOL_MAX)]
+            if all(k == G.DVK_FREE for k in kinds[2:]):
+                fail("no volume past B: - HDD.DRV did not attach, so there is "
+                     "no fixed disk for hb_pick to choose and this row would "
+                     "assert nothing. Kinds %r" % (kinds,))
+            if G.DVK_DRV not in kinds:
+                fail("the fixed disk is not DRIVER-backed (kinds %r), so this "
+                     "arm is testing the same thing the fixed-disk one does - "
+                     "SPEC.md 96.46.1 is about a DVK_DRV row crossing into the "
+                     "launch block" % (kinds,))
+            print("kdreturn: volume kinds %r - the fixed disk is on a driver"
+                  % (kinds,))
 
         win = ui.path("B:/DOSHELLO.COM")
         if not win:
@@ -174,6 +253,16 @@ def main():
         dm = dosmap.package()
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
+        # **THE WINDOWED LAUNCH ABOVE LEFT ITS ANSWER IN THESE THREE CELLS**,
+        # and they are the ones the return is asserted on. DOSHELLO exits 42
+        # either way and DST_RAN is DST_RAN, so a return that poked nothing at
+        # all passed every check below for as long as this row has existed -
+        # which is how SPEC.md 96.41.3 stayed invisible on the very adapter
+        # this row boots. Zero them, and anything found afterwards is the
+        # return's (docs/WRITING-TESTS.md 1).
+        m.write((pseg << 4) + dm["dos_exit"], bytes([0]))
+        m.write((pseg << 4) + dm["dos_akb"], bytes([0, 0]))
+        m.write((pseg << 4) + dm["dos_state"], bytes([0]))
         m.write((pseg << 4) + dm["dos_keepc"], bytes([2, 0]))
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
 
@@ -287,9 +376,51 @@ def main():
                  "it is a wall as well as a leak"
                  % (hib[0][1] // 64, hib[0][0], hib[0][4]))
         print("kdreturn: no MEM_K_HIB claim survived the restore")
+
+        # --- 6. ...AND THE CONSOLE SAYS IT ONCE, WITH THE RIGHT ARENA -------
+        # Two defects met on this one line and both were reported from the
+        # field (SPEC.md 96.41.1, 96.35.1):
+        #
+        #   the LINE. `dos_run`'s arm-3 handoff fell into `.out`, which runs
+        #   `dos_con_ended` - so a SUCCESSFUL post logged `ended, exit code
+        #   000` before the machine had been handed over, about a program that
+        #   had not started. It reads as the box loading something in order to
+        #   exit. The post leaves by `.outq` now and the line is written HERE,
+        #   on the wake that says the run finished;
+        #
+        #   the ARENA. `[dos_akb]` is `dos_run`'s banked figure and on this arm
+        #   `dos_run` never claimed, so what stood there was the WINDOWED
+        #   launch's number - 422KB against the 579 the program really had.
+        #   That is a wrong answer rather than a missing one, which is why the
+        #   assertion is `>= kd_kb` and not `!= 0`.
+        #
+        # The last such line is the one this run wrote; the windowed launch
+        # above left one too, and that one is still correct.
+        scr = bytes(m.read((pseg << 4) + dm["con_scr"], dm["CON_SCRSZ"]))
+        text = [bytes(scr[i:i + 2 * dm["CON_COLS"]:2]).decode("latin-1").rstrip()
+                for i in range(0, dm["CON_SCRSZ"], 2 * dm["CON_COLS"])]
+        ended = [r for r in text if "ended, exit code" in r]
+        if not ended:
+            fail("the console logged nothing about the run that just came "
+                 "back (SPEC.md 96.41.1): %r" % ([r for r in text if r][-6:],))
+        last = ended[-1]
+        if "042" not in last:
+            fail("the console's last exit line is %r - DOSHELLO exits with 42, "
+                 "so a 000 there is dos_run's arm-3 post logging an END before "
+                 "the machine was handed over (SPEC.md 96.35.1)" % last)
+        if "(Arena: " not in last:
+            fail("the console's exit line carries no arena (SPEC.md 96.33.19): "
+                 "%r" % last)
+        akb = int(last.split("(Arena: ")[1].split("KB")[0])
+        if akb < kd_kb:
+            fail("the console says the arena was %dKB and the program itself "
+                 "reported %dKB above its PSP: [dos_akb] did not come home "
+                 "(SPEC.md 96.41.1) and what is on the glass is the WINDOWED "
+                 "launch's figure - %r" % (akb, kd_kb, last))
+        print("kdreturn: the console logged %r" % last)
     finally:
         m.close()
-        for p in (VHD, FLOPPY):
+        for p in (VHD, FLOPPY, SYSIMG):
             try:
                 os.unlink(p)
             except OSError:

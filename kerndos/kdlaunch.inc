@@ -155,10 +155,18 @@ KDL_VMAX    equ DVOL_CAP        ; DVOL_MAX's widest arm (kernel/disk.inc), so
 ; **ONLY THREE FIELDS OF SIXTEEN COME OVER**, and the rest are not an
 ; oversight: `DV_FLAGS` bit 0 is a DESKTOP ZONE and there is no desktop,
 ; `DV_CLASS` is 0 on every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT
-; fills, and `DV_LBL` is a label nothing here draws. A `DVK_DRV` or `DVK_FILE`
-; row cannot come at all - there is no driver layer on the other side - so
-; the gather writes DVK_FREE for one rather than carrying a row whose
-; transport is missing (KERN-DOS-PLAN 6.1 lever 4, enforced instead of hoped).
+; fills, and `DV_LBL` is a label nothing here draws.
+;
+; **A `DVK_DRV` ROW COMES OVER AS `DVK_BIOS` WHEN - AND ONLY WHEN - THE ROM
+; CAN REACH IT** (SPEC.md 96.46.1). The old rule was that it could not come at
+; all, *"there is no driver layer on the other side"*, and that is true of the
+; DRIVER and not of the DISK: `DSV_GEOM` sub-function 2 answers CF=1 for a
+; volume `int 13h` cannot reach and a unit, a base and a geometry for one it
+; can, so the ones that answer are BIOS volumes as far as this host is
+; concerned and the ones that do not are still written DVK_FREE. That is
+; KERN-DOS-PLAN 6.1 lever 4 asked as a QUESTION rather than assumed, and it is
+; the same question SPEC.md 87.5 step 1's stub has always asked. `DVK_FILE`
+; still cannot come: a redirected volume has no sectors at all (SPEC.md 62.9).
 
 ; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) ---------------------------
 ; `kd_leave` puts the session back itself instead of `int 19h`-ing and letting

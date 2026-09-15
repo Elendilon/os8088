@@ -681,6 +681,19 @@ dos_entry:
                                     ; door that skipped its one store. An
                                     ; initialiser that only one entry path
                                     ; executes is not an initialiser
+%ifdef DOSKPART
+    mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; **THE SAME TRAP ONE CELL
+    mov word [dos_kdh + KDH_AKB], 0             ; ALONG** (SPEC.md 96.41.4).
+                                    ; `dos_wake` reads this word on EVERY wake
+                                    ; to ask whether a handoff has come home,
+                                    ; and 0 is a legal EXIT CODE - so a zeroed
+                                    ; bss says "the program came back with 0"
+                                    ; to the first wake a fresh instance gets,
+                                    ; which is the one that LAUNCHES it. It was
+                                    ; written only where the record is BUILT
+                                    ; (dos_handoff), which is after the launch
+                                    ; that would have been eaten
+%endif
     call OSAPI_ARG_FILE             ; CF=1 = launched empty, the ordinary case
     jc .idle                        ; for every package and the COMMAND.COM
                                     ; door for this one (wave 7)
@@ -746,7 +759,7 @@ dos_entry:
 dos_wake:
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
-    je .notpkg                      ; 96.33.17): OSAPI_PKG_START wants the gfx
+    je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
     call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
     jmp short .out                  ; console posts and this is where it lands
                                     ; - the same place a DOS program's own
@@ -755,6 +768,16 @@ dos_wake:
                                     ; own flag, so it neither reads nor moves
                                     ; [dos_state]: a package is not the thing
                                     ; `run it again` re-runs
+.nopkg:                             ; **AND THE MISS LANDS HERE AND NOT PAST
+                                    ; THE BLOCK BELOW** (SPEC.md 96.41.4). It
+                                    ; was `.notpkg`, which is where the STATE
+                                    ; MACHINE starts - so on every wake with
+                                    ; no package pending, which is every wake
+                                    ; there has ever been bar one, this jump
+                                    ; went straight over the return's own
+                                    ; test. The exit code was poked into the
+                                    ; record by a kernel that then woke this
+                                    ; window, and this handler never looked
 %endif
 %ifdef DOSKPART
     ; **THE MACHINE WENT AWAY AND CAME BACK** (SPEC.md 96.41): between the wake
@@ -773,12 +796,24 @@ dos_wake:
     mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; read once
     mov [dos_exit], al
     mov byte [dos_state], DST_RAN
+    ; **AND THE ARENA IT WAS GIVEN** (SPEC.md 96.41.1), which came home in the
+    ; next cell. The box cannot work this one out: `[dos_akb]` is `dos_run`'s
+    ; banked figure and on this arm `dos_run` posted and returned without ever
+    ; claiming, so what stands there is the last WINDOWED launch's number or
+    ; nothing at all - and either reads like an answer.
+    mov ax, [dos_kdh + KDH_AKB]
+    mov [dos_akb], ax
+    ; ...and the console says so HERE, which is where the run really ended.
+    ; `dos_run`'s own `.out` cannot: the post is spent long before the program
+    ; starts, so a line written there is about a launch that has not happened
+    ; (SPEC.md 96.35.1). Before `dos_swap`, which is the repaint, for
+    ; `dos_repaint`'s reason one arm over.
+    call dos_con_ended
     mov bx, [dos_win]
     call dos_swap
     jmp short .out
 .nocode:
 %endif
-.notpkg:
     cmp byte [dos_state], DST_CPWAIT
     je .go                          ; the compaction has run and the heap is
                                     ; packed BOTH ways: dos_run picks up at the
@@ -843,9 +878,23 @@ dos_run:
     cmp byte [dos_keepc], DOS_MEM_WHOLE
     jne .notwhole
     call dos_handoff
-    jnc .out                        ; POSTED - ui_task's step 0 spends it with
-    mov al, DER_MEM                 ; nothing held, and the machine does not
-    jmp .err                        ; come back
+    jc .nowhole                     ; POSTED - ui_task's step 0 spends it with
+                                    ; nothing held, and the machine does not
+                                    ; come back
+    ; **AND IT LEAVES BY THE QUIET DOOR** (SPEC.md 96.35.1). This used to fall
+    ; into `.out`, which runs `dos_con_ended` - so a successful post printed
+    ; *"ended, exit code 000"* and the arena INTO THE CONSOLE, before the
+    ; machine had been handed over and about a program that had not started.
+    ; The field read it as the box loading something in order to exit. Every
+    ; reason `.outq` exists for applies here and only the `[dos_cpw]` store
+    ; does not: the post is spent, and a compaction wake's flag left set would
+    ; survive inside the image and make the NEXT launch in this instance skip
+    ; its packet buffers.
+    mov byte [dos_cpw], 0
+    jmp .outq
+.nowhole:
+    mov al, DER_MEM
+    jmp .err
 .notwhole:
 %endif
     mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
@@ -6036,9 +6085,12 @@ dos_handoff:
     mov ax, [dos_win]               ; ...and the way home, which only we know:
     mov [di+KDH_WIN], ax            ; the window to wake and the cell the
     mov word [di+KDH_CODE], KDH_NOCODE  ; restored kernel puts the code in
-                                    ; (docs/plans/KERN-DOS-PLAN.md 8). On the
+    mov word [di+KDH_AKB], 0        ; (docs/plans/KERN-DOS-PLAN.md 8) - and the
+                                    ; ARENA beside it (SPEC.md 96.41.1), which
+                                    ; only the other host can work out. On the
                                     ; arm with no fixed disk nothing ever reads
-                                    ; either, and they cost the record 4 bytes
+                                    ; any of them, and they cost the record 6
+                                    ; bytes
 
     call dos_lbfill
     mov si, dos_kdh

@@ -2968,6 +2968,29 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnf", "soak", py("tests/kdreturn.py", "--boot", "floppy"), 42.0,
+        "...AND THE SAME ROUND TRIP ON A MACHINE THAT BOOTED OFF A FLOPPY "
+        "(SPEC.md 96.46.1). Which volume HIBERNAT.IMG lands on is hb_pick's: "
+        "the one the machine booted from when that is fixed, else the FIRST "
+        "FIXED VOLUME THERE IS - and boot off a floppy and the volume that "
+        "second arm names is DRIVER-backed, because dsk_boot_from_x adds a "
+        "DVK_BIOS partition row only on its hard-disk arm. The launch-block "
+        "gather wrote DVK_FREE for a DVK_DRV row, so kd_resume mounted an "
+        "index naming no volume, refused, and kd_leave fell back to int 19h: a "
+        "whole POST, a whole boot and a restore at the desktop. REPORTED FROM "
+        "THE FIELD, on exactly this configuration, and the LIVE_MAX cycle "
+        "bound kdreturn already carries is what goes red on the fallback - "
+        "which is why it is a bound and not a screen read, the live route's "
+        "own line being printed INTO the staging area the stub then "
+        "overwrites. It also checks the fixed disk is on a DRIVER before "
+        "asserting anything, because a row that quietly became the fixed-disk "
+        "one would pass for the wrong reason. Fixture: the SHIPPED 360KB "
+        "system disk plus one file, a SYSTEM.CFG asking for HDD.DRV - nothing "
+        "loads unless SYSTEM.CFG asks (SPEC.md 51.3), and without it there is "
+        "no C: and no return to test. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv", "build/os8088-360.img")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
