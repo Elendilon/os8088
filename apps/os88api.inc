@@ -1158,8 +1158,8 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; cache counts as free because mem_claim sheds them all, and it is what you
 ; want unless you are a cache yourself (SPEC.md 50.6.4).
 
-%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, exactly
-                                 ; as OSAPI_MEM_AVAIL_LVL's; out AX/BX as
+%define OSAPI_MEM_AVAIL_MAX KERNEL_SEG:0x0590   ; AL = a purge level, on
+                                 ; OSAPI_MEM_FLOOR's scale; out AX/BX as
                                  ; OSAPI_MEM_AVAIL, planned as if YOUR OWN
                                  ; REGION could move. **SET AL** - pass
                                  ; MEM_LVL_TOP for the unconditional answer,
@@ -1194,7 +1194,7 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; for DISPLAYING the heap, and a package that
                                  ; reasons from it subtracts what this figure
                                  ; has already added.
-; ...AND THE PAIR THAT SAYS "BUT NOT THAT" (SPEC.md 50.6.6). The two above are
+; ...AND THE ONE THAT SAYS "BUT NOT THAT" (SPEC.md 50.6.6). The two above are
 ; unconditional: they count EVERY cache as free and then, on the claim, shed or
 ; drop it to make that true. That is right for a program whose own work is
 ; worth more than any cache - and wrong for one that is about to hammer the
@@ -1202,33 +1202,36 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; window and losing it multiplies a program's own int 13h traffic (SPEC.md
 ; 18.95, 50.6.6).
 ;
-; So name a LEVEL and both halves honour it: caches STRICTLY BELOW it are still
-; yours for the taking, and nothing at or above it is shed by the claim or
-; dropped by the compaction that precedes it - it is PACKED OUT OF THE WAY
-; instead. Ask AVAIL_LVL for the number, then CLAIM_LVL for that number with
-; the same level, and the plan you made is the plan that happens.
+; So name a FLOOR, once, and every door honours it from then on: caches
+; STRICTLY BELOW it are still yours for the taking, and nothing at or above it
+; is shed by a claim of yours or dropped by the compaction that precedes one -
+; it is PACKED OUT OF THE WAY instead - and OSAPI_MEM_AVAIL (and
+; OSAPI_MEM_AVAIL_MAX at the same level) answers the number such a claim will
+; actually be served. Set it, ask, claim, lift it: the plan you made is the
+; plan that happens.
 ;
-;   mov al, MEM_PG_HIGH          ; everything except the disk cache
-;   call OSAPI_MEM_AVAIL_LVL     ; AX = the largest run that leaves it alive
-;   mov bl, MEM_PG_HIGH
-;   call OSAPI_MEM_CLAIM_LVL     ; ...and it is still alive afterwards
+;   mov al, MEM_PG_HIGH          ; everything except the disk cache...
+;   call OSAPI_MEM_FLOOR         ; ...is what THIS TASK may take from now on
+;   call OSAPI_MEM_AVAIL         ; AX = the largest run that leaves it alive
+;   call OSAPI_MEM_CLAIM_HI      ; ...and it is still alive afterwards
+;   mov al, MEM_LVL_TOP          ; the floor is lifted whatever the answer -
+;   call OSAPI_MEM_FLOOR         ; the slot preserves the FLAGS, so...
+;   jnc .got                     ; ...this still reads the claim's CF
 ;
-; MEM_LVL_TOP in either is exactly the unconditional slot above, so there is
-; one code path and a constant decides. 0 is "how much without purging
-; ANYTHING", which is the honest number for a program that would rather be
-; refused than cost somebody else a redraw.
-%define OSAPI_MEM_AVAIL_LVL KERNEL_SEG:0x0560   ; AL = the level; out as AVAIL
-%define OSAPI_MEM_CLAIM_LVL KERNEL_SEG:0x0568   ; AX = KB, BL = the level,
-                                 ; BH = 0 bottom-up / 1 from the top (the two
-                                 ; doors above), CX = the page-safe HEAD in KB
-                                 ; or 0; out CF and DX as CLAIM. ONE DOOR FOR
-                                 ; ALL FOUR of the claims above, because a NEW
-                                 ; slot's registers are free to mean something
-                                 ; - no package was ever compiled against them.
-                                 ; **BH AND CX ARE READ**, so set them: the
-                                 ; plain slot ignores both and this one does
-                                 ; not, and a stale CX is a 64KB page
-                                 ; constraint nobody asked for.
+; IT IS YOUR TASK'S AND IT OUTLIVES THE CALL. That is what lets a package set
+; it, post OSAPI_MEM_COMPACT_WAKE, RETURN, and claim on the wake with the pass
+; between having dropped only what the floor allowed. It is also why you lift
+; it: a floor left standing lowers every later claim your task makes, which
+; for the UI task is every other package's. The kernel lifts it for you when
+; your instance is torn down, and for nobody else. MEM_LVL_TOP is no floor,
+; which is what every task starts with; 0 is "purge NOTHING", the honest ask
+; for a program that would rather be refused than cost somebody a redraw.
+%define OSAPI_MEM_FLOOR     KERNEL_SEG:0x0560   ; AL = the level; preserves
+                                 ; every register and the flags. 0x0568 beside
+                                 ; it is RETIRED (stc/ret): it was
+                                 ; OSAPI_MEM_CLAIM_LVL, a claim carrying the
+                                 ; floor as an argument, which a floor set
+                                 ; once made a cell for nothing
 %define OSAPI_WM_CLIP_TEST  KERNEL_SEG:0x0180   ; AX=x1, BX=y1, CX=x2, DX=y2 (inclusive);
                                  ; out CF=0 the whole rect is drawable (also
                                  ; when no clip is armed), CF=1 it is not.

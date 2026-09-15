@@ -604,29 +604,26 @@ dos_entry:
                                     ; DOS.O88 (SPEC.md 96.40.3), reached by
                                     ; `OSAPI_PKG_REHOME` - and a re-homed
                                     ; package's region is the loader's CARVE,
-                                    ; re-stamped to the instance SLOT, whose
-                                    ; base sits a few paragraphs BELOW the
-                                    ; segment we run in: 0x8FC0 against
-                                    ; I_SPTR's 0x8FE0 on this package, the 512
-                                    ; bytes of cluster-alignment slack op_claim
-                                    ; leaves at the head (SPEC.md 20.12.2).
-                                    ; `mem_find_own` matched MC_OWN or MC_SEG
-                                    ; against the caller's segment, a slot is
-                                    ; neither, and the declaration was refused
-                                    ; - so the wall came straight back and the
-                                    ; card cost 426KB against 440, which is
-                                    ; the image and the ring to the byte.
+                                    ; re-stamped to the instance SLOT. For a
+                                    ; cycle its base sat a few paragraphs
+                                    ; BELOW the segment we run in - 0x8FC0
+                                    ; against I_SPTR's 0x8FE0, the 512 bytes
+                                    ; of cluster-alignment slack op_claim
+                                    ; leaves at the head (SPEC.md 20.12.2) -
+                                    ; so `mem_find_own` matched nothing, the
+                                    ; declaration was refused, the wall came
+                                    ; straight back and the card cost 426KB
+                                    ; against 440, the image and the ring to
+                                    ; the byte.
                                     ;
-                                    ; The kernel answers all four readings of
-                                    ; that offset now (SPEC.md 66.6.1.2): the
-                                    ; claim CONTAINS the caller, the walk
-                                    ; rewrites the carve AND the segment, the
-                                    ; relocation frame carries the PROGRAM's
-                                    ; pair rather than the carve's, and
-                                    ; `mem_frameless` asks about I_SPTR. This
-                                    ; package reads 445 against 445 now, and
-                                    ; `tests/dosarena.py` asserts the two
-                                    ; machines agree AND that MC_RLOC is
+                                    ; The re-home TRIMS the carve to us now
+                                    ; (SPEC.md 20.12.10.5): the slack is heap
+                                    ; again before this entry proc runs, the
+                                    ; claim's base IS `cs`, and the fence
+                                    ; reaches it as it reaches any package's
+                                    ; region. This package reads 445 against
+                                    ; 445, and `tests/dosarena.py` asserts the
+                                    ; two machines agree AND that MC_RLOC is
                                     ; non-zero - because a refusal and a
                                     ; compaction that cannot reach the hole
                                     ; are the same number and different bugs
@@ -855,6 +852,15 @@ dos_run:
                                     ; does a DOS_MEM_WHOLE dos_mem_fix has
                                     ; just demoted (SPEC.md 50.6.6, 96.24)
 .sized:
+    mov al, bl                      ; ...AND IT IS SET ONCE, HERE, for this
+    call OSAPI_MEM_FLOOR            ; task: every AVAIL below answers net of
+                                    ; it, the posted pass drops nothing above
+                                    ; it, and the claim honours it - so the
+                                    ; number shown is the number handed out.
+                                    ; Idempotent, which the wake relies on:
+                                    ; this line runs again on the way back
+                                    ; through. Lifted at .lift, whatever the
+                                    ; claim answered (SPEC.md 50.6.6)
     ; --- UNMOUNT, ASK TWICE, AND COME BACK FOR THE ANSWER (SPEC.md 96.35) ---
     ; The sound driver is ~14KB at the top of the heap, and unmounting it used
     ; to happen INSIDE the fsx bracket - long after this claim - so the memory
@@ -884,15 +890,15 @@ dos_run:
     je .unmount                     ; NO CAP: we want the maximum, so the
                                     ; question is only whether a pass adds any
     push bx                         ; ...A CAP, and the cheaper road: a program
-    mov al, bl                      ; that asked for 200K on a machine with
-    call OSAPI_MEM_AVAIL_LVL        ; 300K free needs no compaction
-    pop bx
+    call OSAPI_MEM_AVAIL            ; that asked for 200K on a machine with
+    pop bx                          ; 300K free needs no compaction and no
+                                    ; silence. Net of the floor, like every
+                                    ; AVAIL on this task from .sized on
     cmp ax, [dos_memkb]
     jae .ask                        ; it fits: claim it and ask nothing more
 .unmount:
     push bx
-    mov al, bl
-    call OSAPI_MEM_AVAIL_LVL
+    call OSAPI_MEM_AVAIL
     mov [dos_akb], ax               ; what the heap gives WITHOUT a pass...
     pop bx
     push bx
@@ -906,7 +912,8 @@ dos_run:
     jmp short .post
 .capmax:
     cmp ax, [dos_memkb]             ; a cap: could a pass even fill it?
-    jb .nomem                       ; no, and nothing else will either
+    jb .lift                        ; no, and nothing else will either - CF is
+                                    ; set, and .lift keeps it
 .post:
     push bx
     mov al, bl                      ; AL = the shed rank the pass must respect,
@@ -925,9 +932,8 @@ dos_run:
                                     ; it on purpose
 .ask:
     push bx
-    mov al, bl
-    call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run a claim can HAVE at
-    pop bx                          ; that level - already net of every
+    call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE at
+    pop bx                          ; the floor - already net of every
                                     ; purgeable cache BELOW it and of what a
                                     ; compaction would recover (SPEC.md 50.6.3,
                                     ; 66.10.3). Nothing to compute, nothing to
@@ -940,16 +946,24 @@ dos_run:
     mov ax, dx
 .cap:
     cmp ax, DOS_MIN_KB
-    jb .nomem
+    jb .lift                        ; CF is set, and .lift keeps it
     mov [dos_akb], ax               ; BANKED: the claim's answer is DX and the
                                     ; slot promises nothing about AX, so the KB
                                     ; figure has to survive the call somewhere
                                     ; other than in a register
-    mov bh, 1                       ; BL is STILL the floor, and it has to be
-    xor cx, cx                      ; the same one, or the number above was a
-                                    ; plan the claim does not carry out. BH = 1
-                                    ; is OSAPI_MEM_CLAIM_HI's own door (50.3.2)
-    call OSAPI_MEM_CLAIM_LVL        ; AX = KB -> DX = base segment
+    call OSAPI_MEM_CLAIM_HI         ; AX = KB -> DX = base segment, at the
+                                    ; floor .sized set - the same one the
+                                    ; number above was answered at, or the plan
+                                    ; is not the one the claim carries out.
+                                    ; HI because a region's door is where a
+                                    ; claim this size belongs (50.3.2)
+.lift:
+    mov al, MEM_LVL_TOP             ; THE FLOOR IS LIFTED WHATEVER THE ANSWER:
+    call OSAPI_MEM_FLOOR            ; left standing it is every later claim on
+                                    ; the UI task's, which is every other
+                                    ; package's. The slot preserves the flags,
+                                    ; so the claim's CF - or the `jb` that
+                                    ; brought a refusal here - still reads
     jnc .got
 .nomem:
     mov al, DER_MEM
@@ -6348,12 +6362,12 @@ dos_mem_figs:
     call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run that leaves the
     push ax                         ; cache alive
     mov al, MEM_LVL_TOP             ; ...and the one that does not. **AL IS SET
-    call OSAPI_MEM_AVAIL_MAX        ; EITHER WAY** - this slot has no
-                                    ; unconditional door of its own the way
-                                    ; OSAPI_MEM_AVAIL is OSAPI_MEM_AVAIL_LVL's,
-                                    ; so a fall-through here would ask the
-                                    ; floor's question twice and draw one
-                                    ; number in both places
+    call OSAPI_MEM_AVAIL_MAX        ; EITHER WAY** - this slot takes its level
+                                    ; in AL rather than reading the task's
+                                    ; floor the way OSAPI_MEM_AVAIL does, so a
+                                    ; fall-through here would ask the floor's
+                                    ; question twice and draw one number in
+                                    ; both places
     mov dx, ax
     pop ax
     pop cx

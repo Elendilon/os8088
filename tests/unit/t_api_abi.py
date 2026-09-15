@@ -96,7 +96,11 @@ COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
           0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)",
           # SPEC.md 20.3.1's free list: it was OSAPI_FILE_MOVE, folded into
           # 0x0578's verb byte (22.25). stc/ret, no SDK name.
-          0x0580: "RETIRED OSAPI_FILE_MOVE (SPEC.md 22.25)"}
+          0x0580: "RETIRED OSAPI_FILE_MOVE (SPEC.md 22.25)",
+          # SPEC.md 50.6.6.1: OSAPI_MEM_CLAIM_LVL, a claim carrying the purge
+          # floor as an argument, retired the day the floor became a thing a
+          # task SETS (OSAPI_MEM_FLOOR, 0x0560). stc/ret, not published.
+          0x0568: "OSAPI_MEM_CLAIM_LVL, retired (SPEC.md 50.6.6.1)"}
 
 # Slots whose published name is not its routine's name. Every entry is a
 # deliberate ABI decision; adding one means the SDK and the kernel have
