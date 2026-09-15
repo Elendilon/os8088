@@ -649,7 +649,7 @@ fr_hire:
     ; worker, which fails SILENTLY (REGION-SELF-COMPACT-PLAN 8.2):
     ; mem_frameless reads [inst_restart] at PLAN time, and this worker
     ; is outside its own ALIVE for essentially all of a tick, so a
-    ; windowed declaration would make OSAPI_MEM_COMPACT's what-if answer no
+    ; windowed declaration would make OSAPI_MEM_AVAIL_MAX answer no
     ; better for a heap the compactor could have emptied.
     ;
     ; SO BOTH PARK POINTS ARE ENUMERATED, Tracker's shape. We are

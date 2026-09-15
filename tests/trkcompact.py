@@ -30,7 +30,7 @@ something:
 
   1. TRACKER POSTED. `[trk_cpq]` is seen non-zero, which only `trk_cpq_try`
      writes and only after plain `OSAPI_MEM_AVAIL` has said no and
-     `OSAPI_MEM_COMPACT`'s what-if has said "not with you where you are". Without
+     `OSAPI_MEM_AVAIL_MAX` has said "not with you where you are". Without
      this the run proves nothing: a load that simply fitted would take the
      same path to the same green.
   2. The status line said so - `[tui_msgp]` is `trk_s_cpq` - because this

@@ -21,7 +21,7 @@ Every step is a thing a user does, and what it produces is the heap SPEC.md
 Two free runs with THE ASKER'S OWN REGION between them. Plain
 `OSAPI_MEM_AVAIL` may not move that region (SPEC.md 66.6.1 - a frame is
 standing in it), so it reports 365 against a 397 KB requirement and the load
-is refused; `OSAPI_MEM_COMPACT`'s what-if reports what the machine could have had,
+is refused; `OSAPI_MEM_AVAIL_MAX` reports what the machine could have had,
 Tracker posts, and the descending pass packs all three top-down claims into
 the ceiling hole - **by exactly the same 92 KB each** - leaving one 457 KB
 run for the claim. That is HEAP-UNPIN-PLAN 2.0's mount-mid-session wall and

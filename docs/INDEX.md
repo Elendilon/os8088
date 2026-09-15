@@ -186,7 +186,8 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 | `0x04C8` | `OSAPI_MEM_CLAIM_HI` | AX = KB; out CF, DX = segment |
 | `0x04D0` | `OSAPI_MEM_CLAIM_DMA_HI` | ...and CX = the page-safe HEAD |
 | `0x0208` | `OSAPI_MEM_FREE` | DX = the segment you were given; out CF=0 released, CF=1 not yours |
-| `0x0590` | `OSAPI_MEM_COMPACT` | AH = MEMC_WHATIF: AL = a purge level, out AX/BX as OSAPI_MEM_AVAIL_LVL planned as if YOUR OWN REGION could move... |
+| `0x0590` | `OSAPI_MEM_AVAIL_MAX` | AL = a purge level, on OSAPI_MEM_FLOOR's scale; out AX/BX as OSAPI_MEM_AVAIL, planned as if YOUR OWN REGION could move... |
+| `0x0598` | `OSAPI_MEM_COMPACT_WAKE` | BX = a window of YOURS, AL = the shed rank the pass must respect (MEM_LVL_TOP to let it drop any cache)... |
 | `0x0210` | `OSAPI_MEM_AVAIL` | out AX = largest free run in KB, BX = total free KB... |
 | `0x0560` | `OSAPI_MEM_FLOOR` | AL = the level; preserves every register and the flags... |
 | `0x02A0` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |

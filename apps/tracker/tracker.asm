@@ -320,7 +320,7 @@ trk_entry:
                                     ; the window and the slot preserves the
                                     ; flags the loader's CF rides in
     OS88_REGION_MOVABLE             ; OUR REGION MOVES (SPEC.md 66.6.1), and
-                                    ; it is what makes the what-if verb of
+                                    ; it is what makes OSAPI_MEM_AVAIL_MAX
                                     ; below mean anything: a region born
                                     ; PINNED reads the same in both plans, so
                                     ; the what-if would answer "no better" for
@@ -1407,14 +1407,13 @@ trk_cpq_try:
     push si
     cmp byte [trk_cpq], 0
     jne .no                         ; asked once already for this load
-    mov ax, MEM_LVL_TOP             ; AH = MEMC_WHATIF, AL = the level
-    call OSAPI_MEM_COMPACT          ; AX = the largest run there would be if
+    call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run there would be if
     cmp ax, [trk_needk]             ; our own region moved too - a MEASUREMENT
     jb .no                          ; of now, never a promise about later
     mov bx, [trk_win]
-    mov ax, (MEMC_POST << 8) | MEM_LVL_TOP  ; an ordinary claim's rank: every
-    call OSAPI_MEM_COMPACT          ; cache counts as free, because our claim
-    jc .no                          ; would shed them all anyway (SPEC.md 50.6.4)
+    mov al, MEM_LVL_TOP             ; an ordinary claim's rank: every cache
+    call OSAPI_MEM_COMPACT_WAKE     ; counts as free, because our claim would
+    jc .no                          ; shed them all anyway (SPEC.md 50.6.4)
     mov byte [trk_cpq], 1
     mov si, trk_s_cpq               ; ...and SAY so: the pass is hundreds of
     call tui_msg                    ; milliseconds of rep movsw on the target
@@ -3264,7 +3263,7 @@ trk_reloc:
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
     TRKW trk_capk                   ; its size in KB
-    TRKB trk_cpq                    ; 1 = we posted OSAPI_MEM_COMPACT for
+    TRKB trk_cpq                    ; 1 = we posted OSAPI_MEM_COMPACT_WAKE for
                                     ; the load in trk_fname and the wake owes
                                     ; us the retry (SPEC.md 66.4.3). It is one
                                     ; byte doing two jobs and they are the same

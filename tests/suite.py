@@ -6103,8 +6103,8 @@ SOAK = [
         wants=("build/trkbig.img",)),
     Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
         "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
-        " - the EXACT-requirement consumer of OSAPI_MEM_COMPACT's what-if"
-        " and its post. It stacks instances down from the ceiling"
+        " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
+        " OSAPI_MEM_COMPACT_WAKE. It stacks instances down from the ceiling"
         " until the floor run is under the module's size, closes the topmost"
         " so the survivor has a hole above it, and asserts the guest's own"
         " verdict: [trk_cpq] seen set is the post, and the module playing is"
