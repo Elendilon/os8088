@@ -281,7 +281,7 @@ dd_layout:
     xor ah, ah
     mov [dd_spx], ax
     ; DOWN is not computed here at all - it is each horizontal step converted,
-    ; in the loop below (SPEC.md 93.7.6).
+    ; in the loop below (SPEC.md 93.7.2.1).
     ; --- ...and the five speeds against both axes, ONCE (SPEC.md 93.7.5) ----
     ; dd_axis_step used to scale a base speed by a percentage with a MUL and a
     ; DIV, per actor per tick.  There are five speeds in this game, so there
@@ -305,7 +305,7 @@ dd_layout:
     pop bx
     push bx
     mov [dd_stpx + bx], ax
-    ; --- ...and DOWN is THAT STEP converted to the glass (SPEC.md 93.7.6) ---
+    ; --- ...and DOWN is THAT STEP converted to the glass (SPEC.md 93.7.2.1) ---
     ; A tile is not square on the glass anywhere - 1.15 : 1 on a Hercules,
     ; 1.23 on a VGA, 1.30 on an EGA and 0.83 on a CGA - so one tile in
     ; DD_TILET ticks EITHER WAY is an actor that travels that much faster
@@ -334,7 +334,7 @@ dd_layout:
     jnz .synz
     mov ax, 1
 .synz:
-    ; ...AND NEVER MORE THAN HALF A TILE (SPEC.md 93.7.6). dd_advance finds one
+    ; ...AND NEVER MORE THAN HALF A TILE (SPEC.md 93.7.2.1). dd_advance finds one
     ; crossing per step, so a step near a whole tile asks it to find two - and
     ; what that looks like is not a fast ghost, it is a frozen demo and a score
     ; going backwards. The margin used to be 1.7x by arithmetic; it is enforced
@@ -554,7 +554,7 @@ dd_relayout_ck:
     call dd_layout
     jc .fail
     call dd_fit_claim               ; claim it, or grow what is already there
-    jc .fail
+    jc .nomem
     call dd_spr_build               ; the sprite set is cut to the new tile
     mov byte [dd_ok], 1
     cmp byte [dd_started], 0
@@ -575,8 +575,23 @@ dd_relayout_ck:
     call dd_board_render
     clc
     ret
+; -----------------------------------------------------------------------------
+; A REFUSAL POISONS THE BANK (SPEC.md 93.3.4.5). .redo banked the box BEFORE
+; the claim that refused, so without this the four compares above would match
+; for the rest of the session: the worker would find nothing to recut, and a
+; regrow that was refused would leave [dd_bdseg] naming the OLD claim under the
+; NEW geometry. [dd_lvkind] = 0FFh is the file's own "ask again" (dd_oncmd's
+; window-mode arm), and it sends the next paint back through .want/.redo, which
+; re-asks the claim - so a refusal recovers the moment the arithmetic does.
+; -----------------------------------------------------------------------------
+.nomem:
+    mov byte [dd_nomem], 1          ; the ARENA refused, not the surface -
+    jmp short .failed               ; dd_draw_toosmall says which
 .fail:
+    mov byte [dd_nomem], 0
+.failed:
     mov byte [dd_ok], 0
+    mov byte [dd_lvkind], 0FFh
     clc
     ret
 

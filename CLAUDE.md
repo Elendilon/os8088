@@ -699,7 +699,7 @@ and in raw QEMU), `make c64disk` the C64 disks, `make paccmandisk` the PaccMan
 disks, `make apple2disk` the Apple II+ disks (`make apple2rom` fetches their
 ROM first, once), and `make weavedisk` / `make loomdisk` the Weave family's two. **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
-so `all` builds `wire.o88` and no shipped floppy carries it, and the three
+so `all` builds `wire.o88` and no shipped floppy carries it, and the two
 tests that drive it — `wireflick` and `uilat` — default to that disk.
 `make allapps` collapses all of them onto one 1.44MB floppy (§19.10), and
 `make live` puts that same payload plus the system on the bootable live
@@ -814,7 +814,8 @@ learned.
   `KERN_SMALL` is not a knob for this purpose. **`make test-full`'s build
   matrix is the only thing that builds the knob kernels.**
 - **Before spending a resident byte, ask whether the feature is an ON-DEMAND
-  MODULE** (§2.8, `kernel/mod.inc`): kernel code that ships as a file
+  MODULE** (§2.8, `kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md §1's
+  test): kernel code that ships as a file
   (`CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`, `HIBER.DRV`, and on kern_small
   `FILECP.DRV` and `FDLG.DRV`) and is read into a heap claim when the feature
   is asked for, freed when it is done. A feature qualifies when the system

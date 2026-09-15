@@ -216,6 +216,14 @@ TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
 TK_SHKB   equ 18                ; the rung it would like...
 TK_SHKB2  equ 17                ; ...and the two it will settle for
 TK_SHKB3  equ 16
+TKT_POOLMIN  equ 1280           ; A POOL SMALLER THAN THIS HOLDS NO TEMPLATE
+                                ; AT ALL: the six panel items encode to ~1,050
+                                ; bytes, and the 16KB rung leaves 384 (16,384
+                                ; less TK_SHSEG's 16,000) rather than the 0 the
+                                ; table above rounds it to - so an `or ax, ax`
+                                ; test never fired and the bottom rung started
+                                ; with [tk_tmpl] = 1 over a pool the panel
+                                ; overflowed on its first encode
 TKT_RIDGEMIN equ 2048           ; A POOL SMALLER THAN THIS NEVER TAKES THE
                                 ; RIDGE. Measured: the six panel items encode
                                 ; to ~1,050 bytes and a settled ridge adds

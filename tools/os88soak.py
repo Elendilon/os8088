@@ -193,8 +193,8 @@ def requirements():
     # reason each is absent is a different deliberate decision (SPEC.md 78.9
     # for wire; on-demand application disks for the rest).
     req.append(("wiredisk", os.path.exists(B("wire360.img")),
-                "wireflick, wirefps and uilat. TWO OF THOSE ARE RATE ROWS, so "
-                "without it a soak skips half its rate lane silently.",
+                "wireflick and uilat. ONE OF THOSE IS A RATE ROW, so without "
+                "it a soak skips part of its rate lane silently.",
                 "make wiredisk"))
     req.append(("weave disks", os.path.exists(B("weave.img")),
                 "the Weave family's rows.",

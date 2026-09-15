@@ -140,12 +140,17 @@ def main():
         ax = u16(m.read(p.addr("rt_a") + 0, 2))
         ay = u16(m.read(p.addr("rt_a") + 2, 2))
         pitch = u16(m.read(p.addr("rt_a") + 14, 2))
+        # THE RING IS CENTRED IN ITS ROW (SPEC.md 13.17.1): (PITCH - 12) >> 1
+        # below the row's top, clamped at zero - read it where os88ui_radboxy
+        # puts it, and assert the centring itself in step 1 so the ring and
+        # the label cannot drift apart again
+        ry = ay + max(0, (pitch - BOX) // 2)
         W, H, px = shot(m)
         print("   group A at (%d,%d) pitch %d, screen %dx%d"
               % (ax, ay, pitch, W, H))
 
         # --- 1. THE SHAPE (13.17.1) ------------------------------------------
-        r = ring(px, W, ax, ay)
+        r = ring(px, W, ax, ry)
         corners = [r[0][0], r[0][BOX - 1], r[BOX - 1][0], r[BOX - 1][BOX - 1]]
         check(not any(corners),
               "all four corners CLEAR - it is not a rectangle")
@@ -155,12 +160,19 @@ def main():
         check(all(r[q][0] for q in range(1, BOX - 1)), "left run is ink")
         check(all(r[q][BOX - 1] for q in range(1, BOX - 1)),
               "right run is ink")
+        # ...and it is CENTRED: the ring's middle row and the label's agree to
+        # the half pixel (the label sits (pitch - 7) >> 1 below the row's top)
+        ring_mid = (ry - ay) * 2 + BOX - 1
+        label_mid = ((pitch - 7) // 2) * 2 + 7 - 1
+        check(abs(ring_mid - label_mid) <= 1,
+              "ring centred on its label at pitch %d (ring mid %.1f, label "
+              "mid %.1f)" % (pitch, ring_mid / 2, label_mid / 2))
         # ...and the dot, on the row that IS the pick (SEL starts at 0)
         dot = sum(r[q][c] for q in range(3, 9) for c in range(3, 9))
         check(dot == 32, "the picked row's dot is a 6x6 with cut corners "
                          "(%d of 32 px)" % dot)
         # the row BELOW it is unpicked and must have an empty middle
-        r1 = ring(px, W, ax, ay + pitch)
+        r1 = ring(px, W, ax, ry + pitch)
         blank = sum(r1[q][c] for q in range(3, 9) for c in range(3, 9))
         check(blank == 0, "the unpicked row's middle is EMPTY (%d px)" % blank)
 
@@ -181,8 +193,8 @@ def main():
                                 # pointing at the library rather than at the
                                 # harness (docs/TESTING.md's standing trap)
         W, H, px = shot(m)
-        r0 = ring(px, W, ax, ay)
-        r1 = ring(px, W, ax, ay + pitch)
+        r0 = ring(px, W, ax, ry)
+        r1 = ring(px, W, ax, ry + pitch)
         check(sum(r0[q][c] for q in range(3, 9) for c in range(3, 9)) == 0,
               "...row 0 gave the dot up")
         check(sum(r1[q][c] for q in range(3, 9) for c in range(3, 9)) == 32,

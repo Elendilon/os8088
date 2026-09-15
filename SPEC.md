@@ -9251,7 +9251,15 @@ and it has three arms:
   it is the arm the second call always takes.
 - **down** (`[cur_level]` = −1) — swap, re-arm `[cur_lazy]`, `cursor_show`.
   That is §7.4.3.1's own sequence, and it is what a package's hold is normally
-  in.
+  in. **And only with the lock HELD**, which is §7.4.3.1's own test: `cur_unlazy`
+  above has just spent the hold's promise, so a −1 under a held lock is that
+  hide and this show settles it. Under a *free* lock a −1 is somebody else's —
+  `fpg_arm`'s own bar-row hide (§12.8.4, repaid by `fpg_finish`) or a saver
+  session's for-the-session hide (§79.6.1, repaid by `ss_set_x`) — and a show
+  here would settle that debt twice, leaving `[cur_level]` at +1 for good:
+  `cursor_hide` never erases again while the ISR keeps drawing, §7.1.4's
+  permanent smear. The measurement above found this arm 0 of 3 lock-free, so
+  refusing it costs nothing measured.
 - **lit** (`[cur_level]` = 0) — and this is the common one. The picture may only
   change while the cursor is off the glass (§7.2.2) and here there is no
   hide/show pair already happening to change it inside, **so this arm buys one:
@@ -9263,8 +9271,10 @@ and it has three arms:
 `cur_busy_take`'s three-byte call stays inside §7.4.3.1's block anyway, so that
 the day it *does* fire the swap is free and nothing is drawn twice.
 
-The four refusals below the first arm are each somebody else's rule rather than
-this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **clip
+The five refusals below the first arm are each somebody else's rule rather than
+this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **saver
+session** (§79.6.1, `wm_clip_set`'s test and `kern_big`'s alone — the overlay
+owns the glass and its hide is the session's), a **clip
 region armed** (§7.4.2's third condition — a clipped painter that already asked
 `cur_lazyck` and was told the pointer was out of reach would draw straight
 through one put up behind its back), **the menu bar's own rows** (§7.4.3, where
@@ -23978,6 +23988,13 @@ same shape for less.
 
 **The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
 
+**And the ring is centred in its ROW**, the way the label is: `(PITCH − 12) >> 1`
+below the row's top, clamped at zero, so at the pitches §13.17 names — 16 and
+20 — the ring's centre and the label's agree to the half pixel both roundings
+carry. The first cut drew the ring at the row's top and centred only the label,
+2 px apart at 16 and 4 at 20; `tests/radio.py` reads the ring at the same
+offset, so the pair cannot separate again.
+
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
 **Five drawing calls for an unpicked row and eight for the picked one** — a pen
@@ -35460,7 +35477,12 @@ row names it.
 
 **A re-homing entry may own no window.** Its region is about to be freed, so a
 window whose `W_SEG` named it would far-call a dead claim on its first repaint.
-`BX != 0` from the entry makes the launch abort.
+`BX != 0` from the entry makes the launch abort — and the free itself is
+protected by the **stamp**, not by BX: before the part's header is checked,
+every window whose `W_SEG` is the loader's region is destroyed by
+`wm_destroy_seg`, `.abort`'s own sweep for the same region, so a loader that
+created a window and returned BX = 0 anyway cannot leave a record naming a
+freed claim. A package's word about its windows is never what protects a free.
 
 Everything else the loader did **survives untouched**, because it is stamped by
 **instance** and not by segment: the sound grant (`snd_inst`, set to the record
@@ -49081,7 +49103,13 @@ another.
 pane's own **ground** — `cp_paint` does not fill the content, it calls the three
 routines that each own a pane — and it remains the right call in the two places
 where every row really has moved: a full window paint, and a driver load or
-unload that changes the list's membership (§31.9).
+unload that changes the list's membership (§31.9). **And inside it an
+unselected row's bar rect is already white**: `[cp_lfull]` is set around
+`cp_list`'s row loop and `cp_listrow` skips the ground fill on it, because the
+pane erase and the row's own fill are the same white pixels written twice
+(PERFORMANCE.md rule 2) — five to eight `gfx_fill` calls a whole-pane paint,
+4–6 ms on the target, for nothing on the glass. A selection that moves calls
+`cp_listrow` alone, where that fill is the one write that takes a bar off.
 
 **It cost 76 bytes of `CTRL.DRV`** — 6,102 → 6,178, an on-demand module and not
 one resident byte (§2.8).
@@ -102937,6 +102965,59 @@ overrun corrupts a value; this one corrupts an *address*, and the next large
 it is worth knowing that bss adjacency can arrange it without anyone loading a
 segment register wrongly at all.
 
+### 81.22 A saved file said what the sheet did not
+
+Two ways a file SHEET wrote disagreed with the sheet it came from, each
+invisible from inside because SHEET read its own files back the same way.
+
+#### 81.22.1 A Save recalculates first
+
+**Evaluation is lazy.** `sh_eval_cell` runs when a cell is *read*, memoized
+against `sh_pass`, and a repaint reads only what is on the glass. That is the
+right shape for a display and the wrong one for a file, because two of the three
+writers never ask: the SYLK and BIFF writers read a cell's value with
+`sh_cellval_to_acc_si`, the **stored** double, while DIF reads through
+`sh_getcell2`, which evaluates. So a formula off-screen since it was loaded, or
+since a cell it names changed, was saved with whatever it last held — after a
+load, the zero `sh_setformula` leaves. Ten formulas `=A1*1` … `=A1*10` on a
+5150, opened and saved as SYLK: the four on the glass came back right and the
+six below them came back **0**.
+
+`sh_dowrite` now calls `sh_recalc_all`, which walks every record and calls
+`sh_eval_cell` on each formula. It decides nothing: the pass stamp already knows
+what is stale, in both modes — automatic advances `sh_pass` on every repaint, so
+anything not recomputed since recomputes; manual does not, so only a cell never
+computed (stamped `0xFFFF`) runs. **Every sheet is evaluated as itself**, the
+`sh_rowcol_op` impersonation, because `sh_findcell` packs `[sh_cursheet]` into
+every reference. 64 bytes.
+
+What it costs is time at Save for a sheet whose formulas were not computed at
+paint, and nothing on the glass says so — which is also why a harness that waits
+for the *screen* to settle reads the floppy before the file exists.
+
+#### 81.22.2 Error codes in the file's own numbering
+
+`SH_C_AUX` holds an error as `ERROR.TYPE` numbers it, 1–7. The file does not:
+BIFF's error byte, in a `BOOLERR` and in a `FORMULA` result alike, is 00H
+`#NULL!`, 07H `#DIV/0!`, 0FH `#VALUE!`, 17H `#REF!`, 1DH `#NAME?`, 24H `#NUM!`,
+2AH `#N/A`. The writer put the internal number into that byte and the reader
+took it back out the same way — so SHEET's own files round-tripped perfectly,
+which is exactly what hid it, and `docs/BIFF-NOTES.md` recorded the gap and
+the four places a fix had to go. Measured before: an error constant and
+`=1/0` saved as Normal carried **02H**, not a code the format has; Excel's
+`#DIV/0!` (07H), as a constant and as a formula's cached result, opened as
+`#N/A`.
+
+`sh_biff_errtab` holds the seven codes in `ERROR.TYPE` order; `sh_biff_e2b`
+converts on the way out (`.aserr`, `.errresult`) and `sh_biff_b2e` on the way
+in (`.isboolerr`, `.isformula`). An internal code outside 1–7 is written as
+`#VALUE!`, and a file's code the table does not hold reads as `#VALUE!`, since
+it is still an error and that is the honest one to show. 75 bytes.
+
+Both measured with a host-side reader that shares no code with SHEET (the one
+this project's fork uses as its second opinion, `tools/os88sheetfmt.py` there),
+before and after, on this tree's build under MartyPC.
+
 ### 81.30 The menu tick is a SOLID SQUARE
 
 Sheet draws its own menus (§81), so it carried its own copy of the checked-item
@@ -118997,6 +119078,34 @@ virtual desktop coordinates and resolves the display itself, and `gfx_blit1`
 goes per 8-pixel band column when a band does not fit one display (§5.4.2
 step 4).
 
+##### 93.3.4.5 A refusal is REMEMBERED as a poisoned bank, and nothing writes a picture it does not have
+
+Two refusals land on `.fail`: the **surface** is too small (`dd_layout`) or the
+**arena** is (`dd_fit_claim`). Three things follow from one of them, and each
+was a defect once:
+
+- **The writer refuses a picture it does not have.** A refused first claim
+  leaves `[dd_bdseg]` = 0 with `[dd_sb]`/`[dd_mh]` already published, and the
+  window is live and interactive before anything is laid out — so Enter, a
+  click, Game ▸ New and Esc all reached `dd_board_render`, whose `dd_bd_wipe`
+  is a `rep stosw` through that segment: **1,736 words at 0000:0000 on a
+  windowed CGA**, the interrupt vectors and the BIOS data area. `dd_bd_wipe`
+  and `dd_board_render` now return on a zero segment, and `dd_new_game` and
+  `dd_attract_begin` — the two routes in — return on `[dd_ok]` = 0.
+- **`.fail` poisons the bank.** `.redo` banks the box *before* the claim that
+  refuses, so the four compares at the top of `dd_relayout_ck` matched for the
+  rest of the session: a refused **regrow** left `[dd_bdseg]` naming the old
+  claim under the new geometry, with nothing ever asking again. `.fail` writes
+  `[dd_lvkind]` = 0FFh — the file's own "ask again", `dd_oncmd`'s window-mode
+  arm — so the next paint goes back through `.want`/`.redo` and re-asks the
+  claim, and a refusal recovers the moment the arithmetic does. The worker
+  takes `.want`'s `stc` arm meanwhile and draws no frame at all.
+- **The arena's refusal says so.** Both used to say *Window too small.*, and
+  for the arena that is the wrong advice: a bigger window asks
+  `dd_bdkb_calc` for more and refuses harder. `[dd_nomem]` is set on
+  `dd_fit_claim`'s arm and cleared on `dd_layout`'s, and `dd_draw_toosmall`
+  letters *Not enough memory.* on it.
+
 #### 93.4.1 `W_ONRESIZE`, and why the window is not resizable
 
 The window takes its size from `OSAPI_WM_PREFER` and does not offer a grow
@@ -120203,6 +120312,21 @@ on that. `dd_input` asks **`OSAPI_KEY_DOWN`** once a logic step instead.
 A direction that is not legal yet is **remembered** rather than dropped, so a
 turn asked for a few pixels early is taken at the junction. That is the whole
 of what "responsive" means in a maze game.
+
+##### 93.7.2.1 …and the steering keys are DRAINED, because state does not consume
+
+`OSAPI_KEY_DOWN` answers a question and takes nothing out of the BIOS buffer,
+and `dd_key_common` ignores the arrows and WASD outright — so windowed, nothing
+emptied `int 16h`'s queue while a key was held. §9.8 closes the *hang* that
+used to follow and pays for it by dropping the **newest** arrival, which under
+a held arrow is the P or Esc the player just typed; the UI task fetches one key
+a pass and the worker holds the lock for a 40–55 ms frame, so the queue fills
+at typematic rate. `dd_kbdrain` is `cy_kbdrain`'s shape (§67): peek, eat only
+the eight steering codes, **stop at anything else** so a command keeps its
+place, peek and fetch inside one `pushf`/`cli`. It runs at the top of
+`dd_step`, above the early returns, because a refused layout is exactly where
+nothing else would ever touch the buffer. The bracket's own loop drains to
+empty, so there it costs one compare.
 
 #### 93.7.4 The tunnel's LEFT mouth, and the borrow that is the crossing
 
@@ -121500,6 +121624,41 @@ File ▸ New and the file opened again — the picture returns **pixel-identical
 from `.RTF` (21,541 bytes) and **reduced to one bit** from `.DOC` (4,729),
 which is what §95.7 says each should do. The checksum bullet's `rotate-xor` is
 also `main`'s **LFSR** now (§94.3); the `BCE9` figure is the pre-merge one.
+
+#### 95.8.6 Loaded at entry, not at first use
+
+§68.10 reads a module "the first time one of its features is asked for", and
+for WORD that cost nothing: its module held a picture feature most sessions
+never touch. **§95.8 put Open and Save in this one**, so "first use" became the
+first file operation — and `sc_ovneed` reads the module from the folder
+Scribe was **launched** from (`sc_ovdir`/`sc_ovdrv`). By the time a user
+opens a document off a data disk, or saves a new one onto a blank one, the
+launch drive holds that disk and not `SCRIBE.OVL`. The refusal was the
+ordinary path §68.10 describes — "a disk swapped for one without" the module —
+but for a picture that is a missing feature, and for Open and Save it was a
+Scribe that could neither read a document from a second floppy nor write one
+to it. WORD never had the problem: its formats are resident.
+
+`sc_entry` now calls **`sc_ovload`** after its three claims and before the
+window, which is what §50.3's claims-at-entry asks for. `sc_ovload` is `sc_ovneed` without the
+voice: it returns CF and, on failure, the message in AX rather than posting
+it, and `sc_ovneed` is now the wrapper that posts. The entry call is silent
+and does not read CF — a machine without the heap or a disk without the file
+still runs the editor, and the first file operation retries and says why.
+
+Measured under MartyPC on a 5150, cold launch, no file touched:
+
+| | Scribe's claims | `SCRIBE.OVL` resident | launch floppy traffic |
+|---|---|---|---|
+| before | 3 of 8 | no | 6 reads, 87 sectors |
+| after | 4 of 8 | yes, 12K pinned | 16 reads, 141 sectors |
+
+The cost is those 54 sectors at every launch, **including sessions that never
+open or save**, where before they fell on the first file operation of the
+sessions that did. It is 54 for a 20-sector file because the load navigates
+to the launch folder and back and reads a cluster at a time — the §18.91
+shape, and a property of the module load path every overlaid package shares,
+not of this change. 19 resident bytes.
 
 ### 95.9 Insert ▸ Picture — the document model
 

@@ -26,11 +26,11 @@ makes by looking, and there is no threshold to assert between them.
 wave 3 of docs/plans/completed/GFX-EMBEDDABLE-PLAN.md the Composed mode is
 `apps/os88gfx.inc` - the shared embeddable graphics library - rather than code
 of wire's own, so a defect there reaches every future customer of the library
-and not just this instrument. What is checked is that **the same figure is on
-the glass**: Composed's FULLEST frame must be within 15% of `Edge at a time`'s,
-those two being the same twelve edges by two different routes. A `gfxe_line`
-that plotted nothing, into the wrong rows, or that lost the wrap into the next
-byte drops it immediately.
+and not just this instrument. 78.5.1 left ONE draw order, so there is no
+second route to compare against and the gate is an ABSOLUTE floor: Composed's
+FULLEST frame must light at least `WR_FULL_MIN` = 250 pixels, a drawn cube
+being ~380. A `gfxe_line` that plotted nothing, into the wrong rows, or that
+lost the wrap into the next byte drops it below that immediately.
 
 **THE FLICKER NUMBERS ARE STILL NOT A GATE, and one draft of this file made
 them one and had to take it back.** `floor` and `under half` are a sample of a
@@ -44,8 +44,8 @@ not move that way - it is the figure and not the phase - which is exactly why
 it is the one that can be asserted.
 
 Broken on purpose to check it goes red (docs/WRITING-TESTS.md 1): stubbing
-`gfxe_line` an immediate `ret` takes Composed's fullest frame to 42 against
-`Edge at a time`'s 369 - 11%, where the gate wants 85%.
+`gfxe_line` an immediate `ret` takes Composed's fullest frame to 42, against
+the 250 floor.
 
 **ON THE GLaBIOS TWIN**, `os8088_5150_herc_gla`, because `os8088_5150_herc`
 wants the IBM ROM this repo cannot ship. Checked with that ROM dropped in

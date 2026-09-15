@@ -237,14 +237,14 @@ def capabilities():
     # WIREFRAME is an instrument and does not ship (SPEC.md 78.9), so `all`
     # builds wire.o88 and NO shipped floppy carries it - the disk comes from
     # `make wiredisk` and nothing in the suite runs that. Without this, the
-    # three rows that drive it (wireflick, wirefps, uilat) FAIL on a tree that
+    # two rows that drive it (wireflick, uilat) FAIL on a tree that
     # simply has not built it, and a failure meaning "this box has no disk"
     # buries the failures that mean something. Named for the artifact, per the
     # note above.
     # THROUGH `at`, because a frozen run reads the tree and not `build/`
     # (docs/plans/SOAK-PARALLEL.md 14.2). Probing the shared directory granted the
-    # capability off a disk the rows could not open: `uilat`, `wirefps` and
-    # `wireflick` ran and died on FileNotFoundError instead of skipping - the
+    # capability off a disk the rows could not open: `uilat` and `wireflick`
+    # (and `wirefps`, since deleted) ran and died on FileNotFoundError instead of skipping - the
     # one outcome a probed capability exists to prevent.
     if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")

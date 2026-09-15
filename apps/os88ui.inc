@@ -83,10 +83,13 @@
 ; flash and a visible redraw are two of the three things an emulator cannot
 ; show, and this project has paid for both repeatedly.
 ;
-; os88ui_chk (SPEC.md 13.15) DOES NOT FOLLOW RULE 1 - it fills its whole rect
-; white and then draws frame, mark and label over it. It is named here rather
-; than quietly fixed because it is the file's most-copied routine and the next
-; author will copy it too: os88ui_rad (13.17.4) is the one to follow.
+; os88ui_chk (SPEC.md 13.15) DID NOT FOLLOW RULE 1 for years - it filled its
+; whole rect white and then drew frame, mark and label over it - and it does
+; not any more (13.15.2): the label is an opaque font_run and the box is
+; cleared by os88ui_glyph, so THE CALLER OWNS THE PANE'S GROUND. It is named
+; here because it is the file's most-copied routine and the next author will
+; copy it too: os88ui_rad (13.17.4), which lays no ground at all, is the one
+; to follow.
 ; =============================================================================
 
 %ifdef OS88UI_KERNEL
@@ -2630,7 +2633,10 @@ os88ui_abh: dw 0
 ;
 ; --- USING IT ---------------------------------------------------------------
 ;   in W_PAINT:      BX = my_check, DI = flags (OS88UI_DIS greys it), and
-;                    `call os88ui_chk`. It fills its own ground
+;                    `call os88ui_chk`. THE CALLER OWNS THE PANE'S GROUND
+;                    (SPEC.md 13.15.2): the label is an opaque font_run and
+;                    the box is cleared by os88ui_glyph, so nothing else
+;                    inside CK_RECT is written - lay the pane first
 ;   in W_ONCLICK:    BX = my_check, CX/DX = the point, `call os88ui_chkhit`.
 ;                    out CF = 0 it was hit AND TOGGLED - the box is redrawn
 ;                    where it stands, so there is nothing to repaint - or
@@ -2790,6 +2796,9 @@ os88ui_chkhit:
 %endif                          ; OS88UI_CHK
 
 %ifdef OS88UI_RAD
+%ifdef OS88UI_NOBTN
+  %error "OS88UI_RAD draws its ring and dot through os88ui_gring/os88ui_gdot and hit-tests with os88ui_bhit (SPEC.md 13.17.1), which OS88UI_NOBTN leaves out"
+%endif
 ; =============================================================================
 ; THE RADIO GROUP - the SIXTH shared element (OS88UI_RAD), SPEC.md 13.17
 ;
@@ -2875,8 +2884,10 @@ os88ui_chkhit:
 ;
 ; --- USING IT ----------------------------------------------------------------
 ;   in W_PAINT:      BX = my_radio, DI = flags (OS88UI_DIS greys ALL of it, on
-;                    top of the per-item bits), and `call os88ui_rad`. It fills
-;                    its own ground and draws its own labels
+;                    top of the per-item bits), and `call os88ui_rad`. It
+;                    draws its own labels, and THE CALLER OWNS THE GROUND
+;                    (SPEC.md 13.17.4): nothing outside the rings, the dots
+;                    and the labels is written - lay the pane first
 ;   in W_ONCLICK:    BX = my_radio, CX/DX = the point, `call os88ui_radhit`.
 ;                    out CF = 1 the press was not ours - and NOTHING ELSE means
 ;                    anything in that case. CF = 0 it was ours, and then
@@ -2976,6 +2987,27 @@ os88ui_rad_dt:
     ret
 
 ; -----------------------------------------------------------------------------
+; os88ui_radboxy - DI = the row's top -> DI = the ring's top, centred in the row
+; in:  BP = the record, DI = RECT.y1 + row * PITCH; out: DI; AX clobbered
+;
+; The label is drawn at (PITCH - 7) >> 1 below the row's top, and the first
+; cut drew the ring AT the row's top: the two centres coincide only at a
+; pitch of 11 or 12, and at the pitches SPEC.md 13.17 names - 16 and 20 - the
+; ring sat 2 and 4 pixels above the middle of its own label. (PITCH - 12) >> 1
+; puts the ring's centre where the label's is, to the half pixel both
+; roundings carry; a pitch under the box keeps the ring at the row's top
+; rather than lifting it out.
+; -----------------------------------------------------------------------------
+os88ui_radboxy:
+    mov ax, [ds:bp+OS88UI_RD_PITCH]
+    sub ax, OS88UI_RDBOX
+    jle .top
+    sar ax, 1
+    add di, ax
+.top:
+    ret
+
+; -----------------------------------------------------------------------------
 ; os88ui_rad1 - ONE row, WITHOUT erasing anything first
 ; in:  BX = the record, SI = the row, 0-based; the gfx lock is held
 ; out: nothing; every register preserved
@@ -3018,6 +3050,8 @@ os88ui_rad1:
     mul word [ds:bp+OS88UI_RD_PITCH]
     add ax, [ds:bp+OS88UI_RD_RECT+2]
     mov di, ax                  ; DI = this row's y, for the rest of the body
+    call os88ui_radboxy         ; ...and the RING's, centred in the row the
+                                ; way the label below is (SPEC.md 13.17.1)
 
     call os88ui_rad_pen
 
@@ -3086,6 +3120,7 @@ os88ui_raddot:
     mul word [ds:bp+OS88UI_RD_PITCH]
     add ax, [ds:bp+OS88UI_RD_RECT+2]
     mov di, ax
+    call os88ui_radboxy         ; the dot sits in the ring, wherever that is
     cmp si, [ds:bp+OS88UI_RD_SEL]
     je .ink
     UI_WHITE                    ; a STORE, not a call: the ground colour is

@@ -25,6 +25,7 @@ satisfy any test that merely grepped for it and would still be the
 four-minute failure it exists to prevent.
 """
 from pathlib import Path
+import platform
 import re
 import subprocess
 import unittest
@@ -103,6 +104,19 @@ class SetupScriptTests(unittest.TestCase):
     def test_check_runs_and_says_something(self):
         r = subprocess.run(["sh", str(ROOT / "tools/setup-linux.sh"), "--check"],
                            cwd=ROOT, capture_output=True, text=True, timeout=120)
+        if platform.system() == "Darwin":
+            # The script's OWN contract on a Mac: refuse with exit 2 and name
+            # tools/setup-macos.sh, before --check is even parsed. The row
+            # runs in the fast tier, and the fast tier runs on every `make`,
+            # so the maintainer's Mac must see this branch and not a red
+            # build. Not (0, 1, 2): 2 is specifically the Darwin refusal, and
+            # a Linux box exiting 2 for any other reason must still fail.
+            self.assertEqual(r.returncode, 2,
+                             "--check on a Mac returned %d; the script refuses "
+                             "Darwin with 2" % r.returncode)
+            self.assertIn("setup-macos.sh", r.stdout + r.stderr,
+                          "the Mac refusal must name tools/setup-macos.sh")
+            return
         self.assertIn(r.returncode, (0, 1),
                       "--check returned %d; it reports (0) or names what is "
                       "missing (1)" % r.returncode)

@@ -285,6 +285,10 @@ squashed, and that shapes what to write:
     The branch kept 0x04F8–0x0518 and `main`'s two moved to 0x0520 and 0x0528.
     This is the failure the collision check above exists for, and it is the
     check that found it.
+  - #179: `main`'s Scribe subsection 94.8.6, loaded-at-entry (#177), met the branch's §93
+    DOT DELIRIUM, which had moved Picture decoders to §94 and Scribe to §95 —
+    the new subsection became **§95.8.6**, three citations (two in SPEC.md,
+    one comment in `apps/scribe/scribe.asm`).
 
 ## Quick reference
 

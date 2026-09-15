@@ -174,6 +174,13 @@ CHART, FONTVIEW, HELLO, PACMAN and SHEET; what moved on: DOT DELIRIUM.
 Thirteen more files on the 128KB machine's system disk — §24.5.6's
 single-disk change, and the most user-visible line in this report.
 
+**Those file counts are the RECIPE's, not the volume's**, and the two differ
+by exactly one: `os88disk.py` reports the files it was HANDED when it builds,
+and generates an `ASSOC.DAT` on top of them (it writes one for any packages it
+is given), so `--verify` counts **13** and **26** on the same two disks. The
+delta of thirteen is the same either way; a reader who mounts the floppy and
+counts is not reading a different disk.
+
 ## 4. Packages and drivers
 
 Built `.o88` and `.DRV` bytes, `PKGZ=lz4` as shipped.

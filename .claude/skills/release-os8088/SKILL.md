@@ -155,11 +155,14 @@ make clean && make
 ls -l build/os8088.img build/os8088-120.img build/os8088-720.img \
       build/os8088-360.img \
       build/apps.img build/apps120.img build/apps720.img build/apps360.img \
-      build/media360.img
+      build/media360.img \
+      build/office360.img build/network360.img build/games360.img
 ```
 
-All nine must exist -- step 3a refuses to pack without them. (Four geometries
-of each pair since SPEC.md 19's 1.2MB disk, plus the 360KB-only media disk.) The build
+All twelve must exist -- step 3a refuses to pack without them. (Four geometries
+of each pair since SPEC.md 19's 1.2MB disk, plus the 360KB-only media disk and
+SPEC.md 24.6's three 360KB-only category disks -- at that size the spreadsheet
+and the chart viewer ship on the office disk and on NO other.) The build
 enforces its own invariants -- a 512-byte boot sector and a kernel that fits
 under offset 0xA000 -- so a build failure here is a real problem, not
 something to work around. Report the kernel size; if it has
@@ -186,7 +189,7 @@ make live                             # os8088-usb.img + os8088.iso -- the live
 ```
 
 Offer these, do not assume them. If `tools/setup-cc.sh` cannot run -- no
-network, no host toolchain -- **release the nine and say which on-demand disks
+network, no host toolchain -- **release the twelve and say which on-demand disks
 were skipped**; they are a convenience, and a release that waits on one is a
 release that does not happen. `mkzip.py` prints the ones it did not find, so
 that list is generated rather than remembered. Boot any that were built in step

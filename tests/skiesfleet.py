@@ -509,16 +509,42 @@ def main(argv):
             poke("cs_roll", b"\x00\x00")
             poke("cs_spd", (22 * 128).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
+            poke("cs_swdir", b"\x00")          # ...and the ARM RECORD is
+                                                # cleared, so what is read
+                                                # below is THIS crossing's
             poke("cs_pause", b"\x00")          # ...and only NOW does it fly
             m.run()
             m.advance(frames=4)
             m.run()
-            sw = byte("cs_swt")                 # the CROSSING's own swoop
+            # THE COUNTDOWN CANNOT ANSWER "DID IT ARM", so this reads the
+            # record instead. `cs_swt` is CS_SWOOPT = 8 at the crossing and
+            # `cs_swoop` takes one off it a TICK - and a Clear Skies frame is
+            # SEVERAL ticks (18.2 Hz against ~6 fps), so `advance(frames=4)`
+            # spans more than the whole pulse and WHERE in it the crossing
+            # falls is decided by the frame rate. That is why the two legs
+            # disagreed off one piece of code - lift read 0 and sink 7, the
+            # same numbers every run - and why walking the window frame by
+            # frame only moved the problem to the other leg (6, 0).
+            # `cs_swdir` is written beside `cs_swt` at the arm and is never
+            # cleared by the app, so zeroing it above and reading it here
+            # asks exactly what the assertion says: did this crossing arm the
+            # swoop. Incidents 39 and 40 of docs/WRITING-TESTS.md 13, and it
+            # reproduces on the commit BEFORE this thread's frame-rate work
+            # as readily as after it.
             m.advance(frames=26)
             m.run()
             y0 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),
                                    "little"))
             air = sg(w("cs_airv"))
+            # ...AND THE ARM IS READ HERE, beside the air it belongs to, which
+            # is the second half of the fix. Reading it at frame 4 asked
+            # whether the crossing had happened YET, and sometimes it had not:
+            # the lift leg read 0 while its own air read +512 and the
+            # aeroplane had visibly climbed, which is a crossing that arrived
+            # late rather than one that never came. `cs_swdir` is durable, so
+            # a later read loses nothing - it is the countdown beside it that
+            # could not survive the wait.
+            sw = byte("cs_swdir")               # the CROSSING's own swoop
             m.advance(frames=60)
             m.run()
             y1 = sg(int.from_bytes(m.readseg(seg, base + off("cs_py") + 1, 2),

@@ -600,7 +600,9 @@ dd_bd_wipe:
     push di
     push es
     mov ax, [dd_bdseg]
-    mov es, ax
+    or ax, ax                       ; NO PICTURE, NO WIPE (SPEC.md 93.3.4.5):
+    jz .out                         ; a refused claim leaves this 0, and a
+    mov es, ax                      ; rep stosw at 0000:0000 is the vector table
     xor di, di
     mov ax, [dd_sb]
     mul word [dd_mh]                ; 56 * 496 = 27,776: still one word
@@ -610,6 +612,7 @@ dd_bd_wipe:
     xor ax, ax
     cld
     rep stosw
+.out:
     pop es
     pop di
     pop cx
@@ -635,6 +638,10 @@ dd_bd_wipe:
 ; not.
 ; -----------------------------------------------------------------------------
 dd_board_render:
+    cmp word [dd_bdseg], 0          ; NO PICTURE, NO WALK (SPEC.md 93.3.4.5):
+    jne .go                         ; every tile below is written through it
+    ret
+.go:
     ; --- THE WALK IS A GLOBAL AND SO IS THE PICTURE (SPEC.md 93.5.17) -------
     ; [dd_gc]/[dd_gr] are the loop, and dd_dots_blit and dd_tile_put both set
     ; them - so a frame drawn on the other task WHILE this walks makes the

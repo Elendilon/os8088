@@ -34,7 +34,7 @@ SPEC.md 88.3.2.3's stepped mark and 88.4.6.2's short-run body.
 **IT FAILS TODAY** and that is what it is for: docs/FIELD-NOTES.md 41.
 """
 import os, sys, importlib.util
-ROOT = "/home/user/os8088"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # this tree, wherever it is checked out
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.chdir(ROOT)

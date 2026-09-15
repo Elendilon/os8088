@@ -19,9 +19,12 @@ invisible in the zip listing until it is public.
 
 It does not build anything. Run `make` (and any on-demand target you want in
 the zip) first; a missing REQUIRED image stops the script, and a missing
-optional one is reported and skipped. That split is the point -- the nine
+optional one is reported and skipped. That split is the point -- the twelve
 images `make` produces are the release (four geometries of each pair since
-SPEC.md 19's 1.2MB disk, plus the 360KB-only media disk), and
+SPEC.md 19's 1.2MB disk, plus the 360KB-only media disk and the three
+360KB-only category disks of SPEC.md 24.6 -- office, network and games, which
+at that geometry are the ONLY published home of the spreadsheet and the chart
+viewer), and
 `apps-all`/`word`/`cword`/`scribe`/`runcpm`/`c64`/`apple2`/`paccman`/`weave`/`loom`
 and the live media
 (`make live`, SPEC.md 80) are on-demand targets that a tree without the C
@@ -58,6 +61,16 @@ MANIFEST = [
                               "programs at this size, so it rides a disk of its own. "
                               "There is no 1.44MB or 720KB version -- at those sizes it is "
                               "already on the software disk."),
+    ("office360.img",  True,  "Office disk, 360KB. At this size the spreadsheet and the "
+                              "chart viewer are on THIS disk and not on the software disk, "
+                              "beside Word, Paint, ArtfulType, the calculator and the font "
+                              "viewer. There is no 1.44MB or 720KB version -- at those "
+                              "sizes they are all on the software disk."),
+    ("network360.img", True,  "Network disk, 360KB. The browser, the FTP server, Telnet "
+                              "and The Wire, for an XT with an Ethernet card. 360KB only, "
+                              "for the same reason."),
+    ("games360.img",   True,  "Games disk, 360KB. Every game on one floppy. 360KB only, "
+                              "for the same reason."),
     ("os8088-usb.img", False, "Live USB image. The whole system and every program on one "
                               "bootable hard-disk image. Write it raw to a USB stick and "
                               "boot a PC from it in legacy BIOS mode -- no floppy drive "

@@ -152,7 +152,7 @@
  *     to read a file's HEADER and decide from it before reading the rest,
  *     which os88_file_read() cannot express - it is os88_file_read_at().)
  *
- * The count: 105 of the 162 slots apps/os88api.inc publishes, plus six
+ * The count: 105 of the 164 slots apps/os88api.inc publishes, plus six
  * window-record accessors and six runtime helpers that are not slots at all -
  * 133 C entry points, and every one of them is in apps/cc/os88thunk.asm -
  * FOUR OF THEM ONLY IF THE SHIM SAYS SO. The four fsx_* thunks are behind
@@ -161,7 +161,7 @@
  * with no bodies. The recipe below counts the FILE, which holds all of them.
  *
  * How those three are counted, so the next person does not have to guess:
- *   160  `%define OSAPI_<NAME> KERNEL_SEG:0x...` lines in apps/os88api.inc.
+ *   164  `%define OSAPI_<NAME> KERNEL_SEG:0x...` lines in apps/os88api.inc.
  *        OSAPI_FIND_SZ is an `equ`, not a slot, and is not one of them.
  *   105  those names that appear in apps/cc/os88thunk.asm, in code rather
  *        than in a comment - a macro invocation names its slot as an
@@ -179,8 +179,9 @@
  * PACCMAN (SPEC.md 91) added os88_gfx_blitp() and os88_wm_display(), and the
  * recipe above then answered 99/155/127; the merge that brought PACCMAN and
  * THE WIRE onto the integration branch beside its own five new slots answers
- * 101/162/129, and APPLE2's four gated fsx thunks (SPEC.md 53) take the file
- * to 105/162/133. Run the
+ * 101/160/129, APPLE2's four gated fsx thunks (SPEC.md 53) take the file to
+ * 105/160/133, and this cycle's four slots - PKG_REHOME, GFX_POINTS, CUR_BUSY
+ * and WM_MINIMIZE, none of them wrapped - take it to 105/164/133. Run the
  * recipe when you touch this file; do not add one to what is written here.
  * ==========================================================================*/
 

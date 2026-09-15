@@ -831,6 +831,26 @@ sc_entry:
     mov word [sc_papn], 1
     mov word [sc_capkb], SC_KB0
     mov word [sc_cap], SC_KB0 * 1024
+    push ax                         ; SCRIBE.OVL NOW, NOT AT FIRST USE. 68.10
+    call sc_ovload                  ; loads a module "the first time one of its
+    pop ax                          ; features is asked for", which cost WORD
+                                    ; nothing while its module held a picture
+                                    ; feature most sessions never touch. 95.8
+                                    ; put OPEN AND SAVE in this one, so first
+                                    ; use is the first file operation - and by
+                                    ; then the launch drive may hold the disk
+                                    ; the user is opening from or saving to.
+                                    ; The module is read from the LAUNCH
+                                    ; folder, so it was not there, and a cold
+                                    ; Scribe could neither open a document off
+                                    ; a data disk nor save a new one onto it.
+                                    ; This is SPEC.md 50.3's claims-at-entry.
+                                    ; CF IS NOT READ: a machine without the
+                                    ; heap or a disk without the file still
+                                    ; runs the editor, and sc_ovneed retries at
+                                    ; first use and says why. Silent here
+                                    ; because there is no document yet for the
+                                    ; message to be about
     call sc_defname                 ; the name and the TITLE the template
     call sc_compttl                 ; points at (SPEC.md 68.2: 'Microsoft
                                     ; Word - DOCUMENT.DOC') must exist before
@@ -20216,11 +20236,28 @@ SCM_MAX      equ 7              ; ...and the highest of them
 ; forbids both on a worker. [sc_inwk] is the same gate sc_itinit uses.
 ; -----------------------------------------------------------------------------
 sc_ovneed:
+    push ax
+    call sc_ovload                  ; CF=1: AX = what to say, or 0 for nothing
+    jnc .ok
+    test ax, ax
+    jz .quiet
+    call sc_saymsg                  ; preserves the flags, so CF is test's 0
+.quiet:
+    stc
+.ok:
+    pop ax
+    ret
+
+; sc_ovload - sc_ovneed without the voice, for sc_entry: there is no document
+; yet for a refusal to be about, and first use retries and speaks.
+; out: CF=0 loaded (AX clobbered); CF=1 not loaded, AX = the message to show,
+;      or 0 on a worker, where the caller's own gate has already answered.
+;      Preserves every other register.
+sc_ovload:
     cmp word [sc_ovseg], 0
     jne .ok
     cmp byte [sc_inwk], 0
     jne .nowk
-    push ax
     push bx
     push cx
     push dx
@@ -20263,7 +20300,6 @@ sc_ovneed:
     pop dx
     pop cx
     pop bx
-    pop ax
 .ok:
     clc
     ret
@@ -20272,11 +20308,10 @@ sc_ovneed:
     call OSAPI_MEM_FREE             ; module is worse than none
     mov word [sc_ovseg], 0
     mov ax, sc_m_noovl
-    jmp short .say
+    jmp short .fail
 .nomem:
     mov ax, sc_e_nomem
-.say:
-    call sc_saymsg
+.fail:
     call sc_ovback
     pop es
     pop di
@@ -20284,9 +20319,11 @@ sc_ovneed:
     pop dx
     pop cx
     pop bx
-    pop ax
-.nowk:
     stc
+    ret
+.nowk:
+    xor ax, ax                      ; nothing to say: a worker's own gate
+    stc                             ; answers, as it always did here
     ret
 
 ; sc_ovback - put the volume back where the user left it. Preserves all.

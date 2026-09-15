@@ -3143,13 +3143,12 @@ apic_osapi_mem_avail:
                                   ;          id, ES:DI = the caller's buffer
     OSAPI_SLOT fsx_wait           ; 0x02D8 - frame clock / present (SPEC.md
                                   ;          53.5): AL = 0 tick / 1 retrace
-    OSAPI_SLOT gfx_line           ; 0x02E0 - an arbitrary-angle line (SPEC.md
-                                  ;          5.6): AX/BX = x1/y1, CX/DX =
-                                  ;          x2/y2 inclusive, pen in
-                                  ;          [gfx_color], lock held. An
-                                  ;          axis-aligned pair defers to
-                                  ;          gfx_hline / gfx_vline, which stay
-                                  ;          the right answer for a long run
+    OSAPI_SLOT gfx_line           ; 0x02E0 - RETIRED (SPEC.md 5.12.7). The
+                                  ;          cell stays - a slot number is a
+                                  ;          published constant (20.3) - and
+                                  ;          the body answers CF = 1. The line
+                                  ;          is apps/os88gfx.inc's GFXE_LINE
+                                  ;          now, committed through gfx_blit1
     OSAPI_SLOT osapi_arg_file     ; 0x02E8 - the document this instance was
                                   ;          launched to open (SPEC.md 54.5):
                                   ;          out CF=1 none; CF=0 with SI = its
@@ -3174,17 +3173,14 @@ apic_osapi_mem_avail:
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-    OSAPI_XCELL gfx_linit     ; 0x0300  X: the walk state is package data
-                                  ;          (SPEC.md 5.6.7). AX/BX = x1/y1,
-                                  ;          CX/DX = x2/y2, ES:DI = a GLS_SZ
-                                  ;          block. The walk runs in the
-                                  ;          CALLER'S direction - order
-                                  ;          matters here, unlike gfx_line
-    OSAPI_XCELL gfx_lstep     ; 0x0308  X: draw the walk's next CX pixels
-                                  ;          in [gfx_color] and advance it.
-                                  ;          N then M is exactly the N+M one
-                                  ;          call would have drawn, which is
-                                  ;          what lets an erase replay a draw
+    OSAPI_XCELL gfx_linit     ; 0x0300  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          The walk is apps/os88gfx.inc's
+                                  ;          GFXE_WALK now, in a GLS_SZ block
+                                  ;          of the package's own - GLS_SZ is
+                                  ;          still live and still mirrored
+    OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          gfxe_wstep draws the walk's next
+                                  ;          CX pixels into the package's band
     OSAPI_SLOT gfx_pen_cf         ; 0x0310 - CF = 0 live / 1 disabled, and it
                                   ;          sets [gfx_color] AND [gfx_dis]
                                   ;          together (SPEC.md 47 rule 3), so
@@ -3196,11 +3192,10 @@ apic_osapi_mem_avail:
                                   ;          unchanged - which is why this
                                   ;          needs no stub and no AL
                                   ;          argument
-    OSAPI_XCELL gfx_lstepv    ; 0x0318  X: gfx_lstep for CX walks at once
-                                  ;          (SPEC.md 5.6.8). ES:DI = an array
-                                  ;          of `dw block, pixels` pairs. Same
-                                  ;          pixels as CX separate calls, one
-                                  ;          arriving instead of CX of them
+    OSAPI_XCELL gfx_lstepv    ; 0x0318  RETIRED (SPEC.md 5.12.7): stc/ret.
+                                  ;          gfxe_wstepv is the batch form and
+                                  ;          gfx_points (0x0538) is what a
+                                  ;          package commits a point set with
     OSAPI_SLOT clip_put           ; 0x0320 - the system clipboard (SPEC.md
                                   ;          55): ES:SI = text, CX = bytes
                                   ;          (0 = empty it); out CF=1 refused.
