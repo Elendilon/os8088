@@ -516,14 +516,18 @@ fm_kinit_x:
 %ifdef KERN_BIG
     mov ax, fm_onup             ; SPEC.md 13.7/13.8.1: the two edges the two
     call KERNEL_SEG:cw_wm_onmouseup ; header buttons fire and track on. Not
+%ifdef OS88UI_SBDRAG
+    mov [bx + W_ONTIMER], ax    ; ...AND THE SAME PROC IS THE PAUSE COMMIT'S
+                                ; (SPEC.md 13.10.5.4.2): a timer that fires
+                                ; mid-drag is a release with the hand still
+                                ; down, and os88ui_sbdrop tells the two apart
+                                ; off [ui_armw]. A plain store, because
+                                ; wm_ontimer is one; nothing ARMS it here -
+                                ; fm_ondrag does, on movement - so a window
+                                ; merely open has no timer
+%endif
     mov ax, fm_ondrag           ; template words - the template is eight and
     call KERNEL_SEG:cw_wm_ondrag ; growing it would read one past every
-%ifdef OS88UI_SBDRAG
-    mov ax, fm_ontimer          ; ...and 13.10.5.4.2's PAUSE commit, which is
-    call KERNEL_SEG:cw_wm_ontimer ; the third edge of the same gesture. Nothing
-                                ; ARMS it here - fm_ondrag does, on movement -
-                                ; so a window merely open has no timer
-%endif
                                 ; existing package's - so a KD_INIT is where
                                 ; a kernel window installs them, and a
                                 ; KD_POOL block is REUSED, so a window closed
@@ -3088,14 +3092,22 @@ fm_onup_x:
     call os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and it
     jc .btn                     ; commits unconditionally - a position the rate
     mov bx, si                  ; refused mid-drag is never lost, and a release
-    xor ax, ax                  ; that landed off the screen entirely still
-    call KERNEL_SEG:cw_wm_timer ; ends the gesture (13.7's second rule).
+    mov word [bx+W_TIMER], 0    ; that landed off the screen entirely still
+                                ; ends the gesture (13.7's second rule).
                                 ; 13.10.5.4.2's timer is cancelled FIRST: it
-                                ; must not outlive the gesture it belongs to
+                                ; must not outlive the gesture it belongs to,
+                                ; because THIS proc is its handler and a
+                                ; release-then-press inside SB_IDLE would
+                                ; otherwise fire a header button early. A
+                                ; store of wm_timer's own sentinel, which is
+                                ; all its cancel arm is
     call fm_layout
     call fm_sbset               ; ends the gesture (13.7's second rule).
     call os88ui_sbdrop          ; fm_sbset FIRST: the overlay's erase reads the
     jc .btn                     ; block's geometry. CF = 1 = the gesture was
+                                ; the DIALOG's bar (13.10.5.10). FROM THE TIMER
+                                ; TOO (13.10.5.4.2): the hand paused, so this
+                                ; answers the pos and keeps the record
     sub ax, [fm_lscr]           ; the DIALOG's bar (13.10.5.10) - spent by the
     call fm_scroll_by           ; call above, and this release is the button
     jc .paint                   ; arm's
@@ -3159,9 +3171,11 @@ fm_ondrag_x:
     mov ax, FM_SBIDLE           ; says so.
     call KERNEL_SEG:cw_wm_timer ; 13.10.5.4.2: EVERY movement pushes the
                                 ; one-shot out, which is what makes it an IDLE
-                                ; detector and not a cadence. FM_SBIDLE = 0
-                                ; needs no test of its own - wm_timer takes 0
-                                ; as CANCEL, so that build arms nothing
+                                ; detector and not a cadence - and what it
+                                ; fires is fm_onup, which reads the pause off
+                                ; [ui_armw]. FM_SBIDLE = 0 needs no test of
+                                ; its own - wm_timer takes 0 as CANCEL, so
+                                ; that build arms nothing
     call fm_layout
     call fm_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: the thumb moved and the view is not
@@ -3188,45 +3202,6 @@ fm_ondrag_x:
     xor al, al                  ; off it: nothing is down
 .set:
     call fm_setdown             ; ...which draws only if that CHANGED
-.out:
-    jmp kretc_di
-%endif
-
-%ifdef OS88UI_SBDRAG
-; -----------------------------------------------------------------------------
-; fm_ontimer - W_ONTIMER (SPEC.md 13.9): the thumb has been STILL for FM_SBIDLE
-;              ticks, so the view goes where the hand is (SPEC.md 13.10.5.4.2)
-; in:  SI = window ptr; gfx lock held, on the UI task - W_ONCLICK's environment
-; out: nothing (all registers preserved)
-;
-; fm_ondrag re-arms the one-shot on every movement, so reaching here at all is
-; the statement that no W_ONDRAG arrived for FM_SBIDLE ticks - and W_ONDRAG is
-; delivered only when the pointer MOVED (SPEC.md 13.8.2), so a still hand is
-; the only thing that gets here.
-;
-; IT DOES NOT RE-ARM. A pause is ONE commit however long it lasts (13.9 disarms
-; the timer before this runs), and the next movement arms it again.
-;
-; os88ui_sbowed rather than os88ui_sbdrop: a pause is not the end of the
-; gesture, so the record must survive it. CF = 1 is a timer that outlived its
-; drag - the lost-release door of 13.10.5.7 - and drawing nothing is right.
-; -----------------------------------------------------------------------------
-fm_ontimer_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, si
-    call fm_layout              ; the same three steps fm_ondrag takes, for the
-    call fm_sbset               ; same reason: the block is what owns the
-    call os88ui_sbowed          ; gesture's identity (13.10.5.10)
-    jc .out
-    sub ax, [fm_lscr]           ; ...as a DELTA, which is what fm_scroll_by
-    call fm_scroll_by           ; takes (SPEC.md 22.11)
-    jnc .out
-    call fm_repaint             ; 11.3's granularity refusal; SI still = window
 .out:
     jmp kretc_di
 %endif
@@ -6172,9 +6147,9 @@ fm_dgdrop:
     mov bx, [si+18]             ; a folder (or '..'): into THAT one
 .have:
     mov al, [fm_dgdrv]
-    cmp al, [fcp_drv]           ; the same folder it came from? then the
+    cmp al, [fcp_cbdrv]           ; the same folder it came from? then the
     jne .go                     ; drag went nowhere and there is nothing
-    cmp bx, [fcp_cwd]           ; to do - not a copy of it into itself
+    cmp bx, [fcp_cbcwd]           ; to do - not a copy of it into itself
     je .out
 .go:
     push ax
@@ -8492,11 +8467,9 @@ fmf_fm_onclick:         call fm_onclick_x
                     retf
 %ifdef KERN_BIG
 fmf_fm_ondrag:          call fm_ondrag_x
-                    retf
-%ifdef OS88UI_SBDRAG                        ; ...and the PAUSE commit's, whose
-fmf_fm_ontimer:         call fm_ontimer_x   ; BODY is behind the same guard:
-                    retf                    ; KERN_BIG is not enough, because
-%endif                                      ; SBDRAGOFF leaves the first set
+                    retf                    ; ...and 13.10.5.4.2's PAUSE commit
+                                            ; is fmf_fm_onup, above: one proc
+                                            ; for both edges
 %endif
 
 section .text

@@ -132,31 +132,43 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
             "(SPEC.md 50.3.4 - red without mem_own's two arms) and 4 that its "
             "carve refuses both MEM_FREE and MEM_MOVABLE (20.12.10.5)" % title)
 
-    # --- 3. ...and the program is NOT at a claim base ------------------------
-    # THE CARVE HAS TWO SHAPES and which one a run gets is the VOLUME's
-    # cluster size, not the package's (SPEC.md 20.12.10.5). With a non-zero
-    # head slack the program sits INSIDE the carve and is the base of no
-    # claim, which is the shape SPEC.md 50.3.4's fence exists for; with a zero
-    # slack it sits AT the base and the carve is its region in every sense.
-    # Both are coherent, so this asserts that the run got the shape its
-    # geometry implies - and 360KB, whose clusters are 1KB, is the one that
-    # can test the fence at all.
+    # --- 3. ...and the program IS at a claim base, because the carve was TRIMMED
+    # THE CARVE HAD TWO SHAPES and now has one (SPEC.md 20.12.10.5). op_claim's
+    # head slack is the VOLUME's cluster alignment - zero on 512-byte clusters,
+    # 1KB-512 on the 360KB disk's - and the re-home returns it to the heap, so
+    # the claim's base is the program's segment at every geometry. The loader
+    # wrote the carve's ORIGINAL base into the program's handoff (RP_CARVE)
+    # before the kernel touched the claim, so the trim is read straight off
+    # the two numbers: on 360KB the recorded base must be BELOW the program
+    # and no claim may start there any more.
     now = claims(m, S)
     at_base = wseg in [c.seg for c in now.claims]
-    say("the program is %s the carve's base (head slack %s)"
-        % ("AT" if at_base else "INSIDE", "zero" if at_base else "non-zero"))
-    if GEOM == "360" and at_base:
+    rp_carve = struct.unpack_from("<H", m.read((wseg << 4) + P0_IMG + 4, 2))[0]
+    say("the program is %s the carve's base; the loader recorded the carve at "
+        "%04X (head slack %d paragraphs)"
+        % ("AT" if at_base else "INSIDE", rp_carve, wseg - rp_carve))
+    if not at_base:
         fails.append(
-            "the program's segment %04X IS the base of a claim on a 360KB "
-            "disk, whose 1KB clusters must leave a head slack. Check 3 of the "
-            "title then passes the way it did BEFORE SPEC.md 50.3.4 - by "
-            "accident - so this run tested nothing: REHOME's image must be an "
-            "ODD number of sectors" % wseg)
-    elif GEOM != "360" and not at_base:
+            "the program's segment %04X is not the base of any claim, so the "
+            "re-home did not TRIM the carve to it - mem_reown_x's trim "
+            "(SPEC.md 20.12.10.5) is what makes a re-homed region an ordinary "
+            "one, and every compactor rule reads the base" % wseg)
+    if GEOM == "360" and rp_carve >= wseg:
         fails.append(
-            "the program's segment %04X is NOT a claim base on a 512-byte-"
-            "cluster volume, where op_claim's head slack is zero by "
-            "construction (SPEC.md 20.12.2). Something moved the run" % wseg)
+            "the loader recorded its carve at %04X and the program is at "
+            "%04X on a 360KB disk, whose 1KB clusters must leave a head slack "
+            "- so this run had nothing to trim and tested nothing: REHOME's "
+            "image must be an ODD number of sectors" % (rp_carve, wseg))
+    elif GEOM != "360" and rp_carve != wseg:
+        fails.append(
+            "the loader recorded its carve at %04X and the program is at %04X "
+            "on a 512-byte-cluster volume, where op_claim's head slack is zero "
+            "by construction (SPEC.md 20.12.2). Something moved the run"
+            % (rp_carve, wseg))
+    if rp_carve != wseg and rp_carve in [c.seg for c in now.claims]:
+        fails.append(
+            "a claim still starts at the carve's old base %04X, so the slack "
+            "was split off rather than returned" % rp_carve)
 
     # --- 4. THE LOADER'S REGION IS GONE --------------------------------------
     # The instance's I_SPTR is the program now, so the loader's old base is not

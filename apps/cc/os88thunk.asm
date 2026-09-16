@@ -1490,74 +1490,40 @@ _os88_file_rename:
     ret
 
 ; int os88_file_copy(const char *name, const struct os88_place *from,
-;                    const char *newname, const struct os88_place *to)
-; The file manager's own engine (SPEC.md 22.24), which is why this is a thunk
-; and not a loop: it streams through a buffer it claims, and it DELETES A
-; PARTIAL DESTINATION if anything fails, which is the half a hand-rolled copy
-; in C gets wrong. A struct os88_place is exactly what os88_file_here() fills.
+;                    const struct os88_place *to)
+; int os88_file_move(const char *name, const struct os88_place *from,
+;                    const struct os88_place *to)
+; ONE thunk over one cell (SPEC.md 22.24): the two C names differ in the verb
+; byte and nothing else. The file manager's own engine, which is why this is
+; a thunk and not a loop: it streams through a buffer it claims, it DELETES A
+; PARTIAL DESTINATION if anything fails - the half a hand-rolled copy in C
+; gets wrong - and a move on one volume rewrites the directory entry and
+; reads no data. A struct os88_place is exactly what os88_file_here() fills.
+; Two answers, like every other file call: 0, or -1 with os88_ferr() set. The
+; kernel's success answer is AX = 0 with CF clear, so one store serves both.
+_os88_file_move:
+    mov ah, OSAPI_FCP_MOVE          ; the verb, parked in AH until AL is free
+    jmp short _os88_fcp
 _os88_file_copy:
+    mov ah, OSAPI_FCP_COPY
+_os88_fcp:
     push bp
     mov bp, sp
     push si
     push di
     mov si, [bp+6]                  ; the source place...
     mov dx, [si]                    ; ...its folder's first cluster...
-    mov al, [si+2]                  ; ...and its drive, banked in AL while BX
-    mov si, [bp+10]                 ; is still needed for the destination's
+    mov bl, [si+2]                  ; ...and its drive
+    mov si, [bp+8]                  ; the destination's
     mov cx, [si]
     mov bh, [si+2]
-    mov bl, al
-    mov si, [bp+4]                  ; the two names LAST: SI carried the places
-    mov di, [bp+8]
+    mov si, [bp+4]                  ; the name LAST: SI carried the places
+    mov al, ah
     call OSAPI_FILE_COPY
-    jc .err
-    mov word [cc_ferr], 0
-    mov ax, 0
-    jmp short .out
-.err:
-    mov [cc_ferr], ax
+    mov [cc_ferr], ax               ; 0 on success, the FERR_* otherwise - and
+    jnc .out                        ; `mov` leaves CF alone
     mov ax, -1
 .out:
-    pop di
-    pop si
-    pop bp
-    ret
-
-; int os88_file_move(const char *name, const struct os88_place *from,
-;                    const struct os88_place *to)
-; SPEC.md 22.25. THREE ANSWERS, not two: 0 moved, 1 NOT ATTEMPTED (nothing was
-; written and the file is where it was - copy it and delete the source), -1
-; failed with os88_ferr() set. The kernel says "not attempted" with AX=0 and
-; CF, which is the one FERR_* value that is not an error, and turning it into
-; a separate return here is what stops a C caller reading it as either of the
-; other two.
-_os88_file_move:
-    push bp
-    mov bp, sp
-    push si
-    push di
-    mov si, [bp+6]
-    mov dx, [si]
-    mov al, [si+2]
-    mov si, [bp+8]
-    mov cx, [si]
-    mov bh, [si+2]
-    mov bl, al
-    mov si, [bp+4]
-    call OSAPI_FILE_MOVE
-    jc .no
-    mov word [cc_ferr], 0
-    mov ax, 0
-    jmp short .out2
-.no:
-    mov [cc_ferr], ax               ; 0 here too, and that is the truth: an
-    or ax, ax                       ; unattempted move failed at nothing
-    jz .nottried
-    mov ax, -1
-    jmp short .out2
-.nottried:
-    mov ax, 1
-.out2:
     pop di
     pop si
     pop bp

@@ -143,11 +143,10 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x0128` | `OSAPI_FILE_READ` | SI = name, ES:BX = buffer, DX:CX = its capacity; out CF=0 and DX:AX = bytes read (the file's 32-bit size), else AX = FERR_*... |
 | `0x0130` | `OSAPI_FILE_DELETE` | SI = name; out CF=0 AX=0, else FERR_* |
 | `0x0138` | `OSAPI_FILE_RENAME` | SI = old name, DI = new name; out as above |
-| `0x0578` | `OSAPI_FILE_COPY` | COPY ONE FILE, source directory to destination (SPEC.md 22.24)... |
-| `0x0580` | `OSAPI_FILE_MOVE` | MOVE ONE FILE between two folders of ONE volume (SPEC.md 22.25)... |
-| `0x0588` | `OSAPI_FILE_WRITE_AT` | SI = a NUL 8.3 name, ES:BX = the bytes, CX = how many (a multiple of 512, >= 512), DX:AX = the byte offset (a multiple of the volume's CLUSTER)... |
+| `0x0578` | `OSAPI_FILE_COPY` | COPY OR MOVE ONE ENTRY, source folder to destination (SPEC.md 22.24)... |
+| `0x0588` | `OSAPI_FILE_WRITE_AT` | SI = a NUL 8.3 name, ES:BX = the bytes, CX = how many (>= 1), DX:AX = the byte offset (a multiple of the volume's CLUSTER)... |
 | `0x0140` | `OSAPI_FILE_DFREE` | out CF=0, DX:AX = free bytes, BX = SECTORS per cluster. NO DISK I/O - AND THAT IS NOT THE SAME AS CHEAP (SPEC.md 18.4.5)... |
-| `0x0570` | `OSAPI_VOL_STAT` | EVERY FACT ABOUT THE VOLUME YOU ARE STANDING ON, in one record (SPEC.md 18.4.6)... |
+| `0x0570` | `OSAPI_VOL_STAT` | THE VOLUME YOU ARE STANDING ON, in four registers (SPEC.md 18.4.6): out CF=0 with AX = sectors per cluster, BX = free clusters, CX = bytes per sector... |
 | `0x0150` | `OSAPI_FILE_DLG` | AL = 0 Open / 1 Save, BX = your window ptr, DI = completion proc, SI = default name (NUL, <= 12) or 0... |
 | `0x01E8` | `OSAPI_VOL_KIND` | AL = a volume index (0 = A:). CF=1 = there is no such volume... |
 | `0x0270` | `OSAPI_VOL_ADD` | AL = the driver's own volume handle, CX = the volume's sector count, DX = a listing claim's segment (0 = the kernel's 32-entry floor), SI = a NUL... |
@@ -187,11 +186,9 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 | `0x04C8` | `OSAPI_MEM_CLAIM_HI` | AX = KB; out CF, DX = segment |
 | `0x04D0` | `OSAPI_MEM_CLAIM_DMA_HI` | ...and CX = the page-safe HEAD |
 | `0x0208` | `OSAPI_MEM_FREE` | DX = the segment you were given; out CF=0 released, CF=1 not yours |
-| `0x0590` | `OSAPI_MEM_AVAIL_MAX` | AL = a purge level, exactly as OSAPI_MEM_AVAIL_LVL's; out AX/BX as OSAPI_MEM_AVAIL, planned as if YOUR OWN REGION could move... |
-| `0x0598` | `OSAPI_MEM_COMPACT_WAKE` | BX = a window of YOURS, AL = the shed rank the pass must respect (MEM_LVL_TOP to let it drop any cache)... |
+| `0x0590` | `OSAPI_MEM_COMPACT` | AH = MEMC_WHATIF: AL = a purge level, out AX/BX as OSAPI_MEM_AVAIL_LVL planned as if YOUR OWN REGION could move... |
 | `0x0210` | `OSAPI_MEM_AVAIL` | out AX = largest free run in KB, BX = total free KB... |
-| `0x0560` | `OSAPI_MEM_AVAIL_LVL` | AL = the level; out as AVAIL |
-| `0x0568` | `OSAPI_MEM_CLAIM_LVL` | AX = KB, BL = the level, BH = 0 bottom-up / 1 from the top (the two doors above), CX = the page-safe HEAD in KB or 0; out CF and DX as CLAIM... |
+| `0x0560` | `OSAPI_MEM_FLOOR` | AL = the level; preserves every register and the flags... |
 | `0x02A0` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |
 | `0x02A8` | `OSAPI_SYS_KB` | ES:DI = a SYSKB_SIZE buffer; every register preserved... |
 | `0x0190` | `OSAPI_XMEM_CAPS` | no inputs; out AX = extended- memory KB the pool can still hand out (0 = none, and the three below will all refuse), DX:CX = the pool's 32-bit linear... |
@@ -241,7 +238,7 @@ Read first: [§31 ctrl.inc — the Control Panel window](../SPEC.md#31-ctrlinc--
 | `0x0298` | `OSAPI_SYS_SNAPSHOT` | ES:DI = a SYS_SNAPSHOT_SIZE buffer; out AX = MAX_TASKS, BX = INST_MAX... |
 | `0x0188` | `OSAPI_CPU_INFO` | no inputs; out AL = CPU_8086 / CPU_286 / CPU_386, AH = feature bits (the CPU_F_* below): bit 0 A20 verified open, bit 1 HMA claimed, bit 2 unreal... |
 | `0x04A0` | `OSAPI_DRV_CALL_AT` | OSAPI_DRV_CALL, EXCEPT ES IS YOURS (SPEC.md 20.11.2)... |
-| `0x0550` | `OSAPI_DRV_SUSPEND` | AL = 1 suspend / 0 resume, ES:DI = a buffer of DQ_SIZE records or DI = 0 for none... |
+| `0x0550` | `OSAPI_DRV_SUSPEND` | AL = 1 suspend / 0 resume / 2 handoff (above). ES:DI = a buffer of DQ_SIZE records or DI = 0 (suspend), ES:SI = a KDH_* record (handoff). out CF=0... |
 | `0x0448` | `OSAPI_DRV_CALL` | in BH = a DRVC_* class, BL = a verb THAT DRIVER defines; AX, CX, DX, SI and DI are the driver's to define too... |
 | `0x0320` | `OSAPI_CLIP_PUT` | ES:SI = the text, CX = its length. CX = 0 EMPTIES the clipboard and is not an error. Out CF=1 = refused (over CLIP_MAXKB, or the heap could not fund... |
 | `0x0328` | `OSAPI_CLIP_GET` | ES:DI = your buffer, CX = its capacity. Out CF=1 = empty (AX = CX = 0)... |
@@ -281,9 +278,7 @@ Read first: [§84 Software floating point (`apps/os88fp.inc`)](../SPEC.md#84-sof
 
 Read first: [§96 DOS — running `.COM` and `.EXE` programs (`apps/dos/`)](../SPEC.md#96-dos--running-com-and-exe-programs-appsdos).
 
-| slot | call | takes |
-|---|---|---|
-| `0x05A0` | `OSAPI_DOS_HANDOFF` | ES:SI = a KDH_* record; out CF=0 posted |
+*(no dedicated slots - see the sections above)*
 
 ## Shared includes
 
@@ -473,5 +468,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (14):* `BUSY-CURSOR-COST-2026-09-10.md`, `CYCLONE-STACK-2026-09-10.md`, `DOS-INT21-REGISTERS-2026-09-15.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERN-DOS-BUDGET-2026-09-13.md`, `KERN-DOS-PART-COST-2026-09-14.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `MODULE-RESIDENT-DATA-2026-09-12.md`, `PR-CYCLE-ACCOUNTING-2026-09-11.md`, `SBRATE-COMMIT-COST-2026-09-11.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (15):* `BUSY-CURSOR-COST-2026-09-10.md`, `CYCLONE-STACK-2026-09-10.md`, `DOS-INT21-REGISTERS-2026-09-15.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GFXBENCH-SIZE-PASS-2026-09-16.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERN-DOS-BUDGET-2026-09-13.md`, `KERN-DOS-PART-COST-2026-09-14.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `MODULE-RESIDENT-DATA-2026-09-12.md`, `PR-CYCLE-ACCOUNTING-2026-09-11.md`, `SBRATE-COMMIT-COST-2026-09-11.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
 

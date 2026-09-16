@@ -211,8 +211,9 @@ def main():
     now = struct.unpack_from("<H", sub["TWO.TXT"], 26)[0]
     if now != two_clus:
         fail("SUB/TWO.TXT starts at cluster %d and TWO.TXT started at %d: MOVE "
-             "COPIED IT. OSAPI_FILE_MOVE's re-link either was not tried or "
-             "answered 'not attempted' (SPEC.md 22.25)" % (now, two_clus))
+             "COPIED IT. OSAPI_FILE_COPY's move verb (SPEC.md 22.24) either "
+             "did not try its re-link or the re-link declined and it fell "
+             "through to its copy" % (now, two_clus))
     print("dosshell: ok  - MOVE re-linked: still cluster %d, no data moved"
           % now)
 

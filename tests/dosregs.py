@@ -28,8 +28,10 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import os88build                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SYS = "build/os8088-360.img"
 GATE = "build/dosregs360.img"
 
@@ -81,8 +83,14 @@ def fail(msg):
 
 
 def main():
+    # **THROUGH `os88build.at()` AND NOT AS A LITERAL** (docs/WRITING-TESTS.md
+    # 70). A soak reads a FROZEN TREE and not `build/`, and the prewarm has
+    # already built this row's `wants=` there - so a raw path looks in the
+    # wrong directory, and the failure text points at the operator's `make`
+    # rather than at the row. `os88ui.boot` resolves its own arguments, so
+    # this GUARD was the only thing looking in `build/` and it fired first.
     for p in (SYS, GATE):
-        if not os.path.exists(p):
+        if not os.path.exists(os.path.join(ROOT, os88build.at(p))):
             fail("%s is missing - `make build/dosregs360.img` builds it" % p)
 
     with os88ui.boot(SYS, apps=GATE) as ui:
