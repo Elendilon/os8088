@@ -131560,3 +131560,131 @@ The lesson is not about prerequisites, which were added: it is that a
 diagnosis should start by checking that the artefact under test is the one the
 source describes — `cmp` against a fresh assembly took one command and would
 have saved the hour.
+
+#### 96.49.2 The mono staging segment — B000 was unreachable
+
+**`kd_stageseg` could never return B000, and had not been able to since it was
+written.** It reads the BDA's video mode into **AL**, and the next instruction
+was `mov ax, 0xB800` — which puts 0x00 in AL. The `cmp al, 7` under it
+therefore tested the constant's own low byte, was never equal, and the `mov
+ax, 0xB000` below it was dead code. `mov` sets no flags, so the fix is to
+hoist the compare above the load: zero bytes, one line moved.
+
+`hbm_stageseg` does not have this and could not: it compares a byte in
+**memory** (`[vid_kind]`), which the load cannot reach. The two routines
+answer the same question from different sources — §87.5's map says so — and
+only the one holding its answer in a register was exposed.
+
+**WHAT IT COSTS IS THE WHOLE SESSION, ON A MONO MACHINE ONLY.** The stub, the
+extent list, the IVT copy and every staged cell go to B800, which on a
+Hercules primary is not decoded at all; then `kd_resume` far-jumps into it and
+the machine executes open bus for ever. The screen keeps whatever was on it,
+so the symptom is the resume's own *"os8088: putting the session back..."*
+standing on a clean screen with nothing after it — a freeze that looks like
+the disk read and is the instruction before it. The reporter photographed
+exactly that (docs/FIELD-NOTES.md 45), and the blank rows 0–1 in the
+photograph are the finding: the stub is `rep movsb`'d to offset 0 of the
+staging segment, so a visible page that is *clean* is a page the stub never
+reached.
+
+**WHY NOTHING CAUGHT IT FOR A CYCLE, and it is a gap in the MACHINES rather
+than in the rows.** A hibernation needs a fixed disk — `hb_pick` is the
+predicate on both sides — and the adapter picks the segment. So the two have
+to be on one machine before this line runs at all, and **every MartyPC profile
+in this tree with an `[machine.hdc]` was a CGA or a VGA**: `os8088_xt_hdd`,
+`os8088_5150_cga_hdd`, `os8088_xt_vga_hdd` and the rest. `kdreturn`,
+`kdreturnf`, `hibernate` and `mouresume` all drive this exact path and all
+four were green, because all four were staging at B800 where B800 is right.
+`os8088_5150_herc_hdd_gla` is that hole closed **for the DOS route**, and the
+row went red on its first run. It is not closed for the ORDINARY resume:
+`tests/hibernate.py` is still `os8088_xt_hdd` and nothing drives §87.5's own
+staging on a mono machine. That one has never been reported broken and its
+`hbm_stageseg` is the arm that cannot have this defect — it compares memory —
+but "has never been reported" is not the same claim as "is covered", and the
+machine to cover it with now exists.
+
+**AND ONE OF THE THREE THINGS FOUND HERE WAS NOT IN THE KERNEL AT ALL.**
+`tests/kdreturn.py` waited on `"Graphics" in video()["mode"]`, and
+`os88marty.video_is_text` already records that on the MDA/Hercules that field
+is DEAD: os8088 enters HGC graphics through 3BF/3B8 rather than through
+int 10h, so `display_mode()` reads `Mode0TextBw40` on a desktop while
+`graphics` correctly says true. So the row could not have gone green on a mono
+machine whatever the kernel did, and the screen it printed on failing was a
+graphics desktop decoded as text — which reads exactly like a crash. A new
+machine is only half of closing a hole; the row has to be able to SEE that
+machine. `tests/kdhand.py` carried the same wait and is fixed with it.
+
+The general lesson is the one §39's *"three adapters, one binary"* rule states
+for drawing and this is the first time it has bitten a non-drawing path: a
+routine that resolves a segment from the adapter has an arm per adapter, and
+an arm no machine in the tree can reach is an arm nothing tests.
+
+#### 96.49.3 `DOSRMARK=1` — the resume, traced on the glass
+
+The live resume is the one path on this machine that nothing can watch. By the
+time the stub is running there is no kernel, no task, no debugger hook and no
+serial port — just a blob in the text framebuffer reading the machine back
+over itself — so a freeze anywhere in it is one still photograph, and the disk
+read, the walk and the jump all look identical from outside. §96.49.2 cost a
+day of that.
+
+`DOSRMARK=1` (`kernel/hbmark.inc`) makes the photograph a trace. `kd_resume`
+prints one line through the ROM's teletype with every number the far jump
+depends on — `stg` (the staging segment, which is what §96.49.2 was about),
+the `int 13h` unit, the geometry, the extent count, the image's sectors, and
+the wake far pointer and kernel DS the launch block carried — and then each
+stage of the stub stamps one character onto **row 7** of the page it is
+standing in: `S` entry, `X` per extent, `.` per read, `!` per refusal, `D` the
+image is back, `V` the IVT and PICs are the image's again. `W` is the restored
+kernel's own, written to **both** adapters' pages because which one the
+staging segment was is the very thing being asked.
+
+**It is not `int 10h` and that is the whole design.** The ROM's teletype
+SCROLLS, and the page it scrolls IS the staging area — so one marker past the
+bottom line would move the stub, the extent table and the IVT copy up by a row
+underneath the code reading them. `hbstub.inc`'s own `.fail` dodges that by
+homing to row 8 and never printing a fourth line; a trace cannot, so it stores
+directly and moves nothing. **Row 7 is the only free row in the map**: rows
+0–6 are `HS_CODE` and the cells above it, and `HS_IVT` begins at 0x0500, which
+is row 8 to the byte. The trace CLAMPS at 64 columns rather than wrapping,
+because the cell after the row's last is `HS_IVT`'s first — and it keeps
+`HS_K` live in hex beside it, so a machine frozen mid-restore leaves the exact
+file sector it was on standing on the glass.
+
+**It reaches two assemblies and both are needed.** `kernel/hbstub.inc` is
+staged by `kernel/hiber.inc` for an ordinary resume and by
+`kerndos/kdresume.inc` for the DOS one, and neither host can reach the other's
+copy — so the define goes into `$(VIDDEF)` for the kernel *and* into the
+`kerndos.bin` rule, and `$(KDSTAMP)` carries it for `KDSTKDIAG`'s reason.
+
+#### 96.49.4 The message scrolls the page it is announcing
+
+`kd_puts` is the ROM's teletype and **the page it prints on IS the staging
+area**. The DOS program leaves the cursor wherever it left it, so a line
+ending in CRLF at the bottom of a full screen makes the BIOS scroll — and
+`HS_EXT` is at 0x0A00, row 16 of a visible 4,000-byte page, squarely inside
+what a scroll moves. The chain was walked at step 3 and then shifted 160 bytes
+by the very line announcing it, after which the stub reads a garbage LBA and
+`int 13h` puts the wrong sectors over conventional memory.
+
+So the order is inverted: **the last words come before anything is staged**,
+and the walk runs after the last print. Prince of Persia never showed this,
+because its exit is a BIOS mode set and a mode set clears and homes — which is
+why §96.49.2's reporter photographed a *clean* screen with the message on row
+2. A program that merely filled the screen would have shown it, as something
+much worse to diagnose than a freeze: a session that comes back with parts of
+itself read off the wrong sectors.
+
+A refusal from `kd_extents` now happens after the line has printed, and that
+costs nothing that matters. What the line promises is the SESSION, and the
+fallback delivers it either way: `kd_leave` reboots, os8088's own `hb_probe`
+finds the pointer, and the session comes back the long way. `tests/kdreturn.py`
+never rested on the line — it asserts the live route with a **cycle bound**,
+for the reason `kdreturnf` records: the live route's own line is printed into
+the staging area the stub then overwrites, so a screen read could not see it.
+
+It is the same hazard `hbstub.inc`'s `.fail` already dodges by homing to row 8
+and never printing a fourth line, and the same one `kernel/hbmark.inc` states
+as the reason its trace stores directly instead of using `int 10h`. Three
+places in one path where printing and staging share a page; this was the one
+that had it backwards.

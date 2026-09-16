@@ -95,7 +95,15 @@ TEMPLATE = os.path.join(RUN, "media/hdds/default_xtide.vhd")
 _TAG = os.getpid()
 VHD = os.path.abspath(_B.at("build/hiber-%d.vhd" % _TAG))
 FLOPPY = _B.at("build/hiber360-%d.img" % _TAG)
+# --machine points this at another 8088 with a fixed disk. The one that
+# matters is os8088_5150_herc_hdd_gla, whose staging area is at B000 rather
+# than B800 (SPEC.md 87.5): a hibernate needs the fixed disk and the ADAPTER
+# picks that segment, so until that machine existed the mono arm of the resume
+# had never run at all - which is how SPEC.md 96.49.2 shipped on the DOS route
+# beside it.
 MACHINE = "os8088_xt_hdd"
+if "--machine" in sys.argv:
+    MACHINE = sys.argv[sys.argv.index("--machine") + 1]
 
 # kernel/hiber.inc, kernel/instance.inc - the module's own constants
 HB_M_ASK, HB_M_BUSY, HB_M_RESUME, HB_M_GONE = 0, 1, 2, 3

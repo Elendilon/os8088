@@ -35,6 +35,10 @@
 ; so the fast path is an optimisation and never a new way to fail.
 ; =============================================================================
 
+%ifdef DOSR_MARK
+  %include "hbmark.inc"         ; the trace's macros, used at the far jump
+%endif                          ; below and so before hbstub.inc's include
+
 ; -----------------------------------------------------------------------------
 ; kd_resume - put the session back, or answer CF=1 and let kd_leave reboot
 ; in:  SI -> the launch block; DS = ES = KD_SEG; interrupts on
@@ -142,19 +146,38 @@ kd_resume:
     ; --- 3. the staging area, which is FREE now the program has gone --------
     call kd_stageseg            ; ES = the text framebuffer
     mov [kdr_stage], es
-    call kd_extents             ; the chain, into HS_EXT
-    jc .no
 
-    ; --- 4. ...and from here nothing may fail --------------------------------
+    ; --- 4. the last words, AND THEY COME BEFORE ANYTHING IS STAGED ---------
     ; **IT SAYS SO FIRST**, which is `kd_leave`'s own manner one route along:
     ; a screen that changes by itself is a crash and a screen that says why is
-    ; a machine doing what it was told. It is also the only POSITIVE signal
-    ; that this route and not the reboot was taken - absence of the reboot's
-    ; own line would be absence of evidence, and `tests/kdreturn.py` asserts
-    ; on this one.
+    ; a machine doing what it was told.
+    ;
+    ; **AND IT HAS TO BE PRINTED BEFORE THE EXTENT LIST IS WRITTEN, NOT AFTER**
+    ; (SPEC.md 96.49.4). `kd_puts` is the ROM's teletype and the page it prints
+    ; on IS the staging area: the DOS program leaves the cursor wherever it
+    ; left it, so a message ending in CRLF at the bottom of a full screen makes
+    ; the BIOS SCROLL - and `HS_EXT` is at 0x0A00, which is row 16 of a visible
+    ; 4,000-byte page and squarely inside what a scroll moves. The chain was
+    ; walked at step 3 and then shifted 160 bytes by the line announcing it,
+    ; after which the stub reads a garbage LBA and `int 13h` puts the wrong
+    ; sectors over conventional memory. Prince of Persia never showed it
+    ; because its exit is a BIOS mode set, which clears and homes; a program
+    ; that merely filled the screen would have.
     mov si, kdr_s_back
     call kd_puts
+%ifdef DOSR_MARK
+    call kdr_mark_line          ; ...and, under DOSRMARK=1, every number the
+%endif                          ; jump is about (kernel/hbmark.inc) - ALSO a
+                                ; whole line, and so also before the walk
     mov es, [kdr_stage]
+    call kd_extents             ; the chain, into HS_EXT
+    jc .no                      ; ...and a refusal HERE still only costs the
+                                ; long way home: `kd_leave` reboots, os8088's
+                                ; own `hb_probe` finds the pointer and the
+                                ; session comes back. What the line promises
+                                ; is the SESSION, which it delivers either way
+
+    ; --- 5. ...and from here nothing may fail, or print ----------------------
     push ds
     push cs
     pop ds
@@ -163,6 +186,9 @@ kd_resume:
     mov cx, hbs_stub_end - hbs_stub
     rep movsb
     pop ds
+%ifdef DOSR_MARK
+    call kdr_mark_init          ; the trace row, blanked, now the teletype has
+%endif                          ; printed its last and cannot scroll it away
     mov ax, [kdr_unit]
     mov [es:HS_UNIT], ax
     mov ax, [kdr_spt]
@@ -245,6 +271,10 @@ kd_resume:
     out 0x21, al                ; the stub must not write it back
     call kd_mou_stop            ; ...and OUR mouse goes quiet before the
                                 ; machine stops being ours (96.45.1)
+%ifdef DOSR_MARK
+    mov es, [kdr_stage]         ; 'J': this host got as far as the jump, so a
+    HBMARKAT 0, 'J'             ; trace with a J and no S is a stub that did
+%endif                          ; not run where it was put
     mov ax, [kdr_stage]         ; a FAR JUMP INTO THE STUB spelled as a
     push ax                     ; return, which is hbm_handover's own idiom.
     mov ax, HS_CODE             ; `push imm` is not an 8086 instruction
@@ -269,13 +299,16 @@ kd_stageseg:
     mov ds, ax
     mov al, [0x0049]
     pop ds
-    mov ax, 0xB800
-    cmp al, 7
-    jne .out
-    mov ax, 0xB000
-.out:
-    mov es, ax
-    ret
+    cmp al, 7                   ; **THE COMPARE COMES FIRST, AND THAT ORDER IS
+    mov ax, 0xB800              ; THE WHOLE ROUTINE** (SPEC.md 96.49.2). The
+    jne .out                    ; mode byte is in AL and `mov ax, 0xB800` puts
+    mov ax, 0xB000              ; 0x00 there, so a `cmp al, 7` after it tests
+.out:                           ; the constant's own low byte and can NEVER be
+    mov es, ax                  ; equal - B000 was unreachable. A `mov` sets no
+    ret                         ; flags, so hoisting the compare costs nothing.
+                                ; `hbm_stageseg` does not have this: it compares
+                                ; a byte in MEMORY ([vid_kind]), which the load
+                                ; cannot reach
 
 ; -----------------------------------------------------------------------------
 ; kd_extents - HIBERNAT.IMG's chain, as absolute runs at HS_EXT
@@ -356,6 +389,128 @@ kd_extents:
 
 kdr_s_img:  db 'HIBERNAT.IMG', 0
 kdr_s_back: db 13, 10, 13, 10, 'os8088: putting the session back...', 13, 10, 0
+
+%ifdef DOSR_MARK
+; --- DOSRMARK=1: what this host knows, before it stops being able to say -----
+; Every one of these is a number the jump depends on and none of them is
+; visible from anywhere else: `stg` is kd_stageseg's answer - the BDA's mode
+; byte, which a DOS program may have changed under us - and `wake`/`kseg` are
+; the launch block's, staged from a structure written by a kernel that is not
+; running. A machine that freezes with this line on it has already told you
+; which of them to doubt.
+;
+; It goes out through the ROM's teletype, which is the LAST thing that may:
+; the next statement copies the stub onto this very page, and a scroll after
+; that would move it (kernel/hbmark.inc).
+kdr_mark_line:
+    mov si, kdr_s_m1
+    call kd_puts
+    mov ax, [kdr_stage]
+    call kdr_hex16
+    mov si, kdr_s_m2
+    call kd_puts
+    mov ax, [kdr_unit]
+    call kdr_hex16
+    mov si, kdr_s_m3
+    call kd_puts
+    mov ax, [kdr_spt]
+    call kdr_hex16
+    mov si, kdr_s_m4
+    call kd_puts
+    mov ax, [kdr_heads]
+    call kdr_hex16
+    mov si, kdr_s_m6
+    call kd_puts
+    mov ax, [kdr_secs]
+    call kdr_hex16
+    mov si, kdr_s_m7
+    call kd_puts
+    mov si, [kd_lbp]
+    mov ax, [si+KDL_KSEG]
+    call kdr_hex16
+    mov si, kdr_s_m8
+    call kd_puts
+    mov si, [kd_lbp]
+    mov ax, [si+KDL_WAKE + 2]
+    call kdr_hex16
+    mov al, ':'
+    call kd_putc
+    mov si, [kd_lbp]
+    mov ax, [si+KDL_WAKE]
+    call kdr_hex16
+    mov si, kdr_s_m9
+    call kd_puts
+    ret
+
+; --- the trace row, blanked, and its cursor with it -------------------------
+; ES = the staging segment on entry.
+kdr_mark_init:
+    mov di, HM_ROW
+    mov cx, 80
+.b:
+    mov word [es:di], 0x0720
+    inc di
+    inc di
+    loop .b
+    mov word [es:HM_CUR], 2     ; column 0 is this host's own 'J'
+    mov ax, [kdr_nx]            ; ...and the extent COUNT, which the teletype
+    mov bx, HM_ROW + HM_NXCOL * 2   ; line cannot carry: the walk that makes
+    mov cx, 4                   ; it runs after the last print (96.49.4)
+.x:
+    rol ax, 1
+    rol ax, 1
+    rol ax, 1
+    rol ax, 1
+    mov dl, al
+    and dl, 0x0F
+    add dl, '0'
+    cmp dl, '9'
+    jbe .xd
+    add dl, 7
+.xd:
+    mov [es:bx], dl
+    mov byte [es:bx + 1], 0x07
+    inc bx
+    inc bx
+    loop .x
+    ret
+
+kdr_hex16:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, ax
+    mov cx, 4
+.n:
+    rol dx, 1
+    rol dx, 1
+    rol dx, 1
+    rol dx, 1
+    mov al, dl
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .d
+    add al, 7
+.d:
+    call kd_putc
+    loop .n
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+kdr_s_m1:   db 'mark stg=', 0
+kdr_s_m2:   db ' u=', 0
+kdr_s_m3:   db ' spt=', 0
+kdr_s_m4:   db ' hd=', 0
+kdr_s_m6:   db ' sec=', 0
+kdr_s_m7:   db ' ks=', 0
+kdr_s_m8:   db ' w=', 0
+kdr_s_m9:   db 13, 10, 0
+%endif
 
 section .bss
 kdr_vol:    resb 1

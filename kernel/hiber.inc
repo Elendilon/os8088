@@ -83,6 +83,9 @@ HBP_SIZE    equ 18              ; front of it are hbm_ptrfix, one description
 
 %include "hbstage.inc"        ; SPEC.md 87.5's staging map, shared as SOURCE
                               ; with kerndos/kdresume.inc (SPEC.md 96.49)
+%ifdef DOSR_MARK
+  %include "hbmark.inc"       ; ...and the trace, which hbm_wake stamps 500
+%endif                        ; lines before hbstub.inc is included
 
 ; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
 ; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
@@ -2818,6 +2821,14 @@ hbm_wake:
     mov ax, LOW_SEG             ; 0. every task stack is in LOW_SEG (SPEC.md
     mov ss, ax                  ;    2.1) and [hb_sp] is the frame
     mov sp, [hb_sp]             ;    hbm_perform banked - both just restored
+%ifdef DOSR_MARK
+    mov ax, 0xB000              ; 'W': the restored kernel has control, which
+    mov es, ax                  ; is the one fact the stub cannot report. To
+    HBMARKAT HM_WCOL, 'W'       ; BOTH adapters' pages, because WHICH one the
+    mov ax, 0xB800              ; staging segment was is the question being
+    mov es, ax                  ; asked - and the page that is not there is a
+    HBMARKAT HM_WCOL, 'W'       ; black hole rather than a fault
+%endif
     sti                         ; 1. the IVT is the image's; nobody switches
     cld
     call hbm_stageseg           ; 2. the clock the boot just read

@@ -3102,6 +3102,33 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv", "build/os8088-360.img")),
+    Row("kdreturnm", "soak",
+        py("tests/kdreturn.py", "--machine", "os8088_5150_herc_hdd_gla"), 36.0,
+        "...AND THE SAME ROUND TRIP ON A MONO MACHINE (SPEC.md 96.49.2). The "
+        "staging area IS the text framebuffer, so it is at B000 on a Hercules "
+        "primary and B800 everywhere else - and kd_stageseg read the BDA's "
+        "mode byte into AL and then loaded AX with 0xB800 before testing it, "
+        "so the cmp saw the constant's own low byte, was never equal, and the "
+        "B000 arm was DEAD CODE from the day it was written. Every mono "
+        "machine staged the resume stub into a segment a Hercules does not "
+        "decode and then far-jumped into it: the session froze for ever on "
+        "kd_resume's own 'putting the session back...' with the screen "
+        "otherwise CLEAN, which is the finding - the stub is rep movsb'd to "
+        "OFFSET 0 of that segment, so blank rows 0-1 are a page the copy "
+        "never reached. REPORTED FROM THE FIELD off an 86Box pc5150 "
+        "(docs/FIELD-NOTES.md 45), and reproduced here with DOSHELLO.COM, so "
+        "Prince of Persia was never in it. WHAT LET IT SHIP IS A HOLE IN THE "
+        "MACHINE LIST AND NOT IN THE ROWS: a hibernation needs a fixed disk "
+        "(hb_pick) and the ADAPTER picks the segment, so the two must be on "
+        "ONE machine before that line runs at all - and every profile in this "
+        "tree with an [machine.hdc] was a CGA or a VGA, so kdreturn, "
+        "kdreturnf, hibernate and mouresume were all green while all four "
+        "staged at B800 where B800 is right. This row is that hole closed; it "
+        "is kdreturn's own assertions on os8088_5150_herc_hdd_gla, which went "
+        "red on its first run. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
