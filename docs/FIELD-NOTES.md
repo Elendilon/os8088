@@ -1897,3 +1897,85 @@ That reasoning was wrong — it assumed the run could accumulate — but the
 *decision* was right for a reason it did not know: dropping `[mou_need]` to 1
 makes one packet enough, so it would have **masked this defect rather than
 fixed it**, and left every one-port machine with a wheel mouse still broken.
+
+## 45. A live DOS hibernate restore freezes for ever on an 8088 (FIXED — `kd_stageseg` could never answer B000: SPEC.md §96.49.2)
+
+**Reported off the fork owner's own 86Box `pc5150` profile** — an IBM PC 5150,
+4.77 MHz 8088, 256KB + a 384KB SixPakPlus, **Hercules**, serial mouse, an
+ST-225 on a real ST11M. Boot clean, mount the hard disk, run Prince of Persia
+off a 720KB floppy under §96's whole-machine arm, quit with Ctrl-Q. The
+machine stops on
+
+```
+os8088: putting the session back...
+```
+
+and never moves again. It is not frozen in the ordinary sense on the way in —
+the reporter could type in the DOS window throughout the session — and normal
+hibernation, on the same machine, resumed fine.
+
+**THE FIX IS ONE LINE MOVED AND IT COSTS NOTHING.** `kd_stageseg` reads the
+BDA's video mode into AL and then loaded `AX` with 0xB800 *before* testing it,
+so `cmp al, 7` compared the constant's own low byte, was never equal, and the
+`mov ax, 0xB000` under it was unreachable code. Every mono machine staged
+§87.5's resume stub into B800 — which on a Hercules primary is not decoded at
+all — and then far-jumped into it. SPEC.md §96.49.2 is the entry.
+
+### 45.1 The photograph was the diagnosis, and the blank rows were the finding
+
+One screenshot came back: the message on row 2 of an otherwise **clean**
+screen. That is the whole answer and it took a while to read. `kd_resume`
+`rep movsb`'s ~440 bytes of stub to **offset 0** of the staging segment
+immediately after printing that line, so rows 0 and 1 of the visible page
+*must* be garbled if the copy landed where the machine can see it. They were
+empty. The copy went somewhere that is not the screen.
+
+The message itself renders because `kd_puts` is the ROM's teletype and the ROM
+resolves the segment from the same BDA byte — correctly. So the two readers of
+one byte disagreed, and only one of them was wrong.
+
+### 45.2 Three things were suspected and none of them was it
+
+The reporter's own framing was *"no idea if it was this change, or the size
+changes, or a merge or something older"*, and a two-point bisect settled it
+before any of it was read: **build 576** (both of §9.4.1.1/§9.5.4's mouse
+fixes, no size pass) and **build 574** (neither, no size pass) **both froze**.
+Prince of Persia is not in it either — `tests/kdreturn.py` reproduces the
+freeze with `DOSHELLO.COM`, a 40-line `.COM` that prints and exits.
+
+What made it look new is that it is not: the reporter had been testing the
+286 and 386 profiles for a cycle, and **both are colour machines**, where
+B800 is the right answer by accident.
+
+### 45.3 It was a hole in the MACHINE LIST, not in the rows
+
+A hibernation needs a fixed disk (`hb_pick` is the predicate on both sides)
+and the adapter picks the staging segment — so the two have to be on **one**
+machine before that line runs at all. Every MartyPC profile in this tree with
+an `[machine.hdc]` was a CGA or a VGA. `kdreturn`, `kdreturnf`, `hibernate`
+and `mouresume` all drive this exact path, all four were green, and all four
+were staging at B800 where B800 is right.
+
+`os8088_5150_herc_hdd_gla` (and its IBM twin `os8088_5150_herc_hdd`) is that
+hole closed. It went red on its first run, with the reporter's screen.
+
+### 45.4 `DOSRMARK=1` is what should have been reachable for
+
+The resume is the one path here that nothing can watch — no kernel, no task,
+no debugger hook — so every stage of it looks the same from outside and the
+investigation was arithmetic against a still photograph. SPEC.md §96.49.3 is
+the knob that ends that: an info line with every number the far jump depends
+on, `stg` first, and then one character per stage of the stub onto row 7 of
+whatever page it is standing in. On this defect the first field of the first
+line is the answer.
+
+### 45.5 The other half of the hole, measured rather than argued
+
+The ORDINARY resume had never run on a mono machine either, for the same
+reason: `tests/hibernate.py` was `os8088_xt_hdd`. That route is the one that
+*cannot* have this defect — `hbm_stageseg` compares a byte in memory
+(`[vid_kind]`) where `kd_stageseg` held its answer in AL — but that is a claim
+about the source, and the point of the machine list is that claims about the
+source were what everyone had. It is green: **29 checks on
+`os8088_5150_herc_hdd_gla`, the same 29 its CGA twin passes**, and `hibernatem`
+keeps it that way.

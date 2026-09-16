@@ -956,6 +956,39 @@ class Marty:
                                                              # is a guest
                                                              # nobody can get
                                                              # back
+    def alt(self, name, hold=0.0):
+        """One key with AltLeft HELD across it.
+
+        `ctrl`'s shape and for its reason: the debug server presses with
+        `KeyboardModifiers::default()`, so a modifier is a key that is DOWN
+        exactly as it is on the real 8255, and not a flag on the press.
+
+        THE GUEST MAY SEE NOTHING THROUGH int 16h, and that is not this
+        method's failure - a period XT ROM has no entry for Alt+Enter at all
+        (SPEC.md 9.7.1) and enqueues nothing. What always reaches the guest is
+        the SCANCODES, which is what the kernel's key-state map reads.
+
+        `hold` is SECONDS THE KEY STAYS DOWN, and it is not padding: a guest
+        that reads this combination off the key-state map is asking "are both
+        down" on a POLL (SPEC.md 9.7), so a press and release inside one of
+        its poll intervals is invisible to it - correctly, because no finger
+        can produce one. The default 0.0 is the bare press an EDGE consumer
+        wants; pass a human keystroke, 0.08-0.15s, for a level one.
+        """
+        self.key("AltLeft", down=True, up=False)
+        try:
+            if not hold:
+                self.key(name)
+            else:
+                self.key(name, down=True, up=False)
+                import time as _t
+                _t.sleep(hold)
+                self.key(name, down=False, up=True)
+        finally:
+            self.key("AltLeft", down=False, up=True)     # ...ALWAYS: a stuck
+                                                         # modifier is a guest
+                                                         # nobody can get back
+
     def _shifted(self, name, shift):
         """One key, optionally with ShiftLeft held down across it."""
         if not shift:

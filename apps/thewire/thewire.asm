@@ -3424,10 +3424,12 @@ wr_addprog:
 ;              It is the only caller of that form in the tree, because it is
 ;              the only one holding bytes that were never a file (21.5.1.1).
 ;   zero     - BY NAME, [wr_fname] in the instance's own folder, and ES:DI is
-;              not read at all. The ARCHIVE arm writes it (92.14.2): the tree
-;              is on the store, so there IS a file - and by the time this is
-;              called the decode claim has already gone back, which is the
-;              point.
+;              then a DOCUMENT to open it with (SPEC.md 21.5.3) - which we do
+;              not want, so ES must be ZERO. It is: the ARCHIVE arm writes
+;              this form (92.14.2) and the decode claim has already gone back
+;              by the time this is called, and giving it back is what zeroes
+;              [wr_fseg]. So the two words are zero TOGETHER, which is the
+;              pairing the call site restates.
 ;
 ; SPEC.md 21.x. The new instance's current directory is OURS (SPEC.md 19.2.1),
 ; which is why a WF_DISK record is refused by the predicate rather than
@@ -3443,10 +3445,19 @@ wr_pkgrun:
     push si
     push di
     push es
-    mov es, [wr_fseg]                   ; zero on the archive arm, and never
-    xor di, di                          ; dereferenced there: 21.5 asks the
-    mov cx, [wr_rlen]                   ; LENGTH first and tail-jumps to the
-    xor dx, dx                          ; by-name body without reading ES
+    mov es, [wr_fseg]                   ; **ZERO ON THE ARCHIVE ARM, AND THAT
+    xor di, di                          ; IS NOW LOAD-BEARING** rather than
+    mov cx, [wr_rlen]                   ; incidental: it used to be true that
+    xor dx, dx                          ; ES was never READ on the by-name
+                                        ; path, and 21.5.3 made ES:DI a
+                                        ; DOCUMENT there - so ES = 0 is what
+                                        ; says "nothing through ES:DI", on
+                                        ; both arms and in one sentence. This
+                                        ; call already satisfies it, because
+                                        ; the arm that leaves [wr_rlen] zero
+                                        ; is the arm that leaves [wr_fseg]
+                                        ; zero; the pairing is written down
+                                        ; here so it stays that way
     mov si, wr_fname                    ; ES:DI = the image, DS:SI the name -
     call OSAPI_PKG_START                ; the canonical pairing, where the two
                                         ; used to be the other way round

@@ -593,6 +593,79 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# os8088_5150_herc_hdd_gla - AN 8088 WITH A HARD DISK AND A **HERCULES**, which
+# is the one combination this tree had never been able to make. Every machine
+# with an `[machine.hdc]` in this file is a CGA or a VGA, so SPEC.md 87.5's
+# staging area - the TEXT FRAMEBUFFER - has always been read back at B800 here
+# and never once at B000, while the fork owner's own 5150 (docs/FIELD-MACHINES.md)
+# is a Hercules with an ST-225 on it and stages at B000 every time.
+#
+# A hibernate needs the fixed disk (`hb_pick` refuses without one) and the
+# adapter decides the segment, so the two have to be on ONE machine before the
+# mono half of that path is exercised at all. It is GLaBIOS because the period
+# ROM is not in this tree; `os8088_5150_herc_hdd` is its IBM twin for a box
+# that has one.
+[[machine]]
+name = "os8088_5150_herc_hdd_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+# ...and the same machine on the period ROM, for a box that has it staged.
+[[machine]]
+name = "os8088_5150_herc_hdd"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
 # os8088_xt_hdd_720 - THE ONLY MACHINE HERE THAT HAS BOTH A HARD DISK AND AN
 # 80-CYLINDER FLOPPY DRIVE, and it exists because the absence of one cost a
 # whole diagnosis (docs/DOS-DEBUGGING.md, *Traps*). os8088_xt_hdd's drives are

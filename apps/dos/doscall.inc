@@ -49,10 +49,11 @@
 ; reserving address space against it.
 ;
 ; What is left to clear is the BOX's own low bytes - the package header at
-; 0x00, the 16x16 icon at 0x20 and the association block at 0x60, which
-; `OS88_ASSOC16_END` pads to **112** - and `kern_dos`'s eight-byte fixed
-; header. 0x0080 clears both with sixteen bytes over, and each host asserts
-; its own side. **1,408 bytes out of BOTH hosts**, which on `kern_dos` is a
+; 0x00, the 16x16 icon at 0x20, the association block at 0x60, which
+; `OS88_ASSOC16_END` pads to 112, and the document glyph at 0x70, which
+; `OS88_DOCGLYPH8_END` pads to **128** (SPEC.md 54.3.2) - and `kern_dos`'s
+; eight-byte fixed header. 0x0080 clears both EXACTLY, with nothing over, and
+; each host asserts its own side. **1,408 bytes out of BOTH hosts**, which on `kern_dos` is a
 ; kilobyte of `KD_IMG_KB` and so a kilobyte of the DOS program.
 CORE_ORG    equ 0x0080
 ; `CORE_MAX` is a BUDGET WITH ONE CLAIMANT, which is the other half of why low

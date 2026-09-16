@@ -165,6 +165,9 @@ at_entry:
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
     OS88_REGION_MOVABLE
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
+                                    ; scancode until something asks, and the
+                                    ; kernel's Alt+Enter latch rides on that
     push si
     mov si, at_kmenus
     call OSAPI_MENU_SET             ; the WINDOWED bar (flags preserved)
@@ -475,6 +478,25 @@ at_onkey:
     push es
     push ds                         ; ES arrives = KERNEL_SEG (SPEC.md 20.2)
     pop es
+    ; --- ALT+ENTER IS THE FULL SCREEN, BOTH WAYS (SPEC.md 11.2.1.1) ---------
+    ; SPEC.md 11.2.1 exempts this app from `F` because the whole of it is a
+    ; writer - pressing F here writes an `f`, and it must. That exempts the
+    ; LETTER and not the idea: a modified key is free, and the document IS the
+    ; screen, so the splash and the page are the two ends of one toggle. It is
+    ; SPEC.md 11.2's LATCH and not a bracket, so this window keeps taking
+    ; W_ONKEY while it is full screen and one test is both directions.
+    cmp ax, KEY_ALTENTER
+    jne .nofull
+    cmp byte [at_modal], 0          ; ...unless a dialog owns the keyboard, in
+    jne .done                       ; which case it owns this key too
+    cmp byte [at_fs], 0
+    je .gofull
+    call at_fs_exit
+    jmp short .done
+.gofull:
+    call at_fs_enter
+    jmp short .done
+.nofull:
     cmp byte [at_fs], 0
     je .win
     cmp byte [at_modal], 0

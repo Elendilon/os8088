@@ -351,6 +351,64 @@ KSC_DOWN    equ 0x50
 KSC_SPACE   equ 0x39
 KSC_ENTER   equ 0x1C
 KSC_ESC     equ 0x01
+KEY_ALTENTER equ 0x1C00          ; ...and what a W_ONKEY is handed for ALT+ENTER
+                                 ; (SPEC.md 9.7.1): AH = Enter's scancode, AL
+                                 ; = 0, which is the code an ENHANCED ROM
+                                 ; gives and the code the kernel synthesises
+                                 ; on every ROM that does not. `cmp ax,
+                                 ; KEY_ALTENTER` is the whole windowed half of
+                                 ; SPEC.md 11.2.1.1's full-screen key;
+                                 ; apps/os88alt.inc is the other half and the
+                                 ; arming both of them need
+KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
+                                 ; only ever asked about beside another key.
+                                 ; SPEC.md 9.7.1: ALT+ENTER IS THE ONE
+                                 ; COMBINATION NO XT BIOS ENQUEUES AT ALL, so
+                                 ; the kernel latches it off the scancode and
+                                 ; ui_task hands your W_ONKEY AX = 0x1C00 - the
+                                 ; code an enhanced ROM would have given you.
+                                 ; TEST FOR IT THERE, not here. This pair is
+                                 ; what you ask when ui_task is NOT dispatching
+                                 ; - inside an OSAPI_FSX_RUN bracket (SPEC.md
+                                 ; 53.1), where your own loop reads int 16h and
+                                 ; no synthesised event can reach you. It is a
+                                 ; LEVEL read, so find the edge yourself;
+                                 ; apps/dos/dosc.inc is the worked example.
+                                 ; ASKING ARMS THE MAP (above), which is what
+                                 ; the synthesised key needs too - so an app
+                                 ; that wants it calls this once at launch
+
+; --- OS88_ALTENTER_ARM - ask once, so the key-state map exists (SPEC.md 9.7)
+; Put it in your entry proc. Until SOMETHING has called OSAPI_KEY_DOWN,
+; kbm_isr tracks no scancode at all - so without this neither half of
+; SPEC.md 11.2.1.1 can see Alt+Enter, not apps/os88alt.inc's poll and not the
+; kernel's own latch. The ANSWER is discarded; the asking is the point, and it
+; is what keeps the feature costing a machine that never runs this app zero.
+%macro OS88_ALTENTER_ARM 0
+    pushf                       ; AND THE FLAGS, for OS88_REGION_MOVABLE's own
+                                ; reason one line along: an entry proc carries
+                                ; the CF it owes the loader, and OSAPI_KEY_DOWN
+                                ; ANSWERS in CF. The first call always answers
+                                ; "up" - arming is what it does - so a bare
+                                ; version happens to work on instance one and
+                                ; returns `launch failed` on the next one with
+                                ; Alt genuinely held. Four bytes buy the right
+                                ; to put this line anywhere in an entry proc,
+                                ; which is what makes it a one-line adoption
+    push ax
+    mov al, KSC_ALT
+    call OSAPI_KEY_DOWN
+    pop ax
+    popf
+%endmacro
+
+; --- OS88_ALTENTER_SEED - "assume it is still held", at a bracket's top -----
+; apps/os88alt.inc's header says why: the press that opened the bracket is
+; still down, and a LEVEL read cannot tell it from the press that would close
+; it again. Needs os88alt.inc included.
+%macro OS88_ALTENTER_SEED 0
+    mov byte [os88alt_dn], 1
+%endmacro
 
 ; --- sound (SPEC.md 20.3/34): the PC speaker, which is the whole of it.
 %define OSAPI_SND_CAPS      KERNEL_SEG:0x00E0   ; out AX = caps word (SND_CAP_*),
@@ -886,6 +944,38 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; table, and that is the fence against half
                                  ; the image arguments being set by a caller
                                  ; that meant the by-name form.
+                                 ;
+                                 ; ...AND WITH DX:CX = 0, ES:DI IS A DOCUMENT
+                                 ; to open the package with (SPEC.md 21.5.3):
+                                 ; 13 bytes of NUL 8.3 name, then the
+                                 ; directory WORD, then the volume BYTE - the
+                                 ; shape OSAPI_ARG_FILE answers with, so the
+                                 ; package cannot tell this launch from a
+                                 ; DOUBLE-CLICK and needs no change at all.
+                                 ; **ES = 0 MEANS "NOTHING THROUGH ES:DI"** on
+                                 ; both arms, which is one sentence rather
+                                 ; than two rules; zero it if you mean the
+                                 ; plain form.
+                                 ;
+                                 ; With a document the NAME MAY BE EMPTY -
+                                 ; SI -> "" - meaning THE DOCUMENT'S
+                                 ; EXTENSION NAMES THE PROGRAM, which is the
+                                 ; double-click's own question. A null SI is
+                                 ; not the sentinel: this is an N cell and the
+                                 ; stub stages your name before the body runs.
+                                 ;
+                                 ; A document is located by the HINT CACHE and
+                                 ; not in the folder you stand in, which is
+                                 ; why you may open one with a program that is
+                                 ; somewhere else entirely. The answer is
+                                 ; THINNER on this arm: CF=0 means the launch
+                                 ; was carried out and the user has been told
+                                 ; how it went, CF=1/AL=LD_EBAD means nothing
+                                 ; on this machine opens it. Want a richer
+                                 ; answer? Use the plain arm and a name.
+                                 ; kern_small has no associations (54.0), so
+                                 ; there the document is ignored and the name
+                                 ; still runs.
                                  ;
                                  ; Out CF=0 with AX = 0: it is registered,
                                  ; published and its window shown, exactly as
@@ -2738,6 +2828,11 @@ WT_SIZE    equ 16
 OS88_F_ICON   equ 1             ; an embedded 16x16 icon follows the header
 OS88_F_ASSOC  equ 2             ; ...and an association block follows that (54.6)
 OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
+OS88_F_GLYPH  equ 32            ; a 16-byte DOCUMENT-GLYPH block follows the
+                                ; association block (SPEC.md 54.3.2): the 8x8
+                                ; your documents wear, SHIPPED rather than
+                                ; reduced out of the icon. Wants both bits 0
+                                ; and 1 beside it, and os88pkg.py checks
 
 ; --- OS88_STACK_* : what to pass as OS88_HEADER's 4th argument (SPEC.md 8.7)
 ; Your worker's stack class. The kernel owns the sizes; you name the one you
@@ -2846,6 +2941,41 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
         %error "the association block is 16 bytes: a count byte and up to five extensions"
     %endif
     times OS88_ASSOC_BASE + 16 - ($ - $$) db 0
+%endmacro
+
+; -----------------------------------------------------------------------------
+; OS88_DOCGLYPH8 / OS88_DOCGLYPH8_END - bracket the shipped DOCUMENT GLYPH
+; (SPEC.md 54.3.2). Only valid with flags bits 0, 1 AND 5 (OS88_F_GLYPH), and
+; it goes IMMEDIATELY after the association block, at file offset 112. Between
+; the two macros write exactly eight `db` bytes: the 8x8 a document of yours
+; wears inside its page, one byte a row, bit 7 = leftmost, 1 = ink. The block
+; is a fixed 16 bytes - the clear prefix stays a multiple of 16 (SPEC.md
+; 20.13.1) - and the macros assert both ends, so a seventh or a ninth byte
+; fails at ASSEMBLY rather than at mount.
+;
+; Without this block the kernel REDUCES your 16x16 icon to 8x8 by majority of
+; each 2x2 block (SPEC.md 54.3), which keeps a silhouette and loses every
+; one-pixel stroke. Ship one when your icon is a line drawing - the DOS box's
+; CRT reduced to an empty square, which is what this exists for.
+; -----------------------------------------------------------------------------
+%macro OS88_DOCGLYPH8 0
+    %ifndef OS88_ASSOC_BASE
+        %error "OS88_DOCGLYPH8 needs an association block in front of it (OS88_ASSOC16)"
+    %endif
+    %if OS88_ASSOC_BASE != 96
+        %error "OS88_DOCGLYPH8 needs an icon in front of it too (SPEC.md 54.3.2)"
+    %endif
+    %if ($ - $$) != OS88_ASSOC_BASE + 16
+        %error "OS88_DOCGLYPH8 must immediately follow OS88_ASSOC16_END (file offset 112)"
+    %endif
+    %assign OS88_GLYPH_BASE ($ - $$)
+%endmacro
+
+%macro OS88_DOCGLYPH8_END 0
+    %if ($ - $$) != OS88_GLYPH_BASE + 8
+        %error "the document glyph is exactly eight db bytes, one a row"
+    %endif
+    times 8 db 0                ; ...and eight reserved, so the block is 16
 %endmacro
 
 ; -----------------------------------------------------------------------------

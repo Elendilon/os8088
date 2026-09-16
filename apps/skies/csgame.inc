@@ -65,6 +65,10 @@ cs_fsx_main:
     jne .keep                       ; a later one carries on where it was
     call cs_reset
 .keep:
+    OS88_ALTENTER_SEED              ; the Alt+Enter (or Enter) that got us here
+                                    ; is still held, and the poll above .keys
+                                    ; is a LEVEL read: without this the first
+                                    ; frame takes that hold as the press out
     mov byte [cs_par], 0
     mov byte [cs_quit], 0
     mov byte [cs_pause], 0
@@ -260,6 +264,15 @@ cs_input:
     push bx
     push cx
     push dx
+    call os88alt_edge               ; ALT+ENTER LEAVES, exactly as F does
+    jc .quit                        ; (SPEC.md 11.2.1.1). It cannot arrive
+                                    ; through the int 16h below - no XT BIOS
+                                    ; enqueues the combination (9.7.1) - and a
+                                    ; bracket dispatches no events (53.1), so
+                                    ; the key-state map carries it. ABOVE
+                                    ; .keys and not inside it: that label is
+                                    ; re-entered per key drained and this is a
+                                    ; question worth asking once a frame
 .keys:
     mov ah, 1
     int 0x16

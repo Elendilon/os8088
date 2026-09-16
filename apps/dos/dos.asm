@@ -58,7 +58,7 @@
 ; **THE PACKAGE CONTAINER IS NOT THE CORE**
 ; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
 ; whole and is not a package at all: no header, no icon, no association
-; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; block, and nothing at file offset 0 but a jump. Those four macros assert their own file offsets - 0, 32, 96 and 112
 ; - so under that root they are the only thing in 13,000 lines that cannot
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
@@ -80,15 +80,17 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 %else
-    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif
                                         ; flags bit 0 = icon, bit 1 = the
-                                        ; association block after it
+                                        ; association block after it, bit 5
+                                        ; the document glyph after THAT
+                                        ; (SPEC.md 54.3.2)
 
-%include "dosicon.inc"          ; the icon and the association block,
-                                ; shared with apps/dos/dosload.asm
+%include "dosicon.inc"          ; the icon, the association block and the
+                                ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
@@ -108,8 +110,9 @@
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
 apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
-header, the icon and the association block end at 112 and kern_dos's own \
-fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
+header, the icon, the association block and the document glyph end at 128 \
+and kern_dos's own fixed header is eight bytes, so CORE_ORG is cut from THIS \
+reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0
@@ -741,6 +744,19 @@ dos_entry:
                                     ; the requirement is a COUNT of columns
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
+
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
+    call OSAPI_KEY_DOWN             ; (SPEC.md 9.7): kbm_isr does not track a
+                                    ; scancode until something has asked, so
+                                    ; without this call neither half of
+                                    ; 96.33.5.1 can see Alt+Enter - not the
+                                    ; kernel's latch and not our own poll. The
+                                    ; ANSWER is discarded; the asking is the
+                                    ; whole point, and it is what keeps the
+                                    ; feature costing a machine that never
+                                    ; opens this box exactly nothing
+%endif
 
     OS88_REGION_MOVABLE             ; **AND OUR REGION MAY MOVE** (SPEC.md
                                     ; 96.35, 66.6.1), which is the half of the
@@ -5620,6 +5636,7 @@ dos_path_make:
 ;                     current directory is a thing this box does not keep
 ; -----------------------------------------------------------------------------
 dos_path_take:
+    mov byte [dos_ptres], 0         ; the ordinary door COMMITS
     push ax
     push bx
     push cx
@@ -5627,6 +5644,31 @@ dos_path_take:
     push si
     push di
     mov si, dos_path
+    jmp short dos_pt_body
+
+; -----------------------------------------------------------------------------
+; dos_path_take_si - the same resolver, on TEXT YOU NAME, without committing
+; in:  SI -> the text; out: CF=0 with [dos_tname], [dos_pgdir] and [dos_pgvol]
+;      set; CF=1 = it does not resolve. Every register preserved.
+;
+; **THE PACKAGE DOOR MAY NOT WRITE THE PATH BOX** (SPEC.md 96.33.17): the box
+; holds what `Run` re-runs AS A DOS PROGRAM, so a `.O88` in it arms a button
+; that must then refuse it. So the text is a parameter and the answer lands in
+; cells of its own - `.commit` is where the two doors part, one instruction
+; before the three DOS-program stores.
+; -----------------------------------------------------------------------------
+dos_path_take_si:
+    mov byte [dos_ptres], 1
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+dos_pt_body:
+    mov [dos_ptbase], si            ; **THE BUFFER IS A PARAMETER NOW**, so the
+                                    ; drive test below has to ask about the
+                                    ; TEXT and not about dos_path
     cmp byte [si], 0
     je .no                          ; empty IS a state (the internal
                                     ; COMMAND.COM) and it is not a program
@@ -5660,8 +5702,16 @@ dos_path_take:
 .split:
     or di, di
     jnz .name                       ; a separator: DI is where it was
-    cmp bx, dos_path
-    je .keepdir                     ; ...none, and no drive either: the folder
+    cmp bx, [dos_ptbase]            ; **ASKED OF THE TEXT, NOT OF dos_path**:
+    je .keepdir                     ; this compare means *was there a drive
+                                    ; letter?*, which it answered by knowing
+                                    ; where its own buffer starts. Pointed at
+                                    ; any other string it FAILS, the
+                                    ; drive-with-no-separator arm below runs,
+                                    ; and `.name`'s `inc si` eats the name's
+                                    ; FIRST CHARACTER - `NOTEPAD` resolving as
+                                    ; `OTEPAD` (SPEC.md 96.33.21)
+                                    ; ...none, and no drive either: the folder
     mov di, bx                      ; we stand in. A DRIVE with no separator
                                     ; makes the directory part EMPTY, which
                                     ; dos_walk_pbuf reads as that volume's root
@@ -5719,7 +5769,7 @@ dos_path_take:
     jc .no                          ; `[dos_vol]` - it reads `[dos_pvol]` now,
     call dos_walk_pbuf              ; so the drive to walk on is said by
     jc .no                          ; standing on it. The rollback goes with it:
-    mov [dos_dir], dx               ; nothing was changed, so a typo leaves the
+    mov [dos_pgdir], dx             ; nothing was changed, so a typo leaves the
     jmp short .commit               ; box exactly where it was - and the arm
                                     ; falls into `.commit` rather than past it,
                                     ; because `[dos_vol]` is no longer already
@@ -5738,9 +5788,14 @@ dos_path_take:
     ; was launched from and survives a program's own chdir, and [dos_curdir] is
     ; where the box is now.
     mov dx, [dos_curdir]
-    mov [dos_dir], dx
+    mov [dos_pgdir], dx
 .commit:
     mov al, [dos_tvol]
+    mov [dos_pgvol], al             ; both arms answer HERE first...
+    cmp byte [dos_ptres], 0
+    jne .resonly                    ; ...and resolve-only stops one instruction
+    mov dx, [dos_pgdir]             ; short of the DOS program's three stores
+    mov [dos_dir], dx
     mov [dos_vol], al
 .commit2:
     mov si, dos_tname               ; ...and the NAME last, so every refusal
@@ -5752,7 +5807,8 @@ dos_path_take:
     inc di
     or al, al
     jnz .cm
-    clc
+.resonly:                           ; the resolve-only answer IS [dos_tname],
+    clc                             ; which is where the copy above reads from
     jmp short .out
 .no:
     stc
@@ -7866,6 +7922,24 @@ dos_key:
     push si
     push di
     mov bx, si
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
+    ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
+    ; XT ROM enqueues this combination at all, so int 16h never carries it and
+    ; kbd_track latches the scancode instead. HERE, in front of dos_place and
+    ; the focus test, because every field below this would otherwise get first
+    ; refusal on it: the path box holds the caret on a fresh window and
+    ; os88line_key's own extended arm reads AL = 0 keys.
+    cmp ax, KSC_ENTER << 8
+    jne .notfull
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .no                         ; a setup page has no screen to take, which
+    call dos_defocus                ; is dos_oncmd's own test - and the caret
+    mov si, [dos_win]               ; goes the same way the MENU ITEM sends it
+    call dos_fsx                    ; ...and the very same proc, so the key and
+    jmp .done                       ; the item cannot drift apart
+.notfull:
+%endif
     ; **NO DST_IDLE GATE.** It used to refuse every key with nothing named,
     ; because the only field was the arguments one; the MAIN page's field is
     ; the PATH BOX now and an empty one is the state where typing matters most
@@ -15803,9 +15877,24 @@ dos_fh_fill:
     HBSS DOS_B_ISPKG,   1           ; the typed name ends in .O88 (96.33.17)
     HBSS DOS_B_PKGQ,    1           ; ...and a launch of one is POSTED
     HBSS DOS_B_PKGN,   13           ; ...with its name banked out of dsh_a1
+    HBSS DOS_B_PTRES,   1           ; dos_path_take: resolve, do not COMMIT
+    HBSS DOS_B_PTBASE,  2           ; ...and where the text it was given began
+    HBSS DOS_B_PGDIR,   2           ; the folder a resolve-only answered with
+    HBSS DOS_B_PGVOL,   1           ; ...and its volume (SPEC.md 96.33.21)
+    HBSS DOS_B_PGPDIR,  2           ; the PROGRAM's own folder, banked before
+    HBSS DOS_B_PGPVOL,  1           ; the DOCUMENT's resolve overwrites those
+    HBSS DOS_B_PGDOC,  16           ; OSAPI_PKG_START's document locator:
+                                    ; 13 name, dir WORD, vol BYTE (21.5.3)
+    HBSS DOS_B_PGHAS,   1           ; ...and whether the line named one
     HBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
                                     ; bracket comes down for the program and
                                     ; goes back up after it (SPEC.md 96.33.16)
+    HBSS DOS_B_AEDN,    1           ; ...and what the LAST full-screen pass saw
+                                    ; of Alt+Enter (SPEC.md 96.33.5.1):
+                                    ; OSAPI_KEY_DOWN is a level read, so the
+                                    ; edge is ours to find. Seeded DOWN at the
+                                    ; top of the bracket, because the press
+                                    ; that got us in is still held
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
     HBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
@@ -16245,7 +16334,16 @@ dos_fsxup   equ DOS_CBASE + DOS_B_FSXUP
 dos_ispkg equ dos_hbss + DOS_B_ISPKG   ; byte: the name ends in .O88
 dos_pkgq equ dos_hbss + DOS_B_PKGQ    ; byte: a package launch posted
 dos_pkgn equ dos_hbss + DOS_B_PKGN    ; 13:   ...and which one
+dos_ptres equ dos_hbss + DOS_B_PTRES   ; dos_path_take's resolve-only pair
+dos_ptbase equ dos_hbss + DOS_B_PTBASE
+dos_pgdir equ dos_hbss + DOS_B_PGDIR   ; ...and what it answers in
+dos_pgvol equ dos_hbss + DOS_B_PGVOL
+dos_pgpdir equ dos_hbss + DOS_B_PGPDIR ; the program's, banked (96.33.21.1)
+dos_pgpvol equ dos_hbss + DOS_B_PGPVOL
+dos_pgdoc equ dos_hbss + DOS_B_PGDOC   ; 16:   the document locator (21.5.3)
+dos_pghas equ dos_hbss + DOS_B_PGHAS
 dos_fsxgo equ dos_hbss + DOS_B_FSXGO
+dos_aedn equ dos_hbss + DOS_B_AEDN     ; byte: 96.33.5.1's edge
 dsh_exec    equ DOS_CBASE + DOS_B_SHEXEC
 dos_cmdx equ dos_hbss + DOS_B_CMDX
 dos_cmdn equ dos_hbss + DOS_B_CMDN

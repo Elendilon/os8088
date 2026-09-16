@@ -76,12 +76,23 @@ MOD_NENT = _mod_nent()
 
 def app(blob, nm, flags, entry, image, bss):
     """SPEC.md 20.2 - a v3 application package."""
-    check(not (flags & 0xE0), "%s: no reserved flag bits" % nm, got=hex(flags),
+    check(not (flags & 0xC0), "%s: no reserved flag bits" % nm, got=hex(flags),
           why="bit 0 is an embedded icon, bit 1 an association block (SPEC.md "
               "54.6), bit 2 says the FILE is longer than the image on purpose "
-              "(SPEC.md 20.12) and bits 3-4 say it is SHORTER because the "
-              "image is compressed and in which format (SPEC.md 20.13). Bits "
-              "5-7 are nobody's yet")
+              "(SPEC.md 20.12), bits 3-4 say it is SHORTER because the "
+              "image is compressed and in which format (SPEC.md 20.13), and "
+              "bit 5 says a shipped document glyph follows the association "
+              "block (SPEC.md 54.3.2). Bits 6-7 are nobody's yet")
+    if flags & 0x20:
+        check(flags & 3 == 3, "%s: the shipped glyph has an icon and a "
+              "declaration in front of it" % nm, got=hex(flags),
+              why="SPEC.md 54.3.2: the block sits at 112, after both")
+        check(entry >= 128, "%s: entry is past the document-glyph block" % nm,
+              got=hex(entry), want=">= 0x80")
+        check(any(blob[112:120]), "%s: the shipped glyph is not blank" % nm,
+              why="all-zero is the UNRESOLVED sentinel (SPEC.md 54.2), so the "
+                  "kernel would reduce the icon after all")
+        check(not any(blob[120:128]), "%s: the glyph block's reserved bytes are 0" % nm)
     check(not (flags & 8) or not (flags & 4),
           "%s: not both compressed and carrying parts" % nm, got=hex(flags),
           why="a part's offset is measured from the start of the FILE and its "

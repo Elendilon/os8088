@@ -384,7 +384,16 @@ pr_run:
 pr_open:
     xor cx, cx                      ; **NO IMAGE: READ THE FILE.** Zero is the
     xor dx, dx                      ; whole of what the by-name form says
+    push es                         ; ...and **ES = 0 IS "NOTHING THROUGH
+    mov es, cx                      ; ES:DI"** on BOTH arms now (SPEC.md
+                                    ; 21.5.3): with DX:CX zero, ES:DI is a
+                                    ; DOCUMENT to open the package with, so a
+                                    ; caller meaning the plain form has to say
+                                    ; so. This one left whatever the CALLER
+                                    ; had there, which is exactly the silent
+                                    ; break that argument's fence exists for
     call OSAPI_PKG_START            ; beyond the name (SPEC.md 21.5)
+    pop es
     mov bl, 0
     jnc .out
     mov bl, 1
