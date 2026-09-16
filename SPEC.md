@@ -130899,6 +130899,116 @@ Getting this wrong is the handover's own failure in the other direction: an
 unmasked line with a byte behind it, vectoring into whatever loads at `KD_SEG`
 next.
 
+#### 96.45.2 …and the LIVE RESUME could not put it back, so the pointer came home dead
+
+Reported off the field machine: *"mouse is broken after coming back from
+hibernation from DOS. We're not frozen — I can type in the DOS window — but the
+mouse is dead."* And the discriminator the reporter added next is the whole
+diagnosis: **an ordinary hibernate wakes the mouse fine.**
+
+§96.45.1 hands the port back quiet — `IER = 0` and the line masked — and
+justified restoring nothing on the ground that *"`int 19h` and a boot re-init
+it from scratch, and so does the live restore, whose os8088 runs `mouse_init`
+again on the way up."* **The last clause is false.** `mouse_init` is in
+`.ovlw`, which `mem_unblob` hands back at the end of `kmain`, and §96.49's live
+resume re-enters the kernel at `hbm_wake` rather than at a boot. `mov ax,
+0x0101` — IER, RX data available — occurs **exactly once in this tree**, inside
+`mouse_init`, so on that route nothing ever turns the UART's interrupt back on
+and the `IER = 0` stands for the rest of the session.
+
+**That is exactly why it presents as a dead pointer on a working machine, and
+why it took a second report to place.** Everything else about the mouse comes
+home:
+
+| | |
+|---|---|
+| the vector | **right** — the IVT is the image's, so `mou_isr` is where it was |
+| the line settings | **untouched** — `kern_dos` writes only MCR and IER, never LCR or the divisor, so 1200 7N1 survives from the original boot |
+| `MCR` | **still `0x0B`** — `kern_dos` set it and `kd_mou_stop` leaves it, so the mouse is powered throughout |
+| `IER` | **0, and nothing on this route sets it back** |
+| the 8259 mask | **the mouse's line comes home MASKED** — §96.45.2.1 |
+
+So the keyboard is unaffected because none of this is the keyboard's.
+**Measured on the glass**: on a booted machine `IER` reads `01` and the pointer
+tracks; writing `00` to it and changing nothing else leaves the cursor at its
+last position and the machine otherwise perfectly alive, which is the report to
+the letter.
+
+**The ordinary hibernate escapes it by rebooting.** `kd_leave` ends on
+`int 19h`, the kernel comes up from scratch, `mouse_init` runs and arms the
+UART, and only then does `hbm_res` put the image back over it. The live resume
+is the one route that skips the boot, and it is the one route that was broken.
+
+**The fix is `hbm_wake` step 3d**, in the hibernate MODULE, so it costs **zero
+resident bytes**. Three writes, and the order is the point:
+
+1. **arm the drain** (`[mou_drain]`, `[mou_dstamp]`, `[mou_hpt]`) exactly as
+   `mou_hotplug`'s raise does — so that if a DOS program left MCR low, the
+   rising edge below provokes an identify burst into a window that is already
+   discarding it (§9.4.8) rather than into the packet decoder;
+2. **MCR = `0x0B`** — normally already that, since `kern_dos` sets it and
+   `kd_mou_stop` leaves it, so no edge and no burst;
+3. **IER = `0x01`**, because until it goes on the ISR cannot fire at all;
+4. **and the LINE unmasked at the 8259**, last of all — §96.45.2.1.
+
+It sits in the body **both** ways home take, which needs no branch: on the
+reboot route `mouse_init` has already done all three and every one of them is
+idempotent.
+
+**What this does NOT cover, said plainly rather than left to be discovered:** a
+**PS/2** pointer. §96.45's handover refuses to stage one at all (`[mou_port]`
+of `MOU_P2ROW` fails its test), so `kern_dos` never touches the aux port and
+`kd_mou_stop` never quiets it — the transport is the 8042 and `mou_pall` writes
+serial ports only. The masks come back, so it is expected to survive; it has
+not been measured, and this paragraph is why.
+
+**The gap that let it ship is a test one and is worth more than the fix.**
+`tests/kdreturn.py` drives this exact resume and passes — it asserts the
+program ran, the exit code came home and the mailbox was cleared, and **nothing
+in the suite looks at the pointer after a return.** `tests/kdmouse.py` is about
+the mouse *inside* the box. `tests/mouresume.py` is the row that closes it.
+
+##### 96.45.2.1 …and IER was only HALF of it — the line comes home masked too
+
+**Written down because the first fix was measured and found insufficient**, and
+the reading is the whole of why. With `hbm_wake` restoring IER and nothing
+else, a live resume came back:
+
+```
+IER 01  MCR 0B  LSR 63  MSR 00  PIC21 BC  seen 1 port 0 line 10 drain 1
+                                                        mouse_x 607 -> 607
+```
+
+`LSR` bit 0 is **DR** and bit 1 is **OE**: bytes really are arriving and piling
+up unread. `PIC21` is `BC` — **bit 4 set, and `[mou_line]` is `0x10`**, so the
+mouse's own IRQ is masked at the 8259. The UART was armed and the line was shut.
+
+**The mask is masked on purpose and the ordering is not a bug.**
+`kd_mou_stop` clears IER *and* masks the line, and `kdentry.inc` calls it
+before `kd_resume` samples `HS_MASKM` — so the stub faithfully restores a mask
+that already has our line in it. That call is right where it is, for the reason
+its own comment gives: *an unmasked line with a latched byte behind it is a
+wild jump* into whatever loads next. So the unmask belongs on the way **back
+in**, which is os8088's side, and not over there.
+
+**It is taken from `[mou_line]` and not from the port's row**, which is
+§9.5.2.1's rule and the defect that section exists for: a card at 2F8 jumpered
+to IRQ4 makes "which line" a different question from "which base", and
+`[mou_line]` is the bit the winning packets actually arrived on. It is 0 on a
+machine that never settled, and `not 0` is `0xFF`, so the `and` is a no-op
+there and needs no branch to be safe.
+
+With both halves the same resume reads:
+
+```
+IER 01  MCR 0B  LSR 60  MSR 00  PIC21 AC  seen 1 port 0 line 10 drain 0
+                                                        mouse_x 607 -> 420
+```
+
+— the line unmasked, the overrun drained, the arm window self-cleared on the
+first byte it ate (which is exactly the stale byte the mask had latched), and
+the pointer moving. `tests/mouresume.py` is that reading kept runnable.
+
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 
 `kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a

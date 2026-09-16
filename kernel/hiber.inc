@@ -2899,6 +2899,59 @@ hbm_wake:
     mov [hb_doscode], ax
     mov ax, [es:HS_DOSAKB]
     mov [hb_dosakb], ax
+    ; 3d. THE MOUSE'S UART, WHICH NOTHING ELSE PUTS BACK (SPEC.md 96.45.2) --
+    ; `kd_mou_stop` gives the port back quiet on the way out - IER = 0 and the
+    ; line masked - and justifies restoring nothing on the ground that *"the
+    ; live restore['s] os8088 runs `mouse_init` again on the way up"*. **IT
+    ; DOES NOT.** `mouse_init` is in `.ovlw`, which `mem_unblob` handed back at
+    ; the end of `kmain`, and a live resume re-enters HERE rather than at a
+    ; boot - so the one place in this tree that ever writes IER = 1 cannot run.
+    ;
+    ; Everything else about the mouse comes home and that is exactly why it
+    ; presents as a dead pointer on a working machine: the 8259 mask is
+    ; restored (sampled BEFORE kd_mou_stop masked the line), and the IVT is the
+    ; image's so `mou_isr` is vectored correctly. The UART simply never asserts
+    ; its line again, which is also why the KEYBOARD is unaffected.
+    ;
+    ; The reboot route runs `mouse_init` and needs none of this, so the three
+    ; writes are IDEMPOTENT there and the wake stays one body for both ways
+    ; home. ORDER IS THE POINT: the drain is armed first, so that if a DOS
+    ; program left MCR low the rising edge below provokes an identify burst
+    ; into a window that is already discarding it (SPEC.md 9.4.8) rather than
+    ; into the packet decoder; and IER goes on LAST, because until it does the
+    ; ISR cannot fire at all.
+    mov ax, [ticks]             ; arm the drain exactly as mou_hotplug's raise
+    mov [mou_dstamp], ax        ; does - [mou_hpt] is the ceiling's reference
+    mov [mou_hpt], ax           ; and [mou_dstamp] the quiet test's
+    mov byte [mou_drain], 1
+    mov ax, 0x040B              ; MCR: DTR|RTS|OUT2. Normally already this -
+    mov bp, mou_pall            ; kern_dos set it and kd_mou_stop leaves it -
+    call KERNEL_SEG:cw_mem_disp ; so no edge and no burst; a DOS program that
+                                ; mangled it is what the drain above is for
+    mov ax, 0x0101              ; IER: RX data available only
+    mov bp, mou_pall
+    call KERNEL_SEG:cw_mem_disp
+    ; ...AND THE LINE, WHICH IS THE OTHER HALF AND WAS MEASURED (96.45.2.1).
+    ; `kd_mou_stop` masks the mouse's IRQ as well as clearing IER, and
+    ; `kdentry.inc` calls it BEFORE `kd_resume` samples `HS_MASKM` - so the
+    ; mask the stub faithfully restores is one that already has our line
+    ; masked. That ordering is deliberate and right (an unmasked line with a
+    ; latched byte behind it is a wild jump into the next owner's code), so
+    ; the unmask belongs HERE, on the way back in, and not over there.
+    ;
+    ; **THE LINE AND NOT THE BASE** (SPEC.md 9.5.2.1): `[mou_line]` is the bit
+    ; the WINNING packets actually came in on, which a card at 2F8 jumpered to
+    ; IRQ4 makes a different question from the port's own row. It is 0 on a
+    ; machine that never settled, and `not 0` is 0xFF, so the `and` below is
+    ; then a no-op and needs no branch to be safe.
+    mov cl, [mou_line]
+    not cl
+    pushf
+    cli
+    in al, 0x21
+    and al, cl
+    out 0x21, al
+    popf
     ; 4. the desktop, the way fsx_restore gets it back (SPEC.md 53) - before
     ;    any disk work, so the progress widget has a graphics mode to draw in
     mov bp, vid_setmode

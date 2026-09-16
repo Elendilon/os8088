@@ -147,8 +147,16 @@ kd_mou_start:
 ; **THE VECTOR IS DELIBERATELY NOT PUT BACK**, because there is nothing to put
 ; back that means anything: what was there is the kernel's `mou_isr` at an
 ; offset that is now this image. Quiet hardware is the whole of what the next
-; owner needs - `int 19h` and a boot re-init it from scratch, and so does the
-; live restore, whose os8088 runs `mouse_init` again on the way up.
+; owner needs - `int 19h` and a boot re-init it from scratch.
+;
+; **THE LIVE RESTORE DOES NOT, AND THIS COMMENT USED TO SAY IT DID** (SPEC.md
+; 96.45.2). `mouse_init` is in `.ovlw`, handed back by `mem_unblob` at the end
+; of `kmain`, and a live resume re-enters the kernel at `hbm_wake` rather than
+; at a boot - so the one place in the tree that writes IER = 1 cannot run, and
+; the IER = 0 below stood for the rest of the session. It presented as a dead
+; pointer on an otherwise working machine, because the mask and the vector
+; both come home and only the UART's own enable does not. `hbm_wake` step 3d
+; puts it back; nothing here changes.
 ; -----------------------------------------------------------------------------
 kd_mou_stop:
     push ax
