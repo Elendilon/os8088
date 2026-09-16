@@ -3285,11 +3285,50 @@ SOAK = [
         "dos_walk_at names the file, the line and the path from dos_int21, "
         "and adding a `call OSAPI_TASK_YIELD` to dos_fh_enter takes the "
         "registry rule red."),
+    Row("dosram", "soak", py("tests/dosram.py"), 75.0,
+        "THE MEMORY PAGE'S FIGURE IS THE FIGURE THE PROGRAM GETS (SPEC.md "
+        "96.36.3). `For the program: ~NNNNN K` is one live number that every "
+        "control under it moves, and two of its terms can be checked against "
+        "the machine. **(1) A LIVE DRIVER BOX MOVES IT BY WHAT ITS OWN LABEL "
+        "SAYS** (96.36.7): the label's figure and the total's are one "
+        "OSAPI_DRV_CLASSK word read once per place, so clearing `Hard drives "
+        "(32 K)` must move the row by exactly 32 - two reads where 96.36.7 "
+        "says one is a page that disagrees with itself while a driver is "
+        "unloaded between them. **(2) ARM 1 CANNOT BE ASKED ANYTHING**, so "
+        "every term of its estimate is a constant this build knows - "
+        "`DOS_KDKB` most of all, which is deliberately NOT gated at assembly "
+        "against kern_dos's own `LOW_SEG + KD_LOW_KB * 64`, because that "
+        "moves with that image and a mirror would fail the build every time "
+        "it changed a byte: a gate that gets RAISED rather than read. THIS "
+        "ROW IS THAT GATE - it puts a program through arm 3 and compares the "
+        "promise against DOSHELLO's own `Memory to top of block`, which is "
+        "int 21h AH=4Ah's answer for its PSP and therefore the arena "
+        "dos_build_psp handed it. VERIFIED TO FAIL: DOS_KDKB 42 -> 80 reads "
+        "`promised ~542 K, got 579 K, a drift of 37 against a slack of 24`. "
+        "The slack is 24 KB on purpose - the terms are ESTIMATES and the row "
+        "is about DRIFT, so a kern_dos that grew a kilobyte is fine and one "
+        "that grew twenty-four is a figure nobody re-measured. Fixture: the "
+        "MartyPC template VHD with HDD.DRV and a SYSTEM.CFG that ASKS for it "
+        "(SPEC.md 51.3) - without that file the machine still boots off the "
+        "fixed disk, because the boot partition is a DVK_BIOS row served by "
+        "int 13h and not by the driver (18.7.1), so assertion 1 would pass "
+        "against a class that really is holding nothing. It also reads the "
+        "arena off the PROGRAM and not the BDA mailbox (96.41.1), which "
+        "carries the same number but is written at kd_leave - exiting AND "
+        "letting the live resume run, which is tests/kdreturn.py's subject.",
+        needs=("marty",), serial=True,
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("dosmem", "soak", py("tests/dosmem.py"), 55.0,
-        "THE MEMORY PAGE'S THREE ARMS (SPEC.md 96.36, 96.25, 47): the choice "
+        "THE MEMORY PAGE'S TWO ARMS (SPEC.md 96.36, 96.25, 47): the choice "
         "of how much of the machine a DOS program gets was a CHECK BOX, which "
-        "holds two answers, and there are three - the third being os8088 "
-        "itself. **EVERY ASSERTION IS INVERTED since SPEC.md 96.40.3**: the "
+        "holds two answers; it became three arms, and it is TWO since "
+        "96.36.5 - `Keep the disk cache` and `Take the disk cache too` "
+        "differed in the cache and in nothing else, so the dial is its own "
+        "control and the arms are WHERE the program runs. Each heads a "
+        "SUBSECTION, so the pitch is a subsection's height and os88ui_rad "
+        "centres its ring in a ROW rather than in the pitch (13.17.5). **EVERY ASSERTION IS INVERTED since SPEC.md 96.40.3**: the "
         "arm was greyed for four waves, first because kern_dos was unwritten "
         "and then because it rode a gate disk while $(SYSROOT) shipped the "
         "plain package, and it is LIVE on every shipped disk now. So the row "
@@ -3314,7 +3353,12 @@ SOAK = [
         "one assertion it can no longer make - the demotion itself needs a "
         "box whose package has no part, and no shipped disk carries one - so "
         "step 8 asserts the other side of the same consumer: a pick the "
-        "machine CAN honour must survive the commit.",
+        "machine CAN honour must survive the commit. **AND ARM 1'S ROW IS ITS "
+        "OWN OPTION** (96.36.8, 96.36.9): one row carries `Disable the mouse` "
+        "or the greyed arm's REASON and never both, and the box is greyed "
+        "while the other arm is the pick - so the first press picks the arm "
+        "and the second works the box, which is 96.36.4's hit order and "
+        "47 rule 2 asserted together.",
         needs=("marty",), serial=True),
     Row("dosarena", "soak", py("tests/dosarena.py"), 35.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
