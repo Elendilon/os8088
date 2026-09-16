@@ -348,3 +348,85 @@ cosmetic. Worth doing, worth doing deliberately.
   what a machine with a hard disk full of applications actually needs. Nothing
   in waves 1-5 depends on the answer and nothing in it should be taken before
   they land.
+
+## 13. WHAT THE STORE COST THE FLOOR MACHINE, measured both sides
+
+`tests/regrowshed.py` went red at wave 2 and stayed red through waves 3-5, and
+it is the only row in the tree that did. It is recorded here in full because
+the answer is **not a defect** and the three experiments that did not find it
+are worth more than the one that did.
+
+**What it is not.** Three things were tried on the theory that the store's
+2,048-byte claim was too big or in the wrong place, and all three left the row
+red: halving `ICO_NROW` on `kern_small`; making the claim purgeable (wave 4,
+which shipped anyway on its own merits); and moving the store OFF the heap
+entirely into `.lowbss`. That last one is the instructive failure - it is the
+control that looks decisive and is not, because `.lowbss` sits below
+`HEAP_SEG`, so a 1,920-byte array there took `KERN_SIZE` **+1,536** and the
+heap DOWN by the same, and the experiment made the pressure it was testing
+worse. A control that changes two quantities answers about neither.
+
+**What it is.** Two heap maps, the same script, the same machine
+(`os8088_5150_cga_128k`, 128KB, 52.5KB of heap, `HEAP_SEG` 0x12e0, top
+0x2000), taken at `0286f13b` (wave 1) and at the store's landing. One Note Pad
+open, the manual loaded, at the moment the row asks for a second instance:
+
+```
+ wave 1                              the store
+ ---------------------------------   ---------------------------------
+ VIEW    12e0   2,048  PURGE         VIEW    12e0   2,048  PURGE
+ DIRW    1360   9,216  PURGE         DIRW    1360   9,216  PURGE
+ FREE    15a0   1,024                FREE    15a0   2,048   <- ICO, shed
+ WSAVE   15e0   6,144  PURGE         doc1    1620  16,384
+ doc1    1760  16,384                FREE    1a20   9,728
+ FREE    1b60   4,608                region1 1c80  14,336
+ region1 1c80  14,336
+```
+
+The quantity that decides a launch is neither `free` nor `in caches` but the
+largest run a top-down region claim can reach **after every cache has been
+shed** (SPEC.md 50.3.2 - a region's base is its CS, so it is claimed
+`mem_claim_hi`). Wave 1: 12e0..1760 = **18,944**. The store: 12e0..1620 =
+**13,312**, against the 14,336 a Note Pad instance wants. **Short by 1,024
+bytes**, and short at both ends - the top run is 9,728 - so the machine is
+honestly full and `LD_ENOMEM` is the right answer.
+
+**Why the maps differ is one branch in `mem_regrow`, and both arms are
+correct.** The manual's claim grows 1,024 -> 16,384. At wave 1 that took path
+3 (`.move` -> `mem_hifit`, the highest run that will take it) and landed
+HIGH at 0x1760, leaving the low arena in one piece. With the store in, it
+takes path 2 - an extend in PLACE after `.shed` - and lands LOW at 0x1620,
+because `MEM_P_ICO` is `MEM_PG_TRIV` and sits directly BELOW the claim, so
+shedding it is exactly what makes the in-place extension fit. `mem_regrow`'s
+`.shed` returns to `.grow` and not to `.move` deliberately ("an extend in
+place leaves no hole behind it"), and that is the better rule in general: it
+is *this* heap, at *these* four addresses, where it costs a kilobyte.
+
+So the placement is arithmetic, the shortfall is 1,024 bytes, and the row's
+fourth leg had been riding on it. It is re-derived rather than argued with:
+it empties the first note (File > New, `np_resize(NP_KB0)`, a shrink that
+cannot fail) before launching the second, which funds the instance out of
+15,360 returned bytes and leaves the refusal where the row wants it - in
+`np_load`'s grow, against an ~11KB run, with five kilobytes of margin instead
+of one.
+
+**And the re-derivation found a second thing, which is the one to remember.**
+The row printed a NOTE whenever the largest free run it had measured was
+already 16KB, saying the shed had not been exercised and the row wanted
+re-deriving. That note was WRONG, and it had been firing at wave 1 too. It
+reads the run BEFORE `File > Open`, and on `kern_small` the dialog is
+`FDLG.DRV` (SPEC.md 38.0): `mod_need` claims its image out of that very run
+and holds it for the whole of `np_load`, so what `mem_regrow` faces is always
+smaller than what the row measured. Taking `call mem_shed_one` out of
+`mem_regrow.shed` fails the load against a measured **18,944-byte** run. The
+leg is asserted on the CACHES FALLING now (19,456 -> 11,264), which is the
+fact that can say it.
+
+**The cost, stated plainly.** On `kern_small` the store did not remove a
+duplicate - wave 1's `disk_icons` was already one pool for the machine - it
+moved 1,216 resident `.lowbss` bytes into a 2,048-byte purgeable heap claim.
+That is the right trade by this project's own rules (a `.lowbss` byte is
+resident for ever and comes off the DOS arena too; a purgeable byte comes back
+when the last listing closes), and it is worth writing down that the trade is
+what it is rather than a saving: **-1,216 for ever, +2,048 while a listing is
+warm.** What `kern_small` gets for it is the 64-entry listing and the shed.
