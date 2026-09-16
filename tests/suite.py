@@ -3812,8 +3812,9 @@ SOAK = [
         "pictures. VERIFIED RED both ways with the caroff taken back out: "
         "backspaced 16 pixels at two cells, moved 6 at one.",
         needs=("marty",), serial=True),
-    Row("dospkg", "soak", py("tests/dospkg.py"), 150.0,
-        "A .O88 TYPED AT THE DOS PROMPT OPENS THE PACKAGE (SPEC.md 96.33.17). "
+    Row("dospkg", "soak", py("tests/dospkg.py"), 190.0,
+        "A .O88 TYPED AT THE DOS PROMPT OPENS THE PACKAGE (SPEC.md 96.33.17), "
+        "BY ITS BARE NAME TOO (96.33.7). "
         "96.33.15 refuses an extension that is not .COM or .EXE and .O88 went "
         "with the rest - rightly, since entering 30KB of package image as a "
         ".COM wedges the machine - and what was missing was not a fourth "
@@ -3834,7 +3835,22 @@ SOAK = [
         "GUEST STATE and not pixels: wm_wins for the titles, the box's own "
         "con_scr for the console. VERIFIED RED with the .O88 arm taken back "
         "out of dos_con_ext - 5 of the assertions, every spelling answering "
-        "`Bad command or file name` again.",
+        "`Bad command or file name` again. STEP 1b IS THE BARE NAME: a bare "
+        "name is a SEARCH and .O88 is its third probe, after DOS's own two, "
+        "which is the order contract - this shipped as a SPLIT, the dotted "
+        "door answering a package and the bare one not, so CALC.O88 opened "
+        "Calculator and CALC beside it in the same folder said `Bad command "
+        "or file name`. It uses a DIFFERENT package from step 1 on purpose: "
+        "re-typing CALC opens a second Calculator and the title assertion was "
+        "already true. Its negative control is the half that breaks silently "
+        "- a bare NOSUCHPG matching none of the three must still say `Bad "
+        "command or file name` and NOT `Cannot open`, because the "
+        "[dos_ispkg] store sits on the arm where the probe HIT and one made "
+        "before it would send every unresolved word on the machine to the "
+        "package launcher. MEASURED at 55.6s for all six steps on a 2026 "
+        "container; the 190 declared keeps the ~4x headroom the 150 this row "
+        "shipped with had, because the declaration is read on slower boxes "
+        "than the one that takes it.",
         needs=("marty",), serial=True),
     Row("dosext", "soak", py("tests/dosext.py"), 170.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "

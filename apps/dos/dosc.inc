@@ -650,13 +650,31 @@ dos_con_ext:
     clc                             ; CF already means `this is a program name`
     ret
 .nodot:                             ; not it is a file
-    push si                         ; the tail, across the two probes
+    push si                         ; the tail, across the three probes
     mov di, dos_c_com
     call .try
     jnc .found
     mov di, dos_c_exe
     call .try
+    jnc .found
+    ; --- ...AND `.O88` LAST, AFTER DOS'S OWN TWO (SPEC.md 96.33.7) ----------
+    ; 96.33.17 gave the DOTTED door a third answer and left the bare one with
+    ; two, so `CALC.O88` opened Calculator and `CALC` beside it in the same
+    ; folder said `Bad command or file name` - which reads as the box not
+    ; having the program rather than as the user owing an extension the `.COM`
+    ; case does not ask for. A bare name IS a search; this is the third answer
+    ; reaching the door that means it.
+    ;
+    ; LAST is the contract, for the reason `.COM` precedes `.EXE`: where both
+    ; spellings exist the DOS program wins, and `FOO.O88` is the same escape
+    ; hatch `FOO.EXE` already is.
+    mov di, dos_c_o88
+    call .try
     jc .nofile
+    mov byte [dos_ispkg], 1         ; ...and the DOS arms jump PAST this store,
+                                    ; so it is the `.O88` arm's alone - the
+                                    ; caller branches on it to dos_con_pkg and
+                                    ; the loader never sees a package image
 .found:
     pop si
 .out:

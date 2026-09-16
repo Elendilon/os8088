@@ -125701,7 +125701,7 @@ floppy is ordinary and printing its low word alone is a plausible wrong number.
 `dsh_num32` divides `DX:AX` by ten the two-step way and `dsh_num` is twelve
 bytes now.
 
-##### 96.33.7 A bare name is a SEARCH: `.COM` then `.EXE`
+##### 96.33.7 A bare name is a SEARCH: `.COM`, `.EXE`, then `.O88`
 
 Typing `PRINCE` answered `Bad command or file name` for a folder holding
 `PRINCE.EXE`, because the box took the typed word as a file name whole.
@@ -125712,6 +125712,28 @@ is the contract — `.COM`, then `.EXE`, then `.BAT`, so a folder holding both
 There is **no `.BAT`** here because there is no batch interpreter, and **no
 PATH search** because this box has no `PATH`: what is searched is the current
 directory, which is where somebody who typed a bare name is standing.
+
+**`.O88` is searched LAST, after DOS's own two** (§96.33.17). The dotted door
+had answered a package since that section and the bare one had not, so
+`CALC.O88` opened Calculator and `CALC` beside it in the same folder said `Bad
+command or file name` — which reads as the box not having the program rather
+than as the user having to spell an extension the `.COM` case does not need.
+The search is what a bare name MEANS, and the third answer §96.33.17 added is
+an answer that door owes too.
+
+**The order is DOS's first and ours after it**, for the reason the `.COM`
+before `.EXE` order exists at all: where both spellings are present the one
+this machine is emulating wins, so a folder carrying `FOO.COM` and `FOO.O88`
+runs the DOS program and a user who wants the other one types `FOO.O88`, which
+is the same escape hatch DOS gives for `FOO.EXE`. It costs nothing to a folder
+holding one of them, which is every folder in this tree.
+
+It is **the same probe**, so it inherits both of §96.33.7's properties without
+a second mechanism: `dsh_nth`'s ordinal walk decides the name, and a hit is
+handed back in `dsh_a1` rather than written over the line. What it does NOT
+inherit is the destination — a `.O88` that matched is `[dos_ispkg]` and goes to
+`dos_con_pkg`, never to the `.COM` loader — and the store sits on the `.O88`
+arm alone, the DOS arms jumping past it.
 
 **A name that already carries a dot is left alone**, whether or not it exists.
 DOS does not search on `FOO.` or `FOO.DAT` either, and a typed extension is the
@@ -125816,6 +125838,13 @@ So `dos_con_ext` answers a **third** thing rather than allowing a fourth
 extension. `.COM` and `.EXE` mean *this is a DOS program*; `.O88` means *this
 is a package*; anything else is still `Bad command or file name`, and so is a
 `.O88` that is not there.
+
+**And the BARE name reaches it too** (§96.33.7). This section built the third
+answer on the dotted door alone, so `CALC.O88` opened Calculator and `CALC` did
+not — a split that is invisible in the `.COM` case, where the search is what a
+bare name has always meant. The search now tries `.O88` after DOS's two, which
+is one more `.try` on the arm that already had them and the same `[dos_ispkg]`
+store this section's dotted arm makes.
 
 **It is POSTED and not called**, which is the whole of the mechanics. The slot
 wants the UI task with the gfx lock FREE and the console runs under `W_ONKEY`,
