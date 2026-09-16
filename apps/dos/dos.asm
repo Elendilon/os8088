@@ -9955,6 +9955,65 @@ dos_mcb_split:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
+; dos_mcb_join - swallow the RUN of free blocks above ES into it
+; in:  ES = an MCB whose owner is 0
+; out: its MCB_SZ and MCB_SIG updated; every register preserved
+;
+; **A FREE NEIGHBOUR IS A RUN AND NOT A BLOCK** (SPEC.md 96.9.2). Without this
+; the arena's free space FRAGMENTS PERMANENTLY under the one pattern every
+; memory manager uses - shrink, grow, shrink, grow - because each shrink cuts
+; a new tail and each grow can absorb only the one immediately above it. The
+; ceiling then RATCHETS DOWN: measured on Commander Keen 2 under kern_dos, the
+; allocator granted 0x78C0 paragraphs (483 KB) and later refused 0x6900
+; (420 KB), a SMALLER block than one it had already given, answering BX =
+; 0x6180 - the previous high-water mark rather than the arena.
+;
+; It is DOS's own placement. Real DOS coalesces during the ALLOCATION WALK
+; rather than in `AH=49h`, which is why `dos_mcb_free` still does not and why
+; its note about that is only true with this here.
+; -----------------------------------------------------------------------------
+dos_mcb_join:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    mov dx, es                      ; DX = our own MCB's paragraph
+.l:
+    mov es, dx                      ; ...re-read each lap: we grow as we eat
+    cmp byte [es:MCB_SIG], MCB_Z
+    je .done                        ; we are the last: there is nothing above
+    mov cx, [es:MCB_SZ]
+    mov bx, dx
+    add bx, cx
+    inc bx                          ; the MCB above, header and all
+    mov es, bx
+    cmp byte [es:MCB_SIG], MCB_M
+    je .sig
+    cmp byte [es:MCB_SIG], MCB_Z
+    jne .done                       ; a trampled chain: leave it exactly as
+.sig:                               ; found, for dos_mcb_alloc's .broken arm
+    cmp word [es:MCB_OWN], 0
+    jne .done                       ; in use: this is where the run ends
+    mov ax, [es:MCB_SZ]
+    add ax, cx
+    inc ax
+    mov bl, [es:MCB_SIG]            ; its end-of-chain flag comes down with it
+    mov es, dx
+    mov [es:MCB_SZ], ax
+    mov [es:MCB_SIG], bl
+    jmp short .l
+.done:
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
 ; dos_mcb_alloc - AH=48h
 ; in:  BX = paragraphs wanted
 ; out: CF=0 and AX = the block's segment; CF=1 with AX = 8 and BX = the
@@ -9976,7 +10035,8 @@ dos_mcb_alloc:
 .live:                              ; rather than walk into the heap
     cmp word [es:MCB_OWN], 0
     jne .next
-    mov si, [es:MCB_SZ]
+    call dos_mcb_join               ; ...and a free block is the whole RUN of
+    mov si, [es:MCB_SZ]             ; them (SPEC.md 96.9.2)
     cmp si, cx
     jbe .notbig
     mov cx, si                      ; remember the largest free
@@ -10024,9 +10084,12 @@ dos_mcb_alloc:
 ; out: CF=0 freed; CF=1 with AX = 9 (invalid block address)
 ;
 ; It marks the block free and does NOT coalesce. DOS does not coalesce here
-; either - it does it on the next alloc's walk - and a program that frees two
-; neighbours and asks for their sum is asking for something DOS would also
-; refuse.
+; either - it does it on the next alloc's walk - and since SPEC.md 96.9.2 so
+; do we, `dos_mcb_join` running at both the allocator's scan and the resize's
+; grow. The second half of this note USED TO SAY that a program freeing two
+; neighbours and asking for their sum was asking for something DOS would also
+; refuse, and that was wrong in the way that matters: DOS grants it, we did
+; not, and the gap is invisible until a program shrinks and grows.
 ; -----------------------------------------------------------------------------
 dos_mcb_free:
     push dx
@@ -10087,6 +10150,7 @@ dos_mcb_resize:
     mov es, dx                      ; the block above
     cmp word [es:MCB_OWN], 0
     jne .nofit2
+    call dos_mcb_join               ; ...and every free block above THAT
     mov ax, [es:MCB_SZ]
     add ax, cx
     inc ax                          ; ...absorbed, header and all

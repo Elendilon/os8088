@@ -59,6 +59,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/dosref.asm` | one binary that answers the same questions on both |
 | `tests/dostrap/regs.asm` | ...and the same shape for the REGISTERS: which ones does `INT 21h` give back? (SPEC.md 96.7.1.2) |
 | `tests/dostrap/vecs.asm` | ...and for the VECTORS: which of DOS's own block are installed, and do the four calls that go through them come back? (SPEC.md 96.5.2) |
+| `tests/dostrap/mcb.asm` | ...and for the ALLOCATOR: can a block grow back into what it gave up? (SPEC.md 96.9.2) |
 | `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
 | `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |
@@ -412,6 +413,28 @@ partial output — `NUL=2A` followed by silence names the vector *and* shows wha
 happened next.
 
 It reads sector 0 of drive A, which is a read, so neither disk is at risk.
+
+### `mcb.asm` — can a block grow back into what it gave up?
+
+`AH=4Ah` grows a block only into the block immediately above it. That is DOS's
+rule; what DOS *also* does is **coalesce adjacent free blocks during the
+allocation walk**, and a box that implements the first half without the second
+refuses a block smaller than one it has already granted.
+
+The five steps are every DOS memory manager's own shape, in eighths of the
+largest block there is: take the lot, give half back, take three quarters, give
+half back, take seven eighths. **Step 5 asks for less than step 2 was given**,
+so `cf=1` there is the finding with nothing to interpret.
+
+    IBM DOS 3.30            this box
+    MAX=93AE                MAX=6D9E
+    ask=93AE cf=0 bx=93AE   ask=6D9E cf=0 bx=6D9E
+    …                       …
+    ask=8138 cf=0 bx=8138   ask=5FEA cf=0 bx=5FEA
+
+**`MAX` is not comparable and nothing under it is** — the two arenas differ by
+design. What has to hold on both machines is the *shape*: five grants, each
+answering the size it granted.
 
 ### `dfree.asm` — the four registers, for every drive letter
 
