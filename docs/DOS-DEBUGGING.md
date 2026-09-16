@@ -58,6 +58,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/trap.asm` | the TSR that logs a real DOS's `INT 21h` traffic |
 | `tests/dostrap/dosref.asm` | one binary that answers the same questions on both |
 | `tests/dostrap/regs.asm` | ...and the same shape for the REGISTERS: which ones does `INT 21h` give back? (SPEC.md 96.7.1.2) |
+| `tests/dostrap/vecs.asm` | ...and for the VECTORS: which of DOS's own block are installed, and do the four calls that go through them come back? (SPEC.md 96.5.2) |
 | `tests/dostrap/rdsum.asm` | did the program get the bytes the disk holds? |
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
 | `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |
@@ -379,6 +380,38 @@ Three traps, all paid for once:
 - **The key wait is not a courtesy.** Under os8088 the fsx bracket ends when
   the program does and the desktop comes straight back, taking its own disk
   traffic with it.
+
+### `vecs.asm` — the vectors DOS OWNS, and the calls that go through them
+
+The box installed seven of DOS's own vectors and left fourteen at
+`0000:0000`, which is **not** *unimplemented* — an `int` through a null vector
+executes the vector table, and there is no way to test for it beforehand
+because *the probe is the call*. Nothing in our own `INT 21h` trace looks wrong
+at any point; the last thing answered correctly and the first thing that
+crashes are three instructions apart.
+
+Five lines, and the first four are identical on both machines:
+
+    NUL=NONE                     every vector of DOS's own block installed
+    2A=00                        `int 2Ah` came back, and AH survived it
+    29=[*]                       `int 29h` put a character up
+    25=CF? AX=???? SPD=0000      INT 25h's STACK, which is the assertion
+    KEY
+
+`CF` and `AX` on the `25` line are **not** comparable and the probe judges
+nothing: IBM DOS reads sector 0 of drive A and succeeds (`CF0 AX=0100`), this
+box refuses (`CF1 AX=0C01`). `SPD` is the finding — `INT 25h` and `INT 26h`
+are the only calls of the era that do not `iret`, DOS leaving the `FLAGS` word
+the `INT` pushed on the stack for the caller to pop, so a handler that `iret`s
+answers correctly and unbalances the caller by two bytes. That faults somewhere
+else entirely and looks like anything but this.
+
+**The commonest failure of this probe is a hang**, not a wrong line: a null
+vector sends it into the IVT rather than printing something false. So read the
+partial output — `NUL=2A` followed by silence names the vector *and* shows what
+happened next.
+
+It reads sector 0 of drive A, which is a read, so neither disk is at risk.
 
 ### `dfree.asm` — the four registers, for every drive letter
 

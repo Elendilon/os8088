@@ -5281,6 +5281,17 @@ $(BUILD)/REGS.COM: tests/dostrap/regs.asm | $(BUILD)
 $(BUILD)/dosregs360.img: $(BUILD)/REGS.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/REGS.COM
 
+# ...and the VECTOR gate's (SPEC.md 96.5.2).  VECS.COM needs no fixture either:
+# it reads the IVT, asks the four calls that go through it and prints five
+# lines, and the same binary prints them under a real IBM DOS 3.30.  It reads
+# sector 0 of drive A through INT 25h, which SUCCEEDS on the reference and is
+# refused here - a read, so neither disk is at risk.
+$(BUILD)/VECS.COM: tests/dostrap/vecs.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/vecs.asm
+
+$(BUILD)/dosvec360.img: $(BUILD)/VECS.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/VECS.COM
+
 # ...and the sound gate's. It needs NO SYSTEM.CFG: SPEC.md 51.3.1's boot
 # sniff finds the OPL and mounts SOUND.DRV by itself, which is exactly the
 # case SPEC.md 96.17 is about - the common one, not the configured one.
@@ -5385,6 +5396,7 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 
 .PHONY: doscom
 doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
+        $(BUILD)/dosvec360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
