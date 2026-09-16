@@ -1791,7 +1791,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE SBRATE286 SBIDLE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -4852,7 +4852,8 @@ $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 # GATE DISK and the shipped DOS.O88 is byte-identical to what it was.
 KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
                kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc \
-               kerndos/kdmouse.inc kernel/mouproto.inc kerndos/kdresume.inc \
+               kerndos/kdmouse.inc kerndos/kdkbd.inc kernel/mouproto.inc \
+               kerndos/kdresume.inc \
                kernel/hbstage.inc kernel/hbstub.inc
 
 # KDSTKDIAG=1 fills the gap between `.lowbss` and the stack top with a
@@ -4876,7 +4877,25 @@ KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
 ifeq ($(KDSTKDIAG),1)
 KDSTKDIAGDEF := -DKDSTKDIAG
 endif
-KDSTAMP := $(BUILD)/.kerndos$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))
+
+# NOKDKBD=1 leaves kern_dos's int 09h exactly as DOS leaves it: the ROM's own
+# handler, unguarded (SPEC.md 96.50). The DEFAULT carries SPEC.md 9.8's buffer
+# guard, because the handoff's step 6 has to unhook `kbm_isr` - it sits at a
+# KERNEL_SEG offset that is kern_dos's image one instruction later - and
+# nothing put anything back in its place. Reported off a 386: hold a direction
+# key in a game that is busy drawing, the BIOS buffer fills, and the ROM's beep
+# is longer than the typematic interval, so the next repeat overflows DURING
+# the beep and it never stops.
+#
+# It is a knob because kern_dos's whole promise is "the machine with no
+# operating system on it", and this is a deliberate departure from that -
+# MEASURED as such: a real IBM DOS 3.30 leaves `int 09h` at F000:E987 and so
+# did kern_dos, the same address to the byte. So the arm that behaves like DOS
+# has to stay buildable, and this is it. tests/kdkbd.py is the row.
+ifneq ($(NOKDKBD),)
+KDKBDDEF := -DKD_NO_KBGUARD
+endif
+KDSTAMP := $(BUILD)/.kerndos$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))$(if $(NOKDKBD),-nkb$(NOKDKBD))
 $(shell mkdir -p $(BUILD); \
         [ -f $(KDSTAMP) ] || { rm -f $(BUILD)/.kerndos-* $(BUILD)/.kerndos \
                                      $(BUILD)/kerndos.bin \
@@ -4891,7 +4910,7 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
                       apps/os88parts.inc apps/os88partsbody.inc \
                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) -DDOS_EXTCORE \
+	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) $(KDKBDDEF) -DDOS_EXTCORE \
 	        -I kernel/ -I kerndos/ -I apps/ \
 	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndos: $(call FILESIZE,$@) bytes"
@@ -5016,8 +5035,15 @@ $(BUILD)/DOSHELLO.COM: tests/doscom/hello.asm | $(BUILD)
 # while the handler rode along beside the document: OSAPI_FILE_GOTO_Q moves the
 # machine and not the instance, so the read came from A:\APPS. A gate disk that
 # carries its own handler cannot see that, which is why this one does not.
-$(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.COM
+# ...and the KEY BUFFER's probe rides with it (SPEC.md 96.50): it forges a
+# full buffer from INSIDE the guest, where nothing can drain it, and watches
+# port 61h while keys arrive. tests/kdkbd.py is the A/B against NOKDKBD=1.
+$(BUILD)/KBHOLD.COM: tests/dostrap/kbhold.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/kbhold.asm
+
+$(BUILD)/doscom360.img: $(BUILD)/DOSHELLO.COM $(BUILD)/KBHOLD.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSHELLO.COM \
+	    $(BUILD)/KBHOLD.COM
 
 # ...AND THE SAME PROGRAM ON A 1.44MB FLOPPY, which is a different question
 # and not a second geometry for its own sake (SPEC.md 96.40.5). A FAT12

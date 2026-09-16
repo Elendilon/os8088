@@ -2909,6 +2909,31 @@ SOAK = [
         "written to for a year is where a too-fragmented part would first "
         "show up. Host-side, one second, and it reads THE SHIPPED SYSTEM DISK: since SPEC.md 96.44.5 flipped $(SYSROOT) to the parted package there is no gate disk to read instead, so this row also answers `did a shipped floppy lose kern_dos`.",
         wants=("build/os8088-360.img", "build/kerndos.bin")),
+    Row("kdkbd", "soak", py("tests/kdkbd.py"), 60.0,
+        "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
+        "Reported off an 86Box 386: hold a direction key in Prince of Persia "
+        "under the whole-machine arm and the BIOS beeps for longer than the "
+        "typematic interval, so the next repeat overflows DURING the beep and "
+        "it never stops - SPEC.md 9.8's 'unbounded and fatal', which the "
+        "KERNEL has guarded since and kern_dos had not. The handoff's step 6 "
+        "puts int 09h back to the ROM's and MUST (kbm_isr sits at a "
+        "KERNEL_SEG offset that is kern_dos's image one instruction later); "
+        "putting nothing in its place is the gap. MEASURED, one probe, three "
+        "machines: windowed 0060:3986 = kbm_isr, kern_dos F000:E987 = the "
+        "ROM, and IBM DOS 3.30 at its own prompt F000:E987 - THE SAME ADDRESS "
+        "TO THE BYTE, so this was never a regression and never ours to cause. "
+        "THE BUFFER IS FORGED FROM INSIDE THE GUEST, which is why the probe "
+        "is a DOS program: a host-side forge is drained before the test key "
+        "lands, and that was measured and read as 'both arms survived'. What "
+        "is asserted is 9.8's own verification - a key on a full buffer winds "
+        "the tail 003C -> 003A and is STORED - and NOT the beep, which cannot "
+        "be reproduced here: the probe proves its own speaker instrument by "
+        "sounding one (control 65,536 of 65,536) and then reads ZERO on both "
+        "arms and on both ROMs this harness can boot, GLaBIOS and the genuine "
+        "27-Oct-82 IBM part. The beeping ROM is the reporter's 386 BIOS and "
+        "MartyPC is an 8088. VERIFIED RED against `os88build.py build "
+        "NOKDKBD=1`, whose image this row takes as an argument.",
+        needs=("marty",), serial=True, wants=("build/doscom360.img",)),
     Row("kdhand", "soak", py("tests/kdhand.py"), 40.0,
         "THE DOS HANDOFF, END TO END (SPEC.md 96.40, "
         "docs/plans/KERN-DOS-PLAN.md 7): run a .COM in the window, then run "

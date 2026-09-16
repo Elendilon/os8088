@@ -102,6 +102,13 @@ with the stub (kdlayout.inc) and cannot move, so CORE_ORG has to rise"
 %include "kdmouse.inc"              ; INT 33h's pointer (SPEC.md 96.45): the
                                     ; port os8088 settled on, decoded through
                                     ; kernel/mouproto.inc
+%ifndef KD_NO_KBGUARD
+%include "kdkbd.inc"                ; ...and SPEC.md 9.8's buffer guard, which
+                                    ; step 6's `mouse_unhook` takes away and
+                                    ; nothing put back (96.50). `make
+                                    ; NOKDKBD=1` leaves kern_dos as DOS leaves
+                                    ; it - the ROM's own int 09h, unguarded
+%endif
 %include "kdresume.inc"             ; ...and the live resume, which carries
                                     ; the stub itself (SPEC.md 96.49)
 %include "kdentry.inc"              ; the REAL entry: a launch block, a

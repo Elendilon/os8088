@@ -130619,3 +130619,101 @@ The lesson is not about prerequisites, which were added: it is that a
 diagnosis should start by checking that the artefact under test is the one the
 source describes — `cmp` against a fresh assembly took one command and would
 have saved the hour.
+
+
+### 96.50 The BIOS key buffer's guard, which the handoff took away
+
+**Reported off an 86Box 386**: hold a direction key in Prince of Persia under
+the whole-machine arm and *"holding left tries to BIOS-beep me to death"* —
+the beep is longer than the typematic interval, so the next repeat arrives on
+a still-full buffer, overflows again, and it never stops. §9.8 is that exact
+failure, calls it "unbounded and fatal", and os8088's kernel has guarded it
+since: `kbd_ovflow` sits in front of the ROM's `int 09h` and, on a full
+buffer, un-enqueues the NEWEST entry so the ROM finds room and never reaches
+its bell.
+
+**`kern_dos` did not have it**, and the reason it did not is correct as far as
+it goes. The handoff's step 6 calls `mouse_unhook`, which puts `int 09h` back
+to the ROM's, and it *must*: `kbm_isr` sits at a KERNEL_SEG offset that is
+kern_dos's own image one instruction later, so a key pressed after the
+handover would vector into the middle of the disk layer. Unhooking is right.
+Putting nothing back in its place is the gap.
+
+**It is not the typematic rate, which is what the report guessed.** Nothing in
+this tree ever programs it — there are zero `0xF3` writes anywhere, and the
+only 8042 writes at all are `XMEM.DRV`'s A20 gate. The rate is the ROM's POST
+default in every environment we ship.
+
+#### 96.50.1 Measured: the vector, in three machines
+
+One probe, one line each:
+
+| | `int 09h` |
+|---|---|
+| os8088 desktop, and the **windowed** box | `0060:3986` = `kbm_isr`, guarded |
+| `kern_dos`, before this | `F000:E987` = the ROM, unguarded |
+| **IBM DOS 3.30** at its own prompt | `F000:E987` — *the same address to the byte* |
+
+So this was never a regression and was never ours to cause: a real DOS leaves
+the identical vector and would behave identically. What it was, was os8088
+having already decided the failure was unacceptable, and the third arm not
+inheriting the decision. That is why "better than DOS" is the right bar here
+and "the same as DOS" is not.
+
+The windowed box is guarded throughout, incidentally, and always was:
+`dos_hook_vectors` takes `20h`, `21h`, `22h`, `23h`, `24h`, `2Fh` and `33h`
+and has never taken `09h`, so the kernel's own ISR stays live for the whole
+bracket.
+
+#### 96.50.2 What shipped, and what it deliberately does not do
+
+`kerndos/kdkbd.inc`, in `kdmouse.inc`'s shape and for its reason — *a second,
+much smaller driver for a thing the kernel had*. `kd_kbd_start` hooks `int 09h`
+**before `dos_save_machine`**, so the guard is part of the machine the program
+is handed rather than a vector the program's own exit undoes; `kd_kbd_isr`
+runs the check and then `jmp far`s to the ROM, which still does all the real
+work — the scancode, the shift state, the LEDs and Ctrl-Alt-Del.
+
+**It is silent**, and that is a choice rather than an omission. §9.8 beeps
+three times per burst because the beep is what tells the user their typing is
+going nowhere; there is no `snd_beep` here and no task context to defer one
+into, which is §9.8's own rule about what an ISR may spend. The survivability
+half ships and the announcement does not.
+
+**It carries no state at all**, which is what dropping the beep buys: no
+`kbd_ovn`, so nothing of ours is named, so it needs no `DS` and can run at the
+gate with the program's. Two words of the BIOS data area in, one out.
+
+**Cost: 156 bytes**, `kerndos.bin` 31,975 → 32,131, inside `KD_IMG_KB` with no
+rung moved. `make NOKDKBD=1` gates it back off and that arm is **byte-identical
+to kern_dos before this work** — the knob is the DOS-equivalent machine, kept
+buildable because kern_dos's whole promise is *the machine with no operating
+system on it* and this is a deliberate departure from it.
+
+#### 96.50.3 The beep could not be reproduced, and that is a fact about the ROMs
+
+`tests/dostrap/kbhold.asm` forges a full buffer **from inside the guest** —
+which is the whole reason it is a DOS program and not four host-side pokes: a
+forge written from the host is drained before the test key lands, because the
+guest is sitting in `int 16h` and empties it in between. That was measured,
+and it read as *"both arms survived"*.
+
+The probe then samples port 61h's speaker line, and **proves its own
+instrument first** by sounding one deliberately: a zero nobody can validate is
+not a measurement, and `test al, 3` matched every sample of a silent machine
+before the mask was narrowed to bit 1 — bit 0 is the timer-2 gate and a PC
+leaves it set. The control reads 65,536 of 65,536.
+
+With the instrument proven, the window reads **zero on both arms and on both
+ROMs this harness can boot**: GLaBIOS, and the genuine 27-Oct-82 IBM part
+(`501476 COPR. IBM`, on `os8088_5150_cga` with a `why_ibm=`). Neither sounds
+its buffer-full bell. The beeping ROM is the reporter's 386 BIOS, and MartyPC
+is an 8088, so it is out of reach entirely (docs/TESTING.md's list).
+
+**That is not a hole in the gate**, because the beep is not the thing we
+control. The OVERFLOW is, and what is asserted is that a key arriving on a
+full buffer is STORED rather than dropped — the tail winding `3Ch → 3Ah`,
+which is §9.8's own verification, to the same two values. With the guard the
+buffer is never full when a key arrives, so no BIOS — beeping or silent —
+reaches its overflow path at all. `tests/kdkbd.py` is the row, and it takes
+the other arm's system image as an argument so the A/B is one command.

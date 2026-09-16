@@ -148,7 +148,7 @@ kd_entry:
     pop si
 .nodpt:
 
-    ; --- THE VOLUME TABLE, BEFORE ANY MOUNT (SPEC.md 96.46) -----------------
+    ; --- THE VOLUME TABLE, BEFORE ANY MOUNT (SPEC.md 96.50) -----------------
     ; It has to be in place before `disk_mount_x` below, and before the back
     ; end: `dos_vol` is an INDEX into it, and until this runs the table is the
     ; static A:/B: initialiser in `kernel/disk.inc` - which is an assumption
@@ -291,6 +291,10 @@ kd_entry:
     ; launch block, which is where the port and the line came from.
     call kd_mou_start
     mov word [dos_hkv + DHK_MOUSE], kd_mou_read
+%ifndef KD_NO_KBGUARD
+    call kd_kbd_start           ; ...and the key buffer's guard, BEFORE the
+                                ; bank for the same reason (SPEC.md 96.50)
+%endif
 
     call dos_save_machine       ; **BEFORE dos_hook_vectors**: the whole IVT is
                                 ; what dos_restore_machine puts back, so a hook
@@ -475,7 +479,7 @@ kd_arena:
     ret
 
 ; -----------------------------------------------------------------------------
-; kd_vtab - the KERNEL's volume table, into ours (SPEC.md 96.46)
+; kd_vtab - the KERNEL's volume table, into ours (SPEC.md 96.50)
 ; in:  SI -> the launch block; DS = ES = KD_SEG
 ; out: nothing; every register preserved
 ;
@@ -602,6 +606,9 @@ kd_leave:
     ; where it went, which is exactly what step 6's `mouse_unhook` protects the
     ; handover in the other direction from.
     call kd_mou_stop
+%ifndef KD_NO_KBGUARD
+    call kd_kbd_stop            ; ...and ours is at a KD_SEG offset too
+%endif
     mov si, [kd_lbp]
 
     ; --- THE SESSION, PUT BACK HERE (SPEC.md 96.49) -------------------------
