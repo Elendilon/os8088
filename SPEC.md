@@ -43080,6 +43080,27 @@ array had a SECOND JOB nobody had written down: it was the boot overlay's
 landing ground. Shrinking the listing takes that room away, so the pad replaces
 it by name - dead at runtime, and returned the day `.ovlw` shrinks.
 
+#### 25.9.4 `ASSOC.DAT` absorbs INTO it, which is what lets that claim go
+
+The volume's association cache (§54.7) held a 64-byte body per row in a 3KB
+claim kept for the session — the same pictures, under the same `(stem, size)`
+identity, as the store. `ico_key_stem` composes a row's key from the other
+end (`<STEM>.O88` NUL-padded to twelve, then the size), so an **absorbed**
+body and a **harvested** one land on one row and answer one another's lookups;
+§54.7.4 is the mechanism and the reason the claim is now a transient file
+buffer.
+
+Two consequences belong here rather than there. The store is sized for the
+machine and absorbing is eager, so the measurement that sizes it is the union
+over every volume a machine might mount: **28 distinct `(stem, size)` pairs
+across every shipped volume**, against `ICO_NROW`'s 48 and `ASSOC_NAPP`'s
+further 12 composed document bodies. And a **shed** now costs a little more
+than a redraw — the absorbed rows go with it — so `ico_need` clears
+`asc_vol` when it re-claims an empty store, which turns that cost back into
+one three-sector re-read at the next mount rather than a sector per package.
+The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
+without asking the user for anything.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
@@ -76814,6 +76835,76 @@ Cost: `.cold` **+42**, footprint +0 —
 `asc_seed` is cold code and the walk, the row pointer and the slot were all
 already in hand.
 
+
+### 54.7.4 The claim is a FILE BUFFER: the bodies are absorbed and it is freed
+
+The cache was a **3KB claim held for the session**, and §25.9's store made
+2,560 of those bytes a second copy of something the machine already had. An
+`ASC_ROW` is 80 bytes of which 64 are an icon body, keyed on `(stem, size)` —
+which is, byte for byte, the identity the store keys on. Two places holding
+one picture is exactly what §25.9 exists to end, and the cache was the larger
+of the two.
+
+So `asc_use` **absorbs and frees**. After `asc_merge_ext` has taken the
+declarations and `asc_seed` the locations and the glyphs, `asc_absorb` walks
+the rows once more and `ico_add`s every non-blank body under
+`ico_key_stem`'s composition of the same key the listing will ask with; then
+`asc_drop` returns the claim. Nothing above this layer holds a pointer into
+it, because nothing above it ever did: every consumer of a row took a *copy*
+of what it wanted, and the body was the one thing that had no copy to take.
+
+**`ico_key_stem` is the load-bearing part.** A row names a package by stem and
+every package is a `.O88` (§20.1), so `<STEM>.O88` NUL-padded to twelve is
+what `ico_key_of` will build from that package's directory entry when the
+listing reaches it. Composing the key rather than inventing a second shape for
+it is what makes an absorbed body and a harvested one **one row that answers
+both** — a second shape would have been two rows holding one picture, which is
+the defect with the numbers rearranged.
+
+**Absorbing is eager, and the sizing is measured rather than assumed.** A
+buffer that may still be needed is a buffer that may not be freed, so there is
+no lazy version of this: the choice is absorb everything or keep the claim.
+What eager costs is store rows spent before the user has looked at anything,
+and the busiest shipped volume declares 25 rows of which 24 carry a body,
+while the union over *every* shipped volume is **28 distinct `(stem, size)`
+pairs** against `ICO_NROW`'s 48, with `ASSOC_NAPP` capping composed document
+bodies at another 12. A full store is §25's generic icon and not an error.
+
+**`asc_vol` changes meaning, and the compare that reads it gains a second
+half.** It said *whose cache the claim holds*; there is no claim, so it says
+**whose `ASSOC.DAT` has been absorbed into the store**, and the compare at the
+top of `asc_use` still makes a re-entry free. But the store is purgeable
+(§25.9.2), so a shed empties it while that stamp still vouches for the volume —
+and the next mount would then skip the three-sector re-read and pay a sector
+per package instead, ~400 ms of `int 13h` each on the target machine. So the
+compare asks `[ico_n]` beside it: a store holding nothing cannot be holding
+this volume's bodies. It is five bytes, in the stamp's only reader, and it is
+*not* on the shed's own path for the reason §50.6 gives — `mem_shed_one`'s
+whole protocol is that the holder's existing refusal is the notice, and this
+is that refusal. Clearing the stamp from `ico_need` instead was built first
+and is worse by one mount: `ico_need` runs on the first body the harvest
+wants, which is *after* `asc_use` has already declined to re-read.
+
+**`asc_lookup` is gone and the question it asked is now ungated.** It searched
+the claim for an offset into it; with no claim, *is this package's body
+already in RAM* is the store's question, and `ico_have` asks it on **both**
+kernels. `kern_small` has no `ASSOC.DAT` at all (§54.0) and so never had this
+lookup — and its harvest was therefore reading a package's first sector every
+mount for a body the store had held since the last one. On the 4.77 MHz floor
+machine an `int 13h` is ~400 ms (PERFORMANCE.md), and `APPS/` is eight of
+them, so a re-entry into a folder is the saving that matters rather than the
+bytes. `asc_take` keeps only the half that needs an association — the
+location and the glyph reduce — and takes the store row instead of a claim
+offset.
+
+**What the DECLARATION half costs, stated because it is the one thing a hit
+skips.** `assoc_note_app` merges a package header's §54.6 declarations and
+that header is in the sector a hit does not read. Nothing is lost in practice:
+the declaration was merged the first time that package was harvested, or by
+`asc_merge_ext` out of `ASSOC.DAT`, and `assoc_ext` is resident. This is the
+property `asc_lookup` already had about the cached path; it now covers one
+more path, and the failure mode if it is ever wrong is a document with the
+generic icon rather than anything about a load.
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 

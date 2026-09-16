@@ -1503,24 +1503,41 @@ asc_use_x:
     push es
     mov al, [disk_drive]
     cmp al, [asc_vol]
-    je asc_use_out              ; already this volume's
+    jne .load
+    cmp byte [ico_n], 0         ; ...AND THE STORE STILL HOLDS IT (SPEC.md
+    jne asc_use_out             ; 54.7.4). The stamp used to mean "the claim
+                                ; holds this volume's cache" and the claim was
+                                ; ours to keep; it means "this volume's bodies
+                                ; are in the STORE" now, and the store is
+                                ; PURGEABLE - so a shed can empty it while the
+                                ; stamp still vouches for it, after which every
+                                ; package on the volume goes back to a sector
+                                ; read apiece (~400 ms of int 13h each on the
+                                ; target machine) against one three-sector
+                                ; re-read. Here and not on the shed's own path
+                                ; because mem_shed_one's whole protocol is that
+                                ; the holder's existing refusal is the notice
+                                ; (SPEC.md 50.6), and this IS that refusal
+.load:
     mov [asc_vol], al
     xor ax, ax
     mov [asc_n], ax             ; ...and it holds nothing until proven
-    cmp word [asc_seg], 0
-    jne .haveseg
-    mov ax, ASC_KB
-    mov bx, MEM_K_ASC
-    call mem_claim_x
-    jc asc_use_out              ; refused: tier 2, every lookup misses
-    mov [asc_seg], dx
-    push ax                     ; ...and MOVABLE (SPEC.md 66.5.6). This is the
-    mov ax, asc_reloc           ; claim docs/HEAP-CLAIMS.md measured acting as a
-    mov bx, MEM_K_ASC           ; BARRIER: it is taken on a VOLUME SWITCH, so
-    call mem_movable_x          ; on a machine that has been used it sits
-    pop ax                      ; wherever the arena had room - 3KB holding
-                                ; 40KB out of reach on the run that found it
-.haveseg:
+    mov ax, ASC_KB              ; ALWAYS a fresh claim, and the `cmp [asc_seg],
+    mov bx, MEM_K_ASC           ; 0 / jne .haveseg` that used to stand here has
+    call mem_claim_x            ; gone with the session-long buffer it guarded:
+    jc asc_use_out              ; every exit below runs asc_drop (SPEC.md
+    mov [asc_seg], dx           ; 54.7.4), so this word is 0 whenever anything
+                                ; reaches here. A refusal is tier 2 - every
+                                ; lookup misses and the harvest reads sectors
+    push ax                     ; ...and MOVABLE (SPEC.md 66.5.6), which is now
+    mov ax, asc_reloc           ; a WITHIN-CALL requirement rather than the
+    mov bx, MEM_K_ASC           ; session-long one docs/HEAP-CLAIMS.md measured
+    call mem_movable_x          ; acting as a BARRIER: dsk_read_chain reaches
+    pop ax                      ; the sector cache's own claims and those can
+                                ; compact (SPEC.md 18.95), so the block can
+                                ; move between the claim and the free even
+                                ; though nothing outside this routine will
+                                ; ever see it again
     call asc_root_find          ; CF=0, AX = first cluster, DX = sectors
     jc .out
     cmp dx, ASC_KB*2            ; ...and it must FIT (SPEC.md 54.7.1). Every
@@ -1595,7 +1612,11 @@ asc_use_x:
                                 ; volume SWITCH, not per mount - the compare
                                 ; at the top is the gate - so the reduce is
                                 ; paid where a floppy is already turning
+    call asc_absorb             ; ...and the BODIES into the machine-wide store
+                                ; (SPEC.md 54.7.4), which is the last thing in
+                                ; this file anything above still wanted
 .out:
+    call asc_drop               ; THE CLAIM IS A FILE BUFFER (SPEC.md 54.7.4)
     pop es
     pop di
     pop si
@@ -1689,6 +1710,113 @@ asc_seed:
     loop .row
 .out:
     jmp kretc_di
+
+; -----------------------------------------------------------------------------
+; asc_absorb - every row's BODY into the machine-wide store (SPEC.md 54.7.4)
+; in:  ES = [asc_seg], [asc_n] rows valid
+; out: nothing; AX, BX, CX, DX, SI and DI preserved, ES clobbered (the caller
+;      banked it)
+;
+; THIS IS WHAT MAKES THE CLAIM TRANSIENT, and the duplication it ends is the
+; largest single item the icon work found: ASC_ROW is 80 bytes of which 64 are
+; a body, so 32 rows is 2,560 bytes of pictures held for the life of the
+; session in a claim whose only other content is a header, a stem, a size and
+; a cluster. The store (SPEC.md 25.9) already holds exactly those bodies,
+; keyed by exactly that identity, for the whole MACHINE - so a copy in here is
+; a second copy of something the machine already has, which is the sentence
+; the whole plan is about.
+;
+; Absorbing is EAGER on purpose. The alternative - keep the claim and look the
+; body up in it, as this did - is what pinned 3KB mid-arena for the session
+; (docs/HEAP-CLAIMS.md measured MEM_K_ASC acting as a barrier), and it cannot
+; be made lazy the other way round: a buffer you may still need is a buffer
+; you may not free. What eager costs is store rows spent before the user has
+; looked at anything, and that is measured rather than feared - the busiest
+; shipped volume declares 25 rows of which 24 carry a body, and the union over
+; every shipped volume is 28 distinct (stem, size) pairs against ICO_NROW's
+; 48, with ASSOC_NAPP capping composed document bodies at another 12. A full
+; store is SPEC.md 25's generic icon and not an error.
+;
+; THE STORE'S OWN CLAIM IS MADE FIRST, and that is not tidiness. mem_claim can
+; COMPACT, this claim is MOVABLE (SPEC.md 66.5.6), and the walk below holds a
+; row offset against a segment a compaction moves - so making it before the
+; walk means no ico_add inside the walk reaches the allocator at all. ES is
+; reloaded per row regardless, because a routine that is correct only while
+; something else stays true is a routine waiting for that thing to change.
+; -----------------------------------------------------------------------------
+asc_absorb:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cx, [asc_n]
+    jcxz .out
+    call ico_need               ; ...before the walk, and CF=1 is "no store",
+    jc .out                     ; which every entry already draws as the
+    mov di, ASC_HDR             ; generic icon
+.row:
+    push cx
+    push di
+    mov es, [asc_seg]
+    mov si, di
+    add si, ASC_ROWICO + 32     ; the body's DATA plane: an all-zero one is
+    mov cx, 16                  ; the ICONLESS sentinel (asc_seed reads the
+    xor ax, ax                  ; same bytes the same way), and spending a row
+.ink:                           ; on it would buy the generic icon a miss
+    or ax, [es:si]              ; already draws
+    inc si
+    inc si
+    loop .ink
+    or ax, ax
+    jz .next
+    mov dx, [es:di+8]           ; the size and the stem beside it are the two
+    mov si, di                  ; halves of the key the LISTING will ask with
+    call ico_key_stem
+    mov dx, [asc_seg]           ; ...and the body, out of the claim it is
+    mov bx, di                  ; still sitting in
+    add bx, ASC_ROWICO
+    mov si, ico_keyb
+    call ico_add                ; a hit is idempotent, so a package on two
+.next:                          ; mounted volumes takes one row
+    pop di
+    pop cx
+    add di, ASC_ROW
+    loop .row
+.out:
+    jmp kretc_di
+
+; -----------------------------------------------------------------------------
+; asc_drop - give the file buffer back (module-internal)
+; out: nothing (all registers preserved)
+;
+; Idempotent, and it has to be: .out is reached by the refused claim, the bad
+; magic, the short file and the "already this volume" compare as well as by a
+; clean load.
+; -----------------------------------------------------------------------------
+asc_drop:
+    push ax
+    push bx
+    push dx
+    mov dx, [asc_seg]
+    or dx, dx
+    jz .out
+    xor ax, ax
+    mov word [asc_seg], 0       ; FIRST, and asc_reloc's own header is why: a
+    mov [asc_n], ax             ; segment word naming a block that is gone is
+    mov [asc_ne], ax            ; not a missing answer, it is a live wrong one.
+                                ; The counts go with it - nothing reads them
+                                ; past this point, and leaving a row count
+                                ; beside a null segment is a trap for whoever
+                                ; adds the next reader
+    mov bx, MEM_K_ASC
+    call mem_free_x
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; asc_root_find - ASSOC.DAT in the volume's ROOT (module-internal)
@@ -1843,135 +1971,58 @@ asc_slot_of:
     ret
 
 ; -----------------------------------------------------------------------------
-; asc_lookup - is this package's icon already cached? (SPEC.md 54.7)
-; in:  SI -> its staged 32-byte directory entry
-; out: CF=0 and DI = the offset of its 64-byte icon within [asc_seg];
-;      CF=1 = a miss, so the caller reads the sector as it always did
-; clobbers: DI (the output), CF
-;
-; Keyed on (stem, SIZE), which is why a modified program can never serve a
-; stale icon: any edit changes the length, so it misses and is re-harvested.
-; A false hit needs a different program with the same name AND byte-identical
-; size, and costs a wrong ICON - never a wrong load, which SPEC.md 54.4's name
-; re-check governs separately.
-; -----------------------------------------------------------------------------
-asc_lookup_x:
-    push ax
-    push cx
-    push dx
-    push si
-    push es
-    mov cx, [asc_n]
-    jcxz .no
-    cmp word [asc_seg], 0
-    je .no
-    mov dx, [si+20]             ; the size the directory reports
-    call assoc_stem_of          ; DI -> assoc_stemb
-    mov es, [asc_seg]
-    mov di, ASC_HDR
-.row:
-    push cx
-    push di
-    mov si, assoc_stemb
-    mov cx, 8
-    cld
-    repe cmpsb
-    pop di                      ; (pop leaves ZF alone)
-    jne .next
-    cmp dx, [es:di+8]           ; the stem matches: the size must too
-    jne .next
-    pop cx
-    add di, ASC_ROWICO
-    clc
-    jmp short .out
-.next:
-    pop cx
-    add di, ASC_ROW
-    loop .row
-.no:
-    stc
-.out:
-    pop es
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; asc_take - spend a cache hit: the icon, the location and the glyph
-; in:  DI = the icon's offset in [asc_seg], DX = the listing index,
-;      SI -> the staged directory entry
+; asc_take - spend a store hit: the program's location and its glyph
+; in:  AL = the store row holding its body, SI -> the staged directory entry
 ; out: nothing (all registers preserved)
+;
+; WHAT THE SLOW PATH WOULD HAVE DONE, minus the sector read. A package reached
+; through .h_read runs assoc_note_app, which records where it is, merges what
+; it declares and reduces its icon into its slot's glyph; a package whose body
+; is already in the store never reads that sector, so this is the half of it
+; that does not need one. The DECLARATION half genuinely does - it lives in
+; the header - and is not lost: it was merged the first time this package was
+; harvested, or by asc_merge_ext out of ASSOC.DAT, and assoc_ext is resident.
+;
+; The location comes from the DIRECTORY ENTRY and not from the cache, which is
+; what makes a hit safe on a disk that has been swapped: the body is keyed on
+; (name, size) and says nothing about where anything is.
+;
+; IT WAS `asc_lookup` AND `asc_take`, AND THE LOOKUP HAS GONE UNGATED. It read
+; the volume's ASSOC.DAT claim for an offset into it; there is no claim to read
+; now (54.7.4), so the question "is this package's body already in RAM" is the
+; store's and is asked by ico_have in disk.inc - on both kernels, because the
+; store is on both and kern_small's harvest was reading a sector per package
+; for a body it already had.
 ; -----------------------------------------------------------------------------
 asc_take_x:
     push ax
     push bx
     push cx
-    push dx
     push si
     push di
     push es
-    call asc_note               ; the program's location and glyph first,
-                                ; while SI still points at its entry
-    mov bx, di                  ; ...then the cached body STRAIGHT INTO THE
-    mov ax, dx                  ; STORE, out of the assoc claim it is already
-    mov dx, [asc_seg]           ; sitting in (SPEC.md 25.9)
-    call ico_put                ; the key is ico_keyb, banked at the top of
-                                ; the harvest loop
-                                ;
-                                ; **dsk_ico IS NO LONGER A TENANT HERE**, and
-                                ; the `pushf`/`cli` that guarded the stage
-                                ; went with it: this used to copy the body
-                                ; into dsk_ico and then out again, with the
-                                ; gfx lock free, so a tick could switch to a
-                                ; worker whose wm_show repaints the dock
-                                ; through inst_icon_ptr and leave a package's
-                                ; icon in the buffer. One copy, no shared
-                                ; buffer, nothing to race
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; asc_note - a cache hit's half of assoc_note_app (module-internal)
-; in:  SI -> the staged entry, DI = the icon's offset in [asc_seg]
-; out: nothing (all registers preserved)
-;
-; The location comes from the DIRECTORY ENTRY, which a hit still has - which
-; is why an ASSOC.DAT row carries no cluster and so depends on nothing about
-; the disk's layout.
-; -----------------------------------------------------------------------------
-asc_note:
-    push ax
-    push bx
-    push si
-    push di
-    push es
-    push di                     ; the icon offset: assoc_stem_of takes DI
-    call assoc_stem_of
-    mov si, di
-    call assoc_app_get
+    push ax                     ; the store row: assoc_stem_of answers in DI
+    call assoc_stem_of          ; and assoc_app_get in AL, so it cannot stay
+    mov si, di                  ; where it is
+    call assoc_app_get          ; AL = the slot, CF=1 = no association, so
+    pop cx                      ; there is nothing to point at the glyph
     jc .done
     mov bl, al
     xor bh, bh
-    call assoc_hint_here
-    call assoc_glyph_di
-    pop si
-    push si
-    add si, 32                  ; the cached body's DATA plane
-    mov es, [asc_seg]
-    call assoc_reduce
+    call assoc_hint_here        ; ...it is HERE (SPEC.md 54.4.2 rung 1)
+    call assoc_glyph_di         ; ...and DI -> the slot's eight glyph bytes
+    mov al, cl
+    call ico_body               ; ES:DI -> the 64-byte body. The STORE's copy,
+    jc .done                    ; which is the same picture the cache held and
+    mov si, di                  ; one fewer place to hold it
+    add si, 32                  ; the body's DATA plane
+    call assoc_glyph_di         ; DI again: ico_body spent it on the body
+    call assoc_reduce           ; ES = the store, per assoc_reduce's contract
 .done:
-    pop di                      ; balance the banked icon offset
     pop es
     pop di
     pop si
+    pop cx
     pop bx
     pop ax
     ret

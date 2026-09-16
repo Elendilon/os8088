@@ -280,16 +280,21 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 ; SPEC.md 54's file ASSOCIATIONS are kern_big's, on OS88_THEME's terms one
-; block up and for a bigger reason than the footprint. This takes assoc.inc
+; block up. This takes assoc.inc
 ; and the associco.inc glyph table it pulls in out whole - .text, .cold and
 ; .bss, 2,520 bytes of them, and 2,560 of KERN_SIZE once the call sites go
-; with them - and it ALSO takes out a 3,072-byte heap claim that
-; stood on a bare desktop: asc_use_x claims ASC_KB under MEM_K_ASC, which is a
-; kernel TAG and not one of the MEM_P_* purgeable classes, and nothing frees
-; it. disk_mount_x calls asc_use_x and the boot mount is a mount, so on a
-; machine whose whole heap is ~31KB the association cache was holding a
-; tenth of it before the user had done anything. SPEC.md 54.0 is the contract
-; and says what the machine loses.
+; with them. SPEC.md 54.0 is the contract and says what the machine loses.
+;
+; IT USED TO BE "FOR A BIGGER REASON THAN THE FOOTPRINT", and that reason has
+; been RETIRED AT THE SOURCE rather than by this gate. asc_use_x claimed
+; ASC_KB under MEM_K_ASC - a kernel TAG and not one of the MEM_P_* purgeable
+; classes - and nothing freed it; disk_mount_x calls asc_use_x and the boot
+; mount is a mount, so on a machine whose whole heap is ~31KB the association
+; cache stood on a bare desktop holding a tenth of it before the user had done
+; anything. SPEC.md 54.7.4 made it a FILE BUFFER: the bodies are absorbed into
+; 25.9's machine-wide store and asc_drop frees the claim before asc_use
+; returns, so kern_big does not pay it either. The footprint is what is left,
+; and it is now the whole of the argument.
 ;
 ; ONE symbol decides it, so a call site cannot disagree with the body - and
 ; it is resolved HERE, above every %include, because nasm's preprocessor is

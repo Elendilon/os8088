@@ -2769,6 +2769,30 @@ SOAK = [
         "here as too few rows.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
+    Row("ascabsorb", "soak", py("tests/ascabsorb.py"), 30.0,
+        "ASSOC.DAT'S BUFFER IS A FILE BUFFER (SPEC.md 54.7.4 / 25.9.4). The "
+        "volume's association cache was a 3KB claim held for the SESSION, and "
+        "2,560 of those bytes were icon bodies - the same pictures under the "
+        "same (stem, size) identity as SPEC.md 25.9's machine-wide store, "
+        "which is the duplication that whole design is against and was the "
+        "larger of the two copies. asc_use absorbs every row's body into the "
+        "store and frees the claim before it returns. Four verdicts: after a "
+        "mount there is NO MEM_K_ASC record in mem_tab and asc_seg is 0 - "
+        "asserted on the ALLOCATOR and not on the variable, because the "
+        "variable alone passes if the claim is LEAKED instead of freed, which "
+        "is the one way this could be worse than what it replaced; the bodies "
+        "survived, measured as a ROOT mount storing the whole volume's "
+        "packages (ASSOC.DAT covers the volume, and they live one folder down "
+        "so nothing has listed them); entering that folder then adds almost "
+        "nothing, which is the saving as a number; and a SHED clears asc_vol, "
+        "because the stamp means 'this volume is in the store' now and a "
+        "purged store that still claims it would cost a sector per package - "
+        "400 ms of int 13h apiece on the target machine. All four watched "
+        "going red: asc_drop removed fails 'gone' with the record still "
+        "there, asc_absorb removed fails 'absorbed' at the root count, and "
+        "ico_need's stamp clear removed fails 'stamp'.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
     Row("dosmcb", "soak", py("tests/dosmcb.py"), 30.0,
         "A BLOCK GROWS BACK INTO WHAT IT GAVE UP (SPEC.md 96.9.2). AH=4Ah "
         "grows only into the block immediately above it, which is DOS's own "
