@@ -7020,13 +7020,13 @@ ico_need:
     or dx, dx
     jnz .have
     mov ax, ICO_KB
-    mov bx, MEM_K_ICO
+    mov bx, MEM_P_ICO
     call mem_claim_x
     jc .no
     mov [ico_seg], dx
     mov byte [ico_n], 0
     mov ax, ico_reloc
-    mov bx, MEM_K_ICO
+    mov bx, MEM_P_ICO
     call mem_movable_x          ; ...and a refusal here only PINS it, which is
                                 ; a compaction that achieves less rather than
                                 ; anything wrong (SPEC.md 66.2)
@@ -7168,7 +7168,15 @@ ico_add:
 ico_body:
     call ico_need
     jc .out
-    call ico_rowoff
+    cmp al, [ico_n]             ; **A STALE REFERENCE AFTER A SHED** (SPEC.md
+    jb .have                    ; 50.6): the claim is purgeable, so a listing
+    stc                         ; staged before it went holds row numbers that
+    jmp short .out              ; no longer exist - and ico_need has just
+.have:                          ; re-claimed an EMPTY store, where row N's
+    call ico_rowoff             ; offset is 64 bytes of whatever the heap
+                                ; handed out. CF=1 draws the generic icon,
+                                ; which is what every other refusal here
+                                ; already means
     add di, ICO_R_BODY
     clc
 .out:

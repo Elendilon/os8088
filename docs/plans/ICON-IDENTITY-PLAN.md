@@ -253,8 +253,18 @@ same vanishing region, and it goes at the same time.
      *"was 16, and the shipped apps disk holds 15 - one package of headroom,
      with no guard"*. The FILE stays at 32 rows, which is ample for one volume
      (the busiest holds 15); the STORE is sized for the machine at **48**.
-3. **Purgeable.** A `MEM_P_` class below `MEM_P_VIEW`; refill on the next
-   mount. The glyph table is NOT in it.
+3. **Purgeable.** `MEM_P_ICO` at `MEM_PG_TRIV`, the cheapest rank there is:
+   losing it costs a REDRAW, not a read, because the next mount fills the rows
+   back from the volume's own `ASSOC.DAT` in one file read. The 96-byte
+   `assoc_glyph` table is NOT in it. **BUILT.**
+
+   **One thing in it is reasoned and not gated**, which `tests/icostore.py`
+   says in its own docstring: `ico_body` refuses a row past `[ico_n]`, so a
+   listing staged before a shed cannot resolve a row that no longer exists.
+   The row does not cover it - navigating after a shed re-mounts, so every
+   reference read is fresh, and removing the guard leaves the row GREEN
+   (checked, not assumed). Covering it wants a repaint without a mount and a
+   PIXEL test, the failure being a wrong picture rather than a wrong number.
 4. **Raise `DSK_NENT`.** The number is a product decision once it is nearly
    free; 64 is a net saving, 128 costs 384 bytes.
 

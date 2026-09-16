@@ -14,9 +14,27 @@ WHAT THIS ASSERTS, and none of it is visible on the glass:
      SHARED allocator was reached by the per-entry paths too, so `dsk_icoix`
      read `00 00 00 ... 00` and every row drew the same picture.
   2  a FOLDER takes no row at all (ICO_R_FOLDER, the built-in body).
-  3  ...and THE SECOND VOLUME REUSES THE FIRST'S ROWS.  SPEC.md 24.3 ships the
+  3  ...THE SECOND VOLUME REUSES THE FIRST'S ROWS.  SPEC.md 24.3 ships the
      core packages on the system disk AND the apps disk, so this is the
      ordinary case rather than a contrived one.
+  4  and a SHED is survivable: the store refills from the next mount.  The
+     claim is purgeable (MEM_P_ICO), so a DOS program taking the arena frees
+     it under a desktop that is still running.
+
+**WHAT ASSERTION 4 DOES NOT COVER, said rather than implied.**  `ico_body`
+refuses a row past `[ico_n]`, which is what stops a listing staged BEFORE a
+shed from resolving row 12 of a store that no longer has twelve rows - 64
+bytes of whatever the heap handed out next, drawn as an icon.  This row does
+NOT test that guard: navigating after the shed RE-MOUNTS, so every reference
+it then reads is fresh.  Removing the guard leaves this row green, which was
+checked rather than assumed.
+
+Covering it needs a repaint of a window whose references are stale WITHOUT a
+mount - raise or drag the same window after the shed - and then a pixel test,
+because the failure is a wrong picture and not a wrong number: with the guard
+every stale entry draws SPEC.md 25's generic icon, so the icon cells are
+identical to each other; without it each reads a different 64 bytes of freed
+heap and they differ.  That is the shape of the test somebody should write.
 
 THE KEY IS `(name, size)` AND THAT IS THE WHOLE DESIGN (SPEC.md 25.9): it is
 the only identity available without a SECTOR READ, which is what SPEC.md 54.7's
@@ -124,6 +142,33 @@ def main():
             fail("the second volume stored %d new row(s) for %d body/ies - it "
                  "reused nothing, so every listing is paying for its own copy "
                  "again" % (a_rows - b_rows, len(a_used)))
+
+        # --- 4: A SHED, and what a listing staged before it then draws ----
+        # SPEC.md 50.6's shed zeroes the holder's word and frees the block;
+        # the holder's existing refusal path is the whole notification
+        # protocol.  So the danger is not the shed, it is the REFERENCES a
+        # listing is still holding: row 12 of a store that no longer has
+        # twelve rows is 64 bytes of whatever the heap handed out next.
+        m.write((kseg << 4) + V("ico_seg"), b"\x00\x00")
+        m.write((kseg << 4) + V("ico_n"), b"\x00")
+        os88marty.settle(m)
+        ui.path("A:/")
+        os88marty.settle(m)
+        after = rows()
+        print("icostore: after a shed, a fresh listing refilled %d row(s)"
+              % after)
+        if after == 0:
+            fail("the store stayed empty after a shed and a fresh mount - it "
+                 "is claimed LAZILY, so the next listing that wants a body "
+                 "must re-make it (SPEC.md 25.9)")
+        ui.path("A:/APPS")
+        os88marty.settle(m)
+        refilled = [r for r in refs() if r not in (ICO_R_FOLDER, ICO_R_NONE)]
+        if not refilled:
+            fail("A:/APPS iconned nothing after the shed, so the refill does "
+                 "not work and every icon is lost for the session")
+        print("icostore: ...and A:/APPS iconned %d entry/ies again"
+              % len(refilled))
 
     print("icostore: ok")
     return 0
