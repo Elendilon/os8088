@@ -1081,9 +1081,19 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
+; --- ...and the OTHER question a class can be asked (SPEC.md 51.12.1) -------
+; `osapi_drv_classk_x` answers what the LOADED rows of a class hold, which is
+; what a checkbox offering to unmount them needs. A caption saying what the
+; class would cost AT MOST is a different question with a different answer on
+; the same machine - and on a machine with nothing of that class mounted the
+; first answers ZERO, which is a true figure that reads as a broken one.
+; It rides in bit 7 of the class byte because every DRVC_* is 1..5 and every
+; register in that walk is already carrying something.
+DRVCK_ALL    equ 0x80           ; MIRRORED in apps/os88api.inc - t_mirror
+
 DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
-DRVM_IMG_ETH equ 18             ; ceil(build/ether.drv   / 1024)   every one
+DRVM_IMG_ETH equ 19             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 9              ; ceil(build/ramdisk.drv / 1024)   of these
 DRVM_IMG_NET equ 7              ; ceil(build/net.drv     / 1024) - SEVEN
                                 ; since SPEC.md 26.7 put the Wire's desktop
@@ -1389,7 +1399,7 @@ section .cold
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_classk_x - WHAT ONE CLASS IS HOLDING, in KB (SPEC.md 51.12)
-; in:  AL = a DRVC_* class
+; in:  AL = a DRVC_* class, + DRVCK_ALL for the CEILING form (SPEC.md 51.12.1)
 ; out: CF = 0, AX = the KB the loaded drivers of that class hold (bit 15 =
 ;      DRVM_PLUS, "...and a store the user sizes on its own page"), CX = how
 ;      many rows answered; CF = 1 with AX = 0 and CX = 0 - nothing of that
@@ -1412,23 +1422,38 @@ section .cold
 ; The figure is drv_memk's, so it is a BUILD-TIME constant and costs no probe
 ; - and a caller estimating an arena is the one reader for whom a constant is
 ; exactly right, because it is describing a machine that does not exist yet.
+;
+; **DRVCK_ALL IS THE SECOND QUESTION AND NOT A CONVENIENCE** (SPEC.md 51.12.1).
+; A CAPTION - "Hard drives (Up to 32K)" - is describing the class and not this
+; machine's state, so on a machine with no hard disk mounted the plain form
+; answers a perfectly true `0K` that reads as a page that has broken. With the
+; bit set, every row of the class counts whether or not its driver is there,
+; and CF = 0 whenever the TABLE has such a row - which is what a caption wants
+; and exactly what a checkbox must not have, the checkbox offering to unmount
+; something that is not mounted. The two forms are one walk and one table, so
+; a driver that grows moves both together; a package-side copy of the figure
+; would be a third derivation of a number t_drvmem exists to stop drifting.
 ; -----------------------------------------------------------------------------
 osapi_drv_classk_x:
     push bx
     push dx
     push si
-    mov dl, al                  ; DL = the class asked for
-    xor dh, dh                  ; DH = the row index
+    mov dl, al                  ; DL = the class asked for, PLUS DRVCK_ALL if
+    xor dh, dh                  ; the caller wants the ceiling (SPEC.md 51.12.1)
     xor si, si                  ; SI = the KB so far, DRVM_PLUS carried in 15
     xor cx, cx
 .row:
     mov al, dh
     call drv_row_x              ; BX = the row (AL preserved)
-    cmp word [bx+DRVR_SEG], 0
+    test dl, DRVCK_ALL          ; the CEILING form counts a row whose driver is
+    jnz .cls                    ; not mounted - it is asking what the class
+    cmp word [bx+DRVR_SEG], 0   ; COULD cost and not what it costs now
     je .next                    ; not loaded: it holds nothing
+.cls:
     mov al, [bx+DRVR_CLASS]
-    cmp al, dl
-    jne .next
+    xor al, dl                  ; ...and the compare masks the flag off rather
+    and al, ~DRVCK_ALL & 0xFF   ; than banking the class somewhere else: every
+    jnz .next                   ; register here is already carrying something
     mov bl, dh
     xor bh, bh
     shl bx, 1

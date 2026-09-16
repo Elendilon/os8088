@@ -266,6 +266,44 @@ def main():
               "a '+' here would be telling the user the number is open-ended "
               "when it is not")
 
+    # --- 5. a CLASS total still fits the DOS box's two-digit caption --------
+    # SPEC.md 51.12.1's DRVCK_ALL sums a class, and the DOS box's Memory page
+    # prints that sum into a fixed TWO-character hole - `Hard drives (Up to
+    # 32K)`.  dos_mem_numn writes the digits backwards and stops when the
+    # field is full, so a three-digit total does not overflow the label, it
+    # prints the LOW TWO DIGITS: 132 reads as 32.  A wrong number that looks
+    # right, on the one page whose whole job is telling the user how much
+    # memory they will get.
+    #
+    # The field was three wide for exactly this fear, which cost a blank
+    # column on every machine against a driver that has not been written.  A
+    # bound is better than padding, and this is the file that can state it:
+    # the sum is over the same terms re-derived above, so it moves when a
+    # driver moves.  ONLY the two classes the page captions - DRVC_FILE is not
+    # on it, and asserting a class nobody prints would be a rule about nothing.
+    # ...re-read, because `src` was re-bound to a path inside section 2's loop
+    dsrc = open(os.path.join(ROOT, "kernel/driver.inc"), errors="replace").read()
+    rows = re.search(r"^drv_tab:(.*?)^drv_memk:", dsrc, re.M | re.S)
+    klass = re.findall(r"^\s*db\s+(DRVC_\w+)\b", rows.group(1), re.M) \
+        if rows else []
+    eq(len(klass), len(ROWS), "every drv_tab row names a class",
+       "the sum below is per CLASS, so a row whose class this cannot see is a "
+       "row silently left out of it")
+    for want_cls, width in (("DRVC_DISK", 2), ("DRVC_NET", 2)):
+        total = 0
+        for (title, memk, _img, _drv), cls in zip(ROWS, klass):
+            if cls == want_cls:
+                total += s.get(memk, 0) & ~plus
+        check(0 < total < 10 ** width,
+              "%s sums to %d KB, which fits the caption's %d digits"
+              % (want_cls, total, width),
+              "apps/dos/dos.asm draws this into a %d-wide hole and "
+              "dos_mem_numn DROPS the high digits rather than refusing - widen "
+              "dos_mhddk/dos_mnetk, DOS_MCKW and dos_mem_num%d together, or the "
+              "page quotes a number that is wrong and looks fine (SPEC.md "
+              "96.36.7.1)" % (width, width),
+              got=total, want="1..%d" % (10 ** width - 1))
+
     print("t_drvmem: %d rows, %d images re-measured, %d constants resolved"
           % (len(ROWS), seen, len(s)))
     done("t_drvmem")
