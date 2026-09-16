@@ -129366,6 +129366,39 @@ list is empty again. On `kern_small` it is `xor ax,ax` / `xor cx,cx` / `stc`:
 nothing of any class is loaded there, for ever, and the refusal states the
 answers rather than leaving the caller's registers looking like a figure.
 
+#### 51.12.1 `DRVCK_ALL` — the CEILING, which is a different question
+
+`AL` = a `DRVC_*` **OR'd with `DRVCK_ALL`** (`0x80`) asks what the class would
+cost at most: every row of that class counts whether or not its driver is
+mounted, and `CF=0` whenever the *table* has such a row. `DRVC_*` runs 1..5,
+so bit 7 was free; the walk masks it off at the class compare rather than
+banking the class in a register, every register in that loop already carrying
+something. **Eight bytes of `.cold`, resident.**
+
+**It exists because a caption and a control want different numbers.** The
+plain form above is right for a checkbox — it offers to unmount something, and
+on a machine with nothing mounted there is nothing to offer and nothing to get
+back. A *caption* is describing the class and not this machine's state, so fed
+the same figure the DOS box's Memory page read `Hard drives (Up to  0K)` on a
+machine with no hard disk: a perfectly true number that is indistinguishable
+from a page whose arithmetic has died. Worse, that is the state the page is
+**most** often opened in, a user shutting the OS down for a DOS program being
+disproportionately a user with no hard disk and no card.
+
+The alternative was a copy of the constants in the package, and it is refused
+for the reason `tests/unit/t_drvmem.py` exists: `drv_memk`'s terms are an
+*image size* plus *claims declared in the drivers' own sources*, both of which
+move when a driver grows and neither of which any linker checks (§1). One
+table and two questions keeps a growing driver moving both answers together; a
+package-side copy would be a third derivation of a figure that already has two
+and needs a test to hold them level.
+
+**The two forms must not be confused at the call site**, and the shape that
+prevents it is that they are asked separately and banked separately —
+`dos_mck_place` reads the loaded figure into `[dos_mhkb]`/`[dos_mnkb]` for the
+arena arithmetic and the ceiling straight into the label's own digits, so
+neither can be read for the other's purpose later.
+
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
 A **packet driver is an interface, not a program**. What the box publishes is
@@ -130103,17 +130136,29 @@ way its box is set. The page therefore keeps telling the truth about the
 machine in front of you (§96.25.1) while the tick records an intent for another
 one.
 
-**`Up to` is what carries that.** `Network (Up to  32K)` says both things at
-once: this is what it would give back, and it is not a promise about now. The
-figure is still `OSAPI_DRV_CLASSK`'s, read once by `dos_mck_lbl`, so what the
-box claims and what the total moves by cannot disagree (§47 rule 5).
+**`Up to` is what carries that**, and it is why the caption's figure is the
+CLASS's ceiling and not this machine's (`DRVCK_ALL`, §51.12.1). `Network (Up
+to 33K)` is about the box's future, on whatever machine the `.LNK` is opened
+on: the most it could cost to leave this ticked. The **estimate** above it is
+about the machine in front of you and stays on the plain form — what is
+mounted here, which is what clearing the box actually hands back.
 
-The field is **three digits and not two**, one cell wider than it looks like it
-needs. The slot SUMS a class, so a second driver of either kind puts the figure
-past 99, and a two-digit field would print a *wrong number* rather than
-something that looks wrong. Right-aligned, today's 32 reads `Up to  32K` and the
-extra column stays blank until it is earned. Width was never the constraint
-here — the label ends about 220px into a 310px block.
+**They were one figure, and that was the defect.** Read once and used for
+both, the caption on a machine with no hard disk printed `Hard drives (Up to
+0K)` — true of this machine, meaningless as a description of the box, and
+indistinguishable from a page whose arithmetic had died. Two questions need
+two answers; what §47 rule 5 forbids is a caption and a control disagreeing
+about the SAME question, and these are not the same question.
+
+The field is **two digits**. It was three, on the argument that the slot sums
+a class and a second driver of either kind could put the figure past 99 — which
+was right about a number that could not be bounded, and the figure is a
+build-time ceiling now, so it can be. `tests/unit/t_drvmem.py` bounds it: the
+file that already re-derives every `drv_memk` term from the drivers' own
+sources sums each captioned class and fails the build if it needs three. That
+matters, because `dos_mem_numn` writes digits backwards into a fixed hole and
+stops when the hole is full — 132 prints as `32`, a wrong number that looks
+right, on the one page whose whole job is saying how much memory you get.
 
 **What still greys is the ARM** (§96.36.9): a box belonging to the arm that is
 not picked cannot be used, and a press on it falls through to the radio, which
@@ -130202,6 +130247,51 @@ The limit field is arm 0's for the same reason and by the same route.
 `dos_lbfill` fills `KDL_CAP` from the BDA and never from `[dos_memkb]`, so a
 cap shown on arm 1 would be a promise the launch does not keep — which is why
 `dos_mem_arena` jumps past the clamp on that arm rather than applying it.
+
+#### 96.36.10 The limit is a TERM of the figure above it, so it is live
+
+`dos_mem_arena`'s `.cap` has clamped the arena row to `[dos_memkb]` on arm 0
+since the page was reworked, and it was **never seen to work**, because
+`[dos_memkb]` was written in one place: `dos_mem_take`, whose four callers are
+all leaving the page or launching. So the user typed a cap into a field
+directly under the number it caps, watched that number not move, and had no
+way to tell a control that had refused them from one that was not wired up.
+
+The parse is its own entry now — `dos_mem_parse`, the digit walk and nothing
+else — and `dos_key`'s `.edited` runs it plus `dos_mem_row` when the field
+that used the keystroke is the limit. `dos_mem_take` is `dos_mem_parse` then
+`dos_mem_fix` and keeps its meaning exactly: **the arm is still committed only
+at the four commit points**, because committing the radio's pick on a
+keystroke would make it take effect halfway through the user changing their
+mind about something else.
+
+**One row and not a repaint.** `dos_mem_row` draws the single `dos_l_marn`
+line, which is the same thing §96.36.6.3's dial redraws and for the same
+reason: a keystroke that repaints the block flashes every control on it
+(§96.19.1).
+
+This is the third control on this page to ship inert, after the dial
+(§96.36.6.3) and the sound term (§96.36.7.2), and all three shared one shape —
+the *arithmetic* was right and nothing called it. A page whose figure is a sum
+of controls needs every control to end at the same routine; the gate for that
+is `tests/dosram.py`, which moves one control at a time and asserts the row
+moved, because poking the state and re-entering the page passes on the broken
+build.
+
+#### 96.36.10.1 The field is four digits, and it says `K`
+
+`DOS_MEMMAX` is **4**: 640 is three digits, 9999 is already past every address
+an 8086 has, and the box clamps anything larger anyway, so a fifth column
+could only ever hold a number that could not be honoured. `DOS_MFLDW` is
+**48**, which `os88line_cols` resolves to five columns against this block's
+8-aligned origin — the four digits plus the cell the caret sits in past the
+last of them. It was 64, or seven, so two of the columns could not be reached
+at all.
+
+A `K` is drawn `DOS_MFLDKX` = **4 px** past the field's right edge. The field
+takes a bare number and `300` is three plausible quantities on this page alone
+— kilobytes, paragraphs, or a percentage of the arena above it — and 4 px
+keeps the letter's own cell 8-aligned, which is `font_run`'s fast path (§6.1).
 
 ### 96.37 The kernel's disk layer runs outside the kernel, for 92 bytes
 

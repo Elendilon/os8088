@@ -2191,7 +2191,8 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
 ;
 %define OSAPI_DRV_CLASSK    KERNEL_SEG:0x0580   ; **WHAT ONE CLASS IS
                                  ; HOLDING** (SPEC.md 51.12). in AL = a DRVC_*
-                                 ; class; out CF=0 with AX = the KB the LOADED
+                                 ; class, + DRVCK_ALL for the CEILING form;
+                                 ; out CF=0 with AX = the KB the LOADED
                                  ; drivers of that class hold and CX = how
                                  ; many answered, or CF=1 with AX=0 and CX=0 -
                                  ; nothing of that class is loaded. Every
@@ -2220,6 +2221,17 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; measurement: what each driver holds while
                                  ; doing its primary job, at the top rung of
                                  ; any claim it sizes to the machine
+                                 ;
+                                 ; **ASK WITH DRVCK_ALL FOR A CAPTION AND
+                                 ; WITHOUT IT FOR A CONTROL** (SPEC.md
+                                 ; 51.12.1). With the bit set every row of the
+                                 ; class counts whether or not its driver is
+                                 ; mounted, and CF=0 whenever the table has
+                                 ; such a row - so "Network (Up to 39K)" says
+                                 ; the same thing on every machine. Without
+                                 ; it you get this machine now, which is the
+                                 ; only honest number to put beside a box
+                                 ; that offers to unmount something
 ;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
@@ -2297,6 +2309,10 @@ PKGV_IDENT   equ 0              ; **VERB 0 OF EVERY PACKAGE DOOR IS IDENTIFY**
 ; drivers/os88drv.inc has no copy, it includes this file. A class is also a
 ; PUBLICATION SLOT: one driver of each may be attached at a time - which is
 ; why PKGV_IDENT above exists: a class does not name a driver.
+DRVCK_ALL    equ 0x80          ; ...OR'd into OSAPI_DRV_CLASSK's class byte
+                                ; for the ceiling form above (SPEC.md
+                                ; 51.12.1). Bit 7, because every class below
+                                ; is 1..5
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; Publishes no package entry point and is not
