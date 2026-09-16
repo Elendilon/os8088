@@ -9479,12 +9479,18 @@ dos_l_memc: db 'Disk cache:', 0
 ; dos_mem_num patches [dos_marn] in place and the line is drawn in a single
 ; font_run, which is dos_fmt_exit's shape: a number assembled anywhere else
 ; needs a second store to reach the line, and a second pass over the pixels is
-; what SPEC.md 6.1 exists to stop. The '~' is the point of the row - every
-; term but one is an estimate (SPEC.md 96.36.3).
-dos_l_marn: db 'Memory for the program: ~'
+; what SPEC.md 6.1 exists to stop.
+;
+; **`Estimated` IS THE WORD AND IT REPLACED A `~`** (SPEC.md 96.36.3): the row
+; used to read `Memory for the program: ~NNNNN K`, which says the same thing
+; in punctuation a reader has to interpret. It also said `for the program`,
+; which invites the question *which program* - the answer being the one this
+; box is about to run, under whatever is ticked below. One value, one name for
+; it, and no word about arms: the user is picking options, not picking arms.
+dos_l_marn: db 'Estimated DOS Ram: '
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
-dos_marn:   db '     K', 0
+dos_marn:   db '     KB', 0
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 ; --- the two arms, and the words under the greyed one (SPEC.md 96.36) -------

@@ -129,9 +129,9 @@ def main():
         def digits(name):
             raw = m.read(pb() + dm[name], 8).split(b"\0")[0].decode("latin-1")
             try:
-                return int(raw.rstrip("K").strip())
+                return int(raw.rstrip("KB").strip())
             except ValueError:
-                fail("%s reads %r and should be digits and a K - the page has "
+                fail("%s reads %r and should be digits and a KB - the page has "
                      "never been painted, or dos_mem_num did not run "
                      "(SPEC.md 96.25)" % (name, raw))
 

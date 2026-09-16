@@ -128745,9 +128745,16 @@ apart. It arrives with the plan's W1, which is the wave that measures it.
 
 The page used to carry two numbers and be a choice between them. It is not one
 any more — it is an arm, three check boxes, a dial and a cap — so what the
-user wants to know is what all of them **together** come to. `For the program:
-~NNNNN K` is that, on one row above every control that can move it, redrawn by
-`dos_mem_row` after each of them.
+user wants to know is what all of them **together** come to. `Estimated DOS
+Ram: NNNNN KB` is that, on one row above every control that can move it,
+redrawn by `dos_mem_row` after each of them.
+
+**THE ROW SAYS NOTHING ABOUT ARMS**, and that is the point of its wording. It
+read `Memory for the program: ~NNNNN K`, which puts the estimate in
+punctuation a reader has to interpret and invites the question *which
+program* — the answer being the one this box is about to run, under whatever
+is ticked below. `Estimated` is the word; the user is picking options, not
+picking arms, and the figure is one value that follows the set of them.
 
 It is one opaque `font_run` with its own digits patched into the string
 (`dos_mem_num`), which is `dos_fmt_exit`'s shape and §6.1's rule: a number
@@ -128826,11 +128833,42 @@ so rather than rounding:
 
 The missing three on arm 0 are not a rounding and not an omission: a
 `[Auto / 32K / 18K / 9K / Off]` list where three rows did the same thing is a
-control that lies, and the honest version of the middle rungs there is a
-kernel door that can re-take the claim at a named width — which does not
-exist and is not free. `Off (SLOW!)` says what it costs where the cost is
-real; `Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the
-disk cache` was.
+control that lies. `Off (SLOW!)` says what it costs where the cost is real;
+`Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the disk
+cache` was.
+
+##### 96.36.6.1 Leaving the cache room does not buy a SMALLER one — measured
+
+The obvious way to reach the middle rungs without a kernel change is to shed
+the cache and **leave it room**: `dsk_rah_want` runs at every mount, the box's
+own program load is a mount, and it solves a width from whatever is free. It
+needs no new code at all, because the limit field already reserves room and
+`Off` already sheds — so it was measured rather than argued about. Shipped
+kernel, 360 KB desktop, cache `Off`, the limit set to `avail - R`:
+
+| reserved | arena | `MEM_P_DIRW` claim |
+|---:|---:|---:|
+| — | 476 K | **0** |
+| 27 K | 449 K | **0** |
+| 36 K | 440 K | **32 K** |
+| 45 K | 431 K | 32 K |
+| 54 K | 422 K | 32 K |
+| 63 K | 413 K | 32 K |
+
+**It is binary: 32 K or nothing, and never a rung in between.** `mem_claim` at
+`MEM_LVL_TOP` sheds a purgeable claim only as far as it needs to (§50.6.3), so
+above the threshold the cache is never shed at all — it only MOVES, which is
+why its segment changes across the launch (`dsk_rah_reloc` under the posted
+compaction, §66.2). Below it, it goes entirely. Nothing re-claims it at a
+width anybody chose.
+
+And the arithmetic runs the wrong way: **`Auto` already hands the program
+444 K with the 32 K cache alive**, where the best reserve hands it 440 K with
+the same cache. The reserve costs 4 K and buys nothing `Auto` does not.
+
+So the middle rungs still want a **width cap** in `dsk_rah_want` — a word of
+`.bss` read at its `.width` clamp, plus a door to set it and a forced shed so
+the new width takes effect. About thirty resident bytes, and not taken.
 
 **The pick is remembered per arm.** The two lists are different lengths, so
 one `OS88UI_DR_SEL` cannot hold both: `dos_drop_place` swaps the pick with
