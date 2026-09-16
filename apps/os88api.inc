@@ -2668,6 +2668,11 @@ WT_SIZE    equ 16
 OS88_F_ICON   equ 1             ; an embedded 16x16 icon follows the header
 OS88_F_ASSOC  equ 2             ; ...and an association block follows that (54.6)
 OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
+OS88_F_GLYPH  equ 32            ; a 16-byte DOCUMENT-GLYPH block follows the
+                                ; association block (SPEC.md 54.3.2): the 8x8
+                                ; your documents wear, SHIPPED rather than
+                                ; reduced out of the icon. Wants both bits 0
+                                ; and 1 beside it, and os88pkg.py checks
 
 ; --- OS88_STACK_* : what to pass as OS88_HEADER's 4th argument (SPEC.md 8.7)
 ; Your worker's stack class. The kernel owns the sizes; you name the one you
@@ -2776,6 +2781,41 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
         %error "the association block is 16 bytes: a count byte and up to five extensions"
     %endif
     times OS88_ASSOC_BASE + 16 - ($ - $$) db 0
+%endmacro
+
+; -----------------------------------------------------------------------------
+; OS88_DOCGLYPH8 / OS88_DOCGLYPH8_END - bracket the shipped DOCUMENT GLYPH
+; (SPEC.md 54.3.2). Only valid with flags bits 0, 1 AND 5 (OS88_F_GLYPH), and
+; it goes IMMEDIATELY after the association block, at file offset 112. Between
+; the two macros write exactly eight `db` bytes: the 8x8 a document of yours
+; wears inside its page, one byte a row, bit 7 = leftmost, 1 = ink. The block
+; is a fixed 16 bytes - the clear prefix stays a multiple of 16 (SPEC.md
+; 20.13.1) - and the macros assert both ends, so a seventh or a ninth byte
+; fails at ASSEMBLY rather than at mount.
+;
+; Without this block the kernel REDUCES your 16x16 icon to 8x8 by majority of
+; each 2x2 block (SPEC.md 54.3), which keeps a silhouette and loses every
+; one-pixel stroke. Ship one when your icon is a line drawing - the DOS box's
+; CRT reduced to an empty square, which is what this exists for.
+; -----------------------------------------------------------------------------
+%macro OS88_DOCGLYPH8 0
+    %ifndef OS88_ASSOC_BASE
+        %error "OS88_DOCGLYPH8 needs an association block in front of it (OS88_ASSOC16)"
+    %endif
+    %if OS88_ASSOC_BASE != 96
+        %error "OS88_DOCGLYPH8 needs an icon in front of it too (SPEC.md 54.3.2)"
+    %endif
+    %if ($ - $$) != OS88_ASSOC_BASE + 16
+        %error "OS88_DOCGLYPH8 must immediately follow OS88_ASSOC16_END (file offset 112)"
+    %endif
+    %assign OS88_GLYPH_BASE ($ - $$)
+%endmacro
+
+%macro OS88_DOCGLYPH8_END 0
+    %if ($ - $$) != OS88_GLYPH_BASE + 8
+        %error "the document glyph is exactly eight db bytes, one a row"
+    %endif
+    times 8 db 0                ; ...and eight reserved, so the block is 16
 %endmacro
 
 ; -----------------------------------------------------------------------------

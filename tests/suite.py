@@ -697,6 +697,13 @@ FAST = [
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
+    Row("docglyph", "fast", py("tests/unit/t_docglyph.py"), 0.6,
+        "a package may SHIP the 8x8 its documents wear (SPEC.md 54.3.2): the "
+        "validator's four refusals, the clear prefix keeping the block verbatim "
+        "through compression, os88mini baking the shipped bytes and not the "
+        "reduction, DOS.O88 setting the bit, and every shipped ASSOC.DAT being "
+        "version 2 with the glyph in DOS's row. Host-only, one package format "
+        "and three tools, which is why it is here beside `pkg` and not in soak"),
     Row("fonts", "fast", py("tests/unit/t_fonts.py"), 0.1,
         "the typefaces are in SYSTEM/FONTS on every shipped system image and "
         "nowhere else (SPEC.md 19.8.1), and apps/os88type.inc's ty_gofonts "
@@ -2569,6 +2576,19 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
+    Row("dosglyph", "soak", py("tests/dosglyph.py"), 60.0,
+        "a SHIPPED document glyph (SPEC.md 54.3.2) reaches every path the "
+        "kernel fills a slot's glyph by - the baked table, the cache seed "
+        "at a volume switch, a cache hit at a mount and a miss's harvest "
+        "off the sector - each proved by POISONING the slot with the "
+        "reduction first, and the composed page-plus-glyph icon is found in "
+        "a Disk window's own pixels over a .COM. DOS is the package because "
+        "its CRT is the line drawing the 2x2 majority reduction empties. "
+        "tests/unit/t_docglyph.py is the host half. VERIFIED TO FAIL by "
+        "forcing assoc_img_glyph's flag test off in kernel/assoc.inc: steps "
+        "1-4 stay green and step 5 reads the reduction, which is the one "
+        "path that test guards",
+        needs=("marty",), wants=("build/doscom360.img",)),
     Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
         "relocation table, and a last page that is exactly full so e_cblp is "

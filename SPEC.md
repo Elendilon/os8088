@@ -33547,7 +33547,7 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; bits 5–7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; bits 6–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
@@ -33578,6 +33578,8 @@ size must be ≥ 96 and the entry offset ≥ 0x60. `disk_mount`'s icon harvest
 the loader copies it again into `inst_icons` (§29) so the dock tile survives
 in the kernel's own segment. A package with no icon gets the generic
 sentinel, which `apps/hello` ships deliberately to keep that path exercised.
+The 8×8 glyph a package's DOCUMENTS wear is reduced from this block unless
+flags bit 5 ships one (§54.3.2).
 
 **Entry contract**: far-called by the loader at `packageseg:entry` with
 **DS = CS = the package's segment**, ES = KERNEL_SEG, IF = 1, gfx lock NOT
@@ -35924,7 +35926,10 @@ step-2 peek all at once — every byte any of them reads is already in the first
 sector and already plain.
 
 The clear prefix is therefore **32 bytes**, plus 64 with an icon, plus 16 with
-an association block: at most **112**, and always inside the first sector.
+an association block, plus 16 with a document glyph (§54.3.2): at most
+**128**, always inside the first sector, and **always a multiple of 16** —
+`ld_expand` puts the expanded body's destination a SEGMENT along (§20.14),
+which is why the glyph block is sixteen bytes for eight of glyph.
 
 #### 20.13.2 `image` still means the UNPACKED size
 
@@ -75821,7 +75826,8 @@ makes the cache 8 bytes and not 16.
 baked default and a harvested icon for the same program would not match.
 
 **The shipped defaults' glyphs are baked at build time.** `tools/os88mini.py`
-reduces each package's own embedded icon (`.o88` bytes 32..95) into
+reduces each package's own embedded icon (`.o88` bytes 32..95) — or takes the
+glyph the package ships, §54.3.2 — into
 `build/associco.inc`, which `assoc.inc` `%include`s — so the bytes are `db`
 bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
 read, and **a document icon costs no disk read on the first boot of any
@@ -75852,6 +75858,78 @@ sort. Neither pass reads the disk; both walk data already in hand.
 `assoc_docicon` borrows `dsk_ico`, `dsk_get_icon`'s staging buffer, to save 64
 bytes of footprint. That is safe because nothing calls `dsk_get_icon` during a
 mount, which is the only place it runs — state the invariant if either moves.
+
+### 54.3.2 A package may SHIP its document glyph — flags bit 5
+
+**The reduction is a derivation, and a derivation can lose the thing the icon
+is about.** Majority-of-2×2 keeps a silhouette and drops every one-pixel
+stroke, which is the right trade for a 40%-ink Mac icon and the wrong one for
+a line drawing. The DOS box's icon (§96.44.4) is a CRT drawn as a one-pixel
+outline with a one-pixel `>` prompt inside it, and its reduction is an **empty
+box**: no 2×2 block of the prompt holds two ink pixels, so a `.COM` wore a box
+inside a page and read as nothing. Redrawing the 16×16 to reduce well means a
+solid icon, which is a different icon; hand-editing the eight baked bytes is
+undone at the next browse of the folder the program lives in, because
+`assoc_note_app` and `asc_seed` re-derive them — which is the drift §54.3
+forbids the paste for.
+
+So a package may ship the glyph itself. **Flags bit 5** says a **16-byte
+document-glyph block** follows the association block: **8 glyph bytes** — one
+a row, bit 7 the leftmost pixel, ink only, exactly the eight bytes
+`assoc_glyph` caches — then **8 reserved bytes, zero**. Sixteen rather than
+eight because the block is part of the clear prefix (§20.13.1), and that
+prefix must stay a multiple of 16. `OS88_DOCGLYPH8` / `OS88_DOCGLYPH8_END`
+bracket it and assert the offset and the length, `OS88_HEADER`'s flags take
+`OS88_F_GLYPH`, and a C package names the file in `CC_DOCGLYPH` with
+`crt0.asm` writing the bracket (§73). It sits at file offset **112**:
+`tools/os88pkg.py` requires bits 0 and 1 beside it (a glyph for the documents
+of a program with no icon, or one that declares nothing, has no consumer),
+refuses an all-zero glyph (that is §54.2's UNRESOLVED sentinel and would
+silently mean "reduce after all"), and moves `entry_min` and the clear prefix
+by 16.
+
+**Every writer of a slot's glyph prefers it, and there are four**: the harvest
+(`assoc_note_app`, off the sector it already read), a runtime claim
+(`assoc_self_glyph`, off the package's own segment), the cache load
+(`asc_seed`) and a cache hit (`asc_note`). The first two go through
+`assoc_img_glyph`, which finds the block in an IMAGE by its header flag; the
+last two through `asc_row_glyph`, which finds it in a CACHE ROW; and both fall
+back to `assoc_reduce` through one `assoc_glyph_take`, which copies eight bytes
+unless they are all zero. `tools/os88mini.py` prefers it the same way, so the
+glyph baked into the kernel for DOS IS the shipped one and a harvest agrees
+with it byte for byte — §54.3's invariant for the reduction, carried over.
+
+**The cache row carries it** (§54.7): `ASSOC.DAT` version 2 appends the eight
+bytes to every app row, all-zero for a package that ships none, and the kernel
+reads version 1 and version 2 both — `[asc_rowsz]` is set from the version
+byte at load and every stride multiplies by it — because an INSTALLED volume's
+cache was written once, by `hd_iassoc` at install (§52.10.14), and a kernel
+that refused it would return that machine to the pre-§54.7 harvest in silence.
+`tools/os88disk.py` and `hd_iassoc` write version 2 only.
+
+**Compatibility**: the loader reads the flag bits it knows and ignores the
+rest, so a kernel from before this section loads an UNCOMPRESSED bit-5 package
+with the block as inert bytes and reduces the icon as it always did; a
+COMPRESSED one it would expand from an offset 16 bytes short, which is why the
+bit is set only by packages that ship beside a kernel that knows it.
+`DOS.O88`'s image is a raw parts loader (§96.44.4) and loads on either.
+
+**The first consumer is the DOS box**: the CRT stays its face, and its `.COM`,
+`.EXE` and `.LNK` wear the classic terminal — a solid rounded block with a
+white `>` and `_` cut out of it — which is an 8×8 the CRT was never going to
+reduce to. Both halves of the package take it from `apps/dos/dosicon.inc`, the
+one file they already share (§96.44.4), and the box's fixed-offset guard fits
+exactly: header, icon, association block and glyph end at **128**, which is
+`CORE_ORG`, with nothing to spare.
+
+Cost, MEASURED against the tree it landed on: `.cold` **+134**, resident,
+no rung crossed (137 bytes left in the cold rung, where there were 271);
+`.text` +1, the `asc_rowsz` word less the version byte the magic string no
+longer carries. Of the 134, about 37 is reading a version 1 cache at all -
+the parse, the stride word and its four sites, the row test - and is the
+price of an installed volume keeping its cache. `CLONE.DRV` carries the
+compressor's copy of the prefix ladder and is a module, so that arm is not
+resident.
 
 ### 54.4 Degradation
 
@@ -76018,7 +76096,9 @@ need four bits), which is what stops §54.6's declaration taking it back.
 96) or, with no icon, the header (offset 32): a count byte and up to five
 3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
 `OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
-miscounted `db` fails at assembly rather than at mount.
+miscounted `db` fails at assembly rather than at mount. A package that also
+ships its document glyph (§54.3.2) puts that 16-byte block immediately after
+this one, at offset 112.
 
 **A C package declares the same way** (§73): `%define CC_ASSOC "<file>.inc"`
 in the shim names a file holding the count byte and the `OS88_ASSOC_EXT`
@@ -76072,11 +76152,14 @@ the volume's root, hidden + system, that answers them all:
 
 ```
 +0    6   'OS88AC'
-+6    1   version = 1
-+7    1   app rows (<= 16)
++6    1   version = 2 (1 = the same rows at 80 bytes, without the glyph:
+          READ by the kernel, never written any more - §54.3.2)
++7    1   app rows (<= 32)
 +8    1   association rows (<= 24)
 +9    7   reserved
-+16   ..  app rows, 80 bytes: stem 8, size low word 2, 6 reserved, icon 64
++16   ..  app rows, 88 bytes: stem 8, size low word 2, folder cluster 2
+          (§54.7.1), 4 reserved, icon 64, document glyph 8 (§54.3.2;
+          all zero = the package ships none, so the icon is reduced)
       ..  association rows, 4 bytes: 3 extension bytes + an app row index
 ```
 
@@ -129595,8 +129678,9 @@ program, which is the one quantity the plan is a budget for.
 `CORE_ORG` was **0x0600**, which cleared the two things that could not move —
 `kern_dos`'s refusal wall, which ran to 0x05A8, and the box's package header at
 0x00, because `OSAPI_PKG_REHOME` step 8 dispatches through it. **It is 0x0080
-since §96.44.6**: the wall is gone, so only the box's header, icon and
-association block bind it, and those end at 112.
+since §96.44.6**: the wall is gone, so only the box's header, icon,
+association block and, since §54.3.2, its document glyph bind it - and those
+end at 128, which is `CORE_ORG` exactly.
 
 `CORE_MAX` is **14,848** against a core of 14,566, and it is a rung the CORE
 alone spends while both hosts read it — where 4.1.3.1's `CORE_ORG` was a
@@ -129753,8 +129837,9 @@ arm, and `dsh_sbuild` takes the refusal exit it already had, so a `DIR` under
 answered and a hook may always be absent. A heap is exactly the second kind.
 
 `CORE_ORG` is **0x0080** now. What binds it is the BOX's low bytes — the
-package header at 0x00, the icon at 0x20 and the association block at 0x60,
-which `OS88_ASSOC16_END` pads to **112** — against `kern_dos`'s eight-byte
+package header at 0x00, the icon at 0x20, the association block at 0x60,
+which `OS88_ASSOC16_END` pads to 112, and the document glyph at 0x70 that
+`OS88_DOCGLYPH8_END` pads to **128** (§54.3.2) — against `kern_dos`'s eight-byte
 fixed header, and each host asserts its own side. **1,408 bytes out of both**:
 `kern_dos`'s image is 33,953 against 35,361, so `KD_IMG_KB` falls **35 → 34**
 and the DOS program is handed a kilobyte more.

@@ -58,7 +58,7 @@
 ; **THE PACKAGE CONTAINER IS NOT THE CORE**
 ; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
 ; whole and is not a package at all: no header, no icon, no association
-; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; block, and nothing at file offset 0 but a jump. Those four macros assert their own file offsets - 0, 32, 96 and 112
 ; - so under that root they are the only thing in 13,000 lines that cannot
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
@@ -80,15 +80,17 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 %else
-    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif
                                         ; flags bit 0 = icon, bit 1 = the
-                                        ; association block after it
+                                        ; association block after it, bit 5
+                                        ; the document glyph after THAT
+                                        ; (SPEC.md 54.3.2)
 
-%include "dosicon.inc"          ; the icon and the association block,
-                                ; shared with apps/dos/dosload.asm
+%include "dosicon.inc"          ; the icon, the association block and the
+                                ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
@@ -108,8 +110,9 @@
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
 apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
-header, the icon and the association block end at 112 and kern_dos's own \
-fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
+header, the icon, the association block and the document glyph end at 128 \
+and kern_dos's own fixed header is eight bytes, so CORE_ORG is cut from THIS \
+reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0

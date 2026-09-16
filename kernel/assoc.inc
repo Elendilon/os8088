@@ -442,6 +442,81 @@ assoc_reduce:
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
+; assoc_glyph_take - a SHIPPED glyph into a slot, unless it is blank
+;                    (SPEC.md 54.3.2)
+; in:  ES:SI -> eight glyph bytes, DI -> the slot's eight in the kernel
+; out: CF=0 = copied; CF=1 = they were all zero and nothing was written
+;      (all registers preserved)
+;
+; All-zero is the UNRESOLVED sentinel (54.2) on both sides: in an image the
+; tool refuses it, and in a cache row it is how a package that ships no glyph
+; says so - so the caller reduces the icon instead. Two loops rather than one
+; copy-and-OR, because a zero copied over a glyph another volume already
+; resolved would un-resolve it (54.7.3's rule).
+; -----------------------------------------------------------------------------
+assoc_glyph_take:
+    push ax
+    push cx
+    push si
+    push di
+    mov cx, 4
+    xor ax, ax
+    push si
+.ink:
+    or ax, [es:si]
+    inc si
+    inc si
+    loop .ink
+    pop si
+    or ax, ax
+    stc
+    jz .out
+    mov cx, 4
+.copy:
+    mov ax, [es:si]
+    mov [di], ax
+    inc si
+    inc si
+    inc di
+    inc di
+    loop .copy
+    clc
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_img_glyph - a slot's glyph out of a package IMAGE (SPEC.md 54.3.2)
+; in:  ES:SI -> the image's header (a first sector in LOW_SEG, or a package's
+;      own segment at 0), DI -> the slot's eight glyph bytes
+; out: nothing (all registers preserved)
+;
+; The block the package SHIPS when its flags say so, else the icon's data
+; plane REDUCED (54.3). Both image-shaped writers - the harvest and a runtime
+; claim - come through here, so they cannot disagree. The tool requires the
+; icon and the association block in front of the glyph, which is what fixes
+; it at LD_H_GLYPH; a foreign file that sets the bit without them wears eight
+; bytes of its own code, which is a wrong picture and nothing worse.
+; -----------------------------------------------------------------------------
+assoc_img_glyph:
+    push si
+    test byte [es:si+LD_H_FLAGS], LD_HF_GLYPH
+    jz .reduce
+    add si, LD_H_GLYPH
+    call assoc_glyph_take
+    jnc .out
+    sub si, LD_H_GLYPH          ; blank after all: as if it shipped none
+.reduce:
+    add si, LD_HDR_SIZE + 32    ; the DATA plane of the embedded icon
+    call assoc_reduce
+.out:
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_compose - a document icon for one app slot (SPEC.md 54.3)
 ; in:  AL = app slot index, DI -> 64 bytes in the kernel segment
 ; out: the composed 16x16 body (icon_draw16's layout)
@@ -636,9 +711,10 @@ assoc_note_app_x:
     test byte [assoc_hflags], 1 ; ...and what it looks like, IF it ships an
     jz .out                     ; icon at all - an iconless package leaves
     call assoc_glyph_di         ; the glyph unresolved and its documents draw
-    mov si, dsk_secbuf+64       ; the bare page, which is honest. SI = the
-                                ; DATA plane of the embedded icon
-    call assoc_reduce           ; ES = LOW_SEG, per SPEC.md 2.1
+    mov si, dsk_secbuf          ; the bare page, which is honest. SI = the
+                                ; image's header, in the sector buffer
+    call assoc_img_glyph        ; shipped or reduced (SPEC.md 54.3.2); ES =
+                                ; LOW_SEG, per SPEC.md 2.1
 .out:
     jmp kretc_di
 
@@ -1404,8 +1480,8 @@ assoc_self_glyph:
     jz .out
     mov bl, dl
     call assoc_glyph_di
-    mov si, 64                  ; the DATA plane of the embedded icon
-    call assoc_reduce
+    xor si, si                  ; the image's header, at 0 of its own segment
+    call assoc_img_glyph        ; shipped or reduced (SPEC.md 54.3.2)
 .out:
     pop di
     pop si
@@ -1444,8 +1520,16 @@ asc_use_out:
 ; =============================================================================
 
 ASC_HDR      equ 16             ; magic 6 + version + napp + next + 7 reserved
-ASC_ROW      equ 80             ; stem 8 + size 2 + cluster 2 + 4 reserved + a
-                                ; 64-byte icon
+ASC_ROW      equ 88             ; a VERSION 2 row: stem 8 + size 2 + cluster 2
+                                ; + 4 reserved + a 64-byte icon + the 8-byte
+                                ; document glyph (SPEC.md 54.3.2)
+ASC_ROW1     equ 80             ; ...and a version 1 row, the same without the
+                                ; glyph: READ, because an installed volume's
+                                ; cache was written once at install and a
+                                ; refusal would send that machine back to the
+                                ; pre-54.7 harvest in silence; never written
+ASC_ROWGLY   equ 80             ; the glyph's offset inside a v2 row. All zero
+                                ; = the package ships none: reduce its icon
 ASC_ROWCLUS  equ 10             ; the DIRECTORY the program lives in (0 = root),
                                 ; taken out of the six bytes the row already
                                 ; reserved - so SPEC.md 54.7.1's seeding costs
@@ -1453,7 +1537,7 @@ ASC_ROWCLUS  equ 10             ; the DIRECTORY the program lives in (0 = root),
 ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
 ASC_NAPP     equ 32             ; was 16, and the shipped apps disk holds 15 -
 ASC_NEXT     equ 24             ; one package of headroom, with no guard
-ASC_KB       equ 3              ; 32*80 + 16 + 24*4 = 2,672 bytes
+ASC_KB       equ 3              ; 32*88 + 16 + 24*4 = 2,928 bytes
 ; ...and that sum is now checked rather than kept up to date by hand. The ext
 ; rows are FOUR bytes, not ASC_ROW: asc_merge_ext walks them with `add di, 4`,
 ; which is the one number here that a reader is likely to get wrong, ASC_ROW
@@ -1524,12 +1608,21 @@ asc_use_x:
     pop dx                      ; (pop leaves CF alone)
     jc .out
     mov es, [asc_seg]
-    mov si, asc_s_magic         ; 'OS88AC' + a version we understand, the
-    xor di, di                  ; dskw_cmp idiom (diskw.inc): cmpsb is DS:SI
-    mov cx, 7                   ; against ES:DI, and ES is already the claim.
-    cld                         ; The version byte is the string's 7th
+    mov si, asc_s_magic         ; 'OS88AC' - the dskw_cmp idiom (diskw.inc):
+    xor di, di                  ; cmpsb is DS:SI against ES:DI, and ES is
+    mov cx, 6                   ; already the claim
+    cld
     repe cmpsb
     jne .out
+    mov al, [es:6]              ; THE VERSION SETS THE ROW STRIDE (SPEC.md
+    mov cx, ASC_ROW1            ; 54.3.2): 1 is the 80-byte row an installed
+    dec al                      ; volume's cache still has, 2 the 88-byte one
+    jz .ver                     ; with the glyph column. Anything else is a
+    mov cx, ASC_ROW             ; cache this build does not understand, and
+    dec al                      ; that is the 'no cache' answer below
+    jnz .out
+.ver:
+    mov [asc_rowsz], cx
     mov al, [es:7]
     cmp al, ASC_NAPP
     ja .out
@@ -1556,7 +1649,7 @@ asc_use_x:
                                 ; byte off a disk is hostile, and so is every
                                 ; byte a disk merely implied)
     mov ax, [asc_n]
-    mov bl, ASC_ROW
+    mov bl, [asc_rowsz]
     mul bl                      ; AX = rows' bytes: napp <= 32, so <= 2,560 and
                                 ; the 8-bit multiply cannot touch DX
     mov bx, ax
@@ -1645,33 +1738,23 @@ asc_seed:
     shl bx, 1
     mov [assoc_clus+bx], ax
     ; ...and WHAT IT LOOKS LIKE (SPEC.md 54.7.3). The row carries the whole
-    ; 64-byte body, so the glyph costs no read either - and without it a
-    ; DECLARED extension (54.6) resolved to a slot whose glyph was still the
+    ; 64-byte body - and, in a version 2 cache, the glyph the package SHIPS
+    ; (54.3.2) - so the glyph costs no read either; without it a DECLARED
+    ; extension (54.6) resolved to a slot whose glyph was still the
     ; unresolved sentinel, so its documents drew assoc_compose's BARE PAGE
     ; until the folder the program lives in had been browsed. Every program
     ; on the shipped apps disk is one folder down (19.2) and the documents
     ; are in MEDIA/, so that was every .HTM and .TEX on the disk.
-    mov si, di
-    add si, ASC_ROWICO + 32     ; the cached body's DATA plane
-    mov cx, 16
-    xor ax, ax
-.ink:
-    or ax, [es:si]              ; an all-zero body is the ICONLESS sentinel:
-    inc si                      ; leave the glyph unresolved rather than
-    inc si                      ; blanking one another volume resolved, which
-    loop .ink                   ; is the rule assoc_note_app already follows
-    or ax, ax
-    jz .next
-    sub si, 32                  ; SI walked the plane: back to its start
-    shr bx, 1                   ; ...and the slot back out of BX, which the
-                                ; `shl` above left as a word index and nothing
+    shr bx, 1                   ; the slot back out of BX, which the `shl`
+                                ; above left as a word index and nothing
                                 ; since has written
-    call assoc_glyph_di
-    call assoc_reduce           ; ES = [asc_seg], per this routine's contract
+    mov si, di
+    add si, ASC_ROWICO          ; the cached body
+    call asc_row_glyph          ; ES = [asc_seg], per this routine's contract
 .next:
     pop si
     pop cx
-    add si, ASC_ROW
+    add si, [asc_rowsz]
     loop .row
 .out:
     jmp kretc_di
@@ -1766,7 +1849,7 @@ asc_merge_ext:
     mov cx, [asc_ne]
     jcxz .out
     mov ax, [asc_n]             ; the ext rows begin past the app rows - the
-    mov bl, ASC_ROW             ; accumulator form and the same 8-bit multiply
+    mov bl, [asc_rowsz]             ; accumulator form and the same 8-bit multiply
     mul bl
     add ax, ASC_HDR
     mov di, ax
@@ -1811,11 +1894,11 @@ asc_slot_of:
     push cx
     push si
     push di
-    mov bl, ASC_ROW             ; the 8-BIT form: `mul bl` reads AL and BL
+    mov bl, [asc_rowsz]             ; the 8-BIT form: `mul bl` reads AL and BL
     mul bl                      ; only, so AH needs no clearing and DX SURVIVES
     add ax, ASC_HDR             ; - this routine's header says it clobbers AX
     mov si, ax                  ; and CF, and `mul bx` clobbered DX. The row
-                                ; index is < ASC_NAPP, so AL*80 <= 2,480 and
+                                ; index is < ASC_NAPP, so AL*88 <= 2,728 and
                                 ; the product cannot leave AX. ES:SI = the row
     mov di, assoc_stemb         ; stage its stem into the kernel
     mov cx, 8
@@ -1930,6 +2013,52 @@ asc_take_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; asc_row_glyph - a slot's glyph out of a CACHE ROW (SPEC.md 54.3.2)
+; in:  ES:SI -> the row's cached 64-byte icon body (ASC_ROWICO in), BL = the
+;      slot, BH = 0
+; out: nothing (all registers preserved)
+;
+; A version 2 row carries the glyph the package SHIPS right after the body,
+; and all-zero there means it ships none - so the body is reduced, unless THAT
+; is all zero too: the ICONLESS sentinel, on which the glyph is left alone
+; rather than un-resolving one another volume resolved (54.7.3). A version 1
+; row has no glyph column and goes straight to the body. Both row-shaped
+; writers - the seed and a hit - come through here, so they cannot disagree.
+; -----------------------------------------------------------------------------
+asc_row_glyph:
+    push ax
+    push cx
+    push si
+    push di
+    call assoc_glyph_di         ; DI -> the slot's glyph
+    cmp byte [asc_rowsz], ASC_ROW1
+    je .body                    ; no glyph column in a version 1 row
+    add si, ASC_ROWGLY - ASC_ROWICO
+    call assoc_glyph_take
+    jnc .out
+    sub si, ASC_ROWGLY - ASC_ROWICO
+.body:
+    add si, 32                  ; the DATA plane
+    mov cx, 16
+    xor ax, ax
+    push si
+.ink:
+    or ax, [es:si]
+    inc si
+    inc si
+    loop .ink
+    pop si
+    or ax, ax
+    jz .out
+    call assoc_reduce
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; asc_note - a cache hit's half of assoc_note_app (module-internal)
 ; in:  SI -> the staged entry, DI = the icon's offset in [asc_seg]
 ; out: nothing (all registers preserved)
@@ -1952,12 +2081,10 @@ asc_note:
     mov bl, al
     xor bh, bh
     call assoc_hint_here
-    call assoc_glyph_di
     pop si
-    push si
-    add si, 32                  ; the cached body's DATA plane
+    push si                     ; the cached body
     mov es, [asc_seg]
-    call assoc_reduce
+    call asc_row_glyph          ; shipped or reduced (SPEC.md 54.3.2)
 .done:
     pop di                      ; balance the banked icon offset
     pop es
@@ -1974,10 +2101,11 @@ asc_note:
 ; =============================================================================
 
 section .text                   ; DATA, so back to the kernel segment
-asc_s_magic: db 'OS88AC', 1     ; the cache's magic and the one version this
-                                ; build understands (SPEC.md 54.7); the
-                                ; version byte joins the string so asc_use's
-                                ; whole header check is one repe cmpsb
+asc_s_magic: db 'OS88AC'        ; the cache's magic (SPEC.md 54.7). The
+                                ; version byte after it used to ride in this
+                                ; string; since 54.3.2 asc_use reads it and
+                                ; sets [asc_rowsz] from it - 1 and 2 are both
+                                ; understood, at different row strides
 asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory
                                 ; sectors, not display names
 
@@ -2002,6 +2130,8 @@ asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
 asc_ne:   dw 0                  ; ...and association rows
 asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's
+asc_rowsz: dw ASC_ROW           ; the app-row stride of the cache it holds -
+                                ; set from the version byte at load (54.3.2)
 
 %endif                          ; OS88_ASSOC - SPEC.md 54.0
 
