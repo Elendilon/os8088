@@ -832,14 +832,25 @@ section .text                   ; DATA, so back to the kernel segment
 ; the kernel segment and now just take their segment from a word.
 dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in
 dsk_doff:    dw disk_dir         ; entry 0's offset in it
-%ifdef KERN_SMALL
 dsk_iconext: db 0               ; SPEC.md 25.8's bump allocator: the next free
                                 ; POOL body, reset at every mount
 dsk_icofld:  db 0xFF            ; ...and the body every FOLDER shares, 0xFF
                                 ; until the first folder in this listing
                                 ; claims one. It used to be a 64-byte copy of
                                 ; the same bytes per folder
-%endif
+dsk_icomax:  db DSK_ICO_N       ; ...and HOW MANY BODIES THIS LISTING MAY HAVE,
+                                ; which is the whole reason a pool is safe on
+                                ; kern_big. SPEC.md 25.8.5.1 refused one there
+                                ; because `a pool sized for a floppy would
+                                ; degrade the 17th icon on a hard disk`, and
+                                ; that is true of a CONSTANT ceiling: a
+                                ; driver-backed volume lists DSK_VENT entries
+                                ; out of a claim its own driver funds, which
+                                ; has room for one body apiece, so it sets
+                                ; this to DSK_VENT and keeps every icon it has
+                                ; today. The floppy pays 16 because the
+                                ; floppies were MEASURED
+                                ; (docs/plans/ICON-IDENTITY-PLAN.md 7)
 %ifdef DSK_WANT_ICONS
 dsk_ioff:    dw disk_icons       ; icon slot 0's offset in it
 %else
@@ -2388,6 +2399,10 @@ dsk_list_floor:
     mov word [dsk_doff], disk_dir
 %ifdef DSK_WANT_ICONS
     mov word [dsk_ioff], disk_icons
+    mov byte [dsk_icomax], DSK_ICO_N    ; the FLOPPY pool: sixteen bodies for
+                                ; up to DSK_NENT entries, which is what makes
+                                ; a listing 1,856 bytes instead of 2,816
+                                ; (docs/plans/ICON-IDENTITY-PLAN.md)
 %endif
     mov word [dsk_nmax], DSK_NENT
     ret
@@ -2432,6 +2447,12 @@ dsk_list_pick:
                                 ; last byte instead of 512 inside it, so a
                                 ; driver that funds DSK_VBYTES rather than
                                 ; rounding up to DSK_VKB overruns outright
+    mov byte [dsk_icomax], DSK_VENT     ; ...and ONE BODY PER ENTRY here, which
+                                ; is what SPEC.md 25.8.5.1's refusal was
+                                ; protecting: the claim this listing lives in
+                                ; is DSK_VKB and already holds DSK_VENT of
+                                ; them, so a hard disk keeps every icon it has
+                                ; today and the pool costs it nothing
     mov word [dsk_nmax], DSK_VENT
 .out:
     pop bx
@@ -3082,27 +3103,22 @@ disk_mount_x:
                                 ; nothing to harvest into it. The LISTING
                                 ; above stays - 96.47's live resume finds
                                 ; HIBERNAT.IMG through it
-%ifdef KERN_SMALL
-    mov di, dsk_icoix           ; SPEC.md 25.8: blanking the INDEX is what
-    mov cx, [dsk_nmax]          ; retires a listing, and the bodies below it
-    mov al, 0xFF               ; are simply re-reserved. 32 bytes of stosb
-    cld                         ; where this was 2,048 of stosw
-    rep stosb                   ; ES = [dsk_dseg], which IS LOW_SEG here -
-                                ; dsk_icoix is `.lowbss` and kern_small has no
-                                ; DVK_DRV volume to put a listing anywhere
-                                ; else (SPEC.md 51.0)
+    push es                     ; SPEC.md 25.8: blanking the INDEX is what
+    push ss                     ; retires a listing, and the bodies below it
+    pop es                      ; are simply re-reserved. 64 bytes of stosb
+    mov di, dsk_icoix           ; where this was 2,048 of stosw.
+    mov cx, [dsk_nmax]          ;
+    mov al, 0xFF                ; **ES IS FORCED TO SS AND NOT LEFT AS
+    cld                         ; [dsk_dseg]**: the index is `.lowbss` even
+    rep stosb                   ; when the LISTING is in a driver's claim, and
+    pop es                      ; on kern_small the two happened to be the
+                                ; same segment, so the old code could leave ES
+                                ; alone. On kern_big they differ the moment a
+                                ; hard disk is mounted (SPEC.md 51.0 leaves
+                                ; kern_small no such volume), and 64 bytes of
+                                ; 0xFF would land in the driver's claim
     mov byte [dsk_iconext], 0   ; ...and the pool starts over
     mov byte [dsk_icofld], 0xFF
-%else
-    mov di, [dsk_ioff]
-    mov cx, [dsk_nmax]
-    mov ax, DSK_ICO_SIZE/2
-    mul cx
-    mov cx, ax
-    xor ax, ax
-    cld
-    rep stosw                   ; ES = [dsk_dseg]
-%endif
 
     cmp byte [dsk_vkind], DVK_FILE  ; ...and a REDIRECTED volume takes the
     jne .harvest0                   ; CACHE-ONLY pass below: it has no sectors
@@ -3204,7 +3220,7 @@ disk_mount_x:
 .h_folder:                      ; every folder gets the same built-in body.
     mov si, dsk_folder_ico      ; The one icon not harvested off the disk,
     mov ax, dx                  ; so it is also the one copied from .text
-    call dsk_put_icon_k_x       ; ...and falls through: .h_zero emits nothing
+    call dsk_put_icon_fld_x     ; ...and falls through: .h_zero emits nothing
 .h_zero:                        ; no icon: the slot is already blank
 .h_next:
     inc dx
@@ -3250,7 +3266,7 @@ disk_mount_x:
 .fsfolder:
     mov si, dsk_folder_ico
     mov ax, dx
-    call dsk_put_icon_k_x
+    call dsk_put_icon_fld_x
 .fsico_next:
     inc dx
     jmp short .fsico
@@ -6948,7 +6964,6 @@ dsk_ico_ofs:
     push ax
     push cx
     push dx
-%ifdef KERN_SMALL
     mov si, ax                  ; SPEC.md 25.8: AX is the ENTRY and the pool
     xor ah, ah                  ; body is one indirection away
     mov al, [ss:si+dsk_icoix]   ; SS, not DS: dsk_icoix is `.lowbss` and
@@ -6956,18 +6971,16 @@ dsk_ico_ofs:
                                 ; 2.1) - tools/os88ovlchk.py checks it
     cmp al, 0xFF
     je .none                    ; ...and NOT "CF is already set" here: `cmp`
-%endif                          ; against an EQUAL value CLEARS carry, so the
+                                ; against an EQUAL value CLEARS carry, so the
     mov cx, DSK_ICO_SIZE        ; refusal has to say so itself below
     mul cx
     add ax, [dsk_ioff]
     mov si, ax
-%ifdef KERN_SMALL
-    clc                         ; INSIDE the gate: kern_big has no refusal to
-    jmp short .out              ; distinguish, so it would be one byte spent
-.none:                          ; saying nothing (CLAUDE.md's byte rule - and
-    stc                         ; kernsize caught it as `.cold +1`)
+    clc
+    jmp short .out
+.none:
+    stc
 .out:
-%endif
     pop dx
     pop cx
     pop ax
@@ -7005,7 +7018,6 @@ dsk_put_dir:
 ;           the kernel segment (dsk_put_icon_k - the built-in folder body)
 ; out:      nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-%ifdef KERN_SMALL
 ; --- SPEC.md 25.8's two allocators ------------------------------------------
 ; dsk_ico_want - reserve a pool body for entry AX
 ; in:       AX = entry index
@@ -7020,8 +7032,8 @@ dsk_ico_want:
     push bx
     push si
     mov bl, [dsk_iconext]
-    cmp bl, DSK_ICO_N
-    jae .full
+    cmp bl, [dsk_icomax]        ; the LISTING's ceiling, not the array's: a
+    jae .full                   ; driver-backed volume raises it (see the cell)
     inc byte [dsk_iconext]
     mov si, ax
     mov [ss:si+dsk_icoix], bl   ; SS: dsk_icoix is `.lowbss` (SPEC.md 2.1)
@@ -7067,29 +7079,46 @@ dsk_ico_fld:
     pop si
     pop ax
     ret
-%endif
 
 dsk_put_icon:
     push dx
     mov dx, LOW_SEG
-%ifdef KERN_SMALL
     call dsk_ico_want
     jnc dsk_put_ico_body
     pop dx                      ; the pool is full: SPEC.md 25's generic icon
     ret                         ; is what this entry gets, and that is a
-%else                           ; picture the file manager already draws
-    jmp short dsk_put_ico_body
-%endif
-dsk_put_icon_k_x:
+                                ; picture the file manager already draws
+; dsk_put_icon_fld_x - the body every FOLDER in this listing SHARES
+; in:       AX = entry index, SI -> the body, in the kernel segment
+; out:      nothing (all registers preserved)
+;
+; **SPLIT FROM dsk_put_icon_k_x, AND THE SPLIT IS THE WHOLE POINT.** They were
+; one entry point while the pool was kern_small's alone, where it was correct
+; by accident: SPEC.md 54.0 gates ASSOC out of that kernel, so the only caller
+; was the folder. kern_big has two more - asc_take's cached PACKAGE icon and
+; assoc_docicon's composed DOCUMENT icon - and both are per-entry bodies that
+; were being handed the folder's shared one. Measured on B:\APPS before the
+; split: `dsk_icoix[0..13]` all 00 and `iconext` 1, so fourteen entries drew
+; one icon between them.
+dsk_put_icon_fld_x:
     push dx
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
-%ifdef KERN_SMALL
     call dsk_ico_fld
     jnc dsk_put_ico_body        ; a body was reserved: fill it
     pop dx                      ; ...or it is already filled / the pool is
     ret                         ; full, and either way nothing is copied
-%endif
+
+; dsk_put_icon_k_x - a body for THIS ENTRY, source in the kernel segment
+; in:       AX = entry index, SI -> the body
+; out:      nothing (all registers preserved)
+dsk_put_icon_k_x:
+    push dx
+    mov dx, KERNEL_SEG
+    call dsk_ico_want
+    jnc dsk_put_ico_body
+    pop dx                      ; the pool is full: SPEC.md 25's generic icon
+    ret
 dsk_put_ico_body:
     push ax
     push cx
@@ -7109,7 +7138,6 @@ dsk_put_ico_body:
     pop dx
     ret
 
-%ifdef KERN_SMALL
 ; -----------------------------------------------------------------------------
 ; dsk_ico_blank - fill dsk_ico with the "no icon" body (module internal)
 ; out:      nothing (all registers preserved)
@@ -7137,7 +7165,6 @@ dsk_ico_blank:
     pop cx
     pop ax
     ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; dsk_get_icon - stage one harvested icon slot in the kernel segment
@@ -7151,7 +7178,6 @@ dsk_get_icon_x:
     push dx
     push di
     call dsk_ico_ofs
-%ifdef KERN_SMALL
     jnc .have
     call dsk_ico_blank          ; SPEC.md 25.8: no body, so hand back the
     pop di                      ; all-zero every caller already reads as
@@ -7161,7 +7187,6 @@ dsk_get_icon_x:
     mov si, dsk_ico
     ret
 .have:
-%endif
     mov di, dsk_ico
     mov cx, DSK_ICO_SIZE
     mov dx, [dsk_dseg]

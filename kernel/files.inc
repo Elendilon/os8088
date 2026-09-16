@@ -327,17 +327,34 @@ FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
 FV_ICONS    equ DSK_NENT*DSK_DE_STRIDE  ; icon images start here inside a
                                 ; FLOPPY-sized slot; a driver-backed volume's
                                 ; is [dsk_ioff], and fmv_iofs answers both
-%ifdef KERN_SMALL
-FV_ICOIX    equ DSK_ICO_N*DSK_ICO_SIZE  ; ...and SPEC.md 25.8.5's index sits
-                                ; ABOVE the pool, not below it, so that
-                                ; fmv_iofs's answer stays a multiple of 256.
-                                ; FS_IOFH holds that answer in ONE BYTE
-                                ; (fmv_viofs asserts it), and putting the
-                                ; 32-byte index in front would have made the
-                                ; pool base 800 and the assertion false
-%if DSK_NENT*DSK_DE_STRIDE + DSK_ICO_N*DSK_ICO_SIZE + DSK_ICOIX_N > VIEW_KB*1024
-  %error "the pooled view cache no longer fits VIEW_KB: entries, then DSK_ICO_N bodies, then one index byte per entry. fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
+FV_ICOIX    equ 0               ; SPEC.md 25.8.5's index, and it is the FIRST
+                                ; thing in the icon REGION rather than the
+                                ; last. It sat above the pool so that
+                                ; fmv_iofs's answer stayed a multiple of 256 -
+                                ; FS_IOFH holds that answer in ONE BYTE - and
+                                ; the objection recorded there was to putting
+                                ; it BETWEEN the entries and the region, which
+                                ; would make the region base 800. Inside the
+                                ; region at offset 0 the base is still 768,
+                                ; and the BODY base below is computed rather
+                                ; than stored, so it is free to be 832.
+                                ;
+                                ; WHY IT HAD TO MOVE: the pool's size is
+                                ; [dsk_icomax] now, 16 on a floppy and
+                                ; DSK_VENT out of a driver's own claim, so an
+                                ; index ABOVE the pool sits at an offset that
+                                ; MOVES WITH THE VOLUME KIND - and nothing
+                                ; records which kind a slot was filled with
+                                ; (FS_IOFH's own comment says FS_VKB cannot be
+                                ; asked, fmv_fit only ever growing the claim).
+                                ; Below the pool it is at a fixed offset for
+                                ; both, and no window gains a byte of state
+FV_ICOBODY  equ DSK_ICOIX_N     ; ...so the bodies start after it
+%if DSK_NENT*DSK_DE_STRIDE + DSK_ICOIX_N + DSK_ICO_N*DSK_ICO_SIZE > VIEW_KB*1024
+  %error "the pooled view cache no longer fits VIEW_KB: entries, then one index byte per ENTRY (DSK_ICOIX_N, which is DSK_VENT-wide), then DSK_ICO_N bodies. fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
 %endif
+%if DSK_VENT*DSK_DE_STRIDE + DSK_ICOIX_N + DSK_VENT*DSK_ICO_SIZE > DSK_VKB*1024
+  %error "the DRIVER-BACKED view cache no longer fits DSK_VKB: a driver-backed volume raises [dsk_icomax] to DSK_VENT, so its window slot carries one body per entry and the claim its driver funds has to hold all of them"
 %endif
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
                                 ; line are both staged whole and truncated
@@ -739,7 +756,6 @@ fmv_get_dir:
 ; clobbers: SI (the output), flags
 ; -----------------------------------------------------------------------------
 fmv_get_icon:
-%ifdef KERN_SMALL
     cmp word [fm_vseg], 0       ; SPEC.md 25.8: with no cache of its own the
     je dsk_get_icon_x           ; painter reads the GLOBAL icons, which here
                                 ; are a pool - and dsk_get_icon_x is that
@@ -754,8 +770,8 @@ fmv_get_icon:
     push di
     call fmv_viofs              ; THIS WINDOW'S pool base, not the global's -
                                 ; the one place the two can differ (22.6.1)
-    add ax, bx                  ; ...and the entry's INDEX BYTE above it
-    add ax, FV_ICOIX
+    add ax, bx                  ; ...and the entry's INDEX BYTE, which is at
+    add ax, FV_ICOIX            ; the region's own base now (see FV_ICOIX)
     mov si, ax
     mov di, dsk_ico             ; TWO bytes, because fmv_copy_in moves words.
     mov cx, 2                   ; The second is the next entry's index, or the
@@ -773,6 +789,7 @@ fmv_get_icon:
     mov cl, 6
     shl ax, cl
     add ax, bx
+    add ax, FV_ICOBODY          ; ...past the index that now precedes them
     mov si, ax
     mov di, dsk_ico
     mov cx, DSK_ICO_SIZE
@@ -787,26 +804,6 @@ fmv_get_icon:
     pop ax
     mov si, dsk_ico
     ret
-%else
-    push ax
-    push bx
-    push cx
-    push di
-    mov cl, 6                   ; index * 64, past the entry images
-    shl ax, cl
-    call fmv_viofs              ; THIS WINDOW'S base, not the global's - the
-    add ax, bx                  ; one place the two can differ (SPEC.md 22.6.1)
-    mov si, ax
-    mov di, dsk_ico
-    mov cx, DSK_ICO_SIZE
-    call fmv_copy_in
-    pop di
-    pop cx
-    pop bx
-    pop ax
-    mov si, dsk_ico
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; fmv_winof - which window owns the state block in DI? (the inst_tab walk)
@@ -908,34 +905,35 @@ fmv_store:
     xor di, di
     mov cx, bx
     call fmv_copy_out
-%ifdef KERN_SMALL
-    ; SPEC.md 25.8.5: the cache MIRRORS the global - DSK_ICO_N bodies and one
-    ; index byte per entry - so both halves are block copies and the window
-    ; holds the same 1,056 bytes the global does instead of expanding them
-    ; back to one body per entry. The first version of this DID expand, to
-    ; keep fmv_get_icon's contract; carrying the pool through instead deletes
-    ; that loop AND a whole KB of every window's claim.
+    ; SPEC.md 25.8.5: the cache MIRRORS the global - the bodies and one index
+    ; byte per entry - so both halves are block copies and the window holds
+    ; what the global holds instead of expanding it back to one body per
+    ; entry. The first version of this DID expand, to keep fmv_get_icon's
+    ; contract; carrying the pool through instead deletes that loop AND a
+    ; whole KB of every window's claim.
+    ;
+    ; THE COUNT IS [dsk_icomax] AND NOT DSK_ICO_N: a driver-backed volume
+    ; raises the ceiling to DSK_VENT out of its own claim, so a hard disk's
+    ; window has more bodies to carry than a floppy's array even has room for.
+    mov si, dsk_icoix           ; the INDEX FIRST, and it lives in `.lowbss`
+    mov di, bx                  ; whatever [dsk_dseg] says - so NOT
+    add di, FV_ICOIX            ; fmv_copy_out, whose source segment IS
+    mov cx, DSK_ICOIX_N         ; [dsk_dseg] and is the DRIVER'S CLAIM on a
+    push dx                     ; hard disk. kern_small could use it because
+    mov dx, LOW_SEG             ; SPEC.md 51.0 leaves it no DVK_DRV volume and
+    call dsk_copy_seg_x         ; the two were always the same segment there
+    pop dx
+    push ax                     ; ...then the bodies, [dsk_icomax] of them
     mov si, [dsk_ioff]
     mov di, bx
-    mov cx, DSK_ICO_N*DSK_ICO_SIZE
-    call fmv_copy_out
-    mov si, dsk_icoix           ; the INDEX, which lives in `.lowbss` -
-    mov di, bx                  ; fmv_copy_out reads [dsk_dseg], and that IS
-    add di, FV_ICOIX            ; LOW_SEG on this kernel because SPEC.md 51.0
-    mov cx, DSK_ICOIX_N         ; leaves it no DVK_DRV volume to list from
-    call fmv_copy_out           ; anywhere else
-%else
-    mov si, [dsk_ioff]
-    mov di, bx
-    mov cx, [dsk_nmax]
-    mov dx, DSK_ICO_SIZE
-    push ax
-    mov ax, cx
-    mul dx
+    add di, FV_ICOBODY
+    mov al, [dsk_icomax]
+    xor ah, ah
+    mov cx, DSK_ICO_SIZE
+    mul cx
     mov cx, ax
     pop ax
     call fmv_copy_out
-%endif
     pop di
     mov [di+FS_IOFH], bh        ; ...AND THE SHAPE IT WAS FILLED WITH, which
                                 ; is this mount's and not whichever one paints
