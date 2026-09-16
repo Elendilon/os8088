@@ -657,7 +657,8 @@ publish, nothing to retire. That is also the trade: the blob half can refuse a
 late call through `[spl_fseg]` (§2.9.5.1) and this half cannot, because the
 bytes are simply forfeit.
 
-**What it buys, measured:**
+**What it bought at the split, measured** (the Dock setup split in §30.5
+later raises the disposable blob from 8 to 9 sectors):
 
 | | before | after |
 |---|---:|---:|
@@ -1155,9 +1156,10 @@ sector nothing: unset, the `%ifdef` is not assembled.
 **A module is `.cold` code that ships as a file instead of as part of the
 kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
-finished. **Four exist**: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
-the floppy formatter (§18.96), `CLONE.DRV`, the disk cloner (§18.99), and
-`HIBER.DRV`, hibernate and resume (§87) — plus, on `kern_small` alone,
+finished. Both builds carry `CTRL.DRV`, the Control Panel (§31),
+`FORMAT.DRV`, the floppy formatter (§18.96), and `CLONE.DRV`, the disk cloner
+(§18.99). `kern_big` also carries `HIBER.DRV` (§87) and the optional
+`DOCK.DRV`, advanced Dock behavior (§30.5); `kern_small` instead carries
 `FILECP.DRV` and `FDLG.DRV` (§22.3, §38.0), bodies `kern_big` keeps resident.
 **On the disk every one is a `'CZ'` container** (§20.13.5): `os88mod.py`
 checks each image the way `mod_check` will and then wraps it, `mod_need`
@@ -1238,17 +1240,18 @@ in the tree.
 - **`MOD_NENT` is what the modules use and not a round number.** It is
   **7**, which is what the largest module declares — §38.0's Standard File
   dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
-  `kern_big`; `kern_small` ships a one-entry stub), `CP_NENT` 6 on `kern_big`
-  and 5 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 1. Every module
+  `kern_big` only), `CP_NENT` 7 on `kern_big`
+  and 6 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 2, and one
+  Dock dispatcher entry. Every module
   header ends `times MOD_NENT - X dw 0`, which makes an eighth entry a **hard
   NASM error in the file that grew** rather than an overrun. It is **not**
   per-build, and that was tried: `tools/os88mod.py` scrapes the first
   `MOD_NENT equ` out of `mod.inc` and cannot evaluate an `%ifdef`. It was 8
   for as long as the scale factor had to be a power of two so `mod_fpr` could
   shift; ×7 is `×8 − ×1`, four instructions, and the power of two was buying
-  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 4 on
-  `kern_big` and 6 on `kern_small`: `MOD_FCP` 4 and `MOD_FDLG` 5 exist under
-  `FCP_MOD` alone, after `MOD_HIBER` 3.
+  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 5 on
+  `kern_big` and 6 on `kern_small`. BIG has `MOD_HIBER` 3 and `MOD_DOCK` 4;
+  SMALL has `MOD_FCP` 3, `MOD_FDLG` 4 and `MOD_DOCK` 5.
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -2765,7 +2768,8 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_`. **`.cold`** (§2.6) |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
-| `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
+| `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
+| `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
@@ -21984,7 +21988,8 @@ and such a page acts on the press exactly as before.
 `kern_big`'s.** `W_ONMOUSEUP` is in `kern_small`'s window record too
 (`WIN_SIZE` 28 includes it) and `W_ONDRAG` is not (§13.8.2), so `cp_kinit`,
 `cp_onup`, `cpf_cp_onup`, `CPE_ONUP`, `cp_pt` and `cp_drv_ev` are unconditional
-and `CP_NENT` is **5** there against 6. On `kern_small` `cp_onup_x` reduces to
+and `CP_NENT` is **6** there against 7 (including §30.5's layout entry).
+On `kern_small` `cp_onup_x` reduces to
 `cp_pt` + `DSV_CPUP` through `cp_drv_ev` and stops: the static pages there
 still act on the press, and none of the kernel's own arm, probe or pressed
 look crosses over. Without that edge the driver pages are dead on the 128KB
@@ -25792,8 +25797,9 @@ Four sectors, every one of them at the very top of `.text` — which is why
 carrying *"`.text` MAY NOT FALL BELOW 50,178 BYTES … and the answer then is a
 design change, not a new number"* in capitals. **This is that design change.**
 With one blob length the band is seven sectors wide and reaches memory 6,656,
-so `KSIG_OFF` is 6,656 (file sector 21) and the floor under `.text` is
-**6,658**. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
+so `KSIG_OFF` became 6,656 (file sector 21). §30.5 later adds one
+boot-blob sector and moves it to 6,144, keeping file sector 21 and a
+**6,146** floor under `.text`. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
 and requires the offset to cross on all of them, so a second blob length that
 comes back fails the fast tier instead of leaving one arm's canary inert — the
 "both lengths" rule lived in a Makefile comment and was enforced by nothing.
@@ -28831,17 +28837,19 @@ without leaving the constant no legal value — *"and the answer then is a desig
 change, not a new number"*. The next kernel size pass takes `.text` by ~600.
 The change is §15.3.8.5.1: the knob arm's blob was brought under 4,096, so
 **there is one blob length**, the band is the seven-sector single-length one,
-and `KSIG_OFF` is **6,656 — memory sector 13, file sector 21.**
+and `KSIG_OFF` became **6,656 — memory sector 13, file sector 21.**
+§30.5's layout setup later raises the blob to nine sectors, so the offset is
+now **6,144 — memory sector 12, still file sector 21**.
 
 It is a *lone* sector where 106 sat in a run of five, and that trade is
 deliberate: margin against a BPB that moves is worth less than margin against
 `.text`, because a geometry is a decision somebody takes and `.text` shrinks
-whenever anyone tidies anything. The floor under `.text` is **6,658** instead
+whenever anyone tidies anything. The floor under `.text` is **6,146** instead
 of 50,178. `tests/unit/t_canary.py` reads **every** `BOOT2_SECS*` equate and
 requires the offset to cross on all of them, so a second blob length coming
 back fails the fast tier rather than leaving one arm's canary inert — until
 this change that rule existed only as a Makefile comment and was enforced by
-nothing. 6,656 is inside the first 64KB, so the compare still reuses the `ES`
+nothing. 6,144 is inside the first 64KB, so the compare still reuses the `ES`
 the handoff already loads, and the word is the same for every geometry because
 `KERNEL.SYS` is one file. `tests/suite.py`'s `canary` row asserts all of that against the
 images `make` just built, so it cannot drift — and it asserts it over **every**
@@ -46921,7 +46929,14 @@ The strip used to be pinned to the bottom of the primary, and every reader of
 `[vid_dock_y0]` — the band a window is fitted into, the zoom rect, the drive
 column, the dither's last row — assumed so. **It can stand on the left or the
 right edge now**, chosen on the Control Panel's Dock page (§31.13) and kept in
-`SYSTEM.CFG`'s `DK` key (§51.5). The setting is one byte, `[dock_cfg]`:
+`SYSTEM.CFG`'s `DK` key (§51.5). **This section, §30.6 and §31.13 are
+`kern_big`'s alone.** `kern_small` has a bottom strip that never hides, no
+Dock page, no `DK` key and no `DOCK.DRV`: every kernel site the feature
+touched is `%ifdef DOCK_OPT` over its pre-feature code, so the 128KB floor
+machine pays nothing for it. A `SYSTEM.CFG` written by `kern_big` carries a
+`DK` record that `kern_small`'s reader skips as an unknown key (§51.5 rule
+1), and drops when that kernel next writes the file. The setting is
+one byte, `[dock_cfg]`:
 
 ```nasm
 DOCK_P_BOTTOM equ 0             ; bits 0..1: the edge
@@ -46930,9 +46945,38 @@ DOCK_P_RIGHT  equ 2
 DOCK_F_AUTO   equ 4             ; bit 2: hide it (30.6)
 ```
 
-`dock_geom` turns it into geometry, and it is the **only** writer of every word
-below. `vid_apply` calls it after the chrome's extent is published (§39.16),
-so an adapter switch re-derives it for free, and `dock_apply` — the geometry,
+Advanced Dock behavior lives in optional `DOCK.DRV`, using §2.8's loader,
+build/layout validation and pinned module claim. Bottom placement without
+auto-hide needs no Dock module. Applying a non-default setting loads it once;
+returning to the basic bottom Dock restores basic geometry and disarms/frees
+the module after its last call returns. Settings changes hold the graphics
+lock, so drawing callbacks cannot still be executing the module at unload.
+Painting, hit testing and UI ticks never perform disk I/O.
+
+The module owns advanced geometry, tile packing, hover/linger and clip-region
+maintenance, drawing and input. Every Dock operation is a six-byte stub that
+banks BP, loads its `DKI_*` index and jumps to `dock_route`: loaded, the
+module's one private entry calls through its own `dkx_tab`; unloaded, the
+router tail-jumps through `dock_btab` to the basic body, so the basic Dock
+runs at the stack depth it always had. The two tables list the operations in
+one order and assembly refuses a mismatch; the module build/layout stamps
+refuse one from another build. Operations only a loaded module can be asked
+for (hover, an open hole) sit past `DKB_N` and have no basic row. Kernel
+routines only the module calls are reached through module-side `dkk_*` stubs
+(`push cs` + a near call, then a far jump whose near `ret` lands on
+`cw_kretf`), so they cost no resident shim. The basic bottom renderer remains
+resident; advanced rendering code does not. Shared geometry and state remain in the kernel. Basic geometry setup
+has boot-overlay and Control Panel copies; fullscreen return restores bounds
+without loading either module. Saved advanced settings request `DOCK.DRV`
+after the system volume is mounted. A missing, incompatible or unallocatable
+module falls back to the basic Dock and live setting at boot, leaving the
+existing settings file untouched. A Control Panel load failure leaves the old
+setting active and reports the refusal. The module is not a driver-table entry and cannot be detached there.
+
+`dock_geom` calculates the layout and `dock_band` publishes its desktop
+bounds. `vid_init` calls setup after the chrome's extent is published
+(§39.16); adapter and display-layout switches recalculate it, and
+`dock_apply` — the geometry,
 `desk_rowcalc`, `wm_refit`, a raise-cache drop and `dock_force` — is what the
 page and the settings reader call when the byte itself changes.
 
@@ -46952,7 +46996,7 @@ each side of it — and **1** when the strip hides. `[vid_desk_zx]` is
 **The long axis is the one the damage span lives on.** §30.3.1's span and
 §30.3.3's painted span were x ranges; they are ranges along the strip now — x
 for the bottom, y for a side — and every routine that turns one into a rect
-(`dock_span_fill`, `dock_px_hit`, `wm_dock_under`'s damage) swaps the pair on
+(`dkx_span_fill`, `dock_px_hit`, `wm_dock_under`'s damage) swaps the pair on
 a side strip and nowhere else. `dock_force_x` is gone: `wm_paint_dmg` hands
 its whole damage rect to `dock_force_r`, which intersects it with the **live**
 rect (below) and unions the along-span, so the "does the damage reach the
@@ -46990,12 +47034,12 @@ bottom strip's is always `INST_MAX` (8 + 12·28 = 344 of 640). Every edge is
 offered on every adapter, and nothing greys.
 
 **A strip that holds every tile keeps §30's stable mapping** — position *i* is
-slot *i*, holes and all. One that holds fewer **packs**: `dock_map` writes
+slot *i*, holes and all. One that holds fewer **packs**: `dkx_map` writes
 `[dock_pos]`, the slot each position shows, and the live instances take
 positions in slot order with no holes, because a hole would spend a tile the
 strip does not have. `dock_paint` walks positions and keys them (§30.3's diff
 is per position, so a packed tile whose record changed is an identity change
-and rebuilds); `dock_hit` maps the position back to a slot; `inst_tile_rect`
+and rebuilds); `dkx_hit` maps the position back to a slot; `inst_tile_rect`
 asks `dock_slot_rect`, so a minimize flies to the tile the instance is shown
 at.
 
@@ -47015,11 +47059,11 @@ tick to ¼ s) opens it; once open, it closes **`DOCK_LEAVE_T` = 14 ticks**
 (0.77 s, the nearest to ¾ s) after the pointer leaves the strip's rect, and
 a pointer that comes back inside that time resets the count.
 
-`[dock_hidden]` is the one byte the painters ask, and `dock_live_set` is its
+`[dock_hidden]` is the one byte the painters ask, and `dkx_live_set` is its
 one writer: hidden is *auto and not open*. The **live rect**
 `[dock_lx1]..[dock_ly2]`, the live rule and field crosses and the live along
 range follow it — the line's own 1px rect while hidden, the whole strip
-otherwise — so `dock_paint`, `dock_hit`, `dock_px_hit`, `wm_dock_clear`,
+otherwise — so `dock_paint`, `dkx_hit`, `dock_px_hit`, `wm_dock_clear`,
 `wm_su_owed` and `wm_dock_under` never ask which mode they are in. A hidden
 `dock_paint` restores the line over the forced span and **skips the tiles
 entirely**: their keys keep what they last were, and the reveal forces the
@@ -47039,42 +47083,34 @@ the machine from drawing for as long as the pointer rests there. Neither is
 acceptable, and the clip region (§11.3) is what answers both: it is already
 how a background painter is kept off the windows above it.
 
-`dock_open` takes the lock **for the draw alone**: `[dock_up]` = 1, a
-save-under of the strip's rect in a `MEM_K_SAVE` claim, `dock_force` and
-`dock_paint` over whatever is there, and `dock_hole_build`, which writes the
-region **"the virtual desktop minus the strip"** — at most four rects — into
-`[dock_hole_tab]`. Then `[gfx_hole]` is set and the lock is released. From
-there to the close, everything keeps running and keeps drawing, round the
-strip:
+`dkx_open` takes the lock **for the draw alone**, makes the whole strip
+live, forces and paints it, then enables `[gfx_hole]` and releases the lock.
+The dock does not allocate a save-under. Closing always repaints its old rect
+with `wm_paint_dmg`, after making the hidden line live again. This trades the
+clean-buffer fast close for less resident code and no transient heap claim.
 
-| path | what keeps it off the strip |
-|---|---|
-| a primitive with **no region armed** — the frontmost window's paint, a title bar, a key or click handler, the kernel's own repaints | `GFXCLIP` and `CLIPQ` — the one question every region-aware primitive already asks — find `[wm_clip_n]` = 0 and `[gfx_hole]` set and call `gfx_hole_arm`, which spends the deferred cursor hide and copies the hole region in. The primitive takes its clipped path |
-| a region **being built** for a window or the desktop — `wm_clip_set`, `wm_covered`, `wm_chrome_clip`, the dither's `wm_dmg_occl`, `wm_clip_rect` | `dock_hole_sub` subtracts the strip at the end of the walk, over every window |
-| a background painter that asks `wm_obscured` and skips a frame | `wm_obscured` answers covered for a window under the strip |
-| the **raise cache** — a take reads pixels and a restore blits them unclipped | `wm_su_take` and `wm_su_try` refuse a window under the strip (`dock_hole_win`), so the window's own paint runs, clipped |
-| **a menu** | `menu_drop` puts the hole and any region away while the menu is down and puts them back at the release, before its restore — a menu over the open strip draws whole |
-| **the strip itself** | `dock_paint`, while open, does the same for its own draw — a focus change moves a tile's mark on the open strip with no flash — and answers CF = 0, because a strip on top damages no window under it. `dock_force_r` ignores damage while it is open, for the same reason |
+The existing region subtractor `wm_clip_subr` supplies both dock clip paths:
+`gfx_hole_arm` seeds the virtual desktop and subtracts the live dock;
+`dock_hole_sub` subtracts it from a region already being built. There is no
+second intersection scan and no cached copy of the hole region. One desktop
+rect minus one strip needs at most four fragments, within the clip capacity.
+The deferred cursor hide is spent before arming that region.
+`CLIPQ`, `CLIPQF` and primitive entries share `gfx_clip_query`, preserving
+registers and returning ZF = 1 only when no clip is required. This replaces
+repeated inline checks with a call/return on each query.
 
-A `CLIPQ` is `cmp word [wm_clip_n], 0` plus one `cmp word [gfx_hole], 0`
-that is false whenever no strip is open, and it replaced the bare compare at
-every site, so no primitive knows the dock exists.
+Window painters, desktop painters and unregioned primitives continue drawing
+around the open strip. Raise-cache capture and restore still refuse windows
+that overlap it. Menus and the dock itself temporarily suspend the hole and
+region while drawing; the open dock returns CF = 0 because it damages no
+window beneath it. Damage beneath it does not force its tiles.
 
-**Clicks go to the open strip first.** `ui_task`'s press path and `ui_rdown`
-ask `dock_click` / `dock_rclick` before `wm_hit` while `[dock_up]` is set, and
-a tile acts under the lock exactly as it does on a visible strip; its repaints
-go round the strip like any other.
+**Clicks go to the open strip first.** The left and right press paths ask the
+dock before `wm_hit` while `[dock_up]` is set. A press outside passes through.
 
-**The close puts back the pixels only while they are still true.** Anything
-that wanted to draw under the open strip and was clipped round it —
-`gfx_hole_arm`, a `dock_hole_sub` that removed something, a refused cache —
-sets `[dock_stale]`, and then the save-under is older than what belongs there.
-`dock_shut` restores the buffer when it is clean; otherwise it frees it and
-runs `wm_paint_dmg` over the strip's rect, which is the repaint a closing
-window gets, with the line already live so the repaint draws the line. It is
-imprecise in the safe direction: `gfx_hole_arm` cannot see the rect about to
-be drawn, so a clock tick in the menu bar marks the strip stale too, and the
-cost of that is a damage repaint of the strip's rect.
+Hover and linger share one active flag and start tick: only one can be running
+at a time. Transitioning or cancelling resets the flag; elapsed ticks use
+modular subtraction, retaining the 5-tick hover and 14-tick linger.
 
 Four things close or forget it: the linger (`dock_pass`), a §11.2 fullscreen
 window (closed, and the repaint puts the window's pixels under the strip
@@ -47346,7 +47382,8 @@ the kernel. `tools/os88ovlchk.py` refused the build, twice on this page now.
 #### 31.1.5 The item list scrolls too
 
 The Dock row (§31.13) is a seventh static item, and seven plus three driver
-pages is ten rows in a pane that holds nine. The window cannot grow — 151 is
+pages is ten rows in a pane that holds nine. **kern_big only**: `kern_small`
+has no Dock row, so its list still fits and none of this is assembled there. The window cannot grow — 151 is
 already the minimum that fits CGA — so the list scrolls, the way the Drivers
 page's list did first (§31.1.1).
 
@@ -48643,15 +48680,15 @@ button and stops. The page has no state line left at all.
 ### 31.13 Dock page — where the strip stands, and whether it hides
 
 `Dock` is the seventh static row in `cp_items`, **last**, so no record index
-before it moves (§31.10.1) — `CP_IDOCK` is 6 on kern_big and 4 on kern_small.
-It is the Theme page's shape (§76.4): a radio group and a check box, applied on
-the spot, remembered at the close.
+before it moves (§31.10.1) — `CP_IDOCK` is 6. **kern_big only** (§30.5):
+`kern_small`'s list has no Dock row and does not scroll. It is the Theme page's
+shape (§76.4): a radio group and a check box, applied on the spot, remembered
+at the close, with no caption — Auto-hide needs no explanation.
 
 ```nasm
 CPK_R0Y  equ 18                 ; Bottom glyph top; Left 34, Right 50
 CPK_ROWH equ 16
 CPK_AY   equ 74                 ; 'Auto-hide' check box glyph top
-CPK_CAPY equ 96                 ; caption: 'Rest on the edge to show'
 ```
 
 | id | control | greyed when |
@@ -70381,7 +70418,8 @@ the wrong settings. Every value now travels with a key that says what it is.
         db  data[len]
 ```
 
-`DK` is the dock's one byte (§30.5), a key of its own at ver 1. Seven keys at the time this paragraph was written, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
+`DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
+only. Seven keys at the time this paragraph was written, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
 clock 12/24, `CS` clock seconds, `SM` scheduler mode, and
 `HD` — a **driver's** own settings, whose contents the kernel does not know
 (§51.9). They are ASCII so a hex dump of the file reads as the list of

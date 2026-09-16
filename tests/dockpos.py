@@ -25,7 +25,7 @@ Hercules card and, for every setting, asserts three things:
      and the rule is drawn OVER the desktop;
   5. moved off, it is STILL open a moment later (the 0.75 s linger, SPEC.md 30.6)
      and closed after it - and the screen is then pixel-identical to the one
-     before it opened, because the tracker's save-under put it back;
+     before it opened, because the damage repaint restored it;
   6. a press outside the open strip is not eaten: it lands on the Dock page's
      Bottom radio, so the setting moves.
 
@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
+import os88ui
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
 
@@ -138,11 +139,32 @@ def strip_ok(px, w, h, cfg):
 
 def setting(m, mo, kind, cfg, want_cfg=None):
     """Drive the page to `cfg` and assert 1-3."""
+    before_seg = word(m, "mod_r_dock")
     have = byte(m, "dock_cfg")
     if (have & 3) != (cfg & 3):
         click_row(m, mo, CPK_R0Y + (cfg & 3) * CPK_ROWH)
     if (byte(m, "dock_cfg") & F_AUTO) != (cfg & F_AUTO):
         click_row(m, mo, CPK_AY)
+    check(bool(word(m, "mod_r_dock")) == bool(cfg),
+          "cfg %d: Dock module %s" % (cfg, "loaded" if cfg else "unloaded"))
+    seg = word(m, "mod_r_dock")
+    eq = os88sym.equates()
+    m.pause()
+    try:
+        tab = m.read(S("mem_tab"), eq["MEM_MAX"] * eq["MC_SIZE"])
+    finally:
+        m.run()
+    claims = {}
+    for off in range(0, len(tab), eq["MC_SIZE"]):
+        row = tab[off:off + eq["MC_SIZE"]]
+        claims[u16(row[eq["MC_SEG"]:])] = (
+            u16(row[eq["MC_PARA"]:]), u16(row[eq["MC_OWN"]:]))
+    if seg:
+        paras = ((eq["MODK_SIZE"] + 1023) // 1024) * 64
+        check(claims.get(seg) == (paras, eq["MEM_K_MOD"]),
+              "advanced Dock has exactly its rounded module claim")
+    elif before_seg:
+        check(before_seg not in claims, "disabling the Dock frees its old claim")
     got = byte(m, "dock_cfg")
     want = cfg if want_cfg is None else want_cfg
     check(got == want, "cfg %d: [dock_cfg] = %d" % (cfg, got))
@@ -183,6 +205,7 @@ def herc(a):
         m.run()
         os88marty.settle(m, gate=os88marty.desktop_up)
         os88marty.no_saver(m)
+        check(word(m, "mod_r_dock") == 0, "basic Dock boots without a module")
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, os88marty.settle, page=None)
         wx, wy = dispcp._cp_win(m, S)
@@ -193,11 +216,20 @@ def herc(a):
         os88marty.settle(m)
         print("   panel at (%d,%d), Dock is row %d" % (wx, wy, row))
 
-        for cfg in (P_LEFT, P_RIGHT, P_BOTTOM | F_AUTO, P_RIGHT | F_AUTO):
+        for cfg in (P_LEFT, P_RIGHT, P_BOTTOM, P_LEFT | F_AUTO,
+                    P_BOTTOM | F_AUTO, P_RIGHT | F_AUTO):
             setting(m, mo, kind, cfg)
 
         # --- 4..5: the hover, the open strip, the linger ---------------------
         pw, ph = word(m, "vid_pw"), word(m, "vid_ph")
+        # Put a real window under the open strip: removing the clipping
+        # fence must fail the forced-repaint check below, not pass vacuously
+        # against an uncovered desktop.
+        ui = os88ui.UI(m, mouse=mo, sym=S)
+        panel = ui.window("Control Panel")
+        panel = ui.move_window(panel, pw - panel.w - 1, 80)
+        check(panel.x + panel.w > pw - DOCK_SW,
+              "the panel overlaps the strip that will open")
         mo.to(pw // 2, ph - 60)
         os88marty.settle(m)
         w, h, before = frame(m, kind)
@@ -216,6 +248,13 @@ def herc(a):
             rule = w - DOCK_SW
             check(all(open_px[y * w + rule] == 0 for y in range(MBAR_H, h)),
                   "the open strip's rule is drawn over the desktop")
+            full_repaint(m)
+            _, _, repainted = frame(m, kind)
+            changed = sum(open_px[y * w + x] != repainted[y * w + x]
+                          for y in range(MBAR_H, h)
+                          for x in range(rule, w))
+            check(not changed, "window repaint leaves the open strip intact "
+                  "(%d px)" % changed)
             # ONE PACKET off the strip, not the long way home: the harness
             # spends up to a guest second a packet, so the four it takes to
             # reach mid-screen are ~73 ticks - longer than the linger - and
@@ -226,9 +265,9 @@ def herc(a):
             # THE LINGER IN GUEST TICKS, not host seconds: a pointer move
             # through the harness is itself hundreds of guest milliseconds,
             # so "is it still open right after the move" measured MartyPC.
-            # [dock_lvt] is the tick the pointer was first seen off the
+            # [dock_timer_tick] is the tick the pointer was first seen off the
             # strip, and it survives the close.
-            gone = word(m, "ticks") - word(m, "dock_lvt")
+            gone = word(m, "ticks") - word(m, "dock_timer_tick")
             check(DOCK_LEAVE_T <= (gone & 0xFFFF) <= DOCK_LEAVE_T + 40,
                   "...%d ticks after it left (the 0.75 s linger is %d)"
                   % (gone & 0xFFFF, DOCK_LEAVE_T))
@@ -259,6 +298,7 @@ def cga(a):
         m.run()
         os88marty.settle(m, gate=os88marty.desktop_up)
         os88marty.no_saver(m)
+        check(word(m, "mod_r_dock") == 0, "basic Dock boots without a module")
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, os88marty.settle, page=None)
         wx, wy = dispcp._cp_win(m, S)
@@ -271,8 +311,9 @@ def cga(a):
         check(byte(m, "dock_side") == P_LEFT and
               word(m, "vid_band_x0") == DOCK_SW,
               "CGA: the strip stands on the left")
-        check(byte(m, "dock_cap") == 7, "CGA: it holds seven tiles (%d)"
-              % byte(m, "dock_cap"))
+        capacity = min(7, os88sym.equates()["INST_MAX"])
+        check(byte(m, "dock_cap") == capacity,
+              "CGA: capacity %d (%d)" % (capacity, byte(m, "dock_cap")))
 
 
 def main():
