@@ -40,6 +40,7 @@
 ;                             field that cannot scroll is one that silently
 ;                             refuses text
 ;   LN_FOCUS                  byte: 1 = the caret is drawn and keys land here
+;   LN_DIS                    byte: non-zero = disabled - see its equ below
 ;
 ; Declare `resb OS88LINE_SZ` in bss and fill the rect plus LN_BUF/LN_MAX
 ; before the first draw. SI IS THE BLOCK AND NOT BX, because the gfx
@@ -65,7 +66,26 @@ LN_LEN    equ 12
 LN_CAR    equ 14
 LN_VIEW   equ 16
 LN_FOCUS  equ 18
-LN_PAD    equ 19
+LN_DIS    equ 19                ; byte: non-zero = DISABLED (SPEC.md 47). It
+                                ; was LN_PAD, a byte the record already
+                                ; carried and nothing read, so a field that
+                                ; greys costs no package a byte of bss and a
+                                ; field that never greys reads 0 - the loader
+                                ; zeroes a package's bss (SPEC.md 20.4 step 7),
+                                ; so every existing caller is unchanged
+                                ; without touching a line.
+                                ;
+                                ; **THE CALLER SETS THE PEN, THIS SETS THE
+                                ; SHAPE** (47 rule 2, and cp_vid_btn in
+                                ; kernel/ctrl.inc is the kernel's own worked
+                                ; example). With it set, `os88line_draw`
+                                ; leaves the frame in whatever pen you armed
+                                ; with OSAPI_GFX_PEN instead of forcing black,
+                                ; and draws no caret. The TEXT needs nothing
+                                ; from this - [gfx_dis] is read by font_ink,
+                                ; so the same pen stipples it for free - and
+                                ; the interior stays WHITE, which is the
+                                ; kernel button's answer too
 OS88LINE_SZ equ 20
 
 LN_INSET  equ 3                 ; MINIMUM pixels between the frame and the first
@@ -188,8 +208,11 @@ os88line_draw:
     push di
     call os88line_fit
 
-    mov al, CBLACK              ; the frame
-    UI_INK
+    cmp byte [si+LN_DIS], 0     ; the frame - in the CALLER's pen when this
+    jne .frame                  ; field is disabled, so the ring and the text
+    mov al, CBLACK              ; inside it cannot come out one solid and one
+    UI_INK                      ; stippled (SPEC.md 47 rule 2)
+.frame:
     mov ax, [si+LN_X1]
     mov bx, [si+LN_Y1]
     mov cx, [si+LN_X2]
@@ -258,6 +281,10 @@ os88line_draw:
 .caret:
     cmp byte [si+LN_FOCUS], 0
     je .out
+    cmp byte [si+LN_DIS], 0     ; ...and a DISABLED field draws no caret, which
+    jne .out                    ; is 47 rule 6 in the control rather than in
+                                ; each caller's click path: a greyed box with a
+                                ; bar blinking in it is offering something
     mov ax, [si+LN_CAR]
     sub ax, [si+LN_VIEW]
     mov cl, 3

@@ -130273,6 +130273,39 @@ takes a bare number and `300` is three plausible quantities on this page alone
 — kilobytes, paragraphs, or a percentage of the arena above it — and 4 px
 keeps the letter's own cell 8-aligned, which is `font_run`'s fast path (§6.1).
 
+##### 96.36.10.2 …and all three grey with the arm
+
+The limit belongs to *Inside the OS* exactly as the two driver boxes above it
+do, and **the click path had always known that**: `dos_click_mem`'s `.notck`
+tests `[dos_keepc]` before it asks the field whether the press was its, so on
+the other arm the press falls straight through to the radio (§96.36.9, §47
+rule 6). The **drawing** did not know it. The field sat there black, framed
+and typeable on an arm whose launch never reads `[dos_memkb]` — the same
+defect as a live checkbox that hands back nothing, one control along.
+
+It greys as one bracket — the box, the `Limit:` label and the `K` — because
+§47 rule 2 is that a half-greyed control is worse than a live one. The box is
+drawn **first** of the three: it is the only one that reads `[gfx_color]`, the
+other two being opaque `font_run` pairs carrying their colours in `AL`/`AH`
+that take their grey from `[gfx_dis]` alone (`font_ink`). And the pen goes
+back immediately, the lock being held for the whole page.
+
+**`os88line.inc` gained a disabled form and no package gained a byte of bss.**
+`LN_DIS` is the record's byte 19, which was `LN_PAD` — declared, carried by
+every field in the tree and read by nothing. The loader zeroes a package's bss
+(§20.4 step 7), so every existing caller reads 0 and behaves exactly as
+before. Set, it does two things and neither is about colour: `os88line_draw`
+leaves the frame in whatever pen the caller armed instead of forcing `CBLACK`,
+and it draws no caret. The text needs nothing at all — `[gfx_dis]` is read by
+`font_ink`, so the caller's pen stipples it for free — and the interior stays
+white, which is `cp_vid_btn`'s answer in the kernel and for the same reason.
+
+The caret gate is §47 rule 6 put **in the control rather than in each caller's
+click path**: a greyed box with a bar blinking in it is offering something.
+The DOS box's own path already refuses focus on the wrong arm and `dos_defocus`
+runs on every arm change, so the gate is belt over braces — which is the right
+side to be on for a rule about what a control may claim.
+
 ### 96.37 The kernel's disk layer runs outside the kernel, for 92 bytes
 
 docs/plans/KERN-DOS-PLAN.md §4 gives a DOS program ~600 KB of a 640 KB machine

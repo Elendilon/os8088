@@ -7411,27 +7411,41 @@ dos_paint_mem:
     call os88ui_chk
     pop bx
 
-    push bx                         ; the limit's label, then its box
-    mov bx, [dos_mx]
-    add bx, DOS_MSUBX
+    ; --- the limit: its box, its label and its unit, all three together -----
+    ; **AND ALL THREE GREY WITH THE ARM** (SPEC.md 96.36.10.2). It is arm 0's
+    ; control exactly as the two driver boxes above it are, and the click path
+    ; has always known that - `.notck` refuses the press on any other arm and
+    ; lets it fall through to the radio - but the DRAWING did not, so the field
+    ; sat there black and typeable on an arm that ignores it. 47 rule 2 is why
+    ; the three are one bracket: half a control greyed is worse than none.
+    push bx
+    mov byte [dos_mln+LN_DIS], 0
+    cmp byte [dos_keepc], DOS_MEM_IN
+    je .lim
+    mov byte [dos_mln+LN_DIS], 1    ; the frame takes the pen below instead of
+    stc                             ; forcing black, and no caret is drawn
+    call OSAPI_GFX_PEN
+.lim:
+    call dos_mfld_place             ; THE BOX FIRST, because it is the only one
+    mov si, dos_mln                 ; of the three that reads [gfx_color] - the
+    call os88line_draw              ; other two are opaque font_run pairs with
+    mov bx, [dos_mx]                ; their colours in AL/AH, and take their
+    add bx, DOS_MSUBX               ; grey from [gfx_dis] alone (font_ink)
     mov dx, [dos_my]
     add dx, DOS_MFLDY + 3
     mov si, dos_l_meml
     call dos_line
-    pop bx
-    push bx
-    call dos_mfld_place
-    mov si, dos_mln
-    call os88line_draw
-    pop bx
-    push bx                         ; ...and the UNIT, hard against the box
-    mov bx, [dos_mx]                ; (SPEC.md 96.36.10.1)
+    mov bx, [dos_mx]                ; ...and the UNIT, hard against the box
     add bx, DOS_MSUBX + DOS_MFLDX + DOS_MFLDW + DOS_MFLDKX
     mov dx, [dos_my]
     add dx, DOS_MFLDY + 3
     mov si, dos_l_memk
     call dos_line
-    pop bx
+    clc                             ; ...and the pen back at once, whichever
+    call OSAPI_GFX_PEN              ; arm it was: the lock is held for the
+    pop bx                          ; whole page and whatever paints next
+                                    ; would inherit it (the `.why` caption
+                                    ; below states the same rule)
 
     ; --- ARM 1's: the mouse box, OR why the arm cannot be picked -------------
     ; ONE ROW, TWO THINGS, and they never want it at once (SPEC.md 96.36.8):

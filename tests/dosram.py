@@ -289,6 +289,9 @@ def main():
             fail("clearing the limit left [dos_memkb] = %d and the row at %d, "
                  "where an empty field means NO cap and the row should be "
                  "back at %d" % (word("dos_memkb"), arena(), before))
+        for ch in str(lim):                     # ...and set again, STANDING,
+            m.type_text(ch)                     # for 2a below
+        M.settle(m)
 
         # --- 2: ARM 1's estimate, against what the machine really hands over --
         rr = rect("dos_mrad")
@@ -298,6 +301,50 @@ def main():
         if byte("dos_keepc") != 1:
             fail("clicking the Shut down the OS arm left the pick at %d"
                  % byte("dos_keepc"))
+
+        # --- 2a: ...and the LIMIT greys with its arm, and is ignored ---------
+        # It is arm 0's control exactly as the two boxes above it are, and the
+        # click path always knew that - dos_click_mem's `.notck` tests
+        # [dos_keepc] before it asks the field.  The DRAWING did not, so the
+        # field sat there black, framed and typeable on an arm whose launch
+        # never reads [dos_memkb] (SPEC.md 96.36.10.2).
+        LN_FOCUS, LN_DIS = 18, 19
+        if not m.read(pb() + dm["dos_mln"] + LN_DIS, 1)[0]:
+            fail("the arm is `Shut down the OS` and the limit field's LN_DIS "
+                 "is 0 - it is drawn live, framed in black and typeable, for "
+                 "a launch that never reads it (SPEC.md 96.36.10.2)")
+        if m.read(pb() + dm["dos_mln"] + LN_FOCUS, 1)[0]:
+            fail("the limit field still holds the caret on an arm it does not "
+                 "belong to - a greyed box with a bar blinking in it is "
+                 "offering something (SPEC.md 47 rule 6)")
+        promised = arena()
+        if promised == word("dos_memkb"):
+            fail("a %d K limit is standing and arm 1's estimate reads the "
+                 "same. The cap is arm 0's: dos_lbfill fills KDL_CAP from the "
+                 "BDA and never from [dos_memkb], so a figure clamped here "
+                 "would be a promise the launch does not keep (SPEC.md "
+                 "96.36.9)" % word("dos_memkb"))
+
+        # ...and a press on it belongs to the ARM under it, not to the field
+        fr = rect("dos_mln")
+        mo.click((fr[0] + fr[2]) // 2, (fr[1] + fr[3]) // 2)
+        M.settle(m)
+        if m.read(pb() + dm["dos_mln"] + LN_FOCUS, 1)[0]:
+            fail("a press on the greyed limit field took the caret - a greyed "
+                 "control says nothing more, and the press belongs to the arm "
+                 "it is standing in (SPEC.md 47 rule 6, 96.36.4)")
+        if byte("dos_keepc") != 0:
+            fail("a press on the greyed limit field left the pick at %d - it "
+                 "should have fallen through to the radio and picked arm 0, "
+                 "the way a press on a greyed check box does (SPEC.md 96.36.4)"
+                 % byte("dos_keepc"))
+        mo.click((rr[0] + rr[2]) // 2, rr[1] + pitch + pitch // 2)   # back
+        M.settle(m)
+        if byte("dos_keepc") != 1:
+            fail("could not get back to arm 1 after the fall-through test")
+        print("dosram: the limit greys with its arm, keeps no caret, and "
+              "arm 1 promises %d K with a %d K cap standing"
+              % (arena(), word("dos_memkb")))
         promised = arena()
         print("dosram: the page promises ~%d K on arm 1" % promised)
 
