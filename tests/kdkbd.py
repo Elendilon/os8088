@@ -73,6 +73,8 @@ import kdhand as K                                             # noqa: E402
 R_VEC = re.compile(r"KBHOLD int09=([0-9A-F]{4}):([0-9A-F]{4})")
 R_CTL = re.compile(r"speaker CONTROL\s*=([0-9A-F]{8})")
 R_SPK = re.compile(r"speaker-on samples\s*=([0-9A-F]{8})")
+R_ARR = re.compile(r"shift-state changes\s*=([0-9A-F]{8})")
+R_ST = re.compile(r"slots taken by a key=([0-9A-F]{4})")
 R_KB = re.compile(r"(forged FULL|after  watch)\s+head=([0-9A-F]{4}) "
                   r"tail=([0-9A-F]{4})")
 
@@ -83,9 +85,20 @@ def fail(msg):
 
 
 def keyburst(m, stop):
-    """Keys arriving THROUGHOUT the probe's window - the held key, in effect."""
+    """Keys arriving THROUGHOUT the probe's window - the held key, in effect.
+
+    **SHIFT RIDES WITH EVERY ONE**, and it is not decoration: a MODIFIER does
+    not enqueue, it updates the shift-state byte at 0040:0017, and the ROM
+    updates that whether or not the buffer has room.  So it is the only thing
+    that proves int 09h ran at all on an arm where the key is DROPPED - and a
+    dropped key changes nothing else in the BDA, which is what `dropped`
+    means.  Without it, "the tail did not move" and "no key ever arrived" are
+    the same reading, and the unguarded arm asserts nothing.
+    """
     while not stop.is_set():
         try:
+            m.key("ShiftLeft", down=True, up=False)
+            m.key("ShiftLeft", down=False, up=True)
             m.key("KeyA")
         except Exception:
             return
@@ -137,7 +150,7 @@ def main():
     text = "\n".join(rs)
     print("kdkbd: under kern_dos:")
     for r in rs:
-        if "KBHOLD" in r or "speaker" in r or "head=" in r:
+        if any(k in r for k in ("KBHOLD", "speaker", "head=", "shift", "slots")):
             print("      | %s" % r.rstrip())
 
     v = R_VEC.search(text)
@@ -159,26 +172,46 @@ def main():
              "would be zero whatever happened. The instrument is dead, not "
              "the defect fixed")
 
+    arr = R_ARR.search(text)
+    if not arr:
+        fail("the probe never printed its arrival count")
+    if int(arr.group(1), 16) == 0:
+        fail("the shift-state byte never moved across the whole window, so "
+             "NO KEY REACHED THE GUEST and nothing below means anything. A "
+             "dropped key changes nothing in the BDA, so without this the "
+             "unguarded arm's `the tail did not move` is indistinguishable "
+             "from `the harness sent nothing`")
+    print("kdkbd: %d shift-state changes - int 09h really was running"
+          % int(arr.group(1), 16))
+
     kb = R_KB.findall(text)
     if len(kb) != 2:
         fail("read %d head/tail lines and wanted 2: %r" % (len(kb), kb))
-    (_, h0, t0), (_, h1, t1) = kb
+    (_, h0, t0), _ = kb
     if (h0, t0) != ("001E", "003C"):
         fail("the probe forged head=%s tail=%s and a FULL buffer is "
              "001E/003C - it did not set up the condition under test"
              % (h0, t0))
-    if t1 == t0:
-        fail("a key arrived on a full buffer and the tail is still %s: it was "
-             "DROPPED by the ROM, which is the overflow SPEC.md 9.8's guard "
-             "exists to prevent. With the guard the tail winds back one slot "
-             "(3Ch -> 3Ah) and the key is stored where the previous newest "
-             "sat" % t1)
-    if (h1, t1) != ("001E", "003A"):
-        fail("the tail moved %s -> %s and SPEC.md 9.8 winds it back exactly "
-             "one slot, to 003A, with the head untouched at 001E (it is %s)"
-             % (t0, t1, h1))
-    print("kdkbd: a key on a full buffer wound the tail %s -> %s and was "
-          "STORED" % (t0, t1))
+
+    # **THE CONTENTS, NOT THE POINTERS.**  The guard frees the newest slot and
+    # the ROM immediately refills it, so head and tail come back to 1Eh/3Ch on
+    # BOTH arms and which phase the window ends in is luck - an earlier draft
+    # of this row asserted the tail and was flaky for that reason.  What is not
+    # luck is whether an arriving key ever reached a slot: the probe fills the
+    # buffer with 'Z' and the harness sends 'A'.
+    st = R_ST.search(text)
+    if not st:
+        fail("the probe never printed its stored-slot count")
+    n = int(st.group(1), 16)
+    if n == 0:
+        fail("%s keys reached the guest (the shift state moved that many "
+             "times) and NOT ONE of the 16 buffer slots stopped holding the "
+             "probe's marker: every one was DROPPED by the ROM. That is the "
+             "overflow SPEC.md 9.8's guard exists to prevent - with it the "
+             "newest queued entry is un-enqueued and the arriving key is "
+             "stored where it sat" % arr.group(1))
+    print("kdkbd: %d of 16 slots hold a key that arrived on a FULL buffer - "
+          "stored, not dropped" % n)
 
     spk = R_SPK.search(text)
     print("kdkbd: speaker-on samples %s across the window - neither ROM this "
