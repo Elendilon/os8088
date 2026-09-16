@@ -102,6 +102,15 @@ INCLUDES = [
      "thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one "
      "pick out of a short list, a Macintosh popup's gesture - with `%define "
      "OS88UI_DROP` (SPEC.md 13.14)."),
+    ("os88alt.inc", "11.2.1.1",
+     "Alt+Enter, the full-screen key, for a package on SPEC.md 53's BRACKET - "
+     "where no event is dispatched, so the kernel's synthesised keystroke "
+     "cannot reach you and your own int 16h poll cannot see the key either. "
+     "`os88alt_edge` asks the key-state map and finds the edge in it. A "
+     "package on SPEC.md 11.2's LATCH needs none of this file: one "
+     "`cmp ax, KEY_ALTENTER` in its W_ONKEY is both directions. Both want "
+     "`OS88_ALTENTER_ARM` (apps/os88api.inc) in the entry proc, without which "
+     "the chord is silently dead."),
     ("os88line.inc", "83",
      "A one-line text field: caret, horizontal scroll, focus, click-to-position "
      "and the editing keys. The caller owns a 20-byte block."),

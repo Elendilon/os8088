@@ -351,6 +351,15 @@ KSC_DOWN    equ 0x50
 KSC_SPACE   equ 0x39
 KSC_ENTER   equ 0x1C
 KSC_ESC     equ 0x01
+KEY_ALTENTER equ 0x1C00          ; ...and what a W_ONKEY is handed for ALT+ENTER
+                                 ; (SPEC.md 9.7.1): AH = Enter's scancode, AL
+                                 ; = 0, which is the code an ENHANCED ROM
+                                 ; gives and the code the kernel synthesises
+                                 ; on every ROM that does not. `cmp ax,
+                                 ; KEY_ALTENTER` is the whole windowed half of
+                                 ; SPEC.md 11.2.1.1's full-screen key;
+                                 ; apps/os88alt.inc is the other half and the
+                                 ; arming both of them need
 KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; only ever asked about beside another key.
                                  ; SPEC.md 9.7.1: ALT+ENTER IS THE ONE
@@ -368,6 +377,38 @@ KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; ASKING ARMS THE MAP (above), which is what
                                  ; the synthesised key needs too - so an app
                                  ; that wants it calls this once at launch
+
+; --- OS88_ALTENTER_ARM - ask once, so the key-state map exists (SPEC.md 9.7)
+; Put it in your entry proc. Until SOMETHING has called OSAPI_KEY_DOWN,
+; kbm_isr tracks no scancode at all - so without this neither half of
+; SPEC.md 11.2.1.1 can see Alt+Enter, not apps/os88alt.inc's poll and not the
+; kernel's own latch. The ANSWER is discarded; the asking is the point, and it
+; is what keeps the feature costing a machine that never runs this app zero.
+%macro OS88_ALTENTER_ARM 0
+    pushf                       ; AND THE FLAGS, for OS88_REGION_MOVABLE's own
+                                ; reason one line along: an entry proc carries
+                                ; the CF it owes the loader, and OSAPI_KEY_DOWN
+                                ; ANSWERS in CF. The first call always answers
+                                ; "up" - arming is what it does - so a bare
+                                ; version happens to work on instance one and
+                                ; returns `launch failed` on the next one with
+                                ; Alt genuinely held. Four bytes buy the right
+                                ; to put this line anywhere in an entry proc,
+                                ; which is what makes it a one-line adoption
+    push ax
+    mov al, KSC_ALT
+    call OSAPI_KEY_DOWN
+    pop ax
+    popf
+%endmacro
+
+; --- OS88_ALTENTER_SEED - "assume it is still held", at a bracket's top -----
+; apps/os88alt.inc's header says why: the press that opened the bracket is
+; still down, and a LEVEL read cannot tell it from the press that would close
+; it again. Needs os88alt.inc included.
+%macro OS88_ALTENTER_SEED 0
+    mov byte [os88alt_dn], 1
+%endmacro
 
 ; --- sound (SPEC.md 20.3/34): the PC speaker, which is the whole of it.
 %define OSAPI_SND_CAPS      KERNEL_SEG:0x00E0   ; out AX = caps word (SND_CAP_*),

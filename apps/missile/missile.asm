@@ -381,6 +381,9 @@ mc_entry:
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
     OS88_REGION_MOVABLE
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
+                                    ; scancode until something asks, and both
+                                    ; halves of the chord ride on that map
     mov ax, mc_onresize             ; mc_mono / mc_ecoarse / mc_caps are facts
     call OSAPI_WM_ONRESIZE          ; about the CARD, and it can change under
                                     ; us (SPEC.md 11.98)
@@ -897,6 +900,10 @@ mc_onkey:
     call mc_track
     call mc_abdismiss               ; any key takes the credits down first
     jc .out
+    cmp ax, KEY_ALTENTER            ; Alt+Enter is the same door as `f`
+    je .fs                          ; (SPEC.md 11.2.1.1) - tested on AX and
+                                    ; not BL, because the ascii half of it is
+                                    ; 0 and every test below is on the letter
     cmp bl, 27                      ; Esc: leave fullscreen (SPEC.md 11.2 -
     je .esc                         ; the menu bar is unreachable up there)
     cmp bl, '1'
@@ -1109,10 +1116,20 @@ mc_fsx_main:
     mov byte [mc_inbr], 1           ; ...and the crosshair is ours again for
                                     ; the life of the bracket (SPEC.md 7.2)
     mov byte [mc_chshown], 0        ; the crosshair is not on this screen yet
+    OS88_ALTENTER_SEED              ; ...and no LEAVE from the Alt+Enter that
+                                    ; got us here either, which is the same
+                                    ; thought as the button seed below
     call OSAPI_MOUSE
     mov [mc_pbtn], al               ; no fire from the click that got us here
 .loop:
 .keys:
+    call os88alt_edge               ; ...and Alt+Enter leaves too (SPEC.md
+    jc .done                        ; 11.2.1.1). It cannot come through the
+                                    ; int 16h below - no XT BIOS enqueues the
+                                    ; combination at all (9.7.1) - and no
+                                    ; synthesised event can reach a bracket
+                                    ; either, so the key-state map is what
+                                    ; carries it. Free here: this loop polls
     mov ah, 1                       ; the bracket's input model: poll int 16h
     int 0x16                        ; (this IS the UI task, SPEC.md 53.1)
     jz .nokey
@@ -8103,6 +8120,7 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
 %define GFXE_PT_BUF mc_pts
 %define GFXE_PT_MAX MC_PTMAX
 %include "os88gfx.inc"
+%include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the bracket
 
     OS88_BSS MC_BSS
     OS88_IMAGE_END

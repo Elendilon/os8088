@@ -319,6 +319,12 @@ trk_entry:
                                     ; module loads in front of it. BX is still
                                     ; the window and the slot preserves the
                                     ; flags the loader's CF rides in
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
+                                    ; scancode until something asks, and both
+                                    ; halves of the chord ride on that map.
+                                    ; It preserves the FLAGS, like every other
+                                    ; call in this chain and for the same
+                                    ; reason - the loader's CF is riding here
     OS88_REGION_MOVABLE             ; OUR REGION MOVES (SPEC.md 66.6.1), and
                                     ; it is what makes the what-if verb of
                                     ; below mean anything: a region born
@@ -598,6 +604,9 @@ trk_onkey:
     call trk_reap                   ; F00/watchdog leftovers close first
     call trk_abdismiss              ; any key takes the About panel down and
     jc .out                         ; is spent doing it
+    cmp ax, KEY_ALTENTER            ; Alt+Enter is the same door as F (SPEC.md
+    je .fstog                       ; 11.2.1.1), and on AX: the ascii half is
+                                    ; 0, which is the keypad arm below
                                     ; every key drives the player from the
                                     ; first keystroke - fullscreen is F or a
                                     ; click, deliberately NOT "any key",
@@ -1568,6 +1577,10 @@ trk_fsx_main:
     call ttx_clkpick                ; the frame clock (SPEC.md 45.16/53.5.1)
 .txloop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    call os88alt_edge               ; ...and Alt+Enter, which int 16h below
+    jc .txdone                      ; cannot carry: no XT BIOS enqueues the
+                                    ; combination (SPEC.md 9.7.1) and a
+                                    ; bracket dispatches no events (53.1)
     mov ah, 1
     int 0x16                        ; this IS the UI task (SPEC.md 53.1)
     jz .txdraw
@@ -1602,6 +1615,8 @@ trk_fsx_main:
     call tui_draw_all               ; the whole FT2 screen
 .loop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    call os88alt_edge               ; ...and Alt+Enter, for .txloop's reason
+    jc .done                        ; one screen along (SPEC.md 11.2.1.1)
     mov ah, 1                       ; poll the keyboard - this IS the UI task
     int 0x16                        ; (SPEC.md 53.1), so int 16h is legal
     jz .draw
@@ -3308,6 +3323,8 @@ trk_reloc:
     TRKB trk_mixing                 ; the worker is inside a trk_feed pass -
                                     ; trk_stream_close drains it before any
                                     ; UI-task touch of mp_* state or the blob
+
+%include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the brackets
 
     OS88_BSS TRK_BSS
     OS88_IMAGE_END

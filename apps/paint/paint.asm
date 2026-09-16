@@ -590,6 +590,11 @@ pt_entry:
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
     OS88_REGION_MOVABLE
+%ifdef PTF_FSX
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
+                                    ; scancode until something asks, and both
+                                    ; halves of the chord ride on that map
+%endif
     push ax
     mov ax, pt_onup                 ; SPEC.md 13.7/13.8.1: Apply fires on the
     call OSAPI_WM_ONMOUSEUP         ; RELEASE and follows the pointer between
@@ -10623,6 +10628,30 @@ pt_onkey:
     je .paste
 %endif
 %ifdef PTF_FSX
+    cmp ax, KEY_ALTENTER            ; Alt+Enter, the other unconditional door
+    je .full                        ; (SPEC.md 11.2.1.1). Beside Ctrl+F and
+                                    ; above the bare letter for the same
+                                    ; reason: a chord is not a keystroke the
+                                    ; text tool can ever want.
+                                    ;
+                                    ; **IT IS THE WAY IN AND NOT THE WAY OUT
+                                    ; HERE**, which is the one place SPEC.md
+                                    ; 11.2.1.1's pair is not symmetric.
+                                    ; Leaving wants apps/os88alt.inc's poll of
+                                    ; the key-state map, and MEASURED on this
+                                    ; app that poll's far call leaves the box
+                                    ; unable to enter full screen a SECOND
+                                    ; time - `f` in, Esc out, `f` again is
+                                    ; refused, with the chord nowhere near it.
+                                    ; Bisected to the call itself: a bare
+                                    ; `ret` in its place and the second entry
+                                    ; is fine, at .loop or at .pace alike.
+                                    ; Whatever that is, it is not this
+                                    ; section's to fix, and Paint already has
+                                    ; two ways out (Esc and Ctrl+F) that owe
+                                    ; nothing to it - so the half that works
+                                    ; ships and the half that breaks an app
+                                    ; does not
     cmp al, 0x06                    ; Ctrl+F
     je .full
     cmp byte [pt_txton], 0          ; ...and the bare F, the tree's fullscreen

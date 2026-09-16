@@ -14296,6 +14296,114 @@ letter is not the app's to bind: pressing F in ArtfulType (§46) writes an
 An app that reserves letters for gameplay is *not* an exception: Missile
 Command and Tracker both bind a dozen bare letters and F is one of them.
 
+##### 11.2.1.1 …and Alt+Enter is the other one, on every app that has a full screen
+
+§11.2.1 binds **F**, and its own text spends four paragraphs on the cases
+where a bare letter cannot be had: an app taking typed text, where `f` writes
+an `f`. Paint answers that with **Ctrl+F**, ArtfulType binds no letter at all,
+the C64 reaches for **Alt+D** and the Apple II+ for **Ctrl+F** and
+**Alt+Enter** — four apps, four answers, each correct on its own and none of
+them the same key. **Alt+Enter is the one that works everywhere**, because it
+is not a letter: it collides with no typed text, no command line, no emulated
+machine's keyboard and no game's controls, and it is what a DOS box, a
+console and an emulator have used for this since the machines this one is
+modelled on. So it is bound **in addition to** whatever each app already has.
+Nothing is taken away — every F, Esc, Ctrl+F and Alt+D §11.2.1 and the app
+sections describe still works exactly as it did.
+
+**It is not a menu accelerator and no menu names it.** A caption is not an
+accelerator in this kernel (§12.2), so a key hint would be a printed promise
+each app would have to keep separately; this is a chord that is simply there,
+which is how the machines it comes from do it.
+
+**WHY IT NEEDED A KERNEL CHANGE AT ALL** is §9.7.1 and it is the whole of the
+difficulty: no XT-class BIOS enqueues this combination, so `int 16h` can never
+report it and `W_ONKEY` never fires. The kernel latches the scancode and
+`ui_task` spends it as `AX = 1C00` — `KEY_ALTENTER` in the SDK, `ascii` 0 with
+`OS88_SCAN_ENTER` in C. An app tests that one value and it is true on every
+machine.
+
+**The app's side is two facts and one of them is not optional.**
+
+- **The map must be ARMED.** §9.7's key-state map does not exist until
+  something calls `kbd_down`, and the kernel's latch rides on it — so an app
+  that wants this chord asks once, in its entry proc, and throws the answer
+  away. `OS88_ALTENTER_ARM` is that call. **An app that forgets it has a
+  hotkey that is silently dead**, which is a failure with no symptom to
+  follow: nothing refuses, nothing draws, the key does nothing. Arming this
+  way rather than at boot is what keeps the feature costing a machine that
+  runs none of these apps exactly zero, which is the scoping §9.7 built
+  deliberately.
+- **Where you read it depends on which mechanism you are on**, and the split
+  is §53.1's rather than this section's:
+
+| the app is on | entering | leaving |
+|---|---|---|
+| §11.2's **latch** | `cmp ax, KEY_ALTENTER` in `W_ONKEY` | **the same test** — a latched window keeps taking `W_ONKEY` |
+| §53's **bracket** | `cmp ax, KEY_ALTENTER` in `W_ONKEY` | `os88alt_edge` in the bracket's own loop |
+
+  A bracket dispatches no events at all, so no synthesised keystroke can reach
+  one and the app's own `int 16h` poll cannot see the key either.
+  `apps/os88alt.inc` asks the map instead, which is free in a loop that is
+  already polling — and it finds the **edge**, because `OSAPI_KEY_DOWN` is a
+  level read and a hold looks identical on every pass.
+
+**`OS88_ALTENTER_SEED` at the top of a bracket is the part that looks
+optional and is not.** A user holds Alt+Enter a good deal longer than one
+frame, so a bracket that starts polling from "up" reads the press that *opened*
+it as the press that closes it, and the full screen flashes past. The seed
+says "assume down" and the first poll clears it when they let go. It is the
+same thought as the button seed several of these apps already do on entry, one
+key along, and entered from a **menu** it costs nothing.
+
+**What each app binds it to is the app's own existing door**, never a new
+action: Pac-Man's `f`, Missile Command's `mc_fs_toggle`, Paint's Ctrl+F path,
+Tracker's `.fstog`, the DOS box's `Program > Full Screen`
+(§96.33.5.1), and — for Tank Attack and Clear Skies — the same `.go` a plain
+**Enter** already reached, so the chord agrees with a key that was there
+rather than inventing a second meaning for it. Where an app gates its keyboard
+the chord is gated with it: a modal panel, a name prompt or an initials entry
+that owns every key owns this one too.
+
+**THREE APPS TOOK LESS THAN THE WHOLE BINDING, and every reason was found by
+running something rather than by reasoning about it.**
+
+- **Paint has the way IN and not the way out.** Its bracket's poll — the far
+  call in `os88alt_edge`, nothing to do with the chord itself — leaves the
+  program unable to enter full screen a **second** time: `f` in, Esc out, `f`
+  again is refused, with Alt+Enter nowhere near it. Bisected to the call (a
+  bare `ret` in its place and the second entry is fine), and it reproduces at
+  either placement in the loop. That is not this section's to fix and Paint
+  has two ways out already, so the half that works ships and the half that
+  breaks an app does not. **`tests/altenter.py` round-trips its bracket leg
+  TWICE because of this**: one cycle would have passed here too.
+- **Telnet has none of it.** `soak -k telnet` goes red with the poll in
+  `te_tx_keys`: one cell of the full-screen terminal's VRAM disagrees with
+  the buffer behind it (`row 0` stale by a byte) where the base passes, which
+  is the shared-debt bookkeeping of §70.8.1 and not something the chord may
+  disturb. A/B'd both ways, alone, so it is not the load flake `ddsmall` was
+  in the same run. Telnet is also the one carrier this could not be driven
+  through by hand — it needs a network — so it is the last place to ship an
+  unverified change to.
+- **Cyclone has none of it.** The synthesised keystroke never reaches
+  `cy_onkey` at all — `ui_bill` is not called for it, where the same trace
+  shows `2166` for a bare `f` on the same window. Moving the test ahead of
+  `cy_pn_dismiss` (which does not preserve AH, and would have been a real
+  defect for any scan-code test under it) did not change that, so the cause
+  is upstream of the app and unfound. The package is left exactly as it was.
+
+**And neither is a reason to doubt the mechanism**: ArtfulType, Dot Delirium,
+Missile Command, Tank Attack, Tracker and the DOS box were each driven through
+both directions on the glass, and Pac-Man, the C64, PaccMan and RunCPM take
+the one-line latch form that ArtfulType's leg proves.
+
+**Two apps are deliberately not on this list.** `apps/arkanoid` and
+`apps/sheet` call `OSAPI_KEY_DOWN` and have no full screen to go to, so there
+is nothing to bind; and `apps/apple2` had it already — APPLE2-SPEC section 6.3
+pinned Alt+Enter as AppleWin's own chord before this section existed, and
+accepts **both** `0x1C` and the enhanced keyboard's `0xA6`, which is the
+shape to copy if a third code ever turns up.
+
 ### 11.3 The clip region — what a background task may draw
 
 Until this section a background painter had one question it could ask —

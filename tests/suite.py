@@ -4857,6 +4857,20 @@ SOAK = [
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
         needs=("marty",), serial=True),
+    Row("altenter", "soak", py("tests/altenter.py"), 33.0,
+        "SPEC.md 11.2.1.1: Alt+Enter reaches full screen in BOTH of the "
+        "mechanisms apps use - ArtfulType on SPEC.md 11.2's LATCH, where one "
+        "`cmp ax, KEY_ALTENTER` is both directions, and Tracker on SPEC.md "
+        "53's BRACKET, where nothing is dispatched (53.1) so leaving is "
+        "apps/os88alt.inc's poll of the key-state map and NOTHING ELSE IN "
+        "THE SUITE EXECUTES THAT FILE. tests/dosaltenter.py is the kernel "
+        "half. Two traps are written into it: `[fsx_cur]` is the wrong byte "
+        "(a same-mode bracket sets no mode, so it reads 0xFF throughout and "
+        "looks exactly like a dead feature), and ONE cycle proves less than "
+        "it looks - apps/paint passes the first and refuses the second, "
+        "which is why Paint is not in this row and why the bracket leg "
+        "round-trips twice",
+        needs=("marty",), serial=True),
     Row("dosaltenter", "soak", py("tests/dosaltenter.py"), 20.0,
         "SPEC.md 96.33.5.1: does Alt+Enter take the DOS box into full screen "
         "and back out? Leg 0 is the premise and is the reason the mechanism "
