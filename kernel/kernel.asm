@@ -2211,8 +2211,10 @@ STK0_SIZE   equ 512             ; task 0's stack - the UI task's, and so the
 ; floppy I/O. What changed is that a machine with no Disk window open pays
 ; nothing for it, and the Task Manager can bill the 3KB to the window.
 VIEW_SLOTS  equ 4               ; max Disk windows = the kind's KD_CAP
-VIEW_KB     equ 1               ; each cache: 768 bytes of entries and 64 of
-                                ; reference bytes - 832 of 1,024. It was 3KB
+VIEW_KB     equ 2               ; each cache: 1,536 bytes of entries and 64 of
+                                ; reference bytes - 1,600 of 2,048, for the
+                                ; SIXTY-FOUR entries SPEC.md 19 lists now. It
+                                ; was 832 of 1,024 at 32 entries, and 3KB
                                 ; of entries and ICONS, and SPEC.md 25.9 put
                                 ; the bodies in one machine-wide store: the
                                 ; window carries a BYTE an entry where it

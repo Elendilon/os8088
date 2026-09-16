@@ -128,7 +128,21 @@ MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
                                 ; for exactly one Cut/Copy/Paste operation,
                                 ; including the part of it that is suspended
                                 ; on an overwrite question
-MEM_K_ICO  equ 0xFF0E           ; THE MACHINE-WIDE ICON STORE (SPEC.md 25.9,
+MEM_P_ICO  equ MEM_PG_TRIV<<8 | 0x01    ; THE MACHINE-WIDE ICON STORE (SPEC.md
+MEM_P_ICO_N equ 1               ; 25.9), and TRIV because losing it costs a
+                                ; REDRAW and not a read: every reference then
+                                ; resolves to SPEC.md 25's generic icon, and
+                                ; the next mount fills the rows back from the
+                                ; volume's own ASSOC.DAT in ONE file read.
+                                ; That is the cheapest thing on the scale, and
+                                ; it is exactly what a 4KB block in front of a
+                                ; DOS program should be: the arena is what
+                                ; binds this machine
+                                ; (docs/reports/DOS-GAMES-2026-09-16.md has
+                                ; Chip 'n Dale losing by three kilobytes)
+MEM_K_ICO_UNUSED equ 0xFF0E     ; ...the ordinary tag it had before, kept as a
+                                ; number nobody may reuse while a hibernation
+                                ; image written with it could still be read
                                 ; docs/plans/ICON-IDENTITY-PLAN.md): one
                                 ; 64-byte body per DISTINCT icon, keyed by the
                                 ; (name, size) the directory already reports,
@@ -904,6 +918,7 @@ mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
     dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw MEM_P_FATW,  dsk_fatwc,   MEM_P_FATW_N
+    dw MEM_P_ICO,   ico_seg,     MEM_P_ICO_N
 %ifdef KERN_SMALL
     dw MEM_P_VIEW,  0,           MEM_P_VIEW_N
 %endif                          ; ...and its PGO_BASE is 0 because this row's

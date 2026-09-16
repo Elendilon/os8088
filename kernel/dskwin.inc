@@ -75,9 +75,16 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; the driver mechanism out - so there the pool only ever serves these arrays,
 ; which is what makes the simpler code correct rather than merely smaller.
 %ifdef KERN_SMALL
-DSK_OVLPAD   equ 768             ; see dsk_ovlpad below: the boot overlay's
-                                 ; floor, not the listing's. kernel.asm's
-                                 ; `.ovlw` %if is the guard on this number
+DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN.** This was 768 while
+                                 ; a listing held 32 entries: `.ovlw` is read
+                                 ; onto the FAT window and the mount buffers
+                                 ; (SPEC.md 2.5.3), and taking the icon bodies
+                                 ; out left the overlay short. Doubling
+                                 ; DSK_NENT puts 768 bytes of ENTRIES back in
+                                 ; the same region, which is room the overlay
+                                 ; can use and the listing also wants - so the
+                                 ; pad is not needed and the bytes now do a
+                                 ; job. kernel.asm's `.ovlw` %if is the guard
 %endif
 
 ; **THERE IS NO PER-LISTING POOL ANY MORE** (SPEC.md 25.9). A listing owns one
@@ -106,13 +113,21 @@ DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the references
 ; entry (32 of directory + 64 of icon), so 64 entries is a 6KB claim, made by
 ; the driver at mount and mirrored per open Disk window by the file manager
 ; (SPEC.md 22.6). Both numbers are here so nothing can disagree about them.
-DSK_NENT     equ 32
+DSK_NENT     equ 64
 DSK_VENT     equ 64
-DSK_VBYTES   equ DSK_VENT * (DSK_DE_STRIDE + DSK_ICO_SIZE)  ; 5,632
-DSK_VKB      equ 6              ; ...and the claim a driver funds is still 6KB:
-                                ; 5,632 rounds up to 6, so nothing on the
-                                ; driver side moves (drivers/os88drv.inc's
-                                ; HDD_LISTKB) and no .DRV rebuilds
+DSK_VBYTES   equ DSK_VENT * DSK_DE_STRIDE + DSK_ICOIX_N   ; 1,600
+DSK_VKB      equ 2              ; ...and the WINDOW CACHE for one is 2KB where
+                                ; it was 6: SPEC.md 25.9 took the icon bodies
+                                ; out, so a driver-backed listing is its
+                                ; entries and a reference byte apiece.
+                                ;
+                                ; **THE DRIVER'S OWN DONATION IS A DIFFERENT
+                                ; NUMBER AND DOES NOT MOVE HERE**
+                                ; (drivers/os88drv.inc's HDD_LISTKB): this is
+                                ; what fmv_fit CLAIMS for a window, and the
+                                ; driver funds the GLOBAL listing separately.
+                                ; Lowering it costs no .DRV rebuild and gives
+                                ; 4KB of heap back per driver-backed window
 %if DSK_VBYTES > DSK_VKB * 1024
   %error "the driver-backed listing no longer fits the claim its driver funds: DSK_VKB is what is asked for and DSK_VBYTES is what disk_mount then writes into it, so the overflow lands on whatever the heap handed out next"
 %endif
