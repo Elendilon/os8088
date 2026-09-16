@@ -129123,6 +129123,48 @@ reserved bits of a word that is already there moves none, which is
 behind it, so the day `KD_RAH_KEEP` changes the two sides need not change
 together.
 
+##### 96.36.6.2 …and the pick is `AL`, which cost a shipped defect
+
+**Field report: “with *Shut down the OS* selected, changing the disk cache does
+not change the estimate.”** True, and true on both arms — the arithmetic was
+right and the figure was never redrawn.
+
+`os88ui_drpress` answers three things and the handler read the wrong two:
+
+| | `CF` | `AH` | `AL` |
+|---|---|---|---|
+| not ours | 0 | 0 | `0FFh` |
+| the press that OPENS the list | 0 | 1 | `0FFh` |
+| closed again with no pick | 0 | 1 | `0FFh` |
+| **a PICK** | **0** | 1 | **the index** |
+| any of the above, save-under REFUSED | **1** | — | — |
+
+So **`CF` = 1 is one case and it is not the pick** — it is §13.14.1's refused
+bank, where the write-back never happened and the caller owes the whole area;
+`wd_drrep` states that rule in as many words. And `AH` = 1 means *spent*, which
+an opening press is too. **A pick is `AL != 0FFh` and nothing else.**
+
+`dos_click_mem` tested `CF`, then `AH`, and never `AL`, with a comment at the
+call site asserting the exact opposite. Every pick therefore took the
+*“nothing owed but the caret”* path. What made it invisible is that
+`os88ui_drbox` repaints the **caption** on that same path: the box said `32K`
+and the line above it kept the figure it had before the press, so a control
+that was working perfectly read as a dead one.
+
+**It was memory-dependent**, which is why it survived. `CF` = 1 only when the
+save-under is refused, so on a machine too tight to bank the list the repaint
+*did* fire and the figure *did* move. The defect needs a machine with room.
+
+Nothing in the suite could see it. `tests/doslnk.py` drives the list with real
+clicks and asserts `[dos_cache]`, which was always right; `tests/dirwshed.py`
+pokes the byte. **The gate is `tests/dosmem.py`** and it has to be driven by
+presses: poking the dial and re-entering the page repaints everything and
+passes on the broken build — which is how a first attempt at measuring this
+reported the arithmetic as fine. Four rows, four distinct and strictly
+increasing figures. `Auto` is deliberately not among them: on a 640 KB machine
+the kernel's own solve picks 32 K (§18.95.5), so `Auto` and `32K` read the same
+number for a true reason and a distinctness check over them would fail for one.
+
 #### 96.36.7 Arm 0's boxes: a driver the program does not need is memory it could have
 
 `OSAPI_DRV_SUSPEND` leaves `DRVC_DISK`, `DRVC_FILE` and `DRVC_NET` mounted

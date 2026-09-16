@@ -7469,14 +7469,26 @@ dos_click_mem:
     call dos_drop_place
     mov bx, dos_mdr
     call os88ui_drpress             ; AH = 1 SPENT here, AL = the new pick or
-    pop bx                          ; 0FFh, CF = 1 repaint (the list came down)
-    jc .repaint                     ; **A PICK ARRIVES AS CF=1 AND NOT AS AH**
-                                    ; (SPEC.md 13.14): the list coming down is
-                                    ; what repaints, and the new figure rides
-                                    ; that repaint. CF=0 with AH=1 is the press
-                                    ; that OPENED it, which the control drew
-                                    ; itself under its own clip - so there is
-                                    ; nothing owed but the caret
+    pop bx                          ; 0FFh, CF = 1 the save-under was REFUSED
+    jc .repaint                     ; **A PICK IS AL, AND ONLY AL** (SPEC.md
+                                    ; 13.14.1). CF=1 is one case and it is not
+                                    ; this one - the bank was refused, so the
+                                    ; write-back never happened and the whole
+                                    ; half is owed; `wd_drrep` states the same
+                                    ; rule in as many words. And AH=1 means
+                                    ; SPENT, which an OPENING press is too. So
+                                    ; the pick is AL != 0FFh and nothing else:
+    cmp al, 0FFh                    ; testing CF or AH reads a pick as an open
+    je .nopick                      ; and leaves the figure above STANDING at
+    call dos_mem_row                ; the last value - which is what shipped,
+                                    ; and which the field reported as `changing
+                                    ; the disk cache does not change the
+                                    ; estimate` (96.36.6.2). The BOX repaints
+                                    ; either way - os88ui_drbox runs on the
+                                    ; CF=0 path - so the caption and the
+                                    ; caption's consequence disagreed, which is
+                                    ; the shape that reads as a dead control
+.nopick:
     or ah, ah
     jz .boxes
     call dos_defocus
