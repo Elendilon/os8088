@@ -80,6 +80,14 @@ RD_RECT, RD_ITEMS, RD_N, RD_SEL, RD_PITCH, RD_DIS = 0, 8, 10, 12, 14, 16
 INOS, WHOLE, NARM = 0, 1, 2
 CK_RECT, CK_LABEL, CK_ON = 0, 8, 10     # os88ui.inc's check box
 RDROWH = 20                             # ...and the cap a tall pitch centres in
+DR_SEL, DR_OPEN, DR_TOP = 12, 16, 22    # ...and the DROP-DOWN's, for the dial
+DRIH = 12                               # OS88UI_DRIH, an item's pitch
+# [dos_cache]'s rows - ONE LIST ON BOTH ARMS since SPEC.md 18.95.8 gave the
+# box a door that takes a width (96.36.6). Auto is 0 and is deliberately NOT
+# driven below: on a 640KB machine the kernel's own solve picks 32K, so Auto
+# and 32K read the same figure and a distinctness check over them would fail
+# for a true reason.
+CA_32, CA_18, CA_9, CA_OFF = 1, 2, 3, 4
 
 
 def fail(msg):
@@ -89,6 +97,21 @@ def fail(msg):
 
 def u16(m, at):
     return int.from_bytes(m.read(at, 2), "little")
+
+
+def rec4(m, pseg, dm, name):
+    """a furniture rect out of the guest's own bss."""
+    return [u16(m, (pseg << 4) + dm[name] + i * 2) for i in range(4)]
+
+
+def marn(m, pseg, dm):
+    """the arena line's digits, as an int."""
+    raw = m.read((pseg << 4) + dm["dos_marn"], 8).split(b"\0")[0].decode("latin-1")
+    try:
+        return int(raw.rstrip("KB").strip())
+    except ValueError:
+        fail("dos_marn reads %r and should be digits and a KB - the page has "
+             "never been painted (SPEC.md 96.36.3)" % raw)
 
 
 def rec(m, pseg, dm, off):
@@ -315,6 +338,48 @@ def main():
                  "supposed to be a second copy" % (rec(m, pseg, dm, RD_SEL),
                                                    WHOLE))
         print("dosmem: ...and the control came back showing it")
+
+        # --- ...AND A DIAL PICK MOVES THE FIGURE ABOVE IT (SPEC.md 96.36.6.2)
+        # The one control on this page whose consequence is a NUMBER somewhere
+        # else, so it is the one that can be wired up wrong and still look
+        # right: os88ui_drbox repaints the caption on the same path, so the box
+        # said `32K` while the line kept the value it had before the press.
+        #
+        # IT IS DRIVEN BY REAL CLICKS AND IT HAS TO BE.  Poking [dos_cache] and
+        # re-entering the page repaints everything and passes on the broken
+        # build - which is exactly how this shipped, and how a first attempt at
+        # measuring it reported the arithmetic as fine.  The bug is in the
+        # ANSWER os88ui_drpress gives (CF=1 is the refused save-under, AH=1 is
+        # any spent press, and only AL says a pick), so nothing but a press
+        # through the control can see it.
+        rows = []
+        for ca in (CA_32, CA_18, CA_9, CA_OFF):
+            d = rec4(m, pseg, dm, "dos_mdr")
+            mo.click(d[0] + 8, (d[1] + d[3]) // 2)               # open
+            os88marty.settle(m)
+            if not m.read((pseg << 4) + dm["dos_mdr"] + DR_OPEN, 1)[0]:
+                fail("the disk cache list did not open (SPEC.md 96.36.6)")
+            top = u16(m, (pseg << 4) + dm["dos_mdr"] + DR_TOP)
+            mo.click(d[0] + 8, top + ca * DRIH + DRIH // 2)      # ...and pick
+            os88marty.settle(m)
+            sel = m.read((pseg << 4) + dm["dos_cache"], 1)[0]
+            if sel != ca:
+                fail("clicking row %d of the disk cache list left [dos_cache] "
+                     "at %d" % (ca, sel))
+            rows.append((ca, marn(m, pseg, dm)))
+            print("dosmem: cache row %d -> the line reads %sK" % rows[-1][::1])
+        seen = [kb for _, kb in rows]
+        if len(set(seen)) != len(seen):
+            fail("the four cache rows put %r on the line - a PICK is AL and "
+                 "only AL (SPEC.md 13.14.1), so a handler testing CF or AH "
+                 "reads one as an open and leaves the figure STANDING while "
+                 "the box's own caption changes underneath it. That is what "
+                 "the field reported as `changing the disk cache does not "
+                 "change the estimate`" % (seen,))
+        if not (seen[0] < seen[1] < seen[2] < seen[3]):
+            fail("the cache rows read %r and a wider cache must leave the "
+                 "program LESS: 32K < 18K < 9K < Off (SPEC.md 96.36.6)"
+                 % (seen,))
 
         wd, ht, data = m.fbuf()
         os88marty.write_png_rgb("build/dosmem.png", wd, ht, data)

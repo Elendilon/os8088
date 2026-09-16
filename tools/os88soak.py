@@ -511,21 +511,39 @@ PREWARM = [
     ("build/weave.img", "weavedisk"),
     ("build/loom.img", "loomdisk"),
     ("build/c64360.img", "c64disk"),
-    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...and ALWAYS, below
+    ("build/skiesdiag/apps360.img", "skiesdiag"),      # ...a PRIVATE tree, and
+                                                       # the case the old guard
+                                                       # got wrong every time
     ("build/muptest.img", "build/muptest.img"),
     ("build/spantest.img", "spantest"),
 ]
 
 
-# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33). A PRIVATE
-# TREE is built by a recursive make into a directory of its own, and nothing
-# in the shipped graph depends on it - so an edit to apps/skies/ leaves
-# build/skiesdiag/ sitting there, existing, describing a package the guest has
-# not got. `skiesdiag` checks its own tree and FAILS naming it, which is the
-# behaviour row 33 asks for; this is what stops it having to. A no-op
-# `make skiesdiag` is 0.9s, so it is cheaper to always run than to reason
-# about.
-ALWAYS = {"skiesdiag"}
+# **EXISTENCE IS NOT FRESHNESS** (docs/WRITING-TESTS.md 13 row 33), and this
+# used to be an EXCEPTION LIST of one name against a guard that skipped any
+# target whose file was already there. The guard is gone: `make` is the tool
+# that knows whether a target is out of date, and an `os.path.exists` in front
+# of it is an optimisation that defeats the only thing being asked for.
+#
+# IT COST TWO WRONG DIAGNOSES IN ONE RUN. `ddsmall` FAILED with *"the map
+# describes a DIFFERENT kernel from build/smallk/kernel.bin ... the file was
+# written 7442.3 s ago"* - build/small360.img existed, so its `wants=` was
+# skipped, so the kern_small tree behind it stayed two hours old against a
+# kernel that had moved. The message says *"run make"* about a build that WAS
+# current, which is the sharpest shape this failure has: only the private tree
+# was stale. `fcpapi` was the same thing four days deep. Both passed at once
+# when the artefact was deleted and rebuilt by hand.
+#
+# WHAT IT COSTS IS ONE SECOND, measured, and the first measurement was the fix
+# WORKING rather than its price. The pass taken straight after the guard came
+# out ran **50.4s for seven targets** - every one of them EXISTED and was out
+# of date, which is exactly what the old code skipped and exactly what a run
+# would otherwise have tested against. On a tree nothing has moved under, the
+# same seven are **1.0s** (0.1-0.2s each) against an emulator row's 30 to 100.
+#
+# Read that against what prewarm already spent: the plain `make -s` above is
+# **21.3s** on a current tree, most of it the fast tier. So always asking is
+# under 5% of a cost this function was already paying, and 2% of one row.
 
 
 def prewarm(verbose=True, a=None):
@@ -571,9 +589,11 @@ def prewarm(verbose=True, a=None):
                                                         # a build/ artefact
                                                         # with a rule
     made, failed = [], []
+    seen = set()
     for art, target in todo:
-        if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
-            continue
+        if target in seen:              # `wants=` repeats across rows, and a
+            continue                    # second `make` of one target is pure
+        seen.add(target)                # cost now that none of them is skipped
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
                            capture_output=True, text=True)
         (made if r.returncode == 0 else failed).append(target)

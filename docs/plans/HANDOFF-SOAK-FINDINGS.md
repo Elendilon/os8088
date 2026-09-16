@@ -1874,3 +1874,53 @@ round trip` is being pointed at the wrong half of the run.
    also arrow-sized, the parked pointer at (300,300) is on the VGA and in both
    captures, and that hypothesis survived until the box put the pixels 276
    columns away from it.
+
+## B10. `wants=` guarded EXISTENCE, not freshness — CLOSED, and it was the runner
+
+Two rows failed a 101-row scoped soak and **neither named the cause**, which is
+this entry's point: both look like product defects from the summary line.
+
+- **`ddsmall`** — *"the map describes a DIFFERENT kernel from
+  `build/smallk/kernel.bin`: the map is 75012 bytes and the file is 75012,
+  first difference at 0x10e4, and the file was written 7442.3 s ago"*. The
+  message ends *"otherwise run `make`"* — about a build that **was** current.
+  Only the private `kern_small` tree behind `build/small360.img` was two hours
+  old, against a kernel that had moved in between.
+- **`fcpapi`** — `FileNotFoundError: build/trees/plain-<hash>/fcpapi-run.img`,
+  0.2 s in, about a copy engine it never reached. Its gate disk was four days
+  old.
+
+Both had a `wants=`. Both passed the moment the artefact was deleted and
+rebuilt by hand. **The cause was one line in `os88soak.prewarm`**, which
+skipped any target whose file already `os.path.exists` — so a `wants=`
+guaranteed an artefact was *there*, never that it was *current*. That is
+`docs/WRITING-TESTS.md` row 33's rule ("a private tree nothing rebuilds is a
+stale tree") failing in the code meant to enforce it, and the hand-kept
+`ALWAYS` set beside it was one name's worth of the same realisation.
+
+`make` is the tool that knows whether a target is out of date. A
+`path.exists` in front of it is an optimisation that defeats the only thing
+being asked for, and it is gone.
+
+**What it costs, measured rather than assumed.** Seven prewarm targets on a
+tree nothing has moved under: **1.0 s**, 0.1–0.2 s each, against the **21.3 s**
+plain `make` that `prewarm` already spent and an emulator row's 30–100 s. The
+first pass after the guard came out ran **50.4 s** — and that was the fix
+working, not its price: every one of those seven existed and was stale, which
+is exactly what a run would otherwise have tested against.
+
+### B10.1 …and the other half: a row that WRITES a path must resolve it
+
+`fcpapi` had a second, independent defect that the first one hid.
+
+`os88marty.launch` puts every image it is handed through `os88build.at`, so a
+parallel run boots out of its **frozen** tree (§8). The row copied its gate
+disk to a scratch image with a literal `build/…` string — into the **shared**
+tree — and then asked the runner to boot it. The two disagreed, and the
+`FileNotFoundError` named the frozen path while the file sat in the other one.
+
+**A path a row READS is resolved for it; a path a row WRITES is the row's own
+to resolve.** `os88marty.scratch_disk` already does both ends and is what to
+reach for. Where a row copies a pre-built fixture instead, put both through
+`os88build.at` — the identity function standalone, the run's tree under the
+runner. Verified green both ways.
