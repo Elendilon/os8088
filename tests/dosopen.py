@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""A `.O88` BY PATH, WITH A DOCUMENT, AND `OPEN` (SPEC.md 96.33.21, 96.33.22).
+
+    make && python3 tests/dosopen.py
+
+Three things the DOS prompt could not do, and one kernel argument that carries
+all three (§21.5.3 - `OSAPI_PKG_START` takes a DOCUMENT beside the name):
+
+  A  A TYPED PATH TO A PACKAGE (§96.33.21).  `dos_con_pkg` copied `dsh_a1`
+     into a 13-byte cell, so `B:\\APPS\\CALC.O88` was truncated to twelve
+     characters of PATH and answered `Cannot open B:\\APPS\\CALC.O`.  All
+     three shapes now: fully qualified, relative, and the folder we stand in.
+
+  B  `PROGRAM DOCUMENT` (§96.33.21.1).  `NOTEPAD README.TXT` opens Note Pad
+     ON that document, exactly as clicking it would - the package reads
+     `OSAPI_ARG_FILE` and cannot tell the two apart.  The program is found by
+     the HINT CACHE and not in the folder we stand in, which is the whole
+     reason this is the association route.
+
+  C  `OPEN DOCUMENT` (§96.33.22).  The same with the program left out: the
+     extension names it.
+
+WHY THE VOLUME IS NEVER BROWSED IN A DISK WINDOW HERE, and it is the sharp
+part: the association tables are filled by the mount HARVEST, and every path
+a program reaches this slot by is a QUIET mount, which skips it (§21.5.3.1).
+The DOS box seeds nothing at all - `dos_drv_sel` does no mount (§96.48) and
+the mount at the next name is `GOTO_QM`'s quiet one.  So the kernel seeds the
+cache itself, and this test proves it by never opening B: in a Disk window:
+before that seed existed, every lookup below missed.
+
+THE NEGATIVE CONTROLS ARE THE HALF THAT BREAKS SILENTLY:
+
+  *  A TYPO WITH NO TAIL still answers `Bad command or file name` (§96.33.21.2).
+     The stem is only looked up when a document follows it; without that rule
+     every unresolved word on the machine reaches the package launcher.
+  *  A TYPO WITH A TAIL answers `Cannot open NOTPAD` - naming the half that
+     was wrong, not the document.
+  *  `OPEN` of an extension nothing claims says so in its own words, because
+     at that point there is no window to look at.
+  *  A PROGRAM ON ANOTHER VOLUME is NOT asserted either way, deliberately
+     (§96.33.21.2): what the tables and the hint cache know is SESSION STATE,
+     so that lookup refuses on a fresh boot and succeeds once an earlier case
+     has taught the machine where the program lives.  The reliable half - a
+     PATH carries it - is what case B asserts.
+"""
+import os
+import struct
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+sys.path.insert(0, os.path.dirname(__file__))
+import dosmap                                                  # noqa: E402
+import os88geom                                                # noqa: E402
+import os88marty                                               # noqa: E402
+import os88ui                                                  # noqa: E402
+
+SYS = "build/os8088-360.img"
+APPS = "build/apps360.img"
+BOX = "A:/APPS/DOS.O88"
+fails = []
+
+
+def fail(msg):
+    print("dosopen: FAIL: %s" % msg)
+    fails.append(msg)
+
+
+def main():
+    for p in (SYS, APPS):
+        if not os.path.exists(p):
+            fail("%s is missing - `make` builds it" % p)
+    if fails:
+        return 1
+
+    with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_herc_gla") as ui:
+        m = ui.m
+        # B: IS DELIBERATELY NEVER OPENED IN A DISK WINDOW. See the docstring:
+        # that is what makes every lookup below a test of the kernel's own seed.
+        if not ui.path(BOX):
+            fail("could not launch the DOS box")
+            return 1
+        dm = dosmap.package()
+
+        def titles():
+            out = []
+            for sl in range(8):
+                wp = os88geom.winptr(m, sl, m.sym)
+                seg = struct.unpack("<H", m.read(wp + os88geom.W_SEG, 2))[0]
+                toff = struct.unpack("<H", m.read(wp + os88geom.W_TITLE, 2))[0]
+                if seg and toff:
+                    out.append(m.read(seg * 16 + toff, 32).split(b"\0")[0]
+                               .decode("latin-1"))
+            return out
+
+        def boxseg():
+            for sl in range(8):
+                wp = os88geom.winptr(m, sl, m.sym)
+                ws = struct.unpack("<H", m.read(wp + os88geom.W_SEG, 2))[0]
+                t = struct.unpack("<H", m.read(wp + os88geom.W_TITLE, 2))[0]
+                if ws and t and m.read(ws * 16 + t, 4).startswith(b"DOS\0"):
+                    return ws
+            return 0
+
+        def console():
+            seg = boxseg()
+            if not seg:
+                return []
+            scr = m.read((seg << 4) + dm["con_scr"], 80 * 25 * 2)
+            out = []
+            for r in range(25):
+                row = scr[r * 160:(r + 1) * 160]
+                out.append("".join(chr(row[i]) if 32 <= row[i] < 127 else " "
+                                   for i in range(0, 160, 2)).rstrip())
+            return [r for r in out if r.strip()]
+
+        def to_box():
+            w = ui.window("DOS")
+            if w:
+                ui.raise_window(w)
+
+        def typ(s):
+            m.type_text(s)
+            os88marty.settle(m)
+
+        REFUSALS = ("Cannot open", "Bad command", "no program on this disk")
+
+        def clear():
+            """Close every window but the box.
+
+            TWO REASONS, and both bit this row before it was written down.
+            The window table is EIGHT slots (SPEC.md 11), so cases that each
+            leave a window behind run the machine out of them and the LAST
+            case fails for a reason that has nothing to do with it - which is
+            how `OPEN ...BROWSER.HTM` came back empty with seven windows up.
+            And a title that is still on the screen from an EARLIER case makes
+            the next `want` match before its command has even run, which is
+            how a per-volume boundary read as a program being found by name.
+            """
+            for t in list(titles()):
+                if t == "DOS":
+                    continue
+                w = ui.window(t)
+                if w:
+                    ui.close(w)
+            os88marty.settle(m)
+            to_box()
+
+        def launch(line, want, limit=30.0):
+            """Type it; True once a window whose title CONTAINS `want` is up.
+            A refusal on the console ends the wait at once, so a failure costs
+            a second rather than the whole limit."""
+            to_box()
+            typ(line + "\n")
+            end = time.time() + limit
+            while time.time() < end:
+                if any(want in t for t in titles()):
+                    return True
+                if any(r in c for c in console()[-2:] for r in REFUSALS):
+                    return False
+                time.sleep(1.0)
+                os88marty.settle(m)
+            return any(want in t for t in titles())
+
+        def says(line, want, limit=15.0):
+            """Type it and wait for `want` among the last console lines."""
+            to_box()
+            typ(line + "\n")
+            end = time.time() + limit
+            while time.time() < end:
+                if any(want in c for c in console()[-3:]):
+                    return True
+                time.sleep(1.0)
+                os88marty.settle(m)
+            return False
+
+        to_box()
+        if not console()[-1].endswith("A:\\>"):
+            fail("the prompt is %r and not A:\\> - every case below is typed "
+                 "from the system disk's ROOT, which is the folder that holds "
+                 "none of these programs" % console()[-1])
+            return 1
+
+        # --- A: a typed PATH to a package (SPEC.md 96.33.21) -----------------
+        if not launch("B:\\APPS\\CALC.O88", "Calculator"):
+            fail("a FULLY QUALIFIED path to a .O88 did not launch it "
+                 "(SPEC.md 96.33.21). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: A  B:\\APPS\\CALC.O88 -> Calculator")
+
+        clear()
+        typ("B:\n")
+        if not launch("APPS\\PIANO.O88", "Piano"):
+            fail("a RELATIVE path to a .O88 did not launch it from B:\\ "
+                 "(SPEC.md 96.33.21). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: A  APPS\\PIANO.O88 (relative) -> Piano")
+
+        clear()
+        typ("CD APPS\n")
+        if not launch("NOTEPAD", "Note Pad"):
+            fail("a BARE name in the folder that holds it stopped working - "
+                 "the resolve-only entry must still answer the folder we "
+                 "stand in (SPEC.md 96.33.21). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: A  NOTEPAD (bare, in its own folder) -> Note Pad")
+        clear()
+        typ("A:\n")
+
+        # --- B: PROGRAM DOCUMENT, the program NOT in this folder -------------
+        # The literal case: standing on A:\, with NOTEPAD.O88 in A:\APPS\.
+        if not launch("NOTEPAD README.TXT", "Note Pad"):
+            fail("`NOTEPAD README.TXT` on A:\\ did not open Note Pad. The "
+                 "program is in A:\\APPS\\ and the search walks the CURRENT "
+                 "folder, so the stem has to reach the kernel's association "
+                 "lookup (SPEC.md 96.33.21.2) and the kernel has to SEED the "
+                 "volume itself (21.5.3.1). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: B  NOTEPAD README.TXT -> %r"
+                  % [t for t in titles() if "Note" in t])
+        clear()
+
+        # ...and the document really ARRIVED, which the title is the proof of:
+        # TeXPad puts the file name in its own title, so this asserts the
+        # OSAPI_ARG_FILE handover and not merely that a window opened.
+        if not launch("B:\\APPS\\TEXPAD.O88 B:\\MEDIA\\GUIDE.TEX", "GUIDE.TEX"):
+            fail("the DOCUMENT did not reach the package: TeXPad names the "
+                 "file it was launched on in its own title, and no window "
+                 "carries GUIDE.TEX (SPEC.md 21.5.3). Titles: %r, console: %r"
+                 % (titles(), console()[-3:]))
+        else:
+            print("dosopen: B  TEXPAD.O88 + document -> %r"
+                  % [t for t in titles() if "GUIDE" in t])
+        clear()
+
+        # --- C: OPEN, with no program named (SPEC.md 96.33.22) ---------------
+        if not launch("OPEN B:\\MEDIA\\PAPER.TEX", "PAPER.TEX"):
+            fail("`OPEN` did not launch the associated program on its "
+                 "document (SPEC.md 96.33.22) - the empty-name form of "
+                 "21.5.3. Titles: %r, console: %r" % (titles(), console()[-3:]))
+        else:
+            print("dosopen: C  OPEN ...PAPER.TEX -> %r"
+                  % [t for t in titles() if "PAPER" in t])
+        clear()
+
+        if not launch("OPEN B:\\MEDIA\\BROWSER.HTM", "Browser"):
+            fail("`OPEN` of a SECOND type opened no Browser - one extension "
+                 "working is not an association lookup (SPEC.md 96.33.22). "
+                 "Titles: %r, console: %r" % (titles(), console()[-3:]))
+        else:
+            print("dosopen: C  OPEN ...BROWSER.HTM -> Browser")
+        clear()
+
+        # --- the negative controls -------------------------------------------
+        before = len(titles())
+        if not says("NOTPAD", "Bad command or file name"):
+            fail("a TYPO WITH NO TAIL must still answer `Bad command or file "
+                 "name` (SPEC.md 96.33.21.2): the stem is looked up only when "
+                 "a document follows it, and without that rule every "
+                 "unresolved word reaches the package launcher. Console: %r"
+                 % console()[-3:])
+        else:
+            print("dosopen: -  NOTPAD -> Bad command or file name")
+
+        if not says("NOTPAD README.TXT", "Cannot open NOTPAD"):
+            fail("a typo WITH a tail must name the PROGRAM half - `Cannot "
+                 "open NOTPAD` - or the user is sent to look at the document "
+                 "(SPEC.md 96.33.21.2). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: -  NOTPAD README.TXT -> Cannot open NOTPAD")
+
+        if not says("OPEN B:\\MEDIA\\GUIDE.ZZZ",
+                    "no program on this disk"):
+            fail("`OPEN` of a type nothing claims must say so in its own "
+                 "words - there is no window to look at (SPEC.md 96.33.22). "
+                 "Console: %r" % console()[-3:])
+        else:
+            print("dosopen: -  OPEN of an unclaimed type -> refused in words")
+
+        # A PROGRAM ON ANOTHER VOLUME IS NOT ASSERTED EITHER WAY, and that is
+        # a finding rather than a gap in the row (SPEC.md 96.33.21.2). It was
+        # asserted as a refusal and went GREEN on a fresh boot and RED here,
+        # in the same build: what the association tables and the hint cache
+        # know is SESSION STATE - disk.inc says so in as many words about the
+        # same cache - so by this point an earlier case in this very row has
+        # taught the machine where TeXPad lives. Asserting either arm asserts
+        # the order of the cases above it.
+        #
+        # What IS asserted is the reliable half, and it is asserted in case B:
+        # a PATH carries a program on another volume, every time.
+
+        if len(titles()) < before:
+            fail("a window disappeared across the refusals: %r" % titles())
+
+    print("dosopen: %s" % ("ok - a package by path, with a document, and OPEN"
+                           if not fails else "%d failed" % len(fails)))
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
