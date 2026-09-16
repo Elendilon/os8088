@@ -584,7 +584,15 @@ dos_con_open:
     call dos_con_draw
     ret
 .bad:
-    mov si, dos_s_noopen
+    ; **THIS ARM IS THE NAME, NOT THE ASSOCIATION** (SPEC.md 96.33.22.1).
+    ; dos_path_take_si refuses anything that is not a legal 8.3 path - over
+    ; twelve characters in the name, a path ending in a separator, a buffer
+    ; overrun - and `open nosuchfile.txt` is FOURTEEN, so it lands here and
+    ; not at the association lookup at all. It answered `No program is
+    ; associated with that file.` for one cycle, which is the same defect
+    ; this section is about wearing its replacement's clothes: the thing that
+    ; failed is the FILE NAME.
+    mov si, dos_s_nodoc
     call con_say
     mov si, dos_c_crlf
     call con_say
@@ -728,6 +736,26 @@ dos_pkg_go:
     push si
     push di
     mov byte [dos_pkgq], 0
+    ; --- DOES THE DOCUMENT EXIST? (SPEC.md 96.33.22.1) ---------------------
+    ; Asked HERE and not in the console handler, because this is the
+    ; lock-free context and that one runs under W_ONKEY: a directory walk is
+    ; disk I/O and 74.1 is where it may happen. Asked FIRST because it is the
+    ; cheap refusal - a missing file should not cost a package launch - and
+    ; because the answer is the one the user most often needs: a typo in a
+    ; DOCUMENT name otherwise came back talking about programs.
+    cmp byte [dos_pghas], 0
+    je .nocheck
+    mov dx, [dos_pgdoc+13]
+    mov bl, [dos_pgdoc+15]
+    call dos_be_goto                ; stand where the document is said to be
+    jc .nodoc
+    mov si, dos_pgdoc
+    mov di, dsh_pat
+    call dsh_to11                   ; the same 11-byte form every other match
+    mov word [dsh_skip], 0          ; in this box is decided on
+    call dsh_nth
+    jc .nodoc
+.nocheck:
     mov dx, [dos_pgpdir]            ; where the typed PATH said, which IS the
     mov bl, [dos_pgpvol]            ; prompt's own folder when it carried no
     call dos_be_goto                ; path at all (SPEC.md 96.33.21)
@@ -755,12 +783,36 @@ dos_pkg_go:
     pop ax
     popf
     jnc .out                        ; its window is up: nothing to say
+    jmp short .bad                  ; **EXPLICIT, because `.nodoc` is BELOW**:
+                                    ; this used to fall straight into `.bad`
+                                    ; and the document check's arm was put
+                                    ; between them, so every refusal the
+                                    ; LAUNCH earned came back as `File not
+                                    ; found` about a document that was there.
+                                    ; Two bytes rather than moving the block,
+                                    ; which would put the rollback below its
+                                    ; own `jc`
+.nodoc:
+    ; **THE FILE, AND SAY SO** (SPEC.md 96.33.22.1). The machine may be
+    ; standing in the document's folder now, so put it back before anything
+    ; else resolves a name - .badend goes on to draw a prompt.
+    mov dx, [dos_curdir]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    mov si, dos_s_nodoc
+    call con_say
+    mov si, dos_c_colon2
+    call con_say
+    mov si, dos_pgdoc
+    call con_say
+    jmp short .badend
 .bad:
     ; **THE REFUSAL NAMES THE SHAPE OF THE PROBLEM** (SPEC.md 96.33.22), and
-    ; the two shapes are different fixes: a program that is not on this disk,
-    ; or a document whose type nothing claims. An EMPTY name is the second -
-    ; it is `OPEN`'s own arm (21.5.3), where there was never a program name
-    ; to print and `Cannot open ` alone would name nothing at all.
+    ; the three shapes are different fixes: the FILE is not there (.nodoc
+    ; above, and it is the commonest), nothing is ASSOCIATED with its type, or
+    ; a named program could not be opened. An EMPTY name is the second - it is
+    ; `OPEN`'s own arm (21.5.3), where there was never a program name to print
+    ; and `Cannot open ` alone would name nothing at all.
     cmp byte [dos_pkgn], 0
     jne .badname
     mov si, dos_s_noopen
@@ -1233,6 +1285,7 @@ dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
 dos_c_start: db 'Starting ', 0   ; ...and the line that opens one (96.33.20.1)
 dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
+dos_c_colon2: db ' - ', 0        ; `File not found - README.TXT`
 dos_c_aren:  db ' (Arena: ', 0
 dos_c_akb:   db 'KB)', 0
 dos_arend:   db '00000', 0    ; dos_mem_num's five, leading-BLANK padded
@@ -1242,7 +1295,15 @@ dos_c_o88:   db '.O88', 0     ; ...and this one is not a DOS program at all
 dos_s_nopkg: db 'Cannot open ', 0
 dos_c_open:  db 'OPEN', 0          ; SPEC.md 96.33.22, and DOS 3.3 has no such
                                    ; verb, so taking it costs no compatibility
-dos_s_noopen: db 'There is no program on this disk for that file.', 0
+; **BOTH OF THESE REPLACED ONE STRING THAT WAS WRONG TWICE** (SPEC.md
+; 96.33.22.1). It read `There is no program on this disk for that file.` and
+; was the answer to BOTH failures: it named the PROGRAM when the thing missing
+; was usually the FILE, and it said `on this disk` about a lookup that is not
+; about a disk at all - an association names a program by STEM and
+; assoc_locate then searches the volumes, so the program it points at may
+; perfectly well be somewhere else.
+dos_s_nodoc:  db 'File not found', 0
+dos_s_noopen: db 'No program is associated with that file.', 0
 
 ; =============================================================================
 ; FULL SCREEN, AND ESC BACK OUT (SPEC.md 96.33.5)

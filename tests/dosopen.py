@@ -28,6 +28,22 @@ the mount at the next name is `GOTO_QM`'s quiet one.  So the kernel seeds the
 cache itself, and this test proves it by never opening B: in a Disk window:
 before that seed existed, every lookup below missed.
 
+CASE IS FOLDED ON BOTH NAMES (§21.5.3.2).  Reported off the glass at `A:\>`
+on a stock system disk: `notepad readme.txt` and `open readme.txt` both
+refused and `open README.TXT` worked.  The association tables are
+uppercase-exact - they are built from FAT names - and nothing in that path
+goes through the file layer that would fold it.  BOTH names had to be folded
+and only the extension was ever going to be noticed: a lowercase document name
+matches nothing on a FAT volume either, so folding the extension alone would
+have turned a visible refusal into a package opening an empty window.
+
+AND THE REFUSALS ARE THREE, NOT ONE (§96.33.22.1).  One string used to answer
+all of them and was wrong twice over - it named the PROGRAM when the thing
+missing was the FILE, and said `on this disk` about a lookup that searches the
+volumes.  The first fix for it then sent the PARSE failure to the new
+association wording, which is the same defect wearing its replacement's
+clothes, so all three are asserted here.
+
 THE NEGATIVE CONTROLS ARE THE HALF THAT BREAKS SILENTLY:
 
   *  A TYPO WITH NO TAIL still answers `Bad command or file name` (§96.33.21.2).
@@ -140,9 +156,19 @@ def main():
             for t in list(titles()):
                 if t == "DOS":
                     continue
-                w = ui.window(t)
+                # TOLERANT, because titles() and ui.window() read the table at
+                # two different moments: a window that closed itself in
+                # between raises rather than answering, and that is not this
+                # row's business.
+                try:
+                    w = ui.window(t)
+                except Exception:
+                    continue
                 if w:
-                    ui.close(w)
+                    try:
+                        ui.close(w)
+                    except Exception:
+                        pass
             os88marty.settle(m)
             to_box()
 
@@ -269,13 +295,71 @@ def main():
         else:
             print("dosopen: -  NOTPAD README.TXT -> Cannot open NOTPAD")
 
-        if not says("OPEN B:\\MEDIA\\GUIDE.ZZZ",
-                    "no program on this disk"):
-            fail("`OPEN` of a type nothing claims must say so in its own "
-                 "words - there is no window to look at (SPEC.md 96.33.22). "
+        # --- CASE (SPEC.md 21.5.3.2), which is the reported bug ------------
+        # A:\README.TXT with NOTEPAD.O88 in A:\APPS\ - the exact sequence.
+        to_box()
+        typ("A:\n")
+        for line, why in (("notepad readme.txt", "both names lower"),
+                          ("OPEN readme.txt", "document lower"),
+                          ("NOTEPAD readme.TXT", "document mixed")):
+            clear()
+            if not launch(line, "Note Pad"):
+                fail("`%s` did not open Note Pad (%s). The association tables "
+                     "are UPPERCASE-EXACT and nothing on this path folds case "
+                     "for them (SPEC.md 21.5.3.2). Console: %r"
+                     % (line, why, console()[-3:]))
+            else:
+                print("dosopen: =  %-20s (%s) -> Note Pad" % (line, why))
+        clear()
+
+        # --- the THREE refusals (SPEC.md 96.33.22.1) ----------------------
+        # 1: not a legal 8.3 path at all. `nosuchfile.txt` is FOURTEEN
+        # characters, so it never reaches the association lookup - and this is
+        # the arm that spent a cycle answering with the association's message.
+        if not says("OPEN nosuchfile.txt", "File not found"):
+            fail("a name that is not a legal 8.3 path must answer `File not "
+                 "found` - it never reaches the association lookup, so the "
+                 "association's wording is wrong for it (SPEC.md 96.33.22.1). "
                  "Console: %r" % console()[-3:])
         else:
-            print("dosopen: -  OPEN of an unclaimed type -> refused in words")
+            print("dosopen: -  OPEN <14-char name> -> File not found")
+
+        # 2: a legal name that is not there. It must NAME the file: a typo in
+        # a document is the commonest failure this verb has, and the old
+        # wording sent the user to look at programs instead.
+        if not says("OPEN NOSUCH.TXT", "File not found - NOSUCH.TXT"):
+            fail("a legal name that is not on the disk must answer `File not "
+                 "found - NOSUCH.TXT`, naming the FILE (SPEC.md 96.33.22.1). "
+                 "Console: %r" % console()[-3:])
+        else:
+            print("dosopen: -  OPEN NOSUCH.TXT -> File not found - NOSUCH.TXT")
+
+        # ...and the same through the PROGRAM DOCUMENT door, which shares the
+        # check - it is in dos_pkg_go, below both.
+        if not says("NOTEPAD NOSUCH.TXT", "File not found - NOSUCH.TXT"):
+            fail("`PROGRAM DOCUMENT` with a missing document must refuse the "
+                 "same way OPEN does - the check is in dos_pkg_go, below both "
+                 "doors (SPEC.md 96.33.22.1). Console: %r" % console()[-3:])
+        else:
+            print("dosopen: -  NOTEPAD NOSUCH.TXT -> File not found - NOSUCH.TXT")
+
+        # 3: the file IS there and nothing claims its type. No shipped disk
+        # carries such a file - every visible document on these two has an
+        # association, and the extensionless/unclaimed ones in the root
+        # (KERNEL.SYS, the .DRVs, ASSOC.DAT) are HIDDEN, which DIR does not
+        # list either and which this check agrees with. So one is MADE, with
+        # the box's own COPY, onto the scratch B: the harness gives us.
+        to_box()
+        typ("COPY A:\\README.TXT B:\\NOCLAIM.ZZZ\n")
+        os88marty.settle(m)
+        if not says("OPEN B:\\NOCLAIM.ZZZ",
+                    "No program is associated with that file"):
+            print("dosopen: note: could not stage an unclaimed-type file "
+                  "(console %r), so the third refusal is unasserted this run"
+                  % console()[-3:])
+        else:
+            print("dosopen: -  OPEN <unclaimed type> -> No program is "
+                  "associated with that file.")
 
         # A PROGRAM ON ANOTHER VOLUME IS NOT ASSERTED EITHER WAY, and that is
         # a finding rather than a gap in the row (SPEC.md 96.33.21.2). It was

@@ -37704,6 +37704,30 @@ been told how it went*, and `CF = 1, AL = LD_EBAD` for the one thing the
 caller could not have known — that nothing on this machine opens it. A caller
 wanting a richer answer wants the plain arm and a program name.
 
+##### 21.5.3.2 …and the names are folded to UPPER CASE here too
+
+The association tables are **uppercase-exact** — `assoc_find` compares bytes
+and `assoc_ext_of` says so in its own header — because they are built from FAT
+names, which are uppercase. A name that arrives from a KEYBOARD is not.
+
+Reported off the glass: `open readme.txt` found no association for `.txt`
+while `OPEN README.TXT` opened Note Pad, and `notepad readme.txt` answered
+`Cannot open notepad` because `assoc_app_of` compares the stem byte for byte.
+
+**This arm has to fold and the plain arm does not**, which is the asymmetry
+worth understanding rather than a special case: the plain arm resolves through
+the FILE layer, and `dskw_char_x` upcases on the way past. Nothing in the
+association path goes through it.
+
+**The whole NAME, not just the extension.** The package opens the document by
+that name — `OSAPI_ARG_FILE` hands it over and the package GOTOs and READs it
+— so a lowercase 8.3 name matches nothing on a FAT volume either. Folding the
+extension alone would have turned a visible refusal into a package opening an
+empty window on a file it could not find, which is the worse failure.
+
+It stops at the NUL: the bytes past the name belong to nobody and folding them
+would be a lie about what was passed.
+
 ##### 21.5.3.1 The cache is seeded HERE, because no caller's path does it
 
 `assoc_app_of` and `assoc_find` read an IN-RAM table, and that table is filled
@@ -126483,6 +126507,52 @@ before the program search and costs the core NOTHING.
 no window to look at: a document whose type nothing claims, or a program that
 is claimed and not on this disk, are different fixes and the user cannot see
 which happened.
+
+###### 96.33.22.1 The two refusals, and the one string that was wrong twice
+
+Reported off the glass, at `A:\>` on a stock system disk: `notepad
+readme.txt` and `open readme.txt` both refused, and `open README.TXT` opened
+Note Pad. Two defects, and the second one hid behind the first.
+
+**THE CASE** is §21.5.3.2 and it is the kernel's. Both names had to be folded
+and only the extension was ever going to be noticed — a lowercase document
+name matches nothing on a FAT volume either, so the package would have opened
+an empty window on a file it could not find.
+
+**THE MESSAGE** was one string doing two jobs and getting both wrong: *"There
+is no program on this disk for that file."*
+
+* **It named the PROGRAM when the thing missing was the FILE.** A typo in a
+  document name is the commonest failure this verb has, and it came back
+  talking about programs — which sends the user to look at the wrong half.
+  So the document's existence is checked FIRST, and a miss answers `File not
+  found - README.TXT`.
+* **And "on this disk" was never true.** An association names a program by
+  STEM and `assoc_locate` then searches the volumes (§54.4), so the program it
+  points at may perfectly well be on another disk. The wording says nothing
+  about disks now: `No program is associated with that file.`
+
+**THERE ARE THREE REFUSALS AND THE FIRST ONE IS THE ONE THAT BIT.**
+`dos_path_take` refuses anything that is not a legal 8.3 path — over twelve
+characters in the name, a path ending in a separator, a buffer overrun — and
+`open nosuchfile.txt` is FOURTEEN characters, so it never reaches the
+association lookup at all. The first fix for this section sent that arm to the
+*no program is associated* wording, which is the very defect being fixed
+wearing its replacement's clothes. The three are:
+
+| what failed | what it says |
+|---|---|
+| the typed text is not a legal 8.3 path | `File not found` |
+| it is, and there is no such file | `File not found - NAME` |
+| the file is there and nothing claims its type | `No program is associated with that file.` |
+
+**THE CHECK IS IN `dos_pkg_go` AND NOT IN THE CONSOLE HANDLER**, because a
+directory walk is disk I/O and the handler runs under `W_ONKEY` with the gfx
+lock held (§74.1). It is also the CHEAP refusal, so it goes first: a missing
+file should not cost a package launch. It walks with `dsh_nth` against a
+`dsh_to11` pattern — the same ordinal walk every other name in this box is
+decided by — and puts the machine back where the prompt is before it prints,
+because it had to stand in the document's folder to ask.
 
 ##### 96.33.19 …and the exit line says what the ARENA was
 
