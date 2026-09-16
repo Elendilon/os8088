@@ -331,6 +331,17 @@ pr_onwake:
 .done:
     pop es
     pop di
+    pop si                          ; the prologue pushed SI too, and this
+                                    ; epilogue used to skip it - 7 pushes, 6
+                                    ; pops, so `ret` popped SI's slot as the
+                                    ; return address. It survived while the
+                                    ; dispatch stack happened to leave a
+                                    ; harmless offset there; making the API
+                                    ; cells reach their cold bodies without a
+                                    ; resident thunk (SPEC.md 20.3.2) moved
+                                    ; that offset onto the poison loop, so the
+                                    ; stray return ran `rep stosb` over the
+                                    ; instance table. Balance it.
     pop dx
     pop cx
     pop bx

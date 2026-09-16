@@ -287,7 +287,7 @@ def crosscheck(persec, defines):
 # stop using.  One that it does not is NOT worth publishing for this: a cell is
 # **8 bytes** and a shim is **4**, and the table is contiguous (167 cells in 168
 # positions), so a new slot costs 8 to save 4 - and commits the SDK for ever.
-CELL = re.compile(r'\s*OSAPI_(SLOT|JSLOT|XCELL|NCELL)\s+(\w+)\s*;\s*(0x[0-9A-Fa-f]+)')
+CELL = re.compile(r'\s*OSAPI_(SLOT|CSLOT|JSLOT|XCELL|CXCELL|NCELL|FARCELL)\s+(\w+)\s*;\s*(0x[0-9A-Fa-f]+)')
 SHIMDEF = re.compile(r'^((?:dskf_|dkf_|drvf_|fmf_|mmf_|memf_|cw_|hbk_)\w*|\w*_f):'
                      r'\s*(?:call\s+(?:\w+:)?(\w+))?')
 
