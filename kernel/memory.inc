@@ -128,6 +128,15 @@ MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
                                 ; for exactly one Cut/Copy/Paste operation,
                                 ; including the part of it that is suspended
                                 ; on an overwrite question
+MEM_K_ICO  equ 0xFF0E           ; THE MACHINE-WIDE ICON STORE (SPEC.md 25.9,
+                                ; docs/plans/ICON-IDENTITY-PLAN.md): one
+                                ; 64-byte body per DISTINCT icon, keyed by the
+                                ; (name, size) the directory already reports,
+                                ; so the copy of a package on the system disk
+                                ; and the copy on the apps disk are one row.
+                                ; Movable and PURGEABLE - a lost row is the
+                                ; generic icon until the next mount, which is
+                                ; a picture SPEC.md 25 already has
 MEM_K_ASC  equ 0xFF06           ; one volume's ASSOC.DAT cache (SPEC.md
                                 ; 54.7) - shared, reloaded on a volume switch
                                 ; 0xFF05 was MEM_K_FATW, one volume's FAT

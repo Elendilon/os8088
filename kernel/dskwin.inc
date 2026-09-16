@@ -74,69 +74,30 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; hard disk. `kern_small` can have no such volume at all - SPEC.md 51.0 took
 ; the driver mechanism out - so there the pool only ever serves these arrays,
 ; which is what makes the simpler code correct rather than merely smaller.
-DSK_ICO_N    equ 19              ; bodies in the FLOPPY pool, BOTH kernels.
-                                 ; SIXTEEN is the product judgement: the small
-                                 ; system disk's APPS folder holds three
-                                 ; icon-bearing packages and GAMES one, the
-                                 ; small apps disk's root holds twenty-one,
-                                 ; and the seventeenth of those falls back to
-                                 ; the generic icon - which is an outcome
-                                 ; SPEC.md 25 already has a picture for.
-                                 ; Raising it costs 64 bytes a body and
-                                 ; SPEC.md 51.0.0's region has 288 spare, so
-                                 ; 20 is available and 24 is not.
-                                 ;
-                                 ; **IT IS THE CEILING AND NOT THE COUNT** -
-                                 ; [dsk_icomax] is what dsk_ico_want compares
-                                 ; against, so a DRIVER-BACKED volume listing
-                                 ; DSK_VENT entries out of its driver's own
-                                 ; claim keeps one body per entry and loses
-                                 ; nothing. That is what makes this safe on
-                                 ; kern_big, where SPEC.md 25.8.5.1 refused a
-                                 ; pool for exactly that reason.
-                                 ;
-                                 ; NINETEEN IS WHAT FITS, AND IT IS BOUGHT FOR
-                                 ; MARGIN RATHER THAN TO FIX A MEASURED
-                                 ; FAILURE - said plainly because the first
-                                 ; draft of this comment claimed sixteen had
-                                 ; been measured one short, and it had not.
-                                 ; A/B'd on the guest at both sizes, the
-                                 ; busiest directory on any shipped disk -
-                                 ; apps.img's APPS, 17 entries - uses SIXTEEN
-                                 ; bodies either way and iconned the same
-                                 ; entries either way, so sixteen starved
-                                 ; nothing. What it had was ZERO margin, and a
-                                 ; user's own disk is not a shipped one.
-                                 ;
-                                 ; 19 is the most a VIEW_KB of 2 holds: 768 of
-                                 ; entries + 64 of index leaves 1,216, which is
-                                 ; 19 bodies exactly. Twenty would push every
-                                 ; open Disk window's claim back to 3KB to buy
-                                 ; one body, so the margin stops here.
-                                 ;
-                                 ; AND A DIRECTORY'S ICON-BEARING ENTRIES ARE
-                                 ; NOT ONLY ITS PACKAGES: a DOCUMENT with an
-                                 ; association gets a composed body too
-                                 ; (assoc_docicon), which a host-side count of
-                                 ; `.O88` files does not see. A DOS game
-                                 ; directory - LEMMINGS 68 entries, F15 66,
-                                 ; TD1 41 - still needs ZERO of them
-
 %ifdef KERN_SMALL
-DSK_ICOIX_N  equ DSK_NENT        ; the index is one byte per ENTRY, so it is
-                                 ; cut from the listing and not from the pool.
-                                 ; DSK_NENT and not DSK_VENT because SPEC.md
-                                 ; 51.0 leaves this kernel no driver-backed
-                                 ; volume to list sixty-four entries from - 32
-                                 ; bytes this kernel would never address
+DSK_OVLPAD   equ 768             ; see dsk_ovlpad below: the boot overlay's
+                                 ; floor, not the listing's. kernel.asm's
+                                 ; `.ovlw` %if is the guard on this number
+%endif
+
+; **THERE IS NO PER-LISTING POOL ANY MORE** (SPEC.md 25.9). A listing owns one
+; reference byte per entry and no bodies at all; ICO_NROW in disk.inc is the
+; machine-wide store's size and is the only body count left. DSK_ICO_SIZE is
+; still the width of one.
+%ifdef KERN_SMALL
+DSK_ICOIX_N  equ DSK_NENT        ; one REFERENCE byte per entry. DSK_NENT and
+                                 ; not DSK_VENT because SPEC.md 51.0 leaves
+                                 ; this kernel no driver-backed volume to list
+                                 ; sixty-four entries from - 32 bytes it would
+                                 ; never address
 %else
-DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the index stays
-                                 ; in `.lowbss` even when the LISTING is in a
-                                 ; driver's claim: dsk_ico_ofs reads it through
-                                 ; SS whatever [dsk_dseg] says, so it has to be
-                                 ; wide enough for the biggest listing there
-                                 ; is. 64 bytes against the 4,096 of bodies it
-                                 ; replaces
+DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the references
+                                 ; stay in `.lowbss` even when the LISTING is
+                                 ; in a driver's claim: dsk_ico_at reads them
+                                 ; through SS whatever [dsk_dseg] says, so the
+                                 ; array has to be wide enough for the biggest
+                                 ; listing there is. 64 bytes, against the
+                                 ; 4,096 of bodies it replaces
 %endif
 
 ; How many entries a listing holds. DSK_NENT is the FLOOR - the .lowbss pair
@@ -212,19 +173,30 @@ dsk_icoix:  resb DSK_ICOIX_N    ; entry i's POOL SLOT, or 0xFF for no icon
                                 ; (SPEC.md 25.8). Blanked every mount, which
                                 ; is 64 bytes of `rep stosb` where the array
                                 ; below took 2,048 of `rep stosw`
-%ifdef DSK_WANT_ICONS           ; ...and it is LAST in the window, so leaving
-                                ; it out moves nothing below it and
-                                ; dsk_secbuf keeps the rung's aligned base
-disk_icons: resb DSK_ICO_N*DSK_ICO_SIZE    ; harvested icon bodies - a POOL
-                                ; on both kernels now, with dsk_icoix saying
-                                ; which body an entry uses and 0xFF meaning
-                                ; the generic icon. Slot i belonged to entry i
-                                ; on kern_big until
-                                ; docs/plans/ICON-IDENTITY-PLAN.md, which cost
-                                ; 2,048 bytes to store one built-in body
-                                ; copied per folder and 64 zeros per document.
-                                ; Fully rewritten every mount
-%endif                          ; DSK_WANT_ICONS
+                                ; **AND NO `disk_icons`** (SPEC.md 25.9): the
+                                ; bodies are in the machine-wide store, so the
+                                ; window that was 2,816 bytes is 832 - the
+                                ; entries and one reference byte apiece
+%ifdef KERN_SMALL
+dsk_ovlpad: resb DSK_OVLPAD     ; ...AND THE BOOT OVERLAY'S LANDING GROUND,
+                                ; which the icon array was doing as a SECOND
+                                ; JOB nobody had written down. `.ovlw` is read
+                                ; onto the FAT window and the mount buffers
+                                ; (SPEC.md 2.5.3) and a byte past them is
+                                ; vid_rowtab, live since MARK 7 - so those
+                                ; buffers may shed only what the overlay does
+                                ; not need, and on this kernel the 2,048 bytes
+                                ; of icons were most of the room. kern_big has
+                                ; a wider FAT window and needs none of this.
+                                ;
+                                ; It is DEAD AT RUNTIME and that is the honest
+                                ; cost: kern_small saves less than kern_big
+                                ; from SPEC.md 25.9 because its boot overlay,
+                                ; not its listing, is what sizes this region.
+                                ; The %if in kernel.asm is what says whether
+                                ; the figure is still right, and shrinking
+                                ; `.ovlw` is what gives these bytes back
+%endif
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base
 %if (dsk_secbuf - $$) % 512     ; against the RUNG base, not dsk_win_base: a

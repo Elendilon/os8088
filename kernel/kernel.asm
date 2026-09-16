@@ -2211,32 +2211,13 @@ STK0_SIZE   equ 512             ; task 0's stack - the UI task's, and so the
 ; floppy I/O. What changed is that a machine with no Disk window open pays
 ; nothing for it, and the Task Manager can bill the 3KB to the window.
 VIEW_SLOTS  equ 4               ; max Disk windows = the kind's KD_CAP
-VIEW_KB     equ 2               ; each cache: 768 bytes of entries, then
-                                ; SPEC.md 25.8.5's index and POOL - 1,856 of
-                                ; 2,048. The cache MIRRORS the global's shape
-                                ; rather than expanding it, so the twelve
-                                ; folders of a listing are one body in every
-                                ; window's copy as well as in the global one.
-                                ;
-                                ; **kern_big TOOK THIS AND SPEC.md 25.8.5.1
-                                ; SAID IT COULD NOT** - *"its pool would need
-                                ; DSK_NENT bodies not to show fewer icons than
-                                ; it does today, and 768 + 32 + 2,048 is 32
-                                ; bytes MORE than the 2,816 it spends now"*.
-                                ; That arithmetic is right and its premise is
-                                ; that the pool must equal DSK_NENT. It does
-                                ; not: the busiest directory on any shipped
-                                ; floppy holds FIFTEEN icon-bearing packages
-                                ; and a DOS game directory holds NONE
-                                ; (docs/plans/ICON-IDENTITY-PLAN.md 7), so 16
-                                ; bodies degrade nothing anyone ships - and a
-                                ; hard disk, which is what that refusal was
-                                ; really protecting, raises [dsk_icomax] to
-                                ; DSK_VENT out of its own driver's claim and
-                                ; keeps one body per entry exactly as before.
-                                ; 1,024 bytes of HEAP per open Disk window,
-                                ; four of them
-
+VIEW_KB     equ 1               ; each cache: 768 bytes of entries and 64 of
+                                ; reference bytes - 832 of 1,024. It was 3KB
+                                ; of entries and ICONS, and SPEC.md 25.9 put
+                                ; the bodies in one machine-wide store: the
+                                ; window carries a BYTE an entry where it
+                                ; carried 64, so three windows open now cost
+                                ; less heap than one did
 ; --- the derived ladder -------------------------------------------------------
 ; Every base below is the one before it plus the MEASURED size of what it
 ; holds. KIMG_PARA and LOW_PARA forward-reference the section sizes at the end
@@ -7904,8 +7885,14 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ; still holds one body per entry. Written per arm rather than in terms of
 ; DSK_ICO_N alone, because the point of this guard is that both sides are
 ; spelled out independently and have to agree.
-%if SKB_DSK != DSK_ICOIX_N + DSK_NENT*DSK_DE_STRIDE + DSK_ICO_N*DSK_ICO_SIZE + 512
-%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.8)"
+%ifdef KERN_SMALL
+%if SKB_DSK != DSK_ICOIX_N + DSK_NENT*DSK_DE_STRIDE + DSK_OVLPAD + 512
+%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.9): the sector buffer, the entries, one reference byte per entry, and dsk_ovlpad - the boot overlay's floor, which only this kernel needs"
+%endif
+%else
+%if SKB_DSK != DSK_ICOIX_N + DSK_NENT*DSK_DE_STRIDE + 512
+%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.9): the sector buffer, the entries and one reference byte per entry, and NO icon bodies - those are the machine-wide store's"
+%endif
 %endif
 ;
 ; 6b. ...and so is every claim in it, which is what a package region rides

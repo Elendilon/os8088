@@ -43012,6 +43012,71 @@ is `label changed during code generation` on three labels and no build.
 380 of those bytes are the six icon records; the rest is the 65-byte
 registration record, the paint verb and the two entry points.
 
+
+### 25.9 ...and on BOTH kernels the bodies are a MACHINE-WIDE STORE, keyed by what the directory already says
+
+A listing owns **one reference byte per entry and no icon bodies at all**. The
+bodies live in one claim for the whole machine, so the copy of a package on the
+system disk and the copy on the apps disk are ONE row (`kernel/disk.inc`,
+`ico_*`).
+
+**The identity is the directory's own `(name, size)`** - twelve bytes of the
+8.3 name SPEC.md 19.1 staged and the low word of the size it reports. That is
+the only identity available WITHOUT A SECTOR READ, which is the whole point:
+SPEC.md 54.7's cache exists to answer an icon without touching the drive, so a
+key inside the file - a content hash, or an id in the 32-byte header SPEC.md
+20.2 fills completely - costs the very read it is trying to save. Measured over
+the six shipped 360KB disks: **53 package copies, 29 distinct keys, 24 copies
+collapsed, no false merge**.
+
+**Two entry kinds take no row.** A FOLDER references `ICO_R_FOLDER` and draws
+the built-in body already in `.text`, so a DOS game directory - LEMMINGS 68
+entries, F15 66, TD1 41 - costs the store NOTHING. `ICO_R_NONE` is SPEC.md 25's
+generic icon and is what a full store, a refused claim and a purged row all
+answer.
+
+**A composed DOCUMENT body is keyed by its APP SLOT** and not by its own name.
+`assoc_docicon` (SPEC.md 54.3) composes from the slot's glyph alone, so every
+document of one association is byte-identical - they share a row, and
+`assoc_docslot` is how the slot reaches the key.
+
+#### 25.9.1 Why a WINDOW can now read it, which is what made it possible
+
+A background Disk window holds a listing the global snapshot may have replaced,
+which is why SPEC.md 22.6.1 gave every window its own copy of every body. It
+could not share one, because there was no volume-independent way to NAME a
+body. `(name, size)` is exactly that name, so a window keeps its reference
+bytes and resolves them against the one store whatever is mounted now -
+strictly more than it could do before, and **1,024 bytes of heap a window
+instead of 3,072** (`VIEW_KB`).
+
+The residual is EVICTION and not reach: a reference whose row has gone resolves
+to the generic icon and the row returns at the next mount.
+
+#### 25.9.2 Sized for the MACHINE, and the file's cap is a different question
+
+Distinct package icons demandable at once, measured over the shipped images: 9
+with the system disk alone, **26** with system + apps, **29** with all six
+mounted - plus at most `ASSOC_NAPP` composed bodies. `ICO_NROW` is 48 on
+`kern_big` and 24 on `kern_small`, which SPEC.md 51.0 leaves no driver-backed
+volume and fewer packages.
+
+`ASC_NAPP` stays 32: that is a VOLUME's question, and the busiest shipped
+directory holds 15.
+
+#### 25.9.3 What it replaced, and what `kern_small` pays instead
+
+`kern_big` stored a 64-byte slot PER ENTRY - 2,048 bytes of `.lowbss`, the
+tightest rung in the kernel - and most of them held a copy of one built-in
+folder body or 64 zero bytes. SPEC.md 25.8.5.1 refused a pool there on
+arithmetic that is right and a premise that is not; the measurement retires it.
+
+**`kern_small` keeps `dsk_ovlpad` and that is the honest cost.** `.ovlw` is
+read onto the FAT window and the mount buffers (SPEC.md 2.5.3), so the icon
+array had a SECOND JOB nobody had written down: it was the boot overlay's
+landing ground. Shrinking the listing takes that room away, so the pad replaces
+it by name - dead at runtime, and returned the day `.ovlw` shrinks.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
