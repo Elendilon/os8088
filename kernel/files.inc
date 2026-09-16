@@ -350,11 +350,11 @@ FV_ICOIX    equ 0               ; SPEC.md 25.8.5's index, and it is the FIRST
                                 ; Below the pool it is at a fixed offset for
                                 ; both, and no window gains a byte of state
 FV_ICOBODY  equ DSK_ICOIX_N     ; ...so the bodies start after it
-%if DSK_NENT*DSK_DE_STRIDE + DSK_ICOIX_N + DSK_ICO_N*DSK_ICO_SIZE > VIEW_KB*1024
-  %error "the pooled view cache no longer fits VIEW_KB: entries, then one index byte per ENTRY (DSK_ICOIX_N, which is DSK_VENT-wide), then DSK_ICO_N bodies. fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
+%if DSK_NENT*DSK_DE_STRIDE + DSK_ICOIX_N > VIEW_KB*1024
+  %error "the view cache no longer fits VIEW_KB: entries, then one REFERENCE byte per entry (DSK_ICOIX_N, which is DSK_VENT-wide). fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
 %endif
-%if DSK_VENT*DSK_DE_STRIDE + DSK_ICOIX_N + DSK_VENT*DSK_ICO_SIZE > DSK_VKB*1024
-  %error "the DRIVER-BACKED view cache no longer fits DSK_VKB: a driver-backed volume raises [dsk_icomax] to DSK_VENT, so its window slot carries one body per entry and the claim its driver funds has to hold all of them"
+%if DSK_VENT*DSK_DE_STRIDE + DSK_ICOIX_N > DSK_VKB*1024
+  %error "the DRIVER-BACKED view cache no longer fits DSK_VKB: a driver-backed volume lists DSK_VENT entries, and its window slot carries those and a reference byte apiece"
 %endif
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
                                 ; line are both staged whole and truncated
@@ -651,15 +651,12 @@ fmv_copy_in:
     mov dx, [fm_vseg]
     or dx, dx
     jnz .have                   ; no cache (the claim was refused): read the
-    mov dx, [dsk_dseg]          ; GLOBAL snapshot at the matching offset. A
-    call fmv_iofs               ; slot offset is 0-based and the snapshot's
-    cmp si, bx                  ; is not, so the two bases have to be swapped
-    jb .dir                     ; over - which is all this arithmetic is
-    sub si, bx
-    add si, [dsk_ioff]
-    jmp short .have
-.dir:
-    add si, [dsk_doff]
+    mov dx, [dsk_dseg]          ; GLOBAL snapshot at the matching offset. It
+    add si, [dsk_doff]          ; used to need the ICON base swapped over too,
+                                ; a slot's being 0-based where the snapshot's
+                                ; is not; there is no icon region in either
+                                ; now (SPEC.md 25.9), so entries are the whole
+                                ; of it
 .have:
     mov ax, ds                  ; the kernel segment, out of DS: this module
                                 ; is .cold, so CS is COLD_SEG (SPEC.md 2.6)
@@ -756,55 +753,44 @@ fmv_get_dir:
 ; clobbers: SI (the output), flags
 ; -----------------------------------------------------------------------------
 fmv_get_icon:
-    cmp word [fm_vseg], 0       ; SPEC.md 25.8: with no cache of its own the
-    je dsk_get_icon_x           ; painter reads the GLOBAL icons, which here
-                                ; are a pool - and dsk_get_icon_x is that
-                                ; indirection, landing in the same dsk_ico
-                                ; with the same "all-zero = none". Taken
-                                ; ahead of fmv_copy_in's own fallback, whose
-                                ; [dsk_ioff] + index*64 is the arithmetic the
-                                ; pool invalidates
+    cmp word [fm_vseg], 0       ; SPEC.md 25.9: with no cache of its own the
+    je dsk_get_icon_x           ; painter reads the GLOBAL reference bytes,
+                                ; and dsk_get_icon_x is that indirection,
+                                ; landing in the same dsk_ico with the same
+                                ; "all-zero = none"
     push ax
     push bx
     push cx
+    push dx
+    push si
     push di
-    call fmv_viofs              ; THIS WINDOW'S pool base, not the global's -
-                                ; the one place the two can differ (22.6.1)
-    add ax, bx                  ; ...and the entry's INDEX BYTE, which is at
-    add ax, FV_ICOIX            ; the region's own base now (see FV_ICOIX)
+    call fmv_viofs              ; THIS WINDOW'S index, not the global's - the
+    add ax, bx                  ; one place the two can differ (22.6.1), and
+    add ax, FV_ICOIX            ; the whole of its icon region now
     mov si, ax
     mov di, dsk_ico             ; TWO bytes, because fmv_copy_in moves words.
-    mov cx, 2                   ; The second is the next entry's index, or the
-    call fmv_copy_in            ; first byte past the array and still inside
-                                ; the claim (FV_ICOIX's %if bounds it); it is
-                                ; overwritten below either way
+    mov cx, 2                   ; The second is the next entry's reference, or
+    call fmv_copy_in            ; the first byte past the array and still
+                                ; inside the claim; it is overwritten below
     mov al, [dsk_ico]
-    cmp al, 0xFF
-    je .none                    ; SPEC.md 25.8.5: THIS WINDOW'S answer and not
-                                ; the global's - a cache may still hold a
-                                ; listing the global has since replaced, so
-                                ; falling through to dsk_get_icon_x here would
-                                ; paint another volume's icon
-    xor ah, ah                  ; ...AX was the entry; now it is the BODY
-    mov cl, 6
-    shl ax, cl
-    add ax, bx
-    add ax, FV_ICOBODY          ; ...past the index that now precedes them
-    mov si, ax
-    mov di, dsk_ico
-    mov cx, DSK_ICO_SIZE
-    call fmv_copy_in
+    call dsk_ico_ref_at         ; ...and THE BODY COMES OUT OF THE ONE STORE
+    jc .none                    ; (SPEC.md 25.9). The window used to carry its
+    mov di, dsk_ico             ; own copy of every body - 64 bytes an entry -
+    mov cx, DSK_ICO_SIZE        ; which is what a volume-independent key makes
+    mov ax, KERNEL_SEG          ; unnecessary: the reference resolves whatever
+    call dsk_copy_seg_x         ; is mounted now
     jmp short .out
 .none:
     call dsk_ico_blank
 .out:
     pop di
+    pop si
+    pop dx
     pop cx
     pop bx
     pop ax
     mov si, dsk_ico
     ret
-
 ; -----------------------------------------------------------------------------
 ; fmv_winof - which window owns the state block in DI? (the inst_tab walk)
 ; in:  DI = state block
@@ -915,25 +901,16 @@ fmv_store:
     ; THE COUNT IS [dsk_icomax] AND NOT DSK_ICO_N: a driver-backed volume
     ; raises the ceiling to DSK_VENT out of its own claim, so a hard disk's
     ; window has more bodies to carry than a floppy's array even has room for.
-    mov si, dsk_icoix           ; the INDEX FIRST, and it lives in `.lowbss`
-    mov di, bx                  ; whatever [dsk_dseg] says - so NOT
-    add di, FV_ICOIX            ; fmv_copy_out, whose source segment IS
-    mov cx, DSK_ICOIX_N         ; [dsk_dseg] and is the DRIVER'S CLAIM on a
-    push dx                     ; hard disk. kern_small could use it because
-    mov dx, LOW_SEG             ; SPEC.md 51.0 leaves it no DVK_DRV volume and
-    call dsk_copy_seg_x         ; the two were always the same segment there
-    pop dx
-    push ax                     ; ...then the bodies, [dsk_icomax] of them
-    mov si, [dsk_ioff]
-    mov di, bx
-    add di, FV_ICOBODY
-    mov al, [dsk_icomax]
-    xor ah, ah
-    mov cx, DSK_ICO_SIZE
-    mul cx
-    mov cx, ax
-    pop ax
-    call fmv_copy_out
+    mov si, dsk_icoix           ; ...AND THE INDEX, WHICH IS ALL THERE IS NOW
+    mov di, bx                  ; (SPEC.md 25.9). The bodies used to follow it
+    add di, FV_ICOIX            ; and are in the machine-wide store instead, so
+    mov cx, DSK_ICOIX_N         ; a window carries one byte an entry rather
+    push dx                     ; than 64.
+    mov dx, LOW_SEG             ;
+    call dsk_copy_seg_x         ; NOT fmv_copy_out: its source segment is
+    pop dx                      ; [dsk_dseg], which is the DRIVER'S CLAIM on a
+                                ; hard disk, and the index lives in `.lowbss`
+                                ; wherever the listing is
     pop di
     mov [di+FS_IOFH], bh        ; ...AND THE SHAPE IT WAS FILLED WITH, which
                                 ; is this mount's and not whichever one paints

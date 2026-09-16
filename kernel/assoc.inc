@@ -533,6 +533,15 @@ assoc_docicon_x:
     jc .no
     mov di, dsk_ico
     call assoc_compose
+    mov [assoc_docslot], al     ; ...AND WHICH SLOT IT CAME FROM (SPEC.md
+                                ; 25.9). The body is a pure function of the
+                                ; slot's glyph, so every document of one
+                                ; association composes the same 64 bytes -
+                                ; which is the whole reason the store keys
+                                ; them by slot instead of by name. Banked in
+                                ; a cell rather than returned in AL because
+                                ; this proc's contract preserves every
+                                ; register and four callers rely on it
     clc
     jmp short .out
 .no:
@@ -543,6 +552,11 @@ assoc_docicon_x:
     pop bx
     pop ax
     ret
+
+section .text                   ; DATA, so back to the kernel segment
+                                ; (SPEC.md 2.6 rule 1)
+assoc_docslot: db 0xFF          ; the slot assoc_docicon last composed from
+section .cold
 
 ; -----------------------------------------------------------------------------
 ; assoc_declare - take the extensions a package's header declares (SPEC.md 54.6)
@@ -1892,6 +1906,7 @@ asc_lookup_x:
 ; -----------------------------------------------------------------------------
 asc_take_x:
     push ax
+    push bx
     push cx
     push dx
     push si
@@ -1899,33 +1914,27 @@ asc_take_x:
     push es
     call asc_note               ; the program's location and glyph first,
                                 ; while SI still points at its entry
-    push dx                     ; the listing index
-    mov dx, [asc_seg]           ; the cached body -> dsk_ico, in the kernel
-    push ds                     ; segment, which is where dsk_put_icon_k
-    pop ax                      ; takes its source from
-    mov si, di
-    mov di, dsk_ico
-    mov cx, 64
-    pop ax                      ; ...the listing index again - popped BEFORE
-    pushf                       ; the flags go on: the stage-to-consume is
-    cli                         ; ATOMIC, because this runs with the gfx lock
-                                ; free and a worker's wm_show repainting the
-                                ; dock is dsk_ico's fifth tenant
-                                ; (inst_icon_ptr) - two 64-byte copies, well
-                                ; under a tick. dsk_copy_seg_x takes AX as
-                                ; the destination SEGMENT, so it is banked
-    push ax                     ; across the copy
-    mov ax, ds                  ; AX = dst seg (the kernel's, where dsk_ico is)
-    call dsk_copy_seg_x           ; DX = src seg, AX = dst seg
-    pop ax
-    mov si, dsk_ico
-    call dsk_put_icon_k_x
-    popf
+    mov bx, di                  ; ...then the cached body STRAIGHT INTO THE
+    mov ax, dx                  ; STORE, out of the assoc claim it is already
+    mov dx, [asc_seg]           ; sitting in (SPEC.md 25.9)
+    call ico_put                ; the key is ico_keyb, banked at the top of
+                                ; the harvest loop
+                                ;
+                                ; **dsk_ico IS NO LONGER A TENANT HERE**, and
+                                ; the `pushf`/`cli` that guarded the stage
+                                ; went with it: this used to copy the body
+                                ; into dsk_ico and then out again, with the
+                                ; gfx lock free, so a tick could switch to a
+                                ; worker whose wm_show repaints the dock
+                                ; through inst_icon_ptr and leave a package's
+                                ; icon in the buffer. One copy, no shared
+                                ; buffer, nothing to race
     pop es
     pop di
     pop si
     pop dx
     pop cx
+    pop bx
     pop ax
     ret
 

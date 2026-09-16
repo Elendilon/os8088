@@ -229,11 +229,30 @@ same vanishing region, and it goes at the same time.
    (`dsk_iconext`, `dsk_icofld`); this generalises it to both kernels and
    deletes its `%ifdef`s. The bodies are still per listing at the end of this
    wave, which is what keeps it independently buildable.
-2. **The machine-wide store**, as `ASC_ROW`s, filled from each volume's
-   `ASSOC.DAT` and by harvest on a miss. Keyed `(stem, size)` - `asc_lookup_x`
-   is the comparison, unchanged. The per-listing and per-window icon regions go
-   here, and `FS_IOFH`, `fmv_viofs`, `dsk_ioff` and the multiple-of-256 `%if`
-   go with them.
+2. **The machine-wide store**, as `ASC_ROW`s, keyed `(stem, size)`. The
+   per-listing and per-window icon regions go here, and `FS_IOFH`,
+   `fmv_viofs`, `dsk_ioff` and the multiple-of-256 `%if` go with them.
+
+   **IT IS A NEW CLAIM AND NOT THE `ASSOC.DAT` BUFFER**, which is what the two
+   questions below settled. `asc_seg` is read from the file with one
+   `dsk_read_chain_x` straight into the claim at offset 0 and is WIPED on a
+   volume switch, so making it multi-volume would mean staging the file
+   somewhere else to merge from - a second buffer either way. A separate
+   ADDITIVE store leaves `asc_use_x` untouched and takes its rows from
+   whatever answered: an `asc_lookup_x` hit, a harvest, or a compose.
+
+   - **There is no writer to break.** The kernel never writes `ASSOC.DAT` -
+     `asc_s_name` has two occurrences, its definition and the directory walk
+     that FINDS the file, and `tools/os88disk.py` writes it warm at image-build
+     time. Merging volumes in RAM cannot corrupt a file nothing writes.
+   - **32 rows is not enough, and the file's cap is not the store's.** Distinct
+     package icons a machine can demand at once, measured over the shipped
+     images: 9 with the system disk alone, **26** with system + apps, **29**
+     with everything mounted - plus up to `ASSOC_NAPP` = 12 composed document
+     bodies, one per app slot. `ASC_NAPP` is 32 and its own comment reads
+     *"was 16, and the shipped apps disk holds 15 - one package of headroom,
+     with no guard"*. The FILE stays at 32 rows, which is ample for one volume
+     (the busiest holds 15); the STORE is sized for the machine at **48**.
 3. **Purgeable.** A `MEM_P_` class below `MEM_P_VIEW`; refill on the next
    mount. The glyph table is NOT in it.
 4. **Raise `DSK_NENT`.** The number is a product decision once it is nearly
