@@ -224,20 +224,20 @@ had added.
     "bss": 5987,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40011,
+    "cold": 40005,
     "coldpara": 2528,
     "fatpara": 288,
-    "imgpara": 3488,
-    "kend": 7072,
+    "imgpara": 3456,
+    "kend": 7040,
     "kseg": 96,
-    "ksize": 111616,
+    "ksize": 111104,
     "lowbss": 9182,
     "lowpara": 608,
     "minramkb": 196,
     "ovl": 1417,
     "ovlw": 5052,
     "stk0": 512,
-    "text": 49517,
+    "text": 49302,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -270,20 +270,20 @@ had added.
     "bss": 4165,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 26428,
+    "cold": 26410,
     "coldpara": 1664,
     "fatpara": 64,
-    "imgpara": 2624,
-    "kend": 4832,
+    "imgpara": 2592,
+    "kend": 4800,
     "kseg": 96,
-    "ksize": 75776,
+    "ksize": 75264,
     "lowbss": 5460,
     "lowpara": 384,
     "minramkb": 128,
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 37371,
+    "text": 37168,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -632,14 +632,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,311 | 36.1% |
+| the file system, end to end | 32,305 | 36.2% |
 | the window system and its furniture | 24,603 | 27.5% |
 | drawing: adapters, primitives, glyphs, icons | 13,167 | 14.7% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,885 | 9.9% |
-| the kernel proper: API table, heap, scheduler, events | 8,443 | 9.4% |
+| the kernel proper: API table, heap, scheduler, events | 8,228 | 9.2% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 577 | 0.6% |
-| **total** | **89,528** | |
+| **total** | **89,307** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -663,7 +663,7 @@ there and nowhere else.
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,260 | **1,542** | 11 | 240 | — |
 | `sched.inc` — pre-emptive scheduling (§7–8) | 1,410 | — | **1,410** | 207 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
-| `loader.inc` — the package loader (§21) | 4 | 1,235 | **1,239** | 46 | — | — |
+| `loader.inc` — the package loader (§21) | 4 | 1,229 | **1,233** | 46 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,148 | — | **1,148** | 74 | — | — |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 11 | 1,025 | **1,036** | 79 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,031 | — | **1,031** | 287 | — | — |
@@ -693,8 +693,8 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,234 | 18 | **3,252** | — | — | 421 |
-| **total** | **49,517** | **40,011** | **89,528** | **5,987** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,019 | 18 | **3,037** | — | — | 421 |
+| **total** | **49,302** | **40,005** | **89,307** | **5,987** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
