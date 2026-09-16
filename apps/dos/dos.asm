@@ -1913,7 +1913,10 @@ dos_restore_machine:
 dos_hook_vectors:
     push ax
     push bx
+    push dx
+    push si
     push es
+    cld
     xor ax, ax
     mov es, ax
     cli
@@ -1933,9 +1936,51 @@ dos_hook_vectors:
                                         ; finds whatever the ROM left there
     mov word [es:0x33*4], dos_int33     ; ...and the MOUSE (SPEC.md 96.10),
     mov [es:0x33*4+2], cs               ; which costs us a translation and not
-    sti                                 ; a driver: the kernel's own ISR keeps
+                                        ; a driver: the kernel's own ISR keeps
                                         ; mouse_x/y/btn fresh for the whole
                                         ; bracket (SPEC.md 53.1)
+
+    ; --- ...AND THE REST OF THE BLOCK A REAL DOS OWNS (SPEC.md 96.5.2) ------
+    ; Seven vectors were hooked above and the other fourteen of DOS's own were
+    ; left at 0000:0000 - which is not `unimplemented`, it is A JUMP TO
+    ; ADDRESS ZERO. Measured on IBM DOS 3.30: 28h, 2Ah..2Eh, 32h and 34h..3Eh
+    ; all point at ONE `iret` inside IBMDOS, and 25h, 26h, 27h and 29h at real
+    ; code. The eleven from 34h up are the 8087 EMULATOR's, which every
+    ; Borland- and Microsoft-compiled program reads before installing its own.
+    ; 2Eh is COMMAND.COM's undocumented back door rather than an iret, and an
+    ; iret is the safe approximation: it does nothing where DOS would run a
+    ; command, which beats running the vector table as code.
+    ;
+    ; CS AND NOT DS FOR THE TABLE. In the parted build (SPEC.md 96.44) this
+    ; body is in the CORE and DS addresses the HOST's bss - `[dos_arena]`
+    ; below is exactly that - so a table in our own image is reachable only
+    ; through CS, which is the same segment either way.
+    mov si, dos_ivirets
+    mov dx, dos_iret
+.hkir:
+    mov al, [cs:si]
+    inc si
+    or al, al
+    jz .hkird
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov [es:bx], dx
+    mov [es:bx+2], cs
+    jmp short .hkir
+.hkird:
+    mov word [es:0x25*4], dos_int25     ; ABSOLUTE DISK READ and WRITE: a
+    mov [es:0x25*4+2], cs               ; refusal, and refusing is exactly why
+    mov word [es:0x26*4], dos_int25     ; they cannot be `dos_iret` - both
+    mov [es:0x26*4+2], cs               ; return with the FLAGS still pushed
+    mov word [es:0x27*4], dos_int20     ; TSR: nothing can stay resident past
+    mov [es:0x27*4+2], cs               ; the bracket, so it is a terminate -
+                                        ; which is what DOS's own 27h is, a
+                                        ; jump to AH=31h
+    mov word [es:0x29*4], dos_int29     ; FAST CONSOLE OUTPUT, which DOS's own
+    mov [es:0x29*4+2], cs               ; CON driver writes through
+    sti
 
     mov ax, [dos_arena]                 ; ...and INT 12h's own source, so "how
     add ax, [dos_apara]                 ; much memory is there" agrees with the
@@ -1945,6 +1990,8 @@ dos_hook_vectors:
     shr ax, cl                          ; boot, once in the Task Manager, which
     mov [es:0x13], ax                   ; cannot run inside a bracket
     pop es
+    pop si
+    pop dx
     pop bx
     pop ax
     ret
@@ -1967,6 +2014,77 @@ dos_int24:                              ; DOS's critical-error contract: AL = 3
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
                                         ; Retry, Fail?" nobody can answer
+
+; -----------------------------------------------------------------------------
+; dos_int25 - INT 25h and INT 26h, ABSOLUTE DISK READ and WRITE, refused
+;
+; THE RETURN IS A `retf` AND THAT IS THE WHOLE POINT (SPEC.md 96.5.2.2). These
+; two are the only INT 21h-era calls that do not `iret`: DOS leaves the FLAGS
+; the `int` pushed ON THE STACK and the caller pops them itself, so a handler
+; that irets here unbalances the caller's stack by two bytes - a fault that
+; lands somewhere else entirely and looks like anything but this.
+;
+; A refusal rather than a body. The public disk surface of this box is file-
+; and volume-level on purpose, and a program writing raw sectors underneath a
+; mounted volume with a live cache is the one thing there is no safe answer
+; to. An honest error is an answer a disk utility can print; address zero is
+; not.
+; -----------------------------------------------------------------------------
+dos_int25:
+    mov ax, 0x0C01                      ; AH = INT 24h's `general failure`,
+    stc                                 ; AL = the device driver's `bad
+    retf                                ; command`
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_int29 - INT 29h, FAST CONSOLE OUTPUT: AL is the character
+;
+; DOS's own CON driver writes through this, and so does any program that wants
+; the cheapest documented way to put a character up. IBM DOS 3.30's is a BIOS
+; teletype (`mov ah, 0Eh / int 10h`); ours goes to `dos_tty`, which is where
+; AH=02h goes, so the two agree about where the console is. An `iret` here
+; would have been silence rather than a crash, which is the harder bug.
+;
+; It preserves everything, as DOS's does.
+; -----------------------------------------------------------------------------
+dos_int29:
+    push ax                             ; AL is the argument and `push` does
+    push bx                             ; not touch it
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    push cs
+    pop ds
+    call dos_tty
+    pop ds
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; The vectors a real IBM DOS 3.30 fills with one `iret`, measured rather than
+; listed out of a book.  Read through CS: see dos_hook_vectors.
+dos_ivirets:
+    db 0x28                             ; DOS idle
+    db 0x2A                             ; network / critical section - the one
+                                        ; BOLOBALL asks (SPEC.md 96.5.2.1)
+    db 0x2B, 0x2C, 0x2D                 ; DOS reserved
+    db 0x2E                             ; COMMAND.COM's back door
+    db 0x32                             ; reserved
+    db 0x34, 0x35, 0x36, 0x37, 0x38     ; the 8087 emulator's eleven
+    db 0x39, 0x3A, 0x3B, 0x3C, 0x3D
+    db 0x3E
+    db 0
 
 ; =============================================================================
 ; THE ARENA (SPEC.md 96.3)
@@ -2386,7 +2504,7 @@ dos_int21:
     cmp ah, 0x4C
     je .term
     cmp ah, 0x00
-    je .term
+    je .term0
     cmp ah, 0x02
     je .putc
     cmp ah, 0x09
@@ -2471,8 +2589,25 @@ dos_int21:
     je .dconio
     cmp ah, 0x0C
     je .flushin
+    cmp ah, 0x31
+    je .term                        ; TSR: AL is the exit code, exactly as
+                                    ; AH=4Ch's is, and DX - the paragraphs to
+                                    ; keep - cannot be honoured, the bracket
+                                    ; taking the arena back whole. INT 27h is
+                                    ; the same call through the same door
     jmp .bad
 
+.term0:
+    ; AH=00h IS `INT 20h` THROUGH THE OTHER DOOR, and its exit code is ZERO
+    ; rather than AL (SPEC.md 96.5.2.3). AL is an argument to no part of it,
+    ; so whatever the program last had there was being reported as the code -
+    ; and the way a program reaches AH=00h by accident is a corrupted AH,
+    ; which is to say with a leftover in AL. That is precisely how BOLOBALL
+    ; reported `Exit code 002` in the field and `004` here off the same
+    ; defect: 96.7.1.3.1's fabricated `AH=41h` failed with error 2 on a hard
+    ; disk and 3 on a floppy, `inc ax` carried the difference into AL, and the
+    ; window printed it as if the program had chosen it.
+    xor al, al
 .term:
     mov sp, bp                      ; THE FRAME, not the top of the stack: the
     pop ds                          ; gate banks three registers below `bp` now

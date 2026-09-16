@@ -123145,6 +123145,96 @@ The list is one vector today because `INT 33h` is the only never-installed
 vector a program is known to read as a presence test. It is a **list**, not a
 special case, precisely so the next one is an entry rather than an argument.
 
+#### 96.5.2 ...and the fourteen vectors a real DOS OWNS and we left at zero
+
+§96.5.1 is a vector whose stale value lies. This is the other half: a vector a
+real DOS **fills** and this box did not. `dos_hook_vectors` installed seven —
+`20h 21h 22h 23h 24h 2Fh 33h` — and left the rest of DOS's own block at
+`0000:0000`, which is not *unimplemented*. It is a **jump to address zero**,
+and a program has no way to find out beforehand because the probe *is* the
+call.
+
+Measured, on IBM DOS 3.30 booted off a real floppy under MartyPC, reading the
+IVT out of the machine:
+
+| vector | IBM DOS 3.30 | us, before |
+|---|---|---|
+| `25h`, `26h` | absolute disk read / write, real code at `0226:15DC`/`161F` | `0000:0000` |
+| `27h` | TSR — `mov ax, 3100h`, i.e. it *is* `AH=31h` | `0000:0000` |
+| `28h` | DOS idle — `0226:1445`, one `iret` | `0000:0000` |
+| `29h` | fast console output — `0070:069C`, a BIOS teletype | `0000:0000` |
+| `2Ah` | network / critical section — the same `iret` | `0000:0000` |
+| `2Bh` `2Ch` `2Dh` | DOS reserved — the same `iret` | `0000:0000` |
+| `2Eh` | COMMAND.COM's back door, `0B6F:0281` | `0000:0000` |
+| `32h`, `34h`..`3Eh` | the same `iret` (the 8087 emulator's eleven) | `0000:0000` |
+| `1Fh`, `40h`..`FFh` | `0000:0000` | `0000:0000` — **agrees** |
+
+The last row is what makes the rest a defect rather than a philosophy. DOS
+leaves `1Fh` and everything from `40h` up at zero, so *"an unused vector is
+zero"* is DOS's own rule and we keep it; what DOS does **not** leave at zero is
+its own block, and that is exactly the block we had.
+
+##### 96.5.2.1 What it cost BOLOBALL, three instructions after the version check
+
+```
+6205  CD21    int 0x21        ; AH=30h - and we answered AX=1E03, DOS's own
+6207  3C03    cmp al,3        ; DOS 3 or better?
+6209  32E4    xor ah,ah
+620B  CD2A    int 0x2a        ; is a network redirector loaded?
+620D  0AE4    or ah,ah        ; AH != 0 - yes
+```
+
+`INT 2Ah AH=00h` is the ordinary DOS 3 *"am I on a network"* probe, and the
+answer a machine with no network gives is an `iret` that leaves `AH` at zero.
+Ours went to `0000:0000` and executed the vector table as code: `SP` walked
+down two bytes a lap while `AX` counted up, and the run ended with the machine
+somewhere in the ROM's entry pointers. **The version call immediately before
+it was answered correctly** — which is why nothing in our own trace looks
+wrong. The last thing the box does right and the first thing it does wrong are
+the same distance from each other as `cmp al,3` is from `int 2Ah`.
+
+##### 96.5.2.2 `INT 25h` and `INT 26h` are the two that cannot be an `iret`
+
+They are refused rather than implemented — the public disk surface of this box
+is file- and volume-level on purpose, and raw sector writes underneath a
+mounted volume with a live cache have no safe answer — and the refusal is
+`AX = 0C01h` with `CF`: `AH` = `INT 24h`'s *general failure*, `AL` = the device
+driver's *bad command*.
+
+**The return is a `retf` and that is the whole point.** These two are the only
+calls of the era that do not `iret`: DOS leaves the `FLAGS` word the `INT`
+pushed **on the stack** and the caller pops it itself. A handler that `iret`s
+here answers correctly and unbalances the caller's stack by two bytes, which
+faults somewhere else entirely and looks like anything but this.
+
+`INT 27h` becomes a terminate, which is what DOS's own is — its first
+instruction is `mov ax, 3100h`. Nothing can stay resident past the bracket, so
+`AH=31h` is `AH=4Ch` here and `INT 27h` is the same call through the same door;
+`AL` is the exit code on both and `DX`, the paragraphs to keep, cannot be
+honoured because the arena comes back whole.
+
+`INT 29h` goes to `dos_tty`, which is where `AH=02h` goes, so the two agree
+about where the console is. An `iret` there would have been **silence** rather
+than a crash, which is the harder bug to find.
+
+The cost is **+135 bytes of `doscore.bin`** (14,591 → 14,726, `CORE_MAX`
+14,848), most of it the `iret` table's loop and `INT 29h`'s register discipline.
+
+##### 96.5.2.3 `AH=00h` exits with ZERO, and that is where `002` came from
+
+`INT 21h AH=00h` is `INT 20h` through the other door and its exit code is
+**zero**. `AL` is an argument to no part of it, so this box reporting `AL` as
+the code was reporting whatever the program last had in that register.
+
+It is the small defect, and it is the one the field saw. The way a program
+reaches `AH=00h` by accident is a corrupted `AH` — which is to say with a
+leftover in `AL` — so §96.7.1.3.1's chain ends here: the fabricated `AH=41h`
+DELETE failed with **error 2** (*file not found*) on the reporter's hard disk
+and **error 3** (*path not found*) on the floppy here, `inc ax` carried that
+one-bit difference straight into `AL`, and the window printed
+**`ended, exit code 002`** on one machine and `004` on the other. Two different
+numbers, one defect, and neither of them chosen by the program.
+
 ### 96.6 Drives, and the hole in the map
 
 A DOS drive letter is an os8088 volume index and the map is the identity:

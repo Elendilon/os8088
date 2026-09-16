@@ -2752,6 +2752,32 @@ SOAK = [
         "un-pushing CX in .getcwd.",
         needs=("marty",), wants=("build/dosregs360.img",)),
 
+    Row("dosvec", "soak", py("tests/dosvec.py"), 25.0,
+        "THE VECTORS A REAL DOS OWNS ARE INSTALLED, not left at 0000:0000 "
+        "(SPEC.md 96.5.2). The box hooked 20h 21h 22h 23h 24h 2Fh 33h and "
+        "left the other fourteen of DOS's own block empty - which is not "
+        "'unimplemented', it is a JUMP TO ADDRESS ZERO, and a program cannot "
+        "test for it beforehand because the probe IS the call. BOLOBALL asks "
+        "`int 2Ah AH=00h` - is a network redirector loaded - three "
+        "instructions after a version check we answer correctly, and ran off "
+        "into the IVT with SP walking down two bytes a lap; nothing in our "
+        "own INT 21h trace looks wrong at any point. ONE BINARY ON BOTH, "
+        "dosregs's shape: tests/dostrap/vecs.asm prints five lines under this "
+        "box and under a real IBM DOS 3.30 off a real floppy, and every "
+        "expected value here is that run. NUL=NONE is the block; 2A=00 is the "
+        "probe SURVIVING the call and the handler being an iret rather than "
+        "something that scribbles; 29=[*] is fast console output, where an "
+        "iret would be SILENCE and not a crash; SPD=0000 is INT 25h's stack, "
+        "those two being the only calls of the era that do not iret - DOS "
+        "leaves the FLAGS the INT pushed ON THE STACK, so a handler that "
+        "irets answers correctly and unbalances the caller by two bytes. CF "
+        "and AX on that line are NOT compared and the probe judges nothing: "
+        "DOS reads sector 0 of drive A and succeeds where this box refuses. "
+        "The last assertion is the exit code - the probe leaves through "
+        "AH=00h with AL=42h, whose code is ZERO, and reporting AL is where "
+        "the field's `Exit code 002` came from.",
+        needs=("marty",), wants=("build/dosvec360.img",)),
+
     Row("dosfcb", "soak", py("tests/dosfcb.py"), 30.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "
