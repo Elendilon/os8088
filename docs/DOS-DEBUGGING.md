@@ -273,10 +273,13 @@ not describe a shipped package and which will hand you a confident zero), and
 use the trace for what it is good at: which call was asked, and what was
 answered.
 
-The other 14 KB is real and is the sound driver: the same machine with no
-card reports **465 KB**. `OSAPI_DRV_SUSPEND` frees that memory *inside* the
-bracket and the arena was claimed before it, which is
-docs/plans/DISK-CPU-PLAN.md §5 in one number.
+The other 14 KB is real and is the sound driver. `OSAPI_DRV_SUSPEND` *used
+to* free that memory *inside* the fsx bracket, after the arena had already
+been sized — docs/plans/DISK-CPU-PLAN.md §5 in one number, and the reason a
+carded machine reported 14 KB less than one without. SPEC.md §96.40.3's
+parted `DOS.O88` gives it back (§96.35), by taking the driver before the
+sizing rather than inside it, so the gap above is history rather than the
+current number.
 
 **A program in a SUBDIRECTORY needs two things of `ref` that `trace` does not,
 and both were missing until Prince of Persia wanted them.** `trace` hands the

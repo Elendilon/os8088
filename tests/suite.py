@@ -2013,8 +2013,8 @@ SOAK = [
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
     Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
-        "OSAPI_FILE_COPY AND OSAPI_FILE_MOVE, THE PUBLISHED ENGINE (SPEC.md "
-        "22.24, 22.25). EVERY "
+        "OSAPI_FILE_COPY, THE PUBLISHED ENGINE, BOTH VERBS (SPEC.md "
+        "22.24). EVERY "
         "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
         "cross-links two chains or writes a directory entry pointing at "
         "nothing, and all three look perfectly fine from inside the guest - "
@@ -2972,8 +2972,10 @@ SOAK = [
         "words kern_dos laid out against the ceiling they were cut from, and "
         "not a number the program prints. Four assertions: the file window is "
         "the paragraph the arena ends at, the block plus the window ends at "
-        "or below `[kd_top]`, `[dsk_rah_seg]` is 0 after the handover because "
-        "`kd_giveback` ran the ladder to the bottom, and - the one that "
+        "or below `[kd_top]`, the read-ahead is KD_RAH_KEEP rungs at the "
+        "ceiling after the handover because `kd_giveback` ran the ladder down "
+        "to the width SPEC.md 96.44.11.4 measured (it asserted 0 for a cycle "
+        "after that section, and was red), and - the one that "
         "refuses the easy fix - the program still has every KB the ceiling "
         "allows, since SHRINKING the arena would satisfy the other three and "
         "leave it 32 KB worse off. Checked red at the base commit, where "
@@ -4168,6 +4170,18 @@ SOAK = [
         " counted in card frames - a gate is every CS_PRATE TICKS, so eight"
         " card frames is a fifth of one on Mode X, and under load the row"
         " reported that the key had not changed, which was true and useless",
+        needs=("marty",), serial=True),
+    Row("skieswater", "soak", py("tests/skieswater.py"), 20.0,
+        "SPEC.md 88.6.1.1: a far model never stands in while the eye is"
+        " inside the near one. Draw Distance = Near scaled CSO_LOD to 0.6 and"
+        " four of the nine water strips are inside a river wider than that,"
+        " so the A5 spawned on a bay drawn as a centreline and sat on the"
+        " horizon band's ground - 12.5% dither on Hercules, which the field"
+        " read as 'it just looks like ground', green on Mode X. The row puts"
+        " the A5 on the strips still past the threshold at Near (Rio's was"
+        " re-laid inside it, 88.7.7.5) and asks the guest which model each"
+        " piece under it entered cs_flatverts as; --clobber-guard NOPs the"
+        " eight-byte clamp and every location goes red",
         needs=("marty",), serial=True),
     Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 71.0,
         "SPEC.md 88.7.5-88.7.7.1: the three aeroplanes that came after the"
@@ -5502,6 +5516,42 @@ SOAK = [
         "graphics fullscreen is not what a tier-0 machine draws.",
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/trkscrl.img")),
+    Row("mouresume", "soak", py("tests/mouresume.py"), 150.0,
+        "SPEC.md 96.45.2: THE POINTER IS ALIVE AFTER A LIVE RESUME FROM "
+        "kern_dos. kd_mou_stop gives the port back quiet - IER 0 and the line "
+        "masked - and restored nothing, on the ground that the live restore "
+        "runs mouse_init again on the way up. It does not: mouse_init is in "
+        ".ovlw, which mem_unblob freed, and 96.49 re-enters at hbm_wake "
+        "rather than at a boot. It presents as a dead pointer on a working "
+        "machine because the vector, MCR and the line settings all come home "
+        "and only the UART's enable and the 8259 mask do not - the reporter "
+        "could type in the DOS window throughout. kdreturn drives this exact "
+        "resume and passes: NOTHING in the suite looked at the pointer after "
+        "a return, and kdmouse is about the mouse INSIDE the box. Reading 3 "
+        "is what stops the row passing vacuously - it asserts in guest CYCLES "
+        "that the LIVE route was taken, because kd_leave's fallback is a "
+        "whole boot and a boot runs mouse_init. VERIFIED TO FAIL both ways: "
+        "unfixed reads IER 00, and with IER restored but not the mask it "
+        "reads PIC21 BC with LSR showing DR and OVERRUN - bytes arriving at a "
+        "shut line.",
+        needs=("marty",), serial=True,
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM")),
+    Row("mouwheel", "soak", py("tests/mouwheel.py"), 20.0,
+        "SPEC.md 9.5.4: a WHEEL mouse's FOURTH byte must not break the packet "
+        "run. An IntelliMouse sends four bytes and the last has bit 6 CLEAR, "
+        "so it landed back at phase 0, read as a stray, and zeroed [mou_run] "
+        "EVERY PACKET - on a two-port machine the contest was unwinnable by "
+        "construction (docs/FIELD-NOTES.md 44). Nothing else here can see it: "
+        "every emulated mouse in this tree is a three-byte part, and the "
+        "defect is invisible the moment anything has settled the port, "
+        "because mou_claim then returns at its first compare. So the bytes "
+        "are the reporter's own and the instrument is INJECTION - each one "
+        "handed to the real mou_byte in the guest, which tests the shipped "
+        "decode rather than a model of it. VERIFIED TO FAIL: on the kernel "
+        "before 9.5.4 the wheel arms read mou_run 0 and seen 0, while the "
+        "three-byte and stray-byte CONTROLS still pass - so the row isolates "
+        "the defect instead of going red wholesale.",
+        needs=("marty",), serial=True),
     Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",
@@ -6260,8 +6310,8 @@ SOAK = [
         wants=("build/trkbig.img",)),
     Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
         "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
-        " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
-        " OSAPI_MEM_COMPACT_WAKE. It stacks instances down from the ceiling"
+        " - the EXACT-requirement consumer of OSAPI_MEM_COMPACT's what-if"
+        " and its post. It stacks instances down from the ceiling"
         " until the floor run is under the module's size, closes the topmost"
         " so the survivor has a hole above it, and asserts the guest's own"
         " verdict: [trk_cpq] seen set is the post, and the module playing is"

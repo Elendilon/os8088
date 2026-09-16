@@ -163,7 +163,7 @@ def main():
         if wr >= cr:
             fail("the second walk of the SAME chain cost %d reads against the "
                  "first's %d. SPEC.md 19.2.3's cached directory window should "
-                 "answer it from memory, and dsk_path_up reads through that "
+                 "answer it from memory, and dsk_up reads through that "
                  "window - so a second walk that costs the same says the "
                  "window is not being consulted (`make DIRW1=1` is that build "
                  "on purpose)" % (wr, cr))

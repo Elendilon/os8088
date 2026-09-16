@@ -4361,9 +4361,6 @@ drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
 drv_cpname: resb DRV_CPNSZ      ; ONE staged Control Panel page
                                 ; name; empty = that class has no page
-drv_susp:   resw 1              ; the rows drv_suspend took out, to put back
-drv_sp_n:   resb 1              ; ...and how many answered DRVV_HWINFO
-drv_sp_cls: resb 1
 drv_svc:    resb DSV_SIZE*(DRVC_MAX-1) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
@@ -4824,199 +4821,15 @@ section .text                   ; ...and the file ends in .text, where it began
                                 ; staged one is a word two tasks share
 
 ; =============================================================================
-; DRIVERS, OUT OF THE WAY (SPEC.md 51.11)
+; DRIVERS, OUT OF THE WAY (SPEC.md 51.11) - the bodies are HIBER.DRV's
 ; =============================================================================
-; An exclusive fullscreen app that is about to program the hardware ITSELF - a
-; DOS program driving a Sound Blaster, a demo taking the OPL - needs the
-; drivers that own that hardware to stop owning it. This is the door, and it
-; is deliberately NOT sound-specific: what the caller says is "get out of my
-; way", and each class decides what that means for it.
-;
-; IT IS AN UNLOAD AND A RELOAD, and that is the whole design. The alternative
-; - a dormant state each driver polices for itself - has to be written once
-; per driver, and gets the KERNEL's copy of the service table wrong the first
-; time somebody forgets: `drv_svc` is a COPY taken at attach, so a driver
-; clearing its own table changes nothing the kernel reads, and DSV_TICK would
-; still be far-called from inside IRQ0 at a card somebody else is programming.
-; An unload puts the service table back, waits the worker out, unhooks the
-; vector and gives the memory back - all of it already written, and this tree
-; ships the pair twice (hbm_detach/hbm_reload around a hibernate, ss_reap_x
-; after a screen saver).
-;
-; THE WORKER IS WHY THIS WORKS AT ALL, and it is worth stating because it
-; reads like a hazard: a driver's refill worker is TF_SERVICE (SPEC.md 53.2),
-; so it KEEPS RUNNING inside the bracket by design - which is both the danger
-; and the cure. drv_unload waits on that worker, and the wait can only finish
-; because the freeze lets that one task run.
-;
-; THE SKIP LIST IS hbm_detach's, for hbm_detach's reason: DRVC_DISK is memory
-; and the ROM's int 13h, DRVC_FILE is the RAM disk, and both are things a DOS
-; program WANTS rather than fights - neither owns a chip anyone is about to
-; take.
-
-; -----------------------------------------------------------------------------
-; drv_suspend_x - slot 0x0550 (SPEC.md 51.11)
-; in:  AL = 1 suspend / 0 resume; ES:DI = a DQ_SIZE-record buffer, or DI = 0
-; out: CF=0 with AX = a bitmap of the DRVC_* classes that went and CX = the
-;      records written. CF=1 = a SUSPEND from outside an fsx bracket, or from
-;      a task that does not own it.
-;
-; A RESUME IS NOT FENCED ON THE BRACKET, and that is deliberate rather than
-; forgotten: the put-back has to be possible AFTER the bracket has ended,
-; which is where an app that has finished with the screen actually is. It only
-; ever reloads rows a suspend noted, so a caller with nothing suspended
-; reloads nothing.
-; -----------------------------------------------------------------------------
-%ifdef OS88_DRIVERS
-drv_suspend_x:
-    push bx
-    push dx
-    push si
-    push di
-    push bp
-    or al, al
-    je .resume
-
-                                ; **NO FENCE ON EITHER HALF** (SPEC.md 51.11.1).
-                                ; Suspend was fsx_mine's, on the reading that
-                                ; only the app holding the screen may take the
-                                ; hardware - and that made the slot's own
-                                ; headline use impossible: 96.35 unmounts the
-                                ; sound driver so the DOS ARENA CLAIM can have
-                                ; the 14KB, and the claim is on an EVT_WAKE,
-                                ; long before any bracket, because
-                                ; OSAPI_MEM_COMPACT_WAKE needs the caller to
-                                ; RETURN from its callback. This is real mode:
-                                ; a package that wants the card can program the
-                                ; DSP itself, so the fence bought tidiness and
-                                ; not safety. The contract is the RESUME
-                                ; OBLIGATION, on both halves
-    mov word [drv_susp], 0
-    mov byte [drv_sp_n], 0
-    xor si, si                  ; SI = the class bitmap
-    xor dx, dx                  ; DX = the row index
-.row:
-    mov al, dl
-    call COLD_SEG:drvf_drv_row  ; BX = the row, readable through DS
-    cmp word [bx+DRVR_SEG], 0
-    je .next
-    mov al, [bx+DRVR_CLASS]
-    cmp al, DRVC_DISK
-    je .next
-    cmp al, DRVC_FILE
-    je .next
-    cmp al, DRVC_NET            ; **AND THE WIRE, FOR A NARROWER REASON THAN
-    je .next                    ; THE OTHER TWO** (SPEC.md 96.23.6). Those are
-                                ; things a DOS program WANTS; this one it
-                                ; would happily fight - except that the DOS
-                                ; box's packet driver is the only route a DOS
-                                ; program here HAS to the card, and it is
-                                ; built on the driver staying mounted. A
-                                ; program wanting raw ports would need the I/O
-                                ; base out of DRVV_HWINFO, which no NIC driver
-                                ; in this tree implements - so the suspend was
-                                ; taking the card away to serve a program that
-                                ; could not have used the result
-    mov [drv_sp_cls], al
-
-    mov cl, al                  ; its CLASS, into the answer
-    mov ax, 1
-    shl ax, cl
-    or si, ax
-    mov cl, dl                  ; ...and its ROW, into the put-back mask
-    mov ax, 1
-    shl ax, cl
-    or [drv_susp], ax
-
-    or di, di                   ; ASK IT WHERE ITS HARDWARE IS, on the way
-    jz .unload                  ; past: it is about to stop existing, and it
-    mov bp, [bx+DRVR_ENT]       ; is the last thing that knows
-    mov al, DRVV_HWINFO
-    call COLD_SEG:drvf_drv_call
-    jc .unload
-    push ax
-    push bx
-    push cx
-    mov al, [drv_sp_cls]
-    mov [es:di+DQ_CLASS], al
-    mov byte [es:di+DQ_FLAGS], 1
-    pop ax
-    mov [es:di+DQ_C], ax
-    pop ax
-    mov [es:di+DQ_B], ax
-    pop ax
-    mov [es:di+DQ_A], ax
-    add di, DQ_SIZE
-    inc byte [drv_sp_n]
-.unload:
-    mov al, dl
-    call COLD_SEG:drvf_drv_unload
-.next:
-    inc dx
-    cmp dx, DRV_MAX
-    jb .row
-    mov cl, [drv_sp_n]
-    xor ch, ch
-    mov ax, si
-    clc
-    jmp short .out
-
-.resume:
-    mov dx, [drv_susp]
-    mov word [drv_susp], 0
-    xor cx, cx
-    or dx, dx
-    jz .rdone
-.rrow:
-    shr dx, 1
-    jnc .rnext
-    mov al, cl
-    call COLD_SEG:drvf_drv_load ; a failure shows on the Drivers page, as it
-.rnext:                         ; does at boot - there is nothing better to do
-    inc cx                      ; with it here, and an app cannot fix it
-    cmp cx, DRV_MAX
-    jb .rrow
-.rdone:
-    xor ax, ax
-    xor cx, cx
-    clc
-.out:                           ; ...and there is no refusing arm any more:
-                                ; the fsx fence was the only thing that took
-                                ; one, and 51.11.1 withdrew it
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop bx
-    ret
-
-%else
-; -----------------------------------------------------------------------------
-; drv_suspend_x - the same slot on a kernel with NO DRIVER LAYER
-;
-; OS88_DRIVERS is KERN_BIG's, and every byte the body above touches - the
-; suspended-row bitmap, the DRVV_HWINFO staging, drvf_drv_call/load/unload -
-; goes with it. The CELL cannot go with them: a package is built once and runs
-; on both kernels at the same table offsets (`make smallapps` is a disk
-; choice, not a second ABI), so 0x0550 has to answer here too.
-;
-; **IT ANSWERS SUCCESS, NOT A REFUSAL**, which is the unusual half and is the
-; honest one: the question is "did anything get out of my way", and on a
-; kernel with no driver layer the truthful answer is "nothing had to". AX = 0
-; classes went and CX = 0 records written is exactly that, and it costs the
-; caller no special case - where a refusing stub would make every caller test
-; CF for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md
-; section 10: a stub is only free when the caller tests CF, and most do not).
-;
-; The stub used to keep the fsx fence so the contract read identically on both
-; kernels. **51.11.1 WITHDREW THAT FENCE**, so keeping it here would invert the
-; very reason it was kept: a package would learn on kern_small that it may not
-; ask outside a bracket, and then find on kern_big that it may. Neither verb
-; refuses now, on either kernel, and the stub is four instructions.
-; -----------------------------------------------------------------------------
-drv_suspend_x:
-    xor ax, ax
-    xor cx, cx
-    clc
-    ret
-%endif
+; OSAPI_DRV_SUSPEND (0x0550) is an unload and a reload, and this tree already
+; shipped that pair twice before the slot existed: hbm_detach/hbm_reload around
+; a hibernate (SPEC.md 87.4) and ss_reap_x after a screen saver. The slot's
+; first body was a THIRD copy of the hibernate's sweep - 217 resident bytes of
+; .text with a DRVV_HWINFO ask and a third skip added - so it is the
+; hibernate's sweep now, in the hibernate's module, and what stays resident is
+; kernel.asm's six-byte thunk and hiber.inc's cold dispatcher. The record it
+; fills (DQ_*) and the verb it asks (DRVV_HWINFO) stay here, because they are
+; the driver ABI's; the mask of rows it took out is hiber.inc's [hb_susp],
+; beside the hibernate's own.

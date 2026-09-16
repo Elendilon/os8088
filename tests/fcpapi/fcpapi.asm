@@ -1,6 +1,6 @@
 ; =============================================================================
-; tests/fcpapi/fcpapi.asm - OSAPI_FILE_COPY and OSAPI_FILE_MOVE, the published
-; file-manager engine (SPEC.md 22.24, 22.25)
+; tests/fcpapi/fcpapi.asm - OSAPI_FILE_COPY, the published file-manager
+; engine, both verbs (SPEC.md 22.24)
 ;
 ; Not shipped software: a gate in tests/filetest's sense, answering pass/fail
 ; against a capability. It rides its own scratch image:
@@ -16,24 +16,21 @@
 ; are files, and so is the verdict.
 ;
 ; What it proves:
-;   1  a plain copy, same folder, NEW NAME - which is the arm Paste never
-;      took, fcp_fname having been both ends until 22.24
-;   2  the bytes arrived: the copy is compared with the source, not just
-;      counted
-;   3  WHERE WE WERE STANDING is unchanged afterwards. fcp_goto moves the
-;      current directory and a package that called a copy and then found
-;      itself in another folder would read the wrong disk with no way to know
+;   1  a plain copy into a subfolder of the same volume is taken
+;   2  the bytes arrived: the copy is read back out of that folder and
+;      compared with the source, not just counted
+;   3  a name in OUR folder still resolves afterwards - the door moves the
+;      machine's current directory, and a package that copied a file and then
+;      read the wrong disk would have no way to know
 ;   4  a source that does not exist is REFUSED, and with FERR_NOENT rather
 ;      than a carry and a stale AX
 ;   5  ...and no destination was created for it (fcp_undo), which is the half
 ;      a hand-rolled copy gets wrong
 ;   6  a MOVE into a subfolder of the same volume is taken
-;   7  ...and the file is no longer in the folder it came from - which also
-;      says the move put us back where we were standing, since that read
-;      resolves wherever the machine now is
-;   8  a move ACROSS VOLUMES answers AX = 0 and not a FERR_*, because "not
-;      attempted" is the one answer a caller must be able to tell from a
-;      failure: it is what says to copy and delete instead
+;   7  ...and the file is no longer in the folder it came from
+;   8  a move into the folder the entry is ALREADY IN answers FERR_EXIST -
+;      nothing to do and nothing written, and a door says so where a Paste
+;      would silently do nothing (SPEC.md 22.24)
 ;   9  ...and left the source exactly where it was
 ;
 ; THE CLAIM CHECK 6 IS REALLY MAKING IS THE HOST'S, not this package's. A move
@@ -87,15 +84,35 @@ fa_entry:
                                     ; package wrote nothing" and "the package
                                     ; died half way" are different findings
 
-    ; --- 1. a plain copy under a NEW name --------------------------------
+    ; --- the subfolder's cluster, FIRST -----------------------------------
+    ; OSAPI_FILE_FIND is the only way a package learns a cluster, and every
+    ; check below but 3, 4 and 8 needs SUB's. The disk has exactly ONE folder,
+    ; so the first entry whose type is OSAPI_FT_DIR is it - a name compare
+    ; would only be a second way to get the same answer wrong.
+    mov word [fa_sub], 0            ; explicitly, not on the loader's word:
+    xor cx, cx                      ; check 1 reads this to decide whether
+.fsub:                              ; there was a folder at all
+    mov di, fa_fnd
+    push ds
+    pop es
+    call OSAPI_FILE_FIND            ; out CX = the NEXT ordinal, so the loop
+    jc .fsubend                     ; needs nothing of its own
+    cmp word [fa_fnd+14], OSAPI_FT_DIR
+    jne .fsub
+    mov ax, [fa_fnd+16]
+    mov [fa_sub], ax
+.fsubend:
+    cmp word [fa_sub], 0            ; no folder found = nothing to copy into,
+    je .c9done                      ; and every row stays '-' rather than
+                                    ; passing on a copy to the root
+
+    ; --- 1. a plain copy into SUB ------------------------------------------
     mov bl, [fa_drv]                ; RELOADED, not carried: fa_say above
     mov bh, bl                      ; spends BX, CX, DX and SI, and a copy
     mov dx, [fa_clus]               ; handed the leftovers names a folder on a
-    mov cx, dx                      ; drive that does not exist
+    mov cx, [fa_sub]                ; drive that does not exist
     mov si, fa_src
-    mov di, fa_dst
-    push ds
-    pop es
+    mov al, OSAPI_FCP_COPY
     call OSAPI_FILE_COPY
     jnc .c1ok
     call fa_hex                     ; ...and WHICH FERR, as a digit: "it was
@@ -105,15 +122,37 @@ fa_entry:
     mov byte [fa_res+0], 'P'
 .c1done:
 
+    ; --- 3. a name in our own folder still resolves -----------------------
+    mov si, fa_src
+    call fa_read                    ; DX:AX = bytes read, or CF
+    jc .c3done
+    cmp ax, FA_SRCLEN
+    jne .c3done
+    mov byte [fa_res+2], 'P'
+.c3done:
+
+    ; --- 4. a source that is not there ------------------------------------
+    mov bl, [fa_drv]
+    mov bh, bl
+    mov dx, [fa_clus]
+    mov cx, [fa_sub]
+    mov si, fa_none
+    mov al, OSAPI_FCP_COPY
+    call OSAPI_FILE_COPY
+    jnc .c4done                     ; it must REFUSE, and with the right code
+    cmp ax, FERR_NOENT
+    jne .c4done
+    mov byte [fa_res+3], 'P'
+.c4done:
+
+    ; --- INTO SUB, to look: OSAPI_FILE_GOTO moves the instance -------------
+    mov bl, [fa_drv]
+    mov dx, [fa_sub]
+    call OSAPI_FILE_GOTO
+
     ; --- 2. ...and the bytes arrived -------------------------------------
-    mov si, fa_dst
-    mov di, fa_buf
-    push ds
-    pop es
-    mov bx, fa_buf
-    mov cx, FA_BUFSZ
-    xor dx, dx
-    call OSAPI_FILE_READ            ; DX:AX = bytes read
+    mov si, fa_src
+    call fa_read
     jc .c2done
     cmp ax, FA_SRCLEN
     jne .c2done
@@ -128,132 +167,66 @@ fa_entry:
     mov byte [fa_res+1], 'P'
 .c2done:
 
-    ; --- 3. where we were standing ---------------------------------------
-    call OSAPI_FILE_HERE
-    cmp dx, [fa_clus]
-    jne .c3done
-    cmp bl, [fa_drv]
-    jne .c3done
-    mov byte [fa_res+2], 'P'
-.c3done:
-
-    ; --- 4. a source that is not there ------------------------------------
-    mov bl, [fa_drv]
-    mov bh, bl
-    mov dx, [fa_clus]
-    mov cx, dx
+    ; --- 5. ...and check 4 left nothing behind ----------------------------
+    ; OSAPI_FILE_READ refusing the name is the question asked the cheapest
+    ; way there is.
     mov si, fa_none
-    mov di, fa_ndst
-    push ds
-    pop es
-    call OSAPI_FILE_COPY
-    jnc .c4done                     ; it must REFUSE, and with the right code
-    cmp ax, FERR_NOENT
-    jne .c4done
-    mov byte [fa_res+3], 'P'
-.c4done:
-
-    ; --- 5b. the subfolder's cluster --------------------------------------
-    ; Hoisted above check 5 for one reason: OSAPI_FILE_FIND is the only way a
-    ; package learns a cluster, and doing the walk here keeps checks 6 to 9
-    ; reading as four uses of the slot rather than a walk and three.
-    ; The disk has exactly ONE folder, so the first entry whose type is
-    ; OSAPI_FT_DIR is it - a name compare would only be a second way to get
-    ; the same answer wrong.
-    mov word [fa_sub], 0            ; explicitly, not on the loader's word:
-    xor cx, cx                      ; check 6 reads this to decide whether
-.fsub:                              ; there was a folder at all
-    mov di, fa_fnd
-    push ds
-    pop es
-    call OSAPI_FILE_FIND            ; out CX = the NEXT ordinal, so the loop
-    jc .fsubend                     ; needs nothing of its own
-    cmp word [fa_fnd+14], OSAPI_FT_DIR
-    jne .fsub
-    mov ax, [fa_fnd+16]
-    mov [fa_sub], ax
-.fsubend:
-
-    ; --- 5. ...and left nothing behind ------------------------------------
-    ; Check 4's destination must not exist. OSAPI_FILE_READ refusing it is the
-    ; question asked the cheapest way there is.
-    mov si, fa_ndst
-    mov bx, fa_buf
-    mov cx, FA_BUFSZ
-    xor dx, dx
-    push ds
-    pop es
-    call OSAPI_FILE_READ
-    jc .c5ok
-    jmp short .c5done
-.c5ok:
+    call fa_read
+    jnc .c5done
     mov byte [fa_res+4], 'P'
 .c5done:
 
+    mov bl, [fa_drv]                ; ...and back to our own folder
+    mov dx, [fa_clus]
+    call OSAPI_FILE_GOTO
+
     ; --- 6. a MOVE into that folder ---------------------------------------
-    cmp word [fa_sub], 0            ; no folder found = nothing to move into,
-    je .c6done                      ; and the row stays '-' rather than
-                                    ; passing on a move to the root
     mov bl, [fa_drv]
-    mov bh, bl                      ; ONE volume, which is the whole precondition
+    mov bh, bl                      ; ONE volume: the re-link's precondition
     mov dx, [fa_clus]
     mov cx, [fa_sub]
     mov si, fa_mv
-    push ds
-    pop es
-    call OSAPI_FILE_MOVE
+    mov al, OSAPI_FCP_MOVE
+    call OSAPI_FILE_COPY
     jnc .c6ok
-    call fa_hex                     ; and WHICH answer: a 0 here is "not
-    mov [fa_res+5], al              ; attempted" and any other digit a FERR_*
+    call fa_hex
+    mov [fa_res+5], al
     jmp short .c6done
 .c6ok:
     mov byte [fa_res+5], 'P'
 .c6done:
 
     ; --- 7. ...and it has left the folder it was in -----------------------
-    ; This also says the move put us BACK where we were standing: the name
-    ; below resolves against wherever the machine is now, so if fcp_goto had
-    ; not run we would be reading the subfolder and would find the file.
+    ; This also says the next call stood us back in our own folder: the name
+    ; below resolves against wherever the instance is, so if the door had
+    ; left the instance in SUB we would be reading it and would find the file.
     mov si, fa_mv
-    mov bx, fa_buf
-    mov cx, FA_BUFSZ
-    xor dx, dx
-    push ds
-    pop es
-    call OSAPI_FILE_READ
-    jc .c7ok                        ; gone, which is what a move means
-    jmp short .c7done
-.c7ok:
+    call fa_read
+    jnc .c7done                     ; still here?! then it was not moved
     mov byte [fa_res+6], 'P'
 .c7done:
 
-    ; --- 8. a move ACROSS VOLUMES is NOT ATTEMPTED ------------------------
-    ; AX = 0 with CF, and neither a FERR_* nor a CF=0. A code would read as
-    ; "it failed" to a caller that should fall back and copy; a CF=0 would
-    ; read as "it moved" to one that is about to delete the source.
+    ; --- 8. a move into the folder it is already in -----------------------
+    ; FERR_EXIST with CF: the destination holds the name because it IS the
+    ; source, nothing is written, and a door refuses where a paste would do
+    ; nothing. (Doing it would truncate the entry being read - SPEC.md 22.3's
+    ; fcp_here is what stops that, for both callers.)
     mov bl, [fa_drv]
     mov bh, bl
-    xor bh, 1                       ; the OTHER drive, whichever we booted on
-    mov dx, [fa_clus]               ; - and the XOR is on the drive NUMBER,
-    xor cx, cx                      ; which is the trap tests/dostrap/renref
-    mov si, fa_src                  ; paid for by XORing a letter
-    push ds
-    pop es
-    call OSAPI_FILE_MOVE
-    jnc .c8done                     ; it moved?! across two FATs
-    or ax, ax
-    jnz .c8done                     ; a FERR_*: refused, but not declinably
+    mov dx, [fa_clus]
+    mov cx, dx
+    mov si, fa_src
+    mov al, OSAPI_FCP_MOVE
+    call OSAPI_FILE_COPY
+    jnc .c8done                     ; it "moved"?! onto itself
+    cmp ax, FERR_EXIST
+    jne .c8done
     mov byte [fa_res+7], 'P'
 .c8done:
 
     ; --- 9. ...and left the source exactly where it was -------------------
     mov si, fa_src
-    mov bx, fa_buf
-    mov cx, FA_BUFSZ
-    xor dx, dx
-    push ds
-    pop es
-    call OSAPI_FILE_READ
+    call fa_read
     jc .c9done
     cmp ax, FA_SRCLEN
     jne .c9done
@@ -268,6 +241,17 @@ fa_entry:
     pop es
     pop di
     pop si
+    ret
+
+; fa_read - read the file SI names into fa_buf.  out: as OSAPI_FILE_READ
+; (DX:AX = bytes, or CF with AX = FERR_*).  clobbers: AX, BX, CX, DX, ES
+fa_read:
+    mov bx, fa_buf
+    mov cx, FA_BUFSZ
+    xor dx, dx
+    push ds
+    pop es
+    call OSAPI_FILE_READ
     ret
 
 ; fa_hex - AL (0..15) as one printable digit.  clobbers: AL, flags
@@ -297,10 +281,8 @@ FA_SRCLEN   equ 11
 FA_BUFSZ    equ 64
 
 fa_src:     db 'SRC.DAT', 0
-fa_dst:     db 'COPY1.DAT', 0
 fa_none:    db 'NOSUCH.DAT', 0
 fa_mv:      db 'MOVE.DAT', 0
-fa_ndst:    db 'NEVER.DAT', 0
 fa_rname:   db 'RESULT.TXT', 0
 fa_tpl:     dw 90, 90, 220, 60
             dw fa_ttl, 0, 0, 0

@@ -30,7 +30,7 @@ something:
 
   1. TRACKER POSTED. `[trk_cpq]` is seen non-zero, which only `trk_cpq_try`
      writes and only after plain `OSAPI_MEM_AVAIL` has said no and
-     `OSAPI_MEM_AVAIL_MAX` has said "not with you where you are". Without
+     `OSAPI_MEM_COMPACT`'s what-if has said "not with you where you are". Without
      this the run proves nothing: a load that simply fitted would take the
      same path to the same green.
   2. The status line said so - `[tui_msgp]` is `trk_s_cpq` - because this
@@ -91,11 +91,21 @@ def main():
             the first shape of this row read a 106 KB floor and watched the
             load simply fit: 74 KB of disk cache sat in it.
 
-            The plan is deliberately NOT modelled. Every region here belongs
-            to an instance with a LIVE worker, so mem_frameless pins it until
-            a compaction parks it - a bare mem_avail moves none of them - and
-            the one that does move is the asker's own, which is what the
-            precondition below adds by hand."""
+            The REGIONS are deliberately not modelled as movers. Every one
+            belongs to an instance with a LIVE worker, so mem_frameless pins
+            it until a compaction parks it - a bare mem_avail moves none of
+            them - and the one that does move is the asker's own, which is
+            what the precondition below adds by hand.
+
+            A movable BOTTOM-UP claim is another matter, and the second shape
+            of this row got it wrong the way the first got the caches wrong:
+            the two 3 KB floor claims (the Disk window's and a kernel tag's)
+            sit above 37 KB of purgeable cache and PACK DOWN over it, which
+            plain OSAPI_MEM_AVAIL plans (SPEC.md 66.10.3) and mem_claim then
+            does. Modelled as barriers they read a 95 KB floor where the
+            kernel - and the machine, which loaded the 114 KB module INTO
+            that floor with no region moving - read 132. So they pack here
+            too, and the stopping rule stops one instance later."""
             base = u16(m.read(S("mem_base"), 2))
             top = u16(m.read(S("mem_top"), 2))
             print("  -- %s --" % tag)
@@ -111,6 +121,12 @@ def main():
                     print("  %04x %5d KB cache rank %02x  (counts as free)"
                           % (bs, pa // 64, ow >> 8))
                     continue                # shed by any ordinary claim
+                if rl and not (dma & 0x8000):
+                    print("  %04x %5d KB owner %04x     MOVABLE  (packs to %04x)"
+                          % (bs, pa // 64, ow, fill))
+                    fill += pa              # a floor mover: the ascending
+                    continue                # pass slides it onto the fill
+                                            # point, so it opens no gap
                 gap(bs)
                 print("  %04x %5d KB owner %04x%s%s"
                       % (bs, pa // 64, ow, " HI" if dma & 0x8000 else "   ",
@@ -133,22 +149,39 @@ def main():
                   " machine has more heap than the test can fill" % (MAXTRK,
                                                                      run))
             return 1
+        # --- ONE MORE, and then TWO come off the ceiling ---------------------
+        # One region of room is not enough once the floor is modelled right.
+        # With the two floor claims packing, eight instances leave 132 KB and
+        # the 114 KB module simply fits (no post to observe); nine leave 83,
+        # and the posted pass then has EIGHT workers to stand up inside
+        # INST_PARKW's four ticks - which this machine does not manage
+        # (measured: four of the eight parked, the pass delivered 83 KB, and
+        # Tracker refused the load it had promised itself). So the stack goes
+        # one deeper and TWO regions come off the ceiling: the asker drags
+        # SEVEN workers behind it, the count the row has always passed with,
+        # into 98 KB of room.
+        if i + 1 >= MAXTRK:
+            print("FAIL: %d instances is the row's limit and the floor only"
+                  " went under %d KB at the last one" % (MAXTRK, needk))
+            return 1
+        ui.open(PKG)
+        layout("%d instance(s), one past the floor" % (i + 2))
         tk = trackers()
         nopen = len(tk)
         print("  trackers at %s" % " ".join("%04x" % s for s, _ in tk))
 
-        # --- and the one at the ceiling becomes the hole above the next -----
-        rgn = [c for c in claims(m, S) if c[0] == tk[0][0]]
-        rgnkb = (rgn[0][1] // 64) if rgn else 0
+        rgnkb = sum(c[1] // 64 for c in claims(m, S)
+                    if c[0] in (tk[0][0], tk[1][0]))
         ui.close(tk[0][1])
+        ui.close(tk[1][1])
         ui.settle()
-        run2 = layout("...and the top one closed")
+        run2 = layout("...and the top two closed")
         if run2 >= needk:
             print("FAIL: the floor run is %d KB and the module wants %d - the"
                   " load would simply fit" % (run2, needk))
             return 1
         if run2 + rgnkb < needk:
-            print("FAIL: %d KB of floor plus a %d KB region is still under the"
+            print("FAIL: %d KB of floor plus %d KB of regions is still under the"
                   " module's %d - no compaction could fund this load"
                   % (run2, rgnkb, needk))
             return 1
@@ -239,7 +272,7 @@ def main():
         clear = tb("trk_cpq") == 0
         print("  4 survivors / flag    %d instance(s), [trk_cpq]=%d"
               % (left, tb("trk_cpq")))
-        bad += left != nopen - 1
+        bad += left != nopen - 2
         bad += not clear
         print("VERDICT:", "OK" if not bad else "%d PROBLEM(S)" % bad)
         return 1 if bad else 0

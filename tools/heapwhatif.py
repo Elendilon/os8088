@@ -160,11 +160,14 @@ def exact2(m, me):
     ascending pass in turn.  Two independent sweeps cannot see that; two
     sweeps IN ORDER can.
 
-    The kernel cannot mutate mem_tab inside a PLAN, so its spelling of the
-    second sweep asks "where will this top-down claim be?" per barrier - an
-    O(n^2) ceiling re-walk over at most MEM_MAX records, microseconds, and no
-    scratch - or banks the answers in MEM_MAX words of .bss.  Modelled here
-    with a position map, which is the same arithmetic either way."""
+    The kernel cannot mutate mem_tab inside a PLAN.  Its first spelling of
+    the second sweep asked "where will this top-down claim be?" per claim -
+    two O(n) scans each, B - S looked up ahead; mem_cp_both now reaches the
+    same B - S by DEFERRING it (SPEC.md 66.4.3.1): a ceiling mover adds its
+    size to the fill point and raises a flag, and the next floor mover or
+    pinned claim is where the run stops and the hole is measured.  Modelled
+    here with a position map in the look-ahead form on purpose, so the two
+    spellings check each other - it is the same arithmetic either way."""
     live = [c for c in m.claims if not c.purgeable]
     def movable(c):
         return (not c.pinned) or c.seg == me

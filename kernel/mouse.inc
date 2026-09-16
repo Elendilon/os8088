@@ -92,7 +92,7 @@ MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
                                 ; unpowered to guarantee its power-on reset)
 MOU_REPOLL  equ 55              ; ticks between hot-plug reset attempts
                                 ; (~3s) while no packet has ever arrived
-MOU_DRAINT  equ 9               ; the CEILING (~0.5s): the longest the ISR
+MOU_DRAINT  equ 18              ; the CEILING (~1.0s): the longest the ISR
                                 ; discards RX after a hot-plug raise (SPEC.md
                                 ; 9.4.8). The burst is bit-6-set bytes the
                                 ; resync rule would read as packet headers -
@@ -128,12 +128,19 @@ MOU_IDBYTE  equ 'M'             ; the Microsoft mouse ID byte (0x4D), which
                                 ; CONNECT, ERROR, BUSY, NO DIALTONE or NO
                                 ; ANSWER - and every one of those IS a
                                 ; well-formed Microsoft packet (SPEC.md 9.5.1)
-MOU_IDMAX   equ 8               ; ...and at most this many bytes in all. A
-                                ; mouse says 'M', maybe '3' or 'Z', and stops;
-                                ; a modem banner is a STREAM. A verbose PnP ID
-                                ; overruns this and gets exactly the behaviour
-                                ; it had before - no stand-down, no threshold
-                                ; drop - which is the accepted degradation
+MOU_IDMAX   equ 128             ; ...and at most this many bytes in all. It
+                                ; was 8, and docs/FIELD-NOTES.md 44 is what
+                                ; that cost: a COMBO PS/2-or-serial mouse
+                                ; answers the raise with 'M' and then a PnP
+                                ; identifier - MEASURED at 69 bytes on the
+                                ; field machine - so rule 3 threw out a mouse
+                                ; that had passed rule 2, and the poller
+                                ; power-cycled it every MOU_REPOLL for the
+                                ; whole session. Rule 3 is there to reject a
+                                ; STREAM, and what distinguishes a stream is
+                                ; rule 4 (it never goes quiet) rather than a
+                                ; byte count; 128 is ~1s of 1200 7N1 line
+                                ; time, which is what MOU_DRAINT now covers
 MOU_IDSTRICT equ 3              ; ...and THIS many to lower [mou_need], which
                                 ; is a tighter bar on purpose (SPEC.md 9.4.1).
                                 ; The two consequences are not symmetrical: a
@@ -653,6 +660,10 @@ mouse_init:
     mov ax, 0x040B              ; MCR: DTR|RTS|OUT2 - powers the mouse and
     call KERNEL_SEG:ovw_mou_pall               ; gates the IRQ onto the bus; this rising
                                 ; edge is the mouse's reset
+%ifdef MOU_DIAG
+    mov ax, [ticks]             ; SPEC.md 9.4.6.5: the edge mdb_dt is measured
+    mov [mdb_rt], ax            ; from. DATA in .text, which DS reaches from
+%endif                          ; the overlay - only CODE addresses differ here
 
     OVLMARK 44
     ; --- drain the identify burst (IER still 0, the IRQs still masked) -------
@@ -786,6 +797,10 @@ mouse_init:
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 mou_idbyte:
+%ifdef MOU_DIAG
+    call KERNEL_SEG:ovw_mdb_rxb ; SPEC.md 9.4.6.5: the identify window's bytes
+%endif                          ; are wire bytes too, and a mouse that answers
+                                ; ONLY at boot is a reading of its own
     push ax
     push dx
     mov dl, [bx+mou_idn]
@@ -1137,6 +1152,10 @@ mou_hotplug:
                                 ; hand. Beside [mou_idany] and in state 0 ONLY,
                                 ; for the reason spelled out there
 %endif
+%ifdef MOU_ROUND
+    cmp byte [mdb_hold], 0      ; SPEC.md 9.4.6.5: the round has pinned DTR/RTS
+    jne .done                   ; high. Beside [mou_idany] and in state 0 only,
+%endif                          ; for the reason spelled out there
     cmp byte [mou_idany], 0     ; a port answered our reset edge like a mouse
     jne .done                   ; (SPEC.md 9.4.1), so there IS one and it must
                                 ; not be power-cycled under the user's hand.
@@ -1156,11 +1175,20 @@ mou_hotplug:
     mov byte [mou_hpst], 1
     jmp short .done
 .low:
+%ifdef MOU_ROUND
+    cmp ax, [mdb_low]           ; SPEC.md 9.4.6.5: phase C substitutes a ~1.1 s
+%else                           ; hold for MOU_RSTLOW's ~165 ms
     cmp ax, MOU_RSTLOW          ; state 1: low held since the DROP, whose tick
-                                ; [mou_hpt] carries - held low long enough?
+%endif                          ; [mou_hpt] carries - held low long enough?
     jb .done
     mov ax, 0x040B              ; the rising edge a serial mouse resets on
     call mou_pall
+%ifdef MOU_DIAG
+    mov [mdb_rt], bx            ; SPEC.md 9.4.6.5: mdb_dt's reference, and a
+    inc word [mdb_cyc]          ; count of the edges the user's mouse has been
+    mov word [mdb_dt], 0xFFFF   ; offered - which on a mouse that never answers
+    mov word [mdb_dt+2], 0xFFFF ; is the only sign the poller is running at all
+%endif
     mov [mou_hpt], bx           ; re-base the next interval from the raise -
     mov byte [mou_hpst], 3      ; and state 3 is state 0 that HAS dropped, which
                                 ; is 9.4.2's "the poller fired" reading in a
@@ -3050,6 +3078,12 @@ mou_isr_body:
     jz .next                    ; the probe rejected this row
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
+%ifdef MOU_DIAG
+    push ax                     ; SPEC.md 9.4.6.5: ...and the error bits, which
+    and al, 0x1E                ; are read here and NOWHERE else in this kernel
+    or  [bx+mdb_err], al        ; - a mouse at the wrong line rate is framing
+    pop ax                      ; errors and no packets, and looks from every
+%endif                          ; other counter exactly like silence
     test al, 0x01
     jz .next
     sub dx, 5
@@ -3069,6 +3103,9 @@ mou_isr_body:
 ; in:  AL = the byte, BX = the port row; ISR context, IF = 0
 ; -----------------------------------------------------------------------------
 mou_byte:
+%ifdef MOU_DIAG
+    call mdb_rxb                ; SPEC.md 9.4.6.5: before any decision, so the
+%endif                          ; count is of the WIRE and not of what survived
     cmp byte [mou_seen], 0      ; is the mouse's port settled?
     je .drain
     cmp bl, [mou_port]          ; then every other port belongs to somebody
@@ -3100,9 +3137,11 @@ mou_byte:
     test al, 0x40               ; bit 6 set -> first byte of a packet
     jz .cont
     cmp byte [bx+mou_phase], 0  ; ...but MID-PACKET it is a resync, and a real
-    je .b0                      ; mouse never causes one: its bytes come in
-    mov byte [bx+mou_run], 0    ; threes with nothing between them. Break the
-.b0:                            ; run of clean packets (SPEC.md 9.5)
+    je .b0                      ; mouse never causes one. Break the run of
+    cmp byte [bx+mou_phase], 3  ; clean packets (SPEC.md 9.5) - EXCEPT out of
+    je .b0                      ; phase 3, which is a complete packet whose
+    mov byte [bx+mou_run], 0    ; optional fourth byte simply never came
+.b0:                            ; (SPEC.md 9.5.4)
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
 .jbout:
@@ -3118,10 +3157,21 @@ mou_byte:
 .chk2:
     cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
     je .pkt                     ; break the run for the same reason: a byte
-    mov byte [bx+mou_run], 0    ; with bit 6 clear arriving between packets is
-    jmp .bout                    ; a thing the protocol cannot produce
+    cmp byte [bx+mou_phase], 3  ; with bit 6 clear arriving between packets is
+    jne .stray                  ; a thing the protocol cannot produce...
+    mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
+    jmp short .bout             ; mouse's packet, which is exactly a bit-6-clear
+                                ; byte in exactly this position (SPEC.md 9.5.4).
+                                ; Consumed, and the run is NOT broken - that
+                                ; break is what made a wheel mouse unable to
+                                ; win the contest at all (docs/FIELD-NOTES.md 44)
+.stray:
+    mov byte [bx+mou_run], 0
+    jmp short .bout
 .pkt:
-    mov byte [bx+mou_phase], 0  ; third byte: Y low 6 bits, packet complete
+    mov byte [bx+mou_phase], 3  ; third byte: Y low 6 bits, packet complete -
+                                ; and phase 3 rather than 0, so the wheel byte
+                                ; that MAY follow is recognised by position
     call mou_claim              ; ...and a RUN of them is PROOF OF MOUSE: the
                                 ; port is settled and the hot-plug poller
                                 ; stands down for the session
@@ -4234,161 +4284,129 @@ cur_shape_set:
 ; the hold puts the picture on itself and gfx_unlock is what takes it off, for
 ; fpg_finish's reason one section over (SPEC.md 12.8.3): every way out of a
 ; locked run of kernel code goes through that one routine, so nothing can leave
-; a clock on the screen - not a forgotten bracket, not an early return,
-; not a file operation that failed.
+; a clock on the screen - not a forgotten bracket, not an early return, not a
+; file operation that failed.
 ;
 ; The picture may only change while the cursor is OFF THE GLASS (SPEC.md 7.2.2)
-; and the pointer is found in three states, not one - which is the finding that
-; redirected this (SPEC.md 7.5.3). Off the glass, the swap is free: gfx_unlock
-; owes a cursor_show and it draws whatever the shape says. LIT, there is no
-; hide/show pair already happening to change it inside, so that arm BUYS one -
-; one cell erase and one cell draw, once per freeze, against a freeze whose
-; floor is FPG_WARM sectors of disk. That is the whole measurable cost of the
-; feature.
+; and the pointer is found in three states, not one (SPEC.md 7.5.3). DOWN, the
+; swap is free: the show that puts the arrow back for the freeze (SPEC.md
+; 7.4.3.1) draws whatever the shape says. LIT, there is no hide/show pair
+; already happening to change it inside, so that arm BUYS one - one cell erase
+; and one cell draw, once per freeze, against a freeze whose floor is FPG_WARM
+; sectors of disk. That is the whole measurable cost of the feature.
 ; -----------------------------------------------------------------------------
 
-; cur_busy_take - wear the clock, banking what it replaces
-; in:  the cursor is OFF THE GLASS or owed a hide, and the caller holds the
-;      gfx lock (both are cur_shape_set's contract)
-; out: nothing (all registers preserved)
-cur_busy_take:
-    push ax
-    mov al, [cur_shape]
-    cmp al, CUR_BUSYSH          ; **THE BANK IS CONDITIONAL AND HAS TO BE**: a
-    je .on                      ; SECOND take inside one hold - a package that
-    mov [cur_shprev], al        ; called the slot and then touched a file - is
-.on:                            ; four bytes away from banking the clock as
-    mov al, CUR_BUSYSH          ; the thing to go back to, and gfx_unlock would
-    call cur_shape_set          ; then restore it for ever. cur_shape_set below
-    pop ax                      ; is already a compare and a return when the
-    ret                         ; picture is on, so this is the whole of it
-
-; cur_busy_undo - put the banked shape back. gfx_unlock's, and nobody else's.
-; in:  the gfx lock still HELD; [cur_shape] == CUR_BUSYSH (the caller's own
-;      compare, which is why there is none here)
-; out: nothing (all registers preserved)
-;
-; cur_shape_set spends gfx_lock's promised hide on the way past, which is what
-; makes gfx_unlock's own `cmp byte [cur_lazy], 0` two instructions below take
-; the cursor_show arm and draw the restored picture. Without that it would take
-; .never - "the arrow never left the screen" - and leave the clock on it.
-cur_busy_undo:
-    push ax
-    mov al, [cur_shprev]
-    call cur_shape_set
-    mov byte [cur_shchk], 1     ; ...and ASK AGAIN anyway (SPEC.md 7.2.1): the
-    pop ax                      ; hold may have been seconds long and the
-    ret                         ; pointer may have left the window the banked
-                                ; shape was that window's
-
-; cur_busy      - slot 0x0540, the PACKAGE's door: it must hold the lock
-; cur_busy_on   - ...and the KERNEL's, which is inside fpg_arm and does not
+; cur_busy    - slot 0x0540, the PACKAGE's door: it must hold the lock ITSELF
+; cur_busy_on - ...and the KERNEL's, inside fpg_arm, which need not (SPEC.md
+;               12.8.4: the one painter in the machine that draws lock-free)
 ;
 ; in:  nothing
-; out: CF=0 the clock is on (or legitimately not drawn), CF=1 refused and
-;      nothing changed; every other register and flag preserved
+; out: nothing - every register preserved, and NO ANSWER (SPEC.md 7.5.4): a
+;      refusal costs the caller the picture and nothing else, so there is
+;      nothing for it to do with one, and Paint never read the flag that used
+;      to say so
 ;
 ; THE HOLD IS THE ONLY LIFETIME A PACKAGE MAY HANG THIS ON, so the door tests
-; for one: gfx_unlock is what takes the picture off, and a package that asked
-; without a hold would get a clock cleared by the next unlock anywhere in
-; the machine rather than by its own. It also buys the drawing below the same
-; guarantee the mouse ISR gets from a FREE lock (SPEC.md 7.4.2.1) - that no
-; task is inside a primitive - which a package's WORKER could otherwise break.
-;
-; fpg_arm enters BELOW that test and is right to: it is the one painter in the
-; machine that draws with the lock free (SPEC.md 12.8.4), and in that state the
-; ISR is already drawing the pointer at arbitrary positions on exactly this
-; argument. Measured on a 5150/CGA under MartyPC: of three arms in one session
-; - a mount, a directory walk and a package launch - TWO had the lock free.
+; for one OF ITS OWN: gfx_unlock is what takes the picture off, so a package
+; that asked without a hold would get a clock cleared by the next unlock
+; anywhere in the machine; and a package's WORKER asking under the UI task's
+; hold would spend a promise that is not its own, hiding the arrow from under
+; a painter mid-primitive. ONE COMPARE answers both: gfx_unlock stamps 0xFF
+; into [gfx_lock_own] before it drops the flag, and no task slot is 0xFF, so
+; "held" and "held by us" are the same test.
 cur_busy:
-    cmp byte [gfx_lock_flag], 0
-    je .no                      ; no hold of anybody's
     push ax
     mov al, [sch_cur]
     cmp al, [gfx_lock_own]
-    pop ax
-    je cur_busy_on              ; ...and it has to be OURS
-.no:
-    stc
-    ret
+    je cur_busy_on.go
+cur_busy_no:                    ; ...and every refusal below, and the success
+    pop ax                      ; at the foot of cur_busy_on, which falls into
+    ret                         ; it - one epilogue, no flag
 
-; The three arms are the three states the pointer is actually found in, and
-; SPEC.md 7.4.3.1's block in fpg_arm covers ONE of them. Measured, same
-; session: 2 arms lock-free with the arrow LIT and tracking, 1 with the lock
-; held and the arrow lit under an unspent promise, and 0 in the state that
-; block tests for. So the picture is swapped where the pointer IS, and the
-; LIT arm pays for one cell erase and one cell draw to do it - once per
-; freeze, against a freeze whose floor is FPG_WARM sectors of disk.
+; The arms are the states the pointer is found in (SPEC.md 7.5.3), measured
+; across a mount, a directory walk and a package launch: 2 lock-free with the
+; arrow LIT and tracking, 1 with the lock held and the arrow DOWN under a
+; spent promise. The DOWN arm is SPEC.md 7.4.3.1 whole - put the arrow back,
+; and put the promise back with it - and the clock rides inside its show.
 cur_busy_on:
     push ax
+.go:
     cmp byte [cur_shape], CUR_BUSYSH
-    je .yes                     ; already wearing it: SPEC.md 7.4.3.1's block
-                                ; got there first, or a package asked before it
+    je .yes                     ; already wearing it: a package asked before it
                                 ; touched a file. Above everything else, so the
-                                ; second call is four instructions
+                                ; second call is four instructions - and it is
+                                ; what keeps the bank below from banking the
+                                ; clock as the thing to go back to
     cmp byte [fsx_task], 0xFF
-    jne .no                     ; an exclusive app owns every pixel of its own
-                                ; raster (SPEC.md 53.6), which is fpg_arm's own
-                                ; first test for the same reason
+    jne cur_busy_no             ; an exclusive app owns every pixel of its own
+                                ; raster (SPEC.md 53.6)
 %ifdef KERN_BIG
     cmp byte [blk_sv], 0        ; A SAVER SESSION OWNS THE GLASS (SPEC.md
-    jne .no                     ; 79.6.1) - wm_clip_set's test, for the same
+    jne cur_busy_no             ; 79.6.1) - wm_clip_set's test, for the same
 %endif                          ; reason: its hide is repaid by ss_set_x
     cmp word [wm_clip_n], 0
-    jne .no                     ; a clipped painter already asked cur_lazyck and
+    jne cur_busy_no             ; a clipped painter already asked cur_lazyck and
                                 ; was told the pointer was out of reach, and it
                                 ; would draw straight through one put up behind
                                 ; its back (SPEC.md 7.1.4/7.4.2)
     cmp word [mouse_y], MBAR_H + CUR_GH
-    jb .no                      ; the menu bar's own rows, which is where the
+    jb cur_busy_no              ; the menu bar's own rows, which is where the
                                 ; progress widget is about to draw (SPEC.md
                                 ; 7.4.3) - and [mouse_y], not [cur_drawn_y],
-                                ; because cursor_show draws at the live one
+                                ; because cursor_show draws at the live one.
+                                ; NOT a corner case: picking the FIRST item of
+                                ; a menu leaves the hand exactly here, and a
+                                ; clock shown there would be hidden again by
+                                ; fpg_arm's own bar composition an instant
+                                ; later - a flash, for PERFORMANCE.md rule 2
     call cur_unlazy             ; **SPEND gfx_lock's PROMISE HERE**, above the
-                                ; test below and not inside cur_shape_set: with
+                                ; arm test and not inside cur_shape_set: with
                                 ; the arrow still lit, the LIT arm's own hide
                                 ; would be the first of TWO and the refcount
                                 ; would settle at -2 - a pointer gone for the
                                 ; rest of the hold and a clock that never
-                                ; appears. It is three instructions when there
-                                ; is no promise outstanding, which is every
-                                ; lock-free arm. Spending it here also decides
-                                ; WHICH arm below is taken, which is why the
-                                ; read of [cur_level] is under it
+                                ; appears. Three instructions when there is no
+                                ; promise outstanding, which is every lock-free
+                                ; arm; and it decides WHICH arm is taken, which
+                                ; is why the read of [cur_level] is under it
     mov al, [cur_level]
     or al, al
     jz .lit
-    cmp al, -1
-    jne .no                     ; hidden MORE than once: a refcount we did not
+    inc al
+    jnz cur_busy_no             ; hidden MORE than once: a refcount we did not
                                 ; take is not ours to undo
     cmp byte [gfx_lock_flag], 0
-    je .no                      ; ...NOR ONE NOBODY OWES A SHOW FOR (SPEC.md
+    je cur_busy_no              ; ...NOR ONE NOBODY OWES A SHOW FOR (SPEC.md
                                 ; 7.5.3). A FREE lock means this -1 is not a
-                                ; spent promise - cur_unlazy above had none to
-                                ; spend - but fpg_arm's own bar-row hide
+                                ; spent promise but fpg_arm's own bar-row hide
                                 ; (12.8.4, repaid by fpg_finish) or a saver
-                                ; session's (79.6.1, repaid by ss_set_x), and a
-                                ; show here settles that debt TWICE: [cur_level]
-                                ; ends at +1 for good, cursor_hide never erases
-                                ; again and the ISR keeps drawing, which is
-                                ; 7.1.4's permanent smear. 7.4.3.1's block
-                                ; makes the same test, and this arm measured
-                                ; 0 of 3 lock-free
-    call cur_busy_take          ; --- DOWN. Put it back and put gfx_lock's
-    mov byte [cur_lazy], 1      ; promise back with it: "lit and owed a hide" is
-    call cursor_show            ; exactly what that byte already means, so every
-    jmp short .yes              ; consumer takes over unchanged (SPEC.md 7.4.3.1)
+                                ; session's (79.6.1, repaid by ss_set_x), and
+                                ; a show here settles that debt TWICE: the
+                                ; refcount ends at +1 for good and the ISR
+                                ; draws over every painter from then on -
+                                ; 7.1.4's permanent smear
+    mov ah, 1                   ; --- DOWN: the promise goes BACK with the show
+    jmp short .swap             ; (SPEC.md 7.4.3.1). "Lit and owed a hide" is
+                                ; exactly what [cur_lazy] means, so every
+                                ; consumer takes over unchanged. It is stored
+                                ; BELOW cur_shape_set, whose own cur_unlazy
+                                ; would otherwise spend it on the way past
 .lit:
     call cursor_hide            ; --- LIT, and the arm that costs something: the
-    call cur_busy_take          ; erase and the draw below are the only pixels
-    call cursor_show            ; this feature adds anywhere. cur_shape_set's own
-.yes:                           ; cur_unlazy is a no-op by now, the promise
-    pop ax                      ; having been spent above - or kept, under
-    clc                         ; CURBAR_ON, by an arrow the bar cannot reach
-    ret
-.no:
+    xor ah, ah                  ; erase here and the draw below are the only
+                                ; pixels this feature adds anywhere. AH = 0
+                                ; leaves [cur_lazy] AS IT IS - which under
+                                ; CURBAR_ON is a promise cur_unlazy KEPT, for
+                                ; an arrow the bar cannot reach (SPEC.md 7.4.3)
+.swap:
+    mov al, [cur_shape]         ; bank what the clock replaces (SPEC.md 7.5.2):
+    mov [cur_shprev], al        ; the arrow, or the crosshair of the window the
+    mov al, CUR_BUSYSH          ; pointer was over - and gfx_unlock puts THAT
+    call cur_shape_set          ; back, with no pass in between to correct it
+    or [cur_lazy], ah
+    call cursor_show
+.yes:
     pop ax
-    stc
     ret
 
 ; cur_shape_pass - the UI task's end-of-pass service: which window is the
@@ -5205,7 +5223,11 @@ mou_old_seg dw 0, 0
 ; odd byte of each pair is padding and costs 4 bytes in all). The two ports
 ; decode independently, which is what stops either one corrupting the other's
 ; packets or resetting the other's run (SPEC.md 9.5).
-mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1
+mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1,
+                                ; 3 packet complete and a wheel mouse's
+                                ; optional FOURTH byte may follow (SPEC.md
+                                ; 9.5.4). 3 behaves as 0 for every other
+                                ; purpose - mou_newround still zeroes it
 mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
