@@ -422,6 +422,48 @@ overlays = [
     type = "VGA"
     clock_mode = "Default"
 
+# ...AND THE SAME VGA XT WITH 1.44MB DRIVES, which exists because of an
+# intersection this tree did not have: a machine with an EGA/VGA *and* a floppy
+# big enough for the software that needs one.
+#
+# Every VGA profile here had 360KB drives and every 720KB/1.44MB profile was a
+# Hercules or a CGA, so a DOS program whose own documentation says `Req.
+# EGA/VGA` and whose payload is 600KB could be hosted on neither. The 40-cylinder
+# trap (docs/DOS-DEBUGGING.md, `reach`) is the other half of it: the 720KB
+# profiles here are 40-cylinder, so a 720KB image's top half answers an int 13h
+# error that our read window turns into END OF FILE. 1.44MB drives are
+# 80-cylinder and have neither problem.
+#
+# It is os8088_xt_vga with one overlay line changed, the way os8088_xt_hdd_720
+# is os8088_xt_hdd with one line changed.
+[[machine]]
+name = "os8088_xt_vga_144"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"
+
 # ...and the same XT with SOUND, which exists to be run with --turbo.
 #
 # THE ONLY FASTER MACHINE MARTYPC HAS IS 7.16MHz, and this is the only way to

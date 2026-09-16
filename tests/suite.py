@@ -2752,6 +2752,27 @@ SOAK = [
         "un-pushing CX in .getcwd.",
         needs=("marty",), wants=("build/dosregs360.img",)),
 
+    Row("dosmcb", "soak", py("tests/dosmcb.py"), 30.0,
+        "A BLOCK GROWS BACK INTO WHAT IT GAVE UP (SPEC.md 96.9.2). AH=4Ah "
+        "grows only into the block immediately above it, which is DOS's own "
+        "rule and only half of DOS: DOS coalesces adjacent free blocks during "
+        "the allocation walk and this box did not. Every DOS memory manager "
+        "takes the largest block there is and then shrinks and grows it as "
+        "the program's heap moves, each shrink cutting a NEW free tail - so "
+        "after two of them the space given up is two or three adjacent free "
+        "blocks, and a grow that absorbs only the first REFUSES A BLOCK "
+        "SMALLER THAN ONE IT HAS ALREADY GRANTED, answering the previous "
+        "high-water mark. Measured on Commander Keen 2 under kern_dos: "
+        "granted 0x78C0 paragraphs (483 KB), refused 0x6900 (420 KB), with "
+        "221 KB free above the block in three pieces. ONE BINARY ON BOTH - "
+        "tests/dostrap/mcb.asm under this box and under a real IBM DOS 3.30 "
+        "off a real floppy - and THE NUMBERS ARE NOT COMPARABLE, the two "
+        "arenas differing by design: what holds on both is that all five "
+        "steps succeed with bx equal to the ask, and the fifth asks for LESS "
+        "than the second was granted. VERIFIED RED: without dos_mcb_join the "
+        "last step reads `ask=5FEA cf=1 bx=5236`.",
+        needs=("marty",), wants=("build/dosmcb360.img",)),
+
     Row("dosvec", "soak", py("tests/dosvec.py"), 25.0,
         "THE VECTORS A REAL DOS OWNS ARE INSTALLED, not left at 0000:0000 "
         "(SPEC.md 96.5.2). The box hooked 20h 21h 22h 23h 24h 2Fh 33h and "

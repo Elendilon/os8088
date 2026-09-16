@@ -5292,6 +5292,15 @@ $(BUILD)/VECS.COM: tests/dostrap/vecs.asm | $(BUILD)
 $(BUILD)/dosvec360.img: $(BUILD)/VECS.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/VECS.COM
 
+# ...and the ALLOCATOR's (SPEC.md 96.9.2).  MCB.COM takes the largest block
+# there is and then shrinks and grows it the way every DOS memory manager
+# does; the same binary prints the same five steps under a real IBM DOS 3.30.
+$(BUILD)/MCB.COM: tests/dostrap/mcb.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/mcb.asm
+
+$(BUILD)/dosmcb360.img: $(BUILD)/MCB.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MCB.COM
+
 # ...and the sound gate's. It needs NO SYSTEM.CFG: SPEC.md 51.3.1's boot
 # sniff finds the OPL and mounts SOUND.DRV by itself, which is exactly the
 # case SPEC.md 96.17 is about - the common one, not the configured one.
@@ -5396,7 +5405,7 @@ $(BUILD)/dosxmsq.img: $(BUILD)/DOSXMSQ.COM tools/os88disk.py
 
 .PHONY: doscom
 doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(BUILD)/dosmou360.img \
-        $(BUILD)/dosvec360.img \
+        $(BUILD)/dosvec360.img $(BUILD)/dosmcb360.img \
         $(BUILD)/dosfile360.img $(BUILD)/dosdir360.img $(BUILD)/dosexec360.img \
         $(BUILD)/dosxms360.img $(BUILD)/dossnd360.img $(BUILD)/dosxmsq.img \
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \

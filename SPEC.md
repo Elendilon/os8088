@@ -125905,6 +125905,57 @@ sets a mode without moving `vid_w`/`vid_h`, so the answer cannot change while
 the program runs, and a divide inside a polled ISR would be paid thousands of
 times for a constant.
 
+#### 96.9.2 A free NEIGHBOUR is a RUN, and the ceiling was ratcheting down
+
+`AH=4Ah` grows a block only into the block immediately above it. That is DOS's
+own rule and it was implemented faithfully — and it is only half of DOS, because
+**DOS coalesces adjacent free blocks during the allocation walk** and this box
+did not.
+
+What makes the gap bite is that every DOS memory manager does the same thing:
+take the largest block there is, then shrink and grow it as the program's own
+heap moves. Each shrink cuts a *new* free tail, so after two of them the space
+the block gave up is two or three adjacent free blocks rather than one — and a
+grow that can absorb only the first of them **refuses a block smaller than one
+it has already granted**, reporting the previous high-water mark as the maximum.
+The arena does not leak; it fragments permanently, and it does so within one
+program's startup.
+
+Measured on Commander Keen 2, under `kern_dos`, with
+`tools/os88intmon.py` reading the answers as well as the questions:
+
+| | asked | answered |
+|---|---|---|
+| … | `4Ah BX=78C0` (483 KB) | `CF=0` — granted |
+| | `4Ah BX=5900` (356 KB) | `CF=0` |
+| | `4Ah BX=6180` (390 KB) | `CF=0` |
+| | `4Ah BX=5900` (356 KB) | `CF=0` |
+| | **`4Ah BX=6900` (420 KB)** | **`CF=1`, `AX=8`, `BX=6180`** |
+
+…and the chain behind that refusal, read out of the machine:
+
+    0AC0 M own=0AE2 size=0020   the environment
+    0AE1 M own=0AE2 size=5900   the program
+    63E2 M own=0000 size=087F   FREE   33 KB
+    6C62 M own=0000 size=173F   FREE   92 KB
+    83A2 Z own=0000 size=181D   FREE   96 KB
+
+**221 KB free, in three pieces, and a 64 KB grow refused.** IBM DOS 3.30 on the
+same machine with the same disk grants it and plays the game.
+
+`dos_mcb_join` swallows the whole run: from a free block, absorb the block above
+while it is free and its signature is sound, taking its end-of-chain flag down
+with it. It is called from **`dos_mcb_alloc`'s scan** and from **`dos_mcb_resize`'s
+grow**, which is DOS's own placement — and it is what finally makes
+`dos_mcb_free`'s standing note true. That note said a program freeing two
+neighbours and asking for their sum was asking for something DOS would also
+refuse; DOS grants it, and the note is corrected in place.
+
+`tests/dostrap/mcb.asm` is the gate and its five steps are Keen's own shape, in
+eighths of the largest block there is: take the lot, give half back, take three
+quarters, give half back, take seven eighths. **The last step asks for less than
+the second was given**, so `cf=1` on it is the defect with nothing to interpret.
+
 #### 96.10.1 Functions 5 and 6 need edges, and a shim only sees the ones it straddles
 
 Function 3 is a **level** read and is exact. Functions 5 and 6 are not: they
