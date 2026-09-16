@@ -91,8 +91,14 @@ def alive(m, mo, to):
 
 
 def main():
+    # --machine lets a reader point this at a GENUINE IBM ROM machine
+    # (os8088_5150_cga_hdd) rather than the GLaBIOS XT the row registers, which
+    # is what docs/FIELD-NOTES.md's 8088 reports are taken on
+    machine = KR.MACHINE
+    if "--machine" in sys.argv:
+        machine = sys.argv[sys.argv.index("--machine") + 1]
     KR.fixture()
-    m = M.launch(None, apps=KR.FLOPPY, machine=KR.MACHINE,
+    m = M.launch(None, apps=KR.FLOPPY, machine=machine,
                  extra=["--mount", "hd:0:" + KR.VHD])
     try:
         ui = os88ui.UI(m)

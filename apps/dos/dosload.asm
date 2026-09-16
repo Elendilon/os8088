@@ -51,10 +51,10 @@ bits 16
 
 %include "os88api.inc"
 
-    OS88_HEADER 'DOS', dsl_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dsl_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 
-%include "dosicon.inc"          ; ...and the SAME icon and association block
-                                ; the box carries, because both are read out
+%include "dosicon.inc"          ; ...and the SAME icon, association block and
+                                ; document glyph the box carries: all are read out
                                 ; of the IMAGE - the Disk window draws this
                                 ; one before the launch, and `assoc.inc` reads
                                 ; the three extensions off it to decide that a

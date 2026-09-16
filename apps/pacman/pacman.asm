@@ -40,6 +40,9 @@ pm_entry:
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
     OS88_REGION_MOVABLE
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: the key-state map does
+                                    ; not exist until something asks, and the
+                                    ; kernel's Alt+Enter latch rides on it
     mov si, pm_menus
     call OSAPI_MENU_SET
     mov si, pm_about
@@ -158,6 +161,12 @@ PM_CALLBACK pm_paint
 pm_key_body:
     cmp byte [pm_abon], 0
     jne pm_dismiss
+    cmp ax, KEY_ALTENTER            ; SPEC.md 11.2.1.1 - and it is BOTH
+    je .fs                          ; directions here, because a latched
+                                    ; window keeps taking W_ONKEY while it is
+                                    ; full screen: .fs toggles [pm_fs] either
+                                    ; way. Above the ASCII tests because AL is
+                                    ; 0 and would fall through all of them
     cmp al, 27
     je .exitfs
     cmp al, 'f'

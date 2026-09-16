@@ -58,7 +58,7 @@
 ; **THE PACKAGE CONTAINER IS NOT THE CORE**
 ; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
 ; whole and is not a package at all: no header, no icon, no association
-; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; block, and nothing at file offset 0 but a jump. Those four macros assert their own file offsets - 0, 32, 96 and 112
 ; - so under that root they are the only thing in 13,000 lines that cannot
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
@@ -80,15 +80,17 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 %else
-    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif
                                         ; flags bit 0 = icon, bit 1 = the
-                                        ; association block after it
+                                        ; association block after it, bit 5
+                                        ; the document glyph after THAT
+                                        ; (SPEC.md 54.3.2)
 
-%include "dosicon.inc"          ; the icon and the association block,
-                                ; shared with apps/dos/dosload.asm
+%include "dosicon.inc"          ; the icon, the association block and the
+                                ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
@@ -108,8 +110,9 @@
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
 apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
-header, the icon and the association block end at 112 and kern_dos's own \
-fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
+header, the icon, the association block and the document glyph end at 128 \
+and kern_dos's own fixed header is eight bytes, so CORE_ORG is cut from THIS \
+reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0
@@ -725,6 +728,19 @@ dos_entry:
                                     ; the requirement is a COUNT of columns
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
+
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
+    call OSAPI_KEY_DOWN             ; (SPEC.md 9.7): kbm_isr does not track a
+                                    ; scancode until something has asked, so
+                                    ; without this call neither half of
+                                    ; 96.33.5.1 can see Alt+Enter - not the
+                                    ; kernel's latch and not our own poll. The
+                                    ; ANSWER is discarded; the asking is the
+                                    ; whole point, and it is what keeps the
+                                    ; feature costing a machine that never
+                                    ; opens this box exactly nothing
+%endif
 
     OS88_REGION_MOVABLE             ; **AND OUR REGION MAY MOVE** (SPEC.md
                                     ; 96.35, 66.6.1), which is the half of the
@@ -7851,6 +7867,24 @@ dos_key:
     push si
     push di
     mov bx, si
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
+    ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
+    ; XT ROM enqueues this combination at all, so int 16h never carries it and
+    ; kbd_track latches the scancode instead. HERE, in front of dos_place and
+    ; the focus test, because every field below this would otherwise get first
+    ; refusal on it: the path box holds the caret on a fresh window and
+    ; os88line_key's own extended arm reads AL = 0 keys.
+    cmp ax, KSC_ENTER << 8
+    jne .notfull
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .no                         ; a setup page has no screen to take, which
+    call dos_defocus                ; is dos_oncmd's own test - and the caret
+    mov si, [dos_win]               ; goes the same way the MENU ITEM sends it
+    call dos_fsx                    ; ...and the very same proc, so the key and
+    jmp .done                       ; the item cannot drift apart
+.notfull:
+%endif
     ; **NO DST_IDLE GATE.** It used to refuse every key with nothing named,
     ; because the only field was the arguments one; the MAIN page's field is
     ; the PATH BOX now and an empty one is the state where typing matters most
@@ -15768,6 +15802,12 @@ dos_fh_fill:
     HBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
                                     ; bracket comes down for the program and
                                     ; goes back up after it (SPEC.md 96.33.16)
+    HBSS DOS_B_AEDN,    1           ; ...and what the LAST full-screen pass saw
+                                    ; of Alt+Enter (SPEC.md 96.33.5.1):
+                                    ; OSAPI_KEY_DOWN is a level read, so the
+                                    ; edge is ours to find. Seeded DOWN at the
+                                    ; top of the bracket, because the press
+                                    ; that got us in is still held
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
     HBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
@@ -16216,6 +16256,7 @@ dos_pgpvol equ dos_hbss + DOS_B_PGPVOL
 dos_pgdoc equ dos_hbss + DOS_B_PGDOC   ; 16:   the document locator (21.5.3)
 dos_pghas equ dos_hbss + DOS_B_PGHAS
 dos_fsxgo equ dos_hbss + DOS_B_FSXGO
+dos_aedn equ dos_hbss + DOS_B_AEDN     ; byte: 96.33.5.1's edge
 dsh_exec    equ DOS_CBASE + DOS_B_SHEXEC
 dos_cmdx equ dos_hbss + DOS_B_CMDX
 dos_cmdn equ dos_hbss + DOS_B_CMDN

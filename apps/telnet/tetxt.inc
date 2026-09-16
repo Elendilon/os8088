@@ -112,6 +112,10 @@ te_fsx_main:
     call con_tx_ice                  ; ...and the blink bit, which is a per-
                                     ; adapter question (SPEC.md 70.8.9)
     mov byte [con_thint], 0xFF
+    OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is still
+                                    ; held, and te_tx_keys' read is a LEVEL
+                                    ; one: without this the first poll takes
+                                    ; that same hold as the press that leaves
     call con_markall
     call te_tx_owed
     call te_tx_hint                 ; ONCE, on entry, and the host is allowed
@@ -158,6 +162,12 @@ te_fsx_main:
 ; -----------------------------------------------------------------------------
 te_tx_keys:
     push ax
+    call os88alt_edge               ; ALT+ENTER LEAVES TOO (SPEC.md 11.2.1.1),
+    jc .quit                        ; beside ^]. It cannot arrive through the
+                                    ; int 16h below - no XT BIOS enqueues the
+                                    ; combination (9.7.1) - and a bracket
+                                    ; dispatches no events (53.1), so the
+                                    ; key-state map is what carries it
 .next:
     mov ah, 1
     int 0x16

@@ -57,14 +57,27 @@ import os88geom                                                # noqa: E402
 import os88sym                                                 # noqa: E402
 import os88marty as M                                          # noqa: E402
 import os88mouse                                               # noqa: E402
+import os88build                                               # noqa: E402
 import os88ui                                                  # noqa: E402
+
+# --tree "<make args>" builds a PRIVATE tree and drives that instead, so a knob
+# kernel never lands in build/ (tools/os88build.py). The one it exists for is
+# DOSRMARK=1, whose trace is the only way to watch a resume from outside.
+# The targets are this row's own `wants=`: a tree is cut to what it is asked
+# for, so a missing goal here is a FileNotFoundError naming a private tree.
+_TREE_TARGETS = ("kdos/DOS.O88", "DOSHELLO.COM", "kernel.sys", "boothd.bin",
+                 "mbr.bin", "hiber.drv", "ctrl.drv", "hdd.drv",
+                 "os8088-360.img", "apps360.img")
+if "--tree" in sys.argv:
+    os88build.tree(*sys.argv[sys.argv.index("--tree") + 1].split(),
+                   targets=_TREE_TARGETS).apply()
 
 # THE TEMPLATE IS THE BUILT TREE'S, not tools/martypc/ - that directory holds
 # the SOURCE patches and the ROMs, and `make marty` stages the run tree under
 # build/. tests/hibernate.py names the same file.
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
 MACHINE = "os8088_xt_hdd"
-KERNEL = "build/kernel.sys"
+KERNEL = os88build.at("build/kernel.sys")
 # **ABSOLUTE, BECAUSE MARTYPC RESOLVES A PATH AGAINST ITS OWN RUN TREE**
 # (tools/os88marty.py's _private_run_dir): a relative one names a file that is
 # not there and the machine boots to a loading screen and stays on it.
@@ -72,7 +85,7 @@ VHD = os.path.abspath("build/kdreturn-%d.vhd" % os.getpid())
 FLOPPY = os.path.abspath("build/kdreturn-%d.img" % os.getpid())
 # ...and the BOOT floppy, which only the --boot floppy arm builds
 SYSIMG = os.path.abspath("build/kdreturn-sys-%d.img" % os.getpid())
-SHIPSYS = "build/os8088-360.img"
+SHIPSYS = os88build.at("build/os8088-360.img")
 HDD_CFGBIT = 1                  # kernel/driver.inc's drv_cfgbit, row 1
 
 KDB = 0x4F0                     # 0040:00F0, the exit code's mailbox
@@ -88,18 +101,19 @@ def rows(m):
 
 
 def fixture():
-    for p in (TEMPLATE, KERNEL, "build/kdos/DOS.O88", "build/DOSHELLO.COM"):
+    for p in (TEMPLATE, KERNEL, os88build.at("build/kdos/DOS.O88"),
+              os88build.at("build/DOSHELLO.COM")):
         if not os.path.exists(p):
             fail("%s is missing - `make kdostest` builds the DOS pieces and "
                  "`make marty` the template" % p)
     subprocess.check_call(
         ["python3", "tools/os88hdd.py", "--template", TEMPLATE, "--out", VHD,
-         "--kernel", KERNEL, "--vbr", "build/boothd.bin",
-         "--mbr", "build/mbr.bin",
-         "--file", "HIBER.DRV=build/hiber.drv",
-         "--file", "CTRL.DRV=build/ctrl.drv",
-         "--file", "HDD.DRV=build/hdd.drv",
-         "--file", "DOS.O88=build/kdos/DOS.O88"])
+         "--kernel", KERNEL, "--vbr", os88build.at("build/boothd.bin"),
+         "--mbr", os88build.at("build/mbr.bin"),
+         "--file", "HIBER.DRV=" + os88build.at("build/hiber.drv"),
+         "--file", "CTRL.DRV=" + os88build.at("build/ctrl.drv"),
+         "--file", "HDD.DRV=" + os88build.at("build/hdd.drv"),
+         "--file", "DOS.O88=" + os88build.at("build/kdos/DOS.O88")])
     # ...AND THE PROGRAM ON A FLOPPY, which is still not an accident of the
     # fixture though the reason has changed. It USED to be that `kern_dos`
     # had no volume table and a fixed disk was a geometry it had not got -
@@ -108,7 +122,7 @@ def fixture():
     # a floppy keeps this row about the return rather than about the mount.
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
-         "build/DOSHELLO.COM"])
+         os88build.at("build/DOSHELLO.COM")])
 
 
 def sysfloppy():
@@ -189,19 +203,38 @@ def wait_desktop(m, ui, secs=300, stamp=None):
     The mode is the honest question. os8088's desktop is GRAPHICS on every
     adapter it has (SPEC.md 39) and everything between - the ROM's banner,
     `kern_dos`, the loading screen's own text - is not.
+
+    **ASK IT WITH `video_is_text` AND NOT WITH THE `mode` STRING**, because on
+    the MDA/Hercules that string is a DEAD FIELD: os8088 puts the card into HGC
+    graphics through 3BF/3B8 rather than through int 10h, so `display_mode()`
+    still reads `Mode0TextBw40` on a desktop while `graphics` correctly says
+    true (tools/os88marty.py `video_is_text`, which knows which field is live
+    per card). A `"Graphics" in mode` test therefore can NEVER pass on a mono
+    machine, whatever the kernel did - so this row would have gone red on
+    os8088_5150_herc_hdd_gla for a reason that is not about the resume at all,
+    and the screen it printed would have been a graphics desktop decoded as
+    text, which reads exactly like a crash.
     """
     end = time.time() + secs
     while time.time() < end:
         try:
-            if "Graphics" in (m.video() or {}).get("mode", ""):
+            if not M.video_is_text(m.video() or {}):
                 if stamp is not None:
                     stamp.append(m.status()["cycles"])
                 return ui.ready(limit=secs)
         except Exception:
             pass
         time.sleep(0.2)
-    raise RuntimeError("no graphics desktop in %ds; the text screen holds %r"
-                       % (secs, [r for r in rows(m) if r.strip()][-4:]))
+    # EVERY non-blank row, NUMBERED. A failure here is always "the machine
+    # stopped with something on the glass", so which ROW a thing is on is half
+    # the evidence - the resume stub is staged at OFFSET 0 of the text page, so
+    # rows 0-2 being stub bytes says the copy landed, and row 7 is DOSRMARK=1's
+    # trace (SPEC.md 96.49.3). The old message kept the last four and threw the
+    # rest away, which lost both.
+    raise RuntimeError(
+        "no graphics desktop in %ds; the text screen holds:\n%s"
+        % (secs, "\n".join("  %2d| %s" % (i, r)
+                            for i, r in enumerate(rows(m)) if r.strip())))
 
 
 def main():
@@ -211,7 +244,14 @@ def main():
     if from_floppy:
         sysfloppy()
         boot = SYSIMG
-    m = M.launch(boot, apps=FLOPPY, machine=MACHINE,
+    # --machine points this at another 8088 with a fixed disk on it. The one
+    # that matters is os8088_5150_herc_hdd_gla, whose staging area is at B000
+    # rather than B800 (SPEC.md 87.5) - the mono half of the resume, which no
+    # machine in this tree could host until that config existed.
+    machine = MACHINE
+    if "--machine" in sys.argv:
+        machine = sys.argv[sys.argv.index("--machine") + 1]
+    m = M.launch(boot, apps=FLOPPY, machine=machine,
                  extra=["--mount", "hd:0:" + VHD])
     try:
         ui = os88ui.UI(m)

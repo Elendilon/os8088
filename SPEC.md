@@ -12518,6 +12518,81 @@ Five things are load-bearing:
 beside it. An app wanting "did the player press left" still reads the
 keystroke; only an app wanting "is the player *holding* left" needs this.
 
+#### 9.7.1 Alt+Enter — the combination no XT BIOS delivers at all
+
+**Measured on a period XT ROM (GLaBIOS, MartyPC) by reading the guest's own
+BIOS key buffer at `0040:001A`/`001C` as each key arrived**, which is §9.6.4's
+instrument one key along:
+
+| key | XT ROM (GLaBIOS) | SeaBIOS |
+|---|---|---|
+| Enter | tail 1E → 20, `AX = 1C0D` | `AX = 1C0D` |
+| **Alt+Enter** | tail **does not move**: nothing is enqueued | `AX = 1CF0` |
+| Alt+F | tail 20 → 22, `AX = 2100` | `AX = 2100` |
+
+Alt reaches the ROM perfectly well — `0040:0017` bit 3 reads 1 throughout —
+and the ROM simply has no entry for this combination: `1C00` is an *enhanced*
+keyboard's code, and the 83-key translation table the 5150 shipped with ends
+at the letters, the digits and the function keys. So on the machine this
+project is for, **`int 16h` can never see Alt+Enter and `W_ONKEY` never fires
+for it.** That is §9.6.4's finding exactly — *int 16h therefore cannot deliver
+this key, on any BIOS* — and it gets §9.6.4's answer: the kernel reads the
+**scancode** instead.
+
+**The latch is `kbd_track`'s and costs nothing to find**, because that routine
+is already looking at the byte and already knows where the bit lives. A fresh
+Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map sets
+`[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the ordinary `W_ONKEY`
+dispatch, so it reaches the **front window** and nothing else, exactly as a
+typed key does. A package writes one test and it is true on every machine.
+
+Five things hold it up.
+
+- **A typematic repeat is not a press, and here the map can tell.** §9.7's own
+  opening is that a repeat is *byte-identical* to a fresh press through int
+  16h — the map is what carries the difference, so the latch is armed only
+  when the bit was **clear** before this make set it. Without that the ROM's
+  own ~10 Hz repeat makes a held Alt+Enter a hotkey that fires ten times a
+  second, which for a *toggle* is a screen that flickers between two modes
+  for as long as the user holds the key.
+- **The map must be ARMED, and that is deliberate.** `kbm_isr` does not call
+  `kbd_track` at all until something has called `kbd_down` (§9.7), so a
+  machine whose software never asks still never reads port 60h for this — the
+  scoping that keeps `kbm_isr`'s unproven 8042 claim off machines that do not
+  want the feature. An app that wants Alt+Enter therefore asks for the map
+  once, which is one `OSAPI_KEY_DOWN` call in its entry proc; §96.33.5.1 is
+  the worked example. Arming this way rather than at boot is what makes the
+  feature cost **zero** on every machine that does not use it.
+- **A BIOS that DOES deliver it must not deliver it twice.** `kbd_aeclaim`
+  runs on the typed key before `kbm_key` does, and it is §9.6.4's rule one
+  key along: an `AH = 1C` whose `AL` is neither `0Dh` (typed, or with Shift)
+  nor `0Ah` (with Ctrl) is Alt+Enter, so it **normalises `AL` to zero and
+  clears `[kbd_ae]`**. Without the clear, SeaBIOS fires both paths and one
+  press toggles a mode twice — §9.6.4's flashing menu from a fifth direction.
+  The normalisation is the other half of the one-test promise: SeaBIOS says
+  `1CF0` and an enhanced ROM says `1C00`, and a package may not have to know
+  which of them it is running on.
+- **A bracket that owned the screen owns the latch too.** `fsx_restore`
+  already drains the BIOS key buffer on the way home (§53.6) for the reason
+  that the keystroke which *ended* an exclusive app must not also be
+  delivered to the window underneath it. `[kbd_ae]` is cleared in the same
+  place and for the same reason, and it is not a nicety: a full-screen app
+  that leaves on Alt+Enter would otherwise hand the window below it a
+  synthesised Alt+Enter the instant `ui_task` ran again, and an app that
+  enters on the same key would go straight back in.
+- **It is advice's neighbour, not an oracle.** The latch inherits §9.7's
+  standing caveat — a break code lost inside a long IF=0 window leaves Alt
+  reading down — so a press of Enter alone, right after such a loss, reads as
+  Alt+Enter once. The state self-heals on the next press of Alt, the cost is
+  one spurious toggle of something the user can toggle back, and the
+  alternative is the BDA shift byte, which is sampled when the key is *read*
+  rather than when it was *pressed* and is wrong in the commoner direction.
+
+**Why not the BDA shift byte at `0040:0017`.** It is the obvious answer and it
+cannot work, for the reason above it: the ROM enqueues *nothing* for this
+combination, so there is no keystroke to hang the test on. Testing bit 3 on a
+plain Enter answers a question about a key the user never pressed.
+
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
 §67.11.2 found this in a game and closed it in that game, and said in as many
@@ -14229,6 +14304,120 @@ letter is not the app's to bind: pressing F in ArtfulType (§46) writes an
 
 An app that reserves letters for gameplay is *not* an exception: Missile
 Command and Tracker both bind a dozen bare letters and F is one of them.
+
+##### 11.2.1.1 …and Alt+Enter is the other one, on every app that has a full screen
+
+§11.2.1 binds **F**, and its own text spends four paragraphs on the cases
+where a bare letter cannot be had: an app taking typed text, where `f` writes
+an `f`. Paint answers that with **Ctrl+F**, ArtfulType binds no letter at all,
+the C64 reaches for **Alt+D** and the Apple II+ for **Ctrl+F** and
+**Alt+Enter** — four apps, four answers, each correct on its own and none of
+them the same key. **Alt+Enter is the one that works everywhere**, because it
+is not a letter: it collides with no typed text, no command line, no emulated
+machine's keyboard and no game's controls, and it is what a DOS box, a
+console and an emulator have used for this since the machines this one is
+modelled on. So it is bound **in addition to** whatever each app already has.
+Nothing is taken away — every F, Esc, Ctrl+F and Alt+D §11.2.1 and the app
+sections describe still works exactly as it did.
+
+**It is not a menu accelerator and no menu names it.** A caption is not an
+accelerator in this kernel (§12.2), so a key hint would be a printed promise
+each app would have to keep separately; this is a chord that is simply there,
+which is how the machines it comes from do it.
+
+**WHY IT NEEDED A KERNEL CHANGE AT ALL** is §9.7.1 and it is the whole of the
+difficulty: no XT-class BIOS enqueues this combination, so `int 16h` can never
+report it and `W_ONKEY` never fires. The kernel latches the scancode and
+`ui_task` spends it as `AX = 1C00` — `KEY_ALTENTER` in the SDK, `ascii` 0 with
+`OS88_SCAN_ENTER` in C. An app tests that one value and it is true on every
+machine.
+
+**The app's side is two facts and one of them is not optional.**
+
+- **The map must be ARMED.** §9.7's key-state map does not exist until
+  something calls `kbd_down`, and the kernel's latch rides on it — so an app
+  that wants this chord asks once, in its entry proc, and throws the answer
+  away. `OS88_ALTENTER_ARM` is that call. **An app that forgets it has a
+  hotkey that is silently dead**, which is a failure with no symptom to
+  follow: nothing refuses, nothing draws, the key does nothing. Arming this
+  way rather than at boot is what keeps the feature costing a machine that
+  runs none of these apps exactly zero, which is the scoping §9.7 built
+  deliberately.
+- **Where you read it depends on which mechanism you are on**, and the split
+  is §53.1's rather than this section's:
+
+| the app is on | entering | leaving |
+|---|---|---|
+| §11.2's **latch** | `cmp ax, KEY_ALTENTER` in `W_ONKEY` | **the same test** — a latched window keeps taking `W_ONKEY` |
+| §53's **bracket** | `cmp ax, KEY_ALTENTER` in `W_ONKEY` | `os88alt_edge` in the bracket's own loop |
+
+  A bracket dispatches no events at all, so no synthesised keystroke can reach
+  one and the app's own `int 16h` poll cannot see the key either.
+  `apps/os88alt.inc` asks the map instead, which is free in a loop that is
+  already polling — and it finds the **edge**, because `OSAPI_KEY_DOWN` is a
+  level read and a hold looks identical on every pass.
+
+**`OS88_ALTENTER_SEED` at the top of a bracket is the part that looks
+optional and is not.** A user holds Alt+Enter a good deal longer than one
+frame, so a bracket that starts polling from "up" reads the press that *opened*
+it as the press that closes it, and the full screen flashes past. The seed
+says "assume down" and the first poll clears it when they let go. It is the
+same thought as the button seed several of these apps already do on entry, one
+key along, and entered from a **menu** it costs nothing.
+
+**What each app binds it to is the app's own existing door**, never a new
+action: Pac-Man's `f`, Missile Command's `mc_fs_toggle`, Paint's Ctrl+F path,
+Tracker's `.fstog`, Telnet's `^]`, Cyclone's `f`, the DOS box's
+`Program > Full Screen`
+(§96.33.5.1), and — for Tank Attack and Clear Skies — the same `.go` a plain
+**Enter** already reached, so the chord agrees with a key that was there
+rather than inventing a second meaning for it. Where an app gates its keyboard
+the chord is gated with it: a modal panel, a name prompt or an initials entry
+that owns every key owns this one too.
+
+**THREE APPS LOOKED LIKE THEY COULD NOT HAVE IT, AND ALL THREE WERE THIS
+SECTION'S OWN BUGS.** They are written down because each was diagnosed wrongly
+first, and the wrong diagnosis is the more useful half:
+
+- **`apps/os88alt.inc` MAY NOT DECLARE `section .bss`, and did.** Every
+  package in this tree hand-chains its bss as `equ os88_image_end + N`, and a
+  `-f bin` `.bss` lands at `os88_image_end` too - so `resb 1` there is not a
+  new byte, it is an ALIAS of whatever the package put first in its own chain,
+  and `OS88_ALTENTER_SEED`'s store of **1** goes through it. It cost two apps
+  and neither looked like a memory bug: **Telnet** came up with `l\x01ne 00` in
+  row 0 of the full-screen terminal (the seed, landing in the console buffer,
+  read as one stale cell), and **Paint** refused to enter full screen a SECOND
+  time (the aliased byte behaving exactly like `[pt_fs]` left set) - which was
+  bisected to the poll's far call and very nearly shipped as "the bracket poll
+  breaks Paint". `apps/os88ui.inc` has the rule in the other direction and had
+  it right: its `section .bss` is inside `%ifdef OS88UI_KERNEL`, and its
+  comment says a package declares its own. The byte is a `db` in `.text` now,
+  which is what the kernel does for `kbd_ae` and `kbm_p5`.
+- **Cyclone's `cy_pn_dismiss` does not preserve AH.** It ends in `cy_pn_off`
+  and `cy_full_repaint`, so every test in `cy_key_common` that reads the SCAN
+  code is reading what those left behind. The letters under it survive because
+  they test AL; this chord is ascii 0 and has nothing BUT the scan code, so
+  from under the dismiss it can never match. The door is ahead of it now,
+  which is where Paint and the Apple II+ already put theirs and what §11.2.1.1
+  means by unconditional. **The first diagnosis was that the kernel never
+  delivered the key at all** - `ui_bill` "never called" - and that was an
+  artefact twice over: the trace was taken with the app already INSIDE a
+  bracket, where §53.1 says nothing is dispatched, and the retest ran against
+  a floppy that had not been rebuilt. Measured properly, `ui_bill` reads
+  `1C00` on the same window that reads `2166` for a bare `f`.
+
+**Both failures shared a shape worth naming**: an app-side defect that
+presents as the mechanism not working, on an app whose own untouched keys
+still work. The check that separates them is to drive the app's EXISTING door
+in the same session - `f`, `^]`, the menu item - and see whether it survives
+the change too.
+
+**Two apps are deliberately not on this list.** `apps/arkanoid` and
+`apps/sheet` call `OSAPI_KEY_DOWN` and have no full screen to go to, so there
+is nothing to bind; and `apps/apple2` had it already — APPLE2-SPEC section 6.3
+pinned Alt+Enter as AppleWin's own chord before this section existed, and
+accepts **both** `0x1C` and the enhanced keyboard's `0xA6`, which is the
+shape to copy if a third code ever turns up.
 
 ### 11.3 The clip region — what a background task may draw
 
@@ -33917,7 +34106,7 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; bits 5–7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; bits 6–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
@@ -33948,6 +34137,8 @@ size must be ≥ 96 and the entry offset ≥ 0x60. `disk_mount`'s icon harvest
 the loader copies it again into `inst_icons` (§29) so the dock tile survives
 in the kernel's own segment. A package with no icon gets the generic
 sentinel, which `apps/hello` ships deliberately to keep that path exercised.
+The 8×8 glyph a package's DOCUMENTS wear is reduced from this block unless
+flags bit 5 ships one (§54.3.2).
 
 **Entry contract**: far-called by the loader at `packageseg:entry` with
 **DS = CS = the package's segment**, ES = KERNEL_SEG, IF = 1, gfx lock NOT
@@ -36437,7 +36628,10 @@ step-2 peek all at once — every byte any of them reads is already in the first
 sector and already plain.
 
 The clear prefix is therefore **32 bytes**, plus 64 with an icon, plus 16 with
-an association block: at most **112**, and always inside the first sector.
+an association block, plus 16 with a document glyph (§54.3.2): at most
+**128**, always inside the first sector, and **always a multiple of 16** —
+`ld_expand` puts the expanded body's destination a SEGMENT along (§20.14),
+which is why the glyph block is sixteen bytes for eight of glyph.
 
 #### 20.13.2 `image` still means the UNPACKED size
 
@@ -76380,7 +76574,8 @@ makes the cache 8 bytes and not 16.
 baked default and a harvested icon for the same program would not match.
 
 **The shipped defaults' glyphs are baked at build time.** `tools/os88mini.py`
-reduces each package's own embedded icon (`.o88` bytes 32..95) into
+reduces each package's own embedded icon (`.o88` bytes 32..95) — or takes the
+glyph the package ships, §54.3.2 — into
 `build/associco.inc`, which `assoc.inc` `%include`s — so the bytes are `db`
 bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
 read, and **a document icon costs no disk read on the first boot of any
@@ -76411,6 +76606,92 @@ sort. Neither pass reads the disk; both walk data already in hand.
 `assoc_docicon` borrows `dsk_ico`, `dsk_get_icon`'s staging buffer, to save 64
 bytes of footprint. That is safe because nothing calls `dsk_get_icon` during a
 mount, which is the only place it runs — state the invariant if either moves.
+
+### 54.3.2 A package may SHIP its document glyph — flags bit 5
+
+**The reduction is a derivation, and a derivation can lose the thing the icon
+is about.** Majority-of-2×2 keeps a silhouette and drops every one-pixel
+stroke, which is the right trade for a 40%-ink Mac icon and the wrong one for
+a line drawing. The DOS box's icon (§96.44.4) is a CRT drawn as a one-pixel
+outline with a one-pixel `>` prompt inside it, and its reduction is an **empty
+box**: no 2×2 block of the prompt holds two ink pixels, so a `.COM` wore a box
+inside a page and read as nothing. Redrawing the 16×16 to reduce well means a
+solid icon, which is a different icon; hand-editing the eight baked bytes is
+undone at the next browse of the folder the program lives in, because
+`assoc_note_app` and `asc_seed` re-derive them — which is the drift §54.3
+forbids the paste for.
+
+So a package may ship the glyph itself. **Flags bit 5** says a **16-byte
+document-glyph block** follows the association block: **8 glyph bytes** — one
+a row, bit 7 the leftmost pixel, ink only, exactly the eight bytes
+`assoc_glyph` caches — then **8 reserved bytes, zero**. Sixteen rather than
+eight because the block is part of the clear prefix (§20.13.1), and that
+prefix must stay a multiple of 16. `OS88_DOCGLYPH8` / `OS88_DOCGLYPH8_END`
+bracket it and assert the offset and the length, `OS88_HEADER`'s flags take
+`OS88_F_GLYPH`, and a C package names the file in `CC_DOCGLYPH` with
+`crt0.asm` writing the bracket (§73). It sits at file offset **112**:
+`tools/os88pkg.py` requires bits 0 and 1 beside it (a glyph for the documents
+of a program with no icon, or one that declares nothing, has no consumer),
+refuses an all-zero glyph (that is §54.2's UNRESOLVED sentinel and would
+silently mean "reduce after all"), and moves `entry_min` and the clear prefix
+by 16.
+
+**Every writer of a slot's glyph prefers it, and there are four**: the harvest
+(`assoc_note_app`, off the sector it already read), a runtime claim
+(`assoc_self_glyph`, off the package's own segment), the cache load
+(`asc_seed`) and a cache hit (`asc_note`). The first two go through
+`assoc_img_glyph`, which finds the block in an IMAGE by its header flag; the
+last two through `asc_row_glyph`, which finds it in a CACHE ROW; and both fall
+back to `assoc_reduce` through one `assoc_glyph_take`, which copies eight bytes
+unless they are all zero. `tools/os88mini.py` prefers it the same way, so the
+glyph baked into the kernel for DOS IS the shipped one and a harvest agrees
+with it byte for byte — §54.3's invariant for the reduction, carried over.
+
+**The cache row carries it** (§54.7): `ASSOC.DAT` version 2 appends the eight
+bytes to every app row, all-zero for a package that ships none, and the kernel
+reads version 1 and version 2 both — `[asc_rowsz]` is set from the version
+byte at load and every stride multiplies by it — because an INSTALLED volume's
+cache was written once, by `hd_iassoc` at install (§52.10.14), and a kernel
+that refused it would return that machine to the pre-§54.7 harvest in silence.
+`tools/os88disk.py` and `hd_iassoc` write version 2 only.
+
+**Compatibility**: the loader reads the flag bits it knows and ignores the
+rest, so a kernel from before this section loads an UNCOMPRESSED bit-5 package
+with the block as inert bytes and reduces the icon as it always did; a
+COMPRESSED one it would expand from an offset 16 bytes short, which is why the
+bit is set only by packages that ship beside a kernel that knows it.
+`DOS.O88`'s image is a raw parts loader (§96.44.4) and loads on either.
+
+**The first consumer is the DOS box**: the CRT stays its face, and its `.COM`,
+`.EXE` and `.LNK` wear the classic terminal — a solid rounded block with a
+white `>` and `_` cut out of it — which is an 8×8 the CRT was never going to
+reduce to. Both halves of the package take it from `apps/dos/dosicon.inc`, the
+one file they already share (§96.44.4), and the box's fixed-offset guard fits
+exactly: header, icon, association block and glyph end at **128**, which is
+`CORE_ORG`, with nothing to spare.
+
+Cost, MEASURED against the tree it landed on: `.cold` **+134**, resident,
+no rung crossed (137 bytes left in the cold rung, where there were 271);
+`.text` +1, the `asc_rowsz` word less the version byte the magic string no
+longer carries. Of the 134, about 37 is reading a version 1 cache at all -
+the parse, the stride word and its four sites, the row test - and is the
+price of an installed volume keeping its cache. `CLONE.DRV` carries the
+compressor's copy of the prefix ladder and is a module, so that arm is not
+resident.
+
+**DEFERRED TRIM - the version 1 arm is the LAST bytes to drop here, and
+then it goes.** The only reader of a version 1 cache is a volume whose
+`ASSOC.DAT` was written by an installer from before this section - a hard
+disk mostly, since a floppy is rebuilt by `make`. When no such volume can
+still be in the field (a forced reinstall era, or simply long enough), the
+~37 bytes come out: delete `ASC_ROW1` and the version ladder in `asc_use`
+(a version other than 2 becomes the 'no cache' answer), collapse
+`[asc_rowsz]` back to the `ASC_ROW` constant at its four sites, and delete
+`asc_row_glyph`'s `.body`-via-version-1 branch. Nothing in a version 2
+cache changes, so the trim is invisible on any machine `make` built the
+disk for. It is filed here rather than in a size plan because the
+condition is a calendar, not a measurement, and the code it names is
+here.
 
 ### 54.4 Degradation
 
@@ -76577,7 +76858,9 @@ need four bits), which is what stops §54.6's declaration taking it back.
 96) or, with no icon, the header (offset 32): a count byte and up to five
 3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
 `OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
-miscounted `db` fails at assembly rather than at mount.
+miscounted `db` fails at assembly rather than at mount. A package that also
+ships its document glyph (§54.3.2) puts that 16-byte block immediately after
+this one, at offset 112.
 
 **A C package declares the same way** (§73): `%define CC_ASSOC "<file>.inc"`
 in the shim names a file holding the count byte and the `OS88_ASSOC_EXT`
@@ -76631,11 +76914,14 @@ the volume's root, hidden + system, that answers them all:
 
 ```
 +0    6   'OS88AC'
-+6    1   version = 1
-+7    1   app rows (<= 16)
++6    1   version = 2 (1 = the same rows at 80 bytes, without the glyph:
+          READ by the kernel, never written any more - §54.3.2)
++7    1   app rows (<= 32)
 +8    1   association rows (<= 24)
 +9    7   reserved
-+16   ..  app rows, 80 bytes: stem 8, size low word 2, 6 reserved, icon 64
++16   ..  app rows, 88 bytes: stem 8, size low word 2, folder cluster 2
+          (§54.7.1), 4 reserved, icon 64, document glyph 8 (§54.3.2;
+          all zero = the package ships none, so the icon is reduced)
       ..  association rows, 4 bytes: 3 extension bytes + an app row index
 ```
 
@@ -111431,6 +111717,35 @@ eight worlds carry it, and `tests/unit/t_csink.py` holds every one of them to
 it — one left behind is a white river on a colour display and nothing to see
 on Hercules.
 
+#### 88.6.6 Issy's hangar stands 40 m back from the runway
+
+Reported off the machine: *"the hangar in Paris is practically touching the
+runway."* It was. `cs_m_hangar` is 60 m by 120 m on the ground, it stood at
+(−2750, −2350), and Issy's runway is 1,000 m of 040° centred on (−2600,
+−2300): resolved into runway-local coordinates the nearest corner of that
+footprint was **1.2 m outside the runway edge**. Twenty-one metres of drift
+left of the centreline on the take-off roll was a `CSO_COLLIDE` box, and from
+the parked view the hangar's base corner sits *on* the runway's own edge line.
+
+The object moved to **(−2781, −2324)**, which is 40 m along the runway's own
+normal, away from it — §88.6.3's setback one aerodrome along, and the same
+reason to move the building rather than the runway: `CSA_X`/`CSA_Z` is where
+the world's other eight objects, the spawn and the Seine's strip are all
+placed from. The nearest corner is **41.7 m clear** of the edge, which is the
+runway's own width again, and the take-off view keeps it — the hangar is a
+fifth of the view's width parked and still a fifth of it three hundred frames
+into the roll, the Cessna having covered 12 m by then.
+
+**Forty and not two hundred, because it is the one building anybody sees from
+the ground.** §88.12's frame budget calls it *the near hangar* and prices it
+at 84,000 cycles of the runway scene; it is what gives that scene a
+foreground. Walking all eight worlds, every other hangar stands **183 to
+313 m** clear of its own runway — Nepal-VNLK is the tightest — so Issy's was
+low by a factor of 150 and is still, deliberately, four times the closest of
+the rest. The setback was picked on the glass at 40, 60 and 80 m: at 80 the
+building is a sliver against the left edge of the view, which is the half of
+the report that says *clearly visible*.
+
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 
 Deliberately simple, stepped **once per system tick** the way §85.6 steps
@@ -125917,7 +126232,7 @@ about:
 |---|---|---|
 | the mode | `FSXM_TEXT80` | the same |
 | the worker | **none** — this console is the UI task's alone | `FSXF_KEEPWORKER`: its worker owns the socket |
-| the key out | **Esc** | `Ctrl+]`, which every telnet client since 4.2BSD uses |
+| the key out | **Esc**, and **Alt+Enter** (§96.33.5.1) | `Ctrl+]`, which every telnet client since 4.2BSD uses |
 | the hint | ` Esc to leave` | ` ^] to leave` |
 
 **Esc is ours only while the console has the screen.** A DOS program reads Esc
@@ -125925,7 +126240,9 @@ for its own purposes and a box that ate it could not run half the software it
 exists for — so this bracket is entered from the menu, ends before any program
 is launched, and §96.2's program bracket is a different one with no key of ours
 in it at all. §11.2.1 asks for `F` in both directions and exempts an app taking
-typed text, which a command prompt is as completely as a terminal.
+typed text, which a command prompt is as completely as a terminal — and
+§96.33.5.1 is what the exemption cost being paid back: **Alt+Enter** is the
+door in both directions, a modified key being free where a bare letter is not.
 
 **The line editor is not written twice.** `dos_con_key` is the same proc on both
 screens; what changes is that `[dos_fsxup]` stands `dos_con_draw` down, because
@@ -125940,6 +126257,54 @@ SHAPE only on a change, because a BIOS call a frame for a byte that does not
 move is a frame given away; the mode set leaves the CRTC's own cursor blinking
 at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
 placed at all.
+
+##### 96.33.5.1 Alt+Enter is the door, in both directions
+
+`Program > Full Screen` was the only way in and `Esc` the only way out, which
+is half a binding: the menu is a *place to go and find* the thing, and §11.2.1
+is about a key. The exemption that section grants a box taking typed text is
+real — a bare `F` at a command prompt has to write an `f` — but it exempts the
+*letter*, not the idea, and **Alt+Enter is what every DOS box since has used**
+for exactly this, precisely because a modified key is free where a bare one is
+not. `Esc` stays untouched: it is §11.2.1's escape hatch and it is what the
+hint on the full-screen row already names.
+
+**The two directions are read from two different places, and the reason is a
+BIOS.** §9.7.1 is the finding — no XT ROM enqueues this combination at all —
+and the kernel's answer is a latch off the scancode, spent by `ui_task` as
+`AX = 1C00` through `W_ONKEY`:
+
+- **Windowed → full screen** is that synthesised keystroke. `dos_key` tests
+  it above everything else it does with a key, so the path box holding the
+  caret cannot eat it, and the same `dos_fsx` the menu item calls is what
+  runs — the two cannot drift.
+- **Full screen → windowed** cannot use it, and this is the part worth
+  writing down: inside §53's bracket `ui_task` is not dispatching at all
+  (§53.1), so `dos_fsx_keys` reads `int 16h` itself and no synthesised event
+  can reach it. It asks the map directly instead, through `OSAPI_KEY_DOWN`,
+  which is free there because that loop is **already a poll** — one more
+  question per frame beside the one it was asking anyway.
+
+**`[dos_aedn]` is the edge, and it is seeded DOWN.** `OSAPI_KEY_DOWN` is a
+level read (§9.7), so the loop finds the edge itself: both keys down with the
+last pass not seeing them is a press, and anything else is the same hold or
+nothing. Seeding it *down* at the top of the bracket is what stops the press
+that got you in from taking you straight back out — a user holds Alt+Enter for
+a good deal longer than one frame, and a level read cannot tell that hold from
+the next press. On a machine entered from the **menu** the seed costs nothing:
+the first poll finds the keys up and clears it.
+
+**The box ARMS the map, in its entry proc.** §9.7's map does not exist until
+something calls `kbd_down`, so the box asks once — `OSAPI_KEY_DOWN` on
+`KSC_ALT`, whose answer is discarded — and both halves work from then on. It
+is one far call at launch and it is what keeps the feature's cost at zero on
+every machine that never opens a DOS box.
+
+**Nothing was spent on a hint.** The full-screen row already says ` Esc to
+leave` and that sentence is still true; a second key on it would be eight
+cells of an eighty-cell row for a key the user has just pressed to get there.
+The menu item keeps its own name for the same reason §11.2.1 gives — a menu
+item's key hint has to be true in every state, and this one is.
 
 ##### 96.33.17 `.O88` at the prompt opens the PACKAGE
 
@@ -131425,8 +131790,9 @@ program, which is the one quantity the plan is a budget for.
 `CORE_ORG` was **0x0600**, which cleared the two things that could not move —
 `kern_dos`'s refusal wall, which ran to 0x05A8, and the box's package header at
 0x00, because `OSAPI_PKG_REHOME` step 8 dispatches through it. **It is 0x0080
-since §96.44.6**: the wall is gone, so only the box's header, icon and
-association block bind it, and those end at 112.
+since §96.44.6**: the wall is gone, so only the box's header, icon,
+association block and, since §54.3.2, its document glyph bind it - and those
+end at 128, which is `CORE_ORG` exactly.
 
 `CORE_MAX` is **14,848** against a core of 14,566, and it is a rung the CORE
 alone spends while both hosts read it — where 4.1.3.1's `CORE_ORG` was a
@@ -131583,8 +131949,9 @@ arm, and `dsh_sbuild` takes the refusal exit it already had, so a `DIR` under
 answered and a hook may always be absent. A heap is exactly the second kind.
 
 `CORE_ORG` is **0x0080** now. What binds it is the BOX's low bytes — the
-package header at 0x00, the icon at 0x20 and the association block at 0x60,
-which `OS88_ASSOC16_END` pads to **112** — against `kern_dos`'s eight-byte
+package header at 0x00, the icon at 0x20, the association block at 0x60,
+which `OS88_ASSOC16_END` pads to 112, and the document glyph at 0x70 that
+`OS88_DOCGLYPH8_END` pads to **128** (§54.3.2) — against `kern_dos`'s eight-byte
 fixed header, and each host asserts its own side. **1,408 bytes out of both**:
 `kern_dos`'s image is 33,953 against 35,361, so `KD_IMG_KB` falls **35 → 34**
 and the DOS program is handed a kilobyte more.
@@ -132430,6 +132797,56 @@ IER 01  MCR 0B  LSR 60  MSR 00  PIC21 AC  seen 1 port 0 line 10 drain 0
 first byte it ate (which is exactly the stale byte the mask had latched), and
 the pointer moving. `tests/mouresume.py` is that reading kept runnable.
 
+##### 96.45.2.2 …and the PS/2 pointer is the same defect with THREE teardowns
+
+The reporter tested the fix above with a **PS/2** mouse and it was still dead —
+which §96.45.2 had said in as many words was not covered, and is the same
+defect one socket along.
+
+Step 6's `mouse_unhook` calls `mou_p2_off`, and that is three teardowns where
+the serial side had two:
+
+| `mou_p2_off` does | undone by |
+|---|---|
+| masks **IRQ12** at the slave (`0xA1`, `MOU_P2SL`) | nothing |
+| sends **`0xA7`** — the auxiliary interface off, *"so the device is not even clocked"* | nothing |
+| writes **`[mou_p2cmd0]`** back — the BIOS's command byte, IRQ12 bit and all | nothing |
+
+and `mou_p2_init` — the only routine that undoes any of it — is in `.ovlw`
+beside `mouse_init`, freed by the same `mem_unblob`. So the PS/2 pointer came
+home dead for exactly the reason the serial one did.
+
+**The re-arm is `mou_p2_init`'s own arming tail**, not a new sequence: the
+auxiliary interface back on, the command byte **recomputed from the same banked
+`[mou_p2cmd0]`** (`and 0xDF` for the aux clock, `or 0x02 | MOU_P2KOFF` to arm
+IRQ12 at the controller), `0xF4` to the device, and then IRQ12 at the slave
+**and IRQ2 at the master** — the cascade, whose absence §9.9 records as *"a
+mouse that passed every step above and is then silent for the session"*, which
+is this bug's own symptom arriving by a different road.
+
+`0xF4` is resent rather than assumed because `0xA7` left the device
+**unclocked**; a live line with a device that is not reporting is the same dead
+pointer. Its ACK is deliberately not collected — `mou_p2flush` is the overlay's,
+both writers time out on their own so nothing can hang, and a stray `0xFA` is a
+byte the ISR discards.
+
+**`[mou_p2]` is the guard and it survives the handoff**: `hbm_wrimg` takes the
+picture at step 3b and `mouse_unhook` runs at step 6, so the byte the image
+carries is the one from *before* the teardown — 1 only where a PS/2 mouse was
+the live pointer. A serial machine runs none of it, and neither does one whose
+PS/2 mouse had already **lost the contest**, which `mou_lockon` retires through
+that same `mou_p2_off`.
+
+It is `%ifdef KERN_BIG`, because §9.9's probe is.
+
+**What is verified and what is not, said plainly.** The serial half is driven
+end to end by `tests/mouresume.py` on MartyPC. The PS/2 half cannot be: MartyPC
+is an 8088 and an XT has an 8255 PPI rather than an 8042 with an aux port, which
+is entry 4 on docs/TESTING.md's QEMU list. Until a QEMU row drives the same
+resume, this half rests on being the exact inverse of `mou_p2_off` and on
+`mou_p2_init` still arming a PS/2 mouse correctly after the change — which is
+measured, and is not the same claim.
+
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 
 `kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
@@ -132833,6 +133250,134 @@ diagnosis should start by checking that the artefact under test is the one the
 source describes — `cmp` against a fresh assembly took one command and would
 have saved the hour.
 
+#### 96.49.2 The mono staging segment — B000 was unreachable
+
+**`kd_stageseg` could never return B000, and had not been able to since it was
+written.** It reads the BDA's video mode into **AL**, and the next instruction
+was `mov ax, 0xB800` — which puts 0x00 in AL. The `cmp al, 7` under it
+therefore tested the constant's own low byte, was never equal, and the `mov
+ax, 0xB000` below it was dead code. `mov` sets no flags, so the fix is to
+hoist the compare above the load: zero bytes, one line moved.
+
+`hbm_stageseg` does not have this and could not: it compares a byte in
+**memory** (`[vid_kind]`), which the load cannot reach. The two routines
+answer the same question from different sources — §87.5's map says so — and
+only the one holding its answer in a register was exposed.
+
+**WHAT IT COSTS IS THE WHOLE SESSION, ON A MONO MACHINE ONLY.** The stub, the
+extent list, the IVT copy and every staged cell go to B800, which on a
+Hercules primary is not decoded at all; then `kd_resume` far-jumps into it and
+the machine executes open bus for ever. The screen keeps whatever was on it,
+so the symptom is the resume's own *"os8088: putting the session back..."*
+standing on a clean screen with nothing after it — a freeze that looks like
+the disk read and is the instruction before it. The reporter photographed
+exactly that (docs/FIELD-NOTES.md 45), and the blank rows 0–1 in the
+photograph are the finding: the stub is `rep movsb`'d to offset 0 of the
+staging segment, so a visible page that is *clean* is a page the stub never
+reached.
+
+**WHY NOTHING CAUGHT IT FOR A CYCLE, and it is a gap in the MACHINES rather
+than in the rows.** A hibernation needs a fixed disk — `hb_pick` is the
+predicate on both sides — and the adapter picks the segment. So the two have
+to be on one machine before this line runs at all, and **every MartyPC profile
+in this tree with an `[machine.hdc]` was a CGA or a VGA**: `os8088_xt_hdd`,
+`os8088_5150_cga_hdd`, `os8088_xt_vga_hdd` and the rest. `kdreturn`,
+`kdreturnf`, `hibernate` and `mouresume` all drive this exact path and all
+four were green, because all four were staging at B800 where B800 is right.
+`os8088_5150_herc_hdd_gla` is that hole closed, and `kdreturnm` went red on
+its first run. **The ORDINARY resume was the other half of it** and is closed
+too, by `hibernatem`: `tests/hibernate.py` was `os8088_xt_hdd` and nothing had
+ever driven §87.5's own staging on a mono machine either. That route is the
+one that cannot have this defect — `hbm_stageseg` compares a byte in MEMORY,
+which the load cannot reach — but that is a claim about the source and not a
+measurement, and "has never been reported" is not "is covered". Measured: **29
+checks on the Hercules, the same 29 its CGA twin passes.**
+
+**AND ONE OF THE THREE THINGS FOUND HERE WAS NOT IN THE KERNEL AT ALL.**
+`tests/kdreturn.py` waited on `"Graphics" in video()["mode"]`, and
+`os88marty.video_is_text` already records that on the MDA/Hercules that field
+is DEAD: os8088 enters HGC graphics through 3BF/3B8 rather than through
+int 10h, so `display_mode()` reads `Mode0TextBw40` on a desktop while
+`graphics` correctly says true. So the row could not have gone green on a mono
+machine whatever the kernel did, and the screen it printed on failing was a
+graphics desktop decoded as text — which reads exactly like a crash. A new
+machine is only half of closing a hole; the row has to be able to SEE that
+machine. `tests/kdhand.py` carried the same wait and is fixed with it.
+
+The general lesson is the one §39's *"three adapters, one binary"* rule states
+for drawing and this is the first time it has bitten a non-drawing path: a
+routine that resolves a segment from the adapter has an arm per adapter, and
+an arm no machine in the tree can reach is an arm nothing tests.
+
+#### 96.49.3 `DOSRMARK=1` — the resume, traced on the glass
+
+The live resume is the one path on this machine that nothing can watch. By the
+time the stub is running there is no kernel, no task, no debugger hook and no
+serial port — just a blob in the text framebuffer reading the machine back
+over itself — so a freeze anywhere in it is one still photograph, and the disk
+read, the walk and the jump all look identical from outside. §96.49.2 cost a
+day of that.
+
+`DOSRMARK=1` (`kernel/hbmark.inc`) makes the photograph a trace. `kd_resume`
+prints one line through the ROM's teletype with every number the far jump
+depends on — `stg` (the staging segment, which is what §96.49.2 was about),
+the `int 13h` unit, the geometry, the extent count, the image's sectors, and
+the wake far pointer and kernel DS the launch block carried — and then each
+stage of the stub stamps one character onto **row 7** of the page it is
+standing in: `S` entry, `X` per extent, `.` per read, `!` per refusal, `D` the
+image is back, `V` the IVT and PICs are the image's again. `W` is the restored
+kernel's own, written to **both** adapters' pages because which one the
+staging segment was is the very thing being asked.
+
+**It is not `int 10h` and that is the whole design.** The ROM's teletype
+SCROLLS, and the page it scrolls IS the staging area — so one marker past the
+bottom line would move the stub, the extent table and the IVT copy up by a row
+underneath the code reading them. `hbstub.inc`'s own `.fail` dodges that by
+homing to row 8 and never printing a fourth line; a trace cannot, so it stores
+directly and moves nothing. **Row 7 is the only free row in the map**: rows
+0–6 are `HS_CODE` and the cells above it, and `HS_IVT` begins at 0x0500, which
+is row 8 to the byte. The trace CLAMPS at 64 columns rather than wrapping,
+because the cell after the row's last is `HS_IVT`'s first — and it keeps
+`HS_K` live in hex beside it, so a machine frozen mid-restore leaves the exact
+file sector it was on standing on the glass.
+
+**It reaches two assemblies and both are needed.** `kernel/hbstub.inc` is
+staged by `kernel/hiber.inc` for an ordinary resume and by
+`kerndos/kdresume.inc` for the DOS one, and neither host can reach the other's
+copy — so the define goes into `$(VIDDEF)` for the kernel *and* into the
+`kerndos.bin` rule, and `$(KDSTAMP)` carries it for `KDSTKDIAG`'s reason.
+
+#### 96.49.4 The message scrolls the page it is announcing
+
+`kd_puts` is the ROM's teletype and **the page it prints on IS the staging
+area**. The DOS program leaves the cursor wherever it left it, so a line
+ending in CRLF at the bottom of a full screen makes the BIOS scroll — and
+`HS_EXT` is at 0x0A00, row 16 of a visible 4,000-byte page, squarely inside
+what a scroll moves. The chain was walked at step 3 and then shifted 160 bytes
+by the very line announcing it, after which the stub reads a garbage LBA and
+`int 13h` puts the wrong sectors over conventional memory.
+
+So the order is inverted: **the last words come before anything is staged**,
+and the walk runs after the last print. Prince of Persia never showed this,
+because its exit is a BIOS mode set and a mode set clears and homes — which is
+why §96.49.2's reporter photographed a *clean* screen with the message on row
+2. A program that merely filled the screen would have shown it, as something
+much worse to diagnose than a freeze: a session that comes back with parts of
+itself read off the wrong sectors.
+
+A refusal from `kd_extents` now happens after the line has printed, and that
+costs nothing that matters. What the line promises is the SESSION, and the
+fallback delivers it either way: `kd_leave` reboots, os8088's own `hb_probe`
+finds the pointer, and the session comes back the long way. `tests/kdreturn.py`
+never rested on the line — it asserts the live route with a **cycle bound**,
+for the reason `kdreturnf` records: the live route's own line is printed into
+the staging area the stub then overwrites, so a screen read could not see it.
+
+It is the same hazard `hbstub.inc`'s `.fail` already dodges by homing to row 8
+and never printing a fourth line, and the same one `kernel/hbmark.inc` states
+as the reason its trace stores directly instead of using `int 10h`. Three
+places in one path where printing and staging share a page; this was the one
+that had it backwards.
 
 ### 96.50 The BIOS key buffer's guard, which the handoff took away
 

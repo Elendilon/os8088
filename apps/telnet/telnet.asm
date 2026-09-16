@@ -184,6 +184,9 @@ te_entry:
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
+    OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
+                                    ; scancode until something asks, and both
+                                    ; halves of the chord ride on that map
     OS88_REGION_MOVABLE
     mov word [te_line + LN_BUF], te_hbuf    ; **THE BLOCK'S BUFFER WORDS, and
     mov word [te_line + LN_MAX], TE_HOSTMAX ; they are not optional**: bss
@@ -649,6 +652,12 @@ te_onkey:
     cmp al, TET_ESC                 ; ^] is the way IN as well as the way out,
     je .fsx                         ; which is the one key a telnet user
                                     ; already knows (tetxt.inc)
+    cmp ax, KEY_ALTENTER            ; ...and so is Alt+Enter, for the user who
+    je .fsx                         ; knows the OTHER one (SPEC.md 11.2.1.1).
+                                    ; It has to be caught here whatever is
+                                    ; decided about the door: every key below
+                                    ; goes to the HOST, and the ascii half of
+                                    ; this one is 0 - a NUL down the wire
     cmp byte [te_state], TS_UP
     jne .out
     call te_tx                      ; ...QUEUED, not sent: the wire belongs to
@@ -1985,6 +1994,7 @@ te_tpl:
     dw 40, 40, TE_W, TE_H
     dw te_ttl, te_paint, te_onkey, te_onclick
 
+%include "os88alt.inc"          ; SPEC.md 11.2.1.1's edge, for the bracket
 %include "os88ui.inc"
 %include "os88line.inc"
 %include "os88sock.inc"         ; net_find (SPEC.md 72, SPEC.md 20.11.1)

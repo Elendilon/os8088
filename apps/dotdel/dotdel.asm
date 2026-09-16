@@ -458,6 +458,11 @@ dd_onkey:
 dd_key_common:
     cmp byte [dd_state], DDS_ENTER
     je .initials
+    cmp ax, KEY_ALTENTER            ; Alt+Enter is the same door as F (SPEC.md
+    je .full                        ; 11.2.1.1) - on AX, because the KSC_ENTER
+                                    ; test below shares its scancode and means
+                                    ; START. Behind the initials gate with
+                                    ; Esc, so typing a name keeps the keyboard
     cmp ah, KSC_ESC
     je .esc
     cmp al, 'f'
@@ -924,10 +929,19 @@ dd_fsx_main:
     mov byte [dd_full], 1           ; size: a same-mode bracket does not
                                     ; collapse a two-display desktop, so
                                     ; "fullscreen" is THIS display's rect
+    OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is still
+                                    ; held, and a level read cannot tell that
+                                    ; hold from the press that would leave
     call OSAPI_GET_TICKS
     mov [dd_last], ax
 .loop:
 .keys:
+    call os88alt_edge               ; ...and in HERE it arrives by neither
+    jnc .k16                        ; route int 16h below serves: no XT BIOS
+    mov byte [dd_fsxq], 1           ; enqueues the combination (SPEC.md 9.7.1)
+    jmp short .done                 ; and a bracket dispatches no events
+                                    ; (53.1). The SAME byte dd_key_common's
+.k16:                               ; .leave sets, so one exit path serves both
     mov ah, 1                       ; no events are dispatched in a bracket:
     int 0x16                        ; this IS the UI task, so poll int 16h
     jz .nokey
@@ -1101,6 +1115,7 @@ dd_ab5:     db 'F is full screen.', 0
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN
+%include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the bracket
 %include "os88ui.inc"
 
 

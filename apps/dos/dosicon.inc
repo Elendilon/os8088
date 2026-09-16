@@ -38,3 +38,22 @@
                                     ; its arguments and its environment, in
                                     ; Microsoft's own Shell Link layout
     OS88_ASSOC16_END
+
+; --- and what a DOCUMENT wears (SPEC.md 54.3.2) -----------------------------
+; The CRT above is a line drawing, and SPEC.md 54.3's majority-of-2x2
+; reduction empties it: no 2x2 block of the one-pixel `>` holds two ink pixels,
+; so a .COM wore an EMPTY BOX inside its page and read as nothing. This is the
+; 8x8 shipped instead - the classic terminal, a solid rounded block with a
+; white `>` and `_` cut out of it - and it is what a .COM, a .EXE and a .LNK
+; wear on every disk, from a cold boot (tools/os88mini.py bakes it into the
+; kernel for the built-in rows) and from a harvest or a cache alike.
+    OS88_DOCGLYPH8
+    db 0x7E                         ; .######.
+    db 0xFF                         ; ########
+    db 0xBF                         ; #.######
+    db 0xDF                         ; ##.#####
+    db 0xB1                         ; #.##...#
+    db 0xFF                         ; ########
+    db 0x7E                         ; .######.
+    db 0x00                         ; ........
+    OS88_DOCGLYPH8_END

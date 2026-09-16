@@ -697,6 +697,13 @@ FAST = [
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
+    Row("docglyph", "fast", py("tests/unit/t_docglyph.py"), 0.6,
+        "a package may SHIP the 8x8 its documents wear (SPEC.md 54.3.2): the "
+        "validator's four refusals, the clear prefix keeping the block verbatim "
+        "through compression, os88mini baking the shipped bytes and not the "
+        "reduction, DOS.O88 setting the bit, and every shipped ASSOC.DAT being "
+        "version 2 with the glyph in DOS's row. Host-only, one package format "
+        "and three tools, which is why it is here beside `pkg` and not in soak"),
     Row("fonts", "fast", py("tests/unit/t_fonts.py"), 0.1,
         "the typefaces are in SYSTEM/FONTS on every shipped system image and "
         "nowhere else (SPEC.md 19.8.1), and apps/os88type.inc's ty_gofonts "
@@ -2569,6 +2576,19 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
+    Row("dosglyph", "soak", py("tests/dosglyph.py"), 60.0,
+        "a SHIPPED document glyph (SPEC.md 54.3.2) reaches every path the "
+        "kernel fills a slot's glyph by - the baked table, the cache seed "
+        "at a volume switch, a cache hit at a mount and a miss's harvest "
+        "off the sector - each proved by POISONING the slot with the "
+        "reduction first, and the composed page-plus-glyph icon is found in "
+        "a Disk window's own pixels over a .COM. DOS is the package because "
+        "its CRT is the line drawing the 2x2 majority reduction empties. "
+        "tests/unit/t_docglyph.py is the host half. VERIFIED TO FAIL by "
+        "forcing assoc_img_glyph's flag test off in kernel/assoc.inc: steps "
+        "1-4 stay green and step 5 reads the reduction, which is the one "
+        "path that test guards",
+        needs=("marty",), wants=("build/doscom360.img",)),
     Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
         "relocation table, and a last page that is exactly full so e_cblp is "
@@ -3222,6 +3242,33 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv", "build/os8088-360.img")),
+    Row("kdreturnm", "soak",
+        py("tests/kdreturn.py", "--machine", "os8088_5150_herc_hdd_gla"), 36.0,
+        "...AND THE SAME ROUND TRIP ON A MONO MACHINE (SPEC.md 96.49.2). The "
+        "staging area IS the text framebuffer, so it is at B000 on a Hercules "
+        "primary and B800 everywhere else - and kd_stageseg read the BDA's "
+        "mode byte into AL and then loaded AX with 0xB800 before testing it, "
+        "so the cmp saw the constant's own low byte, was never equal, and the "
+        "B000 arm was DEAD CODE from the day it was written. Every mono "
+        "machine staged the resume stub into a segment a Hercules does not "
+        "decode and then far-jumped into it: the session froze for ever on "
+        "kd_resume's own 'putting the session back...' with the screen "
+        "otherwise CLEAN, which is the finding - the stub is rep movsb'd to "
+        "OFFSET 0 of that segment, so blank rows 0-1 are a page the copy "
+        "never reached. REPORTED FROM THE FIELD off an 86Box pc5150 "
+        "(docs/FIELD-NOTES.md 45), and reproduced here with DOSHELLO.COM, so "
+        "Prince of Persia was never in it. WHAT LET IT SHIP IS A HOLE IN THE "
+        "MACHINE LIST AND NOT IN THE ROWS: a hibernation needs a fixed disk "
+        "(hb_pick) and the ADAPTER picks the segment, so the two must be on "
+        "ONE machine before that line runs at all - and every profile in this "
+        "tree with an [machine.hdc] was a CGA or a VGA, so kdreturn, "
+        "kdreturnf, hibernate and mouresume were all green while all four "
+        "staged at B800 where B800 is right. This row is that hole closed; it "
+        "is kdreturn's own assertions on os8088_5150_herc_hdd_gla, which went "
+        "red on its first run. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
@@ -5095,6 +5142,33 @@ SOAK = [
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
         needs=("marty",), serial=True),
+    Row("altenter", "soak", py("tests/altenter.py"), 33.0,
+        "SPEC.md 11.2.1.1: Alt+Enter reaches full screen in BOTH of the "
+        "mechanisms apps use - ArtfulType on SPEC.md 11.2's LATCH, where one "
+        "`cmp ax, KEY_ALTENTER` is both directions, and Tracker on SPEC.md "
+        "53's BRACKET, where nothing is dispatched (53.1) so leaving is "
+        "apps/os88alt.inc's poll of the key-state map and NOTHING ELSE IN "
+        "THE SUITE EXECUTES THAT FILE. tests/dosaltenter.py is the kernel "
+        "half. Two traps are written into it: `[fsx_cur]` is the wrong byte "
+        "(a same-mode bracket sets no mode, so it reads 0xFF throughout and "
+        "looks exactly like a dead feature), and ONE cycle proves less than "
+        "it looks - apps/paint passes the first and refuses the second, "
+        "which is why Paint is not in this row and why the bracket leg "
+        "round-trips twice",
+        needs=("marty",), serial=True),
+    Row("dosaltenter", "soak", py("tests/dosaltenter.py"), 20.0,
+        "SPEC.md 96.33.5.1: does Alt+Enter take the DOS box into full screen "
+        "and back out? Leg 0 is the premise and is the reason the mechanism "
+        "exists at all - the period XT ROM this boots enqueues NOTHING for "
+        "Alt+Enter (measured at 0040:001A/001C, the tail does not move), so "
+        "int 16h can never carry it and 9.7.1 latches the scancode instead. "
+        "Leg 4 is the one that needed a negative control to place: a held "
+        "key's typematic repeats are invisible from the WINDOW, because the "
+        "first press puts the bracket up and ui_task stops dispatching - it "
+        "is on the way BACK, with the key still down and fsx_restore having "
+        "just dropped the latch, that a missing guard throws the box "
+        "straight back into full screen",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
@@ -5674,7 +5748,7 @@ SOAK = [
         "the partition back on the HOST with instdeep's FAT reader. It "
         "ERASES the VHD.",
         needs=("marty",), serial=True, timeout=1200),
-    Row("hibernate", "soak", py("tests/hibernate.py"), 300.0,
+    Row("hibernate", "soak", py("tests/hibernate.py"), 80.0,
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
@@ -5687,6 +5761,24 @@ SOAK = [
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "
         "driver, so C: is a DVK_DRV volume and the resume's transport facts "
         "come through DSV_GEOM",
+        needs=("marty",), serial=True, timeout=1500),
+    Row("hibernatem", "soak",
+        py("tests/hibernate.py", "--machine", "os8088_5150_herc_hdd_gla"),
+        82.0,
+        "SPEC.md 87 ON A MONO MACHINE, which is the other half of "
+        "96.49.2's hole. The staging area IS the text framebuffer (87.5), so "
+        "it is at B000 on a Hercules primary and B800 everywhere else - and a "
+        "hibernation needs a FIXED DISK while the ADAPTER picks that segment, "
+        "so the two have to be on ONE machine before the mono arm runs at "
+        "all. Every profile in this tree with an [machine.hdc] was a CGA or a "
+        "VGA (five and two), so neither route had ever staged at B000 and the "
+        "DOS one shipped unable to: kd_stageseg held the mode byte in AL and "
+        "loaded AX before testing it. THIS ROUTE IS THE ONE THAT CANNOT HAVE "
+        "THAT DEFECT - hbm_stageseg compares a byte in MEMORY ([vid_kind]), "
+        "which the load cannot reach - and the row exists because that is a "
+        "claim about the source and not a measurement. It is green: 29 checks "
+        "on os8088_5150_herc_hdd_gla, the same 29 its CGA twin passes. Same "
+        "body as `hibernate`, one argument apart. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
     Row("instrest", "soak", py("tests/instrest.py"), 120.0,
         "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "

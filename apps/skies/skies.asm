@@ -2137,6 +2137,11 @@ cs_onkey:
     call cs_drcloseall              ; Esc: an open list down
     jmp short .out
 .notesc:
+    cmp ax, KEY_ALTENTER            ; Alt+Enter is the same door (SPEC.md
+    je .go                          ; 11.2.1.1), and a plain Enter already
+                                    ; opens it four lines down - so this is
+                                    ; the chord agreeing with the key rather
+                                    ; than a new action
     cmp al, 'f'
     je .go
     cmp al, 'F'
@@ -3122,6 +3127,7 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
 %define OS88UI_DROP             ; button, the drop-down (SPEC.md 13.14) and
 %define OS88UI_CHK              ; the check box (13.15), which the Settings
                                 ; page is the first user of,
+%include "os88alt.inc"          ; SPEC.md 11.2.1.1's edge, for the bracket
 %include "os88ui.inc"           ; of which this is the first user
 
 ; --- and the OVERLAY, at an address the worlds were assembled against ---------
