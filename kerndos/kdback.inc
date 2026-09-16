@@ -159,7 +159,7 @@ dos_k_here:
 dos_k_find:
     mov byte [dsk_fdraw], 0     ; ...the expanded size, as a package is told
     xor al, al                  ; ...and NOT a driver: no hidden, no system
-    call COLD_SEG:dsk_find_x    ; FAR, and kernel.asm:4472 says so
+    call COLD_SEG:dsk_find_x    ; FAR, and kernel.asm api_file_find says so
     ret                         ; CX = the next ordinal, AX = FERR_* on CF=1
 
 ; out: BX = sectors per cluster
@@ -221,7 +221,7 @@ dos_k_path:
     push es
     push ds
     pop es
-    call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm:4500 says so
+    call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm api_file_path says so
     pop es                      ; ...and `pop` writes no flag, so the CF
     pop bp                      ; dsk_path_x answered rides out
     ret
