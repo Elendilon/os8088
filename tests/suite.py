@@ -2752,6 +2752,23 @@ SOAK = [
         "un-pushing CX in .getcwd.",
         needs=("marty",), wants=("build/dosregs360.img",)),
 
+    Row("icostore", "soak", py("tests/icostore.py"), 60.0,
+        "TWO VOLUMES, ONE BODY (SPEC.md 25.9). The Disk window's icons were a "
+        "64-byte slot PER ENTRY, per listing and mirrored per open window, so "
+        "the copy of a package on the system disk and the copy on the apps "
+        "disk were two bodies in RAM and a folder of documents was 64 zero "
+        "bytes apiece. This asserts the three things that replaced it and "
+        "that NONE of them is visible on the glass: a listing's references "
+        "are DISTINCT (the defect it catches shipped for one commit - the "
+        "per-entry paths reached the folder's SHARED allocator and dsk_icoix "
+        "read 00 00 00 ...), a FOLDER takes no row at all, and the SECOND "
+        "VOLUME REUSES THE FIRST'S ROWS, which SPEC.md 24.3 makes the "
+        "ordinary case by shipping the core packages twice. The key is "
+        "(name, size) because it is the only identity available without a "
+        "SECTOR READ - keying on either half alone over-merges and shows up "
+        "here as too few rows.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
     Row("dosmcb", "soak", py("tests/dosmcb.py"), 30.0,
         "A BLOCK GROWS BACK INTO WHAT IT GAVE UP (SPEC.md 96.9.2). AH=4Ah "
         "grows only into the block immediately above it, which is DOS's own "
