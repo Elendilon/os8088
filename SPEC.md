@@ -30558,6 +30558,32 @@ with the size as the unknown** — 2 × n × 4.5KB ≤ free is 9n ≤ free, and 
 still wants the same 126KB it always did. A 640KB machine is unchanged; a
 machine with 40KB of free run gets four slots instead of nothing.
 
+##### 18.95.5.1 The width is solved ONCE, at the mount that finds no claim
+
+`dsk_rah_want`'s first test is `cmp word [dsk_rah_seg], 0 / jne .out`, so while
+the claim stands the solve never runs again — a machine does not re-negotiate
+its cache as the heap fills and empties. On a 640 KB machine the deciding
+mount is the one at BOOT, with ~450 KB free, so it is 7 slots for the session;
+the ladder's middle rungs are reached by machines that are small at that
+moment, not by a big machine that gets busy later. Measured on the 128 KB
+floor machine (`kern_small`), which is small at every moment:
+
+    bare desktop          dsk_rah_seg=0000  runs=0  claim NONE
+    after a mount of A:   dsk_rah_seg=1340  runs=5  claim 23K
+
+Five slots of seven, `ceil(5 × 4.5)` to the kilobyte. **The boot mount gets
+nothing there** and the first mount after the desktop is what lands it, which
+is the gate rather than a defect: the heap is not in its steady state while
+the boot ladder is still claiming, and `[dsk_rah_seg]` staying zero is exactly
+what makes the next mount retry.
+
+**A shed re-opens the question, and that is the only thing that does.**
+`mem_claim` sheds a purgeable claim **only as far as it needs to** (§50.6.3),
+so a claimant that can be satisfied without the cache leaves it standing at
+whatever width it already had — which is why a caller cannot ask for a
+NARROWER one by leaving room. §96.36.6.1 is that pair of conditions worked out
+on the DOS box, where they turn out to be mutually exclusive.
+
 **Only the round-robin bound had to become dynamic.** `dsk_rah_flush` still
 clears all `DSK_RAH_RUNS` records — 126 bytes of `.bss`, already paid, and
 clearing slots that no memory backs is free — which is what makes every other
@@ -128855,12 +128881,22 @@ kernel, 360 KB desktop, cache `Off`, the limit set to `avail - R`:
 | 54 K | 422 K | 32 K |
 | 63 K | 413 K | 32 K |
 
-**It is binary: 32 K or nothing, and never a rung in between.** `mem_claim` at
-`MEM_LVL_TOP` sheds a purgeable claim only as far as it needs to (§50.6.3), so
-above the threshold the cache is never shed at all — it only MOVES, which is
-why its segment changes across the launch (`dsk_rah_reloc` under the posted
-compaction, §66.2). Below it, it goes entirely. Nothing re-claims it at a
-width anybody chose.
+**It is binary: 32 K or nothing, and never a rung in between** — and **the
+ladder is not what is wrong**, which took a second measurement to establish.
+§18.95.5.1 reads 5 slots and 23 K on the floor machine, so the step-down works
+exactly as §18.95.5 describes it. Two conditions here are simply mutually
+exclusive:
+
+- the cache is shed **only if `mem_claim` needs its kilobytes** (§50.6.3), so
+  the reserve has to be SMALL for it to go at all — above the threshold it is
+  never shed, only MOVED, which is why its segment changes across the launch
+  (`dsk_rah_reloc` under the posted compaction, §66.2);
+- and the re-claim clears `DSK_RAH_MIN` only if the free run is **≥ 36 K**, by
+  the same `2 × n × 4.5 ≤ free` rule, so the reserve has to be LARGE.
+
+No reserve satisfies both. At 27 K the cache went and the retry refused; at
+36 K it never went. That is why the column reads 0, 0, 32, 32, 32, 32 rather
+than a ladder.
 
 And the arithmetic runs the wrong way: **`Auto` already hands the program
 444 K with the 32 K cache alive**, where the best reserve hands it 440 K with
@@ -128868,7 +128904,11 @@ the same cache. The reserve costs 4 K and buys nothing `Auto` does not.
 
 So the middle rungs still want a **width cap** in `dsk_rah_want` — a word of
 `.bss` read at its `.width` clamp, plus a door to set it and a forced shed so
-the new width takes effect. About thirty resident bytes, and not taken.
+the new width takes effect. With a cap the doubling can also be spent: `2 ×`
+is §40.1's rule that an *optimisation* must not be why something else fails,
+and a width the caller named is not an optimisation guessing — so a capped
+solve can take `ceil(4.5 × cap)` out of `cap`'s worth of room rather than
+twice it. About thirty resident bytes, and not taken.
 
 **The pick is remembered per arm.** The two lists are different lengths, so
 one `OS88UI_DR_SEL` cannot hold both: `dos_drop_place` swaps the pick with
