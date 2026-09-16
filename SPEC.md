@@ -123319,6 +123319,68 @@ answering `AH=57h` is a published kernel ABI change and not a DOS-box change.
 The probe row stays, red against the reference, as the gate's own record that
 the gap is known and measured rather than unnoticed.
 
+#### 96.7.1.3 ...and `AX`, which the sweep had deliberately left out
+
+§96.7.1.2's mask is eight registers — `BX CX DX SI DI BP ES DS` — and `AX` is
+not one of them. That was a decision rather than an oversight: `AX` is the
+answer register for most of `INT 21h`, so a column of it would read as a change
+on nearly every row and say nothing. The gap it leaves is the other half of the
+same rule, and it is exactly as real: **a function that answers nothing in `AX`
+must give `AX` back.**
+
+The idiom that depends on it is not exotic. A program installing a run of
+vectors writes
+
+    mov ax, 2534h
+    mov cx, 8
+  .next:
+    int 21h
+    inc ax
+    loop .next
+
+— eight consecutive vectors set by incrementing `AX`, `AH` surviving the call
+because `AH=25h` has no output at all. That is how Borland's 8087 emulator
+hooks `INT 34h`..`3Bh`, so it is how **every Turbo-compiled program in the
+world starts**, and the identical shape sits above it reading the same vectors
+back with `AH=35h`.
+
+`.setvec` fetched the program's `DS` off the banked frame with
+`mov ax, [bp]`. It goes back through the stack now —
+`push word [bp]` / `pop word [es:bx+2]` — which assembles to **the same seven
+bytes** and never names `AX` at all.
+
+##### 96.7.1.3.1 What it cost BOLOBALL, one call at a time
+
+The failure is worth following, because nothing in it looks like a register
+bug from either end. Measured under `tools/os88intmon.py` — the host-side
+monitor, so the shipping box and not a traced one:
+
+| call | what the program meant | what it issued |
+|---|---|---|
+| 17 | `AH=25h AL=34h` — hook `INT 34h` | as meant; we answered, leaving `AX = 41FEh`, the program's own `DS` |
+| 18 | `AH=25h AL=35h` | `inc ax` → `41FFh`: **`AH=41h`, DELETE FILE**, `DS:DX` pointing at the emulator's handler read as a filename. It failed, `AX = 0003h` |
+| 19 | `AH=25h AL=36h` | `inc ax` → `0004h`: **`AH=00h`, TERMINATE PROGRAM** |
+
+Nineteen `INT 21h` calls and the program was gone, before its first frame and
+before it opened one of its five overlay files. From the outside that is a game
+that starts and immediately exits; from inside our own trace every call was
+answered correctly, because each one *was*. Only the sequence is wrong, and
+only the register carries it.
+
+The two calls the corruption manufactured are worth naming separately. `AH=00h`
+is merely fatal. **`AH=41h` is a DELETE**, aimed by a pointer that means
+something else — it failed here because the bytes at `DS:DX` are machine code
+and not a path, which is luck rather than safety.
+
+##### 96.7.1.3.2 So the mask gains a ninth column
+
+`tests/dostrap/regs.asm` prints `ABCDSIPEG` now, and `tests/dosregs.py`'s
+expectation carries a measured `AX` for all forty-five rows. The objection that
+kept `AX` out is answered the way §96.7.1.2 answers it for `DX`: a change is not
+a defect and the probe judges nothing — **the finding is the diff between the
+two columns**, and the column for a real IBM DOS 3.30 is what says which of the
+forty-five answer in `AX` and which are supposed to hand it back.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
