@@ -125484,7 +125484,7 @@ blank. Measured on `os8088_5150_cga_gla` at the first paint:
 ```
 conrows=17 concols=80  con_vrows=17 con_vtop=8 con_cy=4
   buf[ 1] 'os8088 DOS Version 3.31'
-  buf[ 3] 'Type a command, or the name of a program to run.'
+  buf[ 3] 'Type a command, the name of a program, or help.'
   buf[ 4] 'A:\>'
 ```
 
@@ -126597,6 +126597,87 @@ file should not cost a package launch. It walks with `dsh_nth` against a
 `dsh_to11` pattern — the same ordinal walk every other name in this box is
 decided by — and puts the machine back where the prompt is before it prints,
 because it had to stand in the document's folder to ask.
+
+##### 96.33.23 `HELP` — every verb, one line each, and NO pager
+
+A user who has just found the prompt has no way to learn what it takes.
+`HELP` lists every verb with at most one line about each, and the opening
+hint says so: *Type a command, the name of a program, or help.*
+
+**DOS 3.3 has no `HELP`** — it arrived with DOS 5 — so the verb is free on
+§96.33.22's own ground, and a `HELP.COM` on the disk still wins, the search
+running only after the verb table has declined.
+
+**IT IS NOT A `dsh_tab` ROW**, for §96.33.22's reason twice over: that table is
+in the DOS core, which has **thirty bytes** of `CORE_MAX` left and whose every
+byte is reserved by BOTH hosts — and nothing outside the console wants this.
+It is intercepted in `dos_con_prog` beside `OPEN` and costs the core nothing.
+
+###### 96.33.23.1 SIXTEEN lines, because that is what a CGA holds
+
+**MEASURED, not assumed**: `[con_vrows]` is **17** on a CGA and 25 on Hercules
+and VGA, and the DOS window is not user-resizable — it is drawn at whatever
+size the adapter gives it. Sixteen lines and the prompt that follows them
+therefore fit on every adapter this machine has.
+
+**So there is no pager at all**, and that is the whole reason this is cheap.
+`DIR /P`'s suspend-and-resume machinery (§96.33.9) would have cost ~150 bytes
+of pager, a `Strike a key` string of its own — `dsh_s_strike` is the CORE's —
+and two more hooks in `dos_con_key`, to page a listing that fits.
+
+**The limit is asserted at ASSEMBLY TIME.** `DHL` counts the lines it emits
+and a seventeenth fails the build, because the constraint is invisible at the
+call site: an over-long help would simply scroll its first line off a CGA and
+nothing would say so on the adapter anybody tests on.
+
+###### 96.33.23.2 …and why the text is NOT a part, YET
+
+Putting the text in a part of `DOS.O88` and reading it on demand is the right
+shape for it — it would cost no resident byte, it could grow as verbs are
+added, and a pager it outgrew one screen into would cost RAM only while it
+printed. It is refused **today**, on what the box actually has:
+
+**THE SHIPPED BOX CARRIES NO PARTS MACHINERY.** `DOS.O88` uses parts —
+`apps/dos/dosload.asm` fetches the `int 21h` core as an `OP_COMP | OP_LAZY`
+row — but that is the LOADER, which is freed the moment the box is running.
+The box is part 0, and its own `OS88_PARTS_BEGIN` is behind `%ifdef DOSTRACE`:
+a shipped `dosp.bin` has the row CONSTANTS (`os88parts.inc` with no table
+emits nothing, which is the property 96.44.5 relies on) and **not one byte of
+`op_fetch`**. Bringing the body in is the ~800 bytes `OS88_PARTS_END_TABLE`
+exists to avoid, to save 768.
+
+**And hand-rolling the read is not a small thing either.**
+`OSAPI_FILE_READ_AT` refuses an offset or a capacity that is not a whole
+number of CLUSTERS (18.4.4), and a part's offset inside `DOS.O88` is wherever
+`os88pkg.py` put it — so the box would need the cluster size, the offset
+rounded down to it in 32 bits, the slack kept, the capacity rounded up, and
+`OSAPI_DECOMP` driven over the result. That is bespoke arithmetic this package
+would be the only holder of, against a text of 768 bytes.
+
+**What would change the answer is a SECOND CONSUMER**, and that is the way to
+read this section. The moment anything else in the box wants a part — the
+Setup page's text, the console's own — the machinery arrives for all of them
+and `HELP` rides along for the cost of a table row. It is not refused on
+principle and the arithmetic is not close to permanent; it is refused because
+today it would be the only customer of a mechanism that costs more than the
+one thing it carries.
+
+**Two arguments that look like reasons here are not**, and both are written
+down because each was made once in this section's own history:
+
+* **A PERCENTAGE IS NOT AN ARGUMENT.** An earlier draft said the bytes were
+  *0.2% of the DOS arena* and let that settle it. Bytes are the unit — 768
+  here, 3.5 KB from a settings screen, 8.5 KB from a console are all bytes,
+  and each one of them has at some point been waved away by a share of
+  something bigger. The banner at the top of CLAUDE.md is about exactly this
+  and it applies to a package image as much as to a rung.
+* **THE DISK IS NOT A HAZARD HERE.** *"`HELP` would fail with the floppy
+  swapped out"* is true and does not bite: a box that cannot reach its own
+  file cannot reach `kern_dos` either, so the machine is already in a state
+  this program does not run in. Nor is the read cost one: a part this small is
+  dropped again the moment it has printed, so it is an `int 13h` EVERY time
+  and that is fine — `HELP` is typed once by somebody who does not know what
+  to type.
 
 ##### 96.33.19 …and the exit line says what the ARENA was
 
