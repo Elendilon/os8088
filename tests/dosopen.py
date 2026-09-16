@@ -37,6 +37,12 @@ and only the extension was ever going to be noticed: a lowercase document name
 matches nothing on a FAT volume either, so folding the extension alone would
 have turned a visible refusal into a package opening an empty window.
 
+A LAUNCH THAT WORKED OWES A PROMPT (§96.33.17.1), reported with a photograph:
+two `open`s in a row left the cursor at column 0 of a bare line, so the second
+command had no `A:\>` in front of it.  It is §96.33.17's gap rather than this
+feature's - a DOS program's prompt comes back with its EXIT LINE and a package
+has none - so both spellings are asserted.
+
 AND THE REFUSALS ARE THREE, NOT ONE (§96.33.22.1).  One string used to answer
 all of them and was wrong twice over - it named the PROGRAM when the thing
 missing was the FILE, and said `on this disk` about a lookup that searches the
@@ -310,6 +316,34 @@ def main():
                      % (line, why, console()[-3:]))
             else:
                 print("dosopen: =  %-20s (%s) -> Note Pad" % (line, why))
+        clear()
+
+        # --- A LAUNCH THAT WORKED OWES A PROMPT (SPEC.md 96.33.17.1) -------
+        # Reported with a photograph: two `open`s in a row, and the console
+        # left the cursor at column 0 of a bare line - so the second command
+        # had no `A:\>` in front of it and the log read as one command running
+        # into the next. It is 96.33.17's gap rather than this feature's: a
+        # DOS program's prompt comes back with its EXIT LINE and a package has
+        # none, so both spellings are asserted here.
+        for line, want in (("OPEN README.TXT", "Note Pad"),
+                           ("B:\\APPS\\CALC.O88", "Calculator")):
+            clear()
+            if not launch(line, want):
+                fail("`%s` did not launch, so the prompt assertion below "
+                     "cannot run. Console: %r" % (line, console()[-3:]))
+                continue
+            tail = console()[-1]
+            if not tail.endswith(">"):
+                fail("after `%s` the console's last line is %r - a launch "
+                     "that WORKED still owes a newline and a prompt, because "
+                     "a package has no exit line to bring one back "
+                     "(SPEC.md 96.33.17.1)" % (line, tail))
+            elif tail.strip() not in ("A:\\>", "B:\\>"):
+                fail("after `%s` the prompt reads %r, which is not a bare "
+                     "prompt on a line of its own (SPEC.md 96.33.17.1)"
+                     % (line, tail))
+            else:
+                print("dosopen: >  %-18s -> prompt back: %r" % (line, tail))
         clear()
 
         # --- the THREE refusals (SPEC.md 96.33.22.1) ----------------------

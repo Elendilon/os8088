@@ -4002,13 +4002,19 @@ SOAK = [
         "asserted, because the FIRST fix then sent the PARSE failure to the "
         "new association wording, which is the same defect wearing its "
         "replacement`s clothes - `nosuchfile.txt` is FOURTEEN characters and "
-        "never reaches the lookup at all. The third needs a file no shipped "
+        "never reaches the lookup at all. A LAUNCH THAT WORKED OWES A PROMPT "
+        "(96.33.17.1), reported with a photograph: two `open`s in a row left "
+        "the cursor at column 0 of a bare line, so the second command had no "
+        "`A:\\>` in front of it - 96.33.17's gap rather than this feature's, "
+        "a DOS program's prompt coming back with its EXIT LINE and a package "
+        "having none, so BOTH spellings are asserted. "
+        "The third needs a file no shipped "
         "disk has (every visible document on both is associated, and the "
         "unclaimed ones in the root are HIDDEN), so the row MAKES one with "
         "the box`s own COPY onto the scratch B:. VERIFIED RED once more on "
         "the way: `.nodoc` was placed between `jnc .out` and `.bad`, so every "
         "refusal the LAUNCH earned fell through it and came back `File not "
-        "found` about a document that was there. 139.2s measured.",
+        "found` about a document that was there. 169.7s measured.",
         needs=("marty",), serial=True),
     Row("dosext", "soak", py("tests/dosext.py"), 170.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "

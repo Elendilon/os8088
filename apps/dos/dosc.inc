@@ -782,7 +782,8 @@ dos_pkg_go:
     call dos_be_goto
     pop ax
     popf
-    jnc .out                        ; its window is up: nothing to say
+    jnc .ok                         ; its window is up - and the PROMPT still
+                                    ; has to come back (SPEC.md 96.33.17.1)
     jmp short .bad                  ; **EXPLICIT, because `.nodoc` is BELOW**:
                                     ; this used to fall straight into `.bad`
                                     ; and the document check's arm was put
@@ -826,8 +827,31 @@ dos_pkg_go:
 .badend:
     mov si, dos_c_crlf
     call con_say
+    jmp short .prompt
+.ok:
+    ; --- A LAUNCH THAT WORKED OWES A PROMPT TOO (SPEC.md 96.33.17.1) -------
+    ; This arm was `nothing to say`, and for a DOS program that is right: the
+    ; prompt comes back with the exit line, from dos_con_ended. A PACKAGE has
+    ; no exit line - it opens its own window and outlives the command - so
+    ; nothing ever came back and the next thing typed landed at column 0 with
+    ; no `A:\>` in front of it.
+    ;
+    ; **THE COLUMN IS THE TEST**, which is dos_con_ended's own rule one door
+    ; along: the echoed command has already ended its line, so an
+    ; unconditional CRLF would give it a blank one.
+    cmp word [con_cx], 0
+    je .prompt
+    mov si, dos_c_crlf
+    call con_say
+.prompt:
     call dos_prompt
+    ; **AND THE DRAW TAKES THE LOCK**, because dos_pkg_go is the WAKE
+    ; handler's context and dos_con_draw wants it held (SPEC.md 74.1). The
+    ; refusal arms have always drawn from here unlocked; sharing one epilogue
+    ; fixes that at the same time as it saves the bytes.
+    call OSAPI_GFX_LOCK
     call dos_con_draw
+    call OSAPI_GFX_UNLOCK
 .out:
     pop di
     pop si

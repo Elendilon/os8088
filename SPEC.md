@@ -126382,6 +126382,30 @@ the box was launched from (§96.33.13) — and the box stands there with
 the instance, which is what `OSAPI_PKG_START`'s own `inst_vol_enter` reads. The
 two agree with nothing to keep in step.
 
+###### 96.33.17.1 …and a launch that WORKED owes a prompt
+
+Reported off the glass with a photograph: `open readme.txt` opened Note Pad
+and the console was left with the cursor at **column 0 of a bare line**, so
+the next command typed into it had no `A:\>` in front of it and the log read
+as one command running into the next.
+
+`dos_pkg_go`'s success arm was *"its window is up: nothing to say"*, and for a
+DOS program that is exactly right — §96.33.20's exit line brings the prompt
+back when the program ends, which is why `dos_con_prog` returns without one.
+**A package has no exit line.** It opens its own window and outlives the
+command, so nothing was ever going to come back and say so.
+
+It is §96.33.17's gap rather than §96.33.22's: a `.O88` typed at the prompt has
+had it since that section shipped, and `OPEN` only made it easy to notice
+because opening a document is a thing a user does several times in a row.
+
+**THE COLUMN IS THE TEST**, borrowed from `dos_con_ended` one door along: the
+echoed command has already ended its line, so an unconditional CRLF would give
+it a blank one. And the success and refusal arms share ONE epilogue now, which
+is what makes this smaller than the bug — and fixes a second thing on the way,
+since those refusal arms had always called `dos_con_draw` from the wake
+handler's context **without the gfx lock** it documents (§74.1).
+
 ##### 96.33.21 A `.O88` takes a PATH, and may name a DOCUMENT after it
 
 §96.33.17 launched a package by BARE NAME and nothing else. `dos_con_pkg`
