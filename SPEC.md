@@ -130475,6 +130475,63 @@ that is where the return stub goes — docs/plans/KERN-DOS-PLAN.md §8. Until it
 exists a block that does not ask for the reboot says so and holds, rather than
 restarting a machine the user expected back.
 
+#### 96.40.7 …and a refusal that came home as an EXIT CODE
+
+**Field report: a program that does not exist, typed in the box, Run, with
+*Shut down the OS* ticked — "does not give any message".** Reproduced on an
+`os8088_5150_cga_hdd`, and what it really said was worse than nothing:
+
+```
+Starting C:\NOSUCH.COM
+C:\NOSUCH.COM ended, exit code 255 (Arena: 597KB)
+```
+
+The machine handed over, `kern_dos` could not open the file, and came home with
+**255** — which the box printed as *a program that ran and exited 255*. A
+refusal wearing a result's clothes is worse than silence: `[dos_state]` read
+`DST_RAN`, `[dos_err]` read 0, and there is nothing in that line to act on.
+
+**Two causes, and they compound.**
+
+1. Every refusal arm in `kd_entry` ended at one label that wrote `0xFF`.
+   `no launch block`, `no room`, `no mount`, `no file window` and `could not be
+   loaded` were one value between them.
+2. `kd_puts` writes the sentence to **`kern_dos`'s own screen**, and `kd_leave`
+   hands straight back — so nobody ever reads it. The diagnosis existed and was
+   thrown away a frame later.
+
+And 255 cannot become the signal, because it is a legal `INT 21h AH=4Ch` code:
+a program really can exit 255.
+
+**`KDC_FAIL` is `KDH_CODE`'s high byte** (`0x80`). Zero means the low byte is a
+real exit code; set means the low byte is meaningless and the other seven bits
+are the reason. The `DER_*` range is 0..8, so `KDC_FAIL | DER_*` can never
+collide with `KDH_NOCODE` (`0xFFFF`).
+
+**The reason is a `DER_*` — the BOX's own — and not a code of `kern_dos`'s to
+be translated.** `apps/dos/dos.asm` defines them ungated, so the `KD_BACKEND`
+build sees them, and the window half needs no mapping table at all: one `and`,
+one store into `[dos_err]`, and `dos_err_line` says the sentence it already
+had. The missing program is `DER_READ`, *"It could not be read."*
+
+| `kd_entry` arm | sends |
+|---|---|
+| no launch block | `DER_HAND` |
+| no room for a program | `DER_MEM` |
+| the volume would not mount | `DER_GOTO` |
+| no file window | `DER_MEM` |
+| **the program could not be loaded** | **`DER_READ`** |
+
+**Both return routes carry the whole word.** The BDA mailbox and the live
+resume each did `mov al, [kd_code] / xor ah, ah`, which would have thrown the
+flag away and made it arrive always zero — and the live resume is the route
+that shipped *last*, which is exactly how a two-route field goes stale on one
+of them and not the other.
+
+`kd_code` is a word now for that reason: the pair moves in one store, and the
+success path clears the high byte explicitly rather than at entry, because a
+refusal may have set it on an earlier pass through the same image.
+
 ### 96.41 The return — the machine goes all the way round
 
 On a machine with a fixed disk there IS something to come back to, and §96.40's
