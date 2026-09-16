@@ -30584,6 +30584,75 @@ whatever width it already had — which is why a caller cannot ask for a
 NARROWER one by leaving room. §96.36.6.1 is that pair of conditions worked out
 on the DOS box, where they turn out to be mutually exclusive.
 
+##### 18.95.5.2 …so it asks what the machine HAS as well, and takes the smaller
+
+Because the width is solved once (§18.95.5.1), `n = free_run ÷ 9` was
+**effectively asking how much RAM the machine has** — on anything big the
+deciding mount is the one at boot with the whole arena free, and the answer is
+the ceiling every time. That is the right answer there and the wrong one on a
+machine where 32 KB is a quarter of everything: the cache then fights the
+save-under caches (§11.96) and the window raise cache for a heap neither can
+spare.
+
+So the solve asks **both** and takes the smaller:
+
+    n = min( free_run ÷ 9 ,  arena ÷ (DSK_RAH_SHARE × 4.5) )   capped at
+                                                               DSK_RAH_RUNS,
+                                                       floored at DSK_RAH_MIN
+
+`DSK_RAH_SHARE` = 4: **the cache may be at most a quarter of the whole arena**,
+whatever is momentarily free. And at that share the second term is
+`(arena ÷ 2) ÷ 9`, which is the **same divide the first one already needs** —
+so the whole bound is `[mem_top] - [mem_base]`, two shifts and a compare, with
+no second division. **20 bytes of `.cold`**, measured, no rung crossed.
+
+What it does to the curve, arena from `kernsize`'s ladder:
+
+| machine | arena | free-run says | share says | width | claim |
+|---|---:|---:|---:|---:|---:|
+| 640 KB | ~450 K | 50 | 25 | **7** (ceiling) | 32 K |
+| 256 KB | ~145 K | 16 | 8 | **7** (ceiling) | 32 K |
+| 196 KB (`kern_big`'s floor) | ~85 K | 9 | 4 | **4** | 18 K |
+| 128 KB (`kern_small`'s) | ~50 K | 5 | 2 | **2** | 9 K |
+
+A big machine is untouched — both terms are past the ceiling. The floor machine
+goes 23 K → 9 K, which is the whole point: 46% of its arena down to 18%.
+
+##### 18.95.5.3 …and the floor drops to the rung `kern_dos` already had
+
+`DSK_RAH_MIN` was **4** slots, so the narrowest cache the kernel would take was
+18 KB behind a 36 KB bar. §18.95.4's own simulation is what the floor was
+chosen off, and it prices the rung below:
+
+| slots | KB | share of what the ceiling saves |
+|---:|---:|---:|
+| 2 | **9** | **87%** |
+| 4 | 18 | 93% |
+
+**`kern_dos` has taken that rung for a cycle.** `KD_RAH_L2` is 2, and its
+comment says why in one line — *"a cache that is not worth having beats one
+that is not there"* (§96.44.11.4) — a judgement the kernel's own floor was
+making the other way, on exactly the machines that need it most. So
+`DSK_RAH_MIN` is **2**, and the two ladders agree.
+
+It costs nothing to compile: a constant, and the `%if` that bounds it to
+`[1, DSK_RAH_RUNS]` already allowed it. **And it costs nothing to RUN**, which
+is the part that had to be measured rather than assumed. The floor machine's
+own directory walks, `m.disk()` counting the FDC from outside (§18.94), at the
+old width and the new:
+
+| walk | 5 slots (23 K) | 2 slots (9 K) |
+|---|---:|---:|
+| `A:/APPS` cold | 10 reads / 43 sectors | 10 / 43 |
+| `A:/SYSTEM` | 8 / 29 | 8 / 29 |
+| `A:/APPS` again | 13 / 56 | 13 / 56 |
+| `A:/SYSTEM` again | 8 / 29 | 8 / 29 |
+
+**Identical, every row.** The narrower cache serves this machine's walks
+exactly as well and hands 14 KB back to the heap the save-under caches were
+competing for — which is §18.95.4's curve doing what it said it would: the
+first 4.5 KB buys 72% and the last 27 KB buys 4%.
+
 **Only the round-robin bound had to become dynamic.** `dsk_rah_flush` still
 clears all `DSK_RAH_RUNS` records — 126 bytes of `.bss`, already paid, and
 clearing slots that no memory backs is free — which is what makes every other
