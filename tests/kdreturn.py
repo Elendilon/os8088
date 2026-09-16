@@ -20,6 +20,34 @@ WHAT IT ASSERTS, in the order the machine does it:
     whole point: the session is the one that left
   4 the mailbox at 0040:00F0 is CLEARED, so the next resume cannot pick up a
     code from this one
+  5 THE CLOCK IS STILL A CLOCK, and it has moved FORWARD (SPEC.md 96.49.5).
+    `kd_resume` staged the six time fields out of `clk_sn_*`, filled by a
+    `cw_clk_snapshot` that is a bare `retf` - so the session came home at
+    00:00:00 on 00/00/0000 and a month of zero indexes `clk_mnames` three
+    bytes before the table. It is asserted as a RANGE and a DIRECTION rather
+    than a value: the guest's own clock is what the row compares against,
+    which needs no wall clock and no RTC on the machine
+
+**THREE ARMS SWAP THE PROGRAM FOR ONE THAT LEAVES THE MACHINE AS A REAL DOS
+PROGRAM LEAVES IT**, and each is a different question.  All three are DOSHELLO
+built with one define, because what they change is one instruction and a
+copied source is a source that drifts:
+
+  `--mode`   `-DMODESET=2`, the colour TEXT mode `DIGIRAIN.COM` sets.  The
+             BDA's video mode byte is then 2 rather than 7, so `kd_stageseg`
+             answers B800 where `hbm_wake` will read `[vid_kind]` (SPEC.md
+             96.49.6).  **Only a question on a machine whose BIOS will accept
+             it** - GLaBIOS on a mono-only 5150 forces 7 back, so the arm is
+             carried for the config that does not, and the segment is carried
+             rather than derived either way.
+  `--gfx`    `-DMODESET=0x13`, and this is the one with teeth: in mode 13h a
+             VGA decodes A000 ALONE, so B800 is open bus - the stub is
+             `rep movsb`'d into nothing and the far jump into it is the end of
+             the machine.  Run it on `os8088_xt_vga_hdd`.
+  `--pit`    the program takes PIT channel 0 for its own timer and exits
+             without giving it back, which is what a DOS game does.  What puts
+             it back is `dos_restore_machine`, in the SHARED core, and nothing
+             asserted that line (SPEC.md 96.5).
 
 IT NEEDS A HARD DISK: `hb_pick` is the predicate on both sides, so a
 floppy-only machine takes W5's arm and this row would be asserting nothing.
@@ -65,8 +93,9 @@ import os88ui                                                  # noqa: E402
 # DOSRMARK=1, whose trace is the only way to watch a resume from outside.
 # The targets are this row's own `wants=`: a tree is cut to what it is asked
 # for, so a missing goal here is a FileNotFoundError naming a private tree.
-_TREE_TARGETS = ("kdos/DOS.O88", "DOSHELLO.COM", "kernel.sys", "boothd.bin",
-                 "mbr.bin", "hiber.drv", "ctrl.drv", "hdd.drv",
+_TREE_TARGETS = ("kdos/DOS.O88", "DOSHELLO.COM", "DOSMODE.COM", "DOSGFX.COM",
+                 "DOSPIT.COM", "kernel.sys",
+                 "boothd.bin", "mbr.bin", "hiber.drv", "ctrl.drv", "hdd.drv",
                  "os8088-360.img", "apps360.img")
 if "--tree" in sys.argv:
     os88build.tree(*sys.argv[sys.argv.index("--tree") + 1].split(),
@@ -100,9 +129,16 @@ def rows(m):
     return [r.rstrip() for r in (m.screen() or [])]
 
 
-def fixture():
+def fixture(prog="DOSHELLO.COM"):
+    """...and the DEFAULT is the plain program, because this is IMPORTED.
+
+    `tests/mouresume.py` builds this row's fixture and drives its own session
+    on top of it, so the argument the arms below need must not become a
+    required one - making it so failed that row with a TypeError, in 0.1s,
+    naming a line in a file its author never touched.
+    """
     for p in (TEMPLATE, KERNEL, os88build.at("build/kdos/DOS.O88"),
-              os88build.at("build/DOSHELLO.COM")):
+              os88build.at("build/" + prog)):
         if not os.path.exists(p):
             fail("%s is missing - `make kdostest` builds the DOS pieces and "
                  "`make marty` the template" % p)
@@ -122,7 +158,7 @@ def fixture():
     # a floppy keeps this row about the return rather than about the mount.
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
-         os88build.at("build/DOSHELLO.COM")])
+         os88build.at("build/" + prog)])
 
 
 def sysfloppy():
@@ -237,9 +273,38 @@ def wait_desktop(m, ui, secs=300, stamp=None):
                             for i, r in enumerate(rows(m)) if r.strip())))
 
 
+def clock(m):
+    """The live `clk_sec`..`clk_year` block, as (h, m, s, day, mon, year).
+
+    Nine bytes and not ten: `clk_h12` is the tenth and is a display toggle.
+    Read off the guest rather than compared with the host's wall clock - the
+    machine has no RTC on most of these profiles (SPEC.md 37.90), so its own
+    clock is the only authority for what its own clock should say.
+    """
+    raw = bytes(m.read(os88sym.linear("clk_sec"), 9))
+    return (raw[2], raw[1], raw[0], raw[3], raw[4], raw[7] | (raw[8] << 8))
+
+
+def secs(c):
+    return c[0] * 3600 + c[1] * 60 + c[2]
+
+
+def guest_ticks(m):
+    return int.from_bytes(bytes(m.read(os88sym.linear("ticks"), 2)), "little")
+
+
 def main():
     from_floppy = "--boot" in sys.argv and "floppy" in sys.argv
-    fixture()
+    # --mode swaps the program for DOSHELLO built -DMODESET, which sets BIOS
+    # mode 2 first. See the header: it is only a question on a MONO machine.
+    prog = "DOSHELLO.COM"
+    if "--mode" in sys.argv:
+        prog = "DOSMODE.COM"
+    elif "--gfx" in sys.argv:
+        prog = "DOSGFX.COM"
+    elif "--pit" in sys.argv:
+        prog = "DOSPIT.COM"
+    fixture(prog)
     boot = None
     if from_floppy:
         sysfloppy()
@@ -281,9 +346,13 @@ def main():
             print("kdreturn: volume kinds %r - the fixed disk is on a driver"
                   % (kinds,))
 
-        win = ui.path("B:/DOSHELLO.COM")
+        before = clock(m)
+        print("kdreturn: the guest's clock reads %02d:%02d:%02d %02d/%02d/%d"
+              % (before[0], before[1], before[2], before[3], before[4],
+                 before[5]))
+        win = ui.path("B:/" + prog)
         if not win:
-            fail("double-clicking DOSHELLO.COM on the floppy opened no window")
+            fail("double-clicking %s on the floppy opened no window" % prog)
         rs = wait_text(m, "READY", 150, "the windowed run")
         win_kb = topmem(rs)
         m.type_text("x")
@@ -458,6 +527,88 @@ def main():
                  "(SPEC.md 96.41.1) and what is on the glass is the WINDOWED "
                  "launch's figure - %r" % (akb, kd_kb, last))
         print("kdreturn: the console logged %r" % last)
+
+        # --- 7. ...AND THE CLOCK IS STILL A CLOCK (SPEC.md 96.49.5) ---------
+        # `kd_resume` staged the six TIME fields out of `clk_sn_*`, which
+        # `cw_clk_snapshot` fills - and that routine was a bare `retf` under a
+        # comment saying it was *"the one stub that is NOT a stub"*. So the
+        # stores copied cleared `.bss` and the session came home at 00:00:00 on
+        # 00/00/0000, reported from the field as a corrupted clock on EVERY DOS
+        # program. Two of those fields are not merely wrong but OUT OF RANGE:
+        # `clk_mon` = 0 indexes `clk_mnames` three bytes before the table.
+        #
+        # Asserted against the GUEST's own clock and never the host's: most of
+        # these profiles are a 5150, which has no RTC at all (SPEC.md 37.90),
+        # so what the machine said before the handoff is the only authority for
+        # what it should say after it.
+        #
+        # VERIFIED RED on the shipped tree: `00:00:18 00/00/0000` against
+        # `00:01:18 04/07/2026`.
+        after = clock(m)
+        print("kdreturn: the clock came back %02d:%02d:%02d %02d/%02d/%d"
+              % (after[0], after[1], after[2], after[3], after[4], after[5]))
+        if not (1 <= after[4] <= 12) or not (1 <= after[3] <= 31):
+            fail("the clock came back on %02d/%02d/%d, which is not a date "
+                 "(SPEC.md 96.49.5): `cw_clk_snapshot` is a stub, so the six "
+                 "time fields kd_resume staged over KDL_CLK were cleared bss. "
+                 "A month of 0 indexes clk_mnames BEFORE the table"
+                 % (after[3], after[4], after[5]))
+        if after[5] != before[5] or after[4] != before[4]:
+            fail("the clock went from %r to %r - the DATE changed across a "
+                 "return that took seconds (SPEC.md 96.49.5)"
+                 % (before, after))
+        moved = secs(after) - secs(before)
+        if moved < 0:
+            moved += 24 * 3600
+        # The round trip is a handoff, a whole DOS program and an image read:
+        # seconds, never zero and never minutes. The lower bound is what goes
+        # red on a resume that staged the LAUNCH's clock and never advanced it;
+        # the upper is what goes red on one that advanced it by garbage.
+        if not (1 <= moved <= 600):
+            fail("the clock moved %d seconds across the return, from %r to "
+                 "%r. It should move by about how long the DOS program had "
+                 "the machine: 0 is a resume that put the handoff's clock "
+                 "back untouched, and a large number is HS_TICK0 being "
+                 "subtracted from the wrong thing (SPEC.md 96.49.5)"
+                 % (moved, before, after))
+        print("kdreturn: ...and it moved forward %d seconds" % moved)
+
+        # --- 8. ...AND IRQ0 IS STILL 18.2 Hz (SPEC.md 96.5, 96.5.3) --------
+        # A DOS program may take PIT channel 0 for its own timer, and a great
+        # many do; `dos_restore_machine` is what puts the divisor back, and it
+        # is in the SHARED CORE so it runs on the windowed host and inside
+        # `kern_dos` alike. Nothing asserted that line - it sits in a routine
+        # that also restores the IVT, the BDA and the 8259 masks, and a
+        # resumed machine counting ticks at a rate of the program's choosing
+        # has EVERYTHING it measures in ticks wrong together, the clock
+        # included.
+        #
+        # TWO INDEPENDENT RESTORES hold this - the core's teardown and
+        # `hb_wake`'s own - so what is asserted is the OUTCOME, and removing
+        # either one alone leaves it green. VERIFIED RED with BOTH gone: 72.8
+        # Hz on the resumed desktop, and the clock reported 309 seconds of a
+        # 60-second round trip, which is the compound damage in one line.
+        #
+        # It does NOT cover the MODE, which is not observable from here: that
+        # same routine wrote 0x36 where `sched_init` writes 0x34, so channel 0
+        # came back in the ROM's mode 3 after every DOS program ever run in a
+        # window (SPEC.md 96.5.3). Said out loud so a green row is not taken
+        # for cover it has not got.
+        #
+        # Measured against the GUEST's cycle counter, which is exact at any
+        # emulator speed (CLAUDE.md, Testing) and is the one clock on the box
+        # that the guest cannot influence.
+        s0, t0 = m.status()["cycles"], guest_ticks(m)
+        time.sleep(2.0)
+        s1, t1 = m.status()["cycles"], guest_ticks(m)
+        hz = ((t1 - t0) & 0xFFFF) * 4772727.0 / (s1 - s0)
+        print("kdreturn: IRQ0 is running at %.1f Hz" % hz)
+        if not (16.0 <= hz <= 21.0):
+            fail("IRQ0 is running at %.1f Hz after the return and the kernel "
+                 "owns channel 0 at 18.2065 (SPEC.md 8.1). The DOS program "
+                 "took the channel and `dos_restore_machine` did not put the "
+                 "divisor back (SPEC.md 96.5) - so every tick-measured thing "
+                 "on the machine, the clock included, is wrong together" % hz)
     finally:
         m.close()
         for p in (VHD, FLOPPY, SYSIMG):
@@ -466,7 +617,7 @@ def main():
             except OSError:
                 pass
 
-    print("kdreturn: ok - the machine went away, ran DOS, and came back")
+    print("kdreturn: ok - the machine went away, ran %s, and came back" % prog)
 
 
 if __name__ == "__main__":

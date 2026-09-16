@@ -68,4 +68,17 @@ HS_DOSAKB   equ 0x0444          ; dw the ARENA the DOS program was given, in
                                 ; so `hbm_wake` reads ONE pair of cells and
                                 ; neither route needs a second reader
 
+; **AND THE BIOS TICK THE KERNEL STOPPED COUNTING AT** (SPEC.md 96.49.5).
+; 0xFFFFFFFF = the ten bytes at HS_CLK are ALREADY CURRENT, which is what the
+; reboot route stages: a fresh boot has just run the clock ladder, and adding
+; an elapsed time on top of that would count the DOS session twice. Any other
+; value is 0040:006C as it stood at the handover, and `hbm_wake` subtracts it
+; from the live counter to find out how long the machine was somebody else's.
+;
+; THE BDA IS WHY THIS WORKS AT ALL: the stub puts the IVT back and never file
+; sector 2, so 0040:006C is the ROM's own and has been counting throughout -
+; and SPEC.md 8.1's PIT change is a MODE change, leaving the IRQ0 rate at
+; 18.2065 Hz on both sides of the handover.
+HS_TICK0    equ 0x0446          ; dd, above HS_DOSAKB and below HS_IVT
+
 %endif                          ; HBSTAGE_INC

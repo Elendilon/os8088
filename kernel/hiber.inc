@@ -134,6 +134,15 @@ KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.49)
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on
 KDL_CYLRUN  equ 89              ; db may a run cross a HEAD over there (96.44.14)
 KDL_CLK     equ 90              ; db[10] the kernel's own clock block
+KDL_TICK    equ 100             ; dd ...and the BIOS tick 0040:006C it was read
+                                ; at, which is what lets the other host say how
+                                ; long the DOS program ran (SPEC.md 96.49.5)
+KDL_STAGE   equ 104             ; dw WHERE THE KERNEL WILL LOOK on the way back
+                                ; - `hbm_stageseg`'s own answer, because the
+                                ; other host asks the BDA's mode byte and that
+                                ; byte is the DOS PROGRAM's (SPEC.md 96.49.6).
+                                ; 0 = a kernel too old to say, and `kd_resume`
+                                ; falls back to asking
 KDL_VROW    equ 6
 KDL_VMAX    equ 8
 KDL_MOULINE equ 27              ; db ...and its bit in the master 8259's mask.
@@ -1985,6 +1994,12 @@ hbm_res:
     mov [es:HS_DOSAKB], ax      ; and the arena travels in the next cell, so
                                 ; the reboot route and the live one converge
                                 ; where the CODE does (SPEC.md 96.41.1)
+    mov word [es:HS_TICK0], 0xFFFF      ; **THE CLOCK ABOVE IS ALREADY CURRENT**
+    mov word [es:HS_TICK0 + 2], 0xFFFF  ; (SPEC.md 96.49.5): a fresh boot has
+                                ; just run the ladder, so there is no elapsed
+                                ; time to add and adding one would count the
+                                ; DOS session twice. The live route stages the
+                                ; handover's own tick here instead
     push ds
     mov ds, [hb_xseg]           ; the extents
     xor si, si
@@ -2180,6 +2195,33 @@ hbm_dosrun:
     pop cx
     pop di
     pop si
+    ; --- ...AND THE TICK THOSE TEN BYTES WERE TRUE AT (SPEC.md 96.49.5) -----
+    ; A clock reading is worth nothing over there without the instant it was
+    ; taken: the program may run for an hour and `kern_dos` has no way to
+    ; measure one - its `cw_clk_snapshot` is a bare `retf`, and the six stores
+    ; that trusted it brought the resumed machine home at 00:00:00 00/00/0000.
+    ; 0040:006C is the only counter that runs on BOTH sides: SPEC.md 8.1's PIT
+    ; change is a MODE change so IRQ0 stays 18.2065 Hz, `sch_isr` chains the
+    ; ROM's handler every tick, and the stub restores the IVT alone and never
+    ; file sector 2 - so it is still counting when we come back. A PAIR with
+    ; the ten bytes above, and banked in the same breath for that reason.
+    push es
+    xor ax, ax
+    mov es, ax
+    mov ax, [es:0x046C]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_TICK], ax
+    mov ax, [es:0x046E]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_TICK + 2], ax
+    ; ...AND WHERE WE WILL LOOK FOR ALL OF IT (SPEC.md 96.49.6). `kd_stageseg`
+    ; answers out of the BDA's mode byte, which belongs to the DOS PROGRAM;
+    ; `hbm_wake` asks `[vid_kind]`. They agree when `kern_dos` STARTS - step 4
+    ; below is `vid_reboot`, which sets mode 7 on a Hercules primary and 3
+    ; elsewhere, the same split - and they stop agreeing the moment the program
+    ; calls int 10h. So the side that will BELIEVE the answer states it.
+    call hbm_stageseg           ; ES = B000 or B800
+    mov ax, es
+    mov [cs:hbm_dosrec + KDH_LB + KDL_STAGE], ax
+    pop es
     mov word [hb_dosseg], 0     ; the post is spent HERE, and the image has it
     jmp short .staged
 .noimg:
@@ -2883,8 +2925,51 @@ hbm_wake:
     mov es, ax                  ; asked - and the page that is not there is a
     HBMARKAT HM_WCOL, 'W'       ; black hole rather than a fault
 %endif
-    sti                         ; 1. the IVT is the image's; nobody switches
     cld
+    ; --- 1. THE PIT, WHICH THE HANDOVER PUT BACK IN THE ROM'S MODE ----------
+    ; SPEC.md 8.1: the kernel runs channel 0 in MODE 2 with divisor 0, so the
+    ; IRQ rate stays 18.2065 Hz and the counter decrements by ONE per input
+    ; clock - which is what makes `sch_pit_now` and `sch_account`'s
+    ; `65536 - count` an elapsed time at all. The ROM's default is mode 3,
+    ; where it steps by two and wraps twice a period.
+    ;
+    ; **SPEC.md 87.6 SAID THIS WAS ALREADY TRUE AND IT WAS TRUE OF ONE ROUTE.**
+    ; *"the fresh boot's `sched_init` set it and nothing on the resume path
+    ; unset it"* is exactly right after `int 19h`; on the LIVE route there is
+    ; no fresh boot and no `sched_init`, and the last thing to touch channel 0
+    ; was `hbm_dosrun`'s own step 6, which put the ROM's mode 3 back so that
+    ; `kern_dos` would keep BIOS time. Nothing on the way home undid it.
+    ;
+    ; AND THE DIVISOR IS THE HALF THAT CAN BITE HARD: a DOS game that
+    ; reprograms channel 0 for its own timer and exits without restoring it
+    ; hands the resumed kernel an IRQ0 rate of its choosing, and everything
+    ; the machine measures in ticks is then wrong together. Three instructions
+    ; here - `sched_init`'s own - answer both, and on the reboot route they
+    ; are idempotent.
+    ;
+    ; BEFORE THE `sti`, so no IRQ0 lands between the reprogram and the re-seed
+    ; below: `sch_account` bills the delta against `[sch_pit_last]`, and a
+    ; stamp taken in one mode and spent in another charges a whole tick of
+    ; garbage to whichever task was running - `sch_fast_off`'s own reason.
+    mov al, 0x34                ; ch0, lo/hi, mode 2, divisor 0 = 65536
+    out 0x43, al
+    xor al, al
+    out 0x40, al
+    out 0x40, al
+    mov bp, sch_pit_now
+    call KERNEL_SEG:cw_mem_disp ; AX = phase, DX = [ticks]
+    mov [sch_pit_last], ax
+    mov [sch_pit_last + 2], dx
+    ; ...AND THE SPEAKER, WHICH IS THE OTHER THING A DOS PROGRAM CAN LEAVE ON.
+    ; `hbm_dosrun` calls `snd_unhook` on the way out - 61h bits 0-1 back to
+    ; their boot state - and there is no counterpart on the way in, so a
+    ; program that exits mid-tone comes home as a machine that will not stop
+    ; buzzing. The kernel's own sound state is the image's and is silent by
+    ; construction, so the gate simply goes off.
+    in al, 0x61
+    and al, 0xFC
+    out 0x61, al
+    sti                         ; the IVT is the image's; nobody switches
     call hbm_stageseg           ; 2. the clock the boot just read
     mov si, HS_CLK
     mov di, clk_sec
@@ -2898,7 +2983,68 @@ hbm_wake:
     mov ax, [ticks]
     mov [clk_last], ax
     mov word [clk_acc], 0
-    mov byte [clk_barq], 1
+    ; --- 2b. ...AND THE TIME SOMEBODY ELSE HAD THE MACHINE (SPEC.md 96.49.5)
+    ; The ten bytes above are the FRESH BOOT's on the reboot route and the
+    ; HANDOVER's on the live one, where there was no boot to read a clock. The
+    ; difference is at 0040:006C, which the stub never restores - file sector 2
+    ; is the ROM's - and which has been counting at 18.2065 Hz throughout,
+    ; because SPEC.md 8.1's PIT change is a MODE change and `sch_isr` chains
+    ; the ROM's handler every tick.
+    ;
+    ; **`clk_tick` IS THE CATCH-UP AND IT IS ALREADY WRITTEN.** It takes
+    ; `[ticks] - [clk_last]`, turns it into whole seconds and carries them
+    ; through `clk_inc_sec` one at a time - month lengths, leap years and all -
+    ; and its own comment names *"an hour of held-open menu"* as the case it
+    ; exists for. So the delta is applied by moving `[clk_last]` BACK under it,
+    ; 32,768 ticks at a time: half an hour a pass, which keeps that routine's
+    ; `mul`/`div` inside the range it already assumes and adds no arithmetic
+    ; here at all. A day is 48 passes.
+    mov ax, [es:HS_TICK0]
+    mov dx, [es:HS_TICK0 + 2]
+    mov bx, ax
+    and bx, dx
+    inc bx
+    jz .clkdone                 ; 0xFFFFFFFF: the clock above is current
+    push es
+    xor bx, bx
+    mov es, bx
+    mov bx, [es:0x046C]         ; the ROM's own tick, now
+    mov cx, [es:0x046E]
+    pop es
+    sub bx, ax
+    sbb cx, dx                  ; CX:BX = ticks the kernel was not running for
+    jns .clkcat
+    add bx, 0x00B0              ; NEGATIVE is midnight: the ROM zeroes the
+    adc cx, 0x0018              ; count at 24 hours, so one day - 1,573,040
+    js .clkdone                 ; ticks - goes back. A SECOND crossing keeps
+                                ; the handover's clock rather than guessing:
+                                ; late is a clock, invalid is not
+.clkcat:
+    mov ax, cx
+    or ax, bx
+    jz .clkdone
+    mov ax, 0x8000              ; ...a pass at a time
+    or cx, cx
+    jnz .clkpass
+    cmp bx, ax
+    jae .clkpass
+    mov ax, bx
+.clkpass:
+    sub bx, ax
+    sbb cx, 0
+    sub [clk_last], ax          ; ...which is exactly what clk_tick reads
+    push bx
+    push cx
+    mov bp, clk_tick
+    call KERNEL_SEG:cw_mem_disp
+    pop cx
+    pop bx
+    jmp short .clkcat
+.clkdone:
+    mov byte [clk_barq], 1      ; AFTER the catch-up and not before: clk_tick
+                                ; TESTS AND CLEARS this byte, so a request
+                                ; posted in front of the loop is one the loop
+                                ; spends and the bar never repaints
     ; 3. the disk caches are the write's, not the disk's (SPEC.md 87.4) -----
     xor al, al
 .drop:

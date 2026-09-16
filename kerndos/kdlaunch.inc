@@ -205,26 +205,54 @@ KDL_CLK     equ 90              ; db[10] the kernel's OWN clock block, because
                                 ; ROM; a zeroed block would tell the resumed
                                 ; machine it has no clock hardware
 KDL_CLK_LEN equ 10
+KDL_TICK    equ 100             ; dd ...AND THE BIOS TICK IT WAS READ AT, which
+                                ; is the only clock that runs on BOTH sides of
+                                ; the handover (SPEC.md 96.49.5). 0040:006C
+                                ; advances at 18.2065 Hz under os8088 and under
+                                ; this host alike - SPEC.md 8.1's PIT change is
+                                ; a MODE change and `sch_isr` chains the ROM
+                                ; every tick - so the difference against it says
+                                ; how long the DOS program ran, and `hbm_wake`
+                                ; hands that to `clk_tick`. Without it the
+                                ; resumed clock is the launch's, late by the
+                                ; whole session
+KDL_STAGE   equ 104             ; dw WHERE THE KERNEL WILL LOOK for everything
+                                ; staged on the way back - `hbm_stageseg`'s own
+                                ; answer, out of `[vid_kind]`. `kd_stageseg`
+                                ; asks the BDA's mode byte instead, and that
+                                ; byte belongs to the DOS PROGRAM: a `.COM`
+                                ; that sets mode 2 on a Hercules machine makes
+                                ; the two hosts disagree, and everything staged
+                                ; is then written to a page the kernel never
+                                ; reads (SPEC.md 96.49.6). 0 = not carried, and
+                                ; `kd_resume` asks for itself
 
 ; **THESE TWO ARE `%assign` AND THE REST ARE `equ`**, which is not a style
 ; slip: the fit assert below runs at PREPROCESSOR time and `%if` cannot see an
 ; assembler symbol. A `%assign` reads the same everywhere an `equ` does and
 ; loses only its line in the map file.
-%assign KDL_BODY 100             ; ...and the gathered fields from here
+%assign KDL_BODY 106             ; ...and the gathered fields from here. It was
+                                ; 100 until KDL_TICK and KDL_STAGE, which is a
+                                ; ROW MOVING and so a KDL_VER bump - see the
+                                ; note under KDL_VER_NOW
 %assign KDL_SIZE 512            ; one sector, which is what the stub moves and
                                 ; what `kern_dos` reserves in its own image.
                                 ; The payload is 377 bytes today; the assert
                                 ; each side writes is what keeps it true
 
 KDL_SIG     equ 0x314C444B      ; 'KDL1', little-endian
-KDL_VER_NOW equ 4               ; what this tree writes and checks. It is a
+KDL_VER_NOW equ 5               ; what this tree writes and checks. It is a
                                 ; CONSTANT and not a literal at three sites,
                                 ; because a version that has to be bumped in
                                 ; three files is a version that gets bumped in
                                 ; two. 1 -> 2 is KDL_DPT moving the body,
                                 ; 2 -> 3 is the volume table doing it
-                                ; again (96.46), and 3 -> 4 the live
-                                ; resume's four fields (96.49). **THE BUMP IS OWED EVEN
+                                ; again (96.46), 3 -> 4 the live
+                                ; resume's four fields (96.49) and 4 -> 5 the
+                                ; two that make its CLOCK and its STAGING
+                                ; SEGMENT right (96.49.5, 96.49.6) - both in
+                                ; the header, so the body moved 100 -> 106.
+                                ; **THE BUMP IS OWED EVEN
                                 ; THOUGH BOTH SIDES SHIP IN ONE FILE**:
                                 ; kern_dos is part 2 of DOS.O88 and the box
                                 ; is part 0, so those two are always in step -
