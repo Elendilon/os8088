@@ -7377,15 +7377,40 @@ dos_click_mem:
     jmp short .out
 .notck:
     pop bx
+    cmp byte [dos_keepc], DOS_MEM_IN
+    jne .notfld                     ; ...THEN THE LIMIT, which is arm 0's own
+                                    ; (SPEC.md 96.36.9) and is INSIDE the
+                                    ; radio's rect like the boxes above it -
+                                    ; so it asks before the arm does, or a
+                                    ; press on it picks the arm it is already
+                                    ; in and never reaches the caret
+    call dos_mfld_place
+    mov si, dos_mln
     mov cx, [dos_mpx]
     mov dx, [dos_mpy]
+    call os88line_hit
+    jc .notfld
+    call dos_defocus_but            ; ...and a field keeping the caret while
+    cmp byte [si+LN_FOCUS], 0       ; another control is worked is a caret the
+    jne .move                       ; user cannot account for
+    mov byte [si+LN_FOCUS], 1
+    call os88line_draw
+    jmp short .out
+.move:
+    mov cx, [dos_mpx]
+    mov dx, [dos_mpy]
+    call os88line_click
+    jmp short .out
 
-    call dos_mrad_place             ; ...THEN THE ARM, which is what anything
-    push bx                         ; inside a subsection that no control of
-    mov bx, dos_mrad                ; its own claimed belongs to.
+.notfld:
+    mov cx, [dos_mpx]
+    mov dx, [dos_mpy]
+    call dos_mrad_place             ; ...AND THE ARM LAST, which is what
+    push bx                         ; anything inside a subsection that no
+    mov bx, dos_mrad                ; control of its own claimed belongs to.
     call os88ui_radhit              ; os88ui_radhit takes the point in CX/DX,
     pop bx                          ; moves the record's own SEL word and
-    jc .notchk                      ; redraws THE TWO DOTS that changed - not
+    jc .away                        ; redraws THE TWO DOTS that changed - not
     jz .repaint                     ; the group and not the page (13.17.4).
     call dos_defocus                ; **TEST ZF BEFORE ANYTHING ELSE IS
     jmp short .out                  ; CALLED**: dos_defocus clobbers the flags,
@@ -7402,26 +7427,6 @@ dos_click_mem:
     call dos_defocus
     call dos_paint_mem              ; the whole right half, under the lock the
     jmp short .out                  ; handler already holds
-.notchk:                            ; ...and a field keeping the caret while
-                                    ; another control is worked is a caret the
-                                    ; user cannot account for
-    call dos_mfld_place
-    mov si, dos_mln
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-    call os88line_hit
-    jc .away
-    call dos_defocus_but
-    cmp byte [si+LN_FOCUS], 0
-    jne .move
-    mov byte [si+LN_FOCUS], 1
-    call os88line_draw
-    jmp short .out
-.move:
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-    call os88line_click
-    jmp short .out
 .away:
     ; The POINT is still in CX/DX for dos_fld_hit, which tests the two boxes
     ; beside this block with it - and os88ui_radhit DOES carry os88ui_bhit's
@@ -8619,11 +8624,15 @@ dos_lnk_mem:
     stosw
     mov ax, [dos_memkb]             ; the cap, 0 = as much as the machine gives
     stosw
-    mov al, [dos_keepc]             ; ...and the one choice
+    mov al, [dos_keepc]             ; ...the arm...
     stosb
-    xor al, al
-    stosb                           ; ...and a byte of padding, so the block is
-    clc                             ; a whole number of dwords like every other
+    mov al, [dos_cache]             ; ...and the cache dial, WHICH TOOK THE
+    stosb                           ; PAD BYTE (SPEC.md 96.36.6): the block
+    clc                             ; stays 12 bytes, the signature does not
+                                    ; move, and a link written before the dial
+                                    ; existed reads a zero there - which is
+                                    ; Auto, the default a link without one
+                                    ; would have been saved with
     jmp short .out
 .no:
     stc
@@ -9199,6 +9208,24 @@ dos_lnk_memr:
     mov al, DOS_MEM_IN              ; anything else means the default, which is
 .set:                               ; the one a double click gets
     mov [dos_keepc], al
+    mov al, [dos_lbuf+si+11]        ; ...and the cache dial, out of what was
+                                    ; the pad byte (SPEC.md 96.36.6). A LINK
+                                    ; WRITTEN BEFORE IT EXISTED READS ZERO,
+                                    ; which is Auto - the setting such a link
+                                    ; was saved with
+    mov ah, DOS_CA_N                ; **CLAMPED AGAINST THIS ARM'S OWN LIST**
+    cmp byte [dos_keepc], DOS_MEM_WHOLE ; and not against the longer one: the
+    je .cn                          ; two lists are different lengths, so a
+    mov ah, DOS_CA_INN              ; pick saved on arm 1 would index past
+.cn:                                ; arm 0's and draw a caption out of
+    cmp al, ah                      ; whatever follows the table
+    jb .cset
+    xor al, al                      ; ...and out of range is Auto, which every
+.cset:                              ; list has a row for
+    mov [dos_cache], al
+    mov byte [dos_cache+1], 0
+    mov al, [dos_keepc]             ; ...and NO SWAP IS OWED at the next place:
+    mov [dos_mdrwas], al            ; the pick already belongs to this arm
     call dos_mem_fix                ; ...and then the machine has its say
     call dos_mem_put                ; ...and the field shows what the link said
     pop ax

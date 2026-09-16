@@ -84,12 +84,17 @@ LIMIT = 96                          # KB, comfortably over DOS_MIN_KB's 64 and
                                     # far under anything a machine here has, so
                                     # "the cap was applied" cannot be confused
                                     # with "the machine was small"
-# os88ui.inc's radio record and the box's arms (SPEC.md 96.36).  The PITCH
-# offset is the SDK's, not the box's, and the arm is what the .LNK carries -
-# where the check box this replaced carried a ticked/unticked 1/0 the OTHER
-# WAY UP, DOS_MEM_KEEP being 0.
+# os88ui.inc's records and the box's own values (SPEC.md 96.36).  The offsets
+# are the SDK's, not the box's.  **THE ARM IS NOT THE CACHE ANY MORE**
+# (96.36.5): `Keep the disk cache` and `Take the disk cache too` were one mode
+# with a dial set two ways, so the dial is its own drop-down and the two arms
+# are where the program RUNS.  Both are carried in the .LNK's memory block,
+# which had a pad byte the dial took (96.36.6).
 RD_PITCH = 14
-DOS_MEM_KEEP, DOS_MEM_DUMP = 0, 1
+DR_RECT, DR_N, DR_SEL, DR_OPEN = 0, 10, 12, 16
+DRIH = 12                               # OS88UI_DRIH, an item's pitch
+DOS_MEM_IN, DOS_MEM_WHOLE = 0, 1
+DOS_CA_AUTO, DOS_CA_OFF_IN = 0, 1       # arm 0's list is Auto and Off (SLOW!)
 CLSID = bytes([0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
 TITLE_H = os88geom.TITLE_H
@@ -134,7 +139,7 @@ def dos_state(m, ui):
     shipped build (see that file), and the offsets it answers are from the
     instance's own segment with nothing to add.
     """
-    want = ("dos_memkb", "dos_keepc", "dos_akb")
+    want = ("dos_memkb", "dos_keepc", "dos_akb", "dos_cache")
     dm = dosmap.package()
     base = None
     for w in os88geom.windows(m, ui.sym):
@@ -154,6 +159,7 @@ def dos_state(m, ui):
         return struct.unpack("<H", bytes(m.read(base + o, 2)))[0]
     return (w16(dm["dos_memkb"]),
             bytes(m.read(base + dm["dos_keepc"], 1))[0],
+            bytes(m.read(base + dm["dos_cache"], 1))[0],
             w16(dm["dos_akb"]))
 
 
@@ -217,7 +223,8 @@ def parse_lnk(b):
             if size < 12:               # at FIXED offsets, which is the whole
                 fail("the memory block says %d bytes and the layout is 12"
                      % size)            # reason it is a block of its own
-            out["memkb"], out["keep"] = struct.unpack_from("<HB", b, at + 8)
+            (out["memkb"], out["keep"],
+             out["cache"]) = struct.unpack_from("<HBB", b, at + 8)
         at += size
     return out
 
@@ -317,16 +324,25 @@ def main():
         for ch in ENVVAR:
             m.type_text(ch)
         os88marty.settle(m)
-        # The cache choice is a RADIO of three now (SPEC.md 96.36), so this
-        # PICKS AN ARM rather than toggling a box - and the row is resolved
-        # out of the guest's own rect and pitch, like every other control
-        # here.  Arm DOS_MEM_DUMP is "take the disk cache too", which is what
-        # this row used to say by unticking.
-        x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
-        pitch = int.from_bytes(
-            m.read((pseg << 4) + dm["dos_mrad"] + RD_PITCH, 2), "little")
-        mo.click((x1 + x2) // 2, y1 + DOS_MEM_DUMP * pitch + pitch // 2)
+        # The cache choice is a DROP-DOWN now (SPEC.md 96.36.6), so this
+        # opens the list and picks a row rather than picking an arm - and
+        # every coordinate is resolved out of the guest's own rect, like
+        # every other control here.  `Off (SLOW!)` is what this row used to
+        # say by unticking a box and then by picking the middle arm.
+        dx1, dy1, _, dy2 = dosmap.rect(m, pseg, dm, "dos_mdr")
+        mo.click(dx1 + 8, (dy1 + dy2) // 2)
         os88marty.settle(m)
+        if not m.read((pseg << 4) + dm["dos_mdr"] + DR_OPEN, 1)[0]:
+            fail("the disk cache box did not open its list (SPEC.md 96.36.6)")
+        top = int.from_bytes(
+            m.read((pseg << 4) + dm["dos_mdr"] + 22, 2), "little")  # DR_TOP
+        mo.click(dx1 + 8, top + DOS_CA_OFF_IN * DRIH + DRIH // 2)
+        os88marty.settle(m)
+        got = m.read((pseg << 4) + dm["dos_cache"], 1)[0]
+        if got != DOS_CA_OFF_IN:
+            fail("picking `Off (SLOW!)` left [dos_cache] at %d and arm 0's "
+                 "list has it at %d (SPEC.md 96.36.6)"
+                 % (got, DOS_CA_OFF_IN))
         mo.click(*dosmap.centre(m, pseg, dm, "dos_mln"))
         os88marty.settle(m)
         m.type_text(str(LIMIT))
@@ -341,8 +357,8 @@ def main():
             fail("Save Shortcut opened no file dialog")
         m.key("Enter")                      # ...accept the default name
         os88marty.settle(m)
-        print("doslnk: saved, with %r, %r, a %dK limit and arm %d - take the "
-              "cache too" % (TYPED, ENVVAR, LIMIT, DOS_MEM_DUMP))
+        print("doslnk: saved, with %r, %r, a %dK limit and the disk cache "
+              "Off" % (TYPED, ENVVAR, LIMIT))
 
         # THE GUEST WRITES TO ITS OWN CLONE of the image, which is what makes
         # --marty-jobs safe - so the host's copy of the gate disk never
@@ -370,11 +386,16 @@ def main():
     if got["memkb"] != LIMIT:
         fail("the memory block says a %dK limit and %dK was typed"
              % (got["memkb"], LIMIT))
-    if got["keep"] != DOS_MEM_DUMP:
-        fail("the memory block carries arm %d and arm %d was picked "
-             "(SPEC.md 96.36 - DOS_MEM_KEEP is 0 now, where the check box's "
-             "ticked ON byte was 1, so the polarity is the other way up)"
-             % (got["keep"], DOS_MEM_DUMP))
+    if got["keep"] != DOS_MEM_IN:
+        fail("the memory block carries arm %d and arm %d was left picked "
+             "(SPEC.md 96.36.5 - the middle arm is gone and DOS_MEM_IN is 0)"
+             % (got["keep"], DOS_MEM_IN))
+    if got["cache"] != DOS_CA_OFF_IN:
+        fail("the memory block's cache byte is %d and `Off (SLOW!)` is %d on "
+             "arm 0's list. That byte was the block's PADDING (SPEC.md "
+             "96.36.6), so a dial that does not reach it is a shortcut that "
+             "loses a setting and says nothing" % (got["cache"],
+                                                   DOS_CA_OFF_IN))
     # **AND WORKING_DIR CARRIES THE DRIVE** (SPEC.md 96.21.2.1).
     # OSAPI_FILE_PATH answers no drive letter by design (19.2.4), so the box
     # wrote `\BIN` and the link resolved against whichever volume it happened
@@ -462,13 +483,14 @@ def main():
         # have to agree: what the link said, what the box believes, and what it
         # actually claimed. A limit that round-trips and is then ignored looks
         # identical to one that works, from the file alone.
-        memkb, keep, akb = dos_state(m, ui)
-        print("doslnk: the relaunched box has memkb=%d keep=%d, arena %dK"
-              % (memkb, keep, akb))
-        if memkb != LIMIT or keep != DOS_MEM_DUMP:
-            fail("the shortcut ran with memkb=%d arm=%d and the link carries "
-                 "%d/%d - the second ExtraData block was written and not read"
-                 % (memkb, keep, LIMIT, DOS_MEM_DUMP))
+        memkb, keep, cache, akb = dos_state(m, ui)
+        print("doslnk: the relaunched box has memkb=%d keep=%d cache=%d, "
+              "arena %dK" % (memkb, keep, cache, akb))
+        if memkb != LIMIT or keep != DOS_MEM_IN or cache != DOS_CA_OFF_IN:
+            fail("the shortcut ran with memkb=%d arm=%d cache=%d and the link "
+                 "carries %d/%d/%d - the second ExtraData block was written "
+                 "and not read"
+                 % (memkb, keep, cache, LIMIT, DOS_MEM_IN, DOS_CA_OFF_IN))
         if akb > LIMIT:
             fail("the box claimed %dK against a %dK limit - the setting "
                  "reached [dos_memkb] and dos_run ignored it (SPEC.md 96.25.1)"

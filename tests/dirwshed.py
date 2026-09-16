@@ -33,7 +33,7 @@ Four assertions, and each is a separate thing that can be missing:
 own table or the package's own bss; the digits on the page are a font.
 
 THE ORDER IS LOAD-BEARING and is the row's own trap, three times over.  The
-page must be read BEFORE any launch, because a DOS_MEM_DUMP launch SHEDS the
+page must be read BEFORE any launch, because a DOS_CA_OFF launch SHEDS the
 cache and a page read after it correctly reports two equal numbers about a
 machine that no longer has one.  The launches then go KEEP first and DUMP
 second, because assertion 4 is about what the DUMP left behind.  And they must
@@ -42,14 +42,18 @@ happen with the console up, because the console is the MAIN page's band
 [dos_akb] reads 0 - a failure that names the arena and is really the test's own
 navigation.
 
-**[dos_keepc] IS A RADIO AND ITS ARM 0 MEANS KEEP** (§96.36).  That is the
-polarity this row had backwards: it was written against the CHECK BOX whose ON
-byte was 1 for "keep", the third arm turned the control into an OS88UI_RD_SEL
-where 0 is DOS_MEM_KEEP and 1 is DOS_MEM_DUMP, and nothing re-read the row.
-Both labels and both comparisons ran the wrong way, and it failed naming a
-spread of -32 against a 32KB cache - the right quantity with the wrong sign,
-which is the sharpest shape a polarity bug has.  tests/dosmem.py's header names
-this trap in as many words.
+**THE CACHE IS `[dos_cache]` AND NOT AN ARM** (§96.36.5, §96.36.6).  It was a
+CHECK BOX whose ON byte was 1 for "keep"; then the third arm turned the control
+into an OS88UI_RD_SEL where 0 was `Keep the disk cache` and 1 was `Take it
+too`; and it is a DROP-DOWN now, because two positions cannot say 18 KB.  This
+row has had the polarity wrong once already - it failed naming a spread of -32
+against a 32 KB cache, the right quantity with the wrong sign, which is the
+sharpest shape a polarity bug has - so the values it pokes are named after the
+list they index and not after what they mean.
+
+Inside the OS that list is two rows, `Auto` and `Off (SLOW!)`, which are the
+two the kernel can actually do: the `dirw` claim is taken at a mount and is
+either standing or shed (§96.36.6).  The rungs between them are arm 1's.
 """
 import os
 import sys
@@ -71,10 +75,10 @@ PROG = "DOSHELLO"
 
 MEM_MAX = 32
 P_DIRW = 0xFE02                  # MEM_PG_HIGH<<8 | 2 (SPEC.md 50.6)
-# [dos_keepc]'s arms, which are OS88UI_RD_SEL's index and NOT a tick (SPEC.md
-# 96.36).  Arm 2, DOS_MEM_WHOLE, is not this row's subject - it takes os8088
-# itself and never reaches [dos_akb].
-MEM_KEEP, MEM_DUMP = 0, 1
+# [dos_cache]'s rows on ARM 0's list, which are OS88UI_DR_SEL's index and not
+# a tick (SPEC.md 96.36.6).  The other arm, DOS_MEM_WHOLE, is not this row's
+# subject - it takes os8088 itself and never reaches [dos_akb].
+CA_AUTO, CA_OFF = 0, 1
 SLACK = 2                        # KB: both figures round DOWN to whole KB and
                                  # the two roundings need not land together
 
@@ -148,26 +152,47 @@ def main():
                  int.from_bytes(m.read(rec + 8, 2), "little")))
 
         # --- 2: the two figures the user is choosing between ----------------
-        ui.menu_pick("Program", "Environment")
+        # **THERE IS ONE FIGURE ON THE PAGE NOW** (SPEC.md 96.36.3), live,
+        # so the two the user is choosing between are read by SETTING the dial
+        # and looking twice.  The dial is poked and the page re-entered, which
+        # is what repaints it: driving the drop-down itself is
+        # tests/dosmem.py's and tests/doslnk.py's subject, and re-driving it
+        # here would make this row fail for somebody else's defect.
+        ui.menu_pick("Program", "Setup")
         os88marty.settle(m)
-        keep, take = digits("dos_memk1"), digits("dos_memk2")
-        print("dirwshed: the page offers %dK keeping the cache and %dK taking "
-              "it" % (keep, take))
+
+        def furn(name):
+            r = [int.from_bytes(m.read(pb() + dm[name] + i * 2, 2), "little")
+                 for i in range(4)]
+            return (r[0] + r[2]) // 2, (r[1] + r[3]) // 2
+
+        seen = {}
+        for ca in (CA_AUTO, CA_OFF):
+            m.write(pb() + dm["dos_cache"], bytes([ca, 0]))
+            ui.mo.click(*furn("dos_trect"))         # Return...
+            os88marty.settle(m)
+            ui.mo.click(*furn("dos_erect"))         # ...and back, which paints
+            os88marty.settle(m)
+            seen[ca] = digits("dos_marn")
+        keep, take = seen[CA_AUTO], seen[CA_OFF]
+        print("dirwshed: the page offers %dK with the cache on Auto and %dK "
+              "with it Off" % (keep, take))
         if take - keep < cache_kb - SLACK:
             fail("the page offers %dK and %dK, a spread of %d where the cache "
                  "is %d KB. OSAPI_MEM_AVAIL_LVL is answering the same number "
                  "at both ranks, which is what mem_cp_plan does when it can "
                  "MOVE a cache instead of dissolving it (SPEC.md 66.10.4)"
                  % (keep, take, take - keep, cache_kb))
+        m.write(pb() + dm["dos_cache"], bytes([CA_AUTO, 0]))
 
         # --- back to the console, by the button's OWN rect -------------------
         # dos_brect is composed at paint time and lives in the package's bss,
         # so this is a position resolved out of the guest rather than one
         # remembered from a screenshot (docs/WRITING-TESTS.md).
+        ui.mo.click(*furn("dos_trect"))
+        os88marty.settle(m)
         r = [int.from_bytes(m.read(pb() + dm["dos_trect"] + i * 2, 2), "little")
              for i in range(4)]
-        ui.mo.click((r[0] + r[2]) // 2, (r[1] + r[3]) // 2)
-        os88marty.settle(m)
         if m.read(pb() + dm["dos_page"], 1)[0] != 0:
             fail("clicking Return at %r left the box on page %d, so there is "
                  "no console to type at" % (r, m.read(pb() + dm["dos_page"], 1)[0]))
@@ -176,8 +201,8 @@ def main():
         m.type_text("B:\n")
         os88marty.settle(m)
         got, rah = {}, {}
-        for arm in (MEM_KEEP, MEM_DUMP):
-            m.write(pb() + dm["dos_keepc"], bytes([arm]))
+        for arm in (CA_AUTO, CA_OFF):
+            m.write(pb() + dm["dos_cache"], bytes([arm, 0]))
             m.type_text("%s\n" % PROG)
             # **INTO THE BRACKET AND BACK OUT OF IT.** DOSHELLO waits on AH=08h
             # so its screen can be read, so a run left undismissed keeps
@@ -192,38 +217,38 @@ def main():
                 m.read(os88sym.linear("dsk_rah_seg"), 2), "little")
             print("dirwshed: arm %d, %s the cache -> the arena is %d KB, "
                   "[dsk_rah_seg]=%04X"
-                  % (arm, "keep" if arm == MEM_KEEP else "take", got[arm],
+                  % (arm, "keep" if arm == CA_AUTO else "take", got[arm],
                      rah[arm]))
             m.type_text(" ")
             os88marty.until(m, lambda _=None: not inbr(), "%s to exit" % PROG,
                             limit=120.0)
             os88marty.settle(m)
-        if not got[MEM_KEEP] or not got[MEM_DUMP]:
+        if not got[CA_AUTO] or not got[CA_OFF]:
             fail("a launch banked an arena of %d/%d KB - dos_run never got as "
                  "far as the claim, so nothing here is about memory"
-                 % (got[MEM_KEEP], got[MEM_DUMP]))
-        if got[MEM_DUMP] - got[MEM_KEEP] < cache_kb - SLACK:
+                 % (got[CA_AUTO], got[CA_OFF]))
+        if got[CA_OFF] - got[CA_AUTO] < cache_kb - SLACK:
             fail("a launch gets %d KB with the cache kept and %d KB with it "
                  "taken, a spread of %d where the cache is %d KB. dos_run asks "
                  "the same slot the page did (SPEC.md 96.24)"
-                 % (got[MEM_KEEP], got[MEM_DUMP],
-                    got[MEM_DUMP] - got[MEM_KEEP], cache_kb))
-        if (abs(got[MEM_KEEP] - keep) > SLACK
-                or abs(got[MEM_DUMP] - take) > SLACK):
+                 % (got[CA_AUTO], got[CA_OFF],
+                    got[CA_OFF] - got[CA_AUTO], cache_kb))
+        if (abs(got[CA_AUTO] - keep) > SLACK
+                or abs(got[CA_OFF] - take) > SLACK):
             fail("the page promised %dK/%dK and the launch took %dK/%dK - the "
                  "figure SHOWN is not the figure the program GETS (SPEC.md "
                  "96.25.1)"
-                 % (keep, take, got[MEM_KEEP], got[MEM_DUMP]))
+                 % (keep, take, got[CA_AUTO], got[CA_OFF]))
 
         # --- 4: ...and the cache really went, and only under the arm that
         #        asked for it -------------------------------------------------
-        if rah[MEM_DUMP] != 0:
+        if rah[CA_OFF] != 0:
             fail("the box asked for %d KB at MEM_LVL_TOP and [dsk_rah_seg] was "
                  "still %04X while the program ran, so the claim was satisfied "
                  "without the cache - the arena figure and the arena disagree"
-                 % (got[MEM_DUMP], rah[MEM_DUMP]))
-        if rah[MEM_KEEP] == 0:
-            fail("[dsk_rah_seg] was already 0 while the DOS_MEM_KEEP program "
+                 % (got[CA_OFF], rah[CA_OFF]))
+        if rah[CA_AUTO] == 0:
+            fail("[dsk_rah_seg] was already 0 while the DOS_CA_AUTO program "
                  "ran, so the cache went for an arm that asked to keep it. "
                  "That is SPEC.md 50.6.6's floor - `compact the disk cache, do "
                  "not destroy it` - and the two figures above then describe a "
