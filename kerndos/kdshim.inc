@@ -260,6 +260,19 @@ section .bss
 kd_top:           resw 1        ; the ceiling, in paragraphs: the first
                                 ; paragraph NOT ours
 kd_floor:         resw 1        ; ...and where the DOS program's memory starts
+; ...UNDER THE NAMES `disk.inc` KNOWS THEM BY (SPEC.md 18.95.5.2): the
+; read-ahead's solve bounds its width by the WHOLE ARENA and not only by what
+; is free, and it names the kernel's two words for that. They are the same two
+; quantities here, so this is an alias rather than a shim - and it keeps
+; `disk.inc` ONE FILE across both hosts, which is 96.37's whole point.
+;
+; It changes nothing over here: `mem_avail_lvl_x` already answers the whole
+; arena, so the share term is `arena / 18` against a free-run term of
+; `arena / 9`, and both are past `DSK_RAH_RUNS` for any arena a DOS program
+; would run in. `kd_giveback` then sheds to the width the launch block asked
+; for, exactly as before.
+mem_top           equ kd_top
+mem_base          equ kd_floor
 kd_spent:         resb 1        ; **AND WHETHER THE ARENA IS STILL OURS TO
                                 ; SPEND** (SPEC.md 96.44.11.3). `kd_giveback`
                                 ; sheds the last rung, `kd_arena` publishes

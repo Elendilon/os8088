@@ -5055,16 +5055,43 @@ DSK_RAH_KB   equ (DSK_RAH_SECS * 512 * DSK_RAH_RUNS) / 1024   ; the CEILING's
                                  ; size. The live width is [dsk_rah_runs],
                                  ; solved for from the machine (SPEC.md
                                  ; 18.95.5) - this is what n = 14 costs
-DSK_RAH_MIN  equ 4               ; ...and the FLOOR, in slots. Below this the
+DSK_RAH_MIN  equ 2               ; ...and the FLOOR, in slots. Below this the
                                  ; walk's own metadata - a directory sector,
                                  ; the FAT window's loads - takes so much of
                                  ; the cache that little is left for the file:
                                  ; sysbench measures the EFFECTIVE width at 12
                                  ; against a compiled 14, and that overhead
-                                 ; does not shrink with the cache. Four slots
-                                 ; is 18KB of claim behind a 36KB bar and 93%
-                                 ; of what the ceiling saves (18.95.4's own
-                                 ; simulation). tests/dirwsize.py is the row
+                                 ; does not shrink with the cache.
+                                 ;
+                                 ; **IT WAS FOUR AND IS TWO** (SPEC.md
+                                 ; 18.95.5.3): four is 18KB of claim behind a
+                                 ; 36KB bar and 93% of what the ceiling saves,
+                                 ; and TWO is 9KB behind an 18KB bar and 87%
+                                 ; - 18.95.4's own simulation, which the floor
+                                 ; was chosen off and which says the rung
+                                 ; below it is worth having. `kern_dos` has
+                                 ; said so for a cycle: KD_RAH_L2 is 2 and its
+                                 ; comment is *"a cache that is not worth
+                                 ; having beats one that is not there"*
+                                 ; (96.44.11.4), a judgement the kernel's own
+                                 ; floor was making the other way on the
+                                 ; machines that need it most.
+                                 ; tests/dirwsize.py is the row
+DSK_RAH_SHARE equ 4              ; ...and the OTHER bound: the cache may be at
+                                 ; most 1/DSK_RAH_SHARE of the WHOLE ARENA,
+                                 ; not merely half of what happens to be free
+                                 ; (SPEC.md 18.95.5.2). The free-run rule
+                                 ; alone reads the machine at ONE INSTANT -
+                                 ; the mount that finds no claim, which on a
+                                 ; big machine is the one at boot - so it was
+                                 ; effectively asking how much RAM the machine
+                                 ; HAS. This asks that question on purpose and
+                                 ; bounds the answer
+%if DSK_RAH_SHARE != 4
+  %error "dsk_rah_want halves the arena and then divides by 9, which is \
+n <= heap / (SHARE * 4.5) for SHARE = 4 alone. Another share wants another \
+shift, and a constant nothing reads is worse than no constant"
+%endif
 
 RAH_LBA equ 0                    ; one slot: the chunk's first LBA, how many
 RAH_N   equ 2                    ; sectors of it are here (0 = the slot says
@@ -5483,6 +5510,25 @@ dsk_rah_want:
                                 ; window raise cache (11.96) away, and take it
                                 ; every mount. Keep the rule and move the
                                 ; unknown: 2 x n x 4.5KB <= AX is 9n <= AX, so
+    ; --- ...AND WHAT THE MACHINE HAS, not only what is free (18.95.5.2) ----
+    ; The free-run rule alone reads the machine at ONE INSTANT - `.out` above
+    ; means the width is solved once and never re-negotiated, and on a big
+    ; machine that instant is the mount at BOOT with the whole arena free. So
+    ; it was effectively asking how much RAM the machine HAS, and answering
+    ; the ceiling every time. This asks BOTH and takes the smaller.
+    ;
+    ; `n <= heap / (SHARE * 4.5)` is `(heap / 2) / 9` at SHARE = 4, which is
+    ; the SAME divide the free run already needs - so the whole bound is a
+    ; subtract, two shifts and a compare, and no second division.
+    mov bx, [mem_top]
+    sub bx, [mem_base]
+    mov cl, 6
+    shr bx, cl                  ; BX = the whole arena, KB
+    shr bx, 1                   ; ...and half of it: a quarter once the 9 has
+    cmp ax, bx                  ; had its turn, a chunk being 4.5KB
+    jbe .solve
+    mov ax, bx                  ; the machine's share binds before the moment's
+.solve:
     xor dx, dx                  ; n = AX/9 - and n = 14 still wants the same
     mov cx, 9                   ; 126KB it always did, while 40KB of free run
     div cx                      ; now buys four slots instead of nothing

@@ -30558,6 +30558,101 @@ with the size as the unknown** — 2 × n × 4.5KB ≤ free is 9n ≤ free, and 
 still wants the same 126KB it always did. A 640KB machine is unchanged; a
 machine with 40KB of free run gets four slots instead of nothing.
 
+##### 18.95.5.1 The width is solved ONCE, at the mount that finds no claim
+
+`dsk_rah_want`'s first test is `cmp word [dsk_rah_seg], 0 / jne .out`, so while
+the claim stands the solve never runs again — a machine does not re-negotiate
+its cache as the heap fills and empties. On a 640 KB machine the deciding
+mount is the one at BOOT, with ~450 KB free, so it is 7 slots for the session;
+the ladder's middle rungs are reached by machines that are small at that
+moment, not by a big machine that gets busy later. Measured on the 128 KB
+floor machine (`kern_small`), which is small at every moment:
+
+    bare desktop          dsk_rah_seg=0000  runs=0  claim NONE
+    after a mount of A:   dsk_rah_seg=1340  runs=5  claim 23K
+
+Five slots of seven, `ceil(5 × 4.5)` to the kilobyte. **The boot mount gets
+nothing there** and the first mount after the desktop is what lands it, which
+is the gate rather than a defect: the heap is not in its steady state while
+the boot ladder is still claiming, and `[dsk_rah_seg]` staying zero is exactly
+what makes the next mount retry.
+
+**A shed re-opens the question, and that is the only thing that does.**
+`mem_claim` sheds a purgeable claim **only as far as it needs to** (§50.6.3),
+so a claimant that can be satisfied without the cache leaves it standing at
+whatever width it already had — which is why a caller cannot ask for a
+NARROWER one by leaving room. §96.36.6.1 is that pair of conditions worked out
+on the DOS box, where they turn out to be mutually exclusive.
+
+##### 18.95.5.2 …so it asks what the machine HAS as well, and takes the smaller
+
+Because the width is solved once (§18.95.5.1), `n = free_run ÷ 9` was
+**effectively asking how much RAM the machine has** — on anything big the
+deciding mount is the one at boot with the whole arena free, and the answer is
+the ceiling every time. That is the right answer there and the wrong one on a
+machine where 32 KB is a quarter of everything: the cache then fights the
+save-under caches (§11.96) and the window raise cache for a heap neither can
+spare.
+
+So the solve asks **both** and takes the smaller:
+
+    n = min( free_run ÷ 9 ,  arena ÷ (DSK_RAH_SHARE × 4.5) )   capped at
+                                                               DSK_RAH_RUNS,
+                                                       floored at DSK_RAH_MIN
+
+`DSK_RAH_SHARE` = 4: **the cache may be at most a quarter of the whole arena**,
+whatever is momentarily free. And at that share the second term is
+`(arena ÷ 2) ÷ 9`, which is the **same divide the first one already needs** —
+so the whole bound is `[mem_top] - [mem_base]`, two shifts and a compare, with
+no second division. **20 bytes of `.cold`**, measured, no rung crossed.
+
+What it does to the curve, arena from `kernsize`'s ladder:
+
+| machine | arena | free-run says | share says | width | claim |
+|---|---:|---:|---:|---:|---:|
+| 640 KB | ~450 K | 50 | 25 | **7** (ceiling) | 32 K |
+| 256 KB | ~145 K | 16 | 8 | **7** (ceiling) | 32 K |
+| 196 KB (`kern_big`'s floor) | ~85 K | 9 | 4 | **4** | 18 K |
+| 128 KB (`kern_small`'s) | ~50 K | 5 | 2 | **2** | 9 K |
+
+A big machine is untouched — both terms are past the ceiling. The floor machine
+goes 23 K → 9 K, which is the whole point: 46% of its arena down to 18%.
+
+##### 18.95.5.3 …and the floor drops to the rung `kern_dos` already had
+
+`DSK_RAH_MIN` was **4** slots, so the narrowest cache the kernel would take was
+18 KB behind a 36 KB bar. §18.95.4's own simulation is what the floor was
+chosen off, and it prices the rung below:
+
+| slots | KB | share of what the ceiling saves |
+|---:|---:|---:|
+| 2 | **9** | **87%** |
+| 4 | 18 | 93% |
+
+**`kern_dos` has taken that rung for a cycle.** `KD_RAH_L2` is 2, and its
+comment says why in one line — *"a cache that is not worth having beats one
+that is not there"* (§96.44.11.4) — a judgement the kernel's own floor was
+making the other way, on exactly the machines that need it most. So
+`DSK_RAH_MIN` is **2**, and the two ladders agree.
+
+It costs nothing to compile: a constant, and the `%if` that bounds it to
+`[1, DSK_RAH_RUNS]` already allowed it. **And it costs nothing to RUN**, which
+is the part that had to be measured rather than assumed. The floor machine's
+own directory walks, `m.disk()` counting the FDC from outside (§18.94), at the
+old width and the new:
+
+| walk | 5 slots (23 K) | 2 slots (9 K) |
+|---|---:|---:|
+| `A:/APPS` cold | 10 reads / 43 sectors | 10 / 43 |
+| `A:/SYSTEM` | 8 / 29 | 8 / 29 |
+| `A:/APPS` again | 13 / 56 | 13 / 56 |
+| `A:/SYSTEM` again | 8 / 29 | 8 / 29 |
+
+**Identical, every row.** The narrower cache serves this machine's walks
+exactly as well and hands 14 KB back to the heap the save-under caches were
+competing for — which is §18.95.4's curve doing what it said it would: the
+first 4.5 KB buys 72% and the last 27 KB buys 4%.
+
 **Only the round-robin bound had to become dynamic.** `dsk_rah_flush` still
 clears all `DSK_RAH_RUNS` records — 126 bytes of `.bss`, already paid, and
 clearing slots that no memory backs is free — which is what makes every other
@@ -128745,9 +128840,16 @@ apart. It arrives with the plan's W1, which is the wave that measures it.
 
 The page used to carry two numbers and be a choice between them. It is not one
 any more — it is an arm, three check boxes, a dial and a cap — so what the
-user wants to know is what all of them **together** come to. `For the program:
-~NNNNN K` is that, on one row above every control that can move it, redrawn by
-`dos_mem_row` after each of them.
+user wants to know is what all of them **together** come to. `Estimated DOS
+Ram: NNNNN KB` is that, on one row above every control that can move it,
+redrawn by `dos_mem_row` after each of them.
+
+**THE ROW SAYS NOTHING ABOUT ARMS**, and that is the point of its wording. It
+read `Memory for the program: ~NNNNN K`, which puts the estimate in
+punctuation a reader has to interpret and invites the question *which
+program* — the answer being the one this box is about to run, under whatever
+is ticked below. `Estimated` is the word; the user is picking options, not
+picking arms, and the figure is one value that follows the set of them.
 
 It is one opaque `font_run` with its own digits patched into the string
 (`dos_mem_num`), which is `dos_fmt_exit`'s shape and §6.1's rule: a number
@@ -128826,11 +128928,56 @@ so rather than rounding:
 
 The missing three on arm 0 are not a rounding and not an omission: a
 `[Auto / 32K / 18K / 9K / Off]` list where three rows did the same thing is a
-control that lies, and the honest version of the middle rungs there is a
-kernel door that can re-take the claim at a named width — which does not
-exist and is not free. `Off (SLOW!)` says what it costs where the cost is
-real; `Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the
-disk cache` was.
+control that lies. `Off (SLOW!)` says what it costs where the cost is real;
+`Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the disk
+cache` was.
+
+##### 96.36.6.1 Leaving the cache room does not buy a SMALLER one — measured
+
+The obvious way to reach the middle rungs without a kernel change is to shed
+the cache and **leave it room**: `dsk_rah_want` runs at every mount, the box's
+own program load is a mount, and it solves a width from whatever is free. It
+needs no new code at all, because the limit field already reserves room and
+`Off` already sheds — so it was measured rather than argued about. Shipped
+kernel, 360 KB desktop, cache `Off`, the limit set to `avail - R`:
+
+| reserved | arena | `MEM_P_DIRW` claim |
+|---:|---:|---:|
+| — | 476 K | **0** |
+| 27 K | 449 K | **0** |
+| 36 K | 440 K | **32 K** |
+| 45 K | 431 K | 32 K |
+| 54 K | 422 K | 32 K |
+| 63 K | 413 K | 32 K |
+
+**It is binary: 32 K or nothing, and never a rung in between** — and **the
+ladder is not what is wrong**, which took a second measurement to establish.
+§18.95.5.1 reads 5 slots and 23 K on the floor machine, so the step-down works
+exactly as §18.95.5 describes it. Two conditions here are simply mutually
+exclusive:
+
+- the cache is shed **only if `mem_claim` needs its kilobytes** (§50.6.3), so
+  the reserve has to be SMALL for it to go at all — above the threshold it is
+  never shed, only MOVED, which is why its segment changes across the launch
+  (`dsk_rah_reloc` under the posted compaction, §66.2);
+- and the re-claim clears `DSK_RAH_MIN` only if the free run is **≥ 36 K**, by
+  the same `2 × n × 4.5 ≤ free` rule, so the reserve has to be LARGE.
+
+No reserve satisfies both. At 27 K the cache went and the retry refused; at
+36 K it never went. That is why the column reads 0, 0, 32, 32, 32, 32 rather
+than a ladder.
+
+And the arithmetic runs the wrong way: **`Auto` already hands the program
+444 K with the 32 K cache alive**, where the best reserve hands it 440 K with
+the same cache. The reserve costs 4 K and buys nothing `Auto` does not.
+
+So the middle rungs still want a **width cap** in `dsk_rah_want` — a word of
+`.bss` read at its `.width` clamp, plus a door to set it and a forced shed so
+the new width takes effect. With a cap the doubling can also be spent: `2 ×`
+is §40.1's rule that an *optimisation* must not be why something else fails,
+and a width the caller named is not an optimisation guessing — so a capped
+solve can take `ceil(4.5 × cap)` out of `cap`'s worth of room rather than
+twice it. About thirty resident bytes, and not taken.
 
 **The pick is remembered per arm.** The two lists are different lengths, so
 one `OS88UI_DR_SEL` cannot hold both: `dos_drop_place` swaps the pick with
