@@ -207,6 +207,15 @@ def main():
             return False
 
         to_box()
+        # THE OPENING HINT NAMES HELP, which is how anybody finds it at all.
+        # Checked HERE and not beside the HELP case below: the console is a
+        # 25-row SCREEN and not a log, so by then the banner has scrolled off
+        # and the check would fail for a reason that is not about the hint.
+        if not any("or help" in r for r in console()[:4]):
+            fail("the opening hint does not name help (SPEC.md 96.33.23): %r"
+                 % console()[:4])
+        else:
+            print("dosopen: ?  the hint names help")
         if not console()[-1].endswith("A:\\>"):
             fail("the prompt is %r and not A:\\> - every case below is typed "
                  "from the system disk's ROOT, which is the folder that holds "
@@ -391,6 +400,27 @@ def main():
                 print("dosopen: #  ...and raising the box spends them: %r"
                       % tail)
         clear()
+
+        # --- HELP lists the verbs (SPEC.md 96.33.23) ----------------------
+        # That it FITS is dosconcga's, on the CGA band that decides it. This
+        # asserts that it PRINTS, whole, and leaves a prompt - the built-in's
+        # own half of 96.33.17.1.
+        clear()
+        to_box()
+        typ("help\n")
+        scr = console()
+        for want in ("CD [path]", "OPEN file", "cmd > file"):
+            if not any(want in r for r in scr):
+                fail("HELP printed no line for %r (SPEC.md 96.33.23). "
+                     "Console tail: %r" % (want, scr[-4:]))
+                break
+        else:
+            n = sum(1 for r in scr if "  " in r and r[:1].isalnum())
+            print("dosopen: ?  help -> %d lines, first %r last %r"
+                  % (n, scr[-17] if len(scr) > 17 else scr[0], scr[-2]))
+        if not console()[-1].rstrip().endswith(">"):
+            fail("HELP left no prompt: %r (SPEC.md 96.33.17.1 - a built-in "
+                 "has no exit line to bring one back)" % console()[-1])
 
         # --- the THREE refusals (SPEC.md 96.33.22.1) ----------------------
         # 1: not a legal 8.3 path at all. `nosuchfile.txt` is FOURTEEN

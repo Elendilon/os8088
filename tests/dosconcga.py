@@ -31,6 +31,7 @@ THREE ASSERTIONS, and the third is the one that keeps the fix honest:
 """
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -254,8 +255,38 @@ def main():
                  "not spent leaves the band showing the old rows (96.33.8)"
                  % lit)
 
+        # --- 4: HELP FITS THIS BAND, WHICH IS THE SHORTEST ONE (96.33.23.1) -
+        # HELP has no pager, and the only reason it may not have one is that
+        # its sixteen lines and the prompt after them fit a CGA's 17 rows.
+        # THIS is the machine that decides it - a Hercules has 25 and could
+        # never show the constraint. The assembler counts the lines (DHL's
+        # DH_LINES); this counts what a user can SEE, which is the thing the
+        # count is a proxy for.
+        m.type_text("HELP\n")
+        os88marty.settle(m)
+        time.sleep(2.0)
+        os88marty.settle(m)
+        vt, vr, cy, vis = bx.visible()
+        first = any("CD [path]" in r for r in vis)
+        last = any("cmd > file" in r for r in vis)
+        prompt = any(r.rstrip().endswith(">") for r in vis)
+        print("dosconcga: HELP - first line %s, last line %s, prompt %s, "
+              "in %d rows" % (first, last, prompt, vr))
+        if not first:
+            fail("HELP's FIRST line has scrolled off a %d-row band: the text "
+                 "is over sixteen lines, or the prompt after it takes more "
+                 "than one (SPEC.md 96.33.23.1). Rows %d..%d: %r"
+                 % (vr, vt, vt + vr - 1, [r for r in vis if r.strip()][:3]))
+        if not last:
+            fail("HELP's LAST line is not in the band, so it printed short "
+                 "(SPEC.md 96.33.23)")
+        if not prompt:
+            fail("HELP left no prompt in view - a built-in owes one, having "
+                 "no exit line to bring it back (SPEC.md 96.33.17.1)")
+
     print("dosconcga: ok - 17 rows of 25, the prompt in view at the first "
-          "paint and still in view after the console scrolled")
+          "paint, still in view after the console scrolled, and HELP fitting "
+          "the band whole")
 
 
 if __name__ == "__main__":

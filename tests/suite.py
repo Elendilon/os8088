@@ -3897,7 +3897,7 @@ SOAK = [
         "root holds 21 entries and DIR shows FIVE, sixteen being hidden or "
         "system, which DOS does not list and neither do we. **AND STEP 5 IS 96.33.13**: `CD BIN` then a bare name must resolve to B:\\BIN\\NAME.COM, not to the volume root. `CD` moves [dos_curdir] and dos_path_take's no-separator arm left [dos_dir] - the LAUNCH folder - so from the second directory onward every bare name looked in the first one, and the failure arrives as a read error about a file DIR has just listed.",
         needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
-    Row("dosconcga", "soak", py("tests/dosconcga.py"), 120.0,
+    Row("dosconcga", "soak", py("tests/dosconcga.py"), 150.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
         "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "
         "is which buffer row the band starts at. It was CON_ROWS - "
@@ -3920,7 +3920,13 @@ SOAK = [
         "again, because the viewport shift is spent as [con_scrl] and a shift "
         "that is not spent leaves the band showing the old rows. VERIFIED TO "
         "FAIL with vtop back on CON_ROWS - vrows: vtop 8, cy 4, nothing in "
-        "view.",
+        "view."
+        " AND IT IS WHERE HELP`S SIXTEEN-LINE LIMIT IS DECIDED (96.33.23.1): "
+        "HELP has no pager, and the only reason it may not have one is that "
+        "its lines plus the prompt after them fit a CGA`s 17 rows - a "
+        "Hercules has 25 and could never show the constraint. The assembler "
+        "counts the lines (DHL`s DH_LINES); this counts what a user can SEE, "
+        "which is the thing the count is a proxy for.",
         needs=("marty",), serial=True),
     Row("dirwshed", "soak", py("tests/dirwshed.py"), 45.0,
         "THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE "
@@ -4126,7 +4132,11 @@ SOAK = [
         "GUEST STATE: [con_drb] is the console's dirty-ROW bitmap, so marks "
         "kept rather than spent is exactly what `the draw was skipped` means "
         "- and raising the box must then spend them, or a skipped draw would "
-        "cost the prompt. "
+        "cost the prompt. HELP is asserted here too (96.33.23) - that it PRINTS "
+        "whole, that the opening hint NAMES it (checked at the top, the "
+        "console being a 25-row screen rather than a log, so by the HELP case "
+        "the banner has scrolled off), and that it leaves a prompt. That it "
+        "FITS is dosconcga`s, on the CGA band that decides it. "
         "The third needs a file no shipped "
         "disk has (every visible document on both is associated, and the "
         "unclaimed ones in the root are HIDDEN), so the row MAKES one with "
