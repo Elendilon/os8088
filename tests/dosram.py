@@ -219,6 +219,77 @@ def main():
             fail("re-ticking the box left the arena at %d and it was %d"
                  % (arena(), before))
 
+        # --- 1b: the CAPTION is the class ceiling, not this machine ----------
+        # This fixture has a hard disk and NO network card, which is exactly
+        # the discriminator: DRVC_NET's live figure is 0 and its caption must
+        # not be.  Fed the live figure - which is what shipped - the row read
+        # `Network (Up to  0K)`: true of this machine, meaningless as a
+        # description of what the box would cost on the machine the .LNK is
+        # carried to, and indistinguishable from a page whose arithmetic died
+        # (SPEC.md 51.12.1, 96.36.7.1).
+        def caption(n):
+            raw = m.read(pb() + dm[n], 48).split(b"\0")[0].decode("latin-1")
+            d = "".join(c for c in raw if c.isdigit())
+            if not d:
+                fail("the %s caption reads %r and carries no figure at all"
+                     % (n, raw))
+            return int(d), raw
+
+        netkb, netraw = caption("dos_l_mnet")
+        hddkb, hddraw = caption("dos_l_mhdd")
+        print("dosram: captions %r / %r against live mnkb=%d mhkb=%d"
+              % (hddraw, netraw, word("dos_mnkb"), hdkb))
+        if word("dos_mnkb"):
+            fail("this fixture is supposed to have NO network card, and "
+                 "OSAPI_DRV_CLASSK says DRVC_NET holds %d KB. The check below "
+                 "cannot tell a ceiling from a live figure on a machine where "
+                 "they are the same" % word("dos_mnkb"))
+        if not netkb:
+            fail("`%s` prints a ZERO on a machine with no card. The caption is "
+                 "the CLASS's ceiling and must be asked with DRVCK_ALL "
+                 "(SPEC.md 51.12.1); fed OSAPI_DRV_CLASSK's plain form it "
+                 "reports what is mounted, which here is nothing" % netraw)
+        if hddkb != hdkb:
+            fail("`%s` says %d and the mounted class holds %d. They are "
+                 "allowed to differ - a ceiling is not a measurement - but on "
+                 "THIS fixture the only DRVC_DISK row is the one that is "
+                 "loaded, so they must agree or one of the two forms is "
+                 "walking the wrong rows (SPEC.md 51.12.1)"
+                 % (hddraw, hddkb, hdkb))
+
+        # --- 1c: ...and the LIMIT moves the figure AS IT IS TYPED ------------
+        # dos_mem_arena has clamped to [dos_memkb] since the page was reworked
+        # and it was never seen to work, because the parse ran only at
+        # dos_mem_take - whose callers are all leaving the page (SPEC.md
+        # 96.36.10).  Poking [dos_memkb] and repainting would pass on that
+        # build; only the keystroke tells them apart.
+        lim = before - 11
+        fr = rect("dos_mln")
+        mo.click((fr[0] + fr[2]) // 2, (fr[1] + fr[3]) // 2)
+        M.settle(m)
+        for ch in str(lim):
+            m.type_text(ch)
+        M.settle(m)
+        if word("dos_memkb") != lim:
+            fail("typing %d into the limit field left [dos_memkb] = %d - the "
+                 "keystroke never reached dos_mem_parse (SPEC.md 96.36.10)"
+                 % (lim, word("dos_memkb")))
+        if arena() != lim:
+            fail("the limit is %d and the arena row still reads %d. The clamp "
+                 "is in dos_mem_arena's `.cap` and the row is redrawn by "
+                 "dos_mem_row; a figure that only catches up when the page is "
+                 "left is a control the user cannot see working "
+                 "(SPEC.md 96.36.10)" % (lim, arena()))
+        print("dosram: typing a %d K limit took the row %d -> %d, live"
+              % (lim, before, arena()))
+        for _ in str(lim):
+            m.type_text("\b")
+        M.settle(m)
+        if word("dos_memkb") or arena() != before:
+            fail("clearing the limit left [dos_memkb] = %d and the row at %d, "
+                 "where an empty field means NO cap and the row should be "
+                 "back at %d" % (word("dos_memkb"), arena(), before))
+
         # --- 2: ARM 1's estimate, against what the machine really hands over --
         rr = rect("dos_mrad")
         pitch = int.from_bytes(m.read(pb() + dm["dos_mrad"] + 14, 2), "little")

@@ -340,10 +340,17 @@ A_LOCKED = A_RDONLY | A_ARCH                # visible, but not yours to delete
 
 ASC_NAME  = b"ASSOC   DAT"   # SPEC.md 54.7: the volume's icon + assoc cache
 ASC_MAGIC = b"OS88AC"
-ASC_VER   = 1
+ASC_VER   = 2                # rows carry the glyph column (SPEC.md 54.3.2);
+                             # the kernel reads version 1 too, nothing
+                             # writes it any more
 ASC_HDR   = 16
-ASC_ROW   = 80               # stem 8 + size 2 + cluster 2 + 4 rsvd + icon 64
+ASC_ROW   = 88               # stem 8 + size 2 + cluster 2 + 4 rsvd + icon 64
+                             # + document glyph 8
 ASC_ROWICO  = 16             # the icon's offset inside a row
+ASC_ROWGLY  = 80             # ...and the glyph's: the eight bytes the package
+                             # SHIPS (flags bit 5, at 112 in its file), or
+                             # all zero = it ships none and the kernel
+                             # reduces the icon (SPEC.md 54.3)
 ASC_ROWCLUS = 10             # the folder the program lives in (0 = root),
                              # patched in after cluster assignment (SPEC.md
                              # 54.7.1) - it costs the file nothing, the row
@@ -356,7 +363,7 @@ ASC_NEXT  = 24
 # icon row that is lost and never an association. Being out of date costs a
 # cached icon, never correctness - which is why it is a plain list and not a
 # generated one.
-ASC_DEFAULT_STEMS = (b"PAINT", b"NOTEPAD", b"TRACKER", b"ARTFUL")
+ASC_DEFAULT_STEMS = (b"PAINT", b"NOTEPAD", b"TRACKER", b"ARTFUL", b"DOS")
 
 
 def build_assoc(groups):
@@ -379,7 +386,10 @@ def build_assoc(groups):
 
     An iconless package still gets a row, holding 64 zero bytes - the all-zero
     "no icon" sentinel the kernel already understands, so caching the ABSENCE
-    saves that read too.
+    saves that read too. The glyph column is the same shape one field along
+    (SPEC.md 54.3.2): a package that SHIPS its document glyph (flags bit 5)
+    has it copied here so a cache HIT still wears it, and one that does not
+    carries eight zero bytes, which the kernel reads as "reduce the icon".
     """
     cand, exts = [], []
     for key in groups:
@@ -390,6 +400,8 @@ def build_assoc(groups):
                 continue
             flags = body[3]
             icon = body[32:96] if flags & 1 and len(body) >= 96 else bytes(64)
+            glyph = (body[112:120] if flags & 0x20 and flags & 3 == 3
+                     and len(body) >= 128 else bytes(8))
             decl = []
             if flags & 2:                       # a header declaration (54.6)
                 base = 96 if flags & 1 else 32
@@ -401,7 +413,7 @@ def build_assoc(groups):
             stem = name11[0:8]
             known = stem.rstrip() in ASC_DEFAULT_STEMS
             cand.append((not (decl or known), stem, len(body) & 0xFFFF,
-                         icon, decl, key))
+                         icon, glyph, decl, key))
     # stable: the ordering key is only the association flag, so argument order
     # survives inside each half and a rebuild is byte-identical
     cand.sort(key=lambda c: c[0])
@@ -419,9 +431,9 @@ def build_assoc(groups):
               file=sys.stderr)
         cand = cand[:ASC_NAPP]
     apps, rowdirs = [], []
-    for _, stem, size, icon, decl, key in cand:
+    for _, stem, size, icon, glyph, decl, key in cand:
         idx = len(apps)
-        apps.append((stem, size, icon))
+        apps.append((stem, size, icon, glyph))
         rowdirs.append(key)
         for e in decl:
             if len(exts) < ASC_NEXT:
@@ -431,11 +443,12 @@ def build_assoc(groups):
     buf = bytearray(ASC_HDR + ASC_ROW * len(apps) + 4 * len(exts))
     buf[0:6] = ASC_MAGIC
     buf[6], buf[7], buf[8] = ASC_VER, len(apps), len(exts)
-    for i, (stem, size, icon) in enumerate(apps):
+    for i, (stem, size, icon, glyph) in enumerate(apps):
         o = ASC_HDR + i * ASC_ROW
         buf[o:o + 8] = stem
         struct.pack_into("<H", buf, o + 8, size)
         buf[o + ASC_ROWICO:o + ASC_ROWICO + 64] = icon
+        buf[o + ASC_ROWGLY:o + ASC_ROWGLY + 8] = glyph
     eo = ASC_HDR + ASC_ROW * len(apps)
     for i, (e, ix) in enumerate(exts):
         buf[eo + 4 * i:eo + 4 * i + 3] = e

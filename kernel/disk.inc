@@ -7000,11 +7000,27 @@ dsk_put_dir:
 ; with all six mounted, plus at most ASSOC_NAPP composed bodies. The file's own
 ; cap (ASC_NAPP) stays 32 because that is a VOLUME's question and the busiest
 ; holds 15.
-ICO_ROW     equ 80              ; name 12 + size 2 + 2 spare + a 64-byte body
 ICO_R_NAME  equ 0               ; the 8.3 name as SPEC.md 19.1 staged it
 ICO_R_SIZE  equ 12              ; ...and the low word of the size it reports
 ICO_R_BODY  equ 16
 ICO_KEY     equ 14              ; what ico_find compares: name and size
+%ifdef OS88_ASSOC
+ICO_R_GLYPH equ 80              ; ...AND THE 8-BYTE SHIPPED GLYPH (SPEC.md
+ICO_ROW     equ 88              ; 54.3.2), which is here because SPEC.md
+                                ; 54.7.4 freed the cache's claim: the glyph a
+                                ; package SHIPS used to be read off the cache
+                                ; ROW at a hit, and a hit has no row now. It
+                                ; is not derivable from the body either -
+                                ; that is the whole point of 54.3.2, the
+                                ; reduction of a CRT icon being an empty
+                                ; block - so a store that carried only the
+                                ; body would answer a hit with the reduction
+                                ; and DOWNGRADE a slot the seed had resolved.
+                                ; 8 bytes x 48 rows = 384, against the 3,072
+                                ; the claim gave back
+%else                           ; ...and kern_small has no glyphs at all
+ICO_ROW     equ 80              ; (SPEC.md 54.0), so it carries no column for
+%endif                          ; them
 %ifdef KERN_SMALL
 ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 %else                           ; driver-backed volume and fewer packages
@@ -7116,9 +7132,65 @@ ico_rowoff:
     mov cl, 4
     shl ax, cl                  ; row * 16
     add di, ax                  ; = row * 80
+%if ICO_ROW == 88
+    shr ax, 1                   ; ...and row * 8 more for the glyph column
+    add di, ax                  ; = row * 88
+%endif
     pop cx
     pop ax
     ret
+
+%ifdef OS88_ASSOC
+; -----------------------------------------------------------------------------
+; ico_glyph_put - a row's SHIPPED glyph, from wherever it was read
+; in:       AL = the row, DX:SI -> eight glyph bytes
+; out:      nothing (all registers preserved)
+;
+; Separate from ico_add rather than a fifth argument to it, because the two
+; have different sources and only sometimes both: a body comes off a package
+; header or a cache row, a glyph only off a version 2 cache row or a v3 image
+; that ships one. A row whose glyph is never put keeps the zeros ico_add
+; wrote, which is exactly SPEC.md 54.2's unresolved sentinel.
+; -----------------------------------------------------------------------------
+ico_glyph_put:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call ico_need
+    jc .out
+    cmp al, [ico_n]             ; a stale row after a shed, ico_body's guard
+    jae .out
+    call ico_rowoff
+    add di, ICO_R_GLYPH
+    mov cx, 8
+    mov ax, es
+    call dsk_copy_seg_x         ; DX = source segment, AX = the claim
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ico_glyph_at - where row AL's shipped glyph lives
+; in:       AL = the row
+; out:      CF = 0, ES = the claim and DI = the glyph's offset in it;
+;           CF = 1 = no store, or a stale row
+; clobbers: ES and DI (outputs) and the flags
+; -----------------------------------------------------------------------------
+ico_glyph_at:
+    call ico_body               ; the same two guards, and the same answer to
+    jc .out                     ; both: CF=1 is the generic icon
+    add di, ICO_R_GLYPH - ICO_R_BODY
+.out:
+    ret
+%endif                          ; OS88_ASSOC
 
 ; -----------------------------------------------------------------------------
 ; ico_add - store a body under this key, or find the row that already has it
@@ -7154,6 +7226,19 @@ ico_add:
     mov cx, DSK_ICO_SIZE
     mov ax, es
     call dsk_copy_seg_x         ; DX = source segment, AX = the claim
+%ifdef OS88_ASSOC
+    pop ax                      ; ...and the glyph column CLEARED, because
+    push ax                     ; mem_claim does not clear the block and an
+    call ico_rowoff             ; UNRESOLVED glyph is all-zero by definition
+    add di, ICO_R_GLYPH         ; (SPEC.md 54.2): whatever the heap handed out
+    mov cx, 8                   ; last would otherwise read as a shipped one
+    xor al, al
+.gz:
+    mov [es:di], al
+    inc di
+    dec cx
+    jnz .gz
+%endif
     pop ax
     inc byte [ico_n]
     clc

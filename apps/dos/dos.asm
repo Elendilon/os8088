@@ -58,7 +58,7 @@
 ; **THE PACKAGE CONTAINER IS NOT THE CORE**
 ; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
 ; whole and is not a package at all: no header, no icon, no association
-; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; block, and nothing at file offset 0 but a jump. Those four macros assert their own file offsets - 0, 32, 96 and 112
 ; - so under that root they are the only thing in 13,000 lines that cannot
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
@@ -80,15 +80,17 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 %else
-    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif
                                         ; flags bit 0 = icon, bit 1 = the
-                                        ; association block after it
+                                        ; association block after it, bit 5
+                                        ; the document glyph after THAT
+                                        ; (SPEC.md 54.3.2)
 
-%include "dosicon.inc"          ; the icon and the association block,
-                                ; shared with apps/dos/dosload.asm
+%include "dosicon.inc"          ; the icon, the association block and the
+                                ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
@@ -108,8 +110,9 @@
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
 apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
-header, the icon and the association block end at 112 and kern_dos's own \
-fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
+header, the icon, the association block and the document glyph end at 128 \
+and kern_dos's own fixed header is eight bytes, so CORE_ORG is cut from THIS \
+reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0
@@ -475,11 +478,25 @@ DOS_MSUBX   equ 12                  ; ...and the subsections' indent, which is
                                     ; lines up under its arm's ring. A literal
                                     ; for DOS_MRADSZ's reason: os88ui.inc is
                                     ; included at the END of this file
-DOS_MHDDY   equ 46                  ; [x] Hard drives (NNN K)   - arm 0's
-DOS_MNETY   equ 59                  ; [x] Network (NNN K)
-DOS_MFLDY   equ 72                  ; Limit: [_____]
-DOS_MFLDW   equ 64                  ; ...and the box's width: 5 digits and the
-DOS_MFLDX   equ 56                  ; caret, indented past its own label
+DOS_MHDDY   equ 46                  ; [x] Hard drives (Up to NNK) - arm 0's
+DOS_MNETY   equ 59                  ; [x] Network (Up to NNK)
+DOS_MFLDY   equ 72                  ; Limit: [____] K
+DOS_MFLDW   equ 48                  ; ...and the box's width. os88line_cols
+DOS_MFLDX   equ 56                  ; resolves 48 to FIVE columns against this
+DOS_MFLDKX  equ 4                   ; block's own 8-aligned origin - the four
+                                    ; digits DOS_MEMMAX allows plus the cell
+                                    ; the caret sits in past the last of them.
+                                    ; It was 64, which is seven, so two columns
+                                    ; could never be reached at all
+                                    ;
+                                    ; ...and DOS_MFLDKX is the gap to the `K`
+                                    ; after it (SPEC.md 96.36.10.1). A unit on
+                                    ; the glass, because the field takes a
+                                    ; BARE number and `300` is three plausible
+                                    ; quantities - KB, paragraphs or a
+                                    ; percentage. 4px keeps the letter's own
+                                    ; cell 8-aligned, which is font_run's fast
+                                    ; path (SPEC.md 6.1)
 DOS_MMOUY   equ 104                 ; [ ] Disable the mouse     - arm 1's, AND
                                     ; the greyed arm's REASON, which takes the
                                     ; same row: an arm that cannot be picked
@@ -524,9 +541,11 @@ DOS_MCACH   equ 12                  ; arrow cell, and a row tall
                                     ; machine rather than here
 DOS_MEMBUF  equ 8                   ; the field's text: 5 digits + NUL, and
                                     ; room for the caret to sit past the end
-DOS_MEMMAX  equ 5                   ; ...what LN_MAX gets. 640 is three and a
-                                    ; machine cannot have six digits of KB
-                                    ; below 1MB
+DOS_MEMMAX  equ 4                   ; ...what LN_MAX gets. FOUR: 640 is three
+                                    ; digits and 9999 is already past every
+                                    ; address an 8086 has, so the fifth column
+                                    ; could only ever hold a number the box
+                                    ; would clamp anyway
 DOS_MRADSZ  equ 18                  ; os88ui.inc's OS88UI_RD_SIZE, written here
                                     ; and CHECKED against it after the include
                                     ; - DOS_LNSZ's rule exactly, and for the
@@ -725,6 +744,19 @@ dos_entry:
                                     ; the requirement is a COUNT of columns
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
+
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
+    call OSAPI_KEY_DOWN             ; (SPEC.md 9.7): kbm_isr does not track a
+                                    ; scancode until something has asked, so
+                                    ; without this call neither half of
+                                    ; 96.33.5.1 can see Alt+Enter - not the
+                                    ; kernel's latch and not our own poll. The
+                                    ; ANSWER is discarded; the asking is the
+                                    ; whole point, and it is what keeps the
+                                    ; feature costing a machine that never
+                                    ; opens this box exactly nothing
+%endif
 
     OS88_REGION_MOVABLE             ; **AND OUR REGION MAY MOVE** (SPEC.md
                                     ; 96.35, 66.6.1), which is the half of the
@@ -955,8 +987,16 @@ dos_wake:
     cmp ax, KDH_NOCODE
     je .nocode
     mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; read once
-    mov [dos_exit], al
-    mov byte [dos_state], DST_RAN
+    test ah, KDC_FAIL               ; **IT DID NOT RUN** (SPEC.md 96.40.7), and
+    jz .ran                         ; the low byte means nothing. Every refusal
+    and ah, 0x7F                    ; over there used to report 0xFF and land
+    mov [dos_err], ah               ; here as `ended, exit code 255` - a
+    mov byte [dos_state], DST_ERR   ; sentence about a run that did not happen,
+    jmp short .said                 ; for a program that was never on the disk.
+.ran:                               ; kern_dos sends a DER_* now, so this is one
+    mov [dos_exit], al              ; `and` and a store and dos_err_line says
+    mov byte [dos_state], DST_RAN   ; the words the box already had
+.said:
     ; **AND THE ARENA IT WAS GIVEN** (SPEC.md 96.41.1), which came home in the
     ; next cell. The box cannot work this one out: `[dos_akb]` is `dos_run`'s
     ; banked figure and on this arm `dos_run` posted and returned without ever
@@ -5596,6 +5636,7 @@ dos_path_make:
 ;                     current directory is a thing this box does not keep
 ; -----------------------------------------------------------------------------
 dos_path_take:
+    mov byte [dos_ptres], 0         ; the ordinary door COMMITS
     push ax
     push bx
     push cx
@@ -5603,6 +5644,31 @@ dos_path_take:
     push si
     push di
     mov si, dos_path
+    jmp short dos_pt_body
+
+; -----------------------------------------------------------------------------
+; dos_path_take_si - the same resolver, on TEXT YOU NAME, without committing
+; in:  SI -> the text; out: CF=0 with [dos_tname], [dos_pgdir] and [dos_pgvol]
+;      set; CF=1 = it does not resolve. Every register preserved.
+;
+; **THE PACKAGE DOOR MAY NOT WRITE THE PATH BOX** (SPEC.md 96.33.17): the box
+; holds what `Run` re-runs AS A DOS PROGRAM, so a `.O88` in it arms a button
+; that must then refuse it. So the text is a parameter and the answer lands in
+; cells of its own - `.commit` is where the two doors part, one instruction
+; before the three DOS-program stores.
+; -----------------------------------------------------------------------------
+dos_path_take_si:
+    mov byte [dos_ptres], 1
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+dos_pt_body:
+    mov [dos_ptbase], si            ; **THE BUFFER IS A PARAMETER NOW**, so the
+                                    ; drive test below has to ask about the
+                                    ; TEXT and not about dos_path
     cmp byte [si], 0
     je .no                          ; empty IS a state (the internal
                                     ; COMMAND.COM) and it is not a program
@@ -5636,8 +5702,16 @@ dos_path_take:
 .split:
     or di, di
     jnz .name                       ; a separator: DI is where it was
-    cmp bx, dos_path
-    je .keepdir                     ; ...none, and no drive either: the folder
+    cmp bx, [dos_ptbase]            ; **ASKED OF THE TEXT, NOT OF dos_path**:
+    je .keepdir                     ; this compare means *was there a drive
+                                    ; letter?*, which it answered by knowing
+                                    ; where its own buffer starts. Pointed at
+                                    ; any other string it FAILS, the
+                                    ; drive-with-no-separator arm below runs,
+                                    ; and `.name`'s `inc si` eats the name's
+                                    ; FIRST CHARACTER - `NOTEPAD` resolving as
+                                    ; `OTEPAD` (SPEC.md 96.33.21)
+                                    ; ...none, and no drive either: the folder
     mov di, bx                      ; we stand in. A DRIVE with no separator
                                     ; makes the directory part EMPTY, which
                                     ; dos_walk_pbuf reads as that volume's root
@@ -5695,7 +5769,7 @@ dos_path_take:
     jc .no                          ; `[dos_vol]` - it reads `[dos_pvol]` now,
     call dos_walk_pbuf              ; so the drive to walk on is said by
     jc .no                          ; standing on it. The rollback goes with it:
-    mov [dos_dir], dx               ; nothing was changed, so a typo leaves the
+    mov [dos_pgdir], dx             ; nothing was changed, so a typo leaves the
     jmp short .commit               ; box exactly where it was - and the arm
                                     ; falls into `.commit` rather than past it,
                                     ; because `[dos_vol]` is no longer already
@@ -5714,9 +5788,14 @@ dos_path_take:
     ; was launched from and survives a program's own chdir, and [dos_curdir] is
     ; where the box is now.
     mov dx, [dos_curdir]
-    mov [dos_dir], dx
+    mov [dos_pgdir], dx
 .commit:
     mov al, [dos_tvol]
+    mov [dos_pgvol], al             ; both arms answer HERE first...
+    cmp byte [dos_ptres], 0
+    jne .resonly                    ; ...and resolve-only stops one instruction
+    mov dx, [dos_pgdir]             ; short of the DOS program's three stores
+    mov [dos_dir], dx
     mov [dos_vol], al
 .commit2:
     mov si, dos_tname               ; ...and the NAME last, so every refusal
@@ -5728,7 +5807,8 @@ dos_path_take:
     inc di
     or al, al
     jnz .cm
-    clc
+.resonly:                           ; the resolve-only answer IS [dos_tname],
+    clc                             ; which is where the copy above reads from
     jmp short .out
 .no:
     stc
@@ -6172,7 +6252,7 @@ dos_mck_place:
     push cx
     push dx
     push si
-    push di                         ; dos_mem_num3 patches THROUGH DI, and the
+    push di                         ; dos_mem_num2 patches THROUGH DI, and the
                                     ; click path banks nothing in it any more -
                                     ; but the contract says every register, and
                                     ; a placer that quietly kept one would be
@@ -6180,32 +6260,34 @@ dos_mck_place:
                                     ; shape (SPEC.md 96.36.4)
     call dos_mem_org
     mov al, DRVC_DISK               ; WHAT EACH CLASS IS HOLDING, once
-    call OSAPI_DRV_CLASSK           ; (SPEC.md 51.12). CF = 1 means nothing of
-    jnc .hddk                       ; that class is loaded, and then the figure
-    xor ax, ax                      ; is 0 rather than whatever the call left
-.hddk:                              ; in AX
-    and ah, 0x7F                    ; DRVM_PLUS is a flag and not a digit
+    call dos_classk                 ; (SPEC.md 51.12)
     mov [dos_mhkb], ax
     mov al, DRVC_NET
-    call OSAPI_DRV_CLASSK
-    jnc .netk
-    xor ax, ax
-.netk:
-    and ah, 0x7F
+    call dos_classk
     mov [dos_mnkb], ax
     mov al, DRVC_SOUND              ; ...AND THE ONE WITH NO BOX (SPEC.md
-    call OSAPI_DRV_CLASSK           ; 96.36.7.2): dos_drv_take unmounts the
-    jnc .sndk                       ; sound driver on EVERY arm and the user is
-    xor ax, ax                      ; never asked, because a DOS program cannot
-.sndk:                              ; reach it - so it is a term in the figure
-    and ah, 0x7F                    ; and not a control
-    mov [dos_msnk], ax
-    mov ax, [dos_mhkb]              ; ...and into the two labels, in place
+    call dos_classk                 ; 96.36.7.2): dos_drv_take unmounts the
+    mov [dos_msnk], ax              ; sound driver on EVERY arm and the user is
+                                    ; never asked, because a DOS program cannot
+                                    ; reach it - so it is a term in the figure
+                                    ; and not a control
+
+    ; --- ...AND THE CAPTIONS, WHICH ARE THE OTHER QUESTION (SPEC.md 51.12.1) -
+    ; `(Up to NNK)` is about the CLASS and not about this machine's state, so
+    ; it is asked with DRVCK_ALL and the answer is the same on every machine.
+    ; Fed the figures above it read `(Up to  0K)` on a machine with nothing of
+    ; that class mounted - a true number that reads exactly like a page whose
+    ; arithmetic has broken, and the state the box is MOST often opened in,
+    ; since a user shutting the OS down for a DOS program tends not to have a
+    ; hard disk or a card in the first place.
+    mov al, DRVC_DISK | DRVCK_ALL
+    call dos_classk
     mov di, dos_mhddk
-    call dos_mem_num3
-    mov ax, [dos_mnkb]
+    call dos_mem_num2
+    mov al, DRVC_NET | DRVCK_ALL
+    call dos_classk
     mov di, dos_mnetk
-    call dos_mem_num3
+    call dos_mem_num2
     mov si, dos_mhdd                ; ...then the three rects, one pitch apart
     mov ax, dos_l_mhdd
     mov dx, DOS_MHDDY
@@ -6224,6 +6306,22 @@ dos_mck_place:
     pop cx
     pop bx
     pop ax
+    ret
+
+; dos_classk - one class's KB, with the refusal folded into the figure
+; in:  AL = a DRVC_*, optionally | DRVCK_ALL
+; out: AX = the KB, 0 where the slot refused; clobbers CX and flags
+;
+; Five call sites wanted the same four instructions after the slot, and the
+; last of them is the one worth having in one place: `DRVM_PLUS` is bit 15 of
+; the answer and NOT a digit, so a site that forgets the mask prints a figure
+; 32,768 too large on the one machine that has a RAM disk.
+dos_classk:
+    call OSAPI_DRV_CLASSK
+    jnc .ok
+    xor ax, ax                      ; CF = nothing of that class - the figure
+.ok:                                ; is 0 and not whatever AX was left as
+    and ah, 0x7F
     ret
 
 ; dos_mck1 - one box's rect and label (internal)
@@ -7326,6 +7424,14 @@ dos_paint_mem:
     mov si, dos_mln
     call os88line_draw
     pop bx
+    push bx                         ; ...and the UNIT, hard against the box
+    mov bx, [dos_mx]                ; (SPEC.md 96.36.10.1)
+    add bx, DOS_MSUBX + DOS_MFLDX + DOS_MFLDW + DOS_MFLDKX
+    mov dx, [dos_my]
+    add dx, DOS_MFLDY + 3
+    mov si, dos_l_memk
+    call dos_line
+    pop bx
 
     ; --- ARM 1's: the mouse box, OR why the arm cannot be picked -------------
     ; ONE ROW, TWO THINGS, and they never want it at once (SPEC.md 96.36.8):
@@ -7408,9 +7514,9 @@ dos_btn_lbl:
 dos_mem_num:
     mov cx, 5                       ; the arena's field: five digits, which is
     jmp short dos_mem_numn          ; every KB figure a machine under 1MB has
-dos_mem_num3:
-    mov cx, 3                       ; ...and a DRIVER's, which is `(NNN K)` in
-dos_mem_numn:                       ; a check box's own label. The widths are
+dos_mem_num2:
+    mov cx, 2                       ; ...and a DRIVER CLASS's, which is `(NNK)`
+dos_mem_numn:                       ; in a check box's own label. The widths are
     push ax                         ; fixed because the strings around them are
     push bx
     push cx
@@ -7454,8 +7560,23 @@ dos_mem_numn:                       ; a check box's own label. The widths are
 ; commit point - all four callers are leaving the page or launching - so it is
 ; where the pick meets the machine, and the page comes back showing what will
 ; really happen rather than an arm being quietly ignored.
+;
+; **THE PARSE IS A SEPARATE ENTRY BECAUSE THE FIGURE IS LIVE** (SPEC.md
+; 96.36.10). Typing in the field has to move the arena row under it, and that
+; is a read of the digits and nothing else: committing the ARM on a keystroke
+; would make the radio's pick take effect halfway through the user changing
+; their mind about something else.
 ; -----------------------------------------------------------------------------
 dos_mem_take:
+    call dos_mem_parse
+    call dos_mem_fix                ; ...and the arm, which is the other half
+    ret                             ; of this block (SPEC.md 96.36.1)
+
+; -----------------------------------------------------------------------------
+; dos_mem_parse - the limit field's digits -> [dos_memkb] (0 = no limit)
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_mem_parse:
     push ax
     push bx
     push cx
@@ -7477,8 +7598,6 @@ dos_mem_take:
     jmp short .d
 .out:
     mov [dos_memkb], ax
-    call dos_mem_fix                ; ...and the arm, which is the other half
-                                    ; of this block (SPEC.md 96.36.1)
     pop si
     pop cx
     pop bx
@@ -7803,6 +7922,24 @@ dos_key:
     push si
     push di
     mov bx, si
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
+    ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
+    ; XT ROM enqueues this combination at all, so int 16h never carries it and
+    ; kbd_track latches the scancode instead. HERE, in front of dos_place and
+    ; the focus test, because every field below this would otherwise get first
+    ; refusal on it: the path box holds the caret on a fresh window and
+    ; os88line_key's own extended arm reads AL = 0 keys.
+    cmp ax, KSC_ENTER << 8
+    jne .notfull
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .no                         ; a setup page has no screen to take, which
+    call dos_defocus                ; is dos_oncmd's own test - and the caret
+    mov si, [dos_win]               ; goes the same way the MENU ITEM sends it
+    call dos_fsx                    ; ...and the very same proc, so the key and
+    jmp .done                       ; the item cannot drift apart
+.notfull:
+%endif
     ; **NO DST_IDLE GATE.** It used to refuse every key with nothing named,
     ; because the only field was the arguments one; the MAIN page's field is
     ; the PATH BOX now and an empty one is the state where typing matters most
@@ -7854,6 +7991,18 @@ dos_key:
     call os88line_edit               ; EDIT and not DRAW: typing the 21st
     add [dos_ncell], cx              ; character must not repaint twenty that
     inc word [dos_nkey]              ; did not change (SPEC.md 96.19.1)
+    cmp si, dos_mln                  ; ...AND THE LIMIT MOVES THE FIGURE ABOVE
+    jne .done                        ; IT (SPEC.md 96.36.10). Every other field
+    call dos_mem_parse               ; on this page redraws itself and nothing
+    call dos_mem_row                 ; else; this one is a TERM of the arena
+                                     ; row, and its value was reaching
+                                     ; [dos_memkb] only at dos_mem_take, whose
+                                     ; four callers are all leaving the page or
+                                     ; launching - so the user typed a cap
+                                     ; while WATCHING the number it caps and
+                                     ; the number ignored them. One row, not a
+                                     ; repaint: dos_mem_row is the same single
+                                     ; line the dial redraws (96.36.6.3)
     jmp short .done
 
     ; --- ENTER RUNS IT AGAIN (SPEC.md 96.19.4) -------------------------------
@@ -9766,6 +9915,12 @@ dos_btn_tab:
     dw dos_l_memb                   ; environment -> memory
     dw dos_l_done                   ; memory -> back to the main page
 dos_l_meml: db 'Limit:', 0
+dos_l_memk: db 'K', 0                ; ...and the UNIT, drawn hard against the
+                                     ; field's right edge (SPEC.md 96.36.10.1).
+                                     ; The field takes a bare number and `300`
+                                     ; is three plausible quantities on this
+                                     ; page alone - KB, paragraphs, or a
+                                     ; percentage of the arena above it
 dos_l_memc: db 'Disk cache:', 0
 ; --- THE ARENA, drawn as ONE opaque run with its digits inside it -----------
 ; dos_mem_num patches [dos_marn] in place and the line is drawn in a single
@@ -9798,37 +9953,51 @@ DOS_MEMI_N  equ 16                  ; the LONGEST arm's length, for the click
                                     ; to re-derive a constant
 
 ; --- arm 0's two driver boxes (SPEC.md 96.36.7) -----------------------------
-; The figure in the label is OSAPI_DRV_CLASSK's and is patched in by
-; dos_mck_lbl, so what the box says it gives back and what the arena figure
-; adds when it is cleared are ONE number read once (SPEC.md 47 rule 5).
+; **THE CAPTION AND THE ARENA TERM ARE TWO DIFFERENT NUMBERS**, which is not
+; where this started: they were ONE figure, read once, on 47 rule 5's grounds
+; that what a box says it gives back and what the arena moves by must not
+; disagree. They still must not - and they do not, because they are answers to
+; two different questions. The caption is the CLASS's ceiling (DRVCK_ALL, SPEC
+; 51.12.1) and the arena term is what is mounted HERE, so a machine with no
+; card reads `Network (Up to 39K)` beside a box that adds nothing when it is
+; cleared. Fed one figure the caption read `(Up to  0K)` on exactly that
+; machine - true, and indistinguishable from a page whose arithmetic died.
 dos_l_mhdd: db 'Hard drives (Up to '
-dos_mhddk:  db '   K)', 0
-dos_l_mnet: db 'Network (Up to '
-dos_mnetk:  db '   K)', 0
-DOS_MCKW    equ 24                  ; the longest of the two, in cells
+dos_mhddk:  db '  K)', 0             ; TWO digits and not three: these are the
+dos_l_mnet: db 'Network (Up to '     ; CLASS ceilings now (SPEC.md 51.12.1), so
+dos_mnetk:  db '  K)', 0             ; they are build-time constants and a
+                                     ; three-wide field only pads them over.
+                                     ; tests/unit/t_drvmem.py is what says a
+                                     ; class total still fits two - it already
+                                     ; re-derives every drv_memk term, and a
+                                     ; third digit would be dropped in SILENCE
+                                     ; by dos_mem_numn's `dec cx / jz .out`
+DOS_MCKW    equ 23                  ; the longest of the two, in cells
                                     ;
                                     ; **`Up to`, because the box is a REQUEST**
                                     ; (SPEC.md 96.36.7.1): it is never greyed
                                     ; now, so on a machine with no card it is
                                     ; ticked, live, and worth nothing - and
                                     ; those two facts have to be sayable at
-                                    ; once. The figure is still
-                                    ; OSAPI_DRV_CLASSK's, read ONCE by
-                                    ; dos_mck_lbl, so what the box says it
-                                    ; gives back and what the arena figure
-                                    ; moves by cannot disagree (47 rule 5).
+                                    ; once. Saying it needs the CLASS's figure
+                                    ; and not this machine's, which is what
+                                    ; DRVCK_ALL is for (SPEC.md 51.12.1).
                                     ;
-                                    ; THREE DIGITS AND NOT TWO, which is one
-                                    ; cell more than the field asked for: the
-                                    ; slot SUMS a class, so a second driver of
-                                    ; either kind puts the figure past 99 and a
-                                    ; two-digit field would print the wrong
-                                    ; number rather than a wrong-looking one.
-                                    ; It is right-aligned, so today's 32 reads
-                                    ; `Up to  32K` and the extra column is
-                                    ; blank until it is needed. The width was
-                                    ; never the constraint - the label ends
-                                    ; ~220px into a 310px block
+                                    ; TWO DIGITS. It was three, on the argument
+                                    ; that the slot SUMS a class so a second
+                                    ; driver could put the figure past 99 - and
+                                    ; that argument was sound about a number
+                                    ; nobody could bound. It is a BUILD-TIME
+                                    ; ceiling now, so it CAN be bounded, and
+                                    ; tests/unit/t_drvmem.py bounds it: the
+                                    ; file that already re-derives every
+                                    ; drv_memk term from the drivers' own
+                                    ; sources asserts each class total fits
+                                    ; two. A host-side check costs no bytes and
+                                    ; fails the build the day it stops being
+                                    ; true, which is strictly better than a
+                                    ; blank column waiting for a driver that
+                                    ; may never arrive
 
 ; --- ...and arm 1's one box (SPEC.md 96.36.8) -------------------------------
 ; **THE MOUSE IS NOT FREE ON A 4.77 MHz MACHINE**: `mou_isr` redraws the
@@ -15708,9 +15877,24 @@ dos_fh_fill:
     HBSS DOS_B_ISPKG,   1           ; the typed name ends in .O88 (96.33.17)
     HBSS DOS_B_PKGQ,    1           ; ...and a launch of one is POSTED
     HBSS DOS_B_PKGN,   13           ; ...with its name banked out of dsh_a1
+    HBSS DOS_B_PTRES,   1           ; dos_path_take: resolve, do not COMMIT
+    HBSS DOS_B_PTBASE,  2           ; ...and where the text it was given began
+    HBSS DOS_B_PGDIR,   2           ; the folder a resolve-only answered with
+    HBSS DOS_B_PGVOL,   1           ; ...and its volume (SPEC.md 96.33.21)
+    HBSS DOS_B_PGPDIR,  2           ; the PROGRAM's own folder, banked before
+    HBSS DOS_B_PGPVOL,  1           ; the DOCUMENT's resolve overwrites those
+    HBSS DOS_B_PGDOC,  16           ; OSAPI_PKG_START's document locator:
+                                    ; 13 name, dir WORD, vol BYTE (21.5.3)
+    HBSS DOS_B_PGHAS,   1           ; ...and whether the line named one
     HBSS DOS_B_FSXGO,   1           ; ...and a launch was typed INTO it, so the
                                     ; bracket comes down for the program and
                                     ; goes back up after it (SPEC.md 96.33.16)
+    HBSS DOS_B_AEDN,    1           ; ...and what the LAST full-screen pass saw
+                                    ; of Alt+Enter (SPEC.md 96.33.5.1):
+                                    ; OSAPI_KEY_DOWN is a level read, so the
+                                    ; edge is ours to find. Seeded DOWN at the
+                                    ; top of the bracket, because the press
+                                    ; that got us in is still held
     DBSS DOS_B_SHEXEC,  1           ; dsh_run may try an unknown verb as a
                                     ; PROGRAM: set from the prompt, 0 for `/c`
     HBSS DOS_B_CMDX,    2           ; the column the prompt ended on, which is
@@ -16150,7 +16334,16 @@ dos_fsxup   equ DOS_CBASE + DOS_B_FSXUP
 dos_ispkg equ dos_hbss + DOS_B_ISPKG   ; byte: the name ends in .O88
 dos_pkgq equ dos_hbss + DOS_B_PKGQ    ; byte: a package launch posted
 dos_pkgn equ dos_hbss + DOS_B_PKGN    ; 13:   ...and which one
+dos_ptres equ dos_hbss + DOS_B_PTRES   ; dos_path_take's resolve-only pair
+dos_ptbase equ dos_hbss + DOS_B_PTBASE
+dos_pgdir equ dos_hbss + DOS_B_PGDIR   ; ...and what it answers in
+dos_pgvol equ dos_hbss + DOS_B_PGVOL
+dos_pgpdir equ dos_hbss + DOS_B_PGPDIR ; the program's, banked (96.33.21.1)
+dos_pgpvol equ dos_hbss + DOS_B_PGPVOL
+dos_pgdoc equ dos_hbss + DOS_B_PGDOC   ; 16:   the document locator (21.5.3)
+dos_pghas equ dos_hbss + DOS_B_PGHAS
 dos_fsxgo equ dos_hbss + DOS_B_FSXGO
+dos_aedn equ dos_hbss + DOS_B_AEDN     ; byte: 96.33.5.1's edge
 dsh_exec    equ DOS_CBASE + DOS_B_SHEXEC
 dos_cmdx equ dos_hbss + DOS_B_CMDX
 dos_cmdn equ dos_hbss + DOS_B_CMDN

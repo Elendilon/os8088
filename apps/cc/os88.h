@@ -933,6 +933,20 @@ void os88_mouse(struct os88_mouse *m);
  * reading down until it is pressed again. Bound what a "yes" makes you do. */
 int  os88_key_down(int scan);
 
+/* ALT+ENTER, THE FULL-SCREEN KEY (SPEC.md 11.2.1.1). os88_onkey is handed
+ * ascii 0 with OS88_SCAN_ENTER for it - the code an enhanced ROM gives, and
+ * the code the kernel SYNTHESISES on every ROM that does not, which is most
+ * of them: no XT BIOS enqueues this combination at all (SPEC.md 9.7.1).
+ * Two things it needs from you:
+ *   - ask os88_key_down(OS88_SCAN_ALT) ONCE from os88_main(), because the
+ *     kernel's latch rides on the key-state map and the map does not exist
+ *     until something asks. Without it the chord is silently dead.
+ *   - test it ABOVE any ascii handling, since ascii is 0.
+ * A window on SPEC.md 11.2's latch keeps taking os88_onkey while it is full
+ * screen, so one test is both directions. */
+#define OS88_SCAN_ENTER 0x1C
+#define OS88_SCAN_ALT   0x38
+
 int  os88_evq_pending(void);                     /* events queued BEHIND the
                                                   * one being dispatched (13.4)
                                                   * - "am I about to be asked

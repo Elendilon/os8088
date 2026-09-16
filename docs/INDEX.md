@@ -239,7 +239,7 @@ Read first: [§31 ctrl.inc — the Control Panel window](../SPEC.md#31-ctrlinc--
 | `0x0188` | `OSAPI_CPU_INFO` | no inputs; out AL = CPU_8086 / CPU_286 / CPU_386, AH = feature bits (the CPU_F_* below): bit 0 A20 verified open, bit 1 HMA claimed, bit 2 unreal... |
 | `0x04A0` | `OSAPI_DRV_CALL_AT` | OSAPI_DRV_CALL, EXCEPT ES IS YOURS (SPEC.md 20.11.2)... |
 | `0x0550` | `OSAPI_DRV_SUSPEND` | AL = 1 suspend / 0 resume / 2 handoff (above). ES:DI = a buffer of DQ_SIZE records or DI = 0 (suspend), ES:SI = a KDH_* record (handoff). out CF=0... |
-| `0x0580` | `OSAPI_DRV_CLASSK` | **WHAT ONE CLASS IS HOLDING** (SPEC.md 51.12). in AL = a DRVC_* class... |
+| `0x0580` | `OSAPI_DRV_CLASSK` | **WHAT ONE CLASS IS HOLDING** (SPEC.md 51.12). in AL = a DRVC_* class, + DRVCK_ALL for the CEILING form... |
 | `0x0448` | `OSAPI_DRV_CALL` | in BH = a DRVC_* class, BL = a verb THAT DRIVER defines; AX, CX, DX, SI and DI are the driver's to define too... |
 | `0x0320` | `OSAPI_CLIP_PUT` | ES:SI = the text, CX = its length. CX = 0 EMPTIES the clipboard and is not an error. Out CF=1 = refused (over CLIP_MAXKB, or the heap could not fund... |
 | `0x0328` | `OSAPI_CLIP_GET` | ES:DI = your buffer, CX = its capacity. Out CF=1 = empty (AX = CX = 0)... |
@@ -288,6 +288,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 | include | SPEC | what it gives you |
 |---|---|---|
 | `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes, the standard alert, the standard About card and the drop-down. Opt into the alert with `%define OS88UI_ALERT`, the About card with `%define OS88UI_ABOUT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`, and the drop-down - one pick out of a short list, a Macintosh popup's gesture - with `%define OS88UI_DROP` (SPEC.md 13.14). |
+| `apps/os88alt.inc` | §11.2.1.1 | Alt+Enter, the full-screen key, for a package on SPEC.md 53's BRACKET - where no event is dispatched, so the kernel's synthesised keystroke cannot reach you and your own int 16h poll cannot see the key either. `os88alt_edge` asks the key-state map and finds the edge in it. A package on SPEC.md 11.2's LATCH needs none of this file: one `cmp ax, KEY_ALTENTER` in its W_ONKEY is both directions. Both want `OS88_ALTENTER_ARM` (apps/os88api.inc) in the entry proc, without which the chord is silently dead. |
 | `apps/os88line.inc` | §83 | A one-line text field: caret, horizontal scroll, focus, click-to-position and the editing keys. The caller owns a 20-byte block. |
 | `apps/os88text.inc` | §83 | The multi-line sibling of os88line.inc. Enter inserts a newline; no wrap, no selection, no undo. |
 | `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and all seven chart types - area, bar, column, line, pie, scatter, combination - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |

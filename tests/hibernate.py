@@ -95,6 +95,12 @@ TEMPLATE = os.path.join(RUN, "media/hdds/default_xtide.vhd")
 _TAG = os.getpid()
 VHD = os.path.abspath(_B.at("build/hiber-%d.vhd" % _TAG))
 FLOPPY = _B.at("build/hiber360-%d.img" % _TAG)
+# --machine points this at another 8088 with a fixed disk. The one that
+# matters is os8088_5150_herc_hdd_gla, whose staging area is at B000 rather
+# than B800 (SPEC.md 87.5): a hibernate needs the fixed disk and the ADAPTER
+# picks that segment, so until that machine existed the mono arm of the resume
+# had never run at all - which is how SPEC.md 96.49.2 shipped on the DOS route
+# beside it.
 MACHINE = "os8088_xt_hdd"
 
 # kernel/hiber.inc, kernel/instance.inc - the module's own constants
@@ -545,7 +551,14 @@ def main():
     ap.add_argument("--driver", action="store_true",
                     help="boot from a floppy and reach the disk through HDD.DRV")
     ap.add_argument("--only", choices=["resume", "discard"])
+    ap.add_argument("--machine",
+                    help="another 8088 with a fixed disk. The one that matters "
+                         "is os8088_5150_herc_hdd_gla, whose staging area is at "
+                         "B000 rather than B800 (SPEC.md 87.5)")
     a = ap.parse_args()
+    if a.machine:
+        global MACHINE
+        MACHINE = a.machine
     try:
         fixture()
         if a.driver:

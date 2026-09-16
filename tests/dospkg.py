@@ -15,6 +15,17 @@ FOUR STEPS, and the third and fourth are the ones that break silently:
   1  `CALC.O88` at the prompt opens a window titled `Calculator`, and the DOS
      box is STILL THERE - a launch that replaced the box would be the `.COM`
      path back again.
+  1b THE BARE NAME REACHES IT TOO (SPEC.md 96.33.7).  `PIANO` with no
+     extension opens `Piano`, because a bare name is a SEARCH and `.O88` is
+     the third thing it tries - after DOS's own `.COM` and `.EXE`, which is
+     the order contract.  This shipped as a split: the DOTTED door answered a
+     package and the bare one did not, so `CALC.O88` opened Calculator and
+     `CALC` beside it in the same folder said `Bad command or file name`.
+     ITS NEGATIVE CONTROL IS THE SHARP HALF - a bare `NOSUCHPG` that matches
+     none of the three must still say `Bad command or file name` and NOT
+     `Cannot open`: the `[dos_ispkg]` store sits on the arm where the probe
+     HIT, and a store made before the probe would send every unresolved word
+     on the machine to the package launcher.
   2  `NOSUCH.O88` says `Cannot open NOSUCH.O88` and opens nothing.  The
      refusal has to name the file: at that point the user has no window to
      look at and AL is the only thing that knows why.
@@ -149,6 +160,50 @@ def main():
         if "DOS" not in titles():
             fail("the DOS box is gone after the launch - a package opens "
                  "BESIDE the box, not inside it (SPEC.md 96.33.17)")
+
+        # --- 1b: ...and the BARE name finds it (SPEC.md 96.33.7) -------------
+        # A bare name is a search and `.O88` is its third probe. A DIFFERENT
+        # package from step 1 on purpose: re-typing `CALC` would open a second
+        # Calculator and `want in titles()` was already true, so the assertion
+        # would pass without the search ever running.
+        if not launch("PIANO", "Piano"):
+            fail("a BARE `PIANO` opened no window titled 'Piano'. The .COM/"
+                 ".EXE search takes .O88 third (SPEC.md 96.33.7) - this is "
+                 "the dotted door's third answer reaching the bare one. "
+                 "Console: %r" % console()[-3:])
+        else:
+            print("dospkg: PIANO (bare) -> %r" % titles())
+
+        # ...and the negative control, which is the half that breaks silently:
+        # the [dos_ispkg] store is on the arm where the probe HIT. Made one
+        # instruction earlier it would be unconditional, and every unresolved
+        # word typed on this machine would go to the package launcher and come
+        # back `Cannot open` instead of `Bad command or file name`.
+        to_box()
+        before = len(titles())
+        typ("NOSUCHPG\n")
+        os88marty.settle(m)
+        end = time.time() + 12.0
+        while time.time() < end and not any(("Bad command" in r or
+                                             "Cannot open" in r)
+                                            for r in console()[-3:]):
+            time.sleep(1.0)
+            os88marty.settle(m)
+        tail = console()[-3:]
+        if any("Cannot open" in r for r in tail):
+            fail("a bare name matching NO extension answered %r - it reached "
+                 "the PACKAGE launcher, so [dos_ispkg] is being set before "
+                 "the .O88 probe answers rather than on its hit arm "
+                 "(SPEC.md 96.33.7)" % tail)
+        elif not any("Bad command" in r for r in tail):
+            fail("a bare `NOSUCHPG` said %r, want 'Bad command or file name' "
+                 "(SPEC.md 96.33.7)" % tail)
+        else:
+            print("dospkg: NOSUCHPG (bare, no match) -> %r"
+                  % next(r for r in tail if "Bad command" in r))
+        if len(titles()) != before:
+            fail("a bare name that matched nothing changed the window list: "
+                 "%r" % titles())
 
         # --- 2: a name that is not there -------------------------------------
         to_box()

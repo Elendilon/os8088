@@ -604,7 +604,6 @@ void os88_about(void *win)
  *        ordinary "any key" (DBG_ESCAPE governs only leaving the game loop) */
 void os88_onkey(int ascii, int scan, void *win)
 {
-    (void) ascii;
 
     /* ANY KEY TAKES THE ABOUT CARD DOWN, and starts nothing else. The widget
      * only draws; the flag and the dismissal are ours (apps/cc/os88.h), this
@@ -614,6 +613,20 @@ void os88_onkey(int ascii, int scan, void *win)
      * w_abdismiss and apps/pacman/pacman.asm's pm_dismiss_body both. */
     if (pmc_abdismiss(win))
         return;
+
+    /* ALT+ENTER IS THE SAME TOGGLE (SPEC.md 11.2.1.1), and it is the one key
+     * here that has to look at `ascii`: Enter's scancode is Enter's scancode
+     * whether or not Alt is held, and this handler ignores ascii everywhere
+     * else, so without the test a plain Enter on the attract screen would
+     * throw the cabinet full screen. ascii 0 is what makes it a chord. */
+    if (ascii == 0 && scan == OS88_SCAN_ENTER) {
+        pmc_full = !pmc_full;
+        if (os88_fullscreen(win, pmc_full) < 0) {
+            pmc_full = 0;
+            os88_toast("Another window is full screen.", 36);
+        }
+        return;
+    }
 
     if (scan == PMC_SC_F) {
         pmc_full = !pmc_full;

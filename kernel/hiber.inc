@@ -83,6 +83,9 @@ HBP_SIZE    equ 18              ; front of it are hbm_ptrfix, one description
 
 %include "hbstage.inc"        ; SPEC.md 87.5's staging map, shared as SOURCE
                               ; with kerndos/kdresume.inc (SPEC.md 96.49)
+%ifdef DOSR_MARK
+  %include "hbmark.inc"       ; ...and the trace, which hbm_wake stamps 500
+%endif                        ; lines before hbstub.inc is included
 
 ; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
 ; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
@@ -2872,6 +2875,14 @@ hbm_wake:
     mov ax, LOW_SEG             ; 0. every task stack is in LOW_SEG (SPEC.md
     mov ss, ax                  ;    2.1) and [hb_sp] is the frame
     mov sp, [hb_sp]             ;    hbm_perform banked - both just restored
+%ifdef DOSR_MARK
+    mov ax, 0xB000              ; 'W': the restored kernel has control, which
+    mov es, ax                  ; is the one fact the stub cannot report. To
+    HBMARKAT HM_WCOL, 'W'       ; BOTH adapters' pages, because WHICH one the
+    mov ax, 0xB800              ; staging segment was is the question being
+    mov es, ax                  ; asked - and the page that is not there is a
+    HBMARKAT HM_WCOL, 'W'       ; black hole rather than a fault
+%endif
     sti                         ; 1. the IVT is the image's; nobody switches
     cld
     call hbm_stageseg           ; 2. the clock the boot just read
@@ -3006,6 +3017,49 @@ hbm_wake:
     and al, cl
     out 0x21, al
     popf
+%ifdef KERN_BIG
+    ; --- ...AND THE OTHER SOCKET, WHICH IS THE SAME DEFECT WITH THREE
+    ; TEARDOWNS INSTEAD OF ONE (SPEC.md 96.45.2.2). Step 6's `mouse_unhook`
+    ; calls `mou_p2_off`, which masks IRQ12 at the slave, sends 0xA7 so the
+    ; auxiliary interface is not even CLOCKED, and puts the BIOS's command
+    ; byte back - IRQ12 bit and all. `mou_p2_init` is the only thing that
+    ; undoes any of it and is in `.ovlw` beside `mouse_init`, so a PS/2
+    ; pointer came home exactly as dead and for exactly the same reason.
+    ;
+    ; **`[mou_p2]` IS THE RIGHT GUARD AND IT SURVIVES**: `hbm_wrimg` takes the
+    ; picture at step 3b and `mouse_unhook` runs at step 6, so the byte the
+    ; image carries is the one from BEFORE the teardown - 1 only where a PS/2
+    ; mouse was the live pointer. A serial machine runs none of this, and
+    ; neither does one whose PS/2 mouse had already LOST the contest, which
+    ; `mou_lockon` retires through the same `mou_p2_off`.
+    cmp byte [mou_p2], 0
+    je .nop2
+    mov al, 0xA8                ; the auxiliary interface back on - 0xA7 undone
+    mov bp, mou_p2cw
+    call KERNEL_SEG:cw_mem_disp
+    mov al, [mou_p2cmd0]        ; ...and the command byte mou_p2_init computes,
+    and al, 0xDF                ; off the same banked BIOS byte: the aux clock
+    or  al, 0x02 | MOU_P2KOFF   ; on, and IRQ12 armed AT THE CONTROLLER
+    mov bp, mou_p2wcmd
+    call KERNEL_SEG:cw_mem_disp
+    mov al, 0xD4                ; ...and 0xF4 to the DEVICE, because 0xA7 left
+    mov bp, mou_p2cw            ; it unclocked and a device that is not
+    call KERNEL_SEG:cw_mem_disp ; reporting is a live line with nothing on it.
+    mov al, 0xF4                ; The ACK is not collected - `mou_p2flush` is
+    mov bp, mou_p2dw            ; the overlay's, both writers time out on their
+    call KERNEL_SEG:cw_mem_disp ; own, and the ISR discards a stray 0xFA anyway
+    pushf
+    cli
+    in  al, 0xA1                ; IRQ12 at the SLAVE...
+    and al, 0xFF & ~MOU_P2SL
+    out 0xA1, al
+    in  al, 0x21                ; ...and IRQ2 at the master, the CASCADE, whose
+    and al, 0xFF & ~MOU_P2CASC  ; absence is a mouse that passed every step and
+    out 0x21, al                ; is then silent for the session (SPEC.md 9.9)
+    popf
+    mov byte [mou_p2], 1
+.nop2:
+%endif
     ; 4. the desktop, the way fsx_restore gets it back (SPEC.md 53) - before
     ;    any disk work, so the progress widget has a graphics mode to draw in
     mov bp, vid_setmode

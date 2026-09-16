@@ -65,6 +65,13 @@ LD_DE_SIZE  equ 20              ; the LOW word of a DWORD size (SPEC.md 19.1
 LD_H_MAGIC  equ 0               ; word: 0x384F ('O','8')
 LD_H_VER    equ 2               ; byte: format version = 3
 LD_H_FLAGS  equ 3               ; byte: bit 0 = embedded 16x16 icon
+LD_HF_GLYPH equ 0x20            ; ...its bit 5: a 16-byte DOCUMENT-GLYPH block
+                                ; follows the association block (SPEC.md
+                                ; 54.3.2). Read by assoc.inc and by the two
+                                ; clear-prefix ladders, and by nothing else
+LD_H_GLYPH  equ 112             ; ...and where it sits: header 32 + icon 64 +
+                                ; association block 16 (the tool requires all
+                                ; three in front of it)
 LD_H_LINK   equ 4               ; word: link base, must be 0 (org 0 - a v3
                                 ; package is position-independent because it
                                 ; owns its segment, SPEC.md 20.1)
@@ -237,12 +244,16 @@ ld_expand:
     mov bx, LD_HDR_SIZE         ; carries at R: what the mount reads out of
     test al, 1                  ; the first sector and must never have to
     jz .noico                   ; decompress to get (SPEC.md 20.13.1) - the
-    add bx, 64                  ; header, the icon, the association block.
-.noico:                         ; At most 112, and ALWAYS a multiple of 16,
-    test al, 2                  ; which is what lets the body's destination
-    jz .noasc                   ; be a SEGMENT below
+    add bx, 64                  ; header, the icon, the association block,
+.noico:                         ; the document glyph. At most 128, and ALWAYS
+    test al, 2                  ; a multiple of 16, which is what lets the
+    jz .noasc                   ; body's destination be a SEGMENT below
     add bx, 16
 .noasc:
+    test al, LD_HF_GLYPH        ; ...and the document glyph (SPEC.md 54.3.2),
+    jz .nogly                   ; sixteen bytes for eight of glyph for the
+    add bx, 16                  ; multiple-of-16 reason above
+.nogly:
     test al, 0x10               ; bit 4 says which format (SPEC.md 20.13): the
     mov al, LZ_LZ4              ; decoder wants 0 or 1, and CX - the file's
     jz .fmt                     ; length - is not a register to shift by
@@ -1380,12 +1391,10 @@ ld_start:
 ld_pkg_start_x:
     mov ax, cx                  ; **NO IMAGE MEANS READ THE FILE** (SPEC.md
     or ax, dx                   ; 21.5): the length is the argument that only
-    jz ld_run_name_x            ; exists in the image form, so zero is its
+    jz ld_pkg_byname            ; exists in the image form, so zero is its
                                 ; absence - and SI is already the staged name
                                 ; in the kernel's own DS, which is exactly
-                                ; ld_run_name's input. A TAIL JUMP, so its ret
-                                ; lands in the far entry's epilogue below and
-                                ; the two arms share one answer
+                                ; ld_run_name's input
     mov ax, es
     or ax, ax
     jz .bad                     ; an image at segment 0 is the interrupt
@@ -1482,6 +1491,148 @@ ld_pkg_start_x:
 ; ...and the answer, which ld_start cannot give: it is the DISK path's body
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
+; --- ld_pkg_upc - AL to upper case; touches nothing else but the flags -----
+; Its own rather than a shared one, because the kernel HAS no general upcase:
+; the file layer folds inside dskw_char_x, which also judges legality and is
+; the wrong shape for a name already known to be legal.
+ld_pkg_upc:
+    cmp al, 'a'
+    jb .u
+    cmp al, 'z'
+    ja .u
+    sub al, 'a' - 'A'
+.u:
+    ret
+
+; -----------------------------------------------------------------------------
+; ld_pkg_byname - the by-name arm, and the DOCUMENT that may ride with it
+; in:  SI -> the staged NUL 8.3 name (EMPTY = the document names the program);
+;      ES:DI -> the document's locator, or ES = 0 for none
+; out: AL = LD_*, as ld_pkg_start_x's other arm
+;
+; **ES = 0 IS "I AM PASSING YOU NOTHING THROUGH ES:DI"** (SPEC.md 21.5), which
+; is the rule the image arm one branch up already enforces - so ONE sentence
+; covers both arms, and a caller meaning the plain form zeroes ES either way.
+;
+; The locator is 13 NUL name bytes, the directory WORD, the volume BYTE: the
+; shape OSAPI_ARG_FILE answers with, in the order it answers it - so a package
+; cannot tell this launch from a double-click, which is the point (21.5.3).
+;
+; **A DOCUMENT TAKES THE ASSOCIATION ROUTE AND NOT ld_run_name's.** That is
+; the whole of what it buys: ld_run_name resolves the program in the folder
+; the caller stands in, and assoc_locate finds it by the hint cache wherever
+; it lives on the volume. `NOTEPAD README.TXT` typed on A:\ is exactly the
+; case those differ on - the program is in A:\APPS\.
+; -----------------------------------------------------------------------------
+ld_pkg_byname:
+%ifdef OS88_ASSOC
+    mov ax, es
+    or ax, ax
+    jz ld_run_name_x            ; no document: today's tail jump, unchanged,
+                                ; so nothing that does not ask for this pays
+                                ; an instruction for it
+    push si                     ; the staged NAME, across the document's copy
+    mov si, di
+    mov di, assoc_doc
+    mov cx, 13
+    call assoc_stage            ; ES:SI -> DS:DI, the osapi_assoc_set idiom -
+                                ; and SI lands ON the locator's two fields
+    mov ax, [es:si]
+    mov [assoc_dclus], ax
+    mov al, [es:si+2]
+    mov [assoc_ddrv], al
+
+    ; --- UPPER-CASE IT (SPEC.md 21.5.3.2) ----------------------------------
+    ; The association tables are UPPERCASE-EXACT - assoc_find compares bytes
+    ; and assoc_ext_of says so in its own header - because they are built from
+    ; FAT names, which are uppercase. A name that arrives from a KEYBOARD is
+    ; not, so `open readme.txt` found no association for `.txt` while `OPEN
+    ; README.TXT` opened Note Pad. This arm has to fold case for the same
+    ; reason the plain arm does not have to: THAT one resolves through the
+    ; file layer, and dskw_char_x upcases on the way past.
+    ;
+    ; The NAME and not just the extension, because the package opens the
+    ; document by that name: OSAPI_ARG_FILE hands it over and the package
+    ; GOTOs and READs it, and a lowercase 8.3 name matches nothing on a FAT
+    ; volume either.
+    mov di, assoc_doc
+    mov cx, 13
+.dupc:
+    mov al, [di]
+    or al, al
+    jz .duped                   ; a NUL ends it: the bytes past the name are
+    call ld_pkg_upc             ; nobody's and folding them would be a lie
+    mov [di], al
+    inc di
+    loop .dupc
+.duped:
+    pop si
+
+    ; --- THE CACHE IS SEEDED HERE, because no caller's path does it ---------
+    ; (SPEC.md 21.5.3.1) assoc_app_of and assoc_find read an IN-RAM table that
+    ; the mount HARVEST fills - and every path a program reaches this slot by
+    ; is a QUIET mount, which skips the harvest entirely. assoc_locate seeds
+    ; the volume that answers, but that runs AFTER the lookup that decides
+    ; whether to call it, so the seed has to go in front of both.
+    ; Stamped by [asc_vol]: a volume already loaded costs ONE COMPARE.
+    call asc_use_x
+
+    cmp byte [si], 0
+    je .byext
+    mov di, assoc_stemb         ; a NAME was given: its STEM names the slot,
+    mov cx, 8                   ; space-padded, which is the shape the table
+    mov al, ' '                 ; holds and assoc_app_of compares
+.pad:
+    mov [di], al
+    inc di
+    loop .pad
+    mov di, assoc_stemb
+    mov cx, 8
+.stem:
+    mov al, [si]
+    or al, al
+    jz .gotstem
+    cmp al, '.'
+    je .gotstem                 ; `NOTEPAD.O88` -> `NOTEPAD `
+    call ld_pkg_upc             ; ...and UPPERCASE, for assoc_app_of's own
+    mov [di], al                ; byte-exact compare (21.5.3.2): `notepad
+    inc si                      ; readme.txt` answered `Cannot open notepad`
+    inc di
+    loop .stem
+.gotstem:
+    mov si, assoc_stemb
+    call assoc_app_of
+    jmp short .have
+.byext:
+    mov si, assoc_doc           ; ...or none was: the double-click's own
+    call assoc_ext_of           ; question, asked by a program instead of by
+    jc .nodoc                   ; a mouse. assoc_ext_of stops at the NUL, so
+    mov si, di                  ; a 13-byte name in its 16-byte shape is fine
+    call assoc_find
+.have:
+    jc .nodoc
+    mov [assoc_dapp], al
+    mov word [assoc_pwin], 0    ; NO POSTER, so assoc_run reads [dsk_cwd] for
+                                ; the document's home - which is where the
+                                ; caller stands, and the caller is the one who
+                                ; told us the document's own dir and volume
+                                ; anyway (both are banked above)
+    call COLD_SEG:assoc_run_x   ; **CALLED, NOT POSTED**: this slot already
+                                ; requires the UI task with the gfx lock FREE
+                                ; (21.5), which is the context assoc_run
+                                ; wants - so there is nothing to defer to.
+                                ; FAR, because assoc_run far-returns, being
+                                ; ui.inc's own callee
+    xor al, al                  ; it reported its own verdict to the user
+    ret                         ; (ld_say_status) - 21.5.3's thinner answer
+.nodoc:
+    mov al, LD_EBAD             ; the one thing the caller could not know:
+    ret                         ; nothing on this machine opens it
+%else
+    jmp ld_run_name_x           ; kern_small has no associations at all
+%endif                          ; (SPEC.md 54.0), so a document is silently
+                                ; nothing and the name still runs
+
 ldf_ld_pkg_start:
     ; [ld_pwin] is NOT zeroed here, and that is a cut rather than an omission
     ; (SPEC.md 21.5.2): loader_run_x is its only reader, the PKG_START path

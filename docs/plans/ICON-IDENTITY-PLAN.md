@@ -335,6 +335,22 @@ buffer left to re-read from.
    against `ICO_NROW`'s 48, with `ASSOC_NAPP` capping composed document
    bodies at another 12.
 
+**And the merge with SPEC.md 54.3.2's glyph column added a sixth thing that
+was not optional.** That work gave a version 2 `ASSOC.DAT` row an 8-byte
+column holding the glyph a package SHIPS, because the reduction of a 16×16
+icon is not always a usable 8×8 one — DOS's CRT reduces to an empty block — and
+a cache HIT read that column off the row. A hit has no row once the claim is a
+file buffer, and a store carrying only the body answers with the *reduction*:
+it does not fail to write the glyph, it **downgrades one `asc_seed` had
+already resolved**, so the picture gets quietly worse the first time a folder
+is browsed. `tests/dosglyph.py` leg 4 caught it, and it is worth saying that
+the first fix considered — *leave a resolved glyph alone* — would ALSO have
+failed, because that row poisons the slot with the reduction rather than with
+zeros precisely so a writer that skips blanks cannot pass. So the store row
+carries the glyph: `ICO_ROW` 80 → 88 on `kern_big` only, `asc_absorb` puts a
+v2 row's in beside the body, and `asc_take` prefers it. 384 bytes of a claim
+whose sibling just returned 3,072.
+
 **What it cost and what it bought**, measured: `.text` +0, `.bss` +0,
 **`.cold` +115 on `kern_big` and +38 on `kern_small`**, no rung crossed on
 either and both footprints byte-identical — against a **3,072-byte heap claim

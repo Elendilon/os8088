@@ -20,12 +20,28 @@
 %ifndef HBSTUB_INC
 %define HBSTUB_INC 1
 
+%ifdef DOSR_MARK
+  %include "hbmark.inc"
+%endif
+
 hbs_stub:
     mov ax, cs
     mov ds, ax
     mov ss, ax
     mov sp, HS_STACK
     cld
+%ifdef DOSR_MARK
+    mov word [HM_CUR], 2        ; **THE STUB OWNS THE CURSOR, NOT ITS STAGER.**
+                                ; Two hosts stage this blob and only kd_resume
+                                ; has a kdr_mark_init: on the ORDINARY resume
+                                ; HM_CUR would be whatever was in the
+                                ; framebuffer, and a trace that appends at a
+                                ; garbage offset writes into HS_EXT or the IVT
+                                ; copy - an instrument that breaks the thing it
+                                ; is watching. Column 0 is skipped because that
+                                ; is where kd_resume leaves its 'J'
+    HBMARK 'S'                  ; the stub is running, and in THIS segment.
+%endif                          ; Not before SS:SP: the macro pushes
     mov word [HS_K], 0
     mov si, HS_EXT
     mov cx, [HS_NX]
@@ -34,6 +50,9 @@ hbs_stub:
     jnz .have
     jmp .done
 .have:
+%ifdef DOSR_MARK
+    HBMARK 'X'                  ; one per extent of the chain
+%endif
     push cx
     mov ax, [si]
     mov [HS_LBA], ax
@@ -107,13 +126,24 @@ hbs_stub:
     sti                         ; the ROM wants its interrupts on an AT
     int 0x13
     jnc .ok
+%ifdef DOSR_MARK
+    HBMARK '!'                  ; ...and one per int 13h that refused
+%endif
     xor ah, ah
     mov dl, [HS_UNIT]
     int 0x13                    ; reset, and again
     dec di
     jnz .try
+%ifdef DOSR_MARK
+    jmp .fail                   ; the trace pushed it out of short range
+%else
     jmp short .fail
+%endif
 .ok:
+%ifdef DOSR_MARK
+    HBMARK '.'                  ; one per int 13h that moved sectors...
+    HBMARKK                     ; ...and the file sector it has reached
+%endif
     mov bx, [HS_K]
     cmp bx, 2
     jae .advance
@@ -146,6 +176,9 @@ hbs_stub:
     dec cx
     jmp .extent
 .done:
+%ifdef DOSR_MARK
+    HBMARK 'D'                  ; the whole image is back
+%endif
     cli                         ; --- the IVT goes back last, under cli ------
     xor ax, ax
     mov es, ax
@@ -160,6 +193,9 @@ hbs_stub:
     mov al, [HS_MASKS]
     out 0xA1, al
 .noslave:
+%ifdef DOSR_MARK
+    HBMARK 'V'                  ; the IVT and the PICs are the image's again,
+%endif                          ; so this is the last instant the stub owns
     mov ax, [cs:HS_KSEG]        ; **STAGED AND NOT ASSEMBLED** (hbstage.inc):
     mov ds, ax                  ; ...and NOT SS:SP - hbm_wake builds its own
     jmp far [cs:HS_WAKE]        ; out of the memory it has just put back

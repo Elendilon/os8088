@@ -136,11 +136,19 @@ def wait_desktop(m, ui, secs=300):
     The mode is the honest question. os8088's desktop is GRAPHICS on every
     adapter it has (SPEC.md 39) and everything between - the ROM's banner,
     `kern_dos`, the loading screen's own text - is not.
+
+    **ASK IT WITH `video_is_text`**, which knows which of `mode` and `graphics`
+    is the live field on each card: on the MDA/Hercules `mode` is dead, because
+    os8088 enters HGC graphics through 3BF/3B8 rather than through int 10h, so
+    a `"Graphics" in mode` test can never pass there whatever the kernel did.
+    This row runs on a colour machine today and the check is still wrong to
+    write - tests/kdreturn.py has the same wait and went red on a mono machine
+    for exactly this (SPEC.md 96.49.2).
     """
     end = time.time() + secs
     while time.time() < end:
         try:
-            if "Graphics" in (m.video() or {}).get("mode", ""):
+            if not os88marty.video_is_text(m.video() or {}):
                 return ui.ready(limit=secs)
         except Exception:
             pass
