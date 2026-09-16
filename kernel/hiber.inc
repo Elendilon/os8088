@@ -259,6 +259,12 @@ hb_susp:    resw 1              ; the rows OSAPI_DRV_SUSPEND took out, to put
                                 ; and not [hb_drvmask], because a hibernate can
                                 ; be taken while a suspend stands and the two
                                 ; sets come back at different moments
+hb_spmask:  resb 1              ; ...and the classes THIS suspend was asked to
+                                ; take as well (SPEC.md 51.11.4), bit 1<<class.
+                                ; The slot's BL, banked here because the sweep
+                                ; that reads it is in HIBER.DRV and a module
+                                ; runs with DS = KERNEL_SEG. One byte does it:
+                                ; DRVC_MAX is 5
                                 ; ...and NO staging cells: the kernel already
                                 ; has both singletons this module wanted, and
                                 ; hbm_btn satisfies the invariant that makes
@@ -323,7 +329,9 @@ hb_probe_x:
 ;                 OF MY WAY. Entered from kernel.asm's thunk under api_x, so
 ;                 ES = the caller's DS and DS = KERNEL_SEG
 ; in:  AL = 1 suspend the hardware drivers, ES:DI = a DQ_SIZE-record buffer
-;      each is asked DRVV_HWINFO into on the way past, or DI = 0
+;      each is asked DRVV_HWINFO into on the way past, or DI = 0; BL = extra
+;      DRVC_* classes the skip list is to let go of, bit 1<<class, or 0 for
+;      today's set (SPEC.md 51.11.4)
 ;      AL = 0 put back the rows a suspend took out
 ;      AL = 2 hand the whole machine to kern_dos, ES:SI = a KDH_* record in the
 ;      caller's own image or bss (96.40)
@@ -348,6 +356,14 @@ hb_probe_x:
 drv_suspend_x:
     cmp al, 2
     je osapi_dos_handoff_x
+    mov [hb_spmask], bl         ; ...and the extra classes, for hbm_sweep to
+                                ; read out of the module (SPEC.md 51.11.4).
+                                ; FOUR BYTES, which is the whole resident cost
+                                ; of the feature: the decision it feeds is
+                                ; HIBER.DRV's. Written on the resume too,
+                                ; where it means nothing and where writing it
+                                ; unconditionally is what keeps a mask from
+                                ; outliving the call that set it
     add al, HB_P_RESUME         ; 0 / 1 -> the module's own two verbs
     call hbf_need
     jc osapi_dos_handoff_x.no
@@ -1561,6 +1577,10 @@ hbm_detach:
     push di
     push bp
     mov si, hb_drvmask
+    mov byte [hb_spmask], 0     ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
+                                ; LIST, whatever the last suspend asked for
+                                ; (SPEC.md 51.11.4): the mask is a slot
+                                ; argument, and a hibernate is not that slot
     xor dx, dx                  ; no third skip...
     xor di, di                  ; ...and nobody asking where the hardware is
     call hbm_sweep
@@ -1575,14 +1595,22 @@ hbm_detach:
 
 ; hbm_sweep - unload every driver that owns a chip, and note the rows
 ; in:  SI = the word to note them in (cleared first); DL = one more DRVC_* to
-;      leave standing, or 0; ES:DI = a DQ_SIZE-record buffer each driver is
-;      asked DRVV_HWINFO into on the way past, or DI = 0 for no question
+;      leave standing, or 0; [hb_spmask] = classes to let go of ANYWAY, bit
+;      1<<class; ES:DI = a DQ_SIZE-record buffer each driver is asked
+;      DRVV_HWINFO into on the way past, or DI = 0 for no question
 ; out: CX = records written
 ; clobbers: AX, BX, DX, DI, BP
 ;
 ; THE SKIP LIST: DRVC_DISK is memory and the ROM's int 13h, DRVC_FILE is the
 ; RAM disk, and both are things a DOS program WANTS rather than fights -
 ; neither owns a chip anyone is about to take. The caller's third is 96.23.6.
+;
+; ...AND THE CALLER MAY HAVE ASKED FOR ONE OF THEM ANYWAY (SPEC.md 51.11.4).
+; [hb_spmask] is the slot's BL, bit 1<<class: a set bit does not ADD a class
+; to the sweep, it takes one OFF the skip list, so the mask can only reach the
+; three rows this loop was already deciding about and a 0 is exactly today.
+; The test hangs off the skip itself, so a row that was going to be taken pays
+; nothing for it.
 hbm_sweep:
     mov word [si], 0
     mov byte [cs:hbm_swn], 0
@@ -1594,11 +1622,20 @@ hbm_sweep:
     je .next
     mov al, [bx+DRVR_CLASS]
     cmp al, DRVC_DISK
-    je .next                    ; memory and the ROM's int 13h: it stays
+    je .asked                   ; memory and the ROM's int 13h: it stays...
     cmp al, DRVC_FILE
-    je .next                    ; the RAM disk: memory, and it stays
+    je .asked                   ; the RAM disk: memory, and it stays...
     cmp al, dl
-    je .next                    ; ...and the caller's own
+    jne .take                   ; ...and the caller's own
+.asked:                         ; ...unless this call named it (51.11.4)
+    push cx                     ; CL is the ROW and the shift wants the CLASS,
+    mov cl, al                  ; so the index is banked for four instructions
+    mov ch, 1
+    shl ch, cl
+    test [hb_spmask], ch
+    pop cx                      ; ...which does not touch the ZF `test` set
+    jz .next
+.take:
     mov ax, 1
     shl ax, cl
     or [si], ax
@@ -1663,8 +1700,8 @@ hbm_reload_m:
 ; -----------------------------------------------------------------------------
 ; hbm_drvsusp - OSAPI_DRV_SUSPEND's suspend and resume (SPEC.md 51.11), reached
 ;               through hbm_perform with the slot's AL + HB_P_RESUME
-; in:  AL = HB_P_SUSPEND, ES:DI = the caller's DQ_SIZE-record buffer or DI = 0;
-;      or AL = HB_P_RESUME
+; in:  AL = HB_P_SUSPEND, ES:DI = the caller's DQ_SIZE-record buffer or DI = 0,
+;      [hb_spmask] = the slot's BL; or AL = HB_P_RESUME
 ; out: CX = records written (0 on a resume); CF = 0 - the sweep cannot refuse
 ; -----------------------------------------------------------------------------
 hbm_drvsusp:
@@ -1680,7 +1717,12 @@ hbm_drvsusp:
     mov dl, DRVC_NET            ; AND THE WIRE STAYS (SPEC.md 96.23.6): the
                                 ; DOS box's packet driver is the only route a
                                 ; DOS program here has to the card, and it is
-                                ; built on the driver staying mounted
+                                ; built on the driver staying mounted - so it
+                                ; is the sweep's third skip and not a fourth
+                                ; rule, which is what puts it under the same
+                                ; [hb_spmask] bit as the other two: a caller
+                                ; that does not want the wire either says so
+                                ; (SPEC.md 51.11.4)
     call hbm_sweep              ; CX = the records
     clc
     ret

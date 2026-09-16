@@ -2084,6 +2084,52 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; = a KDH_* record (handoff). out CF=0 with
                                  ; CX = records written; CF=1 = refused,
                                  ; nothing moved
+                                 ;
+                                 ; **BL IS THE SKIP LIST'S OVERRIDE** on the
+                                 ; suspend (SPEC.md 51.11.4): bit 1<<class,
+                                 ; and 0 is the set a suspend has always
+                                 ; taken. DRVC_DISK, DRVC_FILE and DRVC_NET
+                                 ; are the three the sweep leaves standing -
+                                 ; memory, the RAM disk and the packet
+                                 ; driver's card - because a fullscreen
+                                 ; program WANTS them; a bit here says this
+                                 ; one does not, and gets the RAM instead.
+                                 ; Name a class the sweep was going to take
+                                 ; anyway and nothing changes. ZERO BL IF YOU
+                                 ; DO NOT MEAN IT: the register is read on
+                                 ; every suspend
+;
+%define OSAPI_DRV_CLASSK    KERNEL_SEG:0x0580   ; **WHAT ONE CLASS IS
+                                 ; HOLDING** (SPEC.md 51.12). in AL = a DRVC_*
+                                 ; class; out CF=0 with AX = the KB the LOADED
+                                 ; drivers of that class hold and CX = how
+                                 ; many answered, or CF=1 with AX=0 and CX=0 -
+                                 ; nothing of that class is loaded. Every
+                                 ; other register is preserved.
+                                 ;
+                                 ; The pair a checkbox wants, out of one walk:
+                                 ; CF is the greying predicate and AX is the
+                                 ; figure printed beside it, so what greys and
+                                 ; what is offered cannot disagree (SPEC.md 47
+                                 ; rule 5). It is the number to put next to an
+                                 ; OSAPI_DRV_SUSPEND bit above - "Network
+                                 ; (32K)" - and the two are keyed the same
+                                 ; way, by class, on purpose.
+                                 ;
+                                 ; BIT 15 OF AX IS A FLAG, NOT A DIGIT: it is
+                                 ; set when one of the rows also holds a store
+                                 ; the USER sized on its own page (the RAM
+                                 ; disk's arena), which is not this kernel's
+                                 ; number to quote. Mask it off before you
+                                 ; print, and draw a '+' if you want to say so.
+                                 ;
+                                 ; The figures are BUILD-TIME constants - the
+                                 ; ones the Control Panel's Drivers page draws
+                                 ; - so the call costs no probe and no I/O,
+                                 ; and it is a fair estimate rather than a
+                                 ; measurement: what each driver holds while
+                                 ; doing its primary job, at the top rung of
+                                 ; any claim it sizes to the machine
 ;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,

@@ -12517,6 +12517,10 @@ dos_drv_take:
     pop es
     mov di, dos_dqbuf
     mov al, 1
+    xor bl, bl                      ; ...and the skip list as it stands
+                                    ; (SPEC.md 51.11.4): the hard disk, the RAM
+                                    ; disk and the card stay. The Memory page's
+                                    ; own boxes are what set bits here
     call OSAPI_DRV_SUSPEND          ; CX = records
     jc .out                         ; nothing moved: HIBER.DRV could not be
                                     ; read (SPEC.md 51.11), and there is
@@ -12548,6 +12552,7 @@ dos_drv_take:
 ; -----------------------------------------------------------------------------
 dos_drv_back:
     push ax
+    push bx
     push cx
     push di
     push es
@@ -12555,11 +12560,16 @@ dos_drv_back:
     pop es
     xor di, di
     xor al, al
+    xor bl, bl                      ; the resume puts back what [hb_susp] says
+                                    ; and reads no mask - but the register is
+                                    ; stored either way, so a stale one would
+                                    ; outlive the call that meant it
     call OSAPI_DRV_SUSPEND
     mov byte [dos_drvout], 0
     pop es
     pop di
     pop cx
+    pop bx
     pop ax
     ret
 %endif                              ; KD_BACKEND

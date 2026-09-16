@@ -128032,6 +128032,78 @@ program that was going to be handed a `BLASTER=` out of the answer. The
 in-bracket call is gone with it, and so is the `dos_drvmask` word the
 withdrawn `AX` was stored in.
 
+#### 51.11.4 The caller may name a class the skip list keeps
+
+`DRVC_DISK`, `DRVC_FILE` and `DRVC_NET` stay mounted across a suspend because
+a fullscreen program **wants** them: memory and the ROM's `int 13h`, the RAM
+disk, and the card the packet driver (§96.23) is the only route to. That is
+the right default and it is not always the right answer — a program that
+never opens a file on `C:`, or never touches the network, is holding 32 KB
+each for nothing, on a machine where the whole point of the call was the
+memory.
+
+So **`BL` is a bitmap of classes to let go of anyway**, bit `1 << class`, and
+`BL = 0` is exactly the set a suspend has always taken. A bit does not *add*
+a class to the sweep — it takes one **off the skip list** — so the register
+can only reach the three rows the loop was already deciding about, and naming
+a class the sweep was going to take regardless changes nothing.
+
+**The whole resident cost is four bytes**: `drv_suspend_x` banks `BL` in
+`[hb_spmask]` and the decision is `HIBER.DRV`'s, inside `hbm_sweep`, where it
+hangs off the skip itself — a row that was going to be taken does not pay for
+it. The mask is written on the resume too, where it means nothing: that is
+what stops one call's mask outliving it, and `hbm_detach` zeroes the byte for
+the same reason. **A hibernate is not this slot**, and its sweep is today's
+list whatever the last suspend asked for.
+
+There is no matching bit on the resume. `[hb_susp]` records the rows a suspend
+actually took out, so what comes back is what went — which is §51.11.1's
+obligation unchanged, and is why the mask can differ from one call to the
+next.
+
+**On `kern_small`** the stub already ignores `BL`, there being no driver layer
+to sweep (§51.11.3).
+
+### 51.12 What a class is holding (`OSAPI_DRV_CLASSK`)
+
+`0x0580`. `AL` = a `DRVC_*`; out `CF=0` with `AX` = the KB the **loaded**
+drivers of that class hold and `CX` = how many answered, or `CF=1` with `AX=0`
+and `CX=0` — nothing of that class is loaded. A SLOT: no caller segment is
+involved, and every other register is preserved.
+
+The Control Panel has priced a driver since `drv_memk` was written (§51.2.4),
+and it prices it **per row**, because that is what the Drivers page draws. The
+question a *package* asks is the other one — *what would I get back if this
+class went away* — and that is per **class**, because §51.11.4's mask is per
+class. The two are keyed the same way on purpose: the figure this answers is
+the figure to print beside the checkbox that sets that bit.
+
+**One walk answers both halves.** `CF` is the greying predicate and `AX` is
+the number beside it, so what greys and what is offered cannot disagree
+(§47 rule 5). A class whose row is present but not loaded answers `CF=1`,
+which is the truth the checkbox wants: there is nothing to unmount and nothing
+to get back.
+
+**Bit 15 of `AX` is a flag and not a digit.** `DRVM_PLUS` is set when one of
+the rows also holds a store the **user** sized on its own page — the RAM
+disk's arena, `[rd_kb]`, which is not this kernel's number to quote. Mask it
+off before printing and draw a `+` if you want to say so, which is what the
+Drivers page does.
+
+The figures are `drv_memk`'s, so they are **build-time constants**: the call
+costs no probe and no I/O, and it is a fair estimate rather than a measurement
+— what each driver holds while doing its primary job, at the top rung of any
+claim it sizes to the machine (§51.2.4 has the rule and
+`tests/unit/t_drvmem.py` keeps each term honest against the `.drv` the build
+just produced). A caller estimating an arena that does not exist yet is
+exactly the reader for whom a constant is right.
+
+**It took the retired cell at `0x0580`** — `OSAPI_FILE_MOVE`'s, withdrawn into
+`0x0578`'s verb byte (§22.25) — so the table gains no byte and §20.3.1's free
+list is empty again. On `kern_small` it is `xor ax,ax` / `xor cx,cx` / `stc`:
+nothing of any class is loaded there, for ever, and the refusal states the
+answers rather than leaving the caller's registers looking like a figure.
+
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
 A **packet driver is an interface, not a program**. What the box publishes is

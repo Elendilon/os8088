@@ -4151,14 +4151,24 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          a copy streams through a buffer
                                   ;          the engine claims and undoes a
                                   ;          partial destination on failure
-    OSAPI_XCELL gfx_linit         ; 0x0580 - RETIRED (SPEC.md 20.3.1's free
-                                  ;          list): stc/ret. It was
-                                  ;          OSAPI_FILE_MOVE, a second door on
-                                  ;          the same engine, folded into
-                                  ;          0x0578's verb byte (22.25) - the
-                                  ;          SDK name is deleted, so a stale
-                                  ;          caller fails to assemble rather
-                                  ;          than moving nothing
+    OSAPI_CSLOT osapi_drv_classk_x ; 0x0580 - WHAT ONE DRIVER CLASS HOLDS
+                                  ;          (SPEC.md 51.12). AL = a DRVC_*.
+                                  ;          Out CF=0 with AX = the KB its
+                                  ;          LOADED rows hold - bit 15 =
+                                  ;          DRVM_PLUS, "and a store the user
+                                  ;          sizes" - and CX = how many
+                                  ;          answered; CF=1 with AX=0 CX=0,
+                                  ;          nothing of that class is loaded.
+                                  ;          One walk answers both halves a
+                                  ;          caller needs: CF greys the
+                                  ;          checkbox and AX is the figure
+                                  ;          beside it (SPEC.md 47 rule 5).
+                                  ;          A SLOT - no caller segment is
+                                  ;          involved - and it took the
+                                  ;          RETIRED cell that stood here,
+                                  ;          OSAPI_FILE_MOVE's, so the table
+                                  ;          gains no byte and 20.3.1's free
+                                  ;          list is empty again
     OSAPI_NCELL dwf_dskw_write_at ; 0x0588  N: SI = name, ES:BX = bytes, CX =
     OSAPI_CXCELL osapi_mem_compact_x ; 0x0590 - X: MY OWN REGION IN THE PASS
                                   ;          (SPEC.md 66.4.3): one door, the
