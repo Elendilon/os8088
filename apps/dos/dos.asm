@@ -347,9 +347,15 @@ LNK_MAX     equ 512                 ; what one may be, read or written
 DOS_PAGE_MAIN equ 0                 ; the top bar and the console band
 DOS_PAGE_SET  equ 1                 ; ...arguments, one env row, and the memory
                                     ; settings on the other half (96.25)
-DOS_PAGE_ENV  equ 2                 ; ...and the four NAME=VALUE rows (96.20)
-DOS_PAGE_1ST  equ DOS_PAGE_SET      ; the setup pages are a RANGE, so the
-DOS_PAGE_N    equ 3                 ; arrows are two compares and no table
+                                    ; **AND THERE IS NO SECOND SETUP PAGE**
+                                    ; (SPEC.md 96.32.2.1). The four NAME=VALUE
+                                    ; rows had a page of their own because the
+                                    ; window was 288px wide; at 80 columns
+                                    ; they fit under the first, in the same
+                                    ; left column and at the same width - so
+                                    ; the page, its title, the `<` and `>`
+                                    ; that cycled to it and the range they
+                                    ; cycled over are all gone
 
 ; --- THE TOP BAR'S THREE CONTROLS (SPEC.md 96.32.1) --------------------------
 ; [ the path box .............. ] [ Environment ]        [ Run ]
@@ -376,8 +382,6 @@ DOS_SETPAD  equ 8                   ; the pad at a column's edge
 DOS_TITY    equ 6                   ; the title's baseline, from content top
 DOS_BODYY   equ 24                  ; ...and where a page's own body starts
 DOS_FURNB   equ 4                   ; the bottom row's pad below itself
-DOS_ARRW    equ 24                  ; '<' and '>' are one cell in a small box
-DOS_ARRGAP  equ 4
 DOS_RETW    equ 64                  ; 'Return' is 6 cells = 48px
 ; ...and the Setup page's own two rows, from the body top
 DOS_SLBL1   equ 0                   ; 'Arguments:' ...
@@ -395,7 +399,6 @@ DOS_LBLY    equ 52                  ; the label's baseline
 DOS_FLDY    equ 64                  ; the box's top...
 DOS_FLDH    equ 13                  ; ...and its height, one 8px cell + frame
 DOS_FLDW    equ 256                 ; ...and its width
-DOS_EROWY   equ 24                  ; the first environment row's top...
 DOS_EROWH   equ 16                  ; ...and one row's pitch, which with four
                                     ; rows of DOS_FLDH ends at 85 - clear of
                                     ; the button row below, which a pitch of
@@ -4718,13 +4721,7 @@ dos_paint:
     je .mainpage
     mov bx, si                      ; --- a SETUP page: its body, then the
     push bx                         ;     furniture every one of them shares
-    cmp byte [dos_page], DOS_PAGE_SET
-    jne .envpage
-    call dos_paint_set
-    jmp short .furn
-.envpage:
-    call dos_paint_env
-.furn:
+    call dos_paint_set              ; ...and there is only the one now
     pop bx
     call dos_paint_furn
     jmp .out
@@ -4743,8 +4740,8 @@ dos_paint:
     mov si, dos_pln
     call os88line_draw              ; the path box: empty IS a state, so it is
                                     ; drawn at DST_IDLE like every other one
-    mov bx, dos_erect
-    mov si, dos_l_tenv
+    mov bx, dos_erect               ; **AND IT SAYS `Setup`** (SPEC.md
+    mov si, dos_l_tset              ; 96.32.2.1): it opened a two-page area
     xor di, di
     call os88ui_btn
     mov bx, dos_rrect
@@ -5672,14 +5669,6 @@ dos_sav_done:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_paint_env - the environment page
-; in:  BX = the window; the gfx lock is held, as every W_PAINT's is
-;
-; NO GROUND FILL FIRST (SPEC.md 13.14.6). The window's own content is already
-; the ground the kernel painted, and every line below is an OPAQUE font_run or
-; an os88line that draws its own - so nothing here writes a pixel twice, and
-; the page is never momentarily blank between an erase and its content.
-; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; dos_paint_furn - the setup area's title and its bottom row (SPEC.md 96.32.2)
 ; in:  BX = the window, gfx lock held (every painter has it)
@@ -5703,22 +5692,14 @@ dos_paint_furn:
     mov bx, ax
     add bx, DOS_SETPAD
     add dx, DOS_TITY
-    call dos_page_ttl               ; SI = this page's name
+    mov si, dos_l_tset              ; THE page's name, there being one
     mov ax, (CWHITE << 8) | CBLACK
     mov cx, bx
     call OSAPI_FONT_RUN
     pop bx
 
-    call dos_furn_rects             ; the four rects, all from one arithmetic
+    call dos_furn_rects             ; the two rects, both from one arithmetic
     push bx
-    mov bx, dos_lrect
-    mov si, dos_l_prev
-    xor di, di
-    call os88ui_btn
-    mov bx, dos_grect
-    mov si, dos_l_next
-    xor di, di
-    call os88ui_btn
     mov bx, dos_srect
     mov si, dos_l_savb
     xor di, di
@@ -5737,25 +5718,13 @@ dos_paint_furn:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_page_ttl - SI = the name of the page that is up
-; out: SI; every other register preserved
 ; -----------------------------------------------------------------------------
-dos_page_ttl:
-    mov si, dos_l_tset
-    cmp byte [dos_page], DOS_PAGE_SET
-    je .out
-    mov si, dos_l_tenv
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_furn_rects - the bottom row's four buttons (SPEC.md 96.32.2)
+; dos_furn_rects - the bottom row's two buttons (SPEC.md 96.32.2)
 ; in:  BX = the window
-; out: dos_lrect, dos_grect, dos_srect and dos_trect filled; every register
-;      preserved
+; out: dos_srect and dos_trect filled; every register preserved
 ;
-; dos_bar_rects' shape one page down, and for its reason: the arrows are
-; left-anchored, the two words are RIGHT-anchored, and all four share a row
+; dos_bar_rects' shape one page down, and for its reason: the two words are
+; RIGHT-anchored, and both share a row
 ; whose y comes from the content BOX rather than a constant - so the row sits
 ; on the bottom of a CGA window and of a VGA one without a per-adapter number.
 ; -----------------------------------------------------------------------------
@@ -5776,22 +5745,6 @@ dos_furn_rects:
     add dx, cx                      ; ...and now it is a screen row
     mov bx, dx
     add bx, DOS_BTNH - 1            ; BX = its last line, rects being inclusive
-
-    mov si, dos_lrect               ; --- '<' and '>', left-anchored ---
-    mov cx, ax
-    add cx, DOS_SETPAD
-    mov [si+0], cx
-    mov [si+2], dx
-    mov [si+6], bx
-    add cx, DOS_ARRW - 1
-    mov [si+4], cx
-    mov si, dos_grect
-    add cx, DOS_ARRGAP + 1
-    mov [si+0], cx
-    mov [si+2], dx
-    mov [si+6], bx
-    add cx, DOS_ARRW - 1
-    mov [si+4], cx
 
     mov si, dos_trect               ; --- 'Return', right-anchored ---
     mov cx, ax
@@ -5861,59 +5814,21 @@ dos_paint_set:
     mov si, dos_ln
     call os88line_draw
     pop bx
-    push bx
-    call dos_senv_place
-    mov si, dos_eln
+    push bx                         ; ...and EVERY environment row under it
+    xor cx, cx                      ; (SPEC.md 96.32.2.1), where there used to
+.erow:                              ; be one and a page button to reach the
+    push cx                         ; other three
+    call dos_erow
     call os88line_draw
+    pop cx
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .erow
     pop bx
 
     call dos_paint_mem              ; ...and the right half, which is §96.25's
                                     ; block drawn at an origin of its own
     pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-
-dos_paint_env:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bx
-    call OSAPI_WM_CONTENT           ; ASKED, and there is nothing left to read
-    mov cx, ax                      ; it out of: [dos_ctop] was the MAIN page's
-    add cx, DOS_SETPAD              ; banked content top, its one writer was the
-    add dx, DOS_BODYY               ; status text SPEC.md 96.33 replaced, and a
-                                    ; bss word nobody writes is one that goes
-                                    ; stale in silence. The row above this one
-                                    ; is the
-    mov si, dos_l_envt              ; TITLE and belongs to dos_paint_furn
-    mov ax, (CWHITE << 8) | CBLACK
-    call OSAPI_FONT_RUN
-    pop bx
-
-    xor cx, cx
-.row:
-    push cx
-    call dos_erow                   ; SI = the block, rect placed
-    call os88line_draw
-    pop cx
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .row
-
-    pop di                          ; **NO PAGE BUTTON HERE.** The setup area's
-                                    ; furniture - the title, the arrows, Save
-                                    ; Shortcut and Return - is drawn once by
-                                    ; dos_paint_furn for whichever page is up,
-                                    ; so a page draws only its own body
-                                    ; (SPEC.md 96.32.2)
     pop si
     pop dx
     pop cx
@@ -6862,11 +6777,16 @@ dos_fld_place:
 ; page is up placed it last, which is exactly what a hit test wants.
 ; -----------------------------------------------------------------------------
 dos_senv_place:
-    mov si, dos_eln
-    push dx
-    mov dx, DOS_SFLD2
-    call dos_setbox
-    pop dx
+    push cx
+    push si
+    xor cx, cx
+.row:
+    call dos_erow
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .row
+    pop si
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7096,7 +7016,7 @@ dos_click:
     pop bx
     jc .notenv
     call dos_defocus                ; the caret does not follow us off the page
-    mov byte [dos_page], DOS_PAGE_1ST
+    mov byte [dos_page], DOS_PAGE_SET
     call dos_swap
     jmp .out
 .notenv:
@@ -7116,26 +7036,8 @@ dos_click:
     mov si, dos_pln                 ; ...and the box itself
     jmp .field
 
-    ; --- A SETUP PAGE: the furniture first, then the page's own controls ------
+    ; --- THE SETUP PAGE: the furniture first, then its own controls ----------
 .setup:
-    push bx
-    mov bx, dos_lrect
-    call os88ui_bhit
-    pop bx
-    jc .notprev
-    mov al, -1
-    jmp short .turn
-.notprev:
-    push bx
-    mov bx, dos_grect
-    call os88ui_bhit
-    pop bx
-    jc .notnext
-    mov al, 1
-.turn:
-    call dos_page_turn              ; AL = which way, and it CYCLES
-    jmp .out
-.notnext:
     push bx
     mov bx, dos_trect
     call os88ui_bhit
@@ -7161,16 +7063,9 @@ dos_click:
     call dos_sav_go                 ; the boxes NOW, for the same reason
     jmp .out
 .notsav:
-    cmp byte [dos_page], DOS_PAGE_SET
-    jne .notmem
-    call dos_click_mem              ; the memory block's field and check box
-    jc .setfld                      ; CF=1 = it was not one of those
-    jmp .out
-.setfld:
-    call dos_fld_hit                ; ...so it is the arguments box or the
-    jmp .out                        ; environment one
-.notmem:
-    call dos_click_env
+    call dos_click_mem              ; the memory block's field and its radio
+    jnc .out                        ; CF=1 = none of those, so it is the
+    call dos_fld_hit                ; arguments box or an environment row
     jmp .out
 
     ; --- one field, hit-tested ----------------------------------------------
@@ -7200,52 +7095,6 @@ dos_click:
     pop bx
     pop ax
     clc
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_click_env - a press on the environment page
-; in:  BX = the window, CX = x, DX = y
-; -----------------------------------------------------------------------------
-dos_click_env:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
-    mov di, cx                      ; bank the point: dos_erow uses CX for the
-    mov bp, dx                      ; row index
-    xor cx, cx
-.r:
-    push cx
-    call dos_erow
-    mov cx, di
-    mov dx, bp
-    call os88line_hit
-    jnc .in
-    pop cx
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .r
-    call dos_defocus                ; the background: nobody keeps the caret
-    jmp short .out
-.in:
-    pop cx
-    call dos_defocus_but            ; SI keeps its focus, every other row loses
-    cmp byte [si+LN_FOCUS], 0
-    jne .move
-    mov byte [si+LN_FOCUS], 1
-    call os88line_draw
-    jmp short .out
-.move:
-    mov cx, di
-    mov dx, bp
-    call os88line_click
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7368,7 +7217,7 @@ dos_oncmd:
     jne .full
 .env:
     call dos_defocus                ; 'Environment', which is the bar's other
-    mov byte [dos_page], DOS_PAGE_1ST
+    mov byte [dos_page], DOS_PAGE_SET
     mov bx, [dos_win]
     call dos_swap
     jmp short .out
@@ -7511,38 +7360,6 @@ dos_go:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_page_turn - `<` and `>`, and the SETUP pages cycle (SPEC.md 96.32.2)
-; in:  AL = -1 or +1, BX = the window, gfx lock held
-; out: nothing; every register preserved
-;
-; MAIN IS NOT IN THE RING. The old button cycled main -> environment -> memory
-; -> main, so the console view was a stop on the way round and a user looking
-; for the other setup page went through it. `Return` is the way out now and
-; these two stay inside the setup area, which is what makes a third page free.
-; -----------------------------------------------------------------------------
-dos_page_turn:
-    push ax
-    push bx
-    call dos_defocus                ; the caret does not follow us
-    call dos_mem_take               ; ...and leaving a page commits its limit
-    add al, [dos_page]
-    cmp al, DOS_PAGE_1ST
-    jb .wraplo
-    cmp al, DOS_PAGE_N
-    jb .set
-    mov al, DOS_PAGE_1ST            ; off the top, round to the first
-    jmp short .set
-.wraplo:
-    mov al, DOS_PAGE_N - 1          ; ...and off the bottom to the last
-.set:
-    mov [dos_page], al
-    mov bx, [dos_win]
-    call dos_swap
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_fld_hit - the Setup page's two left-column boxes (SPEC.md 96.32.2)
 ; in:  BX = the window, CX/DX = the point, the rects already placed
 ; out: nothing; every register preserved
@@ -7553,13 +7370,31 @@ dos_page_turn:
 ; clicked away from is one they cannot account for.
 ; -----------------------------------------------------------------------------
 dos_fld_hit:
+    push cx
     push si
+    push di
+    push bp
     mov si, dos_ln
-    call os88line_hit               ; preserves CX and DX, so the second test
+    call os88line_hit               ; preserves CX and DX, so every test below
     jnc .take                       ; gets the same point
-    mov si, dos_eln
+    ; **AND EVERY ENVIRONMENT ROW** (SPEC.md 96.32.2.1) - `dos_click_env`'s
+    ; loop, moved here now that there is no second page for it to live on.
+    ; `dos_erow` spends CX on the row index, so the point is banked across it
+    ; exactly as that routine's own caller used to bank it.
+    mov di, cx
+    mov bp, dx
+    xor cx, cx
+.erow:
+    push cx
+    call dos_erow
+    mov cx, di
+    mov dx, bp
     call os88line_hit
+    pop cx
     jnc .take
+    inc cx
+    cmp cx, DOS_ENVN
+    jb .erow
     call dos_defocus
     jmp short .out
 .take:
@@ -7572,7 +7407,10 @@ dos_fld_hit:
 .move:
     call os88line_click
 .out:
+    pop bp
+    pop di
     pop si
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7601,23 +7439,11 @@ dos_place:
     call dos_bar_rects              ; the path box and the bar's two buttons
     jmp short .out
 .setup:
-    call dos_furn_rects             ; the arrows, Save Shortcut and Return
-    cmp byte [dos_page], DOS_PAGE_SET
-    jne .env
+    call dos_furn_rects             ; Save Shortcut and Return
     call dos_fld_place              ; ...the arguments box...
-    call dos_senv_place             ; ...the environment row beside it...
+    call dos_senv_place             ; ...every environment row under it...
     call dos_mfld_place             ; ...and the memory block's two
     call dos_mrad_place
-    jmp short .out
-.env:
-    xor cx, cx
-.erow:
-    push cx
-    call dos_erow                   ; SI = the block, rect placed
-    pop cx
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .erow
 .out:
     pop di
     pop si
@@ -7692,45 +7518,21 @@ dos_fld_init:
 ; -----------------------------------------------------------------------------
 dos_erow:
     push ax
-    push dx
-    push di
-    mov ax, DOS_LNSZ
-    mul cx
-    mov si, dos_eln
-    add si, ax
-    mov di, cx                      ; ...the row, for the y below
-    push bx                         ; THE ROWS ARE THE WHOLE WIDTH NOW (SPEC.md
-    call OSAPI_WM_GEOM              ; 96.32.2): this page has one column where
-    pop bx                          ; Setup has two, and a NAME=VALUE is the
-    jc .narrow                      ; longest thing this window holds
-    sub cx, DOS_SETPAD * 2
-    jmp short .havew
-.narrow:
-    mov cx, DOS_FLDW
-.havew:
     push cx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    pop cx
-    add ax, DOS_SETPAD
-    mov [si+LN_X1], ax
-    add ax, cx
-    mov [si+LN_X2], ax
-    mov cx, dx                      ; BANK THE TOP: the multiply below lands
-                                    ; its high word in DX, so reading the top
-                                    ; back out of DX afterwards put every row
-                                    ; at y = row*18 + 24 - above the window
-    mov ax, DOS_EROWH
-    mul di
-    add ax, cx
-    add ax, DOS_BODYY + DOS_EROWY
-    mov [si+LN_Y1], ax
-    add ax, DOS_FLDH
-    mov [si+LN_Y2], ax
-    mov cx, di
-    pop di
-    pop dx
-    pop ax
-    ret
+    push dx
+    mov ax, DOS_LNSZ
+    mul cx                          ; DX:AX, and DX is banked - the high half
+    mov si, dos_eln                 ; a row index lands there is nobody's
+    add si, ax
+    mov ax, DOS_EROWH               ; **THE LEFT COLUMN, NOT THE WHOLE WIDTH**
+    mul cx                          ; (SPEC.md 96.32.2.1). The rows had the
+    add ax, DOS_SFLD2               ; window to themselves on a page of their
+    mov dx, ax                      ; own; they sit under the first one in
+    call dos_setbox                 ; Setup's left column now - which is the
+    pop dx                          ; SAME width row 0 has always had there,
+    pop cx                          ; `os88line` scrolling a 48-char buffer
+    pop ax                          ; through a ~37-cell box either way, so
+    ret                             ; nothing narrowed
 
 ; -----------------------------------------------------------------------------
 ; dos_lnk_open - was this instance handed a .LNK? If so, BECOME what it names
@@ -8921,21 +8723,17 @@ dos_tpl:
     OS88_MENUSET_END dos_menus
 
 dos_m_prog: db 'Program', 0
-dos_items_prog: dw dos_l_run, dos_l_tenv, dos_l_full
+dos_items_prog: dw dos_l_run, dos_l_tset, dos_l_full
 
 dos_ttl:    db 'DOS', 0
 dos_l_args: db 'Arguments:', 0
-dos_l_envb: db 'Environment', 0
-dos_l_envt: db 'One NAME=VALUE to a line:', 0
-                                    ; the TITLE row says which page this is
-                                    ; (SPEC.md 96.32.2), so the heading no
-                                    ; longer repeats the word
+dos_l_envb: db 'Environment', 0     ; ...and the rows under it are NAME=VALUE,
+                                    ; one to a line (SPEC.md 96.32.2.1)
 dos_l_done: db 'Done', 0
 dos_l_retb: db 'Return', 0          ; --- the setup area's furniture (96.32.2)
-dos_l_prev: db '<', 0
-dos_l_next: db '>', 0
-dos_l_tset: db 'Setup', 0           ; ...and the two page names, which the
-dos_l_tenv: db 'Environment', 0     ; title row shows
+dos_l_tset: db 'Setup', 0           ; ...and its name, which the title row
+                                    ; shows and the bar's own button carries -
+                                    ; one page, one word (SPEC.md 96.32.2.1)
 dos_l_run:  db 'Run', 0             ; --- and the top bar's (96.32.1)
 dos_l_full: db 'Full Screen', 0     ; ...and the console's own (96.33.5)
 dos_l_savb: db 'Save Shortcut', 0
@@ -9881,8 +9679,6 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
     ; --- THE SETUP AREA'S FURNITURE (SPEC.md 96.32.2), four words each -------
-    HBSS DOS_B_LRECT, 8          ; '<' and '>' ...
-    HBSS DOS_B_GRECT, 8
     HBSS DOS_B_TRECT, 8          ; ...and 'Return'. 'Save Shortcut' keeps
                                  ; dos_srect, which it already had
     HBSS DOS_B_LNV,   2          ; the field's view and length as they were
@@ -14927,10 +14723,8 @@ dos_tvol equ dos_hbss + DOS_B_TVOL    ; dos_path_take's scratch pair
 dos_tname equ dos_hbss + DOS_B_TNAME
 %endif
 %ifndef KD_BACKEND
-dos_lrect equ dos_hbss + DOS_B_LRECT   ; '<' (SPEC.md 96.32.2)
 %endif
 %ifndef KD_BACKEND
-dos_grect equ dos_hbss + DOS_B_GRECT   ; ...'>'
 %endif
 %ifndef KD_BACKEND
 dos_trect equ dos_hbss + DOS_B_TRECT   ; ...and 'Return'

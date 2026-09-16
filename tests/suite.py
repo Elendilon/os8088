@@ -3084,6 +3084,25 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("dosenvfold", "soak", py("tests/dosenvfold.py"), 40.0,
+        "EVERY ENVIRONMENT ROW IS ON THE SETUP PAGE, AND REACHABLE (SPEC.md "
+        "96.32.2.1). The four NAME=VALUE rows had a page of their own while "
+        "the window was 288px wide; at 80 columns they fit under the first in "
+        "Setup's left column, so the page went and the < and > that cycled to "
+        "it went with it. What a fold like that breaks is GEOMETRY and it "
+        "breaks QUIETLY - a row placed past the content box is not drawn, and "
+        "a row the hit test does not reach is a box the user types into and "
+        "nothing reads. Four assertions: every row PLACED with a non-empty "
+        "rect, in order at DOS_EROWH pitch and not overlapping, the last "
+        "one's bottom CLEAR of dos_paint_furn's button row, and a click on "
+        "that last row taking the caret with the keystroke landing in ITS "
+        "buffer. CGA because its content box is the smallest of the three "
+        "(638x197 against 718x257), so a row that fits there fits everywhere: "
+        "it reads 4 rows with the last ending 131 of 179, which is the 96px "
+        "free and 48px needed the fold was measured on. VERIFIED RED by "
+        "doubling DOS_EROWH to 32 - row 3 then ends exactly ON the button "
+        "row and the third check names it. MartyPC.",
+        needs=("marty",)),
     Row("kdreturnf", "soak", py("tests/kdreturn.py", "--boot", "floppy"), 42.0,
         "...AND THE SAME ROUND TRIP ON A MACHINE THAT BOOTED OFF A FLOPPY "
         "(SPEC.md 96.46.1). Which volume HIBERNAT.IMG lands on is hb_pick's: "

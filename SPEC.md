@@ -123956,6 +123956,40 @@ directly *because those bytes ARE the fields' `LN_BUF`s*. A second copy would
 be a thing to keep in step, and the first time it fell out of step the user
 would have typed into the one nothing reads.
 
+###### 96.32.2.1 …and then there was one setup page
+
+The `Environment` page existed because the window was **288 px wide**: four
+48-character `NAME=VALUE` rows needed the whole of it, and Setup's left column
+is half. At 80 columns they fit under the first row in that same left column,
+so the page, its title, the `<` and `>` that cycled to it and the range they
+cycled over are all gone.
+
+**MEASURED on all three adapters**, as the free height below the Environment
+field once `dos_paint_furn`'s row is subtracted from the content box:
+
+| adapter | content | free below the field | rows of `DOS_EROWH` |
+|---|---|---|---|
+| CGA `os8088_5150_cga_gla` | 638×197 | 96 px | 6 |
+| Hercules `os8088_5150_herc_gla` | 718×257 | 156 px | 9 |
+| VGA `os8088_xt_vga` | 638×257 | 156 px | 9 |
+
+Three more rows need 48 px, so the tightest adapter has twice what it takes.
+
+**Nothing narrowed.** Setup's env box was already a ~37-cell window onto the
+48-character buffer — `os88line` scrolls it — and the new rows are the same
+box at the same width, so what a row can hold is what it always held. The
+`Environment` label stays and now heads four rows instead of one.
+
+`dos_erow` places a row in the left column through `dos_setbox` instead of
+computing a full-width rect of its own; `dos_senv_place` loops it, which is
+what `dos_place` calls before any hit test; `dos_paint_set` draws the loop; and
+`dos_fld_hit` absorbs `dos_click_env`'s walk, so one routine tests the
+arguments box and every environment row against one point.
+
+**The door is called `Setup` now**, on the top bar and in the Program menu.
+It opened a two-page area whose first page was Setup; with one page, a button
+named after the second is a button that lies about where it goes.
+
 ##### 96.32.3 What an association fills in, and what it still does
 
 | opened as | what is populated | does it run |
