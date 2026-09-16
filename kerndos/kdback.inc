@@ -159,7 +159,7 @@ dos_k_here:
 dos_k_find:
     mov byte [dsk_fdraw], 0     ; ...the expanded size, as a package is told
     xor al, al                  ; ...and NOT a driver: no hidden, no system
-    call COLD_SEG:dsk_find_x    ; FAR, and kernel.asm:4472 says so
+    call COLD_SEG:dsk_find_x    ; FAR, and kernel.asm api_file_find says so
     ret                         ; CX = the next ordinal, AX = FERR_* on CF=1
 
 ; out: BX = sectors per cluster
@@ -167,7 +167,8 @@ dos_k_dfree:
     call dskw_dfree_x
     ret
 
-; in: ES:DI = a VS_SIZEOF record, CX = its size
+; out: AX = sectors per cluster, BX = free clusters, CX = bytes per sector,
+;      DX = total clusters (SPEC.md 18.4.6)
 dos_k_vstat:
     call COLD_SEG:dwf_dskw_vstat ; FAR. In the kernel this is the same call
                                 ; behind an inst_vol_enter that stands the
@@ -206,13 +207,24 @@ dos_k_vkind:
 ; `dos_be_find` is the other X cell and needs nothing here: all seven of its
 ; callers in the core set ES themselves.  `tests/unit/t_kdfar.py` is the gate
 ; for both.
+;
+; **AND BP, FOR THE SAME REASON ONE REGISTER ALONG.** The core's INT 21h
+; handler keeps its frame in BP (`[bp]` = the program's DS) and AH=47h reads
+; it off that frame AFTER this door returns - `mov es, [bp]`, the program's
+; buffer. In the kernel the cell's `push bp` / api_x's `pop bp` bracket the
+; walk; here nothing does, and dsk_path_x spends BP by contract (SPEC.md
+; 19.2.4.3: the buffer's base is read through BP = SP). tests/kdcwd.py's
+; whole-machine arm is where that shows - the environment's MYPATH came out
+; right and the AH=47h answer went to a wrong segment.
 dos_k_path:
+    push bp
     push es
     push ds
     pop es
-    call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm:4500 says so
+    call COLD_SEG:dsk_path_x    ; FAR, and kernel.asm api_file_path says so
     pop es                      ; ...and `pop` writes no flag, so the CF
-    ret                         ; dsk_path_x answered rides out
+    pop bp                      ; dsk_path_x answered rides out
+    ret
 
 ; --- the refusals, which are KERN-DOS-PLAN 6.1's levers in code -------------
 ; **A REFUSAL IS A DECISION AND NOT AN OMISSION.** Each of these is a verb the

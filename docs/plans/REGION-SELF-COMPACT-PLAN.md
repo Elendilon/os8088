@@ -670,6 +670,38 @@ slack it **did** have came out: −19 bytes.
 
 ---
 
+### 7.5 The size pass — one door, one walk, and the pass order it found
+
+The feature above stood at **+367 resident bytes** and the size pass took
+**189** of them back on `kern_big` (`.text` −18, `.cold` −171) and **119** on
+`kern_small` (`.text` −28, `.bss` −5, `.cold` −86); SPEC.md 66.4.3 and 66.4.3.1
+are the contract as it stands now. Three things changed and one was found:
+
+1. **The two cells are one door.** `OSAPI_MEM_AVAIL_MAX` and
+   `OSAPI_MEM_COMPACT_WAKE` are `OSAPI_MEM_COMPACT` (0x0590) with the verb in
+   `AH` — `MEMC_WHATIF` / `MEMC_POST` — on `OSAPI_VOL_STAT`'s precedent, and
+   `OSAPI_DOS_HANDOFF` moved up to 0x0598. Every caller sets `AX`.
+2. **`mem_cp_newbase` and `mem_cp_ceilmv` are gone.** The trim 7.1 named —
+   *merge the two scans* — was the wrong trim: the walk reaches `B − S` on its
+   own by *deferring* it (a ceiling mover adds its size to the fill point and
+   raises a flag; the next floor mover or pinned claim is where the run stops).
+   The plan went 202 bytes → 96 with `mem_avail`'s total-free loop folded into
+   the same walk on `kern_big`.
+3. **`kern_small` assembles none of it.** Its cell is a nine-byte `.text`
+   stub — the what-if is the plain level door, a post is refused — so the
+   service hook, the queue words and both bodies left that kernel.
+4. **`mem_compact`'s `.both` ran the floor first and the plan modelled the
+   ceiling first** — `tools/heapwhatif.py`'s `true_combined` and
+   `tests/heapcheck.py`'s `both_passes()` both say ceiling-first, and 7.1's
+   *"the order the passes run"* was written against them. The two orders cut
+   the same free space at different places, so the plan can promise a run
+   the pass then fails to produce (`[H][L][60][H][60][L]`: 120 planned, 60
+   delivered). Turning `.both` round was tried and MEASURED WRONG: the
+   ceiling pass moves the asker's region, which restarts its parked worker,
+   and the floor pass then pins the asker's claims (`heapcheck` R4: 223K on
+   the wake against 250K). The order stays floor-first and the mismatch is
+   recorded in SPEC.md 66.4.3.1 as open.
+
 ## 8. Tracker, the first consumer (SPEC.md 45.3.2)
 
 `tests/heapfrag` proves the door opens. It cannot prove the door is the right

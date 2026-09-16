@@ -9066,6 +9066,16 @@ with no promise outstanding, and the first painter after the transfer would
 draw straight through it** — §7.1.4's permanent smear, bought back at full
 price.
 
+**The code that does it is `cur_busy_on`'s DOWN arm (§7.5.3), and the arrow
+comes back as the clock.** It was a block of its own in `fpg_arm` first, with
+the clock's take added inside it — and that block was the DOWN arm's own tests
+and its own three instructions written out a second time, forty-three bytes
+of `.text` for a case the measurement in §7.5.3 found fired 0 of 3, so
+`fpg_arm` makes one call now and the arm is the block. The one thing the fold
+changed is a refusal the block never made and should have: a saver session's
+hide (§79.6.1) is not this hold's to settle either, and `cur_busy_on` tests
+`[blk_sv]` before it touches anything.
+
 It rides `fpg_arm` rather than `dsk_xfer` for one reason: the widget's lifetime
 **is** the freeze (§12.8.3), so this shows once at the start and is settled once
 at the end. Hung off the transfer instead it would show and hide per
@@ -9077,14 +9087,18 @@ Four conditions, and the first is what makes the rest sound:
 1. **The lock is held**, and `fpg_arm` has already refused another task's, so
    it is ours. A free lock needs none of this — nothing spent the promise
    because there was no hold to make one, which the `PAINT.O88` launch
-   confirms at `cur_level` 0 for 67 samples of 79.
+   confirms at `cur_level` 0 for 67 samples of 79 — and a −1 under a free
+   lock is somebody else's hide (§7.5.3).
 2. **`[cur_level]` is exactly −1.** A refcount we did not take is not ours to
    undo.
 3. **No clip region is armed** — the ISR would not move it anyway (§7.4.2), and
    lit-but-frozen is the thing §7.1.4.3 rejected.
 4. **The pointer is below the bar**, read from `[mouse_y]` and *not*
    `[cur_drawn_y]`: the drawn position is meaningless while the arrow is
-   hidden, and `cursor_show` draws at the live one.
+   hidden, and `cursor_show` draws at the live one. **Not a corner case**:
+   picking the first item of a menu leaves the hand exactly there, and a
+   pointer shown on those rows would be hidden again by `fpg_arm`'s own bar
+   composition an instant later — a flash, for PERFORMANCE.md rule 2.
 
 #### 7.4.4 What it does and does not buy
 
@@ -9199,25 +9213,29 @@ going to run anyway writes, and `cur_put`/`cur_get` are bounded by
 `CUR_GW`/`CUR_GH`/`CUR_SPAN` and not by what is in the cell (§7.2). Neither
 renderer looks at a single bit of the picture to decide how much work to do.
 
-`cur_busy_undo` sits **above** `gfx_unlock`'s `cmp byte [cur_lazy], 0` and not
-below it, and that placement is load-bearing: `cur_shape_set` spends the
-promise, which is what sends the test to the `cursor_show` arm and draws the
-restored picture. Below it, the test would take `.never` — *"the arrow never
-left the screen"* — and the clock would stay on it.
+The restore — `cur_shape_set` of the banked shape, six instructions inside
+`gfx_unlock` and no routine of its own — sits **above** `gfx_unlock`'s
+`cmp byte [cur_lazy], 0` and not below it, and that placement is load-bearing:
+`cur_shape_set` spends the promise, which is what sends the test to the
+`cursor_show` arm and draws the restored picture. Below it, the test would take
+`.never` — *"the arrow never left the screen"* — and the clock would stay on it.
 
-**The bank is conditional**, and the four bytes that make it so are not
-optional: a *second* take inside one hold — a package that called the slot and
-then touched a file — would otherwise bank the clock as the thing to go
-back to, and `gfx_unlock` would restore it for ever. `cur_shape_set` is already
-a compare and a return when the picture is on, so a `cmp`/`je` above the store
-is the whole of the fix.
+**The bank is guarded by the first arm**, and it has to be: a *second* take
+inside one hold — a package that called the slot and then touched a file —
+would otherwise bank the clock as the thing to go back to, and `gfx_unlock`
+would restore it for ever. `cur_busy_on` tests `[cur_shape]` for the clock
+before anything else, so the second call is four instructions and the bank
+below it is a plain store.
 
 **The shape that goes back is BANKED, in `[cur_shprev]`**, rather than
 restoring the arrow and posting `[cur_shchk]` for the UI pass to correct. Over
 a window that named a shape, the cheap version is arrow-then-crosshair one pass
 later, which is PERFORMANCE.md Part 1 rule 2 with the pointer itself as the
-double draw. `[cur_shchk]` is posted **as well**, because a hold can be seconds
-long and the pointer may have left the window the banked shape belonged to.
+double draw. **And nothing is posted**: a hold can be seconds long and the
+pointer may have left the window the banked shape belonged to, but every
+pointer movement posts `[cur_shchk]` from the ISR and every raise, hide,
+destroy and drag posts it from `wm.inc`, so the pass already re-asks in
+exactly the cases the restore could be wrong in.
 
 #### 7.5.3 THREE pointer states, and §7.4.3.1's block covers one of them
 
@@ -9246,50 +9264,53 @@ one the plan's "free" placement missed entirely.
 So the picture is swapped **where the pointer actually is**, in `cur_busy_on`,
 and it has three arms:
 
-- **already wearing it** — §7.4.3.1's block got there first, or a package asked
-  before it touched a file. Four instructions, and it is tested first because
-  it is the arm the second call always takes.
+- **already wearing it** — a package asked before it touched a file. Four
+  instructions, tested first because it is the arm the second call always
+  takes, and it is what lets the bank below be unconditional (§7.5.2).
 - **down** (`[cur_level]` = −1) — swap, re-arm `[cur_lazy]`, `cursor_show`.
-  That is §7.4.3.1's own sequence, and it is what a package's hold is normally
-  in. **And only with the lock HELD**, which is §7.4.3.1's own test: `cur_unlazy`
-  above has just spent the hold's promise, so a −1 under a held lock is that
-  hide and this show settles it. Under a *free* lock a −1 is somebody else's —
-  `fpg_arm`'s own bar-row hide (§12.8.4, repaid by `fpg_finish`) or a saver
-  session's for-the-session hide (§79.6.1, repaid by `ss_set_x`) — and a show
-  here would settle that debt twice, leaving `[cur_level]` at +1 for good:
-  `cursor_hide` never erases again while the ISR keeps drawing, §7.1.4's
-  permanent smear. The measurement above found this arm 0 of 3 lock-free, so
-  refusing it costs nothing measured.
+  **That IS §7.4.3.1** — the block `fpg_arm` used to run before this call was
+  this arm's tests and its three instructions a second time, and is folded in
+  — and it is what a package's hold is normally in. **And only with the lock
+  HELD**: `cur_unlazy` above has just spent the hold's promise, so a −1 under
+  a held lock is that hide and this show settles it. Under a *free* lock a −1
+  is somebody else's — `fpg_arm`'s own bar-row hide (§12.8.4, repaid by
+  `fpg_finish`) or a saver session's for-the-session hide (§79.6.1, repaid by
+  `ss_set_x`) — and a show here would settle that debt twice, leaving
+  `[cur_level]` at +1 for good: `cursor_hide` never erases again while the ISR
+  keeps drawing, §7.1.4's permanent smear. The measurement above found this
+  arm 0 of 3 lock-free, so refusing it costs nothing measured.
 - **lit** (`[cur_level]` = 0) — and this is the common one. The picture may only
   change while the cursor is off the glass (§7.2.2) and here there is no
   hide/show pair already happening to change it inside, **so this arm buys one:
   one cell erase and one cell draw, once per freeze.** Against `FPG_WARM` = 3
   sectors — the floor a freeze has to clear before the widget appears at all,
   ~72 ms on the field machine — that is under a tenth of a percent, and every
-  freeze worth reporting is seconds.
+  freeze worth reporting is seconds. It leaves `[cur_lazy]` exactly as it
+  found it, which under `CURBAR_ON` (§7.4.3) is a promise `cur_unlazy` KEPT
+  for an arrow the bar cannot reach; the DOWN arm's re-arm is an `or` of a
+  register that is 1 on that arm and 0 on this one.
 
-`cur_busy_take`'s three-byte call stays inside §7.4.3.1's block anyway, so that
-the day it *does* fire the swap is free and nothing is drawn twice.
-
-The five refusals below the first arm are each somebody else's rule rather than
-this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own first test), a **saver
-session** (§79.6.1, `wm_clip_set`'s test and `kern_big`'s alone — the overlay
-owns the glass and its hide is the session's), a **clip
-region armed** (§7.4.2's third condition — a clipped painter that already asked
-`cur_lazyck` and was told the pointer was out of reach would draw straight
-through one put up behind its back), **the menu bar's own rows** (§7.4.3, where
-this widget is about to draw — and `[mouse_y]`, not `[cur_drawn_y]`, because
-`cursor_show` draws at the live one), and **a refcount that is not ours** to
-undo.
+The two arms share one tail — bank `[cur_shape]` into `[cur_shprev]`, set the
+clock, `cursor_show` — and the refusals below the first arm are each somebody
+else's rule rather than this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own
+first test), a **saver session** (§79.6.1, `wm_clip_set`'s test and
+`kern_big`'s alone — the overlay owns the glass and its hide is the
+session's), a **clip region armed** (§7.4.2's third condition — a clipped
+painter that already asked `cur_lazyck` and was told the pointer was out of
+reach would draw straight through one put up behind its back), **the menu
+bar's own rows** (§7.4.3, where this widget is about to draw — `[mouse_y]`
+and not `[cur_drawn_y]`, because `cursor_show` draws at the live one; and not
+a corner case, since the first item of every menu is on those rows), and **a
+refcount that is not ours** to undo.
 
 ##### 7.5.3.1 It lives INSIDE `%ifndef NOCURDISK`, and `tests/curdisk.py` says why
 
 `NOCURDISK=1` is the A/B for the whole of §7.4 — the freeze the pointer took
 before it — and its contract is that **nothing puts a pointer on the glass
 during a disk transfer**. `cur_busy_on` shows one, so the call reached from
-`fpg_arm` is inside that gate with the rest of §7.4.3.1's block. It was outside
-it for one commit and `tests/curdisk.py` caught it in the only way that
-matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
+`fpg_arm` is inside that gate, and it is the whole of what the gate encloses
+now that §7.4.3.1 is that call's DOWN arm. It was outside it for one commit
+and `tests/curdisk.py` caught it in the only way that matters: *"NOCURDISK=1 moved the arrow 2 times during the freeze, and it
 cannot"* — a knob build measuring a kernel it no longer describes, which is the
 one failure a knob exists to make impossible.
 
@@ -9299,8 +9320,8 @@ the disk freeze, not about a package that says it is busy.
 
 #### 7.5.4 …and the window half is one slot with no argument
 
-`OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and answers CF. It is for the case
-the kernel cannot see: **a package about to spend seconds inside its own code
+`OSAPI_CUR_BUSY` (slot 0x0540) takes nothing and **answers nothing, flags
+included**. It is for the case the kernel cannot see: **a package about to spend seconds inside its own code
 without drawing** — Paint's LZW decode of a GIF and its row-by-row BMP read
 (§42.6) are the first two callers — where the callback holds the lock the UI
 task took around it, so nothing paints and no pointer moves, and the kernel has
@@ -9314,8 +9335,8 @@ hold from a four-millisecond one *in front of it*, and by the time it could the
 flicker has already happened. The program can, and it is the only thing that
 can.
 
-The slot is a **door in front of `cur_busy_on`**, twenty bytes of it, and all
-it adds is *the caller must hold the lock itself*. That buys two things: the
+The slot is a **door in front of `cur_busy_on`**, ten bytes of it, and all it
+adds is *the caller must hold the lock itself*. That buys two things: the
 hold is the lifetime `gfx_unlock` ends, so a package cannot leave a clock
 to be cleared by somebody else's unlock; and it hands the drawing below the
 same guarantee the mouse ISR gets from a free lock (§7.4.2.1) — that no task is
@@ -9323,39 +9344,47 @@ inside a primitive — which a package's **worker** could otherwise break.
 `fpg_arm` enters below that test and is right to: it is the one painter in the
 machine that draws with the lock free (§12.8.4), and in that state the ISR is
 already drawing the pointer at arbitrary positions on exactly this argument.
+**One compare asks both questions** — is the lock held, and is it ours —
+because `gfx_unlock` stamps 0xFF into `[gfx_lock_own]` before it drops the
+flag and no task slot is 0xFF, so `[sch_cur]` against the owner is the whole
+door.
 
-A refusal costs the caller the picture and nothing else, so the flag is safe to
-ignore — Paint ignores it, and the `pushf` already round its decode is what
-would have carried it anyway.
+A refusal costs the caller the picture and nothing else, so there is nothing
+for a caller to do with one — Paint never read the flag that used to say so —
+and the slot answers no flag at all: the success and every refusal share one
+`pop ax` / `ret`.
 
 #### 7.5.5 What it costs
 
-**176 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
-`.lowbss`** — measured with `tools/kernsize.py`, `kern_big` 49,315 → 49,491 and
-`kern_small` 37,261 → 37,437.
+**87 bytes of `.text`, on both kernels, and not one byte of `.bss`, `.cold` or
+`.lowbss`** — measured with `tools/kernsize.py` as the difference the feature
+makes to the tree it stands in. It shipped at 176 and was cut to this in the
+size pass that followed (docs/plans/completed/HANDOFF-KERNEL-SIZE.md's method),
+which found the same 89 bytes on `kern_big` and on `kern_small`:
 
 | piece | bytes |
 |---|---:|
 | the picture — two 12-byte tables, `cur_shtab`, `cur_shhot` | 28 |
-| `cur_busy_on` — the three arms and their four refusals | 71 |
-| `cur_busy` — the package's door, and the lock test in it | 20 |
-| `cur_busy_take` / `cur_busy_undo` / `[cur_shprev]` | 33 |
+| `cur_busy_on` — the three arms, four refusals and the shared tail | 68 |
+| `cur_busy` — the package's door, one compare | 10 |
+| the shared epilogue, and `[cur_shprev]` | 3 |
 | the API table's 167th slot | 8 |
-| `fpg_arm`'s two calls | 6 |
-| `gfx_unlock`'s compare, branch and call | 10 |
+| `fpg_arm`'s one call | 3 |
+| `gfx_unlock`'s compare, branch and the six-instruction restore | 14 |
+| **against**: §7.4.3.1's own block in `fpg_arm`, folded into the DOWN arm | −43 |
 
-Dropping the package half — the slot, its door and the `gfx_unlock` compare it
-needs — leaves the file-operation half at **67 bytes** with the restore moved
-under `fpg_finish`'s own gate, where it costs nothing at all. That is the
-measured alternative, not an estimate.
+Where the 89 came from, because each is a rule worth keeping: **the fold**
+(§7.4.3.1 was `cur_busy_on`'s DOWN arm written out a second time in the
+caller, 43 bytes); `cur_busy_take` and `cur_busy_undo` **inlined** at their
+only sites, 32 bytes of two routines against 11 of one shared tail; the door's
+**two tests made one** (10 bytes for 19); the `[cur_shchk]` post **deleted**
+as redundant (§7.5.2); and the slot's **carry answer** given up, which nobody
+read.
 
-**No rung is crossed on either kernel**, and that is luck rather than design:
-the tree it landed on had **477 bytes** of image-rung headroom (`accrued image
-35/512`), so `KERN_SIZE` stays at 110,592 on `kern_big` and 75,776 on
-`kern_small`. It is worth writing down that the *same 176 bytes* did cross one
-on the branch this was first built against, which had 62 bytes left — §1's
-banner exactly: the rung is a property of who was standing there, the byte is
-the property of the change, and **176 is the figure to quote either way**.
+**No rung is crossed on either kernel** by the feature as it stands, and
+§1's banner says why that is not the figure to quote: the rung is a property
+of who was standing there, the byte is the property of the change, and **87
+is the figure either way**.
 
 One hazard is closed by construction rather than by the gate, and it is worth
 naming because it is invisible: on the **lit** arm `cur_shape_set`'s own
@@ -22657,7 +22686,7 @@ here samples, and no timer is armed unless a thumb is actually being dragged.
 
 **The element owns the arithmetic and the caller owns the timer**, which is
 §13.10.1 again and not a compromise: a timer belongs to a WINDOW and a gesture
-belongs to the element, so the caller arms `OSAPI_WM_TIMER` in its own
+belongs to the element, so a package arms `OSAPI_WM_TIMER` in its own
 `W_ONDRAG`, cancels it in its `W_ONMOUSEUP`, and asks the element one question
 from its `W_ONTIMER`:
 
@@ -22670,6 +22699,32 @@ from its `W_ONTIMER`:
 
 It is `os88ui_sbdrop` with the spend taken out — the one thing a caller cannot
 write for itself, because `os88ui_sbd_pos` is the element's private state.
+
+###### In the kernel the release proc IS the timer proc
+
+The kernel's two bars have no `W_ONTIMER` proc of their own: `fm_kinit` and
+`fdlg_open` store the same near pointer they gave `wm_onmouseup` into
+`W_ONTIMER` (a plain store, which is all `wm_ontimer` is), and the release
+handler runs on both edges. What tells them apart is a word the UI task
+already keeps: **it clears `[ui_armw]` before it dispatches a release**
+(ui.inc's `.mup`), while a timer firing mid-drag runs with the press still
+armed on the window. So the kernel's `os88ui_sbdrop` spends the record only
+when nothing is armed — a pause answers the pos and keeps the gesture, a
+release answers it and ends it. The ISR's `[mouse_btn]` would NOT do: a
+release queued behind a long commit reads a second press as the first one
+still held, and a gesture would outlive its release. `os88ui_sbowed` and the
+two `*_ontimer` handlers are therefore package-only; the kernel copy of the
+element does not assemble the former. A timer that outlived its gesture — the
+lost-release door of §13.10.5.7 — now arrives with nothing armed and is spent
+as the release it stands in for, where it used to draw nothing. The cancel in
+each release proc stays and is a store of `wm_timer`'s own sentinel: with the
+release proc as the handler, a release-then-press inside `SB_IDLE` would
+otherwise fire a header button early.
+
+This took the kernel's cost from `.text` +20 / `.cold` +136 to **`.text` +4 /
+`.cold` +43** — one `cw_wm_timer` wrapper for the arm, the two arms, two
+one-word installs and two one-word cancels — measured on the size pass that
+followed. The cost table below is what it shipped at.
 
 ###### The idle count is a property of the HAND, so it takes no tier pair
 
@@ -27543,51 +27598,49 @@ is one nobody reads the third time). Without the first the kernel reports 4,
 without the second 27, with both **2** — and those two were the two halves of
 this bug, so the check lands with no exception list at all.
 
-#### 18.4.6 `OSAPI_VOL_STAT` — one door for a family of questions about a volume
+#### 18.4.6 `OSAPI_VOL_STAT` — the volume's size, in DOS's own four registers
 
 `OSAPI_FILE_DFREE` answers free bytes and the cluster size and stops there, and
-nothing published answers a volume's **size**. That gap is what left §96.26's
-`AH=36h` unimplementable, and the obvious fix — a slot for the total cluster
-count — is the wrong shape: DOS asks about a volume four different ways
-(`AH=36h`, `AH=1Bh`, `AH=1Ch`, `AH=32h`), so a slot per question is four cells
-of a table that cannot grow (§20.3.1).
+nothing published answered a volume's **size**. That gap is what left §96.26's
+`AH=36h` unimplementable, and this is the slot that fills it. It answers for
+the volume the **caller** stands on — `osapi_file_dfree`'s V and for its
+reason (§19.2.1) — and it answers in registers:
 
-So it is **one slot and a record**: `ES:DI` = the caller's buffer, `CX` = its
-size; out `CF=0` with `CX` = bytes written, `CF=1` with `AX = FERR_*`.
+| out | |
+|---|---|
+| `AX` | sectors per cluster |
+| `BX` | free clusters |
+| `CX` | bytes per sector — **512**, because mount rule 3 (§18.2) refuses any other |
+| `DX` | total clusters — `CountOfClusters`, which the mount already computed for rule 15 and stored as `[dsk_maxclus]` + 1 |
 
-| field | | |
-|---|---|---|
-| `VS_BPS` | 0, word | bytes per sector |
-| `VS_SPC` | 2, word | sectors per cluster |
-| `VS_CLUS` | 4, word | total clusters — `CountOfClusters`, which the mount already computed for rule 15 and stored as `[dsk_maxclus]` + 1 |
-| `VS_MEDIA` | 6, byte | the BPB media descriptor |
-| `VS_FAT` | 7, byte | 12 or 16 — the width in BITS, not `dsk_fattype`'s 0/1 |
-| `VS_KIND` | 8, byte | `VK_REMOVABLE` / `VK_FIXED`, `0xFF` unknown |
-| `VS_TRANS` | 9, byte | `VT_BIOS` / `VT_DRIVER`, `0xFF` unknown |
-| `VS_FREE` | 10, word | free clusters |
+`CF=1` with `AX = FERR_NODISK` when nothing is mounted. It clobbers all four.
 
-It folds in `OSAPI_VOL_KIND`'s two answers deliberately: *"what is this
-volume"* is one call now rather than two.
+That is `AH=36h`'s register shape exactly, and it is that shape *because* the
+DOS box is the only thing that asks: `dos_k_vstat` forwards the four to the
+program unchanged, and `DFREE.COM` (tests/dostrap) prints them beside an
+independent FAT reader's. The free count is the same FAT walk `DFREE` makes —
+**~105 ms on a 20MB disk on a 4.77MHz 8088** (§18.4.5) — so the same advice
+applies: ask it to decide something, not once per chunk.
 
-##### 18.4.6.1 The size you pass is the request, and that is the interface
+##### 18.4.6.1 It was a record, and the record was never read
 
-Everything up to `VS_NOFREE` is a read of resident state. `VS_FREE` is
-`dsk_free_clus_x` walking the whole FAT — **~105 ms on a 20MB disk on a
-4.77MHz 8088** (§18.4.5), and three of the four DOS calls above do not want
-it. So the expensive field is **last**, and the count is taken only when the
-caller's buffer reaches it: pass `VS_NOFREE` and there is no walk, pass
-`VS_SIZEOF` and you have asked for it. A buffer shorter than `VS_NOFREE` is
-refused with `FERR_BIG`.
+The slot shipped as *one door for a family of questions*: a twelve-byte
+record — bytes per sector, sectors per cluster, total clusters, the media
+descriptor, the FAT width, `VK_*`/`VT_*` and the free count — with the free
+count last, so that a caller passing a shorter buffer skipped the walk, on the
+argument that DOS asks about a volume four ways (`AH=36h`, `1Bh`, `1Ch`, `32h`)
+and three of them do not want the count.
 
-The same property lets the record **grow without an ABI break**: a caller that
-knows twelve bytes passes twelve and is written twelve, whatever a later
-kernel has learned to say. Read `CX` back rather than assuming it.
-
-**It answers for the volume the CALLER stands on**, `osapi_file_dfree`'s V and
-for its reason (§19.2.1): an app asks this about the disk its writes are going
-to, so an answer about the machine's idea of "current" would be about the
-wrong one. A caller wanting another volume moves to it, which is what
-`OSAPI_FILE_GOTO_QM` is for and what the DOS box does.
+None of that was ever exercised. The DOS box implements `AH=36h` alone, passes
+the full size on every call, and reads **these four fields and no other**;
+`DIR`'s *bytes free* asked for the same record and multiplied the free count
+back up into what `OSAPI_FILE_DFREE` had always answered. So the size pass
+reduced the body from **147 bytes to 26**: the mount fixes the sector size, the
+free count comes off `dsk_free_clus_x` as `DFREE`'s does (one counting body,
+§22.7), and the record, its `VS_*` layout, its size-as-request rule and the
+box's own copy of the buffer are all gone. When `AH=1Bh`, `1Ch` or `32h` is
+wanted, the media descriptor and the FAT width are the two facts to add — as a
+register, if there is one free, and not as a record.
 
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
@@ -29356,16 +29409,11 @@ that fence and §18.4.4.1 is why it had to exist.
 
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
 write half by name and by whole file, so **a program that seeks back and
-rewrites had nothing to call**. This is that half, and it is deliberately the
-*narrow* one: it writes inside the clusters a file already owns, and the only
-thing it ever changes besides the data is the size word — **upward, and never
-past the allocated end** (§18.4.7.2).
-
-That single restriction is what makes it cheap. No cluster is allocated, no
-FAT sector is written, no directory entry is touched and there is nothing to
-roll back — the whole operation is *find the entry, check it, walk to the
-offset, write*. Growing a file stays `OSAPI_FILE_APPEND`'s job, where the
-commit order in §18.4 already lives.
+rewrites had nothing to call**. This is that half. It writes inside the
+clusters a file already owns, moving the size word **upward and never past the
+allocated end** (§18.4.7.2) — and since the size pass it is also
+`OSAPI_FILE_APPEND`'s body (§18.4.7.3): an append is a write-at whose offset is
+the file's size.
 
 | in | |
 |---|---|
@@ -29386,41 +29434,56 @@ caller's buffer** into the file, and a read doing the mirror of that only
 touches the caller's own memory. So the read may be asked for a cluster and
 the write may not be asked for a partial sector.
 
-**`offset + count` must be inside what the file has ALLOCATED** — its size
-rounded up to a whole cluster — and not inside its size. A 3,000-byte file on
-an 8KB-cluster volume owns 8,192 bytes of disk, so a 512-byte write at offset
-0 lands wholly inside a cluster the file already has, and the 5,192 bytes
-after it are slack that was already slack. Testing against the SIZE instead
-would refuse every file whose length is not a cluster multiple, which is
-nearly all of them.
+**The offset decides which of two exclusive things happens**, measured against
+what the file has ALLOCATED — its size rounded up to a whole cluster — and not
+against its size:
+
+- **INSIDE** — `offset + count` fits inside the allocation. A 3,000-byte file on
+  an 8KB-cluster volume owns 8,192 bytes of disk, so a 512-byte write at offset
+  0 lands wholly inside a cluster the file already has, and the 5,192 bytes
+  after it are slack that was already slack. Testing against the SIZE instead
+  would refuse every file whose length is not a cluster multiple, which is
+  nearly all of them. No cluster is allocated, no FAT sector is written, and
+  the only thing touched beyond the data is the size word (§18.4.7.2).
+- **AT THE END** — the offset is *exactly* the allocated end. The file grows by
+  the count, in §18.4's commit order in the only shape an append can have: the
+  new sub-chain is allocated and written first, the FAT is flushed so it is
+  durable, the last existing cluster is linked to it and the FAT flushed again
+  — and only then does the directory entry take the new size, which is the
+  single sector write that makes those bytes part of the file. A crash before
+  that leaks clusters, which is the failure the rule exists to prefer.
+
+Anything else — past the allocated end, or a span that *straddles* it — is
+`FERR_NAME`. A caller with a partly-full last cluster to top up before it
+grows makes two calls, which is what the DOS box's window does by
+construction: its last window ends at the size and the first window past it
+starts at the allocated end (§96.11.6).
 
 The refusals are `READ_AT`'s plus one, and **past the ALLOCATED end is an
 error here where past the SIZE is a normal answer there**: a read past the end
-answers zero bytes because that is how a copy loop terminates, and a write past
-what the file owns is a caller that thinks this can allocate.
+answers zero bytes because that is how a copy loop terminates, and a write
+that starts past what the file owns is a caller that has miscounted.
 
-- `FERR_NAME` — a bad offset, a bad count, or a span past the allocated end.
-  **Growing the file past what it owns is this**, and it is what tells the
-  caller to reach for `OSAPI_FILE_APPEND` instead.
+- `FERR_NAME` — a bad offset, a bad count, or a span past or across the
+  allocated end.
 - `FERR_NOENT` — no such file. It must already exist; this cannot create one.
 - `FERR_PROT` — `DSKW_PROT` (read-only, hidden, system, label, directory),
-  the same mask `dskw_append` uses, **and a redirected volume** (§62.9), whose
-  driver surface has `FSV_READAT` and no write-at verb to pair with it.
+  **and a redirected volume** (§62.9), whose driver surface has `FSV_READAT`
+  and `FSV_APPEND` and no write-at verb to pair with them — so an *append*
+  over a cable is served and an offset is refused.
 
 #### 18.4.7.2 …and it grows a file to the end of what it HAS
 
 `AH=3Dh` needs one thing more than an overwrite: a program that opens an
-existing file, seeks to the end and adds to it. `OSAPI_FILE_APPEND` cannot
-serve that, because its own precondition is that the file's size is a whole
+existing file, seeks to the end and adds to it. An append cannot serve that
+on its own, because its precondition is that the file's size is a whole
 number of clusters (§18.4.4) — and almost no file's is.
 
-So this slot grows a file **as far as the clusters it already owns**, and no
-further. That is not a compromise between the two, it is what makes them
-compose: once the size reaches the allocated end it IS a cluster multiple, so
-`OSAPI_FILE_APPEND`'s precondition is exactly satisfied and the rest of the
-write is its ordinary business. No cluster is allocated here and no FAT sector
-is written; the only thing the slot ever touches beyond the data is the size
-word, and only upward.
+So the INSIDE case grows a file **as far as the clusters it already owns**, and
+no further. That is not a compromise between the two cases, it is what makes
+them compose: once the size reaches the allocated end it IS a cluster
+multiple, so the AT-THE-END case's precondition is exactly satisfied and the
+rest of the write is its ordinary business.
 
 **`offset + count` decides two things and it is one compare.** Call it the END:
 
@@ -29430,33 +29493,85 @@ word, and only upward.
 - **END at or past the size** — the count may be anything, and the transfer
   rounds up to a whole sector. The rounded-up tail lands past the recorded size,
   on slack inside a cluster the file already owns, so there is nothing there to
-  lose. When END is strictly past the size, the size becomes END.
+  lose. When END is strictly past the size, the size becomes END; when it is
+  exactly the size nothing is stored, which is what keeps the DOS box's last
+  window — which ends exactly at the size — from costing a directory write.
 
 That is why the DOS box's window never rounds anything itself: the last window
 of a file ends exactly at the size and the first window past it ends past the
 size, and both are the loose case.
 
+#### 18.4.7.3 One body, two doors
+
+`dskw_append` and `dskw_write_at` were two bodies of one shape — gate, name,
+find, protection mask, cluster arithmetic, walk, transfer, size, sync — a
+hundred lines apart, and the size pass folded them: **`OSAPI_FILE_APPEND` is
+`OSAPI_FILE_WRITE_AT` with the file's size for an offset.** The append door
+enters with the offset's high word `0xFFFF`, which no real offset can carry
+(a volume caps at 32MB, §18.7), and the body substitutes the size once it has
+the entry in hand. That turns the append's own precondition — *the size must
+be a whole number of clusters* — into the same test the write-at makes on any
+offset: it must land on a cluster boundary. Two bodies used to make that test
+two ways. `OSAPI_FILE_APPEND_SYS` is the same door with `[dskw_syswr]` set,
+as before.
+
+Two things the fold changed that a caller can see, both wider rather than
+narrower. A write-at whose offset is exactly the allocated end **grows** where
+it used to answer `FERR_NAME` — the append's own case, now reachable with an
+offset. And the walk to the last cluster is bounded by the entry's size rather
+than by `DSKW_RT_MAX`, so a chain longer than the size says is linked at the
+size's last cluster and the surplus becomes lost clusters, where the old append
+followed it to the true end; the entry's size is what every reader believes,
+and lost clusters are the failure §18.4 prefers.
+
+One defect fell out of putting the two side by side. `dskw_ent_store` consumes
+`[dskw_zapnext]` — *the entry being stored took the end-of-directory marker,
+write a fresh one after it* — and **nothing clears it**: every writer zeroes it
+before its own store, and the original write-at did not. So a create that took
+the marker, followed by a seek-back write to a file *earlier* in the same
+directory, wrote a `00` over the first byte of the entry after that file — and
+every entry from there on vanished from the listing. The unified body zeroes
+it for both modes.
+
+#### 18.4.7.4 What `kern_small` keeps of it
+
+The DOS box is the only caller of the offset door and of `OSAPI_VOL_STAT`,
+and it does not ship on the small disks (§24.5, `SMALLPKGS`). So on
+`kern_small` both cells are `stc`/`ret` stubs — legitimate here because the
+one caller tests `CF` (KERN-SMALL-CUT-PLAN §10) — and with them go the INSIDE
+arm of the body, `dsk_write_chain` and its direction byte, and the two far
+entries: **395 bytes of that kernel** (`.text` −11, `.bss` −1, `.cold` −383).
+The append door keeps the whole body; it only ever arrives with the size for
+an offset, which is the allocated end by its own precondition, so the arm the
+stub removes is one it could never reach.
+
 #### 18.4.7.1 What it cost, and where
 
-**14 bytes of `.text`, 1 of `.bss` and 279 of `.cold`** — measured against the
-tree it landed on, not estimated. The 15 in the 64KB segment window are the
-whole of what it costs `KERN_CODE_MAX`: an 8-byte cell, a 6-byte thunk and
-`[dsk_chwr]`. The body is cold, so the footprint bill is the 294 together and
-it crossed no rung, which is not the same as costing nothing (§1).
+At its first commit the write-at was **14 bytes of `.text`, 1 of `.bss` and
+279 of `.cold`** — an 8-byte cell, a 6-byte thunk, `[dsk_chwr]`, and a cold
+body beside `dskw_append`'s. After the fold the two doors together are **401
+bytes of `.cold`** where they were 564, the four-register `OSAPI_VOL_STAT`
+beside them 26 where it was 147 (§18.4.6.1), and the module's rollback
+epilogues stopped banking `AX` around a routine that preserves it.
 
-It is that small because the machinery was already there twice over and the
-work was finding the seam rather than writing the walk.
-
+It was that small to begin with because the machinery was already there twice
+over and the work was finding the seam rather than writing the walk.
 `dsk_read_chain` is a run-coalescing walk over a cluster chain with the
 progress widget, the corruption tests and the resume point all in it, and its
 only read-specific instruction is **one `call` inside `.flush`**. So it takes
 a direction byte, `dsk_write_chain` is the wrapper that sets it, and the
 coalescing a write gets is the coalescing a read already had — a contiguous
-span goes out as one `dsk_xfer` either way.
+span goes out as one `dsk_xfer` either way. `disk_read_x` and `disk_write_x`
+make that nearly free at the bottom too: they differ by the byte stored in
+`[dsk_op]` and the read-ahead window `disk_write_x` drops, and then share
+`dsk_xfer` entirely.
 
-`disk_read_x` and `disk_write_x` make that nearly free at the bottom too: they
-differ by the byte stored in `[dsk_op]` and the read-ahead window
-`disk_write_x` drops, and then share `dsk_xfer` entirely.
+The fold's own saving was mostly not the duplicated prologue. The 8086 has no
+near `jcc`, so a conditional jump to an epilogue more than 127 bytes away
+assembles as `jcc short; jmp near` — five bytes for two — and a 400-byte body
+with its refusals at the bottom had twelve of them. The epilogues sit in the
+middle now, `.prot` beside the one arm that jumps to it, and every refusal in
+the body is two bytes.
 
 #### 18.4.4.1 A system file could be created and never finished
 
@@ -32689,7 +32804,7 @@ a package three folders deep:
 
 Three `int 13h` calls for a three-level path, against about twelve for a
 single mount (§18.8.2) — and the second walk is **free**, answered entirely
-out of §19.2.3's cached directory window, which `dsk_path_up` reads through.
+out of §19.2.3's cached directory window, which `dsk_up` reads through.
 
 **The design reason those numbers are what they are**: `dsk_path` never moves
 the machine. It walks with `dsk_dirw_start`/`dsk_dirw_get`, which take a
@@ -32718,26 +32833,72 @@ What survives is the argument that was always sufficient, and one real cost:
   parent, the entry whose first cluster matches the child's, and
   `OSAPI_FILE_FIND` is ordinal-based and *restarts the directory walk on every
   call* — so a parent of K entries would cost K far calls each re-walking from
-  entry 0. `dsk_path_name` reads each directory once.
+  entry 0. `dsk_byclus` reads each directory once.
 
 #### 19.2.4.2 What it refuses, and why each refusal exists
 
 - **`FERR_BIG`** — the buffer cannot hold the path. Nothing is written. A
   depth limit belongs to the caller and `FD_CDMAX`'s 16 is one package's
-  answer, not the kernel's.
-- **`FERR_NAME`** — the chain is corrupt, or deeper than `DSK_PATH_MAX` = 32.
-  `dsk_path_up` range-checks a `..` against `[dsk_maxclus]` exactly as
-  `dsk_dotdot` does, which stops a **wild** parent; it cannot see a **cycle**,
-  where a `..` points at a descendant, and the depth bound is what stops that
-  walking for ever. Both are reachable from an ordinary corrupt floppy.
+  answer, not the kernel's. **The buffer is also the bound on a CYCLE**: a
+  `..` that points at a descendant walks in a circle, every level prepends at
+  least `\X`, so a cycle refuses here within *size/2* levels — each of them a
+  directory sector §19.2.3's window already holds — and it is the same refusal
+  an honest chain that deep would have got. The slot's first cycle carried a
+  separate `DSK_PATH_MAX` = 32 with a depth counter in `.bss` for this, and
+  answered `FERR_NAME` for it; §19.2.4.3 is where those bytes went.
+- **`FERR_NAME`** — a `..` link is missing, would not read, or is **wild**:
+  `dsk_up` range-checks it against `[dsk_maxclus]` exactly as `dsk_dotdot`
+  does, because it *is* `dsk_dotdot`'s body against an argument (§19.2.4.3),
+  and a corrupt parent must not be walked into. Reachable from an ordinary
+  corrupt floppy.
 - **`FERR_NOENT`** — a parent does not contain an entry naming its own child.
   That is a cross-linked disk, and answering a path built out of what was
   found anyway would be the §47 failure this project keeps writing down: a
   confident wrong answer is worse than a refusal.
+- **`FERR_NODISK`, on `kern_small` only** — that kernel carries the cell and
+  no walker (§19.2.4.3), so the answer is `CF=1` before any disk is looked
+  at. No package that ships on the small disks calls the slot (§24.5), and
+  every caller in the tree tests `CF` and falls back to the bare name or the
+  root, which is what KERN-SMALL-CUT-PLAN §10 requires of a refusing stub.
 - **There is no driver fence** on this cell, unlike the other two file cells.
   They have one because they can *name* a hidden or system file; a path names
   directories the caller is already standing inside, and a package that could
   not see its own folder's name could not have been launched from it.
+
+#### 19.2.4.3 What it costs in bytes — three walkers the file system already had
+
+The slot shipped at **+393 resident bytes** on `kern_big` (`.text` +21,
+`.cold` +350, `.bss` +22) and the size pass that followed took it to
+**+137** (`.text` +17, `.cold` +120, `.bss` 0), a saving of **256** — and on
+`kern_small` to **+13**, the cell and a five-byte refusal, a saving of 373.
+Assembled figures, `tools/kernsize.py` before and after. What made it cheap
+is that the walk was **a loop over three routines `disk.inc` already owned**,
+and the first cycle had written a private copy of each:
+
+| the walk needs | the copy it shipped with | what it calls now |
+|---|---|---|
+| the parent of a cluster it is not standing in | `dsk_path_up`, 41 bytes | **`dsk_up`**: `dsk_dotdot`'s body, entered with the cluster in `AX`. `dsk_dotdot` is now three bytes — `mov ax, [dsk_cwd]` — falling into it, so the pair is 33 bytes where two routines were 89 |
+| the entry in that parent whose first cluster is the child's | `dsk_path_name`, 79 bytes | **`dsk_byclus`**: the scan `dskw_rmtree` re-finds an emptied folder with (§18.6, `dskw_rt_byclus`), lifted out of `diskw.inc` and given its directory in `AX` and its cluster in `DX`. `dskw_rt_byclus` is 40 bytes of wrapper over it where it was 93 |
+| that entry's name as text | `dsk_path_8_3`, 69 bytes | **`dsk_synth_name`**: the listing's own formatter, split out of `dsk_synth` for three bytes. So a path spells a folder exactly as the Disk window and `OSAPI_FILE_FIND` do — trimmed, sanitized, the KANJI escape included — where the private formatter stopped at the first space and could disagree |
+
+Two smaller things fell out of the same reading. The walk kept five words in
+`.bss` — the child, the parent, the NUL's home, the buffer's base and a depth
+counter — and every one of them is a register now: `AX`/`DX` are the parent
+and child, `BX` the NUL's home, the base is the `DI` pushed at entry and read
+through `BP = SP` (reloaded before the read, since `dsk_dirw_get` does not
+preserve `BP`), and the name stages in `dsk_ent`, which is `dsk_synth_name`'s
+output anyway. The depth counter went because the buffer already bounds a
+cycle (§19.2.4.2). And the shuffle that moves the finished path down to the
+buffer's base is `rep es movsb` — a segment override on a string move names
+the *source* segment, so one instruction copies caller-to-caller where a
+hand loop had read `DS:SI` and been written out by hand to avoid it.
+
+`kern_small` carries the cell and no body — `gfx_spans`' precedent (§5.4.2) —
+because the slot's consumer is the DOS box and `DOS.O88` is a `kern_big`
+system-disk file (§24.5, `SYSROOT`); `kern_dos` is neither kernel and keeps
+the walker, its back end reaching `dsk_path_x` far (§96.44.10). The refusal
+is `FERR_NODISK` with `CF=1`, and it is in `.text` because an X cell's stub
+is reached near from `api_x`.
 
 ### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 
@@ -33642,7 +33803,8 @@ and restores DS and (where a stub borrowed it) ES.
 
 Three cells in ten are too small to hold what they need. There are two
 families, and **each family is ONE body** that every cell of it reaches with
-`BP` = the routine to call:
+`BP` = the routine to call — one body per family *per segment the routine
+lives in*, since §20.3.2:
 
 ```nasm
 %macro OSAPI_XCELL 1                ; exactly 8 bytes, like every other cell
@@ -33652,18 +33814,29 @@ families, and **each family is ONE body** that every cell of it reaches with
     db 0
 %endmacro
 
-api_x:                              ; ONE copy, for all 33 X cells
-    push ds
+api_x:                              ; ONE copy, for every X cell whose
+    push ds                         ; routine is .text
     push es
     push ds
     pop es                          ; ES = the caller's DS
     push cs
     pop ds                          ; DS = KERNEL_SEG
     call bp
+.done:
     pop es
     pop ds
     pop bp                          ; the caller's BP back
     retf
+
+api_xc:                             ; ...and ONE for every X cell whose
+    push ds                         ; routine is .cold (OSAPI_CXCELL):
+    push es                         ; the same frame, the near call
+    push ds                         ; replaced by api_far's far one
+    pop es
+    push cs
+    pop ds
+    call KERNEL_SEG:api_far         ; COLD_SEG:BP
+    jmp short api_x.done
 ```
 
 - **X cells** put the CALLER's DS in ES before calling, so a kernel routine
@@ -33681,12 +33854,48 @@ api_x:                              ; ONE copy, for all 33 X cells
 - **N cells** stage a NAME out of the package's segment into the kernel's
   `api_name` buffer first, because the file API takes `SI` = a NUL 8.3
   string and passes it on to routines that read it through DS many calls
-  deep: `dskw_write`, `dskw_read`, `dskw_delete`. Every N cell also calls
-  `inst_vol_enter` — resolving in the calling instance's own directory
-  (§19.2.1) is what an N cell *is*, not an option one of them declines.
+  deep: `dwf_dskw_write`, `dwf_dskw_read`, `dwf_dskw_delete`. Every N cell
+  also calls `inst_vol_enter` — resolving in the calling instance's own
+  directory (§19.2.1) is what an N cell *is*, not an option one of them
+  declines. **Every N target is a cold file door**, so `api_n` far-calls
+  through `api_far` and there is no near N body at all (§20.3.2).
   `api_file_rename` and `api_fdlg_open` are hand-written `OSAPI_JSLOT`
   stubs and NOT N cells: rename stages two names, and the dialog's name is
   optional where every N cell's is mandatory (the stub below it says why).
+- **Cold SLOT cells** (`OSAPI_CSLOT`) are the plain SLOT's contract — DS =
+  KERNEL, ES and every register but the answer untouched — for a routine in
+  `.cold`. No register is free to carry the target, so the cell carries it
+  as **data behind its own `retf`** and the shared body reads it off the
+  return address the cell's `call` pushed:
+
+  ```nasm
+  %macro OSAPI_CSLOT 1              ; exactly 8 bytes
+      push ds                       ; 1E
+      call api_sc                   ; E8 lo hi
+      pop ds                        ; 1F
+      retf                          ; CB
+      dw %1                         ; the .cold offset - never executed
+  %endmacro
+
+  api_sc:
+      push cs
+      pop ds                        ; DS = KERNEL_SEG
+      push bp
+      mov bp, sp
+      mov bp, [bp+2]                ; the cell's return address
+      mov bp, [cs:bp+2]             ; the word behind its retf
+      call KERNEL_SEG:api_far       ; COLD_SEG:BP
+      pop bp
+      ret                           ; to the cell's pop ds / retf
+  ```
+
+  BP is borrowed and given back; it is an input to no cell of this shape,
+  and the one SLOT whose routine takes BP as an argument and lives in
+  `.cold` (`OSAPI_GFX_BLIT1`) keeps a resident thunk for exactly that reason.
+- **A far cell** (`OSAPI_FARCELL`) is the one cell with nothing to do but
+  cross: `OSAPI_DECOMP`'s routine takes the caller's own DS:SI and ES:DI as
+  arguments, so the cell is `call COLD_SEG:lzf_decomp / retf` and two bytes
+  over — the far call *is* the whole cell.
 
 **`BP` is the target register, and that is the machine's existing
 convention rather than a new one.** `PKG_DISP` in every `.o88` header is
@@ -33707,9 +33916,35 @@ halt photographed on the 5150 in docs/FIELD-NOTES.md). That is the deepest
 chain in the machine and it is where a change
 here is priced, not against task 0's kilobyte.
 
+**`api_far` is the one trampoline every cold-reaching shape goes through**,
+and it is `drv_pkg_disp`'s construction (§20.11) with a fixed segment: the
+8086 has no `call far reg`, so the body far-calls `KERNEL_SEG:api_far`, which
+pushes `COLD_SEG` and `BP` under that frame and `retf`s into the routine —
+whose own `retf` then returns through the caller's frame, to the instruction
+after its call.
+
+```nasm
+api_far:
+    push word [api_coldseg]         ; DS = KERNEL_SEG at every caller
+    push bp
+    retf
+api_coldseg: dw COLD_SEG            ; .text data: an equate cannot be pushed
+```
+
+Nothing in it touches the flags, so a cold routine's CF answer survives as a
+near one's does. It is a top-level label reached by a real far call for the
+reason driver.inc gives: `os88ovlchk` classifies a routine by the returns in
+its extent, and this one's is `{retf}`, far-called, consistent — no
+exemption anywhere. Peak stack is four bytes deeper than a plain `call far`
+for the length of the two pushes, and from the cold body onward the chain is
+**two bytes shallower** than through the thunk it replaced, whose near
+return address is gone. `tests/unit/t_api_abi.py` decodes all five shapes
+out of `kernel.bin`, resolves each target in the section its shape names,
+and refuses a `FARCELL` whose segment word is not `COLD_SEG`.
+
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **157 × 8** today. `apps/os88api.inc`
-mirrors every offset as an `OSAPI_*` `%define` (§20.5).
+assertions in kernel.asm. `apps/os88api.inc` mirrors every offset as an
+`OSAPI_*` `%define` (§20.5).
 
 ```
 0x0010 gfx_lock        0x0090 wm_front          0x0120 dskw_write     (N)
@@ -33816,7 +34051,11 @@ source that assembles can be naming it.
    population, because this tree hosts every package written for this OS
    (§20.8 rule 4). One grep settles it.
 
-**The free list today is EMPTY.** 0x01F0 went to `wm_onmouseup` and 0x01E8 —
+**The free list today holds ONE cell: 0x0580**, `OSAPI_FILE_MOVE`, folded
+into `OSAPI_FILE_COPY`'s verb byte (§22.25) — `stc`/`ret`, SDK name deleted,
+and `tests/unit/t_api_abi.py`'s `COMPAT` row is what lets the gate see a cell
+published nowhere. Before it the list was empty: 0x01F0 went to
+`wm_onmouseup` and 0x01E8 —
 `dskw_gone`, §18.4.1's retired readbig — went to `OSAPI_VOL_KIND` (§18.7.2),
 which is the second cell this rule has paid for and the first to be found by
 looking rather than by appending. Three more — 0x0198, 0x01A0, 0x01A8, the XMS
@@ -34036,6 +34275,55 @@ sit in a paint path.
 The file buffer is **ES:BX** (not DS:BX), like `osapi_snd_play`, so a caller
 can write out of its own image without a copy; a package that keeps data in
 its own bss just sets ES = DS. ES is restored per §1.
+
+### 20.3.2 A cell-only thunk is deleted — the cell names the cold body
+
+§2.6.1 deleted the thunk *between* a resident entry and its cold body when
+the body could end in `retf`. This is the same argument one level up: the
+resident entry itself — `foo: call COLD_SEG:foo_x / ret`, six bytes of
+`.text` — is worth keeping only while something in `.text` **near-calls**
+it. Forty of the kernel's eighty-two such entries were reached by *nothing
+but their own API cell*, and a cell can be taught to far-call. So the cell
+names the cold far entry (`dwf_dskw_read`, `mmf_osapi_mem_claim`,
+`osapi_vol_at_x`) and the thunk is gone, at zero bytes per cell — the
+cell was eight bytes and still is — against one shared trampoline and two
+shared bodies:
+
+| shape | before | after | resident cost of the shape |
+|---|---|---|---|
+| X cell, cold routine (`OSAPI_CXCELL`, 21 cells) | thunk 6 | 0 | `api_xc` 13 |
+| N cell (`OSAPI_NCELL`, all 10 are cold) | thunk 6 | 0 | `api_n`'s near call became a far one, +3 |
+| SLOT, cold routine (`OSAPI_CSLOT`, 11 cells) | thunk 6 | 0 | `api_sc` 19 |
+| the far cell (`OSAPI_FARCELL`, 1 cell) | stub 6 | 0 | 0 |
+| ...and all four share | | | `api_far` 8 |
+
+Measured on the tree it landed on: **kern_big `.text` 49,517 → 49,302
+(−215)**, nothing else moved; **kern_small `.text` −203, `.cold` +19
+(−184 net)**, the nineteen being the four refusing stubs that were `.text`
+and are now `.cold` for the same size — a cold-reaching cell has to reach a
+cold body, so kern_small's `stc`/`ret` answers for `OSAPI_ARG_FILE`,
+`OSAPI_ASSOC_SET`, `OSAPI_MEM_COMPACT`, `OSAPI_DRV_SUSPEND` and
+`OSAPI_FILE_WRITE_AT` moved a segment along and end in `retf`.
+
+**No published offset, register contract or package changed**; what changed
+is the ABI's mechanics, which `tests/unit/t_api_abi.py` decodes out of the
+binary (the five shapes are in its header). What it *costs* a call is the
+far frame built by hand rather than by one instruction — predicted, not
+measured: ~35–40 cycles a crossing for an X or N cell (`push mem` + `push
+bp` + `retf` in place of `call bp` + `ret`), and ~100 for a CSLOT, which
+also reads its target off the stack. None of the forty-three is a drawing
+primitive, and the busiest of them — the menu save-under's claim and free
+(§12.4) — rides a gesture that already costs a heap scan and a screen save.
+
+Two thunks were **refused**. `gfx_blit1` is a SLOT whose routine takes BP
+as an argument, and `api_sc` borrows BP; preserving it there would cost more
+than the six bytes it saves. And every thunk with a near caller of its own
+(`mem_claim`, `fm_paint`, `cp_onclick`, the window procs a template names)
+stays, since a template's `dw` and a `mov ax, proc` in `.text` need a
+`.text` address to name — which is §2.6's own rule about tables.
+
+The two retired cells (0x0568, 0x0580) are untouched: collapsing the table's
+tail is a renumber and a separate decision.
 
 ### 20.4 osapi helpers (kernel.asm)
 
@@ -35693,82 +35981,98 @@ mechanism exists for — is exactly that shape, and `tests/rehome.py` asserts th
 word. The value is the **program's** `image + bss` and not the carve's extent:
 the carve holds the other parts too, and they are not the region.
 
-##### 20.12.10.5 The carve is re-owned to the SLOT, and may not be freed by its base
+##### 20.12.10.5 The carve is re-owned to the SLOT, TRIMMED to the program, and may not be freed by its old base
 
-The parts carve is claimed by the **loader**, through `OSAPI_MEM_CLAIM`, so its
-`MC_OWN` is the loader's segment — which is about to stop existing. Left alone
-it is either freed out from under the running program (the teardown sweeps by
-segment) or leaked for the session. `mem_reown_x` re-stamps it, and every other
-claim on that owner word, to the instance **SLOT** — which is how `ld_alloc`
-owns a region in the first place (§21 step 5).
+The parts carve is claimed by the **loader**, through `OSAPI_MEM_CLAIM_HI`
+(§20.12.10.8), so its `MC_OWN` is the loader's segment — which is about to stop
+existing. Left alone it is either freed out from under the running program
+(the teardown sweeps by segment) or leaked for the session. `mem_reown_x`
+re-stamps it, and every other claim on that owner word, to the instance
+**SLOT** — which is how `ld_alloc` owns a region in the first place (§21 step
+5).
 
-**The slot is not merely tidy: it is what stops the program freeing the block
-it is running in by name.** `mem_find_own` matches `MC_OWN == the caller's
-segment` or `MC_SEG == it`, and a slot is neither — so `OSAPI_MEM_FREE` with
-the carve's **base** refuses, which is the correct answer and still does.
+**And it moves the claim's BASE up to the program on the way past.**
+`op_claim` reads the run from the cluster boundary at or below it (§20.12.2),
+so the program sits a **head slack** up the carve — the run's file offset
+modulo the cluster: zero on a 512-byte-cluster volume, 512 bytes on the 360KB
+disk the shipped `DOS.O88` was measured on (carve `0x8FC0`, `I_SPTR` `0x8FE0`),
+up to a cluster less 512 in general. That slack is alignment the *read* needed
+and nothing needs afterwards. `mem_reown_x` takes the program's segment in AX
+and, for the one claim that contains it, adds the offset to `MC_SEG` and
+subtracts it from `MC_PARA`: the slack is heap again, and **the region's base
+IS the program's segment** — the one sentence every rule in the compactor and
+every fence in the memory manager rests on. Seven instructions inside a walk
+that already ran, before the part's entry proc is called, so `mem_own` finds
+the program by the ordinary claim-base test from its first instruction
+(§50.3.4).
 
-**IT USED TO KEEP THE CARVE PINNED AS WELL, AND THAT IS OVER** (§66.6.1.2).
-The reason was real and is worth keeping written down, because it was one of
-four of its kind: `mem_rr_tab` rewrote `inst_tab + I_SPTR` by matching the
-**old base**, and `I_SPTR` is the *part's* segment where the claim's base is the
-*carve's* — the two differ by the run's cluster alignment (§20.12.2) — so a
-compaction left `I_SPTR` naming where the program used to be. `mem_is_region`,
-`mem_frameless` and `mem_reloc_call` each read the base for the same wrong
-reason. All four take `[mem_rgoff]` now; `mem_find_own` has a containment arm
-for a caller naming its **own segment**, which is the only way a re-homed
-program can name its region at all; and a re-homed carve is a region in every
-sense the compactor has.
+**The re-homed part must therefore be the LOWEST part of the run.** Whatever
+lies below the program in the carve is returned to the heap by the trim, so a
+loader that put an asset part in front of its program part would hand that
+asset back. All three loaders in the tree put the program at part 0 — csload,
+dosload, `tests/rehome` — and `os88partsbody.inc` lays the run out in table
+order, so this is the shape a parted package has anyway; it is written down
+here because it is now load-bearing.
 
-The loader's own region is then freed **by base** (`mem_free_x` with `DX =
-[ld_base]`, `BX =` the slot) and not by owner: the re-owned carve is on the same
-owner word now and must not go with it.
+**Why a trim and not a follow.** The slack cost this mechanism a cycle of being
+wrong twice. First the region had to be **PINNED**: `mem_rr_tab` rewrote
+`inst_tab + I_SPTR` by matching the old base, and `I_SPTR` was the part's
+segment where the base was the carve's, so a compaction would have left the
+kernel pointing at where the program used to be — 14KB of every DOS program on
+a Sound Blaster machine, and a permanent wall at whatever depth the heap had
+when any re-homing package launched. Then it was **unpinned by following the
+offset**: `[mem_rgoff]` staged at the top of `mem_reloc_call`, a second name
+for the block in `mem_rr_walk`, a containment `mem_reg_seg` in place of
+`mem_is_region`'s equality, a containment arm in `mem_find_own`, and two arms
+in `mem_own` so the program could claim at all — +155 resident bytes for six
+routines to remember one fact. Moving the base up front is the same fact
+stated once, where it is created, and every one of those went back to the
+equality that had always held for every other package (§66.6.1.2).
 
-**THE CARVE HAS TWO SHAPES, and which one a launch gets is the VOLUME's
-cluster size rather than the package's doing.** `op_claim`'s head slack
-(§20.12.2) bridges the file's 512-byte part boundary to the cluster boundary
-`OSAPI_FILE_READ_AT` will start a read on — 1 KB on a 360KB disk, **512 bytes
-on a 1.44MB one, where it is therefore ZERO**. So:
+The slot is still what stops the program freeing its region by *name*:
+`mem_find_own` matches `MC_OWN == the caller's segment` or `MC_SEG == it`, and
+a slot is neither — so `OSAPI_MEM_FREE` with the carve's **old** base refuses,
+which after the trim is the trivial case of an address inside no claim. What
+it is *not* is a fence against the program naming its own segment: the
+`cmp dx, bx` arm (§66.6.1) has always let an ordinary package `mov dx, cs` and
+free, regrow or unpin its region, and a re-homed one is an ordinary package
+now. The loader's own region is then freed **by base** (`mem_free_x` with `DX
+= [ld_base]`, `BX =` the slot) and not by owner: the re-owned carve is on the
+same owner word and must not go with it.
 
-| head slack | the program sits | and the carve is |
-|---|---|---|
-| non-zero (1KB+ clusters) | **inside** the carve | its region, reached by `mem_find_own`'s **containment** arm and moved with `[mem_rgoff]` (§66.6.1.2). It was pinned until that section |
-| zero (512-byte clusters) | **at** the carve's base | its region by the obvious reading too: `MC_SEG == I_SPTR`, and every compactor question has one answer either way |
+`tests/rehome.py` runs at **360KB** in the suite because that is the geometry
+with a slack to trim: it reads the carve's original base out of the program's
+own handoff (`RP_CARVE`, which the loader wrote before the kernel touched the
+claim) and asserts the claim now begins at the program instead, the slack
+above it. On a 1.44MB disk the two are equal and the row cannot tell a trim
+from nothing. `rehomemove360` is the same argument for the move.
 
-**Both are the same thing now, and neither the kernel nor the package needs to
-know which one it got** — a package declares `OS88_REGION_MOVABLE` and a
-relocation proc is handed *its own* two segments, re-homed or not (§66.6.1.2).
-What is still refused in both shapes is naming the carve's **base**: the
-widening is gated on the caller naming its own segment, so the fence became a
-containment rather than a hole, and `tests/rehome/rhprog.asm`'s check 4 asserts
-exactly that.
-
-`tests/rehome.py` runs at **360KB** in the suite because that is the shape
-§50.3.4's fence exists for: on a 512-byte-cluster volume `mem_own`'s old
-claim-base proxy answers correctly by accident, so a 1.44MB-only row would have
-tested nothing. `rehomemove360` is the same argument for the move.
-
-##### 20.12.10.5.1 …and it MOVES, in BOTH shapes, with one word of its own
+##### 20.12.10.5.1 …and it MOVES, at every geometry, with one word of its own
 
 `tests/rehomemove.py` takes it the other way: the program declares itself
 movable, `tests/filler` forces the compaction, and the carve **packs down like
 any other region** — measured at a zero slack, `1E40 → 1D00`, with `I_SPTR`,
 `W_SEG` and the claim owner all following through `mem_rr_tab`.
 
-**`rehomemove360` is the same row in the shape that was pinned**, and it is the
-gate on §66.6.1.2 where the row above is not: at a zero slack all four of that
-section's questions have the same answer either way, so only a non-zero slack
-can tell them apart. Measured there: head slack **32 paragraphs**, the region
-`9F20 → 9F60`, the proc called, and the package's own vector into the asset
-following `9F40 → 9F80` and reading back through the fixed pointer.
+**`rehomemove360` is the same row on the geometry that has a slack**, and it is
+the gate on the trim where the row above is not: with the slack returned the
+carve begins at the program on both disks, so what differs at 360KB is only
+that the trim *ran* — and a kernel that skipped it would leave the program a
+head slack up a claim whose base is what the walk matches, so `I_SPTR` and
+`W_SEG` would come back from the move un-rewritten and the row's assertion 3
+names them. Measured there before the trim: head slack **32 paragraphs**, the
+region `9F20 → 9F60`, the proc called, the package's own vector into the asset
+following `9F40 → 9F80`; after it the slack reads 0 and the rest is the same.
 
-**Its relocation proc is not a `ret`, and it is the first in the tree that
+**Its relocation proc is not a `ret`, and it is the one in the tree that
 cannot be.** `OS88_REGION_MOVABLE` ships a bare `ret` because every word naming
-an ordinary region belongs to the kernel. A re-homed program has one of its
-own: the loader's handoff named the asset **by absolute segment** (§20.12.10.2)
-and **the asset is inside the carve**, so it moves with it and nothing in the
+an ordinary region belongs to the kernel. This program has one of its own: the
+loader's handoff named the asset **by absolute segment** (§20.12.10.2) and
+**the asset is inside the carve**, so it moves with it and nothing in the
 kernel knows that word exists. This is exactly the case `apps/os88api.inc`
 already described — *"it is where YOUR fix-up goes if you ever cache your own
-segment in a word of your own"* — arriving for the first time.
+segment in a word of your own"* — arriving for the first time. (Clear Skies
+looked like the second and is not: §66.6.1.1.)
 
 **The gate asserts the ADDRESS and not the bytes**, and the break-it-on-purpose
 run is why: a compaction copies the block down and does **not scrub what it
@@ -35812,7 +36116,7 @@ Measured against the tree it landed on, `.text` being the scarce side
 |---|---|
 | `.text` | the table cell (`OSAPI_XCELL`, 8 bytes) + its `call COLD_SEG:` thunk |
 | `.bss` | `ld_rehome` and `ld_rehsz` |
-| `.cold` | `osapi_pkg_rehome_x`, `ld_start`'s step 8a, `mem_reown_x`, and `ld_alloc`'s clear |
+| `.cold` | `osapi_pkg_rehome_x`, `ld_start`'s step 8a, `mem_reown_x` (20 bytes of it the trim, §20.12.10.5), and `ld_alloc`'s clear |
 
 `mem_reown_x` is `mem_free_owner_x` with one instruction changed, and
 deliberately a **second walk** rather than one walk with a flag: the obvious
@@ -35861,7 +36165,7 @@ because a package may not compact its own region — `mem_frameless` asks
 `mem_in_nest`, and a package reaches `mem_claim` only from inside its own
 callback. **That is true of a synchronous claim and it is NOT the situation
 here**, because §66.4.3's posted request exists precisely for it and is
-BUILT: `OSAPI_MEM_COMPACT_WAKE` (0x0598) records the wish and returns,
+BUILT: `OSAPI_MEM_COMPACT`'s post (0x0590) records the wish and returns,
 `ui_task` step 0 spends it through `mem_cpq_run_x` with nothing held, and
 `apps/dos/dos.asm` has posted one since §96.35. `[dos_cpw]` reads 1 on the
 machine, so the pass really runs.
@@ -36955,13 +37259,13 @@ that is the same rule every other by-name call in this SDK already has.
 #### 21.5.1 Why it is one cell and was briefly two
 
 It shipped as two — `OSAPI_PKG_START` here, taking an image, and
-`OSAPI_PKG_START` at 0x05A0, taking a name — and that is the failure §20.8
+`OSAPI_PKG_START` in a second cell at the table's end, taking a name — and that is the failure §20.8
 rule 4 names in as many words: *a successor slot beside a permanent
 no-consumer path, which is a worse spec than the one the freeze was
 defending.* Two published cells whose names both mean *run a package* is a
 question at every call site that has no good answer, and the table is
 **unfrozen** precisely so a wrong contract is edited rather than shipped
-around. 0x05A0 is withdrawn; the merged cell takes 0x0520, which the
+around. The second cell is withdrawn; the merged cell takes 0x0520, which the
 re-contract rule permits here because `apps/`, `drivers/` and `tests/` are the
 complete set of callers and `make` rebuilds every one of them.
 
@@ -37119,6 +37423,12 @@ The measurement is taken on top of §26.7's, which is why the `before` column
 is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
+
+**Since measured, two of those bytes came back.** §20.3.2 deleted the
+resident thunk — the `N` cell far-calls `ldf_ld_pkg_start` in the cold
+segment directly — so the `.text +18` above is `.text +12` now (the table
+cell and `cw_inst_caller`), and `ldf_ld_pkg_start` no longer zeroes
+`[ld_pwin]`, a store nothing on either arm reads (−6 `.cold`).
 
 ## 22. files.inc — the Disk window (file manager)
 
@@ -40081,190 +40391,117 @@ whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 `fcp_xfer` moves one file's bytes from a source directory to a destination:
 it streams in chunks through a buffer it claims, hands a remote-to-remote pair
 to the redirector's own `FSV_COPY`, and **deletes a partial destination if
-anything fails**. It had one caller — Paste — and lived behind a header
-sentence saying *"UI-task context only, gfx lock held by the caller"*.
+anything fails**. `fcp_relink` moves an entry between two folders of one
+volume by rewriting its directory entry and touching no data. Both had one
+caller — Paste — behind a header sentence saying *"UI-task context only, gfx
+lock held by the caller"*, which describes the callers and not the engine:
+nothing on the copy path draws, and the two bodies it streams through are the
+same two `OSAPI_FILE_WRITE` and `OSAPI_FILE_APPEND` have published since §18.4.
 
-**That sentence describes its callers and not the engine**, and the difference
-matters because it is what made the copy look unshareable. Nothing on the copy
-path draws. The exclusion the disk layer needs is `[sch_lock]`, which
-`dsk_xfer` raises itself; the two bodies `fcp_xfer` streams through —
-`dskw_write_x` and `dskw_append_x` — are the **same two** `OSAPI_FILE_WRITE`
-and `OSAPI_FILE_APPEND` have published to any package since §18.4. So the
-engine was never more lock-bound than the write slot next to it.
+So it is published, as **one N cell with a verb**. `SI` is the 8.3 name in the
+caller's segment (staged by `api_n`, which also runs `inst_vol_enter`), `AL`
+the verb — `OSAPI_FCP_COPY` (0) or `OSAPI_FCP_MOVE` (1) — `BL`/`DX` the source
+drive and its folder's first cluster, `BH`/`CX` the destination's. **That is
+exactly the pair `OSAPI_FILE_HERE` answers and `OSAPI_FILE_GOTO` takes**
+(§19.2.4). Out `CF`=0 with `AX`=0, or `CF`=1 with `AX` = `FERR_*`.
 
-So it is published. `ES:SI` is the source 8.3 name and `ES:DI` the
-destination's, both in the caller's segment; `BL`/`DX` are the source drive
-and its folder's first cluster, `BH`/`CX` the destination's. **That is exactly
-the pair `OSAPI_FILE_HERE` answers and `OSAPI_FILE_GOTO` takes** (§19.2.4), so
-*"copy this to where I was standing a moment ago"* needs no vocabulary of its
-own.
+**The body is a FILLER for the engine's own paste path, and nothing else.**
+`fcp_paste` copies the clipboard record — op, drive, folder, type, name,
+`FCP_CBSZ` = 19 bytes — into the *operation record* and enters `fcp_run`;
+`fcp_door` fills the same record from the registers and enters `fcp_run2`. So
+a package's copy and the user's paste are one path: the tree walk, the
+self-paste refusal (`fcp_selfchk`), the replace, the partial-destination undo
+and the listing debt are all the paste's own. What the door adds is only what
+a package cannot be assumed to have done: the busy test (the user's operation
+may be suspended on its question, and its record must not be touched — hence
+`FERR_NODISK` then, `fcp_pfail`'s precedent), the verb check (`FERR_NAME` for
+a verb the SDK does not name — a caller that left `AL` alone must not find its
+file moved), and one stat of the source to learn whether it is a **folder**,
+which the paste has for free from the listing and which decides the tree walk,
+the self-paste refusal and the re-link's `..` fix-up. `[fcp_all]` = 1 is the
+*replace all* a paste's user would have answered, so `FCPS_ASK` cannot come
+back and a file of that name at the destination is replaced.
 
-**What the public body adds is only what a package cannot be assumed to have
-done**, and each of the three is a defect if it is left out:
+**A move is a Cut.** On one volume `fcp_relink` rewrites the directory entry —
+a 100KB file changes parent for the cost of a directory write — and where it
+declines (two volumes, a destination that already holds the name, a folder
+with no reusable slot, a redirected volume) the engine copies and then deletes
+the source, exactly as a Paste of a Cut does. There is no *not attempted*
+answer any more, because the caller had nothing to do with one except copy
+and delete, which is what the engine does better. **The re-link is tried
+BEFORE the buffer is claimed**: `fcp_step` claims it at `.copyit` (`fcp_claim`)
+rather than `fcp_paste` claiming it ahead of the first step, so a same-volume
+move needs no free heap at all — which is the case the DOS shell reaches it
+from inside an fsx bracket, where the heap is the program's and `fcp_bufget`
+answers `FERR_FULL` (§96.30.6). That answer is also what the shell's `MOVE`
+falls back to its own arena stream on: nothing was written.
 
-- **the buffer**, claimed and given back — `fcp_bufget` wants a DMA-page-aligned
-  run and falls back to an ordinary one (§22.5.1);
-- **where the caller was standing**, put back — `fcp_goto` moves the current
-  directory, and a package that called a copy and then found itself in another
-  folder would be reading the wrong disk with no way to know;
-- **the listing debt**, paid — `[dsk_lstale]` and the write batch, so a Disk
-  window showing either folder is correct afterwards.
+**The answer is read out of `[fcp_err]`**, which `fcp_run` leaves as
+`FERR_OK`, as `FERR_EXIST` when the destination is the folder the entry is
+already in (`fcp_here`: nothing to do and nothing written — a paste treats it
+as done, a door says so, and doing it would truncate the entry being read), or
+as the `FERR_*` behind an `FCPS_ERR`. It lands under the **same name**; a copy
+that renames is a copy and then `OSAPI_FILE_RENAME`. A folder goes with
+everything under it.
 
-**The two names may differ**, which Paste never needed: `fcp_fname` was used
-for both ends, and the destination now has `fcp_dname` beside it. `fcp_fnames`
-sets the two the same, so every existing path is unchanged to the byte — and
-the redirector's one-name `FSV_COPY` fast path is taken only when they still
-match.
+**The listing debt.** `fcp_unbatch` ends the batch with `dskw_sync_x` rather
+than `dsk_relist_x`: the latter is an unconditional remount whenever a quiet
+switch left `[dsk_lstale]` set, whose only product is the global listing —
+which no Disk window is drawn from (`fmv_gneed`), and which `fm_paste_res`'s
+`fmv_reload_all` already makes coherent after every paste. So the file manager
+sees what it always saw, and a package's door call no longer buys a remount
+per file for a listing nothing reads.
 
-**It refuses with `FERR_NODISK` while a Cut or Copy/Paste is running**, or is
-suspended on its overwrite question. The module has one set of state words and
-the user's own operation owns them; `fcp_pfail` already answers that way for
-the same reason, and "the machinery is not available to you right now" is the
-nearest true thing this code has to say.
+**On `kern_small` it is the module's fourth entry** (§22.3.0), so the body is
+`FILECP.DRV`'s and not resident; the resident half is the cell, a six-byte
+thunk, the far entry and a sixteen-byte loading stub that answers
+`FERR_NODISK` when the system disk is not there to read the image from.
 
-**On `kern_small` it is the module's fourth entry** (§22.3.0), so the bytes are
-`FILECP.DRV`'s and not resident — which is the shape this door wanted anyway:
-a copy is something a machine does occasionally, and the image is dropped when
-it is done.
+### 22.25 `OSAPI_FILE_MOVE` — RETIRED into the verb byte
 
-### 22.25 `OSAPI_FILE_MOVE` — the same engine's re-link, and the answer that means *nothing happened*
+**0x0580 is on §20.3.1's free list**: a `stc`/`ret` cell whose SDK name is
+deleted, so a stale caller fails to assemble rather than moving nothing. It
+was a second door on the same engine — the re-link with §22.24's registers in
+front of it and an `AX` = 0 *not attempted* answer for the four cases the
+re-link declines — and the fold is the size pass's finding: one cell, one
+thunk, one far entry and one loading stub fewer, and the two bodies that
+"differed only in their middles" replaced by a filler that has no middle of
+its own.
 
-A move between two folders of one volume moves **no data at all**: the file's
-clusters are already where they belong, and the only thing that has to change
-is which directory names them. `fcp_relink` has done exactly that since §22.6
-— it is what a same-volume Paste of a Cut takes — and the whole of this slot
-is that body with §22.24's registers in front of it.
+#### 22.25.1 What the two doors cost, and why the fold was refused the first time
 
-The arithmetic is why it is a slot and not a convenience. A 100KB file moved
-by copy-then-delete is 100KB read through a buffer, 100KB written back, and
-then a delete; on a 4.77MHz 8088 that is disk revolutions in the hundreds. Re-
-linked, it is one directory write. **The two are not fast and slow versions of
-each other** — one of them touches the data and one of them does not.
+The first record argued the fold was worth the 17 bytes of a door and not the
+98 of a body, because the body was the work — `fcp_relink` needing six words
+set, the batch taken and the caller put back — and because a `DI` sentinel
+meaning *move* would delete the original of a caller who forgot it. Both
+premises went. **The body was not the work**: every word the door set is a
+word the paste's own path sets from the clipboard, so a door that copies the
+register pair into the operation record and enters that path carries no
+engine behaviour of its own; and **the verb is a checked byte, not a
+sentinel** — `AL` outside {0, 1} is `FERR_NAME`. The rename arm (a second
+13-byte name, `fcp_same13`'s guard on `FSV_COPY`, a second copy in
+`fcp_fnames`) had one intended consumer, the DOS box's `COPY`, which by
+§96.30.6 streams through its own arena and never calls the door at all; the
+walk home (`[fcp_svdrv]`/`[fcp_svcwd]`) redid what `inst_vol_enter` does on
+the next slot anyway (§19.2.1); the batch bank had no second batcher to bank.
 
-`ES:SI` is the 8.3 name — one name, because a move that renames is a rename
-this call does not do — with `BL`/`DX` the source drive and its folder's first
-cluster and `BH`/`CX` the destination's, the same pair `OSAPI_FILE_HERE`
-answers. A **folder** moves with everything under it and its `..` follows,
-which `[fcp_type]` = 2 is what tells `fcp_relink`; the attribute is read off
-the entry a stat leaves in `dskw_raw`, one walk more than the minimum and
-cheaper than writing a wrong parent link.
-
-**`AX` = 0 with `CF` set is the whole design, and it does not mean an error.**
-It means *not attempted* — nothing was written, the file is still where it
-was, and the caller should copy it and delete the source instead. There are
-four ways to get it, and `fcp_relink` declines all of them having written
-nothing:
-
-- **two volumes.** Refused before anything is opened. The two FATs share
-  nothing, so there is no entry to move — and this is refused rather than
-  quietly turned into a copy, because a caller that asked for a move and got a
-  copy has paid for the data twice without being told.
-- **a redirected volume** (§75), which has no raw directory slots to rewrite.
-- **the destination already holds the name.** The public door has no overwrite
-  question to ask — §22.24's has none either — so it declines and the caller
-  decides.
-- **no reusable slot** in the destination folder.
-
-**A caller that cannot tell those from a real failure loses files**, which is
-why the answer is a distinct value rather than a `FERR_*`, and why both the
-SDK cell and `os88.h` say so in capitals. The shape is the file manager's own:
-a fast path with a fallback, and the fallback is two calls that already exist.
-
-**The refusals that are not that one** are `FERR_*` with `CF`, and one of them
-is `FERR_NODISK` while a Cut or Copy/Paste is running — §22.24's reason, one
-set of state words owned by the user's operation. On `kern_small` the loading
-stub answers **`AX` = 0** instead when the image cannot be read, and that is
-deliberate: a system disk that is not in the drive genuinely has not attempted
-anything, so there the true answer and the useful one are the same.
-
-**It is the module's fifth entry on `kern_small`** (§22.3.0), so like the copy
-it costs `FILECP.DRV` bytes rather than resident ones.
-
-#### 22.25.1 Why a slot of its own — and why that question is worth less than it looks
-
-The cheaper-looking change was a destination-folder argument on
-`OSAPI_FILE_RENAME`, and the first argument against it was the wrong one. It
-was that the slot has five callers — the DOS box's `AH=56h`, `apps/ftpd`, the
-C SDK's `rename()` in `os88thunk.asm`, and two in `tests/filetest` — and that
-**not one of them sets `BX` or `AL`**, so a new parameter would read whatever
-the caller last left there. That is true, and it is not a reason: **every one
-of those five is in this tree**, exactly as much ours to edit as the kernel
-is, and setting a register in five places is a sweep rather than a risk.
-
-The reason is arithmetic, and it is the same answer for any existing slot:
-
-| | bytes |
-|---|---|
-| the DOOR — an 8-byte `OSAPI_XCELL` and a 9-byte `.text` thunk | **17** |
-| the BODY — `fcp_move`, in `.cold` (`FILECP.DRV`'s on `kern_small`) | **98** |
-
-**Folding the move into an existing slot saves the 17 and not the 98**, because
-the body is the work: `fcp_relink` needs `[fcp_drv]`, `[fcp_cwd]`,
-`[fcp_ddrv]`, `[fcp_dcwd]`, `[fcp_name]` and `[fcp_type]` set, the write batch
-taken, and the caller put back where they were standing, and no other slot
-does any of that already. Nor does the rename path get there cheaply — it ends
-in `dskw_rename_x`, which rewrites a name **in place**; taking an entry out of
-one directory and putting it in another is `fcp_relink`, a different file and,
-on `kern_small`, a module load that a rename has never needed.
-
-So the best fold available was never rename at all — it was
-`OSAPI_FILE_COPY`, which already takes `BL`/`DX` and `BH`/`CX` for exactly
-these two places and would need only a sentinel in `DI` to mean *move*. That
-saves the same 17 bytes and costs the copy slot the one property worth having:
-**a caller who forgets `DI` would get a move where they asked for a copy**,
-which deletes the original. Seventeen bytes is not the price of that.
-
-**The saving that WAS there was in the body, and it is three times bigger.**
-The second door is what made the duplication visible: `fcp_copy` and
-`fcp_move` differ only in their middles — one streams bytes through a claimed
-buffer, the other rewrites a directory entry — and agreed to the instruction
-on both ends. `fcp_enter` and `fcp_leave` are those two ends factored out: the
-busy test on the module's one set of state words, the bank of `[disk_drive]`,
-`[dsk_cwd]` and `[dskw_batch]`, and the walk home through `dskw_sync_x` and
-`fcp_goto`. Measured, `.cold` **40,216 → 40,162: 54 bytes**, against the 17 a
-fold would have returned.
-
-That is the general shape and it is worth keeping: **when a second caller makes
-a slot look expensive, the duplication is usually in the body and not in the
-door.** A door here is 17 bytes; nothing is ever going to make it 9.
-
-The C sources are a data point rather than the argument, now that the argument
-is a number — but the data point is real, and it can be read rather than
-assumed because the sources are all in this tree. `os88_file_rename` has
-exactly **one** caller, RunCPM's `ovl_fs_rename` (§74), which does this two
-lines before it:
-
-```c
-rc_fcb[16] = rc_fcb[0];                  /* no move between folders */
-```
-
-CP/M's `F_RENAME` cannot move a file between folders, so the slot's one C
-consumer is actively forcing the two ends together. That does not veto
-anything — it would pass the same cluster twice and be fine — but a parameter
-whose only existing user exists to suppress it is a parameter looking for a
-call site, and the call site it was looking for is the DOS box, which has the
-sibling slot instead.
+Measured on the tree it landed on, `kern_big` `.text` 49,909 → 49,897,
+`.bss` 6,014 → 6,015, `.cold` 41,189 → 40,985: **−215 resident bytes** against
+the two slots' 374 (the cells and thunks, `fcp_enter`/`fcp_leave`, the two
+bodies, `fcp_cpname`, `fcp_same13`, the rename plumbing and 17 of `.bss`).
+`kern_small` −34: the retired cell still costs its eight bytes of table, and
+the operation record is resident there — `fcp_name` is handed to resident
+`dskw_stat_x` as a `DS` pointer, and a `.modpb` label is an image offset
+reached through `CS`.
 
 #### 22.25.2 `os88_file_copy` and `os88_file_move` — the C doors
 
 `apps/cc/os88.h` publishes both, over `struct os88_place` — the record
-`os88_file_here()` fills and `os88_file_goto()` takes, so a C package names a
-folder with the same two words the assembly SDK does.
-
-The copy returns 0 or −1 with `os88_ferr()` set, which is every other file
-call's shape. **The move returns three things**, and the middle one is why:
-
-```
-     0   moved.
-     1   NOT ATTEMPTED - nothing was written, copy and delete instead.
-    -1   failed; os88_ferr() says why, and the file MAY be half-moved.
-```
-
-The kernel says *not attempted* with `AX` = 0 and `CF`, which is the one value
-in that register that is not a `FERR_*`. Collapsing it into −1 would make a C
-caller give up on a move it could make; collapsing it into 0 would make one
-delete a source that never went anywhere. A third return is the smallest
-honest shape, and `> 0` is the fallback test.
+`os88_file_here()` fills and `os88_file_goto()` takes — and
+`apps/cc/os88thunk.asm` carries them as **one thunk with two entries** that
+differ in the verb byte. Both answer 0, or −1 with `os88_ferr()` set, which is
+every other file call's shape; the three-answer move is gone with the answer
+it existed for.
 
 ### 22.22 `Compress` — the file manager makes a file smaller
 
@@ -63966,11 +64203,11 @@ is destructive — `mem_claim`'s refusal path sheds every purgeable cache on
 the way down (§50.6.4), so the read-ahead and the FAT windows go and cost
 seconds of `int 13h` to rebuild. A package with an exact requirement that
 guesses wrong therefore **pays for its refusal twice**. So `trk_cpq_try`
-asks `OSAPI_MEM_AVAIL_MAX` — the same plan with the asker's own region
-excused — and only says `Too big for free memory` once the answer is *not
-even if the machine emptied itself for me*.
+asks `OSAPI_MEM_COMPACT`'s what-if — the same plan with the asker's own
+region excused — and only says `Too big for free memory` once the answer is
+*not even if the machine emptied itself for me*.
 
-When the what-if says yes, it posts `OSAPI_MEM_COMPACT_WAKE` at
+When the what-if says yes, it posts through the same door at
 `MEM_LVL_TOP`, puts **`Making room...`** on the status line and **returns
 having touched nothing**. `ui_task` step 0a runs the compaction with
 nothing held (§66.4.3), and the `EVT_WAKE` that follows re-enters
@@ -70549,82 +70786,42 @@ cache, which no emulator here reaches by accident and which the 128KB machine
 to appear is a bug that reaches the field first.
 
 
-### 50.3.4 `mem_own` answers for a package that is not at its claim's BASE
+### 50.3.4 `mem_own` answers by the claim's BASE, and a re-homed program is AT it
 
 `mem_own` asks *"does a live claim START at ES, and is it owned by an instance
 slot?"*, and the second half of that question is what separates a region from
 anything else beginning at the same paragraph. **The first half is a proxy**,
-and §52.11.4 already found one caller it answers wrongly — a driver's second
-image, which runs in a claim its *resident* owns. `mem_own_drv` is that one
-level of indirection.
+and §52.11.4 found one caller it answers wrongly — a driver's second image,
+which runs in a claim its *resident* owns. `mem_own_drv` is that one level of
+indirection.
 
-**A package can be in the same position, and one is coming.** The parts
-standard (§20.12) loads a run of parts into one carve, and `op_seg` places part
-*i* at `op_base + (slack + offset)/16` where the head slack is the cluster
-alignment (§20.12.2). A part that is itself an executable image therefore
-begins **inside** the carve rather than at its base — equal by luck on a
-512-byte-cluster floppy and never on a hard disk. Every `OSAPI_MEM_CLAIM`,
-`_CLAIM_HI`, `_CLAIM_DMA`, `OSAPI_MEM_FREE`, `OSAPI_MEM_REGROW` and
-`OSAPI_MEM_MOVABLE` goes through this one fence, so such a package **could not
-claim one byte of memory** — and it would fail *after* a successful launch, at
-whatever moment it first asked, with a refusal that names memory and points
-nowhere near the cause.
+**A re-homed package (§20.12.10) was the second, for a cycle.** The parts
+standard loads a run of parts into one carve and `op_seg` places part *i* at
+`op_base + (slack + offset)/16`, where the head slack is the cluster alignment
+(§20.12.2) — so a part that is itself an executable image began **inside** the
+carve rather than at its base, equal by luck on a 512-byte-cluster floppy and
+never on a hard disk. Every `OSAPI_MEM_CLAIM`, `_CLAIM_HI`, `_CLAIM_DMA`,
+`OSAPI_MEM_FREE`, `OSAPI_MEM_REGROW` and `OSAPI_MEM_MOVABLE` goes through this
+one fence, so such a package **could not claim one byte of memory** — and it
+failed *after* a successful launch, at whatever moment it first asked.
 
-Two arms answer it, at the point where "no claim starts at ES" used to end the
-routine. They are two because the kernel knows the answer two different ways at
-two different times:
+**Two arms answered it** at the point where "no claim starts at ES" used to end
+the routine — `cmp bx, [ld_base]` for the launch in flight (the entry runs at
+`ld_start` step 8 and `I_SPTR` is published at step 9, so the instance table
+could not answer yet), and `inst_of_seg` for the rest of the package's life —
+and **both are deleted**, because the re-home now TRIMS the carve to the
+program before the part's entry proc runs (§20.12.10.5): a claim starts at ES
+from the first instruction the program executes, owned by the slot, and the
+proxy answers it exactly as it answers every other package. The arms were 20
+bytes of `.cold` and one far call through `cw_mem_disp` on the path a re-homed
+program's every claim took; `tests/rehome/rhprog.asm`'s check 3 — *it can
+claim memory* — is what goes red if the trim stops running before step 8a's
+second `.call8`.
 
-| | when | how |
-|---|---|---|
-| **1** | the launch **in flight** | `cmp bx, [ld_base]` |
-| **2** | the rest of the package's life | `inst_of_seg` — is ES some live `KIND_PKG` instance's `I_SPTR`? |
-
-**Arm 1 exists because `mem_own` has to answer during the ENTRY PROC**, which
-is its own header's standing requirement and where an app sizes itself. The
-entry runs at `ld_start` step 8 and `I_SPTR` is published at step 9, so the
-instance table cannot answer yet. `[ld_base]` is the kernel's own word for *the
-segment the package being launched runs at*; it is cleared on **both** the
-success and abort paths (§66.6.1), so a stale value cannot grant ownership
-later, and ES is never 0. `cmp` of equal values clears CF, so both arms share
-one exit test.
-
-**Arm 2 is not a widening of the fence.** `I_SPTR` *is* the kernel's definition
-of "this package's segment", so asking it directly is a **narrower** question
-than the claim-base proxy standing in for it — a package can only name a
-segment it is actually executing at, ES being stamped by the API stub from the
-caller's own DS, and two instances of one package live at different bases and
-remain distinct owners. It also makes `mem_own` return `BX = ES` on that path,
-so the package's claims are owned by that segment and `mem_free_owner_x`'s
-teardown sweep frees them. The two halves agree.
-
-**Only the "no claim starts at ES" path reaches the arms**, and
-`mem_own_drv`'s refusal still goes straight to `.no`: a claim that *does* start
-at ES is by definition not the shape this is about, and routing one path rather
-than both saves re-loading BX (`mem_owner_of_x` leaves it alone on CF=1).
-
-**It costs no `.text` byte on `kern_big`**, which is the scarce side —
-`KERN_CODE_MAX` is absolute and cannot be raised. `mem_own` is `.cold` and
-`inst_of_seg` is `.text`, so the call is far and goes through `cw_mem_disp`,
-the generic `call bp / retf` shim (§2.6.1), rather than earning a named one of
-its own at 4 bytes of `.text`.
-
-**On `kern_small` it costs 34, and that is `inst_of_seg` itself.** The routine
-had lived inside `%ifdef OS88_COMPACT`, because both of its callers were the
-worker park's (§66.5) and it was the compactor's by accident of who asked
-first; arm 2 is the third caller and has nothing to do with compaction. It is
-compiled on both kernels now, measured: `.text`+`.bss` **43,593 → 43,627**.
-
-Gating arm 2 instead was measured as the alternative and is **not** one, because
-the re-home is not gated: `ld_start`'s step 8a and `osapi_pkg_rehome_x` are
-both unconditional, and the API slot stays on `kern_small` by §24.5's own rule.
-A small kernel with arm 2 gated out would re-home a package successfully and
-then **refuse it every claim it made afterwards** — which is exactly the
-failure §88.10.4.3 records reaching the same state by a different route, and
-it presents as a program that launches, opens its window and then does
-nothing. Half a feature is not the cheap option. And
-the direction is the other way round anyway: the re-home hands a program its
-loader's whole region back, so the machine with least memory is the one that
-wants it most.
+`inst_of_seg` went back inside `OS88_COMPACT` with them: it had been lifted
+above the gate for arm 2 alone, at 34 bytes of `kern_small`'s `.text`, and its
+remaining callers — `inst_parksafe_set`, `inst_seg_parked`,
+`mem_region_reloc` — are all the compactor's.
 
 
 ## 51. driver.inc — loadable drivers
@@ -70764,52 +70961,73 @@ A floor of `MEM_LVL_TOP` is exactly what every caller has always had. A floor of
 instead — which is the whole of what the user asked for and the reason the
 answer is a floor rather than a smaller cache.
 
-##### 50.6.6.1 Two new slots, because BL on the old one is whatever was left there
+##### 50.6.6.1 One slot, set once — because BL on the old doors is whatever was left there
 
-`OSAPI_MEM_AVAIL_LVL` (`0x0560`) takes `AL` = the level. `OSAPI_MEM_CLAIM_LVL`
-(`0x0568`) takes `AX` = KB with `BL` = the same level, `BH` = the direction and
-`CX` = the DMA head — **one door for all four** of the claims §50.3/§50.3.2
-publish, because a new slot's registers are free to mean something and four
-cells for four flag combinations is the thing the table has no room for.
+`OSAPI_MEM_FLOOR` (`0x0560`) takes `AL` = the level and **stores it against the
+running task**. From then on every door the task already calls honours it:
+`mem_rank_bh` derives a claim's rank as `min(own rank, floor)` for the shed and
+the compactor's drop, and `OSAPI_MEM_AVAIL` asks `mem_rank_bh` the same
+question before it plans, so the number a package sizes itself from is the
+number a claim at that floor will be served. `MEM_LVL_TOP` lifts it. The slot
+preserves every register **and the flags**, so it can stand between a claim
+and the `jnc` that reads the claim's answer — which is where the DOS box lifts
+its own.
 
-They are **new slots and not new registers on the old ones**, and that is not
-caution for its own sake:
-`OSAPI_MEM_CLAIM` promises every register but `DX` back, so a package built
-before this change leaves whatever it likes in `BL`. Reading it would hand every
-one of them a floor nobody asked for, and the consequence is a *smaller grant or
-a refusal* — the direction §50.3 calls the invisible one, reported by the caller
-as "no room" and believed. `osapi_mem_regrow`'s own header records that exact
-failure with a fence in place of a rank.
+It is a **new slot and not a register on the old ones**, and that is not
+caution for its own sake: `OSAPI_MEM_CLAIM` promises every register but `DX`
+back, so a package built before this change leaves whatever it likes in `BL`.
+Reading it would hand every one of them a floor nobody asked for, and the
+consequence is a *smaller grant or a refusal* — the direction §50.3 calls the
+invisible one, reported by the caller as "no room" and believed.
+`osapi_mem_regrow`'s own header records that exact failure with a fence in
+place of a rank.
 
-`OSAPI_MEM_AVAIL_LVL` needed no body at all: `mem_avail_lvl_x` has taken a level
-since §50.6.4 and only the kernel's own caches could reach it. The slot is a
-`jmp`.
+**It was two slots for a cycle**, and the second is the cell beside it,
+retired. `OSAPI_MEM_AVAIL_LVL` took the level in `AL` and `OSAPI_MEM_CLAIM_LVL`
+(`0x0568`) took it in `BL` with the direction in `BH` and the DMA head in `CX`
+— one door for the four claims — and each call carried the floor in and out
+again. A floor the task *sets* needs no register on any door and no door of
+its own for the claim: the claim's body banked the direction, stamped the task,
+chose between `mem_claim_dma_x` and `_hi_x` and cleared the floor on every
+path out — fifty bytes to do what `mem_rank_bh` was already doing from one
+word. What is left of the pair is ten bytes of setter, six more in the avail
+door, five of teardown, and a cell that answers `stc` because the table cannot
+shrink from the middle: **−60 resident bytes** on the feature's +50, measured
+(`.text` −6, `.cold` −54). The DOS box, the only caller either slot ever had,
+calls `OSAPI_MEM_FLOOR` once at `.sized`, then the plain `OSAPI_MEM_AVAIL` and
+`OSAPI_MEM_CLAIM_HI` it would have called anyway.
 
-Every value of `AL`/`BL` is meaningful, so nothing is validated — `0xFF` is the
-old answer, `0xFE` spares the read-ahead window, and `0` is "how much is free if
-nothing at all is purged", which is the honest question for a program that would
-rather be refused than cost somebody else a redraw.
+Every value of `AL` is meaningful, so nothing is validated — `0xFF` is no
+floor, `0xFE` spares the read-ahead window, and `0` is "purge nothing", which
+is the honest question for a program that would rather be refused than cost
+somebody else a redraw.
 
-##### 50.6.6.2 The floor belongs to the TASK that set it
+##### 50.6.6.2 The floor belongs to the TASK that set it, and outlives the call
 
-The floor is a global byte, and a global read by `mem_rank_bh` is read from
-inside `mem_claim`'s retry loop — which is **not** a no-switch window and cannot
-be made one, because `mem_compact` deliberately *drops* `[sch_lock]` around the
-worker park (§66.5). So another task claiming in that gap would see a floor it
-never asked for, fail a shed it was entitled to, and report "no room" against a
-heap that had room.
+The floor is one word — the level and `[sch_cur]` beside it, stored in one
+instruction and loaded in one — and `mem_rank_bh` applies it only when the
+stamp is the running task's. A global read from inside `mem_claim`'s retry loop
+needs that: the loop is **not** a no-switch window and cannot be made one,
+because `mem_compact` deliberately *drops* `[sch_lock]` around the worker park
+(§66.5). Without the stamp another task claiming in that gap would see a floor
+it never asked for, fail a shed it was entitled to, and report "no room"
+against a heap that had room. One compare makes the race **impossible rather
+than unlikely**.
 
-`[mem_pg_ftask]` is stamped with `[sch_cur]` beside the floor and compared
-before it is applied. That makes the race **impossible rather than unlikely**,
-for one byte of data and one compare — and it is the cheap half of the pattern
-`mem_claim_1`'s own header argues for at length, where the expensive half
-(staging a parameter in a register because "a global stored BEFORE the `cli` is
-another task's to overwrite in the gap") is not available: the loop has no free
-byte register, `SI`/`DI`/`BP` have no byte halves on an 8086, and `DX` is the
-answer.
-
-The door clears the floor back to `MEM_LVL_TOP` on every path out, so a second
-claim from the same task is an ordinary one unless it says otherwise.
+**It stands until it is lifted, and that is the design rather than a hazard.**
+The DOS box sets it, sizes, posts `OSAPI_MEM_COMPACT_WAKE`, RETURNS, and claims
+on the wake — and the pass that runs in between drops only what the floor
+allows (§66.4.3.3 is what happens when it does not). A floor that lasted one
+call could not cover that shape. The cost is that a floor left standing lowers
+every later claim the task makes — for the UI task, every other package's — by
+the read-ahead window's worth of heap, silently. So a package lifts its floor
+the moment the claim is behind it, on the refusal path as well, and the kernel
+lifts it for a package that never did: `mem_free_rec_x` stores `MEM_LVL_TOP`
+over it when an instance's claims are swept, so a box closed while it waited
+on its wake leaves nothing behind. That lift is unconditional and per-instance
+rather than per-task, which is exact for the one setter in the tree and would
+cost another package's floor only if a window were closed during the split
+second the box waits for its wake.
 
 #### 50.6.7 A cache that declares a proc MOVES, and the blanket refusal is gone
 
@@ -75470,8 +75688,10 @@ else. `kern_small` emits the same bodies into `.modp`, which
 heap claim when the user copies, and `fcp_fin` gives it back when the
 operation ends. `KERN_SIZE` 92,160 → 90,624.
 
-**Three entry points, not five.** `fcp_arm`, `fcp_paste` and `fcp_answer`.
-Two public names that look like entries are not:
+**Four entry points, not six.** `fcp_arm`, `fcp_paste`, `fcp_answer` and
+`fcp_door` — `OSAPI_FILE_COPY`'s body, both verbs (§22.24), the one entry in
+the image reached from outside the file manager. Two public names that look
+like entries are not:
 
 - **`fcp_ncopy` is `equ dsk_ncopy`** — `disk.inc`'s routine under a second
   name. It is resident on both builds and a caller of it reads no disk.
@@ -84077,7 +84297,11 @@ terminates in at most **three** plans: `[mem_parked]` admits one park and
 plan is made against the layout as it stands, so whichever single pass
 satisfies the claim is the one that runs — ascending first, being the cheaper,
 then descending. Only when neither alone funds the claim does `mem_compact`
-run both, cheapest first.
+run both, **the floor first** — not the order §66.4.3.1's plan models, and
+not by choice: the ceiling pass moves the asking package's region, a region's
+move restarts its parked worker (§66.6.2), and a floor pass after that finds
+the worker running and pins every claim the package holds. Measured the other
+way round by `heapcheck`'s R4: 223K delivered against 250K planned.
 
 **They used to be ALTERNATIVES, and that was a defect rather than a trade.**
 The rule read *"whichever single pass satisfies the claim is the one that
@@ -84087,25 +84311,25 @@ got **neither half**: nothing was copied, `mem_compact` answered CF = 1, and
 the claim fell through to the shed with the room standing there in two runs.
 `mem_claim`'s retry loop could not sequence them either, because it re-enters
 only after a CF = 0 that means the claim already fits. `mem_avail` had the
-same hole from the reporting side and still has the harmless half of it: it
-plans ascending alone, so it under-reports until a pass has run, and reads
-exactly once one has — which is what makes a *deferred* compaction able to
-report its own result with no combined plan
-(`docs/plans/REGION-SELF-COMPACT-PLAN.md`).
+same hole from the reporting side — it planned ascending alone, so it
+under-reported until a pass had run — and §66.4.3.1 is where it learned to
+plan the pair.
 
 **Nothing is speculative at the pair.** The descending plan has already said
 the expensive pass alone is short, so the cheap copy is needed rather than
-guessed at — and the ascending pass cannot make the largest run *smaller*, only
-slide bottom-up claims onto floor paragraphs the walk has already passed, so a
-claim that is refused anyway is left on a better-packed heap. It costs **35
-bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of it.
+guessed at — and neither pass can make the largest run *smaller*, only
+slide a claim onto paragraphs the walk has already passed, so a claim that is
+refused anyway is left on a better-packed heap whichever runs first. It costs
+**35 bytes** of `.cold` and nothing in `.text`; `kern_small` compiles none of
+it.
 
 **A claim the pair still cannot fund pays for the copies before it is
 refused**, which is the one case the old rule was right about and is priced at
 `rep movsw`'s 13.3 cycles a byte (PERFORMANCE.md Set 117.2) — 2.86 ms a KB
-moved. A combined *plan* would refuse before copying and costs ~150–250 bytes
-to answer a question no caller has to ask;
-`docs/plans/REGION-SELF-COMPACT-PLAN.md` 3.4 is that arithmetic.
+moved. The combined *plan* exists now (§66.4.3.1) and `mem_avail` answers
+through it, so a caller that asks first is refused before a byte is copied;
+`mem_compact` itself still runs the pair on its own single-pass plans, because
+a claim that reaches `.both` has already been priced short by both.
 
 **Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
 round: the descending walk takes the live claim with the **highest** base at or
@@ -84197,20 +84421,37 @@ nothing can ever merge.
 
 **The fix is not a new predicate. It is a later moment.**
 
-`OSAPI_MEM_COMPACT_WAKE` (slot `0x0558`) records the wish and returns:
+`OSAPI_MEM_COMPACT` (slot `0x0590`) is **one door with the verb in `AH`**,
+because its two halves are two halves of one question:
 
-> `BX` = a window of yours, `AL` = the shed rank the pass must respect. CF = 0
-> posted — **return from your callback**; an `EVT_WAKE` arrives once the pass
-> has run. CF = 1 refused: `BX` is not your window, or a post of yours is
-> already standing.
+> `AH = MEMC_WHATIF` (0): `AL` = a purge level, exactly as
+> `OSAPI_MEM_AVAIL_LVL`'s. Out `AX`/`BX` as that slot, planned **as if the
+> caller's own region and claims could move** (§66.4.3.2).
+>
+> `AH = MEMC_POST` (1): `BX` = a window of yours, `AL` = the shed rank the pass
+> must respect. CF = 0 posted — **return from your callback**; an `EVT_WAKE`
+> arrives once the pass has run. CF = 1 refused: a post is already standing.
+>
+> **Set `AX`, not `AL`.** `AH` picks the verb, so a `mov al, level` alone
+> leaves whatever `AH` held to choose it.
 
-This is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you are
-still executing in the region this is going to move, so nothing may happen
-until you have returned* — and it is spent where the posted restart is spent,
-at `ui_task`'s step 0, **with nothing held**. `[wm_pkgd]` is 0 there by
-construction, every `wm_pkgcall` on that task having returned, so
+It shipped as two cells, `OSAPI_MEM_AVAIL_MAX` at `0x0590` and
+`OSAPI_MEM_COMPACT_WAKE` at `0x0598`, and the size pass merged them: a cell
+and its near thunk are 14 resident bytes of a table that cannot grow, and
+`OSAPI_VOL_STAT` (§18.4.6) is the precedent for a family behind one door.
+The table ends at `0x0598` now: the DOS handoff that sat above it for one
+cycle is verb 2 of `OSAPI_DRV_SUSPEND` (§51.11, §96.40).
+
+The post is `OSAPI_PKG_REHOME`'s shape (§20.12.10) one mechanism along — *you
+are still executing in the region this is going to move, so nothing may
+happen until you have returned* — and it is spent where the posted restart is
+spent, at `ui_task`'s step 0a, **with nothing held**. `[wm_pkgd]` is 0 there
+by construction, every `wm_pkgcall` on that task having returned, so
 `mem_frameless` answers *movable* for the asker's own region **with no
-predicate changed**. The feature is *where* the compaction runs.
+predicate changed**. The feature is *where* the compaction runs. It does not
+ride `[ui_rebootq]` beside the restart it resembles: `hbf_perform` loads the
+hibernate module before it dispatches, and a compaction is not worth a disk
+read.
 
 It is not `wm_pkgcall`'s return path, and that is not tidiness: `mem_compact`'s
 park request drops `[sch_lock]` for up to `INST_PARKW` ticks (§66.5), which
@@ -84220,12 +84461,39 @@ from inside a repaint holding the gfx lock is a deadlock against
 **The rank rides on the request.** `mem_compact` takes the rank a cache must be
 cheaper than from the *pending claim's* owner, and there is no pending claim
 here — the pass runs after the asking package's turn is over — so without it
-the pack would stop at the first purgeable barrier.
+the pack would stop at the first purgeable barrier (§66.4.3.3).
 
-**One post may stand per package.** A second before the first is serviced is
+**And the pass takes the park ladder.** A `DI = 0` "compact regardless" pass
+used to jump to `.both` the moment its first plan counted any mover, and on a
+live heap something small always moves — a 5 KB cache it may dissolve — so
+the pair ran with every worker-pinned region still pinned and the park
+`.nowt` asks for (§66.5) never asked: `tests/trkbigmod.py` measured the
+asker's region unmoved under 147 KB of room and the load refused after it had
+posted. It goes down `.nowt` now — park if a worker refused, turn the walk,
+and the second turn is `.both` — at no cost in bytes.
+
+**One post may stand at a time.** A second before the first is serviced is
 refused rather than queued: the answer to *"I asked and nothing has happened"*
 is to wait for the wake, and a queue would let a package spend the machine on
-compactions it has already been promised.
+compactions it has already been promised. `BX` is trusted, as `OSAPI_WM_WAKE`
+trusts it — the sibling every worker wakes its window through — and the post
+sets no wake byte of its own: it is made from a callback *on* the UI task,
+whose pass ends at `task_sleep(1)` (§8.1.2), so the service is within one tick
+either way.
+
+**On `kern_small` the cell is a nine-byte stub in `.text`** (§66.0): the
+what-if *is* `OSAPI_MEM_AVAIL_LVL`'s answer, since nothing there moves, and a
+post is refused — the documented outcome, which every caller already carries
+on from by claiming what is there. None of the door's machinery is assembled
+on that kernel, where the first build carried the cells, the thunks, the
+service hook and the queue words for a compactor it does not have.
+
+**What it costs**, measured at the size pass against the three routines it
+replaced: on `kern_big` `.text` −18 (one cell, one thunk, the `cw_wm_wake`
+shim — `mem_cpq_run_x` reaches the wake through the published cell's own
+`apic_wm_wake` label) and `.cold` −171, **−189 resident bytes**, the feature
+standing at ~180 where it shipped at 367; on `kern_small` −119 (`.text` −28,
+`.bss` −5, `.cold` −86), all of it machinery for a pass that kernel cannot run.
 
 #### 66.4.3.1 …and `mem_avail` had to learn to plan BOTH passes
 
@@ -84254,32 +84522,72 @@ beneath it never reaches the ceiling, and once that pass has left it there it
 is a barrier to the ascending pass in turn. An over-report is the worst answer
 available here — memory promised that `mem_claim` cannot produce.
 
-So the walk is **ascending**, as the second pass is, and a top-down claim is a
-barrier at the base the *first* pass would have left it at. That base is
-`mem_cp_newbase` and it takes **no scratch**:
+**ONE ASCENDING WALK, AND THE DESCENDING PASS IS A DEFERRED SUM.** What that
+pass does to a top-down claim is slide it up until it meets the next thing
+above that does not move with it — a bottom-up claim, a pinned one, or the
+ceiling — so a *run* of top-down movers ends packed solid under that barrier
+`B`, and the hole it leaves is **below** the run:
 
-> `newbase = B − S`, where `B` is the base of the lowest claim above this one
-> that the descending pass may not move (`[mem_top]` if there is none), and `S`
-> the paragraphs of every ceiling mover from this one up to `B`.
+> `hole = B − S − fill`, `S` being the run's paragraphs and `fill` the point the
+> floor has packed up to.
 
-Two `O(MEM_MAX)` scans, so the plan stays `O(MEM_MAX²)` like every other walk
-here. It is exact because the descending pass preserves **order** — a claim
-only ever slides up onto paragraphs the walk has already passed, so no mover
-crosses another claim and everything between one and its barrier packs solid.
-A `MEM_MAX`-word table of new bases was the alternative and is 64 bytes of
-`.bss` resident for a question nothing asks per frame.
+That is what the walk measures when it *arrives* at `B`, and it needs only two
+things to do so: the fill point every walk in `memory.inc` already carries, and
+whether a run is pending. So a top-down mover **adds its size to the fill
+point** as if it had packed there — it has not, but the hole it leaves is the
+same size wherever the run finally stands — and raises the flag; a bottom-up
+mover with the flag up, or a pinned claim, is where the run stops: the hole is
+`base − fill`, which is `B − S − fill`, and the fill point resumes past it. A
+bottom-up mover with no run pending packs onto the fill point and is no barrier
+at all, which is the ascending pass exactly. Every live claim is visited once,
+so the **total** rides the same walk (`BX` on the way out) and the second
+`O(MEM_MAX)` loop `mem_avail_lvl_x` kept for it is `kern_small`'s alone now.
+
+It shipped as this walk asking `mem_cp_newbase` *"where would the descending
+pass put this claim"* per top-down mover — two `O(MEM_MAX)` scans a claim,
+`B − S` looked up ahead of time, 108 bytes with its `mem_cp_ceilmv` predicate —
+for the number the walk reaches on its own by waiting for `B`. The two are the
+same arithmetic; the size pass took the plan from 202 bytes to 96, total
+included. It is exact because the descending pass preserves **order** — a
+claim only ever slides up onto paragraphs the walk has already passed, so no
+mover crosses another claim and everything between one and its barrier packs
+solid. `tools/heapwhatif.py` is the arithmetic on the host, and
+`tests/heapcheck.py`'s `both_passes()` a second reader of it written from the
+spec — in the look-ahead form, deliberately, so the two spellings check each
+other.
+
+**The order is the point, and `mem_compact` runs the other one — an OPEN
+mismatch, recorded rather than fixed.** The plan models the ceiling packed
+first and then the floor — `heapwhatif.py`'s `true_combined` and
+`heapcheck.py`'s model both say so — and `.both` runs the floor first. The two
+orders leave the same **total** of free space cut at **different places**: a
+run of top-down movers takes the gap between its top and the bottom-up claim
+above it *with* it ceiling-first and leaves it *above* floor-first, and
+neither cut dominates the other. So a plan of one order against a compactor of
+the other can promise a run the pass never produces — `[H][L][60][H][60][L]`
+packs to two runs of 60 floor-first where the plan reads 120. The size pass
+turned `.both` round to match and **measured it wrong**: the ceiling pass moves
+the asker's region, the region's move restarts its parked worker (§66.6.2),
+and the floor pass then found the asker's three claims pinned — `heapcheck`
+R4 read 223K on the wake against a what-if of 250K, and 250K floor-first. So
+the compactor's order is forced by the park, the plan's is what
+`mem_cp_both` can compute in one ascending walk, and they disagree only where
+a run of ceiling movers has a floor mover above it with a hole between. Nothing
+in the tree builds that layout; a plan of the floor-first order needs the
+next ceiling-run's gap charged *below* the floor mover, which is a second
+deferred quantity and is left for whoever meets it.
 
 **PLAN ONLY.** There is no `mem_cp_both_run` and there must not be: one walk
 may plan both directions and may **not** run them, because packing a top-down
 claim up inside an ascending walk writes onto claims the walk has not visited
 yet. §66.4.1's two separate `mem_cp_run` calls are what runs them.
 
-#### 66.4.3.2 `OSAPI_MEM_AVAIL_MAX` is a measurement, not a promise
+#### 66.4.3.2 The what-if is a measurement, not a promise
 
-Slot `0x0590`: `OSAPI_MEM_AVAIL_LVL`'s answer, planned as if the caller's own
-region could move.
+`OSAPI_MEM_COMPACT` with `AH = MEMC_WHATIF`: `OSAPI_MEM_AVAIL`'s answer at a
+level of the caller's naming, planned as if the caller's own region could move.
 
-**`AL` IS THE PURGE LEVEL, exactly as `OSAPI_MEM_AVAIL_LVL`'s is** (§50.6.6),
+**`AL` IS THE PURGE LEVEL, on `OSAPI_MEM_FLOOR`'s scale** (§50.6.6),
 and it was missing from the first build — the routine forced `MEM_LVL_TOP` and
 the slot took no argument at all. That is not a nicety: the one caller this was
 built for asks at `MEM_PG_HIGH` by default, because a DOS program is about to
@@ -84287,12 +84595,12 @@ hammer the disk and the read-ahead window is the dearest cache in the system
 (§96.24). A what-if fixed at `MEM_LVL_TOP` counts that cache as free where the
 claim beside it will not, so the two numbers are answers to different
 questions — and the difference between them, which is the whole signal this
-slot exists to give, would read non-zero every time and post a compaction the
-caller did not need. Passing `MEM_LVL_TOP` in `AL` is the old behaviour, so the
-fix costs **−2 bytes**: the forced load is deleted and nothing replaces it. `[mem_cp_self]` names the segment and `mem_frameless`
-excuses **the nest test alone** — `[ld_base]` and the worker are as true at the
-service point as they are now, and only the nest is the thing that stops being
-true once the callback has returned.
+verb exists to give, would read non-zero every time and post a compaction the
+caller did not need. `[mem_cp_self]` names the segment — the X stub's `ES`, so
+the region to excuse costs no argument — and `mem_frameless` excuses **the
+nest test alone** — `[ld_base]` and the worker are as true at the service point
+as they are now, and only the nest is the thing that stops being true once the
+callback has returned.
 
 **Claiming this number refuses**, and that is correct rather than a wart: the
 caller really is standing in its region as it asks. The number becomes true by
@@ -84317,9 +84625,12 @@ correct and `.self` was taken five times — the missing 27 KB was three movable
 running, and moved by the pass because the pass parked it. Six bytes at
 `.notslot` close it, and **the caller is the one package in the system
 guaranteed to be running as it asks**, so this is the common case rather than
-an edge.
+an edge. The two arms stay two: `mem_busy_seg` must not ask the nest (a
+package's data claim may move while the package executes, §66.3 rule 2), so an
+excuse placed inside it would still leave the region pinned by `mem_in_nest`
+one call earlier, and moving both tests inward is the same twelve bytes.
 
-`[mem_cp_self]` is plan-only by discipline — `mem_avail` sets it and clears it
+`[mem_cp_self]` is plan-only by discipline — the what-if sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
 compaction running with it standing would move a region with a frame in it, and
 now a claim out from under a live worker.
@@ -84354,7 +84665,7 @@ per §1's banner the three bytes are the figure and the rung is not.
 **WHY IT COST A WHOLE REGION AND NOT ONE CACHE.** A barrier does not merely
 leave that cache where it is — it parks the fill point *past* it, so every
 movable claim above it stays where it is too. The cache is then dropped
-moments later by the package's own `OSAPI_MEM_CLAIM_LVL`, which compacts at
+moments later by the package's own claim at its floor (§50.6.6), which compacts at
 the claimant's real rank (§66.4) — but that pass runs **inside the package's
 own callback**, where `wm_pkgd` is 1 and `mem_in_nest` pins the asking region
 (§66.6.1). So the hole opens in the one pass that cannot move the region into
@@ -84393,7 +84704,7 @@ because the two halves of the door are used by **different kinds of
 program**, and they want the what-if for different reasons. A package that
 wants *whatever is going* — a DOS arena, a scratch heap — posts, returns and
 claims the largest run the wake reports, and does not act on
-`OSAPI_MEM_AVAIL_MAX` **to size anything**. Tracker wants **this module or no
+the what-if **to size anything**. Tracker wants **this module or no
 module**, and for it the what-if is the whole feature: a claim that fails sheds every
 purgeable cache on its way down, so a refusal that could have been avoided
 is paid for twice, and `Too big for free memory` has to mean *not even if
@@ -85415,43 +85726,45 @@ it. For those a bare `ret` is **silent corruption** rather than a missed
 optimisation, and `tests/rehomemove.py` is the row that proves the non-trivial
 proc is what a re-homed program owes.
 
-**`apps/skies` is the second shape and it DECLARES** — `cs_reloc`, which adds
-`DX−BX` to `[cs_artseg]` and to `cs_hand`'s own `CSH_ART`. Two things about it
-generalise. **The handoff carries less than it looks like**: `CSH_WDIR`'s nine
-rows are *(sector, packed length)* and `CSH_CLB` is bytes per cluster, so only
-one word of that block is a segment at all — and the three segments the package
-*does* bank are two claims of its own, which a region move does not touch, and
-the kernel's glyph table. **And the zero is a state**: `[cs_artseg]` is 0 when
-the part was refused, every reader tests for it, and a delta added to 0 turns a
-refusal into a wild segment — so a proc guards its zeros rather than assuming
-them away. **It used to be accepted on 1.44MB alone**, where 512-byte clusters
-put the program at the carve base; below that `mem_find_own` did not reach it
-and there was nothing to move. §66.6.1.2 ended that, so a re-homed region moves
-at every geometry — which makes `cs_reloc` load-bearing on the 360KB disks
-where it was inert, and makes the bare `ret` two paragraphs up a corruption
-that can now actually happen.
+**`apps/skies` looked like the second shape and is NOT, which its own loader
+says**: `csl_art` expands the title bands into a claim of their **own**
+(`OSAPI_MEM_CLAIM`, `CS_ART_KB`) and hands the program *that* segment — the
+carve holds only the packed stream, which is `op_drop`ped before the handoff.
+After `mem_reown_x` the bands are a slot-owned data claim with no proc, so
+they never move, and a `cs_reloc` that added the region's delta to
+`[cs_artseg]` would have pointed the title page at 11KB of whatever the
+compactor packed there the first time Clear Skies' region moved. It shipped
+that way for a cycle and was never exercised — no row moves Skies' region. The
+declaration is the bare form now, and docs/HEAP-CLAIMS.md's row says why. Two
+things the mistaken proc taught still hold: **a handoff carries less than it
+looks like** (`CSH_WDIR`'s nine rows are *(sector, packed length)* and
+`CSH_CLB` is bytes per cluster, so none of that block is a segment), and **a
+proc guards its zeros** — `[cs_artseg]` is 0 when the part was refused, every
+reader tests for it, and a delta added to 0 is a wild segment. The one program
+in the tree whose asset really is inside its carve is `tests/rehome`, and its
+`rp_reloc` is the model for the next one that is.
 
-##### 66.6.1.2 A RE-HOMED package's region is the loader's CARVE, and four things assumed otherwise
+##### 66.6.1.2 A RE-HOMED package's region WAS the loader's carve, head slack and all, and four things assumed otherwise
 
-Every rule above says *"the region's base IS the package's segment"*, and that
-was true of every package in the tree until one was not.
+Every rule above says *"the region's base IS the package's segment"*, and for a
+cycle that was true of every package in the tree but one.
 
 `OSAPI_PKG_REHOME` (§20.12.10) hands a loader's identity to one of its parts:
 the loader's own region is freed, the parts CARVE is re-stamped to the instance
 slot, and the program runs **inside** that carve — a little way up it, because
 `op_claim`'s head slack is the cluster alignment the read needed (§20.12.2).
-**MEASURED on the shipped four-piece `DOS.O88`: the carve is at `0x8FC0` and
-`I_SPTR` is `0x8FE0`.** 512 bytes, and every kernel word that names a package
-holds the second number.
+**MEASURED on the shipped four-piece `DOS.O88`: the carve at `0x8FC0` and
+`I_SPTR` at `0x8FE0`.** 512 bytes, and every kernel word that names a package
+held the second number.
 
-So the region had to be **PINNED**, and `kernel/loader.inc`'s `.rehome` arm
-said so. That cost the DOS box **14 KB on a Sound Blaster machine** — §96.35's
-whole recovery, given straight back the day §96.40.3 shipped the parted package
-— and it made every re-homing package a permanent wall at whatever depth the
-heap had when it launched, which is docs/plans/HEAP-UNPIN-PLAN.md 2.0
-arriving by a second route. `apps/c64` and Clear Skies re-home too.
+So the region was **PINNED**, and `kernel/loader.inc`'s `.rehome` arm said so.
+That cost the DOS box **14 KB on a Sound Blaster machine** — §96.35's whole
+recovery, given straight back the day §96.40.3 shipped the parted package —
+and made every re-homing package a permanent wall at whatever depth the heap
+had when it launched, docs/plans/HEAP-UNPIN-PLAN.md 2.0 arriving by a second
+route.
 
-**THE PIN WAS LOAD-BEARING, AND THAT IS THE FINDING.** Un-pinning it alone
+**THE PIN WAS LOAD-BEARING, AND THAT WAS THE FINDING.** Un-pinning it alone
 would not have been a smaller bug than the one it fixed: **four** separate
 things in the compactor read *the claim's base* where they meant *the segment
 the package runs in*, and each fails differently and silently.
@@ -85463,65 +85776,48 @@ the package runs in*, and each fails differently and silently.
 | `mem_rr_walk` | `word == old base` | rewrote **no** `W_SEG`, **no** `I_SPTR` and no data claim's `MC_OWN`: the package came back from a move with the whole kernel still pointing where it used to be |
 | `mem_reloc_call` | `PKG_DISP` at `MC_SEG` | far-called the carve's **head slack**, which is alignment padding |
 
-**The fix is one number, computed once.** `[mem_rgoff]` is how far into the
-moving claim the program sits, in paragraphs — `0` for every ordinary package,
-`MEM_RG_NONE` for a block that is not a package region at all. It is staged at
-the top of `mem_reloc_call`, because that is the first of the three places
-downstream that need it, and it is taken against the **old** base: `mem_cp_run`
-re-bases the record before it calls, so a test that read `MC_SEG` there would
-compare a live `I_SPTR` against a base the program is not at yet.
+**The first fix followed the slack, and the second deletes it.** For a cycle
+the compactor carried `[mem_rgoff]` — how far into the moving claim the program
+sat, staged at the top of `mem_reloc_call` and added to the dispatch segment
+and to both halves of the holder's pair — a second name for the block in
+`mem_rr_walk` (`[mem_rr_alt]`, matched beside the base at four bytes a word), a
+containment `mem_reg_seg` under `mem_is_region`, a containment arm in
+`mem_find_own` gated on `DX == BX` so a program could name its region with
+`mov dx, cs` at all, and §50.3.4's two arms in `mem_own` so it could claim at
+all. **+155 resident bytes** (`.text` +41, `.cold` +110, `.bss` +2, `.lowbss`
++2) for six routines to agree about one number, every one of them a place the
+next reader of the base would have had to know about.
 
-`mem_reg_seg` is the one primitive — *the segment a package runs in, for this
-claim* — and it takes the base as an **input** for exactly that reason.
-`mem_is_region` is now four instructions on top of it, so there is no second
-copy of the rule to keep in step.
+The slack is alignment the *read* needed and nothing needs afterwards, so the
+re-home now **returns it**: `mem_reown_x` moves the carve's base up to the
+program and its length down by the same, in the walk that re-stamps the owner
+(§20.12.10.5). After that the equality holds — `MC_SEG == I_SPTR`, the base is
+the segment the callbacks stand in, the walk's one compare matches every word,
+`PKG_DISP` at the base is the program's — and all six went back to what they
+were before the pin. **−175 resident bytes on `kern_big`** (`.text` −41,
+`.cold` −130, `.bss` −2, `.lowbss` −2) against that +155, the 20 bytes of trim
+included, and `mem_reloc_call`, `mem_region_reloc`, `mem_rr_walk`,
+`mem_find_own`, `mem_is_region` and `mem_own` no longer know a re-homed
+package exists. `kern_small` sees the trim, the deleted `mem_own` arms and
+`inst_of_seg` back behind the gate — −40 of `.text`, −70 of `.cold` — and none
+of the rest, `OS88_COMPACT` being `KERN_BIG` only (§66.0).
 
-**A REGION GOES BY TWO NAMES AND THE WALK MATCHES BOTH**, at four bytes and one
-compare: `[mem_rr_alt]` is the old base plus the offset, and is *the old base
-again* when there is no second name, so the extra compare never fires for the
-~99% of blocks that are not re-homed packages. One delta serves both names —
-they are a fixed distance apart and the block moves as one — so the rewrite is
-`sub`/`add` rather than a second pair of registers.
+**What a holder's relocation proc is handed is the PROGRAM's pair** — `BX` =
+the segment it was at, `DX` = where it is now — because the program is at the
+base; a proc written for an ordinary package needs no change and cannot tell
+the difference. Re-homed or not, a package sees one story, and it reaches all
+three slots `mem_find_own` fences — `OSAPI_MEM_MOVABLE`, `OSAPI_MEM_FREE`,
+`OSAPI_MEM_REGROW` — through the same `cmp dx, bx` arm every other package
+does. That is not a new hole: an ordinary package has always been able to free
+or regrow its own region with `mov dx, cs`, which is a package shooting itself
+and not a thing the kernel undertakes to prevent.
 
-**And `mem_find_own` widened a second time.** A re-homed package can say only
-`mov dx, cs` about its own region, which names **no claim's base**, so
-`OSAPI_MEM_MOVABLE` was refused for the one shape of package that most needs
-it — and a refusal is a legal answer, so nothing said a word. The new arm is
-gated on `DX == BX`, which is the paragraph above's argument one step further:
-BX is the caller's own segment, a running segment lies inside exactly **one**
-claim, and that claim is by definition the one it is executing in. It widens
-the fence to a containment rather than holing it; a caller naming somebody
-else's segment still has to match a base and an owner.
-
-**IT REACHES THREE SLOTS AND NOT ONE, AND THAT IS DELIBERATE.**
-`mem_find_own` is the fence `OSAPI_MEM_MOVABLE`, `OSAPI_MEM_FREE` and
-`OSAPI_MEM_REGROW` share, so widening it hands a re-homed package all three
-for its own carve. That is not a new hole: §66.6.1's `cmp dx, bx` arm has
-always let an **ordinary** package name its own region with `mov dx, cs` and
-free or regrow it — a package shooting itself, which the kernel does not
-undertake to prevent. What a re-homed one had was an accidental exemption,
-because the carve's base is not its `cs`, and ending it is the point. Re-homed
-or not, a package sees one story. (`mem_own_drv`, the fourth caller, cannot
-reach the arm at all: it fixes `BX` = `MEM_K_DRV`, so `DX == BX` is a segment
-against a kernel tag.)
-
-**What a holder's relocation proc is handed is the PROGRAM's pair**, not the
-carve's — `BX` = the segment it was at, `DX` = where it is now — so a proc
-written for an ordinary package needs no change and cannot tell the difference.
-That is the whole point: re-homed or not, a package sees one story.
-
-**WHAT IT COST: +155 resident bytes** — `.text` +41, `.cold` +110, `.bss` +2
-(`[mem_rr_alt]`), `.lowbss` +2 (`[mem_rgoff]`) — A/B'd at one commit, no rung
-crossed, and `kern_small` **byte-identical**, `OS88_COMPACT` being `KERN_BIG`
-only (§66.0). Against it: 14 KB of every DOS program on a Sound Blaster
-machine (§96.35.4.1), and a permanent mid-arena wall at whatever depth the
-heap had when any re-homing package launched.
-
-**The gate is `rehomemove360` and the 1.44MB row is not one.** A
-512-byte-cluster volume gives `op_claim` a zero head slack, so the program
-sits AT its carve's base and all four questions above have the same answer
-either way; only a geometry with a real slack can tell. Three of the four fail
-by CORRUPTING rather than refusing, and all four are silent.
+**The gate is `rehomemove360`, and the 1.44MB row is not one.** A
+512-byte-cluster volume gives `op_claim` a zero head slack, so the trim has
+nothing to do there and every question above has the same answer either way;
+only a geometry with a real slack can tell a kernel that trims from one that
+does not, and `tests/rehome.py` at 360KB reads the difference straight off the
+claim against the base the loader recorded before the kernel touched it.
 
 #### 66.6.2 …and past the worker: the package gives its worker back
 
@@ -106873,7 +107169,9 @@ Resident: the three strings, the template, the two file names, the kind row,
 five `.text` thunks and seven `cw_` shims, and in `.cold` the probe, the
 predicate, eleven far entries and the seven thunks that load the module —
 259 bytes of `.text`, 94 of `.bss` and 365 of `.cold`, which crossed both
-rungs; docs/KERNEL-MEMORY.md has the account. (The first cut was 248/94/329;
+rungs; docs/KERNEL-MEMORY.md has the account. (§51.11.3 has since put an
+eighth thunk beside them, `OSAPI_DRV_SUSPEND`'s, and two words of `.bss` for
+the rows it took out and the DOS handoff's posted record.) (The first cut was 248/94/329;
 the review's `app_close_win` hook and `hbf_closed`, the `DVK_FILE` test in
 three places, the keyboard drain and `drv_publish`'s exact-length copy are
 the rest.) The module is `HIBER.DRV` on
@@ -123709,10 +124007,13 @@ too, and here it would also renumber the ordinals it is walking.
 
 ##### 96.30.4 What it inherits, and what it does not
 
-**`MOVE` tries the re-link first.** `OSAPI_FILE_MOVE` (§22.25) rewrites the
-directory entry and reads no data; `AX` = 0 with `CF` means *not attempted*,
-and only then does the fallback pay for a copy and a delete. On one volume a
-`MOVE` of a 100KB file is a directory write.
+**`MOVE` goes through the engine first.** `OSAPI_FILE_COPY`'s move verb
+(§22.24) rewrites the directory entry on one volume and reads no data, and
+copies then deletes through the engine's own buffer elsewhere; only
+`FERR_FULL` — the engine unable to claim that buffer, which inside a bracket
+it cannot (§96.30.6), having written nothing — sends the shell to its own
+arena stream and delete. On one volume a `MOVE` of a 100KB file is a
+directory write, and needs no heap at all.
 
 **A path is one component past the root**, which is `dos_fh_core`'s own limit
 (a separator anywhere past a leading one is code 3, "path not found") and not
@@ -123728,7 +124029,7 @@ back around the whole command.
 **No `OSAPI_*` file slot is called from this file.** §96.4's back-end rule is
 not relaxed for the shell: every file action is a `dos_be_*`, which is what
 keeps §14's hibernate phase a second back end rather than a rewrite. Two verbs
-were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24 and §22.25.
+were added for it — `DBE_COPY` and `DBE_MOVE`, over §22.24's two verbs.
 
 ##### 96.30.0 It finishes the program it was written for
 
@@ -126029,7 +126330,7 @@ console standing there, `PRINCE` typed — and **`Not enough memory.`** with
 The message cannot be acted on because it is two different failures, and
 `DER_MEM` is raised at both:
 
-- **the ARENA could not be got** — `OSAPI_MEM_AVAIL_LVL` answered below
+- **the ARENA could not be got** — `OSAPI_MEM_AVAIL`, at the floor, answered below
   `DOS_MIN_KB`, or the claim that followed it was refused. This is about the
   MACHINE: the heap has no run big enough, whatever is being launched.
 - **the arena will not HOLD THIS PROGRAM** — the `.EXE` path's
@@ -126974,9 +127275,11 @@ Every sector the program reads afterwards goes to the drive, and so does every
 directory sector behind every one of its opens.
 
 The fix is §50.6.6's floor, and the box is its first caller: `DOS_PG_FLOOR` is
-`MEM_PG_HIGH`, named once and passed to both halves — the `OSAPI_MEM_AVAIL_LVL`
-that plans and the `OSAPI_MEM_CLAIM_LVL` that acts. A number planned at one
-level and claimed at another is a plan the claim does not carry out.
+`MEM_PG_HIGH`, set once through `OSAPI_MEM_FLOOR` at `.sized`, so the
+`OSAPI_MEM_AVAIL` that plans and the `OSAPI_MEM_CLAIM_HI` that acts stand on
+the same level by construction. A number planned at one level and claimed at
+another is a plan the claim does not carry out, which a floor the task *sets*
+makes impossible rather than a discipline.
 
 **What it costs the program is the difference between the two numbers**, and
 that is the trade this is: a DOS program on a 640KB machine gets ~32KB less
@@ -127108,8 +127411,8 @@ Memory for the program:
 ```
 
 **The two figures are the choice, so they are on the glass.** Both come from
-`OSAPI_MEM_AVAIL_LVL` and `OSAPI_MEM_AVAIL` — the same two questions `dos_run`
-asks — so the page shows what the program *will* get rather than an estimate
+`OSAPI_MEM_AVAIL_MAX`, at the floor and without one (§96.25.1.1) — the same
+two questions `dos_run` asks — so the page shows what the program *will* get rather than an estimate
 of it, and the numbers move with whatever else the machine has open.
 
 **The limit is one field and empty means all**, which is what saves it needing
@@ -127131,9 +127434,11 @@ what it does.
 
 ```
     floor = [dos_keepc] == DOS_MEM_KEEP ? MEM_PG_HIGH : MEM_LVL_TOP
-    kb    = OSAPI_MEM_AVAIL_LVL(floor)
+    OSAPI_MEM_FLOOR(floor)          ; this task's, from here on (50.6.6)
+    kb    = OSAPI_MEM_AVAIL()       ; net of it
     if limit: kb = min(kb, limit)
-    OSAPI_MEM_CLAIM_LVL(kb, floor, from the top)
+    OSAPI_MEM_CLAIM_HI(kb)          ; honours it
+    OSAPI_MEM_FLOOR(MEM_LVL_TOP)    ; ...and it is lifted, whatever the answer
 ```
 
 `DOS_MEM_WHOLE` — the third arm — does not reach this code at all: it is a
@@ -127149,10 +127454,10 @@ saying so is cheaper than a program that dies on its first allocation.
 
 ##### 96.25.1.1 The page asks the WHAT-IF, because that is what the launch delivers
 
-`dos_mem_figs` asks `OSAPI_MEM_AVAIL_MAX` at both ranks and not
-`OSAPI_MEM_AVAIL_LVL`/`OSAPI_MEM_AVAIL`. The rule this page is held to is that
+`dos_mem_figs` asks `OSAPI_MEM_COMPACT`'s what-if at both ranks and not
+`OSAPI_MEM_AVAIL` with and without the floor. The rule this page is held to is that
 the figure SHOWN is the figure the program GETS, and the launch is not a plain
-claim: `dos_run` posts `OSAPI_MEM_COMPACT_WAKE` and claims on the wake
+claim: `dos_run` posts `OSAPI_MEM_COMPACT` and claims on the wake
 (§96.35), so the heap it claims out of has been packed **with this package's
 own region in the pass**. That is precisely the question the what-if answers
 and precisely the one plain `mem_avail` does not, because a package asking
@@ -127172,10 +127477,11 @@ and for this package it is the promise: the post is what makes it true, and
 `dos_run` sends one whenever a pass would add anything. Where it would not,
 the what-if and plain avail are the same number anyway.
 
-`OSAPI_MEM_AVAIL_MAX` has no unconditional door of its own the way
-`OSAPI_MEM_AVAIL` is `OSAPI_MEM_AVAIL_LVL`'s, so **both** calls set AL. A
-fall-through would ask the floor's question twice and draw one number in both
-places, which is the failure §50.6.6 is about with the two figures swapped.
+The what-if takes its level in AL rather than reading the task's floor the
+way `OSAPI_MEM_AVAIL` does (§50.6.6.1), so **both** calls set AX — `AH` being
+the verb (§66.4.3). A fall-through would ask the floor's question twice and
+draw one number in both places, which is the failure §50.6.6 is about with
+the two figures swapped.
 
 **ONE ASYMMETRY STAYS, AND IT IS NOT A DEFECT**: on a machine with a sound
 card the launch also UNMOUNTS the driver (§96.35), which the page does not and
@@ -127232,13 +127538,13 @@ both are somebody else's, which is why this section is short:
   the claim at all; that fence is withdrawn;
 - and a package cannot compact the heap it is standing in, because
   `mem_frameless` pins the asker's own region by the act of asking. §66.4.3's
-  `OSAPI_MEM_COMPACT_WAKE` **records the wish and returns** — the pass runs at
+  `OSAPI_MEM_COMPACT`'s post **records the wish and returns** — the pass runs at
   `ui_task`'s step 0 with nothing held, and an `EVT_WAKE` brings the answer.
 
 #### 96.35.1 Why `dos_run` was already the right place
 
 `dos_wake` runs the program on an `EVT_WAKE`, on `ui_task`, with no gfx lock —
-which is exactly the shape `OSAPI_MEM_COMPACT_WAKE` demands of a caller, *return
+which is exactly the shape `OSAPI_MEM_COMPACT`'s post demands of a caller, *return
 from your callback*. So the box gains a state rather than a lifecycle:
 `DST_READY` sizes and decides, `DST_CPWAIT` waits for the pass, `DST_RAN` is
 unchanged. A stale wake still finds the state advanced and does nothing, which
@@ -127246,25 +127552,32 @@ is what that byte has always been for (§96.2).
 
 #### 96.35.2 The decision, and why a CAP takes the cheaper road
 
-**With no limit set** — a plain double click — the box wants the maximum, so
-the unmount is unconditional and the question is only whether a compaction adds
-anything:
+**The drivers come out first, on both arms** — `dos_drv_take`, which is what
+*creates* the hole, and which every program needs anyway: the `BLASTER=` in
+its environment is made of what the sound driver says on the way out
+(§96.44.13), so "the sound driver is never touched" was already false the day
+that section landed, the capped arm merely taking it later, inside the
+bracket. It takes it here now because `OSAPI_DRV_SUSPEND` reads `HIBER.DRV`
+into the heap to do its work (§51.11), and a claim of everything leaves no
+room for that.
 
-1. `dos_drv_take` — the drivers out, which is what *creates* the hole;
-2. `a = OSAPI_MEM_AVAIL_LVL(floor)`;
-3. `m = OSAPI_MEM_AVAIL_MAX(floor)` — **the same floor**, or the two are
+**With no limit set** — a plain double click — the box wants the maximum, and
+the question is only whether a compaction adds anything:
+
+1. `a = OSAPI_MEM_AVAIL()`, net of the floor `.sized` set;
+2. `m = OSAPI_MEM_COMPACT(MEMC_WHATIF, floor)` — **the same floor**, or the two are
    answers to different questions (§66.4.3.2);
-4. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
+3. `m > a` → post, `DST_CPWAIT`, **return**; otherwise claim `a` now.
 
-**With a limit set**, the order inverts and that is the point: a program that
-asked for 200K on a machine with 300K free needs no compaction and no silence.
+**With a limit set**, the cheaper road: a program that asked for 200K on a
+machine with 300K free needs no compaction.
 
-1. `a = OSAPI_MEM_AVAIL_LVL(floor)`; `a >= N` → claim `N`, **and the sound
-   driver is never touched**;
-2. otherwise unmount, and ask the what-if; `m >= N` → post and return;
+1. `a = OSAPI_MEM_AVAIL()` at the floor; `a >= N` → claim `N` and ask nothing
+   more;
+2. otherwise ask the what-if; `m >= N` → post and return;
 3. otherwise `DER_MEM`, exactly as today.
 
-**On the wake**, plain `OSAPI_MEM_AVAIL_LVL(floor)` is exact — the heap really
+**On the wake**, plain `OSAPI_MEM_AVAIL()` at the floor is exact — the heap really
 is packed both ways — so the box claims against a number rather than an
 estimate, which is §66.4.3.2's own instruction to read it *on the wake* and not
 before.
@@ -127282,7 +127595,7 @@ not, does not.
 **The unmount alone recovers nothing, and that is the half that was measured
 rather than reasoned.** With the fence gone and the post in place,
 `[dos_drvout]` read 1 — the driver really was out before the claim — and both
-`OSAPI_MEM_AVAIL_LVL` and `OSAPI_MEM_AVAIL_MAX` still answered **435 KB**
+`OSAPI_MEM_AVAIL` and the what-if still answered **435 KB**
 against **449** on the same machine with no card. Exactly the driver's image
 plus its ring, sitting in a hole at the top of the heap that nothing would
 merge.
@@ -127339,12 +127652,10 @@ The arithmetic that follows is the same as §96.35.4's with the sign flipped:
 image and 8,192-byte ring were, reachable by nothing.
 
 **AND IT IS FIXED — §66.6.1.2 IS THE KERNEL CHANGE AND THE 14 KB IS BACK.**
-The line in `dos.asm` never moved; what moved is that the compactor stopped
-reading *the claim's base* where it meant *the segment the package runs in*, in
-the four places it did so. `mem_find_own` grew a containment arm for a caller
-naming its own segment — the only thing a re-homed program can say about its
-region — and `[mem_rgoff]` carries the offset to the walk, the dispatch and the
-holder's own pair.
+The line in `dos.asm` never moved; what moved is that the re-home TRIMS the
+carve to the program (§20.12.10.5), so the claim's base IS the segment the
+package runs in and the four places in the compactor that read the base are
+right by construction (§66.6.1.2).
 
 **MEASURED, same two machines, same program:**
 
@@ -127409,10 +127720,9 @@ Out: `AX` = sectors per cluster, `BX` = free clusters, `CX` = bytes per sector,
 `DX` = total clusters — and **`AX = FFFFh` for a drive that is not there**,
 which is the part a program can act on.
 
-All four come from one `OSAPI_VOL_STAT` (§18.4.6), which is why that slot is a
-record rather than the total-cluster cell this call alone needed: `AH=1Bh`,
-`AH=1Ch` and `AH=32h` are the same questions in a different order, and each
-will read a different field of the same reply rather than earning a slot.
+All four come from one `OSAPI_VOL_STAT` (§18.4.6), which answers in exactly
+these four registers because this call is the one that asks: the box forwards
+them to the program unchanged and composes nothing.
 
 **The drive the program is not standing on costs a mount**, and the box already
 owns that: `dos_drv_sel` switches, mounts, and puts itself back if the mount
@@ -127420,9 +127730,12 @@ refuses (§96.6.1). So `AH=36h` on another drive is select, ask, select back —
 and the trace above is why that path is rare enough not to matter: a program
 that wants to know about a drive selects it first.
 
-The record lands in the box's **own** bss and not the program's. DOS gives this
-call nowhere to put a buffer, so there is no caller's memory to write into and
-none is invented.
+Nothing lands in memory at all: DOS gives this call nowhere to put a buffer,
+and the slot needs none — which is also what put right the box's own return
+trip. It banked the home drive in `BH` and read it back *after* loading the
+free count into `BX`, so an `AH=36h` about a drive the program was not standing
+on came home to whichever drive the free count's high byte named; it is banked
+in `DI` now, which nothing on the path touches.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
@@ -127440,8 +127753,33 @@ at attach (§51.2), so a driver clearing its own table changes nothing the
 kernel reads, and `DSV_TICK` would still be far-called from inside IRQ0 at a
 card somebody else is programming. An unload puts the service table back,
 waits the worker out, unhooks the vector and gives the memory back — all of it
-already written, and this tree ships the pair twice already: `hbm_detach` /
-`hbm_reload` around a hibernate (§87.4), and `ss_reap_x` after a screen saver.
+already written, and this tree shipped the pair twice before the slot existed:
+`hbm_detach` / `hbm_reload` around a hibernate (§87.4), and `ss_reap_x` after
+a screen saver.
+
+**And the slot IS the hibernate's pair now**, rather than a third copy of it.
+The suspend and the resume are `hbm_drvsusp` in `HIBER.DRV` — `hbm_sweep`,
+the one loop `hbm_detach` walks too, with a third skip and a question asked
+on the way past, and `hbm_reload_m`, the one loop `hbm_reload` walks — so
+their bytes are resident only while the call is in flight. What the kernel
+keeps is `kernel.asm`'s six-byte thunk and `drv_suspend_x` in `hiber.inc`'s
+`.cold`, which loads the module, calls its perform entry with the slot's `AL`
+moved up past the `UI_RBQ_*` that entry already dispatches (`HB_P_RESUME`,
+`HB_P_SUSPEND` — the module gains no eighth entry, `MOD_NENT` being 7 and
+`HB_NENT` 7), and **drops the image again on the way out** through
+`hbf_dropck`, which leaves it alone while the Hibernate window has it: the one
+caller in the tree is about to claim the heap the module is sitting in
+(§96.35). §51.11.3 is the ledger, and the cell's third verb.
+
+**A refusal is the disk's and nothing else's.** The sweep cannot refuse; the
+module can fail to be read — the system disk is out — and then `CF=1` with
+nothing moved, so a refused suspend owes no resume and a refused resume keeps
+its rows noted in `[hb_susp]` for the next ask. A caller that is refused a
+suspend runs with the drivers mounted, which is what it did before the slot
+existed. It costs the call one read of `HIBER.DRV` each way — 4,402 bytes on
+the disk, one or two `int 13h` on a floppy, nothing to speak of on the fixed
+disk the field machine runs the DOS box from — beside the ~28-sector reload of
+`SOUND.DRV` the resume already paid.
 
 **The worker is why it works at all**, and it reads like a hazard before it
 reads like a mechanism: a driver's refill worker is `TF_SERVICE` (§53.2), so
@@ -127463,7 +127801,7 @@ and the case that withdrew it is the one the slot was built for.
 
 §96.35 has the DOS box unmount the sound driver **so that the arena claim can
 have the 14KB back**, and the claim happens on an `EVT_WAKE` long before any
-bracket is entered — it has to, because `OSAPI_MEM_COMPACT_WAKE` (§66.4.3)
+bracket is entered — it has to, because `OSAPI_MEM_COMPACT`'s post (§66.4.3)
 requires the caller to *return from its callback*, which nothing inside an fsx
 bracket can do. So the bracket fence made the slot's own headline use
 impossible: the driver came out **after** the arena was sized, freeing memory
@@ -127509,7 +127847,9 @@ and the DSP version — which is what a `BLASTER=` is made of.
 The records land in the **caller's** buffer (`ES:DI`, hence an X cell), one
 `DQ_SIZE` record per driver that answered, and `CX` counts them. A driver that
 does not implement the verb simply gets no record, so `CX` may be smaller than
-the number of bits in `AX`. `DQ_MAXREC` is published in `os88api.inc` so a
+the number of drivers that went — the bitmap of classes the first body also
+answered in `AX` is withdrawn, its one reader having stored it in a word
+nothing read back. `DQ_MAXREC` is published in `os88api.inc` so a
 caller can size that buffer without mirroring the kernel's own `DRV_MAX`,
 which is 6, 5 or 4 depending on the build — and the kernel asserts one against
 the other at assembly time, because a row added here without widening the SDK
@@ -127546,6 +127886,68 @@ is in the machine, found and version-gated, whose 12KB page-safe DMA claim the
 heap refused. Our driver cannot stream from it; a DOS program with the whole
 machine can, and does its own DMA. `BLASTER=` describes the **hardware**, so a
 card we could not use is still a card to name.
+
+#### 51.11.3 One cell, three verbs, and what it costs
+
+`0x0550` answers three things in `AL`, and they are one family — *get out of
+my way, and how far*:
+
+| `AL` | verb | in | out |
+|---|---|---|---|
+| 1 | suspend the hardware drivers | `ES:DI` = a `DQ_SIZE`-record buffer, or `DI` = 0 | `CX` = records written |
+| 0 | put them back | — | `CX` = 0 |
+| 2 | hand the WHOLE machine to `kern_dos` (§96.40) | `ES:SI` = a `KDH_*` record in the caller's image or bss | posted |
+
+`CF=1` refuses: for 1 and 0 the module could not be read, for 2 a post already
+stands. `AX`, `BX`, `CX`, `DX`, `SI` and `DI` are clobbered.
+
+**The handoff was a cell of its own for one cycle** — `OSAPI_DOS_HANDOFF` at
+`0x05A0`, the table's last — and is verb 2 here because it is the same
+question one step further, spent by the same module, posted by the same
+package. Withdrawing it took the cell **and its thunk** off every machine and
+moved `osapi_table_end` down — to `0x0598`, one cell below where it stood
+before the handoff, because `OSAPI_MEM_COMPACT_WAKE`'s cell went in the same
+pass (§66.4.3); the free list of §20.3.1 stays empty, because the table shrank
+rather than holing. `osapi_dos_handoff_x`
+itself stays in `.cold` and only records (§96.40): it is entered by `je` from
+the dispatcher, and its `stc`/`retf` is the dispatcher's refusal too. It lost
+its `ES = 0` test on the way — `api_x` puts the caller's `DS` in `ES` and a
+package's `DS` is never 0, so the store is `mov [hb_dosseg], es` and no
+register is banked.
+
+**On `kern_small`** there is no driver layer and no hibernate, so the thunk is
+the whole slot: `xor cx, cx` / `cmp al, 2` / `cmc` / `ret` — the suspend and
+the resume ANSWER SUCCESS with no records, because a caller does not test `CF`
+for a condition that is not an error (docs/plans/KERN-SMALL-CUT-PLAN.md §10),
+and the handoff refuses, the published meaning of a slot that cannot do what
+was asked (§20.8). `cmp` sets `CF` for `AL` below 2 and `cmc` turns that into
+both answers in one byte.
+
+**The ledger**, the two slices sized together at one commit on `kern_big`
+(`kernsize` sections, before → after):
+
+| | `.text` | `.bss` | `.cold` |
+|---|---:|---:|---:|
+| `OSAPI_DRV_SUSPEND` as it shipped | 217 + 8 (cell) | 4 | 0 |
+| the handoff as it shipped | 6 + 8 (cell) | 6 | 37 + 6 |
+| **now, both** | **6 + 8** | **6** | **~49** |
+
+The suspend's rows-out word moved from `driver.inc` to `hiber.inc` as
+`[hb_susp]` — its own word and not `[hb_drvmask]`, because a hibernate can be
+taken while a suspend stands and the two sets come back at different moments.
+The handoff's `hb_doscode` is gone: `hbm_res` reads the BDA mailbox itself as
+it stages `HS_DOSCODE` (§96.41), so the exit code never has to survive a
+module drop and the kernel keeps no cell for it, nor the `.cold` line in
+`hb_probe` that defaulted one. `kern_small` lost the retired cell and the
+handoff's refusing thunk, and its suspend stub is two bytes shorter.
+
+**What moved in the DOS box for it.** `dos_run` takes the drivers out
+**before the sizing on both arms** (§96.35.2): the capped arm used to take
+them inside the bracket, after a claim that may have been everything, and a
+suspend that needs 5KB of heap for its module would have refused there — for a
+program that was going to be handed a `BLASTER=` out of the answer. The
+in-bracket call is gone with it, and so is the `dos_drvmask` word the
+withdrawn `AX` was stored in.
 
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
@@ -127696,8 +128098,10 @@ a program that could not have used the result.
 
 The skip is therefore recorded as a **decision about this wave** rather than a
 property of the class: the day a driver answers `DRVV_HWINFO` for a NIC and a
-DOS program wants raw ports, this is the line that has to be revisited, and
-`AL=2` on the suspend — "and the network too" — is where it would go.
+DOS program wants raw ports, this is the line that has to be revisited — it is
+one `mov dl, DRVC_NET` in `hbm_drvsusp`, the class `hbm_sweep` is told to
+leave standing — and a fourth verb on the slot, "and the network too", is
+where it would go (`AL=2` is the handoff, §51.11.3).
 
 #### 96.23.7 The frame buffer is a heap claim, taken before the arena
 
@@ -127950,7 +128354,7 @@ on the tightest adapter, and none of the three rows above the field moved at
 all.
 
 **There is no third figure**, and that is deliberate: the two on the glass are
-`OSAPI_MEM_AVAIL_LVL`'s and `OSAPI_MEM_AVAIL`'s real answers, and what the
+`OSAPI_MEM_AVAIL_MAX`'s real answers at the floor and without one, and what the
 third arm would give the program is not a number this build can ask anything
 for. §47 rule 5 again — a figure that has to be guessed is worse than no
 figure, because the two beside it are measured and the user cannot tell them
@@ -128711,11 +129115,12 @@ the shipped images, which makes `kdpart` a wider test than the one it
 replaces: it now answers *did a shipped floppy lose `kern_dos`* rather than
 *did `make kdostest` build its own disk*.
 
-**THE PACKAGE POSTS AND RETURNS.** `OSAPI_DOS_HANDOFF` (0x05A0) takes
+**THE PACKAGE POSTS AND RETURNS.** `OSAPI_DRV_SUSPEND` with `AL = 2`
+(§51.11.3 — it was `OSAPI_DOS_HANDOFF` at 0x05A0 for one cycle) takes
 `ES:SI` = a `KDH_*` record in the caller's own segment and does one thing:
 it stores the far pointer, sets `[ui_rebootq]` to `UI_RBQ_DOSRUN` and wakes
 `ui_task`. It is `OSAPI_PKG_REHOME`'s shape (§20.12.10) and
-`OSAPI_MEM_COMPACT_WAKE`'s (§66.4.3) for their reason: what it asks for
+`OSAPI_MEM_COMPACT`'s post's (§66.4.3) for their reason: what it asks for
 detaches every driver and takes the screen, and the caller is executing
 inside a region the teardown is about to stop caring about, with the gfx
 lock held. `ui_task`'s step 0 spends the post with nothing held.
@@ -128874,7 +129279,7 @@ things it owes that no loader does for it:
   `[kd_lbp]` rather than at assembly time.
 - **The API table's ground.** `KERNEL_SEG` *is* this segment here, so every
   `call OSAPI_X` that survives into the image is a far call to `KD_SEG:0xNNNN`.
-  Cells 0x0010 to 0x05A0 exist and **refuse** — `stc`/`retf`, the published
+  Cells 0x0010 to 0x0598 exist and **refuse** — `stc`/`retf`, the published
   meaning of a slot that cannot do what was asked (§20.8) — so a wrong one is
   a wrong answer rather than a wild jump. It costs 1,432 bytes of the image
   and not one byte of the arena, the arena's floor being `LOW_SEG`.
@@ -128909,10 +129314,14 @@ copying §87.5's stub and the banked extents into the text framebuffer and
 jumping into it — is ~1,200 bytes of `kern_dos`'s image, and every byte of that
 image is a byte off the DOS program.
 
-**IT COSTS EIGHT RESIDENT BYTES**, measured: `.bss` +2 for `hb_doscode` and
-`.cold` +6 for the line in `hb_probe` that defaults it. Everything else is
-`HIBER.DRV`'s — an on-demand module — the box's own image, or a field on the end
-of a record that already existed.
+**IT COSTS NO RESIDENT BYTE.** It cost eight when it shipped — `.bss` +2 for
+an `hb_doscode` that carried the exit code from `hbm_ask` at the boot to
+`hbm_res` at the resume, two separate loads of the module, and `.cold` +6 for
+the line in `hb_probe` that defaulted it — and §51.11.3's pass found that
+nothing writes the BDA row between those two moments, so `hbm_res` reads the
+mailbox itself as it stages `HS_DOSCODE`. Everything else is `HIBER.DRV`'s —
+an on-demand module — the box's own image, or a field on the end of a record
+that already existed.
 
 **THE KERNEL DECIDES, NOT THE BOX.** Whether there is a fixed disk to come back
 to is `hb_pick`'s question (§87.2), so the box posts the same record either way
@@ -128936,9 +129345,9 @@ Five things the round trip needs, each the cheapest answer to its own question:
   to survive `int 19h` and a boot, which is a much weaker requirement: the BIOS
   sets that area up at POST and never touches it again, `int 19h` is the
   bootstrap and not POST, and os8088's own boot writes nothing below `0x0600`.
-  **Measured on the machine**, byte for byte at a settled desktop. `hbm_ask`
-  reads it once and clears the magic, so a second reader gets nothing rather
-  than a code from a session two boots ago.
+  **Measured on the machine**, byte for byte at a settled desktop. `hbm_res`
+  reads it once, as it stages the code, and clears the magic, so a second
+  reader gets nothing rather than a code from a session two boots ago.
 - **`HS_DOSCODE`**, a word in the staging area. It needs **no stub code at
   all**: `hbm_wake` already reads that segment for `HS_CLK`, and the stub never
   writes into it.

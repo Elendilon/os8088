@@ -2013,8 +2013,8 @@ SOAK = [
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
     Row("fcpapi", "soak", py("tests/fcpapi.py"), 55.0,
-        "OSAPI_FILE_COPY AND OSAPI_FILE_MOVE, THE PUBLISHED ENGINE (SPEC.md "
-        "22.24, 22.25). EVERY "
+        "OSAPI_FILE_COPY, THE PUBLISHED ENGINE, BOTH VERBS (SPEC.md "
+        "22.24). EVERY "
         "ANSWER IS A FILE: a copy engine that goes wrong strands clusters, "
         "cross-links two chains or writes a directory entry pointing at "
         "nothing, and all three look perfectly fine from inside the guest - "
@@ -2972,8 +2972,10 @@ SOAK = [
         "words kern_dos laid out against the ceiling they were cut from, and "
         "not a number the program prints. Four assertions: the file window is "
         "the paragraph the arena ends at, the block plus the window ends at "
-        "or below `[kd_top]`, `[dsk_rah_seg]` is 0 after the handover because "
-        "`kd_giveback` ran the ladder to the bottom, and - the one that "
+        "or below `[kd_top]`, the read-ahead is KD_RAH_KEEP rungs at the "
+        "ceiling after the handover because `kd_giveback` ran the ladder down "
+        "to the width SPEC.md 96.44.11.4 measured (it asserted 0 for a cycle "
+        "after that section, and was red), and - the one that "
         "refuses the easy fix - the program still has every KB the ceiling "
         "allows, since SHRINKING the arena would satisfy the other three and "
         "leave it 32 KB worse off. Checked red at the base commit, where "
@@ -6255,8 +6257,8 @@ SOAK = [
         wants=("build/trkbig.img",)),
     Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
         "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
-        " - the EXACT-requirement consumer of OSAPI_MEM_AVAIL_MAX and"
-        " OSAPI_MEM_COMPACT_WAKE. It stacks instances down from the ceiling"
+        " - the EXACT-requirement consumer of OSAPI_MEM_COMPACT's what-if"
+        " and its post. It stacks instances down from the ceiling"
         " until the floor run is under the module's size, closes the topmost"
         " so the survivor has a hole above it, and asserts the guest's own"
         " verdict: [trk_cpq] seen set is the post, and the module playing is"

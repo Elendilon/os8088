@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OSAPI_FILE_COPY and OSAPI_FILE_MOVE - the published engine (22.24, 22.25).
+"""OSAPI_FILE_COPY - the published engine, both verbs (SPEC.md 22.24).
 
     make fcpapi && python3 tests/fcpapi.py [machine]
 
@@ -15,18 +15,12 @@ WHY THE SLOT EXISTS AT ALL.  kernel/filecp.inc's engine had one caller -
 Paste - behind a header sentence saying "gfx lock held by the caller", which
 describes its callers and not the engine: nothing on the copy path draws, and
 the two bodies it streams through are the same two OSAPI_FILE_WRITE and
-OSAPI_FILE_APPEND have always published.  What the door had to add was the
-three things a package cannot be assumed to have done - the buffer, the
-directory it was standing in, and the listing debt - and TWO PIECES OF FILE
-MANAGER STATE it must not inherit, both of which this row would have caught:
-
-  * [fcp_lclus], which fcp_clspan sets from the OPERATION's drive pair and not
-    the pending file's.  Left at a previous Paste's value - or at zero on a
-    machine that has pasted nothing - fcp_floor hands fcp_chunkset a buffer
-    below one cluster, the chunk floors to ZERO, and the copy writes an EMPTY
-    file and reports success.  Check 2 is what sees that.
-  * [fcp_ovwsz], which only fcp_ensure sets, so fcp_room would count a stale
-    file's size as room it is about to get back.
+OSAPI_FILE_APPEND have always published.  The door is a filler for that
+engine's own paste path - the operation record set from registers instead of
+copied off the clipboard - and what this row would catch is the record it
+must NOT inherit: a stale [fcp_lclus] or [fcp_ovwsz] from a previous Paste,
+which the shared path sets fresh per operation, and check 2 is what sees an
+empty copy if it ever stops doing so.
 
 AND THE MOVE'S CLAIM IS ONE THE GUEST CANNOT MAKE.  A move that quietly copied
 would pass every row the package writes: the file is in the new folder, it is
@@ -52,14 +46,14 @@ WANT = b"os8088 copy"
 WANT_MV = b"os8088 move"
 
 CHECKS = [
-    "a copy under a NEW name",
+    "a copy into a subfolder of one volume",
     "...and the bytes arrived",
-    "where we were standing is unchanged",
+    "a name in our own folder still resolves afterwards",
     "a missing source is refused with FERR_NOENT",
     "...and no destination was left behind",
     "a move into a subfolder of one volume",
     "...and it left the folder it came from",
-    "a cross-volume move answers AX=0, not a FERR_*",
+    "a move into the folder it is already in answers FERR_EXIST",
     "...and left the source where it was",
 ]
 
@@ -85,6 +79,15 @@ def subdir(v, name):
                 continue
             out[v.pretty(r[:11])] = r
     return out
+
+
+def subfile(v, ent):
+    """The bytes of a subdirectory entry, off its chain."""
+    size = struct.unpack_from("<I", ent, 28)[0]
+    fc = struct.unpack_from("<H", ent, 26)[0]
+    csz = v.spc * v.bps
+    return b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
+                    for c in v.chain(fc))[:size]
 
 
 def first_clus(v, name):
@@ -152,34 +155,34 @@ def main():
     if bad:
         fail("%d check(s) failed: %s" % (len(bad), "; ".join(bad)))
 
+    sub_ents = subdir(v, "SUB")
+    print("fcpapi: SUB afterwards: %s" % sorted(sub_ents))
+
     # ...and the copy's own bytes, read by something that shares no code with
     # the engine that wrote them.
-    if "COPY1.DAT" not in names:
-        fail("COPY1.DAT is not on the volume, though the guest said the copy "
-             "worked - the directory entry and the guest's listing disagree")
-    got = v.read("COPY1.DAT")
+    if "SRC.DAT" not in sub_ents:
+        fail("SUB/SRC.DAT is not on the volume, though the guest said the "
+             "copy worked - the directory entry and the guest's listing "
+             "disagree")
+    got = subfile(v, sub_ents["SRC.DAT"])
     if got != WANT:
-        fail("COPY1.DAT holds %r and SRC.DAT holds %r" % (got, WANT))
-    print("fcpapi: ok  - COPY1.DAT reads %r off the volume itself" % got)
+        fail("SUB/SRC.DAT holds %r and SRC.DAT holds %r" % (got, WANT))
+    print("fcpapi: ok  - SUB/SRC.DAT reads %r off the volume itself" % got)
 
-    if "NEVER.DAT" in names:
-        fail("NEVER.DAT exists: a copy whose source was missing left a "
+    if "NOSUCH.DAT" in sub_ents or "NOSUCH.DAT" in names:
+        fail("NOSUCH.DAT exists: a copy whose source was missing left a "
              "destination behind (fcp_undo, SPEC.md 22.5.2)")
 
     # --- the move, which is the host's claim and not the package's --------
     if "MOVE.DAT" in names:
         fail("MOVE.DAT is still in the root: the move did not take, though "
              "the guest said it did")
-    sub_ents = subdir(v, "SUB")
     if "MOVE.DAT" not in sub_ents:
         fail("MOVE.DAT is in neither the root nor SUB - a move that lost the "
              "file (SUB holds %s)" % sorted(sub_ents))
     body = sub_ents["MOVE.DAT"]
-    size = struct.unpack_from("<I", body, 28)[0]
     fc = struct.unpack_from("<H", body, 26)[0]
-    csz = v.spc * v.bps
-    got = b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
-                   for c in v.chain(fc))[:size]
+    got = subfile(v, body)
     if got != WANT_MV:
         fail("SUB/MOVE.DAT holds %r and MOVE.DAT held %r" % (got, WANT_MV))
     print("fcpapi: ok  - SUB/MOVE.DAT reads %r off the volume itself" % got)
@@ -192,13 +195,14 @@ def main():
     if fc != was:
         fail("SUB/MOVE.DAT starts at cluster %d and MOVE.DAT started at %d: "
              "the file's DATA MOVED, so that was a copy and not the re-link "
-             "OSAPI_FILE_MOVE promises (SPEC.md 22.25)" % (fc, was))
+             "a same-volume move promises (SPEC.md 22.24)" % (fc, was))
     print("fcpapi: ok  - re-linked: still cluster %d, so no data was moved"
           % fc)
 
-    if "SRC.DAT" not in names:
-        fail("SRC.DAT left the root, and the only call that touched it was a "
-             "CROSS-VOLUME move that answered 'not attempted'")
+    if "SRC.DAT" not in names or v.read("SRC.DAT") != WANT:
+        fail("SRC.DAT is not in the root as it was: the one destructive call "
+             "that named it was a move INTO ITS OWN FOLDER, which must answer "
+             "FERR_EXIST having written nothing (SPEC.md 22.24)")
 
     r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify",
                         SCRATCH], capture_output=True, text=True)
