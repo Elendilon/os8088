@@ -6100,6 +6100,15 @@ The four cells stay and answer **CF = 1**: `gfx_line` (0x02E0), `gfx_linit`,
 `gfx_lstep`, `gfx_lstepv`. The table is offset-addressed and a slot number is a
 published constant (§20.3).
 
+**Three do. `gfx_linit`'s cell has since been SPENT** — 0x0300 is
+`OSAPI_DSK_CACHE` now (§18.95.8). That is what a retired cell is *for*: it
+answers CF = 1, every caller of one has to test CF, so there is no program that
+reaches the number and would notice the body changing under it. Spending one
+keeps the table from growing, which matters because a cell is eight bytes and
+the table is contiguous — `OSAPI_DRV_CLASSK` took 0x0580 the same way (§51.12).
+A retired cell is therefore a *reserve*, not a headstone, and the SDK name goes
+when the number is spent.
+
 | | `.text` | `.bss` | |
 |---|---:|---:|---|
 | `kern_small` | **−659** | −36 | `gfx_line_fast`, `_runs` and `lf_wide3` were `%ifdef KERN_BIG`, so it had less to give |
@@ -30697,6 +30706,88 @@ case is unreachable here and wants a field machine.
 sample cannot: that `kb × 1024 ≥ n × chunk` at **every** width the machine can
 pick, because a claim one slot short puts `dsk_rah_fill`'s last transfer
 outside it.
+
+#### 18.95.8 …and a program about to take the arena may COMMAND the width
+
+Everything above sizes the cache from what the kernel can see. `OSAPI_DSK_CACHE`
+(cell **0x0300**) is the one case where that is the wrong instrument: a program
+whose next act is to claim every byte of the heap knows something the kernel
+does not, and knows it *before* the claim rather than after.
+
+| in `AL` | means |
+|---|---|
+| `0` | hold nothing — give the claim back now |
+| `1` … `DSK_RAH_RUNS` | hold at most this many 4.5 KB chunks |
+| `DSK_RAH_AUTO` (`0xFF`) | no ceiling of mine — the kernel solves it |
+
+Out: CF=0 with **AX = the width held now**, in chunks, 0 = none. CF=1 means `AL`
+was neither a legal width nor the sentinel, and nothing changed — a refusal
+rather than a silent clamp, so a kernel that ever narrows `DSK_RAH_RUNS` tells
+the caller instead of quietly giving it less than it asked for.
+
+**Why the kernel cannot decide this for itself.** The window is the most
+expensive cache on the machine to lose, and §50.6.4 is built so that nothing
+sheds it lightly: `mem_shed_one` takes the *cheapest* block the claimant
+outranks, and `MEM_P_DIRW` sits at `MEM_PG_HIGH`. That is the right answer for
+every ordinary claim and the wrong one for this caller, whose claim is the
+whole arena: `mem_claim` sheds the window anyway, one 64 KB page later, having
+first **failed** a claim the machine could have satisfied and then retried it.
+The shed happens either way; what the slot removes is the failed attempt, and
+what it adds is the ability to say *keep some of it*.
+
+**The ceiling is why this is a slot and not a verb.** A bare "drop it" would be
+a one-way door. The cache is re-taken at a **mount** (§18.95.5.1) and a DOS
+session mounts nothing, so *give it back* has to be sayable too — and once the
+door swings both ways the width may as well cross it. A session that wants 9 KB
+of cache standing and one that wants none are then the same call with a
+different `AL`, which is what the DOS box's Cache dial is (§96.36.9).
+
+**`[dsk_rah_cap]` is sticky, and that is the feature.** It survives every mount
+until somebody says otherwise, so the commander can leave the kernel running
+and the width stays commanded; a mount in the gap does not hand the cache
+straight back. The other half of the bracket — putting it back to
+`DSK_RAH_AUTO` — is the **caller's**, and nothing else will do it: a machine
+left at 0 never caches a directory again.
+
+The solve needs no arm for any of this. The cap is a **third minimum** beside
+the free run and the arena's share, and `DSK_RAH_AUTO` is deliberately above
+every legal width, so an uncommanded machine loses that compare and carries on;
+a cap of 0 lands below `DSK_RAH_MIN` and refuses at the floor's own compare, so
+*hold nothing* is the same two instructions as *too small to be worth having*.
+
+**A ceiling that does not change does nothing at all**, and any other value
+**re-solves** — `dsk_rah_drop` then `dsk_rah_want`, whichever way the cap
+moved. The first half is what makes *asking* free: `DSK_RAH_AUTO` on a machine
+that has commanded nothing is a compare and a return, which is why the DOS
+box's Memory page can read the width back on every paint (§96.36.6).
+
+The second half is less obvious, because widening looks like it should be a
+no-op. It is not: §18.95.5.3 says *there is no grow path and there does not
+need to be one*, which is true of a kernel nobody commands — and with a cap it
+becomes the bug. Releasing the ceiling without re-solving hands back the
+**permission** and leaves the narrow cache standing, so a machine that ran one
+DOS program on `9K` keeps 9 KB for the rest of the session. What the re-solve
+costs is the cache's *contents*, twice, and that is the right price to pay:
+the caller that commanded it down is the one whose program has just been all
+over the disk.
+
+A refused drop — `[dsk_rah_busy]`, a fill in flight — leaves the old width
+standing, `dsk_rah_want` returns at its own guard, and **AX reports what is
+really there** rather than what was asked for. That is the only case where the
+answer and the request differ without CF being set, and it is why the answer is
+a number rather than an acknowledgement.
+
+`dsk_rah_drop` is `mem_shed_one`'s ending without its scan, and it refuses
+while `[dsk_rah_busy]` is set. That cannot be *our* fill — the transfer holds
+`[sch_lock]` — but `dsk_rah_fill` raises the flag two instructions before the
+lock is taken, and a tick landing in that window leaves a task that is about to
+write into the claim. Five bytes, so the question does not arise.
+
+**A REUSED CELL.** 0x0300 was `OSAPI_GFX_LINIT`, retired with the rest of
+§5.12.7's walk, so the table does not grow. A retired cell answers CF=1 and
+every caller of one has to test CF (§5.12.7), so there is no program that
+reaches this number and would notice. `OSAPI_DRV_CLASSK` took 0x0580 the same
+way in the same cycle.
 
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 
@@ -86666,8 +86757,8 @@ walks the depth ladder against that, rather than doing both multiplies per
 cell. That halves the multiplies, and this runs on every window move.
 
 **The tables are in CONTENT coordinates** — `cy_fillc` is what adds the origin.
-The one exception is `cy_walk_one`, because `OSAPI_GFX_LINIT` takes absolute
-screen coordinates, so it adds the origin itself. Getting that wrong offsets
+The one exception is `cy_walk_one`, because the walk takes absolute screen
+coordinates, so it adds the origin itself. Getting that wrong offsets
 the whole web by the window position and is invisible at (0,0).
 
 ### 67.3 The content-coordinate primitives
@@ -128912,25 +129003,58 @@ it against `DOS_MEM_N`, so a link written by the three-arm build asking for
 arm 2 is refused by the range check it already had and demoted to arm 0 —
 which is the arm every machine can do.
 
-#### 96.36.6 The disk cache is a dial, and the LIST is the arm's
+#### 96.36.6 The disk cache is a dial, and it is ONE list on both arms
 
 `Disk cache: [Auto ▾]` floats below both subsections, because it belongs to
 neither: whichever arm is picked, the question is *how much of my own memory
 do I spend on making my own disk reads faster*.
 
-**What the two arms can DO about it is not the same thing**, and the lists say
-so rather than rounding:
+**Auto / 32K / 18K / 9K / Off (SLOW!)**, on both arms, reaching two different
+mechanisms that now answer the same question:
 
-| | list | mechanism |
-|---|---|---|
-| **Shut down the OS** | Auto / 32K / 18K / 9K / Off (SLOW!) | `kd_giveback` sheds `kern_dos`'s read-ahead a **rung at a time** (§96.44.11.4), so every width on the ladder is one the cache still works at |
-| **Inside the OS** | Auto / Off (SLOW!) | the kernel's `dirw` claim is taken at a **mount** and solved from free memory (§18.95.5); once the box has claimed the arena there is none, so it is either standing or shed |
+| | mechanism |
+|---|---|
+| **Shut down the OS** | `kd_giveback` sheds `kern_dos`'s read-ahead a **rung at a time** (§96.44.11.4), so every width on the ladder is one the cache still works at. The pick reaches it as runs + 1 in `KDLF_RAHM` |
+| **Inside the OS** | `OSAPI_DSK_CACHE` (§18.95.8) commands the KERNEL's `dirw` claim to the same width, before the arena is sized |
 
-The missing three on arm 0 are not a rounding and not an omission: a
-`[Auto / 32K / 18K / 9K / Off]` list where three rows did the same thing is a
-control that lies. `Off (SLOW!)` says what it costs where the cost is real;
-`Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the disk
-cache` was.
+**It was TWO lists, and arm 0's was two rows long.** The reason is worth
+keeping because it was correct: *the kernel's `dirw` claim is taken at a mount
+and solved from free memory (§18.95.5), so once the box has claimed the arena
+it is either standing or shed* — and a `[Auto / 32K / 18K / 9K / Off]` list
+where three rows did the same thing is a control that lies.
+
+What changed is the kernel, not the judgement. §18.95.8 gives the box a door
+that takes a **width**, so arm 0 can ask for 18 KB and be given exactly 18 KB,
+and the ground the omission stood on has been withdrawn rather than outgrown.
+That is §24.5.5's rule one subsystem along: **an omission whose reason is a
+claim about the kernel is a claim to re-read whenever the kernel changes.**
+
+The per-arm apparatus went with it — `[dos_cachei]`, `[dos_mdrwas]`, the swap
+that mapped `Off` between item 4 and item 1, `dos_ca_initems`, and the clamp
+that guarded two different lengths. With one list there is no pick to park, and
+a `.LNK`'s byte is clamped against `DOS_CA_N` alone.
+
+`Auto` still means two different things and that is the label's own promise, so
+neither is a surprise: on arm 1 it is `KD_RAH_KEEP`, the rung `kern_dos` keeps
+for itself, and on arm 0 it is `DSK_RAH_AUTO` — *no ceiling of mine*, the
+kernel solving its own width from the machine (§18.95.5). `dos_cache_arm` sends
+the sentinel and not `dos_ca_runs`' row for Auto, which is what keeps the two
+apart.
+
+**The bracket is `dos_drv_take` / `dos_drv_back`'s exactly**, and it is the
+half that had nowhere to live before the slot existed. `dos_run` arms the dial
+at `.sized`, before the first `OSAPI_MEM_AVAIL`, and `.out` hands it back on
+every path but the posted one. Without the second half a launch on `Off` left
+the machine with **no directory cache at all** until something was inserted or
+navigated to — the kernel re-claims at a mount (§18.95.5.1) and a DOS session
+mounts nothing. `DSK_RAH_AUTO` re-takes it on the spot.
+
+**The floor is `DOS_PG_FLOOR` on every rung now.** It used to be
+`MEM_LVL_TOP` for anything but Auto — which is right when the only two answers
+are *keep it* and *shed it*, and wrong the moment a rung means *keep 9 KB of
+it*: a floor of `MEM_LVL_TOP` would take back the 9 KB the user just asked to
+keep. `Off` leaves nothing at that rank anyway, so the two cases that needed
+two floors need one.
 
 ##### 96.36.6.1 Leaving the cache room does not buy a SMALLER one — measured
 
@@ -128971,20 +129095,23 @@ And the arithmetic runs the wrong way: **`Auto` already hands the program
 444 K with the 32 K cache alive**, where the best reserve hands it 440 K with
 the same cache. The reserve costs 4 K and buys nothing `Auto` does not.
 
-So the middle rungs still want a **width cap** in `dsk_rah_want` — a word of
-`.bss` read at its `.width` clamp, plus a door to set it and a forced shed so
-the new width takes effect. With a cap the doubling can also be spent: `2 ×`
-is §40.1's rule that an *optimisation* must not be why something else fails,
-and a width the caller named is not an optimisation guessing — so a capped
-solve can take `ceil(4.5 × cap)` out of `cap`'s worth of room rather than
-twice it. About thirty resident bytes, and not taken.
+So the middle rungs still want a **width cap** in `dsk_rah_want`, and
+§18.95.8 is that, **taken**. The estimate here was *"a word of `.bss` read at
+its `.width` clamp, plus a door to set it and a forced shed — about thirty
+resident bytes"*, and the honest figure is **101**: `.text` +1 (the cap is a
+BYTE, not a word) and `.cold` +100. Thirty was the clamp alone; the door,
+`dsk_rah_drop` and the re-arm are the other 71, and the re-arm is the half this
+paragraph had not thought of. No rung moved — which per this file's own banner
+is not the point, and the bytes are what is billed.
 
-**The pick is remembered per arm.** The two lists are different lengths, so
-one `OS88UI_DR_SEL` cannot hold both: `dos_drop_place` swaps the pick with
-`[dos_cachei]` when `[dos_mdrwas]` says the arm changed, mapping `Off` between
-item 4 and item 1 rather than clamping. Leaving a stale value in SEL would
-index past the short list and draw a caption out of whatever follows the
-table.
+**The doubling was NOT spent, and it does not bite.** `2 × n × 4.5 ≤ free` is
+§40.1's rule that an *optimisation* must not be why something else fails, and
+the argument for lifting it under a named cap is sound — but the case it would
+reach is a machine holding NO cache that is asked for one, and the box's own
+command is a drop followed by a re-take, so the free run the solve sees already
+contains the memory the drop just returned. Narrowing 32 K to 9 K asks 18 K of
+a run that is at least 32. Leaving the rule alone costs this feature nothing
+and keeps one rule rather than two.
 
 **It reaches `kern_dos` in the FLAGS word**, as runs + 1 in bits 8..10
 (`KDLF_RAHM`), so that **zero means "your own `KD_RAH_KEEP`"**. That is

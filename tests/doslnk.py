@@ -94,7 +94,13 @@ RD_PITCH = 14
 DR_RECT, DR_N, DR_SEL, DR_OPEN = 0, 10, 12, 16
 DRIH = 12                               # OS88UI_DRIH, an item's pitch
 DOS_MEM_IN, DOS_MEM_WHOLE = 0, 1
-DOS_CA_AUTO, DOS_CA_OFF_IN = 0, 1       # arm 0's list is Auto and Off (SLOW!)
+DOS_CA_AUTO, DOS_CA_OFF_IN = 0, 4       # ONE LIST ON BOTH ARMS since SPEC.md
+                                        # 18.95.8 (96.36.6): Auto / 32K / 18K /
+                                        # 9K / Off, so Off is item 4 and not
+                                        # item 1. It WAS 1 - arm 0 had a list
+                                        # of its own - and the name is kept
+                                        # because what this row is about is
+                                        # which row the box ends up on
 CLSID = bytes([0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
 TITLE_H = os88geom.TITLE_H
@@ -328,7 +334,8 @@ def main():
         # opens the list and picks a row rather than picking an arm - and
         # every coordinate is resolved out of the guest's own rect, like
         # every other control here.  `Off (SLOW!)` is what this row used to
-        # say by unticking a box and then by picking the middle arm.
+        # say by unticking a box and then by picking the middle arm - and it
+        # is the LAST row of five now, not the second of two (SPEC.md 96.36.6).
         dx1, dy1, _, dy2 = dosmap.rect(m, pseg, dm, "dos_mdr")
         mo.click(dx1 + 8, (dy1 + dy2) // 2)
         os88marty.settle(m)
@@ -392,7 +399,7 @@ def main():
              % (got["keep"], DOS_MEM_IN))
     if got["cache"] != DOS_CA_OFF_IN:
         fail("the memory block's cache byte is %d and `Off (SLOW!)` is %d on "
-             "arm 0's list. That byte was the block's PADDING (SPEC.md "
+             "the one list both arms show. That byte was the block's PADDING (SPEC.md "
              "96.36.6), so a dial that does not reach it is a shortcut that "
              "loses a setting and says nothing" % (got["cache"],
                                                    DOS_CA_OFF_IN))

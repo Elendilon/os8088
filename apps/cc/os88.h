@@ -127,11 +127,18 @@
  *     function that obeys them lives (docs/APPLE2-SPEC.md section 13.3).
  *     (OSAPI_FULLSCREEN, the WINDOW latch of SPEC.md 11.2, is a different
  *     thing again and is os88_fullscreen() below.)
- *   OSAPI_GFX_LINIT / LSTEP / LSTEPV      RETIRED - a stock kernel carries the
- *     three cells and no body and answers CF=1 (SPEC.md 5.12.6). The
- *     resumable walk is apps/os88gfx.inc's `GFXE_WALK` now, which is NASM and
- *     so out of C's reach; a C package that wants one writes the recurrence
- *     itself and commits with os88_gfx_points().
+ *   OSAPI_GFX_LSTEP / LSTEPV              RETIRED - a stock kernel carries the
+ *     cells and no body and answers CF=1 (SPEC.md 5.12.6). The resumable walk
+ *     is apps/os88gfx.inc's `GFXE_WALK` now, which is NASM and so out of C's
+ *     reach; a C package that wants one writes the recurrence itself and
+ *     commits with os88_gfx_points(). OSAPI_GFX_LINIT was the third and its
+ *     CELL HAS BEEN REUSED - 0x0300 is OSAPI_DSK_CACHE now (SPEC.md 18.95.8),
+ *     which is safe precisely because a retired cell answers CF=1 and every
+ *     caller of one has to test CF.
+ *   OSAPI_DSK_CACHE                       commands the kernel's directory
+ *     read-ahead window to a width, for a program about to claim the whole
+ *     arena. No C package does that - the DOS box is NASM - so it is listed
+ *     rather than wrapped; adding it is a thunk of a dozen lines.
  *   OSAPI_SYS_SNAPSHOT / CLAIM_SNAPSHOT / SYS_KB   buffer layouts that the
  *     kernel renumbers; for the Task Manager, not for applications.
  *   OSAPI_VOL_* / OSAPI_FS_* / OSAPI_DRV_CFG / OSAPI_FILE_*_SYS   fenced on

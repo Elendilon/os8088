@@ -103,7 +103,6 @@ Read first: [§5 vga12.inc](../SPEC.md#5-vga12inc); [§25 icons.inc — icon for
 | `0x0418` | `OSAPI_GFX_BLIT1` | ES:SI = a 1bpp BAND in the framebuffer's own bit order (row-major, bit 7 leftmost, 1 = a LIT pixel), BP = its stride in BYTES per row, AX =... |
 | `0x02B0` | `OSAPI_GFX_FILL_PAT` | AX/BX/CX/DX = the rect, SI = 8 pattern bytes in YOUR segment: row y takes byte [SI + (y & 7)], a set bit is WHITE and bit 7 is the leftmost pixel of... |
 | `0x02E0` | `OSAPI_GFX_LINE` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
-| `0x0300` | `OSAPI_GFX_LINIT` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
 | `0x0308` | `OSAPI_GFX_LSTEP` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
 | `0x0318` | `OSAPI_GFX_LSTEPV` | RETIRED (SPEC.md 5.12.7): the cell stays because a slot number is a published constant, and it answers CF = 1... |
 | `0x0538` | `OSAPI_GFX_POINTS` | ES:SI = CX records of two words each, x then y (screen px); CX = how many, 0 legal and does nothing. [gfx_color] is the ink; hold the lock... |
@@ -161,6 +160,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x0230` | `OSAPI_FILE_GOTO` | in DX = a cluster from OSAPI_FILE_HERE, BL = its drive; moves YOUR instance there... |
 | `0x02E8` | `OSAPI_ARG_FILE` | the document this instance was launched to open (SPEC.md 54.5). No inputs; out CF=1 = launched empty, the ordinary case... |
 | `0x02F0` | `OSAPI_ASSOC_SET` | claim an extension for a program (SPEC.md 54.5). ES:SI -> 3 extension bytes then 8 stem bytes, both space-padded... |
+| `0x0300` | `OSAPI_DSK_CACHE` | **COMMAND THE READ-AHEAD CACHE'S WIDTH** (SPEC.md 18.95.8), for a program that is about to take the arena... |
 | `0x0558` | `OSAPI_FILE_PATH` | ES:DI = your buffer, CX = its size in bytes (>= 2); out CF=0, a NUL `\DIR\DIR` written there and CX = its length not counting the NUL, DI unchanged... |
 | `0x0388` | `OSAPI_BATCH_BEGIN` | no arguments, no answer |
 | `0x0390` | `OSAPI_BATCH_END` | ...and the other end |

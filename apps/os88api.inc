@@ -3365,17 +3365,70 @@ OS88_BSS_SIZE equ 0
                                  ; GFX_BLIT1. TEST CF: a caller that
                                  ; does not gets no pixels rather than
                                  ; wrong ones
-%define OSAPI_GFX_LINIT    KERNEL_SEG:0x0300   ; RETIRED (SPEC.md 5.12.7): the cell
-                                 ; stays because a slot number is a
-                                 ; published constant, and it answers
-                                 ; CF = 1. The line, the resumable
-                                 ; walk and the batch step are all
-                                 ; apps/os88gfx.inc's now - GFXE_LINE,
-                                 ; GFXE_WALK and gfxe_wstepv - and
-                                 ; they commit through GFX_POINTS or
-                                 ; GFX_BLIT1. TEST CF: a caller that
-                                 ; does not gets no pixels rather than
-                                 ; wrong ones
+%define OSAPI_DSK_CACHE    KERNEL_SEG:0x0300   ; **COMMAND THE READ-AHEAD
+                                 ; CACHE'S WIDTH** (SPEC.md 18.95.8), for a
+                                 ; program that is about to take the arena.
+                                 ; in AL = 0 hold nothing, give the claim back
+                                 ; now / 1..DSK_RAH_RUNS hold at most that many
+                                 ; 4.5KB chunks / DSK_RAH_AUTO = no
+                                 ; ceiling of mine, which is what every machine
+                                 ; starts at. Out CF=0 with AX = the width held
+                                 ; NOW in chunks, 0 = none; CF=1 = AL was
+                                 ; neither a legal width nor the sentinel and
+                                 ; nothing changed. Every other register is
+                                 ; preserved.
+                                 ;
+                                 ; The kernel keeps a directory read-ahead
+                                 ; window sized to the machine (SPEC.md
+                                 ; 18.95.5) and will not shed it lightly,
+                                 ; because it is the most expensive cache here
+                                 ; to lose. That is the wrong answer for a
+                                 ; caller whose next act is to claim the whole
+                                 ; arena: OSAPI_MEM_CLAIM sheds it anyway, one
+                                 ; 64KB page later, having first refused a
+                                 ; claim the machine could have met.
+                                 ;
+                                 ; THE CEILING IS STICKY, and that is the
+                                 ; point: it survives the mounts that happen
+                                 ; while you are away, so the width stays
+                                 ; commanded. Putting it back to
+                                 ; DSK_RAH_AUTO is the other half of
+                                 ; the bracket and is YOURS to do - nothing
+                                 ; else will, and a machine left at 0 never
+                                 ; caches a directory again.
+                                 ;
+                                 ; A CEILING THAT DOES NOT CHANGE DOES NOTHING
+                                 ; AT ALL, which is what makes asking free -
+                                 ; send DSK_RAH_AUTO to read the width back
+                                 ; when you have commanded nothing. Any OTHER
+                                 ; value re-solves, which drops the claim and
+                                 ; re-takes it: you lose the cache's CONTENTS
+                                 ; both on the way down and on the way back,
+                                 ; and the kernel's own two bounds still apply
+                                 ; on the way back - so AX is what they
+                                 ; allowed and not what you asked for.
+                                 ;
+                                 ; **A REUSED CELL**: this number was
+                                 ; OSAPI_GFX_LINIT, retired with the rest of
+                                 ; SPEC.md 5.12.7's walk. A retired cell
+                                 ; answers CF=1 and every caller of one has to
+                                 ; test CF, so no program reaches this number
+                                 ; and would notice
+DSK_RAH_AUTO equ 0xFF            ; "no ceiling of mine" - the AL that undoes a
+                                 ; command. NOT zero: zero is the real
+                                 ; instruction "hold nothing"
+DSK_RAH_RUNS equ 7               ; ...and the widest AL that is not the
+                                 ; sentinel. Ask for more and you get CF=1, so
+                                 ; a kernel that narrows this REFUSES rather
+                                 ; than silently clamping.
+                                 ;
+                                 ; Both carry the KERNEL's spelling and not an
+                                 ; OSAPI_ one, deliberately: that is what puts
+                                 ; them under tests/unit/t_mirror.py, which
+                                 ; compares a constant by NAME across the SDK
+                                 ; and every kernel file. GLS_SZ above is the
+                                 ; same trade - an SDK-local alias would read
+                                 ; more tidily and would be watched by nothing
 %define OSAPI_GFX_LSTEP    KERNEL_SEG:0x0308   ; RETIRED (SPEC.md 5.12.7): the cell
                                  ; stays because a slot number is a
                                  ; published constant, and it answers

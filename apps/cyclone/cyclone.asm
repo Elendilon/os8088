@@ -1370,7 +1370,7 @@ cy_layout:
 
     ; The vanishing point, in CONTENT coordinates - which is the space the
     ; whole app works in, because cy_fillc is what adds the origin. The one
-    ; exception is cy_walk_one: OSAPI_GFX_LINIT takes ABSOLUTE screen
+    ; exception is cy_walk_one: the walk takes ABSOLUTE screen
     ; coordinates, so it adds the origin itself.
     mov ax, [cy_cwid]
     shr ax, 1
