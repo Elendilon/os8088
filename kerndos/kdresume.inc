@@ -224,6 +224,14 @@ kd_resume:
     mov al, [kd_code]
     xor ah, ah
     mov [es:HS_DOSCODE], ax
+    mov ax, [dos_akb]           ; ...AND THE ARENA IT WAS GIVEN (SPEC.md
+    mov [es:HS_DOSAKB], ax      ; 96.41.1). `kd_arena` worked it out off
+                                ; `[kd_top]` and the box cannot: over there
+                                ; the figure is what OSAPI_MEM_AVAIL_MAX said
+                                ; about a HEAP, and this program had the
+                                ; machine. Staged in the cell `hbm_res` uses
+                                ; for the reboot route, so one reader serves
+                                ; both ways home
 
     ; --- 5. the PIC masks, the ROM's tick, and go ----------------------------
     ; `hbm_handover`'s tail, with the half that is about a running kernel

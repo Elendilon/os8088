@@ -32,6 +32,10 @@
 ;     them, so a short read or a `dos_movedown` that gave up at 64KB is
 ;     caught rather than assumed;
 ;   - a relocation applied at the far end of a 586KB image;
+;   - a marker at image offset 0FEFCh, which is PSP:FFFC - the one place a
+;     loader is tempted to write INTO an .EXE, because it is where a .COM's
+;     stack word goes (SPEC.md 96.3.1). It cost Test Drive III two bytes of a
+;     routine and read as a freeze at the menu two minutes later;
 ;   - and PSP:0002, which is the arena the retries left behind.
 ;
 ; OURS, MIT with the rest of the tree, and under tests/ because it is not
@@ -48,6 +52,19 @@
 HDRSZ   equ 512                     ; 32 paragraphs of header
 TAILSZ  equ 1024                    ; the last KB: code, strings and the stack
 IMGSZ   equ BIGSZ - HDRSZ
+
+; --- WHERE A .COM's STACK WORD WOULD LAND IN AN .EXE (SPEC.md 96.3.1) -------
+; DOS gives a .COM `SP = FFFEh` and pushes a zero word under it, at PSP:FFFC.
+; An .EXE has its own SS:SP out of its header and DOS writes nothing - and an
+; .EXE image begins at PSP + 10h paragraphs, so PSP:FFFC is image offset
+; 0FFFCh - 100h = 0FEFCh, which for anything bigger than 64KB is code or data
+; the program is going to use.
+;
+; **A PAD OF ZEROS CANNOT SEE THAT WRITE**, which is why this fixture missed
+; it for a whole cycle: the word went into the middle of 585KB of zeros and
+; changed nothing observable. A marker is the whole fix.
+COMSTK  equ 0xFEFC
+COMSTKV equ 0xC0DE
 PADSZ   equ IMGSZ - TAILSZ
 CODESEG equ PADSZ / 16              ; where the tail is, relative to the load
                                     ; segment - ~36,600, which is why this has
@@ -58,6 +75,9 @@ which is the encoding that means a FULL last page (SPEC.md 96.8)"
 %if PADSZ % 16
 %error "the pad has to be a whole number of PARAGRAPHS or CODESEG is not the \
 tail's own segment"
+%endif
+%if COMSTK + 2 > PADSZ
+%error "COMSTK must fall inside the pad - the marker is the whole point"
 %endif
 
 ; --- the MZ header ----------------------------------------------------------
@@ -89,7 +109,10 @@ section .hdr start=0
 section .pad start=HDRSZ
 head:
     db 'BIGHEAD!'                   ; image offset 0, and the code at the far
-    times PADSZ - ($ - $$) db 0     ; end reads it back
+    times COMSTK - ($ - $$) db 0    ; end reads it back
+comstk:
+    dw COMSTKV                      ; image offset 0FEFCh: PSP:FFFC
+    times PADSZ - ($ - $$) db 0
 
 ; --- ...and the tail, addressed from its own paragraph ----------------------
 section .img start=(HDRSZ + PADSZ) vstart=0
@@ -141,7 +164,24 @@ entry:
     mov ah, 0x09
     int 0x21
 
-    ; --- 3. ...and what the retries left in the block -----------------------
+    ; --- 3. the .COM stack word, which an .EXE does not have ---------------
+    ; The one place a loader is tempted to write into an .EXE's own image.
+    mov dx, msg_stk
+    mov ah, 0x09
+    int 0x21
+    mov ax, cs
+    sub ax, CODESEG                 ; ...the image's own segment again
+    mov es, ax
+    mov ax, [es:COMSTK]
+    cmp ax, COMSTKV
+    mov dx, msg_ok
+    je .ssay
+    mov dx, msg_bad
+.ssay:
+    mov ah, 0x09
+    int 0x21
+
+    ; --- 4. ...and what the retries left in the block -----------------------
     mov dx, msg_mem
     mov ah, 0x09
     int 0x21
@@ -198,6 +238,7 @@ head_want:  db 'BIGHEAD!'
 msg_hi:     db 13,10,'os8088 DOS gate - BIG.EXE',13,10,13,10,'$'
 msg_head:   db 'image head 585KB down: ','$'
 msg_rel:    db 'relocation at the far end: ','$'
+msg_stk:    db 'the .COM stack word: ','$'
 msg_ok:     db 'OK',13,10,'$'
 msg_bad:    db 'FAILED',13,10,'$'
 msg_mem:    db 'Memory to top of block: ','$'

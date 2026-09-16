@@ -904,6 +904,31 @@ FAST = [
         "and not soak on t_textrules.py's argument - it is a rule about how "
         "every package is written, so the place it belongs is in front of "
         "the next `make` rather than the next soak run"),
+    Row("toast", "fast", py("tests/unit/t_toast.py"), 1.1,
+        "EVERY FIXED TOAST MESSAGE FITS THE BAR (SPEC.md 59.10). toast_show "
+        "copies at most TOAST_MAX = 24 characters and drops the rest "
+        "SILENTLY, and that cap is GEOMETRY rather than a budget: the clock's "
+        "field is 25 cells on every screen this runs on and 59.9.2's gap "
+        "takes one, so it cannot be raised without moving the toast back "
+        "somewhere a window can cover it. kernel/toast.inc claimed in as many "
+        "words that 'every message in the tree was revised to fit' - true of "
+        "the tree it was written on, held by nothing, and a bug report off an "
+        "86Box 286 found TWENTY-ONE over the cap in six files. Ten were in "
+        "HIBER.DRV, a MODULE the original sweep never walked, and the cut "
+        "lands on the word that carries the meaning: 'Hibernation file is "
+        "from another build' arrives as 'Hibernation file is from'. IT "
+        "OVER-APPROXIMATES ON PURPOSE - a toast argument arrives in SI, AX or "
+        "BX, through wrappers and shared jmp tails and sometimes composed at "
+        "run time, so this takes every db string any TOASTING procedure loads "
+        "and walks callers to a fixed point. That cannot MISS a fixed string, "
+        "which is the direction that matters; the false positives (a routine "
+        "that draws an About box and toasts one line of it) are registered in "
+        "tests/toastlong.txt as a ratchet that starts at two. The closure is "
+        "249 of 13,158 top-level labels - 1.9% - so it is not converging on "
+        "the whole program. TOAST_MAX is READ out of kernel/toast.inc, never "
+        "copied. VERIFIED RED three ways: a string put back to its old "
+        "length, a stale registry line, and lowering the cap.",
+        ),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
@@ -2693,6 +2718,40 @@ SOAK = [
         "not 15, on 4Eh, 3Dh and 3Bh alike.",
         needs=("marty",), serial=True,
         wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
+    Row("dosregs", "soak", py("tests/dosregs.py"), 25.0,
+        "DOES INT 21h GIVE BACK EVERY REGISTER IT DOES NOT ANSWER IN? "
+        "(SPEC.md 96.7.1.2). ONE BINARY RUNS ON BOTH - tests/dostrap/regs.asm "
+        "under this box and under a real IBM DOS 3.30 off a real floppy, "
+        "printing the same table - because the two findings before this one "
+        "each came out of a PROGRAM visibly breaking, and 'which register "
+        "does the next one destroy' is not a question reading the code "
+        "answers: 96.7.1 made the argument for SI, DI and ES and left DX out "
+        "of it, and DX was destroyed on 37 opens out of 37. Every register "
+        "the call does not need goes in carrying a sentinel and the whole set "
+        "is pushed THE INSTRUCTION AFTER THE `int` - before the AH=02h that "
+        "prints it, which is itself one of the calls under test. 45 calls: "
+        "every function the box dispatches except AH=4Bh (needs a child - "
+        "dosexec is its gate), AH=01h/07h/08h (they BLOCK on a keystroke), "
+        "AH=4Ch/00h (they do not return) and the memory trio, where a .COM "
+        "owning all of memory makes the comparison about DOS's memory model "
+        "rather than about registers. THE EXPECTED COLUMN IS THE "
+        "MEASUREMENT and not a rule: five functions answer in DX and two in "
+        "ES:BX, so those read a letter on a correct DOS too, and CF rides "
+        "every row because a call that fails on one machine and succeeds on "
+        "the other has a different set of outputs. It found three things - "
+        "AH=47h eating CX (a program that kept a count across `where am I` "
+        "got 132 back), AH=44h's bit 6, which 96.7.1.1 recorded and could "
+        "not fix, and AH=44h's DRIVE bits, which read the box's standing "
+        "drive where DOS answers the FILE's, so the last five rows stand the "
+        "machine on A: and open B:REGS.COM by name. The `57 ` row is RED ON "
+        "PURPOSE and named: AH=57h is unimplemented because "
+        "OSAPI_FILE_FIND's record carries no timestamp, and it is in the "
+        "table so that implementing it FAILS this row rather than quietly "
+        "passing on a stale expectation. VERIFIED RED three ways: dropping "
+        "the FHF_WROTE store, putting [dos_vol] back in the device word, and "
+        "un-pushing CX in .getcwd.",
+        needs=("marty",), wants=("build/dosregs360.img",)),
+
     Row("dosfcb", "soak", py("tests/dosfcb.py"), 30.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "
@@ -2870,6 +2929,36 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
         wants=("build/os8088-360.img", "build/doscom360.img")),
+    Row("kdcylrun", "soak", py("tests/kdcylrun.py"), 40.0,
+        "kern_dos DOES NOT CROSS A HEAD IT WAS NEVER GIVEN LEAVE TO CROSS "
+        "(SPEC.md 96.44.14). SPEC.md 18.93.1 settles that ONCE, in the "
+        "loader, with a canary over its own transfer, and writes "
+        "`boot_cylrun`; `dsk_geom_check` reads it at EVERY MOUNT with a "
+        "`cmp word` and sets [dsk_cylrun]. kern_dos has no loader and no "
+        "canary, so nothing over there writes the cell - and it was declared "
+        "`resb 1`, ONE BYTE, with `kd_top` next. The word read was the byte "
+        "plus the ALLOCATOR CEILING's low byte, 0xC0 once the read-ahead is "
+        "claimed, so every mount under kern_dos turned head crossing ON, on "
+        "every machine, with nothing behind it. On a BIOS that will not cross "
+        "one - MR BIOS 286, docs/FIELD-NOTES.md 31 - that ROM answers CF=0 "
+        "for the whole request and transfers the first half only, so the back "
+        "half of every crossing run is whatever was in the buffer: silent, "
+        "deterministic, and reported from the field as Prince of Persia "
+        "asking for its own disk. THREE CHECKS AND NONE STANDS IN FOR "
+        "ANOTHER: the word is 0 or 1 (the defect itself reads 0xC000), "
+        "[dsk_cylrun] agrees with it (dsk_geom_check ran), and it MATCHES the "
+        "kernel's own finding read off this same machine before the handover "
+        "- which is 96.44.14.1's KDL_CYLRUN, without which the honest answer "
+        "costs 18.91.1's cylinder run on every machine that earned it. "
+        "VERIFIED TO FAIL both ways: `resb 1` takes check 1 red at 0xC000, "
+        "and removing the KDL_CYLRUN store from hbm_dosrun takes check 3 red "
+        "with 0 against the kernel's 1. NO EMULATOR HERE CAN SHOW THE "
+        "SYMPTOM - GLaBIOS, SeaBIOS and MartyPC all cross a head correctly, "
+        "which is why this reads the CELL rather than looking for corruption. "
+        "MartyPC: the cells are kern_dos's own, read while the program is up.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/doscom360.img",
+               "build/kerndos.bin")),
     Row("kdarena", "soak", py("tests/kdarena.py"), 40.0,
         "THE ARENA AND THE READ-AHEAD DO NOT OVERLAP (SPEC.md 96.44.11). "
         "kern_dos sizes the DOS program's block and THEN mounts the volume "
@@ -2968,6 +3057,29 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnf", "soak", py("tests/kdreturn.py", "--boot", "floppy"), 42.0,
+        "...AND THE SAME ROUND TRIP ON A MACHINE THAT BOOTED OFF A FLOPPY "
+        "(SPEC.md 96.46.1). Which volume HIBERNAT.IMG lands on is hb_pick's: "
+        "the one the machine booted from when that is fixed, else the FIRST "
+        "FIXED VOLUME THERE IS - and boot off a floppy and the volume that "
+        "second arm names is DRIVER-backed, because dsk_boot_from_x adds a "
+        "DVK_BIOS partition row only on its hard-disk arm. The launch-block "
+        "gather wrote DVK_FREE for a DVK_DRV row, so kd_resume mounted an "
+        "index naming no volume, refused, and kd_leave fell back to int 19h: a "
+        "whole POST, a whole boot and a restore at the desktop. REPORTED FROM "
+        "THE FIELD, on exactly this configuration, and the LIVE_MAX cycle "
+        "bound kdreturn already carries is what goes red on the fallback - "
+        "which is why it is a bound and not a screen read, the live route's "
+        "own line being printed INTO the staging area the stub then "
+        "overwrites. It also checks the fixed disk is on a DRIVER before "
+        "asserting anything, because a row that quietly became the fixed-disk "
+        "one would pass for the wrong reason. Fixture: the SHIPPED 360KB "
+        "system disk plus one file, a SYSTEM.CFG asking for HDD.DRV - nothing "
+        "loads unless SYSTEM.CFG asks (SPEC.md 51.3), and without it there is "
+        "no C: and no return to test. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv", "build/os8088-360.img")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
@@ -3625,7 +3737,19 @@ SOAK = [
         "directory; two strings sharing one buffer put the program's name in "
         "the filename field; and the field reload called os88line_set with no "
         "DI, copying a stale pointer over the very arguments it was showing - "
-        "which is why os88line_resync exists (96.21.1).",
+        "which is why os88line_resync exists (96.21.1). STEP 5 IS THE SECOND "
+        "TRY (96.21.2.1): WORKING_DIR is written FULLY QUALIFIED now - "
+        "`B:\\BIN` - which is right until the floppy turns up in another "
+        "drive, so the box tries the drive the link NAMES and then the drive "
+        "the link IS ON. The row forges that rather than hoping for it: one "
+        "byte of a COPY of the link is patched from `B` to `A` and the copy "
+        "is added to the ROOT of the same floppy, so try 1 walks A:\\BIN - the "
+        "system disk, which has no BIN - and try 2 walks B:\\BIN, which does. "
+        "THE PLACEMENT IS THE TEST: a link beside its program resolves "
+        "whether or not the fallback exists, because the folder it falls back "
+        "to is the one it was already in. VERIFIED RED by deleting the second "
+        "call - the box then keeps the link's own folder, B:\\, and starts no "
+        "program at all.",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,

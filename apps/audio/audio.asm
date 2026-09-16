@@ -499,7 +499,7 @@ ap_s_notask:  db 'No free task - close an app and retry', 0
 ap_s_hirate:  db 'Rate needs a Sound Blaster Pro', 0
 ap_s_opening: db 'Opening...', 0
 ap_s_endlist: db 'End of playlist', 0
-ap_s_queued:  db 'Sent to the running Audio Player', 0
+ap_s_queued:  db 'Sent to Audio Player', 0
 ap_s_added:   db 'Added to playlist', 0
 ap_s_notwav:  db 'Not a .WAV file', 0
 ap_s_full:    db 'Playlist is full', 0

@@ -510,6 +510,16 @@ DER_BADEXE  equ 6
 DER_FIT     equ 7                   ; ...and THIS program will not fit in the
                                     ; arena we got, which is a different
                                     ; sentence from not getting one (96.14.3)
+DER_HAND    equ 8                   ; ARM 3 WAS REFUSED, AND IT IS NEVER ABOUT
+                                    ; MEMORY (SPEC.md 96.40.6).
+                                    ; `osapi_dos_handoff_x` refuses exactly
+                                    ; twice: a null segment, and a post that is
+                                    ; already standing. This said DER_MEM, so a
+                                    ; machine with 425K free reported "Not
+                                    ; enough memory" about the one arm that
+                                    ; does no sizing at all - it tears the
+                                    ; kernel out and hands the program ~600K,
+                                    ; so anything DOS could launch will launch
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
@@ -681,6 +691,19 @@ dos_entry:
                                     ; door that skipped its one store. An
                                     ; initialiser that only one entry path
                                     ; executes is not an initialiser
+%ifdef DOSKPART
+    mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; **THE SAME TRAP ONE CELL
+    mov word [dos_kdh + KDH_AKB], 0             ; ALONG** (SPEC.md 96.41.4).
+                                    ; `dos_wake` reads this word on EVERY wake
+                                    ; to ask whether a handoff has come home,
+                                    ; and 0 is a legal EXIT CODE - so a zeroed
+                                    ; bss says "the program came back with 0"
+                                    ; to the first wake a fresh instance gets,
+                                    ; which is the one that LAUNCHES it. It was
+                                    ; written only where the record is BUILT
+                                    ; (dos_handoff), which is after the launch
+                                    ; that would have been eaten
+%endif
     call OSAPI_ARG_FILE             ; CF=1 = launched empty, the ordinary case
     jc .idle                        ; for every package and the COMMAND.COM
                                     ; door for this one (wave 7)
@@ -724,6 +747,22 @@ dos_entry:
 .idle:
     mov byte [dos_state], DST_IDLE
 .ok:
+%ifndef KD_BACKEND                  ; 96.43: the console is the window's
+    ; **THE PROMPT, HERE AND NOT IN `dos_con_start`** (SPEC.md 96.33.2.1).
+    ; Both doors converge on this label and `[dos_vol]` is settled at it: the
+    ; empty one left `dos_con_start`'s OSAPI_FILE_HERE answer standing, and
+    ; the document one has been through `OSAPI_ARG_FILE` and `dos_lnk_open` -
+    ; either of which can name another drive. Written any earlier it names the
+    ; drive the PACKAGE came off, which is only the document's by luck.
+    ;
+    ; It self-corrected on every path that RAN something, because
+    ; `dos_con_ended` writes a fresh one - so what the field saw was the case
+    ; where nothing runs: a `.LNK` on B:, arm 3, and Cancel at SPEC.md 96.42's
+    ; question. `dos_wholedone` records the refusal and returns with
+    ; `[dos_state]` still DST_READY and nothing to undo, which is right - and
+    ; left `A:\>` on the glass over a box standing on B:.
+    call dos_prompt                 ; ...and BEFORE the `clc`: it spends the
+%endif                              ; flags, and the CF here is the loader's
     mov bx, [dos_win]
     clc
 .out:
@@ -746,7 +785,7 @@ dos_entry:
 dos_wake:
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
-    je .notpkg                      ; 96.33.17): OSAPI_PKG_START wants the gfx
+    je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
     call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
     jmp short .out                  ; console posts and this is where it lands
                                     ; - the same place a DOS program's own
@@ -755,6 +794,16 @@ dos_wake:
                                     ; own flag, so it neither reads nor moves
                                     ; [dos_state]: a package is not the thing
                                     ; `run it again` re-runs
+.nopkg:                             ; **AND THE MISS LANDS HERE AND NOT PAST
+                                    ; THE BLOCK BELOW** (SPEC.md 96.41.4). It
+                                    ; was `.notpkg`, which is where the STATE
+                                    ; MACHINE starts - so on every wake with
+                                    ; no package pending, which is every wake
+                                    ; there has ever been bar one, this jump
+                                    ; went straight over the return's own
+                                    ; test. The exit code was poked into the
+                                    ; record by a kernel that then woke this
+                                    ; window, and this handler never looked
 %endif
 %ifdef DOSKPART
     ; **THE MACHINE WENT AWAY AND CAME BACK** (SPEC.md 96.41): between the wake
@@ -773,12 +822,24 @@ dos_wake:
     mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; read once
     mov [dos_exit], al
     mov byte [dos_state], DST_RAN
+    ; **AND THE ARENA IT WAS GIVEN** (SPEC.md 96.41.1), which came home in the
+    ; next cell. The box cannot work this one out: `[dos_akb]` is `dos_run`'s
+    ; banked figure and on this arm `dos_run` posted and returned without ever
+    ; claiming, so what stands there is the last WINDOWED launch's number or
+    ; nothing at all - and either reads like an answer.
+    mov ax, [dos_kdh + KDH_AKB]
+    mov [dos_akb], ax
+    ; ...and the console says so HERE, which is where the run really ended.
+    ; `dos_run`'s own `.out` cannot: the post is spent long before the program
+    ; starts, so a line written there is about a launch that has not happened
+    ; (SPEC.md 96.35.1). Before `dos_swap`, which is the repaint, for
+    ; `dos_repaint`'s reason one arm over.
+    call dos_con_ended
     mov bx, [dos_win]
     call dos_swap
     jmp short .out
 .nocode:
 %endif
-.notpkg:
     cmp byte [dos_state], DST_CPWAIT
     je .go                          ; the compaction has run and the heap is
                                     ; packed BOTH ways: dos_run picks up at the
@@ -843,9 +904,28 @@ dos_run:
     cmp byte [dos_keepc], DOS_MEM_WHOLE
     jne .notwhole
     call dos_handoff
-    jnc .out                        ; POSTED - ui_task's step 0 spends it with
-    mov al, DER_MEM                 ; nothing held, and the machine does not
-    jmp .err                        ; come back
+    jc .nowhole                     ; POSTED - ui_task's step 0 spends it with
+                                    ; nothing held, and the machine does not
+                                    ; come back
+    ; **AND IT LEAVES BY THE QUIET DOOR** (SPEC.md 96.35.1). This used to fall
+    ; into `.out`, which runs `dos_con_ended` - so a successful post printed
+    ; *"ended, exit code 000"* and the arena INTO THE CONSOLE, before the
+    ; machine had been handed over and about a program that had not started.
+    ; The field read it as the box loading something in order to exit. Every
+    ; reason `.outq` exists for applies here and only the `[dos_cpw]` store
+    ; does not: the post is spent, and a compaction wake's flag left set would
+    ; survive inside the image and make the NEXT launch in this instance skip
+    ; its packet buffers.
+    mov byte [dos_cpw], 0
+    jmp .outq
+.nowhole:
+    mov al, DER_HAND                ; **AND THE REFUSAL IS NOT A MEMORY ONE**
+    jmp .err                        ; (SPEC.md 96.40.6): the slot does no
+                                    ; sizing, because this arm does none - the
+                                    ; kernel is torn out and the program is
+                                    ; handed the machine, so a program DOS
+                                    ; could launch will launch. It can only
+                                    ; refuse a post that is already standing
 .notwhole:
 %endif
     mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
@@ -2104,7 +2184,21 @@ dos_psp_make:
                                     ; rather than one obviously unnamed
                                     ; (SPEC.md 96.21.6)
 
-    ; --- the stack -----------------------------------------------------------
+    ; --- the stack, AND ONLY A .COM HAS ONE HERE (SPEC.md 96.3.1) ------------
+    ; An .EXE brings its own SS:SP out of its header and DOS does not touch
+    ; it. This ran for both kinds, and for an .EXE `PSP:FFFC` is not a stack
+    ; top - it is **64KB into the program's own image**, so every .EXE bigger
+    ; than that had two bytes of itself zeroed at load.
+    ;
+    ; Test Drive III is 137,845 bytes and the word landed in the middle of a
+    ; routine: `mov [0B85Eh], bh` became `mov [0005Eh], bh`, which is two
+    ; bytes shorter, so every instruction boundary after it moved - and three
+    ; instructions later the 8086 met `C0`, an UNDOCUMENTED alias for `RET
+    ; imm16`, which popped a byte pair as an address and added 2274h to SP.
+    ; The program ran for two minutes before reaching that routine, and what
+    ; the field saw was a freeze at the menu.
+    cmp byte [dos_isexe], 0
+    jne .nostk
     mov ax, [dos_ldpara]            ; a .COM gets SP at the top of its own
     cmp ax, 0x1000                  ; 64KB when the block holds one, and the
     jb .small                       ; top of the block when it does not
@@ -2119,6 +2213,7 @@ dos_psp_make:
     sub bx, 2                       ; ...and the 0 word DOS pushes, which is
     mov [dos_prgsp], bx             ; the offset half of that PSP:0000 return
     mov word [es:bx], 0
+.nostk:
     pop es
     pop di
     pop dx
@@ -2516,6 +2611,13 @@ dos_int21:
     jc .fhbad
     test byte [si+FH_FLAGS], FHF_WRITE
     jz .fhacc
+    or byte [si+FH_FLAGS], FHF_WROTE ; **AH=44h's BIT 6 IS THE ONLY READER**
+                                    ; (SPEC.md 96.7.1.2), and it is set where
+                                    ; the write is ACCEPTED rather than where
+                                    ; it succeeds: DOS clears that bit for a
+                                    ; CX=0 write too (96.11.6.2's truncate),
+                                    ; which moves no bytes at all, and SI is
+                                    ; the record only here
     test byte [si+FH_FLAGS], FHF_INPLC
     jnz .fwinpl                     ; an AH=3Dh handle OVERWRITES (96.11.6)
     mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
@@ -3151,6 +3253,14 @@ dos_int21:
     push si
     push di
     push es
+    push cx                         ; **AND CX, WHICH IS A MEASURED DEFECT**
+                                    ; (SPEC.md 96.7.1.2): the call below spends
+                                    ; it on the buffer length and AH=47h has no
+                                    ; CX output at all, so a program that kept
+                                    ; a count there across "where am I" got the
+                                    ; length of our path buffer back. IBM DOS
+                                    ; 3.30, asked the same question by the same
+                                    ; binary, gives CX back
     push ds
     pop es
     mov di, dos_pbuf
@@ -3172,6 +3282,7 @@ dos_int21:
     stosb
     or al, al
     jnz .cw_byte
+    pop cx
     pop es
     pop di
     pop si
@@ -3179,6 +3290,7 @@ dos_int21:
     mov ax, 0x0100                  ; DOS 3+ leaves AX = 0100h here, and at
     jmp .fhok                       ; least one program checks it
 .cw_bad:
+    pop cx
     pop es
     pop di
     pop si
@@ -3375,14 +3487,29 @@ dos_int21:
     jmp short .ioc_done
 .ioc_file:
     push bx                         ; dos_fh_slot spends BX and SI, and both
-    push si                         ; are the program's here
-    call dos_fh_slot
+    push si                         ; are the program's here - and SI STAYS
+    call dos_fh_slot                ; alive across the reads below, which is
+    jc .ioc_fbad                    ; what the two fixes here both needed
+    mov dl, [si+FH_VOL]             ; **THE HANDLE'S OWN DRIVE, NOT THE BOX'S**
+    and dl, 0x3F                    ; (SPEC.md 96.7.1.2). Bits 0-5 are the drive
+    xor dh, dh                      ; the FILE is on and [dos_vol] is where the
+                                    ; PROGRAM is standing; they are the same
+                                    ; number until a program opens `B:NAME`
+                                    ; from A:, and IBM DOS 3.30 answers 0041h
+                                    ; for exactly that - the file's drive, with
+                                    ; the box on A:. BIT 7 CLEAR = a file,
+                                    ; which is the whole question asked
+    test byte [si+FH_FLAGS], FHF_WROTE
+    jnz .ioc_fok                    ; **BIT 6 IS "HAS NOT BEEN WRITTEN
+    or dl, 0x40                     ; THROUGH"** and it is the row SPEC.md
+.ioc_fok:                           ; 96.7.1.1 recorded and could not fix: it
+    pop si                          ; needed a per-handle flag, and FH_FLAGS
+    pop bx                          ; had a spare bit. Measured on the same
+    jmp short .ioc_done             ; binary: 0041h freshly opened, 0041h
+.ioc_fbad:                          ; freshly CREATED, 0001h once written
     pop si
     pop bx
-    jc .ioc_bad
-    mov dl, [dos_vol]               ; bits 0-5 the drive; BIT 7 CLEAR = a
-    and dl, 0x3F                    ; FILE, which is the whole question asked
-    xor dh, dh
+    jmp short .ioc_bad
 .ioc_done:
     mov ax, dx                      ; DOS answers AX = DX here too, and a
     mov [bp-8], dx                  ; library may read either (SPEC.md 96.7.1)
@@ -6021,9 +6148,12 @@ dos_handoff:
     mov ax, [dos_win]               ; ...and the way home, which only we know:
     mov [di+KDH_WIN], ax            ; the window to wake and the cell the
     mov word [di+KDH_CODE], KDH_NOCODE  ; restored kernel puts the code in
-                                    ; (docs/plans/KERN-DOS-PLAN.md 8). On the
+    mov word [di+KDH_AKB], 0        ; (docs/plans/KERN-DOS-PLAN.md 8) - and the
+                                    ; ARENA beside it (SPEC.md 96.41.1), which
+                                    ; only the other host can work out. On the
                                     ; arm with no fixed disk nothing ever reads
-                                    ; either, and they cost the record 4 bytes
+                                    ; any of them, and they cost the record 6
+                                    ; bytes
 
     call dos_lbfill
     mov si, dos_kdh
@@ -7801,22 +7931,49 @@ dos_lnk_str:
 ; whole routine - so the working directory was written and then OVERWRITTEN by
 ; the next string, and every field in the file came out one place early.
 dos_lnk_wdir:
+    push ax
+    push bx
     push cx
+    push dx
     push si
+    ; **STAND WHERE THE PROGRAM IS, FIRST** - dos_path_make's own opening, and
+    ; for the same reason: `OSAPI_FILE_PATH` answers for where the MACHINE is
+    ; standing (SPEC.md 96.48), which a program that has walked away with
+    ; AH=3Bh or AH=0Eh has moved. `dos_sav_go` already orders the build before
+    ; the dialog, so the DIALOG's navigation cannot reach this; the program is
+    ; the other mover, and until 96.21.2.1 it could only ever write a wrong
+    ; FOLDER - under a drive letter it is a wrong folder stated confidently.
+    mov dx, [dos_dir]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    jc .bare
     push di                         ; ...only across the CALL that needs it as
-    mov di, dos_pbuf                ; a destination of its own
-    mov cx, DOS_PBUF
+    mov di, dos_pbuf + 2            ; a destination of its own - and TWO ALONG,
+    mov cx, DOS_PBUF - 2            ; because the drive goes in front of it
+                                    ; (SPEC.md 96.21.2.1)
     call OSAPI_FILE_PATH            ; ES is the caller's DS: an X cell sets it
     pop di
-    jc .bare
-    mov si, dos_pbuf
-    jmp short .w
+    jnc .drv
 .bare:
-    mov si, dos_lnk_root            ; a refusal is not fatal - `\` is a folder
-.w:                                 ; and the link still resolves from it
+    mov byte [dos_pbuf+2], '\'      ; a refusal is not fatal - `\` is a folder
+    mov byte [dos_pbuf+3], 0        ; and the link still resolves from it
+.drv:
+    ; **AND THE DRIVE, WHICH OSAPI_FILE_PATH DOES NOT ANSWER** (SPEC.md
+    ; 19.2.4: OSAPI_FILE_HERE answers that question, so the path slot does
+    ; not). Without it a shortcut says `\PRINCE` and resolves against
+    ; whichever volume it was READ from, which is right exactly as often as
+    ; the link and its program are on one disk.
+    mov al, [dos_vol]               ; the box's own volume, which is the one
+    add al, 'A'                     ; dos_run resolves the program on
+    mov [dos_pbuf+0], al
+    mov byte [dos_pbuf+1], ':'
+    mov si, dos_pbuf
     call dos_lnk_str                ; ...and DI comes out ADVANCED
     pop si
+    pop dx
     pop cx
+    pop bx
+    pop ax
     ret
 
 ; --- dos_lnk_rel - `.\NAME.EXT`, which is BOTH spellings --------------------
@@ -8041,16 +8198,90 @@ dos_lnk_parse:
 ; -----------------------------------------------------------------------------
 dos_lnk_cd:
     push ax
+    push bx
     push dx
+    push si
     cmp byte [dos_pbuf], 0
     je .out                         ; no working directory in the link
-    call dos_walk_pbuf
-    jc .out                         ; A REFUSAL IS NOT FATAL: [dos_dir] keeps
-    mov [dos_dir], dx               ; the link's own folder, which is where a
-.out:                               ; shortcut saved beside its program
-    pop dx                          ; resolves anyway. What the user then sees
-    pop ax                          ; is the ordinary "it could not be read",
-    ret                             ; naming the program
+
+    ; --- WHERE IT SAYS, AND THEN WHERE IT IS (SPEC.md 96.21.2.1) -----------
+    ; BH is the drive the .LNK ITSELF was read from - `dos_lnk_open`'s own
+    ; input - and it is BOTH the second try and the ONLY try for a link
+    ; written before the drive was recorded, whose path begins at `\`.
+    mov bh, [dos_vol]
+    mov bl, bh
+    cmp byte [dos_pbuf+1], ':'
+    jne .try
+    mov al, [dos_pbuf]
+    call dos_upc
+    sub al, 'A'
+    cmp al, DVOL_MAX
+    jae .strip                      ; a letter no volume here can have: the
+    mov bl, al                      ; fallback is the only answer left
+.strip:
+    ; **THE DRIVE COMES OFF THE FRONT, AND THE PATH MOVES DOWN TWO.** The walk
+    ; is `dos_walk_pbuf`, which is a PUBLISHED core entry (SPEC.md 96.44.5) and
+    ; takes no pointer - it reads `dos_pbuf` itself - so the buffer is the
+    ; argument and the prefix has to leave it. `dos_walk_at` is the one that
+    ; takes SI, and it is not on `doscents.inc`'s list; appending it there to
+    ; save six bytes would grow the core ABI for ever (its own rule is APPEND,
+    ; never insert) when the same six bytes here answer it once. The link
+    ; written before 96.21.2.1 carries no prefix, so it never reaches this and
+    ; both shapes walk identical code.
+    push di
+    mov si, dos_pbuf + 2
+    mov di, dos_pbuf
+.sh:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jnz .sh
+    pop di
+.try:
+    call dos_lnk_walk
+    jnc .got
+    cmp bl, bh
+    je .out                         ; that WAS the fallback - one try, spent
+    mov bl, bh                      ; ...and again on the drive it is ON, which
+    call dos_lnk_walk               ; is what makes a disk moved between drives
+    jc .out                         ; keep working
+.got:
+    mov [dos_dir], dx               ; A REFUSAL IS NOT FATAL: [dos_dir] and
+    mov [dos_vol], bl               ; [dos_vol] keep the link's own folder, and
+                                    ; the user sees the ordinary "it could not
+                                    ; be read" naming the program. THE VOLUME
+                                    ; GOES WITH THE FOLDER now: a qualified
+                                    ; link may name another drive, where
+                                    ; before this it could only ever mean the
+                                    ; one it was sitting on
+.out:
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- dos_lnk_walk - stand on volume BL and walk dos_pbuf from its ROOT ------
+; out: CF=0 with DX = the folder's cluster; CF=1 = no such volume, or a
+;      component is not there - and where the machine stands is then undefined,
+;      which is why the caller's second try stands again rather than walking on
+dos_lnk_walk:
+    push ax
+    push si
+    mov dl, bl
+    call dos_fh_stand               ; **THE MACHINE, NOT THE BOX** (SPEC.md
+    jc .no                          ; 96.48.2), exactly as dos_path_take does
+    call dos_walk_pbuf              ; ...and from the volume ROOT, which the
+    pop si                          ; stand above has just made [dos_pvol]
+    pop ax
+    ret
+.no:
+    pop si
+    pop ax
+    stc
+    ret
 %endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -8793,13 +9024,16 @@ dos_exitd:   db '000', 0
 
 dos_errs:
     dw dos_e_goto, dos_e_mem, dos_e_read, dos_e_big, dos_e_fsx, dos_e_exe
-    dw dos_e_badexe, dos_e_fit
+    dw dos_e_badexe, dos_e_fit, dos_e_hand
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_goto:  db 'Its folder could not be opened.', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_mem:   db 'Not enough memory.', 0
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_e_hand:  db 'A handover is already under way.', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_e_read:  db 'It could not be read.', 0
@@ -9790,6 +10024,13 @@ FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
 FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
+FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
+                                    ; AH=44h's bit 6 - "has NOT been written
+                                    ; through" - is now CLEAR (SPEC.md
+                                    ; 96.7.1.2). NOT FHF_MADE, which means a
+                                    ; window has been FLUSHED: a program that
+                                    ; writes eight bytes and asks has written,
+                                    ; and nothing has reached the disk
 
 DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
                                     ; program's name: "D:NNNNNNNN.EEE" is 14,

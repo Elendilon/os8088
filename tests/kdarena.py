@@ -259,16 +259,37 @@ def main():
         print("kdarena: 2/4 the block plus the window ends at or below "
               "[kd_top]")
 
-        # 3: the ladder ran to the bottom at the handover.
-        if rseg or runs:
-            fail("[dsk_rah_seg] is 0x%04X with %d runs after the handover: "
-                 "the cache is still live in memory the program owns. "
-                 "`kd_giveback` sheds a rung at a time until there is none "
-                 "left, because `dos_build_psp` hands a program EVERYTHING "
-                 "(SPEC.md 96.38.2) - so there is no width small enough to "
-                 "keep" % (rseg, runs))
-        print("kdarena: 3/4 the read-ahead was shed to nothing at the "
-              "handover")
+        # 3: the cache that was KEPT is ABOVE the ceiling, not in the program.
+        #
+        # **THIS CHECK USED TO SAY "SHED TO NOTHING" AND THAT CONTRACT IS
+        # OVER** (SPEC.md 96.44.11.4). `kd_giveback` stopped at zero because
+        # `dos_build_psp` hands a program EVERYTHING, so any width kept was a
+        # width kept INSIDE the program's block - until 96.44.11.3 closed the
+        # allocator and the cache could sit above `[kd_top]` with the window
+        # and the program below it. Then the design's own figure got measured
+        # and it is worth keeping: `KD_RAH_KEEP` rungs take Test Drive III's
+        # load from 75 seconds to 16, which beats the DOS this box imitates.
+        #
+        # So what is asserted is the SEPARATION rather than the absence, and
+        # the two failures below are different bugs: a ladder that overshoots
+        # its own stop, and a cache that is kept where the program can reach
+        # it. The old check would pass for neither and also fails for the
+        # shipped, correct machine, which is how it was found.
+        keep = dosmap.kd_const("KD_RAH_KEEP")
+        if runs > keep:
+            fail("the ladder stopped at %d runs and KD_RAH_KEEP is %d: "
+                 "`kd_giveback` gave back less than it owes the program "
+                 "(SPEC.md 96.44.11.4)" % (runs, keep))
+        if runs and rseg < top:
+            fail("[dsk_rah_seg] is 0x%04X with %d runs and [kd_top] is "
+                 "0x%04X - the kept cache is BELOW the ceiling, which is "
+                 "memory the program was told it owns. 96.44.11.4 keeps a "
+                 "width only because 96.44.11.3 put the cache ABOVE "
+                 "[kd_top]; below it, a program that touches its top pages "
+                 "corrupts the cache with nothing to report it"
+                 % (rseg, runs, top))
+        print("kdarena: 3/4 the read-ahead stopped at %d run(s) of %d, and "
+              "at 0x%04X it is above [kd_top] 0x%04X" % (runs, keep, rseg, top))
 
         # 4: ...and none of that was bought by giving the program LESS.
         #

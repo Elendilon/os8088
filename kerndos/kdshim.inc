@@ -207,7 +207,16 @@ fm_ldrv:      resw 1
 fm_lmok:      resb 1
 ld_pending:   resb 1
 mod_fp:       resw 1
-boot_cylrun:  resb 1
+; **A WORD, BECAUSE THE READER READS A WORD** (SPEC.md 96.44.14). In the
+; kernel this name is `dw 0` at 0060:0004, a word the LOADER writes after its
+; canary has proved the FDC crossed a head and came back right; here nothing
+; writes it at all, and 0 - track-bounded - is the only honest answer kern_dos
+; can give, having neither a loader nor a canary. `dsk_geom_check` asks
+; `cmp word [boot_cylrun], 0`, so a `resb 1` handed it this byte AND THE ONE
+; AFTER IT, which is `kd_top` - the bump allocator's ceiling, 0x9DC0 once the
+; read-ahead has been claimed. The word read 0xC000, the compare failed, and
+; kern_dos turned head crossing ON on every machine, uncanaried.
+boot_cylrun:  resw 1
 
 ; --- the strings nothing here shows -----------------------------------------
 ; Five messages the kernel's own UI puts on the glass when a mount goes wrong.

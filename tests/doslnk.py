@@ -23,6 +23,18 @@ one - so the row asserts BOTH halves of that decision:
      not that the bytes came back - it is that the arena the box claimed obeys
      the limit the link carried.  A setting that round-trips and is then
      ignored looks identical to one that works, from the file.
+  5  THE SECOND TRY, when the disk has moved (SPEC.md 96.21.2.1).
+     `WORKING_DIR` is written QUALIFIED now - `B:\BIN` - which is right until
+     the floppy turns up in a different drive, so the box tries the drive the
+     link NAMES and then the drive the link IS ON.  The row forges that: one
+     byte of a copy of the link is patched from `B` to `A`, and the copy is
+     put in the ROOT of the same floppy rather than beside the program.  So
+     try 1 walks `A:\BIN`, which is the system disk and has no BIN; try 2
+     walks `B:\BIN`, which does.  **THE PLACEMENT IS THE WHOLE TEST**: a link
+     sitting beside its program resolves whether or not the fallback exists,
+     because the folder it falls back to is the one it was already in.  From
+     the root, a box with no second try looks for DOSARGS.COM in `B:\` and
+     does not find it.
 
 The disk is a SCRATCH image because step 1 writes to it.
 """
@@ -34,6 +46,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
+import os88fat                                                 # noqa: E402
 import dosmap                                                  # noqa: E402
 import os88marty                                               # noqa: E402
 import os88mouse                                               # noqa: E402
@@ -48,6 +61,13 @@ SYS = "build/os8088-360.img"
 LNK = "build/doslnk360.img"
 WHERE, FOLDER = [], []
 FLUSHED = "build/doslnk-out.img"   # ...the guest's live copy, flushed out
+MOVED = "MOVED.LNK"                # step 5's forged copy, in the ROOT of B:
+WDIR = "B:\\BIN"                    # what WORKING_DIR must say: the program is
+                                   # at B:/BIN/DOSARGS.COM and the link is
+                                   # written fully qualified (SPEC.md 96.21.2.1)
+WDIR_OFF = 78                      # 76-byte header, then WORKING_DIR's 2-byte
+                                   # count: the drive letter is the first
+                                   # character of the first StringData
 
 # **AND IT IS RESOLVED ONCE, THROUGH os88build.at, BECAUSE THREE USES OF IT
 # DID NOT AGREE.** The flush wrote `os.path.abspath(FLUSHED)` - the checkout -
@@ -137,14 +157,18 @@ def dos_state(m, ui):
             w16(dm["dos_akb"]))
 
 
-def wait_ready(m, limit=120.0):
+def wait_ready(m, limit=120.0, why=None):
     end = time.time() + limit
     while time.time() < end:
         rows = m.screen() or []
         if any("READY" in r for r in rows):
             return "\n".join(r.rstrip() for r in rows)
         time.sleep(0.3)
-    fail("the program never reached READY")
+    # **`why` NAMES THE MECHANISM, because a program that never started looks
+    # the same from here whatever stopped it.** Step 5's own failure is a box
+    # that found no program to run, and "never reached READY" points at the
+    # program rather than at the folder it was looked for in.
+    fail(why or "the program never reached READY")
 
 
 def parse_lnk(b):
@@ -225,11 +249,31 @@ def main():
         # with the guest free-running - and the DOS box's region MOVES now, so
         # a segment taken before that call can be stale by the time it is
         # used. It read nine bytes of machine code out of `[dos_path]`.
+        # **AND THE VERB CONFIRMS ON THE WINDOW, WHICH THE ENTRY PROC REACHES
+        # FIRST.** `OSAPI_WM_CREATE` is a third of the way down `dos_entry`
+        # and `dos_path_make` is near its end, with `OSAPI_ARG_FILE` and
+        # `dos_lnk_open` in between - so `ui.path` returns, correctly, while
+        # the field it is about is still empty. Sampled once, this read a
+        # buffer that was already right and an `LN_LEN` that was not yet:
+        # `LN_LEN is 32518`, the same word a moment earlier. It went red once
+        # in a loaded lane and passes alone every time, which is the signature
+        # (docs/WRITING-TESTS.md 59, 60).
+        #
+        # BOTH FIELDS EVERY ROUND, and the segment with them: the box's region
+        # is movable (SPEC.md 66.6.1.2), so re-reading one of a pair against a
+        # base taken before the other is its own race.
         _dm = dosmap.package()
-        _ps = dosmap.instance(m)
-        _buf = m.read((_ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
-        _len = int.from_bytes(
-            m.read((_ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+
+        def _pathbox(mm):
+            ps = dosmap.instance(mm)
+            buf = mm.read((ps << 4) + _dm["dos_path"], 40).split(b"\0")[0]
+            ln = int.from_bytes(
+                mm.read((ps << 4) + _dm["dos_pln"] + 12, 2), "little")
+            return buf, ln
+
+        os88marty.until(m, lambda mm: _pathbox(mm)[1] == len(_pathbox(mm)[0]),
+                        "the entry proc to fill the path box", limit=60.0)
+        _buf, _len = _pathbox(m)
         if not _buf.upper().endswith(b"DOSARGS.COM"):
             fail("an association launch left [dos_path] = %r, and the entry "
                  "proc composes it from OSAPI_ARG_FILE (SPEC.md 96.32.3)"
@@ -331,6 +375,40 @@ def main():
              "(SPEC.md 96.36 - DOS_MEM_KEEP is 0 now, where the check box's "
              "ticked ON byte was 1, so the polarity is the other way up)"
              % (got["keep"], DOS_MEM_DUMP))
+    # **AND WORKING_DIR CARRIES THE DRIVE** (SPEC.md 96.21.2.1).
+    # OSAPI_FILE_PATH answers no drive letter by design (19.2.4), so the box
+    # wrote `\BIN` and the link resolved against whichever volume it happened
+    # to be READ from - right exactly as often as the shortcut and its program
+    # sit on one disk, and silently wrong otherwise.
+    if got["workdir"] != WDIR:
+        fail("WORKING_DIR is %r and the program is at B:/BIN/DOSARGS.COM - a "
+             "shortcut is written FULLY QUALIFIED (SPEC.md 96.21.2.1), so "
+             "this is %s" % (got["workdir"],
+                             "drive-less" if got["workdir"].startswith("\\")
+                             else "the wrong folder"))
+    if raw[WDIR_OFF:WDIR_OFF + len(WDIR)].decode("latin1") != WDIR:
+        fail("WORKING_DIR parses as %r but is not at byte %d - the forgery "
+             "below patches that byte and would silently edit something else"
+             % (got["workdir"], WDIR_OFF))
+    print("doslnk: WORKING_DIR is %r - qualified" % got["workdir"])
+
+    # --- the forged copy, for step 5 ---------------------------------------
+    # ONE BYTE, so every count and offset in the file is untouched: `B:\BIN`
+    # becomes `A:\BIN`, which is the system disk and has no BIN on it. And it
+    # goes in the ROOT rather than beside the program, which is what makes the
+    # fallback observable at all - see the docstring.
+    forged = bytearray(raw)
+    forged[WDIR_OFF] = ord("A")
+    tmp = os.path.join(os.path.dirname(FLUSHED_AT), "doslnk-moved.lnk")
+    with open(tmp, "wb") as f:
+        f.write(forged)
+    v = os88fat.Fat12(FLUSHED_AT)
+    if v.find(MOVED)[2] is not None:
+        v.delete(MOVED)
+    v.add(tmp, MOVED)
+    v.save()
+    print("doslnk: forged %s into the ROOT of B: - WORKING_DIR %r, a drive "
+          "that has no BIN" % (MOVED, "A:" + WDIR[2:]))
 
     # --- 3: os8088 reads its own back ---------------------------------------
     with os88ui.boot(SYS, apps=FLUSHED_AT,
@@ -342,6 +420,22 @@ def main():
         if not ui.path(where):
             fail("double-clicking the shortcut opened no window - the .LNK "
                  "association is dos.o88's third (SPEC.md 96.21)")
+        # --- 3a. ...AND THE CONSOLE SAYS WHICH DRIVE IT IS ON ---------------
+        # (SPEC.md 96.33.2.1) The prompt is the first line the box writes and
+        # the last thing a user reads to find out where they are, and
+        # `dos_con_start` wrote it BEFORE `OSAPI_ARG_FILE` and `dos_lnk_open`
+        # had said which drive that is - so a shortcut on B: opened `A:\>`.
+        # It self-corrected on every path that RAN something (`dos_con_ended`
+        # writes a fresh one), which is why the field found it on a path where
+        # nothing runs: arm 3, and Cancel at 96.42's question. Read BEFORE the
+        # program's own output, for exactly that reason.
+        want = "%s:\\>" % where[0]
+        first = con_prompt(m, ui)
+        if first != want:
+            fail("the console opened on %r and the shortcut is on %s: - the "
+                 "prompt names the drive DOS.O88 came off, not the one the "
+                 "box is standing on (SPEC.md 96.33.2.1)" % (first, where[0]))
+        print("doslnk: the console opened on %r" % first)
         out = wait_ready(m)
         print("doslnk: the shortcut ran:")
         for r in out.splitlines()[:8]:
@@ -381,8 +475,58 @@ def main():
                  % (akb, LIMIT))
         m.type_text("x")
 
+    # --- 5: THE SECOND TRY, when the disk has moved (SPEC.md 96.21.2.1) -----
+    # A fresh boot, because this is a second double-click from the desktop and
+    # a second box on the same screen would make `wait_ready` ambiguous about
+    # which console it is reading.
+    with os88ui.boot(SYS, apps=FLUSHED_AT,
+                     machine="os8088_5150_herc_gla") as ui:
+        m = ui.m
+        if not ui.path("B:/" + MOVED):
+            fail("double-clicking B:/%s opened no window" % MOVED)
+        out = wait_ready(m, why=(
+            "a shortcut naming A:\\BIN, sitting in the ROOT of B:, started no "
+            "program at all. The drive it NAMES is not there, so the second "
+            "try is the drive it IS ON - B: - with the same path (SPEC.md "
+            "96.21.2.1). Without that try the box keeps the link's own "
+            "folder, which is B:\\ here, and DOSARGS.COM is not in it"))
+        if field(out, "ARGS") != TYPED:
+            fail("the moved shortcut ran with ARGS %r and it carries %r"
+                 % (field(out, "ARGS"), TYPED))
+        if field(out, "MYPATH") != "B:\\BIN\\DOSARGS.COM":
+            fail("a shortcut naming A:\\BIN, sitting in the ROOT of B:, made "
+                 "the box become %r. The drive it NAMES is not there, so the "
+                 "second try is the drive it IS ON - B: - with the same path "
+                 "(SPEC.md 96.21.2.1). Without that try the box keeps the "
+                 "link's own folder, which is B:\\ here, and DOSARGS.COM is "
+                 "not in it" % field(out, "MYPATH"))
+        print("doslnk: the moved shortcut ran from %s - the second try found "
+              "it on the drive the link was on" % field(out, "MYPATH"))
+        m.type_text("x")
+
     print("doslnk: ok")
     return 0
+
+
+def con_prompt(m, ui):
+    """The FIRST prompt in the box's console, as `X:\\...>`.
+
+    `con_scr` is the 80x25 char/attr buffer the band renders (apps/os88con.inc),
+    so this reads the same cells the user does - a screenshot would need a
+    glyph reader and would be asserting the font. The prompt is the first row
+    that ends in `>`, the two above it being the shell's VER line and its hint.
+    """
+    dm = dosmap.package()
+    pseg = dosmap.instance(m)
+    raw = bytes(m.read((pseg << 4) + dm["con_scr"], dm["CON_SCRSZ"]))
+    cols = dm["CON_COLS"]
+    rows = [bytes(raw[i:i + 2 * cols:2]).decode("latin-1").rstrip()
+            for i in range(0, dm["CON_SCRSZ"], 2 * cols)]
+    for r in rows:
+        if r.endswith(">"):
+            return r
+    fail("the console has no prompt in it at all: %r"
+         % [r for r in rows if r][:6])
 
 
 def read_lnk(img):

@@ -19941,10 +19941,10 @@ sc_s_ovr:   db 'OVR', 0
 sc_s_sp4:   db '    ', 0
 sc_s_sp3:   db '   ', 0
 sc_s_about: db 'Scribe', 0
-sc_s_abou2: db 'A word processor for os8088', 0
+sc_s_abou2: db 'os8088 word processor', 0
 sc_s_abou3: db 'Forked from WORD (SPEC.md 86)', 0
 sc_s_ok:    db 'OK', 0
-sc_m_noclose: db 'Close refused - try again', 0
+sc_m_noclose: db 'Close refused, try again', 0
 
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) ---------------------------
 ; A word processor's frame, not a note pad's: 600x440 at the 640x480
@@ -20081,8 +20081,8 @@ sc_m_nopat:   db 'No search text', 0
 sc_m_repld:   db ' changes', 0       ; sc_saycnt's suffix: 'n changes' is the
                                      ; sweep's answer (SPEC.md 68.7)
 sc_m_noundo:  db 'Nothing to undo', 0
-sc_m_papfull: db 'Too many paragraph formats', 0
-sc_m_toobig:  db 'Document too complex to save', 0
+sc_m_papfull: db 'Too many formats', 0
+sc_m_toobig:  db 'Too complex to save', 0
 sc_m_noclip:  db 'The clipboard is empty', 0        ; ^c with nothing in it
 sc_m_replong: db 'Replacement too long', 0          ; ...and ^m/^c past
                                      ; SC_FRXMAX (SPEC.md 68.7)

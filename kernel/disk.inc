@@ -1022,6 +1022,13 @@ dsk_dpt_init_x:
     cld
     rep movsb
 .keep:
+%ifndef DPT_ROM                 ; DPTROM=1 LEAVES int 1Eh THE ROM'S (18.92.1):
+                                ; an AT-class BIOS swaps parameter tables per
+                                ; MEDIA, and owning the vector for ever stops
+                                ; it - docs/FIELD-NOTES.md 32 candidate 1. The
+                                ; copy above still happens, so `dsk_dpt` holds
+                                ; the machine's own bytes and dsk_xfer's EOT
+                                ; write lands somewhere harmless
     xor ax, ax
     mov ds, ax
     pushf
@@ -1029,6 +1036,7 @@ dsk_dpt_init_x:
     mov word [0x0078], dsk_dpt  ; them would hand the BIOS half an address
     mov word [0x007A], KERNEL_SEG
     popf
+%endif
     pop es
     pop ds
     pop di
@@ -1644,10 +1652,11 @@ dsk_vol_row_x:
 ;
 ; Called from kmain before anything touches a disk (SPEC.md 52.10.3).
 ;
-; A FLOPPY BOOT CHANGES NOTHING AT ALL: DL is 0 or 1, that is already a live
-; row whose unit matches, and [dsk_bootvol] is the index - so this stores the
-; byte that drv_mounted was hardcoding and returns. That is the common path
-; and it stays free.
+; A FLOPPY BOOT IS ALMOST NOTHING: for units 0 and 1 the unit IS the volume
+; index - a live row whose unit matches - so this stores the byte drv_mounted
+; was hardcoding and returns. It is not true of a unit above 1 and the arm
+; used to assume it was (SPEC.md 18.7.1.1), so the store is now behind a look
+; at the row it is about to name. Still the common path, still free.
 ;
 ; A HARD DISK BOOT claims the first free row for the partition, as DVK_BIOS -
 ; the transport really is the BIOS, which is the entire point: rung 0 answers
@@ -1688,9 +1697,40 @@ dsk_boot_from_x:
     push ax
     push bx
     push si
-    test dl, 0x80               ; a floppy boot: DL is already the volume
+    test dl, 0x80
     jnz .hard
+
+    ; --- A FLOPPY BOOT, AND DL IS A BIOS UNIT (SPEC.md 18.7.1.1) ------------
+    ; It is a volume index as well for units 0 and 1 and for nothing else:
+    ; row 2 is C:, reserved for the hard disk, and dsk_flop_add skips it, so
+    ; a third drive is unit 2 at volume 3 and `mov [dsk_bootvol], dl` named a
+    ; DVK_FREE row. `boot/boot.asm`'s range check passes 0..3 - a unit above
+    ; 3 is not a drive that sector can have come from and 2 and 3 are - so
+    ; the contract that arm was written against ("DL is 0 or 1") was never
+    ; enforced anywhere.
+    ;
+    ; So NAME A ROW THAT EXISTS. Rows 0 and 1 are live from the initialiser
+    ; here and every other one is free, so this asks exactly "is DL a volume
+    ; index too" - written as that question rather than as `cmp dl, 1`, which
+    ; would be the same answer for a reason that could go stale.
+    mov bl, dl
+    xor bh, bh
+    add bx, bx                  ; DV_SIZE = 16: the index to a row, four
+    add bx, bx                  ; doublings rather than `shl bx, cl`, because
+    add bx, bx                  ; CX is the caller's partition base and this
+    add bx, bx                  ; routine preserves every register it is given
+    cmp bx, DVOL_MAX*DV_SIZE
+    jae .nota                   ; past the table entirely
+    cmp byte [bx+dsk_vtab+DV_KIND], DVK_FREE
+    je .nota                    ; ...or a row nothing has claimed
     mov [dsk_bootvol], dl
+    jmp short .out
+.nota:
+    ; **BOOTING FROM AN EXTERNAL FLOPPY IS NOT SUPPORTED** (18.7.1.1): getting
+    ; it right means claiming the drive's row here, which is desk_init's job
+    ; three phases later. A: is what the out-of-range arm already chose and it
+    ; names a volume that is there.
+    mov byte [dsk_bootvol], 0
     jmp short .out
 .hard:
     mov si, bx                  ; the base is banked BEFORE BX becomes the row
@@ -1888,9 +1928,11 @@ dsk_geom_pick:
 ; SPEC.md 52.10.3's boot partition at C: on a machine that booted from a hard
 ; disk: dsk_boot_from runs first and has already taken row 2 there, so the
 ; externals land at D: and E: and the volume the machine booted from keeps the
-; letter dsk_bootltr has already stamped into three messages. On a floppy
-; machine nothing has taken a row yet, so they are C: and D: - which is what
-; DOS 4 and earlier called them, and what the drive-select lines mean.
+; letter dsk_bootltr has already stamped into three messages. ON A FLOPPY
+; MACHINE THEY ARE D: AND E: TOO, not the C: and D: this paragraph used to
+; claim: row 2 is the hard disk's whether or not one turns up (SPEC.md
+; 18.7.1) and the scan below skips it, which is the departure from DOS 4 and
+; earlier that section pays on purpose.
 ; -----------------------------------------------------------------------------
 %ifndef KD_BUILD                    ; **THE BOOT OVERLAY IS NOT IN kern_dos**
                                     ; (SPEC.md 96.43.2): there is no kmain to

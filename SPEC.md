@@ -27945,6 +27945,57 @@ happened) but it is a second mechanism touching `[disk_drive]` and the
 per-volume arrays `dsk_fatww` and `dsk_bpbv`, against six bytes and a skipped
 row for the version above.
 
+##### 18.7.1.1 …and a BIOS UNIT is not a volume index, which the boot arm assumed
+
+`dsk_boot_from`'s floppy arm was one store — `mov [dsk_bootvol], dl` — under a
+comment saying *"A FLOPPY BOOT CHANGES NOTHING AT ALL: DL is 0 or 1, that is
+already a live row whose unit matches"*. The first clause is the contract and
+nothing enforced it: `boot/boot.asm`'s range check (§2.9.11) passes **0 to 3**,
+because a unit above 3 is not a drive that sector can have come from and 2 and
+3 are. So a boot from a third or fourth floppy stored a **unit** where a
+**volume index** belongs.
+
+The two are the same number for units 0 and 1 and for nothing else, and this
+very section says why: row 2 is C:, reserved for the hard disk whether or not
+one turns up, and `dsk_flop_add` skips it — so a three-drive machine reads
+**A, B, D** and unit 2 is volume **3**. `[dsk_bootvol] = 2` then names a row
+whose `DV_KIND` is `DVK_FREE`.
+
+**What that costs is not small, and none of it says anything.** `mod_need` goes
+to `[dsk_bootvol]` and only there (§2.8), so `CTRL.DRV`, `HIBER.DRV`,
+`FORMAT.DRV` and `CLONE.DRV` are all looked for on a volume that does not
+exist; so are `SYSTEM.CFG`, `ASSOC.DAT` and `SYSTEM/FONTS`; `drv_mounted`
+leaves `[disk_drive]` naming the free row with `[dsk_mntok]` clear; and
+`dsk_bootltr` stamps **C:** into the three messages that tell the user which
+disk the system files are on.
+
+So the arm **checks the row it is about to name**: a live row whose index is
+DL, or 0. At this point in `kmain` rows 0 and 1 are live from the initialiser
+and every other row is free, so the test answers exactly *"is DL also a volume
+index"* — and it is written as that question rather than as `cmp dl, 1`, so it
+stays right if the initialiser ever changes.
+
+**Booting from an external floppy is therefore NOT supported, and the fallback
+is deliberate.** Getting it right means claiming the boot drive's row here,
+which is `desk_init`'s job three phases later (the third convention above), and
+then teaching `dsk_flop_add` not to add the same unit twice — a change to the
+lettering policy and its ordering, for a machine class that has never been
+reported. A: is what the old out-of-range arm already chose, and it names a
+volume that exists.
+
+**HOW IT WAS FOUND, which is worth writing down because the machine was
+fiction.** Chasing a field report of Prince of Persia asking for its disk, a
+MartyPC machine was built with three floppies and an XT-IDE disk to match the
+reporter's 86Box. It failed — and it failed for its own reason: with an inline
+`[machine.fdc]` of three drives beside an inline `[machine.hdc]`, **that
+emulator serves the `fd:0` image on unit 2**, so GLaBIOS correctly booted unit
+2 and correctly handed the boot sector `DL = 2`. Measured at `0000:7C00` on
+four machines: `DL` is **02** there and **00** with two floppies, with three
+floppies and no disk, and with two floppies and the disk. The config models no
+real machine — but the kernel's answer to a legitimate `DL = 2` was wrong on
+its own terms, and `tests/dljunk.py` now asserts it on a plain two-drive
+machine by poking the register rather than by owning a third drive.
+
 #### 18.7.2 The medium and the transport are two questions
 
 `DV_KIND` is the **transport** — `DVK_BIOS` means int 13h, `DVK_DRV` means a
@@ -29027,6 +29078,58 @@ calls** with the batching and 12 in 12 with the knob.
 **Field-confirmed.** Reported fixed on PCem — a real BIOS and period timing —
 with the batching on. `FLOPPY1=1` remains the bracket for the next time
 something in this area is in doubt.
+
+#### 18.92.1 …and owning it FOR EVER is a bet about the BIOS, which `DPTROM=1` takes the other side of
+
+§18.92 takes the vector for **one byte** and then never gives it back. That is
+exactly right on an XT, where the ROM has ONE diskette parameter table and no
+media to choose between — and it is a claim about every other machine, which
+nothing in this tree has ever checked.
+
+**An AT-class BIOS chooses its parameters from the MEDIA it has determined**,
+and the media is per drive and changes when a disk does. Owning `0000:0078`
+from stage 1 to power-off freezes whatever table was current at the moment
+the boot sector ran, which is the BOOT drive's — so every other drive is then
+driven with the boot media's step rate, head settle, motor timing and gap. On
+a machine whose drives all take the same media that costs nothing and has cost
+nothing for years. On one where they do not, it is the difference between the
+two drives.
+
+**docs/FIELD-NOTES.md 32 candidate 1 wrote this down before there was a
+symptom for it**, about a WRITE that damaged a disk's ID address marks, and
+asked for exactly one thing: *"which drive, and is the BIOS AT-class? A
+genuine 360KB drive on an XT BIOS nearly rules it out."*
+
+**The field answered it, from the READ side.** Prince of Persia, launched out
+of `B:\PRINCE\` on 720KB media, put its own retryable prompt up — *"Please
+insert Prince of Persia Disk 1 into Drive B:"*, which is what that program
+does when an open or a read of one of its data files fails while it is
+standing in the right place. The reporter then ran **the same disks, the same
+three-floppy-plus-fixed-disk layout and the same program on an IBM 5150**, and
+it worked. The difference is the DRIVE: the 286's B: is a 1.44MB drive holding
+720KB media and the 5150's is a 720KB drive.
+
+**No emulator here can show it**, which note 32 also predicted — 86Box, QEMU
+and MartyPC present a floppy as an array of sectors, so parameters that are
+wrong for the media still land in the right slot. Measured anyway, to make the
+negative result explicit rather than assumed: MartyPC offers no 1.44MB drive
+type at all, and under QEMU with `isa-fdc.fdtypeB=144` and a 720KB image the
+whole 126KB of `PRINCE.EXE` reads off B: without a single retry.
+
+So the A/B is a knob and the machine that answers it is the reporter's.
+**`DPTROM=1` leaves the vector pointing at the ROM's table in all three places
+that take it** — stage 1, stage 2 and `dsk_dpt_init` — so a BIOS that swaps
+tables per media keeps doing so. `dsk_xfer`'s per-transfer EOT write then
+lands in a copy nobody reads, which is the whole reason this is a DIAGNOSTIC
+and not an arm: on a ROM whose EOT really is 8 the knob build reads nine
+sectors where the table allows eight, and that is §18.92's own defect put
+back. Point it at an AT-class machine and nowhere else.
+
+**What it cannot tell us on its own** is *which* of the eleven bytes matters,
+and there is a cheaper question to ask first: put the same program on **1.44MB
+media in the same 1.44MB drive**. If it runs there, the mismatch is the
+variable and this section is the cause; if it still fails, the parameters are
+not it and the BIOS is.
 
 ### 18.93 The boot sector batches too, and it is the largest single win
 
@@ -78257,6 +78360,84 @@ for `[menu_blast]`, which needed none while it was assigned beside
 the routine rather than leaving it as a rule callers have to keep, which is the
 same argument `menu_bpadc`'s own clamp makes.
 
+### 59.10 Twenty-one messages did not fit, and the claim that they did was not checked
+
+`toast_show` copies at most `TOAST_MAX` = 24 characters and drops the rest
+**silently**. That number is not a budget and cannot be traded: §59.8's field
+is 25 cells on every screen this runs on, §59.9.2's gap takes one of them, and
+moving the toast anywhere wider puts it back where a window can cover it —
+which is the arrangement §59 exists to have left behind. So the rule is the
+one `kernel/toast.inc` already states: **every fixed message is written to
+fit.**
+
+It said something stronger than that, though — *"every message in the tree was
+revised to fit rather than left to truncate"* — and that was a claim about a
+tree, made once, held by nothing. A bug report off an 86Box 286 found it: a
+hibernation file written by an 8088 build, and the toast reading
+
+    Hibernation file is from
+
+which is not a truncated sentence, it is a different one. The string is
+`Hibernation file is from another build` and the cut lands exactly on the word
+that carries the meaning.
+
+**The sweep found twenty-one, in six files**, and ten of them are
+`kernel/hiber.inc` — a MODULE, which is why: the revision happened when the
+toast moved from the menus segment's 40 columns to the clock's 24, and
+whatever walked the tree then did not walk `HIBER.DRV`.
+
+The six DOS-handoff refusals are the sharpest of them, because the comment
+directly above them makes the argument that the truncation destroys:
+
+> A REFUSAL SAYS WHICH STEP … `kern_dos could not be reached` is true of all
+> six and useful for none
+
+…and all six arrived as `The handoff record is not one`, `That disk is not one
+the RO`, `No room to list where kern_`. Six distinguishable reasons, written
+deliberately, delivered as six equally useless ones.
+
+**What was NOT wrong is the design.** A message that does not fit 24 columns
+is a message the bar cannot carry, and the answer is to write a shorter one,
+not to widen the strip. All twenty-one were revised; the longest now is 24 and
+most are around 21. Two shapes were tempting and refused: letting a long
+message spill into the menus segment (§59.8 removed that on purpose — it took
+the frontmost application's menu titles off the bar, which reads as the
+application breaking), and ending a cut message with an ellipsis (it tells the
+user something is missing and still does not tell them what).
+
+#### 59.10.1 …and the rule is a gate now, not a paragraph
+
+`tests/unit/t_toast.py` (fast tier, ~1 s, no emulator) reads `TOAST_MAX` out
+of `kernel/toast.inc` — never a copy of it — and checks every fixed string a
+toasting procedure can reach.
+
+**It over-approximates, deliberately.** A toast argument cannot be resolved
+exactly from source: it arrives in `SI`, `AX` or `BX`, through wrappers
+(`hbm_toast`, `wd_saymsg` and six more), through shared `jmp` tails — which is
+how the first draft of the checker missed `hbm_s_stale`, the one string the
+report was actually about — and sometimes composed into a buffer at run time.
+So it takes *every* `db` string that *any* procedure which toasts loads into a
+register, plus every string a `dw` table such a procedure loads names, walking
+callers to a **fixed point**. That cannot miss a fixed toast string, which is
+the direction that matters.
+
+What it produces instead is false positives — a routine that draws an About
+box *and* toasts one line of it — and `tests/toastlong.txt` is where those go,
+one line each, with the routine that draws the string and what it draws it
+with. **It is a ratchet and it starts at two.**
+
+The closure is tight enough for that to be affordable: **249 of the tree's
+13,158 top-level labels, 1.9%**. It is not quietly converging on "every
+procedure in the program", and if it ever starts to, the registry is what will
+say so by filling up with strings nobody toasts.
+
+**The SDK never stated the cap at all**, which is the root cause on the
+package side and why `apps/audio` shipped `Sent to the running Audio Player`.
+`OSAPI_TOAST`'s entry in `apps/os88api.inc` says it now, with the reason it is
+geometry, and with the one piece of advice that follows from it: a name the
+**user** chose may be any length and is what the truncation is *for*, so put
+it **last** — what survives is then your own words.
+
 ## 60. cpudet.inc — the CPU tier
 
 **Which CPU is this?** Two published bytes and two routines, and that is
@@ -122343,6 +122524,55 @@ Manager, which cannot run inside a bracket.
 respects its PSP allocation is contained by arithmetic and one that scribbles
 at a hardcoded address is not, exactly as under DOS.
 
+#### 96.3.1 The `.COM` stack word is a `.COM`'s, and it was zeroing two bytes of every large `.EXE`
+
+DOS gives a `.COM` `SP = FFFEh` — the top of its own 64KB, or the top of the
+block when the block is smaller — and pushes a zero word there, so that a
+program ending in a bare `ret` lands on `PSP:0000` and takes the `INT 20h`
+door. An `.EXE` gets none of that: its `SS:SP` comes out of its header,
+relocated with everything else, and DOS writes nothing.
+
+`dos_psp_make` did it for both kinds. For an `.EXE` whose block is at least
+1000h paragraphs the word goes to `PSP:FFFC`, which is not a stack top — it is
+**exactly 64KB into the program's own image**. So every `.EXE` larger than that
+had two bytes of itself replaced with zeros at load time, silently, before its
+first instruction ran.
+
+What it cost is worth writing down, because the distance between the cause and
+the symptom is the whole point. Test Drive III is 137,845 bytes. The word
+landed inside a routine, turning
+
+```
+    88 3e 5e b8     mov [0B85Eh], bh        a0 82 b8   mov al, [0B882h]
+```
+
+into
+
+```
+    88 3e 5e 00     mov [0005Eh], bh        00 82 b8 0a  add [bp+si+0AB8h], al
+```
+
+— two bytes shorter, so **every instruction boundary after it moved**. Three
+instructions later the CPU met `C0`, which on an 8086 is an undocumented alias
+for `C2` (`RET imm16`): it popped `0008` as a return address and added `2274h`
+to `SP`, putting the stack 63KB from where it belonged, in the middle of the
+program's data. The program then ran on garbage — a wild `CS`, a stack inside
+the interrupt vector table, and finally an all-zero IVT as it pushed over it.
+
+None of that is visible from this side. The `INT 21h` conversation is identical
+to a real IBM DOS 3.30's, call for call, for **two minutes** — because the
+corrupted routine is only reached when the game leaves its intro. The field
+report was "it freezes at the menu".
+
+It was found by diffing our unpacked memory against the same program's under a
+real DOS (`docs/DOS-DEBUGGING.md`): 170KB of image, 86 bytes different once the
+load-segment delta is cancelled, and of those the two that mattered. The rest
+of the hunt is a record of what it was NOT: the loader is byte-perfect
+(137,333 of 137,333 against the file at `kd_giveback`), the block size is not
+it (`KD_RAH_KEEP=0` hands the program 603,136 bytes against DOS's 604,896 and
+the two bytes come out identically wrong), and the entry registers are not it
+(poking DOS's `BX`/`CX`/`SI`/`DI`/`BP` in at the entry point changes nothing).
+
 ### 96.4 The back end — every kernel call goes through a table
 
 **The navigation is `OSAPI_FILE_GOTO_QM` and never `_Q`.** `GOTO_Q` moves the
@@ -122651,6 +122881,96 @@ The third row is a separate, smaller gap and is not fixed here: bit 6 of the
 this box has no per-handle "has been written" bit to answer it from. It is
 recorded rather than guessed at, because the honest answer needs a flag that
 does not exist yet.
+
+#### 96.7.1.2 ...and then the whole surface was SWEPT, one binary on both
+
+§96.7.1 made the register argument and applied it to three registers;
+§96.7.1.1 measured a fourth and found it destroyed on 37 calls of 37. Both
+findings came out of a *program* — Prince of Persia, Test Drive III — which
+means both were found because something visibly broke. `BX` and `CX` had never
+been measured at all, and the question *"which register does the next one
+break?"* has no answer that reading the code reliably gives: §96.7.1's own
+lesson is that a handler can look correct and forget.
+
+So `tests/dostrap/regs.asm` asks all of them at once, and it is the
+`dosref.asm` shape (docs/DOS-DEBUGGING.md): **one binary, run under this box
+and under a real IBM DOS 3.30, printing the same table.** Every register the
+call does not need goes in carrying a sentinel, the ones it does need carry
+real arguments, and the whole set is pushed *the instruction after the `int`* —
+before anything else can touch it, and in particular before the `AH=02h` that
+prints the answer, which is itself one of the calls under test. The mask is
+printed raw and judged nowhere inside the program:
+
+    B C D S I P E G   =  BX CX DX SI DI BP ES DS
+
+A change is not a defect and the probe does not claim it is — five functions
+answer in `DX`, `AH=30h` in `BX` and `CX`, `AH=2Fh` and `AH=35h` in `ES:BX`.
+**The finding is the diff between the two columns**, and `CF` rides every row
+because a call that fails on one machine and succeeds on the other has a
+different set of outputs, so a mask compared without it is comparing two
+different questions.
+
+**45 calls, and the surface is nearly all of it**: every `INT 21h` function
+this box dispatches except the four that cannot be asked this way — `AH=4Bh`
+needs a child (`dosexec` is its gate), `AH=01h`/`07h`/`08h` BLOCK on a
+keystroke, and `AH=4Ch`/`00h` do not return. The memory trio (`48h`, `49h`,
+`4Ah`) is deliberately out too: a `.COM` owns all of memory under a real DOS,
+so what that comparison measures is the two memory models rather than the
+registers (`dosmem` and `dosarena` are its gates).
+
+**41 of the 45 rows agree to the character.** That is the headline and it is
+worth stating plainly, because the expectation going in was the opposite:
+`BX` and `CX` are given back everywhere they should be, and the per-handler
+discipline §96.7.1 distrusted is in fact holding across the whole surface. Three
+findings came out of the four rows that differ.
+
+##### Finding 1 — `AH=47h` eats `CX`, and gives back the length of our path buffer
+
+`.getcwd` sets `CX = DOS_PBUF` for `dos_be_path`'s buffer length and never
+puts it back. `AH=47h` has no `CX` output at all, so a program that kept a
+count in `CX` across *"where am I standing"* got 132 back. Two rows catch it —
+from the root and from a subdirectory — and IBM DOS 3.30, asked by the same
+binary, gives `CX` back on both.
+
+**It is fixed in the handler and not at the gate, and that is a decision the
+sweep is what licenses.** Banking `CX` and `BX` at the gate the way §96.7.1.1
+banked `DX` costs ~60 resident bytes, and — the part that matters — it turns
+eleven handlers that currently answer in `BX` or `CX` into eleven handlers that
+must instead write the banked slot. Each of those is exactly as forgettable as
+a `push`, and its failure is *worse*: a stale value returned as an answer,
+rather than a scratch register clobbered. §96.7.1 preferred the gate because
+nothing would notice a handler forgetting. **Something notices now**, and it
+notices both mistakes rather than one.
+
+##### Finding 2 — the device word, which §96.7.1.1 recorded and could not answer
+
+`AH=44h AL=00h` answered `0001h` where DOS answers `0041h`, and that row was
+left open for want of a per-handle flag. `FH_FLAGS` had a spare bit.
+`FHF_WROTE` is set where `AH=40h` ACCEPTS a write — not where one succeeds,
+because DOS clears bit 6 for a `CX=0` truncate too (§96.11.6.2), which moves
+no bytes — and bit 6 is its complement, *this handle has not been written
+through*. Measured on the same binary, three readings that a single one could
+not have distinguished: **`0041h` freshly opened, `0041h` freshly CREATED,
+`0001h` once written.**
+
+**And the drive bits were wrong in a way no same-drive test could show.** The
+handler read `[dos_vol]` — where the *program* is standing — where bits 0..5
+are the drive the *file* is on. They are the same number until a program opens
+`B:NAME` from A:, so the probe now does exactly that as its last five rows:
+select A:, open `B:REGS.COM` by name, ask. IBM DOS 3.30 answers **`0041h`** —
+the file's drive, with the machine on A:. It reads `[si+FH_VOL]` now, which is
+the field §96.6.2 added for precisely this confusion one layer down.
+
+##### Finding 3 — `AH=57h` is not implemented, and is not implemented here either
+
+DOS answers `CX` = time, `DX` = date for an open handle; this box falls to the
+invalid-function arm and answers `CF=1`, `AX=0001h`. It is **recorded rather
+than guessed at**, which is §96.7.1.1's own treatment of the device word one
+cycle earlier, and for a reason that is a fact about a different layer:
+`OSAPI_FILE_FIND`'s 24-byte record (§19.7.1) **carries no timestamp**, so
+answering `AH=57h` is a published kernel ABI change and not a DOS-box change.
+The probe row stays, red against the reference, as the gate's own record that
+the gap is known and measured rather than unnoticed.
 
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
@@ -123955,6 +124275,39 @@ thing the DOS default would buy is nothing: `A>` is what DOS shows when
 `AUTOEXEC.BAT` has not run, and every machine this box runs on is one where
 that line would have run.
 
+###### 96.33.2.1 …and it is written where the drive is SETTLED, not at `dos_con_start`
+
+The paragraph above ends *"`[dos_vol]` is zero out of bss and zero is drive
+A:"*, and the same trap was still live one step further along. `dos_con_start`
+asked `OSAPI_FILE_HERE`, stored the answer and printed the prompt — and it runs
+**before** `dos_entry`'s `OSAPI_ARG_FILE` branch, which overwrites
+`[dos_vol]`/`[dos_dir]` from the document, and before `dos_lnk_open`, which can
+overwrite them again with a shortcut's target. So a box opened on a document
+printed the drive its own `DOS.O88` came off, and that is the document's drive
+only by luck.
+
+It self-corrected on every path that ran anything, because `dos_con_ended`
+writes a fresh prompt when the program stops — which is why it took a path
+where **nothing runs** to show it. Reported from the field: a `.LNK` on B:,
+arm 3, and Cancel at §96.42's question. `dos_wholedone` records the refusal
+and returns with `[dos_state]` still `DST_READY` and nothing to undo, which is
+correct, and left `A:\>` on the glass over a box standing on B:. Typing `DIR`
+there listed B: — the *prompt* was the only thing that was wrong, which is the
+worst shape for this particular defect: the console is the one place a user
+looks to find out where they are.
+
+`dos_con_start` opens the console and says its `VER` line and its hint;
+`dos_entry` writes the prompt at `.ok`, where the empty door and the document
+door converge and `[dos_vol]` is settled either way. Before the `clc`, because
+the prompt spends the flags and the CF at that label is the loader's.
+
+The **folder** does not follow the document — the paragraph above is why, and a
+shortcut to `B:\BIN\DOSARGS.COM` still opens `B:\>`. What was wrong was the
+drive alone.
+
+`tests/doslnk.py` step 3 is the gate: it already opens a `.LNK` on B: in a
+fresh instance, so the assertion is the console's first prompt.
+
 ##### 96.33.12 The dirty bitmap is per ROW, and a text screen wants a CELL
 
 Asked from the field, about the full-screen bracket on CGA: *"writing 80 chars
@@ -124708,6 +125061,38 @@ The digits come from `dos_mem_num`, whose padding is LEADING BLANKS because
 §96.25's two figures stack and `00419` reads as a different quantity. A log
 line is one line, so `dos_con_arena` steps over them rather than the box
 carrying a second formatter.
+
+##### 96.33.20 The log line stands on its own, and names the program in full
+
+The console is a LOG, so the line about a program that has stopped is written
+where the cursor happens to be — and for anything that did not come from the
+console, the cursor is sitting immediately after a prompt nobody has typed
+into. The result was
+
+```
+A:\>PRINCE.EXE: Not enough memory.
+B:\>
+```
+
+— the sentence glued to the prompt above it, and the program named as a bare
+`PRINCE.EXE` when the box's own path field said `B:\PRINCE.EXE` and the launch
+had just walked to another drive to find it.
+
+Both halves are fixed at `dos_con_ended`, and both have a trap in them.
+
+**The newline is decided by the COLUMN, not by `[dos_fromcon]`.** A typed
+command has already echoed its own CRLF, so an unconditional one gives it a
+blank line; a Run click, a `.LNK` or an opened document has echoed nothing.
+`[con_cx]` is the only thing that knows which happened, and it is already
+maintained for the cursor.
+
+**The name is `[dos_path]`**, which is what §96.33.10 fills on both launch
+doors and what Save Shortcut writes — so the log says the same thing the path
+box says. `dos_path_make` leaves the bare name there when it cannot resolve a
+path, so the fallback in the printer is only for a box that has never launched
+anything at all. The `Bad command or file name` arm keeps the bare name on
+purpose: that line is about what the user TYPED, and a path would be an
+invention.
 
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
@@ -126106,7 +126491,7 @@ recognisable, and because every field needed already has a home:
 
 | what | where it goes |
 |---|---|
-| the folder | `WORKING_DIR` |
+| the folder | `WORKING_DIR`, written **fully qualified** — `B:\PRINCE` (§96.21.2.1) |
 | the program | `RELATIVE_PATH`, written `.\NAME.EXT` — valid Windows spelling *and* parseable here |
 | the arguments | `COMMAND_LINE_ARGUMENTS` |
 | the environment | an `ExtraData` block under a signature of our own |
@@ -126155,6 +126540,67 @@ It is written by **Save Shortcut**, through the kernel's Standard File dialog
 in save mode (§38), defaulting to the program's own name with `.LNK` on it.
 The dialog refusing — one is already up — needs no report: the user pressed a
 button and nothing happened, which is what a busy dialog looks like.
+
+##### 96.21.2.1 Fully qualified, and then tried a SECOND time on the link's own drive
+
+`WORKING_DIR` was written as `OSAPI_FILE_PATH` answers it, and that slot
+**carries no drive letter** by design (§19.2.4: `OSAPI_FILE_HERE` already
+answered that question). So a shortcut said `\PRINCE` and resolved against
+whichever volume the `.LNK` happened to be read from — which is right exactly
+as often as the shortcut and its program sit on the same disk, and silently
+wrong the rest of the time. A link saved beside a program on B: and then
+double-clicked on C: walked `C:\PRINCE`.
+
+**So it is written qualified**: the box's own volume letter in front of the
+path, `B:\PRINCE`. With `RELATIVE_PATH` still `.\NAME.EXT` the pair composes
+the whole target, which is what "fully qualified" means in this format — the
+drive belongs on the directory and not on the relative path, and that keeps
+the `.\` spelling Windows wants (§96.21).
+
+**And it is tried TWICE.** Media moves. A disk written in B: turns up in A:
+next week, and a shortcut that names a drive is a shortcut that breaks when it
+does — which is the whole reason the drive-less form existed. So:
+
+1. **the drive the shortcut NAMES.** `dos_fh_stand` on it and walk;
+2. **and failing that, the drive the shortcut IS ON** — `[dos_vol]`, the
+   volume the `.LNK` itself was read from — with the same path.
+
+The second try is the old behaviour exactly, so a link written before this
+still resolves: it carries no drive, try 1 *is* try 2, and the second is
+skipped rather than repeated.
+
+**What that fixes and what it deliberately does not.** It fixes the two cases
+worth fixing — the shortcut and its program on one disk, wherever that disk is
+plugged in; and a shortcut naming another drive that is still there. It does
+**not** fix a shortcut on C: naming a program on B: after the B: disk has
+moved to A:, and nothing short of **hunting every drive** would — which this
+box will not do: a machine may have eight volumes, a hunt is a mount each, and
+the one it finds first is not necessarily the one the user meant. A wrong
+program launched confidently is worse than a refusal that names the path.
+
+**Writing it qualified needed one fix underneath.** `OSAPI_FILE_PATH` answers
+for where the **machine** is standing (§96.48), not for the pair the box holds
+in `[dos_vol]`/`[dos_dir]` — and a program that has called `AH=3Bh` or `AH=0Eh`
+has moved it. `dos_sav_go` already builds the link *before* the Save dialog
+opens so the dialog's own navigation cannot reach this; the program is the
+other mover, and it was never covered. Un-qualified that was a wrong folder;
+qualified it would be a wrong folder under a confident drive letter. So
+`dos_lnk_wdir` opens with the same `dos_be_goto` that `dos_path_make` does.
+
+**And reading it back costs six bytes rather than a core entry.** The walk on
+the other side is `dos_walk_pbuf`, which is on `doscents.inc`'s published list
+(§96.44.5) and takes no pointer — it reads `dos_pbuf` itself. `dos_walk_at`,
+the one that takes SI, is not on that list. Appending it would grow the core
+ABI permanently (the list's rule is *append, never insert*) to save a
+six-byte copy, so the drive prefix is parsed off the front and the rest of the
+path shifted down two inside `dos_pbuf` instead. A link written before this
+carries no prefix, never reaches the shift, and walks identical code.
+
+**The volume is committed with the folder.** `dos_lnk_cd` set `[dos_dir]`
+alone, which was sufficient while the link could only ever mean the drive it
+was on; a qualified link may name another, so the try that won writes
+`[dos_vol]` too. A refusal writes neither, and the user gets the ordinary "it
+could not be read" naming the program — §96.21.1's rule, unchanged.
 
 #### 96.21.3 `os88line_resync` — the buffer the field already owns
 
@@ -128298,6 +128744,57 @@ at the entry proc holding the launched file's name in `KERNEL_SEG`, and
 navigation has moved it. A box that asked later would be asking about
 wherever the user had gone.
 
+#### 96.40.6 A post that outlives its spender, and the sentence that blamed memory
+
+Arm 3 does **no sizing at all**. It tears the kernel out and hands the program
+what a DOS would — so the one thing it cannot fail for is memory, and for a
+whole class of session it reported exactly that. On a machine showing 425K
+free and 414K in its largest run, a 126,304-byte `PRINCE.EXE` came back
+`PRINCE.EXE: Not enough memory.`, every time, for the rest of the session.
+
+`osapi_dos_handoff_x` refuses twice and neither reason is a quantity: a null
+segment, and **a post that is already standing** — one handover at a time,
+because two would be two machines' worth of parameters and one teardown. The
+box turned that into `DER_MEM`, which is a sentence about the machine when the
+truth is a sentence about the box.
+
+**The latch was left standing by a hibernation resume, and that is not an
+oversight in one place — it is the shape of the feature.** §96.40's handoff
+writes an image on the way out so that the machine has somewhere to come back
+to, and it takes that picture with `[hb_dosseg]` **deliberately live**: the
+restored kernel has to know whose record to put the exit code in. `hbm_wake`
+then spent it — but only on the arm where a DOS program really did come back,
+`HS_DOSCODE` being something other than `KDH_NOCODE`. Resume that same image
+any other way — a cold boot and Resume — and the latch came back with it and
+nothing ever spent it. Arm 3 was dead for the whole restored session, and the
+Memory page went on offering it, because what greys the arm is whether this
+build carries `kern_dos` (§96.36.1) and that was still true.
+
+So the latch is spent on **every** wake, before the code is even looked at.
+That is a move rather than an addition: the store that was inside the branch
+is now in front of it.
+
+There is a second hole of the same kind one layer out. `hbf_perform` is the
+resident front that loads `HIBER.DRV` to spend a post, and its refusal path —
+the module could not be read — returned without withdrawing anything, while
+every arm of `hbm_dosrun` inside the module clears the latch properly. `ui_task`
+has already taken the queue byte by then, so the post is gone and the latch is
+not. It is withdrawn there too, unconditionally: `[hb_dosseg]` is zero unless a
+DOS handoff is what was posted, and `[ui_rebootq]` holds one post at a time.
+
+The rule the two share is worth stating once: **a latch that names a pending
+post must be cleared by every path that consumes, abandons or outlives that
+post** — and an image of the whole of memory is a way of outliving one.
+
+`tests/hibernate.py` gates it, and the A/B is measured on the row rather than
+argued: a sentinel is poked into `[hb_dosseg]` before the picture is taken —
+which is exactly what the handoff leaves there, for one store instead of a
+second machine — and after the resume it reads `0000` with the fix in and
+`1234`, intact, without it. `[hb_doscode]` reads `KDH_NOCODE` in both arms,
+which is the whole reason the old code walked past the latch, so the row
+asserts that too: without it a future change could make the check pass by
+accident, by delivering a code that was never there.
+
 ### 96.40.1 What the kernel does with the post
 
 `hbm_dosrun` is the spender, in `HIBER.DRV` beside the hibernate it shares its
@@ -128469,6 +128966,102 @@ row would be asserting nothing. The program is on a floppy there on purpose —
 `kern_dos` mounts by volume index and has no volume table, so a fixed disk is a
 geometry it has not got (docs/plans/KERN-DOS-PLAN.md §12 question 5), while the
 return reads the part off the fixed disk through the extent list either way.
+
+#### 96.41.1 …and the ARENA comes home beside the exit code
+
+**The box cannot work the figure out.** §96.33.19 puts ` (Arena: 343KB)` on the
+console's log line out of `[dos_akb]`, which `dos_run` banks at its claim — and
+on §96.40's arm `dos_run` posts the handoff and *returns*, having claimed
+nothing. The arena there is `kern_dos`'s own arithmetic off `[kd_top]`
+(`kd_arena`, §96.44.11), on a machine the box is not running on. So what stood
+in `[dos_akb]` after a return was the last WINDOWED launch's number, or
+nothing, and both read like an answer.
+
+It travels in the cell next to the exit code, the whole way, on both routes:
+
+| | |
+|---|---|
+| `KDB_AKB` 6 | beside `KDB_CODE` in the BDA mailbox, written by `kd_bda` |
+| `[hb_dosakb]` | **two more resident bytes**, beside `[hb_doscode]`, for its reason: `hbm_ask` reads the mailbox at one boot and `hbm_res` stages it at the next, and those are two separate loads of the module |
+| `HS_DOSAKB` `0x0444` | beside `HS_DOSCODE` in the staging area — written by `hbm_res` on the reboot route and by `kd_resume` on §96.49's live one, so **the two ways home converge where the code does** and `hbm_wake` has one pair of cells to read |
+| `KDH_AKB` 559 | beside `KDH_CODE` on the posted record; `KDH_SIZE` goes 559 → 561 |
+
+**And the console says it on the way in, not on the way out.** `dos_wake`'s
+return arm now calls `dos_con_ended` itself — the run really ended there, and
+`dos_run`'s own `.out` is reached before the program has even started
+(§96.35.1), which is the defect §96.41.2 is about seen from the box's side.
+
+#### 96.41.2 The exit line is for somebody who is going to read it
+
+`kd_leave` printed *"the program has exited, code NNN. Press any key to
+restart."* and waited on `int 16h` — on **every** arm, including the one where
+a session is coming back. There the number has just been posted to a box that
+will put it on its own console a few seconds later, so the machine stopped in
+the middle of coming back for an answer it does not use, and then said the
+thing again.
+
+With `KDLF_HIBER` set the code and the key wait both go, and one line takes
+their place: *"os8088: restarting to put the session back…"*. The screen still
+says why it is about to go, which is this routine's own manner two exits along
+— but reaching that arm at all now means §96.49's `kd_resume` refused, so it is
+the fallback rather than the route, and the sentence says which one the machine
+took. With `KDLF_HIBER` clear nothing changes: there is nowhere for the number
+to go, so it is printed and read.
+
+#### 96.41.3 …and it is read BEFORE the desktop is painted over it
+
+`hbm_wake` read `HS_DOSCODE` at its step 5b, after step 4 had set the graphics
+mode and called `wm_paint_all`. **The staging area is the TEXT framebuffer** —
+0xB800, or 0xB000 on Hercules (§87.5) — and that is precisely where a CGA's
+640×200 desktop and a Hercules' 720×348 one are drawn. So on two adapters of
+three the word it read was a row of pixels, `KDH_NOCODE` never matched, the box
+was never woken, and the session came back with the DOS window still saying what
+it said before the handoff.
+
+On VGA the desktop is at 0xA000 and the cell survived, which is the whole of why
+this was invisible: it worked on every machine anybody looked at.
+
+The read moves to **step 3c**, immediately after the extent list is freed and
+before the mode changes, and banks both cells in `[hb_doscode]`/`[hb_dosakb]`.
+The poke stays at 5b, where it belongs — the box's window has to exist and
+`hbm_reload` has to have run.
+
+`tests/kdreturn.py` did not catch it and could not have: its exit-code assertion
+read `[dos_exit]` and `[dos_state]`, and the row's own **windowed** launch had
+already set both to the same values a successful return would. It zeroes them
+before the handoff now and reads the console's log line as well, which is a
+sentence the return has to have written rather than a byte it has to have left
+alone (docs/WRITING-TESTS.md §1).
+
+#### 96.41.4 …and the box's own handler jumped over it
+
+The second half of the same silence, and the one that would have kept the code
+off the glass on a VGA too. `dos_wake` opens with §96.33.17's *a `.O88` typed at
+the prompt* test:
+
+```
+    cmp byte [dos_pkgq], 0
+    je .notpkg              ; ← the STATE MACHINE, past everything below
+    call dos_pkg_go
+    jmp short .out
+```
+
+`.notpkg` is where the `DST_CPWAIT`/`DST_READY` ladder begins — **after** the
+`%ifdef DOSKPART` block that reads `KDH_CODE`. So every wake with no package
+pending, which is every wake there has ever been bar one, jumped straight over
+the return's own test. The kernel poked the code into the record and woke the
+window exactly as §96.41 describes, and the handler never looked.
+
+The miss lands at `.nopkg` now, immediately after the package arm, and the
+state machine keeps its own entry. Ordering is the whole of it and the block's
+own comment already said so: *"tested BEFORE the state machine … a box sitting
+at `DST_READY` would otherwise launch the program a second time on the very
+wake that says it finished."*
+
+**Together with §96.41.3 this is why nothing ever came home.** The two are
+independent — one in the kernel's wake, one in the package's handler — and
+either alone is enough, which is why the field saw a DOS window that still said
+what it said before the handoff and no error anywhere.
 
 ### 96.42 ...and on a machine with no fixed disk it ASKS FIRST
 
@@ -129492,6 +130085,94 @@ cell for that target and require `kdback.inc` to set whatever the stub sets —
 `inst_vol_enter` excepted by name, with the reason above. That is not built,
 and it is the thing to build before the next `kern_dos` door is written.
 
+#### 96.44.14 `kern_dos` crossed a HEAD it had never been given leave to cross
+
+**`boot_cylrun` is a WORD in the kernel and was a BYTE over here**, and the
+byte after it was the bump allocator's ceiling.
+
+§18.93.1 settles, once, whether this machine's FDC may carry a transfer run
+onto the other head: the LOADER crosses one deliberately, a canary verifies
+the bytes came back, and it writes `boot_cylrun` on that path and on no other.
+`dsk_geom_check` then asks `cmp word [boot_cylrun], 0` at **every mount** and
+sets `[dsk_cylrun]` from it, so zero — the image's own value — means *it fell
+back, it never had cause to look, or this build predates the canary*, all at
+once and all cautiously.
+
+`kern_dos` has no stage 2, no loader and no canary (§96.43.2), so it can never
+answer that question and nothing over there writes the cell. Zero is therefore
+the only honest value it could hold — and `kerndos/kdshim.inc` declared it
+**`resb 1`**, one byte, at the end of a run of shims, with `kd_top` declared
+next. The word read was `boot_cylrun` plus **`kd_top`'s low byte**.
+
+MEASURED inside a live `kern_dos`, running Prince of Persia off a 720KB
+floppy:
+
+```
+boot_cylrun = 00      the byte itself, correctly zero
+kd_top      = 9DC0    the allocator's ceiling, once the read-ahead is claimed
+WORD @ boot_cylrun = C000
+dsk_cylrun  = 01      head crossing ON
+```
+
+So **every mount under `kern_dos` turned head crossing on, on every machine,
+with nothing behind it.** `[kd_top]` is 0xA000 at entry on a 640KB machine —
+low byte zero, which is why a bare gate run never showed it — and
+§96.44.11.4's read-ahead lowers it to 0x9DC0 before any program mounts
+anything.
+
+**What it costs is a BIOS class, and the field found it.** docs/FIELD-NOTES.md
+31 measured MR BIOS 286 (86Box `mr286`) as a ROM that **will not cross a
+head**: it answers `CF = 0` for the whole request and transfers only the first
+half, which is the hazard §18.93.1's canary exists for and is silent by
+construction. Under `kern_dos` on such a machine the back half of every
+crossing run is left as whatever was in the buffer — deterministic, the same
+sectors every time, no error anywhere.
+
+Reported as Prince of Persia putting its own retryable prompt up — *"Please
+insert Prince of Persia Disk 1 into Drive B:"*, which that program does when
+an open or a read of one of its data files fails while it is standing in the
+right place. The reporter narrowed it themselves, and the narrowing is what
+makes this section short: the same disks and the same program on an IBM 5150
+worked; a third floppy, the drive TYPE (720KB media in a 1.44MB drive against
+a matched pair) and the fixed disk were each removed in turn and **none of
+them was the variable**. What was left was the BIOS.
+
+**No emulator here can show it.** GLaBIOS, SeaBIOS and MartyPC's ROMs all
+cross a head correctly, so the wrong answer is the right one on every machine
+in this tree — which is also why the cell had been read this way since
+`kern_dos` existed.
+
+##### 96.44.14.1 …and the fix carries the KERNEL's finding rather than giving up
+
+`resw 1` alone makes the cell honest, and honest here means **always
+track-bounded** — §18.91.1's cylinder run is 9 sectors an `int 13h` instead of
+18, and a DOS program's load pays double the calls on every machine, including
+the ones that earned it.
+
+So the launch block carries the verdict, which is what it already does for the
+diskette parameter table, the volume table and the fixed disk's geometry
+(§96.40.2). **`KDL_CYLRUN` at offset 89** is a byte: 1 where the kernel's
+canary crossed a head and came back right, 0 everywhere else. It was
+`KDL_HBPAD`, a pad nothing read or wrote, so **no row moved and `KDL_VER` does
+not bump** — which is the rule that field's own comment states.
+
+It crosses as a BOOLEAN and not as the kernel's word. What the far side needs
+is the verdict; a word whose meaning is *non-zero* invites the next reader to
+do arithmetic on it, and the high half is cleared on arrival rather than left
+to a bss clear — which is the defect this field exists because of.
+
+Measured on one machine, the same run three ways:
+
+| | word at `boot_cylrun` | `dsk_cylrun` | |
+|---|---|---|---|
+| before | `C000` | 1 | wrong, and uncanaried |
+| `resw 1` alone | `0000` | 0 | honest, always track-bound |
+| + `KDL_CYLRUN` | `0001` | 1 | honest, and keeps §18.91.1 |
+
+The kernel's own sections do not move — `hbm_dosrun` is `HIBER.DRV`'s, an
+on-demand module — so the whole of it is **+16 bytes of `HIBER.DRV` and +8 of
+`DOS.O88`**, neither resident.
+
 #### 96.44.13 An EMPTY environment is not an empty environment, and a program that fits never got one
 
 **`[dos_blaster]` is filled by `dos_drv_take`**, out of the record
@@ -129851,10 +130532,11 @@ heads and fails honestly, which is what a hard disk did here before this.
 `DV_FLAGS` bit 0 is a desktop zone and there is no desktop, `DV_CLASS` is 0 on
 every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT fills — writing them
 here would be staler than not — and `DV_LBL` is a label nothing draws. A
-`DVK_DRV` or `DVK_FILE` row cannot come at all, its transport being a loadable
-driver that does not exist on the other side, so the gather writes `DVK_FREE`
-for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume class* enforced
-at the gather instead of hoped for downstream.
+`DVK_DRV` or `DVK_FILE` row could not come at all, its transport being a
+loadable driver that does not exist on the other side, so the gather wrote
+`DVK_FREE` for one: docs/plans/KERN-DOS-PLAN.md 6.1 lever 4's *one volume
+class* enforced at the gather instead of hoped for downstream. **§96.46.1
+asks that as a question instead**, and half the `DVK_DRV` rows answer it.
 
 **A zero count means keep what we have**, which is `KDL_DPT`'s zero one field
 along and for its reason: the W4 gate stages its own block and knows no
@@ -129877,6 +130559,53 @@ the open actually landed on, and "the volume is not there" (`(open failed)`)
 is a different picture from "it opened the wrong drive's copy".
 
 This closes docs/plans/KERN-DOS-PLAN.md §12's open question 5.
+
+#### 96.46.1 …and a driver volume the ROM can reach comes over as a BIOS one
+
+The rule above is true of the **driver** and not of the **disk**. `DSV_GEOM`
+sub-function 2 (§51.8) answers `CF=1` for a volume `int 13h` cannot reach, and
+a unit, a partition base and a geometry for one it can — so a `DVK_DRV` volume
+that *answers* is a BIOS volume as far as `kern_dos` is concerned, and the
+gather carries it as one. A volume that refuses is still written `DVK_FREE`.
+Nothing new is being trusted: §87.5 step 1's hibernation stub has rested on
+that exact answer from that exact routine since the day it was written.
+
+**What it fixes is the live resume on a machine that booted off a floppy.**
+§96.49's `kd_resume` mounts `HIBERNAT.IMG`'s volume **by index** against this
+table. `hb_pick` (§87.2) puts the image on the volume the machine booted from
+when that is fixed, and otherwise on the first fixed volume there is — which
+on a floppy-booted machine is driver-backed, because `dsk_boot_from_x` adds a
+`DVK_BIOS` partition row only on its hard-disk arm. So the row said `DVK_FREE`,
+`disk_mount` refused, `kd_leave` fell back to `int 19h`, and the session came
+back the long way: a whole POST, a whole boot, and a restore at the desktop —
+with nothing on the screen to say which route had been taken. The field
+reported it as *"it reboots, does the full boot, THEN restores from
+hibernation"*.
+
+**`KDL_HDSPT`/`KDL_HDHDS` were the second half of the same defect.** They are
+filled from `[dsk_bootspt]`/`[dsk_boothds]`, and `dsk_boot_from_x` asks
+`int 13h AH=08h` **only on its `.hard` arm** — so on a machine that booted off
+a floppy they are ZERO, and every read of a fixed disk over there is aimed with
+the floppy fallback of 9 sectors and 2 heads. The gather now takes them from
+the first driver-backed fixed volume it carries when the boot drive banked
+none; a booted-from fixed disk's own geometry still wins, there being one pair
+for the whole table and that volume being the one the machine is most about.
+
+**The gather moved, and that is what makes it possible at all.** It ran at
+§87.5 step 5, *after* step 4's `drv_shutdown_x` — and `drv_release` drops a
+driver's volumes on the way out, so a gather there sees every `DVK_DRV` row
+already `DVK_FREE` and cannot tell that from a machine which never had one. It
+is step **3c** now, before the teardown, writing the posted record's own copy
+of the launch block; step 5's `rep movsw` carries the lot, which is
+`KDLF_HIBER`'s arrangement one field over. `hbm_geom` writes
+`hb_unit`/`hb_spt`/`hb_heads`/`hb_base`, which step 3 filled with **DOS.O88's**
+volume and which step 5 stages under `HS_UNIT`, so the loop brackets those ten
+bytes on the stack — a second call to put them back can fail where the first
+did not, and that failure is a machine which hands over and cannot load the
+host it handed to.
+
+`kd_resume` needs no change: it mounts by index and reads the row, and the row
+is now right.
 
 ### 96.47 A `goto` inside `kern_dos` was a full MOUNT, listing and all
 

@@ -33,6 +33,10 @@ screenshot, because the thing under test is that memory:
      CLICK on Resume must answer it, and the desktop that comes back must be
      the OLD one: [hb_resumes] = 1, the About instance alive with its window,
      no Hibernate window left, and HIBERNAT.PTR gone from the volume.
+     A DOS handoff's post is poked in before the picture is taken and must be
+     GONE after the wake (SPEC.md 96.40.6): the handoff writes its own image
+     with that latch deliberately live, and a wake that does not spend it
+     kills "Take the whole OS" for the rest of the restored session.
   2. DISCARD. The same again through the KEYBOARD - Enter to hibernate, Esc at
      the question: the desktop is a fresh boot's - no About, [hb_resumes] = 0
      - and the pointer is gone all the same.
@@ -161,6 +165,11 @@ def floppy():
          _B.at("build/hdd.drv"), _B.at("build/hiber.drv"),
          _B.at("build/ctrl.drv"), _B.at("build/format.drv"),
          _B.at("build/clone.drv"), cfg])
+
+
+# A segment that is plausible and is nobody's: the wake must not care what it
+# points at, only that it is gone (SPEC.md 96.40.6).
+HB_DOSSEG_SENTINEL = 0x1234
 
 
 def byte(m, name):
@@ -429,6 +438,33 @@ def pass_resume(driver):
         quiet(m)
         check(any(k == KIND_ABOUT for k, _ in instances(m)),
               "the About box is up before hibernating")
+
+        # --- A DOS HANDOFF'S POST, IN THE PICTURE (SPEC.md 96.40.6) --------
+        # `hbm_dosrun` takes its hibernation image with `[hb_dosseg]`
+        # DELIBERATELY LIVE, so the restored kernel knows whose record to put
+        # the exit code in - an image carrying a post is a legitimate thing,
+        # and the invariant is that THE WAKE SPENDS IT. It used to be spent
+        # only on the arm where a DOS program really came back, and
+        # `[hb_doscode]` is `KDH_NOCODE` on every other resume by
+        # construction (`hb_probe_x` says so in as many words) - so the latch
+        # came back with the image and nothing ever spent it.
+        # `osapi_dos_handoff_x` refuses a second post while one stands, so
+        # "Take the whole OS" was dead for the whole restored session and the
+        # box reported it as "Not enough memory" on a machine with 425K free.
+        #
+        # Poked rather than staged, `tests/fishedge.py`'s shape: the word is
+        # what the handoff leaves behind and one store reproduces it, where
+        # reproducing the handoff costs a second machine and a hard disk it
+        # has already got. Nothing dereferences it on this path, so the
+        # sentinel only has to be non-zero.
+        #
+        # MEASURED both ways on this row: `hb_dosseg` reads 0000 after the
+        # resume with the fix in and 1234 - the sentinel, intact - without it.
+        m.write(m.sym("hb_dosseg"), HB_DOSSEG_SENTINEL.to_bytes(2, "little"))
+        check(word(m, "hb_dosseg") == HB_DOSSEG_SENTINEL,
+              "a DOS handoff's post is standing when the picture is taken",
+              got=word(m, "hb_dosseg"), want=HB_DOSSEG_SENTINEL)
+
         hibernate(m, mo, mouse=True)
         restart(m)
         quiet(m)                                  # ...and paint it. Not a
@@ -456,6 +492,15 @@ def pass_resume(driver):
               "the Hibernate window closed itself on waking", got=inst)
         check(byte(m, "hb_mode") == HB_M_GONE, "the module's state is GONE",
               got=byte(m, "hb_mode"), want=HB_M_GONE)
+        check(word(m, "hb_doscode") == 0xFFFF,
+              "...and no DOS program came back, which is what makes the check "
+              "below the one that matters (SPEC.md 96.40.6)",
+              got=word(m, "hb_doscode"), want=0xFFFF)
+        check(word(m, "hb_dosseg") == 0,
+              "the DOS handoff's post was spent by the wake (SPEC.md 96.40.6) "
+              "- left standing it refuses every later handover for the rest "
+              "of the session, and the box calls that a memory shortage",
+              got=word(m, "hb_dosseg"), want=0)
         check(byte(m, "sch_lock") == 0, "sch_lock is down again",
               got=byte(m, "sch_lock"), want=0)
         check(byte(m, "gfx_lock_flag") == 0, "the gfx lock is released",

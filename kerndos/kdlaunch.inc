@@ -155,10 +155,18 @@ KDL_VMAX    equ DVOL_CAP        ; DVOL_MAX's widest arm (kernel/disk.inc), so
 ; **ONLY THREE FIELDS OF SIXTEEN COME OVER**, and the rest are not an
 ; oversight: `DV_FLAGS` bit 0 is a DESKTOP ZONE and there is no desktop,
 ; `DV_CLASS` is 0 on every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT
-; fills, and `DV_LBL` is a label nothing here draws. A `DVK_DRV` or `DVK_FILE`
-; row cannot come at all - there is no driver layer on the other side - so
-; the gather writes DVK_FREE for one rather than carrying a row whose
-; transport is missing (KERN-DOS-PLAN 6.1 lever 4, enforced instead of hoped).
+; fills, and `DV_LBL` is a label nothing here draws.
+;
+; **A `DVK_DRV` ROW COMES OVER AS `DVK_BIOS` WHEN - AND ONLY WHEN - THE ROM
+; CAN REACH IT** (SPEC.md 96.46.1). The old rule was that it could not come at
+; all, *"there is no driver layer on the other side"*, and that is true of the
+; DRIVER and not of the DISK: `DSV_GEOM` sub-function 2 answers CF=1 for a
+; volume `int 13h` cannot reach and a unit, a base and a geometry for one it
+; can, so the ones that answer are BIOS volumes as far as this host is
+; concerned and the ones that do not are still written DVK_FREE. That is
+; KERN-DOS-PLAN 6.1 lever 4 asked as a QUESTION rather than assumed, and it is
+; the same question SPEC.md 87.5 step 1's stub has always asked. `DVK_FILE`
+; still cannot come: a redirected volume has no sectors at all (SPEC.md 62.9).
 
 ; --- AND WHAT A LIVE RESUME NEEDS (SPEC.md 96.49) ---------------------------
 ; `kd_leave` puts the session back itself instead of `int 19h`-ing and letting
@@ -175,7 +183,19 @@ KDL_KSEG    equ 86              ; dw ...and the DS it comes back WITH, which
                                 ; spell this as `KERNEL_SEG`, an assembly
                                 ; constant that means 0x0060 in this host
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on - `hb_pick`'s
-KDL_HBPAD   equ 89              ; db 0, and the word above stays even
+KDL_CYLRUN  equ 89              ; db MAY A TRANSFER RUN CROSS A HEAD on this
+                                ; machine? (SPEC.md 96.44.14) 1 = the KERNEL's
+                                ; loader crossed one and its canary said the
+                                ; bytes came back right (18.93.1); 0 = every
+                                ; other case, which is the cautious answer and
+                                ; the one an absent field gives. kern_dos has
+                                ; no loader and no canary, so it cannot ask
+                                ; this question itself and its own
+                                ; `boot_cylrun` is never written - carrying the
+                                ; finding is what keeps 18.91.1's cylinder run
+                                ; on the machines that earned it. It was
+                                ; KDL_HBPAD, a pad nothing read, so the word
+                                ; below still starts even and no row moved
 KDL_CLK     equ 90              ; db[10] the kernel's OWN clock block, because
                                 ; `hbm_wake` copies these ten into `clk_sec`
                                 ; and two of them are `clk_rtc`/`clk_dirty` -
