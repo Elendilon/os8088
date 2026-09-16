@@ -351,6 +351,23 @@ KSC_DOWN    equ 0x50
 KSC_SPACE   equ 0x39
 KSC_ENTER   equ 0x1C
 KSC_ESC     equ 0x01
+KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
+                                 ; only ever asked about beside another key.
+                                 ; SPEC.md 9.7.1: ALT+ENTER IS THE ONE
+                                 ; COMBINATION NO XT BIOS ENQUEUES AT ALL, so
+                                 ; the kernel latches it off the scancode and
+                                 ; ui_task hands your W_ONKEY AX = 0x1C00 - the
+                                 ; code an enhanced ROM would have given you.
+                                 ; TEST FOR IT THERE, not here. This pair is
+                                 ; what you ask when ui_task is NOT dispatching
+                                 ; - inside an OSAPI_FSX_RUN bracket (SPEC.md
+                                 ; 53.1), where your own loop reads int 16h and
+                                 ; no synthesised event can reach you. It is a
+                                 ; LEVEL read, so find the edge yourself;
+                                 ; apps/dos/dosc.inc is the worked example.
+                                 ; ASKING ARMS THE MAP (above), which is what
+                                 ; the synthesised key needs too - so an app
+                                 ; that wants it calls this once at launch
 
 ; --- sound (SPEC.md 20.3/34): the PC speaker, which is the whole of it.
 %define OSAPI_SND_CAPS      KERNEL_SEG:0x00E0   ; out AX = caps word (SND_CAP_*),

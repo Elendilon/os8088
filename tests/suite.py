@@ -4857,6 +4857,19 @@ SOAK = [
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
         needs=("marty",), serial=True),
+    Row("dosaltenter", "soak", py("tests/dosaltenter.py"), 20.0,
+        "SPEC.md 96.33.5.1: does Alt+Enter take the DOS box into full screen "
+        "and back out? Leg 0 is the premise and is the reason the mechanism "
+        "exists at all - the period XT ROM this boots enqueues NOTHING for "
+        "Alt+Enter (measured at 0040:001A/001C, the tail does not move), so "
+        "int 16h can never carry it and 9.7.1 latches the scancode instead. "
+        "Leg 4 is the one that needed a negative control to place: a held "
+        "key's typematic repeats are invisible from the WINDOW, because the "
+        "first press puts the bracket up and ui_task stops dispatching - it "
+        "is on the way BACK, with the key still down and fsx_restore having "
+        "just dropped the latch, that a missing guard throws the box "
+        "straight back into full screen",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"

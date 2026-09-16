@@ -12509,6 +12509,81 @@ Five things are load-bearing:
 beside it. An app wanting "did the player press left" still reads the
 keystroke; only an app wanting "is the player *holding* left" needs this.
 
+#### 9.7.1 Alt+Enter — the combination no XT BIOS delivers at all
+
+**Measured on a period XT ROM (GLaBIOS, MartyPC) by reading the guest's own
+BIOS key buffer at `0040:001A`/`001C` as each key arrived**, which is §9.6.4's
+instrument one key along:
+
+| key | XT ROM (GLaBIOS) | SeaBIOS |
+|---|---|---|
+| Enter | tail 1E → 20, `AX = 1C0D` | `AX = 1C0D` |
+| **Alt+Enter** | tail **does not move**: nothing is enqueued | `AX = 1CF0` |
+| Alt+F | tail 20 → 22, `AX = 2100` | `AX = 2100` |
+
+Alt reaches the ROM perfectly well — `0040:0017` bit 3 reads 1 throughout —
+and the ROM simply has no entry for this combination: `1C00` is an *enhanced*
+keyboard's code, and the 83-key translation table the 5150 shipped with ends
+at the letters, the digits and the function keys. So on the machine this
+project is for, **`int 16h` can never see Alt+Enter and `W_ONKEY` never fires
+for it.** That is §9.6.4's finding exactly — *int 16h therefore cannot deliver
+this key, on any BIOS* — and it gets §9.6.4's answer: the kernel reads the
+**scancode** instead.
+
+**The latch is `kbd_track`'s and costs nothing to find**, because that routine
+is already looking at the byte and already knows where the bit lives. A fresh
+Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map sets
+`[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the ordinary `W_ONKEY`
+dispatch, so it reaches the **front window** and nothing else, exactly as a
+typed key does. A package writes one test and it is true on every machine.
+
+Five things hold it up.
+
+- **A typematic repeat is not a press, and here the map can tell.** §9.7's own
+  opening is that a repeat is *byte-identical* to a fresh press through int
+  16h — the map is what carries the difference, so the latch is armed only
+  when the bit was **clear** before this make set it. Without that the ROM's
+  own ~10 Hz repeat makes a held Alt+Enter a hotkey that fires ten times a
+  second, which for a *toggle* is a screen that flickers between two modes
+  for as long as the user holds the key.
+- **The map must be ARMED, and that is deliberate.** `kbm_isr` does not call
+  `kbd_track` at all until something has called `kbd_down` (§9.7), so a
+  machine whose software never asks still never reads port 60h for this — the
+  scoping that keeps `kbm_isr`'s unproven 8042 claim off machines that do not
+  want the feature. An app that wants Alt+Enter therefore asks for the map
+  once, which is one `OSAPI_KEY_DOWN` call in its entry proc; §96.33.5.1 is
+  the worked example. Arming this way rather than at boot is what makes the
+  feature cost **zero** on every machine that does not use it.
+- **A BIOS that DOES deliver it must not deliver it twice.** `kbd_aeclaim`
+  runs on the typed key before `kbm_key` does, and it is §9.6.4's rule one
+  key along: an `AH = 1C` whose `AL` is neither `0Dh` (typed, or with Shift)
+  nor `0Ah` (with Ctrl) is Alt+Enter, so it **normalises `AL` to zero and
+  clears `[kbd_ae]`**. Without the clear, SeaBIOS fires both paths and one
+  press toggles a mode twice — §9.6.4's flashing menu from a fifth direction.
+  The normalisation is the other half of the one-test promise: SeaBIOS says
+  `1CF0` and an enhanced ROM says `1C00`, and a package may not have to know
+  which of them it is running on.
+- **A bracket that owned the screen owns the latch too.** `fsx_restore`
+  already drains the BIOS key buffer on the way home (§53.6) for the reason
+  that the keystroke which *ended* an exclusive app must not also be
+  delivered to the window underneath it. `[kbd_ae]` is cleared in the same
+  place and for the same reason, and it is not a nicety: a full-screen app
+  that leaves on Alt+Enter would otherwise hand the window below it a
+  synthesised Alt+Enter the instant `ui_task` ran again, and an app that
+  enters on the same key would go straight back in.
+- **It is advice's neighbour, not an oracle.** The latch inherits §9.7's
+  standing caveat — a break code lost inside a long IF=0 window leaves Alt
+  reading down — so a press of Enter alone, right after such a loss, reads as
+  Alt+Enter once. The state self-heals on the next press of Alt, the cost is
+  one spurious toggle of something the user can toggle back, and the
+  alternative is the BDA shift byte, which is sampled when the key is *read*
+  rather than when it was *pressed* and is wrong in the commoner direction.
+
+**Why not the BDA shift byte at `0040:0017`.** It is the obvious answer and it
+cannot work, for the reason above it: the ROM enqueues *nothing* for this
+combination, so there is no keystroke to hang the test on. Testing bit 3 on a
+plain Enter answers a question about a key the user never pressed.
+
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
 §67.11.2 found this in a game and closed it in that game, and said in as many
@@ -125365,7 +125440,7 @@ about:
 |---|---|---|
 | the mode | `FSXM_TEXT80` | the same |
 | the worker | **none** — this console is the UI task's alone | `FSXF_KEEPWORKER`: its worker owns the socket |
-| the key out | **Esc** | `Ctrl+]`, which every telnet client since 4.2BSD uses |
+| the key out | **Esc**, and **Alt+Enter** (§96.33.5.1) | `Ctrl+]`, which every telnet client since 4.2BSD uses |
 | the hint | ` Esc to leave` | ` ^] to leave` |
 
 **Esc is ours only while the console has the screen.** A DOS program reads Esc
@@ -125373,7 +125448,9 @@ for its own purposes and a box that ate it could not run half the software it
 exists for — so this bracket is entered from the menu, ends before any program
 is launched, and §96.2's program bracket is a different one with no key of ours
 in it at all. §11.2.1 asks for `F` in both directions and exempts an app taking
-typed text, which a command prompt is as completely as a terminal.
+typed text, which a command prompt is as completely as a terminal — and
+§96.33.5.1 is what the exemption cost being paid back: **Alt+Enter** is the
+door in both directions, a modified key being free where a bare letter is not.
 
 **The line editor is not written twice.** `dos_con_key` is the same proc on both
 screens; what changes is that `[dos_fsxup]` stands `dos_con_draw` down, because
@@ -125388,6 +125465,54 @@ SHAPE only on a change, because a BIOS call a frame for a byte that does not
 move is a frame given away; the mode set leaves the CRTC's own cursor blinking
 at 0,0, so a seed that already agrees with `[con_cvis]` means it is never
 placed at all.
+
+##### 96.33.5.1 Alt+Enter is the door, in both directions
+
+`Program > Full Screen` was the only way in and `Esc` the only way out, which
+is half a binding: the menu is a *place to go and find* the thing, and §11.2.1
+is about a key. The exemption that section grants a box taking typed text is
+real — a bare `F` at a command prompt has to write an `f` — but it exempts the
+*letter*, not the idea, and **Alt+Enter is what every DOS box since has used**
+for exactly this, precisely because a modified key is free where a bare one is
+not. `Esc` stays untouched: it is §11.2.1's escape hatch and it is what the
+hint on the full-screen row already names.
+
+**The two directions are read from two different places, and the reason is a
+BIOS.** §9.7.1 is the finding — no XT ROM enqueues this combination at all —
+and the kernel's answer is a latch off the scancode, spent by `ui_task` as
+`AX = 1C00` through `W_ONKEY`:
+
+- **Windowed → full screen** is that synthesised keystroke. `dos_key` tests
+  it above everything else it does with a key, so the path box holding the
+  caret cannot eat it, and the same `dos_fsx` the menu item calls is what
+  runs — the two cannot drift.
+- **Full screen → windowed** cannot use it, and this is the part worth
+  writing down: inside §53's bracket `ui_task` is not dispatching at all
+  (§53.1), so `dos_fsx_keys` reads `int 16h` itself and no synthesised event
+  can reach it. It asks the map directly instead, through `OSAPI_KEY_DOWN`,
+  which is free there because that loop is **already a poll** — one more
+  question per frame beside the one it was asking anyway.
+
+**`[dos_aedn]` is the edge, and it is seeded DOWN.** `OSAPI_KEY_DOWN` is a
+level read (§9.7), so the loop finds the edge itself: both keys down with the
+last pass not seeing them is a press, and anything else is the same hold or
+nothing. Seeding it *down* at the top of the bracket is what stops the press
+that got you in from taking you straight back out — a user holds Alt+Enter for
+a good deal longer than one frame, and a level read cannot tell that hold from
+the next press. On a machine entered from the **menu** the seed costs nothing:
+the first poll finds the keys up and clears it.
+
+**The box ARMS the map, in its entry proc.** §9.7's map does not exist until
+something calls `kbd_down`, so the box asks once — `OSAPI_KEY_DOWN` on
+`KSC_ALT`, whose answer is discarded — and both halves work from then on. It
+is one far call at launch and it is what keeps the feature's cost at zero on
+every machine that never opens a DOS box.
+
+**Nothing was spent on a hint.** The full-screen row already says ` Esc to
+leave` and that sentence is still true; a second key on it would be eight
+cells of an eighty-cell row for a key the user has just pressed to get there.
+The menu item keeps its own name for the same reason §11.2.1 gives — a menu
+item's key hint has to be true in every state, and this one is.
 
 ##### 96.33.17 `.O88` at the prompt opens the PACKAGE
 

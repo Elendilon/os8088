@@ -122,7 +122,25 @@ ui_task:
     ; --- 1. keyboard: poll, and feed the front window's key handler ----------
     mov ah, 0x01                ; any key pending?
     int 0x16
-    jz .events
+    jnz .typed
+    ; --- ...and the one combination no BIOS here enqueues (SPEC.md 9.7.1) ----
+    ; Alt+Enter. A period XT ROM has no entry for it at all - measured, the
+    ; buffer tail does not move - so int 16h above can never report it and the
+    ; scancode is what carries it, exactly as 9.6.4's keypad 5 is carried.
+    ; kbd_track latched it; this is the spend, and it goes down the SAME
+    ; dispatch a typed key does, so it reaches the front window and nothing
+    ; else. One compare on a pass with no key, which is most of them.
+    cmp byte [kbd_ae], 0
+    je .events
+    mov byte [kbd_ae], 0        ; SPENT whatever happens below, exactly as a
+                                ; typed key is taken out of the BIOS buffer
+                                ; before the dark-screen test drops it
+    call blk_wake               ; it is user input like any other (SPEC.md
+    jc .events                  ; 64.2), and the screen having been dark means
+                                ; the user never saw the window this was for
+    mov ax, KSC_ENTER << 8      ; AL = 0, AH = the Enter scancode: the code an
+    jmp short .dispatch         ; ENHANCED ROM would have given us anyway
+.typed:
     KFZ 1                       ; 1: a key is pending
     call blk_wake               ; a key is USER INPUT whatever it turns out to
                                 ; be, so the idle clock restarts here (SPEC.md
@@ -138,11 +156,16 @@ ui_task:
     KFZ 3                       ; 3: the key is out of the BIOS buffer
     jc .events                  ; the screen was dark, so the user never saw
                                 ; the window this would have gone to: drop it
+    call kbd_aeclaim            ; a BIOS that DOES deliver Alt+Enter (SPEC.md
+                                ; 9.7.1): normalise AL and drop the latch the
+                                ; ISR set for this same press, or SeaBIOS
+                                ; toggles the mode twice
     call kbm_key                ; with no mouse on the machine, the arrows ARE
     jc .events                  ; the mouse (SPEC.md 9.6) and this key is not
                                 ; the application's. One compare per keystroke
                                 ; on a machine that has one
     KFZ 4                       ; 4: kbm_key passed it through (SPEC.md 9.6)
+.dispatch:
     call gfx_lock               ; handler draws; it runs under the lock
     KFZ 5                       ; 5: WE HAVE THE GFX LOCK. A bar that stops at
                                 ;    4 is a mutex nobody released

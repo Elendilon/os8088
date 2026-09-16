@@ -323,6 +323,13 @@ fsx_restore:
     int 0x16
     jmp short .kd
 .kdone:
+    mov byte [kbd_ae], 0        ; ...and the Alt+Enter latch with it (SPEC.md
+                                ; 9.7.1), for the same reason the drain above
+                                ; exists: the keystroke that ENDED an exclusive
+                                ; app must not also reach the window underneath
+                                ; it. A box that leaves full screen on this key
+                                ; would otherwise be handed it again the moment
+                                ; ui_task ran, and go straight back in
     mov di, fsx_evtmp           ; drain the event queue into OUR OWN buffer -
     call evq_drain              ; the loop is shared, the buffer is not
                                 ; (SPEC.md 74.1.1)

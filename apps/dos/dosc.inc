@@ -1032,6 +1032,14 @@ dos_fsx_con:
                                     ; with [con_cvis] means it never places it
     call con_tx_ice                 ; ...and the blink bit, per adapter (70.8.9)
     mov byte [con_thint], 0xFF
+    mov byte [dos_aedn], 1          ; SEEDED DOWN (SPEC.md 96.33.5.1): the
+                                    ; Alt+Enter that got us in here is still
+                                    ; held, and dos_fsx_ae's read is a LEVEL
+                                    ; one - so without this the first poll
+                                    ; below would read that same hold as the
+                                    ; press that takes us out again. Entered
+                                    ; from the MENU it costs nothing: the first
+                                    ; poll finds the keys up and clears it
     call con_markall
     call dos_fsx_owed
     mov si, dos_c_leave             ; ONCE, on entry, and anything that draws
@@ -1055,6 +1063,35 @@ dos_fsx_con:
     pop ax
     ret
 
+; --- dos_fsx_ae - Alt+Enter, off the key-state map (SPEC.md 96.33.5.1) -------
+; in:  nothing; out: CF=1 = a FRESH press, CF=0 = the same hold, or nothing
+; clobbers: nothing but the flags
+;
+; OSAPI_KEY_DOWN is a LEVEL read (SPEC.md 9.7) - it answers "is this key down",
+; and a hold looks identical on every pass - so the EDGE is this routine's to
+; find and [dos_aedn] is what the last pass saw. Two far calls a frame, and
+; only when the first of them says Alt is down at all.
+dos_fsx_ae:
+    push ax
+    mov al, KSC_ALT
+    call OSAPI_KEY_DOWN
+    jnc .up                         ; ...and Alt alone is most of the machine's
+    mov al, KSC_ENTER               ; life, so the second call is not made
+    call OSAPI_KEY_DOWN
+    jnc .up
+    cmp byte [dos_aedn], 0          ; both down - a PRESS only if the last pass
+    jne .same                       ; did not already have them, which is what
+    mov byte [dos_aedn], 1          ; makes a held key one answer and not one a
+    pop ax                          ; frame
+    stc
+    ret
+.up:
+    mov byte [dos_aedn], 0          ; released: the next both-down is a press
+.same:
+    pop ax
+    clc
+    ret
+
 ; --- dos_fsx_keys - the keyboard, polled. CF=1 = leave the bracket -----------
 ; int 16h directly, because no events are dispatched in here (SPEC.md 53.1) -
 ; and every other key is the console's, exactly as it is windowed. It cannot
@@ -1063,6 +1100,14 @@ dos_fsx_con:
 ; change across, and dos_fsx_owed below is what spends it.
 dos_fsx_keys:
     push ax
+    call dos_fsx_ae                 ; ALT+ENTER IS POLLED HERE AND NOT TYPED
+    jc .quit                        ; (SPEC.md 96.33.5.1). int 16h below cannot
+                                    ; carry it - no XT ROM enqueues the
+                                    ; combination at all (9.7.1) - and the
+                                    ; kernel's synthesised keystroke cannot
+                                    ; reach us either, because ui_task is not
+                                    ; dispatching while a bracket is up (53.1).
+                                    ; It is free: this loop was already a poll
 .next:
     mov ah, 1
     int 0x16
