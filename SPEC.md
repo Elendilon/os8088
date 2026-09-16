@@ -131586,9 +131586,33 @@ its buffer-full bell. The beeping ROM is the reporter's 386 BIOS, and MartyPC
 is an 8088, so it is out of reach entirely (docs/TESTING.md's list).
 
 **That is not a hole in the gate**, because the beep is not the thing we
-control. The OVERFLOW is, and what is asserted is that a key arriving on a
-full buffer is STORED rather than dropped — the tail winding `3Ch → 3Ah`,
-which is §9.8's own verification, to the same two values. With the guard the
-buffer is never full when a key arrives, so no BIOS — beeping or silent —
-reaches its overflow path at all. `tests/kdkbd.py` is the row, and it takes
-the other arm's system image as an argument so the A/B is one command.
+control. The OVERFLOW is. With the guard the buffer is never full when a key
+arrives, so no BIOS — beeping or silent — reaches its overflow path at all.
+`tests/kdkbd.py` is the row, and it takes the other arm's system image as an
+argument so the A/B is one command.
+
+#### 96.50.4 What the row asserts, and the two ways it got that wrong first
+
+**It is the buffer's CONTENTS, not its pointers.** §9.8 records its own
+verification as the tail winding `3Ch → 3Ah`, and asserting that here is
+flaky: the guard frees the newest slot and the ROM *immediately refills it*,
+so head and tail come back to `1Eh`/`3Ch` on **both** arms and which phase the
+window ends in is luck. The probe fills the buffer with `'Z'` and the harness
+sends `'A'`, so the question becomes *did an arriving key ever reach a slot* —
+which is phase-independent and true of exactly one arm.
+
+**And a drop has to be WITNESSED.** A dropped key changes nothing in the BDA —
+that is what dropped means — so "the tail did not move" and "no key ever
+arrived" are the same reading, and the first version of this row's unguarded
+arm was therefore **vacuous**: it reported a drop it had not seen. `0040:0017`
+is the fix: a MODIFIER does not enqueue but the ROM updates the shift state
+from its make and break codes whether or not there is room, so a harness
+holding Shift down moves that byte on a full buffer and proves `int 09h` ran.
+The row fails if it never moves.
+
+Measured, both arms, with both corrections in:
+
+| | arrivals | slots taken by an arriving key |
+|---|---|---|
+| guarded | 134 | **1 of 16** |
+| `NOKDKBD=1` | 172 | **0 of 16** |

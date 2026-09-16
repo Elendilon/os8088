@@ -64,39 +64,17 @@ start:
     call hex4
     call eol
 
-    ; --- 2. FORGE A FULL BUFFER ---------------------------------------------
-    ; Full, by the BIOS's own definition, is tail + 2 == head. head = 1Eh with
-    ; tail = 3Ch is that: the next slot the ROM would fill wraps to 1Eh, which
-    ; is the head.
-    mov ax, BDA
-    mov es, ax
-    mov di, KB_BUFB
-    mov cx, (KB_BUFE - KB_BUFB) / 2
-    mov ax, 0x1E41              ; 'A' with a plausible scancode, sixteen times
-    cld
-    rep stosw
-    cli
-    mov word [es:KB_HEAD], KB_BUFB
-    mov word [es:KB_TAIL], KB_BUFE - 2
-    sti
-    mov si, s_forged
-    call puts
-    call kbstate
-
-    ; --- 2a. PROVE THE INSTRUMENT FIRST -------------------------------------
-    ; **A ZERO NOBODY CAN VALIDATE IS NOT A MEASUREMENT.** If port 61h's bit 1
-    ; never reads back set on this machine - a BIOS that drives the speaker
-    ; some other way, an emulator that does not reflect the write - then the
-    ; silent arm and the beeping arm both count zero and the probe reports the
-    ; defect as fixed on every build for ever. So: sound one deliberately,
-    ; count it, and print the count. A control of zero means the line below it
-    ; says nothing at all.
+    ; --- 2. PROVE THE INSTRUMENT, BEFORE ANYTHING IS FORGED -----------------
+    ; **A ZERO NOBODY CAN VALIDATE IS NOT A MEASUREMENT.** If port 61h bit 1
+    ; never reads back set on this machine then the silent arm and the beeping
+    ; arm both count zero, and the probe reports the defect fixed on every
+    ; build for ever. So: sound one deliberately and count it.
     mov al, 0xB6                ; timer 2, square wave
     out 0x43, al
     mov al, 0x00
     out 0x42, al
-    mov al, 0x08                ; ~2.3kHz; the pitch is irrelevant, the GATE
-    out 0x42, al                ; is what this is about
+    mov al, 0x08
+    out 0x42, al
     in al, 0x61
     mov [spk_sv], al
     or al, 0x03                 ; gate the timer AND let it reach the cone
@@ -104,6 +82,8 @@ start:
     xor ax, ax
     mov [spk], ax
     mov [spk+2], ax
+    mov [arr], ax
+    mov [arr+2], ax
     mov byte [rounds], 1
     call watch
     mov al, [spk_sv]            ; ...and off again, exactly as it was
@@ -116,12 +96,82 @@ start:
     call hex4
     call eol
 
-    ; --- 3. ...AND WATCH THE SPEAKER WHILE KEYS ARRIVE ----------------------
+    ; --- 3. FORGE A FULL BUFFER, AND WATCH IT WITH NOTHING IN BETWEEN -------
+    ; **NO I/O BETWEEN THE FORGE AND THE WINDOW**, and the head/tail are
+    ; captured into our own words rather than re-read afterwards. The first
+    ; draft printed `forged FULL head=.. tail=..` between the two, and a key
+    ; landing during those `int 21h` calls wound the tail back BEFORE the
+    ; measurement started - so the probe reported the condition it had set up
+    ; as 003A and its own harness failed it for not setting up 003C. An
+    ; intermittent that is entirely the instrument's.
+    ;
+    ; Full, by the BIOS's own definition, is tail + 2 == head: 1Eh with 3Ch is
+    ; that, the next slot the ROM would fill wrapping to the head.
+    mov ax, BDA
+    mov es, ax
+    mov di, KB_BUFB
+    mov cx, (KB_BUFE - KB_BUFB) / 2
+    mov ax, 0x2C5A              ; **A MARKER, AND NOT THE KEY THE HARNESS
+                                ; SENDS** (it sends 'A'). 'Z', scancode 2Ch,
+                                ; sixteen times: what distinguishes the two
+                                ; arms is whether an arriving key ever REACHES
+                                ; a slot, and that cannot be read off the
+                                ; POINTERS - the guard frees the newest slot
+                                ; and the ROM immediately refills it, so head
+                                ; and tail come back to 1Eh/3Ch on both arms
+                                ; and which phase the window ends in is luck.
+                                ; The first draft asserted the tail and was
+                                ; flaky for exactly that reason
+    cld
+    rep stosw
     xor ax, ax
     mov [spk], ax
     mov [spk+2], ax
+    mov [arr], ax
+    mov [arr+2], ax
     mov byte [rounds], ROUNDS
+    cli
+    mov word [es:KB_HEAD], KB_BUFB
+    mov word [es:KB_TAIL], KB_BUFE - 2
+    mov ax, [es:KB_HEAD]
+    mov [h0], ax
+    mov ax, [es:KB_TAIL]
+    mov [t0], ax
+    sti
     call watch
+    mov ax, BDA
+    mov es, ax
+    mov ax, [es:KB_HEAD]
+    mov [h1], ax
+    mov ax, [es:KB_TAIL]
+    mov [t1], ax
+    ; ...and how many slots the marker has been driven out of, which IS the
+    ; measurement: one or more means an arriving key was STORED on a full
+    ; buffer, zero means every one was dropped.
+    xor dx, dx
+    mov di, KB_BUFB
+    mov cx, (KB_BUFE - KB_BUFB) / 2
+.count:
+    mov ax, [es:di]
+    cmp ax, 0x2C5A
+    je .same
+    inc dx
+.same:
+    inc di
+    inc di
+    loop .count
+    mov [stored], dx
+
+    ; --- ...and only now, the report ----------------------------------------
+    mov si, s_forged
+    call puts
+    mov ax, [h0]
+    call hex4
+    mov si, s_tail
+    call puts
+    mov ax, [t0]
+    call hex4
+    call eol
     mov si, s_spk
     call puts
     mov ax, [spk+2]
@@ -129,9 +179,27 @@ start:
     mov ax, [spk]
     call hex4
     call eol
+    mov si, s_arr
+    call puts
+    mov ax, [arr+2]
+    call hex4
+    mov ax, [arr]
+    call hex4
+    call eol
+    mov si, s_stored
+    call puts
+    mov ax, [stored]
+    call hex4
+    call eol
     mov si, s_after
     call puts
-    call kbstate
+    mov ax, [h1]
+    call hex4
+    mov si, s_tail
+    call puts
+    mov ax, [t1]
+    call hex4
+    call eol
 
     ; --- 4. leave the machine as we found it --------------------------------
     mov ax, BDA
@@ -157,13 +225,39 @@ start:
 ; --- watch - sample port 61h [rounds] x 65,536 times, counting the speaker --
 ; Clobbers AX and CX; [spk] is the 32-bit tally and the caller zeroes it.
 ;
+; **AND IT COUNTS ARRIVALS TOO, WHICH IS NOT A REFINEMENT.** A dropped key
+; changes NOTHING in the BDA - that is what dropped means - so "the tail did
+; not move" is equally consistent with `the ROM dropped every key` and with
+; `no key ever reached the guest`. The first draft of this probe could not
+; tell those apart and its unguarded arm was therefore VACUOUS: it reported a
+; drop it had not witnessed.
+;
+; 0040:0017 is the shift-state byte, and the ROM updates it from a modifier's
+; make and break codes whether or not there is room in the buffer. So a
+; harness holding SHIFT down moves it, a full buffer notwithstanding, and a
+; count of how many samples saw it DIFFER from the last one is proof that
+; int 09h was running at all.
+;
 ; A COUNT AND NOT A CLOCK, deliberately: the window has to be the same amount
 ; of WORK on both arms of the A/B, and a beep that stops the machine dead
 ; would make a tick-bounded window measure itself.
 watch:
+    push es
+    push bx
+    mov ax, BDA
+    mov es, ax
+    mov al, [es:0x17]
+    mov [kflast], al
 .round:
     xor cx, cx                  ; 0 is 65,536 turns of `loop`
 .w:
+    mov al, [es:0x17]           ; the shift state, which a modifier moves even
+    cmp al, [kflast]            ; on a full buffer
+    je .nokf
+    mov [kflast], al
+    add word [arr], 1
+    adc word [arr+2], 0
+.nokf:
     in al, 0x61
     test al, 0x02               ; **BIT 1, THE SPEAKER DATA LINE, AND NOT BIT 0
                                 ; AS WELL.** Bit 0 is the timer-2 GATE and a PC
@@ -179,6 +273,8 @@ watch:
     loop .w
     dec byte [rounds]
     jnz .round
+    pop bx
+    pop es
     ret
 
 ; --- kbstate - "head=xxxx tail=xxxx" ----------------------------------------
@@ -264,14 +360,23 @@ puts:
     ret
 
 s_vec:    db 'KBHOLD int09=', 0
-s_forged: db 'forged FULL   ', 0
-s_after:  db 'after  watch  ', 0
+s_forged: db 'forged FULL   head=', 0
+s_after:  db 'after  watch  head=', 0
 s_head:   db 'head=', 0
 s_tail:   db ' tail=', 0
 s_ctl:    db 'speaker CONTROL     =', 0
 s_spk:    db 'speaker-on samples  =', 0
+s_arr:    db 'shift-state changes =', 0
+s_stored: db 'slots taken by a key=', 0
 s_done:   db 'KBHOLD READY', 13, 10, 0
 spk:      dd 0
+arr:      dd 0
+kflast:   db 0
 spk_sv:   db 0
+stored:   dw 0
+h0:       dw 0
+t0:       dw 0
+h1:       dw 0
+t1:       dw 0
 rounds:   db 0
 dta:      times 128 db 0
