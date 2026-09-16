@@ -74,7 +74,7 @@ KDBIN = os.path.join(ROOT, os88build.at("build/kerndos.bin"))
 MACH = "os8088_5150_cga_gla"
 
 RD_N, RD_SEL, RD_PITCH, RD_DIS = 10, 12, 14, 16
-WHOLE, NARM = 2, 3
+WHOLE, NARM = 1, 2
 DOS_PSPP = 10                   # apps/dos/dos.asm: the PSP's paragraph in the
                                 # block, mirrored here only to say what the KB
                                 # figure is a figure OF
@@ -196,19 +196,19 @@ def main():
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
 
-        # --- the third arm ---------------------------------------------------
+        # --- the Shut down the OS arm ---------------------------------------------------
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_N) != NARM:
             fail("the Memory page has %d arms" % rec(m, pseg, dm, RD_N))
         if rec(m, pseg, dm, RD_DIS) & (1 << WHOLE):
-            fail("the third arm is GREYED on a build that carries kern_dos")
+            fail("the Shut down the OS arm is GREYED on a build that carries kern_dos")
         x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
         pitch = rec(m, pseg, dm, RD_PITCH)
         mo.click((x1 + x2) // 2, y1 + WHOLE * pitch + pitch // 2)
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_SEL) != WHOLE:
-            fail("clicking the third arm left OS88UI_RD_SEL at %d"
+            fail("clicking the Shut down the OS arm left OS88UI_RD_SEL at %d"
                  % rec(m, pseg, dm, RD_SEL))
 
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
@@ -217,7 +217,7 @@ def main():
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
         os88marty.settle(m)
         if not alert_up(m, base, dm):
-            fail("Run on the third arm went straight to the launch "
+            fail("Run on the Shut down the OS arm went straight to the launch "
                  "(SPEC.md 96.42)")
         mo.click(*alert_button(m, base, dm, 1))         # Proceed
         rs = wait_text(m, "READY", secs=150, what="the run under kern_dos")

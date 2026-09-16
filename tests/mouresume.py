@@ -132,7 +132,7 @@ def main():
         m.write((pseg << 4) + dm["dos_exit"], bytes([0]))
         m.write((pseg << 4) + dm["dos_akb"], bytes([0, 0]))
         m.write((pseg << 4) + dm["dos_state"], bytes([0]))
-        m.write((pseg << 4) + dm["dos_keepc"], bytes([2, 0]))   # DOS_MEM_WHOLE
+        m.write((pseg << 4) + dm["dos_keepc"], bytes([1, 0]))   # DOS_MEM_WHOLE
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
         kd_kb = KR.topmem(KR.wait_text(m, "READY", 300, "the run under kern_dos"))
         if kd_kb <= win_kb:

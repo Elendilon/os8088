@@ -24326,6 +24326,26 @@ package never reaches. The assertion was a **false green** on that symbol and
 only the deliberate breakage refusing to go red found it — docs/WRITING-TESTS.md
 §1 earning its place.
 
+#### 13.17.5 A pitch is not always a row's HEIGHT
+
+`OS88UI_RD_PITCH` is row-to-row and was read as both the step and the height a
+ring is centred in, which is the same number until a caller puts something
+between two arms. `apps/dos`'s memory page does (§96.36.4): each arm heads a
+**subsection** of its own controls, so the pitch is sixty-odd pixels and
+centring in that put the ring and its label a quarter of the way down the
+subsection — on top of the check boxes that belong to it.
+
+`OS88UI_RDROWH` = 20 caps the height the ring and the label are centred in.
+The Control Panel's three pitches are 16, 20 and 16, all at or under it, so
+**nothing that shipped moves by a pixel**; a tall pitch now means *the next
+heading is this far down* rather than *this row is that tall*. Twelve bytes of
+library, in one internal helper both sites call, and no record field — which
+matters because a field would grow every caller's record to describe a case
+only one of them has.
+
+The hit test is unchanged and still divides by the pitch, which is the whole
+point: a press anywhere in a subsection lands on the arm that heads it.
+
 #### 13.17.3 The press answers THREE things, not two
 
     CF = 1   the press was not ours — and nothing else means anything
@@ -128620,17 +128640,20 @@ is structural rather than a slip: a file with two hosts grows for both of them
 whenever either one gains a feature, and NASM emits every byte of a flat
 binary whether or not it is referenced.
 
-### 96.36 The Memory page's choice is a RADIO of three
+### 96.36 The Memory page's choice is a RADIO of two, with a subsection each
 
 §96.25 shipped the choice as a check box, and a check box holds two answers.
-There are three, and the third is a different kind of thing from the other
-two:
+It became a radio of three (§96.36.5 is why it is two again), and the arms are
+**where the program runs**:
 
 | arm | `[dos_keepc]` | what the program gets |
 |---|---|---|
-| **Keep the disk cache** | `DOS_MEM_KEEP` = 0 | everything but §18.95's `dirw` cache — the default, and the choice that keeps the *disk* fast |
-| **Take the disk cache too** | `DOS_MEM_DUMP` = 1 | ...and the cache as well, rebuilt from the FAT afterwards |
-| **Take the whole OS too** | `DOS_MEM_WHOLE` = 2 | the machine, with os8088 itself unloaded — docs/plans/KERN-DOS-PLAN.md |
+| **Inside the OS** | `DOS_MEM_IN` = 0 | the heap, packed — the default, and what a double click gets |
+| **Shut down the OS** | `DOS_MEM_WHOLE` = 1 | the machine, with os8088 itself unloaded — docs/plans/KERN-DOS-PLAN.md |
+
+Each arm carries a **subsection** of its own options, and the pitch is
+therefore a subsection's height rather than a row's (§96.36.4). One control
+belongs to neither and floats below both: the disk cache's dial (§96.36.6).
 
 `os88ui_rad` (§13.17.4) is the control and **this is its first caller in the
 tree**: it was written for the Control Panel's pages and no package had one
@@ -128717,6 +128740,183 @@ third arm would give the program is not a number this build can ask anything
 for. §47 rule 5 again — a figure that has to be guessed is worse than no
 figure, because the two beside it are measured and the user cannot tell them
 apart. It arrives with the plan's W1, which is the wave that measures it.
+
+#### 96.36.3 One figure, at the top, and it MOVES
+
+The page used to carry two numbers and be a choice between them. It is not one
+any more — it is an arm, three check boxes, a dial and a cap — so what the
+user wants to know is what all of them **together** come to. `For the program:
+~NNNNN K` is that, on one row above every control that can move it, redrawn by
+`dos_mem_row` after each of them.
+
+It is one opaque `font_run` with its own digits patched into the string
+(`dos_mem_num`), which is `dos_fmt_exit`'s shape and §6.1's rule: a number
+assembled anywhere else needs a second store to reach the line, and a second
+pass over the pixels is the flash this project keeps naming. A control redraws
+its own mark and this row redraws itself; nothing repaints the block except an
+**arm change**, which moves both subsections and the dial's list with it.
+
+**The `~` is the point of the row.** Arm 0's base term is exact —
+`OSAPI_MEM_COMPACT`'s what-if at the floor `dos_run` will really set, which is
+§96.25.1.1's argument unchanged — but the driver boxes add `OSAPI_DRV_CLASSK`
+figures, which are build-time constants at the **top rung** of any claim a
+driver sizes to the machine (§51.12). Arm 1 cannot be asked anything at all:
+the machine it describes has no kernel in it, so every term is a constant this
+build knows — `SK_KERN + SK_HEAP + DOS_LOWKB` for what the machine has,
+less `DOS_KDKB` for what `kern_dos` keeps below the program, less the COPY
+buffer, less the rung the dial is asking for.
+
+**`DOS_KDKB` is not gated against `kern_dos`'s own arithmetic, deliberately.**
+`LOW_SEG + KD_LOW_KB * 64` over there moves with that image, so an
+assembly-time mirror would fail this build every time `kern_dos` changed a
+byte — which is a gate that gets raised rather than read. The instrument is a
+RUN: `tests/dosram.py` puts a program through arm 3 and compares what the page
+promised against the arena the box carries home (§96.41.1).
+
+The **limit** is the one term that is neither estimate nor measurement: it is
+the user's own ceiling, so it clamps whatever the rest came to.
+
+#### 96.36.4 A pitch is a SUBSECTION, so the hit test runs inside out
+
+`OS88UI_RD_PITCH` is 62 and not 16: the group's two rows are the two headings,
+and everything between them belongs to the arm above. That makes the radio's
+own rect cover the check boxes and the limit field inside it, which is a
+feature and a hazard in one — a press in a subsection that no control of its
+own claims picks that arm, and a press **on** a control must not.
+
+So `dos_click_mem` asks **inside out**: the drop-down, then the three check
+boxes, then the limit field, then the arm. Every `os88ui` control answers *was
+this mine*, so the innermost asks first and whatever nothing claims falls
+through to the arm it is standing in. That is the order and not a special
+case.
+
+**And `RD_RECT`'s y2 is not `y1 + N * PITCH`.** Two rows of 62 would reach 153
+and swallow the disk cache's box at 126; `os88ui_radhit` tests the rect first
+and divides afterwards, so ending the rect where arm 1's subsection ends
+leaves everything below it to its own control. The rect is cut to
+`DOS_MMOUY + DOS_FLDH`.
+
+#### 96.36.5 The middle arm was never an arm
+
+`Keep the disk cache` and `Take the disk cache too` differed in the cache and
+in **nothing else**: one mode with a dial set two ways, drawn as two modes.
+That reading costs nothing while the dial has two positions and becomes wrong
+the moment it has five — there is no arm that means *18 KB*.
+
+So the cache is its own control (§96.36.6), the arms are what they always
+were, and `[dos_keepc]`'s values shift down by one. Nothing else moved: the
+`.LNK` format still stores the pick as a byte and `dos_mem_fix` still clamps
+it against `DOS_MEM_N`, so a link written by the three-arm build asking for
+arm 2 is refused by the range check it already had and demoted to arm 0 —
+which is the arm every machine can do.
+
+#### 96.36.6 The disk cache is a dial, and the LIST is the arm's
+
+`Disk cache: [Auto ▾]` floats below both subsections, because it belongs to
+neither: whichever arm is picked, the question is *how much of my own memory
+do I spend on making my own disk reads faster*.
+
+**What the two arms can DO about it is not the same thing**, and the lists say
+so rather than rounding:
+
+| | list | mechanism |
+|---|---|---|
+| **Shut down the OS** | Auto / 32K / 18K / 9K / Off (SLOW!) | `kd_giveback` sheds `kern_dos`'s read-ahead a **rung at a time** (§96.44.11.4), so every width on the ladder is one the cache still works at |
+| **Inside the OS** | Auto / Off (SLOW!) | the kernel's `dirw` claim is taken at a **mount** and solved from free memory (§18.95.5); once the box has claimed the arena there is none, so it is either standing or shed |
+
+The missing three on arm 0 are not a rounding and not an omission: a
+`[Auto / 32K / 18K / 9K / Off]` list where three rows did the same thing is a
+control that lies, and the honest version of the middle rungs there is a
+kernel door that can re-take the claim at a named width — which does not
+exist and is not free. `Off (SLOW!)` says what it costs where the cost is
+real; `Auto` on arm 0 is the floor `DOS_PG_FLOOR`, which is what `Keep the
+disk cache` was.
+
+**The pick is remembered per arm.** The two lists are different lengths, so
+one `OS88UI_DR_SEL` cannot hold both: `dos_drop_place` swaps the pick with
+`[dos_cachei]` when `[dos_mdrwas]` says the arm changed, mapping `Off` between
+item 4 and item 1 rather than clamping. Leaving a stale value in SEL would
+index past the short list and draw a caption out of whatever follows the
+table.
+
+**It reaches `kern_dos` in the FLAGS word**, as runs + 1 in bits 8..10
+(`KDLF_RAHM`), so that **zero means "your own `KD_RAH_KEEP`"**. That is
+`KDL_NVOL`'s rule and `KDL_DPT`'s: a sender that cannot fill a field must not
+be mistaken for one that filled it with zeros. The header runs to `KDL_BODY`
+with no spare byte in it, and `KDL_VER` moves when a **row** moves — filling
+reserved bits of a word that is already there moves none, which is
+`KDL_MOUBASE`'s own precedent. `Auto` sends the zero rather than the number
+behind it, so the day `KD_RAH_KEEP` changes the two sides need not change
+together.
+
+#### 96.36.7 Arm 0's boxes: a driver the program does not need is memory it could have
+
+`OSAPI_DRV_SUSPEND` leaves `DRVC_DISK`, `DRVC_FILE` and `DRVC_NET` mounted
+because a fullscreen program normally **wants** them (§51.11). A program that
+never opens a file on `C:`, or never touches the network, is holding 32 KB
+each for nothing — on the one page whose whole subject is memory. So arm 0's
+subsection carries two boxes, `Hard drives (NNN K)` and `Network (NNN K)`,
+and clearing one sets that class's bit in `OSAPI_DRV_SUSPEND`'s `BL`
+(§51.11.4).
+
+**The figure in the label and the figure the arena row adds are ONE number
+read once.** `dos_mck_place` asks `OSAPI_DRV_CLASSK` per class, banks the
+answer, patches it into the label in place and hands the same word to
+`dos_mem_arena` — so what the box says it gives back and what the total moves
+by cannot disagree (§47 rule 5), and a driver unloaded between two reads
+cannot make them.
+
+**A class nothing has mounted greys, and is forced ON.** `OSAPI_DRV_CLASSK`'s
+CF is that fact. An unticked box means *take it out* and there is nothing to
+take out, so an off box would be describing an action rather than a state —
+and `os88ui_chkhit` is not called at all for a greyed one, which is §47 rule 6.
+
+The RAM disk is `DRVC_FILE` and has no box. It is not an omission to fix
+casually: unlike the other two it is **memory the user put somewhere**, and a
+box that silently discards a RAM disk's contents to reclaim its arena is a
+different kind of offer from one that unmounts a card.
+
+#### 96.36.8 Arm 1's box: the pointer is not free on a 4.77 MHz machine
+
+`Disable the mouse` is the first option under **Shut down the OS**, and it is
+there because `mou_isr` redraws the arrow out of the interrupt on every packet
+— work a DOS program that never asks INT 33h anything is paying for and
+cannot see. Off, `kern_dos` hooks nothing and INT 33h answers §96.10's still
+pointer, which is exactly what `kd_mou_start` already does with a zero
+`KDL_MOUBASE`.
+
+**The box cannot simply zero that word**, and that is why the bit exists:
+`KDL_MOUBASE` is the KERNEL's field, patched into the **staged** block by
+`hbm_dosrun` after the box has gathered the rest (§96.45), so a package
+writing a zero there is overwritten a moment later. `KDLF_NOMOUSE` is bit 3 of
+`KDL_FLAGS` and `hbm_dosrun` tests it **before** the contest's result — the
+user's decision outranks the machine's capability, and a machine with no mouse
+reaches the same zero by the path it always did.
+
+**There is no hibernate box beside it.** A machine with a fixed disk always
+has somewhere to put the session, and a user who unticked that would be
+choosing to lose their desktop for nothing; a machine without one is already
+§96.42's alert. The row this box sits on is also where a greyed arm's REASON
+goes, and the two never want it at once: an arm that cannot be picked is not
+offering its option either.
+
+#### 96.36.9 A subsection belongs to its arm, so the other one is GREYED
+
+A box under the arm that is **not** picked cannot be used: unticking `Network`
+while `Shut down the OS` is the pick would set a bit in a call that arm never
+makes. So `dos_mck_di` greys it (§47 rule 2), and the same predicate serves
+the painter and the press — one answer, two consumers, which is §47 rule 4.
+
+**And the press is not swallowed.** §47 rule 6 says a greyed control says
+nothing more, and a greyed box here claims nothing — so the press falls
+through to the radio whose rect covers the subsection (§96.36.4) and **picks
+that arm**. Two clicks, and the first one says what the second will mean: the
+block repaints with that subsection live and the box under the pointer ready.
+
+The limit field is arm 0's for the same reason and by the same route.
+`dos_lbfill` fills `KDL_CAP` from the BDA and never from `[dos_memkb]`, so a
+cap shown on arm 1 would be a promise the launch does not keep — which is why
+`dos_mem_arena` jumps past the clamp on that arm rather than applying it.
 
 ### 96.37 The kernel's disk layer runs outside the kernel, for 92 bytes
 

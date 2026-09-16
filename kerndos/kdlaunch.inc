@@ -247,6 +247,41 @@ KDLF_HIBER  equ 4               ; bit 2: THE KERNEL HAS WRITTEN A HIBERNATION
                                 ; block, because whether there is a fixed disk
                                 ; to come back to is `hb_pick`'s question and
                                 ; the kernel is the only side that can ask it
+KDLF_NOMOUSE equ 8              ; bit 3: **THE USER DOES NOT WANT A POINTER**
+                                ; (SPEC.md 96.36.8). `KDL_MOUBASE` is the
+                                ; KERNEL's field and a package cannot zero it
+                                ; by writing there - `hbm_dosrun` patches the
+                                ; word AFTER the box has gathered the block -
+                                ; so the box says so in a bit and the kernel's
+                                ; patch is what tests it. Zero base is already
+                                ; "this machine has none that kern_dos can
+                                ; drive", so the refusal needs nothing new on
+                                ; this side: `kd_mou_start` reads the same 0
+                                ; either way and INT 33h answers 96.10's still
+                                ; pointer.
+                                ;
+                                ; It is worth a bit because the pointer is not
+                                ; free: `mou_isr` draws the arrow out of the
+                                ; interrupt on every packet, which on a
+                                ; 4.77 MHz machine a DOS program can feel, and
+                                ; a program that never asks INT 33h anything
+                                ; is paying for a cursor nobody reads
+KDLF_RAHSH  equ 8               ; bits 8..10: **HOW MUCH READ-AHEAD THE PROGRAM
+KDLF_RAHM   equ 0x0700          ; DOES NOT GET** (SPEC.md 96.36.6), as
+                                ; runs + 1, so that ZERO is "kern_dos's own
+                                ; KD_RAH_KEEP" and 1..8 are widths 0..7. The
+                                ; +1 is what makes the absent field mean the
+                                ; default rather than "shed the lot", which is
+                                ; KDL_NVOL's rule and KDL_DPT's: a sender that
+                                ; cannot fill a field must not be mistaken for
+                                ; one that filled it with zeros.
+                                ;
+                                ; IN THE FLAGS WORD AND NOT A ROW OF ITS OWN:
+                                ; the header runs to KDL_BODY with no spare
+                                ; byte in it, and KDL_VER moves when a ROW
+                                ; MOVES - filling reserved bits of a word that
+                                ; is already there moves none, which is
+                                ; exactly KDL_MOUBASE's own precedent
 KDLF_EXE    equ 2               ; bit 1: the box already knows it is an .EXE.
                                 ; A HINT and not an instruction - kern_dos
                                 ; still asks `dos_is_exe`, which reads the

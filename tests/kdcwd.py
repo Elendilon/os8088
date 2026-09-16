@@ -56,7 +56,7 @@ MACH = "os8088_5150_herc_sb_720_gla"
 SYS = "build/os8088-720.img"
 APPS = "build/cwdsub.img"
 PROG = "B:/SUB/CWDHERE.COM"
-WHOLE = 2                            # the Memory page's third arm
+WHOLE = 1                            # the Memory page's second arm
 # os88ui.inc's alert geometry, mirrored for tests/kdhand.py's reason.
 A_BW, A_BG, A_BH, A_BTNY, TITLE_H = 72, 12, 13, 46, 18
 
@@ -223,7 +223,7 @@ def main():
         os88marty.settle(m)
         sel = rec(m, pseg, dm, RD_SEL)
         if sel != WHOLE:
-            fail("clicking the third arm left OS88UI_RD_SEL at %d, so the run "
+            fail("clicking the Shut down the OS arm left OS88UI_RD_SEL at %d, so the run "
                  "below would be the WINDOWED one again and the comparison "
                  "would be of a thing with itself" % sel)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))

@@ -128,14 +128,14 @@ def main():
         os88marty.settle(m)
         dis = kdhand.rec(m, pseg, dm, kdhand.RD_DIS)
         if dis & (1 << kdhand.WHOLE):
-            fail("the third arm is GREYED - this build does not carry "
+            fail("the Shut down the OS arm is GREYED - this build does not carry "
                  "kern_dos as a part (SPEC.md 96.36.1)")
         x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
         pitch = kdhand.rec(m, pseg, dm, kdhand.RD_PITCH)
         mo.click((x1 + x2) // 2, y1 + kdhand.WHOLE * pitch + pitch // 2)
         os88marty.settle(m)
         if kdhand.rec(m, pseg, dm, kdhand.RD_SEL) != kdhand.WHOLE:
-            fail("clicking the third arm did not pick it")
+            fail("clicking the Shut down the OS arm did not pick it")
         # --- ...back to the main page, and the program's name ---------------
         # The path box has to be CLICKED first and the extension is part of
         # the name - tests/kdmix.py carries both reasons, and both fail as a

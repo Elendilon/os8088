@@ -2,7 +2,7 @@
 """The DOS handoff, end to end (SPEC.md 96.40, docs/plans/KERN-DOS-PLAN.md 7).
 
 Run a .COM in the window, then run THE SAME .COM again with the Memory page's
-third arm picked - and assert that the second run happened on a machine with
+the Shut down the OS arm picked - and assert that the second run happened on a machine with
 no os8088 in it at all: more memory, a text screen the kernel is not drawing,
 and a restart at the end that brings the desktop back.
 
@@ -54,7 +54,9 @@ COM = "build/doscom360.img"
 MACH = "os8088_5150_cga_gla"
 
 RD_N, RD_SEL, RD_PITCH, RD_DIS = 10, 12, 14, 16
-KEEP, DUMP, WHOLE, NARM = 0, 1, 2, 3
+INOS, WHOLE, NARM = 0, 1, 2          # SPEC.md 96.36.5 took the
+                                     # middle arm out: the cache is
+                                     # its own control now
 
 
 def fail(msg):
@@ -172,14 +174,14 @@ def main():
         pseg = dosmap.instance(m)
         mo = os88mouse.Mouse(marty=m)
 
-        # --- 2. the third arm, which this build can offer --------------------
+        # --- 2. the Shut down the OS arm, which this build can offer --------------------
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_N) != NARM:
             fail("the Memory page has %d arms" % rec(m, pseg, dm, RD_N))
         dis = rec(m, pseg, dm, RD_DIS)
         if dis & (1 << WHOLE):
-            fail("the third arm is GREYED on a build that carries kern_dos as "
+            fail("the Shut down the OS arm is GREYED on a build that carries kern_dos as "
                  "a part (SPEC.md 96.36.1): OS88UI_RD_DIS is 0x%04X. "
                  "`dos_mem_whole` reads the part table's own length word, so "
                  "either the part is not in DOS.O88 or the row is not found"
@@ -189,9 +191,9 @@ def main():
         mo.click((x1 + x2) // 2, y1 + WHOLE * pitch + pitch // 2)
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_SEL) != WHOLE:
-            fail("clicking the third arm left OS88UI_RD_SEL at %d"
+            fail("clicking the Shut down the OS arm left OS88UI_RD_SEL at %d"
                  % rec(m, pseg, dm, RD_SEL))
-        print("kdhand: the third arm is live and picked")
+        print("kdhand: the Shut down the OS arm is live and picked")
 
         # --- 3. ...and Run, which does not come back -------------------------
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))   # Return, which is
@@ -210,7 +212,7 @@ def main():
         # and it is not allowed to happen quietly.
         base = pseg << 4
         if not alert_up(m, base, dm):
-            fail("Run on the third arm went straight to the launch. With no "
+            fail("Run on the Shut down the OS arm went straight to the launch. With no "
                  "fixed disk the session is LOST, and "
                  "docs/plans/KERN-DOS-PLAN.md 9 wants that asked in its own "
                  "window at the moment of launch")

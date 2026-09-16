@@ -2933,6 +2933,21 @@ OS88UI_RDBOX    equ 12          ; the ring's box - OS88UI_GW, so a converted
 OS88UI_RDGAP    equ 6           ; ...and the label's margin, os88ui_chk's
 OS88UI_RDMAX    equ 8           ; bits 0..7 of OS88UI_RD_DIS; 15 is the group
 OS88UI_RDGRP    equ 0x8000      ; ...that bit, by name
+OS88UI_RDROWH   equ 20          ; **THE RING IS CENTRED IN THIS, NOT IN THE
+                                ; PITCH**, when the pitch is bigger (SPEC.md
+                                ; 13.17.5). A pitch is row-to-row and is
+                                ; ordinarily a row's own height - the Control
+                                ; Panel's three are 16, 20 and 16, all at or
+                                ; under this, so nothing that shipped moves by
+                                ; a pixel. A caller whose arms have
+                                ; SUBSECTIONS between them (apps/dos's memory
+                                ; page, SPEC.md 96.36.4) has a pitch of sixty,
+                                ; and centring in that put the ring and its
+                                ; label a quarter of the way down the
+                                ; subsection - on top of the controls that
+                                ; belong to it. The cap is what makes a tall
+                                ; pitch mean "the next HEADING is this far
+                                ; down" rather than "this row is that tall"
 
 ; -----------------------------------------------------------------------------
 ; os88ui_rad - draw the whole group as it stands
@@ -3021,12 +3036,23 @@ os88ui_rad_dt:
 ; rather than lifting it out.
 ; -----------------------------------------------------------------------------
 os88ui_radboxy:
-    mov ax, [ds:bp+OS88UI_RD_PITCH]
+    call os88ui_radrowh         ; AX = the pitch, capped at OS88UI_RDROWH
     sub ax, OS88UI_RDBOX
     jle .top
     sar ax, 1
     add di, ax
 .top:
+    ret
+
+; os88ui_radrowh - internal: AX = how tall a ROW is, which is the pitch until
+;                  the pitch is bigger than a row (SPEC.md 13.17.5)
+; in:  BP = the record; out: AX. Every other register preserved
+os88ui_radrowh:
+    mov ax, [ds:bp+OS88UI_RD_PITCH]
+    cmp ax, OS88UI_RDROWH
+    jbe .ok
+    mov ax, OS88UI_RDROWH
+.ok:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3093,8 +3119,11 @@ os88ui_rad1:
     mov si, [si]
     mov cx, [ds:bp+OS88UI_RD_RECT+0]
     add cx, OS88UI_RDBOX + OS88UI_RDGAP
-    mov dx, [ds:bp+OS88UI_RD_PITCH]     ; centred in the row, os88ui_chk's
-    sub dx, 7                           ; arithmetic
+    push ax                             ; centred in the row, os88ui_chk's
+    call os88ui_radrowh                 ; arithmetic - and in the ROW's height
+    mov dx, ax                          ; rather than in the pitch, which is
+    pop ax                              ; not the same thing once a caller puts
+    sub dx, 7                           ; a whole subsection between two arms
     sar dx, 1
     add dx, di
     mov al, CBLACK              ; the DIS state rides on the pen, not on AL -

@@ -81,7 +81,7 @@ KDBIN = os.path.join(ROOT, os88build.at("build/kerndos.bin"))
 MACH = "os8088_5150_cga_gla_mix"
 
 RD_N, RD_SEL, RD_PITCH, RD_DIS = 10, 12, 14, 16
-WHOLE, NARM = 2, 3
+WHOLE, NARM = 1, 2
 DST_ERR = 3
 DOS_PSPP = 10
 DSK_RAH_RUNS = 7                # kernel/disk.inc's ceiling, which is the width
@@ -230,13 +230,13 @@ def main():
                  % (st, size))
         print("kdbigexe: 1/5 the windowed box refused it, which is the control")
 
-        # --- the third arm ---------------------------------------------------
+        # --- the Shut down the OS arm ---------------------------------------------------
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_N) != NARM:
             fail("the Memory page has %d arms" % rec(m, pseg, dm, RD_N))
         if rec(m, pseg, dm, RD_DIS) & (1 << WHOLE):
-            fail("the third arm is GREYED after a failed windowed load: a "
+            fail("the Shut down the OS arm is GREYED after a failed windowed load: a "
                  "program too big for the window is exactly the one that "
                  "wants the whole machine")
         x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
@@ -244,14 +244,14 @@ def main():
         mo.click((x1 + x2) // 2, y1 + WHOLE * pitch + pitch // 2)
         os88marty.settle(m)
         if rec(m, pseg, dm, RD_SEL) != WHOLE:
-            fail("clicking the third arm left OS88UI_RD_SEL at %d"
+            fail("clicking the Shut down the OS arm left OS88UI_RD_SEL at %d"
                  % rec(m, pseg, dm, RD_SEL))
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
         os88marty.settle(m)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
         os88marty.settle(m)
         if not alert_up(m, base, dm):
-            fail("Run on the third arm went straight to the launch "
+            fail("Run on the Shut down the OS arm went straight to the launch "
                  "(SPEC.md 96.42)")
 
         # --- ...and the ladder, counted at the top of the retry loop ---------
