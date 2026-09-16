@@ -282,6 +282,42 @@ same vanishing region, and it goes at the same time.
 - A row that lists a 68-entry DOS directory and asserts the store is EMPTY.
 - `soak -k 'disp*'` for the drawing, which is the half a byte count cannot see.
 
+## 11.1 THE LAST DUPLICATE: `ASSOC.DAT`'s buffer (OPEN, and costed here)
+
+`asc_seg` is a 3KB claim holding up to 32 rows of `stem 8 + size 2 + cluster 2
++ 4 reserved + a 64-byte BODY`. Once the store holds the bodies, **2,560 of
+those 3,072 bytes are a second copy in RAM** - which is the thing this whole
+plan is about.
+
+**THE CHEAP VERSION DOES NOT WORK, and the reason is load-bearing.** The
+obvious move is to free the claim at the end of each mount, since
+`asc_lookup`/`asc_take` are only ever called from inside one. But `asc_use_x`
+hangs off the HARVEST, which re-runs when you enter a FOLDER - and the
+`asc_vol` stamp is what makes every later call a compare instead of a re-read.
+Freeing the claim puts **~2 `int 13h` back on every folder navigation**, which
+on a 4.77 MHz machine is most of a second of visible pause. The stamp is not an
+optimisation, it is why browsing is quick.
+
+So the real shape is a MIGRATION at load time:
+
+1. **The store's key becomes the 8-byte stem + size**, matching `ASSOC.DAT`'s
+   row exactly. Only PACKAGES take a name key (a folder takes a sentinel, a
+   document a synthetic one), and packages are all `.O88`, so the stem is
+   unique inside the key space. `ico_key_of` then needs a stem extractor -
+   `assoc_stem_of` exists but is gated out of `kern_small`, so ~20 bytes of
+   `disk.inc`.
+2. `asc_use_x`, after validating the file, walks the rows and `ico_add`s each
+   body - a straight key copy, the two layouts now agreeing.
+3. The rows COMPACT in place to 16 bytes, and `asc_lookup_x` answers with a
+   STORE ROW instead of an offset into the claim.
+4. The claim shrinks to ~1KB (`16 + 32*16 + 24*4` = 624 bytes), which needs
+   `mem_regrow` to take a claim DOWN.
+
+Saving: **~2KB of heap in steady state**, the peak at read time unchanged.
+Risk: the association path drives every document icon and every launch by
+association, so this is the one piece of the plan where a mistake is not
+cosmetic. Worth doing, worth doing deliberately.
+
 ## 12. What would kill it, and what is still open
 
 - **The per-window mirror CAN drop its bodies - settled, and it is the reason
