@@ -151,25 +151,46 @@ def find_icon(m, mo, rect, glyph):
     return hits
 
 
-def break_cache_row(m):
-    """Spoil the cache's DOS row in memory so the next lookup MISSES."""
-    seg = int.from_bytes(m.read(S("asc_seg"), 2), "little")
-    n = int.from_bytes(m.read(S("asc_n"), 2), "little")
+def break_store_row(m):
+    """Spoil the STORE's DOS row so the next lookup MISSES.
+
+    IT WAS THE CACHE'S ROW, and the trick has moved one layer along rather
+    than changed. SPEC.md 54.7.4 made ASSOC.DAT's claim a FILE BUFFER: its
+    bodies and its shipped glyphs are absorbed into SPEC.md 25.9's
+    machine-wide store and the claim is freed before asc_use returns, so
+    there is nothing in memory to spoil by the time a harvest runs. What
+    decides whether that harvest reads a sector is now `ico_have`, and it
+    compares the same two things - so breaking the SIZE half of the
+    (name, size) key is the same staging against the thing that now answers.
+
+    The cache's VERSION is still asserted, out of [asc_rowsz]: asc_drop
+    clears the segment and the counts and deliberately leaves the stride, so
+    it still reports what the last volume's ASSOC.DAT was.
+    """
     rowsz = int.from_bytes(m.read(S("asc_rowsz"), 2), "little")
-    say("cache at %04X, %d rows of %d bytes" % (seg, n, rowsz))
     if rowsz != 88:
-        fails.append("the loaded cache's row stride is %d, not 88 - the "
+        fails.append("the last cache's row stride is %d, not 88 - the "
                      "system disk's ASSOC.DAT is not version 2" % rowsz)
+    if int.from_bytes(m.read(S("asc_seg"), 2), "little"):
+        fails.append("MEM_K_ASC is still claimed after a mount - SPEC.md "
+                     "54.7.4 frees it, and tests/ascabsorb.py is the row "
+                     "that owns that")
+    seg = int.from_bytes(m.read(S("ico_seg"), 2), "little")
+    n = m.read(S("ico_n"), 1)[0]
+    eq = os88sym.equates()
+    stride, r_size = eq["ICO_ROW"], eq["ICO_R_SIZE"]
+    say("store at %04X, %d rows of %d bytes (cache was v%d)"
+        % (seg, n, stride, 1 if rowsz == 80 else 2))
     if not seg or not n:
-        sys.exit("dosglyph: no cache is loaded, so a miss cannot be staged")
+        sys.exit("dosglyph: the store is empty, so a miss cannot be staged")
     for i in range(n):
-        row = seg * 16 + 16 + i * rowsz
-        if bytes(m.read(row, 8)) == b"DOS     ":
-            m.write(row + 8, b"\xFF\xFF")
-            say("row %d is DOS: its size word is now 0xFFFF" % i)
+        row = seg * 16 + i * stride
+        if bytes(m.read(row, 8)) == b"DOS.O88\0":
+            m.write(row + r_size, b"\xFF\xFF")
+            say("row %d is DOS.O88: its size word is now 0xFFFF" % i)
             return
-    sys.exit("dosglyph: the cache has no DOS row - the system disk's "
-             "ASSOC.DAT was built without APPS/DOS.O88")
+    sys.exit("dosglyph: the store has no DOS.O88 row - APPS/ was entered at "
+             "step 4, so the absorb or the harvest stored nothing for it")
 
 
 shipped, reduced = shipped_and_reduced()
@@ -223,7 +244,7 @@ with os88marty.launch(SYS_IMG, apps=DOC_IMG, machine=MACHINE) as m:
 
     # --- 5. a miss, and the harvest reads the sector ------------------------
     poison(m, idx, reduced)
-    break_cache_row(m)
+    break_store_row(m)
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "..")
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
     expect(m, "5 miss (assoc_img_glyph off the sector)", shipped)

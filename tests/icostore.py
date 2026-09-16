@@ -48,13 +48,14 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88ui                                                  # noqa: E402
+import os88geom                                                # noqa: E402
 import os88marty                                               # noqa: E402
 import os88sym                                                 # noqa: E402
 
 SYS = "build/os8088-360.img"
 APPS = "build/apps360.img"
-ICO_R_FOLDER = 0xFE
-ICO_R_NONE = 0xFF
+ICO_R_FOLDER = os88geom.ICO_R_FOLDER    # ...from the kernel source, not
+ICO_R_NONE = os88geom.ICO_R_NONE        # retyped (t_mirror, SPEC.md 25.9)
 
 _SY = os88sym.syms()
 _EQ = os88sym.equates()
@@ -112,10 +113,29 @@ def main():
             fail("B:/APPS has no ICO_R_FOLDER reference, and its `..` is a "
                  "folder - so a folder took a ROW instead of the built-in "
                  "body it should reference for free")
-        if b_rows != len(used):
-            fail("%d row(s) stored for %d entry body/ies: they must be one to "
-                 "one on a single volume, every package's icon being its own"
-                 % (b_rows, len(used)))
+        # THE COUNTS ARE NO LONGER ONE TO ONE, and this used to assert that
+        # they were.  It was a proxy for "every package's icon is its own",
+        # which assertion 1 tests directly; what made it hold was that the
+        # harvest was the store's only source.  SPEC.md 54.7.4 gave it a
+        # second: `asc_absorb` takes the whole VOLUME's bodies out of
+        # ASSOC.DAT at the mount, so a folder listing thirteen packages sits
+        # in a store of twenty-three and every one of those thirteen resolves
+        # WITHOUT A SECTOR READ, which is the point. What is still binding is
+        # that the store holds at least what the listing uses and that every
+        # reference names a row that exists - a reference past [ico_n] is
+        # SPEC.md 25.9's stale-reference case and draws 64 bytes of whatever
+        # the heap handed out next.
+        if b_rows < len(used):
+            fail("%d row(s) stored for %d entry body/ies - a listing cannot "
+                 "use more bodies than the store holds" % (b_rows, len(used)))
+        bad = [r for r in used if r >= b_rows]
+        if bad:
+            fail("entry/ies reference row(s) %s of a %d-row store (SPEC.md "
+                 "25.9): a row past [ico_n] is 64 bytes of freed heap drawn "
+                 "as an icon" % (sorted(set(bad)), b_rows))
+        print("icostore: ...%d of those rows came from somewhere other than "
+              "this listing - the volume's ASSOC.DAT, absorbed at the mount "
+              "(SPEC.md 54.7.4)" % (b_rows - len(used)))
 
         # --- 3: the SAME packages off the SYSTEM disk (SPEC.md 24.3) --------
         ui.open_drive("A")

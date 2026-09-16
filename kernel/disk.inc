@@ -3120,12 +3120,20 @@ disk_mount_x:
     jae .h_folder               ; the one icon that is not harvested off the
     cmp word [si+16], 1         ; disk but built in
     jne .h_zero
+    call ico_have               ; already in the store (SPEC.md 25.9)? -
+    jc .h_read                  ; absorbed from this volume's ASSOC.DAT
+                                ; (54.7.4), or harvested on an earlier mount,
+                                ; or the same package on a disk already
+                                ; browsed. Then it costs NO sector read, and
+                                ; that is BOTH kernels now: the question is
+                                ; the store's and kern_small has a store
 %ifdef OS88_ASSOC
-    call asc_lookup_x             ; cached from a previous session or written
-    jc .h_read                  ; warm by the image builder? (SPEC.md 54.7)
-    call asc_take_x               ; then this package costs NO sector read
+    call asc_take_x             ; ...and the location and glyph the read would
+%endif                          ; have given (54.7)
+    mov bl, al
+    mov ax, dx
+    call ico_ref_set
     jmp .h_next
-%endif                          ; kern_small falls straight into .h_read
 .h_read:
     mov ax, [si+18]             ; first cluster (validated at synthesis)
     call dsk_clus2lba_x
@@ -3215,11 +3223,15 @@ disk_mount_x:
     jae .fsfolder               ; takes the built-in body the harvest above
     cmp word [si+16], 1         ; copies in - it comes out of .text, so it
     jne .fsico_next             ; costs no I/O here either. Below it, packages
+    call ico_key_of             ; packages only: a document's icon would need
+    call ico_have               ; 54.3's pass, which composes from a program
+    jc .fsico_next              ; THIS listing has no icon for
 %ifdef OS88_ASSOC
-    call asc_lookup_x           ; only: a document's icon would need 54.3's
-    jc .fsico_next              ; pass, which composes from a program THIS
-    call asc_take_x             ; listing has no icon for
+    call asc_take_x
 %endif
+    mov bl, al
+    mov ax, dx
+    call ico_ref_set
     jmp short .fsico_next
 .fsfolder:
     mov ax, dx
@@ -6988,11 +7000,27 @@ dsk_put_dir:
 ; with all six mounted, plus at most ASSOC_NAPP composed bodies. The file's own
 ; cap (ASC_NAPP) stays 32 because that is a VOLUME's question and the busiest
 ; holds 15.
-ICO_ROW     equ 80              ; name 12 + size 2 + 2 spare + a 64-byte body
 ICO_R_NAME  equ 0               ; the 8.3 name as SPEC.md 19.1 staged it
 ICO_R_SIZE  equ 12              ; ...and the low word of the size it reports
 ICO_R_BODY  equ 16
 ICO_KEY     equ 14              ; what ico_find compares: name and size
+%ifdef OS88_ASSOC
+ICO_R_GLYPH equ 80              ; ...AND THE 8-BYTE SHIPPED GLYPH (SPEC.md
+ICO_ROW     equ 88              ; 54.3.2), which is here because SPEC.md
+                                ; 54.7.4 freed the cache's claim: the glyph a
+                                ; package SHIPS used to be read off the cache
+                                ; ROW at a hit, and a hit has no row now. It
+                                ; is not derivable from the body either -
+                                ; that is the whole point of 54.3.2, the
+                                ; reduction of a CRT icon being an empty
+                                ; block - so a store that carried only the
+                                ; body would answer a hit with the reduction
+                                ; and DOWNGRADE a slot the seed had resolved.
+                                ; 8 bytes x 48 rows = 384, against the 3,072
+                                ; the claim gave back
+%else                           ; ...and kern_small has no glyphs at all
+ICO_ROW     equ 80              ; (SPEC.md 54.0), so it carries no column for
+%endif                          ; them
 %ifdef KERN_SMALL
 ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 %else                           ; driver-backed volume and fewer packages
@@ -7104,9 +7132,65 @@ ico_rowoff:
     mov cl, 4
     shl ax, cl                  ; row * 16
     add di, ax                  ; = row * 80
+%if ICO_ROW == 88
+    shr ax, 1                   ; ...and row * 8 more for the glyph column
+    add di, ax                  ; = row * 88
+%endif
     pop cx
     pop ax
     ret
+
+%ifdef OS88_ASSOC
+; -----------------------------------------------------------------------------
+; ico_glyph_put - a row's SHIPPED glyph, from wherever it was read
+; in:       AL = the row, DX:SI -> eight glyph bytes
+; out:      nothing (all registers preserved)
+;
+; Separate from ico_add rather than a fifth argument to it, because the two
+; have different sources and only sometimes both: a body comes off a package
+; header or a cache row, a glyph only off a version 2 cache row or a v3 image
+; that ships one. A row whose glyph is never put keeps the zeros ico_add
+; wrote, which is exactly SPEC.md 54.2's unresolved sentinel.
+; -----------------------------------------------------------------------------
+ico_glyph_put:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call ico_need
+    jc .out
+    cmp al, [ico_n]             ; a stale row after a shed, ico_body's guard
+    jae .out
+    call ico_rowoff
+    add di, ICO_R_GLYPH
+    mov cx, 8
+    mov ax, es
+    call dsk_copy_seg_x         ; DX = source segment, AX = the claim
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ico_glyph_at - where row AL's shipped glyph lives
+; in:       AL = the row
+; out:      CF = 0, ES = the claim and DI = the glyph's offset in it;
+;           CF = 1 = no store, or a stale row
+; clobbers: ES and DI (outputs) and the flags
+; -----------------------------------------------------------------------------
+ico_glyph_at:
+    call ico_body               ; the same two guards, and the same answer to
+    jc .out                     ; both: CF=1 is the generic icon
+    add di, ICO_R_GLYPH - ICO_R_BODY
+.out:
+    ret
+%endif                          ; OS88_ASSOC
 
 ; -----------------------------------------------------------------------------
 ; ico_add - store a body under this key, or find the row that already has it
@@ -7142,6 +7226,19 @@ ico_add:
     mov cx, DSK_ICO_SIZE
     mov ax, es
     call dsk_copy_seg_x         ; DX = source segment, AX = the claim
+%ifdef OS88_ASSOC
+    pop ax                      ; ...and the glyph column CLEARED, because
+    push ax                     ; mem_claim does not clear the block and an
+    call ico_rowoff             ; UNRESOLVED glyph is all-zero by definition
+    add di, ICO_R_GLYPH         ; (SPEC.md 54.2): whatever the heap handed out
+    mov cx, 8                   ; last would otherwise read as a shipped one
+    xor al, al
+.gz:
+    mov [es:di], al
+    inc di
+    dec cx
+    jnz .gz
+%endif
     pop ax
     inc byte [ico_n]
     clc
@@ -7264,6 +7361,80 @@ ico_key_doc:
     pop di
     pop cx
     pop ax
+    ret
+
+%ifdef OS88_ASSOC               ; its only caller is asc_absorb, and kern_small
+                                ; has no ASSOC.DAT to absorb (SPEC.md 54.0)
+; -----------------------------------------------------------------------------
+; ico_key_stem - the key an ASSOC.DAT row's body is stored under (SPEC.md 25.9.4)
+; in:       ES:SI -> the row's 8-byte space-padded stem, DX = the size it
+;           reports
+; out:      ico_keyb holds it; nothing else (all registers preserved)
+;
+; THE SAME TWELVE BYTES ico_key_of BUILDS, composed from the other end, and
+; that identity is the whole of why ASSOC.DAT's buffer can be given back. A
+; row names a package by STEM (SPEC.md 54.2) and every package is a `.O88`
+; (20.1), so `<STEM>.O88` NUL-padded to twelve is exactly what the listing
+; will ask with when it reaches that entry. Composing it means an ABSORBED
+; body and a HARVESTED one land on one row and answer one another's lookups -
+; where a second key shape would have made them two rows holding one picture,
+; which is the duplication this whole design is against.
+; -----------------------------------------------------------------------------
+ico_key_stem:
+    push ax
+    push cx
+    push si
+    push di
+    mov di, ico_keyb
+    mov cx, 8
+.stem:
+    mov al, [es:si]             ; THROUGH ES ONE WAY AND DS THE OTHER, so a
+    cmp al, ' '                 ; string move is wrong whichever segment it
+    je .ext                     ; took: the row is in the cache's claim and
+    mov [di], al                ; ico_keyb is `.bss`. The stem is SPACE-padded
+    inc si                      ; (54.2), so the first space ends it and an
+    inc di                      ; 8-character one ends on the counter
+    dec cx
+    jnz .stem
+.ext:
+    mov word [di], '.O'
+    mov word [di+2], '88'
+    add di, 4
+    mov cx, ico_keyb + ICO_R_SIZE
+    sub cx, di                  ; ...and NUL to the size word. A short stem
+    jcxz .size                  ; leaves bytes ico_key_of would have zeroed,
+.pad:                           ; and two keys for one package differing in
+    mov byte [di], 0            ; the tail is a miss that looks like a
+    inc di                      ; cache that does not work
+    dec cx
+    jnz .pad
+.size:
+    mov [ico_keyb+ICO_R_SIZE], dx
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+%endif                          ; OS88_ASSOC
+
+; -----------------------------------------------------------------------------
+; ico_have - is this key's body already in the store? (module internal)
+; in:       ico_keyb holds the key (ico_key_of, ico_key_stem or ico_key_doc)
+; out:      CF = 0 and AL = the row; CF = 1 = not stored
+; clobbers: AL (an output) and the flags
+;
+; UNGATED, where the ASSOC.DAT lookup this replaces was OS88_ASSOC only, and
+; that is a saving on the kernel that has no ASSOC.DAT at all: the store
+; outlives a mount, so the second time a folder is opened its packages are
+; already in it and the harvest's sector read per package is simply not made.
+; The safety is the key's - a hit is the same name AND the same byte count,
+; which is what SPEC.md 54.7 already argued about the file.
+; -----------------------------------------------------------------------------
+ico_have:
+    push si
+    mov si, ico_keyb
+    call ico_find
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------

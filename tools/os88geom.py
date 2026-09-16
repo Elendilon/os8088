@@ -382,6 +382,15 @@ _MIRROR = {
     # scripts were reading the listing at 32 and would have decoded garbage
     # from entry 1 onward the moment they diverged.
     "DSK_DE_STRIDE": ("kernel/dskwin.inc", 24),
+    # kernel/disk.inc - the two REFERENCE BYTES that are not rows (SPEC.md
+    # 25.9). `dsk_icoix` holds one byte per listing entry: a row index, or one
+    # of these. Any harness that reads that array has to know them to tell a
+    # folder and the generic icon apart from body 254 and body 255 - which
+    # ICO_NROW makes unreachable today and which is exactly the kind of thing
+    # that stops being true quietly. Two scripts had their own copies, which
+    # is the threshold this table exists for.
+    "ICO_R_FOLDER": ("kernel/disk.inc", 0xFE),
+    "ICO_R_NONE": ("kernel/disk.inc", 0xFF),
     # kernel/sched.inc - the scheduler's slot count (SPEC.md 8). It went 8 ->
     # 14 with docs/plans/completed/STACK-SLOTS-PLAN.md and tests/saverate.py's copy did not,
     # so sch_cycles was read six slots short; the test reads os88sym now and

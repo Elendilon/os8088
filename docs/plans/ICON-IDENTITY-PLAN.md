@@ -282,41 +282,91 @@ same vanishing region, and it goes at the same time.
 - A row that lists a 68-entry DOS directory and asserts the store is EMPTY.
 - `soak -k 'disp*'` for the drawing, which is the half a byte count cannot see.
 
-## 11.1 THE LAST DUPLICATE: `ASSOC.DAT`'s buffer (OPEN, and costed here)
+## 11.1 THE LAST DUPLICATE: `ASSOC.DAT`'s buffer — BUILT, and not the way this section costed it
 
-`asc_seg` is a 3KB claim holding up to 32 rows of `stem 8 + size 2 + cluster 2
-+ 4 reserved + a 64-byte BODY`. Once the store holds the bodies, **2,560 of
-those 3,072 bytes are a second copy in RAM** - which is the thing this whole
-plan is about.
+`asc_seg` was a 3KB claim holding up to 32 rows of `stem 8 + size 2 +
+cluster 2 + 4 reserved + a 64-byte BODY`. Once the store held the bodies,
+**2,560 of those 3,072 bytes were a second copy in RAM** — the thing this
+whole plan is about.
 
-**THE CHEAP VERSION DOES NOT WORK, and the reason is load-bearing.** The
-obvious move is to free the claim at the end of each mount, since
-`asc_lookup`/`asc_take` are only ever called from inside one. But `asc_use_x`
-hangs off the HARVEST, which re-runs when you enter a FOLDER - and the
-`asc_vol` stamp is what makes every later call a compare instead of a re-read.
-Freeing the claim puts **~2 `int 13h` back on every folder navigation**, which
-on a 4.77 MHz machine is most of a second of visible pause. The stamp is not an
-optimisation, it is why browsing is quick.
+**What this section proposed** was a migration that keeps the claim: re-key
+the store to the stem, absorb the bodies, **compact the rows in place to 16
+bytes**, and shrink the claim to ~1KB, which needed `mem_regrow` to take a
+claim DOWN. **What was built is simpler and gives back three times as much**:
+the claim is a **FILE BUFFER**. `asc_use` reads `ASSOC.DAT` into it, takes the
+declarations (`asc_merge_ext`), the locations and glyphs (`asc_seed`) and now
+the bodies (`asc_absorb`), and then **frees it** (`asc_drop`) before it
+returns. SPEC.md 54.7.4 is the contract.
 
-So the real shape is a MIGRATION at load time:
+The cheap-version warning above still stands and is *why* this shape works.
+Freeing the claim per MOUNT would put ~2 `int 13h` back on every folder
+navigation, because `asc_vol` is what makes a re-entry a compare instead of a
+re-read. Freeing it per **volume switch**, after everything in it has been
+taken, costs nothing at all: the stamp still works, and there is simply no
+buffer left to re-read from.
 
-1. **The store's key becomes the 8-byte stem + size**, matching `ASSOC.DAT`'s
-   row exactly. Only PACKAGES take a name key (a folder takes a sentinel, a
-   document a synthetic one), and packages are all `.O88`, so the stem is
-   unique inside the key space. `ico_key_of` then needs a stem extractor -
-   `assoc_stem_of` exists but is gated out of `kern_small`, so ~20 bytes of
-   `disk.inc`.
-2. `asc_use_x`, after validating the file, walks the rows and `ico_add`s each
-   body - a straight key copy, the two layouts now agreeing.
-3. The rows COMPACT in place to 16 bytes, and `asc_lookup_x` answers with a
-   STORE ROW instead of an offset into the claim.
-4. The claim shrinks to ~1KB (`16 + 32*16 + 24*4` = 624 bytes), which needs
-   `mem_regrow` to take a claim DOWN.
+**Five things it turned out to need, and three of them were not in the plan.**
 
-Saving: **~2KB of heap in steady state**, the peak at read time unchanged.
-Risk: the association path drives every document icon and every launch by
-association, so this is the one piece of the plan where a mistake is not
-cosmetic. Worth doing, worth doing deliberately.
+1. **`ico_key_stem`** composes the store's twelve-byte key from a row's stem
+   (`<STEM>.O88` NUL-padded) rather than re-keying the store, so an
+   **absorbed** body and a **harvested** one land on ONE row. A second key
+   shape would have been the same duplication with the numbers rearranged.
+2. **The store's claim is made BEFORE the absorb walk.** `mem_claim` can
+   compact, the cache's claim is movable, and the walk holds a row offset
+   against a segment a compaction moves. `ES` is reloaded per row anyway.
+3. **`asc_lookup` is gone and its question went UNGATED.** It searched the
+   claim for an offset; with no claim, *is this body already in RAM* is the
+   store's question and `ico_have` asks it on **both** kernels — which is a
+   saving the plan never costed, because `kern_small` has no `ASSOC.DAT`
+   (SPEC.md 54.0) and its harvest was therefore reading a package's first
+   sector every mount for a body the store had held since the last one. On
+   the 4.77 MHz machine that is ~400 ms apiece.
+4. **`asc_vol` needed a second half to its compare.** The stamp means "this
+   volume's bodies are in the store" now, and the store is PURGEABLE, so a
+   shed leaves it vouching for bodies that are gone. `cmp byte [ico_n], 0`
+   beside it, five bytes, in the stamp's only reader. **Clearing the stamp
+   from `ico_need` was built first and is worse by one mount** — `ico_need`
+   runs on the first body the harvest wants, which is *after* `asc_use` has
+   already declined to re-read.
+5. **Eager absorption had to be sized rather than assumed.** A buffer that
+   may still be wanted cannot be freed, so there is no lazy version. Measured
+   across every shipped volume: the busiest declares **25 rows of which 24
+   carry a body**, and the union is **28 distinct `(stem, size)` pairs**
+   against `ICO_NROW`'s 48, with `ASSOC_NAPP` capping composed document
+   bodies at another 12.
+
+**And the merge with SPEC.md 54.3.2's glyph column added a sixth thing that
+was not optional.** That work gave a version 2 `ASSOC.DAT` row an 8-byte
+column holding the glyph a package SHIPS, because the reduction of a 16×16
+icon is not always a usable 8×8 one — DOS's CRT reduces to an empty block — and
+a cache HIT read that column off the row. A hit has no row once the claim is a
+file buffer, and a store carrying only the body answers with the *reduction*:
+it does not fail to write the glyph, it **downgrades one `asc_seed` had
+already resolved**, so the picture gets quietly worse the first time a folder
+is browsed. `tests/dosglyph.py` leg 4 caught it, and it is worth saying that
+the first fix considered — *leave a resolved glyph alone* — would ALSO have
+failed, because that row poisons the slot with the reduction rather than with
+zeros precisely so a writer that skips blanks cannot pass. So the store row
+carries the glyph: `ICO_ROW` 80 → 88 on `kern_big` only, `asc_absorb` puts a
+v2 row's in beside the body, and `asc_take` prefers it. 384 bytes of a claim
+whose sibling just returned 3,072.
+
+**What it cost and what it bought**, measured: `.text` +0, `.bss` +0,
+**`.cold` +115 on `kern_big` and +38 on `kern_small`**, no rung crossed on
+either and both footprints byte-identical — against a **3,072-byte heap claim
+that is no longer held at all**, and which `docs/HEAP-CLAIMS.md` had measured
+acting as a mid-arena BARRIER (taken on a volume switch, so on a machine that
+has been used it sat wherever the arena had room, holding 40KB out of reach on
+the run that found it). It is still claimed inside `asc_use` and still
+declared movable there, because `dsk_read_chain` reaches the sector cache's own
+claims and those can compact (SPEC.md 18.95) — but now that is a
+within-call requirement rather than a session-long one.
+
+**And the saving has a number on the glass.** `tests/ascabsorb.py` mounts B:,
+finds **no `MEM_K_ASC` record in `mem_tab`** and **23 rows in the store** —
+the whole volume's packages, absorbed at the ROOT mount, before anything has
+listed the folder they live in. Entering `B:/APPS` then lists 13 iconned
+entries and adds **zero** rows, for **4 reads of 18 sectors** in total.
 
 ## 12. What would kill it, and what is still open
 
@@ -348,3 +398,85 @@ cosmetic. Worth doing, worth doing deliberately.
   what a machine with a hard disk full of applications actually needs. Nothing
   in waves 1-5 depends on the answer and nothing in it should be taken before
   they land.
+
+## 13. WHAT THE STORE COST THE FLOOR MACHINE, measured both sides
+
+`tests/regrowshed.py` went red at wave 2 and stayed red through waves 3-5, and
+it is the only row in the tree that did. It is recorded here in full because
+the answer is **not a defect** and the three experiments that did not find it
+are worth more than the one that did.
+
+**What it is not.** Three things were tried on the theory that the store's
+2,048-byte claim was too big or in the wrong place, and all three left the row
+red: halving `ICO_NROW` on `kern_small`; making the claim purgeable (wave 4,
+which shipped anyway on its own merits); and moving the store OFF the heap
+entirely into `.lowbss`. That last one is the instructive failure - it is the
+control that looks decisive and is not, because `.lowbss` sits below
+`HEAP_SEG`, so a 1,920-byte array there took `KERN_SIZE` **+1,536** and the
+heap DOWN by the same, and the experiment made the pressure it was testing
+worse. A control that changes two quantities answers about neither.
+
+**What it is.** Two heap maps, the same script, the same machine
+(`os8088_5150_cga_128k`, 128KB, 52.5KB of heap, `HEAP_SEG` 0x12e0, top
+0x2000), taken at `0286f13b` (wave 1) and at the store's landing. One Note Pad
+open, the manual loaded, at the moment the row asks for a second instance:
+
+```
+ wave 1                              the store
+ ---------------------------------   ---------------------------------
+ VIEW    12e0   2,048  PURGE         VIEW    12e0   2,048  PURGE
+ DIRW    1360   9,216  PURGE         DIRW    1360   9,216  PURGE
+ FREE    15a0   1,024                FREE    15a0   2,048   <- ICO, shed
+ WSAVE   15e0   6,144  PURGE         doc1    1620  16,384
+ doc1    1760  16,384                FREE    1a20   9,728
+ FREE    1b60   4,608                region1 1c80  14,336
+ region1 1c80  14,336
+```
+
+The quantity that decides a launch is neither `free` nor `in caches` but the
+largest run a top-down region claim can reach **after every cache has been
+shed** (SPEC.md 50.3.2 - a region's base is its CS, so it is claimed
+`mem_claim_hi`). Wave 1: 12e0..1760 = **18,944**. The store: 12e0..1620 =
+**13,312**, against the 14,336 a Note Pad instance wants. **Short by 1,024
+bytes**, and short at both ends - the top run is 9,728 - so the machine is
+honestly full and `LD_ENOMEM` is the right answer.
+
+**Why the maps differ is one branch in `mem_regrow`, and both arms are
+correct.** The manual's claim grows 1,024 -> 16,384. At wave 1 that took path
+3 (`.move` -> `mem_hifit`, the highest run that will take it) and landed
+HIGH at 0x1760, leaving the low arena in one piece. With the store in, it
+takes path 2 - an extend in PLACE after `.shed` - and lands LOW at 0x1620,
+because `MEM_P_ICO` is `MEM_PG_TRIV` and sits directly BELOW the claim, so
+shedding it is exactly what makes the in-place extension fit. `mem_regrow`'s
+`.shed` returns to `.grow` and not to `.move` deliberately ("an extend in
+place leaves no hole behind it"), and that is the better rule in general: it
+is *this* heap, at *these* four addresses, where it costs a kilobyte.
+
+So the placement is arithmetic, the shortfall is 1,024 bytes, and the row's
+fourth leg had been riding on it. It is re-derived rather than argued with:
+it empties the first note (File > New, `np_resize(NP_KB0)`, a shrink that
+cannot fail) before launching the second, which funds the instance out of
+15,360 returned bytes and leaves the refusal where the row wants it - in
+`np_load`'s grow, against an ~11KB run, with five kilobytes of margin instead
+of one.
+
+**And the re-derivation found a second thing, which is the one to remember.**
+The row printed a NOTE whenever the largest free run it had measured was
+already 16KB, saying the shed had not been exercised and the row wanted
+re-deriving. That note was WRONG, and it had been firing at wave 1 too. It
+reads the run BEFORE `File > Open`, and on `kern_small` the dialog is
+`FDLG.DRV` (SPEC.md 38.0): `mod_need` claims its image out of that very run
+and holds it for the whole of `np_load`, so what `mem_regrow` faces is always
+smaller than what the row measured. Taking `call mem_shed_one` out of
+`mem_regrow.shed` fails the load against a measured **18,944-byte** run. The
+leg is asserted on the CACHES FALLING now (19,456 -> 11,264), which is the
+fact that can say it.
+
+**The cost, stated plainly.** On `kern_small` the store did not remove a
+duplicate - wave 1's `disk_icons` was already one pool for the machine - it
+moved 1,216 resident `.lowbss` bytes into a 2,048-byte purgeable heap claim.
+That is the right trade by this project's own rules (a `.lowbss` byte is
+resident for ever and comes off the DOS arena too; a purgeable byte comes back
+when the last listing closes), and it is worth writing down that the trade is
+what it is rather than a saving: **-1,216 for ever, +2,048 while a listing is
+warm.** What `kern_small` gets for it is the 64-entry listing and the shed.

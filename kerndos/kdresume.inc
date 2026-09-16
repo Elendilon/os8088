@@ -144,8 +144,43 @@ kd_resume:
     mov [kdr_heads], ax
 
     ; --- 3. the staging area, which is FREE now the program has gone --------
-    call kd_stageseg            ; ES = the text framebuffer
+    ; **AND IT IS THE KERNEL'S ANSWER, NOT OURS** (SPEC.md 96.49.6).
+    ; `kd_stageseg` asks the BDA's mode byte and that byte belongs to the DOS
+    ; PROGRAM: `DIGIRAIN.COM` is 256 bytes that open `mov ax,2 / int 10h` and
+    ; exit the same way, so on a Hercules machine the BDA reads 2 while
+    ; `hbm_wake` will read `[vid_kind]` and look at B000. Everything below is
+    ; then staged where nothing reads it, and what comes back is a clock and an
+    ; exit code taken out of the visible desktop page. A VGA is worse: a
+    ; program that exits in mode 13h leaves B800 UNMAPPED, and the stub is
+    ; `rep movsb`'d into open bus.
+    mov si, [kd_lbp]
+    mov ax, [si+KDL_STAGE]
+    or ax, ax
+    jnz .stgk
+    call kd_stageseg            ; ...or ask, for a block that does not carry
+    mov ax, es                  ; one (KDL_VER's whole job)
+.stgk:
+    mov es, ax
     mov [kdr_stage], es
+    ; ...AND ON A COLOUR PRIMARY, THE TEXT MODE THAT MAKES B800 EXIST.
+    ; A program that exits in mode 13h leaves B800 unmapped on a VGA - the
+    ; graphics controller decodes A000 alone - so the stub would be `rep
+    ; movsb`'d into open bus and the far jump into it is the end of the
+    ; machine. Mode 3 is `vid_text`'s own answer for every non-mono primary,
+    ; and it CLEARS AND HOMES, so 96.49.4's scroll cannot arise rather than
+    ; being ordered around.
+    ;
+    ; **THE MONO ARM IS DELIBERATELY NOT DONE HERE.** B000 is the MDA/Hercules
+    ; card's own RAM and is decoded whatever mode anything is in, so there is
+    ; nothing to fix - and `vid_text`'s mono arm is not a bare `int 10h`: it
+    ; blanks 3B8/3BF first and asks `vid_mono_text` whether int 10h would land
+    ; on a VGA instead, which is a question this host has no way to ask. A
+    ; naive mode 7 on a VGA+MDA machine would map the VGA over B000.
+    cmp word [kdr_stage], 0xB000
+    je .stgm
+    mov ax, 0x0003
+    int 0x10
+.stgm:
 
     ; --- 4. the last words, AND THEY COME BEFORE ANYTHING IS STAGED ---------
     ; **IT SAYS SO FIRST**, which is `kd_leave`'s own manner one route along:
@@ -206,18 +241,30 @@ kd_resume:
     mov [es:HS_KSEG], ax        ; stub used to spell as a constant that means
                                 ; something else in this host (hbstage.inc)
 
-    ; --- the CLOCK, which has to be FRESH and not the handoff's --------------
-    ; SPEC.md 87.6: the image holds the clock as it was when it was written,
-    ; and a DOS program may have run for an hour. The ROM has the answer and
-    ; `cw_clk_snapshot` is kern_dos's way of asking (kerndos/kdshim.inc) - the
-    ; one shim in that file that is not a stub, for this reason one layer up.
-    ; **AND IT IS NOT THE SHIM'S LAYOUT.** `hbm_wake` copies these ten bytes
-    ; into `clk_sec` and that block is sec/min/hour/day/mon then **clk_rtc and
-    ; clk_dirty** then the year (kernel/clock.inc) - two bytes of machine state
-    ; that say whether a usable RTC was found and whether it is owed a write.
-    ; `kern_dos` cannot know either, so the launch block carries the kernel's
-    ; own ten and only the TIME fields are overwritten from the ROM. Staging a
-    ; zeroed block instead would tell the resumed machine it has no RTC.
+    ; --- the CLOCK, WHICH IS THE KERNEL'S AND A TICK TO MEASURE FROM ---------
+    ; SPEC.md 87.6: the image holds the clock as it was when it was WRITTEN,
+    ; and a DOS program may have run for an hour. `hbm_wake` copies these ten
+    ; bytes into `clk_sec`, and that block is sec/min/hour/day/mon then
+    ; **clk_rtc and clk_dirty** then the year (kernel/clock.inc) - two bytes of
+    ; machine state saying whether a usable RTC was found and whether it is
+    ; owed a write. `kern_dos` cannot know either, so the launch block carries
+    ; the kernel's own ten and they are staged verbatim.
+    ;
+    ; **THIS USED TO OVERWRITE SIX OF THEM FROM `cw_clk_snapshot`, WHICH IS A
+    ; BARE `retf`** (SPEC.md 96.49.5). The stores copied cleared `.bss`, so the
+    ; resumed machine came home at 00:00:00 on 00/00/0000 - and a month of zero
+    ; indexes `clk_mnames` three bytes before the table, which is the
+    ; *"corrupted clock"* the field reported, on every DOS program rather than
+    ; one. The ROM is not the answer either: a 5150 has no RTC at all, so
+    ; int 1Ah AH=02h answers nothing on the machine most of these come off.
+    ;
+    ; What is missing is one quantity - HOW LONG THE PROGRAM RAN - and there is
+    ; exactly one clock that runs on both sides of the handover to measure it
+    ; with. 0040:006C is the ROM's, ticking at 18.2065 Hz under os8088 and
+    ; under us alike, and the block carries the value it stood at when those
+    ; ten bytes were read. Staged raw: `hbm_wake` subtracts it from the live
+    ; counter and hands the difference to `clk_tick`, which has carried whole
+    ; seconds through the calendar since the day it was written.
     mov si, [kd_lbp]
     add si, KDL_CLK
     mov di, HS_CLK
@@ -228,21 +275,11 @@ kd_resume:
     inc si
     inc di
     loop .ck
-    call KERNEL_SEG:cw_clk_snapshot     ; FAR: kdshim.inc's `cw_` shims end in
-                                        ; `retf` and a near call to one pops a
-                                        ; stack word into CS
-    mov al, [clk_sn_sec]
-    mov [es:HS_CLK + 0], al
-    mov al, [clk_sn_min]
-    mov [es:HS_CLK + 1], al
-    mov al, [clk_sn_hour]
-    mov [es:HS_CLK + 2], al
-    mov al, [clk_sn_day]
-    mov [es:HS_CLK + 3], al
-    mov al, [clk_sn_mon]
-    mov [es:HS_CLK + 4], al
-    mov ax, [clk_sn_year]
-    mov [es:HS_CLK + 7], ax
+    mov si, [kd_lbp]            ; (the copy above spent SI on the block)
+    mov ax, [si+KDL_TICK]
+    mov [es:HS_TICK0], ax
+    mov ax, [si+KDL_TICK + 2]
+    mov [es:HS_TICK0 + 2], ax
 
     ; ...and the exit code, which is what the whole return is FOR (96.41).
     ; The BDA copy stays too: it costs nothing and a resume that loses this
