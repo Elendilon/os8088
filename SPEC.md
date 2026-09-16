@@ -43373,8 +43373,20 @@ body and a **harvested** one land on one row and answer one another's lookups;
 §54.7.4 is the mechanism and the reason the claim is now a transient file
 buffer.
 
-Two consequences belong here rather than there. The store is sized for the
-machine and absorbing is eager, so the measurement that sizes it is the union
+**A COMPOSED DOCUMENT BODY IS KEYED ON THE GLYPH IT CAME FROM**, and it is the
+only body in the store that is *derived* rather than read. `assoc_compose`
+builds it from `assoc_glyph[slot]`, which the baked table, the seed, a hit and
+a harvest all write — so a row keyed on the slot alone outlives the thing it
+was composed from. The case that bites is §54.7.3's own, one layer along: a
+slot `assoc_app_new` creates **unresolved** composes the bare page, and without
+the glyph in the key the documents of that association go on drawing it for
+the rest of the session even after the folder their program lives in is
+browsed and the glyph resolved. `ico_key_doc` puts the eight glyph bytes in
+the key's spare tail, so a changed glyph is simply a different row — it costs
+a row rather than a wrong picture, and the shed reclaims the old one.
+
+Two further consequences belong here rather than there. The store is sized for
+the machine and absorbing is eager, so the measurement that sizes it is the union
 over every volume a machine might mount: **28 distinct `(stem, size)` pairs
 across every shipped volume**, against `ICO_NROW`'s 48 and `ASSOC_NAPP`'s
 further 12 composed document bodies. And a **shed** now costs a little more
@@ -77286,6 +77298,20 @@ row's glyph in beside its body, and `asc_take` prefers it exactly as
 none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
 `asc_body_glyph` is the reduce split out of `asc_row_glyph` so a cache row and
 a store row cannot disagree about what the iconless sentinel is.
+
+**The HARVEST fills that column too, and leaving it out is worse than leaving
+it empty.** `asc_absorb` fills it from a v2 cache row, but a package the cache
+does not name — a disk with no `ASSOC.DAT`, or one whose row was missed — is
+stored by the harvest instead, and a row stored with an empty glyph column
+sends the *next* hit down `asc_take`'s reduce arm. That does not fail to write
+the glyph: it **overwrites** whatever the baked table, the seed or that very
+harvest had resolved. Measured on the machine — browse `APPS/`, force one
+miss, browse it again, and DOS's slot goes `7effbfdfb1ff7e00` →
+`7e818181b17e3c00`, after which every `.EXE` composes its document icon with
+the wrong glyph in it. So `ico_put` answers with the row it took and the
+harvest completes it out of `LD_H_GLYPH`. A package that genuinely ships none
+keeps `ico_add`'s zeros, and a hit reducing its body is exactly
+`assoc_img_glyph`'s own fallback.
 
 **What the DECLARATION half costs, stated because it is the one thing a hit
 skips.** `assoc_note_app` merges a package header's §54.6 declarations and

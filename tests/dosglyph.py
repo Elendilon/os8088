@@ -24,10 +24,17 @@ SHIPPED bytes, and never the reduction, after each of the four:
      holds the shipped bytes again.
   4. HIT: poisoned again, A:\\APPS is opened (DOS.O88's row is in the cache,
      so the harvest takes asc_note), and the slot holds them again.
-  5. MISS: poisoned again, the cache's DOS row is broken in memory (its size
-     word, which is half the lookup key), APPS/ is left and re-entered, so
-     the harvest READS the sector and takes assoc_img_glyph off it - and the
-     slot holds them again.
+  5. MISS: poisoned again, the STORE's DOS row is broken (its size word,
+     which is half the lookup key), APPS/ is left and re-entered, so the
+     harvest READS the sector and takes assoc_img_glyph off it - and the slot
+     holds them again.
+  6. A HIT ON WHAT STEP 5 STORED: APPS/ is left and re-entered once more, with
+     NO poison, and the slot must be unchanged. Step 5 leaves a store row
+     behind and the next visit is a hit on it; since SPEC.md 54.7.4 that row
+     is where asc_take reads the shipped glyph, so a harvest storing the body
+     and not the glyph left zeros there - and a hit on zeros REDUCES, undoing
+     step 5. Reported from the field as ".EXE icons are back to the downsized
+     full icon". Steps 1-5 each look once; this needs the second look.
 
 The fifth writer, a runtime OSAPI_ASSOC_SET claim (assoc_self_glyph), is not
 driven here: DOS makes none, and it goes through the same assoc_img_glyph as
@@ -228,6 +235,46 @@ with os88marty.launch(SYS_IMG, apps=DOC_IMG, machine=MACHINE) as m:
     else:
         say("2 glass: card is %r, no 1bpp framebuffer - bytes only" % card)
 
+    # --- 2b. ...AND THE CACHED COMPOSITION IS KEYED ON THE GLYPH ------------
+    # The body just drawn is cached in SPEC.md 25.9's store, and it is the
+    # only body there that is DERIVED rather than read: assoc_compose builds
+    # it from the slot's glyph, which the baked table, the seed, a hit and a
+    # harvest all write. A row keyed on the SLOT alone therefore outlives what
+    # it was composed from - and the case that bites is SPEC.md 54.7.3's own,
+    # one layer along: a slot assoc_app_new creates UNRESOLVED composes the
+    # bare page, and the documents of that association go on drawing it for
+    # the rest of the session even after the folder their program lives in is
+    # browsed and the glyph resolved. So the glyph is IN the key (25.9.4), and
+    # this reads it back out of the store rather than trusting that.
+    eqs = os88sym.equates()
+    seg = int.from_bytes(m.read(S("ico_seg"), 2), "little")
+    n = m.read(S("ico_n"), 1)[0]
+    docs = []
+    for r in range(n):
+        k = bytes(m.read(seg * 16 + r * eqs["ICO_ROW"], eqs["ICO_KEY"]))
+        if k[0] == 0xFF:                       # a composed DOCUMENT row
+            docs.append((r, k[1], k[2:10]))
+    live = [d for d in docs if any(d[2])]
+    say("2b store: %d document row(s), %d with a resolved glyph in the key"
+        % (len(docs), len(live)))
+    if not docs:
+        fails.append("no composed document row in the store, so B:\ drew its "
+                     ".COM with the generic icon and step 2 cannot have "
+                     "passed for the reason it thinks")
+    elif not live:
+        fails.append("every document row's key carries eight ZERO bytes where "
+                     "the composing glyph belongs - so one association is one "
+                     "row for ever and a resolved glyph can never replace a "
+                     "composition made before it (SPEC.md 25.9.4)")
+    else:
+        for r, slot, g in live:
+            want = bytes(m.read(S("assoc_glyph") + slot * 8, 8))
+            if g != want:
+                fails.append("document row %d says slot %d composed from %s, "
+                             "and that slot now holds %s - the key has drifted "
+                             "from the thing it names"
+                             % (r, slot, g.hex(), want.hex()))
+
     # --- 3. the seed, on a volume switch ------------------------------------
     poison(m, idx, reduced)
     dispcp.open_drive(m, mo, S, os88marty.settle, "A")
@@ -248,6 +295,25 @@ with os88marty.launch(SYS_IMG, apps=DOC_IMG, machine=MACHINE) as m:
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "..")
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
     expect(m, "5 miss (assoc_img_glyph off the sector)", shipped)
+
+    # --- 6. ...AND A HIT ON THE ROW THAT MISS JUST WROTE ---------------------
+    # The fifth writer is not the end of the chain, because step 5 leaves a
+    # STORE ROW behind (SPEC.md 25.9) and the next visit to this folder is a
+    # HIT on it. That row is the one asc_take reads the shipped glyph out of
+    # since SPEC.md 54.7.4, so a harvest that stored the body and not the
+    # glyph left a column of zeros - and a hit on zeros takes the `.body` arm
+    # and REDUCES. Not a missing glyph: a WORSE one, overwriting what step 5
+    # had just got right, after which every document of this association draws
+    # with the reduction. Reported from the field as ".EXE icons are back to
+    # the downsized full icon", measured here as 7effbfdfb1ff7e00 ->
+    # 7e818181b17e3c00, and invisible to steps 1-5 because each of them looks
+    # once and this needs the SECOND look.
+    #
+    # No poison: the whole point is that nothing but the kernel touches the
+    # slot between step 5 and here, so a change is the defect by definition.
+    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "..")
+    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
+    expect(m, "6 hit on the harvested row", shipped)
 
 if fails:
     print("dosglyph: FAIL")

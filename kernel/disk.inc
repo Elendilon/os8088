@@ -3168,7 +3168,29 @@ disk_mount_x:
     mov ax, dx                  ; extensions (SPEC.md 54.6), and hanging that
     push dx                     ; off the icon flag skipped precisely the
     mov dx, LOW_SEG
-    call ico_put
+    call ico_put                ; AL = the row it took
+%ifdef OS88_ASSOC
+    cmp al, ICO_R_NONE          ; ...AND THE SHIPPED GLYPH GOES WITH IT
+    je .h_noglyph               ; (SPEC.md 54.7.4). A row stored with an EMPTY
+                                ; glyph column is not merely incomplete: the
+                                ; next HIT on it takes asc_take's `.body` arm
+                                ; and REDUCES, which overwrites whatever the
+                                ; baked table, the seed or this very harvest
+                                ; had resolved. Measured - browse APPS/, force
+                                ; one miss, browse it again, and DOS's slot
+                                ; goes 7effbfdfb1ff7e00 -> 7e818181b17e3c00,
+                                ; after which every .EXE on the machine draws
+                                ; its document icon with the wrong glyph in
+                                ; it. asc_absorb fills this column out of a v2
+                                ; cache row, and the harvest has to fill it
+                                ; out of the header, or a package the cache
+                                ; does not name can never keep one
+    test byte [assoc_hflags], LD_HF_GLYPH
+    jz .h_noglyph               ; ships none: the zeros ico_add wrote are the
+    mov si, dsk_secbuf+LD_H_GLYPH   ; truth, and a hit reducing the body is
+    call ico_glyph_put          ; exactly assoc_img_glyph's own fallback
+.h_noglyph:                     ; (DX is still LOW_SEG, where the sector is)
+%endif
     pop dx
 .h_noicon:                      ; case the declaration ships on first
 %ifdef OS88_ASSOC
@@ -7335,6 +7357,8 @@ ico_key_of:
     pop ax
     ret
 
+%ifdef OS88_ASSOC               ; kern_small composes no document icon at all
+                                ; (SPEC.md 54.0), so its only caller is out
 ; -----------------------------------------------------------------------------
 ; ico_key_doc - the SYNTHETIC key a composed document body is stored under
 ; in:       AL = the app slot it was composed from
@@ -7345,23 +7369,47 @@ ico_key_of:
 ; -----------------------------------------------------------------------------
 ico_key_doc:
     push ax
+    push bx
     push cx
+    push si
     push di
     mov di, ico_keyb
     mov byte [di], 0xFF
     mov byte [di+1], al
-    mov cx, ICO_KEY-2
     add di, 2
+    mov bl, al                  ; ...AND THE GLYPH IT COMPOSED FROM, which is
+    xor bh, bh                  ; the half that was missing. The body this key
+    mov cl, 3                   ; names is assoc_compose's OUTPUT, so it is
+    shl bx, cl                  ; derived from state that MOVES - the baked
+    mov si, assoc_glyph         ; table, the seed, a hit and a harvest all
+    add si, bx                  ; write assoc_glyph - and a row keyed on the
+    mov cx, 8                   ; SLOT alone goes on answering with the
+.g:                             ; picture composed from whatever the glyph
+    mov al, [si]                ; used to be. SPEC.md 54.7.3's own complaint,
+    mov [di], al                ; one layer along: a slot assoc_app_new
+    inc si                      ; created UNRESOLVED composes the bare page,
+    inc di                      ; and without this the documents of that
+    dec cx                      ; association keep drawing it for the rest of
+    jnz .g                      ; the session even after the folder their
+                                ; program lives in is browsed. Keyed on the
+                                ; glyph, a changed glyph is simply a different
+                                ; row and the stale one is never asked for
+                                ; again - it costs a row rather than a wrong
+                                ; picture, and the shed reclaims it
+    mov cx, ICO_KEY-2-8
     xor al, al
 .z:
     mov [di], al                ; THROUGH DS AND NOT `rep stosb`: the harvest
     inc di                      ; runs with ES = SS (it does `push ss / pop
     dec cx                      ; es` before the loop), so a string store here
-    jnz .z                      ; would write ICO_KEY-2 bytes into `.lowbss`
+    jnz .z                      ; would write those bytes into `.lowbss`
     pop di
+    pop si
     pop cx
+    pop bx
     pop ax
     ret
+%endif                          ; OS88_ASSOC
 
 %ifdef OS88_ASSOC               ; its only caller is asc_absorb, and kern_small
                                 ; has no ASSOC.DAT to absorb (SPEC.md 54.0)
@@ -7453,7 +7501,11 @@ ico_ref_set:
 ; ico_put - store this entry's body and record the reference
 ; in:       AX = entry index, DX = the body's segment, BX = its offset,
 ;           ico_keyb = the key
-; out:      nothing; clobbers AX
+; out:      AL = the row it took, or ICO_R_NONE; clobbers AX
+;
+; THE ROW IS AN OUTPUT because a caller may have more to say about this
+; package than its body - the 8-byte glyph it SHIPS (SPEC.md 54.3.2) - and
+; nothing else here can tell it which row to say it about.
 ;
 ; AX is pushed LAST so it pops FIRST, after ico_add's answer has been banked
 ; into BL - the entry index and the row number both want AL, and unwinding in
@@ -7474,6 +7526,7 @@ ico_put:
 .set:
     pop ax                      ; ...the entry index, and AL is free again
     call ico_ref_set
+    mov al, bl                  ; ...and the row is what the caller is told
     pop di
     pop si
     pop dx

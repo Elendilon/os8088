@@ -2576,7 +2576,7 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
-    Row("dosglyph", "soak", py("tests/dosglyph.py"), 60.0,
+    Row("dosglyph", "soak", py("tests/dosglyph.py"), 75.0,
         "a SHIPPED document glyph (SPEC.md 54.3.2) reaches every path the "
         "kernel fills a slot's glyph by - the baked table, the cache seed "
         "at a volume switch, a cache hit at a mount and a miss's harvest "
@@ -2587,7 +2587,21 @@ SOAK = [
         "tests/unit/t_docglyph.py is the host half. VERIFIED TO FAIL by "
         "forcing assoc_img_glyph's flag test off in kernel/assoc.inc: steps "
         "1-4 stay green and step 5 reads the reduction, which is the one "
-        "path that test guards",
+        "path that test guards. TWO LEGS CAME IN WITH SPEC.md 54.7.4, and "
+        "both are about the STORE outliving what it was filled from. Step 6 "
+        "re-enters the folder ONE MORE TIME with no poison: step 5 leaves a "
+        "store row behind, the next visit is a hit on it, and a harvest that "
+        "stored the body without the glyph left zeros there - so the hit "
+        "reduces and UNDOES step 5. Not a missing glyph, a worse one; "
+        "reported from the field as '.EXE icons are back to the downsized "
+        "full icon', and invisible to steps 1-5 because each of them looks "
+        "once and this needs the second look. Step 2b reads the composed "
+        "DOCUMENT row's key back out of the store: that body is the only one "
+        "there that is DERIVED, so the glyph it was composed from is in its "
+        "key - without which a slot created unresolved composes the bare "
+        "page and its documents draw it for the rest of the session even "
+        "after the glyph resolves. Both watched going red on their own "
+        "defect and no other leg",
         needs=("marty",), wants=("build/doscom360.img",)),
     Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
