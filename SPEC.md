@@ -33490,7 +33490,8 @@ and restores DS and (where a stub borrowed it) ES.
 
 Three cells in ten are too small to hold what they need. There are two
 families, and **each family is ONE body** that every cell of it reaches with
-`BP` = the routine to call:
+`BP` = the routine to call — one body per family *per segment the routine
+lives in*, since §20.3.2:
 
 ```nasm
 %macro OSAPI_XCELL 1                ; exactly 8 bytes, like every other cell
@@ -33500,18 +33501,29 @@ families, and **each family is ONE body** that every cell of it reaches with
     db 0
 %endmacro
 
-api_x:                              ; ONE copy, for all 33 X cells
-    push ds
+api_x:                              ; ONE copy, for every X cell whose
+    push ds                         ; routine is .text
     push es
     push ds
     pop es                          ; ES = the caller's DS
     push cs
     pop ds                          ; DS = KERNEL_SEG
     call bp
+.done:
     pop es
     pop ds
     pop bp                          ; the caller's BP back
     retf
+
+api_xc:                             ; ...and ONE for every X cell whose
+    push ds                         ; routine is .cold (OSAPI_CXCELL):
+    push es                         ; the same frame, the near call
+    push ds                         ; replaced by api_far's far one
+    pop es
+    push cs
+    pop ds
+    call KERNEL_SEG:api_far         ; COLD_SEG:BP
+    jmp short api_x.done
 ```
 
 - **X cells** put the CALLER's DS in ES before calling, so a kernel routine
@@ -33529,12 +33541,48 @@ api_x:                              ; ONE copy, for all 33 X cells
 - **N cells** stage a NAME out of the package's segment into the kernel's
   `api_name` buffer first, because the file API takes `SI` = a NUL 8.3
   string and passes it on to routines that read it through DS many calls
-  deep: `dskw_write`, `dskw_read`, `dskw_delete`. Every N cell also calls
-  `inst_vol_enter` — resolving in the calling instance's own directory
-  (§19.2.1) is what an N cell *is*, not an option one of them declines.
+  deep: `dwf_dskw_write`, `dwf_dskw_read`, `dwf_dskw_delete`. Every N cell
+  also calls `inst_vol_enter` — resolving in the calling instance's own
+  directory (§19.2.1) is what an N cell *is*, not an option one of them
+  declines. **Every N target is a cold file door**, so `api_n` far-calls
+  through `api_far` and there is no near N body at all (§20.3.2).
   `api_file_rename` and `api_fdlg_open` are hand-written `OSAPI_JSLOT`
   stubs and NOT N cells: rename stages two names, and the dialog's name is
   optional where every N cell's is mandatory (the stub below it says why).
+- **Cold SLOT cells** (`OSAPI_CSLOT`) are the plain SLOT's contract — DS =
+  KERNEL, ES and every register but the answer untouched — for a routine in
+  `.cold`. No register is free to carry the target, so the cell carries it
+  as **data behind its own `retf`** and the shared body reads it off the
+  return address the cell's `call` pushed:
+
+  ```nasm
+  %macro OSAPI_CSLOT 1              ; exactly 8 bytes
+      push ds                       ; 1E
+      call api_sc                   ; E8 lo hi
+      pop ds                        ; 1F
+      retf                          ; CB
+      dw %1                         ; the .cold offset - never executed
+  %endmacro
+
+  api_sc:
+      push cs
+      pop ds                        ; DS = KERNEL_SEG
+      push bp
+      mov bp, sp
+      mov bp, [bp+2]                ; the cell's return address
+      mov bp, [cs:bp+2]             ; the word behind its retf
+      call KERNEL_SEG:api_far       ; COLD_SEG:BP
+      pop bp
+      ret                           ; to the cell's pop ds / retf
+  ```
+
+  BP is borrowed and given back; it is an input to no cell of this shape,
+  and the one SLOT whose routine takes BP as an argument and lives in
+  `.cold` (`OSAPI_GFX_BLIT1`) keeps a resident thunk for exactly that reason.
+- **A far cell** (`OSAPI_FARCELL`) is the one cell with nothing to do but
+  cross: `OSAPI_DECOMP`'s routine takes the caller's own DS:SI and ES:DI as
+  arguments, so the cell is `call COLD_SEG:lzf_decomp / retf` and two bytes
+  over — the far call *is* the whole cell.
 
 **`BP` is the target register, and that is the machine's existing
 convention rather than a new one.** `PKG_DISP` in every `.o88` header is
@@ -33555,9 +33603,35 @@ halt photographed on the 5150 in docs/FIELD-NOTES.md). That is the deepest
 chain in the machine and it is where a change
 here is priced, not against task 0's kilobyte.
 
+**`api_far` is the one trampoline every cold-reaching shape goes through**,
+and it is `drv_pkg_disp`'s construction (§20.11) with a fixed segment: the
+8086 has no `call far reg`, so the body far-calls `KERNEL_SEG:api_far`, which
+pushes `COLD_SEG` and `BP` under that frame and `retf`s into the routine —
+whose own `retf` then returns through the caller's frame, to the instruction
+after its call.
+
+```nasm
+api_far:
+    push word [api_coldseg]         ; DS = KERNEL_SEG at every caller
+    push bp
+    retf
+api_coldseg: dw COLD_SEG            ; .text data: an equate cannot be pushed
+```
+
+Nothing in it touches the flags, so a cold routine's CF answer survives as a
+near one's does. It is a top-level label reached by a real far call for the
+reason driver.inc gives: `os88ovlchk` classifies a routine by the returns in
+its extent, and this one's is `{retf}`, far-called, consistent — no
+exemption anywhere. Peak stack is four bytes deeper than a plain `call far`
+for the length of the two pushes, and from the cold body onward the chain is
+**two bytes shallower** than through the thunk it replaced, whose near
+return address is gone. `tests/unit/t_api_abi.py` decodes all five shapes
+out of `kernel.bin`, resolves each target in the section its shape names,
+and refuses a `FARCELL` whose segment word is not `COLD_SEG`.
+
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **157 × 8** today. `apps/os88api.inc`
-mirrors every offset as an `OSAPI_*` `%define` (§20.5).
+assertions in kernel.asm. `apps/os88api.inc` mirrors every offset as an
+`OSAPI_*` `%define` (§20.5).
 
 ```
 0x0010 gfx_lock        0x0090 wm_front          0x0120 dskw_write     (N)
@@ -33888,6 +33962,55 @@ sit in a paint path.
 The file buffer is **ES:BX** (not DS:BX), like `osapi_snd_play`, so a caller
 can write out of its own image without a copy; a package that keeps data in
 its own bss just sets ES = DS. ES is restored per §1.
+
+### 20.3.2 A cell-only thunk is deleted — the cell names the cold body
+
+§2.6.1 deleted the thunk *between* a resident entry and its cold body when
+the body could end in `retf`. This is the same argument one level up: the
+resident entry itself — `foo: call COLD_SEG:foo_x / ret`, six bytes of
+`.text` — is worth keeping only while something in `.text` **near-calls**
+it. Forty of the kernel's eighty-two such entries were reached by *nothing
+but their own API cell*, and a cell can be taught to far-call. So the cell
+names the cold far entry (`dwf_dskw_read`, `mmf_osapi_mem_claim`,
+`osapi_vol_at_x`) and the thunk is gone, at zero bytes per cell — the
+cell was eight bytes and still is — against one shared trampoline and two
+shared bodies:
+
+| shape | before | after | resident cost of the shape |
+|---|---|---|---|
+| X cell, cold routine (`OSAPI_CXCELL`, 21 cells) | thunk 6 | 0 | `api_xc` 13 |
+| N cell (`OSAPI_NCELL`, all 10 are cold) | thunk 6 | 0 | `api_n`'s near call became a far one, +3 |
+| SLOT, cold routine (`OSAPI_CSLOT`, 11 cells) | thunk 6 | 0 | `api_sc` 19 |
+| the far cell (`OSAPI_FARCELL`, 1 cell) | stub 6 | 0 | 0 |
+| ...and all four share | | | `api_far` 8 |
+
+Measured on the tree it landed on: **kern_big `.text` 49,517 → 49,302
+(−215)**, nothing else moved; **kern_small `.text` −203, `.cold` +19
+(−184 net)**, the nineteen being the four refusing stubs that were `.text`
+and are now `.cold` for the same size — a cold-reaching cell has to reach a
+cold body, so kern_small's `stc`/`ret` answers for `OSAPI_ARG_FILE`,
+`OSAPI_ASSOC_SET`, `OSAPI_MEM_COMPACT`, `OSAPI_DRV_SUSPEND` and
+`OSAPI_FILE_WRITE_AT` moved a segment along and end in `retf`.
+
+**No published offset, register contract or package changed**; what changed
+is the ABI's mechanics, which `tests/unit/t_api_abi.py` decodes out of the
+binary (the five shapes are in its header). What it *costs* a call is the
+far frame built by hand rather than by one instruction — predicted, not
+measured: ~35–40 cycles a crossing for an X or N cell (`push mem` + `push
+bp` + `retf` in place of `call bp` + `ret`), and ~100 for a CSLOT, which
+also reads its target off the stack. None of the forty-three is a drawing
+primitive, and the busiest of them — the menu save-under's claim and free
+(§12.4) — rides a gesture that already costs a heap scan and a screen save.
+
+Two thunks were **refused**. `gfx_blit1` is a SLOT whose routine takes BP
+as an argument, and `api_sc` borrows BP; preserving it there would cost more
+than the six bytes it saves. And every thunk with a near caller of its own
+(`mem_claim`, `fm_paint`, `cp_onclick`, the window procs a template names)
+stays, since a template's `dw` and a `mov ax, proc` in `.text` need a
+`.text` address to name — which is §2.6's own rule about tables.
+
+The two retired cells (0x0568, 0x0580) are untouched: collapsing the table's
+tail is a renumber and a separate decision.
 
 ### 20.4 osapi helpers (kernel.asm)
 
@@ -36987,6 +37110,12 @@ The measurement is taken on top of §26.7's, which is why the `before` column
 is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
+
+**Since measured, two of those bytes came back.** §20.3.2 deleted the
+resident thunk — the `N` cell far-calls `ldf_ld_pkg_start` in the cold
+segment directly — so the `.text +18` above is `.text +12` now (the table
+cell and `cw_inst_caller`), and `ldf_ld_pkg_start` no longer zeroes
+`[ld_pwin]`, a store nothing on either arm reads (−6 `.cold`).
 
 ## 22. files.inc — the Disk window (file manager)
 

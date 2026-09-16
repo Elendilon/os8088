@@ -5205,6 +5205,14 @@ dwf_dskw_append:        call dskw_append_x
 %ifndef KERN_SMALL
 dwf_dskw_write_at:      call dskw_write_at_x
                     retf
+%else
+dwf_dskw_write_at:  stc         ; the DOS box is the one caller (SPEC.md
+                    retf        ; 18.4.7.4) and it does not ship on the small
+                                ; disks: the INSIDE arm, dsk_write_chain and
+                                ; this door are kern_big's, and an append
+                                ; still has the whole body. Cold, because the
+                                ; N cell reaches the far entry by name
+                                ; (SPEC.md 20.3.2)
 %endif
 dwf_dskw_append_sys:    call dskw_append_sys_x
                     retf

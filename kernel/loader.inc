@@ -1483,12 +1483,11 @@ ld_pkg_start_x:
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
 ldf_ld_pkg_start:
-    mov word [ld_pwin], 0       ; no poster. NOTHING ON EITHER ARM READS IT -
-                                ; loader_run_x is the only reader and that is
-                                ; the INDEX door - so this is here to keep the
-                                ; no-poster callers identical (ui.inc writes
-                                ; it at the same seam) rather than because the
-                                ; load needs it
+    ; [ld_pwin] is NOT zeroed here, and that is a cut rather than an omission
+    ; (SPEC.md 21.5.2): loader_run_x is its only reader, the PKG_START path
+    ; never enters loader_run_x, and every caller of loader_run sets [ld_pwin]
+    ; itself before the read (ui.inc and files.inc, at the seam this used to
+    ; mirror). A store nothing on either arm reads is dead weight.
     mov byte [ld_painted], 0
     call ld_pkg_start_x         ; AL = LD_*
     push ax
@@ -1628,6 +1627,7 @@ ldf_ld_run_name:        call ld_run_name_x
 ; can have. It needs no mem_own: that fence answers for any live package, and
 ; any OTHER package calling this would be re-homing somebody else's launch.
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL
 osapi_pkg_rehome_x:
     push bx
     mov bx, es
@@ -1647,5 +1647,17 @@ osapi_pkg_rehome_x:
     pop bx                      ; `pop` writes no flag, so the refusal survives
     stc
     retf
+%else
+; No re-homing loader ships on kern_small: the only two callers of the slot -
+; the DOS box (SPEC.md 18.4.7.4) and Skies ($(SMALLOMIT_GAMES)) - are both off
+; the small disks, and no small package hands its identity to one of its parts
+; (SPEC.md 20.12.10). ld_alloc zeroes [ld_rehome] on every load (see it above),
+; so ld_start's step 8a never fires without this, and CF=1 is the refusal the
+; body itself gives when it declines. Cell-only, so a bare retf is the whole of
+; it (SPEC.md 20.3.2).
+osapi_pkg_rehome_x:
+    stc
+    retf
+%endif
 
 section .text
