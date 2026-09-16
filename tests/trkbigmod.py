@@ -54,6 +54,7 @@ import sys, os, time, argparse
 sys.path.insert(0, "/home/user/os8088/tools")
 sys.path.insert(0, "/home/user/os8088/tests")
 import os88fixture                                       # noqa: E402
+import os88build                                         # noqa: E402
 import os88ui, os88geom, os88marty as M, dispcp          # noqa: E402
 from trackmove import pkg_syms, u16                      # noqa: E402
 from heapcheck import claims                             # noqa: E402
@@ -77,11 +78,25 @@ def main():
 
     P = pkg_syms("apps/tracker/tracker.asm")
     os88fixture.need(DISK)
-    modsz = os.path.getsize("build/bigmod.mod")
+    # **THROUGH `os88build.at()` AND NOT AS A LITERAL** (docs/WRITING-TESTS.md
+    # 70). A soak reads a FROZEN TREE, and `os88fixture.need` above has just
+    # made the disk THERE - so a raw `build/` path reads the operator's
+    # directory, which on a machine that has never built this fixture by hand
+    # does not have the file at all. `os88ui.boot` resolves its own arguments;
+    # this was the one path the row opened itself.
+    modsz = os.path.getsize(os88build.at("build/bigmod.mod"))
     needk = (modsz + 1023) // 1024
     print("== %s is %d bytes = %d KB ==" % (MOD, modsz, needk))
 
-    with os88ui.boot("build/os8088.img", apps=DISK, machine=a.machine) as ui:
+    # **`boot=` AND NOT A SETTLE** (docs/WRITING-TESTS.md 59). This row's apps
+    # disk carries a 397KB module, and the desktop enumerates it on the way up
+    # - so `settle`'s "the screen stopped changing" is asked of a machine that
+    # is legitimately still working, and it spent 724 GUEST seconds failing to
+    # see stillness on a machine that had reached a desktop long before.
+    # MEASURED: the desktop is up and byte-identical across four 3-second
+    # rounds at 45 guest seconds, on this machine with this disk.
+    with os88ui.boot("build/os8088.img", apps=DISK, machine=a.machine,
+                     boot=45) as ui:
         m, mo, S = ui.m, ui.mo, ui.sym
         bad = 0
 
@@ -251,11 +266,16 @@ def main():
             if posted and said:
                 break
             time.sleep(0.05)
-        M.settle(m, limit=240)
-        for _ in range(120):
-            if m.read(wseg() * 16 + P["mp_loaded"], 1)[0]:
-                break
-            time.sleep(0.5)
+        # **THE BYTE AND NOT THE SCREEN** (docs/plans/SOAK-PARALLEL.md 11,
+        # docs/WRITING-TESTS.md 11). This waited for the screen to stop
+        # changing and then polled `mp_loaded` anyway - so the settle was
+        # asked of a machine that is legitimately busy for the whole of a
+        # compaction and a 397KB read, and it spent 723 GUEST seconds never
+        # seeing stillness. The row already knows the exact byte that means
+        # "loaded"; `until` waits on it, on the guest's clock, and says which
+        # of the two ways a wait fails happened.
+        M.until(m, lambda mm: mm.read(wseg() * 16 + P["mp_loaded"], 1)[0],
+                "the %dKB module to load" % needk, limit=300.0)
         layout("after the load")
 
         seg2 = wseg()
