@@ -5514,6 +5514,26 @@ SOAK = [
         "graphics fullscreen is not what a tier-0 machine draws.",
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/trkscrl.img")),
+    Row("mouresume", "soak", py("tests/mouresume.py"), 150.0,
+        "SPEC.md 96.45.2: THE POINTER IS ALIVE AFTER A LIVE RESUME FROM "
+        "kern_dos. kd_mou_stop gives the port back quiet - IER 0 and the line "
+        "masked - and restored nothing, on the ground that the live restore "
+        "runs mouse_init again on the way up. It does not: mouse_init is in "
+        ".ovlw, which mem_unblob freed, and 96.49 re-enters at hbm_wake "
+        "rather than at a boot. It presents as a dead pointer on a working "
+        "machine because the vector, MCR and the line settings all come home "
+        "and only the UART's enable and the 8259 mask do not - the reporter "
+        "could type in the DOS window throughout. kdreturn drives this exact "
+        "resume and passes: NOTHING in the suite looked at the pointer after "
+        "a return, and kdmouse is about the mouse INSIDE the box. Reading 3 "
+        "is what stops the row passing vacuously - it asserts in guest CYCLES "
+        "that the LIVE route was taken, because kd_leave's fallback is a "
+        "whole boot and a boot runs mouse_init. VERIFIED TO FAIL both ways: "
+        "unfixed reads IER 00, and with IER restored but not the mask it "
+        "reads PIC21 BC with LSR showing DR and OVERRUN - bytes arriving at a "
+        "shut line.",
+        needs=("marty",), serial=True,
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM")),
     Row("mouwheel", "soak", py("tests/mouwheel.py"), 20.0,
         "SPEC.md 9.5.4: a WHEEL mouse's FOURTH byte must not break the packet "
         "run. An IntelliMouse sends four bytes and the last has bit 6 CLEAR, "
