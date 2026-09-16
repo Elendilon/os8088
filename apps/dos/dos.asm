@@ -58,7 +58,7 @@
 ; **THE PACKAGE CONTAINER IS NOT THE CORE**
 ; (docs/plans/KERN-DOS-PLAN.md §4.1.2). A kerndos root includes this file
 ; whole and is not a package at all: no header, no icon, no association
-; block, and nothing at file offset 0 but a jump. Those three macros assert their own file offsets - 0, 32 and 96
+; block, and nothing at file offset 0 but a jump. Those four macros assert their own file offsets - 0, 32, 96 and 112
 ; - so under that root they are the only thing in 13,000 lines that cannot
 ; assemble, which is a finding rather than a nuisance: the WINDOW half is not
 ; the obstacle anybody expected it to be.
@@ -80,15 +80,17 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_PARTS
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
 %else
-    OS88_HEADER 'DOS', dos_entry, 3     ; flags bit 0 = icon, bit 1 = the
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif
                                         ; flags bit 0 = icon, bit 1 = the
-                                        ; association block after it
+                                        ; association block after it, bit 5
+                                        ; the document glyph after THAT
+                                        ; (SPEC.md 54.3.2)
 
-%include "dosicon.inc"          ; the icon and the association block,
-                                ; shared with apps/dos/dosload.asm
+%include "dosicon.inc"          ; the icon, the association block and the
+                                ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
@@ -108,8 +110,9 @@
   %if ($ - $$) > CORE_ORG
     %error "the box's own header and icon reached CORE_ORG - raise it in \
 apps/dos/doscall.inc. Since SPEC.md 96.44.6 this side is what BINDS it: the \
-header, the icon and the association block end at 112 and kern_dos's own \
-fixed header is eight bytes, so CORE_ORG is cut from THIS reservation"
+header, the icon, the association block and the document glyph end at 128 \
+and kern_dos's own fixed header is eight bytes, so CORE_ORG is cut from THIS \
+reservation"
   %endif
     times CORE_ORG - ($ - $$) db 0
     times CORE_MAX + CORE_BSS_SIZE db 0
@@ -493,7 +496,7 @@ DST_RAN     equ 2                   ; it ran; [dos_exit] is its code
 DST_ERR     equ 3                   ; it did not; [dos_err] says why
 DST_CPWAIT  equ 4                   ; ...and it is waiting for the heap to be
                                     ; packed (SPEC.md 96.35). A posted
-                                    ; OSAPI_MEM_COMPACT_WAKE runs at ui_task's
+                                    ; OSAPI_MEM_COMPACT's post runs at ui_task's
                                     ; step 0, and the EVT_WAKE it sends lands
                                     ; here - so this is one more state and not
                                     ; a lifecycle, which is why a stale wake
@@ -614,29 +617,26 @@ dos_entry:
                                     ; DOS.O88 (SPEC.md 96.40.3), reached by
                                     ; `OSAPI_PKG_REHOME` - and a re-homed
                                     ; package's region is the loader's CARVE,
-                                    ; re-stamped to the instance SLOT, whose
-                                    ; base sits a few paragraphs BELOW the
-                                    ; segment we run in: 0x8FC0 against
-                                    ; I_SPTR's 0x8FE0 on this package, the 512
-                                    ; bytes of cluster-alignment slack op_claim
-                                    ; leaves at the head (SPEC.md 20.12.2).
-                                    ; `mem_find_own` matched MC_OWN or MC_SEG
-                                    ; against the caller's segment, a slot is
-                                    ; neither, and the declaration was refused
-                                    ; - so the wall came straight back and the
-                                    ; card cost 426KB against 440, which is
-                                    ; the image and the ring to the byte.
+                                    ; re-stamped to the instance SLOT. For a
+                                    ; cycle its base sat a few paragraphs
+                                    ; BELOW the segment we run in - 0x8FC0
+                                    ; against I_SPTR's 0x8FE0, the 512 bytes
+                                    ; of cluster-alignment slack op_claim
+                                    ; leaves at the head (SPEC.md 20.12.2) -
+                                    ; so `mem_find_own` matched nothing, the
+                                    ; declaration was refused, the wall came
+                                    ; straight back and the card cost 426KB
+                                    ; against 440, the image and the ring to
+                                    ; the byte.
                                     ;
-                                    ; The kernel answers all four readings of
-                                    ; that offset now (SPEC.md 66.6.1.2): the
-                                    ; claim CONTAINS the caller, the walk
-                                    ; rewrites the carve AND the segment, the
-                                    ; relocation frame carries the PROGRAM's
-                                    ; pair rather than the carve's, and
-                                    ; `mem_frameless` asks about I_SPTR. This
-                                    ; package reads 445 against 445 now, and
-                                    ; `tests/dosarena.py` asserts the two
-                                    ; machines agree AND that MC_RLOC is
+                                    ; The re-home TRIMS the carve to us now
+                                    ; (SPEC.md 20.12.10.5): the slack is heap
+                                    ; again before this entry proc runs, the
+                                    ; claim's base IS `cs`, and the fence
+                                    ; reaches it as it reaches any package's
+                                    ; region. This package reads 445 against
+                                    ; 445, and `tests/dosarena.py` asserts the
+                                    ; two machines agree AND that MC_RLOC is
                                     ; non-zero - because a refusal and a
                                     ; compaction that cannot reach the hole
                                     ; are the same number and different bugs
@@ -935,42 +935,60 @@ dos_run:
                                     ; does a DOS_MEM_WHOLE dos_mem_fix has
                                     ; just demoted (SPEC.md 50.6.6, 96.24)
 .sized:
+    mov al, bl                      ; ...AND IT IS SET ONCE, HERE, for this
+    call OSAPI_MEM_FLOOR            ; task: every AVAIL below answers net of
+                                    ; it, the posted pass drops nothing above
+                                    ; it, and the claim honours it - so the
+                                    ; number shown is the number handed out.
+                                    ; Idempotent, which the wake relies on:
+                                    ; this line runs again on the way back
+                                    ; through. Lifted at .lift, whatever the
+                                    ; claim answered (SPEC.md 50.6.6)
     ; --- UNMOUNT, ASK TWICE, AND COME BACK FOR THE ANSWER (SPEC.md 96.35) ---
     ; The sound driver is ~14KB at the top of the heap, and unmounting it used
     ; to happen INSIDE the fsx bracket - long after this claim - so the memory
     ; went back to a heap nobody would ask about again
     ; (docs/plans/DISK-CPU-PLAN.md 5). It comes out HERE now, and what makes
     ; the hole reachable is that a package cannot compact the heap it is
-    ; standing in: OSAPI_MEM_COMPACT_WAKE records the wish and RETURNS, and the
+    ; standing in: OSAPI_MEM_COMPACT's post records the wish and RETURNS, and the
     ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
+    call dos_drv_take               ; THE DRIVERS OUT FIRST, on every arm and
+                                    ; before any claim: it is what CREATES the
+                                    ; hole the no-cap arm sizes into, and the
+                                    ; capped arm needs them out too - the
+                                    ; program's BLASTER= is made of what they
+                                    ; say on the way past (96.44.13) - and
+                                    ; OSAPI_DRV_SUSPEND reads HIBER.DRV into
+                                    ; the heap to do it (SPEC.md 51.11), which
+                                    ; a claim of everything would leave no
+                                    ; room for. From here every exit owes
+                                    ; dos_drv_back, which .out does on every
+                                    ; path but the posted one (96.35.5). On
+                                    ; the wake it is a no-op: [dos_drvout]
     cmp byte [dos_cpw], 0
     jne .ask                        ; on the wake the heap IS packed, so plain
                                     ; avail is exact and posting again is how a
                                     ; program spins (SPEC.md 66.4.3.2)
     cmp word [dos_memkb], 0
     je .unmount                     ; NO CAP: we want the maximum, so the
-                                    ; driver comes out unconditionally
+                                    ; question is only whether a pass adds any
     push bx                         ; ...A CAP, and the cheaper road: a program
-    mov al, bl                      ; that asked for 200K on a machine with
-    call OSAPI_MEM_AVAIL_LVL        ; 300K free needs no compaction and no
-    pop bx                          ; silence
+    call OSAPI_MEM_AVAIL            ; that asked for 200K on a machine with
+    pop bx                          ; 300K free needs no compaction and no
+                                    ; silence. Net of the floor, like every
+                                    ; AVAIL on this task from .sized on
     cmp ax, [dos_memkb]
-    jae .ask                        ; it fits - and the sound driver is never
-                                    ; touched
+    jae .ask                        ; it fits: claim it and ask nothing more
 .unmount:
-    call dos_drv_take               ; ...which is what CREATES the hole. From
-                                    ; here every exit owes dos_drv_back, which
-                                    ; .out does on every path but the posted
-                                    ; one (SPEC.md 96.35.5)
     push bx
-    mov al, bl
-    call OSAPI_MEM_AVAIL_LVL
+    call OSAPI_MEM_AVAIL
     mov [dos_akb], ax               ; what the heap gives WITHOUT a pass...
     pop bx
     push bx
     mov al, bl                      ; ...and what it would give with one, AT
-    call OSAPI_MEM_AVAIL_MAX        ; THE SAME LEVEL, or the two are answers to
-    pop bx                          ; different questions (SPEC.md 66.4.3.2)
+    xor ah, ah                      ; THE SAME LEVEL, or the two are answers to
+    call OSAPI_MEM_COMPACT          ; different questions (SPEC.md 66.4.3.2) -
+    pop bx                          ; AH = MEMC_WHATIF
     cmp word [dos_memkb], 0
     jne .capmax
     cmp ax, [dos_akb]               ; no cap: does a pass add anything at all?
@@ -978,12 +996,14 @@ dos_run:
     jmp short .post
 .capmax:
     cmp ax, [dos_memkb]             ; a cap: could a pass even fill it?
-    jb .nomem                       ; no, and nothing else will either
+    jb .lift                        ; no, and nothing else will either - CF is
+                                    ; set, and .lift keeps it
 .post:
     push bx
     mov al, bl                      ; AL = the shed rank the pass must respect,
-    mov bx, [dos_win]               ; which is the same promise the claim makes
-    call OSAPI_MEM_COMPACT_WAKE
+    mov ah, MEMC_POST               ; which is the same promise the claim makes
+    mov bx, [dos_win]
+    call OSAPI_MEM_COMPACT
     pop bx
     jc .ask                         ; refused - a post of ours already stands,
                                     ; or the window is not ours. Carry on with
@@ -997,9 +1017,8 @@ dos_run:
                                     ; it on purpose
 .ask:
     push bx
-    mov al, bl
-    call OSAPI_MEM_AVAIL_LVL        ; AX = the largest run a claim can HAVE at
-    pop bx                          ; that level - already net of every
+    call OSAPI_MEM_AVAIL            ; AX = the largest run a claim can HAVE at
+    pop bx                          ; the floor - already net of every
                                     ; purgeable cache BELOW it and of what a
                                     ; compaction would recover (SPEC.md 50.6.3,
                                     ; 66.10.3). Nothing to compute, nothing to
@@ -1012,16 +1031,24 @@ dos_run:
     mov ax, dx
 .cap:
     cmp ax, DOS_MIN_KB
-    jb .nomem
+    jb .lift                        ; CF is set, and .lift keeps it
     mov [dos_akb], ax               ; BANKED: the claim's answer is DX and the
                                     ; slot promises nothing about AX, so the KB
                                     ; figure has to survive the call somewhere
                                     ; other than in a register
-    mov bh, 1                       ; BL is STILL the floor, and it has to be
-    xor cx, cx                      ; the same one, or the number above was a
-                                    ; plan the claim does not carry out. BH = 1
-                                    ; is OSAPI_MEM_CLAIM_HI's own door (50.3.2)
-    call OSAPI_MEM_CLAIM_LVL        ; AX = KB -> DX = base segment
+    call OSAPI_MEM_CLAIM_HI         ; AX = KB -> DX = base segment, at the
+                                    ; floor .sized set - the same one the
+                                    ; number above was answered at, or the plan
+                                    ; is not the one the claim carries out.
+                                    ; HI because a region's door is where a
+                                    ; claim this size belongs (50.3.2)
+.lift:
+    mov al, MEM_LVL_TOP             ; THE FLOOR IS LIFTED WHATEVER THE ANSWER:
+    call OSAPI_MEM_FLOOR            ; left standing it is every later claim on
+                                    ; the UI task's, which is every other
+                                    ; package's. The slot preserves the flags,
+                                    ; so the claim's CF - or the `jb` that
+                                    ; brought a refusal here - still reads
     jnc .got
 .nomem:
     mov al, DER_MEM
@@ -1599,11 +1626,10 @@ dos_fsx_main:
     mov [dos_vh], bx                ; not per call - it cannot change inside a
                                     ; bracket and a divide is 80+ clocks
 
-    call dos_drv_take               ; THE DRIVERS, OUT OF THE WAY (SPEC.md
-                                    ; 96.17) - before the PSP, because the
-                                    ; environment it builds carries BLASTER=
-                                    ; and the driver is the last thing that
-                                    ; knew where the card was
+                                    ; (the drivers are already out: dos_run
+                                    ; took them before the arena, on every arm
+                                    ; - SPEC.md 96.35 - and the environment
+                                    ; below reads the BLASTER= they left)
     call dos_save_machine
     call dos_build_psp
     call dos_hook_vectors
@@ -2756,7 +2782,11 @@ dos_int21:
 .df1:
     dec al                          ; 1-based -> a volume index
 .dfv:
-    mov bh, [dos_vol]               ; where to come back to
+    mov bh, [dos_vol]               ; where to come back to...
+    mov di, bx                      ; ...banked in DI's high byte, because BX
+                                    ; is about to be an ANSWER (the free
+                                    ; count), and .dfhome used to read the
+                                    ; home drive out of BH AFTER that load
     cmp al, bh
     je .dfask                       ; the common case by far: a program selects
                                     ; the drive and then asks about it
@@ -2765,21 +2795,15 @@ dos_int21:
     cmp al, [dos_vol]               ; place that knows how to put itself back
     jne .dfbad                      ; if the mount refuses
 .dfask:
-    push ds
-    pop es                          ; the record lands in OUR bss, not the
-    mov di, dos_vsbuf               ; program's: nothing here is the caller's
-    mov cx, VS_SIZEOF               ; buffer and DOS gives us nowhere to put one
-    call dos_be_vstat               ; ...and THROUGH THE BACK END (96.4.1): the
-                                    ; slot mounts the volume and reads its FAT,
-                                    ; which is disk work on the program's stack
+    call dos_be_vstat               ; AX = sectors per cluster, BX = free
+                                    ; clusters, CX = bytes per sector, DX =
+                                    ; total clusters - AH=36h's own four, which
+                                    ; is the slot's shape BECAUSE this is its
+                                    ; caller (SPEC.md 18.4.6). THROUGH THE BACK
+                                    ; END (96.4.1): the slot mounts the volume
+                                    ; and reads its FAT, which is disk work on
+                                    ; the program's stack
     jc .dfback
-    cmp cx, VS_SIZEOF
-    jb .dfback                      ; a short answer has no free count in it,
-                                    ; and three quarters of a reply is not one
-    mov ax, [dos_vsbuf+VS_SPC]
-    mov bx, [dos_vsbuf+VS_FREE]
-    mov cx, [dos_vsbuf+VS_BPS]
-    mov dx, [dos_vsbuf+VS_CLUS]
     call .dfhome
     pop es
     pop di
@@ -2797,10 +2821,12 @@ dos_int21:
     add sp, 2
     jmp .ok
 ; --- .dfhome - back to the drive we were standing on, if we left it ---------
+; in: DI's high byte = that drive; preserves everything (dos_drv_sel does)
 .dfhome:
     push ax
     push dx
-    mov dl, bh
+    mov dx, di
+    mov dl, dh
     cmp dl, [dos_vol]
     je .dfh
     call dos_drv_sel
@@ -4184,15 +4210,19 @@ DBE_XFREE   equ 24                  ; DX:AX = a base
 DBE_XCOPY   equ 26                  ; ES:SI, DX:AX, CX, DI (SPEC.md 96.15)
 DBE_RENAME  equ 28                  ; SI = the old name, DI = the new, both in
                                     ; the CURRENT directory (SPEC.md 96.31)
-DBE_COPY    equ 30                  ; ES:SI = source name, ES:DI = destination
-                                    ; name, BL/DX = the source place, BH/CX =
-                                    ; the destination's (SPEC.md 22.24)
-DBE_MOVE    equ 32                  ; ES:SI = the name, BL/DX and BH/CX the two
-                                    ; places, ONE volume (SPEC.md 22.25). AX=0
-                                    ; with CF is NOT ATTEMPTED, not an error
+DBE_COPY    equ 30                  ; SI = the name, BL/DX = the source place,
+                                    ; BH/CX = the destination's (SPEC.md 22.24)
+DBE_MOVE    equ 32                  ; the same registers, the same engine's
+                                    ; MOVE verb: re-linked on one volume,
+                                    ; copied and deleted otherwise. FERR_FULL
+                                    ; means the engine could not claim ITS
+                                    ; buffer (inside a bracket the heap is the
+                                    ; program's, 96.30.6) and nothing was
+                                    ; written - the caller may stream with its
+                                    ; own
 DBE_PATH    equ 34                  ; ES:DI = a buffer, CX = its size; out CX =
                                     ; the length (SPEC.md 19.2.4)
-DBE_VSTAT   equ 36                  ; ES:DI = a VS_SIZEOF record, CX = its size
+DBE_VSTAT   equ 36                  ; out AX/BX/CX/DX = AH=36h's four (18.4.6)
 DBE_WRAT    equ 38                  ; SI = name, ES:BX = bytes, CX = count,
                                     ; DX:AX = the offset (SPEC.md 18.4.7)
 DBE_HERE    equ 40                  ; out DX = where this instance stands,
@@ -4490,15 +4520,15 @@ dos_k_rename:
     ret
 
 dos_k_copy:
-    call OSAPI_FILE_COPY            ; the file manager's own engine, published
-    ret                             ; (SPEC.md 22.24) - so the built-in COPY
-                                    ; below is not a second one, and gets the
-                                    ; partial-destination undo for nothing
-
+    mov al, OSAPI_FCP_COPY          ; the file manager's own engine, published
+    jmp short dos_k_fcp             ; as ONE cell with a verb (SPEC.md 22.24)
 dos_k_move:
-    call OSAPI_FILE_MOVE            ; ...and its re-link (22.25). AX=0 with CF
-    ret                             ; is "not attempted" and the shell's MOVE
-                                    ; falls back to copy-then-delete on it
+    mov al, OSAPI_FCP_MOVE          ; ...whose move is the engine's Cut: the
+dos_k_fcp:                          ; re-link first, copy-then-delete where it
+    call OSAPI_FILE_COPY            ; declines. The shell's MOVE streams with
+    ret                             ; its own buffer only on FERR_FULL, which
+                                    ; is the engine unable to claim ITS buffer
+                                    ; inside a bracket (96.30.6)
 
 dos_k_xcopy:
     call OSAPI_XMEM_COPY
@@ -6159,7 +6189,9 @@ dos_handoff:
     mov si, dos_kdh
     push ds
     pop es                      ; ES:SI is the record, in OUR segment
-    call OSAPI_DOS_HANDOFF
+    mov al, 2                   ; ...and verb 2 of the door the drivers went
+    call OSAPI_DRV_SUSPEND      ; through: the WHOLE machine (SPEC.md 51.11,
+                                ; 96.40). CF=1 = a post already stands
     pop es
     pop di
     pop si
@@ -6443,9 +6475,9 @@ dos_mem_fix:
 ; get, not an estimate of it (SPEC.md 50.6.6, 96.25.1).
 ;
 ; **AND THE SAME QUESTION IS THE WHAT-IF, NOT PLAIN AVAIL** (SPEC.md 96.25.1.1).
-; dos_run posts OSAPI_MEM_COMPACT_WAKE and claims on the wake, so what it
+; dos_run posts OSAPI_MEM_COMPACT and claims on the wake, so what it
 ; hands the program is a heap that has been packed with OUR OWN REGION IN THE
-; PASS - which is exactly the question OSAPI_MEM_AVAIL_MAX answers and exactly
+; PASS - which is exactly the question the what-if answers and exactly
 ; the one plain avail does not, a package being pinned by the act of asking
 ; (SPEC.md 66.4.3). It made no difference for a release because this region
 ; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
@@ -6461,16 +6493,16 @@ dos_mem_fix:
 dos_mem_figs:
     push bx
     push cx
-    mov al, DOS_PG_FLOOR
-    call OSAPI_MEM_AVAIL_MAX        ; AX = the largest run that leaves the
+    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF
+    call OSAPI_MEM_COMPACT          ; AX = the largest run that leaves the
     push ax                         ; cache alive
-    mov al, MEM_LVL_TOP             ; ...and the one that does not. **AL IS SET
-    call OSAPI_MEM_AVAIL_MAX        ; EITHER WAY** - this slot has no
-                                    ; unconditional door of its own the way
-                                    ; OSAPI_MEM_AVAIL is OSAPI_MEM_AVAIL_LVL's,
-                                    ; so a fall-through here would ask the
-                                    ; floor's question twice and draw one
-                                    ; number in both places
+    mov ax, MEM_LVL_TOP             ; ...and the one that does not. **AX IS SET
+    call OSAPI_MEM_COMPACT          ; EITHER WAY** - AH is the verb, and the
+                                    ; what-if takes its level in AL rather
+                                    ; than reading the task's floor the way
+                                    ; OSAPI_MEM_AVAIL does, so a fall-through
+                                    ; here would ask the floor's question
+                                    ; twice and draw one number in both places
     mov dx, ax
     pop ax
     pop cx
@@ -9891,11 +9923,6 @@ DOS_CBASE   equ os88_image_end
                                  ; DBE_* indexes this and the HOST fills it,
                                  ; because the core is one object and there are
                                  ; two back ends behind it
-    DBSS DOS_B_VSBUF, VS_SIZEOF  ; OSAPI_VOL_STAT's record (SPEC.md 18.4.6),
-%ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-%endif
-                                 ; for AH=36h. OURS and not the program's:
-                                 ; DOS gives that call nowhere to put a buffer
     HBSS DOS_B_MEMKB, 2          ; SPEC.md 96.25: the arena cap in KB, 0 = as
                                  ; much as the machine will give
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -12686,22 +12713,21 @@ dos_drv_take:
     push es
 
     cmp byte [dos_drvout], 0
-    jne .out                        ; **ALREADY OUT** (SPEC.md 96.35). The
-                                    ; arena sizing takes the drivers BEFORE the
-                                    ; bracket now, so this call - which is
-                                    ; still the only one on the path where the
-                                    ; sizing did not need to - would find
-                                    ; nothing suspended, answer 0 classes, and
-                                    ; wipe both [dos_drvmask] and the BLASTER=
-                                    ; the first call went and asked the card for
+    jne .out                        ; **ALREADY OUT** (SPEC.md 96.35): dos_run
+                                    ; takes them once, before the arena, and
+                                    ; the arm-3 path (dos_lbfill) asks again on
+                                    ; its own way - a second ask would find
+                                    ; nothing suspended and wipe the BLASTER=
+                                    ; the first went and asked the card for
     mov byte [dos_blaster], 0
     push ds
     pop es
     mov di, dos_dqbuf
     mov al, 1
-    call OSAPI_DRV_SUSPEND          ; AX = the classes, CX = records
-    jc .out                         ; nothing moved
-    mov [dos_drvmask], ax
+    call OSAPI_DRV_SUSPEND          ; CX = records
+    jc .out                         ; nothing moved: HIBER.DRV could not be
+                                    ; read (SPEC.md 51.11), and there is
+                                    ; nothing to put back either
     mov byte [dos_drvout], 1
     jcxz .out
     mov si, dos_dqbuf
@@ -12737,7 +12763,6 @@ dos_drv_back:
     xor di, di
     xor al, al
     call OSAPI_DRV_SUSPEND
-    mov word [dos_drvmask], 0
     mov byte [dos_drvout], 0
     pop es
     pop di
@@ -14500,7 +14525,7 @@ dos_fh_fill:
     DBSS DOS_B_CHPAD, 1
     DBSS DOS_B_CHBLK, 2        ; the block it was given, to hand back
     HBSS DOS_B_DQBUF, DQ_SIZE * DQ_MAXREC  ; what the drivers said on their
-    HBSS DOS_B_DRVMASK, 2      ; way out, and which classes went (96.17)
+                               ; way out (96.17)
     DBSS DOS_B_BLAST, 32       ; "BLASTER=A220 I5 D1 T4", or empty
     DBSS DOS_B_XMSTAB, XH_SIZE * XMS_NH  ; the XMS handle table (96.15)
     DBSS DOS_B_XMLEN, 4        ; ...and AH=0Bh's move, unpacked out of the
@@ -14964,7 +14989,6 @@ dos_pbuf    equ DOS_CBASE + DOS_B_PBUF    ; the program's own path
 dos_ln equ dos_hbss + DOS_B_LN      ; the field's os88line block
 dos_hkv     equ DOS_CBASE + DOS_B_HKV     ; DHK_NENT words (96.44.3)
 dos_bevec   equ DOS_CBASE + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
-dos_vsbuf   equ DOS_CBASE + DOS_B_VSBUF   ; OSAPI_VOL_STAT's record
 %ifdef DOSKPART
 dos_pkgname equ dos_hbss + DOS_B_PKGNAME  ; 13: our own 8.3 file name
 dos_pkgdir equ dos_hbss + DOS_B_PKGDIR   ; word: its folder's cluster
@@ -15116,7 +15140,6 @@ dos_pexe    equ DOS_CBASE + DOS_B_PEXE
 dos_chexit  equ DOS_CBASE + DOS_B_CHEXIT
 dos_chblk   equ DOS_CBASE + DOS_B_CHBLK
 dos_dqbuf equ dos_hbss + DOS_B_DQBUF
-dos_drvmask equ dos_hbss + DOS_B_DRVMASK
 dos_blaster equ DOS_CBASE + DOS_B_BLAST
 dos_xmstab  equ DOS_CBASE + DOS_B_XMSTAB
 dos_xmlen   equ DOS_CBASE + DOS_B_XMLEN

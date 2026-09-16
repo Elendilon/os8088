@@ -1554,6 +1554,17 @@ os88ui_sbtrack:
 ;      unconditionally; CF = 1 = no drag was live and AX is untouched.
 ;      Every other register preserved.
 ;
+; IN THE KERNEL IT IS ALSO THE PAUSE (SPEC.md 13.10.5.4.2), and the same call
+; from the same handler: the kernel's two bars install their W_ONMOUSEUP proc
+; as their W_ONTIMER proc too, and this is where the two edges part. The UI
+; task clears [ui_armw] BEFORE it dispatches a release (ui.inc's .mup), while a
+; timer that fires mid-drag runs with the press still armed on the window - so
+; "is the hand still down" is one word the kernel already keeps, exact where
+; the ISR's [mouse_btn] is not (a release queued behind a long commit reads a
+; second press as the first one still held). A pause answers the pos and keeps
+; the record; a release answers it and spends it. A timer that outlived its
+; gesture - the lost-release door of 13.10.5.7 - arrives with nothing armed and
+; is spent as the release it stands in for.
 ; -----------------------------------------------------------------------------
 os88ui_sbdrop:
     cmp byte [os88ui_sbd_on], 0
@@ -1562,7 +1573,12 @@ os88ui_sbdrop:
     jc .spend                   ; spent either way - one nobody will release
                                 ; must not outlive this press - but the pos
                                 ; below is not this caller's to scroll to
+%ifdef OS88UI_KERNEL
+    cmp word [ui_armw], 0       ; the hand still has it: a PAUSE, and the
+    jne .owed                   ; record survives it (SPEC.md 13.10.5.4.2)
+%endif
     mov byte [os88ui_sbd_on], 0
+.owed:
     mov ax, [os88ui_sbd_pos]
     clc
     ret
@@ -1584,7 +1600,12 @@ os88ui_sbdrop:
 ; It is os88ui_sbdrop with the SPEND taken out, and that is the whole reason it
 ; has to live here: a pause is not the end of the gesture, so the record must
 ; survive it, and `os88ui_sbd_pos` is the element's own state.
+;
+; PACKAGES ONLY. The kernel's bars fire their release proc from the timer and
+; os88ui_sbdrop tells the two edges apart off [ui_armw], which a package cannot
+; read - so a package keeps a W_ONTIMER proc of its own and asks this.
 ; -----------------------------------------------------------------------------
+%ifndef OS88UI_KERNEL
 os88ui_sbowed:
     call os88ui_sbmine
     jc .no
@@ -1592,6 +1613,7 @@ os88ui_sbowed:
     clc
 .no:
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; os88ui_sbdragging - is a thumb drag live?

@@ -491,15 +491,16 @@ section .text
 ; Two routines asked this - inst_parksafe_set of the caller's own ES, and
 ; inst_seg_parked of a candidate block - and neither could say it directly.
 ;
-; IT SITS ABOVE THE OS88_COMPACT GATE, and it used to sit inside it: both of
-; those callers are the worker park's, so it was the compactor's routine by
-; accident of who asked first. mem_own's second arm (SPEC.md 66.6.2) is the
-; third caller and has nothing to do with compaction - it is what answers for
-; a RE-HOMED package, whose segment is not its claim's base (20.12.10) - and
-; the re-home is a memory feature, so refusing it on the memory-constrained
-; kernel would be backwards. kern_small pays this routine's bytes and gets a
-; loader that frees its own region.
+; IT IS THE COMPACTOR'S AGAIN. It sat above the OS88_COMPACT gate for a cycle
+; because mem_own's second arm (SPEC.md 50.3.4) asked it on both kernels - the
+; arm that answered for a RE-HOMED package, whose segment was not its claim's
+; base. The re-home TRIMS the carve to the program now (20.12.10.5), so the
+; ordinary claim-base test answers for it and that arm is gone; every caller
+; left - inst_parksafe_set, inst_seg_parked, mem_region_reloc - is inside the
+; gate, so this goes back inside it and kern_small gives up the 34 bytes 50.3.4
+; measured it paying.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 inst_of_seg:
     push cx
     mov di, inst_tab
@@ -521,6 +522,7 @@ inst_of_seg:
     pop cx
     clc
     ret
+%endif
 
 
 %ifdef OS88_COMPACT             ; THE WORKER PARK (SPEC.md 66.5) IS THE

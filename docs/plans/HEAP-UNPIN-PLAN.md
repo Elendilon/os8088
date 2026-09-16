@@ -977,6 +977,17 @@ Measured: the DOS box's arena goes
 card; `soak -k rehomemove360` is the gate, and `rehome`/`rehomemove` at a zero
 head slack cannot be one — all four questions have the same answer there.
 
+**AND THEN SUPERSEDED, AT A FIFTH OF THE BYTES.** The offset, the second
+name, `mem_reg_seg`, the containment arm and SPEC.md 50.3.4's two arms in
+`mem_own` were all the compactor remembering one fact — *the program sits a
+head slack up its carve* — in six places. The fact is created by `op_claim`'s
+read and needed by nothing after it, so `mem_reown_x` now moves the carve's
+base up to the program in the walk that re-stamps the owner (SPEC.md
+20.12.10.5), the slack is heap again, and every one of the six went back to
+the equality that held for every other package. −175 resident bytes on
+kern_big against that +155, and kern_small gave up 74 it had been paying for
+the arms, the sweep and `inst_of_seg`. SPEC.md 66.6.1.2 is the record.
+
 **It is not only the DOS box.** Every package that re-homes is a permanent wall
 at whatever depth the heap had when it launched: `apps/c64` and Clear Skies
 re-home too (SPEC.md 88.10.4 is Clear Skies' own encounter with this arm), and

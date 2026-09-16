@@ -1003,38 +1003,34 @@ int os88_file_delete(const char *name);
 int os88_file_rename(const char *oldname, const char *newname);
 int os88_file_mkdir(const char *name);
 
-/* os88_file_copy / os88_file_move - ONE FILE from one folder to another, by
- * the kernel's own engine (SPEC.md 22.24, 22.25). A struct os88_place is what
- * os88_file_here() fills and os88_file_goto() takes, so "copy this to where I
- * was standing" needs no vocabulary of its own; the two ends may be different
- * volumes for a copy and must be one volume for a move.
+/* os88_file_copy / os88_file_move - ONE ENTRY from one folder to another, by
+ * the kernel's own engine (SPEC.md 22.24) - one cell, two verbs, and these
+ * are its two names. A struct os88_place is what os88_file_here() fills and
+ * os88_file_goto() takes, so "copy this to where I was standing" needs no
+ * vocabulary of its own. It lands under the SAME NAME; a copy that renames is
+ * a copy and then os88_file_rename().
  *
  * Reach for the copy rather than writing the loop. It streams through a
  * buffer it claims and gives back, takes the redirector's own fast path when
  * both ends are on one remote volume, and DELETES A PARTIAL DESTINATION when
  * anything fails - and that last one is the half a hand-rolled copy in C gets
- * wrong, because it is the path you cannot easily test. os88_file_copy()
- * returns 0, or -1 with os88_ferr() set.
+ * wrong, because it is the path you cannot easily test.
  *
- * os88_file_move() REWRITES THE DIRECTORY ENTRY and moves no data at all, so
- * a 100KB file costs a directory write instead of 100KB out through a buffer
- * and 100KB back. A folder moves with everything under it.
+ * os88_file_move() is the file manager's Cut. On one volume it REWRITES THE
+ * DIRECTORY ENTRY and moves no data at all, so a 100KB file costs a directory
+ * write instead of 100KB out through a buffer and 100KB back; where that
+ * declines - two volumes, a destination that already holds the name, a
+ * folder with no free slot - it copies and then deletes the source, so there
+ * is no "not attempted" answer to handle any more. A folder moves with
+ * everything under it. Either verb REPLACES a file of that name at the
+ * destination, as a paste answered "replace all" would.
  *
- * IT HAS THREE ANSWERS AND THE MIDDLE ONE IS THE POINT:
- *
- *      0   moved.
- *      1   NOT ATTEMPTED. Nothing was written and the file is still where it
- *          was - copy it and delete the source instead. You get this for two
- *          volumes, a redirected volume, a destination that already holds the
- *          name, and a destination folder with no reusable slot. It is not an
- *          error and os88_ferr() is 0.
- *     -1   failed; os88_ferr() says why, and the file MAY be half-moved.
- *
- * So `if (os88_file_move(...) > 0) { copy; delete; }` is the fallback, and a
- * `< 0` is a real failure you report rather than retry. Reading 1 as success
- * loses the file; reading it as failure gives up on a move you could make. */
+ * Both return 0, or -1 with os88_ferr() set: FERR_EXIST when the destination
+ * is the folder the entry is already in (nothing was written), FERR_FULL
+ * when the engine cannot claim its buffer - a same-volume move needs none -
+ * and FERR_NODISK while the user's own Cut/Copy/Paste is running. */
 int os88_file_copy(const char *name, const struct os88_place *from,
-                   const char *newname, const struct os88_place *to);
+                   const struct os88_place *to);
 int os88_file_move(const char *name, const struct os88_place *from,
                    const struct os88_place *to);
 

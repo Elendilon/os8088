@@ -99,21 +99,26 @@ ui_task:
     sub al, UI_RBQ_FLUSH        ; 0 = flush the panel first, non-0 = do not
     call ui_cmd_reboot
 .keys:
+%ifdef OS88_COMPACT
     ; --- 0a. …and a posted COMPACTION, for the same reason (SPEC.md 66.4.3) --
     ; A package may not compact its own region from inside its own callback -
     ; a frame is standing in it, which is exactly what mem_in_nest reports - so
-    ; OSAPI_MEM_COMPACT_WAKE records the wish and this is where it is spent.
+    ; OSAPI_MEM_COMPACT's post records the wish and this is where it is spent.
     ; HERE and not in wm_pkgcall's return path: mem_compact's park request
     ; drops [sch_lock] for up to INST_PARKW ticks, which from inside a repaint
     ; holding the gfx lock is a deadlock against OSAPI_MEM_PARKSAFE and not a
     ; slow path. At the top of this loop nothing is held and [wm_pkgd] is 0,
     ; so mem_frameless answers "movable" for the asker's region with no
     ; predicate changed - the feature is WHERE this runs, not new code to let
-    ; it run.
+    ; it run. Not through [ui_rebootq]: hbf_perform LOADS the hibernate module
+    ; before it dispatches, and a compaction is not worth a disk read.
+    ; kern_small's door refuses every post (SPEC.md 66.0), so there is nothing
+    ; to test for there.
     cmp word [mem_cpq], 0
     je .keys2
-    call COLD_SEG:mem_cpq_run_x
+    call COLD_SEG:mem_cpq_run_x ; spends AX and BX, both dead here
 .keys2:
+%endif
     ; --- 1. keyboard: poll, and feed the front window's key handler ----------
     mov ah, 0x01                ; any key pending?
     int 0x16

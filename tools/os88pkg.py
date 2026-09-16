@@ -39,6 +39,11 @@ ENTRY_MIN_ICON = 0x60     # first byte after the embedded icon (flags bit 0)
 ICON_END = 96             # header (32) + icon block (64)
 ASSOC_SIZE = 16           # the association block (SPEC.md 54.6), flags bit 1
 ASSOC_MAXN = 5            # ...holding a count byte and up to five extensions
+GLYPH_SIZE = 16           # the document-glyph block (SPEC.md 54.3.2), flags
+GLYPH_ROWS = 8            # bit 5: eight glyph bytes, one a row, then eight
+                          # reserved - sixteen so the clear prefix stays a
+                          # multiple of 16 (SPEC.md 20.13.1)
+PKG_GLYPH_BIT = 0x20      # ...and the bit itself
 APP_MAX_SIZE = 0xF000     # image + bss budget: 60KB (one segment's worth -
                           # the region is a heap claim, so the real limit is
                           # also whatever the heap has contiguous)
@@ -158,8 +163,9 @@ def main() -> int:
     if version != VERSION:
         fail(f"bad version {version} (want {VERSION}; rebuild against the "
              "v3 os88api.inc)")
-    if flags & 0xF8:
-        fail(f"flags 0x{flags:02X} has reserved bits set (bits 3-7 must be 0)")
+    if flags & 0xD8:
+        fail(f"flags 0x{flags:02X} has reserved bits set (bits 3-4 are this "
+             f"tool's to set, bits 6-7 must be 0)")
     if link != 0:
         fail(f"bad link base 0x{link:04X}: a v3 package links at org 0")
     if a[12:15] != DISPATCH:
@@ -208,6 +214,28 @@ def main() -> int:
             if ext == b"O88":
                 fail("association: O88 cannot be declared - a package is "
                      "never opened through an association")
+    # The document glyph (SPEC.md 54.3.2) follows the association block: the
+    # 8x8 a document of this program wears, shipped rather than reduced out
+    # of the icon. It wants BOTH bits in front of it - a glyph for the
+    # documents of a program with no icon, or one that declares nothing,
+    # has no consumer - and it may not be blank, because all-zero is the
+    # kernel's UNRESOLVED sentinel and would silently mean 'reduce after all'.
+    if flags & PKG_GLYPH_BIT:
+        if flags & 3 != 3:
+            fail(f"flags 0x{flags:02X}: bit 5 (a shipped document glyph) needs "
+                 f"bits 0 and 1 beside it - an icon to stand in for and a "
+                 f"declaration to name the documents (SPEC.md 54.3.2)")
+        glyph_base = entry_min
+        entry_min = glyph_base + GLYPH_SIZE
+        if image < entry_min:
+            fail(f"flags bit 5 set but the image is {image} bytes; the "
+                 f"document-glyph block needs at least {entry_min}")
+        if not any(a[glyph_base:glyph_base + GLYPH_ROWS]):
+            fail("the document glyph is all zero - that is the UNRESOLVED "
+                 "sentinel (SPEC.md 54.2), so the kernel would reduce the icon "
+                 "after all. Draw one, or clear flags bit 5")
+        if any(a[glyph_base + GLYPH_ROWS:glyph_base + GLYPH_SIZE]):
+            fail("the document-glyph block's eight reserved bytes must be 0")
     if not (entry_min <= entry < image):
         fail(f"entry +0x{entry:04X} outside [0x{entry_min:04X}, "
              f"0x{image:04X})")
@@ -246,8 +274,9 @@ def main() -> int:
     flags = out[3]                          # compress_image may have set bits
     icon = "yes" if flags & 1 else "no"
     assoc = a[assoc_base] if flags & 2 else 0
+    glyph = "shipped" if flags & PKG_GLYPH_BIT else "reduced"
     print(f"os88pkg: {name!r} entry=+0x{entry:04X} image={image} bss={bss} "
-          f"icon={icon} assoc={assoc} -> {args.output}")
+          f"icon={icon} assoc={assoc} glyph={glyph} -> {args.output}")
     if table is not None:
         report_parts(out, table, rows, args.part)
     return 0
@@ -278,6 +307,8 @@ def clear_prefix(flags: int) -> int:
     n = ICON_END if flags & 1 else HEADER_SIZE
     if flags & 2:
         n += ASSOC_SIZE
+    if flags & PKG_GLYPH_BIT:
+        n += GLYPH_SIZE         # SPEC.md 54.3.2: the mount reads it too
     return n
 
 

@@ -54,7 +54,7 @@ import instdeep as ID                                      # noqa: E402
 # borrows the writer's own constants cannot catch the writer using the wrong
 # ones. tests/unit/t_mirror.py is what keeps the three PRODUCERS agreeing.
 ASC_MAGIC = b"OS88AC"
-ASC_HDR, ASC_ROW, ASC_ROWCLUS, ASC_ROWICO = 16, 80, 10, 16
+ASC_HDR, ASC_ROW, ASC_ROWCLUS, ASC_ROWICO = 16, 88, 10, 16   # a VERSION 2 row
 ASC_NAPP, ASC_NEXT = 32, 24
 
 # The extensions the shipped disks' packages declare (SPEC.md 54.6), and the
@@ -74,8 +74,9 @@ def decode(raw):
     if len(raw) < ASC_HDR or raw[0:6] != ASC_MAGIC:
         return None, ("ASSOC.DAT is %d bytes and does not start %r (it starts "
                       "%r)" % (len(raw), ASC_MAGIC, raw[0:6]))
-    if raw[6] != 1:
-        return None, "ASSOC.DAT says version %d, not 1" % raw[6]
+    if raw[6] != 2:
+        return None, ("ASSOC.DAT says version %d, not 2 - the installer writes "
+                      "the row with the glyph column (SPEC.md 54.3.2)" % raw[6])
     napp, next_ = raw[7], raw[8]
     if napp > ASC_NAPP or next_ > ASC_NEXT:
         return None, ("ASSOC.DAT declares %d app rows and %d ext rows, against "

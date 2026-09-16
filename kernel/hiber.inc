@@ -45,6 +45,13 @@ HB_NENT     equ 7
 %if HB_NENT > MOD_NENT
   %error "hiber: more entries than mod_fp has slots for"
 %endif
+; --- the two verbs OSAPI_DRV_SUSPEND adds to hbm_perform (SPEC.md 51.11) ----
+; The slot's AL is 0 resume / 1 suspend / 2 handoff. drv_suspend_x adds
+; HB_P_RESUME to the first two so the module's perform entry tells them from
+; the UI_RBQ_* it already dispatches, and the module gains no eighth entry -
+; MOD_NENT is 7 and HB_NENT is 7. The handoff never enters the module at all.
+HB_P_RESUME  equ UI_RBQ_DOSRUN + 1
+HB_P_SUSPEND equ UI_RBQ_DOSRUN + 2
 %ifdef KERN_BIG
 HBFP        equ mod_fp + MOD_HIBER * MODFP_STRIDE
 %endif
@@ -247,6 +254,11 @@ hb_doscode: resw 1              ; **THE ONLY RESIDENT BYTES THE RETURN COSTS**
                                 ; for the wake. It cannot be module data -
                                 ; those two are separate loads of the image
                                 ; with a posted restart between them
+hb_susp:    resw 1              ; the rows OSAPI_DRV_SUSPEND took out, to put
+                                ; back (SPEC.md 51.11): the suspend's OWN word
+                                ; and not [hb_drvmask], because a hibernate can
+                                ; be taken while a suspend stands and the two
+                                ; sets come back at different moments
                                 ; ...and NO staging cells: the kernel already
                                 ; has both singletons this module wanted, and
                                 ; hbm_btn satisfies the invariant that makes
@@ -307,19 +319,46 @@ hb_probe_x:
     retf
 
 ; -----------------------------------------------------------------------------
-; hb_pick - the disk a hibernation goes to, or is looked for on (SPEC.md 87.2):
-;           the one the machine BOOTED from when that is a fixed disk, else
-;           the first fixed volume there is - and never a DVK_FILE row, which
-;           dsk_vol_fixed calls fixed and which has no sectors the stub could
-;           read. THE predicate: the menu item, the probe and the window all
-;           ask it, so what greys, what is probed and what is written to
-;           cannot disagree (SPEC.md 47 rule 5)
-; in:  nothing
-; out: CF = 0 and AL = its index; CF = 1 no such volume
-; clobbers: AX (the output), flags
+; drv_suspend_x - slot 0x0550's three verbs (SPEC.md 51.11): THE MACHINE, OUT
+;                 OF MY WAY. Entered from kernel.asm's thunk under api_x, so
+;                 ES = the caller's DS and DS = KERNEL_SEG
+; in:  AL = 1 suspend the hardware drivers, ES:DI = a DQ_SIZE-record buffer
+;      each is asked DRVV_HWINFO into on the way past, or DI = 0
+;      AL = 0 put back the rows a suspend took out
+;      AL = 2 hand the whole machine to kern_dos, ES:SI = a KDH_* record in the
+;      caller's own image or bss (96.40)
+; out: CF = 0 done, CX = records written (0 and 1). CF = 1: the hibernate
+;      module could not be read - the system disk is out - or, for 2, a post
+;      already stands
+; clobbers: AX, BX, CX, DX, SI, DI
+;
+; The suspend and the resume are HIBER.DRV's (hbm_drvsusp), because they ARE
+; the hibernate's own detach and reload with a third skip and a question, and
+; a module's bytes are resident only while it is asked for. The thunk loads
+; it, calls the perform entry with the slot's AL moved up past the UI_RBQ_*
+; that entry already takes, and DROPS it again on the way out - hbf_dropck,
+; which leaves the image alone while the Hibernate window has it - because
+; the one caller in the tree is about to claim the heap the module is sitting
+; in (96.35). The whole resident cost is this routine and the six-byte thunk.
+;
+; A refusal here is the DISK's and nothing else's: the sweep cannot refuse. A
+; caller that is refused a suspend has nothing to put back, and one refused a
+; resume has its rows still noted in [hb_susp] for the next ask.
 ; -----------------------------------------------------------------------------
+drv_suspend_x:
+    cmp al, 2
+    je osapi_dos_handoff_x
+    add al, HB_P_RESUME         ; 0 / 1 -> the module's own two verbs
+    call hbf_need
+    jc osapi_dos_handoff_x.no
+    call far [HBFP + HBE_PERFORM*4]
+    call hbf_dropck             ; ...and the image goes back: the caller wants
+    clc                         ; the memory. dropck's compare is not an answer
+    retf
+
 ; -----------------------------------------------------------------------------
-; osapi_dos_handoff_x - the DOS box asks for the machine (SPEC.md 96.40)
+; osapi_dos_handoff_x - the DOS box asks for the machine (SPEC.md 96.40): verb
+;                       2 of the slot above
 ; in:  ES:SI = a KDH_* record in the CALLER's segment
 ; out: CF=0 posted, CF=1 refused
 ;
@@ -331,26 +370,34 @@ hb_probe_x:
 ;
 ; The record is read WHERE IT LIES rather than copied, so it must be in the
 ; package's image or bss and not on a stack: the four bytes here are the whole
-; resident cost of the feature.
+; resident cost of the feature. ES is stored as a segment register: it is the
+; caller's DS by api_x's contract and a package's DS is never 0, so there is
+; nothing to validate and no register to bank.
 osapi_dos_handoff_x:
-    push ax
     cmp word [hb_dosseg], 0     ; one at a time: a second post before the first
     jne .no                     ; is spent would be two machines' worth of
-    mov ax, es                  ; parameters and one teardown
-    or ax, ax
-    jz .no
-    mov [hb_dosseg], ax
+    mov [hb_dosseg], es         ; parameters and one teardown
     mov [hb_dosoff], si
     mov byte [ui_rebootq], UI_RBQ_DOSRUN
     mov byte [sch_uiwake], 1    ; ui_task blocks (SPEC.md 8.1.2), so the post
-    pop ax                      ; has to wake it or the handoff waits for
-    clc                         ; whatever else happens to
-    retf
-.no:
-    pop ax
-    stc
+    clc                         ; has to wake it or the handoff waits for
+    retf                        ; whatever else happens to
+.no:                            ; ...shared with the verbs above: a `stc`/`retf`
+    stc                         ; is a `stc`/`retf`
     retf
 
+; -----------------------------------------------------------------------------
+; hb_pick - the disk a hibernation goes to, or is looked for on (SPEC.md 87.2):
+;           the one the machine BOOTED from when that is a fixed disk, else
+;           the first fixed volume there is - and never a DVK_FILE row, which
+;           dsk_vol_fixed calls fixed and which has no sectors the stub could
+;           read. THE predicate: the menu item, the probe and the window all
+;           ask it, so what greys, what is probed and what is written to
+;           cannot disagree (SPEC.md 47 rule 5)
+; in:  nothing
+; out: CF = 0 and AL = its index; CF = 1 no such volume
+; clobbers: AX (the output), flags
+; -----------------------------------------------------------------------------
 hb_pick_x:
     push bx
     push cx
@@ -1345,7 +1392,9 @@ hbm_perform:
     je hbm_res
     cmp al, UI_RBQ_DOSRUN
     je hbm_dosrun
-    jmp hbm_ask
+    cmp al, HB_P_RESUME         ; ...and OSAPI_DRV_SUSPEND's two (SPEC.md
+    jae hbm_drvsusp             ; 51.11), carried by this entry so the module
+    jmp hbm_ask                 ; gains no eighth
 
 ; --- hbm_hib: write the image and stop (SPEC.md 87.4) ------------------------
 ; -----------------------------------------------------------------------------
@@ -1497,12 +1546,46 @@ hbm_tty:
 ; hbm_detach / hbm_reload - the drivers that own hardware (SPEC.md 87.4 step 2)
 ; in:  nothing; UI task, NO lock held (an unload waits on its worker)
 ; out: nothing (all registers preserved); [hb_drvmask] says which rows
+;
+; ...and hbm_drvsusp below them is OSAPI_DRV_SUSPEND (SPEC.md 51.11): the same
+; sweep with a third skip and a question asked on the way past, noting its
+; rows in [hb_susp], and the same reload. ONE loop each, shared - the slot's
+; first body was a third copy of this pair, resident.
 ; -----------------------------------------------------------------------------
 hbm_detach:
     push ax
     push bx
     push cx
-    mov word [hb_drvmask], 0
+    push dx
+    push si
+    push di
+    push bp
+    mov si, hb_drvmask
+    xor dx, dx                  ; no third skip...
+    xor di, di                  ; ...and nobody asking where the hardware is
+    call hbm_sweep
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; hbm_sweep - unload every driver that owns a chip, and note the rows
+; in:  SI = the word to note them in (cleared first); DL = one more DRVC_* to
+;      leave standing, or 0; ES:DI = a DQ_SIZE-record buffer each driver is
+;      asked DRVV_HWINFO into on the way past, or DI = 0 for no question
+; out: CX = records written
+; clobbers: AX, BX, DX, DI, BP
+;
+; THE SKIP LIST: DRVC_DISK is memory and the ROM's int 13h, DRVC_FILE is the
+; RAM disk, and both are things a DOS program WANTS rather than fights -
+; neither owns a chip anyone is about to take. The caller's third is 96.23.6.
+hbm_sweep:
+    mov word [si], 0
+    mov byte [cs:hbm_swn], 0
     xor cx, cx
 .row:
     mov al, cl
@@ -1514,26 +1597,56 @@ hbm_detach:
     je .next                    ; memory and the ROM's int 13h: it stays
     cmp al, DRVC_FILE
     je .next                    ; the RAM disk: memory, and it stays
+    cmp al, dl
+    je .next                    ; ...and the caller's own
     mov ax, 1
     shl ax, cl
-    or [hb_drvmask], ax
+    or [si], ax
+    or di, di
+    jz .unload
+    mov al, [bx+DRVR_CLASS]     ; ASK IT WHERE ITS HARDWARE IS, on the way
+    mov [es:di+DQ_CLASS], al    ; past: it is about to stop existing, and it
+    mov bp, [bx+DRVR_ENT]       ; is the last thing that knows. The class is
+    push cx                     ; staged before the ask so a CF=1 costs nothing
+    push dx                     ; to undo - the record is not counted and DI
+    push di                     ; does not move - and the row, the skip and the
+    mov al, DRVV_HWINFO         ; buffer are banked because the answer is the
+    call COLD_SEG:drvf_drv_call ; DRIVER's code: AX/BX/CX = its three words
+    pop di
+    pop dx
+    jc .noinfo
+    mov [es:di+DQ_A], ax
+    mov [es:di+DQ_B], bx
+    mov [es:di+DQ_C], cx
+    mov byte [es:di+DQ_FLAGS], 1
+    add di, DQ_SIZE
+    inc byte [cs:hbm_swn]
+.noinfo:
+    pop cx
+.unload:
     mov al, cl
     call COLD_SEG:drvf_drv_unload
 .next:
     inc cx
     cmp cx, DRV_MAX
     jb .row
-    pop cx
-    pop bx
-    pop ax
+    mov cl, [cs:hbm_swn]
+    xor ch, ch
     ret
 
 hbm_reload:
+    push dx
+    mov dx, [hb_drvmask]
+    call hbm_reload_m
+    pop dx
+    ret
+
+; hbm_reload_m - load the rows in DX again, in row order
+; in:  DX = the rows; out: nothing; clobbers DX
+hbm_reload_m:
     push ax
     push cx
-    push dx
     xor cx, cx
-    mov dx, [hb_drvmask]
 .row:
     shr dx, 1
     jnc .next
@@ -1543,9 +1656,33 @@ hbm_reload:
     inc cx
     cmp cx, DRV_MAX
     jb .row
-    pop dx
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hbm_drvsusp - OSAPI_DRV_SUSPEND's suspend and resume (SPEC.md 51.11), reached
+;               through hbm_perform with the slot's AL + HB_P_RESUME
+; in:  AL = HB_P_SUSPEND, ES:DI = the caller's DQ_SIZE-record buffer or DI = 0;
+;      or AL = HB_P_RESUME
+; out: CX = records written (0 on a resume); CF = 0 - the sweep cannot refuse
+; -----------------------------------------------------------------------------
+hbm_drvsusp:
+    cmp al, HB_P_SUSPEND
+    je .suspend
+    mov dx, [hb_susp]           ; RESUME: the rows a suspend noted and only
+    mov word [hb_susp], 0       ; those, so a caller with nothing suspended
+    call hbm_reload_m           ; reloads nothing
+    xor cx, cx                  ; ...and CF is clear
+    ret
+.suspend:
+    mov si, hb_susp
+    mov dl, DRVC_NET            ; AND THE WIRE STAYS (SPEC.md 96.23.6): the
+                                ; DOS box's packet driver is the only route a
+                                ; DOS program here has to the card, and it is
+                                ; built on the driver staying mounted
+    call hbm_sweep              ; CX = the records
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1670,12 +1807,19 @@ hbm_ask:
 
 ; -----------------------------------------------------------------------------
 ; hbm_dosbda - the DOS program's exit code, out of the BDA (SPEC.md 96.41)
-; out: [hb_doscode] = the code, or KDH_NOCODE; the mailbox is CLEARED
+; out: [hb_doscode] and [hb_dosakb]; the mailbox is CLEARED. Every
+;      register is preserved
 ;
 ; `kd_leave` wrote it at `0040:00F0` before its `int 19h` and it survived the
 ; ROM's bootstrap and our own boot (docs/plans/KERN-DOS-PLAN.md 8.2). Read
 ; ONCE and cleared, because the next thing that reads it would otherwise find
 ; a code from a session two boots ago and attach it to the wrong program.
+;
+; READ BY hbm_ask AT THE BOOT, into two resident cells hbm_res stages for the
+; wake. The size pass had hbm_res read the BDA itself and keep no cells, which
+; is a word cheaper - and it does not survive SPEC.md 96.41.1, where the ARENA
+; travels beside the code and the live resume and the reboot route have to
+; converge on the same pair. Two cells, one reader, one writer.
 ; -----------------------------------------------------------------------------
 hbm_dosbda:
     push ax
@@ -3251,6 +3395,7 @@ hbm_dosclus:    dw 0            ; DOS.O88's first cluster, across hbm_geom
 hbm_dosflag:    db 0            ; what HBP_DOS is to say, across hbm_wrimg
 hbm_dosheld:    db 0            ; 1 = hbm_wrimg took the gfx lock and [sch_lock]
                                 ; and still holds them, so step 4 must not
+hbm_swn:        db 0            ; hbm_sweep's record count, across the ask
 hbm_s_d1:       db 'Not our handoff record', 0
 hbm_s_d2:       db 'That folder has moved', 0
 hbm_s_d3:       db 'DOS.O88 is not there now', 0
