@@ -3568,7 +3568,22 @@ OSAPI_SAVEU_1BPP equ 2           ; ...and bit 1: "and my content is two
                                                  ; every call: pass 1 after 3
                                                  ; and you have withdrawn it
 %define OSAPI_TOAST         KERNEL_SEG:0x0380   ; ES:SI = a NUL line, CX =
-                                 ; ticks to live (0 = ~3s at 18.2 Hz). Says it
+                                 ; ticks to live (0 = ~3s at 18.2 Hz).
+                                 ; **AT MOST 24 CHARACTERS REACH THE BAR, AND
+                                 ; THE REST ARE DROPPED SILENTLY** (SPEC.md
+                                 ; 59.10). That is GEOMETRY and not a budget:
+                                 ; the strip lives in the clock's field, which
+                                 ; is 25 cells on every screen this runs on,
+                                 ; and one of them is the gap that keeps it
+                                 ; off the progress widget. So WRITE THE
+                                 ; MESSAGE TO FIT - a fixed string that does
+                                 ; not is a message nobody can read, and
+                                 ; `Sent to the running Audio Player` arrived
+                                 ; as `Sent to the running Au` for a year
+                                 ; because this paragraph was not here. A name
+                                 ; the USER chose may be any length and is
+                                 ; what the truncation is FOR; put it LAST, so
+                                 ; what survives is your own words. Says it
                                  ; as an inverse-video strip at the right end
                                  ; of the MENU BAR and takes it down on its
                                  ; own (SPEC.md 59) - so it costs your window

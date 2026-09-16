@@ -78150,6 +78150,84 @@ for `[menu_blast]`, which needed none while it was assigned beside
 the routine rather than leaving it as a rule callers have to keep, which is the
 same argument `menu_bpadc`'s own clamp makes.
 
+### 59.10 Twenty-one messages did not fit, and the claim that they did was not checked
+
+`toast_show` copies at most `TOAST_MAX` = 24 characters and drops the rest
+**silently**. That number is not a budget and cannot be traded: §59.8's field
+is 25 cells on every screen this runs on, §59.9.2's gap takes one of them, and
+moving the toast anywhere wider puts it back where a window can cover it —
+which is the arrangement §59 exists to have left behind. So the rule is the
+one `kernel/toast.inc` already states: **every fixed message is written to
+fit.**
+
+It said something stronger than that, though — *"every message in the tree was
+revised to fit rather than left to truncate"* — and that was a claim about a
+tree, made once, held by nothing. A bug report off an 86Box 286 found it: a
+hibernation file written by an 8088 build, and the toast reading
+
+    Hibernation file is from
+
+which is not a truncated sentence, it is a different one. The string is
+`Hibernation file is from another build` and the cut lands exactly on the word
+that carries the meaning.
+
+**The sweep found twenty-one, in six files**, and ten of them are
+`kernel/hiber.inc` — a MODULE, which is why: the revision happened when the
+toast moved from the menus segment's 40 columns to the clock's 24, and
+whatever walked the tree then did not walk `HIBER.DRV`.
+
+The six DOS-handoff refusals are the sharpest of them, because the comment
+directly above them makes the argument that the truncation destroys:
+
+> A REFUSAL SAYS WHICH STEP … `kern_dos could not be reached` is true of all
+> six and useful for none
+
+…and all six arrived as `The handoff record is not one`, `That disk is not one
+the RO`, `No room to list where kern_`. Six distinguishable reasons, written
+deliberately, delivered as six equally useless ones.
+
+**What was NOT wrong is the design.** A message that does not fit 24 columns
+is a message the bar cannot carry, and the answer is to write a shorter one,
+not to widen the strip. All twenty-one were revised; the longest now is 24 and
+most are around 21. Two shapes were tempting and refused: letting a long
+message spill into the menus segment (§59.8 removed that on purpose — it took
+the frontmost application's menu titles off the bar, which reads as the
+application breaking), and ending a cut message with an ellipsis (it tells the
+user something is missing and still does not tell them what).
+
+#### 59.10.1 …and the rule is a gate now, not a paragraph
+
+`tests/unit/t_toast.py` (fast tier, ~1 s, no emulator) reads `TOAST_MAX` out
+of `kernel/toast.inc` — never a copy of it — and checks every fixed string a
+toasting procedure can reach.
+
+**It over-approximates, deliberately.** A toast argument cannot be resolved
+exactly from source: it arrives in `SI`, `AX` or `BX`, through wrappers
+(`hbm_toast`, `wd_saymsg` and six more), through shared `jmp` tails — which is
+how the first draft of the checker missed `hbm_s_stale`, the one string the
+report was actually about — and sometimes composed into a buffer at run time.
+So it takes *every* `db` string that *any* procedure which toasts loads into a
+register, plus every string a `dw` table such a procedure loads names, walking
+callers to a **fixed point**. That cannot miss a fixed toast string, which is
+the direction that matters.
+
+What it produces instead is false positives — a routine that draws an About
+box *and* toasts one line of it — and `tests/toastlong.txt` is where those go,
+one line each, with the routine that draws the string and what it draws it
+with. **It is a ratchet and it starts at two.**
+
+The closure is tight enough for that to be affordable: **249 of the tree's
+13,158 top-level labels, 1.9%**. It is not quietly converging on "every
+procedure in the program", and if it ever starts to, the registry is what will
+say so by filling up with strings nobody toasts.
+
+**The SDK never stated the cap at all**, which is the root cause on the
+package side and why `apps/audio` shipped `Sent to the running Audio Player`.
+`OSAPI_TOAST`'s entry in `apps/os88api.inc` says it now, with the reason it is
+geometry, and with the one piece of advice that follows from it: a name the
+**user** chose may be any length and is what the truncation is *for*, so put
+it **last** — what survives is then your own words.
+
 ## 60. cpudet.inc — the CPU tier
 
 **Which CPU is this?** Two published bytes and two routines, and that is

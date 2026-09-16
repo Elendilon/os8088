@@ -19814,7 +19814,7 @@ wd_s_abou2: db 'Version 1.1a for os8088', 0
 wd_s_abou3: db 'UI from the CHM Opus source release', 0
 wd_s_abou4: db 'Ported by Jorge Gonzalez', 0
 wd_s_ok:    db 'OK', 0
-wd_m_noclose: db 'Close refused - try again', 0
+wd_m_noclose: db 'Close refused, try again', 0
 
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) ---------------------------
 ; A word processor's frame, not a note pad's: 600x440 at the 640x480
@@ -19901,8 +19901,8 @@ wd_m_nopat:   db 'No search text', 0
 wd_m_repld:   db ' changes', 0       ; wd_saycnt's suffix: 'n changes' is the
                                      ; sweep's answer (SPEC.md 68.7)
 wd_m_noundo:  db 'Nothing to undo', 0
-wd_m_papfull: db 'Too many paragraph formats', 0
-wd_m_toobig:  db 'Document too complex to save', 0
+wd_m_papfull: db 'Too many formats', 0
+wd_m_toobig:  db 'Too complex to save', 0
 wd_m_noclip:  db 'The clipboard is empty', 0        ; ^c with nothing in it
 wd_m_replong: db 'Replacement too long', 0          ; ...and ^m/^c past
                                      ; WD_FRXMAX (SPEC.md 68.7)
@@ -20108,7 +20108,7 @@ wd_ovcall:
     ret
 
 wd_ovname:  db 'WORD.OVL', 0
-wd_m_noovl: db 'WORD.OVL is not on this disk', 0
+wd_m_noovl: db 'WORD.OVL is not here', 0
 
 ; --- the vectors: resident routines the module far-calls (rule 1) ------------
 ; Offset assembled in, segment stamped by wd_ovbind. They are contiguous and

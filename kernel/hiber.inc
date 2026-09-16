@@ -3155,12 +3155,12 @@ hbm_dosclus:    dw 0            ; DOS.O88's first cluster, across hbm_geom
 hbm_dosflag:    db 0            ; what HBP_DOS is to say, across hbm_wrimg
 hbm_dosheld:    db 0            ; 1 = hbm_wrimg took the gfx lock and [sch_lock]
                                 ; and still holds them, so step 4 must not
-hbm_s_d1:       db 'The handoff record is not one of ours', 0
-hbm_s_d2:       db 'The folder DOS.O88 was in has moved', 0
-hbm_s_d3:       db 'DOS.O88 is not on that disk any more', 0
-hbm_s_d4:       db 'That disk is not one the ROM can read', 0
-hbm_s_d5:       db 'No room to list where kern_dos is', 0
-hbm_s_d6:       db 'kern_dos is too scattered to hand over', 0
+hbm_s_d1:       db 'Not our handoff record', 0
+hbm_s_d2:       db 'That folder has moved', 0
+hbm_s_d3:       db 'DOS.O88 is not there now', 0
+hbm_s_d4:       db 'The ROM cannot read it', 0
+hbm_s_d5:       db 'No room for the extents', 0
+hbm_s_d6:       db 'kern_dos too scattered', 0
 
 hbm_ptrfix:     db 'HIB1'      ; the pointer's fixed head, described ONCE
                 dw BUILD_NUM
@@ -3190,11 +3190,11 @@ hbm_s_bcan: db 'Cancel', 0
 hbm_s_bres: db 'Resume', 0
 hbm_s_bdis: db 'Discard', 0
 
-hbm_s_nobios: db 'Hibernate needs a BIOS-known hard disk', 0
-hbm_s_noroom: db 'Not enough room for the hibernation file', 0
+hbm_s_nobios: db 'Needs a BIOS hard disk', 0
+hbm_s_noroom: db 'Not enough room on disk', 0
 hbm_s_failed: db 'Hibernate failed', 0
-hbm_s_stale:  db 'Hibernation file is from another build', 0
-hbm_s_lost:   db 'Hibernation file could not be read', 0
+hbm_s_stale:  db 'Hibernation: other build', 0
+hbm_s_lost:   db 'Hibernation: unreadable', 0
 
 hbm_s_off:  db 13, 10, 'os8088 has hibernated.', 13, 10, 13, 10
             db 'It is now safe to switch the machine off.', 13, 10

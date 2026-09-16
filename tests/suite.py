@@ -904,6 +904,31 @@ FAST = [
         "and not soak on t_textrules.py's argument - it is a rule about how "
         "every package is written, so the place it belongs is in front of "
         "the next `make` rather than the next soak run"),
+    Row("toast", "fast", py("tests/unit/t_toast.py"), 1.1,
+        "EVERY FIXED TOAST MESSAGE FITS THE BAR (SPEC.md 59.10). toast_show "
+        "copies at most TOAST_MAX = 24 characters and drops the rest "
+        "SILENTLY, and that cap is GEOMETRY rather than a budget: the clock's "
+        "field is 25 cells on every screen this runs on and 59.9.2's gap "
+        "takes one, so it cannot be raised without moving the toast back "
+        "somewhere a window can cover it. kernel/toast.inc claimed in as many "
+        "words that 'every message in the tree was revised to fit' - true of "
+        "the tree it was written on, held by nothing, and a bug report off an "
+        "86Box 286 found TWENTY-ONE over the cap in six files. Ten were in "
+        "HIBER.DRV, a MODULE the original sweep never walked, and the cut "
+        "lands on the word that carries the meaning: 'Hibernation file is "
+        "from another build' arrives as 'Hibernation file is from'. IT "
+        "OVER-APPROXIMATES ON PURPOSE - a toast argument arrives in SI, AX or "
+        "BX, through wrappers and shared jmp tails and sometimes composed at "
+        "run time, so this takes every db string any TOASTING procedure loads "
+        "and walks callers to a fixed point. That cannot MISS a fixed string, "
+        "which is the direction that matters; the false positives (a routine "
+        "that draws an About box and toasts one line of it) are registered in "
+        "tests/toastlong.txt as a ratchet that starts at two. The closure is "
+        "249 of 13,158 top-level labels - 1.9% - so it is not converging on "
+        "the whole program. TOAST_MAX is READ out of kernel/toast.inc, never "
+        "copied. VERIFIED RED three ways: a string put back to its old "
+        "length, a stale registry line, and lowering the cap.",
+        ),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
