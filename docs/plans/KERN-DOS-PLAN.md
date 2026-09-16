@@ -1128,3 +1128,171 @@ Written down so it is recognised early rather than argued about late:
   whose hard disk is IDE rung 1 (§52.1) cannot hibernate today (§87.7 owes it)
   and so cannot use arm 3 either. That is an existing limitation inherited,
   not a new one — but it decides who the feature is for.
+
+## 14. The setup area and the arena page — MEASURED, then decided
+
+Asked by the owner as five ideas, with *"give me your feedback before we
+actually do any of them"*. Everything below was measured on the tree at
+`b73c075` before anything was built, and three of the five answers changed on
+the numbers. **The unit is BYTES and not a ratio** — the owner's correction,
+and CLAUDE.md's own banner: *"2.5KB is 2.5KB… These are not ratios against how
+fat we got."*
+
+### 14.1 What the box actually costs
+
+`DOS.O88` is a loader plus three parts:
+
+| | bytes | |
+|---|---|---|
+| loader | 2,092 image + 94 bss | |
+| **part 0, the UI** | **46,110 unpacked** | **SEGMENT — resident for the session, and straight off the arena on a windowed launch** |
+| part 1, the DOS core | 14,632 | ASSET, lazy + compressed |
+| part 2, `kern_dos` | 31,975 | ASSET, lazy + compressed |
+
+Only part 0 is the arena's problem. Parts 1 and 2 cost nothing until used.
+
+### 14.2 The five, with the measurement each
+
+**1. The Environment page as its own part — NO, and the number is why.**
+Its own routines are 274 bytes (`dos_paint_env` 56, `dos_click_env` 68,
+`dos_lnk_env` 85, `dos_page_turn` 39, `dos_page_ttl` 14, `dos_senv_place` 12),
+plus 196 of buffer and 80 of line records — **~550 bytes**, because §96.32.2
+had already made the page cheap (its env box IS Setup's, one buffer and two
+rects). Re-priced at the owner's wider scope — *the whole setup area, counting
+every widget as if it were setup-only* — it is **~3.5 KB**: box-side setup
+routines 1,589, `os88line_*` 974, `os88ui_rad*` 376, the glyph family 321.
+And `os88line_*` is NOT setup-only (`dosc.inc` calls `os88line_resync`/`_draw`
+for the console's input line), so the honest figure is **~2.5 KB**, one 4 KB
+claim, for the same far-call glue the console would need. **Kept as an option,
+not first**: unlike the driver boxes it costs the user nothing, and a config
+page may fairly wait a second or two for a disk read.
+
+**2. The console as a droppable part — REAL MONEY, PARKED.**
+`os88con.inc` 3,440 (one contiguous run, exact), `dosc.inc` 1,535, `dosh.inc`
+811, and `CON_BSS` **6,863** (`con_scr` 4,000 + `con_glyf` 2,048 + `con_band`
+640 + 175 of state) = **12,649 bytes, 12.4 KB**. Four things bite: a region
+never shrinks, so it must become a second SEGMENT part with far calls across
+~40 symbols; the console is a **LOG** and `dos_con_ended` writes the exit line
+into `con_scr` AFTER the run, so dropping `con_scr` loses the scrollback and
+keeping it saves only 8.6 of the 12.4; the reload is ~4 KB packed ≈ 2-3
+`int 13h` ≈ **~1 second on the XT**, on the way back from every program; and
+it buys nothing on arm 3. **The owner's framing corrects the last of those and
+is the one to keep**: *"all of the arms need memory, dos is a hog. Saving ram
+in the OS mode is another program that can run without NEEDING to exit the OS
+— that isn't to minimize arm 3's ram needs, saving ram there is 'another dos
+program that can run AT ALL' — its just a different target."* Two targets, not
+one important and one not.
+
+**3. Fold the env rows onto Setup — DONE** (SPEC.md 96.32.2.1, `277a352`).
+−388 resident bytes, more than the 274 predicted, the arrows' rects and the
+page-turn machinery being the rest. The fit was MEASURED on all three
+adapters rather than argued: CGA 638x197 with **96 px free** below the
+Environment field, Hercules and VGA 718x257/638x257 with 156 — against the 48
+that three rows at `DOS_EROWH` need. `tests/dosenvfold.py` is the gate.
+
+**4. The RAM page rework — AGREED, and the numbers make it the first job.**
+See 14.3.
+
+**5. The disk-cache dropdown — AGREED, with the rungs corrected.** See 14.4.
+
+### 14.3 The driver checkboxes are the biggest lever in the box
+
+**`drv_suspend_x` skips THREE classes, not two** — and the third is the
+finding:
+
+```
+    cmp al, DRVC_DISK   je .next
+    cmp al, DRVC_FILE   je .next
+    cmp al, DRVC_NET    je .next   ; §96.23.6 — the packet driver is the only
+                                   ; route a DOS program has to the card
+```
+
+So **the only thing `OSAPI_DRV_SUSPEND` can take today is the sound driver.**
+The kernel already refuses to unload `ETHER.DRV` for exactly the reason the
+owner gave: *"we support networking under dos so we don't always unload it —
+we're just wanting to give them the OPTION of unloading it."*
+
+And the kernel already knows every figure. `drv_memk` is one word per
+`drv_tab` row, and `tests/unit/t_drvmem.py` checks each against the built
+`.drv`:
+
+| class | driver | `drv_memk` | reachable today |
+|---|---|---|---|
+| `DRVC_SOUND` | `SOUND.DRV` | **34 KB** (6 image + 8 DMA + 20 pool) | yes |
+| `DRVC_DISK` | `HDD.DRV` | **32 KB** (8 image + 4×6 listing claims) | no |
+| `DRVC_NET` | `ETHER.DRV` | **32 KB** (18 image + 14 rings) | no |
+| `DRVC_FILE` | `RAMDISK.DRV` | **21 KB+** (`DRVM_PLUS`) | no |
+| `DRVC_NET` | `NET.DRV` | 7 KB | no |
+
+Three checkboxes are worth **~85 KB** against the 34 the box reaches now.
+
+**The kernel bill is ~55 resident bytes**, in two pieces:
+
+- **a per-class mask on `drv_suspend_x`** — `BX` = extra `DRVC_*` classes the
+  caller may take, 0 = today's set. Bank `BL` at entry (the loop reuses BX as
+  the row pointer), and test the bit before each skip compare. The resume side
+  needs nothing: `drv_susp` already records what went. **~25 bytes + 1 of
+  bss**, and every existing caller must now zero BX — that is the ABI change.
+- **a class-keyed info slot** — `AL` = a `DRVC_*`, out `AX` = the KB its
+  LOADED drivers hold (`DRVM_PLUS` carried in bit 15) and `CX` = how many.
+  **Class-keyed and not row-keyed on purpose**: it is the question the
+  checkbox asks, it hides `drv_tab` from the box, and `DRVC_NET` has TWO
+  drivers so a row-keyed slot would make the Network box lie. **~40 bytes of
+  `.cold` + an 8-byte cell.**
+
+**Two constraints to design around, both real**: unloading `DRVC_DISK` while
+the program is ON a hard disk loses the program, and the same for `DRVC_FILE`
+and the RAM disk. So the box takes those classes only after the load, or greys
+the box when `[dos_vol]` names that transport.
+
+### 14.4 The page itself
+
+The owner's layout, with what each part costs:
+
+- **`Arena: ~xxxKB` at the top, live.** `dos_mem_figs` already asks
+  `OSAPI_MEM_AVAIL_MAX` at both ranks; the figure is that plus Σ(unticked,
+  loaded) through the new slot. **Keep it on the what-if and never on a posted
+  compaction** — SPEC.md 66.4.3, a failed claim is destructive, so opening the
+  page must not shed the caches.
+- **Two radio arms with subsections**, replacing three arms. Arms 1 and 2
+  today are both *inside the OS* and differ only by the cache, which is
+  exactly why the cache leaves the radio.
+- **"Inside the OS"** — Hard Drives / Network / RAM disk check boxes, each
+  labelled with its own KB and greyed with a reason when the driver is not
+  loaded or holds the program; plus `Limit:` as now.
+- **"Shut down the OS"** — **first option: `Disable the mouse`.** Asked by the
+  owner after the rest: *"the other session just found it may be causing
+  performance drops - heavy thing to do on a 4.77mhz apparently, and if the
+  dos program doesn't care about a mouse then the user can pick not to have
+  it on."* **The kern_dos half is already built and costs nothing**:
+  `kd_mou_start` reads `KDL_MOUBASE` and a zero there means *"this machine has
+  no serial mouse… nothing is hooked, `[kdm_base]` stays zero, and
+  `kd_mou_read` answers the still pointer §96.10 already defines"*. What is
+  needed is a way to SAY it: the kernel patches `KDL_MOUBASE` into the staged
+  block at §87.5 step 5, so the box's zero would be overwritten. A
+  `KDLF_NOMOUSE` bit in `KDL_FLAGS`, tested by `hbm_dosrun` before that patch,
+  is ~8 bytes of the hibernate MODULE and nothing resident.
+- **The hibernate check box is REFUSED**, and the owner's question is the
+  reason: *"why would they want to UNCHECK that if they have a hard drive?
+  What would they gain from not hibernating?"* Only the image write and ~600
+  KB of disk, and a full disk already degrades gracefully (`KDLF_HIBER` stays
+  clear and the machine restarts). So the subsection carries the mouse box and
+  the arm's own estimate.
+- **The disk cache floats out as its own dropdown**, applying to both arms.
+  **The rungs are not what they first looked like**: `DSK_RAH_MIN` is 4 slots
+  and the assembly refuses 0 outright (*"at 0 `dsk_rah_want` would claim
+  nothing and then scan it"*), so the OS-side arms are **Auto / 32 KB (7
+  slots) / 18 KB (4 slots) / Off**, where Off is *shed it entirely* — the path
+  `DOS_MEM_DUMP` already takes — and NOT a 0-slot rung. **There is no 9 KB**:
+  that is `KD_RAH_KEEP`'s ladder INSIDE kern_dos (2 runs), a different
+  quantity, and conflating the two is the trap. `SLOW!` goes beside Off, at
+  the owner's request.
+
+### 14.5 The order, and where it stands
+
+1. **the kernel's two slots** — ~55 resident bytes for ~85 KB of arena. *In
+   progress.*
+2. **the page rework**, including the mouse box. *Next.*
+3. the env fold — **done**, `277a352`.
+4. the console part — parked, 12.4 KB, most work and it taxes the return path.
+5. the setup area as a part — ~2.5 KB, kept as an option and not first.
