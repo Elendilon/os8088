@@ -102,8 +102,6 @@ FLOPPY = _B.at("build/hiber360-%d.img" % _TAG)
 # had never run at all - which is how SPEC.md 96.49.2 shipped on the DOS route
 # beside it.
 MACHINE = "os8088_xt_hdd"
-if "--machine" in sys.argv:
-    MACHINE = sys.argv[sys.argv.index("--machine") + 1]
 
 # kernel/hiber.inc, kernel/instance.inc - the module's own constants
 HB_M_ASK, HB_M_BUSY, HB_M_RESUME, HB_M_GONE = 0, 1, 2, 3
@@ -553,7 +551,14 @@ def main():
     ap.add_argument("--driver", action="store_true",
                     help="boot from a floppy and reach the disk through HDD.DRV")
     ap.add_argument("--only", choices=["resume", "discard"])
+    ap.add_argument("--machine",
+                    help="another 8088 with a fixed disk. The one that matters "
+                         "is os8088_5150_herc_hdd_gla, whose staging area is at "
+                         "B000 rather than B800 (SPEC.md 87.5)")
     a = ap.parse_args()
+    if a.machine:
+        global MACHINE
+        MACHINE = a.machine
     try:
         fixture()
         if a.driver:

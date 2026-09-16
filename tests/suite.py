@@ -5436,7 +5436,7 @@ SOAK = [
         "the partition back on the HOST with instdeep's FAT reader. It "
         "ERASES the VHD.",
         needs=("marty",), serial=True, timeout=1200),
-    Row("hibernate", "soak", py("tests/hibernate.py"), 300.0,
+    Row("hibernate", "soak", py("tests/hibernate.py"), 80.0,
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
@@ -5449,6 +5449,24 @@ SOAK = [
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "
         "driver, so C: is a DVK_DRV volume and the resume's transport facts "
         "come through DSV_GEOM",
+        needs=("marty",), serial=True, timeout=1500),
+    Row("hibernatem", "soak",
+        py("tests/hibernate.py", "--machine", "os8088_5150_herc_hdd_gla"),
+        82.0,
+        "SPEC.md 87 ON A MONO MACHINE, which is the other half of "
+        "96.49.2's hole. The staging area IS the text framebuffer (87.5), so "
+        "it is at B000 on a Hercules primary and B800 everywhere else - and a "
+        "hibernation needs a FIXED DISK while the ADAPTER picks that segment, "
+        "so the two have to be on ONE machine before the mono arm runs at "
+        "all. Every profile in this tree with an [machine.hdc] was a CGA or a "
+        "VGA (five and two), so neither route had ever staged at B000 and the "
+        "DOS one shipped unable to: kd_stageseg held the mode byte in AL and "
+        "loaded AX before testing it. THIS ROUTE IS THE ONE THAT CANNOT HAVE "
+        "THAT DEFECT - hbm_stageseg compares a byte in MEMORY ([vid_kind]), "
+        "which the load cannot reach - and the row exists because that is a "
+        "claim about the source and not a measurement. It is green: 29 checks "
+        "on os8088_5150_herc_hdd_gla, the same 29 its CGA twin passes. Same "
+        "body as `hibernate`, one argument apart. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
     Row("instrest", "soak", py("tests/instrest.py"), 120.0,
         "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "

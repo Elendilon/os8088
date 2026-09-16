@@ -131595,13 +131595,14 @@ in this tree with an `[machine.hdc]` was a CGA or a VGA**: `os8088_xt_hdd`,
 `os8088_5150_cga_hdd`, `os8088_xt_vga_hdd` and the rest. `kdreturn`,
 `kdreturnf`, `hibernate` and `mouresume` all drive this exact path and all
 four were green, because all four were staging at B800 where B800 is right.
-`os8088_5150_herc_hdd_gla` is that hole closed **for the DOS route**, and the
-row went red on its first run. It is not closed for the ORDINARY resume:
-`tests/hibernate.py` is still `os8088_xt_hdd` and nothing drives §87.5's own
-staging on a mono machine. That one has never been reported broken and its
-`hbm_stageseg` is the arm that cannot have this defect — it compares memory —
-but "has never been reported" is not the same claim as "is covered", and the
-machine to cover it with now exists.
+`os8088_5150_herc_hdd_gla` is that hole closed, and `kdreturnm` went red on
+its first run. **The ORDINARY resume was the other half of it** and is closed
+too, by `hibernatem`: `tests/hibernate.py` was `os8088_xt_hdd` and nothing had
+ever driven §87.5's own staging on a mono machine either. That route is the
+one that cannot have this defect — `hbm_stageseg` compares a byte in MEMORY,
+which the load cannot reach — but that is a claim about the source and not a
+measurement, and "has never been reported" is not "is covered". Measured: **29
+checks on the Hercules, the same 29 its CGA twin passes.**
 
 **AND ONE OF THE THREE THINGS FOUND HERE WAS NOT IN THE KERNEL AT ALL.**
 `tests/kdreturn.py` waited on `"Graphics" in video()["mode"]`, and

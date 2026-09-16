@@ -1968,3 +1968,14 @@ the knob that ends that: an info line with every number the far jump depends
 on, `stg` first, and then one character per stage of the stub onto row 7 of
 whatever page it is standing in. On this defect the first field of the first
 line is the answer.
+
+### 45.5 The other half of the hole, measured rather than argued
+
+The ORDINARY resume had never run on a mono machine either, for the same
+reason: `tests/hibernate.py` was `os8088_xt_hdd`. That route is the one that
+*cannot* have this defect — `hbm_stageseg` compares a byte in memory
+(`[vid_kind]`) where `kd_stageseg` held its answer in AL — but that is a claim
+about the source, and the point of the machine list is that claims about the
+source were what everyone had. It is green: **29 checks on
+`os8088_5150_herc_hdd_gla`, the same 29 its CGA twin passes**, and `hibernatem`
+keeps it that way.
