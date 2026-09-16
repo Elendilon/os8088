@@ -1627,6 +1627,7 @@ ldf_ld_run_name:        call ld_run_name_x
 ; can have. It needs no mem_own: that fence answers for any live package, and
 ; any OTHER package calling this would be re-homing somebody else's launch.
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL
 osapi_pkg_rehome_x:
     push bx
     mov bx, es
@@ -1646,5 +1647,17 @@ osapi_pkg_rehome_x:
     pop bx                      ; `pop` writes no flag, so the refusal survives
     stc
     retf
+%else
+; No re-homing loader ships on kern_small: the only two callers of the slot -
+; the DOS box (SPEC.md 18.4.7.4) and Skies ($(SMALLOMIT_GAMES)) - are both off
+; the small disks, and no small package hands its identity to one of its parts
+; (SPEC.md 20.12.10). ld_alloc zeroes [ld_rehome] on every load (see it above),
+; so ld_start's step 8a never fires without this, and CF=1 is the refusal the
+; body itself gives when it declines. Cell-only, so a bare retf is the whole of
+; it (SPEC.md 20.3.2).
+osapi_pkg_rehome_x:
+    stc
+    retf
+%endif
 
 section .text
