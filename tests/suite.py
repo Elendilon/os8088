@@ -5390,6 +5390,22 @@ SOAK = [
         "graphics fullscreen is not what a tier-0 machine draws.",
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/trkscrl.img")),
+    Row("mouwheel", "soak", py("tests/mouwheel.py"), 20.0,
+        "SPEC.md 9.5.4: a WHEEL mouse's FOURTH byte must not break the packet "
+        "run. An IntelliMouse sends four bytes and the last has bit 6 CLEAR, "
+        "so it landed back at phase 0, read as a stray, and zeroed [mou_run] "
+        "EVERY PACKET - on a two-port machine the contest was unwinnable by "
+        "construction (docs/FIELD-NOTES.md 44). Nothing else here can see it: "
+        "every emulated mouse in this tree is a three-byte part, and the "
+        "defect is invisible the moment anything has settled the port, "
+        "because mou_claim then returns at its first compare. So the bytes "
+        "are the reporter's own and the instrument is INJECTION - each one "
+        "handed to the real mou_byte in the guest, which tests the shipped "
+        "decode rather than a model of it. VERIFIED TO FAIL: on the kernel "
+        "before 9.5.4 the wheel arms read mou_run 0 and seen 0, while the "
+        "three-byte and stray-byte CONTROLS still pass - so the row isolates "
+        "the defect instead of going red wholesale.",
+        needs=("marty",), serial=True),
     Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",
