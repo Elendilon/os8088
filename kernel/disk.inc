@@ -7004,16 +7004,6 @@ ICO_R_FOLDER equ 0xFE           ; not a row: the built-in folder body
 ICO_R_NONE   equ 0xFF           ; ...and SPEC.md 25's generic icon
 
 ; -----------------------------------------------------------------------------
-; ico_reloc - the store is MOVABLE (SPEC.md 66.2)
-; -----------------------------------------------------------------------------
-ico_reloc:
-    cmp bx, [ico_seg]
-    jne .out
-    mov [ico_seg], dx
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; ico_need - the store's claim, made on the first body that wants one
 ; out:      CF = 0 and ES = the claim; CF = 1 = no store, every lookup misses
 ; clobbers: ES (an output) and the flags
@@ -7184,8 +7174,27 @@ ico_body:
 .out:
     ret
 
-section .text                   ; DATA, so back to the kernel segment
-                                ; (SPEC.md 2.6 rule 1)
+section .text                   ; ...AND THE KERNEL SEGMENT FOR BOTH OF THESE
+                                ; (SPEC.md 2.6 rule 1 for the data, and
+                                ; SPEC.md 66.2 for the proc)
+; -----------------------------------------------------------------------------
+; ico_reloc - the store is MOVABLE (SPEC.md 66.2)
+;
+; **IT HAS TO BE IN `.text` AND IT WAS IN `.cold`.** mem_compact loads
+; `[ss:si+MC_RLOC]` into BP and calls it THROUGH THE OWNER'S SEGMENT, which for
+; a MEM_K_* tag is the kernel's - so a COLD_SEG offset called there lands on
+; whatever kernel code happens to sit at that offset. Silent, and only on a
+; compaction: `tests/regpin.py` caught it as *"the pass moved nothing"*, which
+; is what a jump into the middle of an unrelated routine looks like from
+; outside. assoc.inc's asc_reloc is in `.text` for exactly this reason.
+; -----------------------------------------------------------------------------
+ico_reloc:
+    cmp bx, [ico_seg]
+    jne .out
+    mov [ico_seg], dx
+.out:
+    ret
+
 ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
                                 ; listing has wanted a body yet)
 ico_n:      db 0                ; rows in use. It only grows: the store is
