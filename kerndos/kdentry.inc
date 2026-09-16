@@ -402,15 +402,37 @@ kd_entry:
 ; `dos_load` reads through `dos_be_read` and not through a handle - so moving
 ; it is a store rather than a flush.
 ; -----------------------------------------------------------------------------
+; **AND THE TWO SIDES OF `Auto` ARE MIRRORED**, which is checked HERE because
+; this is the one file that sees both: `apps/dos/dos.asm` prints what Auto is
+; worth in KB and `kerndos/kdshim.inc` decides what it really is, and the box's
+; own build cannot see the second name at all (`doscore.asm` is KD_BACKEND
+; without kdshim.inc). A drift is a figure on the glass the launch disagrees
+; with, which is exactly the class of defect no gate catches.
+%if DOS_CA_AUTORUN != KD_RAH_KEEP
+  %error "DOS_CA_AUTORUN (apps/dos/dos.asm) must equal KD_RAH_KEEP"
+%endif
 kd_giveback:
     push ax
+    push cx
+    mov cx, KD_RAH_KEEP         ; **AND THE CALLER DOES WANT A FIGURE NOW**
+    push si
+    mov si, [kd_lbp]            ; (SPEC.md 96.36.6): the box carries the width
+    mov ax, [si+KDL_FLAGS]      ; the user picked, and `[kd_lbp]` is the one
+    pop si                      ; thing that knows WHICH block is live
+    and ax, KDLF_RAHM           ; as runs + 1 in the flags word, where 0 is
+    jz .rung                    ; "your own default" - which is
+    mov cl, KDLF_RAHSH          ; KDL_NVOL's rule, so an old block that never
+    shr ax, cl                  ; heard of the field still gets KD_RAH_KEEP
+    dec ax
+    mov cx, ax
 .rung:
-    mov ax, [dsk_rah_runs]      ; ...and the day a caller wants a FIGURE, THIS
-    cmp ax, KD_RAH_KEEP         ; is the comparison it becomes (SPEC.md
-    jbe .kept                   ; 96.44.11.4). At KD_RAH_KEEP = 0 the loop runs
-    call kd_shed                ; to the bottom exactly as it always did
+    mov ax, [dsk_rah_runs]
+    cmp ax, cx
+    jbe .kept                   ; at a width of 0 the loop runs to the bottom
+    call kd_shed                ; exactly as it always did
     jnc .rung
 .kept:
+    pop cx
     call kd_arena
     mov byte [kd_spent], 1      ; **AND THE ALLOCATOR IS CLOSED** (SPEC.md
                                 ; 96.44.11.3). Everything below `[kd_top]` is

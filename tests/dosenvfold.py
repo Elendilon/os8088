@@ -37,8 +37,6 @@ import os88marty as M                                          # noqa: E402
 import os88mouse                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
-# dos.asm's own, and the only two this row needs to know
-DOS_BTNH, DOS_FURNB = 14, 4
 
 
 def fail(msg):
@@ -76,8 +74,14 @@ def main():
         w = [x for x in G.windows(m) if x.title.startswith("DOS")]
         if not w:
             fail("no DOS window in the table")
-        _, _, _, ch = w[0].content
-        furn = ch - DOS_BTNH - DOS_FURNB        # dos_paint_furn's row top
+        # **READ THE BUTTON ROW, DO NOT DERIVE IT.** `dos_furn_rects` takes
+        # the content height from OSAPI_WM_GEOM, which on a CLAMPED window is
+        # not the height the window table's content field reports: on CGA the
+        # slot answers 160 where the table says 197, so `ch - 18` computes
+        # 179 for a row that really starts at 142 and the assertion below is
+        # 37 pixels looser than it reads. `dos_trect` is where the buttons
+        # actually are.
+        furn = dosmap.rect(m, ps, dm, "dos_trect")[1]
 
         def rect(n):
             b = dm["dos_eln"] + n * dm["DOS_LNSZ"]
@@ -107,14 +111,12 @@ def main():
         # THE WHOLE POINT OF THE FOLD, asserted in SCREEN coordinates against
         # the window's own content box: a row past this is a row the user
         # cannot see and nothing reports.
-        cy = w[0].content[1]
-        if rs[-1][3] - cy >= furn:
-            fail("row %d ends %d px into the content box and the button row "
-                 "starts at %d - the last environment row is under Save "
-                 "Shortcut (SPEC.md 96.32.2.1)"
-                 % (len(rs) - 1, rs[-1][3] - cy, furn))
-        print("dosenvfold: %d rows, last ends %d of %d before the buttons"
-              % (len(rs), rs[-1][3] - cy, furn))
+        if rs[-1][3] >= furn:
+            fail("row %d's last line is at y=%d and the button row starts at "
+                 "%d - the last environment row is under Save Shortcut "
+                 "(SPEC.md 96.32.2.1)" % (len(rs) - 1, rs[-1][3], furn))
+        print("dosenvfold: %d rows, the last ends %d px above the buttons"
+              % (len(rs), furn - rs[-1][3]))
 
         # --- 4. and the hit test reaches the LAST one ------------------------
         last = dm["dos_eln"] + (dm["DOS_ENVN"] - 1) * dm["DOS_LNSZ"]

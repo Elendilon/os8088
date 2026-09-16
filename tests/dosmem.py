@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""The Memory page's three arms (SPEC.md 96.36, 96.25, 47).
+"""The Memory page's two arms and their subsections (SPEC.md 96.36, 96.25, 47).
 
 The choice of how much of the machine a DOS program gets used to be a CHECK
-BOX, which holds two answers.  There are three, and the third - take os8088
-itself as well - is LIVE on every shipped disk since SPEC.md 96.40.3.
+BOX, which holds two answers.  It was three arms and is TWO since SPEC.md
+96.36.5 - `Keep the disk cache` and `Take the disk cache too` differed in the
+cache and in nothing else, so they were one mode with a dial set two ways and
+the dial is its own control now (96.36.6).  What is left is WHERE the program
+runs, and the second arm - shut os8088 down and take the machine - is LIVE on
+every shipped disk since SPEC.md 96.40.3.
+
+Each arm heads a SUBSECTION, so the pitch is a subsection's height and
+`os88ui_rad` centres its ring in a ROW rather than in the pitch (13.17.5).
 
 **THIS ROW ASSERTED THE OPPOSITE FOR FOUR WAVES AND WAS RIGHT TO.** Arm 3 was
 greyed with its reason on the glass, first because `kern_dos` was not written
@@ -26,11 +33,11 @@ WHAT IT WOULD CATCH, and every one was seen FAILING on the way to writing it
                                                  and the rect stayed 0,0,0,0
   - [dos_keepc] not being OS88UI_RD_SEL        -> the page shows one arm and
     (a second copy of the pick)                  dos_run sizes for another
-  - the DEFAULT arm flipping polarity          -> the check box's ON byte was
-    (DOS_MEM_KEEP is 0, the ticked box was 1)    1 for "keep" and the radio's
-                                                 arm 0 is 0, so a copied test
-                                                 keeps the cache exactly when
-                                                 it should take it
+  - the DEFAULT arm flipping polarity          -> DOS_MEM_IN is 0 and a
+    (a copied test's "1 means keep")             copied tick byte was 1, so a
+                                                 test that assumed the tick
+                                                 shut the OS down exactly when
+                                                 it should not
   - the third arm greyed on a shipped disk     -> either the disk lost the
                                                  part (SPEC.md 96.40.3's one
                                                  Makefile variable) or
@@ -70,7 +77,9 @@ MACH = "os8088_5150_cga_gla"
 # os88ui.inc's record, mirrored here for the same reason the test carries no
 # layout: these are the SDK's offsets and the box does not own them.
 RD_RECT, RD_ITEMS, RD_N, RD_SEL, RD_PITCH, RD_DIS = 0, 8, 10, 12, 14, 16
-KEEP, DUMP, WHOLE, NARM = 0, 1, 2, 3
+INOS, WHOLE, NARM = 0, 1, 2
+CK_RECT, CK_LABEL, CK_ON = 0, 8, 10     # os88ui.inc's check box
+RDROWH = 20                             # ...and the cap a tall pitch centres in
 
 
 def fail(msg):
@@ -149,13 +158,13 @@ def main():
         if rec(m, pseg, dm, RD_N) != NARM:
             fail("OS88UI_RD_N is %d and the page has %d arms"
                  % (rec(m, pseg, dm, RD_N), NARM))
-        if rec(m, pseg, dm, RD_SEL) != KEEP:
-            fail("the default arm is %d and DOS_MEM_KEEP is %d - a fresh box "
-                 "keeps the disk cache (SPEC.md 96.25)"
-                 % (rec(m, pseg, dm, RD_SEL), KEEP))
+        if rec(m, pseg, dm, RD_SEL) != INOS:
+            fail("the default arm is %d and DOS_MEM_IN is %d - a fresh box "
+                 "runs the program inside the OS (SPEC.md 96.25)"
+                 % (rec(m, pseg, dm, RD_SEL), INOS))
         dis = rec(m, pseg, dm, RD_DIS)
         if dis & (1 << WHOLE):
-            fail("OS88UI_RD_DIS is 0x%04X - the THIRD ARM IS GREYED on a "
+            fail("OS88UI_RD_DIS is 0x%04X - the SHUT DOWN arm IS GREYED on a "
                  "shipped system disk. dos_mem_whole reads the part table's "
                  "own length word, so this means the DOS.O88 in APPS/ does "
                  "not carry kern_dos: $(SYSROOT) in the Makefile is the one "
@@ -164,7 +173,7 @@ def main():
             fail("OS88UI_RD_DIS is 0x%04X and nothing on this page is supposed "
                  "to be greyed at all" % dis)
         print("dosmem: N=%d SEL=%d DIS=0x%04X - every arm live, arm %d "
-              "included" % (NARM, KEEP, dis, WHOLE))
+              "included" % (NARM, INOS, dis, WHOLE))
 
         # --- 3: EVERY row is SOLID, which is the pixel half of step 2 --------
         # SPEC.md 47 rules 2 and 3, asserted in pixels because that is the only
@@ -174,8 +183,14 @@ def main():
         x1, y1, _, _ = rect
         pitch = rec(m, pseg, dm, RD_PITCH)
         lx = x1 + 12 + 6                     # OS88UI_RDBOX + OS88UI_RDGAP
-        for arm in (KEEP, DUMP, WHOLE):
-            ink, pairs = dithered(m, lx, y1 + arm * pitch + 4, 23 * 8, 8)
+        # **THE LABEL'S y IS NOT y1 + arm*pitch + 4 ANY MORE** (SPEC.md
+        # 13.17.5): a pitch of sixty is a SUBSECTION, and the library centres
+        # the label in a ROW capped at OS88UI_RDROWH - so the offset inside
+        # the row is (RDROWH - 7) / 2 and is the same on every pitch this page
+        # could have.
+        ly = (RDROWH - 7) // 2
+        for arm in (INOS, WHOLE):
+            ink, pairs = dithered(m, lx, y1 + arm * pitch + ly, 13 * 8, 8)
             if ink < 40:
                 fail("arm %d's label has %d dark pixels - it did not draw at "
                      "all" % (arm, ink))
@@ -187,42 +202,56 @@ def main():
             print("dosmem: arm %d label %d px / %d pairs -> solid"
                   % (arm, ink, pairs))
 
-        # --- 4: ...and NO reason is drawn under the group --------------------
-        # `dos_mem_whole` answers in SI and the painter draws SI when it is
-        # non-zero. It is zero now, so the strip below the third arm is the
-        # window's own ground - and it has to be: the reason sits at the
-        # LABELS' own indent, so a sentence left there beside three live arms
-        # reads as a fourth arm that works (SPEC.md 96.36.1).
-        ink, _ = dithered(m, lx, y1 + 48 + 2, 21 * 8, 8)
-        if ink >= 40:
-            fail("%d dark pixels are drawn under the third arm and nothing is "
-                 "greyed. That strip is where dos_mem_whole's reason goes, and "
-                 "the routine answers SI = 0 when the arm is live (SPEC.md "
-                 "47 rule 3, 96.36.1)" % ink)
-        print("dosmem: nothing is drawn under the live group")
-
-        # --- 5: a press on a LIVE arm moves the pick and only two dots --------
-        # **PARK THE POINTER FIRST.** crop_rgb reads the card's RENDERED
-        # framebuffer, so the arrow is in it: a capture taken before the move
-        # and one taken after differ by the arrow wherever the control is, and
-        # step 6's whole assertion is that nothing differs.
-        mo.to(*arm_centre(m, pseg, dm, DUMP))
+        # --- 4: ARM 1'S ROW CARRIES ITS OPTION AND NOT A REASON --------------
+        # One row, two things, and they never want it at once (SPEC.md
+        # 96.36.8): `dos_mem_whole` answers in SI, the painter draws SI when
+        # it is non-zero and draws the mouse box when it is not.  The arm is
+        # live here, so the box is what is there - and this asserts it by
+        # WORKING it, which is stronger than counting pixels: a reason drawn
+        # at the same indent would be a sentence the user can press and
+        # nothing would happen.  It also proves 96.36.4's hit order, the
+        # radio's own rect covering this box.
+        bx1, by1, bx2, by2 = dosmap.rect(m, pseg, dm, "dos_mmou")
+        if bx2 <= bx1 or by2 <= by1:
+            fail("the Disable the mouse box has an empty rect %r - "
+                 "dos_mck_place owes every box one before any hit test "
+                 "(SPEC.md 96.36.8)" % [bx1, by1, bx2, by2])
+        # **THE FIRST PRESS PICKS THE ARM AND THE SECOND WORKS THE BOX**
+        # (SPEC.md 96.36.9): the box is greyed while arm 0 is the pick, so it
+        # claims nothing and the press falls through to the radio under it.
+        # Asserting BOTH halves is what says the two rules agree.
+        was = m.read((pseg << 4) + dm["dos_mmou"] + CK_ON, 1)[0]
+        mo.click(bx1 + 4, by1 + 5)
         os88marty.settle(m)
-        before = band(m, *rect)
-        mo.click(*arm_centre(m, pseg, dm, DUMP))
+        if rec(m, pseg, dm, RD_SEL) != WHOLE:
+            fail("a press inside arm 1's own subsection left the pick at %d. "
+                 "A greyed box claims nothing, so the press is the radio's "
+                 "and its rect covers the subsection (SPEC.md 96.36.4, "
+                 "96.36.9)" % rec(m, pseg, dm, RD_SEL))
+        if m.read((pseg << 4) + dm["dos_mmou"] + CK_ON, 1)[0] != was:
+            fail("...and it ALSO toggled the box, which is a greyed control "
+                 "acting on a press (SPEC.md 47 rule 2)")
+        mo.click(bx1 + 4, by1 + 5)
         os88marty.settle(m)
-        if rec(m, pseg, dm, RD_SEL) != DUMP:
-            fail("a press on arm %d left the pick at %d"
-                 % (DUMP, rec(m, pseg, dm, RD_SEL)))
-        after = band(m, *rect)
-        if before == after:
-            fail("the pick moved and NOTHING was redrawn - os88ui_radhit owes "
-                 "the two dots that changed (SPEC.md 13.17.4)")
-        print("dosmem: arm %d picked, and the group redrew" % DUMP)
+        now = m.read((pseg << 4) + dm["dos_mmou"] + CK_ON, 1)[0]
+        if now == was:
+            fail("a second press inside the Disable the mouse box left it at "
+                 "%d. Arm 1 is the pick now, so the box is live - and it is "
+                 "hit-tested BEFORE the radio whose rect covers it (SPEC.md "
+                 "96.36.4, 96.36.8)" % now)
+        mo.click(bx1 + 4, by1 + 5)              # ...and back, so what follows
+        os88marty.settle(m)                     # starts where it did
+        mo.click(*arm_centre(m, pseg, dm, INOS))
+        os88marty.settle(m)
+        print("dosmem: arm 1's subsection picks its arm, then works")
 
-        # --- 6: ...and a press on the THIRD arm PICKS it ---------------------
+        # --- 5: a press on the SHUT DOWN arm PICKS IT, and redraws two dots ---
         # This is the assertion the greying used to make from the other side,
         # and it is the stronger one: a control that is offered has to work.
+        #
+        # **PARK THE POINTER FIRST.** crop_rgb reads the card's RENDERED
+        # framebuffer, so the arrow is in it: a capture taken before the move
+        # and one taken after differ by the arrow wherever the control is.
         mo.to(*arm_centre(m, pseg, dm, WHOLE))
         os88marty.settle(m)
         before = band(m, *rect)
@@ -239,15 +268,15 @@ def main():
                  "13.17.4)" % WHOLE)
         print("dosmem: arm %d picked, and the group redrew" % WHOLE)
 
-        # --- 7: ...and back --------------------------------------------------
-        mo.click(*arm_centre(m, pseg, dm, KEEP))
+        # --- 6: ...and back --------------------------------------------------
+        mo.click(*arm_centre(m, pseg, dm, INOS))
         os88marty.settle(m)
-        if rec(m, pseg, dm, RD_SEL) != KEEP:
+        if rec(m, pseg, dm, RD_SEL) != INOS:
             fail("a press on arm %d left the pick at %d"
-                 % (KEEP, rec(m, pseg, dm, RD_SEL)))
-        print("dosmem: ...and back to arm %d" % KEEP)
+                 % (INOS, rec(m, pseg, dm, RD_SEL)))
+        print("dosmem: ...and back to arm %d" % INOS)
 
-        # --- 8: CONSUMER THREE - a pick that IS honourable SURVIVES ----------
+        # --- 7: CONSUMER THREE - a pick that IS honourable SURVIVES ----------
         # `dos_mem_fix` asks `dos_mem_whole` at the block's COMMIT point,
         # because [dos_keepc] can arrive from a .LNK written on another machine
         # and a greyed control refuses a CLICK and not a FILE (SPEC.md

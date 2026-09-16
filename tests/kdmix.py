@@ -83,19 +83,19 @@ def main():
                  "but the kernel's own mount" % vol)
         print("kdmix: the window reached B: - a 1.44MB floppy, FAT 9 sectors")
 
-        # --- 2. the third arm ------------------------------------------------
+        # --- 2. the Shut down the OS arm ------------------------------------------------
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
         os88marty.settle(m)
         dis = kdhand.rec(m, pseg, dm, kdhand.RD_DIS)
         if dis & (1 << kdhand.WHOLE):
-            fail("the third arm is GREYED - this build does not carry "
+            fail("the Shut down the OS arm is GREYED - this build does not carry "
                  "kern_dos as a part (SPEC.md 96.36.1)")
         x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
         pitch = kdhand.rec(m, pseg, dm, kdhand.RD_PITCH)
         mo.click((x1 + x2) // 2, y1 + kdhand.WHOLE * pitch + pitch // 2)
         os88marty.settle(m)
         if kdhand.rec(m, pseg, dm, kdhand.RD_SEL) != kdhand.WHOLE:
-            fail("clicking the third arm did not pick it")
+            fail("clicking the Shut down the OS arm did not pick it")
 
         # --- 3. name the program and go --------------------------------------
         # **THE PATH BOX HAS TO BE CLICKED FIRST**, and the `B:` above is why:

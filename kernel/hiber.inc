@@ -142,6 +142,12 @@ KDLF_HIBER  equ 4               ; ...bit 2, which is the ONE bit the kernel
                                 ; sets rather than the box - whether there is a
                                 ; fixed disk to come back to is hb_pick's
                                 ; question (docs/plans/KERN-DOS-PLAN.md 8)
+KDLF_NOMOUSE equ 8              ; ...and bit 3, which is the box's and is read
+                                ; HERE: KDL_MOUBASE is a kernel field patched
+                                ; into the staged block after the box has
+                                ; gathered it, so a package cannot say "no
+                                ; pointer" by writing a zero there (SPEC.md
+                                ; 96.36.8)
 KDL_DPT     equ 16              ; db[11] in the block: the DISKETTE PARAMETER
 KDL_DPT_LEN equ 11              ; TABLE, the one field the box cannot fill.
                                 ; `hbm_dosrun` patches it into the STAGED copy
@@ -2402,6 +2408,12 @@ hbm_dosrun:
     push bx                     ; BX is step 3a's sector count and step 5 is
                                 ; inside its lifetime - the lookup above is
                                 ; bracketed for that reason and so is this
+    test word [es:KDS_LB + KDL_FLAGS], KDLF_NOMOUSE
+    jnz .nomouse                ; **THE USER SAID NOT TO** (SPEC.md 96.36.8),
+                                ; which is a decision and not a capability, so
+                                ; it is asked before the contest's result: the
+                                ; base stays 0 and kd_mou_start reads that as
+                                ; the machine having none
     cmp byte [mou_seen], 0      ; did anything ever win the contest?
     je .nomouse
     mov bl, [mou_port]

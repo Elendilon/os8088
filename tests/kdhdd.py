@@ -132,7 +132,7 @@ def marker(rs):
 
 
 def arm3_run(m, mo):
-    """Set the Memory page's third arm and press Run.
+    """Set the Memory page's the Shut down the OS arm and press Run.
 
     Poked rather than clicked, which `tests/kdreturn.py` does for the same
     reason: the radio is `tests/kdmouse.py`'s and `tests/kdhand.py`'s subject
@@ -141,7 +141,7 @@ def arm3_run(m, mo):
     """
     dm = dosmap.package()
     pseg = dosmap.instance(m)
-    m.write((pseg << 4) + dm["dos_keepc"], bytes([2, 0]))
+    m.write((pseg << 4) + dm["dos_keepc"], bytes([1, 0]))
     mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
 
 
