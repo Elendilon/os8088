@@ -65,6 +65,13 @@ LD_DE_SIZE  equ 20              ; the LOW word of a DWORD size (SPEC.md 19.1
 LD_H_MAGIC  equ 0               ; word: 0x384F ('O','8')
 LD_H_VER    equ 2               ; byte: format version = 3
 LD_H_FLAGS  equ 3               ; byte: bit 0 = embedded 16x16 icon
+LD_HF_GLYPH equ 0x20            ; ...its bit 5: a 16-byte DOCUMENT-GLYPH block
+                                ; follows the association block (SPEC.md
+                                ; 54.3.2). Read by assoc.inc and by the two
+                                ; clear-prefix ladders, and by nothing else
+LD_H_GLYPH  equ 112             ; ...and where it sits: header 32 + icon 64 +
+                                ; association block 16 (the tool requires all
+                                ; three in front of it)
 LD_H_LINK   equ 4               ; word: link base, must be 0 (org 0 - a v3
                                 ; package is position-independent because it
                                 ; owns its segment, SPEC.md 20.1)
@@ -237,12 +244,16 @@ ld_expand:
     mov bx, LD_HDR_SIZE         ; carries at R: what the mount reads out of
     test al, 1                  ; the first sector and must never have to
     jz .noico                   ; decompress to get (SPEC.md 20.13.1) - the
-    add bx, 64                  ; header, the icon, the association block.
-.noico:                         ; At most 112, and ALWAYS a multiple of 16,
-    test al, 2                  ; which is what lets the body's destination
-    jz .noasc                   ; be a SEGMENT below
+    add bx, 64                  ; header, the icon, the association block,
+.noico:                         ; the document glyph. At most 128, and ALWAYS
+    test al, 2                  ; a multiple of 16, which is what lets the
+    jz .noasc                   ; body's destination be a SEGMENT below
     add bx, 16
 .noasc:
+    test al, LD_HF_GLYPH        ; ...and the document glyph (SPEC.md 54.3.2),
+    jz .nogly                   ; sixteen bytes for eight of glyph for the
+    add bx, 16                  ; multiple-of-16 reason above
+.nogly:
     test al, 0x10               ; bit 4 says which format (SPEC.md 20.13): the
     mov al, LZ_LZ4              ; decoder wants 0 or 1, and CX - the file's
     jz .fmt                     ; length - is not a register to shift by

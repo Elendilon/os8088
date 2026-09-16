@@ -45,9 +45,13 @@
 ; kernel parses at the wrong stride, which is a cache that reads as garbage
 ; rather than an error.
 ASC_HDR      equ 16             ; magic 6 + version + napp + next + 7 reserved
-ASC_ROW      equ 80             ; stem 8 + size 2 + cluster 2 + 4 + icon 64
+ASC_ROW      equ 88             ; stem 8 + size 2 + cluster 2 + 4 + icon 64 +
+                                ; the 8-byte document glyph (a VERSION 2 row,
+                                ; SPEC.md 54.3.2 - the kernel reads the
+                                ; 80-byte version 1 too; this writes only 2)
 ASC_ROWCLUS  equ 10             ; the DIRECTORY the program lives in
 ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
+ASC_ROWGLY   equ 80             ; ...and the glyph's: all zero = ships none
 ASC_NAPP     equ 32
 ASC_NEXT     equ 24
 ASC_KB       equ 3
@@ -70,6 +74,9 @@ HIA_MAXSPC   equ 64             ; sectors per cluster we will read: 32KB, the
 HIA_DECLMAX  equ 5              ; the header's declaration block (SPEC.md 54.6)
 HIA_MINHDR   equ 32             ; the package header itself
 HIA_ICOEND   equ 96             ; ...and past its embedded icon
+HIA_GLYEND   equ 128            ; ...and past its document glyph (SPEC.md
+                                ; 54.3.2), which sits at 112 after the
+                                ; association block
 
 ; -----------------------------------------------------------------------------
 ; hd_iassoc - build the destination volume's ASSOC.DAT (SPEC.md 52.10.14)
@@ -358,7 +365,7 @@ hd_ia_row:
     jc .out                     ; the table is full and this one is dropped
     mov [hd_iaix], al
 
-    call hd_ia_emit             ; the 80 bytes
+    call hd_ia_emit             ; the 88 bytes
     call hd_ia_decl             ; ...and the extensions that point at them
 .out:
     pop es
@@ -495,8 +502,29 @@ hd_ia_emit:
     pop ds
     rep movsw
     pop ds
-    jmp short .out
+    jmp short .glyph
 .noico:
+    xor ax, ax
+    rep stosw
+
+    ; --- and the glyph it SHIPS, or zero (SPEC.md 54.3.2) -------------------
+    ; DI is past the icon on either arm, which is where a version 2 row keeps
+    ; it. Zero is 'ships none': the kernel then reduces the icon, as it did
+    ; before the column existed.
+.glyph:
+    mov cx, 4                   ; 8 bytes, as words
+    test byte [hd_iaflg], 0x20
+    jz .nogly
+    cmp word [hd_iatake], HIA_GLYEND
+    jb .nogly                   ; promised and not delivered: SPEC.md 18.2
+    push ds
+    mov si, HIA_SEC + HIA_ICOEND + 16   ; past the association block
+    push es
+    pop ds
+    rep movsw
+    pop ds
+    jmp short .out
+.nogly:
     xor ax, ax
     rep stosw
 .out:
@@ -515,7 +543,7 @@ hd_ia_emit:
 ; out: DI. AX clobbered, every other register preserved
 ;
 ; The 8-BIT `mul bl`, asc_slot_of's form and for its reason: the index is under
-; ASC_NAPP so AL*80 <= 2,480 and the product cannot leave AX, which leaves DX
+; ASC_NAPP so AL*88 <= 2,728 and the product cannot leave AX, which leaves DX
 ; alone.
 ; -----------------------------------------------------------------------------
 hd_ia_at:
@@ -705,7 +733,7 @@ hd_ia_close:
     mov [hd_ianp], ax           ; ...and the app row count is the two halves
 
     mov bl, ASC_ROW
-    mul bl                      ; the 8-bit form: napp <= 32, so 32*80 = 2,560
+    mul bl                      ; the 8-bit form: napp <= 32, so 32*88 = 2,816
     add ax, ASC_HDR             ; cannot leave AX (hd_ia_at's reason)
     mov [hd_iaend], ax          ; where the ext rows belong
     mov cx, [hd_iane]
@@ -754,7 +782,8 @@ hd_ia_close:
     mov si, hd_s_iamagic
     mov cx, 6
     call hd_ia_put
-    mov byte [es:6], 1          ; version
+    mov byte [es:6], 2          ; version 2: the rows carry the glyph column
+                                ; (SPEC.md 54.3.2)
     mov ax, [hd_ianp]
     mov [es:7], al
     mov ax, [hd_iane]
