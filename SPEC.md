@@ -111329,6 +111329,35 @@ eight worlds carry it, and `tests/unit/t_csink.py` holds every one of them to
 it — one left behind is a white river on a colour display and nothing to see
 on Hercules.
 
+#### 88.6.6 Issy's hangar stands 40 m back from the runway
+
+Reported off the machine: *"the hangar in Paris is practically touching the
+runway."* It was. `cs_m_hangar` is 60 m by 120 m on the ground, it stood at
+(−2750, −2350), and Issy's runway is 1,000 m of 040° centred on (−2600,
+−2300): resolved into runway-local coordinates the nearest corner of that
+footprint was **1.2 m outside the runway edge**. Twenty-one metres of drift
+left of the centreline on the take-off roll was a `CSO_COLLIDE` box, and from
+the parked view the hangar's base corner sits *on* the runway's own edge line.
+
+The object moved to **(−2781, −2324)**, which is 40 m along the runway's own
+normal, away from it — §88.6.3's setback one aerodrome along, and the same
+reason to move the building rather than the runway: `CSA_X`/`CSA_Z` is where
+the world's other eight objects, the spawn and the Seine's strip are all
+placed from. The nearest corner is **41.7 m clear** of the edge, which is the
+runway's own width again, and the take-off view keeps it — the hangar is a
+fifth of the view's width parked and still a fifth of it three hundred frames
+into the roll, the Cessna having covered 12 m by then.
+
+**Forty and not two hundred, because it is the one building anybody sees from
+the ground.** §88.12's frame budget calls it *the near hangar* and prices it
+at 84,000 cycles of the runway scene; it is what gives that scene a
+foreground. Walking all eight worlds, every other hangar stands **183 to
+313 m** clear of its own runway — Nepal-VNLK is the tightest — so Issy's was
+low by a factor of 150 and is still, deliberately, four times the closest of
+the rest. The setback was picked on the glass at 40, 60 and 80 m: at 80 the
+building is a sliver against the left edge of the view, which is the half of
+the report that says *clearly visible*.
+
 ### 88.7 The flight model (`apps/skies/csflight.inc`)
 
 Deliberately simple, stepped **once per system tick** the way §85.6 steps
