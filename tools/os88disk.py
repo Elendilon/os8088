@@ -77,7 +77,34 @@ import struct
 import sys
 
 SECTOR = 512
-MAX_FILES = 32                # kernel listing cap (SPEC.md section 19)
+def _listing_cap():
+    """DSK_NENT, READ OUT OF THE KERNEL rather than restated here.
+
+    It was `MAX_FILES = 32` with a comment pointing at SPEC.md section 19, and
+    that is a MIRROR of a kernel constant in a host tool - the class of bug
+    `tests/unit/t_mirror.py` exists for.  When DSK_NENT doubled, this file went
+    on refusing a 60-file disk the kernel would have listed perfectly well, and
+    the message it refused with named a number that was no longer true.
+
+    Parsed rather than imported, because this tool must keep working on a tree
+    with no assembler: the fallback is the value the kernel shipped with, which
+    is wrong in the SAFE direction (it refuses a disk that would have worked
+    rather than building one the kernel cannot list).
+    """
+    import re as _re
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "..", "kernel", "dskwin.inc")
+    try:
+        with open(src) as f:
+            m = _re.search(r"^DSK_NENT\s+equ\s+(\d+)", f.read(), _re.M)
+        if m:
+            return int(m.group(1))
+    except OSError:
+        pass
+    return 32
+
+
+MAX_FILES = _listing_cap()    # kernel listing cap (SPEC.md section 19)
 VOL_LABEL = b"OS8088APPS "    # 11 bytes, BS_VolLab == root label entry
 SYS_LABEL = b"OS8088SYS  "    # ...and what a --boot/--kernel disk is called
 VOL_ID = 0x88000888           # the FALLBACK serial, and the value every
