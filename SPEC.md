@@ -130600,6 +130600,56 @@ IER 01  MCR 0B  LSR 60  MSR 00  PIC21 AC  seen 1 port 0 line 10 drain 0
 first byte it ate (which is exactly the stale byte the mask had latched), and
 the pointer moving. `tests/mouresume.py` is that reading kept runnable.
 
+##### 96.45.2.2 …and the PS/2 pointer is the same defect with THREE teardowns
+
+The reporter tested the fix above with a **PS/2** mouse and it was still dead —
+which §96.45.2 had said in as many words was not covered, and is the same
+defect one socket along.
+
+Step 6's `mouse_unhook` calls `mou_p2_off`, and that is three teardowns where
+the serial side had two:
+
+| `mou_p2_off` does | undone by |
+|---|---|
+| masks **IRQ12** at the slave (`0xA1`, `MOU_P2SL`) | nothing |
+| sends **`0xA7`** — the auxiliary interface off, *"so the device is not even clocked"* | nothing |
+| writes **`[mou_p2cmd0]`** back — the BIOS's command byte, IRQ12 bit and all | nothing |
+
+and `mou_p2_init` — the only routine that undoes any of it — is in `.ovlw`
+beside `mouse_init`, freed by the same `mem_unblob`. So the PS/2 pointer came
+home dead for exactly the reason the serial one did.
+
+**The re-arm is `mou_p2_init`'s own arming tail**, not a new sequence: the
+auxiliary interface back on, the command byte **recomputed from the same banked
+`[mou_p2cmd0]`** (`and 0xDF` for the aux clock, `or 0x02 | MOU_P2KOFF` to arm
+IRQ12 at the controller), `0xF4` to the device, and then IRQ12 at the slave
+**and IRQ2 at the master** — the cascade, whose absence §9.9 records as *"a
+mouse that passed every step above and is then silent for the session"*, which
+is this bug's own symptom arriving by a different road.
+
+`0xF4` is resent rather than assumed because `0xA7` left the device
+**unclocked**; a live line with a device that is not reporting is the same dead
+pointer. Its ACK is deliberately not collected — `mou_p2flush` is the overlay's,
+both writers time out on their own so nothing can hang, and a stray `0xFA` is a
+byte the ISR discards.
+
+**`[mou_p2]` is the guard and it survives the handoff**: `hbm_wrimg` takes the
+picture at step 3b and `mouse_unhook` runs at step 6, so the byte the image
+carries is the one from *before* the teardown — 1 only where a PS/2 mouse was
+the live pointer. A serial machine runs none of it, and neither does one whose
+PS/2 mouse had already **lost the contest**, which `mou_lockon` retires through
+that same `mou_p2_off`.
+
+It is `%ifdef KERN_BIG`, because §9.9's probe is.
+
+**What is verified and what is not, said plainly.** The serial half is driven
+end to end by `tests/mouresume.py` on MartyPC. The PS/2 half cannot be: MartyPC
+is an 8088 and an XT has an 8255 PPI rather than an 8042 with an aux port, which
+is entry 4 on docs/TESTING.md's QEMU list. Until a QEMU row drives the same
+resume, this half rests on being the exact inverse of `mou_p2_off` and on
+`mou_p2_init` still arming a PS/2 mouse correctly after the change — which is
+measured, and is not the same claim.
+
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 
 `kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
