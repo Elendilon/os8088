@@ -4837,6 +4837,7 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
                      apps/os88con.inc apps/os88cp437.inc \
                      apps/os88api.inc \
                      apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
+                     apps/os88alt.inc \
                      drivers/net/netpkg.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/telnet/ -I drivers/net/ -o $@ apps/telnet/telnet.asm
 	@echo "telnet: $(call FILESIZE,$@) bytes"
@@ -5698,7 +5699,8 @@ $(BUILD)/fractal.o88: $(BUILD)/fractal.bin tools/os88pkg.py $(PKGZSTAMP)
 # BMP load/save through the Standard File dialog. Needs ~620KB of conventional
 # memory for its canvas (int 12h decides; a smaller machine gets a notice
 # window instead), so `make run-640` is the way to exercise it.
-$(BUILD)/paint.bin: apps/paint/paint.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
+$(BUILD)/paint.bin: apps/paint/paint.asm apps/os88api.inc apps/os88ui.inc \
+                    apps/os88alt.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/paint/paint.asm
 	@echo "paint:  $(call FILESIZE,$@) bytes"
 
@@ -6006,7 +6008,8 @@ $(CYCSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.cycpkg*
 	@touch $@
 
-$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88gfx.inc $(CYCSTAMP) | $(BUILD)
+$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88gfx.inc \
+                      apps/os88alt.inc $(CYCSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(CYCFLAGS) -o $@ apps/cyclone/cyclone.asm
 	@echo "cyclone: $(call FILESIZE,$@) bytes"
 

@@ -1121,9 +1121,25 @@ cy_hire:
 ; =============================================================================
 cy_onkey:
     push si
+    ; --- ALT+ENTER IS AHEAD OF THE PANEL, AND OF cy_pn_dismiss (11.2.1.1) ---
+    ; TWO reasons, and the second is a defect this found rather than a
+    ; preference: SPEC.md 11.2.1.1's door is unconditional, which is where
+    ; apps/paint and apps/apple2 put theirs - a panel that swallowed it would
+    ; be a full screen with no way back and one more step in front of it. And
+    ; cy_pn_dismiss does NOT preserve AH: it ends in cy_pn_off and
+    ; cy_full_repaint, so every test in cy_key_common that reads the SCAN code
+    ; is reading whatever those left behind. The letters below survive because
+    ; they test AL; this chord is ascii 0 and has nothing but the scan code.
+    cmp ax, KEY_ALTENTER
+    je .fs
     call cy_pn_dismiss              ; any key takes a panel down, and is spent
     jc .spent                       ; doing it
     call cy_key_common
+    jmp short .spent
+.fs:
+    call cy_key_common.fs           ; ...the SAME body `f` reaches, by its
+                                    ; qualified name: one door, and no second
+                                    ; copy of the enter/leave decision
 .spent:
     call cy_kbdrain                 ; the UI task takes ONE key per pass, so
     pop si                          ; this is the second drain point and the
@@ -8162,11 +8178,22 @@ cy_fsx_main:
     mov byte [cy_full], 1           ; the monitor we were not on
 .nosurf:                            ; (CF=1 is impossible here - we ARE the
                                     ; bracket - and leaves what cy_entry banked)
+    OS88_ALTENTER_SEED              ; ...and the Alt+Enter that got us here is
+                                    ; the same thought one key along: still
+                                    ; held, and a level read cannot tell that
+                                    ; hold from the press that would leave
     call OSAPI_MOUSE
     mov [cy_pbtn], al               ; seed the button, or the click that got
     mov byte [cy_mheld], 0          ; us here fires the moment we arrive
 .loop:
 .keys:
+    call os88alt_edge               ; ...and in HERE it arrives by neither
+    jnc .k16                        ; route int 16h below serves: no XT BIOS
+    mov byte [cy_fsxq], 1           ; enqueues the combination (SPEC.md 9.7.1)
+                                    ; and a bracket dispatches no events
+                                    ; (53.1). The SAME byte cy_key_common's
+                                    ; .fs sets, so the two worlds leave by one
+.k16:                               ; path
     mov ah, 1                       ; no events are dispatched in a bracket:
     int 0x16                        ; this IS the UI task, so poll int 16h
     jz .nokey
@@ -8583,6 +8610,7 @@ CY_TWORDS equ 14
 %define GFXE_PT_BUF cy_pts
 %define GFXE_PT_MAX CY_PTMAX
 %include "os88gfx.inc"
+%include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the bracket
 
     OS88_BSS CY_BSS
     OS88_IMAGE_END

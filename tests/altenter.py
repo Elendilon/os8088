@@ -165,10 +165,12 @@ def leg_bracket(ui, st):
             print("  bracket: Alt+Enter -> windowed, and it stays there")
 
     # --- ...and TWICE, because once proves less than it looks --------------
-    # apps/paint is not in this row for exactly this reason: its first cycle
-    # is perfect and its SECOND entry is refused, which one round trip cannot
-    # see. SPEC.md 11.2.1.1 carries that finding; this is the guard that
-    # would catch the same shape here.
+    # THE SECOND CYCLE IS THE WHOLE POINT OF THIS BLOCK. Paint's first was
+    # perfect and its second entry was refused, for a fortnight of debugging
+    # that blamed the bracket poll: os88alt.inc declared `section .bss`, which
+    # in a package ALIASES the first byte of its own hand-chained bss, and the
+    # seed's store of 1 landed on a byte that behaves like `[pt_fs]` left set
+    # (SPEC.md 11.2.1.1). One round trip cannot see that class of bug at all.
     if st.bracket() == NO_BRACKET:
         ui.m.alt("Enter")
         if st.wait(st.bracket, lambda v: v != NO_BRACKET) == NO_BRACKET:

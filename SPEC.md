@@ -14358,44 +14358,50 @@ key along, and entered from a **menu** it costs nothing.
 
 **What each app binds it to is the app's own existing door**, never a new
 action: Pac-Man's `f`, Missile Command's `mc_fs_toggle`, Paint's Ctrl+F path,
-Tracker's `.fstog`, the DOS box's `Program > Full Screen`
+Tracker's `.fstog`, Telnet's `^]`, Cyclone's `f`, the DOS box's
+`Program > Full Screen`
 (§96.33.5.1), and — for Tank Attack and Clear Skies — the same `.go` a plain
 **Enter** already reached, so the chord agrees with a key that was there
 rather than inventing a second meaning for it. Where an app gates its keyboard
 the chord is gated with it: a modal panel, a name prompt or an initials entry
 that owns every key owns this one too.
 
-**THREE APPS TOOK LESS THAN THE WHOLE BINDING, and every reason was found by
-running something rather than by reasoning about it.**
+**THREE APPS LOOKED LIKE THEY COULD NOT HAVE IT, AND ALL THREE WERE THIS
+SECTION'S OWN BUGS.** They are written down because each was diagnosed wrongly
+first, and the wrong diagnosis is the more useful half:
 
-- **Paint has the way IN and not the way out.** Its bracket's poll — the far
-  call in `os88alt_edge`, nothing to do with the chord itself — leaves the
-  program unable to enter full screen a **second** time: `f` in, Esc out, `f`
-  again is refused, with Alt+Enter nowhere near it. Bisected to the call (a
-  bare `ret` in its place and the second entry is fine), and it reproduces at
-  either placement in the loop. That is not this section's to fix and Paint
-  has two ways out already, so the half that works ships and the half that
-  breaks an app does not. **`tests/altenter.py` round-trips its bracket leg
-  TWICE because of this**: one cycle would have passed here too.
-- **Telnet has none of it.** `soak -k telnet` goes red with the poll in
-  `te_tx_keys`: one cell of the full-screen terminal's VRAM disagrees with
-  the buffer behind it (`row 0` stale by a byte) where the base passes, which
-  is the shared-debt bookkeeping of §70.8.1 and not something the chord may
-  disturb. A/B'd both ways, alone, so it is not the load flake `ddsmall` was
-  in the same run. Telnet is also the one carrier this could not be driven
-  through by hand — it needs a network — so it is the last place to ship an
-  unverified change to.
-- **Cyclone has none of it.** The synthesised keystroke never reaches
-  `cy_onkey` at all — `ui_bill` is not called for it, where the same trace
-  shows `2166` for a bare `f` on the same window. Moving the test ahead of
-  `cy_pn_dismiss` (which does not preserve AH, and would have been a real
-  defect for any scan-code test under it) did not change that, so the cause
-  is upstream of the app and unfound. The package is left exactly as it was.
+- **`apps/os88alt.inc` MAY NOT DECLARE `section .bss`, and did.** Every
+  package in this tree hand-chains its bss as `equ os88_image_end + N`, and a
+  `-f bin` `.bss` lands at `os88_image_end` too - so `resb 1` there is not a
+  new byte, it is an ALIAS of whatever the package put first in its own chain,
+  and `OS88_ALTENTER_SEED`'s store of **1** goes through it. It cost two apps
+  and neither looked like a memory bug: **Telnet** came up with `l\x01ne 00` in
+  row 0 of the full-screen terminal (the seed, landing in the console buffer,
+  read as one stale cell), and **Paint** refused to enter full screen a SECOND
+  time (the aliased byte behaving exactly like `[pt_fs]` left set) - which was
+  bisected to the poll's far call and very nearly shipped as "the bracket poll
+  breaks Paint". `apps/os88ui.inc` has the rule in the other direction and had
+  it right: its `section .bss` is inside `%ifdef OS88UI_KERNEL`, and its
+  comment says a package declares its own. The byte is a `db` in `.text` now,
+  which is what the kernel does for `kbd_ae` and `kbm_p5`.
+- **Cyclone's `cy_pn_dismiss` does not preserve AH.** It ends in `cy_pn_off`
+  and `cy_full_repaint`, so every test in `cy_key_common` that reads the SCAN
+  code is reading what those left behind. The letters under it survive because
+  they test AL; this chord is ascii 0 and has nothing BUT the scan code, so
+  from under the dismiss it can never match. The door is ahead of it now,
+  which is where Paint and the Apple II+ already put theirs and what §11.2.1.1
+  means by unconditional. **The first diagnosis was that the kernel never
+  delivered the key at all** - `ui_bill` "never called" - and that was an
+  artefact twice over: the trace was taken with the app already INSIDE a
+  bracket, where §53.1 says nothing is dispatched, and the retest ran against
+  a floppy that had not been rebuilt. Measured properly, `ui_bill` reads
+  `1C00` on the same window that reads `2166` for a bare `f`.
 
-**And neither is a reason to doubt the mechanism**: ArtfulType, Dot Delirium,
-Missile Command, Tank Attack, Tracker and the DOS box were each driven through
-both directions on the glass, and Pac-Man, the C64, PaccMan and RunCPM take
-the one-line latch form that ArtfulType's leg proves.
+**Both failures shared a shape worth naming**: an app-side defect that
+presents as the mechanism not working, on an app whose own untouched keys
+still work. The check that separates them is to drive the app's EXISTING door
+in the same session - `f`, `^]`, the menu item - and see whether it survives
+the change too.
 
 **Two apps are deliberately not on this list.** `apps/arkanoid` and
 `apps/sheet` call `OSAPI_KEY_DOWN` and have no full screen to go to, so there

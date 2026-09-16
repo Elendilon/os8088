@@ -87,8 +87,25 @@ os88alt_edge:
     clc
     ret
 
-section .bss
-
-os88alt_dn: resb 1                  ; what the last os88alt_edge pass saw
-
-section .text
+; --- the edge's one byte, and it is IN `.text` ON PURPOSE --------------------
+; **A PACKAGE-SIDE INCLUDE MAY NOT DECLARE `section .bss`.** Every package in
+; this tree hand-chains its bss as `equ os88_image_end + N` offsets, and a
+; `-f bin` `.bss` lands at os88_image_end too - so a `resb` here is not a new
+; byte, it is an ALIAS of whatever the package put first in its own chain, and
+; the seed's store of 1 goes through it.
+;
+; That is not a hypothetical. This file shipped with a `resb 1` for one commit
+; and it cost two apps: Telnet's full-screen terminal came up with `l\x01ne 00`
+; in row 0 - the seed, landing in the console buffer - and Paint refused to
+; enter full screen a SECOND time, because the byte it aliased there behaves
+; exactly like `[pt_fs]` left set. Both were diagnosed as the chord's own
+; defect first, and Paint's poll was removed over it.
+;
+; apps/os88ui.inc has the rule in the other direction and had it right: its
+; `section .bss` is inside `%ifdef OS88UI_KERNEL`, and its comment says in as
+; many words that a package declares its own. A `db` in `.text` is what the
+; kernel does for the same kind of byte (`kbd_ae`, `kbm_p5`, `kbd_armed`), it
+; is initialised rather than trusting a zeroed section, and a package image is
+; ordinary writable RAM - so it costs one byte of image and cannot collide
+; with anything.
+os88alt_dn: db 0                    ; what the last os88alt_edge pass saw

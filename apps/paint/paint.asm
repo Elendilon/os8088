@@ -6524,8 +6524,19 @@ pt_fsx_main:
     mov [pt_pbtn], al               ; the click or key that got us here must
     mov [pt_ptrx], cx               ; not read as a fresh press on the first
     mov [pt_ptry], dx               ; pass
+    OS88_ALTENTER_SEED              ; ...and the Alt+Enter that got us here is
+                                    ; the same thought: still held, and a
+                                    ; level read cannot tell it from the press
+                                    ; that would take us out again
     call pt_ptr_on
 .loop:
+    call os88alt_edge               ; ALT+ENTER LEAVES TOO (SPEC.md 11.2.1.1),
+    jc .done                        ; and it cannot come through the int 16h
+                                    ; below: no XT BIOS enqueues the
+                                    ; combination at all (9.7.1) and a bracket
+                                    ; dispatches no events (53.1), so the
+                                    ; key-state map is the only thing that
+                                    ; carries it. Free in a loop already
     mov ah, 1                       ; the bracket's input model: poll int 16h
     int 0x16                        ; (this IS the UI task, SPEC.md 53.1)
     jz .nokey
@@ -10632,26 +10643,7 @@ pt_onkey:
     je .full                        ; (SPEC.md 11.2.1.1). Beside Ctrl+F and
                                     ; above the bare letter for the same
                                     ; reason: a chord is not a keystroke the
-                                    ; text tool can ever want.
-                                    ;
-                                    ; **IT IS THE WAY IN AND NOT THE WAY OUT
-                                    ; HERE**, which is the one place SPEC.md
-                                    ; 11.2.1.1's pair is not symmetric.
-                                    ; Leaving wants apps/os88alt.inc's poll of
-                                    ; the key-state map, and MEASURED on this
-                                    ; app that poll's far call leaves the box
-                                    ; unable to enter full screen a SECOND
-                                    ; time - `f` in, Esc out, `f` again is
-                                    ; refused, with the chord nowhere near it.
-                                    ; Bisected to the call itself: a bare
-                                    ; `ret` in its place and the second entry
-                                    ; is fine, at .loop or at .pace alike.
-                                    ; Whatever that is, it is not this
-                                    ; section's to fix, and Paint already has
-                                    ; two ways out (Esc and Ctrl+F) that owe
-                                    ; nothing to it - so the half that works
-                                    ; ships and the half that breaks an app
-                                    ; does not
+                                    ; text tool can ever want
     cmp al, 0x06                    ; Ctrl+F
     je .full
     cmp byte [pt_txton], 0          ; ...and the bare F, the tree's fullscreen
@@ -17175,6 +17167,9 @@ pt_ic_text:
                                 ; the way out. A windowed dialog has a floor of
                                 ; ~800 bytes wherever it lives and Paint is a
                                 ; heap claim, not the kernel
+%ifdef PTF_FSX
+%include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the bracket
+%endif
 %include "os88ui.inc"
 
     OS88_BSS PT_BSS
