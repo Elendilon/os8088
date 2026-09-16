@@ -3786,8 +3786,18 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 ; in:  BX = owner word
 ; out: AX = KB claimed by that owner (0 if none)
 ; clobbers: nothing else (flags)
+;
+; TWO DOORS, ONE ROOM (docs/plans/MODULE-SELFCONTAIN-PLAN.md's shape): the far
+; entry is instance.inc's, which reaches it as COLD_SEG:mem_owned_kb_x, and the
+; near one is for callers already in COLD_SEG - osapi_drv_classk_x, which asks
+; it what a DRIVER's segment is holding (SPEC.md 51.12.2). Four bytes, against
+; a second copy of the scan.
 ; -----------------------------------------------------------------------------
 mem_owned_kb_x:
+    call mem_owned_kb
+    retf
+
+mem_owned_kb:
     push cx
     push si
     xor ax, ax
@@ -3806,7 +3816,7 @@ mem_owned_kb_x:
     shr ax, cl
     pop si
     pop cx
-    retf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_sum_kb - the Task Manager's two heap terms

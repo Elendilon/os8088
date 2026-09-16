@@ -318,6 +318,11 @@ _MIRROR = {
     "MC_DMA_HI": ("kernel/memory.inc", 0x8000),
     "MC_DMA_HEAD": ("kernel/memory.inc", 0x7FFF),
     "MC_SIZE": ("kernel/memory.inc", 10),
+    # ...and the one OWNER WORD a host script has to spell, because it is the
+    # only tag that is not a segment: a loaded driver's IMAGE. Its own claims
+    # carry the driver's segment instead (mem_own's `mov bx, es`), so a walk
+    # that wants everything one driver holds needs this and that base.
+    "MEM_K_DRV": ("kernel/memory.inc", 0xFF03),
     # kernel/vidsel.inc - the PER-DISPLAY CONTEXT record (SPEC.md 39.14)
     #
     # Nine harness scripts each wrote `VID_CTX_SZ = 42` down by hand, and the

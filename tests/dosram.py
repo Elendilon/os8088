@@ -249,13 +249,22 @@ def main():
                  "the CLASS's ceiling and must be asked with DRVCK_ALL "
                  "(SPEC.md 51.12.1); fed OSAPI_DRV_CLASSK's plain form it "
                  "reports what is mounted, which here is nothing" % netraw)
-        if hddkb != hdkb:
-            fail("`%s` says %d and the mounted class holds %d. They are "
-                 "allowed to differ - a ceiling is not a measurement - but on "
-                 "THIS fixture the only DRVC_DISK row is the one that is "
-                 "loaded, so they must agree or one of the two forms is "
-                 "walking the wrong rows (SPEC.md 51.12.1)"
-                 % (hddraw, hddkb, hdkb))
+        # A CEILING IS NEVER BELOW WHAT IS HELD, and on this fixture it is
+        # strictly above: DRVM_HDD counts HD_MAXVOL listing claims and one
+        # volume is mounted, so 32 against 14. That gap IS the two forms being
+        # two questions (SPEC.md 51.12.1, 51.12.2) - fed one figure they were
+        # equal here, which is exactly why the equality used to be asserted.
+        if hddkb < hdkb:
+            fail("`%s` says %d and the mounted class is HOLDING %d. A ceiling "
+                 "below what is held is one of the two forms walking the "
+                 "wrong rows (SPEC.md 51.12.1)" % (hddraw, hddkb, hdkb))
+        if hddkb == hdkb:
+            fail("`%s` says %d and the live figure is the same. On this "
+                 "fixture they must DIFFER: the caption is DRVM_HDD's "
+                 "ceiling - the image plus HD_MAXVOL listing claims - and one "
+                 "volume is mounted, so a plain OSAPI_DRV_CLASSK that weighs "
+                 "the heap cannot agree with it. Equal means both calls took "
+                 "the same arm (SPEC.md 51.12.2)" % (hddraw, hddkb))
 
         # --- 1c: ...and the LIMIT moves the figure AS IT IS TYPED ------------
         # dos_mem_arena has clamped to [dos_memkb] since the page was reworked

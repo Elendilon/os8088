@@ -129654,6 +129654,53 @@ prevents it is that they are asked separately and banked separately —
 arena arithmetic and the ceiling straight into the label's own digits, so
 neither can be read for the other's purpose later.
 
+#### 51.12.2 The plain form weighs the HEAP, not `drv_memk`
+
+The plain form answers what the class's loaded rows are **holding right now**,
+summed off `mem_tab`: for each loaded row, `DRVR_KB` — the KB `drv_load`
+claimed for the image — plus `mem_owned_kb` of that row's `DRVR_SEG`. Two
+lookups, no probe, and nothing that can drift. Only `DRVCK_ALL` reads
+`drv_memk`.
+
+**It was `drv_memk` for both and the field measured what that costs.** On an
+IBM 5150 with a Sound Blaster, the DOS box's Memory page read the arena 20 KB
+high on every view, because `DRVM_SND` is `6 image + 8 DMA + 20 SBL_POOLKB`
+and **the pool is claimed on the first grant, not at attach** —
+`sbl_pool_get`'s own header says why (*"holding 20KB from boot for a card
+nobody is playing costs 55% of a 128KB machine's heap"*). A mounted, silent
+driver holds **14**, which is what the unmount hands back and what
+`tests/dosarena.py` has asserted all along. The page promised 467 and the
+program got 447.
+
+`drv_memk` is not wrong; it is the answer to the other question. §51.2.4
+defines it as *what a driver holds while doing its primary job, at the top
+rung of any claim it sizes to the machine* — right for the Drivers page's
+column and for a caption about the class, and wrong for *what would I get back
+if this class went away now*, which is the only question the plain form is
+asked. `DRVC_DISK` is the same story one row along: `8 + 4×6` as a ceiling and
+14 with one volume mounted.
+
+**The two records are found by the ownership rule and not by a list.** A
+driver's image is owned by `MEM_K_DRV`, so it is named by its own base rather
+than by anything class-specific — hence `DRVR_KB`. Everything the driver then
+claims for *itself* carries that base as its **owner word**, because
+`mem_own`'s last act is `mov bx, es` (§50.2). `mem_owned_kb` is exactly that
+sum and already existed; it gained a near entry beside its far one, four
+bytes, rather than a second copy of the scan.
+
+**Why the kernel and not the caller.** `OSAPI_CLAIM_SNAPSHOT` publishes the
+whole of `mem_tab` and the Task Manager's `tm_hmatch` already groups a
+package's claims by matching `CLS_OWN` against its segment — the same rule,
+public and proven. What is *not* published is which loaded segment belongs to
+which `DRVC_*`: the Task Manager never needed it, lumping every driver under
+System with one `DrvImg` tag. Doing it caller-side would therefore have meant
+publishing that mapping **and** spending `CLAIM_SNAPSHOT_SIZE` of the caller's
+bss plus its own walk — more bytes in total than the sum the kernel was
+already one call away from.
+
+**Nothing on the Control Panel moves**: `cp_drv_mem1` reads `drv_memk`
+directly and not through this slot.
+
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
 A **packet driver is an interface, not a program**. What the box publishes is
@@ -130092,9 +130139,11 @@ its own mark and this row redraws itself; nothing repaints the block except an
 
 **The `~` is the point of the row.** Arm 0's base term is exact —
 `OSAPI_MEM_COMPACT`'s what-if at the floor `dos_run` will really set, which is
-§96.25.1.1's argument unchanged — but the driver boxes add `OSAPI_DRV_CLASSK`
-figures, which are build-time constants at the **top rung** of any claim a
-driver sizes to the machine (§51.12). Arm 1 cannot be asked anything at all:
+§96.25.1.1's argument unchanged — and the driver terms are exact too now,
+`OSAPI_DRV_CLASSK`'s plain form weighing the heap rather than quoting
+`drv_memk`'s top rung (§51.12.2). What is left estimated is the **merge** an
+unmount unlocks, which no per-class figure carries and which under-reports
+(§96.36.7.2). Arm 1 cannot be asked anything at all:
 the machine it describes has no kernel in it, so every term is a constant this
 build knows — `SK_KERN + SK_HEAP + DOS_LOWKB` for what the machine has,
 less `DOS_KDKB` for what `kern_dos` keeps below the program, less the COPY
@@ -130109,6 +130158,29 @@ promised against the arena the box carries home (§96.41.1).
 
 The **limit** is the one term that is neither estimate nor measurement: it is
 the user's own ceiling, so it clamps whatever the rest came to.
+
+##### 96.36.3.1 The terms are read before the figure they are terms of
+
+`dos_mck_place` reads the three class words the arena is a sum of, and it
+**draws nothing** — it is rects and literals — so it sat two blocks down in
+`dos_paint_mem`, beside the boxes it places. That made the **first** paint of
+a fresh window compute the arena from the bss zeros the loader left: the sound
+term, which is the only one added unconditionally, was missing from that one
+paint and from nothing else. The next recompute — a click, the dial, a
+keystroke — had it, so the figure moved with the user having changed nothing
+and then stuck.
+
+Reported from the field on an IBM 5150 with a Sound Blaster as *433K, and 467K
+after going back in*, with the program actually getting 447. Both halves of
+that gap are defects and they are different ones: the jump is this ordering,
+and the remaining 20 is §51.12.2's constant. The call is hoisted to the top of
+the painter now, before the arena block.
+
+**A control that is a term of a figure has to be read before the figure**, and
+the reason this was invisible is that the zero is only ever seen by the
+arithmetic — `[dos_msnk]` reads 34 by the time the paint returns, so a probe
+that looks after the fact sees nothing wrong. `tests/dosram.py` compares the
+first paint's row against a recompute instead.
 
 #### 96.36.4 A pitch is a SUBSECTION, so the hit test runs inside out
 

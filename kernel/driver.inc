@@ -1454,16 +1454,34 @@ osapi_drv_classk_x:
     xor al, dl                  ; ...and the compare masks the flag off rather
     and al, ~DRVCK_ALL & 0xFF   ; than banking the class somewhere else: every
     jnz .next                   ; register here is already carrying something
-    mov bl, dh
-    xor bh, bh
-    shl bx, 1
-    mov bx, [drv_memk + bx]     ; ...and its figure, out of the one table the
-    mov ax, bx                  ; Drivers page reads
+    inc cx
+    test dl, DRVCK_ALL
+    jz .held                    ; the plain form weighs the HEAP (51.12.2)...
+    mov bl, dh                  ; ...and the ceiling form is drv_memk's
+    xor bh, bh                  ; constant, which is the one the Drivers page
+    shl bx, 1                   ; reads
+    mov bx, [drv_memk + bx]
+    mov ax, bx
     and ah, 0x7F                ; DRVM_PLUS is a flag and not a digit, so the
     add si, ax                  ; kilobytes ADD and the flag ORs - and the
     and bx, DRVM_PLUS           ; mask is the WHOLE word, not its high byte:
     or si, bx                   ; `and bh, 0x80` leaves BL holding a figure
-    inc cx
+    jmp short .next
+
+    ; --- ...and what this row is HOLDING, which is two records ---------------
+    ; A driver's IMAGE is owned by MEM_K_DRV, so it is named by its own base
+    ; and DRVR_KB is the KB drv_load claimed for it. Everything the driver
+    ; then claims for itself carries that base as its OWNER word (mem_own's
+    ; `mov bx, es`), which is exactly what mem_owned_kb sums. Two lookups, no
+    ; probe, and no constant that can drift.
+.held:
+    mov ax, [bx+DRVR_KB]        ; the image...
+    push ax
+    mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner
+    call mem_owned_kb
+    pop bx
+    add ax, bx
+    add si, ax
 .next:
     inc dh
     cmp dh, DRV_MAX

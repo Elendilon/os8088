@@ -3620,6 +3620,29 @@ SOAK = [
         "learned to relocate a re-homed carve, and this row is stale).",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
+    Row("dosest", "soak", py("tests/dosest.py"), 40.0,
+        "THE MEMORY PAGE'S ESTIMATE IS WHAT THE MACHINE WOULD REALLY HAND "
+        "OVER (SPEC.md 96.36.3.1, 51.12.2) - two defects the field found in "
+        "one sitting on a 5150 with a Sound Blaster: the page read 433K, then "
+        "467K on going back in with nothing changed, and the program got 447. "
+        "BOTH NEED A CARD TO BE VISIBLE, which is why this is its own row and "
+        "not two assertions in dosram: the sound term is the only one added "
+        "unconditionally, so on a machine without one the arithmetic under "
+        "test never runs. (1) dos_mck_place fills the three class words the "
+        "arena is a sum of and DRAWS NOTHING, so it sat below the arena block "
+        "and the FIRST paint of a fresh window computed the figure from the "
+        "bss zeros the loader left. It is invisible to a probe that looks "
+        "afterwards - the word reads correctly by the time the paint RETURNS - "
+        "so this compares the row as first painted against a recompute that "
+        "changes nothing. (2) OSAPI_DRV_CLASSK's plain form quoted drv_memk, "
+        "which is 51.2.4's TOP RUNG - 6 image + 8 DMA + 20 SBL_POOLKB - and "
+        "the pool is claimed on the first grant, so a mounted silent driver "
+        "holds 14 and the estimate was 20 high for ever. The assertion is "
+        "against the CLAIM TABLE and not against a constant: the image record "
+        "plus everything owned by the driver's own segment. VERIFIED TO FAIL "
+        "on both, against the build that shipped them.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

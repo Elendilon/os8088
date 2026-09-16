@@ -7399,6 +7399,19 @@ dos_paint_mem:
     push di
     call dos_mem_org                ; [dos_mx]/[dos_my] = the block's top-left
 
+    ; **THE FIGURES BEFORE THE FIGURE THEY ARE TERMS OF** (SPEC.md 96.36.3.1).
+    ; dos_mck_place reads the three class words the arena is a sum of, and it
+    ; DRAWS NOTHING - it is rects and literals - so it sat two blocks below,
+    ; where the boxes it places are. That made the FIRST paint of a fresh
+    ; window compute the arena from the bss zeros the loader left, so the
+    ; sound term was missing from it and from nothing else; the next recompute
+    ; - a click, the dial, a keystroke - had them, and the figure moved with
+    ; the user having changed nothing. Reported from the field as `433K, then
+    ; 467K after going back in`.
+    push bx
+    call dos_mck_place              ; all three boxes, and their figures
+    pop bx
+
     push bx                         ; **THE ARENA, AND IT IS ONE LINE NOW**
     call dos_mem_arena              ; (SPEC.md 96.36.3): AX = the estimate this
     mov di, dos_marn                ; page's own controls add up to, patched
@@ -7418,8 +7431,7 @@ dos_paint_mem:
     pop bx
 
     ; --- ARM 0's subsection: the two drivers, and the limit ------------------
-    push bx
-    call dos_mck_place              ; all three boxes, and their figures
+    push bx                         ; ...placed at the top, with the figures
     mov bx, dos_mhdd
     call dos_mck_di                 ; DI = OS88UI_DIS when this one is dead
     call os88ui_chk
