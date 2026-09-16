@@ -221,9 +221,12 @@ kd_resume:
     ; ...and the exit code, which is what the whole return is FOR (96.41).
     ; The BDA copy stays too: it costs nothing and a resume that loses this
     ; word still comes back, just without a number in the window.
-    mov al, [kd_code]
-    xor ah, ah
-    mov [es:HS_DOSCODE], ax
+    mov ax, [kd_code]               ; THE WHOLE WORD (96.40.7): the high byte
+    mov [es:HS_DOSCODE], ax         ; says whether the low one means anything,
+                                    ; and a `xor ah, ah` here would lose it on
+                                    ; the live-resume route alone - the route
+                                    ; that shipped LAST, which is exactly how a
+                                    ; two-route field would go stale
     mov ax, [dos_akb]           ; ...AND THE ARENA IT WAS GIVEN (SPEC.md
     mov [es:HS_DOSAKB], ax      ; 96.41.1). `kd_arena` worked it out off
                                 ; `[kd_top]` and the box cannot: over there

@@ -266,6 +266,23 @@ KDLF_NOMOUSE equ 8              ; bit 3: **THE USER DOES NOT WANT A POINTER**
                                 ; 4.77 MHz machine a DOS program can feel, and
                                 ; a program that never asks INT 33h anything
                                 ; is paying for a cursor nobody reads
+; **WHY THE PROGRAM DID NOT RUN** (SPEC.md 96.40.7), in KDH_CODE's HIGH byte.
+; Zero means the low byte is a real exit code, which is what every program that
+; actually ran reports; this bit set means the low byte is MEANINGLESS and the
+; other seven carry the reason.
+;
+; It exists because every refusal in `kd_entry` reported 0xFF and nothing else.
+; `kd_puts` wrote the sentence to the DOS SCREEN, which the user never sees -
+; `kd_leave` hands straight back - so `NOSUCH.COM` that was never there came
+; home as `ended, exit code 255` and read as a program that ran and failed.
+; 255 cannot be the signal either: it is a legal `INT 21h AH=4Ch` code.
+;
+; **THE REASON IS A `DER_*`, the BOX's own**, and not a code of kern_dos's to
+; be translated. `apps/dos/dos.asm` defines them ungated, so this build sees
+; them and the window half needs no mapping table - one `and` and a store into
+; [dos_err], and `dos_err_line` says the sentence it already had. The DER_*
+; range is 0..8, so `KDC_FAIL | DER_*` can never collide with KDH_NOCODE.
+KDC_FAIL    equ 0x80
 KDLF_RAHSH  equ 8               ; bits 8..10: **HOW MUCH READ-AHEAD THE PROGRAM
 KDLF_RAHM   equ 0x0700          ; DOES NOT GET** (SPEC.md 96.36.6), as
                                 ; runs + 1, so that ZERO is "kern_dos's own

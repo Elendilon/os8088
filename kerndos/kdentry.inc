@@ -327,14 +327,19 @@ kd_entry:
 .back:
     mov al, [dos_exit]
     mov [kd_code], al
-    jmp kd_leave
+    mov byte [kd_code+1], 0         ; IT RAN, so the high byte says nothing -
+    jmp kd_leave                    ; and it is cleared HERE rather than at
+                                    ; entry, because a refusal may have set it
+                                    ; on a previous pass through this image
 
 .nolb:
-    mov si, kd_s_nolb
-    jmp short .say
-.noroom:
-    mov si, kd_s_noroom
-    jmp short .say
+    mov si, kd_s_nolb               ; **AND EACH ONE NAMES ITSELF** (SPEC.md
+    mov al, KDC_FAIL | DER_HAND     ; 96.40.7). They all reported 0xFF, so a
+    jmp short .say                  ; program that was never there came home as
+.noroom:                            ; `ended, exit code 255` - a sentence about
+    mov si, kd_s_noroom             ; a run that did not happen. The reason is
+    mov al, KDC_FAIL | DER_MEM      ; the BOX's own DER_*, which this build can
+    jmp short .say                  ; see because dos.asm defines them ungated
 .nomount:
     ; --- **AND IT SAYS WHICH ONE** (SPEC.md 96.40.4) ------------------------
     ; A refusal that names no drive is a refusal nobody can act on: the field
@@ -344,7 +349,8 @@ kd_entry:
     ; the two disagreeing is itself the answer on a machine with an unusual
     ; drive table.
     push ax
-    mov si, kd_s_nomount
+    mov byte [kd_code+1], KDC_FAIL | DER_GOTO   ; the drive did not mount, so
+    mov si, kd_s_nomount                        ; nothing on it could be opened
     call kd_puts
     mov al, [dos_vol]
     add al, 'A'
@@ -378,14 +384,19 @@ kd_entry:
     jmp short .sayd
 .nofh:
     mov si, kd_s_nofh
+    mov al, KDC_FAIL | DER_MEM      ; no file window IS no room, one carve along
     jmp short .say
 .noload:
     mov si, kd_s_noload
+    mov al, KDC_FAIL | DER_READ     ; ...and THE ONE THE FIELD REPORTED: a name
+                                    ; that resolves and does not open. The box
+                                    ; already says `It could not be read.`
 .say:
-    call kd_puts
+    mov [kd_code+1], al             ; BEFORE kd_puts, which spends AL on the
+    call kd_puts                    ; characters it writes
 .sayd:
-    mov byte [kd_code], 0xFF
-    jmp kd_leave
+    mov byte [kd_code], 0xFF        ; ...and the low byte is meaningless now,
+    jmp kd_leave                    ; which is what KDC_FAIL says out loud
 
 ; -----------------------------------------------------------------------------
 ; kd_giveback - the read-ahead's rungs, into the DOS program's block
@@ -667,9 +678,9 @@ kd_leave:
 .noreturn:
     mov si, kd_s_over
     call kd_puts
-    mov al, [kd_code]
-    xor ah, ah
-    call kd_dec
+    mov al, [kd_code]               ; the CODE alone here: this is the sentence
+    xor ah, ah                      ; on kern_dos's OWN screen, where the
+    call kd_dec                     ; reason has already been printed in words
     mov si, kd_s_boot
     call kd_puts
     xor ah, ah                  ; the ROM's own wait: a program that printed
@@ -742,9 +753,10 @@ kd_bda:
     mov di, KDB_OFF
     mov word [es:di], KDB_SIG & 0xFFFF
     mov word [es:di+2], KDB_SIG >> 16
-    mov al, [kd_code]
-    xor ah, ah
-    mov [es:di+KDB_CODE], ax
+    mov ax, [kd_code]               ; THE WHOLE WORD: the `xor ah, ah` that was
+    mov [es:di+KDB_CODE], ax        ; here threw the reason away, which is the
+                                    ; half of 96.40.7 that would have made the
+                                    ; flag arrive always zero
     mov ax, [dos_akb]           ; ...and the ARENA it was given (SPEC.md
     mov [es:di+KDB_AKB], ax     ; 96.41.1), which only this host can know
     pop di
@@ -876,7 +888,10 @@ kd_s_held:    db 13, 10, 'kern_dos: nothing to return to.', 13, 10, 0
 kd_s_ret:     db 13, 10, 13, 10, 'os8088: restarting to put the session back...', 13, 10, 0
 
 section .bss
-kd_code:    resb 1              ; the program's exit code, for
+kd_code:    resb 2              ; low: the program's exit code. HIGH: zero if
+                                ; it really ran, or KDC_FAIL | DER_* if it
+                                ; never started (SPEC.md 96.40.7). A WORD so
+                                ; the pair moves into KDH_CODE in one store
             resb 1              ; docs/plans/KERN-DOS-PLAN.md §12 question 3
 
 ; **THE BLOCK LIVES IN `.bss`, WHICH IS NOBITS**, and the image's fixed header

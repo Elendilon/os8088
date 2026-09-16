@@ -955,8 +955,16 @@ dos_wake:
     cmp ax, KDH_NOCODE
     je .nocode
     mov word [dos_kdh + KDH_CODE], KDH_NOCODE   ; read once
-    mov [dos_exit], al
-    mov byte [dos_state], DST_RAN
+    test ah, KDC_FAIL               ; **IT DID NOT RUN** (SPEC.md 96.40.7), and
+    jz .ran                         ; the low byte means nothing. Every refusal
+    and ah, 0x7F                    ; over there used to report 0xFF and land
+    mov [dos_err], ah               ; here as `ended, exit code 255` - a
+    mov byte [dos_state], DST_ERR   ; sentence about a run that did not happen,
+    jmp short .said                 ; for a program that was never on the disk.
+.ran:                               ; kern_dos sends a DER_* now, so this is one
+    mov [dos_exit], al              ; `and` and a store and dos_err_line says
+    mov byte [dos_state], DST_RAN   ; the words the box already had
+.said:
     ; **AND THE ARENA IT WAS GIVEN** (SPEC.md 96.41.1), which came home in the
     ; next cell. The box cannot work this one out: `[dos_akb]` is `dos_run`'s
     ; banked figure and on this arm `dos_run` posted and returned without ever

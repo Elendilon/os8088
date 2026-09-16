@@ -3126,6 +3126,38 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/dosbig144.img",
                "build/BIG.EXE", "build/kerndos.bin")),
+    Row("kdnoprog", "soak", py("tests/kdnoprog.py"), 75.0,
+        "A PROGRAM THAT IS NOT THERE, ON ARM 1, SAYS SO (SPEC.md 96.40.7). "
+        "Field report: \"trying to run a program that doesn\'t exist, via "
+        "typing it in the text box and clicking run with shut down the os "
+        "checked, does not give any message\". What it really said was WORSE "
+        "than nothing - `C:\\NOSUCH.COM ended, exit code 255 (Arena: 597KB)`, "
+        "a refusal wearing a result\'s clothes: [dos_state] read DST_RAN, "
+        "[dos_err] read 0, and there is nothing in that line to act on. Two "
+        "causes that compound - every refusal arm in kd_entry ended at ONE "
+        "label writing 0xFF, and kd_puts writes the sentence to kern_dos\'s "
+        "OWN screen which kd_leave hands straight back from, so the diagnosis "
+        "existed and was thrown away a frame later. 255 cannot be the signal "
+        "either: it is a legal INT 21h AH=4Ch code. "
+        "IT HAS TO BE ARM 1 AND A REAL ROUND TRIP: arm 0 has always reported "
+        "this (dos_load fails inside dos_run and .freeerr sets [dos_err]) and "
+        "the console door says `Bad command or file name`. The silence is "
+        ".outq, the QUIET door (96.35.1), which exists so a successful post "
+        "does not print an exit line for a program that has not started - and "
+        "which skips dos_con_ended entirely. So only a machine that really "
+        "hibernates, boots kern_dos, fails and comes back can answer it, which "
+        "is why this row needs a FIXED DISK. THREE ASSERTIONS: DST_ERR and not "
+        "DST_RAN; [dos_err] is DER_READ specifically, because five refusal "
+        "arms reported one value between them and a row taking any non-zero "
+        "would pass the day they collapse again; and the sentence is ON THE "
+        "GLASS, read out of con_scr - the state bytes can be right while "
+        "nothing is printed, and a message that never arrived WAS the report. "
+        "**THE WAIT IS ON THE CONSOLE AND NOT ON [dos_state]**, which cost "
+        "this row its first run: dos_go sets DST_RAN BEFORE calling dos_run, "
+        "and on arm 1 dos_run posts and leaves without touching it, so DST_RAN "
+        "is the IN-FLIGHT state here and a predicate accepting it fires before "
+        "the machine has hibernated. VERIFIED red on the shipped kern_dos.",
+        needs=("marty",), serial=True),
     Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
