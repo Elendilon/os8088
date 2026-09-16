@@ -107739,10 +107739,15 @@ window in `HB_M_RESUME`. Any refusal is a toast and a deleted pointer.
 3. `cp_flush_close` (the Control Panel's unsaved settings, §31.8), then
    `drv_shutdown` (the fresh boot's drivers go) — `ui_cmd_reboot`'s order,
    as before any restart — then `gfx_lock`, `vid_reboot` to text mode.
-4. Copies the **stub**, its parameters, the fresh clock's ten bytes and the
+4. Copies the **stub**, its parameters, the fresh clock's ten bytes, the
+   elapsed-tick cell and the
    extents into the text framebuffer — `B800:0000` on a colour primary,
    `B000:0000` on a Hercules — which is the one RAM on the machine that no
-   rung of §2's ladder owns and every adapter has at least 16KB of. Puts the
+   rung of §2's ladder owns and every adapter has at least 16KB of. That
+   choice is `[vid_kind]`'s and `hb_wake` re-derives it from the same byte, so
+   the two cannot disagree here. **They can on the live route, where the other
+   host asks the BDA instead, which is why the segment is carried over there
+   rather than asked for twice (§96.49.6).** Puts the
    BIOS's own int 08h vector back (`sch_old08`), masks IRQ 1, 3, 4 — and 12
    on a machine that has a second 8259; an XT has none, and its port 0xA0 is
    the NMI mask register, §9.9.2 — so no
@@ -107780,6 +107785,17 @@ still up from step 3 of §87.4 and the gfx lock still held:
    area, where step 4 put the fresh boot's — the RTC ladder is boot-overlay
    code (§37.90) and cannot be run again, so the boot that just happened is the
    clock's source. `clk_last` is re-seeded from `[ticks]`.
+   **…AND ON THE LIVE ROUTE THERE WAS NO BOOT TO READ ONE** (§96.49). There the
+   ten bytes are the kernel's own as of the handover, and `HS_TICK0` carries
+   the BIOS tick at 0040:006C as it stood then — the one counter that runs on
+   both sides of the handover, because §8.1 keeps the IRQ0 rate at 18.2065 Hz
+   and the stub restores the IVT alone and never the BIOS data area. The
+   difference against the live counter is handed to `clk_tick` 32,768 ticks at
+   a time, which is that routine's own catch-up loop doing what it was written
+   for. A negative difference is midnight and one day is added back; a second
+   crossing keeps the handover's clock rather than guessing. `hbm_res` stages
+   `HS_TICK0` = 0xFFFFFFFF, which means *the clock above is already current*
+   and is what stops the reboot route counting the DOS session twice.
 3. **The disk caches are discarded** (§87.4): every private FAT window
    dropped (`dsk_fatw_drop`), the dirty range and the resident window marked
    empty, the read-ahead flushed, the write gate shut, the batch depths
@@ -123869,6 +123885,32 @@ one-bit difference straight into `AL`, and the window printed
 **`ended, exit code 002`** on one machine and `004` on the other. Two different
 numbers, one defect, and neither of them chosen by the program.
 
+#### 96.5.3 …and channel 0 came back in the ROM's mode, not the kernel's
+
+`dos_restore_machine` wrote **`0x36`** where `sched_init` writes **`0x34`**,
+under a comment saying *"PIT channel 0 back to the kernel's rate"*. The RATE
+is what it got right: both are divisor 0, so IRQ0 stays at 18.2065 Hz either
+way and the BIOS keeps time. The **mode** is the half it got wrong, and §8.1
+is the reason it matters — mode 2 decrements the counter by one per input
+clock, mode 3 by two with a wrap twice a period, so after a DOS program
+`65536 - latched` stopped being an elapsed time.
+
+Three things read exactly that: `sch_account`, which is the Task Manager's CPU
+shares; `sch_pit_now`, which is §34.1's animation clock in `wm.inc` and the
+sound driver's note deadlines. None of them fails loudly — a percentage is
+wrong, an animation is jerky — which is why it sat there.
+
+**IT IS ONE BYTE AND IT WAS NEVER ABOUT THE HANDOFF.** This routine runs on
+every WINDOWED program's exit, so an ordinary machine had been running the
+scheduler's clock in the wrong mode since the first DOS program anyone opened.
+It reaches the whole-machine arm too, because the core is shared (§96.44) and
+`dos_prog_done` is in it — which is why the live resume's IRQ0 rate measures
+18.2 Hz even with a program that took channel 0 for itself: the core's own
+teardown restores the divisor before `kd_leave` is reached. `hb_wake`
+reprograms it as well, and that is not redundancy for its own sake — §87.6
+step 1 asserts the PIT is the kernel's at a point where, on the live route,
+that rested on a DOS teardown nothing in the kernel can see.
+
 ### 96.6 Drives, and the hole in the map
 
 A DOS drive letter is an os8088 volume index and the map is the identity:
@@ -133378,6 +133420,114 @@ and never printing a fourth line, and the same one `kernel/hbmark.inc` states
 as the reason its trace stores directly instead of using `int 10h`. Three
 places in one path where printing and staging share a page; this was the one
 that had it backwards.
+
+#### 96.49.5 The clock came back as zero, because the routine that reads it was never written
+
+**Reported from the field as *"corrupted clock and/or crash and/or something
+else corrupted"*, on every DOS program rather than one.** Measured on
+`os8088_xt_hdd`: `00:01:18 04/07/2026` at the handoff and
+`00:00:18 00/00/0000` on the way back.
+
+`kd_resume` stages the ten clock bytes out of `KDL_CLK` — the kernel's own
+block, carried because two of them are `clk_rtc`/`clk_dirty` and nothing over
+here can know them — and then overwrote the six TIME fields from `clk_sn_*`,
+having called `cw_clk_snapshot` to fill them. **That routine is a bare
+`retf`.** It has been one since `kerndos/kdshim.inc` was written, under a
+comment saying it is *"the one stub that is NOT a stub"*, so what the six
+stores copied was cleared `.bss`: hour, minute, second, day, month and year
+all zero.
+
+Two of those are not merely wrong, they are **out of range**. `clk_mon` = 0
+indexes `clk_mnames` three bytes BEFORE the table and `clk_year` = 0 is below
+`CLK_YMIN`, so the menu bar's date is read off whatever precedes a string
+table — which is the *"corrupted"* the report names, and it is the clock
+doing it rather than something the clock is a symptom of.
+
+**The reboot route never had this and that is why *"it used to work"*.** W6
+came home through `int 19h`, and §87.5's `hbm_res` stages `clk_sec` — the
+FRESH BOOT's clock, read by a ladder that had just run. The live route landed
+two days before the report and is the only one that has to answer the question
+without a boot.
+
+**WRITING THE STUB THE WAY ITS COMMENT DESCRIBES WOULD NOT HAVE FIXED THIS.**
+The honest source here is not the ROM: a 5150 has no RTC at all (§37.90), so
+`int 1Ah AH=02h/04h` answers nothing on the machine most of these reports come
+off, and on a machine that does answer, the kernel's own clock was RTC-derived
+at the handoff anyway.
+What is actually missing is one quantity — **how long the DOS program ran** —
+and there is exactly one clock that runs on both sides of the handover to
+measure it with: the BIOS tick at 0040:006C. §8.1's PIT reprogramming keeps
+the IRQ0 RATE at 18.2065 Hz and `sch_isr` chains the ROM's handler on every
+tick, so that counter advances identically under os8088 and under `kern_dos`
+— and the stub restores the IVT alone, never the BIOS data area (§87.5), so
+it is still counting when the kernel comes back.
+
+So `hbm_dosrun` banks it beside `KDL_CLK` (`KDL_TICK`), `kd_resume` copies it
+into the staging area at `HS_TICK0`, and `hb_wake` subtracts it from the live
+counter and hands the difference to **`clk_tick`, which already does this**:
+that routine converts a tick delta to whole seconds and carries them through
+`clk_inc_sec` one at a time, and its own comment names *"an hour of held-open
+menu"* as the case it is written for. The catch-up is fed to it 32,768 ticks
+at a time — 30 minutes a pass, so a day is 48 far calls — which keeps every
+`mul`/`div` inside the range that routine already assumes and adds no date
+arithmetic anywhere. A negative delta is midnight, and one day (1,573,040
+ticks) is added back; a second crossing gives up and keeps the handoff clock,
+which is late but never invalid.
+
+`hbm_res` stages `HS_TICK0` = 0xFFFFFFFF, which is what says *"the clock above
+is already current"* — the reboot route's fresh boot has just read it, and
+adding an elapsed time on top of that would count the DOS session twice.
+
+The same `retf` is why a file a DOS program CREATES under the whole-machine
+arm is stamped 1980-01-01 (§18.6): `diskw.inc`'s `dskw_now` reads the same
+`clk_sn_*`. That is fixed with it, and by the same carried block — the
+snapshot is filled from `KDL_CLK`, so a file gets the time the program was
+launched. It is late by the program's own runtime and it is a real date.
+
+#### 96.49.6 The staging segment must be CARRIED, not asked for twice
+
+§96.49.2 fixed `kd_stageseg` so that it CAN return B000. It still asks the
+**BDA's video mode byte** at 0040:0049 — and that byte belongs to the DOS
+program, which is free to set any mode it likes and commonly does.
+
+`hb_wake` asks `hbm_stageseg`, which reads `[vid_kind]`. **The two answers are
+only equal while nothing has changed the mode.** `vid_text` sets BIOS mode 7
+on a Hercules primary and mode 3 otherwise — exactly `hbm_stageseg`'s
+B000/B800 split — so they agree at the moment of the handover and disagree the
+instant the program touches `int 10h AH=00h`.
+
+The reported case is one 256-byte program: `DIGIRAIN.COM` opens with
+`mov ax,0x0002 / int 0x10` and exits the same way, so the BDA reads 2 on a
+**Hercules** machine where the kernel will look at B000. `kd_resume` then
+stages the stub, the extents, the clock and the exit code at B800 and jumps
+there; the stub itself is self-consistent and runs, and `hb_wake` reads its
+ten clock bytes, its exit code and its arena figure out of the VISIBLE
+DESKTOP PAGE. That is `kd_stageseg` answering correctly about a question that
+had stopped being the right one.
+
+A VGA is the configuration where it bites without anyone's BIOS having to
+cooperate: a program that exits in mode 13h leaves B800 outside what the
+Graphics Controller decodes — mode 13h maps A000 alone — so everything staged
+is written to memory that is not there. **MEASURED on `os8088_xt_vga_hdd`
+before the fix**: the machine did come back, and came back with
+`[dos_state]` = 0 and no exit code, the staged cells having been lost; how
+much of that page answers at all is the emulator's business and not something
+to rest on, which is exactly why the segment is carried now instead.
+
+**So the kernel says where it will look.** `KDL_STAGE` carries
+`hbm_stageseg`'s own answer, `kd_resume` stages there, and `kd_stageseg`
+stays as the fallback for a block that does not carry one. And because the
+segment implies the mode, `kd_resume` re-establishes it — `int 10h AH=00h`
+with AL = 7 for B000 and 3 for B800 — which is `vid_text` one host along and
+buys three things at six bytes: the page is **mapped** whatever the program
+left behind, the BDA agrees with where we are writing, and the mode set
+clears and homes, so §96.49.4's scroll hazard cannot arise at all rather than
+being ordered around.
+
+The general rule is §87.5's map read the other way: **a quantity two hosts
+both derive is a quantity that can disagree, and the one that will be BELIEVED
+should be the one that is carried.** `HS_KSEG` is already in the staging area
+for exactly this reason, and this is the same finding one cell along.
 
 ### 96.50 The BIOS key buffer's guard, which the handoff took away
 

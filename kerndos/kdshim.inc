@@ -175,11 +175,47 @@ kd_refuse:
     stc
     ret
 
-; The clock, which is the one stub that is NOT a stub: SPEC.md 18.6's FAT
-; timestamp is written from it, so a file this machine creates would carry
-; 1980-01-01 without it.  The ROM has the answer and kern_dos asks it
-; directly - there is no clock ladder here (SPEC.md 37) and no rung to pick.
+; --- the clock, WHICH WAS A STUB UNDER A COMMENT SAYING IT WAS NOT ----------
+; It read *"the one stub that is NOT a stub ... the ROM has the answer and
+; kern_dos asks it directly"*, and the body under it was a bare `retf`
+; (SPEC.md 96.49.5).  Two readers believed it: SPEC.md 18.6's FAT timestamp,
+; so every file this machine created carried 1980-01-01, and - far worse -
+; `kd_resume`, which staged these six fields over the kernel's own clock and
+; brought a whole session home at 00:00:00 on 00/00/0000.
+;
+; **THE ROM IS NOT THE ANSWER AND THAT IS WHY IT WAS NEVER WRITTEN.**  A 5150
+; has no RTC at all - the MC146818 arrived with the AT - so `int 1Ah AH=02h`
+; answers nothing on the machine this project is calibrated against, and
+; there is no clock ladder here (SPEC.md 37) to fall back down.
+;
+; The launch block has the answer instead: `KDL_CLK` is the kernel's own ten
+; bytes as of the handover, carried because two of them are `clk_rtc` and
+; `clk_dirty`.  A file created here is then stamped with the moment the
+; program was LAUNCHED - late by its own runtime, and a real date.  The
+; RESUMED clock is not fixed here and must not be: that one needs the elapsed
+; time as well, which `kd_resume` stages as a tick and `hbm_wake` applies.
 cw_clk_snapshot:
+    push ax
+    push si
+    mov si, [kd_lbp]
+    or si, si
+    jz .out                     ; no block: the W4 gate's case, and 1980 is
+    add si, KDL_CLK             ; then still the honest answer
+    mov al, [si+0]
+    mov [clk_sn_sec], al
+    mov al, [si+1]
+    mov [clk_sn_min], al
+    mov al, [si+2]
+    mov [clk_sn_hour], al
+    mov al, [si+3]
+    mov [clk_sn_day], al
+    mov al, [si+4]
+    mov [clk_sn_mon], al
+    mov ax, [si+7]              ; ...and the YEAR at 7, because 5 and 6 are
+    mov [clk_sn_year], ax       ; clk_rtc/clk_dirty (kernel/clock.inc)
+.out:
+    pop si
+    pop ax
     retf                        ; FAR, like the rest of the cw_ shims
 
 ; --- 4: the state ------------------------------------------------------------

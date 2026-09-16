@@ -3269,6 +3269,78 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnmode", "soak",
+        py("tests/kdreturn.py", "--mode", "--machine",
+           "os8088_5150_herc_hdd_gla"), 38.0,
+        "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT SETS A BIOS VIDEO "
+        "MODE (SPEC.md 96.49.6). 96.49.2 fixed kd_stageseg so it CAN answer "
+        "B000; it still answers out of the BDA's video mode byte at "
+        "0040:0049, and THAT BYTE BELONGS TO THE DOS PROGRAM. hb_wake asks "
+        "[vid_kind] instead, so the two agree only while nothing has changed "
+        "the mode - and the field's own repro is DIGIRAIN.COM, 256 bytes "
+        "whose last act before AH=4Ch is `mov ax,2 / int 10h`. DOSMODE.COM is "
+        "DOSHELLO built -DMODESET=2, which is that instruction and nothing "
+        "else. THE SEGMENT IS CARRIED NOW rather than derived twice - "
+        "KDL_STAGE is hbm_stageseg's own answer - and kd_resume sets mode 3 "
+        "on a colour primary so B800 EXISTS whatever the program left "
+        "behind. WHAT THIS ARM CANNOT DO IS GO RED ON ITS OWN MACHINE, and "
+        "that is worth writing down rather than discovering: GLaBIOS on a "
+        "mono-only 5150 forces mode 7 back, so the BDA still reads 7 and both "
+        "hosts still say B000. It is here for the configuration whose BIOS "
+        "does not - a VGA+MDA machine - and because a quantity two hosts both "
+        "DERIVE is one that can disagree. kdreturngfx is the arm that goes "
+        "red. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSMODE.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturngfx", "soak",
+        py("tests/kdreturn.py", "--gfx", "--machine", "os8088_xt_vga_hdd"),
+        40.0,
+        "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT EXITS IN A GRAPHICS "
+        "MODE (SPEC.md 96.49.6), which is the arm that goes RED. In mode 13h "
+        "a VGA decodes A000 ALONE - the Graphics Controller's memory map "
+        "field says so - so B800 is outside what the card answers, and "
+        "kd_stageseg answers B800 because that is what the BDA's 0x13 means "
+        "to it. VERIFIED RED before the fix: the machine came back with "
+        "[dos_state] = 0 and no exit code, every staged cell having been "
+        "written to memory that is not there. DOSGFX.COM is DOSHELLO built "
+        "-DMODESET=0x13, and a DOS game that exits without restoring text "
+        "mode is not exotic - it is most of them. The fix is two things at "
+        "once: the staging segment is CARRIED from the kernel (KDL_STAGE) "
+        "rather than asked for a second time, and kd_resume sets mode 3 on a "
+        "colour primary before it stages, which also CLEARS AND HOMES and so "
+        "retires 96.49.4's scroll hazard rather than ordering around it. "
+        "MartyPC, and it needs a VGA: on a CGA B800 is the framebuffer and is "
+        "mapped in every mode the card has.",
+        wants=("build/kdos/DOS.O88", "build/DOSGFX.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnpit", "soak", py("tests/kdreturn.py", "--pit"), 38.0,
+        "...AND THE MACHINE'S TIMEBASE SURVIVES A PROGRAM THAT TAKES PIT "
+        "CHANNEL 0 (SPEC.md 96.5, 96.5.3). DOSPIT.COM is DOSHELLO built "
+        "-DPITFAST: it reprograms channel 0 to 0x4000 - four times fast - and "
+        "never gives it back, which is what a DOS game does when it wants a "
+        "clock smoother than 18.2 Hz. MEASURED at each stage: 18.2 Hz on the "
+        "desktop, 72.8 while the program runs WINDOWED (the whole OS runs at "
+        "the program's rate, by design), 72.8 under kern_dos, 18.2 after the "
+        "return. THE OUTCOME IS HELD BY TWO INDEPENDENT RESTORES - "
+        "dos_restore_machine, which is in the SHARED CORE (SPEC.md 96.44) and "
+        "so runs on both hosts, and hb_wake's own, which SPEC.md 87.6 step 1 "
+        "needs to make its claim true on a route with no sched_init in front "
+        "of it. The row asserts the OUTCOME rather than either mechanism, so "
+        "removing one leaves it green and removing BOTH is what it catches. "
+        "VERIFIED RED that way: 72.8 Hz on the resumed desktop, and the clock "
+        "with it - it reported 309 seconds of a 60-second round trip, which "
+        "is the compound damage in one line. **WHAT IT DOES NOT COVER is the "
+        "MODE**, which is 96.5.3's own defect and is not observable from the "
+        "host: the same routine wrote 0x36 where sched_init writes 0x34, so "
+        "channel 0 came back in the ROM's mode 3 after every DOS program ever "
+        "run in a WINDOW - same rate, and `65536 - latched` no longer an "
+        "elapsed time. Fixed at the source and said out loud here so the next "
+        "reader does not take a green row for cover it has not got. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSPIT.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "

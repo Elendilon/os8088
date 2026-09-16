@@ -1951,9 +1951,26 @@ dos_restore_machine:
     mov al, [dos_pic2]
     out 0xA1, al
 
-    mov al, 0x36                    ; PIT channel 0 back to the kernel's rate.
-    out 0x43, al                    ; A program that wanted a fast timer took
-    xor al, al                      ; the scheduler's quantum with it
+    ; --- PIT channel 0 back to the kernel's, WHICH IS NOT THE ROM'S --------
+    ; A program that wanted a fast timer took the scheduler's quantum with it,
+    ; so the divisor has to come back - and it did. **THE MODE DID NOT**
+    ; (SPEC.md 96.5.3): this wrote 0x36, which is the ROM's mode 3, where
+    ; `sched_init` writes 0x34 for mode 2 and SPEC.md 8.1 says why - the IRQ
+    ; rate is the same either way, but mode 3 decrements the counter by TWO
+    ; and wraps it twice a period, so `65536 - count` stops being an elapsed
+    ; time. That is what `sch_pit_now` and `sch_account` read: the Task
+    ; Manager's CPU shares, the window animations' clock and the sound
+    ; driver's note deadlines, all of them off a latch that no longer means
+    ; what they think.
+    ;
+    ; It is ONE BYTE and it was never about the DOS handoff: this routine runs
+    ; on every WINDOWED program's exit too, so an ordinary machine had been
+    ; running its scheduler's clock in the wrong mode since the first DOS
+    ; program anyone opened. The core is shared, so the same byte is what
+    ; `kern_dos` writes on the way out of the whole-machine arm.
+    mov al, 0x34                    ; ch0, lo/hi, MODE 2, and the divisor below
+    out 0x43, al
+    xor al, al
     out 0x40, al
     out 0x40, al
 
