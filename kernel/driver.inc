@@ -1388,6 +1388,74 @@ section .cold
 
 
 ; -----------------------------------------------------------------------------
+; osapi_drv_classk_x - WHAT ONE CLASS IS HOLDING, in KB (SPEC.md 51.12)
+; in:  AL = a DRVC_* class
+; out: CF = 0, AX = the KB the loaded drivers of that class hold (bit 15 =
+;      DRVM_PLUS, "...and a store the user sizes on its own page"), CX = how
+;      many rows answered; CF = 1 with AX = 0 and CX = 0 - nothing of that
+;      class is loaded
+; clobbers: AX and CX (the outputs), flags. A SLOT: everything else is kept
+;
+; The Drivers page has priced a driver since drv_memk was written (SPEC.md
+; 51.2.4), and it prices it PER ROW because that is what it draws. The
+; question a PACKAGE asks is the other one - "what would I get back if this
+; class went away", which the DOS box's memory page puts on screen beside a
+; checkbox that makes it happen (SPEC.md 96.32.3) - and that is per CLASS,
+; because OSAPI_DRV_SUSPEND's mask is per class.
+;
+; It answers the loaded rows and not the table, so it is BOTH halves of what
+; the caller needs: CF is the greying predicate (SPEC.md 47 rule 5 - grey a
+; fact) and AX is the figure beside it, out of one walk. A class with a row
+; that is present and not loaded answers CF=1, which is the truth the
+; checkbox wants: there is nothing to unmount and nothing to get back.
+;
+; The figure is drv_memk's, so it is a BUILD-TIME constant and costs no probe
+; - and a caller estimating an arena is the one reader for whom a constant is
+; exactly right, because it is describing a machine that does not exist yet.
+; -----------------------------------------------------------------------------
+osapi_drv_classk_x:
+    push bx
+    push dx
+    push si
+    mov dl, al                  ; DL = the class asked for
+    xor dh, dh                  ; DH = the row index
+    xor si, si                  ; SI = the KB so far, DRVM_PLUS carried in 15
+    xor cx, cx
+.row:
+    mov al, dh
+    call drv_row_x              ; BX = the row (AL preserved)
+    cmp word [bx+DRVR_SEG], 0
+    je .next                    ; not loaded: it holds nothing
+    mov al, [bx+DRVR_CLASS]
+    cmp al, dl
+    jne .next
+    mov bl, dh
+    xor bh, bh
+    shl bx, 1
+    mov bx, [drv_memk + bx]     ; ...and its figure, out of the one table the
+    mov ax, bx                  ; Drivers page reads
+    and ah, 0x7F                ; DRVM_PLUS is a flag and not a digit, so the
+    add si, ax                  ; kilobytes ADD and the flag ORs - and the
+    and bx, DRVM_PLUS           ; mask is the WHOLE word, not its high byte:
+    or si, bx                   ; `and bh, 0x80` leaves BL holding a figure
+    inc cx
+.next:
+    inc dh
+    cmp dh, DRV_MAX
+    jb .row
+    mov ax, si
+    pop si
+    pop dx
+    pop bx
+    jcxz .none                  ; ...and a class with no loaded row says so in
+    clc                         ; CF rather than in a zero, which a row
+    retf                        ; holding nothing would also be
+.none:
+    xor ax, ax
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
 ; drv_row - row index to row pointer (module internal)
 ; in:  AL = row index
 ; out: BX = drv_tab + index*DRVR_SIZE
@@ -4730,6 +4798,16 @@ dvf_drv_dlg_done:
     retf
 osapi_drv_cfg_x:
 osapi_drv_dlg_x:
+    stc
+    retf
+
+; ...and "what is this class holding" (SPEC.md 51.12), which on a machine with
+; no driver layer is NOTHING, of no class, for ever. AX and CX are answers, so
+; the refusal states them rather than leaving the caller's registers looking
+; like a figure.
+osapi_drv_classk_x:
+    xor ax, ax
+    xor cx, cx
     stc
     retf
 
