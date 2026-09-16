@@ -478,11 +478,25 @@ DOS_MSUBX   equ 12                  ; ...and the subsections' indent, which is
                                     ; lines up under its arm's ring. A literal
                                     ; for DOS_MRADSZ's reason: os88ui.inc is
                                     ; included at the END of this file
-DOS_MHDDY   equ 46                  ; [x] Hard drives (NNN K)   - arm 0's
-DOS_MNETY   equ 59                  ; [x] Network (NNN K)
-DOS_MFLDY   equ 72                  ; Limit: [_____]
-DOS_MFLDW   equ 64                  ; ...and the box's width: 5 digits and the
-DOS_MFLDX   equ 56                  ; caret, indented past its own label
+DOS_MHDDY   equ 46                  ; [x] Hard drives (Up to NNK) - arm 0's
+DOS_MNETY   equ 59                  ; [x] Network (Up to NNK)
+DOS_MFLDY   equ 72                  ; Limit: [____] K
+DOS_MFLDW   equ 48                  ; ...and the box's width. os88line_cols
+DOS_MFLDX   equ 56                  ; resolves 48 to FIVE columns against this
+DOS_MFLDKX  equ 4                   ; block's own 8-aligned origin - the four
+                                    ; digits DOS_MEMMAX allows plus the cell
+                                    ; the caret sits in past the last of them.
+                                    ; It was 64, which is seven, so two columns
+                                    ; could never be reached at all
+                                    ;
+                                    ; ...and DOS_MFLDKX is the gap to the `K`
+                                    ; after it (SPEC.md 96.36.10.1). A unit on
+                                    ; the glass, because the field takes a
+                                    ; BARE number and `300` is three plausible
+                                    ; quantities - KB, paragraphs or a
+                                    ; percentage. 4px keeps the letter's own
+                                    ; cell 8-aligned, which is font_run's fast
+                                    ; path (SPEC.md 6.1)
 DOS_MMOUY   equ 104                 ; [ ] Disable the mouse     - arm 1's, AND
                                     ; the greyed arm's REASON, which takes the
                                     ; same row: an arm that cannot be picked
@@ -527,9 +541,11 @@ DOS_MCACH   equ 12                  ; arrow cell, and a row tall
                                     ; machine rather than here
 DOS_MEMBUF  equ 8                   ; the field's text: 5 digits + NUL, and
                                     ; room for the caret to sit past the end
-DOS_MEMMAX  equ 5                   ; ...what LN_MAX gets. 640 is three and a
-                                    ; machine cannot have six digits of KB
-                                    ; below 1MB
+DOS_MEMMAX  equ 4                   ; ...what LN_MAX gets. FOUR: 640 is three
+                                    ; digits and 9999 is already past every
+                                    ; address an 8086 has, so the fifth column
+                                    ; could only ever hold a number the box
+                                    ; would clamp anyway
 DOS_MRADSZ  equ 18                  ; os88ui.inc's OS88UI_RD_SIZE, written here
                                     ; and CHECKED against it after the include
                                     ; - DOS_LNSZ's rule exactly, and for the
@@ -6253,7 +6269,7 @@ dos_mck_place:
     push cx
     push dx
     push si
-    push di                         ; dos_mem_num3 patches THROUGH DI, and the
+    push di                         ; dos_mem_num2 patches THROUGH DI, and the
                                     ; click path banks nothing in it any more -
                                     ; but the contract says every register, and
                                     ; a placer that quietly kept one would be
@@ -6261,32 +6277,34 @@ dos_mck_place:
                                     ; shape (SPEC.md 96.36.4)
     call dos_mem_org
     mov al, DRVC_DISK               ; WHAT EACH CLASS IS HOLDING, once
-    call OSAPI_DRV_CLASSK           ; (SPEC.md 51.12). CF = 1 means nothing of
-    jnc .hddk                       ; that class is loaded, and then the figure
-    xor ax, ax                      ; is 0 rather than whatever the call left
-.hddk:                              ; in AX
-    and ah, 0x7F                    ; DRVM_PLUS is a flag and not a digit
+    call dos_classk                 ; (SPEC.md 51.12)
     mov [dos_mhkb], ax
     mov al, DRVC_NET
-    call OSAPI_DRV_CLASSK
-    jnc .netk
-    xor ax, ax
-.netk:
-    and ah, 0x7F
+    call dos_classk
     mov [dos_mnkb], ax
     mov al, DRVC_SOUND              ; ...AND THE ONE WITH NO BOX (SPEC.md
-    call OSAPI_DRV_CLASSK           ; 96.36.7.2): dos_drv_take unmounts the
-    jnc .sndk                       ; sound driver on EVERY arm and the user is
-    xor ax, ax                      ; never asked, because a DOS program cannot
-.sndk:                              ; reach it - so it is a term in the figure
-    and ah, 0x7F                    ; and not a control
-    mov [dos_msnk], ax
-    mov ax, [dos_mhkb]              ; ...and into the two labels, in place
+    call dos_classk                 ; 96.36.7.2): dos_drv_take unmounts the
+    mov [dos_msnk], ax              ; sound driver on EVERY arm and the user is
+                                    ; never asked, because a DOS program cannot
+                                    ; reach it - so it is a term in the figure
+                                    ; and not a control
+
+    ; --- ...AND THE CAPTIONS, WHICH ARE THE OTHER QUESTION (SPEC.md 51.12.1) -
+    ; `(Up to NNK)` is about the CLASS and not about this machine's state, so
+    ; it is asked with DRVCK_ALL and the answer is the same on every machine.
+    ; Fed the figures above it read `(Up to  0K)` on a machine with nothing of
+    ; that class mounted - a true number that reads exactly like a page whose
+    ; arithmetic has broken, and the state the box is MOST often opened in,
+    ; since a user shutting the OS down for a DOS program tends not to have a
+    ; hard disk or a card in the first place.
+    mov al, DRVC_DISK | DRVCK_ALL
+    call dos_classk
     mov di, dos_mhddk
-    call dos_mem_num3
-    mov ax, [dos_mnkb]
+    call dos_mem_num2
+    mov al, DRVC_NET | DRVCK_ALL
+    call dos_classk
     mov di, dos_mnetk
-    call dos_mem_num3
+    call dos_mem_num2
     mov si, dos_mhdd                ; ...then the three rects, one pitch apart
     mov ax, dos_l_mhdd
     mov dx, DOS_MHDDY
@@ -6305,6 +6323,22 @@ dos_mck_place:
     pop cx
     pop bx
     pop ax
+    ret
+
+; dos_classk - one class's KB, with the refusal folded into the figure
+; in:  AL = a DRVC_*, optionally | DRVCK_ALL
+; out: AX = the KB, 0 where the slot refused; clobbers CX and flags
+;
+; Five call sites wanted the same four instructions after the slot, and the
+; last of them is the one worth having in one place: `DRVM_PLUS` is bit 15 of
+; the answer and NOT a digit, so a site that forgets the mask prints a figure
+; 32,768 too large on the one machine that has a RAM disk.
+dos_classk:
+    call OSAPI_DRV_CLASSK
+    jnc .ok
+    xor ax, ax                      ; CF = nothing of that class - the figure
+.ok:                                ; is 0 and not whatever AX was left as
+    and ah, 0x7F
     ret
 
 ; dos_mck1 - one box's rect and label (internal)
@@ -7407,6 +7441,14 @@ dos_paint_mem:
     mov si, dos_mln
     call os88line_draw
     pop bx
+    push bx                         ; ...and the UNIT, hard against the box
+    mov bx, [dos_mx]                ; (SPEC.md 96.36.10.1)
+    add bx, DOS_MSUBX + DOS_MFLDX + DOS_MFLDW + DOS_MFLDKX
+    mov dx, [dos_my]
+    add dx, DOS_MFLDY + 3
+    mov si, dos_l_memk
+    call dos_line
+    pop bx
 
     ; --- ARM 1's: the mouse box, OR why the arm cannot be picked -------------
     ; ONE ROW, TWO THINGS, and they never want it at once (SPEC.md 96.36.8):
@@ -7489,9 +7531,9 @@ dos_btn_lbl:
 dos_mem_num:
     mov cx, 5                       ; the arena's field: five digits, which is
     jmp short dos_mem_numn          ; every KB figure a machine under 1MB has
-dos_mem_num3:
-    mov cx, 3                       ; ...and a DRIVER's, which is `(NNN K)` in
-dos_mem_numn:                       ; a check box's own label. The widths are
+dos_mem_num2:
+    mov cx, 2                       ; ...and a DRIVER CLASS's, which is `(NNK)`
+dos_mem_numn:                       ; in a check box's own label. The widths are
     push ax                         ; fixed because the strings around them are
     push bx
     push cx
@@ -7535,8 +7577,23 @@ dos_mem_numn:                       ; a check box's own label. The widths are
 ; commit point - all four callers are leaving the page or launching - so it is
 ; where the pick meets the machine, and the page comes back showing what will
 ; really happen rather than an arm being quietly ignored.
+;
+; **THE PARSE IS A SEPARATE ENTRY BECAUSE THE FIGURE IS LIVE** (SPEC.md
+; 96.36.10). Typing in the field has to move the arena row under it, and that
+; is a read of the digits and nothing else: committing the ARM on a keystroke
+; would make the radio's pick take effect halfway through the user changing
+; their mind about something else.
 ; -----------------------------------------------------------------------------
 dos_mem_take:
+    call dos_mem_parse
+    call dos_mem_fix                ; ...and the arm, which is the other half
+    ret                             ; of this block (SPEC.md 96.36.1)
+
+; -----------------------------------------------------------------------------
+; dos_mem_parse - the limit field's digits -> [dos_memkb] (0 = no limit)
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+dos_mem_parse:
     push ax
     push bx
     push cx
@@ -7558,8 +7615,6 @@ dos_mem_take:
     jmp short .d
 .out:
     mov [dos_memkb], ax
-    call dos_mem_fix                ; ...and the arm, which is the other half
-                                    ; of this block (SPEC.md 96.36.1)
     pop si
     pop cx
     pop bx
@@ -7953,6 +8008,18 @@ dos_key:
     call os88line_edit               ; EDIT and not DRAW: typing the 21st
     add [dos_ncell], cx              ; character must not repaint twenty that
     inc word [dos_nkey]              ; did not change (SPEC.md 96.19.1)
+    cmp si, dos_mln                  ; ...AND THE LIMIT MOVES THE FIGURE ABOVE
+    jne .done                        ; IT (SPEC.md 96.36.10). Every other field
+    call dos_mem_parse               ; on this page redraws itself and nothing
+    call dos_mem_row                 ; else; this one is a TERM of the arena
+                                     ; row, and its value was reaching
+                                     ; [dos_memkb] only at dos_mem_take, whose
+                                     ; four callers are all leaving the page or
+                                     ; launching - so the user typed a cap
+                                     ; while WATCHING the number it caps and
+                                     ; the number ignored them. One row, not a
+                                     ; repaint: dos_mem_row is the same single
+                                     ; line the dial redraws (96.36.6.3)
     jmp short .done
 
     ; --- ENTER RUNS IT AGAIN (SPEC.md 96.19.4) -------------------------------
@@ -9865,6 +9932,12 @@ dos_btn_tab:
     dw dos_l_memb                   ; environment -> memory
     dw dos_l_done                   ; memory -> back to the main page
 dos_l_meml: db 'Limit:', 0
+dos_l_memk: db 'K', 0                ; ...and the UNIT, drawn hard against the
+                                     ; field's right edge (SPEC.md 96.36.10.1).
+                                     ; The field takes a bare number and `300`
+                                     ; is three plausible quantities on this
+                                     ; page alone - KB, paragraphs, or a
+                                     ; percentage of the arena above it
 dos_l_memc: db 'Disk cache:', 0
 ; --- THE ARENA, drawn as ONE opaque run with its digits inside it -----------
 ; dos_mem_num patches [dos_marn] in place and the line is drawn in a single
@@ -9897,37 +9970,51 @@ DOS_MEMI_N  equ 16                  ; the LONGEST arm's length, for the click
                                     ; to re-derive a constant
 
 ; --- arm 0's two driver boxes (SPEC.md 96.36.7) -----------------------------
-; The figure in the label is OSAPI_DRV_CLASSK's and is patched in by
-; dos_mck_lbl, so what the box says it gives back and what the arena figure
-; adds when it is cleared are ONE number read once (SPEC.md 47 rule 5).
+; **THE CAPTION AND THE ARENA TERM ARE TWO DIFFERENT NUMBERS**, which is not
+; where this started: they were ONE figure, read once, on 47 rule 5's grounds
+; that what a box says it gives back and what the arena moves by must not
+; disagree. They still must not - and they do not, because they are answers to
+; two different questions. The caption is the CLASS's ceiling (DRVCK_ALL, SPEC
+; 51.12.1) and the arena term is what is mounted HERE, so a machine with no
+; card reads `Network (Up to 39K)` beside a box that adds nothing when it is
+; cleared. Fed one figure the caption read `(Up to  0K)` on exactly that
+; machine - true, and indistinguishable from a page whose arithmetic died.
 dos_l_mhdd: db 'Hard drives (Up to '
-dos_mhddk:  db '   K)', 0
-dos_l_mnet: db 'Network (Up to '
-dos_mnetk:  db '   K)', 0
-DOS_MCKW    equ 24                  ; the longest of the two, in cells
+dos_mhddk:  db '  K)', 0             ; TWO digits and not three: these are the
+dos_l_mnet: db 'Network (Up to '     ; CLASS ceilings now (SPEC.md 51.12.1), so
+dos_mnetk:  db '  K)', 0             ; they are build-time constants and a
+                                     ; three-wide field only pads them over.
+                                     ; tests/unit/t_drvmem.py is what says a
+                                     ; class total still fits two - it already
+                                     ; re-derives every drv_memk term, and a
+                                     ; third digit would be dropped in SILENCE
+                                     ; by dos_mem_numn's `dec cx / jz .out`
+DOS_MCKW    equ 23                  ; the longest of the two, in cells
                                     ;
                                     ; **`Up to`, because the box is a REQUEST**
                                     ; (SPEC.md 96.36.7.1): it is never greyed
                                     ; now, so on a machine with no card it is
                                     ; ticked, live, and worth nothing - and
                                     ; those two facts have to be sayable at
-                                    ; once. The figure is still
-                                    ; OSAPI_DRV_CLASSK's, read ONCE by
-                                    ; dos_mck_lbl, so what the box says it
-                                    ; gives back and what the arena figure
-                                    ; moves by cannot disagree (47 rule 5).
+                                    ; once. Saying it needs the CLASS's figure
+                                    ; and not this machine's, which is what
+                                    ; DRVCK_ALL is for (SPEC.md 51.12.1).
                                     ;
-                                    ; THREE DIGITS AND NOT TWO, which is one
-                                    ; cell more than the field asked for: the
-                                    ; slot SUMS a class, so a second driver of
-                                    ; either kind puts the figure past 99 and a
-                                    ; two-digit field would print the wrong
-                                    ; number rather than a wrong-looking one.
-                                    ; It is right-aligned, so today's 32 reads
-                                    ; `Up to  32K` and the extra column is
-                                    ; blank until it is needed. The width was
-                                    ; never the constraint - the label ends
-                                    ; ~220px into a 310px block
+                                    ; TWO DIGITS. It was three, on the argument
+                                    ; that the slot SUMS a class so a second
+                                    ; driver could put the figure past 99 - and
+                                    ; that argument was sound about a number
+                                    ; nobody could bound. It is a BUILD-TIME
+                                    ; ceiling now, so it CAN be bounded, and
+                                    ; tests/unit/t_drvmem.py bounds it: the
+                                    ; file that already re-derives every
+                                    ; drv_memk term from the drivers' own
+                                    ; sources asserts each class total fits
+                                    ; two. A host-side check costs no bytes and
+                                    ; fails the build the day it stops being
+                                    ; true, which is strictly better than a
+                                    ; blank column waiting for a driver that
+                                    ; may never arrive
 
 ; --- ...and arm 1's one box (SPEC.md 96.36.8) -------------------------------
 ; **THE MOUSE IS NOT FREE ON A 4.77 MHz MACHINE**: `mou_isr` redraws the

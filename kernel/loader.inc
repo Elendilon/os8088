@@ -1491,6 +1491,19 @@ ld_pkg_start_x:
 ; ...and the answer, which ld_start cannot give: it is the DISK path's body
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
+; --- ld_pkg_upc - AL to upper case; touches nothing else but the flags -----
+; Its own rather than a shared one, because the kernel HAS no general upcase:
+; the file layer folds inside dskw_char_x, which also judges legality and is
+; the wrong shape for a name already known to be legal.
+ld_pkg_upc:
+    cmp al, 'a'
+    jb .u
+    cmp al, 'z'
+    ja .u
+    sub al, 'a' - 'A'
+.u:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; ld_pkg_byname - the by-name arm, and the DOCUMENT that may ride with it
 ; in:  SI -> the staged NUL 8.3 name (EMPTY = the document names the program);
@@ -1528,6 +1541,31 @@ ld_pkg_byname:
     mov [assoc_dclus], ax
     mov al, [es:si+2]
     mov [assoc_ddrv], al
+
+    ; --- UPPER-CASE IT (SPEC.md 21.5.3.2) ----------------------------------
+    ; The association tables are UPPERCASE-EXACT - assoc_find compares bytes
+    ; and assoc_ext_of says so in its own header - because they are built from
+    ; FAT names, which are uppercase. A name that arrives from a KEYBOARD is
+    ; not, so `open readme.txt` found no association for `.txt` while `OPEN
+    ; README.TXT` opened Note Pad. This arm has to fold case for the same
+    ; reason the plain arm does not have to: THAT one resolves through the
+    ; file layer, and dskw_char_x upcases on the way past.
+    ;
+    ; The NAME and not just the extension, because the package opens the
+    ; document by that name: OSAPI_ARG_FILE hands it over and the package
+    ; GOTOs and READs it, and a lowercase 8.3 name matches nothing on a FAT
+    ; volume either.
+    mov di, assoc_doc
+    mov cx, 13
+.dupc:
+    mov al, [di]
+    or al, al
+    jz .duped                   ; a NUL ends it: the bytes past the name are
+    call ld_pkg_upc             ; nobody's and folding them would be a lie
+    mov [di], al
+    inc di
+    loop .dupc
+.duped:
     pop si
 
     ; --- THE CACHE IS SEEDED HERE, because no caller's path does it ---------
@@ -1556,8 +1594,9 @@ ld_pkg_byname:
     jz .gotstem
     cmp al, '.'
     je .gotstem                 ; `NOTEPAD.O88` -> `NOTEPAD `
-    mov [di], al
-    inc si
+    call ld_pkg_upc             ; ...and UPPERCASE, for assoc_app_of's own
+    mov [di], al                ; byte-exact compare (21.5.3.2): `notepad
+    inc si                      ; readme.txt` answered `Cannot open notepad`
     inc di
     loop .stem
 .gotstem:

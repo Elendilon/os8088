@@ -37704,6 +37704,30 @@ been told how it went*, and `CF = 1, AL = LD_EBAD` for the one thing the
 caller could not have known — that nothing on this machine opens it. A caller
 wanting a richer answer wants the plain arm and a program name.
 
+##### 21.5.3.2 …and the names are folded to UPPER CASE here too
+
+The association tables are **uppercase-exact** — `assoc_find` compares bytes
+and `assoc_ext_of` says so in its own header — because they are built from FAT
+names, which are uppercase. A name that arrives from a KEYBOARD is not.
+
+Reported off the glass: `open readme.txt` found no association for `.txt`
+while `OPEN README.TXT` opened Note Pad, and `notepad readme.txt` answered
+`Cannot open notepad` because `assoc_app_of` compares the stem byte for byte.
+
+**This arm has to fold and the plain arm does not**, which is the asymmetry
+worth understanding rather than a special case: the plain arm resolves through
+the FILE layer, and `dskw_char_x` upcases on the way past. Nothing in the
+association path goes through it.
+
+**The whole NAME, not just the extension.** The package opens the document by
+that name — `OSAPI_ARG_FILE` hands it over and the package GOTOs and READs it
+— so a lowercase 8.3 name matches nothing on a FAT volume either. Folding the
+extension alone would have turned a visible refusal into a package opening an
+empty window on a file it could not find, which is the worse failure.
+
+It stops at the NUL: the bytes past the name belong to nobody and folding them
+would be a lie about what was passed.
+
 ##### 21.5.3.1 The cache is seeded HERE, because no caller's path does it
 
 `assoc_app_of` and `assoc_find` read an IN-RAM table, and that table is filled
@@ -126400,6 +126424,50 @@ the box was launched from (§96.33.13) — and the box stands there with
 the instance, which is what `OSAPI_PKG_START`'s own `inst_vol_enter` reads. The
 two agree with nothing to keep in step.
 
+###### 96.33.17.1 …and a launch that WORKED owes a prompt
+
+Reported off the glass with a photograph: `open readme.txt` opened Note Pad
+and the console was left with the cursor at **column 0 of a bare line**, so
+the next command typed into it had no `A:\>` in front of it and the log read
+as one command running into the next.
+
+`dos_pkg_go`'s success arm was *"its window is up: nothing to say"*, and for a
+DOS program that is exactly right — §96.33.20's exit line brings the prompt
+back when the program ends, which is why `dos_con_prog` returns without one.
+**A package has no exit line.** It opens its own window and outlives the
+command, so nothing was ever going to come back and say so.
+
+It is §96.33.17's gap rather than §96.33.22's: a `.O88` typed at the prompt has
+had it since that section shipped, and `OPEN` only made it easy to notice
+because opening a document is a thing a user does several times in a row.
+
+**THE COLUMN IS THE TEST**, borrowed from `dos_con_ended` one door along: the
+echoed command has already ended its line, so an unconditional CRLF would give
+it a blank one. And the success and refusal arms share ONE epilogue now, which
+is what makes this smaller than the bug — and fixes a second thing on the way,
+since those refusal arms had always called `dos_con_draw` from the wake
+handler's context **without the gfx lock** it documents (§74.1).
+
+###### 96.33.17.2 …and it may only draw if it is still on top
+
+§96.33.17.1 gave the success arm a prompt, and the arm it gave it to runs
+AFTER `OSAPI_PKG_START` has returned — by which time the package's window is
+open and in front of the box. Reported off the glass one build later: Note Pad
+with a black band cut through its text and the console's own left-hand column
+showing through it.
+
+**A REPAINT FROM THE WAKE HANDLER HAS NO CLIP REGION.** The kernel arms one in
+front of `W_PAINT` and nowhere else (§11.3), so a package that draws from any
+other context draws over whatever is above it. That is not new and not this
+feature's — `dos_con_say` has always been able to do it — but nothing before
+this had a reason to draw at the exact moment a window was opening.
+
+`OSAPI_WM_OBSCURED` is the published gate (§11.3.1) and it answers the hidden
+case too, so it is the whole test. **A skipped draw loses nothing**: `con_say`
+has already marked the rows and the next real paint spends them, which is what
+raising the box does — so the prompt is there when the user looks at the
+console, which is the only moment they could see it anyway.
+
 ##### 96.33.21 A `.O88` takes a PATH, and may name a DOCUMENT after it
 
 §96.33.17 launched a package by BARE NAME and nothing else. `dos_con_pkg`
@@ -126525,6 +126593,52 @@ before the program search and costs the core NOTHING.
 no window to look at: a document whose type nothing claims, or a program that
 is claimed and not on this disk, are different fixes and the user cannot see
 which happened.
+
+###### 96.33.22.1 The two refusals, and the one string that was wrong twice
+
+Reported off the glass, at `A:\>` on a stock system disk: `notepad
+readme.txt` and `open readme.txt` both refused, and `open README.TXT` opened
+Note Pad. Two defects, and the second one hid behind the first.
+
+**THE CASE** is §21.5.3.2 and it is the kernel's. Both names had to be folded
+and only the extension was ever going to be noticed — a lowercase document
+name matches nothing on a FAT volume either, so the package would have opened
+an empty window on a file it could not find.
+
+**THE MESSAGE** was one string doing two jobs and getting both wrong: *"There
+is no program on this disk for that file."*
+
+* **It named the PROGRAM when the thing missing was the FILE.** A typo in a
+  document name is the commonest failure this verb has, and it came back
+  talking about programs — which sends the user to look at the wrong half.
+  So the document's existence is checked FIRST, and a miss answers `File not
+  found - README.TXT`.
+* **And "on this disk" was never true.** An association names a program by
+  STEM and `assoc_locate` then searches the volumes (§54.4), so the program it
+  points at may perfectly well be on another disk. The wording says nothing
+  about disks now: `No program is associated with that file.`
+
+**THERE ARE THREE REFUSALS AND THE FIRST ONE IS THE ONE THAT BIT.**
+`dos_path_take` refuses anything that is not a legal 8.3 path — over twelve
+characters in the name, a path ending in a separator, a buffer overrun — and
+`open nosuchfile.txt` is FOURTEEN characters, so it never reaches the
+association lookup at all. The first fix for this section sent that arm to the
+*no program is associated* wording, which is the very defect being fixed
+wearing its replacement's clothes. The three are:
+
+| what failed | what it says |
+|---|---|
+| the typed text is not a legal 8.3 path | `File not found` |
+| it is, and there is no such file | `File not found - NAME` |
+| the file is there and nothing claims its type | `No program is associated with that file.` |
+
+**THE CHECK IS IN `dos_pkg_go` AND NOT IN THE CONSOLE HANDLER**, because a
+directory walk is disk I/O and the handler runs under `W_ONKEY` with the gfx
+lock held (§74.1). It is also the CHEAP refusal, so it goes first: a missing
+file should not cost a package launch. It walks with `dsh_nth` against a
+`dsh_to11` pattern — the same ordinal walk every other name in this box is
+decided by — and puts the machine back where the prompt is before it prints,
+because it had to stand in the document's folder to ask.
 
 ##### 96.33.19 …and the exit line says what the ARENA was
 
@@ -129294,6 +129408,39 @@ list is empty again. On `kern_small` it is `xor ax,ax` / `xor cx,cx` / `stc`:
 nothing of any class is loaded there, for ever, and the refusal states the
 answers rather than leaving the caller's registers looking like a figure.
 
+#### 51.12.1 `DRVCK_ALL` — the CEILING, which is a different question
+
+`AL` = a `DRVC_*` **OR'd with `DRVCK_ALL`** (`0x80`) asks what the class would
+cost at most: every row of that class counts whether or not its driver is
+mounted, and `CF=0` whenever the *table* has such a row. `DRVC_*` runs 1..5,
+so bit 7 was free; the walk masks it off at the class compare rather than
+banking the class in a register, every register in that loop already carrying
+something. **Eight bytes of `.cold`, resident.**
+
+**It exists because a caption and a control want different numbers.** The
+plain form above is right for a checkbox — it offers to unmount something, and
+on a machine with nothing mounted there is nothing to offer and nothing to get
+back. A *caption* is describing the class and not this machine's state, so fed
+the same figure the DOS box's Memory page read `Hard drives (Up to  0K)` on a
+machine with no hard disk: a perfectly true number that is indistinguishable
+from a page whose arithmetic has died. Worse, that is the state the page is
+**most** often opened in, a user shutting the OS down for a DOS program being
+disproportionately a user with no hard disk and no card.
+
+The alternative was a copy of the constants in the package, and it is refused
+for the reason `tests/unit/t_drvmem.py` exists: `drv_memk`'s terms are an
+*image size* plus *claims declared in the drivers' own sources*, both of which
+move when a driver grows and neither of which any linker checks (§1). One
+table and two questions keeps a growing driver moving both answers together; a
+package-side copy would be a third derivation of a figure that already has two
+and needs a test to hold them level.
+
+**The two forms must not be confused at the call site**, and the shape that
+prevents it is that they are asked separately and banked separately —
+`dos_mck_place` reads the loaded figure into `[dos_mhkb]`/`[dos_mnkb]` for the
+arena arithmetic and the ceiling straight into the label's own digits, so
+neither can be read for the other's purpose later.
+
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
 A **packet driver is an interface, not a program**. What the box publishes is
@@ -130031,17 +130178,29 @@ way its box is set. The page therefore keeps telling the truth about the
 machine in front of you (§96.25.1) while the tick records an intent for another
 one.
 
-**`Up to` is what carries that.** `Network (Up to  32K)` says both things at
-once: this is what it would give back, and it is not a promise about now. The
-figure is still `OSAPI_DRV_CLASSK`'s, read once by `dos_mck_lbl`, so what the
-box claims and what the total moves by cannot disagree (§47 rule 5).
+**`Up to` is what carries that**, and it is why the caption's figure is the
+CLASS's ceiling and not this machine's (`DRVCK_ALL`, §51.12.1). `Network (Up
+to 33K)` is about the box's future, on whatever machine the `.LNK` is opened
+on: the most it could cost to leave this ticked. The **estimate** above it is
+about the machine in front of you and stays on the plain form — what is
+mounted here, which is what clearing the box actually hands back.
 
-The field is **three digits and not two**, one cell wider than it looks like it
-needs. The slot SUMS a class, so a second driver of either kind puts the figure
-past 99, and a two-digit field would print a *wrong number* rather than
-something that looks wrong. Right-aligned, today's 32 reads `Up to  32K` and the
-extra column stays blank until it is earned. Width was never the constraint
-here — the label ends about 220px into a 310px block.
+**They were one figure, and that was the defect.** Read once and used for
+both, the caption on a machine with no hard disk printed `Hard drives (Up to
+0K)` — true of this machine, meaningless as a description of the box, and
+indistinguishable from a page whose arithmetic had died. Two questions need
+two answers; what §47 rule 5 forbids is a caption and a control disagreeing
+about the SAME question, and these are not the same question.
+
+The field is **two digits**. It was three, on the argument that the slot sums
+a class and a second driver of either kind could put the figure past 99 — which
+was right about a number that could not be bounded, and the figure is a
+build-time ceiling now, so it can be. `tests/unit/t_drvmem.py` bounds it: the
+file that already re-derives every `drv_memk` term from the drivers' own
+sources sums each captioned class and fails the build if it needs three. That
+matters, because `dos_mem_numn` writes digits backwards into a fixed hole and
+stops when the hole is full — 132 prints as `32`, a wrong number that looks
+right, on the one page whose whole job is saying how much memory you get.
 
 **What still greys is the ARM** (§96.36.9): a box belonging to the arm that is
 not picked cannot be used, and a press on it falls through to the radio, which
@@ -130130,6 +130289,51 @@ The limit field is arm 0's for the same reason and by the same route.
 `dos_lbfill` fills `KDL_CAP` from the BDA and never from `[dos_memkb]`, so a
 cap shown on arm 1 would be a promise the launch does not keep — which is why
 `dos_mem_arena` jumps past the clamp on that arm rather than applying it.
+
+#### 96.36.10 The limit is a TERM of the figure above it, so it is live
+
+`dos_mem_arena`'s `.cap` has clamped the arena row to `[dos_memkb]` on arm 0
+since the page was reworked, and it was **never seen to work**, because
+`[dos_memkb]` was written in one place: `dos_mem_take`, whose four callers are
+all leaving the page or launching. So the user typed a cap into a field
+directly under the number it caps, watched that number not move, and had no
+way to tell a control that had refused them from one that was not wired up.
+
+The parse is its own entry now — `dos_mem_parse`, the digit walk and nothing
+else — and `dos_key`'s `.edited` runs it plus `dos_mem_row` when the field
+that used the keystroke is the limit. `dos_mem_take` is `dos_mem_parse` then
+`dos_mem_fix` and keeps its meaning exactly: **the arm is still committed only
+at the four commit points**, because committing the radio's pick on a
+keystroke would make it take effect halfway through the user changing their
+mind about something else.
+
+**One row and not a repaint.** `dos_mem_row` draws the single `dos_l_marn`
+line, which is the same thing §96.36.6.3's dial redraws and for the same
+reason: a keystroke that repaints the block flashes every control on it
+(§96.19.1).
+
+This is the third control on this page to ship inert, after the dial
+(§96.36.6.3) and the sound term (§96.36.7.2), and all three shared one shape —
+the *arithmetic* was right and nothing called it. A page whose figure is a sum
+of controls needs every control to end at the same routine; the gate for that
+is `tests/dosram.py`, which moves one control at a time and asserts the row
+moved, because poking the state and re-entering the page passes on the broken
+build.
+
+#### 96.36.10.1 The field is four digits, and it says `K`
+
+`DOS_MEMMAX` is **4**: 640 is three digits, 9999 is already past every address
+an 8086 has, and the box clamps anything larger anyway, so a fifth column
+could only ever hold a number that could not be honoured. `DOS_MFLDW` is
+**48**, which `os88line_cols` resolves to five columns against this block's
+8-aligned origin — the four digits plus the cell the caret sits in past the
+last of them. It was 64, or seven, so two of the columns could not be reached
+at all.
+
+A `K` is drawn `DOS_MFLDKX` = **4 px** past the field's right edge. The field
+takes a bare number and `300` is three plausible quantities on this page alone
+— kilobytes, paragraphs, or a percentage of the arena above it — and 4 px
+keeps the letter's own cell 8-aligned, which is `font_run`'s fast path (§6.1).
 
 ### 96.37 The kernel's disk layer runs outside the kernel, for 92 bytes
 
