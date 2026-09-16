@@ -124413,6 +124413,34 @@ arguments box and every environment row against one point.
 It opened a two-page area whose first page was Setup; with one page, a button
 named after the second is a button that lies about where it goes.
 
+###### 96.32.2.2 …and the COMMAND is that area's header
+
+The command box was on the top bar and only on the top bar, so editing what is
+about to run meant leaving Setup, changing it, and coming back — with every
+option on the page describing a program the user could no longer see.
+
+It is on the Setup page's **title row** now, beside the page's own name and
+spanning everything the name does not. That placement is the argument: the
+command is not a field in either column, it is **what all the setup below
+applies to**, so it belongs where a header belongs. Two cells of air separate
+it from the name, which is what stops the pair reading as one label-and-field.
+
+**It is the same `os88line` block, not a second one.** One record, one buffer,
+two rects — `dos_bar_rects` places it on the bar and `dos_cmd_place` places it
+here, and whichever page is up placed it last, which is exactly what a hit test
+wants. That is `dos_senv_place`'s trade one control along (§96.32.2), and it is
+why there is nothing to mirror and no way to type into a copy nothing reads.
+
+The keyboard side needed no change at all: `dos_focused` walks every block and
+picks whichever holds the caret, so it *"knows nothing about pages"* already
+(§96.32.2). What the page owes is the placement, the paint and one line in
+`dos_fld_hit` — and the command box is tested **first** there, being the one
+thing on the page every other control is about.
+
+The row was free. The title's 8-pixel text runs 6..13 from the content top and
+a `DOS_FLDH` box runs 3..16, so the two share a line with three pixels either
+side and `DOS_BODYY`'s 24 is untouched. Nothing below moved.
+
 ##### 96.32.3 What an association fills in, and what it still does
 
 | opened as | what is populated | does it run |
@@ -124950,6 +124978,31 @@ hygiene biting inside a single routine rather than across two files.
 **It does not unblock the installer**, and it was never going to: the call
 after it is the `AH=4Bh` that cannot find `COMMAND.COM` (§96.29). It is here
 because a wrong answer is worth more to remove than a missing one.
+
+##### 96.32.4 A click moves the caret, and the caller owns the BAR
+
+`os88line_click` sets `LN_CAR` and `LN_FOCUS` and **draws nothing**. That is the
+contract — it is state, not pixels — and every other package in the tree obeys
+it: the browser and Telnet repaint the whole field afterwards, `ftpd` moves the
+one cell, Sheet and `ethcfg` route into their own repaint.
+
+The DOS box did neither, at **all three** of its call sites. So a click in the
+middle of a line moved the caret and left the bar standing where it was, which
+is the field report *"clicking in the middle of the line doesn't move the
+visible cursor to the clicked spot"*. The caret really had moved; the next
+keystroke landed where the user clicked. Only the picture was wrong, which is
+the shape that reads as a dead control.
+
+`dos_caret_to` is the fix and it is **one cell each way**, not a field repaint
+(§13.14.6): `os88line_click` cannot scroll — it clamps to `LN_LEN` and never
+writes `LN_VIEW` — so the only pixels that change are the cell losing the bar
+and the cell gaining it. The routine banks the flags across the second draw,
+because `os88line_click`'s CF is the answer its callers test.
+
+**It is the caller's and not the shared routine's**, deliberately: the other
+six callers already draw, so moving it inside `os88line_click` would make every
+one of them draw twice — and `ftpd` keeps a whole `FTPDSLOW=1` A/B about
+exactly that cost (§77.45).
 
 #### 96.33 THE CONSOLE BAND: our own `COMMAND.COM`, in the window (`apps/os88con.inc`)
 
@@ -125929,6 +125982,39 @@ path, so the fallback in the printer is only for a box that has never launched
 anything at all. The `Bad command or file name` arm keeps the bare name on
 purpose: that line is about what the user TYPED, and a path would be an
 invention.
+
+###### 96.33.20.1 …and the launch says so BEFORE it happens
+
+§96.33.20 gave the END of a launch a line of its own with the fully qualified
+path in it. The START said nothing at all, so a console holding three launches
+was three *results* with no record of what had been **asked for** — and the log
+is the only place that record could live, the command box having been rewritten
+by whatever ran last.
+
+`Starting A:\PRINCE.EXE`, on its own line, before anything is claimed.
+
+It matters most where there is no result to read. Arm 1 hands the machine over:
+the box posts, returns by the quiet door (§96.35.1) and the OS is gone — so
+until the round trip comes back, a launch that was about to take the whole
+machine left **no trace of itself whatever**. Now it leaves the one line that
+says what it was.
+
+Two details it inherits from `dos_con_ended` rather than re-deciding:
+
+- **the column is the test**, not `[dos_fromcon]`. A typed command has already
+  echoed its own CRLF, so an unconditional one gives it a blank line, and the
+  console's cursor is the only thing that knows which door came in;
+- **the same fallback** — `dos_path_make` leaves the bare name when it cannot
+  resolve one, and an empty `[dos_path]` is a box that has never launched.
+
+And it ends in a CRLF of its own, which is what puts the result on the line
+below rather than glued to this one — and why `dos_con_ended`'s own leading CRLF
+then correctly emits nothing.
+
+**It is called after the compaction-wake test and not at `dos_run`'s head.**
+Everything above that test runs again when a launch that needed a heap pass
+comes back through (§66.4.3), so announcing itself there would announce itself
+twice.
 
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
@@ -129259,6 +129345,43 @@ increasing figures. `Auto` is deliberately not among them: on a 640 KB machine
 the kernel's own solve picks 32 K (§18.95.5), so `Auto` and `32K` read the same
 number for a true reason and a distinctness check over them would fail for one.
 
+##### 96.36.6.3 …and it moved to the TOP, because a control means where it sits
+
+`Disk cache:` belongs to neither arm — whichever is picked, the question is the
+same — so it floated free of both, **below** them. On the glass that reads as
+*Shut down the OS*'s third option: it is the last thing in the block, it is
+indented no more than the arm above it, and nothing between them says the
+subsection has ended. The field reported it as exactly that.
+
+It sits under the figure and **above the first arm** now, which is where a
+control that both arms share belongs: everything below the dial is one of two
+alternatives, and the dial is not.
+
+The block is 118 pixels on CGA (§96.36.2) and every row below the dial moves
+down by its height, so the recut has to end in the same place it started:
+
+| | was | now |
+|---|---:|---:|
+| the figure | 0 | 0 |
+| **`Disk cache:`** | **105** | **12** |
+| `Inside the OS` | 14 | 28 |
+| `Hard drives` / `Network` / `Limit:` | 32 / 45 / 58 | 46 / 59 / 72 |
+| `Shut down the OS` | 74 | 86 |
+| `Disable the mouse` | 92 | 104 |
+| the last line drawn | 116 | **116** |
+
+The arms' pitch pays for it: **58** rather than 60, which is the smallest that
+still clears arm 0's three sub-rows (the last ends at 85, the next heading is
+at 86). Every internal spacing — heading to first row, row to row — is what it
+was.
+
+**And the group's own rect stops somewhere else now.** `DOS_MRADB` replaces the
+old *"one line above the dial's box"*, which was arithmetic against a control
+that is no longer underneath it. It is the block's last line, and what it has
+to clear is unchanged: `os88ui_radhit` tests the rect before it divides, so
+arm 1's band MIDDLE — `y1 + pitch + pitch/2` = 115, which is where every `kd*`
+row clicks that arm — must be inside it.
+
 #### 96.36.7 Arm 0's boxes: a driver the program does not need is memory it could have
 
 `OSAPI_DRV_SUSPEND` leaves `DRVC_DISK`, `DRVC_FILE` and `DRVC_NET` mounted
@@ -129285,6 +129408,85 @@ The RAM disk is `DRVC_FILE` and has no box. It is not an omission to fix
 casually: unlike the other two it is **memory the user put somewhere**, and a
 box that silently discards a RAM disk's contents to reclaim its arena is a
 different kind of offer from one that unmounts a card.
+
+##### 96.36.7.1 …and the box is a REQUEST, so it is never greyed
+
+The two boxes used to grey themselves — and force themselves ON — when their
+class had nothing loaded, on the ground that *an unticked box would describe an
+action rather than a state*. That reasoning treats the box as a **report about
+this machine**. It is a **request about the program**: *include these if
+available*.
+
+The difference is a `.LNK`. A shortcut outlives the setup it was saved under,
+so the machine with no card is exactly the one on which a user needs to be able
+to say what they want on the machine that has one — and greying takes that away
+at precisely the wrong moment. §47's rule is to grey a FACT, and *"this class
+is not mounted right now"* is a fact about the wrong thing.
+
+**The arithmetic needed no change, which is what makes the box safe to offer.**
+The figure a cleared box adds back is the class's own, and a class with nothing
+loaded reports **zero** — so an empty class moves the estimate by 0 whichever
+way its box is set. The page therefore keeps telling the truth about the
+machine in front of you (§96.25.1) while the tick records an intent for another
+one.
+
+**`Up to` is what carries that.** `Network (Up to  32K)` says both things at
+once: this is what it would give back, and it is not a promise about now. The
+figure is still `OSAPI_DRV_CLASSK`'s, read once by `dos_mck_lbl`, so what the
+box claims and what the total moves by cannot disagree (§47 rule 5).
+
+The field is **three digits and not two**, one cell wider than it looks like it
+needs. The slot SUMS a class, so a second driver of either kind puts the figure
+past 99, and a two-digit field would print a *wrong number* rather than
+something that looks wrong. Right-aligned, today's 32 reads `Up to  32K` and the
+extra column stays blank until it is earned. Width was never the constraint
+here — the label ends about 220px into a 310px block.
+
+**What still greys is the ARM** (§96.36.9): a box belonging to the arm that is
+not picked cannot be used, and a press on it falls through to the radio, which
+picks that arm. That is unchanged and is a different question.
+
+##### 96.36.7.2 …and the driver with no box is still a TERM
+
+`dos_drv_take` unmounts the **sound** driver on every arm and every path, and
+the user is never asked, because there is nothing to ask: a DOS program under
+this box cannot reach it either way. So it is not a control.
+
+It was not a term in the figure either, and that was a defect. Arm 0's base is
+`OSAPI_MEM_COMPACT`'s what-if, asked while the driver is **still mounted**, so
+on any machine with a card the page under-reported by the whole of it, silently.
+A third `OSAPI_DRV_CLASSK` read, added unconditionally beside the two the boxes
+own, is the fix.
+
+**It is a FLOOR and not the exact figure, and the measurement says why.** Same
+disk, same program, one machine with a Sound Blaster and one without
+(`os8088_5150_herc_sb_gla` against `os8088_5150_herc_gla`):
+
+| | the page promised | the launch delivered |
+|---|---:|---:|
+| bare | 443 K | 443 K |
+| with a card, before | 395 K | 443 K |
+| with a card, **now** | **429 K** | 443 K |
+
+The card costs the program **nothing** — `dos_drv_take` gives all of it back —
+but what comes back is **48 K**, where `drv_memk` says the driver is worth 34.
+The other 14 is the **merge its removal unlocks**: a driver mounted mid-session
+lands at whatever depth the heap had then and becomes a wall that never moves
+(docs/plans/HEAP-UNPIN-PLAN.md §2.0), so unmounting it frees its own bytes *and*
+joins the runs either side. That is a property of where the block happens to
+sit, not of the driver, and no constant can carry it.
+
+So the term is the driver's own size and the residual stays under-reported.
+That is the right direction and the reason it is safe to ship: a page that
+promises **less** than the launch delivers is a surprise in the user's favour,
+and §96.25.1's failure is the other one. 48 K under became 14 K under, and the
+remaining gap has a name.
+
+**Arm 1 needed nothing**, and the reason is worth stating so it is not "fixed"
+later: its terms are `SK_KERN + SK_HEAP + DOS_LOWKB` less what `kern_dos`
+keeps, and `SK_HEAP` is the *whole arena* — driver claims included. The machine
+that arm describes has no kernel in it at all, so every byte a driver held is
+already counted.
 
 #### 96.36.8 Arm 1's box: the pointer is not free on a 4.77 MHz machine
 

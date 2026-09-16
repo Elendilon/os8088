@@ -768,6 +768,47 @@ dos_con_ext:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_con_starting - `Starting A:\PRINCE.EXE` before the launch (SPEC.md
+;                    96.33.20.1)
+; in:  [dos_path], which dos_path_make filled on whichever door came in; the
+;      gfx lock NOT held
+; out: nothing; clobbers AX, BX, CX, DX, SI, DI
+;
+; `dos_con_ended`'s opening, at the other end of the launch and for its reason:
+; a console is a LOG, so what is about to happen is said once and stays said.
+; The END line has named the fully qualified path since 96.33.20 and the START
+; said nothing at all - so a log of three launches was three results with
+; nothing recording what had been ASKED for, and a launch that never comes back
+; at all (arm 1 hands the machine over) left no trace of itself whatever.
+;
+; THE COLUMN IS THE TEST and not `[dos_fromcon]`, exactly as it is there: a
+; typed command has already echoed its own CRLF, so an unconditional one would
+; give it a blank line, and the console's own cursor is the only thing that
+; knows which of the two happened.
+;
+; It ends in a CRLF of its own, which is what puts the result on the line BELOW
+; rather than glued to this one - and why `dos_con_ended`'s leading CRLF then
+; correctly emits nothing.
+; -----------------------------------------------------------------------------
+dos_con_starting:
+    cmp word [con_cx], 0
+    je .fresh
+    mov si, dos_c_crlf
+    call con_say
+.fresh:
+    mov si, dos_c_start
+    call con_say
+    mov si, dos_path                ; ...with dos_con_ended's own fallback:
+    cmp byte [si], 0                ; dos_path_make leaves the bare name when
+    jne .said                       ; it cannot resolve one, and an EMPTY one
+    mov si, dos_name                ; is a box that has never launched
+.said:
+    call con_say
+    mov si, dos_c_crlf
+    call con_say
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_con_ended - the console's line about a program that has stopped
 ; in:  [dos_state] is DST_RAN or DST_ERR; the gfx lock NOT held
 ; out: nothing; clobbers AX, BX, CX, DX, SI, DI
@@ -958,6 +999,7 @@ dos_con_say:
 
 dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
              db 13, 10, 0
+dos_c_start: db 'Starting ', 0   ; ...and the line that opens one (96.33.20.1)
 dos_c_exit:  db ' ended, exit code ', 0
 dos_c_colon: db ': ', 0
 dos_c_aren:  db ' (Arena: ', 0

@@ -36,12 +36,25 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import os88build                                               # noqa: E402
 import os88fat                                                 # noqa: E402
 import os88ui                                                  # noqa: E402
 
 SYS = "build/os8088-360.img"
 GATE = "build/fcpapi.img"
 SCRATCH = "build/fcpapi-run.img"
+# **AND BOTH ARE RESOLVED, because this row MANUFACTURES one of them**
+# (docs/plans/SOAK-PARALLEL.md 14.2). `os88marty.launch` puts every image it is
+# handed through `os88build.at`, so a parallel run boots out of its FROZEN tree
+# - but a row that writes a scratch image with a literal `build/...` string
+# writes it to the SHARED one, and the two then disagree. This row did, and the
+# failure named neither: `FileNotFoundError: build/trees/plain-<hash>/
+# fcpapi-run.img`, 0.2s in, about a copy engine it had not reached. Resolved
+# here, `at()` is the identity function for a standalone run and the tree's own
+# path under the runner, which is what every other path in the suite gets for
+# free by being read rather than written.
+def _at(p):
+    return os88build.at(p)
 WANT = b"os8088 copy"
 WANT_MV = b"os8088 move"
 
@@ -103,13 +116,13 @@ def fail(msg):
 
 
 def main():
-    for p in (SYS, GATE):
+    for p in (SYS, _at(GATE)):
         if not os.path.exists(p):
             fail("%s is missing - `make fcpapi` builds the gate disk" % p)
 
     # A COPY OF THE IMAGE: the package really writes, and the next test to
     # boot the shipped one would see it.
-    shutil.copyfile(GATE, SCRATCH)
+    shutil.copyfile(_at(GATE), _at(SCRATCH))
 
     with os88ui.boot(SYS, apps=SCRATCH) as ui:
         # A LONGER WAIT, WITH THE REASON THE MESSAGE ASKS FOR: this package
@@ -129,10 +142,10 @@ def main():
         # instance boots its OWN clone of the image (which is what makes
         # --marty-jobs safe), so the file on this host was never written to
         # and reading it says "the package did nothing" however well it ran.
-        ui.m.flush(1, os.path.abspath(SCRATCH))   # ABSOLUTE: the emulator's
+        ui.m.flush(1, os.path.abspath(_at(SCRATCH)))  # ABSOLUTE: the emulator's
                                                   # cwd is its own run dir
 
-    v = os88fat.Fat12(SCRATCH)
+    v = os88fat.Fat12(_at(SCRATCH))
     names = set()
     for _, _, raw in v.entries():
         if raw[0] in (0, 0xE5) or raw[11] & 0x08:
@@ -188,7 +201,7 @@ def main():
     print("fcpapi: ok  - SUB/MOVE.DAT reads %r off the volume itself" % got)
 
     # ...AND IT WAS RE-LINKED, NOT COPIED. Same cluster number, both images.
-    was = first_clus(os88fat.Fat12(GATE), "MOVE.DAT")
+    was = first_clus(os88fat.Fat12(_at(GATE)), "MOVE.DAT")
     if was is None:
         fail("MOVE.DAT is not on the UNTOUCHED gate image %s - the fixture "
              "is wrong, not the kernel" % GATE)
@@ -205,7 +218,7 @@ def main():
              "FERR_EXIST having written nothing (SPEC.md 22.24)")
 
     r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify",
-                        SCRATCH], capture_output=True, text=True)
+                        _at(SCRATCH)], capture_output=True, text=True)
     if r.returncode:
         fail("the volume the engine left behind does not verify:\n%s"
              % (r.stdout + r.stderr)[-2000:])
