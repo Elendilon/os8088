@@ -199,31 +199,44 @@ covers LEMMINGS (68), F15 (66) and TD1 (41) outright - is +384.
 And the per-window heap mirror loses its icon half entirely: `VIEW_KB` 3 -> 2 at
 64 entries, **1,024 bytes of heap per open Disk window**, four of them.
 
-## 9. The one constraint to lift
+## 9. The one constraint, and it DISSOLVES rather than being lifted
 
 `FS_IOFH` (files.inc:247) holds the icon base's HIGH BYTE in one byte, which is
 why `files.inc:694` requires `nmax * DSK_DE_STRIDE` to be a multiple of 256 and
-why the stride cannot fall below 24 at 32 entries. **Widening it to a word costs
-one byte per open Disk window state block** and frees both the stride and the
-entry count. Take it in wave 1; everything else gets easier.
+why the stride cannot fall below 24 at 32 entries.
+
+**The first draft of this plan made widening it to a word wave 1. That was
+wrong and is recorded here so nobody builds it.** `FS_IOFH`'s only job is
+*where the icon slots start inside THIS WINDOW'S OWN cache* - six sites, and
+`fmv_viofs` is in as many words "the only reader". Once the bodies are in a
+machine-wide store, a window's cache holds entries and reference bytes and
+**has no icon region at all**, so the field has no job, the `%if` that guards
+it has nothing to guard, and both are deleted by wave 2 rather than widened
+ahead of it. Nothing between here and there needs the stride to move: the base
+is `32 * 24` = 768 throughout, which is a multiple of 256 already.
+
+The same is true one level along of `dsk_ioff`'s driver-backed base
+(`disk.inc:2419`, `DSK_VENT * DSK_DE_STRIDE`) - it is the same fact about the
+same vanishing region, and it goes at the same time.
 
 ## 10. The waves
 
-1. **`FS_IOFH` to a word**, and the two `%if`s that depend on it. No behaviour
-   change; the build is the gate. ~10 bytes ESTIMATED.
-2. **The reference byte.** `dsk_ico_ofs` resolves an entry to a body through a
+1. **The reference byte.** `dsk_ico_ofs` resolves an entry to a body through a
    one-byte reference instead of `index * 64`; folder and generic become
    sentinel values that name a built-in rather than a copy. **Every reader
    already goes through `dsk_get_icon_x`**, which stages into `dsk_ico` and
    hands back SI - so no caller changes. `kern_small` has this shape already
-   (`dsk_iconext`, `dsk_icofld`); this generalises it and deletes its
-   `%ifdef`s.
-3. **The machine-wide store**, as `ASC_ROW`s, filled from each volume's
+   (`dsk_iconext`, `dsk_icofld`); this generalises it to both kernels and
+   deletes its `%ifdef`s. The bodies are still per listing at the end of this
+   wave, which is what keeps it independently buildable.
+2. **The machine-wide store**, as `ASC_ROW`s, filled from each volume's
    `ASSOC.DAT` and by harvest on a miss. Keyed `(stem, size)` - `asc_lookup_x`
-   is the comparison, unchanged.
-4. **Purgeable.** A `MEM_P_` class below `MEM_P_VIEW`; refill on the next
+   is the comparison, unchanged. The per-listing and per-window icon regions go
+   here, and `FS_IOFH`, `fmv_viofs`, `dsk_ioff` and the multiple-of-256 `%if`
+   go with them.
+3. **Purgeable.** A `MEM_P_` class below `MEM_P_VIEW`; refill on the next
    mount. The glyph table is NOT in it.
-5. **Raise `DSK_NENT`.** The number is a product decision once it is nearly
+4. **Raise `DSK_NENT`.** The number is a product decision once it is nearly
    free; 64 is a net saving, 128 costs 384 bytes.
 
 ## 11. What the gates must say
@@ -260,5 +273,13 @@ entry count. Take it in wave 1; everything else gets easier.
 - **The hard disk's 64 entries come out of the DRIVER's 6KB claim**, so shrinking
   the listing there changes `HDD_LISTKB` and rebuilds a `.DRV`. Wave 5 only.
 - **`ASSOC_NAPP` is 12 with five built-ins**, so a machine can know **seven
-  learned document appearances at once**. That may bind before the entry count
-  does on a hard disk full of applications, and nothing has measured it.
+  learned document appearances at once**. THIS CONSTRAINT IS NOT NEW and it is
+  not this work's - it is recorded here because the same measurement pass is
+  what surfaced it, and because it may bind before the entry count does on a
+  hard disk full of applications. **It is a FOLLOW-ON, to be researched once
+  the icon work is done**: raise it to ~24, and the questions are what that
+  costs `assoc_stem` (8 bytes a slot), `assoc_glyph` (8 more), `assoc_drv` and
+  `assoc_clus`, whether `ASC_KB`'s 3KB still holds the file it implies, and
+  what a machine with a hard disk full of applications actually needs. Nothing
+  in waves 1-5 depends on the answer and nothing in it should be taken before
+  they land.
