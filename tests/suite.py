@@ -6031,6 +6031,39 @@ SOAK = [
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
         needs=("marty",), serial=True),
+    Row("toastbar", "soak", py("tests/toastbar.py"), 30.0,
+        "A TOAST OF THE MAXIMUM WIDTH REACHES THE BAR WHOLE, AND TOUCHES NO "
+        "MENU (SPEC.md 59.10.2). tests/unit/t_toast.py checks every fixed "
+        "message against TOAST_MAX; NOTHING CHECKED TOAST_MAX ITSELF, and it "
+        "is derived from a geometry by arithmetic - so it can be wrong by one "
+        "with every message in the tree quietly a cell short and the static "
+        "gate green for ever. This asks the machine: a message of exactly "
+        "TOAST_MAX characters is written into toast_buf, [toast_want] is set "
+        "and toast_pass draws it, which is toast_show's own path from its "
+        "second instruction and the only way to CHOOSE the width instead of "
+        "hunting for an application whose message happens to be the cap. "
+        "MEASURED: 24 characters draw 25 cells (54..78 on a 640 CGA), the "
+        "menus end at cell 50, clear by 4. Three claims, each of which has "
+        "bitten: it is all there, it touches no menu (SPEC.md 59.8 - the "
+        "strip used to borrow the MENUS segment, where menu_bput's clamp "
+        "dropped whatever it covered), and the bar comes back (59.9.2 left "
+        "two cells inverted PERMANENTLY, through the next toast and for the "
+        "rest of the session). SPEC.md 59.7 calls the test that found its "
+        "livelock 'the one worth keeping' AND IT IS IN NO REGISTRY, which is "
+        "why this file exists; 59.7's failure needed a strip wide enough to "
+        "reach a menu title's pen and 'every earlier test passed because the "
+        "strip never reached a menu', so the message here is the cap and the "
+        "front window is a Disk window - File/Folder/View/Special, the widest "
+        "menu set the kernel draws. THE THREE CAPTURES ARE COMPARED BY INK "
+        "AND NOT BYTE FOR BYTE, because the strip sits in the CLOCK's field "
+        "and the clock is live: the first draft compared raw pixels, found "
+        "the clock's last digit had changed between two captures seconds "
+        "apart, and reported it as 59.9.2's inverted cell. VERIFIED RED: a "
+        "cap of 40 reports the strip clipping at 25 cells (and confirms "
+        "59.7's clamp holds - it clips rather than reaching the menus), and "
+        "an expiry that clears [toast_on] without redrawing reports the bed "
+        "left on the glass, cell by cell.",
+        needs=("marty",), serial=True),
     Row("sbar", "soak", py("tests/sbar.py"), 60.0,
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"
         "one now.",

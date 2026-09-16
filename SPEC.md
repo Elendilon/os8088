@@ -78228,6 +78228,55 @@ geometry, and with the one piece of advice that follows from it: a name the
 **user** chose may be any length and is what the truncation is *for*, so put
 it **last** — what survives is then your own words.
 
+#### 59.10.2 …and `TOAST_MAX` itself is asked of the MACHINE
+
+§59.10.1 checks every message against `TOAST_MAX`. Nothing checked
+`TOAST_MAX`. It is derived from a geometry by arithmetic — 25 cells less
+§59.9.2's gap — and a constant derived that way can be wrong by one with
+*every* message in the tree quietly a cell short and the static gate green for
+ever. `tests/toastbar.py` asks the machine instead.
+
+A message of exactly `TOAST_MAX` characters is written into `toast_buf`,
+`[toast_want]` is set, and `toast_pass` draws it — which is `toast_show`'s own
+path from its second instruction, and the only way to *choose* the width
+rather than hunting for an application whose message happens to be the cap.
+
+**Measured, on a 640-wide CGA with a Disk window in front:** 24 characters
+draw **25 cells, 54..78**; the menus end at cell **50**. So the cap is right
+and there are four cells of margin.
+
+Three claims, each of which has bitten before: it is all there; it touches no
+menu (§59.8 — the strip used to borrow the MENUS segment, where `menu_bput`'s
+clamp dropped whatever it covered); and the bar comes back (§59.9.2 left two
+cells inverted *permanently*, through the next toast and for the rest of the
+session).
+
+**This row exists because §59.7's does not.** That section says of the test
+that found its livelock *"the test that found it is the one worth keeping"* —
+and it is in no registry. Its failure needed a strip wide enough to reach back
+over a menu title's pen, and *"every earlier test passed because the strip
+never reached a menu"*, so this one uses the widest legal message and puts a
+Disk window in front: `File Folder View Special` is the widest menu set the
+kernel draws.
+
+**A positive result came out of breaking it.** Raising `TOAST_MAX` to 40 does
+**not** reach the menus — the strip clips at 25 cells — which is
+`menu_bpadc`'s §59.7.1 clamp holding under exactly the condition §59.7 says
+every earlier test missed. The failure mode of a too-large cap is a short
+message, not an eaten menu.
+
+**The three captures are compared by INK and not byte for byte**, and that is
+not a weakening. The strip sits in the *clock's* field, so the cells under it
+are the ones whose glyphs change on their own between two captures seconds
+apart: the first draft of this row compared raw pixels, found the clock's last
+digit had gone from one shape to another, and reported it as §59.9.2's
+permanently-inverted cell. Ink separates them because the failure has a shape —
+a cell still carrying the bed reads the bed's own uniform value, and it reads
+it *because it is still the bed*. The assertion is therefore not a threshold:
+it is that a cell which changed when the strip arrived must change again when
+it leaves. The **menus** are held to the byte across all three captures, since
+nothing there is live.
+
 ## 60. cpudet.inc — the CPU tier
 
 **Which CPU is this?** Two published bytes and two routines, and that is
