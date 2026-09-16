@@ -122,6 +122,7 @@ KDL_VTAB    equ 34              ; db kind, db unit, dd base - per volume
 KDL_WAKE    equ 82              ; dd where a live resume re-enters the kernel
 KDL_KSEG    equ 86              ; dw ...and the DS it does so with (96.49)
 KDL_HBVOL   equ 88              ; db the volume HIBERNAT.IMG is on
+KDL_CYLRUN  equ 89              ; db may a run cross a HEAD over there (96.44.14)
 KDL_CLK     equ 90              ; db[10] the kernel's own clock block
 KDL_VROW    equ 6
 KDL_VMAX    equ 8
@@ -169,7 +170,9 @@ KDH_CPLEN   equ 549             ; dd its packed bytes
 KDH_CULEN   equ 553             ; dd ...and its unpacked bytes
 KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
                                 ; segment - CORE_ORG, which only the box knows
-KDH_SIZE    equ 559
+KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB,
+                                ; poked in beside KDH_CODE (SPEC.md 96.41.1)
+KDH_SIZE    equ 561
 KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 
@@ -179,6 +182,7 @@ KDB_SEG     equ 0x0040          ; the BDA...
 KDB_OFF     equ 0x00F0          ; ...and its intra-application area
 KDB_SIG     equ 0x3158444B      ; 'KDX1', little-endian
 KDB_CODE    equ 4               ; dw the program's exit code, behind the magic
+KDB_AKB     equ 6               ; dw ...and the arena it was given, in KB
 %if HS_EXT + HS_XMAX*HS_XSTRIDE > HS_STACK - 512
   %error "hiber: the extent list would run into the stub's stack"
 %endif
@@ -233,6 +237,9 @@ hb_xseg:    resw 1              ; the extent list's claim, 0 = none
 ; would be 543 bytes of every machine's RAM for a feature most never use.
 hb_dosoff:  resw 1              ; the record, in the POSTER's segment
 hb_dosseg:  resw 1              ; 0 = nothing posted
+hb_dosakb:  resw 1              ; ...and the ARENA it was given, in KB, which
+                                ; travels beside it and for its reason
+                                ; (SPEC.md 96.41.1)
 hb_doscode: resw 1              ; **THE ONLY RESIDENT BYTES THE RETURN COSTS**
                                 ; (docs/plans/KERN-DOS-PLAN.md 8): the code a
                                 ; DOS handoff left in the BDA, between hbm_ask
@@ -276,6 +283,7 @@ hb_probe_x:
     mov byte [hb_mode], HB_M_GONE   ; .bss is whatever the LAST kernel left
     mov word [hb_resumes], 0    ; (a warm boot clears nothing), and three of
     mov word [hb_xseg], 0       ; these are read before anything writes them
+    mov word [hb_dosakb], 0
     mov word [hb_doscode], KDH_NOCODE   ; ...and this one means "no DOS program
                                 ; ran", which is every resume but one
     call COLD_SEG:hb_pick_x     ; AL = the volume
@@ -531,6 +539,12 @@ hbf_perform:
     call hbf_dropck
     retf
 .no:
+    ; **A POST THAT CANNOT BE SPENT IS WITHDRAWN** (SPEC.md 96.40.6). The
+    ; module could not be read, so nothing below `hbm_dosrun` runs - and that
+    ; one clears the latch on every arm it has. Unconditional because
+    ; `[hb_dosseg]` is zero unless a DOS handoff is what was posted, and
+    ; `ui_rebootq` holds one post at a time.
+    mov word [hb_dosseg], 0
     cmp al, UI_RBQ_ASK          ; a question that cannot be asked is not
     je .quiet                   ; worth a toast: the pointer stays for a
     call hbf_nodisk             ; boot that has the system disk in
@@ -1668,6 +1682,7 @@ hbm_dosbda:
     push di
     push es
     mov word [hb_doscode], KDH_NOCODE
+    mov word [hb_dosakb], 0
     mov ax, KDB_SEG
     mov es, ax
     mov di, KDB_OFF
@@ -1677,6 +1692,8 @@ hbm_dosbda:
     jne .out
     mov ax, [es:di+KDB_CODE]
     mov [hb_doscode], ax
+    mov ax, [es:di+KDB_AKB]     ; ...and the arena beside it (SPEC.md 96.41.1)
+    mov [hb_dosakb], ax
     xor ax, ax
     mov [es:di], ax             ; spent: the magic goes, not the code, so a
     mov [es:di+2], ax           ; second reader gets nothing rather than this
@@ -1769,7 +1786,10 @@ hbm_res:
                                 ; staged by whoever stages
     mov ax, [hb_doscode]        ; ...and the DOS program's exit code, if this
     mov [es:HS_DOSCODE], ax     ; resume is a handoff coming home. NO STUB CODE
-                                ; AT ALL: hbm_wake reads this segment anyway
+    mov ax, [hb_dosakb]         ; AT ALL: hbm_wake reads this segment anyway -
+    mov [es:HS_DOSAKB], ax      ; and the arena travels in the next cell, so
+                                ; the reboot route and the live one converge
+                                ; where the CODE does (SPEC.md 96.41.1)
     push ds
     mov ds, [hb_xseg]           ; the extents
     xor si, si
@@ -1971,6 +1991,159 @@ hbm_dosrun:
     mov word [hb_dosseg], 0
 .staged:
 
+    ; --- 3c. THE VOLUME TABLE, WHICH WAS HARD-CODED OVER THERE (96.46) ------
+    ; `kern_dos` assumed A: and B: as BIOS units 0 and 1 and every other row
+    ; free, and os8088 BUILDS its table at boot. SPEC.md 18.7.1 pins the boot
+    ; partition at ROW 2, which that initialiser has FREE - so a machine with
+    ; a fixed disk hands over a volume index kern_dos reads as no volume at
+    ; all; and row 1 stays live there on a machine whose second floppy the
+    ; kernel retired. The box hands `dos_vol` over as an INDEX into that
+    ; table, so an index resolved against a different one is a program
+    ; reading a drive that is not its own.
+    ;
+    ; **HERE AND NOT AT STEP 5, WHICH IS WHERE IT USED TO BE**: step 4 calls
+    ; `drv_shutdown_x`, and `drv_release` drops a driver's volumes on the way
+    ; out - so a gather after it sees a table with every DVK_DRV row already
+    ; DVK_FREE and cannot tell that from a machine that never had one. It
+    ; writes the RECORD's copy of the launch block and step 5's `rep movsw`
+    ; carries the lot, which is `KDLF_HIBER`'s own arrangement one field over.
+    ;
+    ; SI IS THE ROW NUMBER and both offsets are scaled off it, because the
+    ; two tables have different strides: `dsk_vtab` is DV_SIZE = 16 and
+    ; `dsk_vbase` is a 4-byte side table (SPEC.md 52.10.3). Keeping one
+    ; running pointer for both is the arithmetic that gets written wrong.
+    push bx
+    push cx
+    push si
+    push di
+    ; ...AND THE FIXED DISK'S GEOMETRY FIRST, because the loop may better it.
+    ; It is the half a row alone does not buy: `dsk_boot_from_x` asks
+    ; `int 13h AH=08h` once at boot and banks it, and that routine is in the
+    ; BOOT OVERLAY - so kern_dos cannot ask the question, and the mount that
+    ; needs the answer is the read that FETCHES the BPB, so it cannot come
+    ; from there either. Left at zero the mount keeps the floppy fallback of 9
+    ; sectors and 2 heads and fails honestly, which is what a hard disk did
+    ; over there before this.
+    ;
+    ; **AND IT IS ZERO ON A MACHINE THAT BOOTED OFF A FLOPPY**, which is the
+    ; half this pair was written blind to: `dsk_boot_from_x` fills those two on
+    ; its `.hard` arm ALONE, so a machine with a floppy in A: and a fixed disk
+    ; on a driver banks nothing at all and every read of that disk over there
+    ; is aimed with 9 sectors and 2 heads.
+    mov ax, [dsk_bootspt]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], ax
+    mov ax, [dsk_boothds]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_HDHDS], ax
+    ; --- AND WHETHER A RUN MAY CROSS A HEAD (SPEC.md 96.44.14) ------------
+    ; The LOADER settled that with a canary over its own transfer and nothing
+    ; over there can ask it again - kern_dos has no stage 2 and no canary - so
+    ; without this the cautious answer is the only honest one it has, and
+    ; 18.91.1's cylinder run is lost on every machine that earned it. Carried
+    ; as a BOOLEAN and not as the kernel's word: what the far side needs is
+    ; the verdict, and a word whose meaning is "non-zero" invites the next
+    ; reader to put arithmetic on it.
+    mov al, 0
+    cmp word [boot_cylrun], 0
+    je .nocyl
+    inc al
+.nocyl:
+    mov [cs:hbm_dosrec + KDH_LB + KDL_CYLRUN], al
+    ; **`hbm_geom` IS CALLED IN THE LOOP AND IT WRITES `hb_*`**, which step 3
+    ; filled with DOS.O88's OWN volume and which step 5 stages under HS_UNIT -
+    ; so without this the stub would read `kern_dos` off the wrong drive. Ten
+    ; bytes on the stack rather than a second call to put them back: a re-ask
+    ; can fail where the first did not, and its failure would be a machine
+    ; that hands over and cannot load the host it handed to.
+    push word [hb_unit]
+    push word [hb_spt]
+    push word [hb_heads]
+    push word [hb_base]
+    push word [hb_base + 2]
+    xor si, si
+    mov di, hbm_dosrec + KDH_LB + KDL_VTAB
+.vrow:
+    mov al, DVK_FREE
+    cmp si, DVOL_MAX            ; this kernel may have FEWER rows than the
+    jae .vfree                  ; block has room for - kern_small's four -
+                                ; and the tail is FREE rather than absent
+    mov bx, si
+    mov cl, 4
+    shl bx, cl
+    add bx, dsk_vtab
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    je .vbios
+    cmp byte [bx+DV_KIND], DVK_DRV
+    jne .vfree                  ; DVK_FILE has no sectors at all (SPEC.md 62.9)
+    ; --- A DRIVER VOLUME THE ROM CAN REACH (SPEC.md 96.46.1) ---------------
+    ; The rule USED to be *"a DVK_DRV row cannot come at all - there is no
+    ; driver layer on the other side"*, and that is true of the DRIVER and not
+    ; of the DISK. `DSV_GEOM` sub-function 2 answers CF=1 for a volume
+    ; `int 13h` cannot reach, and a unit, a base and a geometry for one it
+    ; can - so a driver volume that ANSWERS is a BIOS volume as far as
+    ; kern_dos is concerned, and it is carried as one. SPEC.md 87.5 step 1's
+    ; stub has rested on exactly that fact since the day it was written; this
+    ; is the same question asked of the same routine.
+    ;
+    ; WHAT IT FIXES is the live resume on a machine that booted off a FLOPPY.
+    ; HIBERNAT.IMG goes to the first fixed volume there is (`hb_pick`), which
+    ; on such a machine is driver-backed - and `kd_resume` mounts it BY INDEX
+    ; against this table, whose row said DVK_FREE. It refused, `kd_leave` fell
+    ; back to `int 19h`, and the session came back the long way: a whole POST,
+    ; a whole boot and a restore at the desktop.
+    mov ax, si                  ; AL = the volume index
+    call hbm_geom               ; hb_unit / hb_spt / hb_heads / hb_base
+    jc .vfree                   ; not reachable by int 13h: FREE, as before
+    mov al, [hb_unit]
+    mov [cs:di+1], al
+    mov ax, [hb_base]
+    mov [cs:di+2], ax
+    mov ax, [hb_base + 2]
+    mov [cs:di+4], ax
+    cmp word [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], 0
+    jne .vdrvg                  ; a booted-from fixed disk's own stands: there
+    mov ax, [hb_spt]            ; is ONE pair for the whole table, and the
+    mov [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], ax    ; volume the machine
+    mov ax, [hb_heads]                              ; booted from is the one it
+    mov [cs:hbm_dosrec + KDH_LB + KDL_HDHDS], ax    ; is most about
+.vdrvg:
+    mov al, DVK_BIOS
+    jmp short .vput
+.vbios:
+    mov al, [bx+DV_UNIT]
+    mov [cs:di+1], al
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    add bx, dsk_vbase           ; ...and the partition base, 0 on a floppy
+    mov dx, [bx]
+    mov [cs:di+2], dx
+    mov dx, [bx+2]
+    mov [cs:di+4], dx
+    mov al, DVK_BIOS
+    jmp short .vput
+.vfree:
+    mov byte [cs:di+1], 0
+    mov word [cs:di+2], 0
+    mov word [cs:di+4], 0
+.vput:
+    mov [cs:di], al
+    add di, KDL_VROW
+    inc si
+    cmp si, KDL_VMAX
+    jb .vrow
+    pop word [hb_base + 2]      ; ...and DOS.O88's own transport back, before
+    pop word [hb_base]          ; step 5 stages the four words under HS_UNIT
+    pop word [hb_heads]         ; out of them
+    pop word [hb_spt]
+    pop word [hb_unit]
+    mov byte [cs:hbm_dosrec + KDH_LB + KDL_NVOL], KDL_VMAX
+    mov al, [dsk_bootvol]
+    mov [cs:hbm_dosrec + KDH_LB + KDL_BOOTV], al
+    pop di
+    pop si
+    pop cx
+    pop bx
+
     ; --- 4. the panel, the drivers, the lock, text mode - 87.5 step 3's order
     ; The lock and [sch_lock] may already be ours - `hbm_wrimg` takes both and
     ; gives neither back - so this arm cannot simply take them again. **AND
@@ -2061,73 +2234,11 @@ hbm_dosrun:
     mov al, [mou_line]
     mov [es:KDS_LB + KDL_MOULINE], al
 .nomouse:
-    ; --- AND THE VOLUME TABLE, WHICH WAS HARD-CODED OVER THERE (96.46) ------
-    ; `kern_dos` assumed A: and B: as BIOS units 0 and 1 and every other row
-    ; free, and os8088 BUILDS its table at boot. SPEC.md 18.7.1 pins the boot
-    ; partition at ROW 2, which that initialiser has FREE - so a machine with
-    ; a fixed disk hands over a volume index kern_dos reads as no volume at
-    ; all; and row 1 stays live there on a machine whose second floppy the
-    ; kernel retired. The box hands `dos_vol` over as an INDEX into that
-    ; table, so an index resolved against a different one is a program
-    ; reading a drive that is not its own.
-    ;
-    ; A NON-BIOS ROW IS WRITTEN FREE rather than carried: a DVK_DRV volume's
-    ; transport is a loadable driver and a DVK_FILE one has no sectors at all
-    ; (SPEC.md 62.9), and neither exists on the other side. That is lever 4's
-    ; one volume class enforced at the gather instead of hoped for downstream.
-    ; SI IS THE ROW NUMBER and both offsets are scaled off it, because the
-    ; two tables have different strides: `dsk_vtab` is DV_SIZE = 16 and
-    ; `dsk_vbase` is a 4-byte side table (SPEC.md 52.10.3). Keeping one
-    ; running pointer for both is the arithmetic that gets written wrong.
-    xor si, si
-    mov di, KDS_LB + KDL_VTAB
-.vrow:
-    mov al, DVK_FREE
-    cmp si, DVOL_MAX            ; this kernel may have FEWER rows than the
-    jae .vfree                  ; block has room for - kern_small's four -
-                                ; and the tail is FREE rather than absent
-    mov bx, si
-    mov cl, 4
-    shl bx, cl
-    add bx, dsk_vtab
-    cmp byte [bx+DV_KIND], DVK_BIOS
-    jne .vfree
-    mov al, [bx+DV_UNIT]
-    mov [es:di+1], al
-    mov bx, si
-    shl bx, 1
-    shl bx, 1
-    add bx, dsk_vbase           ; ...and the partition base, 0 on a floppy
-    mov dx, [bx]
-    mov [es:di+2], dx
-    mov dx, [bx+2]
-    mov [es:di+4], dx
-    mov al, DVK_BIOS
-    jmp short .vput
-.vfree:
-    mov byte [es:di+1], 0
-    mov word [es:di+2], 0
-    mov word [es:di+4], 0
-.vput:
-    mov [es:di], al
-    add di, KDL_VROW
-    inc si
-    cmp si, KDL_VMAX
-    jb .vrow
-    mov byte [es:KDS_LB + KDL_NVOL], KDL_VMAX
-    mov al, [dsk_bootvol]
-    mov [es:KDS_LB + KDL_BOOTV], al
-    ; ...AND THE FIXED DISK'S GEOMETRY, which is the half a row alone does not
-    ; buy. `dsk_boot_from_x` asks `int 13h AH=08h` once at boot and banks it,
-    ; and that routine is in the BOOT OVERLAY - so kern_dos cannot ask the
-    ; question, and the mount that needs the answer is the read that FETCHES
-    ; the BPB, so it cannot come from there either. Left at zero the mount
-    ; keeps the floppy fallback of 9 sectors and 2 heads and fails honestly,
-    ; which is what a hard disk did over there before this.
-    mov ax, [dsk_bootspt]
-    mov [es:KDS_LB + KDL_HDSPT], ax
-    mov ax, [dsk_boothds]
-    mov [es:KDS_LB + KDL_HDHDS], ax
+    ; **THE VOLUME TABLE IS NOT GATHERED HERE ANY MORE** - step 3c is, before
+    ; the teardown, and this step's own `rep movsw` of KDH_LB has already
+    ; carried it. A driver-backed volume stops existing when `drv_shutdown_x`
+    ; runs (`drv_release` drops its rows), so a gather at THIS point can only
+    ; ever have seen the BIOS ones - which is the whole of the defect.
     pop bx
     mov si, dsk_dpt             ; **THE DISKETTE PARAMETER TABLE IS OURS AND NOT
     mov di, KDS_LB + KDL_DPT    ; THE BOX'S**, so the block is patched here
@@ -2626,6 +2737,24 @@ hbm_wake:
     mov word [hb_xseg], 0
 .noxs:
     call KERNEL_SEG:fpg_end     ; ...and the progress widget it had up
+    ; 3c. THE MAILBOX, WHILE THERE STILL IS ONE (SPEC.md 96.41.3) -----------
+    ; **THE STAGING AREA IS THE DESKTOP'S FRAMEBUFFER ON TWO ADAPTERS OF
+    ; THREE.** It lives in the TEXT page - 0xB800, or 0xB000 on Hercules - and
+    ; that is exactly where a CGA's 640x200 and a Hercules' 720x348 desktop
+    ; are drawn. Step 4 below sets the mode and paints the whole screen, so by
+    ; the time step 5b used to read these two cells they were PIXELS. On VGA
+    ; the desktop is at 0xA000 and they survived, which is the whole of why
+    ; this was invisible: the field machine is a VGA and the exit code came
+    ; home on it every time.
+    ;
+    ; Read here and POKED at 5b, which is where the wake belongs - the box's
+    ; window has to exist and the drivers have to be back. Both routes home
+    ; converge on these cells (96.41.1), so one read serves both.
+    call hbm_stageseg
+    mov ax, [es:HS_DOSCODE]
+    mov [hb_doscode], ax
+    mov ax, [es:HS_DOSAKB]
+    mov [hb_dosakb], ax
     ; 4. the desktop, the way fsx_restore gets it back (SPEC.md 53) - before
     ;    any disk work, so the progress widget has a graphics mode to draw in
     mov bp, vid_setmode
@@ -2647,27 +2776,48 @@ hbm_wake:
     call hbm_reload
     ; 5b. ...and the DOS program's exit code, to the box that asked for it ---
     ; **THIS IS THE ONLY THING THE RETURN ADDS TO THE WAKE**
-    ; (docs/plans/KERN-DOS-PLAN.md 8). The staging area is still the one
-    ; `hbm_res` filled - step 2 above reads `HS_CLK` out of it - and
-    ; `[hb_dosseg]`/`[hb_dosoff]` are the IMAGE's, standing because
-    ; `hbm_dosrun` took the picture before it spent the post. So the record the
-    ; box posted is exactly where it was, and it gets a number in it.
+    ; (docs/plans/KERN-DOS-PLAN.md 8). `[hb_dosseg]`/`[hb_dosoff]` are the
+    ; IMAGE's, standing because `hbm_dosrun` took the picture before it spent
+    ; the post - so the record the box posted is exactly where it was, and it
+    ; gets a number in it. The number itself was banked at 3c: the staging
+    ; area is gone by here on two adapters of three (96.41.3).
     ;
     ; The wake is the ordinary one (SPEC.md 74.1): the box already registers a
     ; handler and already services `DST_RAN`, so the way home needed no slot
     ; and no second mechanism.
-    call hbm_stageseg
-    mov ax, [es:HS_DOSCODE]
+    mov bx, [hb_dosseg]
+    mov word [hb_dosseg], 0     ; **SPENT ON EVERY WAKE, AND THAT IS THE FIX**
+                                ; (SPEC.md 96.40.6). It used to be spent only
+                                ; on the arm below - the one where a DOS
+                                ; program really did come back with a code -
+                                ; and `hbm_dosrun` takes the picture with the
+                                ; post STANDING, on purpose, so the image
+                                ; carries a live latch. Resume that image any
+                                ; other way (a cold boot and Resume, where
+                                ; `HS_DOSCODE` is `KDH_NOCODE`) and the latch
+                                ; came back with it and nothing ever spent it:
+                                ; `osapi_dos_handoff_x` refuses a second post
+                                ; while one stands, so arm 3 was dead for the
+                                ; whole of the restored session. It read as
+                                ; "Not enough memory" on a machine with 425K
+                                ; free, because the box mislabelled the
+                                ; refusal (96.40.6 again)
+    mov ax, [hb_doscode]        ; BANKED AT 3c, before the mode change: on a
+                                ; 1bpp adapter the staging area is the
+                                ; desktop's own framebuffer and step 4 has
+                                ; painted over it (SPEC.md 96.41.3) - which is
+                                ; also why there is no `hbm_stageseg` here any
+                                ; more: nothing in this block reads it
     cmp ax, KDH_NOCODE
     je .nodos
-    mov bx, [hb_dosseg]
     or bx, bx
     jz .nodos
     mov es, bx
     mov di, [hb_dosoff]
     mov [es:di+KDH_CODE], ax
+    mov ax, [hb_dosakb]         ; ...and the arena beside it (SPEC.md 96.41.1)
+    mov [es:di+KDH_AKB], ax
     mov bx, [es:di+KDH_WIN]
-    mov word [hb_dosseg], 0     ; spent HERE, where it was left standing
     or bx, bx
     jz .nodos
     mov bp, wm_wake
@@ -3005,12 +3155,12 @@ hbm_dosclus:    dw 0            ; DOS.O88's first cluster, across hbm_geom
 hbm_dosflag:    db 0            ; what HBP_DOS is to say, across hbm_wrimg
 hbm_dosheld:    db 0            ; 1 = hbm_wrimg took the gfx lock and [sch_lock]
                                 ; and still holds them, so step 4 must not
-hbm_s_d1:       db 'The handoff record is not one of ours', 0
-hbm_s_d2:       db 'The folder DOS.O88 was in has moved', 0
-hbm_s_d3:       db 'DOS.O88 is not on that disk any more', 0
-hbm_s_d4:       db 'That disk is not one the ROM can read', 0
-hbm_s_d5:       db 'No room to list where kern_dos is', 0
-hbm_s_d6:       db 'kern_dos is too scattered to hand over', 0
+hbm_s_d1:       db 'Not our handoff record', 0
+hbm_s_d2:       db 'That folder has moved', 0
+hbm_s_d3:       db 'DOS.O88 is not there now', 0
+hbm_s_d4:       db 'The ROM cannot read it', 0
+hbm_s_d5:       db 'No room for the extents', 0
+hbm_s_d6:       db 'kern_dos too scattered', 0
 
 hbm_ptrfix:     db 'HIB1'      ; the pointer's fixed head, described ONCE
                 dw BUILD_NUM
@@ -3040,11 +3190,11 @@ hbm_s_bcan: db 'Cancel', 0
 hbm_s_bres: db 'Resume', 0
 hbm_s_bdis: db 'Discard', 0
 
-hbm_s_nobios: db 'Hibernate needs a BIOS-known hard disk', 0
-hbm_s_noroom: db 'Not enough room for the hibernation file', 0
+hbm_s_nobios: db 'Needs a BIOS hard disk', 0
+hbm_s_noroom: db 'Not enough room on disk', 0
 hbm_s_failed: db 'Hibernate failed', 0
-hbm_s_stale:  db 'Hibernation file is from another build', 0
-hbm_s_lost:   db 'Hibernation file could not be read', 0
+hbm_s_stale:  db 'Hibernation: other build', 0
+hbm_s_lost:   db 'Hibernation: unreadable', 0
 
 hbm_s_off:  db 13, 10, 'os8088 has hibernated.', 13, 10, 13, 10
             db 'It is now safe to switch the machine off.', 13, 10

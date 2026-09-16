@@ -3568,7 +3568,22 @@ OSAPI_SAVEU_1BPP equ 2           ; ...and bit 1: "and my content is two
                                                  ; every call: pass 1 after 3
                                                  ; and you have withdrawn it
 %define OSAPI_TOAST         KERNEL_SEG:0x0380   ; ES:SI = a NUL line, CX =
-                                 ; ticks to live (0 = ~3s at 18.2 Hz). Says it
+                                 ; ticks to live (0 = ~3s at 18.2 Hz).
+                                 ; **AT MOST 24 CHARACTERS REACH THE BAR, AND
+                                 ; THE REST ARE DROPPED SILENTLY** (SPEC.md
+                                 ; 59.10). That is GEOMETRY and not a budget:
+                                 ; the strip lives in the clock's field, which
+                                 ; is 25 cells on every screen this runs on,
+                                 ; and one of them is the gap that keeps it
+                                 ; off the progress widget. So WRITE THE
+                                 ; MESSAGE TO FIT - a fixed string that does
+                                 ; not is a message nobody can read, and
+                                 ; `Sent to the running Audio Player` arrived
+                                 ; as `Sent to the running Au` for a year
+                                 ; because this paragraph was not here. A name
+                                 ; the USER chose may be any length and is
+                                 ; what the truncation is FOR; put it LAST, so
+                                 ; what survives is your own words. Says it
                                  ; as an inverse-video strip at the right end
                                  ; of the MENU BAR and takes it down on its
                                  ; own (SPEC.md 59) - so it costs your window
@@ -4346,7 +4361,13 @@ KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
                                 ; either sits in the file
 KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
                                 ; segment - CORE_ORG, which only the box knows
-KDH_SIZE    equ 559
+KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB.
+                                ; The restored kernel pokes it in beside
+                                ; KDH_CODE (SPEC.md 96.41.1) - the figure is
+                                ; the OTHER host's arithmetic, so it is the
+                                ; only way a package can know what its program
+                                ; actually got
+KDH_SIZE    equ 561
 KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 %define OSAPI_DOS_HANDOFF   KERNEL_SEG:0x05A0   ; ES:SI = a KDH_* record;

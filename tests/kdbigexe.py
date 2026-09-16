@@ -30,6 +30,12 @@ WHAT IT WOULD CATCH:
                                              program still runs, which is the
                                              one failure a "did it start" row
                                              would pass
+  - a .COM's stack word written into      -> the marker at image offset 0FEFCh
+    an .EXE (SPEC.md 96.3.1)                 comes back zeroed. It is the
+                                             defect this fixture SAT THROUGH
+                                             for a cycle, because a pad of
+                                             zeros cannot see a zero written
+                                             into it
   - the ladder collapsing to one step     -> the recorded widths are [7, 0]
                                              rather than a prefix of
                                              [7, 4, 2, 0]
@@ -81,8 +87,11 @@ DOS_PSPP = 10
 DSK_RAH_RUNS = 7                # kernel/disk.inc's ceiling, which is the width
                                 # a kern_dos mount always arms - it solves the
                                 # width from the whole arena
-LADDER = (7, 4, 2, 0)           # DSK_RAH_RUNS, KD_RAH_L1, KD_RAH_L2, gone
-RUNG_KB = {7: 32, 4: 18, 2: 9, 0: 0}
+# **THE LADDER STOPS AT `KD_RAH_KEEP`** (SPEC.md 96.44.11.4) and no longer
+# runs to nothing, so the widths are scraped from the kernel rather than
+# spelled here: a fourth entry would be a rung `kd_giveback` never takes, and
+# the row would wait for an attempt that cannot arrive.
+RUNG_KB = {7: 32, 4: 18, 2: 9, 0: 0}    # DSK_RAH_RUNS, KD_RAH_L1, KD_RAH_L2
 A_BW, A_BG, A_BH, A_BTNY, TITLE_H = 72, 12, 13, 46, 18
 
 WANT = ("kd_top", "kd_floor", "dos_arena", "dos_apara", "dos_wbytes",
@@ -171,14 +180,24 @@ def alert_button(m, base, dm, i, n=2):
     return left + A_BW // 2, wy + TITLE_H + A_BTNY + A_BH // 2
 
 
-def capacity(top, arena, wpara, kb):
+def capacity(top, arena, wpara, kb, kept_kb):
     """dos_load's capacity in FILE BYTES with `kb` of cache still held.
 
     `dos_load` reads the whole file into [dos_ldpsp]+16 with a capacity of
     ([dos_ldpara] - 16) * 16, and every rung of the ladder moves the ceiling
     the arena is cut from.
+
+    **`top` IS READ AFTER THE RUN, SO IT IS THE CEILING AT `KD_RAH_KEEP`'s
+    WIDTH** - which is what this got wrong. It used to subtract the whole of
+    `kb` from `[kd_top]`, which was right while the ladder shed to nothing and
+    the ceiling ended up above the whole cache. Since SPEC.md 96.44.11.3 put
+    the cache ABOVE the ceiling and 96.44.11.4 stopped the ladder at a width,
+    `top` already excludes the kept rungs - so subtracting them again counts
+    them twice and every capacity comes out one rung too small. BIG.EXE then
+    loaded on the attempt the model said was too small, and the row reported
+    the machine for the model's error.
     """
-    t = top - ((kb * 1024) >> 4)
+    t = top - (((kb - kept_kb) * 1024) >> 4)
     return ((t - arena - wpara) - DOS_PSPP - 16) * 16
 
 
@@ -253,14 +272,15 @@ def main():
         # --- what the program itself says ------------------------------------
         for want in ("os8088 DOS gate - BIG.EXE",
                      "image head 585KB down: OK",
-                     "relocation at the far end: OK"):
+                     "relocation at the far end: OK",
+                     "the .COM stack word: OK"):
             if not any(want in r for r in rs):
                 fail("%r is not on the screen. The program started but did "
                      "not verify: a partial read or a move that gave up would "
                      "look exactly like this. Screen: %r"
                      % (want, [r for r in rs if r.strip()]))
-        print("kdbigexe: 2/5 it ran, and the image head 585KB below the code "
-              "reads back")
+        print("kdbigexe: 2/5 it ran, the image head 585KB below the code "
+              "reads back, and PSP:FFFC still holds the fixture's own marker")
 
         # --- the numbers kern_dos laid out ------------------------------------
         def w(name):
@@ -269,9 +289,14 @@ def main():
 
         top, arena = w("kd_top"), w("dos_arena")
         wpara = (w("dos_wbytes") + 15) >> 4
-        caps = [(k, capacity(top, arena, wpara, RUNG_KB[k])) for k in LADDER]
+        keep = dosmap.kd_const("KD_RAH_KEEP")
+        ladder = tuple(k for k in (7, 4, 2, 0) if k >= keep)
+        caps = [(k, capacity(top, arena, wpara, RUNG_KB[k], RUNG_KB[keep]))
+                for k in ladder]
         print("kdbigexe: dos_load capacity per rung: "
-              + ", ".join("%d runs %d" % (k, c) for k, c in caps))
+              + ", ".join("%d runs %d" % (k, c) for k, c in caps)
+              + "  (kd_top corrected for the %d KB kd_giveback kept)"
+              % RUNG_KB[keep])
 
         # 3: the retry was NECESSARY - the file does not fit with the cache.
         if size <= caps[0][1]:
@@ -291,11 +316,11 @@ def main():
                  "needed at least one retry. Either the breakpoint never "
                  "fired or the load was not bounded by [dos_ldpara]: "
                  "recorded %r" % (len(widths), widths))
-        if tuple(widths) != LADDER[:len(widths)]:
+        if tuple(widths) != ladder[:len(widths)]:
             fail("the cache widths at each load attempt were %r and the "
                  "ladder is %r: a rung was skipped, repeated, or the trace "
                  "caught an instruction that is not kern_dos's"
-                 % (widths, list(LADDER)))
+                 % (widths, list(ladder)))
         print("kdbigexe: 4/5 %d load attempts, cache %s - a prefix of the "
               "ladder" % (len(widths),
                           " -> ".join("%dKB" % RUNG_KB[x] for x in widths)))

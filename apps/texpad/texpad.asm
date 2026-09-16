@@ -6161,7 +6161,7 @@ tp_s_noset:     db 'F5 typesets the preview', 0
 tp_s_loaded:    db 'Loaded', 0
 tp_s_saved:     db 'Saved', 0
 tp_s_copied:    db 'Copied', 0
-tp_s_err:       db 'Read error - new document', 0
+tp_s_err:       db 'Read error: new document', 0
 tp_s_werr:      db 'Write error', 0
 tp_s_nomem:     db 'Need more RAM', 0
 tp_s_full:      db 'Document full (8K)', 0

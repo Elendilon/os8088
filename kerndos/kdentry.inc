@@ -549,8 +549,17 @@ kd_vtab:
                                 ; mounts on the floppy fallback and fails
     mov al, [si+KDL_BOOTV]
     cmp al, DVOL_MAX
-    jae .out
+    jae .cyl
     mov [dsk_bootvol], al
+.cyl:
+    ; ...and the KERNEL's finding about this machine's FDC (SPEC.md 96.44.14).
+    ; It is a whole WORD over here for `dsk_geom_check`'s `cmp word`, and the
+    ; block carries one byte, so the high half is cleared rather than left as
+    ; whatever the bss clear did NOT reach - which is the defect this field
+    ; exists because of.
+    xor ah, ah
+    mov al, [si+KDL_CYLRUN]
+    mov [boot_cylrun], ax
 .out:
     pop di
     pop si
@@ -610,6 +619,23 @@ kd_leave:
                                 ; to go and says so rather than restarting a
                                 ; machine the user expected back
     call kd_bda                 ; the exit code, where a boot can find it
+    ; --- ...AND WHO IT IS FOR (SPEC.md 96.41.2) -----------------------------
+    ; With `KDLF_HIBER` set there is a session on the disk and the code has
+    ; just been posted to it, so the number will be on the glass in the box's
+    ; own console a few seconds from now - and a *"Press any key"* in front of
+    ; it is a machine that stops, in the middle of coming back, for an answer
+    ; it does not use. **The line still says why the screen is about to go**,
+    ; which is this routine's own manner two exits along, and the wait goes.
+    ;
+    ; Reaching here at all means `kd_resume` refused, so this arm is the
+    ; fallback now rather than the route: SPEC.md 96.49 is what runs when the
+    ; image can be read from here, and its own line says so.
+    test word [si+KDL_FLAGS], KDLF_HIBER
+    jz .noreturn
+    mov si, kd_s_ret
+    call kd_puts
+    jmp short .park0
+.noreturn:
     mov si, kd_s_over
     call kd_puts
     mov al, [kd_code]
@@ -619,6 +645,7 @@ kd_leave:
     call kd_puts
     xor ah, ah                  ; the ROM's own wait: a program that printed
     int 0x16                    ; its last line deserves to have it read
+.park0:
 
     ; --- the park, AND the DL the ROM boots from (SPEC.md 18.100, 96.40.2) ---
     ; **`int 19h` READS THE BOOT DRIVE OUT OF DL AS IT FINDS IT.** The
@@ -688,7 +715,9 @@ kd_bda:
     mov word [es:di+2], KDB_SIG >> 16
     mov al, [kd_code]
     xor ah, ah
-    mov [es:di+4], ax
+    mov [es:di+KDB_CODE], ax
+    mov ax, [dos_akb]           ; ...and the ARENA it was given (SPEC.md
+    mov [es:di+KDB_AKB], ax     ; 96.41.1), which only this host can know
     pop di
     pop es
     pop ax
@@ -815,6 +844,7 @@ kd_s_noload:  db 13, 10, 'kern_dos: the program could not be loaded', 13, 10, 0
 kd_s_over:    db 13, 10, 13, 10, 'os8088: the program has exited, code ', 0
 kd_s_boot:    db '.', 13, 10, 'Press any key to restart.', 13, 10, 0
 kd_s_held:    db 13, 10, 'kern_dos: nothing to return to.', 13, 10, 0
+kd_s_ret:     db 13, 10, 13, 10, 'os8088: restarting to put the session back...', 13, 10, 0
 
 section .bss
 kd_code:    resb 1              ; the program's exit code, for

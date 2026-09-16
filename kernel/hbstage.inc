@@ -60,5 +60,12 @@ HS_KSEG     equ 0x0442          ; dw the resumed kernel's KERNEL_SEG. Above
                                 ; every KDS_* cell (0x0430..0x0441) so the two
                                 ; stubs' maps do not alias, though they never
                                 ; coexist
+HS_DOSAKB   equ 0x0444          ; dw the ARENA the DOS program was given, in
+                                ; KB, on a handoff return (SPEC.md 96.41.1).
+                                ; HS_DOSCODE's companion and staged by whoever
+                                ; stages that: `kd_resume` on the live route,
+                                ; `hbm_res` out of the BDA on the reboot one -
+                                ; so `hbm_wake` reads ONE pair of cells and
+                                ; neither route needs a second reader
 
 %endif                          ; HBSTAGE_INC

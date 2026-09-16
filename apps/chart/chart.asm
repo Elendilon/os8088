@@ -1648,7 +1648,7 @@ ct_s_chartbmp: db 'CHART.BMP', 0
 ct_s_noexp:    db 'No chart to export.', 0
 ct_s_experr:   db 'Chart export failed.', 0
 ct_s_exported: db 'Chart exported.', 0
-ct_s_readerr:  db 'Could not read that file.', 0
+ct_s_readerr:  db 'Could not read that file', 0
 ct_s_noval:    db 'No numeric data found.', 0
 ct_s_ext_dif:  db '.DIF', 0
 ct_s_ext_biff: db '.BIF', 0

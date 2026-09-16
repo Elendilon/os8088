@@ -109,6 +109,12 @@ KDB_OFF     equ 0x00F0          ; ...and its intra-application area, which the
                                 ; BIOS sets up at POST and never touches again
 KDB_SIG     equ 0x3158444B      ; 'KDX1', little-endian
 KDB_CODE    equ 4               ; dw the program's exit code, behind the magic
+KDB_AKB     equ 6               ; dw ...and the ARENA it was given, in KB
+                                ;    (SPEC.md 96.41.1). It rides here for
+                                ;    KDB_CODE's own reason: the box cannot
+                                ;    work it out - the arena is THIS host's
+                                ;    arithmetic off [kd_top] - and `int 19h`
+                                ;    plus a whole boot is between the two
 
 COLD_SEG    equ KD_SEG          ; NO COLD RUNG: nothing here is boot-only, so
 COLD_PARA   equ 0               ; .cold is ordinary code in the one image

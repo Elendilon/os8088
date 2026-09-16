@@ -53,7 +53,11 @@ dos_con_start:
     call con_say                    ; a DOS machine opens with - and sharing it
     mov si, dos_c_hint              ; means the version is stated in one place
     call con_say
-    call dos_prompt
+    ; **AND THE PROMPT IS NOT WRITTEN HERE** (SPEC.md 96.33.2.1), which is the
+    ; sentence three lines up taken seriously: a prompt is a statement about
+    ; where the shell is STANDING, and on the document path this routine runs
+    ; BEFORE the drive is known. `dos_entry` writes it at `.ok`, where both
+    ; doors converge and `[dos_vol]` is settled either way.
     ret
 
 ; -----------------------------------------------------------------------------
@@ -755,6 +759,21 @@ dos_con_ext:
 ; being a sentence that is true until the next launch overwrites it.
 ; -----------------------------------------------------------------------------
 dos_con_ended:
+    ; --- A LINE OF ITS OWN (SPEC.md 96.33.20) ------------------------------
+    ; The shell prints a prompt and leaves the cursor sitting after it, and a
+    ; launch that did NOT come from the console - a Run click, a .LNK, a
+    ; document - emits nothing before this. So the result was glued to the
+    ; prompt it followed: `A:\>PRINCE.EXE: A handover is already under way.`
+    ;
+    ; **THE COLUMN IS THE TEST AND NOT `[dos_fromcon]`**: a typed command has
+    ; already echoed its own CRLF, so an unconditional one would give it a
+    ; blank line, and the console's own cursor is the only thing that knows
+    ; which of the two happened.
+    cmp word [con_cx], 0
+    je .fresh
+    mov si, dos_c_crlf
+    call con_say
+.fresh:
     cmp byte [dos_state], DST_ERR
     jne .name
     cmp byte [dos_fromcon], 0
@@ -769,7 +788,18 @@ dos_con_ended:
     call con_say                    ; the user never had is a sentence that
     jmp short .out                  ; sends them looking at the drive
 .name:
+    ; **THE FULLY QUALIFIED PATH** (SPEC.md 96.33.20), which is what the box's
+    ; own path field holds and what Save Shortcut writes: a bare `PRINCE.EXE`
+    ; in a log line is ambiguous the moment the console has stood anywhere
+    ; else, and this line is most often about a program on the OTHER drive.
+    ; `dos_path_make` fills it on both launch doors and leaves the bare name
+    ; there when it cannot resolve one, so the fallback is for a box that has
+    ; never launched at all.
+    mov si, dos_path
+    cmp byte [si], 0
+    jne .said
     mov si, dos_name
+.said:
     call con_say
     cmp byte [dos_state], DST_ERR
     je .err
