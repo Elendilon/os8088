@@ -518,12 +518,19 @@ DOS_W_NO    equ 2                   ; THREE states and not two: a refusal has to
 DOS_MEM_N     equ 2                 ; how many arms, for OS88UI_RD_N
 
 ; --- the disk cache dial, which is [dos_cache] (SPEC.md 96.36.6) ------------
-; THE LIST IS THE ARM'S, because what the two arms can do about the cache is
-; not the same thing. Shutting the OS down puts `kern_dos`'s own read-ahead in
-; the program's arena and `kd_giveback` sheds it a RUNG at a time, so every
-; width on the ladder is reachable; inside the OS the cache is the KERNEL's
-; one claim, taken at a mount and either standing or shed, so there are two
-; positions and saying otherwise would be a control that rounds.
+; ONE LIST, BOTH ARMS. It was two, and the reason it was two has been
+; WITHDRAWN rather than outgrown: *"inside the OS the cache is the KERNEL's one
+; claim, taken at a mount and either standing or shed, so there are two
+; positions and saying otherwise would be a control that rounds."* That was
+; true of the kernel it was written against and SPEC.md 18.95.8 made it false -
+; `OSAPI_DSK_CACHE` takes a WIDTH, so arm 0 can ask for 18 KB and be given
+; exactly 18 KB. An omission whose ground is a claim about the kernel is a
+; claim to re-read when the kernel changes (SPEC.md 24.5.5's rule, one
+; subsystem along), and this one came back.
+;
+; What went with it is the whole per-arm apparatus - `[dos_cachei]`,
+; `[dos_mdrwas]`, the swap, the second item table and the clamp that guarded
+; two different lengths. With one list there is no pick to park.
 DOS_CA_AUTO   equ 0                 ; what the box picks - 9 KB on arm 1 today
 DOS_CA_32     equ 1                 ; 7 runs
 DOS_CA_18     equ 2                 ; 4 runs
@@ -535,12 +542,14 @@ DOS_CA_AUTORUN equ 2                ; ...and what Auto is worth in RUNS, which
                                     ; build, where both names exist - the
                                     ; window half cannot see kern_dos's own
                                     ; constants and this is the one figure it
-                                    ; needs from them
-DOS_CA_N      equ 5                 ; ...on arm 1. Arm 0 shows DOS_CA_INN of
-DOS_CA_INN    equ 2                 ; them, Auto and Off, and the pick is
-                                    ; remembered PER ARM ([dos_cachei]) so
-                                    ; switching arms cannot leave a value the
-                                    ; other list has no row for
+                                    ; needs from them.
+                                    ; ARM 0 DOES NOT USE IT: there, Auto means
+                                    ; DSK_RAH_AUTO - no ceiling of ours, the
+                                    ; kernel solves its own width from the
+                                    ; machine (18.95.5) - which is what the
+                                    ; label says and what a box that has been
+                                    ; asked for nothing should do
+DOS_CA_N      equ 5                 ; how many rows, for OS88UI_DR_N
 DOS_MDRSZ   equ 26                  ; os88ui.inc's OS88UI_DR_SIZE, mirrored
                                     ; here for DOS_MRADSZ's reason and checked
                                     ; against it after the include
@@ -1015,16 +1024,26 @@ dos_run:
                                     ; refuse a post that is already standing
 .notwhole:
 %endif
+    call dos_cache_arm              ; **THE DIAL IS A COMMAND** (SPEC.md
+                                    ; 18.95.8), and it is sent BEFORE the first
+                                    ; AVAIL below rather than left to the
+                                    ; claim: `mem_claim` would shed the whole
+                                    ; window anyway, one 64KB page later,
+                                    ; having first refused a claim the machine
+                                    ; could have met - and it can only shed the
+                                    ; whole of it, where this hands back a
+                                    ; WIDTH. Undone at `.out` by
+                                    ; `dos_cache_free`, the same bracket as
+                                    ; `dos_drv_take` above
     mov bl, DOS_PG_FLOOR            ; THE FLOOR IS THE USER'S (SPEC.md 96.25),
-    cmp byte [dos_cache], DOS_CA_AUTO
-    je .sized                       ; ...and it is the CACHE DIAL that says so
-    mov bl, MEM_LVL_TOP             ; now (96.36.6) rather than an arm of its
-                                    ; own: Off takes the cache as well, and so
-                                    ; does a DOS_MEM_WHOLE dos_mem_fix has just
-                                    ; demoted - whose dial is arm 1's list and
-                                    ; whose Auto is a rung inside kern_dos, so
-                                    ; the compare is right on both (50.6.6,
-                                    ; 96.24)
+                                    ; and it is OURS ON EVERY RUNG now: what
+                                    ; the dial wanted kept is already exactly
+                                    ; what stands, so a floor of MEM_LVL_TOP
+                                    ; would take back the 9 or 18 KB the user
+                                    ; just asked to keep. Off has already left
+                                    ; nothing at this rank, so the two cases
+                                    ; that used to need two floors need one
+                                    ; (50.6.6, 96.24)
 .sized:
     mov al, bl                      ; ...AND IT IS SET ONCE, HERE, for this
     call OSAPI_MEM_FLOOR            ; task: every AVAIL below answers net of
@@ -1242,6 +1261,18 @@ dos_run:
                                     ; here including the refusals: a resume with
                                     ; nothing suspended is free and a machine
                                     ; left silent is not (SPEC.md 51.11.1)
+    call dos_cache_free             ; ...and the cache likewise (SPEC.md
+                                    ; 18.95.8). It is the same bracket for the
+                                    ; same reason, and it is the half that had
+                                    ; nowhere to live before the slot existed:
+                                    ; the kernel re-claims the window at a
+                                    ; MOUNT and a DOS session mounts nothing,
+                                    ; so a launch on Off used to leave the
+                                    ; machine with no directory cache until
+                                    ; something was inserted. `.outq` skips it,
+                                    ; exactly as it skips the resume: the
+                                    ; compaction is going to run and then come
+                                    ; back through here
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_ended              ; ...and the console says what happened, which
                                     ; is where §96.32's three status lines went
@@ -6249,35 +6280,11 @@ dos_drop_place:
     call dos_mem_org
     mov si, dos_mdr
     mov word [si+OS88UI_DR_WIN], bx
-    cmp byte [dos_keepc], DOS_MEM_WHOLE
-    je .whole
-    cmp byte [dos_mdrwas], DOS_MEM_WHOLE
-    jne .initems                    ; ...already arm 0's: leave the pick alone
-    mov byte [dos_mdrwas], DOS_MEM_IN   ; ARM 1 -> ARM 0: park arm 1's pick and
-    mov al, [dos_cachei]            ; put arm 0's back. Off is item 4 there and
-    mov [dos_cache], al             ; item 1 here, so this is a swap and never
-    mov byte [dos_cache+1], 0       ; a clamp
-.initems:
-    mov word [si+OS88UI_DR_ITEMS], dos_ca_initems
-    mov word [si+OS88UI_DR_N], DOS_CA_INN
-    jmp short .rect
-.whole:
-    cmp byte [dos_mdrwas], DOS_MEM_WHOLE
-    je .writems
-    mov byte [dos_mdrwas], DOS_MEM_WHOLE    ; ARM 0 -> ARM 1: bank arm 0's pick
-    mov al, [dos_cache]                     ; and open the long list on Auto,
-    mov [dos_cachei], al                    ; unless arm 0 was on Off - which
-    mov al, DOS_CA_AUTO                     ; the long list also has a row for
-    cmp byte [dos_cachei], DOS_CA_INN - 1
-    jne .wsel
-    mov al, DOS_CA_OFF
-.wsel:
-    mov [dos_cache], al
-    mov byte [dos_cache+1], 0
-.writems:
-    mov word [si+OS88UI_DR_ITEMS], dos_ca_items
-    mov word [si+OS88UI_DR_N], DOS_CA_N
-.rect:
+    mov word [si+OS88UI_DR_ITEMS], dos_ca_items     ; ONE LIST ON BOTH ARMS
+    mov word [si+OS88UI_DR_N], DOS_CA_N             ; (96.36.6): since SPEC.md
+                                    ; 18.95.8 arm 0 can hold a WIDTH too, so
+                                    ; there is nothing to swap, nothing to park
+                                    ; and no second length to clamp against
     mov ax, [dos_mx]
     add ax, DOS_MCACX
     mov [si+OS88UI_DR_RECT+0], ax
@@ -6940,14 +6947,20 @@ dos_mem_arena:
     je .whole
 
     ; --- ARM 0: the kernel's own answer, plus what the boxes would hand back --
-    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF, AL = the level. The
-    cmp byte [dos_cache], DOS_CA_AUTO   ; dial has two positions here and this
-    je .lvl                         ; is which floor dos_run will set
-    mov ax, MEM_LVL_TOP             ; ...taking the cache as well. **AX IS SET
-.lvl:                               ; EITHER WAY** - the what-if reads its
-    call OSAPI_MEM_COMPACT          ; level from AL rather than from the task's
-                                    ; floor the way OSAPI_MEM_AVAIL does, so a
-                                    ; fall-through would ask one question twice
+    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF, AL = the level, which is
+    call OSAPI_MEM_COMPACT          ; the floor dos_run will set - ON EVERY RUNG
+                                    ; of the dial now (SPEC.md 18.95.8), so this
+                                    ; no longer picks between two levels. The
+                                    ; what-if reads its level from AL rather
+                                    ; than from the task's floor the way
+                                    ; OSAPI_MEM_AVAIL does
+    call dos_cache_give             ; ...PLUS what the dial hands back out of
+    add ax, cx                      ; the cache, which is the one term the
+                                    ; what-if cannot see: it was asked at a
+                                    ; floor that counts the window as KEPT, and
+                                    ; the dial is about to narrow it. Auto
+                                    ; answers 0 here, which is right - it
+                                    ; commands nothing
     mov cx, [dos_mhkb]              ; ...and an UNTICKED box is a driver that
     cmp byte [dos_mhdd+OS88UI_CK_ON], 0     ; will not be there (96.36.7). A
     jne .nohdd                      ; greyed box is forced ON by dos_mck_di, so
@@ -7006,12 +7019,26 @@ dos_mem_arena:
 ; the glass that disagrees with the claim is worse than no figure.
 ; -----------------------------------------------------------------------------
 dos_cache_kb:
+    push ax
     push bx
     mov bl, [dos_cache]
     xor bh, bh
-    mov cl, [bx + dos_ca_runs]      ; the ladder, one byte a row
-    xor ch, ch
-    mov bx, cx
+    mov al, [bx + dos_ca_runs]      ; the ladder, one byte a row
+    xor ah, ah
+    call dos_rah_kb
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_rah_kb - ...and the same sum for a width that is not the dial's
+; in:  AX = chunks
+; out: CX = the KB they cost; every other register preserved
+; -----------------------------------------------------------------------------
+dos_rah_kb:
+    push bx
+    mov bx, ax
+    mov cx, ax
     shl cx, 1
     shl cx, 1
     shl cx, 1                       ; CX = runs * 8 (cpu 8086: no shl by an
@@ -7019,6 +7046,103 @@ dos_cache_kb:
     inc cx
     shr cx, 1                       ; ...and KB = ceil(runs * 4.5)
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_ask - what the KERNEL is holding, in chunks (SPEC.md 18.95.8)
+; out: CF = 0 with AX = the width held now, 0 = none; CF = 1 = no such slot
+;      (a kernel older than 18.95.8), AX = 0. Every other register preserved
+;
+; `DSK_RAH_AUTO` is the sentinel that means *no ceiling of mine*, which is the
+; truth outside a launch - the box has commanded nothing - so ASKING IS NOT A
+; SIDE EFFECT and the slot needs no read-only spelling. Where a previous launch
+; left the cache shed it takes it BACK, which is the resting state every figure
+; on this page is supposed to describe.
+; -----------------------------------------------------------------------------
+dos_cache_ask:
+    mov al, DSK_RAH_AUTO
+    call OSAPI_DSK_CACHE
+    jnc .out
+    xor ax, ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_arm - hand the dial to the kernel (SPEC.md 18.95.8)
+; preserves every register; the flags are NOT preserved
+;
+; Half a bracket. `dos_cache_free` is the other half and `dos_run`'s `.out`
+; owes it on every path but the posted one - the same bracket, and for the same
+; reason, as `dos_drv_take` / `dos_drv_back` beside it: what a launch does to
+; the machine has to be undone by the launch and not by the next mount.
+;
+; Auto sends the SENTINEL and not `dos_ca_runs`' row for it. That row is
+; `KD_RAH_KEEP`, which is what Auto means on the arm where `kern_dos` owns the
+; cache; here the kernel does, and Auto means *you decide* (SPEC.md 18.95.5).
+; -----------------------------------------------------------------------------
+dos_cache_arm:
+    push ax
+    push bx
+    mov al, DSK_RAH_AUTO
+    cmp byte [dos_cache], DOS_CA_AUTO
+    je .say
+    mov bl, [dos_cache]
+    xor bh, bh
+    mov al, [bx + dos_ca_runs]
+.say:
+    call OSAPI_DSK_CACHE
+    pop bx
+    pop ax
+    ret
+
+; dos_cache_free - ...and give it back, which also RE-TAKES a cache the launch
+; shed. Nothing else would: the kernel re-claims at a MOUNT (SPEC.md 18.95.5.1)
+; and a DOS session mounts nothing, so without this a machine that ran one
+; program with the dial on Off has no directory cache until something is
+; inserted or navigated to.
+dos_cache_free:
+    push ax
+    mov al, DSK_RAH_AUTO
+    call OSAPI_DSK_CACHE
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_give - the KB the dial is going to hand back out of the cache
+; out: CX = the KB, 0 = none; every other register preserved
+;
+; The one term arm 0's estimate cannot get from the what-if. `OSAPI_MEM_COMPACT`
+; is asked at `DOS_PG_FLOOR`, which counts the read-ahead window as KEPT - and
+; that is right, because the dial usually keeps some of it. What the dial gives
+; up is the difference between the two widths, and it is computed as two KB
+; figures rather than one width: `ceil(a * 4.5) - ceil(b * 4.5)` is not
+; `ceil((a - b) * 4.5)` when one of them is odd (7 and 2 agree at 23, 2 and 1
+; disagree at 4 against 5), and a figure that is 1 KB over is a promise the
+; claim does not keep.
+; -----------------------------------------------------------------------------
+dos_cache_give:
+    push ax
+    push bx
+    push dx
+    xor cx, cx
+    cmp byte [dos_cache], DOS_CA_AUTO
+    je .out                         ; Auto commands nothing, so nothing moves
+    call dos_cache_ask              ; AX = what is held now...
+    call dos_rah_kb
+    mov dx, cx                      ; DX = what it costs
+    mov bl, [dos_cache]
+    xor bh, bh
+    mov al, [bx + dos_ca_runs]      ; ...and what the dial leaves standing
+    xor ah, ah
+    call dos_rah_kb
+    sub dx, cx
+    mov cx, dx
+    jnc .out
+    xor cx, cx                      ; a dial ASKING FOR MORE than is held frees
+.out:                               ; nothing - the kernel's own two bounds are
+    pop dx                          ; what held it down and this cannot lift
+    pop bx                          ; them (SPEC.md 18.95.8)
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8197,8 +8321,8 @@ dos_fld_init:
     mov word [dos_keepc], DOS_MEM_IN    ; which is what a double click gets.
                                     ; A WORD: OS88UI_RD_SEL is one (96.36)
     mov word [dos_cache], DOS_CA_AUTO   ; ...and the cache's dial, the same way
-    mov byte [dos_cachei], DOS_CA_AUTO  ; on both arms' lists (96.36.6)
-    mov byte [dos_mdrwas], DOS_MEM_IN
+                                    ; - one list on both arms (96.36.6), so
+                                    ; there is no parked second pick
     mov byte [dos_mhdd + OS88UI_CK_ON], 1   ; ...and the three boxes, which are
     mov byte [dos_mnet + OS88UI_CK_ON], 1   ; TICKED by default: a tick is
     mov byte [dos_mmou + OS88UI_CK_ON], 0   ; "leave it as it is" on the two
@@ -9213,20 +9337,13 @@ dos_lnk_memr:
                                     ; WRITTEN BEFORE IT EXISTED READS ZERO,
                                     ; which is Auto - the setting such a link
                                     ; was saved with
-    mov ah, DOS_CA_N                ; **CLAMPED AGAINST THIS ARM'S OWN LIST**
-    cmp byte [dos_keepc], DOS_MEM_WHOLE ; and not against the longer one: the
-    je .cn                          ; two lists are different lengths, so a
-    mov ah, DOS_CA_INN              ; pick saved on arm 1 would index past
-.cn:                                ; arm 0's and draw a caption out of
-    cmp al, ah                      ; whatever follows the table
-    jb .cset
-    xor al, al                      ; ...and out of range is Auto, which every
-.cset:                              ; list has a row for
-    mov [dos_cache], al
-    mov byte [dos_cache+1], 0
-    mov al, [dos_keepc]             ; ...and NO SWAP IS OWED at the next place:
-    mov [dos_mdrwas], al            ; the pick already belongs to this arm
-    call dos_mem_fix                ; ...and then the machine has its say
+    cmp al, DOS_CA_N                ; **CLAMPED**, against the one list both
+    jb .cset                        ; arms now show (96.36.6): a byte off a
+    xor al, al                      ; disk is hostile input, and a pick past
+.cset:                              ; the end would draw a caption out of
+    mov [dos_cache], al             ; whatever follows the table. Out of range
+    mov byte [dos_cache+1], 0       ; is Auto, the setting a link that never
+    call dos_mem_fix                ; carried one was saved with
     call dos_mem_put                ; ...and the field shows what the link said
     pop ax
     ret
@@ -9539,12 +9656,6 @@ dos_l_ca1: db '32K', 0
 dos_l_ca2: db '18K', 0
 dos_l_ca3: db '9K', 0
 dos_l_ca4: db 'Off (SLOW!)', 0
-; ...and arm 0's, which is the SAME TWO STRINGS in a list of its own rather
-; than a count over the table above: Off is item 4 there and item 1 here, and
-; a control indexes its own list.
-dos_ca_initems:
-    dw dos_l_ca0
-    dw dos_l_ca4
 ; ...and what each row is worth in RUNS, which is what the launch block
 ; carries and what dos_cache_kb turns into the KB on the glass.
 dos_ca_runs:
@@ -10564,14 +10675,6 @@ DOS_CBASE   equ os88_image_end
                                  ; second truth (SPEC.md 96.36)
     HBSS DOS_B_MDR,   DOS_MDRSZ  ; the disk cache's drop-down, the same way
                                  ; (96.36.6): its SEL word IS [dos_cache]
-    HBSS DOS_B_MDRW,  1          ; ...and WHICH ARM's list is in it, so the
-                                 ; swap below happens once per change rather
-                                 ; than on every paint
-    HBSS DOS_B_MCAI,  1          ; ...and ARM 0's pick, parked while arm 1's
-                                 ; longer list is up. The two lists are
-                                 ; different lengths, so one word cannot hold
-                                 ; both and a stale value would index past the
-                                 ; short one
     HBSS DOS_B_MHDD,  DOS_MCKSZ  ; the two driver boxes (SPEC.md 96.36.7):
     HBSS DOS_B_MNET,  DOS_MCKSZ  ; Hard Drives and Network, arm 0's
     HBSS DOS_B_MMOU,  DOS_MCKSZ  ; ...and Disable the mouse, arm 1's (96.36.8)
@@ -15697,12 +15800,6 @@ dos_mdr equ dos_hbss + DOS_B_MDR     ; the disk cache's drop-down (96.36.6)
 %ifndef KD_BACKEND
 dos_cache   equ dos_mdr + DOS_MDRSEL           ; byte: DOS_CA_* - the control's
                                                ; own SEL word, as [dos_keepc] is
-%endif
-%ifndef KD_BACKEND
-dos_cachei equ dos_hbss + DOS_B_MCAI  ; byte: ...and arm 0's, parked
-%endif
-%ifndef KD_BACKEND
-dos_mdrwas equ dos_hbss + DOS_B_MDRW  ; byte: which arm's list is up
 %endif
 %ifndef KD_BACKEND
 dos_mhdd equ dos_hbss + DOS_B_MHDD   ; the two driver boxes (96.36.7)...

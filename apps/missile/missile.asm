@@ -2448,7 +2448,7 @@ mc_spawn_child:
 ; in:  SI = slot, DI = slot*2; preserves all registers
 ;
 ; The walk itself is laid on the next frame that DRAWS, not here: mc_update is
-; lock-free, and although OSAPI_GFX_LINIT draws nothing, a walk laid before
+; lock-free, and although laying a walk draws nothing, a walk laid before
 ; mc_track has settled the origin would hold the wrong screen coordinates.
 ; -----------------------------------------------------------------------------
 mc_itrail:

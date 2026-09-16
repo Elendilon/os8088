@@ -3201,11 +3201,26 @@ apic_osapi_mem_avail:
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-    OSAPI_XCELL gfx_linit     ; 0x0300  RETIRED (SPEC.md 5.12.7): stc/ret.
-                                  ;          The walk is apps/os88gfx.inc's
-                                  ;          GFXE_WALK now, in a GLS_SZ block
-                                  ;          of the package's own - GLS_SZ is
-                                  ;          still live and still mirrored
+    OSAPI_CSLOT osapi_dsk_cache_x ; 0x0300 - COMMAND THE READ-AHEAD CACHE'S
+                                  ;          WIDTH (SPEC.md 18.95.8), for a
+                                  ;          program about to take the arena.
+                                  ;          AL = 0 hold nothing / 1..7 hold
+                                  ;          at most that many 4.5KB chunks /
+                                  ;          DSK_RAH_AUTO (0xFF) no ceiling of
+                                  ;          mine. Out CF=0 with AX = the
+                                  ;          width held now, 0 = none; CF=1 =
+                                  ;          AL was neither.
+                                  ;          **A REUSED CELL** - this was
+                                  ;          OSAPI_GFX_LINIT, retired by
+                                  ;          5.12.7 with the rest of the walk,
+                                  ;          and 0x0580 went the same way this
+                                  ;          cycle. The table does not grow,
+                                  ;          and the SDK name that is gone was
+                                  ;          gone already: a retired cell
+                                  ;          answers CF=1 and every caller of
+                                  ;          one has to test CF, so there is
+                                  ;          no program that reaches this
+                                  ;          number and would notice
     OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
                                   ;          gfxe_wstep draws the walk's next
                                   ;          CX pixels into the package's band

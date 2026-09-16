@@ -5071,6 +5071,24 @@ DSK_RAH_SHARE equ 4              ; ...and the OTHER bound: the cache may be at
 n <= heap / (SHARE * 4.5) for SHARE = 4 alone. Another share wants another \
 shift, and a constant nothing reads is worse than no constant"
 %endif
+DSK_RAH_AUTO equ 0xFF            ; ...and the THIRD bound, which is not the
+                                 ; kernel's at all: OSAPI_DSK_CACHE (SPEC.md
+                                 ; 18.95.8) lets a program that is about to
+                                 ; take the machine say how much of the cache
+                                 ; it is willing to leave standing. This value
+                                 ; in [dsk_rah_cap] means NOBODY HAS, and it
+                                 ; is 0xFF rather than 0 because 0 is a real
+                                 ; command - "hold nothing" - and the
+                                 ; do-nothing default may not collide with an
+                                 ; instruction. It is deliberately ABOVE
+                                 ; DSK_RAH_RUNS so the solve needs no special
+                                 ; case: an uncommanded cap loses every
+                                 ; compare it is in
+%if DSK_RAH_AUTO <= DSK_RAH_RUNS
+%error "DSK_RAH_AUTO is the no-command sentinel in [dsk_rah_cap] and is read \
+as a plain ceiling, so it has to sit strictly above the widest legal width or \
+an uncommanded machine silently caps itself at the sentinel"
+%endif
 
 RAH_LBA equ 0                    ; one slot: the chunk's first LBA, how many
 RAH_N   equ 2                    ; sectors of it are here (0 = the slot says
@@ -5118,11 +5136,25 @@ dsk_rah_seg:  dw 0               ; the claim, 0 = none. In .text with a real
                                  ; read before anything sets it, and it is the
                                  ; word mem_pg_own names
 dsk_rah_busy: db 0               ; ...and 1 while a fill is in dsk_xfer, so the
+                                 ; fill's own read is not itself cached
+dsk_rah_cap:  db DSK_RAH_AUTO    ; A CEILING SOMEBODY ELSE SET (SPEC.md
+                                 ; 18.95.8): DSK_RAH_AUTO = nobody has, which
+                                 ; is the behaviour every machine that never
+                                 ; calls the slot has. Otherwise it is a width
+                                 ; in SLOTS and dsk_rah_want's solve takes it
+                                 ; as a third minimum beside the free run and
+                                 ; the arena's share - 0 meaning "hold
+                                 ; nothing", which is below DSK_RAH_MIN and so
+                                 ; refuses at the same compare the floor does.
+                                 ; .text with a real initialiser for its two
+                                 ; neighbours' reason, and STICKY on purpose:
+                                 ; the command has to survive the mounts that
+                                 ; happen while the commander is away, or the
+                                 ; next mount hands the cache straight back
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
 
-                                 ; fill's own read is not itself cached
 
 ; -----------------------------------------------------------------------------
 ; dsk_rah_have - is sector AX cached, and is the cache this volume's?
@@ -5512,8 +5544,14 @@ dsk_rah_want:
     mov cx, 9                   ; 126KB it always did, while 40KB of free run
     div cx                      ; now buys four slots instead of nothing
     cmp ax, DSK_RAH_RUNS
-    jbe .width
+    jbe .cap
     mov ax, DSK_RAH_RUNS        ; the ceiling: 18.95.4's segment-offset bound
+.cap:
+    mov bl, [dsk_rah_cap]       ; ...and A CEILING SOMEBODY ELSE SET (18.95.8),
+    xor bh, bh                  ; which is a third minimum and needs no
+    cmp ax, bx                  ; special case: DSK_RAH_AUTO is above every
+    jbe .width                  ; legal width, so an uncommanded machine loses
+    mov ax, bx                  ; this compare and carries on
 .width:
     cmp ax, DSK_RAH_MIN
     jb .out                     ; ...and the floor, below which the metadata
@@ -5571,6 +5609,132 @@ dsk_rah_want:
     pop ax
     popf
     ret
+
+; -----------------------------------------------------------------------------
+; dsk_rah_drop - give the cache back (SPEC.md 18.95.8)
+; out: CF = 0 it is gone (or was never there); CF = 1 it is still held
+; preserves every register
+;
+; mem_shed_one's ending without its scan, and NOT reached through it: the shed
+; picks the cheapest cache the CLAIMANT outranks, and this is a named block
+; being given up rather than a claim being made room for.
+;
+; The order is free-then-forget, which is mem_shed_one's the other way round,
+; and the `cli` is what makes that safe: the rule there is that the naming word
+; must never point at memory somebody else already holds, and with interrupts
+; off there is nobody to hold it - the only claimants are tasks, and no ISR
+; allocates. Doing it this way means a refusal leaves the word, the width and
+; the block all still agreeing with each other, where forget-then-free would
+; have to put them back.
+; -----------------------------------------------------------------------------
+dsk_rah_drop:
+    pushf
+    push bx
+    push dx
+    cli
+    cmp byte [dsk_rah_busy], 0
+    jne .held                   ; A FILL IS IN FLIGHT. It cannot be OURS - the
+                                ; transfer holds [sch_lock] - but dsk_rah_fill
+                                ; sets this two instructions before the lock is
+                                ; taken, and a tick landing in that window
+                                ; leaves a task which is about to write into
+                                ; the claim. Five bytes to make the question
+                                ; not arise, rather than an argument about it
+    mov dx, [dsk_rah_seg]
+    or dx, dx
+    jz .out                     ; nothing held: already what was asked for
+    mov bx, MEM_P_DIRW
+    call mem_free_x             ; the record IS the allocator (SPEC.md 50.3),
+    jc .held                    ; so this is one word - and it refuses while a
+                                ; relocation proc is standing on the table
+                                ; (66.3 rule 3), which is a real answer and not
+                                ; a formality
+    mov word [dsk_rah_seg], 0
+    mov word [dsk_rah_runs], 0  ; no claim, so no width either - and this pair
+.out:                           ; is the whole of what a shed leaves behind
+    pop dx                      ; too (mem_pg_forget zeroes the seg; the width
+    pop bx                      ; is stale after one, which is why everything
+    popf                        ; that reads it tests the seg first)
+    clc
+    ret
+.held:
+    pop dx
+    pop bx
+    popf
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_dsk_cache - COMMAND the read-ahead cache's width (SPEC.md 18.95.8)
+; in:  AL = 0                 hold nothing: give the claim back now
+;      AL = 1..DSK_RAH_RUNS   hold at most this many chunks (4.5KB each)
+;      AL = DSK_RAH_AUTO      no ceiling of mine: the kernel solves it
+; out: CF = 0 with AX = the width held NOW, in chunks (0 = none)
+;      CF = 1 - AL was neither a legal width nor the sentinel; nothing changed
+;
+; For a program that is about to take the machine. The cache is an OPTIMISATION
+; (SPEC.md 40.1's rule) and it is the most expensive one in the system to lose,
+; so nothing sheds it lightly - which is exactly the wrong answer for a caller
+; whose next act is to claim every byte of the arena: mem_claim would shed it
+; anyway, one 64KB page later, having first failed a claim the machine could
+; have satisfied.
+;
+; **THE CEILING IS WHY THIS IS A SLOT AND NOT A VERB.** A drop alone would be a
+; one-way door: the cache is re-taken at a MOUNT, and a DOS session mounts
+; nothing, so "give it back" has to be sayable too. And once the door swings
+; both ways the width may as well cross it - the caller knows how much RAM it
+; needs and the kernel does not, so a session that wants 9KB of cache standing
+; and one that wants none are the same call with a different AL.
+;
+; [dsk_rah_cap] is STICKY, and that is the feature: it survives every mount
+; until somebody says otherwise, so the commander can leave and the width
+; stays commanded. Putting it back to DSK_RAH_AUTO is the other half of the
+; bracket and is the caller's to do.
+; -----------------------------------------------------------------------------
+osapi_dsk_cache_x:
+    cmp al, DSK_RAH_AUTO
+    je .legal
+    cmp al, DSK_RAH_RUNS
+    ja .bad                     ; a width nothing can hold. Refusing is the
+                                ; honest answer: silently clamping would report
+                                ; success for a ceiling that was never set
+.legal:
+    cmp al, [dsk_rah_cap]
+    je .done                    ; **THE CEILING ALREADY IN FORCE**, so nothing
+                                ; happens at all - which is what makes asking
+                                ; free (dos_cache_give asks on every paint of a
+                                ; page) and what makes an idempotent re-arm
+                                ; cost nothing
+    mov [dsk_rah_cap], al
+    call dsk_rah_drop           ; ...otherwise RE-SOLVE, and the drop is owed
+    call dsk_rah_want           ; WHICHEVER WAY THE CAP MOVED. Narrowing needs
+                                ; it because a claim cannot shrink in place;
+                                ; WIDENING needs it because there is no grow
+                                ; path (18.95.5.3) and without one the release
+                                ; would hand back the PERMISSION and leave the
+                                ; narrow cache standing for the rest of the
+                                ; session - a machine that ran one DOS program
+                                ; on `9K` keeping 9K for ever. What it costs is
+                                ; the cache's CONTENTS, which is the right
+                                ; price: the caller that commanded it down is
+                                ; the one whose program has just been all over
+                                ; the disk.
+                                ;
+                                ; A REFUSED DROP (a fill in flight) leaves the
+                                ; old width standing, `dsk_rah_want` returns at
+                                ; its own guard, and AX below reports what is
+                                ; really there rather than what was asked for
+.done:
+    mov ax, [dsk_rah_runs]
+    cmp word [dsk_rah_seg], 0
+    jne .say
+    xor ax, ax                  ; A SHED LEAVES THE WIDTH STALE (mem_pg_forget
+.say:                           ; zeroes the naming word and nothing else), so
+    clc                         ; the seg is what says whether there is a cache
+    retf                        ; and the width is only meaningful under it
+.bad:
+    stc
+    retf
 
 ; -----------------------------------------------------------------------------
 ; dsk_dirw_get - the next directory sector's CONTENTS (SPEC.md 19.2)

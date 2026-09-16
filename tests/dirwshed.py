@@ -51,9 +51,33 @@ against a 32 KB cache, the right quantity with the wrong sign, which is the
 sharpest shape a polarity bug has - so the values it pokes are named after the
 list they index and not after what they mean.
 
-Inside the OS that list is two rows, `Auto` and `Off (SLOW!)`, which are the
-two the kernel can actually do: the `dirw` claim is taken at a mount and is
-either standing or shed (§96.36.6).  The rungs between them are arm 1's.
+It is ONE list on both arms now - `Auto / 32K / 18K / 9K / Off (SLOW!)` -
+because §18.95.8 gave the box a door that takes a WIDTH.  `Off` is item **4**
+and it used to be item 1; a row that pokes the old index picks 32K, which is
+the same family of failure the paragraph above is about.
+
+TWO MORE ASSERTIONS COME WITH THAT DOOR, and they are the whole of what
+§18.95.8 buys:
+
+  5  A MIDDLE RUNG IS REAL.  With `9K` picked, the program must run with the
+     cache STANDING and `[dsk_rah_runs]` must read exactly 2 - not the width
+     the kernel solved for itself, and not zero.  Before the slot every rung
+     but `Auto` was `MEM_LVL_TOP`, so this arm behaved exactly like `Off`.
+ 5a  ...AND RELEASING A NARROW ONE WIDENS IT AGAIN.  The half that looks like
+     a no-op and is not: §18.95.5.3 says there is no grow path and there does
+     not need to be one, which is true of a kernel nobody commands and is the
+     bug the moment there is a cap.  After the `9K` run exits the cache must
+     be back ABOVE 2 chunks; a release that hands back the permission and
+     leaves the claim alone keeps 9 KB standing for the rest of the session.
+     The re-mount cannot fix that one - `dsk_rah_want` returns at its own
+     guard while the claim is held, whatever width it is held at.
+  6  ...AND THE COMMAND IS GIVEN BACK.  `[dsk_rah_cap]` is STICKY - it has to
+     be, or a mount while the program is away would hand the cache straight
+     back - so `dos_run`'s `.out` owes `DSK_RAH_AUTO` on the way past.  Read
+     AFTER the `Off` run has exited: the cap must be 0xFF and the cache must
+     be BACK.  Without the second half of that bracket the cap stays 0 and the
+     re-mount on the way out of the fsx bracket finds a machine that has been
+     told to hold nothing, for the rest of the session.
 """
 import os
 import sys
@@ -78,7 +102,13 @@ P_DIRW = 0xFE02                  # MEM_PG_HIGH<<8 | 2 (SPEC.md 50.6)
 # [dos_cache]'s rows on ARM 0's list, which are OS88UI_DR_SEL's index and not
 # a tick (SPEC.md 96.36.6).  The other arm, DOS_MEM_WHOLE, is not this row's
 # subject - it takes os8088 itself and never reaches [dos_akb].
-CA_AUTO, CA_OFF = 0, 1
+CA_AUTO, CA_9, CA_OFF = 0, 3, 4
+CA_9_RUNS = 2                    # ...and what the `9K` row is worth in CHUNKS,
+                                 # which is what [dsk_rah_runs] must read while
+                                 # that program is running. dos_ca_runs' own
+                                 # table, mirrored here because the point of
+                                 # the row is that the two agree
+RAH_AUTO = 0xFF                  # DSK_RAH_AUTO - "no ceiling of mine"
 SLACK = 2                        # KB: both figures round DOWN to whole KB and
                                  # the two roundings need not land together
 
@@ -200,8 +230,8 @@ def main():
         # --- 3: what a program is actually handed ---------------------------
         m.type_text("B:\n")
         os88marty.settle(m)
-        got, rah = {}, {}
-        for arm in (CA_AUTO, CA_OFF):
+        got, rah, runs, after = {}, {}, {}, {}
+        for arm in (CA_AUTO, CA_9, CA_OFF):
             m.write(pb() + dm["dos_cache"], bytes([arm, 0]))
             m.type_text("%s\n" % PROG)
             # **INTO THE BRACKET AND BACK OUT OF IT.** DOSHELLO waits on AH=08h
@@ -215,14 +245,22 @@ def main():
             got[arm] = word("dos_akb")
             rah[arm] = int.from_bytes(
                 m.read(os88sym.linear("dsk_rah_seg"), 2), "little")
-            print("dirwshed: arm %d, %s the cache -> the arena is %d KB, "
-                  "[dsk_rah_seg]=%04X"
-                  % (arm, "keep" if arm == CA_AUTO else "take", got[arm],
-                     rah[arm]))
+            runs[arm] = int.from_bytes(
+                m.read(os88sym.linear("dsk_rah_runs"), 2), "little")
+            cap_in = m.read(os88sym.linear("dsk_rah_cap"), 1)[0]
             m.type_text(" ")
             os88marty.until(m, lambda _=None: not inbr(), "%s to exit" % PROG,
                             limit=120.0)
             os88marty.settle(m)
+            after[arm] = int.from_bytes(
+                m.read(os88sym.linear("dsk_rah_runs"), 2), "little")
+            if int.from_bytes(m.read(os88sym.linear("dsk_rah_seg"), 2),
+                              "little") == 0:
+                after[arm] = 0
+            print("dirwshed: row %d -> the arena is %d KB, [dsk_rah_seg]=%04X "
+                  "at %d chunks with [dsk_rah_cap]=%02X while it ran, and %d "
+                  "chunks once it had exited"
+                  % (arm, got[arm], rah[arm], runs[arm], cap_in, after[arm]))
         if not got[CA_AUTO] or not got[CA_OFF]:
             fail("a launch banked an arena of %d/%d KB - dos_run never got as "
                  "far as the claim, so nothing here is about memory"
@@ -254,9 +292,65 @@ def main():
                  "not destroy it` - and the two figures above then describe a "
                  "machine with one cache between them")
 
+        # --- 5: ...and a MIDDLE RUNG is a width and not a third way of
+        #        saying Off (SPEC.md 18.95.8) --------------------------------
+        if rah[CA_9] == 0:
+            fail("[dsk_rah_seg] was 0 while the `9K` program ran, so that row "
+                 "shed the whole cache. It is a WIDTH (SPEC.md 18.95.8): "
+                 "OSAPI_DSK_CACHE takes chunks, and dos_run's floor is "
+                 "DOS_PG_FLOOR on every rung so that what was asked for is "
+                 "what stands")
+        if runs[CA_9] != CA_9_RUNS:
+            fail("the `9K` row left the cache at %d chunks and dos_ca_runs "
+                 "says %d. The dial commanded a width the kernel did not take "
+                 "- or took and then re-solved (SPEC.md 18.95.8)"
+                 % (runs[CA_9], CA_9_RUNS))
+        if got[CA_9] <= got[CA_AUTO] or got[CA_9] >= got[CA_OFF]:
+            fail("`9K` handed the program %d KB where Auto handed %d and Off "
+                 "handed %d. A middle rung has to land BETWEEN them or it is "
+                 "a control that rounds (SPEC.md 96.36.6)"
+                 % (got[CA_9], got[CA_AUTO], got[CA_OFF]))
+
+        # --- 5a: ...and RELEASING a narrow one WIDENS it again ---------------
+        # The half that looks like a no-op and is not.  §18.95.5.3 says there
+        # is no grow path and there does not need to be one - true of a kernel
+        # nobody commands, and the bug the moment there is a cap: a release
+        # that hands back the PERMISSION and leaves the claim alone keeps 9 KB
+        # standing for the rest of the session, on a machine that ran one DOS
+        # program once.  The re-mount on the way out of the bracket cannot fix
+        # it either - `dsk_rah_want` returns at its own guard while the claim
+        # is held, whatever width it is held at.
+        if after[CA_9] <= CA_9_RUNS:
+            fail("the cache is still %d chunks after the `9K` program exited, "
+                 "where Auto gives %d. dos_cache_free handed the ceiling back "
+                 "and nothing re-solved, so this machine keeps a 9 KB cache "
+                 "for the rest of the session (SPEC.md 18.95.8)"
+                 % (after[CA_9], runs[CA_AUTO]))
+
+        # --- 6: ...AND THE COMMAND IS GIVEN BACK -----------------------------
+        # Read AFTER the `Off` run has exited, which is the only place the
+        # bracket's second half is visible.  [dsk_rah_cap] is STICKY on purpose
+        # (SPEC.md 18.95.8), so without dos_cache_free the re-mount on the way
+        # out of the fsx bracket finds a machine that has been told to hold
+        # NOTHING - and finds it for the rest of the session, because nothing
+        # else ever clears it.
+        cap = m.read(os88sym.linear("dsk_rah_cap"), 1)[0]
+        back = int.from_bytes(m.read(os88sym.linear("dsk_rah_seg"), 2), "little")
+        if cap != RAH_AUTO:
+            fail("[dsk_rah_cap] is %02X after the `Off` program exited and "
+                 "DSK_RAH_AUTO is %02X. The cap is sticky, so dos_run's `.out` "
+                 "owes it back the way it owes dos_drv_back (SPEC.md 18.95.8)"
+                 % (cap, RAH_AUTO))
+        if back == 0:
+            fail("[dsk_rah_seg] is still 0 after the `Off` program exited, so "
+                 "the machine is running with no directory cache and nothing "
+                 "will give it one - the kernel re-claims at a MOUNT (SPEC.md "
+                 "18.95.5.1) and this session has done every mount it is going "
+                 "to do")
+
     print("dirwshed: ok - the window is %d KB, the page offers it, a launch "
-          "collects it, and only the arm that asked for it lost the cache"
-          % cache_kb)
+          "collects it, `9K` leaves %d chunks of it standing, and the cap is "
+          "handed back" % (cache_kb, CA_9_RUNS))
 
 
 if __name__ == "__main__":
