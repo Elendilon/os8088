@@ -43363,6 +43363,39 @@ array had a SECOND JOB nobody had written down: it was the boot overlay's
 landing ground. Shrinking the listing takes that room away, so the pad replaces
 it by name - dead at runtime, and returned the day `.ovlw` shrinks.
 
+#### 25.9.4 `ASSOC.DAT` absorbs INTO it, which is what lets that claim go
+
+The volume's association cache (§54.7) held a 64-byte body per row in a 3KB
+claim kept for the session — the same pictures, under the same `(stem, size)`
+identity, as the store. `ico_key_stem` composes a row's key from the other
+end (`<STEM>.O88` NUL-padded to twelve, then the size), so an **absorbed**
+body and a **harvested** one land on one row and answer one another's lookups;
+§54.7.4 is the mechanism and the reason the claim is now a transient file
+buffer.
+
+**A COMPOSED DOCUMENT BODY IS KEYED ON THE GLYPH IT CAME FROM**, and it is the
+only body in the store that is *derived* rather than read. `assoc_compose`
+builds it from `assoc_glyph[slot]`, which the baked table, the seed, a hit and
+a harvest all write — so a row keyed on the slot alone outlives the thing it
+was composed from. The case that bites is §54.7.3's own, one layer along: a
+slot `assoc_app_new` creates **unresolved** composes the bare page, and without
+the glyph in the key the documents of that association go on drawing it for
+the rest of the session even after the folder their program lives in is
+browsed and the glyph resolved. `ico_key_doc` puts the eight glyph bytes in
+the key's spare tail, so a changed glyph is simply a different row — it costs
+a row rather than a wrong picture, and the shed reclaims the old one.
+
+Two further consequences belong here rather than there. The store is sized for
+the machine and absorbing is eager, so the measurement that sizes it is the union
+over every volume a machine might mount: **28 distinct `(stem, size)` pairs
+across every shipped volume**, against `ICO_NROW`'s 48 and `ASSOC_NAPP`'s
+further 12 composed document bodies. And a **shed** now costs a little more
+than a redraw — the absorbed rows go with it — so `ico_need` clears
+`asc_vol` when it re-claims an empty store, which turns that cost back into
+one three-sector re-read at the next mount rather than a sector per package.
+The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
+without asking the user for anything.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
@@ -77190,6 +77223,105 @@ Cost: `.cold` **+42**, footprint +0 —
 already in hand.
 
 
+### 54.7.4 The claim is a FILE BUFFER: the bodies are absorbed and it is freed
+
+The cache was a **3KB claim held for the session**, and §25.9's store made
+2,560 of those bytes a second copy of something the machine already had. An
+`ASC_ROW` is 80 bytes of which 64 are an icon body, keyed on `(stem, size)` —
+which is, byte for byte, the identity the store keys on. Two places holding
+one picture is exactly what §25.9 exists to end, and the cache was the larger
+of the two.
+
+So `asc_use` **absorbs and frees**. After `asc_merge_ext` has taken the
+declarations and `asc_seed` the locations and the glyphs, `asc_absorb` walks
+the rows once more and `ico_add`s every non-blank body under
+`ico_key_stem`'s composition of the same key the listing will ask with; then
+`asc_drop` returns the claim. Nothing above this layer holds a pointer into
+it, because nothing above it ever did: every consumer of a row took a *copy*
+of what it wanted, and the body was the one thing that had no copy to take.
+
+**`ico_key_stem` is the load-bearing part.** A row names a package by stem and
+every package is a `.O88` (§20.1), so `<STEM>.O88` NUL-padded to twelve is
+what `ico_key_of` will build from that package's directory entry when the
+listing reaches it. Composing the key rather than inventing a second shape for
+it is what makes an absorbed body and a harvested one **one row that answers
+both** — a second shape would have been two rows holding one picture, which is
+the defect with the numbers rearranged.
+
+**Absorbing is eager, and the sizing is measured rather than assumed.** A
+buffer that may still be needed is a buffer that may not be freed, so there is
+no lazy version of this: the choice is absorb everything or keep the claim.
+What eager costs is store rows spent before the user has looked at anything,
+and the busiest shipped volume declares 25 rows of which 24 carry a body,
+while the union over *every* shipped volume is **28 distinct `(stem, size)`
+pairs** against `ICO_NROW`'s 48, with `ASSOC_NAPP` capping composed document
+bodies at another 12. A full store is §25's generic icon and not an error.
+
+**`asc_vol` changes meaning, and the compare that reads it gains a second
+half.** It said *whose cache the claim holds*; there is no claim, so it says
+**whose `ASSOC.DAT` has been absorbed into the store**, and the compare at the
+top of `asc_use` still makes a re-entry free. But the store is purgeable
+(§25.9.2), so a shed empties it while that stamp still vouches for the volume —
+and the next mount would then skip the three-sector re-read and pay a sector
+per package instead, ~400 ms of `int 13h` each on the target machine. So the
+compare asks `[ico_n]` beside it: a store holding nothing cannot be holding
+this volume's bodies. It is five bytes, in the stamp's only reader, and it is
+*not* on the shed's own path for the reason §50.6 gives — `mem_shed_one`'s
+whole protocol is that the holder's existing refusal is the notice, and this
+is that refusal. Clearing the stamp from `ico_need` instead was built first
+and is worse by one mount: `ico_need` runs on the first body the harvest
+wants, which is *after* `asc_use` has already declined to re-read.
+
+**`asc_lookup` is gone and the question it asked is now ungated.** It searched
+the claim for an offset into it; with no claim, *is this package's body
+already in RAM* is the store's question, and `ico_have` asks it on **both**
+kernels. `kern_small` has no `ASSOC.DAT` at all (§54.0) and so never had this
+lookup — and its harvest was therefore reading a package's first sector every
+mount for a body the store had held since the last one. On the 4.77 MHz floor
+machine an `int 13h` is ~400 ms (PERFORMANCE.md), and `APPS/` is eight of
+them, so a re-entry into a folder is the saving that matters rather than the
+bytes. `asc_take` keeps only the half that needs an association — the
+location and the glyph reduce — and takes the store row instead of a claim
+offset.
+
+**THE STORE CARRIES THE SHIPPED GLYPH TOO**, and it has to. §54.3.2 gave a
+version 2 row an 8-byte glyph column because the reduction of a 16×16 icon is
+not always a usable 8×8 one — DOS's CRT reduces to an empty block — and a hit
+used to read that column off the cache row. A hit has no row now. A store that
+carried only the body would answer a hit with the *reduction* and so
+**downgrade a slot `asc_seed` had already resolved**, which is worse than not
+writing at all: the glyph would get quietly worse the moment a folder was
+browsed. So `ICO_R_GLYPH` is a column of the store row (`ICO_ROW` 80 → 88, and
+`kern_big` only — `kern_small` has no glyphs at all), `asc_absorb` puts a v2
+row's glyph in beside its body, and `asc_take` prefers it exactly as
+`asc_row_glyph` does, falling back to `asc_body_glyph`'s reduce when there is
+none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
+`asc_body_glyph` is the reduce split out of `asc_row_glyph` so a cache row and
+a store row cannot disagree about what the iconless sentinel is.
+
+**The HARVEST fills that column too, and leaving it out is worse than leaving
+it empty.** `asc_absorb` fills it from a v2 cache row, but a package the cache
+does not name — a disk with no `ASSOC.DAT`, or one whose row was missed — is
+stored by the harvest instead, and a row stored with an empty glyph column
+sends the *next* hit down `asc_take`'s reduce arm. That does not fail to write
+the glyph: it **overwrites** whatever the baked table, the seed or that very
+harvest had resolved. Measured on the machine — browse `APPS/`, force one
+miss, browse it again, and DOS's slot goes `7effbfdfb1ff7e00` →
+`7e818181b17e3c00`, after which every `.EXE` composes its document icon with
+the wrong glyph in it. So `ico_put` answers with the row it took and the
+harvest completes it out of `LD_H_GLYPH`. A package that genuinely ships none
+keeps `ico_add`'s zeros, and a hit reducing its body is exactly
+`assoc_img_glyph`'s own fallback.
+
+**What the DECLARATION half costs, stated because it is the one thing a hit
+skips.** `assoc_note_app` merges a package header's §54.6 declarations and
+that header is in the sector a hit does not read. Nothing is lost in practice:
+the declaration was merged the first time that package was harvested, or by
+`asc_merge_ext` out of `ASSOC.DAT`, and `assoc_ext` is resident. This is the
+property `asc_lookup` already had about the cached path; it now covers one
+more path, and the failure mode if it is ever wrong is a document with the
+generic icon rather than anything about a load.
+
 ### 54.8 Accepting the document: five apps, and the three traps between them
 
 Note Pad, Paint, Tracker, ArtfulType and Frotz all take a document handed to
@@ -107763,10 +107895,15 @@ window in `HB_M_RESUME`. Any refusal is a toast and a deleted pointer.
 3. `cp_flush_close` (the Control Panel's unsaved settings, §31.8), then
    `drv_shutdown` (the fresh boot's drivers go) — `ui_cmd_reboot`'s order,
    as before any restart — then `gfx_lock`, `vid_reboot` to text mode.
-4. Copies the **stub**, its parameters, the fresh clock's ten bytes and the
+4. Copies the **stub**, its parameters, the fresh clock's ten bytes, the
+   elapsed-tick cell and the
    extents into the text framebuffer — `B800:0000` on a colour primary,
    `B000:0000` on a Hercules — which is the one RAM on the machine that no
-   rung of §2's ladder owns and every adapter has at least 16KB of. Puts the
+   rung of §2's ladder owns and every adapter has at least 16KB of. That
+   choice is `[vid_kind]`'s and `hb_wake` re-derives it from the same byte, so
+   the two cannot disagree here. **They can on the live route, where the other
+   host asks the BDA instead, which is why the segment is carried over there
+   rather than asked for twice (§96.49.6).** Puts the
    BIOS's own int 08h vector back (`sch_old08`), masks IRQ 1, 3, 4 — and 12
    on a machine that has a second 8259; an XT has none, and its port 0xA0 is
    the NMI mask register, §9.9.2 — so no
@@ -107804,6 +107941,17 @@ still up from step 3 of §87.4 and the gfx lock still held:
    area, where step 4 put the fresh boot's — the RTC ladder is boot-overlay
    code (§37.90) and cannot be run again, so the boot that just happened is the
    clock's source. `clk_last` is re-seeded from `[ticks]`.
+   **…AND ON THE LIVE ROUTE THERE WAS NO BOOT TO READ ONE** (§96.49). There the
+   ten bytes are the kernel's own as of the handover, and `HS_TICK0` carries
+   the BIOS tick at 0040:006C as it stood then — the one counter that runs on
+   both sides of the handover, because §8.1 keeps the IRQ0 rate at 18.2065 Hz
+   and the stub restores the IVT alone and never the BIOS data area. The
+   difference against the live counter is handed to `clk_tick` 32,768 ticks at
+   a time, which is that routine's own catch-up loop doing what it was written
+   for. A negative difference is midnight and one day is added back; a second
+   crossing keeps the handover's clock rather than guessing. `hbm_res` stages
+   `HS_TICK0` = 0xFFFFFFFF, which means *the clock above is already current*
+   and is what stops the reboot route counting the DOS session twice.
 3. **The disk caches are discarded** (§87.4): every private FAT window
    dropped (`dsk_fatw_drop`), the dirty range and the resident window marked
    empty, the read-ahead flushed, the write gate shut, the batch depths
@@ -123893,6 +124041,32 @@ one-bit difference straight into `AL`, and the window printed
 **`ended, exit code 002`** on one machine and `004` on the other. Two different
 numbers, one defect, and neither of them chosen by the program.
 
+#### 96.5.3 …and channel 0 came back in the ROM's mode, not the kernel's
+
+`dos_restore_machine` wrote **`0x36`** where `sched_init` writes **`0x34`**,
+under a comment saying *"PIT channel 0 back to the kernel's rate"*. The RATE
+is what it got right: both are divisor 0, so IRQ0 stays at 18.2065 Hz either
+way and the BIOS keeps time. The **mode** is the half it got wrong, and §8.1
+is the reason it matters — mode 2 decrements the counter by one per input
+clock, mode 3 by two with a wrap twice a period, so after a DOS program
+`65536 - latched` stopped being an elapsed time.
+
+Three things read exactly that: `sch_account`, which is the Task Manager's CPU
+shares; `sch_pit_now`, which is §34.1's animation clock in `wm.inc` and the
+sound driver's note deadlines. None of them fails loudly — a percentage is
+wrong, an animation is jerky — which is why it sat there.
+
+**IT IS ONE BYTE AND IT WAS NEVER ABOUT THE HANDOFF.** This routine runs on
+every WINDOWED program's exit, so an ordinary machine had been running the
+scheduler's clock in the wrong mode since the first DOS program anyone opened.
+It reaches the whole-machine arm too, because the core is shared (§96.44) and
+`dos_prog_done` is in it — which is why the live resume's IRQ0 rate measures
+18.2 Hz even with a program that took channel 0 for itself: the core's own
+teardown restores the divisor before `kd_leave` is reached. `hb_wake`
+reprograms it as well, and that is not redundancy for its own sake — §87.6
+step 1 asserts the PIT is the kernel's at a point where, on the live route,
+that rested on a DOS teardown nothing in the kernel can see.
+
 ### 96.6 Drives, and the hole in the map
 
 A DOS drive letter is an os8088 volume index and the map is the identity:
@@ -125484,7 +125658,7 @@ blank. Measured on `os8088_5150_cga_gla` at the first paint:
 ```
 conrows=17 concols=80  con_vrows=17 con_vtop=8 con_cy=4
   buf[ 1] 'os8088 DOS Version 3.31'
-  buf[ 3] 'Type a command, or the name of a program to run.'
+  buf[ 3] 'Type a command, the name of a program, or help.'
   buf[ 4] 'A:\>'
 ```
 
@@ -126406,6 +126580,26 @@ is what makes this smaller than the bug — and fixes a second thing on the way,
 since those refusal arms had always called `dos_con_draw` from the wake
 handler's context **without the gfx lock** it documents (§74.1).
 
+###### 96.33.17.2 …and it may only draw if it is still on top
+
+§96.33.17.1 gave the success arm a prompt, and the arm it gave it to runs
+AFTER `OSAPI_PKG_START` has returned — by which time the package's window is
+open and in front of the box. Reported off the glass one build later: Note Pad
+with a black band cut through its text and the console's own left-hand column
+showing through it.
+
+**A REPAINT FROM THE WAKE HANDLER HAS NO CLIP REGION.** The kernel arms one in
+front of `W_PAINT` and nowhere else (§11.3), so a package that draws from any
+other context draws over whatever is above it. That is not new and not this
+feature's — `dos_con_say` has always been able to do it — but nothing before
+this had a reason to draw at the exact moment a window was opening.
+
+`OSAPI_WM_OBSCURED` is the published gate (§11.3.1) and it answers the hidden
+case too, so it is the whole test. **A skipped draw loses nothing**: `con_say`
+has already marked the rows and the next real paint spends them, which is what
+raising the box does — so the prompt is there when the user looks at the
+console, which is the only moment they could see it anyway.
+
 ##### 96.33.21 A `.O88` takes a PATH, and may name a DOCUMENT after it
 
 §96.33.17 launched a package by BARE NAME and nothing else. `dos_con_pkg`
@@ -126577,6 +126771,87 @@ file should not cost a package launch. It walks with `dsh_nth` against a
 `dsh_to11` pattern — the same ordinal walk every other name in this box is
 decided by — and puts the machine back where the prompt is before it prints,
 because it had to stand in the document's folder to ask.
+
+##### 96.33.23 `HELP` — every verb, one line each, and NO pager
+
+A user who has just found the prompt has no way to learn what it takes.
+`HELP` lists every verb with at most one line about each, and the opening
+hint says so: *Type a command, the name of a program, or help.*
+
+**DOS 3.3 has no `HELP`** — it arrived with DOS 5 — so the verb is free on
+§96.33.22's own ground, and a `HELP.COM` on the disk still wins, the search
+running only after the verb table has declined.
+
+**IT IS NOT A `dsh_tab` ROW**, for §96.33.22's reason twice over: that table is
+in the DOS core, which has **thirty bytes** of `CORE_MAX` left and whose every
+byte is reserved by BOTH hosts — and nothing outside the console wants this.
+It is intercepted in `dos_con_prog` beside `OPEN` and costs the core nothing.
+
+###### 96.33.23.1 SIXTEEN lines, because that is what a CGA holds
+
+**MEASURED, not assumed**: `[con_vrows]` is **17** on a CGA and 25 on Hercules
+and VGA, and the DOS window is not user-resizable — it is drawn at whatever
+size the adapter gives it. Sixteen lines and the prompt that follows them
+therefore fit on every adapter this machine has.
+
+**So there is no pager at all**, and that is the whole reason this is cheap.
+`DIR /P`'s suspend-and-resume machinery (§96.33.9) would have cost ~150 bytes
+of pager, a `Strike a key` string of its own — `dsh_s_strike` is the CORE's —
+and two more hooks in `dos_con_key`, to page a listing that fits.
+
+**The limit is asserted at ASSEMBLY TIME.** `DHL` counts the lines it emits
+and a seventeenth fails the build, because the constraint is invisible at the
+call site: an over-long help would simply scroll its first line off a CGA and
+nothing would say so on the adapter anybody tests on.
+
+###### 96.33.23.2 …and why the text is NOT a part, YET
+
+Putting the text in a part of `DOS.O88` and reading it on demand is the right
+shape for it — it would cost no resident byte, it could grow as verbs are
+added, and a pager it outgrew one screen into would cost RAM only while it
+printed. It is refused **today**, on what the box actually has:
+
+**THE SHIPPED BOX CARRIES NO PARTS MACHINERY.** `DOS.O88` uses parts —
+`apps/dos/dosload.asm` fetches the `int 21h` core as an `OP_COMP | OP_LAZY`
+row — but that is the LOADER, which is freed the moment the box is running.
+The box is part 0, and its own `OS88_PARTS_BEGIN` is behind `%ifdef DOSTRACE`:
+a shipped `dosp.bin` has the row CONSTANTS (`os88parts.inc` with no table
+emits nothing, which is the property 96.44.5 relies on) and **not one byte of
+`op_fetch`**. Bringing the body in is the ~800 bytes `OS88_PARTS_END_TABLE`
+exists to avoid, to save 768.
+
+**And hand-rolling the read is not a small thing either.**
+`OSAPI_FILE_READ_AT` refuses an offset or a capacity that is not a whole
+number of CLUSTERS (18.4.4), and a part's offset inside `DOS.O88` is wherever
+`os88pkg.py` put it — so the box would need the cluster size, the offset
+rounded down to it in 32 bits, the slack kept, the capacity rounded up, and
+`OSAPI_DECOMP` driven over the result. That is bespoke arithmetic this package
+would be the only holder of, against a text of 768 bytes.
+
+**What would change the answer is a SECOND CONSUMER**, and that is the way to
+read this section. The moment anything else in the box wants a part — the
+Setup page's text, the console's own — the machinery arrives for all of them
+and `HELP` rides along for the cost of a table row. It is not refused on
+principle and the arithmetic is not close to permanent; it is refused because
+today it would be the only customer of a mechanism that costs more than the
+one thing it carries.
+
+**Two arguments that look like reasons here are not**, and both are written
+down because each was made once in this section's own history:
+
+* **A PERCENTAGE IS NOT AN ARGUMENT.** An earlier draft said the bytes were
+  *0.2% of the DOS arena* and let that settle it. Bytes are the unit — 768
+  here, 3.5 KB from a settings screen, 8.5 KB from a console are all bytes,
+  and each one of them has at some point been waved away by a share of
+  something bigger. The banner at the top of CLAUDE.md is about exactly this
+  and it applies to a package image as much as to a rung.
+* **THE DISK IS NOT A HAZARD HERE.** *"`HELP` would fail with the floppy
+  swapped out"* is true and does not bite: a box that cannot reach its own
+  file cannot reach `kern_dos` either, so the machine is already in a state
+  this program does not run in. Nor is the read cost one: a part this small is
+  dropped again the moment it has printed, so it is an `int 13h` EVERY time
+  and that is fine — `HELP` is typed once by somebody who does not know what
+  to type.
 
 ##### 96.33.19 …and the exit line says what the ARENA was
 
@@ -133595,6 +133870,114 @@ and never printing a fourth line, and the same one `kernel/hbmark.inc` states
 as the reason its trace stores directly instead of using `int 10h`. Three
 places in one path where printing and staging share a page; this was the one
 that had it backwards.
+
+#### 96.49.5 The clock came back as zero, because the routine that reads it was never written
+
+**Reported from the field as *"corrupted clock and/or crash and/or something
+else corrupted"*, on every DOS program rather than one.** Measured on
+`os8088_xt_hdd`: `00:01:18 04/07/2026` at the handoff and
+`00:00:18 00/00/0000` on the way back.
+
+`kd_resume` stages the ten clock bytes out of `KDL_CLK` — the kernel's own
+block, carried because two of them are `clk_rtc`/`clk_dirty` and nothing over
+here can know them — and then overwrote the six TIME fields from `clk_sn_*`,
+having called `cw_clk_snapshot` to fill them. **That routine is a bare
+`retf`.** It has been one since `kerndos/kdshim.inc` was written, under a
+comment saying it is *"the one stub that is NOT a stub"*, so what the six
+stores copied was cleared `.bss`: hour, minute, second, day, month and year
+all zero.
+
+Two of those are not merely wrong, they are **out of range**. `clk_mon` = 0
+indexes `clk_mnames` three bytes BEFORE the table and `clk_year` = 0 is below
+`CLK_YMIN`, so the menu bar's date is read off whatever precedes a string
+table — which is the *"corrupted"* the report names, and it is the clock
+doing it rather than something the clock is a symptom of.
+
+**The reboot route never had this and that is why *"it used to work"*.** W6
+came home through `int 19h`, and §87.5's `hbm_res` stages `clk_sec` — the
+FRESH BOOT's clock, read by a ladder that had just run. The live route landed
+two days before the report and is the only one that has to answer the question
+without a boot.
+
+**WRITING THE STUB THE WAY ITS COMMENT DESCRIBES WOULD NOT HAVE FIXED THIS.**
+The honest source here is not the ROM: a 5150 has no RTC at all (§37.90), so
+`int 1Ah AH=02h/04h` answers nothing on the machine most of these reports come
+off, and on a machine that does answer, the kernel's own clock was RTC-derived
+at the handoff anyway.
+What is actually missing is one quantity — **how long the DOS program ran** —
+and there is exactly one clock that runs on both sides of the handover to
+measure it with: the BIOS tick at 0040:006C. §8.1's PIT reprogramming keeps
+the IRQ0 RATE at 18.2065 Hz and `sch_isr` chains the ROM's handler on every
+tick, so that counter advances identically under os8088 and under `kern_dos`
+— and the stub restores the IVT alone, never the BIOS data area (§87.5), so
+it is still counting when the kernel comes back.
+
+So `hbm_dosrun` banks it beside `KDL_CLK` (`KDL_TICK`), `kd_resume` copies it
+into the staging area at `HS_TICK0`, and `hb_wake` subtracts it from the live
+counter and hands the difference to **`clk_tick`, which already does this**:
+that routine converts a tick delta to whole seconds and carries them through
+`clk_inc_sec` one at a time, and its own comment names *"an hour of held-open
+menu"* as the case it is written for. The catch-up is fed to it 32,768 ticks
+at a time — 30 minutes a pass, so a day is 48 far calls — which keeps every
+`mul`/`div` inside the range that routine already assumes and adds no date
+arithmetic anywhere. A negative delta is midnight, and one day (1,573,040
+ticks) is added back; a second crossing gives up and keeps the handoff clock,
+which is late but never invalid.
+
+`hbm_res` stages `HS_TICK0` = 0xFFFFFFFF, which is what says *"the clock above
+is already current"* — the reboot route's fresh boot has just read it, and
+adding an elapsed time on top of that would count the DOS session twice.
+
+The same `retf` is why a file a DOS program CREATES under the whole-machine
+arm is stamped 1980-01-01 (§18.6): `diskw.inc`'s `dskw_now` reads the same
+`clk_sn_*`. That is fixed with it, and by the same carried block — the
+snapshot is filled from `KDL_CLK`, so a file gets the time the program was
+launched. It is late by the program's own runtime and it is a real date.
+
+#### 96.49.6 The staging segment must be CARRIED, not asked for twice
+
+§96.49.2 fixed `kd_stageseg` so that it CAN return B000. It still asks the
+**BDA's video mode byte** at 0040:0049 — and that byte belongs to the DOS
+program, which is free to set any mode it likes and commonly does.
+
+`hb_wake` asks `hbm_stageseg`, which reads `[vid_kind]`. **The two answers are
+only equal while nothing has changed the mode.** `vid_text` sets BIOS mode 7
+on a Hercules primary and mode 3 otherwise — exactly `hbm_stageseg`'s
+B000/B800 split — so they agree at the moment of the handover and disagree the
+instant the program touches `int 10h AH=00h`.
+
+The reported case is one 256-byte program: `DIGIRAIN.COM` opens with
+`mov ax,0x0002 / int 0x10` and exits the same way, so the BDA reads 2 on a
+**Hercules** machine where the kernel will look at B000. `kd_resume` then
+stages the stub, the extents, the clock and the exit code at B800 and jumps
+there; the stub itself is self-consistent and runs, and `hb_wake` reads its
+ten clock bytes, its exit code and its arena figure out of the VISIBLE
+DESKTOP PAGE. That is `kd_stageseg` answering correctly about a question that
+had stopped being the right one.
+
+A VGA is the configuration where it bites without anyone's BIOS having to
+cooperate: a program that exits in mode 13h leaves B800 outside what the
+Graphics Controller decodes — mode 13h maps A000 alone — so everything staged
+is written to memory that is not there. **MEASURED on `os8088_xt_vga_hdd`
+before the fix**: the machine did come back, and came back with
+`[dos_state]` = 0 and no exit code, the staged cells having been lost; how
+much of that page answers at all is the emulator's business and not something
+to rest on, which is exactly why the segment is carried now instead.
+
+**So the kernel says where it will look.** `KDL_STAGE` carries
+`hbm_stageseg`'s own answer, `kd_resume` stages there, and `kd_stageseg`
+stays as the fallback for a block that does not carry one. And because the
+segment implies the mode, `kd_resume` re-establishes it — `int 10h AH=00h`
+with AL = 7 for B000 and 3 for B800 — which is `vid_text` one host along and
+buys three things at six bytes: the page is **mapped** whatever the program
+left behind, the BDA agrees with where we are writing, and the mode set
+clears and homes, so §96.49.4's scroll hazard cannot arise at all rather than
+being ordered around.
+
+The general rule is §87.5's map read the other way: **a quantity two hosts
+both derive is a quantity that can disagree, and the one that will be BELIEVED
+should be the one that is carried.** `HS_KSEG` is already in the staging area
+for exactly this reason, and this is the same finding one cell along.
 
 ### 96.50 The BIOS key buffer's guard, which the handoff took away
 

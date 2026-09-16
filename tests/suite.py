@@ -2576,7 +2576,7 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
-    Row("dosglyph", "soak", py("tests/dosglyph.py"), 60.0,
+    Row("dosglyph", "soak", py("tests/dosglyph.py"), 75.0,
         "a SHIPPED document glyph (SPEC.md 54.3.2) reaches every path the "
         "kernel fills a slot's glyph by - the baked table, the cache seed "
         "at a volume switch, a cache hit at a mount and a miss's harvest "
@@ -2587,7 +2587,21 @@ SOAK = [
         "tests/unit/t_docglyph.py is the host half. VERIFIED TO FAIL by "
         "forcing assoc_img_glyph's flag test off in kernel/assoc.inc: steps "
         "1-4 stay green and step 5 reads the reduction, which is the one "
-        "path that test guards",
+        "path that test guards. TWO LEGS CAME IN WITH SPEC.md 54.7.4, and "
+        "both are about the STORE outliving what it was filled from. Step 6 "
+        "re-enters the folder ONE MORE TIME with no poison: step 5 leaves a "
+        "store row behind, the next visit is a hit on it, and a harvest that "
+        "stored the body without the glyph left zeros there - so the hit "
+        "reduces and UNDOES step 5. Not a missing glyph, a worse one; "
+        "reported from the field as '.EXE icons are back to the downsized "
+        "full icon', and invisible to steps 1-5 because each of them looks "
+        "once and this needs the second look. Step 2b reads the composed "
+        "DOCUMENT row's key back out of the store: that body is the only one "
+        "there that is DERIVED, so the glyph it was composed from is in its "
+        "key - without which a slot created unresolved composes the bare "
+        "page and its documents draw it for the rest of the session even "
+        "after the glyph resolves. Both watched going red on their own "
+        "defect and no other leg",
         needs=("marty",), wants=("build/doscom360.img",)),
     Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
@@ -2787,6 +2801,30 @@ SOAK = [
         "(name, size) because it is the only identity available without a "
         "SECTOR READ - keying on either half alone over-merges and shows up "
         "here as too few rows.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
+    Row("ascabsorb", "soak", py("tests/ascabsorb.py"), 30.0,
+        "ASSOC.DAT'S BUFFER IS A FILE BUFFER (SPEC.md 54.7.4 / 25.9.4). The "
+        "volume's association cache was a 3KB claim held for the SESSION, and "
+        "2,560 of those bytes were icon bodies - the same pictures under the "
+        "same (stem, size) identity as SPEC.md 25.9's machine-wide store, "
+        "which is the duplication that whole design is against and was the "
+        "larger of the two copies. asc_use absorbs every row's body into the "
+        "store and frees the claim before it returns. Four verdicts: after a "
+        "mount there is NO MEM_K_ASC record in mem_tab and asc_seg is 0 - "
+        "asserted on the ALLOCATOR and not on the variable, because the "
+        "variable alone passes if the claim is LEAKED instead of freed, which "
+        "is the one way this could be worse than what it replaced; the bodies "
+        "survived, measured as a ROOT mount storing the whole volume's "
+        "packages (ASSOC.DAT covers the volume, and they live one folder down "
+        "so nothing has listed them); entering that folder then adds almost "
+        "nothing, which is the saving as a number; and a SHED clears asc_vol, "
+        "because the stamp means 'this volume is in the store' now and a "
+        "purged store that still claims it would cost a sector per package - "
+        "400 ms of int 13h apiece on the target machine. All four watched "
+        "going red: asc_drop removed fails 'gone' with the record still "
+        "there, asc_absorb removed fails 'absorbed' at the root count, and "
+        "ico_need's stamp clear removed fails 'stamp'.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
     Row("dosmcb", "soak", py("tests/dosmcb.py"), 30.0,
@@ -3267,6 +3305,78 @@ SOAK = [
         "is kdreturn's own assertions on os8088_5150_herc_hdd_gla, which went "
         "red on its first run. MartyPC.",
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnmode", "soak",
+        py("tests/kdreturn.py", "--mode", "--machine",
+           "os8088_5150_herc_hdd_gla"), 38.0,
+        "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT SETS A BIOS VIDEO "
+        "MODE (SPEC.md 96.49.6). 96.49.2 fixed kd_stageseg so it CAN answer "
+        "B000; it still answers out of the BDA's video mode byte at "
+        "0040:0049, and THAT BYTE BELONGS TO THE DOS PROGRAM. hb_wake asks "
+        "[vid_kind] instead, so the two agree only while nothing has changed "
+        "the mode - and the field's own repro is DIGIRAIN.COM, 256 bytes "
+        "whose last act before AH=4Ch is `mov ax,2 / int 10h`. DOSMODE.COM is "
+        "DOSHELLO built -DMODESET=2, which is that instruction and nothing "
+        "else. THE SEGMENT IS CARRIED NOW rather than derived twice - "
+        "KDL_STAGE is hbm_stageseg's own answer - and kd_resume sets mode 3 "
+        "on a colour primary so B800 EXISTS whatever the program left "
+        "behind. WHAT THIS ARM CANNOT DO IS GO RED ON ITS OWN MACHINE, and "
+        "that is worth writing down rather than discovering: GLaBIOS on a "
+        "mono-only 5150 forces mode 7 back, so the BDA still reads 7 and both "
+        "hosts still say B000. It is here for the configuration whose BIOS "
+        "does not - a VGA+MDA machine - and because a quantity two hosts both "
+        "DERIVE is one that can disagree. kdreturngfx is the arm that goes "
+        "red. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSMODE.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturngfx", "soak",
+        py("tests/kdreturn.py", "--gfx", "--machine", "os8088_xt_vga_hdd"),
+        40.0,
+        "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT EXITS IN A GRAPHICS "
+        "MODE (SPEC.md 96.49.6), which is the arm that goes RED. In mode 13h "
+        "a VGA decodes A000 ALONE - the Graphics Controller's memory map "
+        "field says so - so B800 is outside what the card answers, and "
+        "kd_stageseg answers B800 because that is what the BDA's 0x13 means "
+        "to it. VERIFIED RED before the fix: the machine came back with "
+        "[dos_state] = 0 and no exit code, every staged cell having been "
+        "written to memory that is not there. DOSGFX.COM is DOSHELLO built "
+        "-DMODESET=0x13, and a DOS game that exits without restoring text "
+        "mode is not exotic - it is most of them. The fix is two things at "
+        "once: the staging segment is CARRIED from the kernel (KDL_STAGE) "
+        "rather than asked for a second time, and kd_resume sets mode 3 on a "
+        "colour primary before it stages, which also CLEARS AND HOMES and so "
+        "retires 96.49.4's scroll hazard rather than ordering around it. "
+        "MartyPC, and it needs a VGA: on a CGA B800 is the framebuffer and is "
+        "mapped in every mode the card has.",
+        wants=("build/kdos/DOS.O88", "build/DOSGFX.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnpit", "soak", py("tests/kdreturn.py", "--pit"), 38.0,
+        "...AND THE MACHINE'S TIMEBASE SURVIVES A PROGRAM THAT TAKES PIT "
+        "CHANNEL 0 (SPEC.md 96.5, 96.5.3). DOSPIT.COM is DOSHELLO built "
+        "-DPITFAST: it reprograms channel 0 to 0x4000 - four times fast - and "
+        "never gives it back, which is what a DOS game does when it wants a "
+        "clock smoother than 18.2 Hz. MEASURED at each stage: 18.2 Hz on the "
+        "desktop, 72.8 while the program runs WINDOWED (the whole OS runs at "
+        "the program's rate, by design), 72.8 under kern_dos, 18.2 after the "
+        "return. THE OUTCOME IS HELD BY TWO INDEPENDENT RESTORES - "
+        "dos_restore_machine, which is in the SHARED CORE (SPEC.md 96.44) and "
+        "so runs on both hosts, and hb_wake's own, which SPEC.md 87.6 step 1 "
+        "needs to make its claim true on a route with no sched_init in front "
+        "of it. The row asserts the OUTCOME rather than either mechanism, so "
+        "removing one leaves it green and removing BOTH is what it catches. "
+        "VERIFIED RED that way: 72.8 Hz on the resumed desktop, and the clock "
+        "with it - it reported 309 seconds of a 60-second round trip, which "
+        "is the compound damage in one line. **WHAT IT DOES NOT COVER is the "
+        "MODE**, which is 96.5.3's own defect and is not observable from the "
+        "host: the same routine wrote 0x36 where sched_init writes 0x34, so "
+        "channel 0 came back in the ROM's mode 3 after every DOS program ever "
+        "run in a WINDOW - same rate, and `65536 - latched` no longer an "
+        "elapsed time. Fixed at the source and said out loud here so the next "
+        "reader does not take a green row for cover it has not got. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSPIT.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
@@ -3787,7 +3897,7 @@ SOAK = [
         "root holds 21 entries and DIR shows FIVE, sixteen being hidden or "
         "system, which DOS does not list and neither do we. **AND STEP 5 IS 96.33.13**: `CD BIN` then a bare name must resolve to B:\\BIN\\NAME.COM, not to the volume root. `CD` moves [dos_curdir] and dos_path_take's no-separator arm left [dos_dir] - the LAUNCH folder - so from the second directory onward every bare name looked in the first one, and the failure arrives as a read error about a file DIR has just listed.",
         needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
-    Row("dosconcga", "soak", py("tests/dosconcga.py"), 120.0,
+    Row("dosconcga", "soak", py("tests/dosconcga.py"), 150.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
         "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "
         "is which buffer row the band starts at. It was CON_ROWS - "
@@ -3810,7 +3920,13 @@ SOAK = [
         "again, because the viewport shift is spent as [con_scrl] and a shift "
         "that is not spent leaves the band showing the old rows. VERIFIED TO "
         "FAIL with vtop back on CON_ROWS - vrows: vtop 8, cy 4, nothing in "
-        "view.",
+        "view."
+        " AND IT IS WHERE HELP`S SIXTEEN-LINE LIMIT IS DECIDED (96.33.23.1): "
+        "HELP has no pager, and the only reason it may not have one is that "
+        "its lines plus the prompt after them fit a CGA`s 17 rows - a "
+        "Hercules has 25 and could never show the constraint. The assembler "
+        "counts the lines (DHL`s DH_LINES); this counts what a user can SEE, "
+        "which is the thing the count is a proxy for.",
         needs=("marty",), serial=True),
     Row("dirwshed", "soak", py("tests/dirwshed.py"), 45.0,
         "THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE "
@@ -4007,14 +4123,27 @@ SOAK = [
         "the cursor at column 0 of a bare line, so the second command had no "
         "`A:\\>` in front of it - 96.33.17's gap rather than this feature's, "
         "a DOS program's prompt coming back with its EXIT LINE and a package "
-        "having none, so BOTH spellings are asserted. "
+        "having none, so BOTH spellings are asserted - and the fix for THAT "
+        "opened the next one (96.33.17.2): the prompt is printed after "
+        "OSAPI_PKG_START returns, so the package's window is already in "
+        "front, and a repaint from the wake handler has NO CLIP REGION, the "
+        "kernel arming one in front of W_PAINT and nowhere else. Reported off "
+        "the glass as Note Pad with a black band through it. Asserted on "
+        "GUEST STATE: [con_drb] is the console's dirty-ROW bitmap, so marks "
+        "kept rather than spent is exactly what `the draw was skipped` means "
+        "- and raising the box must then spend them, or a skipped draw would "
+        "cost the prompt. HELP is asserted here too (96.33.23) - that it PRINTS "
+        "whole, that the opening hint NAMES it (checked at the top, the "
+        "console being a 25-row screen rather than a log, so by the HELP case "
+        "the banner has scrolled off), and that it leaves a prompt. That it "
+        "FITS is dosconcga`s, on the CGA band that decides it. "
         "The third needs a file no shipped "
         "disk has (every visible document on both is associated, and the "
         "unclaimed ones in the root are HIDDEN), so the row MAKES one with "
         "the box`s own COPY onto the scratch B:. VERIFIED RED once more on "
         "the way: `.nodoc` was placed between `jnc .out` and `.bad`, so every "
         "refusal the LAUNCH earned fell through it and came back `File not "
-        "found` about a document that was there. 169.7s measured.",
+        "found` about a document that was there. 173.2s measured.",
         needs=("marty",), serial=True),
     Row("dosext", "soak", py("tests/dosext.py"), 170.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
@@ -5536,18 +5665,29 @@ SOAK = [
         "CF, so the read compared 14,722 against a claim still at 1,024 and "
         "the file API answered the only thing it can, FERR_BIG: a MEMORY "
         "refusal reported as a sentence about the FILE, which sent the field "
-        "looking for a size limit that was not the cause. Four verdicts on "
+        "looking for a size limit that was not the cause. FIVE verdicts on "
         "the 128KB floor machine, driving Note Pad's own File > Open: the "
         "manual loads (np_len 14,427, the CRLF file folded, with the claim "
-        "at NP_MAXKB); a refused load leaves the note alone; PAINT.O88 at "
-        "21,285 bytes still says 'Too big' - the POSITIVE CONTROL, because "
-        "a Note Pad that had simply stopped saying it would pass every "
-        "other leg; and a SECOND Note Pad, which genuinely cannot be funded "
-        "here, says 'No memory'. The toast is read out of toast_buf and not "
+        "at NP_MAXKB); THE CACHES FELL to pay for it (19,456 -> 11,264), "
+        "which is the leg's real subject and was asserted from the free run "
+        "before - wrongly, because the run is read before the dialog and "
+        "FDLG.DRV's own image comes out of it, so a row printing 'a 16KB run "
+        "was already free, this did NOT exercise the shed' said so while the "
+        "shed was what funded the load; a refused load leaves the note "
+        "alone; PAINT.O88 at 21,285 bytes still says 'Too big' - the "
+        "POSITIVE CONTROL, because a Note Pad that had simply stopped saying "
+        "it would pass every other leg; and a SECOND Note Pad, which "
+        "genuinely cannot be funded here, says 'No memory'. That last one "
+        "empties the first note (File > New) before it launches, and has to: "
+        "two instances AND a grown document leave no 14,336-byte run for the "
+        "second region, so the row would die in the LOADER with LD_ENOMEM "
+        "before it read a toast - which is small128's subject and not this "
+        "row's. The toast is read out of toast_buf and not "
         "off the glass: it expires on a tick count (SPEC.md 59), so a settle "
         "long enough to be sure a load finished is long enough to lose it. "
         "Both halves were watched going red - the shed removed fails "
-        "'loaded' with np_len 0, and 27.6.1's compare removed fails 'nomem' "
+        "'loaded', 'shed', 'toobig' and 'intact', and 27.6.1's compare "
+        "removed fails 'nomem' alone "
         "reading 'Too big', which is the field report exactly. It builds its "
         "own kern_small into a private tree, and the row is on the SMALL "
         "kernel because that is where the heap is tight enough to reach it - "

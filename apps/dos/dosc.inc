@@ -388,6 +388,14 @@ dos_con_prog:
     clc
     ret
 .notopen:
+    mov si, dsh_verb                ; ...and HELP, the same door for the same
+    mov di, dos_c_help              ; reason (SPEC.md 96.33.23)
+    call dosc_ceq
+    jc .nothelp
+    call dos_con_help
+    clc
+    ret
+.nothelp:
     mov byte [dos_ispkg], 0
     call dos_con_ext                ; **`PRINCE` IS `PRINCE.COM` OR `PRINCE.EXE`**
     jc .no                          ; (SPEC.md 96.33.7). It hands back dsh_a1 =
@@ -597,6 +605,35 @@ dos_con_open:
     mov si, dos_c_crlf
     call con_say
     call dos_prompt
+    call dos_con_draw
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_con_help - `HELP`: every verb, one line each (SPEC.md 96.33.23)
+; in:  nothing; UI task under W_ONKEY, gfx lock HELD
+; out: nothing; clobbers AX, SI
+;
+; WINDOW SIDE, and not a `dsh_tab` row, for `OPEN`'s reason twice over: that
+; table is in the DOS CORE, which has THIRTY BYTES of CORE_MAX left and whose
+; every byte is reserved by BOTH hosts - and nothing outside the console wants
+; this.
+;
+; **AND IT DOES NOT PAGE**, which is the whole of why it is small. The text is
+; cut to SIXTEEN lines because the shortest console this machine has is CGA's
+; 17-row band - measured, `[con_vrows]` = 17 there and 25 on Hercules and VGA
+; - and the window is not user-resizable. So sixteen lines and the prompt that
+; follows them fit on every adapter, and `DIR /P`'s suspend-and-resume
+; machinery is not needed at all: ~150 bytes of pager, a `Strike a key` string
+; of its own and two more hooks in `dos_con_key` that this does not spend.
+; -----------------------------------------------------------------------------
+dos_con_help:
+    mov si, dos_h_text
+    call con_say
+    call dos_prompt                 ; **IT OWES ONE** (96.33.17.1's rule, one
+                                    ; verb along): dos_con_prog answers CF=0
+                                    ; here and dos_con_run reads that as `it is
+                                    ; launching, the prompt comes with the exit
+                                    ; line` - and a built-in has no exit line
     call dos_con_draw
     ret
 
@@ -845,6 +882,21 @@ dos_pkg_go:
     call con_say
 .prompt:
     call dos_prompt
+    ; --- ...AND ONLY IF WE ARE STILL ON TOP (SPEC.md 96.33.17.2) -----------
+    ; **A SUCCESSFUL LAUNCH HAS JUST PUT A WINDOW OVER US.** This is not a
+    ; paint callback, so no clip region is armed - the kernel arms one in
+    ; front of W_PAINT and nowhere else - and a console repaint from here
+    ; goes straight over whatever the package opened. Reported off the glass
+    ; as Note Pad with a black band cut through it and console text down its
+    ; left edge.
+    ;
+    ; OSAPI_WM_OBSCURED is the published gate for exactly this (SPEC.md
+    ; 11.3.1) and it answers the hidden case too, so it is the whole test. A
+    ; skipped draw loses NOTHING: con_say has already marked the rows, and
+    ; the next real paint - which is what raising the box does - spends them.
+    mov bx, [dos_win]
+    call OSAPI_WM_OBSCURED
+    jc .out
     ; **AND THE DRAW TAKES THE LOCK**, because dos_pkg_go is the WAKE
     ; handler's context and dos_con_draw wants it held (SPEC.md 74.1). The
     ; refusal arms have always drawn from here unlocked; sharing one epilogue
@@ -1304,7 +1356,7 @@ dos_con_say:
     pop ax
     ret
 
-dos_c_hint:  db 13, 10, 'Type a command, or the name of a program to run.'
+dos_c_hint:  db 13, 10, 'Type a command, the name of a program, or help.'
              db 13, 10, 0
 dos_c_start: db 'Starting ', 0   ; ...and the line that opens one (96.33.20.1)
 dos_c_exit:  db ' ended, exit code ', 0
@@ -1317,6 +1369,40 @@ dos_c_com:   db '.COM', 0     ; ...and the ORDER is the contract
 dos_c_exe:   db '.EXE', 0
 dos_c_o88:   db '.O88', 0     ; ...and this one is not a DOS program at all
 dos_s_nopkg: db 'Cannot open ', 0
+dos_c_help:  db 'HELP', 0          ; SPEC.md 96.33.23. DOS 3.3 has no HELP
+                                   ; either - it arrived with DOS 5 - so the
+                                   ; verb is free on OPEN's own ground
+
+; --- DHL - one help line, COUNTED (SPEC.md 96.33.23.1) ----------------------
+; The count emits nothing and is what makes the sixteen-line limit a BUILD
+; failure rather than a line that scrolls off a CGA in silence.
+%assign DH_LINES 0
+%macro DHL 1
+    db %1, 13, 10
+    %assign DH_LINES DH_LINES + 1
+%endmacro
+dos_h_text:
+    DHL 'CD [path]     Change directory. CD .. goes up.'
+    DHL 'COPY a b      Copy a file. Wildcards allowed.'
+    DHL 'DEL name      Delete a file. ERASE is the same.'
+    DHL 'DIR [/P][/W]  List this folder. /P pages it, /W is columns.'
+    DHL 'ECHO text     Print the text.'
+    DHL 'MD / RD name  Make or remove a directory. MKDIR/RMDIR the same.'
+    DHL 'MOVE a b      Move or rename a file.'
+    DHL 'OPEN file     Open a document with the program that claims it.'
+    DHL 'REM text      A note. Does nothing.'
+    DHL 'REN old new   Rename a file. RENAME is the same.'
+    DHL 'TYPE file     Print a text file.'
+    DHL 'VER           Say what this is.'
+    DHL 'XCOPY a b     Copy a folder and all under it.'
+    DHL 'A:            A drive letter on its own changes drive.'
+    DHL 'NAME [arg]    Run a program, or open a document with it.'
+    DHL "cmd > file    Send output to a file, or to NUL."
+    db 0
+%if DH_LINES > 16
+  %error "HELP is over SIXTEEN lines: CGA's band is 17 rows ([con_vrows], measured), and the prompt that follows takes one - so a seventeenth line scrolls the first off a machine nobody tests on. Cut a line, or give HELP a pager and the part 96.33.23.2 costs."
+%endif
+
 dos_c_open:  db 'OPEN', 0          ; SPEC.md 96.33.22, and DOS 3.3 has no such
                                    ; verb, so taking it costs no compatibility
 ; **BOTH OF THESE REPLACED ONE STRING THAT WAS WRONG TWICE** (SPEC.md

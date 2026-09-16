@@ -5078,6 +5078,27 @@ kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.i
 $(BUILD)/DOSHELLO.COM: tests/doscom/hello.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/doscom/hello.asm
 
+# ...AND THE SAME PROGRAM WITH ONE `int 10h` IN FRONT OF IT (SPEC.md 96.49.6).
+# The BDA's video mode byte is the DOS PROGRAM's, and the live resume used to
+# resolve its staging segment out of it while the kernel resolved the same
+# segment out of `[vid_kind]`. Every row in this tree drives DOSHELLO, which
+# sets no mode at all, so the two agreed on every machine and the defect was
+# invisible - it is the field's own 256-byte `DIGIRAIN.COM` that sets mode 2
+# and comes home with a corrupted clock. One define rather than a second
+# source: what the arm changes is one instruction, and a copy of the file
+# would be a copy that drifts.
+$(BUILD)/DOSMODE.COM: tests/doscom/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DMODESET=0x0002 -o $@ tests/doscom/hello.asm
+
+# ...and the same thing in a VGA GRAPHICS mode, where B800 is not decoded at
+# all, and the same thing again having taken PIT channel 0 for itself and not
+# given it back - which is what a DOS game does (SPEC.md 87.6 step 1).
+$(BUILD)/DOSGFX.COM: tests/doscom/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DMODESET=0x0013 -o $@ tests/doscom/hello.asm
+
+$(BUILD)/DOSPIT.COM: tests/doscom/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DPITFAST -o $@ tests/doscom/hello.asm
+
 # THE GATE DISK CARRIES THE PROGRAM AND NOT THE HANDLER, deliberately. DOS.O88
 # is on the SYSTEM disk in APPS/, so this is the arrangement a user actually
 # has - a floppy of DOS programs in B: - and it is the one that was BROKEN
