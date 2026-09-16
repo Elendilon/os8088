@@ -27064,7 +27064,8 @@ the §18.1 variables from the derived layout.
    for each accepted entry synthesize the §19 staged entry in `dsk_ent`
    (kernel scratch — DS never leaves the kernel segment while parsing;
    raw fields are read via es: from `dsk_secbuf`), then `rep movsw` it
-   out to `disk_dir` + accepted×32 (ES=`LOW_SEG`). Stop when 32 entries
+   out to `disk_dir` + accepted×`DSK_DE_STRIDE` (ES=`LOW_SEG`). Stop when
+   `DSK_NENT` entries
    are accepted (§19 cap).
 4. **Icon harvest.** For each accepted entry i: type≠1 → zero the 64-byte
    slot `disk_icons` + i×64 (ES=`LOW_SEG` `rep stosw`) — the generic-icon
@@ -32541,7 +32542,8 @@ free entries and bad marks into one case. A cross-linked FAT could cycle
 forever, though — a directory walk has no file size to bound it the way
 `dsk_read_chain` does — so **`DSK_DIRW_MAX` = 256 sectors** caps any one
 walk. 256 sectors is 4,096 entries, past anything real and far past the
-32-entry listing cap.
+`DSK_NENT`-entry listing cap (64 since SPEC.md 25.9 took the icon bodies out
+of the listing and paid for the entries with them).
 
 **Navigation is a remount — and navigation is the thing that is.** The rule
 is about a user moving around a file system UI, not about the disk being
@@ -33287,7 +33289,8 @@ Three consequences worth stating:
   because those two can disagree: a `..` whose on-disk link is unreadable
   gets **cluster 0, the root**, rather than no row at all, so the user is
   never stranded in a folder whose only way out is Root Folder.
-- **The 32-entry cap costs one slot in a subdirectory**: 31 real entries
+- **The `DSK_NENT` cap costs one slot in a subdirectory**: `DSK_NENT`-1 real
+  entries
   plus the link.
 - **The write path never sees it.** `dskw_find` scans the raw on-disk
   directory, not `disk_dir`, and `dskw_name83` rejects a leading dot, so
@@ -39684,20 +39687,20 @@ out of it lands in the folder it used to live in.
 
 ### 22.6 The listing has a home, not an address
 
-`disk_dir` and `disk_icons` were two fixed `.lowbss` labels and a hard 32-entry
+`disk_dir` and `disk_icons` were two fixed `.lowbss` labels and a hard 32-entry (as it then was)
 cap. They are now **four words** — `[dsk_dseg]`, `[dsk_doff]`, `[dsk_ioff]`,
 `[dsk_nmax]` — so there is one code path with two configurations:
 
 | | segment | entries | icons | cap |
 |---|---|---|---|---|
-| a BIOS floppy | `LOW_SEG` | `disk_dir` | `disk_icons` | `DSK_NENT` = 32 |
+| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 |
 | a driver-backed volume | its driver's claim | 0 | `DSK_VENT × 32` | `DSK_VENT` = 64 |
 
 The claim is **6KB** — 64 × (32 bytes of entry + 64 bytes of icon) — made by
 the driver before it calls `osapi_vol_add` and handed over with the volume
 (§18.7). A driver that cannot fund it passes 0 and the volume lists into the
 kernel's own floor, which works and shows fewer files: refusal is a normal
-path (§50.3), and a hard disk's root is the one place 32 entries starts to
+path (§50.3), and a hard disk's root is the one place a floppy's cap starts to
 hurt.
 
 Nothing downstream learned anything. `dsk_get_dir` and `dsk_get_icon` already
