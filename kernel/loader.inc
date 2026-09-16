@@ -1483,12 +1483,11 @@ ld_pkg_start_x:
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
 ldf_ld_pkg_start:
-    mov word [ld_pwin], 0       ; no poster. NOTHING ON EITHER ARM READS IT -
-                                ; loader_run_x is the only reader and that is
-                                ; the INDEX door - so this is here to keep the
-                                ; no-poster callers identical (ui.inc writes
-                                ; it at the same seam) rather than because the
-                                ; load needs it
+    ; [ld_pwin] is NOT zeroed here, and that is a cut rather than an omission
+    ; (SPEC.md 21.5.2): loader_run_x is its only reader, the PKG_START path
+    ; never enters loader_run_x, and every caller of loader_run sets [ld_pwin]
+    ; itself before the read (ui.inc and files.inc, at the seam this used to
+    ; mirror). A store nothing on either arm reads is dead weight.
     mov byte [ld_painted], 0
     call ld_pkg_start_x         ; AL = LD_*
     push ax

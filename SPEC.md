@@ -37111,6 +37111,12 @@ is not the pristine tree's; against that tree the two together are `.text`
 +86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
 one, which was measured on its own before the zone was rewritten.
 
+**Since measured, two of those bytes came back.** §20.3.2 deleted the
+resident thunk — the `N` cell far-calls `ldf_ld_pkg_start` in the cold
+segment directly — so the `.text +18` above is `.text +12` now (the table
+cell and `cw_inst_caller`), and `ldf_ld_pkg_start` no longer zeroes
+`[ld_pwin]`, a store nothing on either arm reads (−6 `.cold`).
+
 ## 22. files.inc — the Disk window (file manager)
 
 Built-in app kind (KIND_FILES), **cap 4** — up to four windows, each on its
