@@ -2724,8 +2724,17 @@ dos_int21:
     shl bx, 1
     shl bx, 1
     mov [es:bx], dx
-    mov ax, [bp]                    ; ...and the PROGRAM's DS, off the frame
-    mov [es:bx+2], ax
+    ; ...and the PROGRAM's DS, off the frame - THROUGH THE STACK AND NOT
+    ; THROUGH AX (SPEC.md 96.7.1.3). AH=25h answers nothing, so AX is the
+    ; program's: `mov ax, [bp]` handed it back its own DS, and the idiom that
+    ; catches it is `mov ax, 2534h / int 21h / inc ax / loop` - eight vectors
+    ; installed by INCREMENTING AX, which is how Borland's 8087 emulator
+    ; hooks 34h..3Bh and so how every Turbo-compiled program starts. The
+    ; second pass then ran with a fabricated AH: 41h DELETE FILE and then
+    ; 00h TERMINATE, which is BOLOBALL dying before its first frame (96.7.1.3.1).
+    ; The push/pop pair assembles to the same SEVEN bytes as the two moves.
+    push word [bp]
+    pop word [es:bx+2]
     pop es
     pop bx
     jmp .ok
