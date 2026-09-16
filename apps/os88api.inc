@@ -887,6 +887,38 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; the image arguments being set by a caller
                                  ; that meant the by-name form.
                                  ;
+                                 ; ...AND WITH DX:CX = 0, ES:DI IS A DOCUMENT
+                                 ; to open the package with (SPEC.md 21.5.3):
+                                 ; 13 bytes of NUL 8.3 name, then the
+                                 ; directory WORD, then the volume BYTE - the
+                                 ; shape OSAPI_ARG_FILE answers with, so the
+                                 ; package cannot tell this launch from a
+                                 ; DOUBLE-CLICK and needs no change at all.
+                                 ; **ES = 0 MEANS "NOTHING THROUGH ES:DI"** on
+                                 ; both arms, which is one sentence rather
+                                 ; than two rules; zero it if you mean the
+                                 ; plain form.
+                                 ;
+                                 ; With a document the NAME MAY BE EMPTY -
+                                 ; SI -> "" - meaning THE DOCUMENT'S
+                                 ; EXTENSION NAMES THE PROGRAM, which is the
+                                 ; double-click's own question. A null SI is
+                                 ; not the sentinel: this is an N cell and the
+                                 ; stub stages your name before the body runs.
+                                 ;
+                                 ; A document is located by the HINT CACHE and
+                                 ; not in the folder you stand in, which is
+                                 ; why you may open one with a program that is
+                                 ; somewhere else entirely. The answer is
+                                 ; THINNER on this arm: CF=0 means the launch
+                                 ; was carried out and the user has been told
+                                 ; how it went, CF=1/AL=LD_EBAD means nothing
+                                 ; on this machine opens it. Want a richer
+                                 ; answer? Use the plain arm and a name.
+                                 ; kern_small has no associations (54.0), so
+                                 ; there the document is ignored and the name
+                                 ; still runs.
+                                 ;
                                  ; Out CF=0 with AX = 0: it is registered,
                                  ; published and its window shown, exactly as
                                  ; a Disk-window double-click leaves one.

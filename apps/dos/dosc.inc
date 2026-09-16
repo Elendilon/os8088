@@ -368,6 +368,26 @@ dos_con_run:
 ; verb handlers are handed and what the arguments field wants.
 ; -----------------------------------------------------------------------------
 dos_con_prog:
+    ; --- `OPEN <document>` (SPEC.md 96.33.22) ------------------------------
+    ; **INTERCEPTED HERE AND NOT A dsh_tab ROW**, which is a placement fact
+    ; rather than a style choice: dsh_tab is in the DOS CORE (doscore.asm,
+    ; 96.44), which has no path resolver, reaches the file system only through
+    ; the twenty dos_k_* doors, and is capped by CORE_MAX - a row there stops
+    ; the build with *the DOS core outgrew CORE_MAX*, and BOTH hosts reserve
+    ; that space, so a byte there is a byte off each of them. The window side
+    ; is where dos_path_take already lives, so the verb costs the core NOTHING.
+    ;
+    ; It runs BEFORE the program search, and `OPEN.COM` still wins anyway:
+    ; 96.33.7's search is only reached once the verb table has declined, and
+    ; this verb is not in that table.
+    mov si, dsh_verb
+    mov di, dos_c_open
+    call dosc_ceq
+    jc .notopen
+    call dos_con_open
+    clc
+    ret
+.notopen:
     mov byte [dos_ispkg], 0
     call dos_con_ext                ; **`PRINCE` IS `PRINCE.COM` OR `PRINCE.EXE`**
     jc .no                          ; (SPEC.md 96.33.7). It hands back dsh_a1 =
@@ -475,6 +495,104 @@ dos_con_prog:
     ret
 
 ; -----------------------------------------------------------------------------
+; dosc_ceq - DS:SI vs DS:DI, NUL strings, case-insensitive. CF=0 = equal
+;
+; Its own because dos_ceq is inside the CORE half (%ifndef DOS_EXTCORE) and
+; this is the window's - the same two rooms 96.33.22 is about.
+; -----------------------------------------------------------------------------
+dosc_ceq:
+    push ax
+    push si
+    push di
+.c:
+    mov al, [si]
+    call dos_upc
+    mov ah, al                  ; the TYPED character, upper-cased FIRST - the
+    mov al, [di]                ; order 96.33.15.1 cost a release to get right
+    call dos_upc
+    cmp al, ah
+    jne .no
+    or al, al
+    jz .yes
+    inc si
+    inc di
+    jmp short .c
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+.yes:
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_con_open - `OPEN <document>`: the double-click, typed (SPEC.md 96.33.22)
+; in:  the line is in dsh_line; UI task under W_ONKEY, gfx lock HELD
+; out: nothing; clobbers everything but the segments
+;
+; It is 96.33.21.1 with the program name left out, which is exactly what
+; OSAPI_PKG_START's empty-name form is for (21.5.3) - so the two share the
+; posted-launch machinery and differ in one byte of dos_pkgn.
+; -----------------------------------------------------------------------------
+dos_con_open:
+    mov si, dsh_line
+    call dsh_skipsp
+    mov di, dsh_a1
+    call dsh_cmdword                ; step over the verb itself; SI walks on
+    call dsh_skipsp                 ; to what is being opened
+    cmp byte [si], 0
+    je .bad
+    call dos_path_take_si
+    jc .bad
+    mov si, dos_tname
+    mov di, dos_pgdoc
+    mov cx, 13
+.cp:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jz .named
+    loop .cp
+    mov byte [di-1], 0
+.named:
+    mov ax, [dos_pgdir]
+    mov [dos_pgdoc+13], ax
+    mov al, [dos_pgvol]
+    mov [dos_pgdoc+15], al
+    mov byte [dos_pghas], 1
+    mov byte [dos_pkgn], 0          ; **THE EMPTY NAME** (SPEC.md 21.5.3): the
+                                    ; document's extension names the program
+    mov ax, [dos_curdir]            ; ...and we stand where the PROMPT is: the
+    mov [dos_pgpdir], ax            ; document carries its own dir and volume,
+    mov al, [dos_vol]               ; and the kernel locates the program by
+    mov [dos_pgpvol], al            ; the hint cache from wherever we are
+    mov byte [dos_pkgq], 1          ; POSTED, for dos_con_pkg's reason: the
+    mov bx, [dos_win]               ; slot wants the gfx lock FREE and W_ONKEY
+    call OSAPI_WM_WAKE              ; holds it
+    cmp byte [dos_fsxup], 0
+    je .wind
+    mov byte [dos_fsxgo], 1         ; the console has the screen (96.33.16)
+    ret
+.wind:
+    call dos_con_draw
+    ret
+.bad:
+    mov si, dos_s_noopen
+    call con_say
+    mov si, dos_c_crlf
+    call con_say
+    call dos_prompt
+    call dos_con_draw
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_con_pkg - a `.O88` typed at the prompt: hand it to the OS (96.33.17)
 ; in:  [dsh_a1] = the name, as typed; reached from dos_con_prog
 ; out: CF=0 - it is queued, so the caller treats it as a launch
@@ -496,7 +614,22 @@ dos_con_prog:
 dos_con_pkg:
     push si
     push di
+    ; --- THE TYPED TEXT IS A PATH (SPEC.md 96.33.21) -----------------------
+    ; It was copied straight into a 13-byte cell, so `B:\APPS\CALC.O88` was
+    ; truncated to twelve characters of PATH, resolved against the prompt's
+    ; own folder, and answered `Cannot open B:\APPS\CALC.O`. dos_path_take
+    ; already gives a DOS program all three shapes and now takes the text as
+    ; a parameter, so a package gets the same three for nothing.
     mov si, dsh_a1
+    call dos_path_take_si
+    jc .badpath
+    mov ax, [dos_pgdir]             ; **BANK THE PROGRAM'S FOLDER NOW**: the
+    mov [dos_pgpdir], ax            ; document's resolve below is the SAME
+    mov al, [dos_pgvol]             ; routine writing the SAME two cells, and
+    mov [dos_pgpvol], al            ; getting this backwards is silent - the
+                                    ; launch stands in the DOCUMENT's folder
+                                    ; and refuses there (SPEC.md 96.33.21.1)
+    mov si, dos_tname
     mov di, dos_pkgn
     mov cx, 13
 .cp:
@@ -509,6 +642,46 @@ dos_con_pkg:
     loop .cp
     mov byte [di-1], 0
 .named:
+    ; --- ...AND A DOCUMENT AFTER IT (SPEC.md 96.33.21.1) -------------------
+    ; SI at entry was dos_con_ext's second output, the argument tail. The copy
+    ; above spent it, so it comes back off the stack for one more pass of the
+    ; same resolver - `NOTEPAD B:\MEDIA\README.TXT` resolving its document by
+    ; the three shapes the program name already got.
+    mov byte [dos_pghas], 0
+    pop di
+    pop si
+    push si
+    push di
+    call dsh_skipsp
+    cmp byte [si], 0
+    je .nodoc
+    call dos_path_take_si
+    jc .nodoc                       ; a tail that is not a path is just a tail:
+                                    ; the package launches with no document,
+                                    ; which is what it did before this existed
+    push si
+    push di
+    mov si, dos_tname
+    mov di, dos_pgdoc
+    mov cx, 13
+.dcp:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    or al, al
+    jz .dnamed
+    loop .dcp
+    mov byte [di-1], 0
+.dnamed:
+    mov ax, [dos_pgdir]             ; the locator OSAPI_ARG_FILE answers with,
+    mov [dos_pgdoc+13], ax          ; in the order it answers it (SPEC.md
+    mov al, [dos_pgvol]             ; 21.5.3)
+    mov [dos_pgdoc+15], al
+    mov byte [dos_pghas], 1
+    pop di
+    pop si
+.nodoc:
     mov byte [dos_pkgq], 1
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and ui_task pops it with the lock free
@@ -523,6 +696,19 @@ dos_con_pkg:
     call dos_con_draw               ; the echoed line, and nothing else: the
     clc                             ; window that is about to open is the
     ret                             ; feedback
+.badpath:                           ; a path that does not resolve says so the
+    pop di                          ; way a package that is not there does -
+    pop si                          ; the text as TYPED, because a resolve that
+    mov si, dos_s_nopkg             ; refused has no 8.3 name to show
+    call con_say
+    mov si, dsh_a1
+    call con_say
+    mov si, dos_c_crlf
+    call con_say
+    call dos_prompt
+    call dos_con_draw
+    clc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dos_pkg_go - service the posted package launch (SPEC.md 96.33.17)
@@ -542,23 +728,50 @@ dos_pkg_go:
     push si
     push di
     mov byte [dos_pkgq], 0
-    mov dx, [dos_curdir]            ; where the PROMPT is, not where the box
-    mov bl, [dos_vol]               ; was launched from (96.33.13)
-    call dos_be_goto
+    mov dx, [dos_pgpdir]            ; where the typed PATH said, which IS the
+    mov bl, [dos_pgpvol]            ; prompt's own folder when it carried no
+    call dos_be_goto                ; path at all (SPEC.md 96.33.21)
     jc .bad
     mov si, dos_pkgn
     xor cx, cx                      ; **NO IMAGE: READ THE FILE** (SPEC.md
     xor dx, dx                      ; 21.5). Zero is the ordinary case and the
-                                    ; image form is the Wire's alone, so this
-                                    ; is the whole of what a by-name caller
-                                    ; says beyond the name
+                                    ; image form is the Wire's alone
+    push ds                         ; ...and with DX:CX zero, ES:DI is the
+    pop es                          ; DOCUMENT (21.5.3) - or ES = 0, which is
+    mov di, dos_pgdoc               ; that slot's one sentence for "nothing
+    cmp byte [dos_pghas], 0         ; through ES:DI" on either arm
+    jne .hasdoc
+    xor ax, ax
+    mov es, ax
+.hasdoc:
     call OSAPI_PKG_START
+    pushf                           ; **COME BACK** - a path may have stood the
+    push ax                         ; machine on another volume, and every
+    push ds                         ; later DOS call resolves where the BOX
+    pop es                          ; thinks it is
+    mov dx, [dos_curdir]
+    mov bl, [dos_vol]
+    call dos_be_goto
+    pop ax
+    popf
     jnc .out                        ; its window is up: nothing to say
 .bad:
+    ; **THE REFUSAL NAMES THE SHAPE OF THE PROBLEM** (SPEC.md 96.33.22), and
+    ; the two shapes are different fixes: a program that is not on this disk,
+    ; or a document whose type nothing claims. An EMPTY name is the second -
+    ; it is `OPEN`'s own arm (21.5.3), where there was never a program name
+    ; to print and `Cannot open ` alone would name nothing at all.
+    cmp byte [dos_pkgn], 0
+    jne .badname
+    mov si, dos_s_noopen
+    call con_say
+    jmp short .badend
+.badname:
     mov si, dos_s_nopkg
     call con_say
     mov si, dos_pkgn
     call con_say
+.badend:
     mov si, dos_c_crlf
     call con_say
     call dos_prompt
@@ -681,7 +894,25 @@ dos_con_ext:
     clc
     ret
 .nofile:
-    pop si
+    ; --- ...AND A NAME WITH A DOCUMENT AFTER IT IS LOOKED UP (96.33.21.2) ---
+    ; The search above walks the CURRENT directory and nothing else, so
+    ; `NOTEPAD README.TXT` typed on `A:\` refused - and `A:\APPS\NOTEPAD.O88`
+    ; is exactly where that program is. A document names its program the way
+    ; an EXTENSION does, so a stem the folder does not hold is handed to the
+    ; kernel to look up in the association tables instead of refused here.
+    ;
+    ; **ONLY WITH A DOCUMENT.** A bare word that resolves to nothing is a TYPO
+    ; and `Bad command or file name` is its answer; it is the tail that turns
+    ; the word into a claim about a program worth going to look for.
+    pop si                          ; the tail, and the stack is BALANCED from
+    push si                         ; here - `.no` is reached from the dotted
+    call dsh_skipsp                 ; path too, where nothing was pushed, so
+    cmp byte [si], 0                ; this arm may not leave a word behind it
+    pop si                          ; (`pop` writes no flag, so the compare
+    je .no                          ; above rides through it)
+    mov byte [dos_ispkg], 1         ; the kernel's assoc_app_of decides, and
+    clc                             ; refuses in its own words if it cannot
+    ret
 .no:
     stc
     ret
@@ -1009,6 +1240,9 @@ dos_c_com:   db '.COM', 0     ; ...and the ORDER is the contract
 dos_c_exe:   db '.EXE', 0
 dos_c_o88:   db '.O88', 0     ; ...and this one is not a DOS program at all
 dos_s_nopkg: db 'Cannot open ', 0
+dos_c_open:  db 'OPEN', 0          ; SPEC.md 96.33.22, and DOS 3.3 has no such
+                                   ; verb, so taking it costs no compatibility
+dos_s_noopen: db 'There is no program on this disk for that file.', 0
 
 ; =============================================================================
 ; FULL SCREEN, AND ESC BACK OUT (SPEC.md 96.33.5)

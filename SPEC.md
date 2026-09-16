@@ -37453,7 +37453,11 @@ OSAPI_PKG_START KERNEL_SEG:0x0520        ; an N cell
        ES:DI  = that image, byte for byte what the `.O88` holds, when DX:CX is
                 non-zero. ANY segment — it is COPIED into a region of the
                 kernel's own, never adopted, so you may free your claim the
-                moment this returns
+                moment this returns.
+                ...or, when DX:CX is ZERO, a DOCUMENT to open it with (§21.5.3)
+       ES     = 0 means *I am passing you nothing through `ES:DI`* — ONE
+                sentence covering both arms, and the image arm already
+                enforced it
   out  CF = 0, AX = 0: registered, published and its window shown, exactly as
                 a Disk-window double-click leaves one
        CF = 1, AL = LD_* (§21.4)
@@ -37464,6 +37468,67 @@ an N cell, so the stub stages the name into kernel scratch and calls
 `inst_vol_enter` before the body runs. Stand where the file is first
 (`OSAPI_FILE_GOTO_QM`, which moves the machine *and* marks the instance), and
 that is the same rule every other by-name call in this SDK already has.
+
+#### 21.5.3 ...and a DOCUMENT may ride with it
+
+**`ES:DI` with `DX:CX` = 0 is a document to open the package with**, in the
+shape `OSAPI_ARG_FILE` (§54.5) answers with and in the order it answers it:
+
+```
+  ES:DI -> 13 bytes  the document's NUL 8.3 name
+           WORD      the directory cluster it lives in
+           BYTE      its volume
+```
+
+The package reads it back from `OSAPI_ARG_FILE` in its entry proc, exactly as
+it would after a double-click — which is the point: **a document opened this
+way is indistinguishable, to the package, from one opened by clicking it.**
+Nothing in any package changes.
+
+**AND THE NAME MAY THEN BE EMPTY**, meaning *the document's extension names
+the program*. `SI` still points at a string, and that string is `""`; a null
+pointer cannot be the sentinel because the N stub stages the caller's name
+before this body ever runs, so there is no `SI` left to test by then. That arm
+is the double-click's own question — §54.2's extension table — asked by a
+program instead of by a mouse.
+
+**A DOCUMENT TAKES THE ASSOCIATION ROUTE AND NOT `ld_run_name`'s**, and that
+is the whole of what it buys. `ld_run_name` resolves the program in the folder
+the caller is standing in; `assoc_locate` (§54.4) finds it by the HINT CACHE
+wherever it lives on the volume. `NOTEPAD README.TXT` typed at the DOS prompt
+while standing on `A:\` is exactly the case those two differ on — the program
+is in `A:\APPS\`, and the folder you are standing in is not where it is.
+
+**It SEEDS the volume's cache itself** (§21.5.3.1), which is what makes the
+slot usable from a program rather than only from the file manager.
+
+**The answer is thinner on this arm and that is deliberate.** `assoc_run`
+reports its own verdict to the user (`ld_say_status`, §59) because it is the
+double-click's path and a double-click has no caller to answer to. So the
+document arm answers `CF = 0` for *the launch was carried out and the user has
+been told how it went*, and `CF = 1, AL = LD_EBAD` for the one thing the
+caller could not have known — that nothing on this machine opens it. A caller
+wanting a richer answer wants the plain arm and a program name.
+
+##### 21.5.3.1 The cache is seeded HERE, because no caller's path does it
+
+`assoc_app_of` and `assoc_find` read an IN-RAM table, and that table is filled
+by the mount HARVEST (§18.3 step 4) — `asc_use_x` hangs off it. **Every path a
+program reaches this slot by is a QUIET mount, which skips the harvest
+entirely**, so without a seed here the tables are empty and every lookup
+misses on a volume the user has not browsed in a Disk window.
+
+The DOS box is the worked example and it seeds NOTHING: `dos_drv_sel` does no
+mount at all (§96.48 — it stopped mounting deliberately, `dos_be_vkind` being
+the existence test and costing no disk), and the mount that does happen at the
+next name is `OSAPI_FILE_GOTO_QM`'s quiet one. So a box that has stood on `B:`
+and listed it three times has taught the association tables nothing about it.
+
+`assoc_locate` already seeds the volume that ANSWERS (§54.7.2) — but that runs
+*after* the slot lookup, so it cannot help the lookup that decides whether to
+call it. The seed therefore goes in front of both, and it is nearly free:
+`asc_use_x` is stamped by `[asc_vol]`, so a volume already loaded costs ONE
+COMPARE and the second call on a volume is not a disk read.
 
 #### 21.5.1 Why it is one cell and was briefly two
 
@@ -125927,6 +125992,132 @@ the box was launched from (§96.33.13) — and the box stands there with
 `dos_be_goto`, which is `OSAPI_FILE_GOTO_QM`: it moves the machine *and* marks
 the instance, which is what `OSAPI_PKG_START`'s own `inst_vol_enter` reads. The
 two agree with nothing to keep in step.
+
+##### 96.33.21 A `.O88` takes a PATH, and may name a DOCUMENT after it
+
+§96.33.17 launched a package by BARE NAME and nothing else. `dos_con_pkg`
+copied `dsh_a1` straight into a 13-byte cell and handed it to
+`OSAPI_PKG_START` — so `B:\APPS\CALC.O88` was truncated to twelve characters
+of path, resolved against the prompt's own folder, and answered `Cannot open
+B:\APPS\CALC.O`. A package was the one thing this box would only run from
+where it was standing.
+
+**THE RESOLVER WAS ALREADY IN THE FILE**, which is the argument for doing it
+here rather than inventing a path layer: `dos_path_take` (§96.33.10) gives a
+DOS program all three shapes already — fully qualified, relative, and the
+folder we stand in — and the package door wanted exactly those three. What it
+cost was making its buffer a PARAMETER.
+
+**Two things had to change in it and only two.** It read `[dos_path]`, which
+is the window's path box and may not be written for a package (§96.33.17: the
+box holds what `Run` re-runs *as a DOS program*, so a `.O88` in it arms a
+button that must then refuse it) — so there is a second entry taking `SI`.
+And it asked `cmp bx, dos_path` to mean *was there a drive letter?*, which is
+true of its own buffer and of nothing else: pointed at any other string that
+compare fails, the drive-with-no-separator arm runs, and the name loses its
+FIRST CHARACTER. `NOTEPAD` became `OTEPAD.O88`. The test is against the text's
+own base now, in the same four bytes.
+
+**It does NOT commit.** The ordinary door ends by writing `[dos_vol]`,
+`[dos_dir]` and `[dos_name]`, which are the DOS program's state and a package
+launch may not move them — a `.O88` on another drive must not change which
+drive the prompt is on. So the resolve-only entry stops one instruction short
+of that and answers in cells of its own.
+
+**And the machine comes BACK.** `dos_pkg_go` stands where the path said,
+starts the package, and then stands where the prompt is again — because a
+path may have moved the machine to another volume and every later DOS call
+resolves where the box thinks it is.
+
+###### 96.33.21.1 `PROGRAM DOCUMENT` — the double-click, with the program named
+
+`NOTEPAD README.TXT` opens Note Pad **on that document**, exactly as clicking
+`README.TXT` would. The argument tail is resolved by the SAME three path
+shapes the program name gets, and the pair is handed to `OSAPI_PKG_START`'s
+document argument (§21.5.3).
+
+**The program is found by the HINT CACHE and not in the folder we stand in**,
+which is the whole reason this is the association route and not a second
+`PKG_START` call. Standing on `A:\`, `NOTEPAD` is in `A:\APPS\`; a door that
+resolved it where we stand would refuse, and telling the user to type the path
+to a program they named correctly is not a feature.
+
+**The PROGRAM's folder is banked before the document is resolved**, because
+both resolves run the same routine and write the same two cells. Getting that
+backwards is silent: the launch stands in the DOCUMENT's folder and refuses
+there.
+
+###### 96.33.21.2 A name the FOLDER does not hold is looked up, when a document follows it
+
+`NOTEPAD README.TXT` typed on `A:\` refused, and `A:\APPS\NOTEPAD.O88` is
+exactly where that program is. §96.33.7's search walks the CURRENT directory
+and nothing else — by design, since there is no `PATH` here — so the refusal
+came before any of §96.33.21.1 was reached. **It is the literal case the
+feature is for**, and fixing it in the search would have meant giving this box
+a `PATH`.
+
+So the stem is handed to the kernel instead, which looks it up in the
+association tables (§21.5.3) the way `OPEN` looks one up by extension — a
+document names its program, and a name with a document after it is a claim
+about a program worth going to look for.
+
+**ONLY WITH A DOCUMENT**, and that is the whole of the rule. A bare word that
+resolves to nothing is a TYPO and `Bad command or file name` is its answer;
+the tail is what turns the word into a claim. Measured, both arms: `NOTPAD`
+answers `Bad command or file name: NOTPAD` exactly as it always did, and
+`NOTPAD README.TXT` answers `Cannot open NOTPAD` — which names the half that
+was wrong, where the other message would have the user looking at the
+document.
+
+**WHAT THE LOOKUP CAN REACH IS SESSION STATE**, and that is worth stating
+plainly because it was first written down here as a clean per-volume boundary
+and measured not to be one. The tables are per-volume (§54.7 — `[asc_vol]`
+stamps which one they describe) and the hint cache learns where a program is
+each time one is located, so the SAME command differs by history: on a fresh
+boot, standing on `A:\`, `TEXPAD.O88 B:\MEDIA\GUIDE.TEX` answers `Cannot open
+TEXPAD.O88` — and after something else in the session has located TeXPad, it
+opens. `disk.inc` says the same thing about the same cache in the harvest's own
+words: *a Link listing shows a package's icon if the user has browsed the disk
+it also lives on, and the generic one after a fresh boot — that is inherent to
+"only if it is already in RAM" and not a defect.*
+
+So **the reliable way to reach another volume is a PATH** (§96.33.21):
+`B:\APPS\TEXPAD.O88 B:\MEDIA\GUIDE.TEX` opens from `A:\` every time, because
+the path stands the machine on `B:\APPS` and the seed then describes `B:`. A
+bare name reaches what this session happens to have learned, which is a
+bonus rather than a contract. Seeding every volume to answer one lookup is a
+mount per drive on a machine whose drives are floppies.
+
+**Nothing asserts either arm of that**, and `tests/dosopen.py` says why in
+place: a row that pinned the refusal went green on a fresh boot and red after
+its own earlier cases, in one build.
+
+##### 96.33.22 `OPEN` — the double-click, typed
+
+`OPEN README.TXT` launches whatever is associated with `.TXT` and hands it the
+document. It is §96.33.21.1 with the program name left out, which is exactly
+what §21.5.3's empty-name form is for.
+
+**DOS 3.3 has no `OPEN`**, so the verb is free: the internal set is `BREAK`,
+`CHCP`, `CHDIR`, `CLS`, `COPY`, `CTTY`, `DATE`, `DEL`, `DIR`, `ECHO`, `ERASE`,
+`EXIT`, `FOR`, `GOTO`, `IF`, `MKDIR`, `PATH`, `PAUSE`, `PROMPT`, `REM`,
+`RENAME`, `RMDIR`, `SET`, `SHIFT`, `TIME`, `TYPE`, `VER`, `VERIFY`, `VOL` —
+and a program called `OPEN.COM` still wins, because §96.33.7's search runs
+only after the verb table has declined and this verb is not in that table.
+
+**IT IS NOT A `dsh_tab` ROW, and that is a placement fact rather than a
+style choice.** `dsh_tab` is in the DOS **core** (`doscore.asm`, §96.44),
+which has no path resolver, reaches the file system only through the twenty
+`dos_k_*` doors, and is capped by `CORE_MAX` — a row there stopped the build
+with *the DOS core outgrew CORE_MAX*, and BOTH hosts reserve that space, so a
+byte there is a byte off each of them. The window side is where
+`dos_path_take` already lives, so the verb is intercepted in `dos_con_prog`
+before the program search and costs the core NOTHING.
+
+**The refusal names the shape of the problem**, because at that point there is
+no window to look at: a document whose type nothing claims, or a program that
+is claimed and not on this disk, are different fixes and the user cannot see
+which happened.
 
 ##### 96.33.19 …and the exit line says what the ARENA was
 
