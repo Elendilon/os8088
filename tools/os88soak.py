@@ -528,12 +528,26 @@ PREWARM = [
 ALWAYS = {"skiesdiag"}
 
 
-def prewarm(verbose=True):
+def prewarm(verbose=True, a=None):
     """Build the on-demand artefacts, once, before any row runs.
 
     Serially and never under `-j`: `make -j4 weavedisk loomdisk c64disk` races
     on build/WEAVE.OVL and dies with "No rule to make target", which is a
     Makefile bug this is not the place to fix and a five-second cost to avoid.
+
+    **AND THE SELECTED ROWS' OWN `wants=` TOO**, which is what `a` is for.
+    `PREWARM` is a hand-kept list and `wants` is the machine-readable one, and
+    a row whose fixture is in the second and not the first FAILS HERE while
+    passing under `os88test soak` - which builds every declared artefact of
+    the rows it was given. The FROZEN path already takes that union
+    (`_tree_targets`), so this is the same union in the case where no
+    `builds=True` row forced a tree; without it the two runners disagree about
+    a row, and the disagreement reads as a defect in the row.
+
+    Measured: `dosmcb` and `dosvec` reported `build/dosmcb360.img is missing`
+    0.1s into a 45-row run and passed at once under `os88test soak`. That is
+    docs/plans/HANDOFF-SOAK-FINDINGS.md's `FAIL where it means SKIP` with a
+    cause, and the cause is here.
     """
     # **A PLAIN `make` FIRST, ALWAYS, AND BEFORE ANY ROW RUNS.** Not for the
     # artefacts - for `build/buildnum.inc`. Every `make` in the tree rewrites
@@ -550,8 +564,14 @@ def prewarm(verbose=True):
     elif verbose:
         print("os88soak: build/ is current")
 
+    todo = list(PREWARM)
+    if a is not None:
+        todo += [(art, art) for art in _declared(a)]     # the path IS the
+                                                        # target: every one is
+                                                        # a build/ artefact
+                                                        # with a rule
     made, failed = [], []
-    for art, target in PREWARM:
+    for art, target in todo:
         if os.path.exists(os.path.join(ROOT, art)) and target not in ALWAYS:
             continue
         r = subprocess.run(["make", "-s", target], cwd=ROOT,
@@ -619,6 +639,24 @@ def widths(cores, mj=None, hj=None):
     """
     return (mj if mj else max(1, cores),
             hj if hj else max(2, cores))
+
+
+def _declared(a):
+    """Every `wants=` artefact of the rows THIS invocation selected.
+
+    The same union `_tree_targets` takes for a frozen run and `os88test`'s
+    prebuild takes for a plain one - computed here so the non-frozen path
+    does not quietly have a shorter list than either.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "tests"))
+        import suite
+        names = set(_selected(a))
+        return sorted({f for r in suite.rows() if r.name in names
+                       for f in getattr(r, "wants", ())
+                       if f.startswith("build/")})
+    except Exception:                                       # noqa: BLE001
+        return []
 
 
 def _selected(a):
@@ -796,7 +834,7 @@ def start(a):
     for w in _stale_emulators():
         print("%sos88soak: %s%s" % (YELLOW, w, OFF))
     if not a.no_prewarm:
-        prewarm()
+        prewarm(a=a)
     if advisory and not a.anyway:
         print()
         print("Re-run with --anyway to soak with those gaps, or fix them "
