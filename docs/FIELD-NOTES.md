@@ -1697,3 +1697,157 @@ that would catch the fourth.
 → Memory → the third arm, Return, type `B:\PRINCE.EXE` in the path box, Run,
 Proceed. `tools/os88intmon.py` armed right after Proceed catches the whole
 startup in 114 calls.
+
+## 44. A WHEEL mouse can never win the packet contest — its fourth byte broke the run (FIXED: SPEC.md 9.5.4, and `MOU_IDMAX` on the way: SPEC.md 9.4.1.1)
+
+Reported on a **100 MHz Pentium**. The mouse is a PS/2 part with a passive
+PS/2-to-serial adapter on it — a "combo" or "hybrid" mouse, which chooses its
+protocol at power-up. os8088 does not find it. A plain serial mouse on the
+same machine is found and works.
+
+**The reporter's own workaround is the finding, and it is worth more than the
+symptom:**
+
+> "If I plug in that [plain serial] mouse first and then plug in the hybrid
+> mouse later, the hybrid mouse does work in that case."
+
+So the part is not broken, the adapter is not miswired, and the port is fine.
+What differs is the STATE OF THE PORT the mouse is plugged into. A port the
+kernel has settled — `mou_lockon` has run, `[mou_seen]` = 1, `[mou_hpst]` = 2 —
+differs from a port it is still hunting on in exactly three ways (SPEC.md
+9.4.6.5 enumerates them and the round below does each in turn):
+
+1. **DTR/RTS are up and STAY up.** Until a packet arrives, `mou_hotplug`
+   power-cycles every port every `MOU_REPOLL` — §9.4.1's own arithmetic is
+   **12 ticks of every 58 with the mouse dead**, for ever. A part that needs
+   more than the ~2.85 s of stable power each cycle leaves it to finish
+   powering up and choosing a protocol is reset before it can ever speak.
+   **This is the candidate the report fits best**, because the workaround
+   removes it completely.
+2. **The low hold is `MOU_RSTLOW`, ~165 ms** — a constant sized for the period
+   parts §9.4 names, not for a part that makes a mode decision at power-up.
+3. **The contest is over.** A settled port needs no packets; an unsettled one
+   on a two-port machine owes `MOU_LOCKN` = 8 clean ones in a row, and every
+   reset edge calls `mou_newround` and throws the run away.
+
+**Not yet ruled out, and only the machine can say**: that the part chooses
+**PS/2 mode** and drives the serial RX line not at all. Nothing on a UART can
+tell that from a dead mouse — SPEC.md 9.4.6.5's `msr` column is the only hint,
+and it is a hint.
+
+### 44.1 What was built for it, and why the old table could not answer
+
+`make MOUDIAG=1` was the obvious instrument and **it would have said nothing
+loudly**: every row of it is about the identify window, which is 1.2 s into a
+boot and never runs again, and `idn 00 / b0 00 / ident 0` on both ports is
+exactly what it prints for a machine with no mouse plugged in at all.
+
+SPEC.md 9.4.6.5 adds the half that is about the WIRE and the rest of the
+session — `rx`, `err`, `msr`/`mcr` read live, the last four bytes and `dt`,
+the ticks from our own rising edge to the port's first byte — plus a **round**
+that removes the three differences above one at a time, 15 s each, and freezes
+the moment a packet arrives so the phase left on the glass is the verdict.
+
+**`rx` is the fork the whole report turns on.** 0000 on both ports after a
+full round says the mouse has never put a byte on the wire and the fault is
+electrical or is the part's own mode choice; anything else says it talks and
+this kernel does not believe it, which is a different investigation with a
+different fix.
+
+### 44.2 The trap this must not fall into
+
+`mdb_pin` raises DTR/RTS through the poller's own state 3 and arms the drain
+exactly as `.low` does, so **a phase change can never strand DTR low**. That is
+§9.4's trap in the one shape that would leave the reporter worse off than the
+bug they reported: a mouse unpowered for the session rather than merely
+unfound.
+
+### 44.3 DIAGNOSED — one photograph, and it is the documented degradation
+
+`MOUROUND=1`'s panel came back off the reporter's machine and named the cause
+outright. **SPEC.md 9.4.1.1 is the reading**; the short form is that the mouse
+is on **COM2**, it answers our rising edge with **`'M'`**, and it then sends
+**69 bytes** where `MOU_IDMAX` was **8** — so `mou_idjudge` threw out a mouse
+that had already passed rule 2, `[mou_idany]` stayed 0, and `mou_hotplug`
+power-cycled it every `MOU_REPOLL` for the whole session (`cyc 000A` — ten
+edges by the time of the photograph).
+
+**It was written down as acceptable before it was a bug.** SPEC.md 9.4.1 said
+in as many words: *"a mouse whose burst is longer than `MOU_IDMAX` (a verbose
+PnP ID) fails rule 3 and gets exactly today's behaviour — no stand-down, no
+threshold drop."* The degradation had a name, a mechanism and a predicted
+symptom, and none of that made it visible until a panel printed `idn 45`.
+
+**What made the photograph conclusive was that its numbers check each other.**
+69 bytes at 1200 7N1 is 9.42 ticks of line time, and the panel's own `last`
+column independently put the final byte at tick 10 — so the count is real
+bytes at the programmed rate, which `err 00` over all 667 then confirms from
+the UART's own error bits. Neither figure alone would have carried it.
+
+**And the instrument found a defect nobody was hunting**: `MOU_DRAINT` was 9
+ticks against that 9.42-tick burst, so the drain ceiling expired before the ID
+finished and its last ~3 bytes reached the packet decoder as fake motion.
+Both constants are now cut from one quantity - the line time of `MOU_IDMAX`
+bytes - so they cannot drift apart again.
+
+**Still open**: whether this part streams at all once the resets stop. The
+round pinned DTR/RTS for 138 seconds with `[mou_need]` at 1 and saw no byte
+(`dt FFFF`, cursor still homed), but it is not known whether the mouse was
+moved in that window. `rx` on row 2 answers it in one number.
+
+### 44.4 …and the SECOND photograph, which is the actual defect
+
+The `MOU_IDMAX` build went back and the reporter moved the mouse. **It still
+did not work — and the panel said why in one column.**
+
+```
+row  base  idn  b0   last   idt  nd  run      row   rx   err msr mcr   b0 b1 b2 b3    dt
+  0  03F8   00  00   FFFF    0    8   0         0  0000   00  00  0B   00 00 00 00  FFFF
+  2  02F8   45  4D   000A    1    8   0         2  00A9   00  20  0B   00 00 3F 43  0000
+idany 1  port 0  seen 0  hpst 0   cyc 0000      win open 0003  used 000E of 0013
+```
+
+**9.4.1.1's fix worked exactly as designed** — `idt 1`, `idany 1`, `hpst 0`,
+`cyc 0000`: the port identified, the poller never fired once, and the window
+closed early at 14 ticks against the ceiling's 19. **And the mouse was never
+the problem**: `rx 00A9` is 169 bytes against the boot burst's 69, so **100
+bytes arrived while the reporter moved it**. It streams perfectly.
+
+**The last four bytes are the whole answer.** Newest first they read
+`00 00 3F 43`, so in arrival order: `43 3F 00 00`.
+
+| byte | | |
+|---|---|---|
+| `43` | `0100 0011` | bit 6 **set** — a packet header. Buttons up, Y high 00, X high 11 |
+| `3F` | `0011 1111` | bit 6 clear — X low = 63. With the header, **dx = -1** |
+| `00` | | bit 6 clear — Y low = 0, **dy = 0**. A complete, perfect Microsoft packet |
+| `00` | | bit 6 clear — **A FOURTH BYTE.** Wheel delta 0, middle button up |
+
+It is an **IntelliMouse-compatible wheel mouse**: four bytes to a packet, the
+fourth with bit 6 clear like the two before it. `mou_byte` returned to phase 0
+at the third byte, so the fourth fell through `.chk2` to *"a byte with bit 6
+clear arriving between packets is a thing the protocol cannot produce"* and
+**zeroed `[mou_run]`. Every packet.** The run could never exceed 1, `[mou_need]`
+was `MOU_LOCKN` = 8 on this two-port machine, and **the contest was unwinnable
+by construction** — 100 bytes of flawless mouse data discarded as fast as it
+arrived. `run 0` is in *both* photographs and neither time did it mean
+"nothing arrived".
+
+**And it is exactly why the hot-plug workaround works.** With the port already
+settled `mou_claim` returns at its first compare, the run is never read again,
+and the fourth byte costs nothing. Nothing about the wheel mouse changes when
+you swap it in — what changes is whether the run still matters.
+
+**SPEC.md 9.5.4 is the fix**: a fourth phase, so the byte is recognised by
+position and consumed without breaking the run. Verified by injecting the
+reporter's own four bytes into `mou_byte` **in the guest** — five packets take
+`[mou_run]` to 5 where the kernel before it capped at 1; a plain three-byte
+mouse is unchanged at 5; and a genuine stray byte after the wheel byte still
+zeroes the run, so the rule it relaxes survives.
+
+**The near miss worth recording**: raising `MOU_IDSTRICT` was considered and
+declined in 9.4.1.1 on the grounds that the reporter needed nothing from it.
+That reasoning was wrong — it assumed the run could accumulate — but the
+*decision* was right for a reason it did not know: dropping `[mou_need]` to 1
+makes one packet enough, so it would have **masked this defect rather than
+fixed it**, and left every one-port machine with a wheel mouse still broken.

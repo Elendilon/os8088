@@ -4685,6 +4685,12 @@ ovw_mou_pall:       call mou_pall
                     retf
 ovw_mou_newround:   call mou_newround
                     retf
+%ifdef MOU_DIAG
+ovw_mdb_rxb:        call mdb_rxb        ; SPEC.md 9.4.6.5's wire counter, which
+                    retf                ; mou_idbyte reaches from the overlay.
+                                        ; Knob-only, so it costs a shipped
+                                        ; kernel nothing at all
+%endif
 %ifdef KERN_BIG                 ; the PS/2 half is kern_small's absent one
 ovw_mou_p2cw:       call mou_p2cw
                     retf

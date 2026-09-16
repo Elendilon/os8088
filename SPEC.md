@@ -10812,10 +10812,31 @@ one step that can permanently mask the real mouse off — §9.5.1's original
 failure — and the two changes above already remove the hitch without it. The
 contest is unchanged; the identify only moves the prior.
 
-The accepted degradation: a mouse whose burst is longer than `MOU_IDMAX` (a
-verbose PnP ID) fails rule 3 and gets **exactly today's behaviour** — no
-stand-down, no threshold drop. Period MS and Logitech parts answer `'M'` and
-`'M3'`, which is what the constant is sized for.
+~~The accepted degradation: a mouse whose burst is longer than `MOU_IDMAX` (a
+verbose PnP ID) fails rule 3 and gets exactly today's behaviour — no
+stand-down, no threshold drop.~~ **THAT DEGRADATION WAS THE FIELD DEFECT, and
+`MOU_IDMAX` is 128 rather than 8 since docs/FIELD-NOTES.md 44** (§9.4.1.1). It
+was sized for the period MS and Logitech parts, which answer `'M'` and `'M3'`;
+a combo PS/2-or-serial mouse answers `'M'` and then a **PnP identifier**,
+measured at **69 bytes** on the reporter's machine, so rule 3 threw out a mouse
+that had already passed rule 2 — and the poller then power-cycled it every
+`MOU_REPOLL` for the life of the session.
+
+**Rule 3 exists to reject a STREAM, and the byte count was never what
+distinguishes one**: rule 4 is, because a stream is exactly a thing that never
+goes quiet. So the cap is now a **line-time** bound rather than a guess at
+what a mouse says — 128 bytes is 0.96 s at 1200 7N1, which is what
+`MOU_DRAINT` covers (§9.4.8) — and rules 2 and 4 carry the discrimination they
+were always doing most of.
+
+**`MOU_IDSTRICT` is DELIBERATELY NOT RAISED WITH IT** and stays at 3. The two
+bars are graded for the reason above: a wrong stand-down costs a later
+hot-plug its reset edges, and a wrong threshold *lets one device claim the
+port and mask the real mouse off for the session*. The reporter's machine
+needs nothing from it — once the stand-down works the port is never reset
+again, and `MOU_LOCKN` = 8 is ~200 ms of continuous motion on a port that is
+now stable — so raising it would buy a third of a second, once, against a
+session-ending failure for somebody with a modem.
 
 **QEMU can neither reproduce the bug nor test the positive half.** Its
 `msmouse` is not a UART-level device: it ignores MCR/DTR entirely and emits
@@ -10875,6 +10896,53 @@ there is the **stand-down** — `poller state 0` where the old code would have
 dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
+
+##### 9.4.1.1 …and the field measurement that resized it
+
+docs/FIELD-NOTES.md 44, read off `MOUROUND=1`'s panel (§9.4.6.5) on the
+reporter's 100 MHz Pentium — one photograph, and every number in it
+cross-checks another:
+
+```
+row  base  idn  b0   last   idt  nd  run      row   rx   err msr mcr
+  0  03F8   00  00   FFFF    0    1   0         0  0000   00  00  0B
+  2  02F8   45  4D   000A    0    1   0         2  029B   00  20  0B
+idany 0  port 0  seen 0  hpst 3                 cyc 000A   hold 1
+win open 0003  used 0013  of 0013 ticks
+```
+
+- **The mouse is on COM2**, and COM1 is live and silent — so this is a
+  two-port machine and `[mou_need]` was `MOU_LOCKN` on both.
+- **`b0` is `4D`**: it answered our rising edge with `'M'`. Rule 2 passed.
+- **`idn` is 0x45 — 69 bytes.** Rule 3 (`MOU_IDMAX` = 8) threw it out.
+- **The count and the timestamp confirm each other.** 69 bytes × 9 bits at
+  1200 7N1 is 0.5175 s = **9.42 ticks**, and `last` independently records the
+  final byte at tick **10**. These are real bytes at the programmed rate, not
+  noise: `err 00` over all 667 says no framing, parity, overrun or break in
+  any of them.
+- **`msr 20`** — DSR asserted. The part is electrically alive. **`mcr 0B`** —
+  we are powering it correctly.
+- **`cyc 000A`**: ten reset edges. `rx 029B` = 667 bytes ≈ ten bursts of ~67,
+  so **every byte the machine has ever received is an identify burst** and not
+  one is a mouse packet.
+- **`used 0013 of 0013`** — the window ran its full ceiling, because §9.4.5's
+  early close requires a port that answered *like a mouse* and rule 3 had
+  denied it. The fix buys that boot time back as well.
+
+**A fourth thing fell out that nothing was looking for**: `MOU_DRAINT` was
+**9** ticks against a burst of **9.42**, so the ceiling expired ~23 ms before
+the PnP ID finished and the last ~3 bytes of every burst were handed to the
+live packet decoder as if they were motion. It is 18 now, and the two
+constants are cut from one quantity — the line time of `MOU_IDMAX` bytes — so
+neither can drift past the other.
+
+**What the photograph could NOT settle**, and it is worth writing down because
+the round was built to answer it: the panel read `phase D`, `hold 1`,
+`t 09D8` — DTR/RTS pinned high for **138 seconds** with `[mou_need]` at 1 —
+and `dt FFFF`, not one byte in that whole time, with the cursor still homed at
+`x 0140`. Either the reporter never moved the mouse while photographing it, or
+the part emits its ID and never streams. The first is fixed by this section;
+the second would not be, and `rx` on row 2 is the one number that says which.
 
 #### 9.4.2 The block a test package reads (registry tag `'MO'`)
 
@@ -11231,6 +11299,96 @@ Ruled out on the way, and worth keeping: `mdg_tpl` padded its buffer with
 a real defect in a routine that runs at the end of `kmain` where ES is whatever
 the desktop paint left, now written one segment throughout. It was not this.
 
+##### 9.4.6.5 …and the WIRE half, for a mouse that is only found when it is HOT-PLUGGED
+
+docs/FIELD-NOTES.md 44 is a report this table could not have answered, and the
+reason it could not is the whole of why this subsection exists. A combo
+**PS/2-or-serial** mouse — a PS/2 part with a passive adapter on it — is not
+found at boot on a 100 MHz Pentium. A plain serial mouse on the same port on
+the same machine is. And the reporter's own workaround is the finding:
+**boot with the plain mouse, let the kernel find it, unplug it, plug the combo
+one in, and the combo one works.**
+
+Every row above is about the identify **window**, which is over 1.2 s into a
+boot and never runs again. The report is about the rest of the session, so the
+table had nothing to say about it — and worse, it would have said nothing
+loudly: `idn 00`, `b0 00`, `ident 0` on both ports is exactly what the table
+prints for a machine with no mouse plugged in at all.
+
+**The workaround names the variable.** A port the kernel has settled
+(`mou_lockon`, `[mou_seen]` = 1, `[mou_hpst]` = 2) differs from a port it is
+still hunting on in exactly three ways, and there is no fourth:
+
+1. **DTR/RTS are up and stay up.** While `[mou_seen]` is 0 and no port has
+   identified, `mou_hotplug` drops them for `MOU_RSTLOW` every `MOU_REPOLL` —
+   §9.4.1's own arithmetic, **12 ticks of every 58 with the mouse dead**. A
+   part that needs longer than the ~2.85 s of stable power each cycle leaves
+   it to finish powering up and choosing a protocol never finishes, and is
+   reset again before it can speak. This is the candidate the report fits
+   best, because it is the one the workaround removes completely.
+2. **The low hold is ~165 ms.** `MOU_RSTLOW` is sized for the period parts
+   §9.4 names — ">=100 ms unpowered to guarantee a power-on reset". A combo
+   part deciding PS/2 against serial at power-up is a later and larger thing
+   than the parts that constant was cut from, and a hold too short to
+   discharge it is an edge it never sees.
+3. **The contest is over.** A settled port needs no packets at all; an
+   unsettled one on a two-port machine owes `MOU_LOCKN` = 8 clean ones in a
+   row, and every reset edge calls `mou_newround` and throws the run away.
+
+**So the counters below are about the WIRE, and the round below DOES each of
+those three in turn.**
+
+**The counters.** `mdb_rxb` is called from `mou_byte`'s **entry**, before the
+settle test, the drain test and the resync rule — so it counts every byte the
+UART ever hands over, including the ones each of those discards. That
+placement is the point: every other counter in this kernel is downstream of a
+decision, and the question here is whether there is anything to decide about.
+
+| column | what it settles |
+|---|---|
+| `rx` | **the fork the whole report turns on.** 0000 on both ports after a full round says the mouse has never put a byte on the wire, and the fault is electrical or is the part's own mode choice. Anything else says it talks and this kernel does not believe it, which is a different investigation with a different fix |
+| `err` | the LSR bits, OR'd for the session — 02 overrun, 04 parity, **08 framing**, 10 break. Read **here and nowhere else in this kernel**: `mou_isr_body` tests LSR bit 0 and ignores the rest, so a mouse talking at the wrong line rate is framing errors and no packets and reads, from every other counter, as silence |
+| `msr` / `mcr` | read **live off the port** at draw time, because "is the line up **now**" is not a question about boot. `mcr` 0B is DTR\|RTS\|OUT2 — powered — and 08 is OUT2 alone, i.e. caught inside a reset hold. A mouse drawing power usually pulls one of `msr`'s CTS/DSR/RI/DCD, so a bit that appears when the part is plugged in is **proof of life from a part that is saying nothing** |
+| `b0 b1 b2 b3` | the last four bytes, newest first. 4D is `'M'` |
+| `dt` | ticks from **our** rising edge to this port's first byte after it — reset to FFFF by *every* raise, so it always measures the LAST one and FFFF means "has not spoken since". It is how long this mouse takes to wake up, which is the one number candidate 1 is decided by: a part slower than `MOU_REPOLL` can never read anything but FFFF while the poller is cycling, and the phase it first reads a number in is the phase that gave it enough time |
+
+**The round.** Four phases of `MDB_PHT` = 273 ticks (~15 s), each removing one
+more of the three differences, cumulatively, so that the phase the mouse comes
+alive in **is** the answer:
+
+| | |
+|---|---|
+| **A `norm`** | the shipped kernel, untouched. The baseline, and the arm that says whether the machine is reproducing the report at all |
+| **B `hold`** | DTR/RTS pinned high for good (`[mdb_hold]`), which is difference 1 |
+| **C `long`** | the poller runs again, but its low hold is `MDB_LONG` = 20 ticks (~1.1 s) against `MOU_RSTLOW`'s 3 — difference 2. It drops immediately on entry rather than waiting out a whole `MOU_REPOLL`, so the phase shows four long cycles rather than three |
+| **D `nd1`** | pinned high **and** `[mou_need]` cut to 1 on both ports — difference 3, and everything B and C offered. **Terminal**: it is the most permissive state the kernel has, so it is the one to leave the user's machine in |
+
+**It runs only while `[mou_seen]` is 0, and it FREEZES the moment a packet
+arrives.** Both halves are load-bearing. A machine whose mouse works is one
+`cmp` per UI pass and a panel byte for byte identical to the one this knob drew
+before, which is what keeps MOUDIAG usable for §9.4.6's own question. And
+freezing on success means the phase left on the glass is the verdict — a round
+that kept cycling would power-cycle a working mouse behind the user's hand and
+destroy the evidence it had just produced.
+
+`mdb_pin` goes through state 3 and arms the drain exactly as `mou_hotplug`'s
+own `.low` does. **A phase change can therefore never strand DTR low**, which
+is §9.4's trap arriving in the one shape that would leave the reporter worse
+off than the bug: a mouse unpowered for the session rather than merely
+unfound.
+
+**What it cannot say.** Nothing here distinguishes a combo part that chose
+**PS/2 mode** — in which it drives the serial port's RX line not at all — from
+a part that is simply dead, because both are `rx 0000`, and only `msr` hints at
+the difference. That is the limit of what a UART can be asked, and the next
+instrument after it is the other socket's table three rows up: a combo mouse
+that has chosen PS/2 and is plugged into a serial port is invisible on **both**.
+
+**Knob-only, so a shipped kernel carries none of it** (§2's rule: `KERN_BUDGET`
+is skipped for a knob build) — four rows of panel, four routines, 31 bytes of
+state and one more `ovw_` shim, against a `kern_big` that is byte for byte
+unchanged without `MOUDIAG=1`.
+
 #### 9.4.7 The probe is in the boot overlay, and the split is a LIFETIME split
 
 `mouse_init` and everything only it reaches — `mou_uart`, `mou_idbyte`,
@@ -11576,6 +11734,58 @@ and `KERNEL.SYS` is the same 141 sectors, so nothing about the boot changed;
 it is recorded because the next author to say "it lands in the padding" needs
 to know the padding is spent. Nothing is added to the per-interrupt path
 except that one `mov`, and `mou_lockon` runs once in the life of a machine.
+
+### 9.5.4 The WHEEL mouse's fourth byte, and why the contest could never be won
+
+docs/FIELD-NOTES.md 44's second reading, and the actual defect behind the
+report. A Microsoft packet is three bytes — a header with **bit 6 set**, then
+two bytes with **bit 6 clear** — and `mou_byte`'s phase machine decoded exactly
+that, returning to phase 0 at the third byte. **A wheel mouse sends FOUR**: the
+IntelliMouse (`MZ`) protocol appends a byte carrying the wheel delta and the
+middle button, and that byte has **bit 6 clear** like the two before it.
+
+The fourth byte therefore arrived at phase 0, fell through `.chk2` to *"a byte
+with bit 6 clear arriving between packets is a thing the protocol cannot
+produce"*, and **zeroed `[mou_run]`**. Every packet. So the run could never
+exceed 1, and on a two-port machine — where `[mou_need]` is `MOU_LOCKN` = 8 —
+**the contest was unwinnable by construction**: the mouse streamed perfectly
+and the kernel discarded the evidence as fast as it arrived.
+
+**That is the whole of the reporter's bug, and it is why the hot-plug
+workaround worked.** Once a port is settled, `[mou_seen]` is 1 and `mou_claim`
+returns at its first compare — the run is never read again — so every complete
+three-byte group is acted on and the fourth byte costs nothing. Plug a plain
+three-byte mouse in first, let it settle the port, swap the wheel mouse in, and
+it works perfectly for the rest of the session. Nothing about the wheel mouse
+changes; what changes is whether the run still matters.
+
+**The fix is a fourth phase.** `.pkt` sets `[mou_phase]` to **3** instead of 0 —
+*packet complete, and an optional fourth byte may follow* — and phase 3 answers
+two questions the other phases already answered:
+
+- a byte with **bit 6 clear** at phase 3 is the wheel byte: consumed, phase
+  back to 0, **and the run is not broken**;
+- a byte with **bit 6 set** at phase 3 is an ordinary next header from a
+  three-byte mouse whose fourth byte simply never came, so it is `.b0` and
+  **not** a mid-packet resync.
+
+A second bit-6-clear byte after the wheel byte is phase 0 again and breaks the
+run exactly as before, so the stray-byte rule survives intact — the change
+admits **one** such byte per packet and no more, which is precisely what the
+protocol produces.
+
+**It costs a plain three-byte mouse nothing**: its next header arrives at
+phase 3 and takes the same `.b0` it always did. And `mou_newround` still zeroes
+`[mou_phase]` outright, so phase 3 needs no unwind anywhere.
+
+**Why this was invisible for so long**: every mouse in this tree's emulators is
+a three-byte part, the field 5150's is a real Microsoft three-button, and a
+wheel mouse works *perfectly* the moment anything else has settled the port.
+The failure needs a wheel mouse, a two-port machine and a cold boot at the same
+time. `MOU_IDSTRICT` would also have masked it — dropping `[mou_need]` to 1
+makes one packet enough — which is worth recording as a near miss: it would
+have hidden the defect rather than fixed it, and a one-port machine would have
+been left broken.
 
 ### 9.6 The keyboard mouse — the arrows, when there is no mouse
 

@@ -92,7 +92,7 @@ MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
                                 ; unpowered to guarantee its power-on reset)
 MOU_REPOLL  equ 55              ; ticks between hot-plug reset attempts
                                 ; (~3s) while no packet has ever arrived
-MOU_DRAINT  equ 9               ; the CEILING (~0.5s): the longest the ISR
+MOU_DRAINT  equ 18              ; the CEILING (~1.0s): the longest the ISR
                                 ; discards RX after a hot-plug raise (SPEC.md
                                 ; 9.4.8). The burst is bit-6-set bytes the
                                 ; resync rule would read as packet headers -
@@ -128,12 +128,19 @@ MOU_IDBYTE  equ 'M'             ; the Microsoft mouse ID byte (0x4D), which
                                 ; CONNECT, ERROR, BUSY, NO DIALTONE or NO
                                 ; ANSWER - and every one of those IS a
                                 ; well-formed Microsoft packet (SPEC.md 9.5.1)
-MOU_IDMAX   equ 8               ; ...and at most this many bytes in all. A
-                                ; mouse says 'M', maybe '3' or 'Z', and stops;
-                                ; a modem banner is a STREAM. A verbose PnP ID
-                                ; overruns this and gets exactly the behaviour
-                                ; it had before - no stand-down, no threshold
-                                ; drop - which is the accepted degradation
+MOU_IDMAX   equ 128             ; ...and at most this many bytes in all. It
+                                ; was 8, and docs/FIELD-NOTES.md 44 is what
+                                ; that cost: a COMBO PS/2-or-serial mouse
+                                ; answers the raise with 'M' and then a PnP
+                                ; identifier - MEASURED at 69 bytes on the
+                                ; field machine - so rule 3 threw out a mouse
+                                ; that had passed rule 2, and the poller
+                                ; power-cycled it every MOU_REPOLL for the
+                                ; whole session. Rule 3 is there to reject a
+                                ; STREAM, and what distinguishes a stream is
+                                ; rule 4 (it never goes quiet) rather than a
+                                ; byte count; 128 is ~1s of 1200 7N1 line
+                                ; time, which is what MOU_DRAINT now covers
 MOU_IDSTRICT equ 3              ; ...and THIS many to lower [mou_need], which
                                 ; is a tighter bar on purpose (SPEC.md 9.4.1).
                                 ; The two consequences are not symmetrical: a
@@ -653,6 +660,10 @@ mouse_init:
     mov ax, 0x040B              ; MCR: DTR|RTS|OUT2 - powers the mouse and
     call KERNEL_SEG:ovw_mou_pall               ; gates the IRQ onto the bus; this rising
                                 ; edge is the mouse's reset
+%ifdef MOU_DIAG
+    mov ax, [ticks]             ; SPEC.md 9.4.6.5: the edge mdb_dt is measured
+    mov [mdb_rt], ax            ; from. DATA in .text, which DS reaches from
+%endif                          ; the overlay - only CODE addresses differ here
 
     OVLMARK 44
     ; --- drain the identify burst (IER still 0, the IRQs still masked) -------
@@ -786,6 +797,10 @@ mouse_init:
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 mou_idbyte:
+%ifdef MOU_DIAG
+    call KERNEL_SEG:ovw_mdb_rxb ; SPEC.md 9.4.6.5: the identify window's bytes
+%endif                          ; are wire bytes too, and a mouse that answers
+                                ; ONLY at boot is a reading of its own
     push ax
     push dx
     mov dl, [bx+mou_idn]
@@ -1137,6 +1152,10 @@ mou_hotplug:
                                 ; hand. Beside [mou_idany] and in state 0 ONLY,
                                 ; for the reason spelled out there
 %endif
+%ifdef MOU_ROUND
+    cmp byte [mdb_hold], 0      ; SPEC.md 9.4.6.5: the round has pinned DTR/RTS
+    jne .done                   ; high. Beside [mou_idany] and in state 0 only,
+%endif                          ; for the reason spelled out there
     cmp byte [mou_idany], 0     ; a port answered our reset edge like a mouse
     jne .done                   ; (SPEC.md 9.4.1), so there IS one and it must
                                 ; not be power-cycled under the user's hand.
@@ -1156,11 +1175,20 @@ mou_hotplug:
     mov byte [mou_hpst], 1
     jmp short .done
 .low:
+%ifdef MOU_ROUND
+    cmp ax, [mdb_low]           ; SPEC.md 9.4.6.5: phase C substitutes a ~1.1 s
+%else                           ; hold for MOU_RSTLOW's ~165 ms
     cmp ax, MOU_RSTLOW          ; state 1: low held since the DROP, whose tick
-                                ; [mou_hpt] carries - held low long enough?
+%endif                          ; [mou_hpt] carries - held low long enough?
     jb .done
     mov ax, 0x040B              ; the rising edge a serial mouse resets on
     call mou_pall
+%ifdef MOU_DIAG
+    mov [mdb_rt], bx            ; SPEC.md 9.4.6.5: mdb_dt's reference, and a
+    inc word [mdb_cyc]          ; count of the edges the user's mouse has been
+    mov word [mdb_dt], 0xFFFF   ; offered - which on a mouse that never answers
+    mov word [mdb_dt+2], 0xFFFF ; is the only sign the poller is running at all
+%endif
     mov [mou_hpt], bx           ; re-base the next interval from the raise -
     mov byte [mou_hpst], 3      ; and state 3 is state 0 that HAS dropped, which
                                 ; is 9.4.2's "the poller fired" reading in a
@@ -3050,6 +3078,12 @@ mou_isr_body:
     jz .next                    ; the probe rejected this row
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
+%ifdef MOU_DIAG
+    push ax                     ; SPEC.md 9.4.6.5: ...and the error bits, which
+    and al, 0x1E                ; are read here and NOWHERE else in this kernel
+    or  [bx+mdb_err], al        ; - a mouse at the wrong line rate is framing
+    pop ax                      ; errors and no packets, and looks from every
+%endif                          ; other counter exactly like silence
     test al, 0x01
     jz .next
     sub dx, 5
@@ -3069,6 +3103,9 @@ mou_isr_body:
 ; in:  AL = the byte, BX = the port row; ISR context, IF = 0
 ; -----------------------------------------------------------------------------
 mou_byte:
+%ifdef MOU_DIAG
+    call mdb_rxb                ; SPEC.md 9.4.6.5: before any decision, so the
+%endif                          ; count is of the WIRE and not of what survived
     cmp byte [mou_seen], 0      ; is the mouse's port settled?
     je .drain
     cmp bl, [mou_port]          ; then every other port belongs to somebody
@@ -3100,9 +3137,11 @@ mou_byte:
     test al, 0x40               ; bit 6 set -> first byte of a packet
     jz .cont
     cmp byte [bx+mou_phase], 0  ; ...but MID-PACKET it is a resync, and a real
-    je .b0                      ; mouse never causes one: its bytes come in
-    mov byte [bx+mou_run], 0    ; threes with nothing between them. Break the
-.b0:                            ; run of clean packets (SPEC.md 9.5)
+    je .b0                      ; mouse never causes one. Break the run of
+    cmp byte [bx+mou_phase], 3  ; clean packets (SPEC.md 9.5) - EXCEPT out of
+    je .b0                      ; phase 3, which is a complete packet whose
+    mov byte [bx+mou_run], 0    ; optional fourth byte simply never came
+.b0:                            ; (SPEC.md 9.5.4)
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
 .jbout:
@@ -3118,10 +3157,21 @@ mou_byte:
 .chk2:
     cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
     je .pkt                     ; break the run for the same reason: a byte
-    mov byte [bx+mou_run], 0    ; with bit 6 clear arriving between packets is
-    jmp .bout                    ; a thing the protocol cannot produce
+    cmp byte [bx+mou_phase], 3  ; with bit 6 clear arriving between packets is
+    jne .stray                  ; a thing the protocol cannot produce...
+    mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
+    jmp short .bout             ; mouse's packet, which is exactly a bit-6-clear
+                                ; byte in exactly this position (SPEC.md 9.5.4).
+                                ; Consumed, and the run is NOT broken - that
+                                ; break is what made a wheel mouse unable to
+                                ; win the contest at all (docs/FIELD-NOTES.md 44)
+.stray:
+    mov byte [bx+mou_run], 0
+    jmp short .bout
 .pkt:
-    mov byte [bx+mou_phase], 0  ; third byte: Y low 6 bits, packet complete
+    mov byte [bx+mou_phase], 3  ; third byte: Y low 6 bits, packet complete -
+                                ; and phase 3 rather than 0, so the wheel byte
+                                ; that MAY follow is recognised by position
     call mou_claim              ; ...and a RUN of them is PROOF OF MOUSE: the
                                 ; port is settled and the hot-plug poller
                                 ; stands down for the session
@@ -5205,7 +5255,11 @@ mou_old_seg dw 0, 0
 ; odd byte of each pair is padding and costs 4 bytes in all). The two ports
 ; decode independently, which is what stops either one corrupting the other's
 ; packets or resetting the other's run (SPEC.md 9.5).
-mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1
+mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1,
+                                ; 3 packet complete and a wheel mouse's
+                                ; optional FOURTH byte may follow (SPEC.md
+                                ; 9.5.4). 3 behaves as 0 for every other
+                                ; purpose - mou_newround still zeroes it
 mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
