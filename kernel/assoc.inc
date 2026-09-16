@@ -1615,6 +1615,9 @@ asc_use_x:
     repe cmpsb
     jne .out
     mov al, [es:6]              ; THE VERSION SETS THE ROW STRIDE (SPEC.md
+                                ; 54.3.2; its DEFERRED TRIM is this whole
+                                ; version-1 ladder, dropped when no field
+                                ; volume can still carry a v1 cache)
     mov cx, ASC_ROW1            ; 54.3.2): 1 is the 80-byte row an installed
     dec al                      ; volume's cache still has, 2 the 88-byte one
     jz .ver                     ; with the glyph column. Anything else is a

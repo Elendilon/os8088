@@ -75931,6 +75931,20 @@ price of an installed volume keeping its cache. `CLONE.DRV` carries the
 compressor's copy of the prefix ladder and is a module, so that arm is not
 resident.
 
+**DEFERRED TRIM - the version 1 arm is the LAST bytes to drop here, and
+then it goes.** The only reader of a version 1 cache is a volume whose
+`ASSOC.DAT` was written by an installer from before this section - a hard
+disk mostly, since a floppy is rebuilt by `make`. When no such volume can
+still be in the field (a forced reinstall era, or simply long enough), the
+~37 bytes come out: delete `ASC_ROW1` and the version ladder in `asc_use`
+(a version other than 2 becomes the 'no cache' answer), collapse
+`[asc_rowsz]` back to the `ASC_ROW` constant at its four sites, and delete
+`asc_row_glyph`'s `.body`-via-version-1 branch. Nothing in a version 2
+cache changes, so the trim is invisible on any machine `make` built the
+disk for. It is filed here rather than in a size plan because the
+condition is a calendar, not a measurement, and the code it names is
+here.
+
 ### 54.4 Degradation
 
 An unresolved glyph composes to the **bare page**, which is a correct,
