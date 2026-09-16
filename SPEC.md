@@ -125954,6 +125954,39 @@ anything at all. The `Bad command or file name` arm keeps the bare name on
 purpose: that line is about what the user TYPED, and a path would be an
 invention.
 
+###### 96.33.20.1 …and the launch says so BEFORE it happens
+
+§96.33.20 gave the END of a launch a line of its own with the fully qualified
+path in it. The START said nothing at all, so a console holding three launches
+was three *results* with no record of what had been **asked for** — and the log
+is the only place that record could live, the command box having been rewritten
+by whatever ran last.
+
+`Starting A:\PRINCE.EXE`, on its own line, before anything is claimed.
+
+It matters most where there is no result to read. Arm 1 hands the machine over:
+the box posts, returns by the quiet door (§96.35.1) and the OS is gone — so
+until the round trip comes back, a launch that was about to take the whole
+machine left **no trace of itself whatever**. Now it leaves the one line that
+says what it was.
+
+Two details it inherits from `dos_con_ended` rather than re-deciding:
+
+- **the column is the test**, not `[dos_fromcon]`. A typed command has already
+  echoed its own CRLF, so an unconditional one gives it a blank line, and the
+  console's cursor is the only thing that knows which door came in;
+- **the same fallback** — `dos_path_make` leaves the bare name when it cannot
+  resolve one, and an empty `[dos_path]` is a box that has never launched.
+
+And it ends in a CRLF of its own, which is what puts the result on the line
+below rather than glued to this one — and why `dos_con_ended`'s own leading CRLF
+then correctly emits nothing.
+
+**It is called after the compaction-wake test and not at `dos_run`'s head.**
+Everything above that test runs again when a launch that needed a heap pass
+comes back through (§66.4.3), so announcing itself there would announce itself
+twice.
+
 #### 96.34 THE PROGRAM'S LAST SCREEN IS THE CONSOLE'S (`dos_snap`)
 
 A DOS program inside the bracket owns the machine and the screen with it. It

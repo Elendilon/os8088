@@ -1018,6 +1018,12 @@ dos_run:
                                     ; buffers are claimed already, and claiming
                                     ; them twice would leak 2KB a launch
 %ifndef KD_BACKEND
+    call dos_con_starting           ; **SAID BEFORE IT HAPPENS** (SPEC.md
+                                    ; 96.33.20.1), and HERE rather than at
+                                    ; `.there`: everything above this point
+                                    ; runs again on the compaction wake, and a
+                                    ; launch that had to wait for a pass would
+                                    ; announce itself twice
     call dos_pkt_bufs               ; THE PACKET DRIVER'S BUFFERS FIRST (SPEC.md
                                     ; 96.23.7): the sizing below takes
                                     ; everything left, so a claim after it is a
