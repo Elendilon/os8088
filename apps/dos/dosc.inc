@@ -845,6 +845,21 @@ dos_pkg_go:
     call con_say
 .prompt:
     call dos_prompt
+    ; --- ...AND ONLY IF WE ARE STILL ON TOP (SPEC.md 96.33.17.2) -----------
+    ; **A SUCCESSFUL LAUNCH HAS JUST PUT A WINDOW OVER US.** This is not a
+    ; paint callback, so no clip region is armed - the kernel arms one in
+    ; front of W_PAINT and nowhere else - and a console repaint from here
+    ; goes straight over whatever the package opened. Reported off the glass
+    ; as Note Pad with a black band cut through it and console text down its
+    ; left edge.
+    ;
+    ; OSAPI_WM_OBSCURED is the published gate for exactly this (SPEC.md
+    ; 11.3.1) and it answers the hidden case too, so it is the whole test. A
+    ; skipped draw loses NOTHING: con_say has already marked the rows, and
+    ; the next real paint - which is what raising the box does - spends them.
+    mov bx, [dos_win]
+    call OSAPI_WM_OBSCURED
+    jc .out
     ; **AND THE DRAW TAKES THE LOCK**, because dos_pkg_go is the WAKE
     ; handler's context and dos_con_draw wants it held (SPEC.md 74.1). The
     ; refusal arms have always drawn from here unlocked; sharing one epilogue

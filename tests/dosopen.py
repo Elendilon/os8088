@@ -346,6 +346,52 @@ def main():
                 print("dosopen: >  %-18s -> prompt back: %r" % (line, tail))
         clear()
 
+        # --- ...AND IT MAY NOT DRAW OVER WHAT IT JUST OPENED (96.33.17.2) --
+        # The prompt above is printed AFTER OSAPI_PKG_START returns, so the
+        # package's window is already in front of the box - and a repaint from
+        # the wake handler has NO CLIP REGION, the kernel arming one in front
+        # of W_PAINT and nowhere else. Reported off the glass as Note Pad with
+        # a black band cut through it and console text down its left edge.
+        #
+        # ASSERTED ON GUEST STATE AND NOT PIXELS: [con_drb] is the console's
+        # dirty-ROW bitmap, so rows that were marked and NOT spent are exactly
+        # what "the draw was skipped" means. A pixel diff would have to know
+        # where the other window landed; this does not.
+        clear()
+        to_box()
+        typ("OPEN README.TXT\n")
+        end = time.time() + 25.0
+        while time.time() < end and not any("Note Pad" in t for t in titles()):
+            time.sleep(1.0)
+            os88marty.settle(m)
+        if not any("Note Pad" in t for t in titles()):
+            fail("the launch for the overdraw check did not happen")
+        else:
+            b = boxseg()
+            drb = struct.unpack("<I", m.read((b << 4) + dm["con_drb"], 4))[0]
+            if drb == 0:
+                fail("the console SPENT its marks with a package window in "
+                     "front of it - [con_drb] is 0, so dos_pkg_go drew "
+                     "without testing OSAPI_WM_OBSCURED and painted over "
+                     "whatever had just opened (SPEC.md 96.33.17.2)")
+            else:
+                print("dosopen: #  covered by the launch -> marks KEPT "
+                      "(con_drb=0x%08x), nothing drawn over it" % drb)
+            # ...and raising the box spends them, so the prompt is not lost
+            w = ui.window("DOS")
+            if w:
+                ui.raise_window(w)
+            os88marty.settle(m)
+            tail = console()[-1]
+            if not tail.endswith(">"):
+                fail("after raising the box the prompt is not there: %r - a "
+                     "skipped draw must cost nothing, the next real paint "
+                     "spending the marks (SPEC.md 96.33.17.2)" % tail)
+            else:
+                print("dosopen: #  ...and raising the box spends them: %r"
+                      % tail)
+        clear()
+
         # --- the THREE refusals (SPEC.md 96.33.22.1) ----------------------
         # 1: not a legal 8.3 path at all. `nosuchfile.txt` is FOURTEEN
         # characters, so it never reaches the association lookup - and this is

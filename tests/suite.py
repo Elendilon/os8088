@@ -4007,14 +4007,23 @@ SOAK = [
         "the cursor at column 0 of a bare line, so the second command had no "
         "`A:\\>` in front of it - 96.33.17's gap rather than this feature's, "
         "a DOS program's prompt coming back with its EXIT LINE and a package "
-        "having none, so BOTH spellings are asserted. "
+        "having none, so BOTH spellings are asserted - and the fix for THAT "
+        "opened the next one (96.33.17.2): the prompt is printed after "
+        "OSAPI_PKG_START returns, so the package's window is already in "
+        "front, and a repaint from the wake handler has NO CLIP REGION, the "
+        "kernel arming one in front of W_PAINT and nowhere else. Reported off "
+        "the glass as Note Pad with a black band through it. Asserted on "
+        "GUEST STATE: [con_drb] is the console's dirty-ROW bitmap, so marks "
+        "kept rather than spent is exactly what `the draw was skipped` means "
+        "- and raising the box must then spend them, or a skipped draw would "
+        "cost the prompt. "
         "The third needs a file no shipped "
         "disk has (every visible document on both is associated, and the "
         "unclaimed ones in the root are HIDDEN), so the row MAKES one with "
         "the box`s own COPY onto the scratch B:. VERIFIED RED once more on "
         "the way: `.nodoc` was placed between `jnc .out` and `.bad`, so every "
         "refusal the LAUNCH earned fell through it and came back `File not "
-        "found` about a document that was there. 169.7s measured.",
+        "found` about a document that was there. 173.2s measured.",
         needs=("marty",), serial=True),
     Row("dosext", "soak", py("tests/dosext.py"), 170.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "

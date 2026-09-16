@@ -126406,6 +126406,26 @@ is what makes this smaller than the bug — and fixes a second thing on the way,
 since those refusal arms had always called `dos_con_draw` from the wake
 handler's context **without the gfx lock** it documents (§74.1).
 
+###### 96.33.17.2 …and it may only draw if it is still on top
+
+§96.33.17.1 gave the success arm a prompt, and the arm it gave it to runs
+AFTER `OSAPI_PKG_START` has returned — by which time the package's window is
+open and in front of the box. Reported off the glass one build later: Note Pad
+with a black band cut through its text and the console's own left-hand column
+showing through it.
+
+**A REPAINT FROM THE WAKE HANDLER HAS NO CLIP REGION.** The kernel arms one in
+front of `W_PAINT` and nowhere else (§11.3), so a package that draws from any
+other context draws over whatever is above it. That is not new and not this
+feature's — `dos_con_say` has always been able to do it — but nothing before
+this had a reason to draw at the exact moment a window was opening.
+
+`OSAPI_WM_OBSCURED` is the published gate (§11.3.1) and it answers the hidden
+case too, so it is the whole test. **A skipped draw loses nothing**: `con_say`
+has already marked the rows and the next real paint spends them, which is what
+raising the box does — so the prompt is there when the user looks at the
+console, which is the only moment they could see it anyway.
+
 ##### 96.33.21 A `.O88` takes a PATH, and may name a DOCUMENT after it
 
 §96.33.17 launched a package by BARE NAME and nothing else. `dos_con_pkg`
