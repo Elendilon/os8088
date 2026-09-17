@@ -1074,6 +1074,26 @@ dos_wake:
     ; nothing at all - and either reads like an answer.
     mov ax, [dos_kdh + KDH_AKB]
     mov [dos_akb], ax
+    ; --- ...AND THE DRIVERS THE LAUNCH TOOK OUT (SPEC.md 96.35.5) ----------
+    ; **THE DEBT `.outq` DEFERS IS PAID HERE, AND IT WAS PAID NOWHERE.**
+    ; `dos_lbfill` calls `dos_drv_take` on this arm too - the BLASTER= row has
+    ; to exist before it can be gathered (96.44.13) - so the launch leaves
+    ; with `[hb_susp]` naming the sound card's row and `[dos_drvout]` at 1.
+    ; `dos_run`'s own `.out` is the one place that pays it back and the posted
+    ; path reaches none of it on purpose; this is where that path ENDS, so
+    ; this is where it owes.
+    ;
+    ; The kernel's own reload cannot cover it and must not be made to: it puts
+    ; back `[hb_drvmask]`, which is what `hbm_detach` found still MOUNTED when
+    ; it swept - and a row a suspend had already unmounted is not in it. The
+    ; two words are separate on purpose (kernel/hiber.inc, `hb_susp`): a
+    ; hibernate can be taken while a suspend stands, and the two sets come
+    ; back at different moments. This is our moment.
+    ;
+    ; It read as a machine that resumed perfectly and was then silent for the
+    ; rest of the session, with `[dos_drvout]` stuck at 1 so the NEXT launch's
+    ; `dos_drv_take` early-returned and handed `kern_dos` a stale BLASTER=.
+    call dos_drv_back
     ; ...and the console says so HERE, which is where the run really ended.
     ; `dos_run`'s own `.out` cannot: the post is spent long before the program
     ; starts, so a line written there is about a launch that has not happened
