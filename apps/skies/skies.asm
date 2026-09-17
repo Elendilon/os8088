@@ -893,8 +893,26 @@ cs_wldget:
     jc .free
     or dx, dx                       ; a short read is a stream that is not all
     jnz .got                        ; here, and expanding half of one writes
-    cmp ax, [cs_wgcap]              ; rubbish into the overlay rather than
-    jb .free                        ; refusing
+                                    ; rubbish into the overlay rather than
+                                    ; refusing. **AGAINST WHAT THE STREAM
+                                    ; NEEDS AND NOT WHAT THE READ ASKED FOR**
+                                    ; (SPEC.md 88.10.5.4.1): [cs_wgcap] is
+                                    ; rounded UP to whole clusters because
+                                    ; that is what OSAPI_FILE_READ_AT wants
+                                    ; for a capacity, so checking against it
+                                    ; demands bytes past the end of the LAST
+                                    ; stream in the file - which is San
+                                    ; Francisco's world, ending exactly at
+                                    ; EOF, on every geometry. Every other
+                                    ; stream has more file behind it and
+                                    ; filled the capacity by accident.
+                                    ; op_load's [op_want] is the same
+                                    ; predicate in os88partsbody.inc, which
+                                    ; is where this read was copied from
+    mov bx, [cs_wgslk]
+    add bx, [cs_wglen]              ; ...the bytes the expansion consumes
+    cmp ax, bx                      ; (BX is dead here - the destination one
+    jb .free                        ; below is loaded fresh past .got)
 .got:
     ; --- and the expansion, ES:0 by contract (SPEC.md 20.13.3) --------------
     ; EVERY WORD IS FETCHED BEFORE DS MOVES. The stream is in the buffer and

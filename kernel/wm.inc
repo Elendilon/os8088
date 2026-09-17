@@ -6167,9 +6167,16 @@ wm_dmg_wins:
     push si
     mov di, bx
     call wm_chrome_clip         ; confined exactly as wm_draw_win confines its
-    call thm_ink                ; own chrome (SPEC.md 11.97) - a window above
-    call wm_draw_shadow         ; may be sitting on this shadow, and an
-    mov word [wm_clip_n], 0     ; unmarked one will not redraw over us
+    jc .dshx                    ; own chrome (SPEC.md 11.97) - a window above
+    call thm_ink                ; may be sitting on this shadow, and an
+    call wm_draw_shadow         ; unmarked one will not redraw over us.
+.dshx:                          ; WHOLLY covered, and this path is where that
+    mov word [wm_clip_n], 0     ; shipped (SPEC.md 11.97.3): every wm_draw_win
+                                ; caller guards on wm_covered or has proved the
+                                ; window frontmost, and this one has neither -
+                                ; it exists to put back two lines, where a
+                                ; region pass of its own would cost more than
+                                ; it saves. It already had the answer.
     pop si
     jmp short .dnext
 .dfull:
@@ -7555,6 +7562,46 @@ wm_clip_walk:
     ret
 wm_clip_free:
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_ttl_seen - is ANY pixel of this window's TITLE STRIP ours to draw?
+; in:  DI = the window; the clip list EXACTLY as wm_chrome_clip left it
+; out: CF = 1 = not one pixel of the strip is visible - draw NONE of it;
+;      CF = 0 = draw it. Every register preserved.
+;
+; SPEC.md 11.97.4, and it is NOT 11.97.1 being re-litigated: that one refused
+; to CLIP the title bar. Its stated reason - a cell the region cuts is a cell
+; font_char drops whole - is now only HALF true, and 11.97.4 says which half:
+; font_char asks wm_clip_rows (11.3.2), so a HORIZONTAL cut draws the rows on
+; our side, and a display SEAM is cut rather than dropped (39.14.11); what is
+; still dropped is a VERTICAL cut, which is what a window overlapping from the
+; side makes, so the conclusion stands and the reason has to be requoted.
+; NONE OF IT REACHES A VETO. This cuts nothing, in either axis. It is the
+; all-or-nothing question wm_title_set has always asked of its own strip -
+; "wholly covered: not one pixel of it is ours".
+;
+; IT COSTS NO SECOND OCCLUSION WALK. wm_chrome_clip has just built the frame's
+; visible region and the strip is a sub-rect of the frame, so the answer is a
+; walk of at most 16 rects that are already in hand. A disarmed list is the
+; two cases that mean DRAW - nothing above us overlaps, or the region
+; overflowed and degraded - and both are one compare away.
+; -----------------------------------------------------------------------------
+wm_ttl_seen:
+    cmp word [wm_clip_n], 0
+    je wm_clip_free             ; disarmed: draw it, and that `clc`/`ret` is
+    push ax                     ; already written one label up
+    push bx
+    push cx
+    push dx
+    call wm_ttl_rect            ; AX,BX,CX,DX = the strip, inclusive
+    xchg ax, cx                 ; containment with the corners exchanged IS
+    xchg bx, dx                 ; overlap - 11.3.3's own idiom, and the walk
+    call wm_clip_walk           ; is the RAW one: wm_draw_win is in virtual
+    pop dx                      ; coordinates and wm_clip_tab is virtual, so
+    pop cx                      ; wm_clip_t1's display translation would be a
+    pop bx                      ; second one. (`pop` writes no flags, so the
+    pop ax                      ; answer survives to the caller's branch)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -9349,9 +9396,12 @@ wm_su_owed:
 ; -----------------------------------------------------------------------------
 ; wm_chrome_clip - the region a window's CHROME may draw in (SPEC.md 11.97)
 ; in:  DI = the window wm_draw_win is about to draw; gfx lock held
-; out: nothing; every register and the flags preserved. The clip list is armed,
-;      or left DISARMED - which means "draw the lot" and is what every caller
-;      did before this existed.
+; out: CF = 1 = NOT ONE PIXEL of this chrome is ours: draw none of it, and the
+;      list is disarmed because there is nothing to arm (SPEC.md 11.97.3).
+;      CF = 0 = draw it - with the list armed to the visible region, or left
+;      DISARMED, which means "draw the lot" and is what every caller did before
+;      this existed. Every register preserved; the FLAGS are not, and no caller
+;      ever read one across this (both overwrite CF before they test one).
 ;
 ; wm_draw_win writes the outline, the drop shadow and the title bar WHOLE,
 ; whether the raise cache hit or not (11.96.6), and a damage pass draws back to
@@ -9376,9 +9426,20 @@ wm_su_owed:
 ; wm_obscured first, because on the frontmost window - every wm_raise, every
 ; wm_show - the answer is "all of it", and an armed region costs gfx_clip_run a
 ; pass per primitive to arrive at the rect it was handed.
+;
+; AN EMPTY LIST IS THE OPPOSITE OF AN OVERFLOW and this used to answer both the
+; same way (SPEC.md 11.97.3). wm_clip_occlf's own header sets the pair out: CF
+; = 1 is "nothing about the list is valid", which degrades to DRAW IT because a
+; pixel dropped then is one this pass owes - and CF = 0 with [wm_clip_n] = 0 is
+; "the seed is entirely covered", which is this feature's strongest possible
+; answer. [wm_clip_n] = 0 is DISARMED, so falling into the same branch drew the
+; whole outline and drop shadow unclipped in exactly the case where not one
+; pixel of either was ours. wm_title_set has always read it right - `je .clear`,
+; "wholly covered: not one pixel of it is ours" - and its own next paragraph
+; names this trap: an empty list reads as "draw freely" downstream, so the
+; covered case has to be answered HERE.
 ; -----------------------------------------------------------------------------
 wm_chrome_clip:
-    pushf
     push ax
     push bx
     push cx
@@ -9387,7 +9448,7 @@ wm_chrome_clip:
     mov word [wm_clip_n], 0
     mov bx, di
     call wm_obscured
-    jnc .out                    ; nothing above us overlaps: draw the lot
+    jnc .all                    ; nothing above us overlaps: draw the lot
     call cur_unlazy              ; SPEND THE DEFERRED HIDE (7.1.4). An armed
                                 ; region stops the clipped primitives taking it
                                 ; themselves, and the cursor is not confined to
@@ -9421,21 +9482,25 @@ wm_chrome_clip:
                                 ; - lost its shadow pixel wherever an upper
                                 ; window's (x, y+h) or (x+w, y) landed on it,
                                 ; and nothing put it back
-    jc .none                    ; overflowed: nothing about the list is valid
+    jc .over                    ; overflowed: nothing about the list is valid
     cmp word [wm_clip_n], 0
-    jne .out
-.none:
+    je .none                    ; ...or every pixel of it is somebody else's
+    jmp short .out              ; armed - and CF = 0 out of that compare
+.over:
     mov word [wm_clip_n], 0     ; OVERFLOW DEGRADES TO "DRAW IT", wm_covered's
-                                ; way and not wm_clip_set's: a dropped pixel
-                                ; here is one a background painter would have
-                                ; skipped, and here it is one this pass owes
+.all:                           ; way and not wm_clip_set's: a dropped pixel
+    clc                         ; here is one a background painter would have
+    jmp short .out              ; skipped, and here it is one this pass owes
+.none:
+    stc                         ; ...where an EMPTY REGION degrades the other
+                                ; way: it is the region SUCCEEDING, and what it
+                                ; proved is that the caller owes nothing at all
 .out:
-    pop si
-    pop dx
+    pop si                      ; (`pop` writes no flags, so the answer above
+    pop dx                      ; survives to the caller's branch)
     pop cx
     pop bx
     pop ax
-    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -11464,8 +11529,12 @@ wm_draw_win:
                                 ; (SPEC.md 11.91.4)
 
 %ifndef REDRAWFULL
+    call wm_ttl_seen            ; ...BUT A STRIP WHOLLY COVERED IS NOT DRAWN AT
+                                ; ALL (SPEC.md 11.97.4). A veto has no
+                                ; granularity to get wrong, so 11.97.1 does not
+                                ; reach it, and the region is already built
     mov word [wm_clip_n], 0     ; ...AND THE REGION DIES BEFORE THE TITLE BAR,
-%endif                          ; not after it (SPEC.md 11.97.1). font_char
+                                ; not after it (SPEC.md 11.97.1). font_char
                                 ; clips per whole CELL, so a glyph the region
                                 ; cuts is dropped ENTIRELY - including the rows
                                 ; of it this window can still see. Measured: a
@@ -11473,7 +11542,10 @@ wm_draw_win:
                                 ; 10th row down lost its caption's top 5 rows
                                 ; as well. 11.3's granularity rule, in the one
                                 ; place the plan for this said it could not bite
+    jc .notitle                 ; (the store above writes no flags)
+%endif
     call wm_draw_title          ; the title bar, active or not (BP decides)
+.notitle:
 
     call wm_su_try              ; THE RAISE CACHE (SPEC.md 11.96): if the
     jc .content                 ; content was banked when this window was
