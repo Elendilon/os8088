@@ -1263,7 +1263,7 @@ tp_btn1:
     or di, OS88UI_DIS           ; ...and DISABLED wins over DOWN inside
                                 ; os88ui_btn, so there is nothing to clear
 .draw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop dx

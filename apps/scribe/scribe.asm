@@ -1263,6 +1263,9 @@ sc_onup:
     push bx
     push cx
     push dx
+    call sc_dgfire                  ; A DIALOG'S BUTTON FIRES HERE (SPEC.md
+    jc sc_sbd_out                   ; 13.7): it is app-modal, so when one is
+                                    ; armed nothing else may have this release
     call os88ui_sbdragging
     jc sc_sbd_out
     mov bx, si                  ; the pause timer must not outlive the
@@ -17788,10 +17791,16 @@ sc_abopen:
     add ax, 13
     mov [sc_abok+6], ax
     push si
-    mov bx, sc_abok
-    mov si, sc_s_ok
-    mov di, OS88UI_FILL | OS88UI_DEF
-    call os88ui_btn
+    mov word [sc_btlbl], sc_s_ok    ; the About card's OK, through the one
+    mov word [sc_btflg], OS88UI_FILL | OS88UI_DEF
+    mov bx, sc_btrec                ; control (SPEC.md 20.5.1.3), staged N=1:
+    mov word [bx+OS88UI_BT_RECTS], sc_abok
+    mov word [bx+OS88UI_BT_LABELS], sc_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], sc_btflg
+    mov word [bx+OS88UI_BT_N], 1    ; Scribe's buttons are entries in its OWN
+    mov word [bx+OS88UI_BT_DOWN], 0 ; control list rather than a contiguous
+    mov al, 1                       ; group, so the LIST stays the single
+    call os88ui_btn                 ; description and this is the vehicle
     pop si
     mov byte [sc_about], 1
     jmp short .out
@@ -18191,8 +18200,22 @@ sc_dgctl:
     jz .nbdis                       ; os88ui's own flag (SPEC.md 47)
     or ax, OS88UI_DIS
 .nbdis:
-    mov di, ax
-    mov bx, sc_dgr
+    mov [sc_btflg], ax
+    mov [sc_btlbl], si
+    mov bx, sc_btrec
+    mov word [bx+OS88UI_BT_RECTS], sc_dgr
+    mov word [bx+OS88UI_BT_LABELS], sc_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], sc_btflg
+    mov word [bx+OS88UI_BT_N], 1
+    xor ax, ax                      ; ...and the PRESSED look, from Scribe's
+    pop di                          ; own "which control is down": the
+    push di                         ; identity is the caller's (SPEC.md 13.7)
+    cmp di, [sc_dgdown]
+    jne .nbdn
+    inc ax
+.nbdn:
+    mov [bx+OS88UI_BT_DOWN], ax
+    mov al, 1
     call os88ui_btn
     pop di
 .done:
@@ -18320,21 +18343,57 @@ sc_dgclick:
 .edit:
     call sc_dgfocus
     jmp short .out
-.btn:
+.btn:                               ; **IT ONLY ARMS** (SPEC.md 13.6): OK,
+    mov [sc_dgdown], di             ; Cancel and No all decide the document's
+    call sc_dgpaint                 ; fate, so a mis-aimed press must be
+.out:                               ; cancellable; sc_dgfire has the action
+    pop di
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sc_dgfire - the armed dialog button, released (SPEC.md 13.7)
+; out: CF = 1 this release was the dialog's and is spent
+; -----------------------------------------------------------------------------
+sc_dgfire:
+    push ax
+    push bx
+    push di
+    mov bx, [sc_dgdown]             ; BX banks it across the clear below
+    or bx, bx
+    jz .none
+    mov word [sc_dgdown], 0
+    call sc_dgpaint                 ; upright FIRST, and by redrawing (13.8)
+    cmp word [sc_dlg], 0
+    je .spent
+    call sc_dghit
+    jc .spent
+    cmp al, SCD_BTN
+    jne .spent
+    cmp di, bx                      ; pressed and released on the SAME one
+    jne .spent
     cmp word [di+10], 1
     je .ok
     cmp word [di+10], 3             ; the prompt's third verb (SPEC.md 68.4)
     je .no
     call sc_dgcancel                ; Cancel: discard
-    jmp short .out
+    jmp short .spent
 .no:
     call sc_dgno
-    jmp short .out
+    jmp short .spent
 .ok:
     call sc_dgok
-.out:
+.spent:
     pop di
+    pop bx
     pop ax
+    stc
+    ret
+.none:
+    pop di
+    pop bx
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -20995,6 +21054,10 @@ section .text
     SCVAR sc_dck,   1       ; byte: the attr byte the check boxes are editing
     SCVAR sc_dpad,  1       ; byte: keeps the words below even
     SCVAR sc_dgr,   8       ; 4 words: a button rect being drawn/hit
+    SCVAR sc_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3)
+    SCVAR sc_btflg, 2
+    SCVAR sc_btrec, 12
+    SCVAR sc_dgdown, 2      ; WHICH control a press is live on, 0 for none
 
 ; --- the real .DOC format (scdoc.inc, SPEC.md 68.4) --------------------------
     SCVAR sc_dgrp,  24      ; a grpprl under construction. Six paragraph

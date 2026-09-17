@@ -77,6 +77,39 @@ ap_paint:
     ret
 
 ; =============================================================================
+; --- ap_onup / ap_ondrag - the transport FIRES here (13.7 / 13.8.2) ----------
+ap_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, apu_btrec
+    call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    dec ax                          ; ap_dispatch_btn takes the 0-based id
+    call ap_dispatch_btn
+    call apu_repaint
+.uout:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+ap_ondrag:
+    push ax
+    push bx
+    mov bx, apu_btrec
+    call os88ui_btndrag
+    pop bx
+    pop ax
+    ret
+
 ap_onclick:                        ; CX = x, DX = y (SCREEN); SI = window
     push ax
     push bx
@@ -101,10 +134,12 @@ ap_onclick:                        ; CX = x, DX = y (SCREEN); SI = window
     sub cx, [apu_ox]
     sub dx, [apu_oy]
     call apu_layout
-    call apu_hit                    ; AX = AP_B_* or AP_B_NONE
-    cmp al, AP_B_NONE
-    je .rep
-    call ap_dispatch_btn
+    mov bx, apu_btrec               ; **THEY ONLY ARM** (SPEC.md 13.6): Play,
+    call os88ui_btnpress            ; Stop and the rest all change what the
+                                    ; machine is doing, so a mis-aimed press
+                                    ; must be cancellable. ap_onup has the
+                                    ; action, and apu_hit's divide-by-pitch
+                                    ; answer is gone with the ladder
 .rep:
     call apu_repaint
     pop di

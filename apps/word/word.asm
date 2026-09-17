@@ -1212,7 +1212,7 @@ wd_ondrag:
     call wd_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
     jc wd_sbd_out               ; row
-    jmp short wd_sbd_go
+    jmp wd_sbd_go                ; NEAR: wd_dgfire now sits between
 wd_ontimer:                     ; the thumb has been STILL for WD_SBIDLE
     push ax                     ; ticks (SPEC.md 13.9 disarms before this
     push bx                     ; runs, and this does not re-arm: a pause is
@@ -1223,11 +1223,67 @@ wd_ontimer:                     ; the thumb has been STILL for WD_SBIDLE
     call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not
     jc wd_sbd_out                 ; the end of the gesture, so the record
     jmp short wd_sbd_go          ; survives it
+; -----------------------------------------------------------------------------
+; wd_dgfire - the armed dialog button, released (SPEC.md 13.7)
+; in:  CX = x, DX = y (SCREEN, possibly outside the window); gfx lock held
+; out: CF = 1 this release was the dialog's and is spent; CF = 0 nothing armed
+;
+; The control is put back UP first and by REDRAWING, never by undoing - a
+; repaint between the two edges takes the pressed look off the glass by
+; itself, and an un-draw would then invert one that was already upright
+; (SPEC.md 13.8). Then the SAME hit test the press used runs again: pressed
+; and released on the same control is the gesture, anything else is the
+; cancel that makes press-and-slide-off a way to change your mind.
+; -----------------------------------------------------------------------------
+wd_dgfire:
+    push ax
+    push bx
+    push di
+    mov bx, [wd_dgdown]             ; BX BANKS the armed control across the
+    or bx, bx                       ; clear below - the compare at the end is
+    jz .none                        ; against what the PRESS landed on, and
+    mov word [wd_dgdown], 0         ; [wd_dgdown] has to be 0 before the
+    call wd_dgpaint                 ; repaint or it draws itself down again
+    cmp word [wd_dlg], 0
+    je .spent                       ; the dialog went away under us
+    call wd_dghit                   ; CF=0 and DI = the control under the
+    jc .spent                       ; RELEASE
+    cmp al, WDD_BTN
+    jne .spent
+    cmp di, bx
+    jne .spent
+    cmp word [di+10], 1
+    je .ok
+    cmp word [di+10], 3             ; the prompt's third verb (SPEC.md 68.4)
+    je .no
+    call wd_dgcancel                ; Cancel: discard
+    jmp short .spent
+.no:
+    call wd_dgno
+    jmp short .spent
+.ok:
+    call wd_dgok
+.spent:
+    pop di
+    pop bx
+    pop ax
+    stc
+    ret
+.none:
+    pop di
+    pop bx
+    pop ax
+    clc
+    ret
+
 wd_onup:
     push ax
     push bx
     push cx
     push dx
+    call wd_dgfire                  ; A DIALOG'S BUTTON FIRES HERE (SPEC.md
+    jc wd_sbd_out                   ; 13.7): it is app-modal, so when one is
+                                    ; armed nothing else may have this release
     call wd_drup                    ; the release over an item is the PICK, and
                                     ; the drag-out-of-the-box spelling of the
                                     ; gesture is the one that needs it
@@ -17632,10 +17688,16 @@ wd_abopen:
     add ax, 13
     mov [wd_abok+6], ax
     push si
-    mov bx, wd_abok
-    mov si, wd_s_ok
-    mov di, OS88UI_FILL | OS88UI_DEF
-    call os88ui_btn
+    mov word [wd_btlbl], wd_s_ok    ; the About card's OK, through the one
+    mov word [wd_btflg], OS88UI_FILL | OS88UI_DEF
+    mov bx, wd_btrec                ; control (SPEC.md 20.5.1.3). Word's
+    mov word [bx+OS88UI_BT_RECTS], wd_abok
+    mov word [bx+OS88UI_BT_LABELS], wd_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], wd_btflg
+    mov word [bx+OS88UI_BT_N], 1    ; buttons are entries in its OWN control
+    mov word [bx+OS88UI_BT_DOWN], 0 ; list rather than a contiguous group, so
+    mov al, 1                       ; the record is staged one at a time and
+    call os88ui_btn                 ; the LIST stays the single description
     pop si
     mov byte [wd_about], 1
     jmp short .out
@@ -18039,8 +18101,22 @@ wd_dgctl:
     jz .nbdis                       ; os88ui's own flag (SPEC.md 47)
     or ax, OS88UI_DIS
 .nbdis:
-    mov di, ax
-    mov bx, wd_dgr
+    mov [wd_btflg], ax
+    mov [wd_btlbl], si
+    mov bx, wd_btrec
+    mov word [bx+OS88UI_BT_RECTS], wd_dgr
+    mov word [bx+OS88UI_BT_LABELS], wd_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], wd_btflg
+    mov word [bx+OS88UI_BT_N], 1
+    xor ax, ax                      ; ...and the PRESSED look, from Word's own
+    pop di                          ; "which control is down": the identity is
+    push di                         ; the caller's (SPEC.md 13.7) and here it
+    cmp di, [wd_dgdown]             ; is the WDD record's own address
+    jne .nbdn
+    inc ax
+.nbdn:
+    mov [bx+OS88UI_BT_DOWN], ax
+    mov al, 1
     call os88ui_btn
     pop di
 .done:
@@ -18168,18 +18244,10 @@ wd_dgclick:
 .edit:
     call wd_dgfocus
     jmp short .out
-.btn:
-    cmp word [di+10], 1
-    je .ok
-    cmp word [di+10], 3             ; the prompt's third verb (SPEC.md 68.4)
-    je .no
-    call wd_dgcancel                ; Cancel: discard
-    jmp short .out
-.no:
-    call wd_dgno
-    jmp short .out
-.ok:
-    call wd_dgok
+.btn:                               ; **IT ONLY ARMS** (SPEC.md 13.6): OK,
+    mov [wd_dgdown], di             ; Cancel and No all decide the document's
+    call wd_dgpaint                 ; fate, so a mis-aimed press must be
+                                    ; cancellable. wd_dgfire has the action
 .out:
     pop di
     pop ax
@@ -20692,6 +20760,12 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
     WDVAR wd_dck,   1       ; byte: the attr byte the check boxes are editing
     WDVAR wd_dpad,  1       ; byte: keeps the words below even
     WDVAR wd_dgr,   8       ; 4 words: a button rect being drawn/hit
+    WDVAR wd_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3):
+    WDVAR wd_btflg, 2       ; a one-entry label array and a one-entry flag one
+    WDVAR wd_btrec, 12      ; ...and the record itself
+    WDVAR wd_dgdown, 2      ; WHICH control a press is live on - the WDD
+                            ; record's address, 0 for none. Word's own,
+                            ; because its buttons are entries in its list
 
 ; --- the real .DOC format (wddoc.inc, SPEC.md 68.4) --------------------------
     WDVAR wd_dgrp,  24      ; a grpprl under construction. Six paragraph

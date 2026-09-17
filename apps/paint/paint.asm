@@ -5144,7 +5144,7 @@ pt_szdraw_apply:
     je .nodn
     or di, OS88UI_DOWN
 .nodn:
-    call os88ui_btn
+    call os88ui_btnraw
     mov byte [pt_pen], CBLACK       ; os88ui_btn leaves the KERNEL's pen live;
                                     ; [pt_pen] is this module's own and the
                                     ; two are not the same variable

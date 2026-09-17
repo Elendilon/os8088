@@ -35734,100 +35734,13 @@ agreeing by hand.
 
 | | |
 |---|---|
-| `os88ui_btn` | `BX` = rect, `SI` = NUL label, `DI` = flags. Optional white interior, frame, optional default ring 2px out, label **centred in both axes**. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
-| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside |
-| `os88ui_bfind` | `BX` = an array of rects, `AX` = how many. Answers `AX` = the index **plus one**, 0 for none |
-| `os88ui_arm` / `os88ui_fire` | the §13.7 press/release pair. `arm` records what the press landed on; `fire` answers it and **clears**. Package side only |
+| `os88ui_btninit` | `BX` = record, `AX` = window, `SI` = your `W_ONMOUSEUP` proc, `DI` = your `W_ONDRAG` proc. Stores the window and **installs both slots for you**, ignoring the drag slot's `CF` (§20.5.1.3) |
+| `os88ui_btn` | `BX` = record, `AL` = index **plus one**. Draws ONE button of the group: optional white interior, frame, optional default ring 2px out, label **centred in both axes**, and the pressed look resolved from the record. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
+| `os88ui_btnpress` | `BX` = record, `CX`/`DX` = point. Arms and draws down. `AX` = index **plus one**, 0 = not ours |
+| `os88ui_btndrag` | `BX` = record, `CX`/`DX`. Tracks the pointer; redraws **only on a change** |
+| `os88ui_btnup` | `BX` = record, `CX`/`DX`. `AX` = the button that **fired**, 0 = cancelled |
+| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside. A rect test rather than a button, which is why it stays public where `os88ui_bfind`, `os88ui_arm`, `os88ui_fire` and `os88ui_armed` became the control's internals |
 | `os88ui_glyph` | the 12x12 **check box or radio button** (§31.2). `CX`/`DX` = top-left, `AL` = `OS88UI_GRADIO`/`GCHECK` or'd with `OS88UI_GON`, `AH` non-zero = disabled |
-
-**The glyph's flag rides in `AH`, and its white box is unconditional** —
-both departures from the button above, and both for a reason. A glyph has
-exactly one flag, and every Control Panel page is already holding the pane's
-left edge in `DI`, so `DI` would cost a push and a pop at six call sites to
-carry one bit that fits beside the index for free. And a radio's whole job
-is to be redrawn in place when the selection moves, so there is no caller
-for whom the erase is waste. It is **not cheap** — 44 set bits for an empty
-box and 64 for a crossed one, one drawing call each, so 35–50 ms on the
-field machine: draw the ROW that changed, never the page. The four bitmaps
-are ONE array indexed by `(kind | on)` and reached by arithmetic rather than
-through a table of pointers, because a table is data and lands in `.text`
-where the kernel has three bytes of rung left, while the arithmetic is code
-and lands in `.cold` where it has hundreds; the contiguity that rests on is
-asserted at assembly time.
-
-Flags: `OS88UI_DIS` (dithered frame *and* label — §47 rule 1 and 2 together),
-`OS88UI_DEF` (the default button's outer ring), `OS88UI_INK` (below), and
-`OS88UI_FILL`, which wants its own paragraph:
-
-**`OS88UI_FILL` asks "can this button be drawn a second time without the
-ground being repainted first?", NOT "is my background white".** A button
-whose greying can move always can be, and **`font_char` is transparent** — it
-ORs ink in and erases nothing — so a redraw's checkerboard caption lands on
-top of the previous solid one and the union is the solid one. `gfx_frame`
-*writes* rather than ORs, so the frame dithers correctly either way, and that
-split is what makes the failure read as *§47 rule 1 is broken* when rule 1 is
-working perfectly. Measured on a cycle-accurate 5150/CGA, the same refused
-button reached two ways: **158 ink pixels redrawn in place against 116
-freshly painted**, 0 apart after the fix. In the kernel exactly one button
-needs it for this reason — the file dialog's default, redrawn by
-`fdlg_draw_name` on the edge where `fdlg_actok` moves; Cancel, Drive and New
-Folder are drawn once onto a pane `wm_paint_all` has already whited and can
-never change what they say. `tests/fdlggrey.py` is the gate and it
-discriminates: 42 pixels differ without the flag, 0 with it.
-
-**`OS88UI_INK` puts the label's colour in `DI`'s HIGH BYTE**, for a button
-whose caption is deliberately not black — Piano's song buttons, which §47
-names as its own example of a colour that is decoration rather than state.
-It is a flag plus a byte rather than `AL = the colour` because every existing
-caller reaches `os88ui_btn` with arbitrary `AX`, and a silent reinterpretation
-of a live register is the shape of bug this file has already produced twice;
-`DI` is the flag word, so its high byte is 0 by construction at every call
-site. **Disabled wins**: a greyed control is `CDGRAY` and dithered whatever
-ink it asked for, because rule 1 is about state and this is about decoration.
-
-Eight things are load-bearing:
-
-- **A word declared in `.cold` and reached through `DS` is not that word**
-  (§2.6), and this section is where that bit. The three rect scratches were
-  first declared beside their callers, two of which are cold — the write and
-  the read used the same wrong address, so the buttons drew *perfectly*
-  while `fdlg_brect` put eight bytes of screen coordinates through the middle
-  of **`sch_isr`** and `cp_brect` through **`wm_destroy`**. `-w+error` is
-  clean on it and `os88ovlchk.py` does not see it, because that tool checks
-  calls and branches and this is a data reference. There is one kernel
-  scratch now, `os88ui_krect`, declared here in `.bss`; no kernel caller
-  declares a rect at all.
-
-- **`BP` addresses `SS`, and in a package `SS != DS`** (§20.1), so every rect
-  read in `os88ui_btn` carries a `ds:` override. Free in the kernel and
-  mandatory in a package, from one text.
-- **The include goes at the END of a package's source, just before
-  `OS88_BSS`** — not beside `os88api.inc`. The header and an `OS88_ICON16`
-  block are at fixed image offsets (§20.2), and code emitted between them
-  fails the icon macro's own assertion.
-- **A whole-rect fill and an interior fill are the same picture** once the
-  frame is drawn over the border, so `OS88UI_FILL` covers both and the Timer's
-  whole-rect version needed no flag of its own.
-- **Centring is not imposed** — it is what all four kernel buttons were
-  already doing with the arithmetic precomputed as a literal, which is what
-  made one body possible: `(116-104)/2` = `+6`, `(14-8)/2` = `+3`, and
-  `APP_TMR_LT = (APP_TMR_BH-8)/2`. Three literals and one formula, all the
-  same number.
-- **A label wider than its button** would make the halved padding a huge
-  unsigned number and put the text off screen; the guard is three bytes and is
-  kept.
-- **`os88ui_arm`'s word is DATA, not bss.** A package declares its bss as one
-  total with `equ` offsets (`OS88_BSS`), and a shared include cannot reserve
-  part of that without the package agreeing where. Two bytes of image is
-  cheaper than a convention.
-
-**What it is not for**: a skinned control. ModPlug's bevelled well and LED
-transport are a deliberate port of ModPlugPlayer's look (§56), and
-Minesweeper's cell is its own game's chrome — converting those would be
-undoing intended design rather than consolidating it.
-
-`tests/muptest` is the gate, and it gates §13.7's release rules and this
-control's arm with the same four gestures.
 
 #### 20.5.1.1 `OS88UI_ABOUT` — the standard About card, and the attribution it exists for
 
@@ -35961,6 +35874,145 @@ is simply false — it draws no bar and no button. `BARONLY` now implies
 `NOBTN`, so every existing consumer is **byte-identical**, which is checked
 rather than asserted: after the change exactly one package binary in the tree
 differed, and it was the one that had gained a card.
+
+#### 20.5.1.3 The button is a RECORD, and there is no second way to draw one
+
+`os88ui_btn` took a loose rect, label and flag word until 2026-09-17, and a
+caller that drew one that way owned the whole §13.7 gesture by hand — install
+two slots that are deliberately not template words, arm on the press, track on
+the drag, fire on the release, and pass `OS88UI_DOWN` back from its painter so
+a repaint agreed with the glass. Seven obligations, in three callbacks, none of
+which fails to assemble when it is missing. **Twenty-five of the tree's
+fifty-one call sites had skipped all of them and fired on the press.**
+
+The fix is not a second control to opt into. It is this one, changed, with the
+old signature **deleted** so that every caller converts and a new one cannot
+express the wrong thing: the record carries the rects, the labels, the flags
+and the count, and `BT_DOWN` — *which button is pressed right now* — belongs to
+the library. `docs/plans/BUTTON-GESTURE-PLAN.md` is the design record.
+
+| | |
+|---|---|
+| `OS88UI_BT_RECTS` 0 | near ptr to an array of 4-word **inclusive screen** rects, filled by your painter from `OSAPI_WM_CONTENT` every pass, because a window moves |
+| `OS88UI_BT_LABELS` 2 | near ptr to an array of near ptrs to NUL labels |
+| `OS88UI_BT_FLAGS` 4 | near ptr to an array of flag **words** (`OS88UI_DIS`, `OS88UI_DEF`, `OS88UI_INK`, `OS88UI_LATCH`), or 0 for none |
+| `OS88UI_BT_N` 6 | how many are **live this pass** — a paged window points one record at either page's buttons |
+| `OS88UI_BT_WIN` 8 | the window, written by `os88ui_btninit` |
+| `OS88UI_BT_DOWN` 10 | **the library's**: index plus one of the control a press is live on, 0 for none. Read it; never write it |
+
+`OS88UI_BT_SIZE` is 12. The record is the caller's data and there may be one
+per button GROUP rather than one per window, which is the shape the tree has:
+Sheet's ten buttons are five dialog pairs.
+
+**A group's rects must be contiguous**, because `os88ui_btnpress` walks them
+with `os88ui_bfind`. That is the single constraint the conversion imposes, and
+it is what makes the drawn control and the clickable control one description
+rather than two — §22's `fm_hit` discipline, which is the paragraph above this
+table arriving at the control it was written about.
+
+#### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
+
+`OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns
+it the caller no longer sets it. `OS88UI_LATCH` (32) means *this control's
+setting is ON* and is the caller's, in its flags array. **They draw the same
+picture** — interior black, label white, the frame unchanged in the same place
+— because they mean the same thing to somebody looking at the screen, and
+`OS88UI_DIS` outranks both exactly as §13.8 says.
+
+It exists because Audio drew Shuffle and Repeat with `OS88UI_DOWN` to mean
+*on*, which was correct while the flag was the caller's and collides the moment
+it is not. It is **generic rather than Audio's** because a latched button is an
+ordinary thing to want: ModPlug's transport, Tracker's and Paint's tool
+selections are all this shape and each draws it by hand today.
+
+**The glyph's flag rides in `AH`, and its white box is unconditional** —
+both departures from the button above, and both for a reason. A glyph has
+exactly one flag, and every Control Panel page is already holding the pane's
+left edge in `DI`, so `DI` would cost a push and a pop at six call sites to
+carry one bit that fits beside the index for free. And a radio's whole job
+is to be redrawn in place when the selection moves, so there is no caller
+for whom the erase is waste. It is **not cheap** — 44 set bits for an empty
+box and 64 for a crossed one, one drawing call each, so 35–50 ms on the
+field machine: draw the ROW that changed, never the page. The four bitmaps
+are ONE array indexed by `(kind | on)` and reached by arithmetic rather than
+through a table of pointers, because a table is data and lands in `.text`
+where the kernel has three bytes of rung left, while the arithmetic is code
+and lands in `.cold` where it has hundreds; the contiguity that rests on is
+asserted at assembly time.
+
+Flags: `OS88UI_DIS` (dithered frame *and* label — §47 rule 1 and 2 together),
+`OS88UI_DEF` (the default button's outer ring), `OS88UI_INK` (below), and
+`OS88UI_FILL`, which wants its own paragraph:
+
+**`OS88UI_FILL` asks "can this button be drawn a second time without the
+ground being repainted first?", NOT "is my background white".** A button
+whose greying can move always can be, and **`font_char` is transparent** — it
+ORs ink in and erases nothing — so a redraw's checkerboard caption lands on
+top of the previous solid one and the union is the solid one. `gfx_frame`
+*writes* rather than ORs, so the frame dithers correctly either way, and that
+split is what makes the failure read as *§47 rule 1 is broken* when rule 1 is
+working perfectly. Measured on a cycle-accurate 5150/CGA, the same refused
+button reached two ways: **158 ink pixels redrawn in place against 116
+freshly painted**, 0 apart after the fix. In the kernel exactly one button
+needs it for this reason — the file dialog's default, redrawn by
+`fdlg_draw_name` on the edge where `fdlg_actok` moves; Cancel, Drive and New
+Folder are drawn once onto a pane `wm_paint_all` has already whited and can
+never change what they say. `tests/fdlggrey.py` is the gate and it
+discriminates: 42 pixels differ without the flag, 0 with it.
+
+**`OS88UI_INK` puts the label's colour in `DI`'s HIGH BYTE**, for a button
+whose caption is deliberately not black — Piano's song buttons, which §47
+names as its own example of a colour that is decoration rather than state.
+It is a flag plus a byte rather than `AL = the colour` because every existing
+caller reaches `os88ui_btn` with arbitrary `AX`, and a silent reinterpretation
+of a live register is the shape of bug this file has already produced twice;
+`DI` is the flag word, so its high byte is 0 by construction at every call
+site. **Disabled wins**: a greyed control is `CDGRAY` and dithered whatever
+ink it asked for, because rule 1 is about state and this is about decoration.
+
+Eight things are load-bearing:
+
+- **A word declared in `.cold` and reached through `DS` is not that word**
+  (§2.6), and this section is where that bit. The three rect scratches were
+  first declared beside their callers, two of which are cold — the write and
+  the read used the same wrong address, so the buttons drew *perfectly*
+  while `fdlg_brect` put eight bytes of screen coordinates through the middle
+  of **`sch_isr`** and `cp_brect` through **`wm_destroy`**. `-w+error` is
+  clean on it and `os88ovlchk.py` does not see it, because that tool checks
+  calls and branches and this is a data reference. There is one kernel
+  scratch now, `os88ui_krect`, declared here in `.bss`; no kernel caller
+  declares a rect at all.
+
+- **`BP` addresses `SS`, and in a package `SS != DS`** (§20.1), so every rect
+  read in `os88ui_btn` carries a `ds:` override. Free in the kernel and
+  mandatory in a package, from one text.
+- **The include goes at the END of a package's source, just before
+  `OS88_BSS`** — not beside `os88api.inc`. The header and an `OS88_ICON16`
+  block are at fixed image offsets (§20.2), and code emitted between them
+  fails the icon macro's own assertion.
+- **A whole-rect fill and an interior fill are the same picture** once the
+  frame is drawn over the border, so `OS88UI_FILL` covers both and the Timer's
+  whole-rect version needed no flag of its own.
+- **Centring is not imposed** — it is what all four kernel buttons were
+  already doing with the arithmetic precomputed as a literal, which is what
+  made one body possible: `(116-104)/2` = `+6`, `(14-8)/2` = `+3`, and
+  `APP_TMR_LT = (APP_TMR_BH-8)/2`. Three literals and one formula, all the
+  same number.
+- **A label wider than its button** would make the halved padding a huge
+  unsigned number and put the text off screen; the guard is three bytes and is
+  kept.
+- **`os88ui_arm`'s word is DATA, not bss.** A package declares its bss as one
+  total with `equ` offsets (`OS88_BSS`), and a shared include cannot reserve
+  part of that without the package agreeing where. Two bytes of image is
+  cheaper than a convention.
+
+**What it is not for**: a skinned control. ModPlug's bevelled well and LED
+transport are a deliberate port of ModPlugPlayer's look (§56), and
+Minesweeper's cell is its own game's chrome — converting those would be
+undoing intended design rather than consolidating it.
+
+`tests/muptest` is the gate, and it gates §13.7's release rules and this
+control's arm with the same four gestures.
 
 ### 20.6 Worker tasks — one background task per package instance
 
@@ -130001,6 +130053,133 @@ and it binds here for a sharper reason: this box keeps the handle window and
 its owner in the core's bss, so a callback that re-enters `INT 21h` corrupts a
 transfer in flight. `[dos_m33bsy]` guards only our *own* re-entry — a callback
 still running when the next tick arrives.
+
+### 96.10.5 The text cursor, because in DOS the driver draws it
+
+A DOS mouse driver **draws its own pointer**. There is no compositor, no
+window server and no arrow the machine keeps for it: `INT 33h` function `01h`
+means *put a cursor on the screen and keep it under the mouse*, and if the
+driver does not, nothing does. That is the one part of the interface this box
+answered with a shrug — `01h` and `02h` were both no-ops, on the reasoning
+that the kernel owns the pointer — and the reasoning is right in the
+**windowed** host and wrong in `kern_dos`, where the program owns every pixel
+and the kernel is not running at all.
+
+**`kern_dos` is therefore the only host that has one**, and §96.10.5.1 is how
+that is said in code rather than in an `%ifdef`.
+
+**The drawing rule is one line.** In text mode a cursor is not a bitmap — it
+is an attribute the driver flips:
+
+    displayed = (cell AND screen_mask) XOR cursor_mask
+
+`0Ah` with `BX=0` hands over exactly those two words and nothing else, which
+is why there is no shape to draw and no sprite to save. `BX=1` asks for the
+**hardware** cursor instead — a CRTC scan-line pair — and that is the
+machine's own text caret rather than something a pointer may take over, so it
+is ignored rather than refused: a program that asks for a shape and is
+refused still expects a cursor.
+
+**The masks are STATE.** Microsoft Works sets `77FF`/`7700` at startup and
+then `80FF`/`F000` **twice more** — measured against IBM DOS 3.30 with
+CTMOUSE loaded (docs/DOS-DEBUGGING.md) — so a box that hard-coded the
+power-up pair would draw the wrong cursor for most of a session. The defaults
+are that power-up pair: `AND 77FF` keeps the character and drops blink and
+intensity, `XOR 7700` then swaps foreground and background, which is the
+inverse-video block a DOS user recognises as the mouse.
+
+**The show counter is not a flag.** It starts at **-1**, `02h` takes a
+nesting level and `01h` releases one, saturating at 0 — so a program that hid
+twice must show twice. It matters that -1 is not the zero a `.bss` arrives
+as: 0 means *visible*, so the bracket sets the state explicitly at its `IVT`
+install and a program that never calls `01h` never sees a cursor.
+
+The reference sequence is the specification and is worth reading whole:
+
+    00 0A 0C 08 0A 0A 01 03 02 01 03 02 01 03 02 ...
+
+`01 03 02` — show, ask where it is, hide — repeated 25 times. **Works takes
+the cursor off before it draws its own screen**, which is what a well-behaved
+DOS application does and what makes §96.10.5.3 a guard rather than the main
+mechanism.
+
+#### 96.10.5.1 `DHK_TXT`, and why the windowed host must not have it
+
+The core is assembled **once** and joined to either host (§96.44), so
+"`kern_dos` only" cannot be an `%ifdef` here. It is a host hook:
+
+    DHK_TXT   out: ES = the text segment, BX = columns, DX = rows
+                   CF=1 = there is no text screen you may draw on
+
+`dos_hk_bind` does not set it; `kdentry.inc` does. In the windowed box the
+cell stays the zero a `.bss` arrives as, `dos_m33_paint` refuses at its second
+instruction, and `01h`/`02h` are the no-ops they always were — which is
+correct there, because `B800` belongs to the kernel and the OS owns every
+pixel on the glass.
+
+`kern_dos`'s side reads the BDA the ROM maintains: `0040:0049` for the mode
+(7 → `B000`, 0–3 → `B800`, anything else refused, a graphics-mode pointer
+being function `09h`'s and not this one) and `0040:004A` for the width. So a
+program that changes mode mid-session gets a cursor in the right place
+without the box being told.
+
+**The width must fit a byte and the hook refuses one that does not.** The
+core's cell arithmetic is `row * columns` as `mul bl`, and it clamps the
+column against the whole of `BX` — so a width above 255 would be multiplied by
+its low byte and bounded by a different number, which is a store past the end
+of the screen. No text mode is that wide; a BDA that says so has been
+scribbled on, and refusing is the only answer that cannot corrupt the
+program's memory.
+
+#### 96.10.5.2 Two update points, and the critical section between them
+
+`INT 33h`'s coordinates are a **640x200 virtual screen whatever the text mode
+is**, so a cell is 8 units on both axes and the arithmetic is two shifts. The
+cursor is moved from two places:
+
+- **`dos_mou_read`** — every function `3`/`5`/`6` and every `dos_getkey`
+  poll. This is the fine one: a program waiting for input polls through here
+  continuously, which is most of its idle time.
+- **`dos_m33_tick`** — IRQ0, 18.2 Hz, and **before** the event-handler test,
+  because a program that shows the cursor and then computes for a second has
+  installed no handler and polls nothing. `01h` arms the tick for that reason;
+  `0Ch` is not the only way to need it — but only where `DHK_TXT` answers,
+  since in the windowed box the hook would buy nothing and cost the DOS task's
+  slice a frame every tick.
+
+**Both write the same three cells, so both are `pushf`/`cli`/`popf`.**
+`dos_int33` `sti`s at its first instruction, so IRQ0 can land between the
+store that says *where* the cursor is and the one that says *what was under
+it* — after which the wipe restores a cell from the wrong place and leaves a
+character the program never wrote. It is the intermittent kind of defect, and
+it costs four bytes not to have.
+
+**A cursor that has not moved is not redrawn**, and that is correctness rather
+than economy: between two paints the program may have written the cell
+itself, and re-saving what is there would bank *our own* inverted cell as the
+thing to restore — after which the inversion is permanent and travels with
+the pointer.
+
+#### 96.10.5.3 It checks before it restores
+
+A software cursor cannot see the program's own writes. A DOS application
+draws its screen by storing into `B800` and tells nobody, so the cell the
+driver saved may since have been replaced — and putting the saved copy back
+leaves **a character the program never wrote, at a place the pointer has
+left**. That is the artefact the reporter describes of CTMOUSE: *"it doesn't
+always invert it correctly in works"*.
+
+The guard is exact and costs eight bytes: recompute what we **wrote** — the
+masks cannot change under us without `0Ah`, which repaints — and restore only
+if that is still what is on the glass. A program that redrew the cell keeps
+its own content and the box simply forgets its copy.
+
+It is not a complete answer and nothing cheap is: a driver that wanted to be
+exact would have to hook `INT 10h` and hide around every BIOS write, and that
+still misses the direct stores, which is how every application draws. What it
+removes is the visible half — the stale character left behind — and it leaves
+only the case where the program overwrote the cell with something that
+happens to equal what we put there.
 
 ### 96.11 File handles, built on an API that has none
 

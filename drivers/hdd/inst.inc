@@ -431,7 +431,7 @@ hd_iw_button:
                                 ; will fire (SPEC.md 13.8)
     mov bx, hd_ibrect           ; OS88UI_FILL because a RELEASE redraws this
     or di, OS88UI_FILL          ; button over a pressed one; on a full pass
-    call os88ui_btn             ; hd_ibtns_draw has already whited the band
+    call os88ui_btnraw             ; hd_ibtns_draw has already whited the band
     pop di
     pop si
     pop dx
