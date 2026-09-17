@@ -159,6 +159,19 @@ at_entry:
     pop si
     jc .out
     mov [at_win], bx
+    push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                         ; 20.5.1.2): neither is a template word,
+    push si                         ; which is why this modal's three buttons
+    push di                         ; fired on the press for as long as they
+    mov ax, bx                      ; existed
+    mov bx, at_btrec
+    mov si, at_onup
+    mov di, at_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
@@ -548,6 +561,41 @@ at_onkey:
 ; -----------------------------------------------------------------------------
 ; at_onclick - W_ONCLICK (CX = x, DX = y, absolute screen; lock held)
 ; -----------------------------------------------------------------------------
+; --- at_onup / at_ondrag - the modal's buttons fire and track (13.7/13.8.2) --
+; Only the modal draws standard buttons, so both edges go straight to it; a
+; release with no modal up finds nothing armed and does nothing.
+at_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call at_modal_up
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+at_ondrag:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call at_modal_drag
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 at_onclick:
     push ax
     push bx
@@ -1140,6 +1188,9 @@ AT_BSS_TOTAL equ (at_bss_end - at_bss_base)
                                 ; question that has to be asked when this app
                                 ; has no surface of its own to ask it on
 %include "os88ui.inc"           ; buttons this already drew
+%if 12 != OS88UI_BT_SIZE
+ %error "at_btrec in atui.inc is six words written out by hand - that file is included BEFORE this one, so OS88UI_BT_SIZE is not defined there - and the two have drifted; widen at_btrec"
+%endif
 
     OS88_BSS AT_BSS_TOTAL
     OS88_IMAGE_END

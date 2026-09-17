@@ -390,6 +390,19 @@ ap_entry:
     call OSAPI_WM_CREATE          ; BX = window ptr, CF on table full
     jc .fail
     mov [ap_win], bx
+    push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                         ; 20.5.1.2): neither is a template word
+    push si
+    push di
+    mov ax, bx
+    mov bx, apu_btrec
+    mov si, ap_onup
+    mov di, ap_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly

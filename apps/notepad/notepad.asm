@@ -981,12 +981,55 @@ np_sbclick:
 ; np_bounds first, because the block's rect and both of its counts come from
 ; the live window record and this app is resizable.
 ; -----------------------------------------------------------------------------
+; --- np_fp_act - the find panel's button BX (0-based) did fire ---------------
+; It was the TAIL of the press hit-test until SPEC.md 13.6 put these four on
+; the release. Every handler in it draws, so SI is the window throughout.
+np_fp_act:
+    push ax
+    push bx
+    push si
+    mov si, [np_win]
+    or bx, bx
+    jnz .h1
+    call np_fclose              ; 0 = close
+    call np_redrawall
+    jmp short .done
+.h1:
+    cmp bx, 1
+    jne .h2
+    call np_dorepall            ; 1 = All
+    mov si, [np_win]
+    call np_redraw
+    call np_pdrawn
+    jmp short .done
+.h2:
+    cmp bx, 2
+    jne .h3
+    call np_dorepl              ; 2 = Repl
+    mov si, [np_win]
+    call np_redraw
+    call np_pdrawn
+    jmp short .done
+.h3:
+    call np_donext              ; 3 = Next
+    mov si, [np_win]
+    call np_redraw
+.done:
+    pop si
+    pop bx
+    pop ax
+    ret
+
 np_ondrag:
     push ax
     push bx
     push cx
     push dx
-    call os88ui_sbdragging
+    push si
+    mov bx, np_btrec            ; THE FIND PANEL'S BUTTONS FIRST: the held one
+    call os88ui_btndrag         ; follows the pointer. A package has ONE arm
+    pop si                      ; word, so the bar and the buttons cannot both
+    call os88ui_sbdragging      ; be live
     jc np_sbd_out
     mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
     mov ax, NP_SBIDLE           ; one-shot out, which is what makes it an IDLE
@@ -1015,6 +1058,19 @@ np_onup:
     push bx
     push cx
     push dx
+    push si
+    mov bx, np_btrec            ; the find panel FIRES here (SPEC.md 13.7)
+    call os88ui_btnup           ; AX = what fired, 0 = nothing of ours
+    pop si
+    or ax, ax
+    jz .nobtn
+    push si
+    dec ax                      ; np_fp_act takes the 0-based button
+    mov bx, ax
+    call np_fp_act
+    pop si
+    jmp np_sbd_out
+.nobtn:
     call os88ui_sbdragging
     jc np_sbd_out
     mov bx, si                  ; the pause timer must not outlive the gesture
@@ -10016,27 +10072,55 @@ np_pbutton:
     push dx
     push si
     push di
-    shl bx, 1
+    push bx                     ; BX = the 0-based slot, and it stays: the
+    shl bx, 1                   ; group's rects, labels and flags are three
+    mov [np_btlbl+bx], si       ; parallel arrays the record indexes together
     mov cx, [bx+np_pbw]
-    jcxz .out
+    pop ax                      ; AX = the slot again
+    jcxz .hide
     mov di, [bx+np_pbx]
     or di, di
-    jz .out
-    mov [np_brect+0], di
+    jz .hide
+    push ax
+    add ax, ax
+    add ax, ax
+    add ax, ax                  ; AX = slot * 8, the rect stride
+    mov bx, np_brects
+    add bx, ax
+    mov [bx+0], di
     add di, cx
     dec di                      ; ...x2 inclusive
-    mov [np_brect+4], di
+    mov [bx+4], di
     mov ax, [np_pbtny]
-    mov [np_brect+2], ax
+    mov [bx+2], ax
     add ax, NP_FP_BTNH - 1
-    mov [np_brect+6], ax
-    mov bx, np_brect
-    mov di, OS88UI_FILL         ; np_fpaint fills the panel band before the
+    mov [bx+6], ax
+    pop ax
+    push ax
+    add ax, ax
+    mov bx, ax
+    mov word [np_btflg+bx], OS88UI_FILL
+                                ; np_fpaint fills the panel band before the
                                 ; first button, but a button REDRAWN in place
                                 ; would or its caption onto the old one
                                 ; (os88ui.inc's own note), and this is the
                                 ; cheapest way for that never to become true
-    call os88ui_btnraw
+    pop ax
+    mov bx, np_btrec
+    inc ax                      ; the record's indices are one-based
+    call os88ui_btn
+    jmp short .out
+.hide:                          ; not shown: ZERO its rect, so os88ui_bfind
+    add ax, ax                  ; cannot answer for a button that is not there
+    add ax, ax
+    add ax, ax
+    mov bx, np_brects
+    add bx, ax
+    xor ax, ax
+    mov [bx+0], ax
+    mov [bx+2], ax
+    mov [bx+4], ax
+    mov [bx+6], ax
 .out:
     pop di
     pop si
@@ -10046,7 +10130,14 @@ np_pbutton:
     pop ax
     ret
 
-np_brect:   dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
+np_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP (SPEC.md
+                                ; 20.5.1.2): four rects, contiguous, in screen
+                                ; coordinates - a hidden one is zeroed
+np_btlbl:   dw 0, 0, 0, 0       ; ...its labels, written as each is drawn
+np_btflg:   dw 0, 0, 0, 0       ; ...and its flags
+np_btrec:   dw 0, 0, 0, 0, 0, 0 ; ...and the record itself, six words written
+                                ; out because OS88UI_BT_SIZE is not defined
+                                ; this early; the %if by the include guards it
 
 ; -----------------------------------------------------------------------------
 ; np_fpaint - draw the whole panel
@@ -10119,6 +10210,11 @@ np_fpaint:
     call OSAPI_FONT_RUN             ; The tick box to its left is a fill of
                                     ; its own and ends 5px short of this pen
 
+    mov bx, np_btrec
+    mov word [bx+OS88UI_BT_RECTS], np_brects
+    mov word [bx+OS88UI_BT_LABELS], np_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], np_btflg
+    mov word [bx+OS88UI_BT_N], 4
     mov bx, 3
     mov si, np_b_next
     call np_pbutton
@@ -10257,24 +10353,12 @@ np_fpclick:
     mov bx, [np_pbtny]          ; --- the button row ---
     cmp dx, bx
     jb .fields
-    xor bx, bx
-.b:
-    mov di, bx
-    shl di, 1
-    mov ax, [di+np_pbw]
-    or ax, ax
-    jz .bnext
-    mov ax, [di+np_pbx]
-    cmp cx, ax
-    jb .bnext
-    add ax, [di+np_pbw]
-    cmp cx, ax
-    jae .bnext
-    jmp short .hit
-.bnext:
-    inc bx
-    cmp bx, 4
-    jb .b
+    mov bx, np_btrec            ; **THEY ONLY ARM** (SPEC.md 13.6): Replace
+    call os88ui_btnpress        ; All rewrites the document, so none of these
+    or ax, ax                   ; may fire on a press the user can take back.
+    jnz .yes                    ; np_fp_up has the action; the x/width ladder
+                                ; this replaces was a second description of
+                                ; the geometry np_pbutton already owned
     mov ax, [np_pcbx]           ; the Regex tick box, and its label with it
     cmp cx, ax
     jb .yes
@@ -10287,34 +10371,9 @@ np_fpclick:
     mov byte [np_fcdirty], 1
     call np_fpaint
     jmp short .yes
-.hit:
-    mov si, [np_win]            ; every handler below draws, and SI has to be
-    or bx, bx                   ; the window for all of them
-    jnz .h1
-    call np_fclose              ; 0 = close
-    call np_redrawall
-    jmp short .yes
-.h1:
-    cmp bx, 1
-    jne .h2
-    call np_dorepall            ; 1 = All
-    mov si, [np_win]
-    call np_redraw
-    call np_pdrawn
-    jmp short .yes
-.h2:
-    cmp bx, 2
-    jne .h3
-    call np_dorepl              ; 2 = Repl
-    mov si, [np_win]
-    call np_redraw
-    call np_pdrawn
-    jmp short .yes
-.h3:
-    call np_donext              ; 3 = Next
-    mov si, [np_win]
-    call np_redraw
-    jmp short .yes
+.hit:                           ; UNREACHED from the press now: np_fp_act is
+    call np_fp_act              ; the same ladder as a routine of its own, so
+    jmp short .yes              ; np_onup can reach it at the release
 
 .fields:
     mov ax, dx                  ; --- a text box ---
@@ -11071,6 +11130,9 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; dialog has a floor of ~800 bytes wherever it
                                 ; lives, and this is where that is affordable
 %include "os88ui.inc"
+%if 12 != OS88UI_BT_SIZE
+ %error "np_btrec is six words written out by hand, above this include, and OS88UI_BT_SIZE has drifted - widen it"
+%endif
 
 ; ...and it is ABOVE the bss counter below because that block sizes a field
 ; from OS88UI_AMAX: an %assign is evaluated where it stands, so a constant it
