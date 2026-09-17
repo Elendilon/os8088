@@ -4582,6 +4582,15 @@ SOAK = [
     Row("dispband", "soak", py("tests/dispband.py"), 54.1,
         "Can a window use the SECOND display's top rows? (SPEC.md 39.16.2)",
         needs=("marty",), serial=True),
+    Row("dispsaver", "soak", py("tests/dispsaver.py"), 20.0,
+        "Does a saver SESSION dark the second monitor? (SPEC.md 79.1.1) The "
+        "blanker always walked every display; the animation returned before "
+        "the walk, so an extended desktop saved one tube and left the other "
+        "lit with a frozen desktop. It sets the HERCULES primary on purpose - "
+        "MartyPC models the CGA's video-enable bit and not the mono card's, "
+        "so with the default CGA primary the instrument is blind and the row "
+        "is green on both kernels",
+        needs=("marty",), serial=True),
     Row("dispzoom", "soak", py("tests/dispzoom.py"), 50.0,
         "SPEC.md 11.95.2.1: does a ZOOM land flush on an EXTENDED desktop?"
         "wm_snap_ax refuses to move a window right when it would hang off the"

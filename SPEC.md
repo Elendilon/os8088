@@ -104673,6 +104673,63 @@ the whole precondition of a session is minutes of no input. The one refusal
 that *is* said out loud is the Screen Saver button's (§79.7), which happens
 with the user's finger still on the mouse.
 
+#### 79.1.1 A session still walks the displays — it just starts at display 1
+
+`CF = 0` above says *the overlay has the screen*, and for one cycle that was
+read as *there is nothing to gate*: `blk_set` returned on it, before the
+per-card walk. On a one-display machine that is exactly right. **On an
+extended desktop (§39.19) it saved one monitor and left the other lit with a
+frozen desktop until morning** — which is the precise failure §64.3's walk
+exists to prevent, and which `kernel/blank.inc`'s own header had already
+written down in as many words: *"blanking the primary alone would protect one
+monitor and leave the other showing a frozen desktop all night."*
+
+**The saver draws on the primary and only there.** It sizes itself from
+`OSAPI_VIDEO`, which answers the **primary** and says so (§39.2.1) — not the
+desktop union — so `sv_clear`'s one `gfx_fill` covers `(0,0)..(pw-1,ph-1)`,
+every mode's bounds are cut from those two numbers, and display 1's
+framebuffer is never written for the whole session. A second monitor was
+therefore not merely un-gated: it was showing the *last desktop frame before
+the session began*, static, at full brightness, for as long as the machine
+was left alone.
+
+So the animation arm gates every display **but the one the saver is drawing
+on**:
+
+```
+blk_set(1) -> ssf_set  CF = 1  the blanker: walk from display 0  (§64.3)
+                       CF = 0  the saver:   walk from display 1
+blk_set(0) -> ssf_set  CF = 1  un-gate from display 0
+                       CF = 0  the repaint runs FIRST, then un-gate from 1
+```
+
+This is `vid_fsx_enter`'s *"dark every card but the bracket's"* (§39.18)
+reached from the other end, and it rests on three facts that are each true by
+construction rather than by convention:
+
+- **Display 0 is the primary.** `vid_disp_init` captures the primary at the
+  virtual origin as display 0 on both of its arms (§39.19.2), so the display
+  to skip is a constant and not a search.
+- **The second display is always a physically distinct card.** `vid_dual_ok`
+  admits exactly HERC plus one of VGA/CGA, so gating display 1's *kind*
+  cannot reach the primary's card.
+- **Gating is signal-only.** `vid_blank_kind` leaves the CRTC running and the
+  framebuffer untouched (§39.18.1), so it is legal on a card the machine is
+  still drawing into, and the wake needs no mode set.
+
+**The order on the wake is the repaint and then the un-gate**, not the other
+way round: `ss_stop_x` has to put a correct desktop in display 1's memory
+before its signal comes back, or the monitor lights on the stale frame for a
+repaint's worth of time (~0.4 s on the 5150). `blk_set` gets that for free —
+`ssf_set` *is* the repaint, and the walk is below it.
+
+**Cost: 6 bytes of `.text`, resident, no rung crossed**, and `kern_small` is
+byte-identical: that build has no `drv_load_at`, so it has no animation arm
+to correct (§79.9). The loop became a `while` where it was a `do`-`while`,
+which is what the 6 bytes mostly are — the old form rested on `[vid_ndisp]`
+never being 0, and an arm that starts at 1 must do nothing at all on a
+one-display machine rather than hand `vid_kind_of` an out-of-range display.
+
 ### 79.2 It is an OVERLAY, not an on-demand module
 
 `SAVER.DRV` is `DRVC_OVL` (§41.12, §52.11): a driver's header, a driver's
