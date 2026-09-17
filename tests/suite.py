@@ -1016,7 +1016,7 @@ FAST = [
         "code this replaces it already had. Soak because it is about one "
         "package and needs an emulator (docs/WRITING-TESTS.md 2.1); "
         "tests/unit/t_btnrules.py is the static half that catches a NEW "
-        "offender", wants=("marty",)),
+        "offender", needs=("marty",)),
     Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
         "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "
