@@ -50764,7 +50764,7 @@ rated over the one commit that introduces this, ten runs a side:
 `02e323e` before it is **BAD, 10/10 failed**, and `9b7ba91` after it is
 **INTERMITTENT, 2/10**. The row is not about window raising at all; what it
 catches is a patch of desktop under the system menu that does not always come
-back (docs/plans/HANDOFF-SOAK-FINDINGS.md G6), and removing a surplus whole-window
+back, and removing a surplus whole-window
 repaint from the same pass evidently removes most of the chances to hit it.
 **The causal story is not established and is not claimed** — the rates are,
 and the residual 2/10 is a real defect that still wants fixing.

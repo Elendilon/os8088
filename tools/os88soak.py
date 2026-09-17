@@ -65,7 +65,7 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      not by running rows beside it.
 
 WHAT IT DOES NOT DO.  It does not decide whether a failure is real.  That is
-`docs/plans/HANDOFF-SOAK-FINDINGS.md`'s protocol - re-run alone on HEAD, then at the
+the classification protocol - re-run alone on HEAD, then at the
 base, and bisect only where those two disagree - and the first step is
 `os88test.py soak -k <row>` by hand.
 """
@@ -443,8 +443,8 @@ def _stale_emulators():
     """Emulators already up that nobody in this run owns.
 
     A stale QEMU from an earlier row holds build/os8088.img for hours and the
-    next row fails wearing a message about the wrong subject
-    (docs/plans/HANDOFF-SOAK-FINDINGS.md B9); a MartyPC orphan is cheaper but still
+    next row fails wearing a message about the wrong subject; a MartyPC
+    orphan is cheaper but still
     eats a core the width arithmetic below has already promised to somebody.
 
     Reported, never killed from here.  `os88marty.py reap` kills ORPHANS only
@@ -542,7 +542,7 @@ def would_skip():
 #     to answer. `check` reports these; `start` now builds them.
 #   * `build/muptest.img` is built by ANOTHER ROW OF THE SAME SUITE, so
 #     whether `fdlggrey` passes depends on the ORDER rows ran in - and with
-#     `--marty-jobs` that order is not fixed. docs/plans/HANDOFF-SOAK-FINDINGS.md B4
+#     `--marty-jobs` that order is not fixed. The pass-2 soak
 #     records that as unfixed and says "either the artefact gets its own build
 #     step, or the dependency gets stated". This is the build step.
 #
@@ -606,7 +606,7 @@ def prewarm(verbose=True, a=None):
 
     Measured: `dosmcb` and `dosvec` reported `build/dosmcb360.img is missing`
     0.1s into a 45-row run and passed at once under `os88test soak`. That is
-    docs/plans/HANDOFF-SOAK-FINDINGS.md's `FAIL where it means SKIP` with a
+    the `FAIL where it means SKIP` failure with a
     cause, and the cause is here.
     """
     # **A PLAIN `make` FIRST, ALWAYS, AND BEFORE ANY ROW RUNS.** Not for the
@@ -1223,7 +1223,7 @@ def stop(a):
     # kills ORPHANS and only orphans - an instance whose owner is gone - so it
     # cannot reach another session's live work. That is what makes this worth
     # doing here rather than printing advice about it
-    # (docs/plans/HANDOFF-SOAK-FINDINGS.md B9 is the same leak from the QEMU side,
+    # (is the same leak from the QEMU side,
     # where the bill landed on an unrelated row five hours later).
     time.sleep(2.0)                      # let the rows go before judging them
     try:
@@ -1297,8 +1297,7 @@ def main():
                     help="do not build the on-demand artefacts first. They "
                          "are what four rows SKIP without and what makes "
                          "`build/muptest.img` exist before the row that reads "
-                         "it rather than after (docs/plans/HANDOFF-SOAK-FINDINGS.md "
-                         "B4)")
+                         "it rather than after")
     ap.add_argument("--shared-build", action="store_true",
                     dest="shared_build",
                     help="read build/ instead of a tree of the run's own - "

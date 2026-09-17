@@ -179,8 +179,7 @@ class Row:
         # cannot share four cores with two other guests: that is not a flaky
         # row, it is the wrong measurement. Neither can a row whose clicks are
         # paced by a HOST-timed settle, because how much guest time a settle
-        # covers is then a property of the box (docs/plans/HANDOFF-SOAK-FINDINGS.md
-        # B5).
+        # covers is then a property of the box.
         #
         # It used to be spelled by EXCLUDING those rows from the wide run and
         # taking them in a second one - `-x saverate -x deskbench ...`, written
@@ -800,7 +799,7 @@ FAST = [
         "`ps2mouse` on the pre-merge gate with a write-lock error naming "
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
-        "(docs/plans/HANDOFF-SOAK-FINDINGS.md B9)"),
+        ""),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
@@ -897,7 +896,7 @@ FAST = [
         "no row names a machine whose ROM this tree has not got. MartyPC "
         "falls back to glabios_pc when a romset is absent and says NOTHING, "
         "so nine rows spent months reporting passes about a machine they "
-        "never booted (docs/plans/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
+        "never booted. It also checks each "
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
@@ -6783,10 +6782,10 @@ SOAK = [
         "stopped halfway. Needs `make bench`",
         # ...and SAYS SO to the runner, not only to the reader. `all` does not
         # build build/gfxbench.o88, so this row failed at HEAD and at the base
-        # alike and was written up as a pre-existing defect
-        # (docs/plans/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
-        # passes: 256 plane-rows, 2,048 bytes, all as given. B4's shape again -
-        # the suite modelling tools rather than artefacts.
+        # alike and was written up as a pre-existing defect. With the artefact
+        # present it passes: 256 plane-rows, 2,048 bytes, all as given - the
+        # ABSENT-artefact shape again, the suite modelling tools rather than
+        # artefacts.
         needs=("marty", "nasm"), serial=True,
         wants=("build/gfxbench.o88",)),
     Row("blitpair", "soak", py("tests/blitpair.py"), 90.0,

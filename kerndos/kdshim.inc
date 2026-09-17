@@ -285,7 +285,7 @@ ui_s_nodisk_l:
 
 ; --- 3b: the two pieces of REAL WORK ----------------------------------------
 section .cold
-; kernel.asm's shared epilogue ladder (docs/plans/HANDOFF-SOAK-FINDINGS.md B2):
+; kernel.asm's shared epilogue ladder:
 ; a proc jumps into it at the rung matching how much it pushed. It is entered
 ; by a near JUMP and not a call, so it costs no stack - which is why the size
 ; pass could factor it at all.

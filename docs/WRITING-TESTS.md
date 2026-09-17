@@ -877,6 +877,5 @@ not. Each one can still happen today.
 | **docs/TESTING.md** | what each emulator can and cannot show, per capability, with a recipe |
 | **docs/MARTYPC-DEBUG.md** | the instrument: `launch`/`settle`/`sym`, the debug server, reading the guest's floppy back |
 | **docs/plans/SOAK-PARALLEL.md** | the parallel runner, where the suite's time goes, and every measurement quoted above |
-| **docs/plans/HANDOFF-SOAK-FINDINGS.md** | worked diagnoses of rows that failed, and what was ruled out for each |
 | **PERFORMANCE.md** Part 7 | checking a change; Parts 3.1/3.2 for flicker and smoothness harnesses |
 | **`tests/suite.py`** | the registry, and its header on what earns a `fast` row and why `full` is curated |

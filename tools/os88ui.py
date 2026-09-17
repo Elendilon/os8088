@@ -992,7 +992,7 @@ class UI:
             "no" from this routine is read as THE END STOP, so a wait cut
             short by a busy box does not fail - it silently decides the list
             has run out, and the click that follows lands on the wrong row.
-            That is docs/plans/HANDOFF-SOAK-FINDINGS.md B5's mechanism exactly, and
+            That is the host-clock mechanism exactly, and
             the version this replaces had a 3.0-second `time.sleep` loop.
 
             Polling the WORD rather than settling on the picture: a settle is

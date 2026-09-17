@@ -94,7 +94,7 @@ UNREGISTERED = {
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
-                   "calls it (docs/plans/HANDOFF-SOAK-FINDINGS.md B9)",
+                   "calls it",
     "benchlib.inc": "a benchmark library, not a test",
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",

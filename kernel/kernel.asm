@@ -7365,7 +7365,7 @@ kret_ret:         ret         ; NAMED so a test can breakpoint the RETURN.
                               ; Every routine that leaves through this ladder
                               ; returns HERE, with sp back at its own entry
                               ; value, which is what a caller matching on sp
-                              ; needs (docs/plans/HANDOFF-SOAK-FINDINGS.md B2).
+                              ; needs.
 
 section .cold
 kretc_es:         pop es

@@ -418,8 +418,8 @@ neither the change's**:
   contention and the base was never built.
 - `paccman` — a **fast**-tier host-side source check that passes in a plain
   tree in 0.0 s. It died in the soak's frozen tree on a missing generated
-  `paccman.gen.asm`, which is `docs/plans/HANDOFF-SOAK-FINDINGS.md`'s standing
-  "rows that FAIL where they mean SKIP", one artefact along.
+  `paccman.gen.asm`, which is the standing "rows that FAIL where they mean
+  SKIP" shape, one artefact along.
 
 
 ---

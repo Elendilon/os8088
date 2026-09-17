@@ -300,7 +300,7 @@ def main():
         # two presses is two scrolls of one row each, which is what it reads.
         # Scaling by the OBSERVED count keeps that subject measurable instead
         # of reporting the emulator's keyboard as a scroll defect, which is
-        # the misdiagnosis A1 in docs/plans/HANDOFF-SOAK-FINDINGS.md already
+        # the misdiagnosis this row already
         # made about this exact row once.
         keys = k1 - k0
         ok = (keys >= 1 and moved == rows * keys and scrolls == keys

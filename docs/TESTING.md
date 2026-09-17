@@ -64,7 +64,7 @@ Two rules bind every QEMU row. **It kills what it launched** — `make test`
 daemonises QEMU and the process outlives the script, so `tests/os88qemu.py`
 is the teardown every launcher owes and `tests/unit/t_qemuown.py` checks it is
 used. And **`tests/dispcp.py` drives QEMU rows too**, without `m.sym` or a
-cycle counter, so its waits there are host-clock loops (docs/plans/HANDOFF-SOAK-FINDINGS.md B5).
+cycle counter, so its waits there are host-clock loops.
 
 | reach for | when | why |
 |---|---|---|
