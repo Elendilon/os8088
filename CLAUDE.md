@@ -216,7 +216,13 @@ python3 tools/os88soak.py start    #   detached (docs/plans/SOAK-PARALLEL.md).
 python3 tools/os88soak.py status   #   `make test-soak` runs the same rows
               #   SERIALLY, which is why the parallel invocation lived in two
               #   handoff documents as a line to remember. `check` is the
-              #   preflight: it names every capability gap, the rows that
+              #   preflight: it asks whether THE BOX WORKS before it asks
+              #   about capabilities - SOAK-PARALLEL 16, because a
+              #   `/dev/null` that is a regular file broke half of one
+              #   soak here and names itself in none of what it breaks
+              #   (it GROWS ON DISK where output should vanish, which
+              #   reads as a run that filled the disk). Then it names
+              #   every capability gap, the rows that
               #   would SKIP because of it — a skip is the box declining to
               #   answer, not a pass — and the command that fixes each one.
               #   The width is ONE PER CORE. It was CORES-1, to leave the
@@ -1008,10 +1014,33 @@ The rules that fall out:
 7. **Degrade by tier.** `OSAPI_CPU_INFO` answers `CPU_8086` for the target
    machine, which is a fact the code can test rather than a guess about speed.
 
-Three defects are **invisible in an emulator** and cost this project bug after
-bug: a **visible redraw** (seconds on real hardware), a **double-draw flash**
-(anything drawn twice), and **input overrun**. None showed in a screendump;
-every one was found on hardware or by counting.
+Three defects cost this project bug after bug — a **visible redraw** (seconds
+on real hardware), a **double-draw flash** (anything drawn twice), and **input
+overrun** — and for years this said they were *invisible in an emulator*.
+**That is no longer true and the line misled people while it stood.** It was
+true of QEMU; MartyPC rasterises into a front/back pair, so `display_buf()` is
+the last frame the card actually FINISHED and stepping until `frame_count()`
+increments samples the glass exactly as often as an eye does. PERFORMANCE.md
+Part 3.1 is the account and it retired the claim first; Part 3.2 is frame
+pacing.
+
+**So none of the three is found by looking, and all three are MEASURABLE.**
+What is still true is the half that matters: a **screendump shows none of
+them**, because anything that happens entirely between two completed frames
+was never on the glass. Reach for the instrument instead:
+
+```
+m.pause(); m.key("KeyA")          # inject first, so the action lands INSIDE
+r = m.flicker(frames=40)          # the window rather than racing it
+```
+
+`flicker` returns per-frame `changed` and `transient` counts, the bounding box
+of the transient pixels, and `settled` — **which must be true, or every count
+was measured against a moving target**. `m.pace()` is the same idea for frame
+pacing and takes an `ignore` rect for anything on a clock of its own. Part 5's
+budget table is largely written in those units, so a redraw claim belongs in
+them too: *"2 frames = 16.7 ms, worst 320 transient px"* is a measurement, and
+*"it looked fine"* is not.
 
 That is the whole of it that applies to every change. Open PERFORMANCE.md
 itself for one of four reasons — it is 6,553 lines and over half is a log of

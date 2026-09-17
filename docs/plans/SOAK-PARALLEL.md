@@ -1634,3 +1634,66 @@ cursor, `_edge()` proves `mouse_btn`, and neither proves that the kernel's
 event ring took anything. The only honest confirmation of a gesture is the
 state the gesture is *for* — `ui_dragwin` for a drag, `menu_dropd` for a menu
 — and a row that waits on anything else is waiting on a fact it already had.
+
+## 16. `/dev/null` — THE BOX ITSELF, and it broke mid-run here
+
+**OPEN. Repaired and guarded on the box it happened on, not explained.**
+
+A container gave this project a `/dev/null` that was a **regular file** rather
+than a character device, and it did it *during* a soak — the run went
+14:24→16:18 and the node's birth time was **15:14**, so roughly the second half
+of that soak ran on a broken box. It was then destroyed and auto-repaired three
+more times over the following hour. Nothing in the repo is implicated: nasm
+2.16 and 3.02 both truncate their `-o`/`-l` output rather than replacing it,
+`weavesim` truncates, the shell snapshots only redirect, and no agent transcript
+contains a replace-shaped command against it.
+
+**Ask before a two-hour run, because nothing it breaks names it:**
+
+```sh
+stat -c %F /dev/null        # must say: character special file
+```
+
+`os88soak.py check` asks it now, beside the assembler, and prints the repair as
+its fix line:
+
+```sh
+mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new \
+    && mv -f /dev/null.new /dev/null        # as root
+```
+
+### 16.1 Why it is worth one `stat`
+
+Four separate failures, none of which mentions `/dev/null`:
+
+- **`./configure` dies on a spliced `config.status`.** autoconf's default
+  `cache_file` **is** `/dev/null`, so its cache flush's
+  `diff "$cache_file" confcache >/dev/null 2>&1` writes instead of discarding,
+  and the diff lands inside the `config.status` being generated, which then
+  fails on `0a1,180: command not found`. That is the whole reason an nasm 3
+  could not be built here (docs/MARTYPC-DEBUG.md, *An nasm 3 in a fresh
+  container*), and `--cache-file=` does not help because the `>/dev/null` is
+  the broken half rather than the cache.
+- **IT GROWS ON DISK WHERE OUTPUT SHOULD VANISH**, which is the one to
+  remember, because a soak that runs out of space looks like a soak that runs
+  out of space. Measured here: Python's `subprocess.DEVNULL` opens with
+  `O_RDWR` and **no `O_TRUNC`**, so 1 MB written is 1 MB on disk — and a shell
+  `>` truncating under a long-lived holder does **not** reclaim it, because the
+  holder keeps its own offset. This tree's own use is a short `cp`, and
+  MartyPC's output goes to a real log file, so the repo is not the big writer;
+  nothing stops a third-party tool being one.
+- **`diff`, `cmp` and `test -s` against it answer wrongly**, and a read gives
+  junk instead of EOF.
+- **At mode 0644 a non-root writer gets `EACCES`** outright.
+
+### 16.2 What would settle it
+
+A watcher polling `[ -c /dev/null ]` at 0.2 s, logging `lsof` and every process
+younger than 90 s before repairing, caught one destruction and named nothing —
+no process was still alive to see. The remaining candidate is the layer under
+the repo (the sandbox or the container's own `/dev` setup), which is why only
+`/dev/null` was wrong while `zero`, `full`, `random`, `urandom`, `tty` and the
+loop devices were all correct and all carried the image's build date. **Do not
+conclude it is fixed because a run went green** — it is intermittent, it was
+stable for fifty minutes in the middle of this, and the preflight is what makes
+the next run's answer cheap.

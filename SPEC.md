@@ -80361,6 +80361,45 @@ the old handle. The §22.2/§38.3 answer — erase the band it left, draw the ba
 it arrived at — applies unchanged, and would also remove the last erase-then-
 draw pair on this face.
 
+#### 56.12.1 …and an empty well is not animation
+
+The visualiser is the one element on this face with no state worth comparing —
+it *is* animation — so `mppu_frame` invalidates `MPPI_VIZ` directly rather than
+earning it through a signature (§56.12). **That reasoning stops holding the
+moment there is no module loaded**, and nothing noticed: `mppu_draw_viz` calls
+`mppu_well` — a bevel and a fill of a 220×35 pane — and only *then* asks
+`cmp byte [mpm_loaded], 0`, *"an empty well: there is no level to draw"*. So a
+ModPlug window sitting with nothing open repainted a pane that cannot change,
+about five primitive calls at ~18 Hz, for as long as it was open.
+
+On the target machine the fixed part of a `gfx_*` call is **756 µs**
+(PERFORMANCE.md), so that is ~4 ms of every worker frame spent drawing nothing,
+and it breaks PERFORMANCE rules 1 and 2 at once — repainting more than changed,
+and filling ground that no content follows. It also *shows*: the well's
+`(zx2,zy1)` and `(zx1,zy2)` corners inverted at 18 Hz, which is a double-draw
+flash — and that is **measurable here** rather than a thing only the desk can
+see, `m.flicker` sampling once per completed frame (PERFORMANCE.md Part 3.1).
+After the fix a ModPlug window with nothing loaded reads `settled` with **no
+transient pixels and no changed frames at all**. It surfaced
+through `tests/dispsize.py` leg C — one differing pixel at the well's right
+edge, in two runs of three — because a capture of an incremental draw and a
+capture of a full repaint cannot agree about a pane that is being rewritten
+between them.
+
+**The fix is a latch and not a `cmp`/`je`, and the reason is the edge.** There
+is no eject here: both writers of `[mpm_loaded] = 0` are inside loading a *new*
+module — `mpm_load`'s own head, and the free of the old blob — so the state
+that persists is a load that **failed**, where the flag stays 0 while the bars
+still hold the module that is gone. `mppu_viz_reset` is on the success path
+only. So `mppu_frame` banks `[mpm_loaded]` in `mppu_vizld` and acts on the
+transition: 0 → 1 carries on (the load path resets and repaints anyway), 1 → 0
+clears the bars and paints **once**, and no change with nothing loaded skips
+the pane entirely. The end state is the picture the old code reached by
+decaying and then repainting it for ever — the same pixels, drawn once.
+
+**25 bytes of package image and one byte of bss, none of it resident.** The
+gate is `dispsize` itself, whose leg C is what it was hiding behind.
+
 ### 56.13 What the port to this branch had to change
 
 This package was written against `main`, which carries a squashed copy of this
