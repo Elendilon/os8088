@@ -3065,6 +3065,13 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
     ZWORD cs_dcseg                  ; the interrupted CS, so an IP is placed
                                     ; in a segment rather than assumed to be
                                     ; ours
+    ZBUF  cs_dcsr, CSD_SLOTS * 2    ; ...one PER SLOT (SPEC.md 88.14.4). The
+                                    ; three IPs are three different ticks, so
+                                    ; one CS places the NEWEST and leaves the
+                                    ; other two unplaceable - and ordinarily
+                                    ; they are not all in one segment, the
+                                    ; flight's own int 16h poll (SPEC.md 53.1)
+                                    ; putting a tick in the ROM
     ZWORD cs_dbtick                 ; again, so the photograph is of the
     ZBUF  cs_dcan, CSD_CANB         ; MOMENT and not of the wreckage
     ZBUF  cs_doff, CSD_BLKS * CSD_ROWS * 2  ; ...and the device offset of every

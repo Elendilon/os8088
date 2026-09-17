@@ -21344,6 +21344,49 @@ slot through which a package could supply another. **A width clamp in
 of screen-wide items would want ~83KB and would run off the end of the
 heap into `VIEW_SEG`.
 
+#### 12.4.1 `menu_hover` reads the pointer ONCE, and the `cli` is the whole of it
+
+`menu_hover` decides which item is under the pointer, `menu_drop`'s `.poll`
+LATCHES that answer in `[menu_sel]`, and the release ACTIVATES whatever is
+latched there. So the pair `([mouse_x], [mouse_y])` that routine reads is not
+a picture of the screen, it is a **command** — and it used to be read in two
+plain loads with interrupts enabled, either side of which the mouse ISR may
+run.
+
+`mou_apply` stores `[mouse_x]` and then `[mouse_y]` (§9). A packet decoded
+between `menu_hover`'s two loads therefore hands it the **old x with the new
+y**, which is a position the pointer never occupied — and because one
+Microsoft packet carries both deltas *and* the button level, the very report
+that RELEASES the button is the one that can tear.
+
+Measured on `os8088_xt_hdd` with the Builtins menu down (rect x 160..223,
+y 20..69) and one packet of `dx -100, dy +18, button up` sent from the title
+at (199, 10). The pointer goes to (99, 28), and **neither end of that move is
+a live item**: (199, 10) is above the first cell and (99, 28) is left of the
+rect. `[menu_sel]` came back **0** and TIMER LAUNCHED — 4 times in 320
+packets under a four-lane load, 0 times in 40 idle. x = 199 with y = 28 is
+the only pair that produces it, and nothing but a torn read produces that
+pair.
+
+**It is a user's gesture and not a harness artefact.** A serial mouse reports
+dx, dy and the buttons in one packet, so *slide off the menu and let go* — the
+commonest way anybody changes their mind about a menu — is exactly a large dx,
+some dy and the button up, arriving together.
+
+The fix is one reading under `pushf`/`cli` … `popf`. The row arithmetic is
+re-spelled with it, `sub ax, [menu_y1]` + `jbe` where it read `[menu_y1] + 1`
++ `jb`: the same rows are rejected (the frame row is the `jbe`'s equal case),
+and it frees the register the second coordinate now has to be held in, so
+`menu_hover` keeps its "clobbers AX only" contract.
+
+**The other three trackers are NOT changed, and what separates them is what
+is DONE with the pair.** `ui_drag`, `ui_grow` and the dock's drag read the
+same two words the same way; a torn pair there draws ONE XOR outline frame at
+a position that never existed, and the next pass of a loop running at the
+packet rate puts it right. Nothing is latched and nothing is run. `menu_hover`
+alone hands its answer to a release, which is why it alone pays the three
+bytes.
+
 ### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
@@ -119231,6 +119274,45 @@ a `build/`.
 freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
+
+#### 88.14.4 An IP in the ring is not an offset in this package
+
+The ring banks **whatever `int 08h` interrupted**, and while the flight is
+running that is regularly not us. Two places, both of them ordinary:
+
+| CS | what was interrupted |
+|---|---|
+| the package | the flight — the great majority of ticks |
+| `KERNEL_SEG` | a kernel slot the frame called, or `fsx_wait`'s own `hlt`, which is stage 10 |
+| `F000` | **`cs_input`'s `int 16h` keyboard poll** (§53.1) — the ROM's own handler |
+
+The third is the one nobody had placed. `tests/skiesdiag.py` asserted that
+every banked IP was a package offset, which is **false of this machine**:
+`int 16h` enters at `F000:E82E` on both ROMs here and a tick landing in the
+two dozen bytes after it banks `e832`, `e83c`, `e84b`. Measured on
+`os8088_5150_herc_gla`, that check went red in **7 runs of 9** — on a sample
+that was correct, reported as *"the ring holds package addresses (… e84b)"*,
+which reads as the watchdog being broken. It is the freeze itself that
+concentrates them: the IPs are sampled in the first seconds of the bracket,
+where the flight is still entering and the input poll is a much larger share
+of a tick than it is once it is flying.
+
+**`cs_dcseg` could not answer it**, and that is the defect rather than the
+ROM. It is one word written every tick, so it places the **newest** slot and
+says nothing about the other two — and the other two are *different ticks*,
+which is the whole reason there are three. So the CS is banked per slot in
+`cs_dcsr` beside the IP, one `mov` in `cs_diag_isr`, and a reading places
+every sample rather than the last one.
+
+The **painted** strip is unchanged at `CSD_BLKS` = 9 and block 9 is still
+`cs_dcseg`, because a photograph of a **frozen** machine needs exactly that
+one: all three slots hold the same address by then. Twelve blocks would not
+fit above the view either — §88.14.3's arithmetic is `CSD_TOP + 12 × CSD_ROWS`
+= 84 against a Hercules view at 74 — so the per-slot CS is bss the row and a
+debugger read, not glass.
+
+It costs the shipped build nothing: every line is inside `%ifdef CSDIAG` and
+`build/skies.o88` is byte-identical across the change.
 
 #### 88.14.3 The strip goes above the view — and NOT for the reason first given
 
