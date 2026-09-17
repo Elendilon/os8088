@@ -197,6 +197,23 @@ kd_refuse:
 cw_clk_snapshot:
     push ax
     push si
+%ifndef KD_GATE                 ; **AND W3's GATE HAS NO BLOCK EITHER, WHICH
+                                ; IS A BUILD FACT AND NOT A RUNTIME ONE.**
+                                ; `kd_lbp` is defined by `kerndos/kdos.asm` and
+                                ; `KDL_CLK` by `kerndos/kdlaunch.inc`, and
+                                ; `kerndos/kerndos.asm` - the KD_GATE root -
+                                ; includes neither: it is ENTERED at
+                                ; `kd_gate_entry` with no stub in front of it,
+                                ; so there is no launch block to point at and
+                                ; no list to index. Assembling the read there
+                                ; asked for two symbols that do not exist in
+                                ; that build, which is what `tests/kerndos.py`
+                                ; reported. The answer is the one the `jz`
+                                ; below already gives: 1980. Pulling
+                                ; `kdlaunch.inc` in instead does NOT work -
+                                ; its `KDL_VMAX equ DVOL_CAP` needs
+                                ; `apps/dos/doscall.inc`, which is not even on
+                                ; the gate's include path
     mov si, [kd_lbp]
     or si, si
     jz .out                     ; no block: the W4 gate's case, and 1980 is
@@ -214,6 +231,7 @@ cw_clk_snapshot:
     mov ax, [si+7]              ; ...and the YEAR at 7, because 5 and 6 are
     mov [clk_sn_year], ax       ; clk_rtc/clk_dirty (kernel/clock.inc)
 .out:
+%endif                          ; KD_GATE
     pop si
     pop ax
     retf                        ; FAR, like the rest of the cw_ shims

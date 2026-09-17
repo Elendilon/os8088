@@ -1822,6 +1822,19 @@ MEM_PG_MIN  equ MEM_PG_TRIV     ; the range: a record is a cache when its high
 MEM_PG_MAX  equ MEM_PG_HIGH     ; byte is in [MIN, MAX]
 MEM_LVL_TOP equ 0xFF            ; ...and an ordinary claim outranks all of them
 
+MEM_P_ICO   equ MEM_PG_TRIV<<8 | 0x01   ; THE MACHINE-WIDE ICON STORE (SPEC.md
+                                 ; 25.9): one 64-byte body per DISTINCT icon,
+                                 ; which the listing and every Disk window
+                                 ; reference by a single byte instead of
+                                 ; keeping copies. ONE WORD and not a range -
+                                 ; `MEM_P_ICO_N` is 1 and `ico_need` claims
+                                 ; with exactly this tag - so `tm_htype` names
+                                 ; it from `tm_ktab` like MEM_P_DIRW, rather
+                                 ; than testing a range ahead of the table.
+                                 ; TRIV because losing it costs a REDRAW and
+                                 ; not a read: every reference then resolves to
+                                 ; SPEC.md 25's generic icon and the next mount
+                                 ; fills the rows back in one file read
 MEM_P_WSAVE equ MEM_PG_TRIV<<8 | 0x10   ; a window's raise cache - a RANGE,
 MEM_P_WSAVE_N equ 16            ; 0x10..0x1F, the window's slot added (11.96.3)
                                 ; - and OSAPI_WM_OWNSEG above turns that slot

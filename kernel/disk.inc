@@ -3234,7 +3234,35 @@ disk_mount_x:
     ; and the generic one after a fresh boot. That is inherent to "only if it
     ; is already in RAM" and not a defect; nothing here may make it otherwise
     ; by going to look.
-    mov es, [dsk_dseg]
+    push ss                     ; **AND [dsk_dseg] MAY NOT BE LIVE ACROSS THIS
+    pop es                      ; LOOP EITHER** (SPEC.md 66.5.10.2), which is
+                                ; `.harvest0`'s rule above applied to the pass
+                                ; that did not have it. This read
+                                ; `mov es, [dsk_dseg]`, and every one of
+                                ; `ico_have`, `asc_take_x` and `ico_put` below
+                                ; reaches `ico_need` -> `mem_claim_x` since
+                                ; SPEC.md 25.9 made the icon bodies a
+                                ; machine-wide store - and a claim COMPACTS on
+                                ; its refusal path (50.6.2), which MOVES the
+                                ; donated listing block that segment names
+                                ; (`dsk_dseg_reloc` is its own relocation
+                                ; proc). `asc_take_x` banks and restores ES, so
+                                ; what the loop got back after a compaction was
+                                ; a STALE segment.
+                                ;
+                                ; Nothing here reads ES at all - `dsk_get_dir_x`
+                                ; takes the segment from `[dsk_dseg]` itself
+                                ; and answers a KERNEL-segment pointer,
+                                ; `ico_put` takes the body's segment in DX, and
+                                ; `ico_ref_set` writes through SS - so the load
+                                ; was left over from when this loop wrote icon
+                                ; BODIES into the listing. It is not merely
+                                ; deleted, though: the icon-index blank above
+                                ; ends `pop es`, which restores
+                                ; `[dsk_dseg]` from `.scan_done`, so deleting
+                                ; it would leave the stale segment in ES and
+                                ; only make tools/dsegaudit.py go quiet.
+                                ; Overwriting it is what closes the window.
     xor dx, dx
 .fsico:
     cmp dx, bp

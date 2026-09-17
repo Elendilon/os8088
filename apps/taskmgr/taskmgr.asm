@@ -1326,6 +1326,13 @@ tm_s_tasc:  db 'Assoc', 0
 tm_s_tclip: db 'Clipbrd', 0
 tm_s_twsav: db 'WinSave', 0
 tm_s_tdirw: db 'DirRead', 0
+tm_s_tico:  db 'Icons', 0        ; the machine-wide icon store (SPEC.md 25.9),
+                                ; one row per DISTINCT body. It is claimed at
+                                ; the first mount that harvests one and lives
+                                ; until it is purged, so leaving it out of this
+                                ; table put a permanent hex row on the heap
+                                ; page of every machine - MEM_K_BAND's own
+                                ; lesson, one tag along
 ; ...and the three that were MISSING, every one of which this page had been
 ; printing as a bare owner word (SPEC.md 28.4.3). The hex fallback below is
 ; the table's honesty rule about a tag this build has never SEEN, and not a
@@ -1368,6 +1375,7 @@ tm_ktab:
     dw MEM_K_HIB,   tm_s_thib
     dw MEM_K_CMPR,  tm_s_tcmpr
     dw MEM_P_DIRW,  tm_s_tdirw
+    dw MEM_P_ICO,   tm_s_tico
     dw 0
 
 ; TIER names, four columns, indexed by the owner's high byte - MEM_PG_TRIV
