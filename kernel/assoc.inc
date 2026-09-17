@@ -156,7 +156,14 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; out: SI and DI past the copy, CX = 0, AL = the last byte copied
 ;
 ; CX MUST NOT BE 0 ON ENTRY - the body ends in `loop`, so a zero count copies
-; 65,536 bytes. Every caller passes a literal 3 or 8.
+; 65,536 bytes. Every caller passes a literal: 3 for an extension, 8 for a
+; stem, and 16 for the whole of OSAPI_PKG_START's document locator (SPEC.md
+; 21.5.3.3), which the three cells it lands in are laid out to be.
+;
+; IT DOES NOT FOLD CASE and must not: that 16-byte caller's last three bytes
+; are a directory cluster WORD and a volume BYTE, and a cluster of 0x6C6C
+; would quietly become 0x4C4C. Everything else reaching here is already
+; uppercase, being FAT-derived or a declared block.
 ; -----------------------------------------------------------------------------
 assoc_stage:
     mov al, [es:si]
@@ -365,6 +372,31 @@ assoc_find:
     clc
 .out:
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_slot_of - the app slot that claims a staged display name's EXTENSION
+; in:  SI -> a NUL-padded 16-byte display name (the SPEC.md 19.1 staged shape)
+; out: CF=0 and AL = app slot index, BX -> the matched row; CF=1 = the name
+;      carries no extension, or nothing claims it
+; clobbers: AX and BX (both outputs), DI, CF.  SI IS PRESERVED
+;
+; assoc_ext_of and then assoc_find, which is one question - *what opens this?*
+; - and was written out THREE times: assoc_docicon_x, assoc_post_x and
+; ld_pkg_byname's .byext arm, the last two banking SI round it by hand. The
+; extension buffer is the only thing that stands between the two calls, so
+; naming the pair costs nothing and the shuffle comes out of every caller.
+;
+; `pop` writes no flag, so the CF assoc_find answered rides through it.
+; -----------------------------------------------------------------------------
+assoc_slot_of:
+    call assoc_ext_of           ; DI -> assoc_extb
+    jc .no
+    push si
+    mov si, di
+    call assoc_find             ; AL = the app slot, BX the row
+    pop si
+.no:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -614,10 +646,7 @@ assoc_docicon_x:
     push bx                     ; assoc_find answers the matched row in BX
     push si
     push di
-    call assoc_ext_of           ; DI -> assoc_extb
-    jc .no
-    mov si, di
-    call assoc_find             ; AL = the app slot
+    call assoc_slot_of          ; AL = the app slot the extension names
     jc .no
     mov di, dsk_ico
     call assoc_compose
@@ -789,13 +818,8 @@ assoc_post_x:
                                 ; FIFTH push: the epilogues below pop si three
                                 ; times, and the new pop bx belongs after the
                                 ; LAST of them, not before
-    call assoc_ext_of
-    jc .no
-    push si
-    mov si, di
-    call assoc_find             ; AL = the app slot
-    pop si
-    jc .no
+    call assoc_slot_of          ; AL = the app slot (SI preserved: the entry
+    jc .no                      ; is wanted again for the name copy below)
     mov [assoc_dapp], al
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
     pop si                      ; the entry again
@@ -1275,10 +1299,19 @@ section .text                   ; DATA, so back to the kernel segment
 assoc_pnbuf:    times 8 + ASSOC_PTAIL db 0
 
 section .bss
-assoc_doc:   resb 13            ; the pending document's 8.3 name
+; **THESE THREE CELLS ARE THE PUBLISHED LOCATOR, IN ITS OWN ORDER** (SPEC.md
+; 21.5.3): 13 NUL name bytes, the directory WORD, the volume BYTE - which is
+; exactly what osapi_arg_file answers with and exactly what OSAPI_PKG_START is
+; handed. They are ONE 16-byte block with `equ` names rather than three `resb`
+; lines because assoc_fnb used to sit in the MIDDLE of them, and a block
+; cannot have a line inserted into it: ld_pkg_byname copies the locator in a
+; single assoc_stage of 16 (SPEC.md 21.5.3.3) and that is legal only while
+; this holds.
+assoc_dblk:  resb 16            ; the locator, one block
+assoc_doc    equ assoc_dblk     ; 13: the pending document's 8.3 name
+assoc_dclus  equ assoc_dblk+13  ; ...and where it lives: directory cluster
+assoc_ddrv   equ assoc_dblk+15  ; ...and volume
 assoc_fnb:   resb 13            ; '<STEM>.O88', built by assoc_fname
-assoc_dclus: resw 1             ; ...and where it lives: directory cluster
-assoc_ddrv:  resb 1             ; ...and volume
 assoc_pwin:  resw 1             ; the posting Disk window's STATE BLOCK, not
                                 ; its window record - FS_DRV/FS_CWD are read
                                 ; off it (SPEC.md 54.9.1), as ld_pwin is
