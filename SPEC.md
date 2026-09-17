@@ -12551,10 +12551,28 @@ this key, on any BIOS* — and it gets §9.6.4's answer: the kernel reads the
 
 **The latch is `kbd_track`'s and costs nothing to find**, because that routine
 is already looking at the byte and already knows where the bit lives. A fresh
-Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map sets
-`[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the ordinary `W_ONKEY`
-dispatch, so it reaches the **front window** and nothing else, exactly as a
-typed key does. A package writes one test and it is true on every machine.
+Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map puts
+**that scancode** in `[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the
+ordinary `W_ONKEY` dispatch, so it reaches the **front window** and nothing
+else, exactly as a typed key does. A package writes one test and it is true on
+every machine.
+
+**The latch holds the SCANCODE and not a flag, and that is the whole shape of
+the spend.** `kbd_track` is standing on `AL = KSC_ENTER` when it stores, so the
+store is the accumulator form and names no constant; `ui_task` is then
+
+```nasm
+    xor ax, ax
+    xchg ah, [kbd_ae]           ; read-and-clear in one - kbm_p5spend's idiom
+    or ah, ah
+    jz .events
+```
+
+— four instructions that produce `AX = 0x1C00` *and* empty the latch, where a
+compare, a branch, a store and a `mov ax, imm16` produce the same thing five
+bytes larger. It is also the only spelling with no race in it: a test followed
+by a separate store has a window in which `kbd_track` can set a latch that the
+store then throws away, and `xchg` has none.
 
 Five things hold it up.
 
@@ -12573,15 +12591,32 @@ Five things hold it up.
   once, which is one `OSAPI_KEY_DOWN` call in its entry proc; §96.33.5.1 is
   the worked example. Arming this way rather than at boot is what makes the
   feature cost **zero** on every machine that does not use it.
-- **A BIOS that DOES deliver it must not deliver it twice.** `kbd_aeclaim`
-  runs on the typed key before `kbm_key` does, and it is §9.6.4's rule one
-  key along: an `AH = 1C` whose `AL` is neither `0Dh` (typed, or with Shift)
-  nor `0Ah` (with Ctrl) is Alt+Enter, so it **normalises `AL` to zero and
-  clears `[kbd_ae]`**. Without the clear, SeaBIOS fires both paths and one
-  press toggles a mode twice — §9.6.4's flashing menu from a fifth direction.
-  The normalisation is the other half of the one-test promise: SeaBIOS says
-  `1CF0` and an enhanced ROM says `1C00`, and a package may not have to know
-  which of them it is running on.
+- **A BIOS that DOES deliver it must not deliver it twice, and THE LATCH IS
+  THE TEST.** A typed key arriving with the latch still full is that same
+  press coming round the other way, and the scancode says so without any
+  decode of `AL`:
+
+  ```nasm
+      cmp ah, [kbd_ae]        ; the ROM's scancode IS the one the ISR latched
+      jne .notae
+      or ah, ah               ; ...and an Alt+numpad character reports AH = 0,
+      jnz .altenter           ; which equals an EMPTY latch - the one case the
+  .notae:                     ; compare above cannot judge on its own
+  ```
+
+  The typed copy is then **dropped** and the latch spent in its place, which
+  normalises and de-duplicates in one move: SeaBIOS says `1CF0` and an
+  enhanced ROM says `1C00`, and what a package sees is `1C00` on both without
+  the kernel knowing which spelling this ROM chose. Without it SeaBIOS fires
+  both paths — §9.6.4's flashing menu from a fifth direction.
+
+  **This replaced a `kbd_aeclaim` that decoded `AL` instead** (`AH = 1C` whose
+  `AL` is neither `0Dh` typed-or-shifted nor `0Ah` with Ctrl), and the
+  replacement is the same answer asked of something that was *already decided*:
+  the ISR judged this press off the scancode with the Alt bit in front of it,
+  and re-deriving the verdict from the ASCII a second time was a second test of
+  the same fact. Twenty-two bytes became ten, and the new one is correct on a
+  ROM whose `AL` nobody has seen.
 - **A bracket that owned the screen owns the latch too.** `fsx_restore`
   already drains the BIOS key buffer on the way home (§53.6) for the reason
   that the keystroke which *ended* an exclusive app must not also be
@@ -12602,6 +12637,26 @@ Five things hold it up.
 cannot work, for the reason above it: the ROM enqueues *nothing* for this
 combination, so there is no keystroke to hang the test on. Testing bit 3 on a
 plain Enter answers a question about a key the user never pressed.
+
+**The fetch moved above `blk_wake`, and that is what pays for the spend.**
+`ui_task` used to wake the screen saver and *then* take the key out of the BIOS
+buffer, carrying `blk_wake`'s verdict across the `int 16h` in a `pushf`/`popf`
+pair. `blk_wake` banks `AX` and answers in the flags (`blank.inc`), so fetching
+first is the same machine with the bank in the other direction — and it leaves
+**one** wake call that both arms reach, the latch's by a `jmp short` and the
+typed one by falling into it. The pair is gone with it. The KFZ ladder (§8.3.1)
+follows the path, so its marks 2 and 3 swap meanings: 2 is now *the key is out
+of the BIOS buffer* and 3 is *`blk_wake` returned*.
+
+**What the whole feature costs: 46 bytes of `.text` and no `.bss`, on both
+kernels**, measured against a tree with it removed (`kern_big` 49,951 → 49,997;
+`kern_small` 37,218 → 37,264). It was 72 when it landed, and the 26 came off in
+four places, none of them a behaviour: the latch carries the scancode instead
+of a flag (the spend is an `xchg`, not a compare-branch-store-load), the
+delivering-BIOS test asks the latch instead of re-decoding `AL`, `kbd_aeclaim`
+is gone as a routine rather than shrunk, and the two arms share one `blk_wake`.
+Two of those 26 are the `pushf`/`popf` above, which is a simplification of code
+that was here before this feature and is banked with it.
 
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
