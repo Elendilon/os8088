@@ -288,6 +288,19 @@ cached against an earlier kernel is a stale-scratch-disk trap (a stale
 byte-identical", which reads as a broken package); make's rules already name
 those includes as prerequisites.
 
+**IT IS A PATH, NEVER A MAKE TARGET, and getting that wrong is a row that
+SKIPS FOR EVER.** The runner builds each entry with `make <entry>` and then
+asks `os.path.exists` on it, so a PHONY target compiles perfectly, exits 0,
+and is still reported as an artefact that "would not build" — after which
+every row naming it skips, on every run, for ever. `btngesture` landed with
+`wants=("marty",)`, which is the emulator CAPABILITY and belongs in `needs=`;
+it skipped from the day it was written and had never once run. **Nobody
+investigates a skip**, which is §1's rule wearing different clothes: a row
+that cannot fail is worthless, and a row that cannot RUN is worse, because
+the suite reports it as a line of output either way.
+`tests/unit/t_registry.py` checks it now — an entry with no `/` in it is a
+build failure naming the row.
+
 **NEVER ON A FAST ROW, and the reason is a fork bomb rather than a
 convention.** The fast tier runs as part of `make all`, and the prebuild that
 satisfies `wants=` opens with a plain `make` — so one `wants=` on a fast row
@@ -853,6 +866,7 @@ not. Each one can still happen today.
 | 73 | `tests/dosram.py` opening its program with `ui.path("C:/DOSHELLO.COM")` and then reading a page that had never painted. **An association open of a `.COM` RUNS it** (SPEC.md 54), so the box arrives inside its own fsx bracket with the program's output on the screen: no window, no page, and every rect read as zeros. The click at the Setup button's own resolved centre went to the text screen and the row reported `OSAPI_DRV_CLASSK says DRVC_DISK is holding nothing` — a sentence about the kernel, for a test that had not got as far as looking. Dismiss the run first; the box comes back with the program still NAMED, which is the state arm 3 wants anyway | §1, §7 |
 | 74 | ...and the same row's first fixture put `HDD.DRV` on the disk and **nothing that asked for it** (SPEC.md 51.3). It still booted off the fixed disk — the boot partition is a `DVK_BIOS` row served by `int 13h` and not by the driver (18.7.1) — so `C:` was there, the page opened, and `OSAPI_DRV_CLASSK` answered 0 for a class that really was holding nothing. **A TRUE ANSWER ABOUT A MACHINE THE ROW DID NOT MEAN TO BUILD**, which is the shape that passes: had the assertion been `>= 0` instead of `> 0` it would have been green for ever. A fixture that needs a driver writes the `SYSTEM.CFG` that asks for it, and says in its own words why the disk being reachable is not evidence | §1 |
 | 75 | The Memory page's press riding in **DI** across five controls. It worked while the block held one — `os88ui_rad` preserves every register — and stopped the moment there were five: `os88ui_drpress` does `xor di, di` and `dos_mck_di` ANSWERS in DI. The limit field then hit-tested at a garbage x, which reads as *the box refused the click*. Same task, same shape one layer up: the limit field was tested AFTER the radio whose rect covers it, so a press on it picked the arm it was already in and `doslnk` reported a `.LNK` carrying `memkb: 0` — a shortcut losing a setting, for a control that was never reached. **When a block grows past one control, the point belongs in memory and the innermost control asks first** | §1, §7 |
+| 76 | `btngesture` registered with `wants=("marty",)` — the emulator CAPABILITY put in the field that names build ARTEFACTS. The runner builds a `wants=` entry with `make <entry>` and then asks `os.path.exists(ROOT/<entry>)`, and `marty` is a PHONY target with no file at the root: cargo compiled it, `make` exited 0, and the runner still printed *"1 artefact(s) would not build: marty"* and skipped the row. **It had never run once.** The registry's own comment on the field already said *"Paths, not make targets"*; nothing checked it, and nothing needed to check it for the row to look fine — a SKIP is a line of output like any other, and **nobody investigates a skip**, which is §1's rule in different clothes. The gesture work under it was correct and passed the moment the row could run. `t_registry` fails an entry with no `/` in it now | §1, §5.1 |
 
 ---
 

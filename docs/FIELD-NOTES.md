@@ -2406,3 +2406,74 @@ then name the program. And the probe's own labels had no trailing space, so
 `C remasked0741` split as one token and the harness read the label as the
 cell — a parse that says *the cursor was drawn* about a machine where it was
 not.
+
+## 54. Microsoft Works has a mouse, the buttons work, and the cursor is invisible (FIXED — we answered `08h` with a zero and Works reads that as `no mouse`: SPEC.md §96.10.6)
+
+The fourth Works report and the one that took three attempts, so the failures
+are worth as much as the fix.
+
+*"Mouse: Still no cursor. I can still open the menus with it, its just still
+invisible."* — and then, asked which arm: *"I tested BOTH under kern dos, and
+inside the OS. No cursor in either."*
+
+**It is one instruction of Works's, and it is not a drawing bug at all.**
+Disassembled out of `WORKS.EXE` (the mouse module is at file offset
+`0x4BE90`, found by `mov ah,35h / mov al,33h` at `0x4C00C`):
+
+```
+0004C00C  mov ah,0x35 ; mov al,0x33 ; int 0x21   ; get the INT 33h vector
+0004C012  mov ax,es ; or ax,bx ; jz 0xc051       ; 0000:0000 -> no mouse
+0004C018  xor ax,ax ; int 0x33                   ; fn 00h reset
+0004C01C  or ax,ax  ; jz 0xc051                  ; AX=0 -> no mouse
+          ... fn 0Ah 77FF/7700, fn 0Ch handler 0E7:0CEA mask 1F ...
+0004C04C  mov ax,0x8 ; int 0x33                  ; fn 08h SET Y RANGE
+0004C051  mov [0x98ca],al                        ; *** mouse-present flag ***
+```
+
+**Works stores `AL` after function `08h`, which documents no return value.**
+A real driver never writes `AX` there, so CTMOUSE comes back with `AX = 8`.
+Our dispatcher had no `08h` arm, so the call fell through to an exit that did
+`xor ax, ax` under a comment reading *"INT 33h's not supported"* — and `INT
+33h` has no such convention. We handed Works a zero at the end of an init
+sequence every call of which we had answered correctly.
+
+**It presents as HALF a working mouse**, which is why two rounds of looking at
+the drawing code found nothing: the handler installed at `0Ch` is still hooked
+and still called, so the buttons work and the menus open, while the program
+never asks for a cursor (`01h`) and never polls the position (`03h`).
+
+**Three method failures, and each cost a round.**
+
+1. **The gate was written to the mechanism and not to the application.**
+   `MCURSOR.COM` calls `01h` and then holds still — the two things Works does
+   not do — so it proved the drawing and could not see the ABI. A probe the
+   author writes to exercise their own feature agrees with it by
+   construction.
+2. **A negative control can encode the wrong premise as a requirement.**
+   §96.10.5.1 first refused `DHK_TXT` to the windowed host, and
+   `tests/kdmcur.py`'s window arm *asserted* that nothing is drawn there. It
+   passed for the same wrong reason the code was wrong. That refusal is
+   corrected in the same commit: `dos_fsx_main` puts every DOS program inside
+   an `FSXM_TEXT80` bracket, so the window has a text screen for the whole of
+   a program's life — and the BDA would have been the wrong source for it,
+   `OSAPI_FSX_CAPS` answering the display's own kind off the primary
+   (§53.7.1).
+3. **`os88dosdbg diff` could not align these two runs at all**, and its
+   premise is why: Works executes from dynamically-placed overlays, so
+   `CS − PSP` is not stable between machines the way docs/DOS-DEBUGGING.md
+   assumes. The IPs matched exactly (`0398`, `0404`, `063C`, `0610`) while the
+   segment bases differed (`636F` against `8D7E`). Aligning on `(function,
+   IP)` alone found the divergence in one pass.
+
+**And two red herrings, both plausible and both wrong**, recorded because the
+next reader will find them too. The reference makes a `SET vector 0Ch` that we
+do not — `IRQ4`, the serial mouse's line — but its `CS` is *below* the
+program's PSP, so it is CTMOUSE re-hooking its own IRQ inside the `00h` reset,
+not a decision of Works's. And the two sides disagree about how many file
+handles a program may have (ours grants five more before error 4, DOS two),
+which is real and is not this.
+
+The vector's ADDRESS was the other suspect and is also not it: ours is at
+575.0 KB where a TSR sits at 52.5 KB, below the program — a genuine
+difference, and Works never looks at it beyond the `or ax,bx` test for
+`0000:0000`.

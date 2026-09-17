@@ -39,6 +39,14 @@ WHAT THE FIVE LETTERS CHECK, each a different way for this to be broken:
      cursor for most of a session
   D  the counter NESTS: hide, hide, show leaves it HIDDEN
   E  ...and the fourth call brings it back
+  F  **A FUNCTION WITH NO RETURN VALUE LEAVES `AX` ALONE** (SPEC.md 96.10.6)
+     - Microsoft Works's own test, instruction for instruction: it sets the Y
+     range with `08h` and stores `AL` as its `mouse present` flag, so a box
+     that zeroes `AX` there has told it there is no mouse at the end of an
+     init it answered correctly. That is what the first version of this
+     feature shipped, and A-E could not see it: the program then never calls
+     `01h` at all, while the handler it installed at `0Ch` keeps working, so
+     the buttons work and nothing is drawn (docs/FIELD-NOTES.md 54)
 
 MEASURED against the build before the feature: the window arm reads exactly
 as it does now, and the kern_dos arm read `A 0741 want 7041 BAD`, `C ... BAD`,
@@ -112,13 +120,20 @@ def verdict(m, limit=240.0):
 
 
 def arm_window():
-    """ARM 1: the cursor must NOT be drawn.
+    """ARM 1: the cursor must be drawn HERE TOO.
 
-    `DHK_TXT` is absent in the windowed host (SPEC.md 96.10.5.1), so the core
-    refuses at its first instruction and every cell reads back untouched. This
-    is the half that says the box does not write to the kernel's own
-    framebuffer, and a row without it would pass just as happily with one that
-    scribbled on the desktop.
+    **THIS ARM ASSERTED THE OPPOSITE AND PASSED** (docs/FIELD-NOTES.md 54).
+    96.10.5.1 first refused `DHK_TXT` to the windowed host, on the reasoning
+    that there the OS owns every pixel - so this arm was written to check that
+    nothing is drawn, and it encoded that premise as a REQUIREMENT. It passed
+    for exactly the reason the code was wrong, which is a negative control's
+    one failure mode and is worth the paragraph.
+
+    A DOS program is never outside the fullscreen bracket: `dos_fsx_main`
+    calls `OSAPI_FSX_MODE` with `FSXM_TEXT80` before the program is entered
+    and the kernel hands back the surface in `dos_fsi` - the screen the box's
+    own console already writes into. So both arms draw, and what differs is
+    only where the hook reads the surface FROM.
     """
     with os88ui.boot(SYS, apps=CUR, machine=MACH) as ui:
         m = ui.m
@@ -128,16 +143,15 @@ def arm_window():
         if said == "SKIP":
             fail("the probe SKIPPED in the window - it found no INT 33h or no "
                  "text mode, and under THIS box both are the thing under test")
-        for k in "ACE":
-            if k not in got:
-                fail("the window arm printed no %s line" % k)
-            if got[k][0] != CELL:
-                fail("IN THE WINDOW the cursor was DRAWN: %s read %s where "
-                     "the untouched cell is %s. B800 is the kernel's "
-                     "framebuffer there and DHK_TXT is absent for that "
-                     "reason (SPEC.md 96.10.5.1)" % (k, got[k][0], CELL))
-        print("kdmcur: in the window, nothing is drawn - A/C/E all read %s"
-              % CELL)
+        if said != "PASS":
+            bad = ", ".join("%s got %s want %s" % (k, v[0], v[1])
+                            for k, v in sorted(got.items()) if v[0] != v[1])
+            fail("IN THE WINDOW the cursor is not right: %s. The windowed "
+                 "host draws on the fsx bracket's own surface (dos_fsi), "
+                 "which SPEC.md 96.10.5.1 first refused it - see "
+                 "docs/FIELD-NOTES.md 54" % (bad or "see above"))
+        print("kdmcur: in the window, the cursor is drawn on the bracket's "
+              "own surface")
 
 
 def arm_whole():
@@ -208,7 +222,8 @@ def main():
             fail("%s is missing - `make kdostest` builds the gate disks" % p)
     arm_window()
     arm_whole()
-    print("kdmcur: ok - drawn under kern_dos, absent in the window")
+    print("kdmcur: ok - drawn on BOTH arms, and a no-output function "
+          "leaves AX alone")
     return 0
 
 
