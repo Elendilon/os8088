@@ -38190,7 +38190,10 @@ OSAPI_PKG_START KERNEL_SEG:0x0520        ; an N cell
                 non-zero. ANY segment — it is COPIED into a region of the
                 kernel's own, never adopted, so you may free your claim the
                 moment this returns.
-                ...or, when DX:CX is ZERO, a DOCUMENT to open it with (§21.5.3)
+                ...or, when DX:CX is ZERO, a DOCUMENT to open it with (§21.5.3),
+                whose 8.3 name and the name in SI are both UPPER CASE — this
+                arm compares them against the association tables, which are
+                uppercase-exact, and does not fold (§21.5.3.2)
        ES     = 0 means *I am passing you nothing through `ES:DI`* — ONE
                 sentence covering both arms, and the image arm already
                 enforced it
@@ -38246,7 +38249,7 @@ been told how it went*, and `CF = 1, AL = LD_EBAD` for the one thing the
 caller could not have known — that nothing on this machine opens it. A caller
 wanting a richer answer wants the plain arm and a program name.
 
-##### 21.5.3.2 …and the names are folded to UPPER CASE here too
+##### 21.5.3.2 BOTH NAMES ARRIVE UPPER CASE, and the CALLER folds them
 
 The association tables are **uppercase-exact** — `assoc_find` compares bytes
 and `assoc_ext_of` says so in its own header — because they are built from FAT
@@ -38256,19 +38259,66 @@ Reported off the glass: `open readme.txt` found no association for `.txt`
 while `OPEN README.TXT` opened Note Pad, and `notepad readme.txt` answered
 `Cannot open notepad` because `assoc_app_of` compares the stem byte for byte.
 
-**This arm has to fold and the plain arm does not**, which is the asymmetry
-worth understanding rather than a special case: the plain arm resolves through
-the FILE layer, and `dskw_char_x` upcases on the way past. Nothing in the
-association path goes through it.
+**So the document arm needs a fold and the plain arm does not**, which is the
+asymmetry worth understanding rather than a special case: the plain arm
+resolves through the FILE layer, and `dskw_char_x` upcases on the way past.
+Nothing in the association path goes through it.
 
 **The whole NAME, not just the extension.** The package opens the document by
 that name — `OSAPI_ARG_FILE` hands it over and the package GOTOs and READs it
 — so a lowercase 8.3 name matches nothing on a FAT volume either. Folding the
-extension alone would have turned a visible refusal into a package opening an
-empty window on a file it could not find, which is the worse failure.
+extension alone would turn a visible refusal into a package opening an empty
+window on a file it could not find, which is the worse failure.
 
-It stops at the NUL: the bytes past the name belong to nobody and folding them
-would be a lie about what was passed.
+**THE FOLD IS THE CALLER'S AND IT USED TO BE THE KERNEL'S.** It shipped here,
+as `ld_pkg_upc` and two loops — one over the 13-byte document name and one
+over the program name's 8-byte stem — and that was **44 resident bytes**:
+`.cold` is resident, so they came off the heap, and off the DOS arena with it,
+on every machine ever booted. What they bought was one caller being able to
+pass keyboard text, and **that caller is `apps/dos/` and there is no other**.
+The Wire, the only other user of the slot, is on the image arm and passes
+`ES = 0`. The box folds in `dos_pgname`, the copy that fills both launch
+cells, and **it is free there**: that copy was written out three times in
+`dosc.inc` — once for the program name and twice for a document — so naming
+it removed more box bytes than the fold added, and `OPEN` and `PROGRAM
+DOCUMENT` are covered by one site with neither console handler having to
+remember (§96.33.22.1).
+
+The rule for a future caller is therefore one line of this slot's `in:` block:
+**on the document arm, both the name in `SI` and the 8.3 name in the locator
+are upper case.** It fails softly and visibly if they are not — `AL =
+LD_EBAD`, *nothing on this machine opens it* — and `tests/dosopen.py` is the
+gate, typing `notepad readme.txt`, `OPEN readme.txt` and `NOTEPAD readme.TXT`
+and requiring Note Pad on all three.
+
+A fold would stop at the NUL if one were here: the bytes past the name belong
+to nobody and folding them would be a lie about what was passed. The locator's
+cluster WORD and volume BYTE are binary and must never be folded at all, which
+is why `dsh_upper`'s NUL stop is load-bearing on the box side.
+
+##### 21.5.3.3 The locator's shape IS the kernel's own three cells
+
+`assoc_doc` (13), `assoc_dclus` (word) and `assoc_ddrv` (byte) are declared as
+**one 16-byte block** in `assoc.inc`, with `equ` names rather than three
+`resb` lines. That is not tidiness: it is the published locator above, in the
+published order, so the document arm's copy is **one `assoc_stage` of 16** and
+not a 13-byte stage followed by two hand-written field reads against the `SI`
+that stage happened to leave behind.
+
+`assoc_fnb` used to sit in the MIDDLE of the three. A block cannot have a line
+inserted into it, which is the whole reason for declaring it as one.
+
+The fold's departure (§21.5.3.2) is what makes the single walk legal at all:
+a folding copy of 16 bytes would have upper-cased the cluster word and the
+volume byte, and a directory cluster of `0x6C6C` would have silently become
+`0x4C4C`. The two changes are one change.
+
+The same paragraph's other byte: `ld_pkg_start_x` reads `ES` **once**, for the
+image arm's *an image at segment 0 is the interrupt vector table* refusal, and
+hands `AX` to the by-name arm rather than having it read the register again.
+`mov` writes no flag, so the `or ax, dx` that decides which arm to take is
+still the flag the `jz` reads with the `mov ax, es` sitting between them.
+There is exactly one entry to `ld_pkg_byname` and it is that `jz`.
 
 ##### 21.5.3.1 The cache is seeded HERE, because no caller's path does it
 
@@ -77548,6 +77598,24 @@ and for the same reason. A short extension is space-padded, so a file named
 Associations are consulted for **type 0 only**, so a package can never be
 shadowed by an `O88` row and a folder is never associated. That falls out of
 where the test sits; it is not a separate rule.
+
+### 54.2.1 `assoc_slot_of` — the extension walk, written once
+
+*What opens this?* is `assoc_ext_of` and then `assoc_find`, in that order,
+with the extension buffer the only thing standing between them. It was
+written out **three times** — `assoc_docicon` (the document tile),
+`assoc_post` (the double-click) and `OSAPI_PKG_START`'s document arm
+(§21.5.3) — and two of the three banked `SI` round the pair by hand, because
+`assoc_find` wants the buffer in the register the caller's own name is in.
+
+`assoc_slot_of` is the pair named: `SI` → a staged display name, out `CF = 0`
+with `AL` = the app slot and `BX` → the matched row, **`SI` preserved**. The
+shuffle comes out of every caller and the routine costs less than the three
+copies of it did.
+
+It is the same finding as §19.2.4.3's, one layer along: a walk the layer
+already owns, written out again at the call site because the call site was
+written first.
 
 ### 54.3 The icon: a page frame with the program's glyph inset
 
@@ -128018,10 +128086,19 @@ Reported off the glass, at `A:\>` on a stock system disk: `notepad
 readme.txt` and `open readme.txt` both refused, and `open README.TXT` opened
 Note Pad. Two defects, and the second one hid behind the first.
 
-**THE CASE** is §21.5.3.2 and it is the kernel's. Both names had to be folded
-and only the extension was ever going to be noticed — a lowercase document
-name matches nothing on a FAT volume either, so the package would have opened
-an empty window on a file it could not find.
+**THE CASE** is §21.5.3.2. Both names had to be folded and only the extension
+was ever going to be noticed — a lowercase document name matches nothing on a
+FAT volume either, so the package would have opened an empty window on a file
+it could not find. **It is THIS BOX's fold and it used to be the kernel's**,
+and it cost this box nothing: `dos_pgname` is the copy that fills `dos_pkgn`
+and `dos_pgdoc` from `[dos_tname]`, it was written out THREE times in
+`dosc.inc` before it had a name — the program's name, `OPEN`'s document and
+`PROGRAM DOCUMENT`'s — and the fold is one `call dos_upc` inside the one loop
+that is left. The 44 resident bytes the kernel spent folding on behalf of this
+one caller came back to every machine's heap, including this box's own arena.
+`dos_upc` is already across the core seam (§96.44.5); `dsh_upper`, the
+whole-string form, is **not**, and reaching for it would have cost both hosts
+a `DOSC_E` slot to save one loop in one of them.
 
 **THE MESSAGE** was one string doing two jobs and getting both wrong: *"There
 is no program on this disk for that file."*

@@ -1391,11 +1391,19 @@ ld_start:
 ld_pkg_start_x:
     mov ax, cx                  ; **NO IMAGE MEANS READ THE FILE** (SPEC.md
     or ax, dx                   ; 21.5): the length is the argument that only
-    jz ld_pkg_byname            ; exists in the image form, so zero is its
+    mov ax, es                  ; exists in the image form, so zero is its
                                 ; absence - and SI is already the staged name
                                 ; in the kernel's own DS, which is exactly
-                                ; ld_run_name's input
-    mov ax, es
+                                ; ld_run_name's input.
+                                ; **`mov` WRITES NO FLAG**, so the ZF the `or`
+                                ; above answered rides through this read and
+                                ; the branch below is still the image test -
+                                ; which is what lets ONE `mov ax, es` serve
+                                ; BOTH arms. The by-name arm's first act is to
+                                ; test ES for 21.5's "nothing through ES:DI",
+                                ; and it is HANDED that read rather than
+                                ; making it again (SPEC.md 21.5.3.3)
+    jz ld_pkg_byname            ; ...with AX = ES
     or ax, ax
     jz .bad                     ; an image at segment 0 is the interrupt
                                 ; vector table, which is the fence against
@@ -1491,23 +1499,11 @@ ld_pkg_start_x:
 ; ...and the answer, which ld_start cannot give: it is the DISK path's body
 ; too, and that one reports through [ld_status] rather than through a flag.
 ; -----------------------------------------------------------------------------
-; --- ld_pkg_upc - AL to upper case; touches nothing else but the flags -----
-; Its own rather than a shared one, because the kernel HAS no general upcase:
-; the file layer folds inside dskw_char_x, which also judges legality and is
-; the wrong shape for a name already known to be legal.
-ld_pkg_upc:
-    cmp al, 'a'
-    jb .u
-    cmp al, 'z'
-    ja .u
-    sub al, 'a' - 'A'
-.u:
-    ret
-
 ; -----------------------------------------------------------------------------
 ; ld_pkg_byname - the by-name arm, and the DOCUMENT that may ride with it
 ; in:  SI -> the staged NUL 8.3 name (EMPTY = the document names the program);
-;      ES:DI -> the document's locator, or ES = 0 for none
+;      ES:DI -> the document's locator, or ES = 0 for none; AX = ES, which
+;      ld_pkg_start_x has already read (21.5.3.3)
 ; out: AL = LD_*, as ld_pkg_start_x's other arm
 ;
 ; **ES = 0 IS "I AM PASSING YOU NOTHING THROUGH ES:DI"** (SPEC.md 21.5), which
@@ -1518,6 +1514,19 @@ ld_pkg_upc:
 ; shape OSAPI_ARG_FILE answers with, in the order it answers it - so a package
 ; cannot tell this launch from a double-click, which is the point (21.5.3).
 ;
+; **AND THAT SHAPE IS assoc_doc/assoc_dclus/assoc_ddrv's OWN** (21.5.3.3), so
+; the copy is ONE assoc_stage of 16 and not a staged name plus two field reads
+; by hand. assoc.inc declares the three as a single block for that reason -
+; assoc_fnb used to sit in the middle of them.
+;
+; **BOTH NAMES ARRIVE UPPER CASE AND THIS ARM DOES NOT FOLD** (21.5.3.2): the
+; association tables are uppercase-exact because they are built from FAT
+; names, and folding here was 44 resident bytes of every machine spent on
+; behalf of ONE caller, which is ours. The DOS box folds in dos_pgname - the
+; copy that fills both launch cells, and which was three copies - so it costs
+; the box nothing it was not already walking; tests/dosopen.py is the gate and
+; types three lower- and mixed-case spellings.
+;
 ; **A DOCUMENT TAKES THE ASSOCIATION ROUTE AND NOT ld_run_name's.** That is
 ; the whole of what it buys: ld_run_name resolves the program in the folder
 ; the caller stands in, and assoc_locate finds it by the hint cache wherever
@@ -1526,47 +1535,22 @@ ld_pkg_upc:
 ; -----------------------------------------------------------------------------
 ld_pkg_byname:
 %ifdef OS88_ASSOC
-    mov ax, es
-    or ax, ax
-    jz ld_run_name_x            ; no document: today's tail jump, unchanged,
+    or ax, ax                   ; **AX IS ES**, read by ld_pkg_start_x on the
+    jz ld_run_name_x            ; way in (21.5.3.3). There is exactly one
+                                ; entry to this routine and that jz is it, so
+                                ; the register costs nothing to promise.
+                                ; No document: today's tail jump, unchanged,
                                 ; so nothing that does not ask for this pays
                                 ; an instruction for it
     push si                     ; the staged NAME, across the document's copy
     mov si, di
     mov di, assoc_doc
-    mov cx, 13
-    call assoc_stage            ; ES:SI -> DS:DI, the osapi_assoc_set idiom -
-                                ; and SI lands ON the locator's two fields
-    mov ax, [es:si]
-    mov [assoc_dclus], ax
-    mov al, [es:si+2]
-    mov [assoc_ddrv], al
-
-    ; --- UPPER-CASE IT (SPEC.md 21.5.3.2) ----------------------------------
-    ; The association tables are UPPERCASE-EXACT - assoc_find compares bytes
-    ; and assoc_ext_of says so in its own header - because they are built from
-    ; FAT names, which are uppercase. A name that arrives from a KEYBOARD is
-    ; not, so `open readme.txt` found no association for `.txt` while `OPEN
-    ; README.TXT` opened Note Pad. This arm has to fold case for the same
-    ; reason the plain arm does not have to: THAT one resolves through the
-    ; file layer, and dskw_char_x upcases on the way past.
-    ;
-    ; The NAME and not just the extension, because the package opens the
-    ; document by that name: OSAPI_ARG_FILE hands it over and the package
-    ; GOTOs and READs it, and a lowercase 8.3 name matches nothing on a FAT
-    ; volume either.
-    mov di, assoc_doc
-    mov cx, 13
-.dupc:
-    mov al, [di]
-    or al, al
-    jz .duped                   ; a NUL ends it: the bytes past the name are
-    call ld_pkg_upc             ; nobody's and folding them would be a lie
-    mov [di], al
-    inc di
-    loop .dupc
-.duped:
-    pop si
+    mov cx, 16                  ; **THE WHOLE LOCATOR, ONE WALK** (21.5.3.3):
+    call assoc_stage            ; name, directory word and volume byte land in
+    pop si                      ; the three cells that are already in that
+                                ; order. It was a 13-byte stage and then
+                                ; `mov ax, [es:si]` / `mov al, [es:si+2]`
+                                ; against the two fields SI had been left on
 
     ; --- THE CACHE IS SEEDED HERE, because no caller's path does it ---------
     ; (SPEC.md 21.5.3.1) assoc_app_of and assoc_find read an IN-RAM table that
@@ -1586,26 +1570,20 @@ ld_pkg_byname:
                                 ; routine had written out again, pad loop and
                                 ; `.` stop and all. It answers DI =
                                 ; assoc_stemb and leaves SI alone
-    mov cx, 8                   ; ...then UPPERCASE IN PLACE, for
-.supc:                          ; assoc_app_of's byte-exact compare
-    mov al, [di]                ; (21.5.3.2): `notepad readme.txt` answered
-    call ld_pkg_upc             ; `Cannot open notepad`. A pad space folds to
-    mov [di], al                ; itself, so this needs no stop of its own -
-    inc di                      ; which is why the fold could come out of the
-    loop .supc                  ; copy and stop being a reason to have one
-    mov si, assoc_stemb
+    mov si, di
     call assoc_app_of
     jmp short .have
 .byext:
     mov si, assoc_doc           ; ...or none was: the double-click's own
-    call assoc_ext_of           ; question, asked by a program instead of by
-    jc .nodoc                   ; a mouse. assoc_ext_of stops at the NUL, so
-    mov si, di                  ; a 13-byte name in its 16-byte shape is fine
-    call assoc_find
+    call assoc_slot_of          ; question, asked by a program instead of by
+                                ; a mouse - and assoc_ext_of-then-assoc_find
+                                ; is a walk assoc.inc owns (SPEC.md 54.2.1),
+                                ; written out here for one cycle
 .have:
     jc .nodoc
     mov [assoc_dapp], al
-    mov word [assoc_pwin], 0    ; NO POSTER, so assoc_run reads [dsk_cwd] for
+    xor ax, ax
+    mov [assoc_pwin], ax        ; NO POSTER, so assoc_run reads [dsk_cwd] for
                                 ; the document's home - which is where the
                                 ; caller stands, and the caller is the one who
                                 ; told us the document's own dir and volume
