@@ -496,10 +496,18 @@ a "module-private" claim made after grepping four directories and not `tests/`.
 
 ---
 
-## 7. Priced and refused — do not re-derive these
+## 7. Priced and not taken — do not re-derive these
 
-Two classes: bodies that look boot-only and are not (§7.1–§7.5), and changes that
-are correct, were BUILT, and cost more than they save (§7.6).
+Three classes now: bodies that look boot-only and are not (§7.1–§7.5); changes
+that are correct, were BUILT, and cost more than they save (§7.6); and — since
+§7.9 — a row that is **priced, sound and simply not done yet**.
+
+**Read the row before assuming which kind it is.** Everything from §7.1 to
+§7.8 is a REFUSAL and the arithmetic is there to stop you spending an
+afternoon rediscovering it. §7.9 is the opposite: it is a deferral, the case
+for it stands, and whoever picks it up starts from *yes, probably*. A register
+that files both under one word is a register that loses the difference, which
+is the whole value of writing either down.
 
 ### 7.1 Reached after the blob is retired
 
@@ -973,3 +981,60 @@ Nothing static substitutes for these, and this file does not claim otherwise.
 5. **A 360KB boot** if any `int 13h` step is bought (§4). **MartyPC cannot host a
    720KB drive with the ROM sets in this tree**, which is precisely how
    SPEC.md §15.3.8.5's boundary was missed the first time. 86Box, or the field 5150.
+
+### 7.9 `HDD.DRV` and `NET.DRV` carry `os88ui`'s glyph family and never call it — 309 bytes, DEFERRED FOR TIME
+
+**This row is NOT a refusal.** It was priced on 2026-09-17 during the file
+dialog's size pass, found sound, and left undone because the cycle ran out of
+time. Nothing about it has been argued against; whoever picks it up is
+starting from "yes, probably", not from "here is why not".
+
+`apps/os88ui.inc`'s default block is `%ifndef OS88UI_NOBTN`, and that block is
+**all-or-nothing**: it carries `os88ui_btn` and `os88ui_bhit` **and**
+`os88ui_glyph` + `os88ui_gring` + `os88ui_gdot` + `os88ui_gdn` as one unit
+(`os88ui.inc:329-848`). Five standalone drivers include the library and **none
+of them defines any `OS88UI_*` region macro**, so all five take the whole
+block. What each actually calls, counted over its own directory:
+
+| driver | `os88ui_btn` | `os88ui_glyph` |
+|---|---:|---:|
+| `ether` | 5 | 2 |
+| `saver` | 1 | 3 |
+| `ramdisk` | 1 | 1 |
+| **`hdd`** | **5** | **0** |
+| **`net`** | **5** | **0** |
+
+So `HDD.DRV` and `NET.DRV` each carry the glyph family for nothing. **309
+bytes in the kernel's copy of those four routines** (`glyph` 144, `gring` 79,
+`gdot` 66, `gdn` 20) and more in a package-arm copy, which is what a driver
+image is. The change is a `%ifndef OS88UI_NOGLYPH` sub-gate inside the
+`NOBTN` block, so a driver can decline the glyph without losing the button —
+which `OS88UI_NOBTN` would take with it today, and is why neither driver can
+opt out now.
+
+**WHAT THE ROW IS WORTH DEPENDS ON A FACT NOBODY HAS MEASURED**, and it is the
+first thing to settle rather than the last. The bytes are a driver IMAGE's,
+not the kernel's — resident only while the driver is loaded — and **a driver
+whose display elements are the point tends to be loaded only while the user is
+configuring it**, which would make 309 bytes of a transient image nearly
+worthless. But `hdd` and `net` are not obviously that kind of driver: `hdd` is
+`DRVC_DISK` and `net` is `DRVC_FILE`, and a driver serving a mounted volume is
+plausibly up for the whole session, in which case the 309 is resident in the
+ordinary sense. **Measure the residency before spending the effort**;
+`tools/heapmap.py` reads what is claimed on a running machine and
+`[drv_wcnt]` is the kernel's own liveness word.
+
+Two things already established, so they need not be re-derived:
+
+- **Neither driver is missing the glyph by accident.** Both draw buttons and
+  neither draws a checkbox, radio or disclosure mark; `os88ui_glyph` is the
+  mark renderer (`docs/plans/completed/CTRL-GLYPH-PLAN.md`), and a driver with
+  no mark to draw has no call to make.
+- **The kernel is not affected either way.** `os88ui.inc` is `%include`d
+  exactly once in the kernel (`kernel/fdlg.inc:3128`), every `os88ui_*` body
+  lands in `.cold`, and **not one is in a `.mod*` section** — so no kernel
+  module carries a second copy. This row is about the five standalone driver
+  images and nothing else.
+
+`tools/incsize.py` is the instrument for the per-driver figure and **will not
+build a driver as-is**: it hard-codes `-I apps/`.
