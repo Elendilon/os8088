@@ -13895,7 +13895,7 @@ rung crossed** on any build, and `KERN_SIZE` is unchanged on all three.
 
 | | `kern_big` | `kern_small` |
 |---|---|---|
-| `.text` | **+94** — the slot cell (8), `osapi_mouse_feed` (**41**), the row (16) and two strings (23), `drv_fptr6` (4), `drv_memk`'s word | **+10** — the cell and a two-instruction refusal |
+| `.text` | **+94** — **49 of mechanism** (the slot cell 8, `osapi_mouse_feed` 41) and **45 of Control Panel tick** (the row 16, two strings 23, `drv_fptr6` 4, `drv_memk`'s word 2). §9.12.5.2 is why those are two numbers | **+10** — the cell and a two-instruction refusal, which is §20.8 rule 4's price and not this driver's (§9.12.5.3) |
 | `.bss` | **+38** — `drv_owner` and `drv_svc` for a sixth class | 0 |
 | `.cold` | **+9** — `drv_attach` keeping an attach's `AL` (§51.3) | 0 |
 | `.ovl` | **+1** — `drv_cfgbit`'s sixth byte | 0 |
@@ -13922,20 +13922,59 @@ call sites that were there before this driver was:
 11-byte stack swap, an 8-byte settle, `call mou_apply`, and four bytes of
 answer.
 
-**Four things were costed and REFUSED, and the arithmetic is why:**
+##### 9.12.5.2 The 94 is TWO numbers, and only one of them is about the driver
 
-- **Retiring the cell onto an existing `OSAPI_DRV_*` door** — the shape
-  §66.4.3 and §51.11 both took. `OSAPI_DRV_TASK` (`0x0248`) is the right door
-  by meaning: a driver's own worker is what calls it, its first act is the
-  `ES`-is-a-driver fence this slot wants, and on `kern_small` it is already a
-  `retf` stub, so the refusal would cost nothing there. **It is a WASH on
-  `kern_big` and that is the whole reason it was not taken**: the body is
-  `.cold`, so the dispatch (`cmp ax, 1` + `je`), the class compare and a
-  `call KERNEL_SEG:` trampoline are **+17–18 `.cold`** against **−18–22
-  `.text`` — and `.cold` is resident. It would improve the number in the table
-  above by moving eighteen bytes between two resident sections. The
-  `kern_small` side alone is worth 10 bytes and cannot be had on one kernel:
-  the table is one ABI.
+| | `kern_big` |
+|---|---|
+| the slot cell and `osapi_mouse_feed` | **49** — the mechanism |
+| **the Control Panel tick** | **45** — the `drv_tab` row (16), its file name and display name (23), `drv_fptr6`/`drv_fseg6` (4) and `drv_memk`'s word (2) |
+
+**The 45 is a product decision and not a build one.** It does not come down
+without taking the row out of `drv_tab`, and the row IS the only way a user
+has to turn this driver on: §51.3 makes every row not-wanted by default, so a
+driver with no tick is a driver nobody can reach. Whoever wants those 45 bytes
+is asking for the CH375 mouse to be un-switchable, which is a question for the
+person who asked for the feature.
+
+The two strings are the biggest item in it and they are **not** reducible to
+one. The tree has that exact economy twice — `ss_row` (§79.2) and `xm_row`
+(§41.12) both point `DRVR_TITLE` at their own file name — and both say in as
+many words why they may: *"there is no row, no caption and no Drivers page
+here, so nothing ever draws it."* This row is the opposite of that on both
+counts: `cp_listrow` and `cp_drv_paint` draw `DRVR_TITLE` on the Drivers page,
+and `ovl_spl_msg_drv` draws it on the **loading screen** while the driver is
+being read. `USBMOUSE.DRV` in either place is a file name where every other
+row shows a name, and the panel's column is nine glyphs, which truncates it to
+`USBMOUSE.`.
+
+##### 9.12.5.3 Four things costed and REFUSED, with the arithmetic
+
+- **Retiring the cell.** `0x0598` is the **last** cell — `osapi_table_end` is
+  `0x05A0` — so retiring it SHRINKS the table 178 → 177 rather than holing it,
+  and §20.3.1's free list stays empty. That is **8 bytes off BOTH kernels**,
+  and it is still refused, for a reason that is not the one first written
+  down: **a retired cell needs a DOOR, and every door in this kernel costs six
+  to nine bytes to open.** A door needs a selector test it does not already
+  make, and it forces a register shuffle, because this slot's `AX = dx,
+  BX = dy` collides with whatever registers the door already uses — there is
+  no door in the tree that leaves both free.
+
+  | door | what it costs to open | `kern_big` | `kern_small` |
+  |---|---|---|---|
+  | `OSAPI_DRV_TASK` `0x0248`, `AX = 1` — the right door by meaning, and its first act is already the `ES`-is-a-driver fence | `dec ax`/`jz`/`inc ax` (4) and a `.feed` arm (13), both `.cold`; the body then needs `mov ax, dx` + `mov bx, si` (4) | `.text` −18, `.cold` **+17**, net **−1** | **−10** |
+  | `OSAPI_DRV_CALL` `0x0448`, `BH = 0` — the one driver-family door with a `.text` body, so no trampoline at all | `or bh, bh`/`jnz`/`jmp` (7 — the `jmp` cannot be short, the body being 30KB away) plus `mov bx, dx` (2) | **+1** | **−10** |
+
+  So the eight bytes the tail gives back are spent opening the door, on the
+  kernel that actually has the feature. `kern_small` gets the full ten only
+  because there is no feed there to open a door for — **which makes those ten
+  §20.8 rule 4's price and not this driver's**, and that price is worth asking
+  about once rather than sixteen times: **sixteen cell targets are a bare
+  refusal stub on `kern_small`** (`gfx_line`, `gfx_spans`, `gfx_blitp`,
+  `wm_band`, `xm_alloc`, `osapi_snd_fm_x`, `osapi_drv_dlg_x`, this one and
+  eight more), which is **128 bytes of table** plus their bodies. Only a slot
+  at the TAIL can be retired without holing the table, so this one is the one
+  that could go today — for ten bytes, at the cost of `OSAPI_MOUSE_FEED`
+  ceasing to be a name in the SDK.
 - **`DRVC_POINT` reusing the retired class 3** would delete `drv_fptr6`,
   `drv_fseg6` and 38 bytes of `.bss`. It is **unsafe**, and `drv_cls_svc_x` is
   where: classes 1, 2 and 3 keep index `class-1` while 4 and up are compacted
@@ -13943,21 +13982,25 @@ answer.
   harmless only for as long as class 3 is never published. A published class-3
   driver would overwrite `DRVC_NET`'s service table, which is precisely the
   silent cross-class disconnection §51.2.1 exists to prevent.
-- **Giving `DRVC_POINT` no `drv_svc` slot at all** (it publishes only
-  `DSV_NAME`, which the kernel reads *nowhere*) is worth the same **38 bytes
-  of `.bss`** and needs `drv_cls_svc_x` to refuse one class. There are **ten
-  callers**, and a missed `CF` test there writes `DI = 0`, which is class 1's
-  table — the sound driver's. Ten call sites against 38 bytes, with that
-  failure mode, is not a trade to make inside a size pass.
+- **Giving `DRVC_POINT` no `drv_svc` slot at all is worth 38 bytes of `.bss`
+  and IS actionable — as its own change, with a gate.** The driver publishes
+  only `DSV_NAME`, which the kernel reads **nowhere** (three matches in
+  `kernel/`, all of them comments), so the 36-byte slot is dead the day it is
+  allocated. What blocks it is that `drv_cls_svc_x` would have to refuse one
+  class, it has **ten callers**, and its documented refusal value is
+  `DI = 0` — which is `drv_svc + 0`, the SOUND driver's table. A missed `CF`
+  test is therefore not a crash but a silent cross-class overwrite.
+  **The check that makes it loud is a source walk in `tools/os88ovlchk.py`'s
+  shape**: find every `call drv_cls_svc_x` and `call COLD_SEG:drvf_drv_cls_svc`
+  and fail the build unless a `jc`/`jnc` appears within the next few
+  instructions. That is about forty lines of host Python and a `fast`-tier
+  row, and it is worth more than the 38 bytes on its own — the same walk
+  covers `drv_cls_fp_x`, which publishes the identical refusal. Whoever takes
+  it should write the gate FIRST and the size change second.
 - **`kern_small`'s two-byte refusal** could be a second label on
   `drv_pkg_call_x`'s existing `stc`/`ret`, for **−2**. It would put a
   `mouse.inc` symbol in `driver.inc` against §4's ownership table, for two
   bytes.
-
-What is left is **45 bytes that are the price of a Control Panel tick** — the
-16-byte `drv_tab` row, its file name and display name (23), `drv_fptr6` (4)
-and `drv_memk`'s word — and they do not come down without taking the row away,
-which takes with it the only way a user has to turn the driver on.
 
 #### 9.12.6 The gate — a CH375 that is a model
 
