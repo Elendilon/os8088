@@ -626,7 +626,7 @@ size sweep will find them again.
 
 `docs/plans/completed/HANDOFF-KERNEL-SIZE-P4.md` is the pass's record; these are the rows that
 belong here, because each is a move or a merge that **looks available and is
-not**. Two are still OPEN and are the owner's to take.
+not**. Four are still OPEN and are the owner's to take.
 
 #### 7.7.1 Two byte-identical routines that may not be merged — the canonical shape
 
@@ -698,6 +698,82 @@ crosses nothing.
 finding's own refusal note did not know that, which is worth recording: the gate
 was the cheapest check available and nobody ran it before writing the
 justification.
+
+#### 7.7.7 OPEN — the SIXTEEN refusal cells `kern_small` carries for features it does not have (128 bytes of table, plus their bodies)
+
+**SPEC.md §20.8 rule 4 says a slot's cell exists in BOTH kernels and the small
+one refuses**, so that a package built against `kern_big`'s SDK gets a refusal
+rather than a wrong routine. That rule has a standing price nobody had
+counted, and on the kernel with **four bytes left in its image rung** it is
+the largest single figure in this file:
+
+| | |
+|---|---|
+| cells whose `kern_small` body is a bare refusal | **16** |
+| the cells alone | **16 × 8 = 128 bytes of `.text`** |
+| their refusal bodies | 2–3 bytes each, several already sharing one `stc`/`retf` |
+
+`gfx_line`, `gfx_lstep`, `gfx_lstepv`, `gfx_spans`, `gfx_blitp`, `wm_band`,
+`xm_alloc`, `xm_free`, `osapi_snd_fm_x`, `osapi_drv_cfg_x`, `osapi_drv_dlg_x`,
+`osapi_desk_svc_x`, `osapi_pkg_rehome_x`, `osapi_vol_stat`, `drv_pkg_call_x`
+and `osapi_mouse_feed`.
+
+**Two constraints make it hard, and the second is the one that is not obvious.**
+
+1. **Only a TAIL cell can be retired without holing the table.** Retiring one
+   in the middle leaves a hole that SPEC.md §20.3.1's free list has to carry;
+   retiring the last one SHRINKS the table and the free list stays empty. This
+   tree has shrunk the tail three times — `OSAPI_MEM_COMPACT_WAKE` became
+   `0x0590`'s `MEMC_POST` verb, the DOS handoff became `OSAPI_DRV_SUSPEND`'s
+   `AL = 2`, and `0x0598` was freed and immediately re-spent on
+   `OSAPI_MOUSE_FEED`. So the set cannot be deleted; it can only be retired
+   one tail cell at a time, and bringing the other fifteen TO the tail is a
+   renumber — mechanical in-tree, since `apps/os88api.inc` is the one source
+   of every offset and `tests/unit/t_api_abi.py` decodes the table out of
+   `kernel.bin` to check it, but it invalidates every `.o88` already written
+   to a floppy, and this project ships images.
+2. **A retired cell needs a DOOR, and every door costs 6–9 bytes to open** —
+   SPEC.md §9.12.5.3 is that arithmetic done in full for one slot. A door
+   needs a selector test it does not already make, plus a register shuffle,
+   because a slot's arguments collide with whatever registers the door already
+   uses. On the kernel that HAS the feature the eight bytes come straight back
+   out of the door; `kern_small` keeps all eight only because there is nothing
+   there to open a door for. **So the whole of this row's value is on
+   `kern_small`, which is where it is worth most anyway.**
+
+Re-derive it with a listing walk rather than by reading source: assemble
+`kernel.asm` with `-DKERN_SMALL -l`, take every `OSAPI_*CELL`/`*SLOT` target
+out of the table, and keep the ones whose body is `stc`/`ret`, `stc`/`retf` or
+`xor ax, ax`/`stc`/`ret`. Measured on `5ca2de18`.
+
+#### 7.7.8 OPEN — the `drv_cls_svc_x` CF gate: a CHECK, worth more than the 38 bytes that motivated it
+
+Not a saving — a **gate**, and it is filed here because it is what stands
+between this file and 38 bytes of `.bss` that are dead by construction.
+
+`drv_cls_svc_x` publishes *"`CF = 1` and `DI = 0` if the class is out of
+range"*, and **`DI = 0` is `drv_svc + 0`, which is the SOUND driver's published
+service table.** A caller that misses the `CF` test therefore does not crash —
+it writes one class's services over another's, which is exactly the silent
+cross-class disconnection SPEC.md §51.2.1 exists to prevent, arriving through
+the routine that implements it. There are **ten callers**. `drv_cls_fp_x`
+publishes the identical refusal and has the same hazard.
+
+**The gate:** a source walk in `tools/os88ovlchk.py`'s shape — find every
+`call drv_cls_svc_x`, `call drv_cls_fp_x` and their `COLD_SEG:drvf_*` far
+forms, and fail the build unless a `jc`/`jnc` appears within the next few
+instructions. About forty lines of host Python and a `fast`-tier row. NASM
+cannot do this itself (it has no control flow) and neither can a `.bss` canary
+(the bad write lands at the *start* of the table, not past its end).
+
+**What it unlocks, once it is green:** `DRVC_POINT` (SPEC.md §9.12) needs no
+`drv_svc` slot at all. `USBMOUSE.DRV` publishes only `DSV_NAME`, and
+`DSV_NAME` is read **nowhere** in `kernel/` — three matches, all of them
+comments — so the class's 36-byte slot plus its `drv_owner` word is dead the
+day it is allocated. Size `drv_svc` at `DSV_SIZE * (DRVC_MAX - 2)` and have
+`drv_cls_svc_x` refuse the class the way it already refuses class 3.
+**Gate first, size change second**: the 38 bytes are what pays for writing the
+gate, not the reason to skip it.
 
 #### 7.7.6 `.lowbss` is not on this menu at all, and it is now PROVED so
 

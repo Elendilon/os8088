@@ -13969,12 +13969,13 @@ row shows a name, and the panel's column is nine glyphs, which truncates it to
   because there is no feed there to open a door for — **which makes those ten
   §20.8 rule 4's price and not this driver's**, and that price is worth asking
   about once rather than sixteen times: **sixteen cell targets are a bare
-  refusal stub on `kern_small`** (`gfx_line`, `gfx_spans`, `gfx_blitp`,
-  `wm_band`, `xm_alloc`, `osapi_snd_fm_x`, `osapi_drv_dlg_x`, this one and
-  eight more), which is **128 bytes of table** plus their bodies. Only a slot
-  at the TAIL can be retired without holing the table, so this one is the one
-  that could go today — for ten bytes, at the cost of `OSAPI_MOUSE_FEED`
-  ceasing to be a name in the SDK.
+  refusal stub on `kern_small`**, which is 128 bytes of table plus their
+  bodies. That is a register entry and not this section's to keep — it is
+  **docs/plans/LAST-DROP-BYTES.md §7.7.7**, with the list, the figure and the
+  two constraints. What belongs here is only the consequence for this slot:
+  it is at the TAIL, so it is the one that could be retired today, for ten
+  bytes on a kernel that does not have the feature, at the cost of
+  `OSAPI_MOUSE_FEED` ceasing to be a name in the SDK. Not taken.
 - **`DRVC_POINT` reusing the retired class 3** would delete `drv_fptr6`,
   `drv_fseg6` and 38 bytes of `.bss`. It is **unsafe**, and `drv_cls_svc_x` is
   where: classes 1, 2 and 3 keep index `class-1` while 4 and up are compacted
@@ -13991,12 +13992,10 @@ row shows a name, and the panel's column is nine glyphs, which truncates it to
   `DI = 0` — which is `drv_svc + 0`, the SOUND driver's table. A missed `CF`
   test is therefore not a crash but a silent cross-class overwrite.
   **The check that makes it loud is a source walk in `tools/os88ovlchk.py`'s
-  shape**: find every `call drv_cls_svc_x` and `call COLD_SEG:drvf_drv_cls_svc`
-  and fail the build unless a `jc`/`jnc` appears within the next few
-  instructions. That is about forty lines of host Python and a `fast`-tier
-  row, and it is worth more than the 38 bytes on its own — the same walk
-  covers `drv_cls_fp_x`, which publishes the identical refusal. Whoever takes
-  it should write the gate FIRST and the size change second.
+  shape**, and it is filed as a row whoever wants the bytes can take —
+  **docs/plans/LAST-DROP-BYTES.md §7.7.8**, gate first and size change second,
+  because the same walk covers `drv_cls_fp_x`'s identical refusal and is worth
+  more than the 38 bytes that motivated it.
 - **`kern_small`'s two-byte refusal** could be a second label on
   `drv_pkg_call_x`'s existing `stc`/`ret`, for **−2**. It would put a
   `mouse.inc` symbol in `driver.inc` against §4's ownership table, for two
