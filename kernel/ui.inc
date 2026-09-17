@@ -2145,11 +2145,21 @@ ui_grow:
     cmp ax, [ui_rzy]
     jne .norz
     mov ax, [bx + W_W]
-    cmp ax, [ui_rzw]
-    ja .norz                    ; wider: the new columns were never drawn
-    mov ax, [bx + W_H]
-    cmp ax, [ui_rzh]
+    sub ax, [ui_rzw]            ; `sub` sets the flags `cmp` would, and keeps
+    ja .norz                    ; the difference: wider means the new columns
+    mov cx, ax                  ; were never drawn, and ZERO means this axis
+    mov ax, [bx + W_H]          ; did not move at all. CX is dead here - the
+    sub ax, [ui_rzh]            ; union below reloads it
     ja .norz
+    or cx, ax                   ; ...AND A RESIZE THAT CHANGED NOTHING VACATES
+    jz .nodmg                   ; NOTHING (SPEC.md 11.91.5): all four words as
+                                ; [ui_rz*] banked them, so the release uncovered
+                                ; no ground and drew nothing new and there is no
+                                ; damage rect to paint at all. Judged HERE and
+                                ; not off the size wm_ask_size answered, because
+                                ; wm_dock_snap, wm_land_fit and wm_snap_win each
+                                ; move the ORIGIN while the size stands still -
+                                ; and every one of those DOES vacate ground
     mov [wm_dmg_rzwin], bx
 .norz:
     pop ax
@@ -2186,6 +2196,20 @@ ui_grow:
     call wm_paint_dmg           ; caller-held lock, per the wm contract
     mov word [wm_dmg_rzwin], 0  ; a one-shot, and its life is that one call
     jmp gfx_unlock              ; NO second gfx_lock here - already held (§7)
+
+.nodmg:                         ; nothing moved and nothing changed size, so
+    pop ax                      ; no window owes a pixel - this one included,
+                                ; which wm_dmg_wins would have marked by
+                                ; POINTER whatever the rect said (11.91.2).
+                                ; The AX the rz block pushed is still owed
+    mov word [wm_dmg_stwin], 0  ; ...and the vacated rect is a one-shot whose
+                                ; keeper is wm_dmg_wins, which this path is the
+                                ; first to arm and never reach: left set it
+                                ; would describe a window to the NEXT damage
+                                ; rect in the system. [wm_dmg_rzwin] needs no
+                                ; clearing - the block above zeroes it first
+                                ; and this arm never set it
+    jmp gfx_unlock
 
 ; -----------------------------------------------------------------------------
 ; ui_dispatch - route one menu selection (SPEC.md 13)

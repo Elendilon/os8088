@@ -15979,9 +15979,11 @@ caller that forgets inherits 0 and marks against the whole damage rect, which
 is what this pass has always done. The caller owes one fact it cannot be
 asked for — **this window is going to be drawn in this pass** — and `ui_drag`
 can say it, because a drag is only ever reached after the window has been
-raised. `ui_grow` is the same shape and deliberately does **not** arm it yet:
-a resize moves the origin through `wm_dock_snap` (§11.90) and deserves its own
-verification.
+raised. `ui_grow` is the same shape and **arms it too**, which it did not when
+this was written: a resize moves the origin through `wm_dock_snap` (§11.90),
+so the rect banked at mousedown is not necessarily the rect that is vacated —
+and the case where nothing is vacated at all needed a test of its own, which
+is §11.91.5.
 
 **The version before this one is worth recording, because it looks right and
 is wrong by one pixel.** The first cut excluded the rect the window moved
@@ -16092,6 +16094,68 @@ Four things are load-bearing.
 §11.95.2 case (a window flush against the screen's left edge has no left
 border for the shadow to sit under, so the bottom edge starts at `x`, not
 `x+1`). Cost: `.text` +94 bytes, footprint unchanged.
+
+#### 11.91.5 …and a resize that changed NOTHING vacates nothing
+
+`ui_grow` arms `wm_dmg_vacate` at its release with the rect banked at
+mousedown — **before** the two clamps, `wm_ask_size`, `wm_dock_snap`,
+`wm_land_fit` and `wm_snap_win` have between them said what the window's rect
+is actually going to be. All of that arithmetic can come back to exactly where
+it started, and the commonest way is the one reported from the field: **the
+application refuses the shrink.** `wm_ask_size` is a negotiation (§11.1), so
+an answer of "the size I already have" is a normal reply and not a failure —
+Paint auto-sizes to its canvas, so dragging the grow box inside the ink is
+answered with the frame that is already on the glass.
+
+What that used to cost, for a screen already correct to the pixel:
+
+- **the window under the hand redrew its own chrome.** `wm_dmg_wins` marks the
+  vacating window unconditionally, by pointer (§11.91.2) — it has to, because
+  a long drag does not overlap its own vacated rect — so the title bar was
+  composed and drawn again on every refused resize.
+- **each neighbour under its drop shadow drew that shadow again.** The vacated
+  rect is the old frame *plus* the shadow's L, so a window overlapping only
+  that L fails §11.91.2's containment test, `wm_dmg_shadowed` claims it
+  (§11.91.4), and two drawing calls land on ground nothing had disturbed.
+
+The visible half of that was the field report — a neighbour's shadow standing
+on the front window's canvas — and §11.97 has since fenced those pixels. **The
+fence makes the pixels right; it does not make the work necessary.**
+
+**A release that leaves `W_X`, `W_Y`, `W_W` and `W_H` all exactly as
+`[ui_rzx]`/`[ui_rzy]`/`[ui_rzw]`/`[ui_rzh]` banked them has uncovered nothing
+and drawn nothing new, so there is no damage at all.** `ui_grow` disarms the
+vacated rect and returns without a repaint pass. Nothing is owed to the
+screen: the tracking outline is its own inverse and the erase at `.release`
+has already put back every pixel it borrowed.
+
+Three things are load-bearing.
+
+- **It is all four words, judged last.** Not "the size did not change": the
+  origin moves under `wm_dock_snap`, `wm_land_fit` and `wm_snap_win` while the
+  size stands still — a grow nudged back above the dock, a frame fitted onto
+  one display of an extended desktop, a width snapped to the 8px grid — and
+  every one of those really does vacate ground. The predicate is read after
+  all of them have run, which is exactly what §11.90.3 already banks
+  `[ui_rz*]` for.
+- **The vacated rect must be disarmed by hand.** It is a one-shot whose keeper
+  is `wm_dmg_wins` (§11.91.2), and this path is the first that arms it and
+  never reaches that pass. Left set it would poison the *next* damage
+  rectangle in the system with a rect describing a window that has since moved.
+- **It is the same test §11.90.3 already makes, read one bit finer.** The two
+  origin compares are exact already; the two size compares become a `sub`
+  whose result is banked, so "neither axis is wider" and "neither axis moved"
+  come out of the same instructions. **16 bytes** on both kernels, no new
+  `.bss`, and no existing path gains an instruction.
+
+The by-name path is deliberately left alone. `wm_resize`'s rect is its
+caller's own argument rather than an answer to one, so a package asking for
+the size it already has is a defect in the package and not a negotiation that
+came round; and `wm_rz_paint` has a fast path of its own (the new rect
+swallows the old *and* the window is frontmost → one `wm_draw_win`) that the
+identical-rect case already reaches whenever the window is in front. The
+remaining case — a by-name no-op resize on a window that is *not* frontmost —
+is worth a look and is not this change.
 
 ### 11.92 Retitling costs a strip — `wm_title_set`
 

@@ -12,6 +12,16 @@ itself doesn't redraw, it sticks around. It was going to be fully obstructed
 anyway."*  The reporter's own repro is part 1 here, near enough verbatim: a
 Disk window, Paint over it, Paint's grow box dragged inward until it refuses.
 
+PART 3 IS THE OTHER HALF OF THE SAME REPORT and asks a different KIND of
+question. Parts 1 and 2 fence the pixels; part 3 asks why there was any work
+to fence. A refused resize leaves all four of the window's words exactly as
+they were, so nothing was uncovered and nothing new was drawn - and SPEC.md
+11.91.5 is `ui_grow` returning without a damage pass at all. That cannot be
+measured in pixels, because after parts 1 and 2 the glass is already right: it
+is measured by ARMING `wm_paint_dmg` and asking whether it is entered with a
+vacated rect standing (SPEC.md 11.91.2's `[wm_dmg_stwin]`), which only
+`ui_drag` and `ui_grow` ever set.
+
 THE MEASUREMENT IS tests/wmartifact.py's and so is the reason for it: neither
 artifact is visible in a screenshot, because a screenshot has nothing to
 disagree with. The glass is stale, not corrupt, and it stays stale until
@@ -480,9 +490,120 @@ def part_title(a):
                   "11.97.4's closing paragraph, not asserted here)" % rest)
 
 
+
+# =============================================================================
+# PART 3 - a refused resize repaints NOTHING (SPEC.md 11.91.5)
+# =============================================================================
+def _dmg_hit(mm, rec):
+    """Read the two one-shots WHILE THE GUEST IS STOPPED at `wm_paint_dmg`.
+
+    `[wm_dmg_stwin]` is the window whose vacated rect is armed and is set by
+    `ui_drag` and `ui_grow` alone (SPEC.md 11.91.2); `[wm_dmg_rzwin]` is
+    11.90.3's pure-shrink window. Both are one-shots spent inside the pass, so
+    they are only readable here - a microsecond after the resume they are 0
+    and the record would say nothing."""
+    return (u16(mm.read(S("wm_dmg_stwin"), 2)),
+            u16(mm.read(S("wm_dmg_rzwin"), 2)))
+
+
+def _vacating_passes(tr):
+    """...and how many of the stops carried an armed vacated rect."""
+    return [h for h in tr.hits if h.get("hit") and h["hit"][0]]
+
+
+def part_nodmg(a):
+    """A resize that changed nothing damages nothing.
+
+    THE ASSERTION IS A COUNT AND NOT A PIXEL, and that is the point: with
+    SPEC.md 11.97 in place the glass after a refused resize is already correct,
+    so a pixel diff cannot tell "the chrome was redrawn identically" from "the
+    chrome was never redrawn". What is being removed here is the WORK - the
+    resized window's own title bar composed again by `wm_dmg_wins`'s
+    mark-by-pointer, and two drawing calls of drop shadow on every neighbour
+    under its L.
+
+    THE CONTROL IS A RESIZE THE APPLICATION ACCEPTS, taken first and on the
+    same window, because a count of zero proves nothing without one: an armed
+    breakpoint that never fires reads identically to a symbol that was never
+    reached, and this file has already paid once for a trigger that silently
+    did not happen (see `_ink` in the header).
+
+    THE TOAST IS WHY THE FILTER IS THERE. A refusal says so in its own strip
+    (SPEC.md 42.6.5), which is a window, so `wm_paint_dmg` IS entered during
+    this gesture - just not by `ui_grow`. `[wm_dmg_stwin]` is what tells them
+    apart, and it also catches the half of 11.91.5 that is easiest to get
+    wrong: the vacated rect is a one-shot whose keeper is `wm_dmg_wins`, so an
+    early return that forgets to disarm it hands the TOAST's own damage pass a
+    rect describing somebody else's window - which shows up here as the very
+    count that was meant to be zero."""
+    print("\n=== part 3: a REFUSED resize repaints nothing (%s) ===\n"
+          % a.machine)
+    card, session = _session(a)
+    with session as ui:
+        m = ui.m
+        ui.open_drive("B")
+        ui.open("APPS")
+        ui.open("PAINT.O88")
+        time.sleep(2)
+        ui.settle()
+        p = ui._refresh(ui.windows()[-1])
+        print("   Paint (%d,%d) %dx%d" % (p.x, p.y, p.w, p.h))
+
+        # --- the CONTROL: an inward drag on an EMPTY canvas, which is taken --
+        was = p
+        with os88marty.bp_trace(m, "wm_paint_dmg", on_hit=_dmg_hit) as tr:
+            p = _grow(ui, p, max(p.w - 80, 120), max(p.h - 60, 90))
+        acc = _vacating_passes(tr)
+        print("   CONTROL  an ACCEPTED resize %dx%d -> %dx%d: %d damage "
+              "pass(es), %d of them vacating"
+              % (was.w, was.h, p.w, p.h, tr.count(), len(acc)))
+        if _same(p, was):
+            fails.append("part 3's control needs an ACCEPTED resize and Paint "
+                         "refused one at %dx%d, so the zero below would prove "
+                         "nothing" % (was.w, was.h))
+            return
+        if not acc:
+            fails.append("part 3's control: an accepted resize %dx%d -> %dx%d "
+                         "reached wm_paint_dmg with a vacated rect armed 0 "
+                         "times, so the breakpoint is measuring nothing"
+                         % (was.w, was.h, p.w, p.h))
+            return
+
+        # --- ...and now the same drag on a floor the artwork pins ------------
+        _ink(ui, ui._refresh(p))
+        p = _floor(ui, p, "Paint")
+        was = ui._refresh(p)
+        with os88marty.bp_trace(m, "wm_paint_dmg", on_hit=_dmg_hit) as tr:
+            got = _grow(ui, p, 120, 90)
+            os88marty.guest_sleep(m, 1.5)   # the toast and whatever it costs
+        ref = _vacating_passes(tr)
+        print("   REFUSED  the inward drag left Paint (%d,%d) %dx%d (was "
+              "%dx%d): %d damage pass(es), %d of them vacating"
+              % (got.x, got.y, got.w, got.h, was.w, was.h,
+                 tr.count(), len(ref)))
+        if not _same(got, was):
+            fails.append("part 3 needs a REFUSED resize and Paint accepted "
+                         "one: %dx%d -> %dx%d, so it was not on its floor"
+                         % (was.w, was.h, got.w, got.h))
+            return
+        for h in ref:
+            print("      a vacating pass at %s: [wm_dmg_stwin] = 0x%04X, "
+                  "[wm_dmg_rzwin] = 0x%04X" % (h["name"], h["hit"][0],
+                                               h["hit"][1]))
+        if ref:
+            fails.append("part 3: a resize that changed NOTHING still ran %d "
+                         "damage pass(es) with a vacated rect armed - the "
+                         "window under the hand redraws its own chrome and "
+                         "every neighbour under its shadow L draws that "
+                         "(SPEC.md 11.91.5)" % len(ref))
+        else:
+            print("   -> no damage pass carried a vacated rect: nothing was "
+                  "repainted and the one-shot was disarmed")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", choices=("shadow", "title", "both"),
+    ap.add_argument("--part", choices=("shadow", "title", "nodmg", "both"),
                     default="both")
     ap.add_argument("--machine", default="os8088_xt_vga")
     ap.add_argument("--image", default="build/os8088-360.img")
@@ -493,6 +614,8 @@ def main():
         part_shadow(a)
     if a.part in ("title", "both"):
         part_title(a)
+    if a.part in ("nodmg", "both"):
+        part_nodmg(a)
 
     print()
     for k in skips:
