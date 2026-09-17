@@ -48992,10 +48992,17 @@ with no ALIAS row.
 The other five `OSAPI_JSLOT` stubs stay: each does something a thunk cannot —
 an optional name, a two-name copy, a `drv_owns_seg` fence.
 
-**Zero new `cw_` shims.** Its one outbound call is `call COLD_SEG:mem_owned_kb_x`
-and it was already spelled that way — the deliberate exclusion §29.9's own
-comment describes, `mem_owned_kb` being four hundred iterations that have no
-business inside the window.
+**Zero new `cw_` shims.** Its one outbound call is `mem_owned_kb` — the
+deliberate exclusion §29.9's own comment describes, being four hundred
+iterations that have no business inside the window.
+
+**It is NEAR, and that took a second look** (§51.12.2). It was
+`call COLD_SEG:mem_owned_kb_x` and *"it was already spelled that way"* was the
+whole of the reasoning — true, and true because it was written while this body
+was still `.text`. Once the body moved here that spelling became a far call
+from `COLD_SEG` to `COLD_SEG`, with a four-byte trampoline in `memory.inc`
+kept alive to receive it. Six resident bytes, and one segment crossing per row
+of a snapshot the Task Manager takes once a second.
 
 ## 30. dock.inc — the dock strip
 
@@ -130892,13 +130899,23 @@ a class to the sweep — it takes one **off the skip list** — so the register
 can only reach the three rows the loop was already deciding about, and naming
 a class the sweep was going to take regardless changes nothing.
 
-**The whole resident cost is four bytes**: `drv_suspend_x` banks `BL` in
-`[hb_spmask]` and the decision is `HIBER.DRV`'s, inside `hbm_sweep`, where it
-hangs off the skip itself — a row that was going to be taken does not pay for
-it. The mask is written on the resume too, where it means nothing: that is
-what stops one call's mask outliving it, and `hbm_detach` zeroes the byte for
-the same reason. **A hibernate is not this slot**, and its sweep is today's
-list whatever the last suspend asked for.
+**The whole resident cost is ZERO**, and it was four bytes plus a `.bss` byte
+until somebody asked what they were for. `drv_suspend_x` used to bank `BL` in
+a kernel `[hb_spmask]` so that `hbm_sweep` could read it out of the module —
+on the reading that a register cannot survive a module load. **It survives**:
+`mod_need` clobbers **flags only, every register preserved** (that is its own
+contract, written for exactly this reason — it sits under thunks whose
+caller's arguments are already in registers), `hbf_need` brackets it in
+`push ax`/`pop ax`, and `modh_e_perform` is `call`/`retf`. So `BL` arrives at
+`hbm_drvsusp` untouched, which banks it in `[cs:hbm_spm]` — **module data**,
+present only while the call is in flight.
+
+The mask is written on **both** verbs, where the resume's means nothing: that
+is what stops one call's mask outliving it, and `hbm_detach` zeroes the byte
+for the same reason. **A hibernate is not this slot**, and its sweep is
+today's list whatever the last suspend asked for. The decision stays
+`HIBER.DRV`'s, inside `hbm_sweep`, where it hangs off the skip itself — a row
+that was going to be taken does not pay for it.
 
 There is no matching bit on the resume. `[hb_susp]` records the rows a suspend
 actually took out, so what comes back is what went — which is §51.11.1's
@@ -130911,9 +130928,9 @@ to sweep (§51.11.3).
 ### 51.12 What a class is holding (`OSAPI_DRV_CLASSK`)
 
 `0x0580`. `AL` = a `DRVC_*`; out `CF=0` with `AX` = the KB the **loaded**
-drivers of that class hold and `CX` = how many answered, or `CF=1` with `AX=0`
-and `CX=0` — nothing of that class is loaded. A SLOT: no caller segment is
-involved, and every other register is preserved.
+drivers of that class hold, or `CF=1` with `AX=0` — nothing of that class is
+loaded. A SLOT: no caller segment is involved, and every other register is
+preserved.
 
 The Control Panel has priced a driver since `drv_memk` was written (§51.2.4),
 and it prices it **per row**, because that is what the Drivers page draws. The
@@ -130928,38 +130945,29 @@ the number beside it, so what greys and what is offered cannot disagree
 which is the truth the checkbox wants: there is nothing to unmount and nothing
 to get back.
 
-**Bit 15 of `AX` is a flag and not a digit.** `DRVM_PLUS` is set when one of
-the rows also holds a store the **user** sized on its own page — the RAM
-disk's arena, `[rd_kb]`, which is not this kernel's number to quote. Mask it
-off before printing and draw a `+` if you want to say so, which is what the
-Drivers page does.
-
-The figures are `drv_memk`'s, so they are **build-time constants**: the call
-costs no probe and no I/O, and it is a fair estimate rather than a measurement
-— what each driver holds while doing its primary job, at the top rung of any
-claim it sizes to the machine (§51.2.4 has the rule and
-`tests/unit/t_drvmem.py` keeps each term honest against the `.drv` the build
-just produced). A caller estimating an arena that does not exist yet is
-exactly the reader for whom a constant is right.
+**The answer is plain kilobytes** — §51.12.2 is what it weighs. There is no
+flag bit in it and nothing to mask off. `DRVM_PLUS` was in bit 15 while the
+figure was `drv_memk`'s, whose RAM-disk row carries it; the heap sum carries
+no such thing, because a store the user sized is claimed memory like any
+other and gets counted rather than footnoted.
 
 **It took the retired cell at `0x0580`** — `OSAPI_FILE_MOVE`'s, withdrawn into
 `0x0578`'s verb byte (§22.25) — so the table gains no byte and §20.3.1's free
-list is empty again. On `kern_small` it is `xor ax,ax` / `xor cx,cx` / `stc`:
+list is empty again. On `kern_small` it is `xor ax,ax` / `stc` / `retf`:
 nothing of any class is loaded there, for ever, and the refusal states the
-answers rather than leaving the caller's registers looking like a figure.
+answer rather than leaving the caller's register looking like a figure.
 
-#### 51.12.1 `DRVCK_ALL` — the CEILING, which is a different question
+#### 51.12.1 The CEILING is a different question, and it is a CONSTANT
 
-`AL` = a `DRVC_*` **OR'd with `DRVCK_ALL`** (`0x80`) asks what the class would
-cost at most: every row of that class counts whether or not its driver is
-mounted, and `CF=0` whenever the *table* has such a row. `DRVC_*` runs 1..5,
-so bit 7 was free; the walk masks it off at the class compare rather than
-banking the class in a register, every register in that loop already carrying
-something. **Eight bytes of `.cold`, resident.**
+*What would this class cost at most* — the `Hard drives (Up to 32K)` a caption
+quotes — is the sum of `drv_memk` over the rows of that class, and **every
+term of it is fixed at assembly time**. So it is not a call. It is
+`DRVM_CEIL_DISK` and `DRVM_CEIL_NET`, `equ`s in `kernel/driver.inc` mirrored
+into `apps/os88api.inc`.
 
-**It exists because a caption and a control want different numbers.** The
-plain form above is right for a checkbox — it offers to unmount something, and
-on a machine with nothing mounted there is nothing to offer and nothing to get
+**It exists because a caption and a control want different numbers.** §51.12's
+form is right for a checkbox — it offers to unmount something, and on a
+machine with nothing mounted there is nothing to offer and nothing to get
 back. A *caption* is describing the class and not this machine's state, so fed
 the same figure the DOS box's Memory page read `Hard drives (Up to  0K)` on a
 machine with no hard disk: a perfectly true number that is indistinguishable
@@ -130967,27 +130975,72 @@ from a page whose arithmetic has died. Worse, that is the state the page is
 **most** often opened in, a user shutting the OS down for a DOS program being
 disproportionately a user with no hard disk and no card.
 
-The alternative was a copy of the constants in the package, and it is refused
-for the reason `tests/unit/t_drvmem.py` exists: `drv_memk`'s terms are an
-*image size* plus *claims declared in the drivers' own sources*, both of which
-move when a driver grows and neither of which any linker checks (§1). One
-table and two questions keeps a growing driver moving both answers together; a
-package-side copy would be a third derivation of a figure that already has two
-and needs a test to hold them level.
+**It was a runtime form of the slot and that was the mistake.** `AL` OR'd with
+`DRVCK_ALL` (`0x80`) made the same walk count every row of the class whether
+or not its driver was mounted, and read the figure out of `drv_memk`. That is
+**thirty-five resident bytes walking a table of constants to add up
+constants** — a machine doing at run time, on every repaint, arithmetic nasm
+had already done. The retirement is the whole of §51.12.3's saving and most of
+this slot's.
+
+**A mirror is not the copy this section used to refuse.** The alternative
+weighed when the runtime form was built was *a copy of the constants in the
+package* — `DRVM_IMG_HDD`, the claim terms, added up a second time — and it
+was refused for the reason `tests/unit/t_drvmem.py` exists: those terms are an
+image size plus claims declared in the drivers' own sources, both of which
+move when a driver grows and **neither of which any linker checks** (§1). A
+package-side copy would be *a third derivation of a figure that already has
+two*. `DRVM_CEIL_*` derives nothing — it carries the **answer**, once — and
+three things hold it level, none of which needs anybody to remember:
+
+| | |
+|---|---|
+| `kernel/driver.inc`'s `%if` | nasm itself: `DRVM_CEIL_DISK != DRVM_HDD` fails the build |
+| `tests/unit/t_drvmem.py` | re-derives the sum from `drv_tab`'s own class bytes, so a **second** row of either class is caught too |
+| `tests/unit/t_mirror.py` | the SDK's copy, for free and for ever — every name defined in more than one file |
+
+The literal is what makes the mirror possible: `t_mirror` compares the text
+when a value is not a number, and the SDK cannot see `DRVM_HDD`. So the kernel
+carries `equ 32` and the `%if` is what makes `32` safe.
+
+**On `kern_small` the caption now says `Up to 32K` where the slot used to make
+it say `Up to  0K`**, and that is the fix arriving on one more machine rather
+than a regression. `Up to` is about the class (§96.36.7.1: the box is a
+*request*, `include these if available`, and a `.LNK` outlives the setup it
+was saved under). The arena arithmetic is untouched — it reads §51.12's live
+figure, which on a driverless kernel is 0 whichever way the box is set.
 
 **The two forms must not be confused at the call site**, and the shape that
-prevents it is that they are asked separately and banked separately —
-`dos_mck_place` reads the loaded figure into `[dos_mhkb]`/`[dos_mnkb]` for the
-arena arithmetic and the ceiling straight into the label's own digits, so
-neither can be read for the other's purpose later.
+prevents it is that they no longer look alike: `dos_mck_place` *calls* for the
+loaded figure into `[dos_mhkb]`/`[dos_mnkb]` and *loads an immediate* for the
+label's digits.
+
+#### 51.12.3 The count was published, returned, and read by nobody
+
+The slot also answered `CX` = how many rows answered, and `DRVM_PLUS` in bit
+15. **Neither had a reader.** Every call site in the tree goes through the DOS
+box's own `dos_classk`, which discards `CX` and (until §51.12.2 stopped the
+figure being `drv_memk`'s) masked bit 15 off again immediately.
+
+`CX` was not free. It was maintained — `xor cx,cx`, `inc cx` — for one
+purpose: to reach `jcxz` and set `CF`. **The answer is its own predicate**, so
+the whole tail is `cmp ax, 1`: `CF=1` exactly when `AX=0`, and `AX=0` exactly
+when no row of the class is loaded, because `drv_load` writes `DRVR_SEG` and
+`DRVR_KB` together and a driver image is never under a kilobyte (its own
+`cmp ax, DRV_HDR_SZ` / `jb .bad`). **Four bytes where eight stood, and one
+fewer register in the contract** — on both builds, the `kern_small` stub
+losing its `xor cx,cx` with it.
+
+That is §18.4.6's question asked one slot along — *is every field read by
+anybody* — and it answered the same way twice in two passes.
 
 #### 51.12.2 The plain form weighs the HEAP, not `drv_memk`
 
 The plain form answers what the class's loaded rows are **holding right now**,
 summed off `mem_tab`: for each loaded row, `DRVR_KB` — the KB `drv_load`
 claimed for the image — plus `mem_owned_kb` of that row's `DRVR_SEG`. Two
-lookups, no probe, and nothing that can drift. Only `DRVCK_ALL` reads
-`drv_memk`.
+lookups, no probe, and nothing that can drift. **Nothing in this slot reads
+`drv_memk` any more** — the form that did is §51.12.1's constant now.
 
 **It was `drv_memk` for both and the field measured what that costs.** On an
 IBM 5150 with a Sound Blaster, the DOS box's Memory page read the arena 20 KB
@@ -131003,8 +131056,7 @@ program got 447.
 defines it as *what a driver holds while doing its primary job, at the top
 rung of any claim it sizes to the machine* — right for the Drivers page's
 column and for a caption about the class, and wrong for *what would I get back
-if this class went away now*, which is the only question the plain form is
-asked. `DRVC_DISK` is the same story one row along: `8 + 4×6` as a ceiling and
+if this class went away now*, which is the only question this slot is asked. `DRVC_DISK` is the same story one row along: `8 + 4×6` as a ceiling and
 14 with one volume mounted.
 
 **The two records are found by the ownership rule and not by a list.** A
@@ -131012,8 +131064,18 @@ driver's image is owned by `MEM_K_DRV`, so it is named by its own base rather
 than by anything class-specific — hence `DRVR_KB`. Everything the driver then
 claims for *itself* carries that base as its **owner word**, because
 `mem_own`'s last act is `mov bx, es` (§50.2). `mem_owned_kb` is exactly that
-sum and already existed; it gained a near entry beside its far one, four
-bytes, rather than a second copy of the scan.
+sum and already existed, so this costs no second copy of the scan.
+
+**And it costs no door either, which took a second look.** It gained a near
+entry in front of its far one — a four-byte trampoline — on the reading that
+the far entry was somebody's. It was **nobody's**: `mem_owned_kb_x`'s one
+other caller is `osapi_sys_snapshot_x`, which is itself `.cold`, and its
+`call COLD_SEG:mem_owned_kb_x` is a far call from `COLD_SEG` **to
+`COLD_SEG`** — written while that body was still `.text` and carried across
+unexamined when it moved, under a section comment that says in as many words
+*"its one outbound is already `call COLD_SEG:` and stays exactly as it is"*.
+One near door serves both: **six resident bytes**, and one fewer segment
+crossing per row of a snapshot the Task Manager takes once a second.
 
 **Why the kernel and not the caller.** `OSAPI_CLAIM_SNAPSHOT` publishes the
 whole of `mem_tab` and the Task Manager's `tm_hmatch` already groups a
@@ -131027,6 +131089,9 @@ already one call away from.
 
 **Nothing on the Control Panel moves**: `cp_drv_mem1` reads `drv_memk`
 directly and not through this slot.
+
+**What is left of this slot is 52 bytes of `.cold`**, against 102 when it was
+answering two questions and counting rows nobody read (§51.12.1, §51.12.3).
 
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
@@ -131752,12 +131817,11 @@ subsection carries two boxes, `Hard drives (NNN K)` and `Network (NNN K)`,
 and clearing one sets that class's bit in `OSAPI_DRV_SUSPEND`'s `BL`
 (§51.11.4).
 
-**The figure in the label and the figure the arena row adds are ONE number
-read once.** `dos_mck_place` asks `OSAPI_DRV_CLASSK` per class, banks the
-answer, patches it into the label in place and hands the same word to
-`dos_mem_arena` — so what the box says it gives back and what the total moves
-by cannot disagree (§47 rule 5), and a driver unloaded between two reads
-cannot make them.
+**The figure the arena row adds is ONE number read once.** `dos_mck_place`
+asks `OSAPI_DRV_CLASSK` per class and banks the answer, and `dos_mem_arena`
+is handed that same word — so a driver unloaded between two reads cannot make
+the terms of one total disagree (§47 rule 5). The figure in the LABEL is a
+different question and §96.36.7.1 is why; it is patched in from a constant.
 
 **A class nothing has mounted greys, and is forced ON.** `OSAPI_DRV_CLASSK`'s
 CF is that fact. An unticked box means *take it out* and there is nothing to
@@ -131791,9 +131855,10 @@ machine in front of you (§96.25.1) while the tick records an intent for another
 one.
 
 **`Up to` is what carries that**, and it is why the caption's figure is the
-CLASS's ceiling and not this machine's (`DRVCK_ALL`, §51.12.1). `Network (Up
-to 33K)` is about the box's future, on whatever machine the `.LNK` is opened
-on: the most it could cost to leave this ticked. The **estimate** above it is
+CLASS's ceiling and not this machine's — `DRVM_CEIL_NET`, a constant out of
+the SDK and not a call at all (§51.12.1). `Network (Up to 33K)` is about the
+box's future, on whatever machine the `.LNK` is opened on: the most it could
+cost to leave this ticked. The **estimate** above it is
 about the machine in front of you and stays on the plain form — what is
 mounted here, which is what clearing the box actually hands back.
 

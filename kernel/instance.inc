@@ -2330,9 +2330,12 @@ section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 236 bytes of the
                                 ; an OSAPI_JSLOT into a ten-byte `.text` stub
                                 ; that owns the DS switch and the far call, so
                                 ; the published offset does not move and no
-                                ; caller changes. Zero new cw_ shims: its one
-                                ; outbound is already `call COLD_SEG:` and stays
-                                ; exactly as it is
+                                ; caller changes. Zero new cw_ shims - and its
+                                ; one outbound is NEAR now: it was left as
+                                ; `call COLD_SEG:mem_owned_kb_x` when this body
+                                ; moved here, which is a far call from COLD_SEG
+                                ; to COLD_SEG and a four-byte trampoline in
+                                ; memory.inc to receive it
 osapi_sys_snapshot_x:
     push cx
     push dx
@@ -2434,7 +2437,7 @@ osapi_sys_snapshot_x:
     jz .cown
     mov bx, [es:di+SSI_SEG]
 .cown:
-    call COLD_SEG:mem_owned_kb_x ; in BX = owner word; out AX = KB
+    call mem_owned_kb           ; in BX = owner word; out AX = KB
 .cstore:
     mov [es:di+SSI_KB], ax
     add di, SSI_RECSZ
