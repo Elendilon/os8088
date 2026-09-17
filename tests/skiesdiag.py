@@ -174,9 +174,24 @@ def main(argv):
         ips = set()
         for s in seen:
             ips |= set(s[:CSD_SLOTS])
-        check(len(ips) > 2 and all(0 < v < 0xE000 for v in ips),
-              "the ring holds package addresses (%s)"
-              % " ".join("%04x" % v for v in sorted(ips)))
+        # SOME of them, not ALL, and the ISR is why: cs_diag_isr records the
+        # interrupted IP WHATEVER SEGMENT IT CAME FROM - its own comment says
+        # `cs_dcseg` "is what says whether an IP is ours at all" - so a tick
+        # landing inside an OSAPI far call banks a KERNEL offset, which is a
+        # perfectly healthy sample of a flight that was in the kernel at the
+        # time. `all()` here made this row INTERMITTENT for as long as it has
+        # existed: measured 3 failures in 5 at one commit and 5 in 5 at the
+        # next, the difference being six bytes of skies.asm moving the
+        # package's own code under a tick that samples on its own clock. What
+        # the row can honestly say is that the ring is LIVE - three distinct
+        # values, none of them zero - and that the watchdog is watching the
+        # FLIGHT, which is at least one sample in the package's own range.
+        # cs_dcseg is a single word and names only the LAST sample, so no
+        # per-slot filter is available to do better.
+        own = [v for v in ips if 0 < v < 0xE000]
+        check(len(ips) > 2 and all(v != 0 for v in ips) and own,
+              "the ring holds live addresses, at least one of them the "
+              "package's (%s)" % " ".join("%04x" % v for v in sorted(ips)))
 
         # --- 2b: break a GUARD on purpose (SPEC.md 88.14.1) ------------------
         # The latch is the half that says whether memory went wrong BEFORE
