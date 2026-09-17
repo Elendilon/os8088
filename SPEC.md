@@ -38386,6 +38386,65 @@ The cloner is the right host and not merely the one with room: both are
 `files.inc` verbs on the system volume, both take a claim and run to
 completion, and neither is ever wanted while the other runs.
 
+### 20.16 A package that DOES NOT SHIP says so in `apps/RETIRED.txt`
+
+CLAUDE.md's Layout section states the invariant this exists to hold:
+**"`apps/` — loadable packages; everything here ships."** Nothing enforced it,
+and what that misses is not a package somebody chose to withhold — it is a
+package that ships nowhere because a list was edited and nobody noticed. Those
+two are **indistinguishable from every angle except intent**, which is the
+argument §66.6.1's ratchet makes about an undeclared region one layer along:
+the case that matters is the one no diff shows.
+
+`apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
+package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
+gate, a `fast` row. **Two kinds, and they are checked differently:**
+
+| kind | what it means | what the gate demands |
+|---|---|---|
+| `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
+| `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
+
+**A `retired` package keeps its source and its SPEC.md section.** Deleting
+them would leave no account of what was tried, and this tree already keeps
+that kind of thing — `docs/history/` is explicitly "true of no tree you can
+check out". `make <name>` still builds a retired package, so the record can be
+*run* and not merely read; a retirement that deleted the only way to check the
+thing being retired is a claim nobody can audit. Its test files stay too,
+exempted in `t_registry.py`'s `UNREGISTERED` with that reason, because a
+`fast` row every contributor pays for may not be about a program that ships
+nowhere (docs/WRITING-TESTS.md 2.1).
+
+**The bar for a `retired` line is the owner's call and nothing else.** It is
+not a performance verdict or a size verdict that a later measurement could
+overturn — a program is retired because the person who owns the project says
+it is not worth shipping. A red row or a slow package is a thing to fix or to
+ask about, never a reason to add a line here.
+
+**Three things the gate had to get right, each of which was wrong first and
+gave a wrong answer in its own direction:**
+
+1. **The live payload is READ, not retyped.** `build/livepayload.txt` is what
+   `all` emits from `$(LIVEARGS)` itself, so it cannot disagree with the
+   Makefile; §80.6's row reads the same file for the same reason. This is the
+   check that matters most, because the live volume's premise is
+   **completeness** — it is where a package taken off the curated floppies
+   keeps shipping, which is exactly what happened to §89 (§89.12).
+2. **The images are walked RECURSIVELY.** Every shipped package lives in
+   `APPS/` or `GAMES/`, and `tools/os88fat.py ls` lists the root only — so the
+   first version reported *every* package as not shipping. It uses
+   `t_image.py`'s own `Vol.walk` now.
+3. **The 8.3 name is matched WHOLE.** A substring test for `WIRE.O88` matches
+   `THEWIRE.O88`, which reported WIREFRAME — an instrument that correctly
+   ships nowhere — as being on the network disk. And a package's 8.3 name is
+   not its directory name: `solitaire` ships as `SOLITAIR.O88`, so the
+   comparison is against the truncation the packer actually writes.
+
+**It turns one way.** A `retired` package that reappears on a disk FAILS here
+rather than being quietly accepted, so the file cannot rot into a list of
+things that used to be true — and a line naming a directory that no longer
+exists fails too.
+
 ## 21. loader.inc
 
 State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
@@ -119762,21 +119821,25 @@ What the measurements say about the design, in the order it matters:
    its neighbours' ink on both 1bpp adapters, because the shadow is blitted
    whole rows at a time and nothing draws to the card directly.
 
-## 89. Pac-Man (`apps/pacman/pacman.asm`)
+## 89. Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED**
+
+> **THIS PACKAGE IS RETIRED AND SHIPS NOWHERE** (§20.16, `apps/RETIRED.txt`).
+> It is a failed port, superseded by **DOT DELIRIUM** (§93), which is the maze
+> chase this project ships. `all` does not build it, no image or live payload
+> carries it, and `tests/unit/t_retired.py` fails if any of that changes. The
+> source, this section and `tests/pacman.py` all **stay**, and `make pacman`
+> still builds the package — a retirement that deleted the record would leave
+> no account of what was tried, and §89.12 is that account. Everything below
+> describes the package as it was built and is true of `make pacman`'s
+> artefact; nothing below is a statement about a shipped disk.
 
 `PACMAN.O88` is a native 8086 port of Roklan's Atari computer **disk version,
 revision 3.0, 10/03/82**, from `atari-pacman`, using only the public package
-ABI. **It came off the apps floppies while DOT DELIRIUM (§93) was developed** —
-the 360KB disk had eight spare clusters of 354, this package is six of them and
-that one is twelve — and it rides `GAMES/` on the live media, the one image
-that is not curated (§80.6).
-`all` names `$(BUILD)/pacman.o88` directly, so it keeps being built; taking it
-off the floppies is a 354-cluster decision and none of it is an argument about
-a 32MB partition. It is **not** on `build/apps-all.img` — that disk's 1.2MB
-geometry pays for a package out of RunCPM's drive A (§19.10.1). Prefix `pm_`; one
-segment per instance; no kernel changes, external ROM or heap claims.
-Provenance, the upstream license and reproducible extraction are in
-`apps/pacman/README.md` and `tools/pacman_assets.py`.
+ABI. Prefix `pm_`; one segment per instance; no kernel changes, external ROM
+or heap claims. Provenance, the upstream license and reproducible extraction
+are in `apps/pacman/README.md` and `tools/pacman_assets.py`. Its About card
+credits **`Ported by Jorge Gonzalez`** (§20.5.1.2) — a retirement is a
+decision about shipping and not about who did the work.
 
 ### 89.1 Rules and adaptations
 
@@ -119828,6 +119891,47 @@ and 338 by 140 respectively; content geometry determines which layout fits.
 The board is centered in the current content, including full screen. All
 self-initiated drawing arms the window clip. The status strip uses opaque
 FONT_RUN and changes only when its values change.
+
+### 89.12 The retirement, and the two ways the first one did not take
+
+The decision is the owner's: **it is a failed port and Dot Delirium is the one
+that ships.** That is not a measurement anything here could overturn, so this
+section records it rather than arguing it.
+
+**What is worth writing down is that it was removed twice before and neither
+removal was a removal.** The first took `PACMAN.O88` off the apps floppies —
+the 360KB disk had eight spare clusters of 354, this package is six of them
+and §93's is twelve, so the two could not both sit there — under a Makefile
+comment reading *"while DOT DELIRIUM is developed"*. That sentence has no
+expiry and nothing was watching it. Two things then went wrong:
+
+1. **It came out of every BUILD as well.** `$(BUILD)/pacman.o88` was named by
+   `APPS_GAMES` and by nothing else, so deleting it from the disk list deleted
+   the artefact. Nobody noticed by looking; a PR-cycle byte audit found it by
+   building three commits clean and seeing the file missing from one
+   (`docs/reports/PR-CYCLE-ACCOUNTING-2026-09-11.md` 6). The repair was to
+   name it in `all`, recorder's case.
+2. **It went on shipping on the LIVE VOLUME the whole time.** `LIVEPKGARGS`
+   carried `GAMES:$(BUILD)/pacman.o88`, and the live image's premise is
+   **completeness** (§80.6) — which is exactly why a package taken off the
+   curated floppies stays on it. So for that whole period "Pac-Man is off the
+   disks" was false about the one image whose payload is derived rather than
+   chosen, and `livefull` — the row that reads that payload — is a
+   completeness check and could not have objected.
+
+**That is why §20.16 is a registry with a gate and not a comment.** Both
+failures are the same shape: a shipping decision expressed as prose in one
+place, with three other places that had to agree and no way to find out that
+they did not.
+
+**And a gate may not rest on a shipping program.** `tests/regapp.py` used this
+package as its canonical case for §66.6.1.1's pair — a region declared movable
+at the entry and a worker hired later, from the **paint** — because the five
+applications beside it never reliably hire one on that machine (ftpd waits for
+the card, Audio for playback, and MartyPC has no NIC). Retiring the package
+would have quietly taken that shape out of the row, so it is
+`tests/regpair/regpair.asm` now: 208 bytes, ships nowhere, and exists for that
+row alone.
 
 ## 90. FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`)
 

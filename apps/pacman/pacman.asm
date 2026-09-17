@@ -1348,12 +1348,25 @@ pm_s_dead: db 'CAUGHT!                                 ',0
 pm_s_level: db 'MAZE CLEAR!                             ',0
 pm_s_over: db 'GAME OVER - N FOR A NEW GAME            ',0
 pm_s_pause: db 'PAUSED - P OR SPACE TO RESUME           ',0
-pm_ablines: dw pm_ab1,pm_ab2,pm_ab3,pm_ab4,pm_ab5,0
+; --- the About card (SPEC.md 12.2, 20.5.1.1, 89.11) --------------------------
+; SEVEN lines. The credit sits WITH THE PROVENANCE and not at the end, which is
+; the shape every other port in this tree uses - Missile, ModPlug and Word all
+; put 'Ported by' straight after the lines saying where the program came from -
+; and a blank then separates the key hint, which is the only line here that is
+; about playing rather than about origin.
+;
+; It fits both axes with room: seven lines is 98 px against CGA's ~126 (pm_pref
+; asks for 338x140 there), and the widest line is still the key hint at 37
+; cells, so the card is 320 px of a 336 px content box and the credit's 24
+; cells change the width by nothing.
+pm_ablines: dw pm_ab1,pm_ab2,pm_ab3,pm_ab4,pm_ab5,pm_ab6,pm_ab7,0
 pm_ab1: db 'Pac-Man for os8088',0
 pm_ab2: db 'Roklan / Atari disk version, 1982',0
 pm_ab3: db 'Original maze, sprites and scoring',0
 pm_ab4: db 'Native 8086 adaptation',0
-pm_ab5: db 'Arrows/WASD move. P pauses. N starts.',0
+pm_ab5: db 'Ported by Jorge Gonzalez',0
+pm_ab6: db 0
+pm_ab7: db 'Arrows/WASD move. P pauses. N starts.',0
 align 32, db 0
 pm_mono_pairs: db 0,0,0,0,0,0,0,2,2,2,2,2,3,2,3,3
     db 0,0,0,0,0,0,0,1,1,1,1,1,3,1,3,3

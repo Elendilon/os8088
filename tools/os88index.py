@@ -329,11 +329,27 @@ def packages():
     the one list every shipped application is on. What `all` builds and no
     disk carries (WIREFRAME, SPEC.md 78.9) or a test only its own target
     builds (FPTEST) is still a worked example, and the column says so.
+
+    ...AND `retired` IS ITS OWN ANSWER, read from apps/RETIRED.txt (SPEC.md
+    20.16). A retired package and an instrument are both `no` on the disks
+    and they are not the same fact - one is a failure kept as a record, the
+    other is a bench doing its job - so the column would be saying "not
+    shipped" about two things a reader needs to tell apart. The registry is
+    the source, never a list here: tests/unit/t_retired.py gates that file,
+    so a name added there reaches this index at the next `make` with no
+    second edit.
     """
     mk = re.sub(r"\\\n\s*", " ", read("Makefile"))
     mvars = make_vars(mk)
     shipped = set(re.findall(r"\$\(BUILD\)/([a-z0-9]+)\.o88",
                              make_expand("$(ALLAPPSFILES)", mvars)))
+    retired = set()
+    rp = os.path.join(ROOT, "apps", "RETIRED.txt")
+    if os.path.exists(rp):
+        for line in read(os.path.join("apps", "RETIRED.txt")).splitlines():
+            t = line.split("#", 1)[0].split()
+            if len(t) == 2 and t[0] == "retired":
+                retired.add(t[1])
     srcs = []
     for m in re.finditer(r"^\$\(BUILD\)/([a-z0-9]+)\.bin:([^\n]*)$", mk, re.M):
         got = re.search(r"(apps/[a-z0-9]+/[a-z0-9]+\.asm)",
@@ -354,7 +370,14 @@ def packages():
             # calcref.bin gate, notepad.bin and its small build): one row,
             # and it ships if any of them does.
             key = (hdr.group(1), src)
-            out[key] = out.get(key, False) or stem in shipped
+            # A retired package is 'retired' whatever a disk list says, which
+            # is deliberate: if one reappears in ALLAPPSFILES this column goes
+            # on reading 'retired' and t_retired.py is what fails. The index
+            # reports the DECISION; the gate reports the disagreement.
+            if src.split("/")[1] in retired:
+                out[key] = "retired"
+            else:
+                out[key] = out.get(key) or stem in shipped
     return sorted((n, s, v) for (n, s), v in out.items())
 
 
@@ -515,7 +538,8 @@ def build():
     w("")
     w("The tree's own worked examples. When a convention is unclear, the "
       "shortest package that uses it is usually the fastest answer. "
-      "*ships* is whether a shipped floppy carries it (the `make allapps` "
+      "*ships* is **retired** for a package apps/RETIRED.txt retires "
+      "(SPEC.md 20.16), and otherwise whether a shipped floppy carries it (the `make allapps` "
       "payload, SPEC.md 19.10); a `no` is built by its own target only.")
     w("")
     w("| package | source | SPEC | ships |")
@@ -546,7 +570,9 @@ def build():
                 if re.search(r"\b%s\b" % re.escape(name), title, re.I):
                     sec = "`docs/%s.md`" % doc
                     break
-        w("| %s | `%s` | %s | %s |" % (name, src, sec, "yes" if ships else "no"))
+        w("| %s | `%s` | %s | %s |"
+          % (name, src, sec,
+             "**retired**" if ships == "retired" else "yes" if ships else "no"))
     w("")
 
     w("## SPEC.md sections")

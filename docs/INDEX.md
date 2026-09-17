@@ -306,7 +306,7 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 
 ## Packages, and what to read them for
 
-The tree's own worked examples. When a convention is unclear, the shortest package that uses it is usually the fastest answer. *ships* is whether a shipped floppy carries it (the `make allapps` payload, SPEC.md 19.10); a `no` is built by its own target only.
+The tree's own worked examples. When a convention is unclear, the shortest package that uses it is usually the fastest answer. *ships* is **retired** for a package apps/RETIRED.txt retires (SPEC.md 20.16), and otherwise whether a shipped floppy carries it (the `make allapps` payload, SPEC.md 19.10); a `no` is built by its own target only.
 
 | package | source | SPEC | ships |
 |---|---|---|---|
@@ -336,7 +336,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
-| PACMAN | `apps/pacman/pacman.asm` | §89 | no |
+| PACMAN | `apps/pacman/pacman.asm` | §89 | **retired** |
 | PAINT | `apps/paint/paint.asm` | §42 | yes |
 | PIANO | `apps/piano/piano.asm` | §36 | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
@@ -450,7 +450,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
 | 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
 | 88 | CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`) |
-| 89 | Pac-Man (`apps/pacman/pacman.asm`) |
+| 89 | Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED** |
 | 90 | FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`) |
 | 91 | PACCMAN — pacman.c, written in C (`apps/paccman/`) |
 | 92 | THE WIRE — the online software library (`apps/thewire/thewire.asm`) |
