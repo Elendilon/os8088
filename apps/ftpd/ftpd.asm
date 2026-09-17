@@ -1013,7 +1013,7 @@ fd_draw_btn:
     jne .draw                       ; VARIABLE, so a W_PAINT arriving mid-
     or di, OS88UI_DOWN              ; gesture draws it the way it really is
 .draw:                              ; (SPEC.md 13.8.2)
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx
@@ -1036,7 +1036,7 @@ fd_draw_setb:
     jne .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx
@@ -1099,7 +1099,7 @@ fd_draw_done:
     jne .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx

@@ -349,7 +349,7 @@ hd_page_button:
                                 ; will fire (SPEC.md 13.8)
     mov bx, hd_pbrect           ; OS88UI_FILL: the ground behind this is the
     or di, OS88UI_FILL          ; pane's white on a full paint and a PRESSED
-    call os88ui_btn             ; button on a release, and only the fill covers
+    call os88ui_btnraw             ; button on a release, and only the fill covers
                                 ; the control leaves the pen live by itself,
                                 ; so the clc/GFX_PEN that used to close this
                                 ; routine is gone
@@ -658,7 +658,7 @@ hd_page_pm:
     or di, OS88UI_DOWN
 .nodn:
     mov bx, hd_pbrect
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop dx

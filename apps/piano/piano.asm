@@ -1378,7 +1378,7 @@ pn_btn:
     or di, dx                       ; (os88ui.inc)
 .go:
     mov bx, pn_brect
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop dx

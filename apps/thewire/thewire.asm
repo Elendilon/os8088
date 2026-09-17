@@ -319,6 +319,19 @@ wr_entry:
     call OSAPI_WM_CREATE                ; BX = window ptr, CF on table full
     jc .out
     mov [wr_win], bx
+    push ax                             ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                             ; 20.5.1.3): neither is a template word
+    push si
+    push di
+    mov ax, bx
+    mov bx, wr_btrec
+    mov si, wr_onup
+    mov di, wr_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     mov word [wr_sel], 0xFFFF
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
@@ -1267,6 +1280,11 @@ wr_ddesc:
 ; draw's solid one and a disabled label comes out pixel-identical to a live
 ; one (os88ui.inc's own note).
 ; -----------------------------------------------------------------------------
+; The button group's arrays (SPEC.md 20.5.1.3). The FLAGS are rewritten every
+; pass because wr_may decides each button's greying from the state.
+wr_btlbl: dw wr_s_run, wr_s_add
+wr_btflg: dw OS88UI_FILL, OS88UI_FILL
+
 wr_dbtns:
     push ax
     push bx
@@ -1292,6 +1310,12 @@ wr_dbtns:
                                         ; assertable by a gate at all
                                         ; (tests/thewire.py), where the pixels
                                         ; of a checkerboard caption are not
+    mov bx, wr_btrec                    ; the record describes the pair once
+    mov word [bx+OS88UI_BT_RECTS], wr_ra
+    mov word [bx+OS88UI_BT_LABELS], wr_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], wr_btflg
+    mov word [bx+OS88UI_BT_N], 2
+
     xor al, al                          ; Load Program
     call wr_may
     mov di, OS88UI_FILL
@@ -1299,11 +1323,13 @@ wr_dbtns:
     or di, OS88UI_DIS
     or byte [wr_grey], 1
 .a:
+    mov [wr_btflg], di
     mov bx, wr_ra
     call wr_btnok                       ; THE STATE IS RECORDED WHETHER OR NOT
     jc .a2                              ; THE BUTTON IS DRAWN: a covered button
-    mov si, wr_s_run                    ; still answers a click and the gate
-    call os88ui_btn                     ; still reads [wr_grey]
+    mov bx, wr_btrec                    ; still answers a click and the gate
+    mov al, 1                           ; still reads [wr_grey]
+    call os88ui_btn
 .a2:
     mov al, 1                           ; Add to Disk...
     call wr_may
@@ -1312,10 +1338,12 @@ wr_dbtns:
     or di, OS88UI_DIS
     or byte [wr_grey], 2
 .b:
+    mov [wr_btflg+2], di
     mov bx, wr_rb
     call wr_btnok
     jc .b2
-    mov si, wr_s_add
+    mov bx, wr_btrec
+    mov al, 2
     call os88ui_btn
 .b2:
     pop di
@@ -2093,20 +2121,11 @@ wr_onclick:
     jb .out
     add cx, [wr_ox]                     ; the buttons want absolute again
     add dx, [wr_oy]
-    mov bx, wr_ra
-    call os88ui_bhit
-    jnc .runbtn
-    mov bx, wr_rb
-    call os88ui_bhit
-    jnc .addbtn
-    jmp short .out
-.runbtn:
-    xor al, al
-    call wr_do
-    jmp short .out
-.addbtn:
-    mov al, 1
-    call wr_do
+    mov bx, wr_btrec                    ; **THEY ONLY ARM** (SPEC.md 13.6):
+    call os88ui_btnpress                ; Load Program launches and Add to
+    jmp short .out                      ; Disk WRITES a floppy, so neither may
+                                        ; fire on a press the user can still
+                                        ; take back. wr_onup has the action
 .out:
     pop di
     pop si
@@ -2309,12 +2328,19 @@ wr_scroll:
     pop ax
     ret
 
-; --- wr_ondrag / wr_onup - the thumb (SPEC.md 13.10.5) -----------------------
+; --- wr_ondrag / wr_onup - the thumb (SPEC.md 13.10.5) AND THE BUTTONS -------
+; Both edges serve two controls now. The buttons go FIRST and the scroll bar
+; keeps everything else: a gesture is armed on exactly one of them (os88ui.inc
+; keeps ONE arm word per package), so the two cannot both be live.
 wr_ondrag:
     push ax
     push bx
     push cx
     push dx
+    push si
+    mov bx, wr_btrec
+    call os88ui_btndrag             ; the held button follows the pointer
+    pop si
     call wr_geom
     jc .out
     call wr_dscroll
@@ -2366,6 +2392,16 @@ wr_onup:
     push bx
     push cx
     push dx
+    push si
+    mov bx, wr_btrec
+    call os88ui_btnup               ; AX = the button that FIRED, 0 = none
+    pop si
+    or ax, ax
+    jz .nobtn
+    dec ax                          ; wr_do takes 0 = Load, 1 = Add to Disk
+    call wr_do
+    jmp .out
+.nobtn:
     call wr_geom
     jc .out
     call wr_dscroll
@@ -3890,9 +3926,16 @@ WR_B0       equ 102
 wr_sb       equ os88_image_end + WR_B0              ; 7 words (13.10)
 wr_ra       equ os88_image_end + WR_B0 + 14         ; 4 words: Load Program
 wr_rb       equ os88_image_end + WR_B0 + 22         ; 4 words: Add to Disk...
-wr_line     equ os88_image_end + WR_B0 + 30         ; WR_LINEN, the PAINTERS'
-wr_sline    equ os88_image_end + WR_B0 + 30 + WR_LINEN
-WR_OMSGO    equ WR_B0 + 30 + WR_LINEN + WR_STATN + 1
+wr_btrec    equ os88_image_end + WR_B0 + 30         ; the standard button
+                                                    ; record (SPEC.md
+                                                    ; 20.5.1.3), beside the
+                                                    ; two rects it names -
+                                                    ; which are ADJACENT on
+                                                    ; purpose, a group's
+                                                    ; being walked together
+wr_line     equ os88_image_end + WR_B0 + 42         ; WR_LINEN, the PAINTERS'
+wr_sline    equ os88_image_end + WR_B0 + 42 + WR_LINEN
+WR_OMSGO    equ WR_B0 + 42 + WR_LINEN + WR_STATN + 1
 wr_omsg     equ os88_image_end + WR_OMSGO           ; 48: and the OUTCOME's,
                                                     ; which may NOT be wr_line.
                                                     ; [wr_msg] points at it and

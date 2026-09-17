@@ -1317,7 +1317,7 @@ cal_btn:
     shl ax, cl
     mov bx, cal_rects
     add bx, ax                      ; BX = the rect
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop cx

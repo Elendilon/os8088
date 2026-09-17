@@ -532,11 +532,21 @@ class UI:
         ever happened — which is the one explanation every reading of this
         failure has been talked out of, because the press was "confirmed".
 
-        Measured, and it is why this exists rather than a longer wait:
-        `hdboot` at a lane of four pressed 'Builtins' at x=199 in [160,239],
-        y=10, with the pointer confirmed at (199,10) and the button confirmed
-        down, and no menu dropped in **ten guest seconds** — 182 ticks on a
-        machine that was not busy. Ten more would have changed nothing.
+        A longer wait is still not the answer, which is the part of the
+        original reasoning that survived.
+
+        **THE FAILURE THIS WAS BUILT AGAINST WAS NOT A DROPPED RECORD**, and
+        the record is kept here because the wrong diagnosis is the expensive
+        one. `hdboot` at a lane of four pressed 'Builtins' at x=199 in
+        [160,239] with the pointer and the button both confirmed and nothing
+        dropped in ten guest seconds - and what had happened was that an
+        EARLIER gesture in the same loop released the button over the System
+        menu's item 0 and opened the About window, which took the menu bar.
+        The bar was two cells by then, x=199 was past the last title, and
+        `menu_track` was refusing a press that really had arrived. Three
+        fresh edges could not fix that and neither could ten more seconds:
+        the tell was `menu_cell` == `menu_nbar`, which is the MISS COUNTER
+        and not a resolved cell. `tests/hdboot.py` carries the whole account.
 
         THE RETRY IS A RELEASE AND A SECOND PRESS, never a re-sent packet. A
         Microsoft packet carries the button's LEVEL, so re-sending says what

@@ -1125,6 +1125,8 @@ at_mdbuttons:
     mov ax, [at_msx2]
     sub ax, 64                      ; Save (56 wide), 8 in from the right
     mov si, at_s_save
+    mov [at_btlbl], si
+    mov byte [at_bslot], 0
     mov dx, 1
     call at_button                  ; out: CX = width
     mov [at_b1x], ax
@@ -1132,6 +1134,8 @@ at_mdbuttons:
     mov [at_b1w], cx
     sub ax, 80                      ; Cancel (72 wide), 8 gap
     mov si, at_s_cancel
+    mov [at_btlbl+2], si
+    mov byte [at_bslot], 1
     xor dx, dx
     call at_button
     mov [at_b2x], ax
@@ -1139,11 +1143,14 @@ at_mdbuttons:
     mov [at_b2w], cx
     sub ax, 112                     ; Don't Save (104 wide), 8 gap
     mov si, at_s_dontsave
+    mov [at_btlbl+4], si
+    mov byte [at_bslot], 2
     xor dx, dx
     call at_button
     mov [at_b3x], ax
     mov [at_b3y], bx
     mov [at_b3w], cx
+    mov word [at_btrec+OS88UI_BT_N], 3
     jmp short .out
 .single:
     mov ax, [at_msx1]
@@ -1151,6 +1158,8 @@ at_mdbuttons:
     shr ax, 1
     sub ax, 20                      ; OK is 40 wide: centre it
     mov si, at_s_ok
+    mov [at_btlbl], si
+    mov byte [at_bslot], 0
     mov dx, 1
     call at_button
     mov [at_b1x], ax
@@ -1158,6 +1167,7 @@ at_mdbuttons:
     mov [at_b1w], cx
     mov word [at_b2w], 0
     mov word [at_b3w], 0
+    mov word [at_btrec+OS88UI_BT_N], 1
 .out:
     pop si
     pop dx
@@ -1185,12 +1195,24 @@ at_mdbuttons:
 ; It gains a greyed state it does not use yet - at_button has never had one -
 ; and that is the point of the shared control rather than an accident of it.
 ; -----------------------------------------------------------------------------
+; in: ...and [at_bslot] = which of the group's three rects this one IS,
+;     0-based, set by the caller immediately before (SPEC.md 20.5.1.3). A
+;     group's rects must be contiguous, so the three x/y/width triples this
+;     modal used to keep - and hit-test from, separately - are one array now.
 at_button:
     push ax
     push bx
     push dx
     push si
     push di
+    push si                         ; **THE RECORD IS AIMED IN THE PAINTER**,
+    mov si, at_btrec                ; because this is the routine every draw
+    mov word [si+OS88UI_BT_RECTS], at_brects
+    mov word [si+OS88UI_BT_LABELS], at_btlbl
+    mov word [si+OS88UI_BT_FLAGS], at_btflg
+    pop si                          ; goes through. Aiming it anywhere a paint
+                                    ; can skip leaves os88ui_btn with a null
+                                    ; array and no button on the glass
     mov di, dx                      ; DI = the default flag
     mov [at_btx], ax
     mov [at_bty], bx
@@ -1213,7 +1235,27 @@ at_button:
     jz .go                          ; register being reused for the answer
     or di, OS88UI_DEF
 .go:
-    mov bx, at_brect
+    mov bl, [at_bslot]              ; --- into the group's own slot ---
+    xor bh, bh
+    mov ax, bx
+    add ax, ax
+    mov si, ax                      ; SI = slot * 2, the flag array's stride
+    mov [at_btflg+si], di
+    add ax, ax
+    add ax, ax                      ; AX = slot * 8, the rect stride
+    mov si, at_brects
+    add si, ax
+    mov ax, [at_brect+0]            ; the rect this pass just computed
+    mov [si+0], ax
+    mov ax, [at_brect+2]
+    mov [si+2], ax
+    mov ax, [at_brect+4]
+    mov [si+4], ax
+    mov ax, [at_brect+6]
+    mov [si+6], ax
+    mov bx, at_btrec
+    mov al, [at_bslot]
+    inc al                          ; the record's indices are one-based
     call os88ui_btn
     mov cx, [at_xw]
     pop di
@@ -1223,7 +1265,17 @@ at_button:
     pop ax
     ret
 
-at_brect:   dw 0, 0, 0, 0           ; the button being drawn
+at_brect:   dw 0, 0, 0, 0           ; the button being drawn, staged
+at_bslot:   db 0                    ; ...and which of the three it is
+at_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP, contiguous
+at_btlbl:   dw 0, 0, 0                     ; its labels, written per pass
+at_btflg:   dw 0, 0, 0                     ; ...and its flags
+at_btrec:   dw 0, 0, 0, 0, 0, 0        ; the standard record (20.5.1.3) - SIX
+                                       ; WORDS, written out because this file
+                                       ; is included before os88ui.inc and
+                                       ; OS88UI_BT_SIZE is not defined yet.
+                                       ; The %if beside that include fails the
+                                       ; build if the two ever disagree
 
 ; -----------------------------------------------------------------------------
 ; at_btnhit - is the point (CX,DX) inside button (BX=x, AX=y, SI=width)?
@@ -1258,39 +1310,48 @@ at_modal_click:
     push ax
     push bx
     push si
-    mov bx, [at_b1x]
-    mov ax, [at_b1y]
-    mov si, [at_b1w]
-    call at_btnhit
-    jnc .b1
-    cmp word [at_b2w], 0
-    je .out
-    mov bx, [at_b2x]
-    mov ax, [at_b2y]
-    mov si, [at_b2w]
-    call at_btnhit
-    jnc .b2
-    cmp word [at_b3w], 0
-    je .out
-    mov bx, [at_b3x]
-    mov ax, [at_b3y]
-    mov si, [at_b3w]
-    call at_btnhit
-    jnc .b3
-.out:
-    pop si
-    pop bx
-    pop ax
-    ret
+    mov bx, at_btrec                ; **IT ONLY ARMS** (SPEC.md 13.6): Save,
+    call os88ui_btnpress            ; Cancel and Don't Save all decide the
+    pop si                          ; document's fate, so none may fire on a
+    pop bx                          ; press the user can still take back. The
+    pop ax                          ; ladder this replaces was at_btnhit
+    ret                             ; against three separate x/y/width
+                                    ; triples - a second description of the
+                                    ; geometry at_button already owned
+
+at_modal_up:
+    push ax
+    push bx
+    push si
+    mov bx, at_btrec
+    call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .out
+    cmp al, 1
+    je .b1
+    cmp al, 2
+    je .b2
+    call at_md_dont
+    jmp short .out
 .b1:
     call at_md_default
     jmp short .out
 .b2:
     call at_md_cancel
-    jmp short .out
-.b3:
-    call at_md_dont
-    jmp short .out
+.out:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+at_modal_drag:
+    push ax
+    push bx
+    mov bx, at_btrec
+    call os88ui_btndrag
+    pop bx
+    pop ax
+    ret
 
 at_modal_key:
     push ax

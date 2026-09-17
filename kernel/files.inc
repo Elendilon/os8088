@@ -2599,7 +2599,7 @@ fm_btn1:
     or di, OS88UI_DOWN
 .draw:
     mov bx, os88ui_krect
-    call os88ui_btn
+    call os88ui_btnraw
 .out:
     jmp kretc_di
 

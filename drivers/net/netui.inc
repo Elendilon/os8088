@@ -400,7 +400,7 @@ net_draw_btn:
     je .up                      ; draws this button asks about, so the glass
     mov di, OS88UI_DOWN         ; follows [net_down] on a full pane repaint as
 .up:                            ; much as on an edge (SPEC.md 13.8)
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx

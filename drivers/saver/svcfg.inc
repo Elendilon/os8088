@@ -366,7 +366,7 @@ sc_btn1:
     jne .up                     ; content has already been whited
     or di, OS88UI_DOWN          ; SPEC.md 13.8: the pressed look is DRAWN, not
 .up:                            ; XOR-ed - a repaint between the two edges must
-    call os88ui_btn             ; agree with the glass
+    call os88ui_btnraw             ; agree with the glass
     pop di
     pop dx
     pop bx

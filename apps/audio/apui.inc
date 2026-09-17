@@ -1039,6 +1039,11 @@ apu_draw_buttons:
     push dx
     push si
     push di
+    mov bx, apu_btrec              ; the group, described once
+    mov word [bx+OS88UI_BT_RECTS], apu_arects
+    mov word [bx+OS88UI_BT_LABELS], apu_blabs
+    mov word [bx+OS88UI_BT_FLAGS], apu_bflg
+    mov word [bx+OS88UI_BT_N], 7
     xor di, di
 .b:
     cmp di, 7
@@ -1048,18 +1053,26 @@ apu_draw_buttons:
     mov cl, 3
     shl bx, cl
     add bx, apu_rects
-    mov ax, [bx+0]
-    add ax, [apu_ox]
-    mov [apu_abr+0], ax
+    push bx
+    mov dx, di                     ; the group's rects are ABSOLUTE and live
+    mov cl, 3                      ; in one contiguous array, because that is
+    shl dx, cl                     ; what os88ui_btnpress walks (SPEC.md
+    add dx, apu_arects             ; 20.5.1.3). apu_abr was one scratch rect
+    mov si, dx                     ; restaged seven times, and apu_hit then
+    mov ax, [bx+0]                 ; answered by DIVIDING by a pitch - a
+    add ax, [apu_ox]               ; second description of the same row
+    mov [si+0], ax
     mov ax, [bx+2]
     add ax, [apu_oy]
-    mov [apu_abr+2], ax
+    mov [si+2], ax
     mov ax, [bx+4]
     add ax, [apu_ox]
-    mov [apu_abr+4], ax
+    mov [si+4], ax
     mov ax, [bx+6]
     add ax, [apu_oy]
-    mov [apu_abr+6], ax
+    mov [si+6], ax
+    pop bx
+    mov cl, 3
     ; label + flags
     mov si, di
     add si, si
@@ -1070,18 +1083,22 @@ apu_draw_buttons:
     jne .nsh
     cmp byte [ap_shuffle], 0
     je .nsh
-    mov cx, OS88UI_DOWN
-.nsh:
-    cmp di, AP_B_REP
-    jne .ndr
-    cmp byte [ap_repeat], 0
-    je .ndr
-    mov cx, OS88UI_DOWN
-.ndr:
+    mov cx, OS88UI_LATCH           ; **LATCHED, NOT PRESSED** (SPEC.md
+.nsh:                              ; 20.5.1.4): these two say "this setting is
+    cmp di, AP_B_REP               ; ON", where OS88UI_DOWN now means "a press
+    jne .ndr                       ; is live on this control THIS INSTANT" and
+    cmp byte [ap_repeat], 0        ; belongs to the library. They draw the same
+    je .ndr                        ; picture, which is why one flag served
+    mov cx, OS88UI_LATCH           ; both until the press state stopped being
+.ndr:                              ; the caller's
     push di
-    mov bx, apu_abr
-    mov di, cx
-    call os88ui_btn                ; BX = rect, SI = label, DI = flags
+    mov si, di                     ; the flag into the group's own array, so
+    add si, si                     ; the painter and the record agree
+    mov [apu_bflg+si], cx
+    mov bx, apu_btrec
+    mov ax, di
+    inc ax                         ; the record's indices are one-based
+    call os88ui_btn
     pop di
     inc di
     jmp .b
@@ -1195,6 +1212,11 @@ apu_hit:
     pop bx
     ret
 
+    APBUF apu_arects, 56           ; THE GROUP: seven ABSOLUTE rects, so the
+                                   ; drawn control and the clickable control
+                                   ; are one description (SPEC.md 22's fm_hit)
+    APBUF apu_bflg, 14             ; ...and its seven flag words
+    APBUF apu_btrec, 12            ; ...and the standard record (20.5.1.3)
     APBUF apu_abr, 8               ; scratch absolute button rect
     APW   apu_bpitch
     APW   apu_ln
