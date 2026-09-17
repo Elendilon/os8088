@@ -57679,16 +57679,17 @@ is therefore: the desktop's geometry back → `wm_paint_all` → unblank.
 whose mode never changed buys a 32KB clear nobody asked for and a 6845 sync
 transient somebody might see. `vid_unblank_kind` is the exact inverse instead:
 the Hercules' pair is the two writes `vid_setmode` itself makes (3BFh graphics
-allowed, then 3B8h graphics + page 0 + video), and the CGA's comes from the
-BIOS's own shadow of 3D8h at **40:65h** — that register is write-only on the
-card, so the ROM's record is the only honest source for what its mode set
-left there.
+allowed, then 3B8h graphics + page 0 + video), and the CGA's comes from
+`[vid_cgamode]`, the kernel's **own** shadow of 3D8h — that register is
+write-only on the card, so a record of what the mode set left there is the
+only honest source, and §39.18.1.1 is why the record has to be ours rather
+than the ROM's.
 
 **Both directions are one body**, entered through two stubs that differ only
 in the video-enable bit, which each puts **straight into DH** after banking DX
 — never into AH, because `vid_disp_init`'s Single arm holds the primary's kind
-there across the call and stores it back three instructions later. DH is the
-register that survives the CGA arm's `mov ax, 0x0040`. The Hercules arm branches on it and
+there across the call and stores it back three instructions later. The
+Hercules arm branches on it and
 writes exactly what each direction wrote before — 3B8h alone to blank, 3BFh
 then 3B8h to unblank — because 3BFh is the graphics *lock* and a blank that
 also locked graphics out would be a second piece of state for the unblank to
@@ -57720,6 +57721,74 @@ a Hercules+CGA machine the answer is `0x011` or `0x00F`, so Mode X is refused
 either way — and `fsx_mode` re-checks the same bit against the live
 `[vid_kind]` once the bracket has been entered, which is the answer that
 binds.
+
+##### 39.18.1.1 The CGA's mode byte is OURS to remember — a BIOS has one shadow and a machine has two cards
+
+Reported off an XT with a CGA and a Hercules in it, the **Hercules primary**:
+open the DOS box on the Hercules, Alt+Enter into full screen, come back out,
+and *"the second cga display turns green and flickers and has corrupted
+gfx"*. No pixel the kernel wrote is wrong — §53.6's `wm_paint_all` repaints
+both displays correctly on the way out. The CGA is in the **wrong mode**, and
+the byte that put it there came out of the ROM.
+
+**40:65h is the BIOS's shadow of the CRT mode register, and a BIOS has ONE of
+them.** It describes whichever card the ROM last set a mode on, which on a
+two-card machine need not be the card being asked about. Every step of the
+round trip is honest on its own and the sequence is not — measured on
+`os8088_5150_both_gla_mono`, a Hercules primary with a CGA beside it:
+
+| step | 40:65h | the CGA |
+|---|---|---|
+| extended desktop | `1E` | mode 6, 640x200 — `vid_setmode`'s own `int 10h AX=0006h` on the secondary |
+| bracket entered | `1E` | blanked, timings intact: `vid_fsx_enter` runs **before** any mode set |
+| `fsx_mode(FSXM_TEXT80)` | **`29`** | untouched — `vid_text` sets **mode 7 on the HERCULES**, and the ROM stamps its one shadow |
+| bracket left | `29` | **80x25 colour text** — `vid_unblank_kind` reads that shadow and `out 3D8h` |
+
+`0x29` is mode 7's value: bit 0 80x25 text, bit 3 video enable, **bit 5
+blink**. Written to a CGA whose 6845 still carries mode 6's timings it decodes
+the desktop's 640x200 bitmap as character cells — and the desktop ground is
+§39.4's 50% dither, so every other attribute byte is `0xAA`: **background
+green, foreground light green, blinking**. Measured on the glass, **66% of the
+card is RGB (0,170,0)**. The reporter's three symptoms are three bits of one
+byte.
+
+**So the kernel keeps its own shadow.** `[vid_cgamode]` is banked by
+`vid_setmode` immediately after the CGA's `int 10h AX=0006h` — the one moment
+40:65h is guaranteed to describe *this* card — and both directions of
+§39.18.1's body read it instead. What is put back is still the **ROM's**
+choice, so a BIOS that writes `0x1A` where IBM's writes `0x1E` (the composite
+colour-burst bit, and the field machine has a composite CGA in it) keeps its
+own answer; what is dropped is the assumption that nothing moved the byte in
+between. It is **cheaper than what it replaces** and so has no trade to weigh:
+a kernel byte needs no `ES`, so the arm's `mov ax, 0x0040` / `mov es, ax` and
+`vid_bk`'s `push es`/`pop es` go with it.
+
+**The BLANK direction had the same defect and it is the worse one.** In the
+table above the blank happens to run before the mode set and reads an honest
+byte — but nothing orders it that way in general: §64.3's idle blanker runs at
+any time, and once a bracket has set a BIOS mode on another card 40:65h stays
+poisoned for the rest of the session, so the blank would corrupt the CGA with
+no unblank involved. One shadow fixes both ends, which is why this is at the
+**source of the byte** and not at the bracket that exposed it.
+
+**It is not Alt+Enter's and not the DOS box's.** Any BIOS mode set on any
+other card does it: `vid_text` (mode 7, or mode 3 on a colour primary) and
+`fsx_setbios` (the plain CGA rows) are the two a bracket reaches, and a
+VGA-primary machine with a CGA beside it poisons the byte through `fsx_mode`'s
+own arms just the same. `tests/dispfsxcga.py` is the gate, and it asserts the
+**card's mode** rather than its pixels: green is what a person sees, and a
+mode register is what is wrong.
+
+**`[vid_cgamode]` can go stale too, and the one window it has is closed by
+construction** — worth stating, because "keep a copy" is only an answer if the
+copy cannot be read while it is wrong. The copy lies exactly when a bracket
+sets a mode on a CGA that *is* the bracket's own display: `vid_text`'s mode 3
+and `fsx_setbios`'s rows move that card and not the byte. Nothing may read it
+there. The kernel does not run inside a bracket (§53.1), so §64.3's blanker
+cannot; `vid_fsx_unblank` skips `[fsx_vdisp]`, which is that display; and
+`fsx_restore`'s own `vid_setmode` re-banks the byte before it returns. The
+shadow is therefore stale only while the card it describes is the one the app
+is drawing on, and honest again by the time anything asks.
 
 #### 39.18.3 The collapse belongs to the MODE SET, not to the bracket
 

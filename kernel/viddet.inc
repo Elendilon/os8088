@@ -997,6 +997,27 @@ vid_setmode:
     mov ax, 0x0006              ; CGA: 640x200 monochrome
 .bios:
     int 0x10
+
+    ; --- BANK THE CGA'S OWN 3D8h VALUE (SPEC.md 39.18.1.1) ------------------
+    ; 40:65h is the BIOS's shadow of the CRT mode register and a BIOS keeps ONE
+    ; of them, so it describes whichever card the ROM last set a mode on. This
+    ; is the one instant it is known to describe the CGA, and vid_blank_kind /
+    ; vid_unblank_kind read the copy rather than the original - or an fsx
+    ; bracket's `int 10h` on the OTHER display of a two-card machine hands them
+    ; mode 7's 0x29 and the CGA comes back in 80x25 text with blink on.
+    ;
+    ; The ROM'S CHOICE is what is banked, not a constant: a BIOS that writes
+    ; 0x1A where IBM's writes 0x1E differs in the composite colour-burst bit,
+    ; and the machine this was reported off has a composite CGA in it.
+%ifdef GFX_VGA                  ; ...and only for the CGA. Without a planar
+    cmp byte [vid_kind], VID_CGA    ; renderer in the build [vid_kind] can only
+    jne .nocga                  ; be VID_HERC or VID_CGA and the mono arm
+%endif                          ; branched away above, so .bios IS the CGA
+    mov ax, 0x0040              ; there and the test is dead weight.
+    mov es, ax                  ; NO PUSH: this routine banks ES at entry and
+    mov al, [es:0x0065]         ; nothing below reads it - the planar arms and
+    mov [vid_cgamode], al       ; vid_wipe each load their own
+.nocga:
 %ifdef GFX_VGA
     ; THE TWO PLANAR ARMS CLEAR A0000 THEMSELVES (SPEC.md 39.23) - the ROM's
     ; clear is not to be trusted on either; CGA and Hercules did their own

@@ -2140,3 +2140,44 @@ the guest, freezes the BIOS tick at `0040:006C`, and reads exactly like
 read, then the IRQ0 hook — each one **keeping** the symptom, which is what
 should have named the cause several builds sooner. The row uses `pace="wall"`
 and its docstring carries the corpse.
+
+## 49. Dual-screen Herc/CGA: leaving the DOS box's full screen turns the CGA GREEN and flickering (FIXED — the kernel was reading the ROM's ONE mode shadow for a machine with two cards: SPEC.md §39.18.1.1)
+
+Reported off 86Box, an `ibmxt` with a CGA and a Hercules Plus in it and the
+**Hercules made primary** in the Control Panel, the dock on bottom/auto and
+only `SOUND.DRV` mounted: *"opening dos.o88, pressing alt-enter to go
+fullscreen, then exiting fullscreen, with the dos window on the herc primary
+display caused the second cga display to turn green and flicker and have
+corrupted gfx."*
+
+**Reproduced first try on `os8088_5150_both_gla_mono`**, which is that machine
+— a Hercules primary with a CGA beside it — and the mechanism is one byte.
+`vid_unblank_kind`'s CGA arm sourced 3D8h from **40:65h, the BIOS's shadow of
+the CRT mode register**, and a BIOS keeps exactly one of those: it describes
+whichever card the ROM last set a mode on. `fsx_mode(FSXM_TEXT80)` on a
+Hercules display is `int 10h AX=0007h`, so the byte the CGA was handed on the
+way out was **mode 7's `0x29`** — 80x25 text, video on, **blink on** — written
+to a card whose 6845 still carried mode 6's timings.
+
+The three symptoms are three bits of that one byte. The desktop ground is
+§39.4's 50% dither, so decoded as character cells every other attribute byte
+is `0xAA`: background green, foreground light green, blinking. **66.0% of the
+card measured RGB (0,170,0)** and `video(card=1)` read `Mode3TextCo80` where it
+had read `Mode6HiResGraphics`. Nothing was wrong with the pixels the kernel
+wrote — §53.6's `wm_paint_all` repaints both displays correctly, and after the
+fix all 128,000 of them are identical across the round trip.
+
+**Three things it is NOT**, each of which was on the table before the trace:
+not the dock (the report mentions it and `fsx_run` drops an open one anyway),
+not `SOUND.DRV`, and **not Alt+Enter or the DOS box** — any BIOS mode set on
+any other card of a two-card machine does it, and the blank direction had the
+same defect with §64.3's idle blanker as its trigger. So the fix is at the
+source of the byte: `[vid_cgamode]`, banked by `vid_setmode` right after the
+CGA's own `int 10h AX=0006h`, which is the one instant 40:65h is known to
+describe that card. It came out **12 bytes on kern_big and 5 on kern_small**,
+because reading a kernel byte needs no `ES`.
+
+`tests/dispfsxcga.py` is the gate and it was **verified to fail** against the
+kernel before the fix — leg 3 reads `Mode3TextCo80`, leg 4 counts 115,010 of
+128,000 pixels changed — while its leg 2 asserts that the ROM really does move
+40:65h, so the row cannot pass vacuously on a BIOS that does not.

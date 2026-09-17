@@ -5360,6 +5360,20 @@ SOAK = [
         "Single or Extend, where the second display sits, and does it survive"
         "a",
         needs=("marty",), serial=True),
+    Row("dispfsxcga", "soak", py("tests/dispfsxcga.py"), 35.0,
+        "Does the SECOND display survive an fsx bracket on the first?"
+        "(SPEC.md 39.18.1.1) A Hercules primary with a CGA beside it, the DOS"
+        "box taken full screen and brought back: fsx_mode's `int 10h AX=0007h`"
+        "stamps the BIOS's ONE CRT mode shadow at 40:65h, and"
+        "vid_unblank_kind's CGA arm used to write that byte to 3D8h - so the"
+        "CGA came back in 80x25 TEXT with blink on over a 6845 still timed for"
+        "mode 6, which the field saw as the dithered desktop turning green and"
+        "flickering. VERIFIED TO FAIL against the kernel before the fix: leg 3"
+        "reads Mode3TextCo80 where it wants Mode6HiResGraphics and leg 4 counts"
+        "115,010 of 128,000 pixels changed. Leg 2 is what keeps it honest - the"
+        "BIOS byte must be SEEN to move, or the row is passing on a ROM that"
+        "does not carry the defect's own input",
+        needs=("marty",), serial=True),
     Row("dispmodex", "soak", py("tests/dispmodex.py"), 120.0,
         "Which display does Missile Command ask about Mode X? (SPEC.md"
         "39.18.1)",
