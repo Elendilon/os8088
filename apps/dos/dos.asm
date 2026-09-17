@@ -5769,7 +5769,7 @@ dos_bar_rects:
     push dx
     push si
     push di
-    mov si, dos_btrec               ; **THE RECORD IS AIMED WHERE THE RECTS
+    mov si, dos_btrec               ; **THE PAGE'S OWN PAIR, WHERE THE RECTS
     mov word [si+OS88UI_BT_RECTS], dos_erect
     mov word [si+OS88UI_BT_LABELS], dos_bt_barl
     mov word [si+OS88UI_BT_N], 2    ; ARE COMPUTED**, and that is the whole

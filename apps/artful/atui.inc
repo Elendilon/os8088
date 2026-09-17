@@ -1208,14 +1208,6 @@ at_button:
     push dx
     push si
     push di
-    push si                         ; **THE RECORD IS AIMED IN THE PAINTER**,
-    mov si, at_btrec                ; because this is the routine every draw
-    mov word [si+OS88UI_BT_RECTS], at_brects
-    mov word [si+OS88UI_BT_LABELS], at_btlbl
-    mov word [si+OS88UI_BT_FLAGS], at_btflg
-    pop si                          ; goes through. Aiming it anywhere a paint
-                                    ; can skip leaves os88ui_btn with a null
-                                    ; array and no button on the glass
     mov di, dx                      ; DI = the default flag
     mov [at_btx], ax
     mov [at_bty], bx
@@ -1273,12 +1265,10 @@ at_bslot:   db 0                    ; ...and which of the three it is
 at_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP, contiguous
 at_btlbl:   dw 0, 0, 0                     ; its labels, written per pass
 at_btflg:   dw 0, 0, 0                     ; ...and its flags
-at_btrec:   dw 0, 0, 0, 0, 0, 0        ; the standard record (20.5.1.3) - SIX
-                                       ; WORDS, written out because this file
-                                       ; is included before os88ui.inc and
-                                       ; OS88UI_BT_SIZE is not defined yet.
-                                       ; The %if beside that include fails the
-                                       ; build if the two ever disagree
+    OS88UI_BTNREC at_btrec, at_brects, at_btlbl, at_btflg, 3
+                                       ; THREE is the modal's; the splash and
+                                       ; the one-button modal set their own
+                                       ; OS88UI_BT_N before they draw
 
 ; -----------------------------------------------------------------------------
 ; at_btnhit - is the point (CX,DX) inside button (BX=x, AX=y, SI=width)?

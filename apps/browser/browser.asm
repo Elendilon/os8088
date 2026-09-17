@@ -2202,11 +2202,6 @@ br_toolbar:
     push di
     call br_hsync                   ; the History menu answers the same
                                     ; question these two buttons do
-    mov bx, br_btrec                ; the group, described once
-    mov word [bx+OS88UI_BT_RECTS], br_r1
-    mov word [bx+OS88UI_BT_LABELS], br_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], br_btflg
-    mov word [bx+OS88UI_BT_N], 3
     call br_okback
     mov al, 1
     call br_btn1
@@ -2247,6 +2242,7 @@ br_inrect:
 ; pass by br_btn1, from the very predicate that decides the refusal.
 br_btlbl: dw br_s_back, br_s_fwd, br_s_rel
 br_btflg: dw OS88UI_FILL, OS88UI_FILL, OS88UI_FILL
+    OS88UI_BTNREC br_btrec, br_r1, br_btlbl, br_btflg, 3
 
 br_btn1:
     push bx
@@ -7104,10 +7100,7 @@ br_tby      equ br_sbold + 2         ; word: the strip's top, derived
 br_r1       equ br_tby + 2            ; the three button rects {x1,y1,x2,y2}
 br_r2       equ br_r1 + 8
 br_r3       equ br_r2 + 8
-br_btrec    equ br_r3 + 8             ; the standard button record (SPEC.md
-                                       ; 20.5.1.3); the three rects above are
-                                       ; the group it walks
-br_spen     equ br_btrec + 12         ; word: the state's pen, 8-aligned.
+br_spen     equ br_r3 + 8         ; word: the state's pen, 8-aligned.
                                        ; **PAST THE RECORD**, which was
                                        ; declared at br_r3 + 8 beside it and
                                        ; ALIASED it: every write to one

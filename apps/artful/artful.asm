@@ -1188,9 +1188,6 @@ AT_BSS_TOTAL equ (at_bss_end - at_bss_base)
                                 ; question that has to be asked when this app
                                 ; has no surface of its own to ask it on
 %include "os88ui.inc"           ; buttons this already drew
-%if 12 != OS88UI_BT_SIZE
- %error "at_btrec in atui.inc is six words written out by hand - that file is included BEFORE this one, so OS88UI_BT_SIZE is not defined there - and the two have drifted; widen at_btrec"
-%endif
 
     OS88_BSS AT_BSS_TOTAL
     OS88_IMAGE_END

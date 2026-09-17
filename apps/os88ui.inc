@@ -347,6 +347,11 @@ OS88UI_BT_DOWN   equ 10         ; THE LIBRARY'S: index PLUS ONE of the control
                                 ; you like; never write it
 OS88UI_BT_SIZE   equ 12
 
+; OS88UI_BTNREC declares a group's record and lives in apps/os88api.inc, not
+; here: a macro is PREPROCESSOR-time and must be defined before it is used,
+; and every package includes the SDK at its top and this file near its bottom.
+; The offsets above are `equ`s and forward-resolve, which is why they can stay.
+
 ; --- OS88UI_BARONLY - the bar WITHOUT the button (SPEC.md 13.10.6.5) ---------
 ; An OPT-OUT, and it is 13.10.4's own rule pointed the other way: that section
 ; gates the scroll bar so "a package which never draws a bar does not carry

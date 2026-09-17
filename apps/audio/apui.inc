@@ -1088,6 +1088,7 @@ apu_draw_buttons:
     pop ax
     ret
 
+    OS88UI_BTNREC apu_btrec, apu_arects, apu_blabs, apu_bflg, 7
 apu_blabs:
     dw ap_l_prev, ap_l_play, ap_l_pause, ap_l_stop, ap_l_next, ap_l_shuf, ap_l_rep
 
@@ -1205,11 +1206,6 @@ apu_baim:
     push cx
     push si
     push di
-    mov bx, apu_btrec
-    mov word [bx+OS88UI_BT_RECTS], apu_arects
-    mov word [bx+OS88UI_BT_LABELS], apu_blabs
-    mov word [bx+OS88UI_BT_FLAGS], apu_bflg
-    mov word [bx+OS88UI_BT_N], 7
     xor di, di
 .r:
     cmp di, 7
@@ -1246,7 +1242,6 @@ apu_baim:
                                    ; drawn control and the clickable control
                                    ; are one description (SPEC.md 22's fm_hit)
     APBUF apu_bflg, 14             ; ...and its seven flag words
-    APBUF apu_btrec, 12            ; ...and the standard record (20.5.1.3)
     APBUF apu_abr, 8               ; scratch absolute button rect
     APW   apu_bpitch
     APW   apu_ln

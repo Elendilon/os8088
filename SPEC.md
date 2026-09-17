@@ -35953,6 +35953,30 @@ it is what makes the drawn control and the clickable control one description
 rather than two — §22's `fm_hit` discipline, which is the paragraph above this
 table arriving at the control it was written about.
 
+#### 20.5.1.3.2 `OS88UI_BTNREC` — the record is DECLARED, not assembled
+
+A record whose pointers and count are written at run time has three ways to be
+wrong and every one of them shipped: aimed in the click path and so not aimed
+for a paint; the count written after the draws it governs; and declared as an
+`equ` off another block, ALIASING the package's own state. The symptoms were a
+window with no buttons, a window with no buttons, and a black rectangle over
+half the screen.
+
+`OS88UI_BTNREC name, rects, labels, flags, n` emits the six words with the
+three pointers and the live count already set, and owns the storage. There is
+then nothing to aim, nothing to aim late, and no offset for a neighbour to
+collide with. **A group whose count varies still writes `OS88UI_BT_N`** — a
+paged window, or a modal that is sometimes one button and sometimes three —
+and that write must come *before* the draws it is about.
+
+What the macro cannot own is `W_ONCLICK`: it is a **template word** (§20.4) and
+there is no `OSAPI_WM_ONCLICK` to install late, so a package still routes its
+own press into `os88ui_btnpress`. A package with more than one click path has
+to route them all, and ArtfulType's splash shipped acting on the press because
+the modal was converted and the splash beside it was not. Nothing static can
+see that, which is what `tests/btnall.py` is for: it drives each package's
+buttons and reads the record back at every edge.
+
 #### 20.5.1.3.1 The erase belongs to the CONTROL, not the caller
 
 `OS88UI_FILL` asks `os88ui_btn` to white the interior before it draws. It used

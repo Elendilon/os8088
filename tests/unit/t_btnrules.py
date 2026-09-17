@@ -121,13 +121,16 @@ def main():
     # CLICK path, so the paint path drew nothing) - only driving it can, which
     # is tests/btngesture.py's DOS case.  It catches the half that is visible
     # from the source.
-    AIM = re.compile(r"OS88UI_BT_RECTS\]")
-    CNT = re.compile(r"OS88UI_BT_N\]")
+    AIM = re.compile(r"OS88UI_BT_RECTS\]|OS88UI_BTNREC\s+\w+\s*,\s*\w")
+    CNT = re.compile(r"OS88UI_BT_N\]|OS88UI_BTNREC\s+\w+\s*,")
     for path, (rec, raw) in sorted(live.items()):
         if not rec or path.endswith("os88ui.inc"):
             continue
         t = open(os.path.join(ROOT, path), encoding="utf-8",
                  errors="replace").read()
+        # OS88UI_BTNREC declares the record with its pointers and count
+        # already set, which is the whole reason it exists; a file that uses
+        # it has nothing left to aim (SPEC.md 20.5.1.3.2).
         if not AIM.search(t):
             bad.append("%s calls os88ui_btn but never writes "
                        "OS88UI_BT_RECTS: its record's rect array is a null "

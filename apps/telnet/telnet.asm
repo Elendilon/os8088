@@ -446,6 +446,7 @@ te_paint:
 ; arrays are the caller's, so a dynamic caption needs no special case).
 te_btlbl:  dw te_s_conn
 te_btflg:  dw OS88UI_FILL
+    OS88UI_BTNREC te_btrec, te_btn, te_btlbl, te_btflg, 1
 
 ; --- te_button - Connect, or Close while a session is up ---------------------
 te_button:
@@ -460,10 +461,6 @@ te_button:
 .draw:                              ; called a refused session `Close`
     mov [te_btlbl], si
     mov bx, te_btrec
-    mov word [bx+OS88UI_BT_RECTS], te_btn
-    mov word [bx+OS88UI_BT_LABELS], te_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], te_btflg
-    mov word [bx+OS88UI_BT_N], 1
     mov al, 1
     call os88ui_btn
     pop di
@@ -2094,9 +2091,7 @@ te_hnd      equ te_spawned + 1
 te_want     equ te_hnd + 1           ; the user asked to close
 te_dirty    equ te_want + 1
 te_btn      equ te_dirty + 1         ; 8: the Connect button's rect
-te_btrec    equ te_btn + 8           ; the standard button record (SPEC.md
-                                      ; 20.5.1.3), beside the rect it names
-te_line     equ te_btrec + 12         ; OS88LINE_SZ
+te_line     equ te_btn + 8           ; OS88LINE_SZ
 te_hbuf     equ te_line + OS88LINE_SZ ; TE_HOSTMAX: what the user typed
 te_host     equ te_hbuf + TE_HOSTMAX  ; ...and the half before the colon
 te_sline    equ te_host + TE_HOSTMAX  ; CON_COLS+1: the padded status field.
