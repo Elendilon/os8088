@@ -5305,8 +5305,8 @@ dos_paint:
     call dos_paint_set              ; ...and there is only the one now
     pop bx
     call dos_paint_furn
-    jmp .out
-.mainpage:
+    jmp .card                       ; ...and the About card over it, which is
+.mainpage:                          ; the window's and not the page's
 
     cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
     jne .nokick                      ; keeps at most one queued wake per window,
@@ -5342,8 +5342,23 @@ dos_paint:
     call con_rows_owed
     call con_takescroll
 %endif
-.out:
-    pop di
+.card:
+    ; --- AND THE ABOUT CARD LAST, OVER WHICHEVER PAGE IT WAS (SPEC.md 96.51) -
+    ; Both branches arrive here - the setup page by `jmp .card` above and the
+    ; main page by falling through - because the card is a property of the
+    ; WINDOW and not of the page, exactly as the band above is.
+    ;
+    ; **BX COMES FROM [dos_win] AND NOT FROM SI**: this proc is entered with
+    ; SI = the window, but the main page's `os88line_draw` loads SI with
+    ; dos_pln on the way past, so by here it is a string. [dos_win] is the one
+    ; window this package has and dos_entry wrote it.
+    cmp byte [dos_abon], 0
+    je .out
+    mov bx, [dos_win]
+    mov si, dos_ablines
+    call os88ui_about_d             ; the _d entry: the kernel's region is
+.out:                               ; armed, and re-arming would throw this
+    pop di                          ; paint's damage rect away
     pop si
     pop dx
     pop cx
@@ -5456,10 +5471,58 @@ dos_hexd:
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
-; dos_about - the standard About card's handler (SPEC.md 12.2, 20.5.1)
+; dos_about / dos_abdismiss - the standard About card (SPEC.md 12.2, 20.5.1.1,
+; 96.51)
+;
+; **THIS WAS A BARE `ret`**, and that is worth a line rather than a silent fix:
+; the registration below `OSAPI_ABOUT_SET` has always been there, so the kernel
+; has always drawn `About DOS...` into the bar - and picking it did nothing at
+; all. A handler that returns is indistinguishable from a handler that drew
+; something small, which is why nobody reported it; what was behind the item
+; was the CREDIT, which is the whole argument of SPEC.md 20.5.1.1.
+;
+; The HANDLER entry (os88ui_about, not the _d one): ui_dispatch takes the gfx
+; lock and far-calls us with NO clip region armed (SPEC.md 11.3), so the widget
+; arms one itself. dos_paint uses the other entry.
 ; -----------------------------------------------------------------------------
 dos_about:
+    push bx
+    push si
+    mov byte [dos_abon], 1
+    mov bx, si                      ; SI = our window on entry
+    mov si, dos_ablines
+    call os88ui_about
+    pop si
+    pop bx
     ret
+
+; Any key or click takes it down. CF = 1 means the event was the card's and the
+; caller must not also act on it - a keystroke that dismisses must not reach
+; the path box, and a click that dismisses must not also hit a button.
+dos_abdismiss:
+    cmp byte [dos_abon], 0
+    je .none
+    mov byte [dos_abon], 0
+    mov si, [dos_win]               ; NOT the SI we were called with: the
+    call dos_paint                  ; console is what the card covered and
+    stc                             ; dos_paint is the only thing that knows
+    ret                             ; how to put a page back
+.none:
+    clc
+    ret
+
+; --- the card's lines (SPEC.md 20.5.1.1, 96.51) ------------------------------
+; SIX lines. The content is DOS_CONW = 640 px = 80 cells on VGA and CGA and 720
+; on Hercules, against a widest line of 34, so no adapter clamps this card and
+; nothing is split across two lines.
+dos_ablines:
+    dw dos_ab1, dos_ab2, dos_ab3, dos_ab4, dos_ab5, dos_ab6, 0
+dos_ab1:     db 'DOS for os8088', 0
+dos_ab2:     db 0
+dos_ab3:     db 'Runs .COM and .EXE programs', 0
+dos_ab4:     db 'natively - this machine IS an 8086', 0
+dos_ab5:     db 0
+dos_ab6:     db 'Contributed by Elendilon', 0
 
 ; -----------------------------------------------------------------------------
 ; dos_swap - the other page, onto the glass
@@ -8176,6 +8239,13 @@ dos_key:
     push si
     push di
     mov bx, si
+    ; --- THE ABOUT CARD EATS THE KEY THAT TAKES IT DOWN (SPEC.md 96.51) ------
+    ; ABOVE the Alt+Enter test below, which is otherwise "above everything":
+    ; a card that is up is what the user is looking at, so the keystroke that
+    ; dismisses it must not also go full screen, and must not reach the path
+    ; box either. CF = 1 from here means it was ours.
+    call dos_abdismiss
+    jc .done
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
     ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
@@ -8365,6 +8435,9 @@ dos_click:
     push si
     push di
     mov bx, si
+    call dos_abdismiss              ; ...and the click likewise: dismissing the
+    jc .out                         ; card is not also a button press or a
+                                    ; field focus (SPEC.md 96.51)
     ; **NO DST_IDLE GATE** (SPEC.md 96.32.1): an idle box is the internal
     ; COMMAND.COM and its bar is live, where the old main page had nothing on
     ; it but an arguments field for a program that did not exist.
@@ -11841,6 +11914,7 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
     HBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
     HBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
+    HBSS DOS_B_ABON,  1          ; the About card is up (SPEC.md 96.51)
 %endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -16987,6 +17061,13 @@ DOS_BSS_SIZE equ HB
                                     ; which is one pick out of a SHORT LIST of
                                     ; widths - a radio of five would be 80 px
                                     ; of a column that has 155
+%define OS88UI_ABOUT                ; ...and the About card (SPEC.md 96.51).
+                                    ; dos_about was a bare `ret` for the whole
+                                    ; of this package's life, so the kernel put
+                                    ; 'About DOS...' in the bar and the item
+                                    ; did NOTHING - which is 20.5.1.1's own
+                                    ; case, and what was missing behind it was
+                                    ; the credit
 %ifndef KD_BACKEND                  ; **THE WINDOW'S FURNITURE** (SPEC.md
                                     ; 96.43.2): buttons, fields, a radio and a
                                     ; line editor, and with the window half
@@ -17166,6 +17247,9 @@ dos_brect equ dos_hbss + DOS_B_BRECT   ; the page button's rect
 %endif
 %ifndef KD_BACKEND
 dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's
+%endif
+%ifndef KD_BACKEND
+dos_abon equ dos_hbss + DOS_B_ABON    ; byte: the About card is up
 %endif
 dos_erp     equ DOS_CBASE + DOS_B_ERP     ; word: the row being emitted
 %ifndef KD_BACKEND

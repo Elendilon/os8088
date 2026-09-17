@@ -3349,7 +3349,7 @@ $(BUILD)/taskmgr.o88: $(BUILD)/taskmgr.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/taskmgr.bin -o $@
 
 $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
-                       apps/os88type.inc | $(BUILD)
+                       apps/os88type.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fontview/fontview.asm
 	@echo "fontview: $(call FILESIZE,$@) bytes"
 
