@@ -129929,6 +129929,46 @@ succeeds, and the two halves then compose: `dos_fh_enter` walks to the folder
 part of `\A\B` and `dos_cd_go` takes the last step, which together is a
 chdir of arbitrary depth for no extra code.
 
+#### 96.12.4 `AH=43h` is asked about DIRECTORIES, and a root parses to no name at all
+
+`AH=43h AL=00h` is how a program asks *"is this there?"* without opening it —
+and what it asks about is very often a **folder**. Microsoft Works's Save As,
+given a name on another drive, asks about the directory the file would go in
+before it writes anything, and puts up **`Directory not found`** when that is
+refused.
+
+`.att_get` resolved every name through `dos_fh_stat`, which is the **file**
+lookup `AH=3Dh` opens through (§96.11) — so a name that is a folder found
+nothing and answered 2. Every directory on every disk read as missing.
+
+**A root is the sharper half of it**: `A:\` parses to a drive and *no 8.3 name
+at all*, so the lookup was for the empty name. That is the case Works actually
+hits, and it is why the failure looked like the drive switch — which works
+perfectly: the trace shows `AH=0Eh` select A:, `AH=19h` confirming `AL=00`,
+and `AH=0Eh` back to B:, all before the refusal.
+
+**IBM DOS 3.30's own answers are the specification**, taken with
+`tests/dostrap/attrdir.asm` on the machine rather than reasoned about:
+
+| asked about | DOS 3.30 | ours |
+|---|---|---|
+| `\` — the current root | `CF=0, CX=0074` | `CF=0, CX=0010` |
+| `A:\` — a root, drive-qualified | `CF=0, CX=0074` | `CF=0, CX=0010` |
+| a subdirectory | `CF=0, CX=0010` | `CF=0, CX=0010` |
+| a file | `CF=0, CX=0020` | `CF=0, CX=0020` |
+| a name that is not there | `CF=1, AX=0002` | `CF=1, AX=0002` |
+
+**`0074` for a root is not copied and the gate does not assert it.** The root
+has no directory entry to read attributes from, so those are bits DOS never
+deliberately set; what every caller tests is `CF` and bit 4, and both agree.
+Matching an uninitialised byte would be copying a bug and calling it a
+contract.
+
+`dos_att_isdir` is `dos_cd_go`'s own `.named` scan with the walk taken out —
+it answers the question instead of acting on it. `OSAPI_FILE_FIND` is by
+ordinal, so it is a directory walk and not a lookup, paid once per `AH=43h`
+on a name that is not a file.
+
 **A path that does not fit the buffer is still refused with 3**, by the copy
 loop that always did: `dos_fh_split` leaves a name it cannot shorten alone, so
 the failure is the old one rather than a half-walked path.
