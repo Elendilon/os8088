@@ -119232,6 +119232,45 @@ freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
 
+#### 88.14.4 An IP in the ring is not an offset in this package
+
+The ring banks **whatever `int 08h` interrupted**, and while the flight is
+running that is regularly not us. Two places, both of them ordinary:
+
+| CS | what was interrupted |
+|---|---|
+| the package | the flight — the great majority of ticks |
+| `KERNEL_SEG` | a kernel slot the frame called, or `fsx_wait`'s own `hlt`, which is stage 10 |
+| `F000` | **`cs_input`'s `int 16h` keyboard poll** (§53.1) — the ROM's own handler |
+
+The third is the one nobody had placed. `tests/skiesdiag.py` asserted that
+every banked IP was a package offset, which is **false of this machine**:
+`int 16h` enters at `F000:E82E` on both ROMs here and a tick landing in the
+two dozen bytes after it banks `e832`, `e83c`, `e84b`. Measured on
+`os8088_5150_herc_gla`, that check went red in **7 runs of 9** — on a sample
+that was correct, reported as *"the ring holds package addresses (… e84b)"*,
+which reads as the watchdog being broken. It is the freeze itself that
+concentrates them: the IPs are sampled in the first seconds of the bracket,
+where the flight is still entering and the input poll is a much larger share
+of a tick than it is once it is flying.
+
+**`cs_dcseg` could not answer it**, and that is the defect rather than the
+ROM. It is one word written every tick, so it places the **newest** slot and
+says nothing about the other two — and the other two are *different ticks*,
+which is the whole reason there are three. So the CS is banked per slot in
+`cs_dcsr` beside the IP, one `mov` in `cs_diag_isr`, and a reading places
+every sample rather than the last one.
+
+The **painted** strip is unchanged at `CSD_BLKS` = 9 and block 9 is still
+`cs_dcseg`, because a photograph of a **frozen** machine needs exactly that
+one: all three slots hold the same address by then. Twelve blocks would not
+fit above the view either — §88.14.3's arithmetic is `CSD_TOP + 12 × CSD_ROWS`
+= 84 against a Hercules view at 74 — so the per-slot CS is bss the row and a
+debugger read, not glass.
+
+It costs the shipped build nothing: every line is inside `%ifdef CSDIAG` and
+`build/skies.o88` is byte-identical across the change.
+
 #### 88.14.3 The strip goes above the view — and NOT for the reason first given
 
 **The correction comes first, because the wrong reason was published.** The
