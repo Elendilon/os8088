@@ -1028,6 +1028,17 @@ FAST = [
         "content-relative coordinates) and every one was found by a person "
         "looking at a screen. All four are visible in BT_DOWN and BT_N",
         needs=("marty",)),
+    Row("btncp", "soak", py("tests/btncp.py"), 75,
+        "THE FAR SIDE of the button (SPEC.md 2.6): the Control Panel is an "
+        "on-demand module with a CS of its own and reaches the control by "
+        "`call COLD_SEG:os88ui_btn_f`, which a grep for `call os88ui_btn` "
+        "cannot see. That is how every page of it was missed when the control "
+        "started taking a record - the far entry went on pointing at the "
+        "record-based routine, which read a live count out of a RECTANGLE's "
+        "coordinates, and Date/Time filled the whole screen white. It asserts "
+        "PIXELS: a garbage rect whites the SCREEN, and a page that drew "
+        "nothing has an empty pane",
+        needs=("marty",)),
     Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
         "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "

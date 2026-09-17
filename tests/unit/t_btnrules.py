@@ -36,7 +36,15 @@ from harness import check, done                           # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 REGISTRY = os.path.join(ROOT, "tests", "btnsites.txt")
 
-REC = re.compile(r"^\s*call (?:os88ui_btn|os88ui_kbtn)\b", re.M)
+REC = re.compile(r"^\s*call (?:\w+:)?(?:os88ui_btn|os88ui_kbtn|os88ui_btn_f)\b",
+                 re.M)
+# THE FAR ENTRY COUNTS. os88ui_btn_f is how an on-demand module reaches the
+# control (SPEC.md 2.6) - ctrl.inc and hiber.inc have a CS of their own - and
+# a `call COLD_SEG:os88ui_btn_f` is invisible to a grep for `call os88ui_btn`.
+# That is exactly how the whole Control Panel was missed by the conversion
+# sweep: the far entry went on pointing at an os88ui_btn that had started
+# taking a RECORD, so every panel button read its live count out of a
+# rectangle's coordinates and the Date/Time page filled the screen white.
 RAW = re.compile(r"^\s*call os88ui_btnraw\b", re.M)
 DEAD = re.compile(r"^os88ui_btnraw:", re.M)
 SCAN = ("apps", "drivers", "kernel")
@@ -133,8 +141,11 @@ def main():
         # os88ui_kbtn is the KERNEL's one-button staging and aims the record
         # itself (SPEC.md 20.5.1.3), so a file that only calls that has
         # nothing of its own to aim.
-        if KBTN.search(t0) and not re.search(r"^\s*call os88ui_btn\b", t0, re.M):
-            continue
+        FAR = re.compile(r"^\s*call \w+:os88ui_btn_f\b", re.M)
+        if (KBTN.search(t0) or FAR.search(t0)) and \
+           not re.search(r"^\s*call os88ui_btn\b", t0, re.M):
+            continue                # reaches the control through the kernel's
+                                    # staging, which aims the record itself
         t = open(os.path.join(ROOT, path), encoding="utf-8",
                  errors="replace").read()
         # OS88UI_BTNREC declares the record with its pointers and count
