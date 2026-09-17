@@ -294,10 +294,11 @@ strip* without a far call has moved the question, not removed it.
 
 **`kern_big`'s Dock placement cannot reach 400 resident bytes by moving code.**
 The dispatch is at its floor at 112 (`docs/plans/LAST-DROP-BYTES.md` §7.8 has
-the three cheaper schemes priced, and §7.8.1 the one that is not refused), the
+the three cheaper schemes priced, and
+`docs/plans/LAST-DROP-BYTES.md` §7.8.1 the one that is not refused), the
 basic bodies and the Control Panel plumbing are the thing being kept, and the
 210 bytes of awareness and state cost 208 to route and cannot be routed
-anyway. Taking §7.8.1's 42 gives **444**.
+anyway. Taking `docs/plans/LAST-DROP-BYTES.md` §7.8.1's 42 gives **444**.
 
 **400 needs SCOPE, and the scope question is one sentence: is a side or hidden
 strip worth 150 bytes of window manager and 60 of live-rect state on every
