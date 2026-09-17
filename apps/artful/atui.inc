@@ -1322,6 +1322,10 @@ at_modal_click:
                                     ; triples - a second description of the
                                     ; geometry at_button already owned
 
+; at_btn_up - the release, for WHICHEVER set of buttons is up
+; The splash and the modal share ONE record and os88ui.inc keeps ONE arm word
+; per package, so only one of them can ever have a gesture live; [at_modal]
+; is what says which, exactly as it does for the painter.
 at_modal_up:
     push ax
     push bx
@@ -1330,7 +1334,18 @@ at_modal_up:
     call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
     or ax, ax
     jz .out
-    cmp al, 1
+    cmp byte [at_modal], 0
+    jne .md
+    cmp al, 1                       ; --- the SPLASH: New, then Open ---
+    jne .spopen
+    call at_cmd_newdoc              ; a fresh document...
+    call at_fs_enter                ; ...and the whole screen
+    jmp short .out
+.spopen:
+    call at_dlg_open
+    jmp short .out
+.md:
+    cmp al, 1                       ; --- the MODAL: Save, Cancel, Don't ---
     je .b1
     cmp al, 2
     je .b2
@@ -1768,25 +1783,15 @@ at_splash_click:
     push ax
     push bx
     push si
-    mov bx, [at_b1x]
-    mov ax, [at_b1y]
-    mov si, [at_b1w]
-    call at_btnhit
-    jnc .new
-    mov bx, [at_b2x]
-    mov ax, [at_b2y]
-    mov si, [at_b2w]
-    call at_btnhit
-    jnc .open
-    jmp short .out
-.new:
-    call at_cmd_newdoc              ; a fresh document...
-    call at_fs_enter                ; ...and the whole screen
-    jmp short .out
-.open:
-    call at_dlg_open
-.out:
-    pop si
-    pop bx
-    pop ax
-    ret
+    mov bx, at_btrec                ; **NEW AND OPEN ONLY ARM** (SPEC.md 13.6):
+    call os88ui_btnpress            ; one opens a file dialog and the other
+    pop si                          ; takes the whole screen, so neither may
+    pop bx                          ; fire on a press the user can still take
+    pop ax                          ; back. at_btn_up has the action. The
+    ret                             ; at_btnhit ladder this replaces was a
+                                    ; second description of the geometry
+                                    ; at_button already owned - and it was
+                                    ; missed when the MODAL was converted,
+                                    ; which is why the splash went on acting
+                                    ; on the press with a record that could
+                                    ; draw it down
