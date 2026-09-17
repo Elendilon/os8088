@@ -9220,6 +9220,49 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
+#### 7.4.5 The lock outlives the freeze by one cursor move
+
+§7.4.2 rule 1 reads *"a task can only draw while holding the gfx lock"*, and
+the converse is the trap: **the lock being held does not mean the cursor is
+standing still.** `gfx_unlock`'s tail moves it, deliberately, while the flag
+is still set — its own header says the order is binding, *"cursor_show redraws
+at the latest mouse position while we still own the screen; only then may the
+ISR draw again"*. So between `fpg_finish` (which clears `[fpg_on]`) and
+`.rel` (which clears `[gfx_lock_flag]`) there is a window in which the machine
+reads **frozen** and a TASK has just caught the arrow up to the hand.
+
+Four routines move it there, and every one of them is below `fpg_finish`:
+`fpg_finish`'s own `cursor_show` for the arrow `fpg_arm` hid (§7.4.3.1),
+`cur_shape_set`'s hide/show pair putting the clock away (§7.5.2),
+`cursor_show` when the promise was spent, and `cur_lazyend` when it was kept —
+that last one being the one with **no `[cur_level]` change to give it away**,
+since a promise that survived left the arrow lit all hold.
+
+**Measured**, on the `NOCURDISK=1` arm of `tests/curdisk.py` through a
+`PAINT.O88` launch, breaking on the mover and walking forward in 60-cycle
+steps:
+
+| | `[gfx_lock_flag]` | `[fpg_on]` | `[cur_level]` | `[cur_drawn_*]` | `[mouse_*]` |
+|---|---|---|---|---|---|
+| at the call | 1 | 0 | −1 | (164, 69) | (164, 27) |
+| +60 cycles | 1 | 0 | 0 | **(164, 27)** | (164, 27) |
+| +420 cycles | 0 | 0 | 0 | (164, 27) | (164, 27) |
+
+**420 cycles**, ~88 µs of a 4.77 MHz guest. That is nothing to the machine and
+everything to anything sampling it: a reader that calls `[fpg_on] || the lock`
+the freeze, and a change in `[cur_drawn_*]` across two frozen-looking samples
+an ISR draw, counts this teardown as a cursor move inside the hold — on the
+one kernel where a cursor move inside the hold is supposed to be unreachable.
+`tests/curdisk.py` failed that way about one run in twenty, and what fixes it
+is not a tolerance: a pair of samples is evidence only when the freeze reads
+the **same** at both ends, which every mover above breaks by sitting below
+`fpg_finish`, and which two samples a packet apart cannot fake by both landing
+inside 420 cycles.
+
+None of this is a defect and none of it is new — it is §7.1.4's promise being
+settled on the way out, and it is what makes the arrow arrive where the hand
+actually is rather than where the freeze began.
+
 ### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
