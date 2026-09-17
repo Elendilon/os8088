@@ -226,7 +226,7 @@ writing it.
 | **the mouse wire work — a wheel mouse's fourth byte, `MOU_IDMAX` 8 → 128, `MOU_DRAINT`, `MOUROUND`** | ours | **part of `mouse.inc`** | **NO** |
 | **`fdlg.inc` +39, ours** | ours | **+39** | **NO** |
 
-### The previous cycle (what #179 carried, #172 → #179) — ALL of it outstanding
+### The previous cycle (what #179 carried, #172 → #179) — 199 bytes outstanding
 
 **`main` added no kernel bytes of its own in that window at all.** Of the
 sixteen commits on `main` between #172 and #179, only #179 itself — our squash
@@ -234,14 +234,29 @@ sixteen commits on `main` between #172 and #179, only #179 itself — our squash
 #171, #176, #177, #178) are packages and release tooling. So every kernel byte
 in that cycle is ours, and the concepts are the ones its diffstat names:
 
-| concept | kernel diffstat | pass |
-|---|---|---|
-| the GFX lines library moved into the apps that use it | `vga12.inc` **−1,701** | **n/a — it IS the reduction** (`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md`) |
-| the Control Panel's glyph and line conversion | `ctrl.inc` +451 | **NO** — measured (`docs/reports/GLYPH-AND-LINE-COST-2026-09-10.md`), never passed |
-| nothing permanently pinned on the heap | `memory.inc` +385 | **NO** — but reached later by this cycle's `e820ed46`/`212f3293` |
-| the busy cursor, hourglass then clock | `mouse.inc` +322 | **partially** — measured (`docs/reports/BUSY-CURSOR-COST-2026-09-10.md`), then passed by this cycle's `da8adbff` |
-| the package re-home and `.o88` parts | `loader.inc` +198, `instance.inc` +172 | **NO** |
-| the rest | `kernel.asm` +182, `files.inc` +119, `apps/os88api.inc` +281, `sched.inc` +53, `wm.inc` +45 | **NO** |
+Measured the same way as everything else above — `P` = `2ce1e37`, the #172
+squash, against `A` = `2237d1b`, the #179 one, both re-assembled. **In BYTES,
+not in diffstat lines, and the two disagree violently**: `ctrl.inc` is +451
+LINES in #179's diffstat and **+1 byte** in the kernel, because the Control
+Panel's body is `CTRL.DRV`, an on-demand module. The first draft of this
+report quoted the line counts and they are not a proxy for anything.
+
+| concept | `kern_big` bytes | pass |
+|---|---:|---|
+| the GFX lines library moved into the apps that use it (`vga12.inc`) | **−1,690** | **n/a — it IS the reduction** (`docs/plans/completed/GFX-EMBEDDABLE-PLAN.md`) |
+| the file dialog (`fdlg.inc`, `.text` −146 / `.cold` +45) | **−101** | n/a — net negative |
+| the busy cursor, hourglass then clock (`mouse.inc`) | **+233** | **yes, one cycle late** — measured by `docs/reports/BUSY-CURSOR-COST-2026-09-10.md`, then passed by this cycle's `da8adbff` |
+| the package re-home and `.o88` parts (`loader.inc` +174, `instance.inc` +25) | **+199** | **NO** |
+| nothing permanently pinned on the heap (`memory.inc`) | **+62** | **partially** — reached by this cycle's `e820ed46` / `212f3293` |
+| the API table and the shims (`kernel.asm`) | **+42** | **yes, one cycle late** — this cycle's `8ffb6b98`, `2985908d` took 111 back |
+| the rest (`wm.inc` +10, `fprog.inc` +6, `ctrl.inc` +1) | **+17** | NO, and not worth one |
+| **the cycle, whole** | **−1,238** | |
+
+**So the previous cycle SHRANK the kernel by 1,238 bytes** and the alarming
+part of "it was never size-passed" evaporates on contact with the measurement:
+one concept in it added more than 200 bytes, and that one has since been
+passed. What is genuinely outstanding from that cycle is **the re-home and
+parts work, 199 bytes**.
 
 **The evidence that no pass ran in that cycle is its own subject list.** #179
 carries 326 subjects and exactly one of them is size work on the kernel's own
@@ -252,7 +267,9 @@ size passes 1 to 4 all landed by #147, two squashes earlier
 (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md`).
 
 So the pattern across two cycles is that **a cycle's kernel additions get
-audited and then passed one cycle late, if at all** — this cycle's
-`size-pass-kernel-additions` reached the previous cycle's busy cursor and heap
-work, and the 2026-09-17 passes reached this cycle's four biggest. What has
-never been reached is listed above.
+audited and then passed one cycle LATE** — this cycle's
+`size-pass-kernel-additions` is what reached the previous cycle's busy cursor,
+its API table and its heap work, and the 2026-09-17 passes reached this cycle's
+four biggest. That is a working arrangement rather than a failure, and the
+measurement says so: the previous cycle is 1,238 bytes DOWN with 199
+outstanding. What has never been reached by anything is listed above.
