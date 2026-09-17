@@ -74,6 +74,7 @@ import errno
 import json
 import os
 import re
+import stat
 import shutil
 import signal
 import subprocess
@@ -138,6 +139,25 @@ def requirements():
     """
     B = lambda *p: os.path.join(ROOT, "build", *p)
     req = []
+
+    # **/dev/null ITSELF**, because a container can get this wrong and the
+    # failures do not name it. It was a REGULAR FILE on this box for half of
+    # one soak: autoconf's ./configure dies on a spliced config.status, a
+    # `>/dev/null 2>&1` that a long-lived process holds O_RDWR GROWS THE FILE
+    # instead of discarding (measured: 1 MB written is 1 MB on disk, and a
+    # shell truncate under the holder does not reclaim it), `diff`, `cmp` and
+    # `test -s` against it answer wrongly, and at mode 0644 a non-root writer
+    # gets EACCES. A two-hour run is a long way to carry a question that
+    # costs one stat, so it is asked with the assembler rather than found.
+    req.append(("/dev/null", os.path.exists("/dev/null")
+                and stat.S_ISCHR(os.stat("/dev/null").st_mode),
+                "EVERYTHING - it is not a soak dependency so much as a "
+                "working box. A regular file here breaks ./configure, grows "
+                "without bound where output should vanish, and makes diff "
+                "and cmp against it lie.",
+                "mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new \\\n"
+                "                     && mv -f /dev/null.new /dev/null"
+                "        (as root)"))
 
     req.append(("nasm", bool(shutil.which("nasm")),
                 "every build. Without it nothing under build/ can be made.",
