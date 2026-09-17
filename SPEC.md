@@ -53570,6 +53570,36 @@ column sees, and that placement is load-bearing: the button column jumps to
 that label when it misses, so a test reached only by falling out of the column
 would never see a click on the left half of the dialog.
 
+#### 38.4.1 The scroll bar's four verdicts are ONE addition
+
+`os88ui_sbhit` answers `OS88UI_SBUP`, `SBDOWN`, `SBPGUP`, `SBPGDN` = **1, 2,
+3, 4**, and those are consecutive by construction (`apps/os88ui.inc`). What
+each of them does to `[fdlg_scrl]` is therefore a signed byte in a four-entry
+table — `fdlg_sbdel`, indexed by `answer − OS88UI_SBUP` — so the ladder of
+four `cmp`/`je` pairs with a one-line arm behind each is an index, a `cbw`
+and an `add`. `fdlg_clamp` catches either end, exactly as it did for the
+four arms.
+
+Two facts make ONE unsigned compare the whole bounds check: `SBNONE` (0)
+wraps to `0FFh` under the subtract and `SBTHUMB` (5) lands on 4, so
+`cmp al, 4 / jae` rejects both. A thumb press still falls out of the ladder
+unchanged and reaches `.out`, which is what it has always done here — the
+drag was already grabbed above (§13.10.5).
+
+**The table is `.text`, not `.cold`**, with the rest of this module's data and
+for its reason (§2.8.6): everything below the section toggle is addressed
+through CS and this is read through DS. That costs `kern_small` **4 resident
+bytes** to take 24 off `FDLG.DRV`'s image. A `[cs:]` read would have moved
+those four into the image on both builds at +1 a site, and it is refused:
+this file's "every byte of data above the single toggle" is the invariant
+that makes a `db` added below it a silent wrong-segment read, and it is worth
+more than four bytes.
+
+`files.inc` carries the same four-arm ladder for the Disk window and is **not**
+converted: its arms are not one addition each — §22.11's `fm_scroll_by` has
+an incremental tier the dialog has no equivalent of — so the shape does not
+transfer.
+
 ### 38.5 State (`.bss`, singleton)
 
 ```nasm
@@ -53583,11 +53613,28 @@ fdlg_sel   resw 1   ; selected DISPLAY row, 0FFFFh = none
 fdlg_scrl  resw 1   ; first visible row
 fdlg_clkt  resw 1   ; birth tick of the last click (double-click window)
 fdlg_name  resb 16  ; the name: default in, chosen out, edited in Save mode
-fdlg_nlen  resb 1   ; its length, 0..12
-fdlg_hdr   resb 28  ; header line scratch
-fdlg_row   resb 20  ; one row's name, staged out of dsk_ent
-fdlg_num   resb 8   ; the size column
+fdlg_nlen  resb 1   ; its length, 0..12          -- ADJACENT, and BINDING
+fdlg_ncur  resb 1   ; the caret, 0..[fdlg_nlen]  -- see below
+fdlg_row   resb 18  ; one row's name, staged out of dsk_ent
+fdlg_num   resb 11  ; the size column (fm_ultoa: 10 digits + NUL)
 ```
+
+(An extract: the block also carries the layout cache, the staged row's type
+and size, the folder-naming shadow and, on `kern_big`, `fdlg_path`. The file
+is the list.)
+
+**`fdlg_nlen` and `fdlg_ncur` are adjacent, and that is binding.** Emptying
+the name box zeroes the length and the caret together, so `fdlg_nclear` writes
+them in one `mov [fdlg_nlen], ax`; separating them makes that store scribble
+on whatever moved in between, with no diagnostic. It is a `.bss` ORDER and
+nothing more — no reader of either name knows, and `tests/fdlggrey.py` asks
+`os88sym` for each one by name — but the store is silent about it, so the
+order is written down here as well as beside the two `resb`.
+
+`fdlg_nclear` is the one writer of the empty box: it takes the box's new
+PURPOSE in AL (0 a file name, 1 a new folder's, §38.3) and is what
+`fdlg_open` and `fdlg_newfolder` share, those being the two moments the box
+is emptied and the only thing that differs between them.
 
 `fdlg_name` is the one buffer the caller's default arrives in and the
 chosen name leaves in; it is valid to the callback for the duration of the
@@ -53832,6 +53879,11 @@ no longer always reaches it.
 | `fdlg_rows` | Out: AX = `disk_nfiles`. There is no offset any more — §19.5 put the `..` row in the listing, so a display row is a directory index. |
 | `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
 | `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
+| `fdlg_hidx` | Internal. Out: CF=0 with BX = this instance's file-home slot **and SI → that slot's `inst_fname` row**; CF=1 = no live requester. The SI half is why `fdlg_home_name` and `fdlg_home_save` are nine and twenty-six bytes: `slot * INST_FNSZ` is a `mul` (13 is not a shift) and it was written at both. The two index-only callers bank SI already. |
+| `fdlg_orig` | Internal. In: SI = the dialog's window. Out: AX/DX = the content origin, `[fdlg_cx]`/`[fdlg_cy]` set, everything else preserved. The painter, the keyboard and `fdlg_pt` all need the cache before they can place anything, and `wm_content` takes the window in BX where this module carries it in SI. A consequence worth having: `fdlg_pt` no longer clobbers BX. |
+| `fdlg_nclear` | Internal. In: AL = the box's new purpose (0 file, 1 folder). Empties the name box; out AX = 0. §38.5. |
+| `fdlg_nosel` | Internal. Nothing selected, listing at the top; out AX = 0, which `fdlg_open` uses for the third word (`[fdlg_clkt]`) and `fdlg_go` deliberately does not — a navigation must not reset the double-click window. |
+| `fdlg_wfill` | Internal. In: AX..DX = a content-relative rect. White pen, `fdlg_off`, fill — the three steps the two partial redraws of §38.8 share. Not a general helper: every other fill in this module is a colour its caller chose. |
 
 **What this deliberately does not do.** No filtering by extension (an Open
 dialog that hid `.TXT` from Note Pad would be a lie about what is on the
