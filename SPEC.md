@@ -133003,6 +133003,55 @@ which is the assembler declining to answer a question the caller has got
 wrong. `.lowbss` is asserted the same way, against `KD_STACK` rather than the
 rung, because it sits under the stack at `LOW_SEG` rather than above the image.
 
+#### 96.38.4 …and the LAUNCH BLOCK is the one byte of bss nothing clears
+
+`kd_entry` zeroes `.bss` and `.lowbss` because `-f bin` emits nothing for a
+`nobits` section and nothing that puts this image in memory writes them
+(§96.38.3 is the same fact one rung along). It zeroes them **around** the
+launch block, by design: the block is the one thing already written by the
+time `kd_entry` runs — the stub's lands in `kd_lblock` and the gate's in
+`kd_glb`, and `[kd_lbp]` is the only thing that knows which.
+
+So the block is the one region of this image whose contents are nobody's job,
+and **whose job it is depends on which producer staged it**:
+
+- the **box** hands over 512 bytes it `rep movsw`'d whole out of `hbm_dosrec`,
+  which the package loader zeroed (§21 step 5). Every field the gather did not
+  fill is 0 because the buffer under it was;
+- the **gate** (`kerndos/kdosgate.inc`) writes about ten fields into
+  `kd_glb`, which is `resb KDL_SIZE` in `.bss` and which nothing had cleared.
+
+That matters because *absent* is spelt **zero** all over this ABI, and each
+spelling is deliberate: `KDL_DPT` = 0 means *leave `int 1Eh` alone*,
+`KDL_NVOL` = 0 means *keep the built-in volume table*, `KDLF_RAHSH` = 0 means
+*`KD_RAH_KEEP`*. A field says "I could not fill this" only by being written,
+and the gate was relying on a zero it never wrote.
+
+**It was invisible for as long as the bss happened to land on zeros, and where
+it lands is decided by the IMAGE'S LENGTH.** `kd_glb` sits at `KD_SEG:0x767C`
+— physical `0x7C7C`, which is **on the boot sector at 0x7C00**. `kdboot.bin`
+is 251 bytes and `tests/kdos.py` pads the rest of the sector with zeros, so
+while the block's `KDL_DPT` fell past byte 251 it read 0 and the vector was
+left alone. §18.95.9 took 138 bytes out of the image; the block slid down onto
+the loader's own code; `[kd_glb+KDL_DPT]` read `0x7C`; and `kd_entry` copied
+eleven bytes of `kdboot.asm` into `dsk_dpt` and pointed the BIOS at them.
+Every `int 13h` then answered **AH=09h** and the gate printed *"could not
+mount drive B (unit 1)"* about a floppy that was perfectly readable — the
+mount refusing at its first act, the boot-sector read, with §18.95's cache not
+even claimed yet.
+
+**The fix is the producer's and it is four instructions**: the gate clears
+`kd_glb` before it stages anything. Nothing resident moves — `kdosgate.inc` is
+inside `%ifdef KD_GATE` and no shipping path defines it — and what it buys is
+that the sentence §96.40.2 already states, *"a block whose first DPT byte is
+zero leaves the vector alone, which is the gate arm's case"*, is true of the
+code rather than of the machine it happened to run on.
+
+The lesson generalises past this block: **a test whose result is decided by an
+image's length is a test that has not been written down**. Nothing was wrong
+with the size pass; any change of size anywhere in the image re-rolls which
+byte of the boot sector the block lands on, and half the rolls are green.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
@@ -133729,6 +133778,12 @@ same segment with its own table at a different offset — so a handover that
 does not carry those bytes leaves the ROM reading code as an EOT and a gap
 length. A block whose first DPT byte is zero leaves the vector alone, which is
 the gate arm's case.
+
+**Which makes zeroing the block the PRODUCER's job** (§96.38.4). Every "I
+could not fill this" in the layout is spelt 0 — `KDL_DPT`, `KDL_NVOL`,
+`KDLF_RAHSH` — and `kd_entry` cannot establish it, because the block is the
+one thing already written by the time it clears the bss around it. The box
+gets it from the package loader; the gate does it itself.
 
 ### 96.40.2 What `kern_dos` does, and how the machine comes back
 
@@ -134920,7 +134975,7 @@ floor, *"18KB of claim behind a 36KB bar and 93% of what the ceiling saves"* —
 and `KD_RAH_L2` = 2 is deliberately below it, because at that point the
 alternative on offer is not a wider cache, it is no cache.
 
-Shedding is three stores and `dsk_rah_arm` makes the same three for the same
+Shedding is three stores and `dsk_rah_want` makes the same three for the same
 reasons: `dsk_rah_flush` clears **all** `DSK_RAH_RUNS` records so none names a
 chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
 back to 0, **which is the one that would be silent**, being the round-robin
