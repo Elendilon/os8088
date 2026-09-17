@@ -12832,7 +12832,7 @@ pentium: $(IMG) $(APPSIMG)
 # still re-checks every SHA-256 and re-assembles the part.
 clean:
 	find $(BUILD) -mindepth 1 -maxdepth 1 ! -name martypc ! -name cc \
-		! -name apple2-rom -exec rm -rf {} + 2>/dev/null || true
+		! -name apple2-rom ! -name nasm3 -exec rm -rf {} + 2>/dev/null || true
 	@rm -f $(BUILD)/apple2-rom/APPLE2.ROM
 
 clean-marty:
@@ -12841,4 +12841,9 @@ clean-marty:
 clean-cc:
 	rm -rf $(BUILD)/cc
 
-distclean: clean clean-marty clean-cc
+# The nasm 3 tools/setup-nasm3.sh builds. Spared by `clean` for build/cc's
+# reason - it is a pinned upstream instrument and rebuilding it is minutes.
+clean-nasm3:
+	rm -rf $(BUILD)/nasm3
+
+distclean: clean clean-marty clean-cc clean-nasm3
