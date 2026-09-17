@@ -21,6 +21,22 @@ where the machine is. The watchdog must say that address.
 Check 4 is the whole row: 1 to 3 can pass on an instrument that samples the
 wrong word.
 
+WHAT THE RUNNING CHECK STILL CATCHES, broken on purpose in the guest's own
+copy of `cs_diag_isr` (docs/WRITING-TESTS.md 1), on `os8088_5150_herc_gla`:
+
+    arm                                       running check   check 4
+    control                                   green           green
+    banks the interrupted AX ([bp+8*2])       RED             RED
+    banks the interrupted BX ([bp+7*2])       RED             RED
+    `mov ax, 0x4242` - every sample the same  RED             RED
+    ring store NOPped and the ring zeroed     RED             RED
+
+The two wrong-word arms are the defect this row's own docstring says checks
+1 to 3 can pass on, and they go red here only because a register sampled a
+dozen times over a flight reaches zero; **check 4 is what catches them for
+certain**, and it did - `1c20 1c20 1c20` against the `5fff` the machine is
+stuck at. So the ordering above is still the right one to believe.
+
 CHECK 2 USED TO SAY "the ring holds package addresses" AND THAT IS NOT TRUE
 OF THIS MACHINE. The ring banks whatever `int 08h` interrupted, which while
 the flight is running is regularly somewhere else: `cs_input` polls the
