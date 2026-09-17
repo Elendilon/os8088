@@ -127337,8 +127337,93 @@ in those words rather than as a blank line:
 | `00h` alone | it asked whether a mouse was installed, was told yes, and then gave up on the *next* function it tried |
 | `0Ch` or `14h` set | it installed an **event handler** and is waiting for callbacks this box does not make (§96.10.2's last bullet) |
 
-`DOSTRACE` only: the counter, its bss row and the host's read are all inside
-the `%ifdef`, so a shipped `DOS.O88` carries none of it.
+The buckets live in the trace **part**, beside the ring, and the only thing in
+the core's own bss is the **two bytes naming that part's segment**. That is not
+tidiness: `dos_int33` is core (§96.44), so §96.44.2 rule 2 forbids it a host
+bss cell and rule 1 forbids a `DBSS` row only one build emits — between them
+those two rules leave exactly this shape. A host that sets no segment counts
+nothing and stores nowhere, so `kern_dos` and the shipped box both read as
+silent.
+
+### 96.10.4 The event handler, and the tick it is called from
+
+`AX=000Ch` installs a far handler at `ES:DX` for the events in `CX`; `AX=0014h`
+does the same and hands the previous one back. **They answer nothing**, which
+is what makes them dangerous to get wrong: a program that installs a handler
+and is never called has been told a mouse exists and then never hears from it
+again, and has no way to tell that from a machine with no mouse. Microsoft
+Works is exactly that program — §96.10.3's histogram reads `00h`, `08h`, `0Ah`,
+`0Ch`, and then nothing at all. It never polls function 3.
+
+`AX=0000h` (reset) drops the handler, which is what a real driver does.
+A mask of zero, or a segment of zero, is the uninstall — both are how a program
+takes its handler back before freeing the code under it. The three stores that
+install one are a **critical section**: `dos_int33` `sti`s at its own first
+instruction, so a tick landing between the offset and the segment would find a
+new offset against the old segment, and that is a far call into whatever is
+there.
+
+The handler is entered with `AX` = the events that fired, `BX` = the button
+mask, `CX`/`DX` = the position in the 640x200 virtual units of §96.10, `SI`/`DI`
+= the mickeys, and `DS` = **ours** — the driver's own data segment, which is
+the convention, so a handler loads its own from `CS`.
+
+#### 96.10.4.1 The tick is the only thing that fires
+
+A real mouse driver dispatches from **its own interrupt** — the serial port's,
+or the aux port's. This box has neither: the kernel owns both ISRs and keeps
+`mouse_x`, `mouse_y` and `mouse_btn` fresh for the whole bracket (§53.1), which
+is what makes function 3 exact and costs a translation instead of a driver.
+What it does not give is a moment of *our* code running, and a callback needs
+one.
+
+Everywhere else the box gets control is the program calling **us** — and a
+program that installed a handler is precisely the program that has stopped
+calling. `dos_getkey` is no better: that is `INT 21h`'s key read, and an
+application with a mouse polls `INT 16h` itself.
+
+So the core chains **IRQ0**, `dos_pkt_tick`'s shape (§96.23.4) and by its rules
+— the chain goes first, so the tick reaches the kernel at the depth it always
+did. Two hooks compose, because both chain what they found. The hook is
+one-shot, and the unhook is `dos_restore_machine`'s whole-IVT restore (§96.5),
+so there is no way to leave a vector pointing into a bracket that has ended.
+
+**18.2 Hz** is coarser than a serial mouse's ~40 and it is what an 8088-era
+program gets from a tick; for a menu-driven application it is the difference
+between a mouse and none. Chaining the *mouse* IRQ would be better and is not
+free: the kernel knows which line it is and we would have to ask, and a PS/2
+mouse is a different line again (§9.9).
+
+The dispatcher does **not** go through `dos_mou_read`. That routine feeds
+`dos_mou_edge`, which is the press/release accumulator functions 5 and 6
+consume (§96.10.1) — and this runs from an interrupt that can land in the
+middle of `dos_int33` doing exactly that. A dispatcher sharing the accumulator
+would eat a click the program was about to be told about, intermittently. So
+it asks the host hook directly and keeps its own last-seen position and button
+mask, which nothing else reads. The state is banked **before** the call, never
+after: a callback may take longer than a tick, and a second one computing
+against the old position would report the same movement twice.
+
+#### 96.10.4.2 It runs on the program's stack, and that is the contract
+
+`dos_pkt_tick` switches to a private stack and says why: its own chain is
+`OSAPI_DRV_CALL` into the kernel, into the driver, into a byte-at-a-time DMA
+loop. This one's chain is about thirty bytes, and everything below that is the
+**program's own callback** — code the program wrote knowing it runs at
+interrupt time, which is what installing one means, on a stack IRQ0 already
+lands on every tick.
+
+A private stack would cost **256 bytes of the core's bss in every build**,
+resident, to defend against a program whose stack cannot take an interrupt —
+and such a program is already broken on any machine. If a real one turns up,
+the stack is the fix and this paragraph is the record of why it was not taken
+first.
+
+A callback may not call `INT 21h`. That is DOS's own rule for mouse callbacks
+and it binds here for a sharper reason: this box keeps the handle window and
+its owner in the core's bss, so a callback that re-enters `INT 21h` corrupts a
+transfer in flight. `[dos_m33bsy]` guards only our *own* re-entry — a callback
+still running when the next tick arrives.
 
 ### 96.11 File handles, built on an API that has none
 

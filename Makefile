@@ -5081,15 +5081,26 @@ $(BUILD)/WRGAP.COM: tests/dostrap/wrgap.asm | $(BUILD)
 $(BUILD)/wrgap360.img: $(BUILD)/WRGAP.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/WRGAP.COM
 
+# --- ...AND THE ONE THAT ASKS WHETHER OUR CODE EVER RUNS (SPEC.md 96.10.4) --
+# MOUEVT.COM installs an INT 33h event handler and counts what it is called
+# with. It needs no data file and no writable disk: what it tests is whether a
+# callback happens at all.
+$(BUILD)/MOUEVT.COM: tests/dostrap/mouevt.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/mouevt.asm
+
+$(BUILD)/mouevt360.img: $(BUILD)/MOUEVT.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MOUEVT.COM
+
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img $(BUILD)/wrgap360.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img $(BUILD)/wrgap360.img $(BUILD)/mouevt360.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"
 	@echo "          build/cwdsub.img for tests/kdcwd.py, and"
 	@echo "          build/dosbig144.img for tests/kdbigexe.py,"
 	@echo "          build/condev360.img for tests/dosdev.py and"
-	@echo "          build/wrgap360.img for tests/dosgap.py."
+	@echo "          build/wrgap360.img for tests/dosgap.py and"
+	@echo "          build/mouevt360.img for tests/dosmouevt.py."
 	@echo "          Run it with: python3 tests/kdpart.py"
 
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------

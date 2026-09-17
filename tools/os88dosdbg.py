@@ -255,7 +255,7 @@ def dos_syms(names, defines=("DOSTRACE",)):
 BSS = ("dos_tracen", "dos_tracew", "dos_trseg", "dos_trnm",
        "dos_trnmi", "dos_ldpsp", "dos_state", "dos_arena",
        "dos_apara", "dos_fhtab", "dos_wown", "dos_wlen",
-       "dos_wfill", "dos_wbytes", "dos_tr33",
+       "dos_wfill", "dos_wbytes",
        # ...and the rest of the WINDOW, which is the state a trace cannot
        # show at all (SPEC.md 96.11): every handle call goes through one
        # 8KB view and whether it is a view or an accumulator, whose it is,
@@ -265,14 +265,14 @@ BSS = ("dos_tracen", "dos_tracew", "dos_trseg", "dos_trnm",
        "dos_wseg", "dos_wbase", "dos_wdirty")
 CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
           "DOS_TRACE_KB",
-          "DOS_NFH", "DOS_FH0", "DOS_TR33_N",
+          "DOS_NFH", "DOS_FH0", "DOS_TR33_N", "DOS_TR33_OFF",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
 
 # INT 33h, by the numbers a 1987 program actually calls. The histogram
-# (SPEC.md 96.10.3) is one saturating byte per function, so what it needs on
-# this side is only a name per index - and a name matters here, because the
-# finding this exists for is a program calling ONE function we answer "not
-# supported" to and then waiting for ever.
+# (SPEC.md 96.10.3) is one saturating byte per function, in the trace PART
+# beside the ring, so what it needs on this side is only a name per index -
+# and a name matters here, because the finding this exists for is a program
+# calling ONE function we answer "not supported" to and then waiting for ever.
 INT33 = {
     0x00: "reset/installed?",   0x01: "show cursor",
     0x02: "hide cursor",        0x03: "position+buttons",
@@ -663,8 +663,11 @@ def cmd_trace(a):
         raw = bytes(m.read(base + sym["dos_trnm"], nm * 13))
         names = [raw[i * 13:(i + 1) * 13].split(b"\0")[0].decode("latin1")
                  for i in range(nm)]
-        # ...and the MOUSE, which the ring cannot carry (SPEC.md 96.10.3)
-        mou = bytes(m.read(base + sym["dos_tr33"], sym["DOS_TR33_N"]))
+        # ...and the MOUSE, which the ring cannot carry (SPEC.md 96.10.3).
+        # IN THE PART beside the ring, for the same reason the ring is:
+        # `dos_int33` is CORE, and 96.44.2 leaves it no host bss cell to use.
+        mou = bytes(m.read((trseg << 4) + sym["DOS_TR33_OFF"],
+                           sym["DOS_TR33_N"]))
 
         if a.shot:
             wd, ht, px = m.fbuf()

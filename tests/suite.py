@@ -3700,6 +3700,25 @@ SOAK = [
         "B against the build that shipped the defect.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/wrgap360.img")),
+    Row("dosmouevt", "soak", py("tests/dosmouevt.py"), 60.0,
+        "INT 33h's EVENT HANDLER IS CALLED (SPEC.md 96.10.4). Microsoft Works "
+        "'had a mouse' and had none, and 96.10.3's histogram says why in one "
+        "line: it calls 00h, 08h, 0Ah and 0Ch SET EVENT HANDLER, and then "
+        "NOTHING - it never polls function 3. A box whose functions 3, 5, 6 "
+        "and 0Bh are all exact and which answers 0Ch with `not supported` has "
+        "told a program a mouse exists and then never mentions it again, "
+        "which a program cannot tell from no mouse at all. THE ASSERTION IS "
+        "NOT `THE POINTER MOVES` - function 3 was correct throughout that "
+        "report. It is that OUR CODE RUNS: a far handler installed through "
+        "0Ch and called from the chained IRQ0 (96.10.4.1), with a position "
+        "that tracks the mouse the harness is moving. It moves RELATIVELY, "
+        "because this is motion with no destination. MOUEVT.COM runs under "
+        "this box and under a real DOS unchanged, and prints SKIP on a DOS "
+        "with no mouse driver rather than failing. Its last step is that the "
+        "handler STOPS when the program asks for none - a callback into code "
+        "that may since have been freed.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/mouevt360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

@@ -256,7 +256,17 @@ DOS_TRDUMPN equ 64                  ; ...and how many of them TRACE.LOG holds,
 ; bytes and no code.
 DOS_TRD_OFF equ 0                           ; the rendered dump...
 DOS_TRB_OFF equ DOS_TRDUMPN * 72            ; ...and THEN the ring
-DOS_TRACE_BY equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ + DOS_TRNM_N * 15 + 96
+DOS_TR33_OFF equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ
+                                            ; ...and the mouse histogram after
+                                            ; it, IN THE PART and not in bss
+                                            ; (SPEC.md 96.10.3): `dos_int33` is
+                                            ; CORE, so a host cell is one it
+                                            ; may not name at all (96.44.2
+                                            ; rule 2) and a conditional DBSS
+                                            ; row is refused by rule 1. What
+                                            ; the core owns is the SEGMENT,
+                                            ; two unconditional bytes
+DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_N + DOS_TRNM_N * 15 + 96
 DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
@@ -742,6 +752,8 @@ dos_entry:
     xor al, al
     call op_seg                     ; AX = the part's segment, or 0
     mov [dos_trseg], ax
+    mov [dos_m33seg], ax            ; ...and the CORE's own copy, which is what
+                                    ; `dos_int33` may name (SPEC.md 96.10.3)
     pop es
 %endif
 
@@ -10391,16 +10403,28 @@ dos_int33:
     ; a single 1 in a bucket we answer `not supported` to, which is a
     ; different finding, and no amount of reading our own INT 21h trace
     ; separates the two.
+    ;
+    ; **THE BUCKETS ARE IN THE PART AND THE SEGMENT IS THE CORE'S.** This
+    ; routine is core (96.44), so 96.44.2 rule 2 forbids it a host bss cell
+    ; and rule 1 forbids a DBSS row that only one build emits - which between
+    ; them leave exactly this shape. `[dos_m33seg]` is two unconditional core
+    ; bytes; a host that does not set it counts nothing and stores nowhere.
     push si
+    push es
+    mov si, [dos_m33seg]
+    or si, si
+    jz .tr33out                     ; no part: the trace is silent and the
+    mov es, si                      ; program runs, which is what OP_OPT means
     mov si, ax
     cmp si, DOS_TR33_N              ; anything above lands in the top bucket,
     jb .tr33in                      ; which is a reading and not a wild store
     mov si, DOS_TR33_N - 1
 .tr33in:
-    cmp byte [si+dos_tr33], 0xFF    ; saturating: a poll loop must not wrap the
-    je .tr33up                      ; count round to zero and read as "never
-    inc byte [si+dos_tr33]          ; called"
-.tr33up:
+    cmp byte [es:si+DOS_TR33_OFF], 0xFF ; saturating: a poll loop must not wrap
+    je .tr33out                         ; the count round to zero and read as
+    inc byte [es:si+DOS_TR33_OFF]       ; "never called"
+.tr33out:
+    pop es
     pop si
 %endif
 
@@ -10420,16 +10444,22 @@ dos_int33:
     je .release
     cmp ax, 0x0B
     je .motion
-    jmp short .none
+    cmp ax, 0x0C
+    je .setevt
+    cmp ax, 0x14
+    je .swpevt
+    jmp .none
 
 .reset:
     call dos_mou_zero              ; a reset clears the edge state with it
-    mov ax, 0xFFFF                 ; a mouse IS installed - and it is, whatever
-    mov bx, 2                      ; the machine has, because the kernel found
-    jmp short .out                 ; one at boot or the pointer would not move
+    call dos_m33_drop              ; ...and the EVENT HANDLER, which is what a
+    mov ax, 0xFFFF                 ; real driver's reset does (SPEC.md 96.10.4)
+    mov bx, 2                      ; a mouse IS installed - and it is, whatever
+    jmp .out                       ; the machine has, because the kernel found
+                                   ; one at boot or the pointer would not move
 .pos:
     call dos_mou_read              ; BX = the buttons, CX = x, DX = y
-    jmp short .out
+    jmp .out
 .press:
     mov si, bx                     ; the button asked about, banked before the
     call dos_mou_read              ; read overwrites BX with the live mask
@@ -10440,7 +10470,7 @@ dos_int33:
     xor bh, bh                     ; it is a count and not a flag
     mov cx, [dos_mou_px]
     mov dx, [dos_mou_py]
-    jmp short .out
+    jmp .out
 .release:
     mov si, bx
     call dos_mou_read
@@ -10455,6 +10485,69 @@ dos_int33:
 .motion:
     call dos_mou_delta             ; CX = dx, DX = dy since the last call -
     jmp short .out                 ; derived, see the header
+.setevt:
+    ; AX=000Ch: ES:DX = the handler, CX = the events it wants (SPEC.md
+    ; 96.10.4). It answers nothing, which is why the machinery below has to
+    ; be right the first time: a program that installs one and is never
+    ; called has been told a mouse exists and then never hears from it again,
+    ; and cannot tell that from no mouse at all. Microsoft Works is that
+    ; program - it calls 00h, 08h, 0Ah and this, and then NOTHING.
+    ; **THE THREE STORES ARE ONE**, and `dos_int33` `sti`'d at its own first
+    ; instruction, so the tick below can land between any two of them: an
+    ; offset stored against the PREVIOUS segment is a far call into whatever
+    ; is there. It is four bytes to make it impossible.
+    pushf
+    cli
+    mov [dos_m33h], dx
+    mov [dos_m33h+2], es
+    mov [dos_m33m], cx
+    popf
+    jcxz .evdrop                   ; a mask of nothing IS the uninstall, and so
+    cmp word [dos_m33h+2], 0       ; is a segment of zero: both are how a
+    je .evdrop                     ; program takes its handler back before it
+    call dos_m33_arm               ; frees the code under it
+    jmp short .evout
+.evdrop:
+    call dos_m33_drop
+.evout:
+    xor ax, ax                     ; 0Ch returns nothing; AX is not a status
+    jmp short .out
+.swpevt:
+    ; AX=0014h: the same, and it hands the OLD one back in ES:DX/CX. Fifteen
+    ; bytes on top of 0Ch, and it is what a program that installs a handler
+    ; around one operation uses to put the previous one back.
+    push cx
+    push dx
+    push es
+    pushf                          ; the OUT and the IN are one section, for
+    cli                            ; .setevt's reason
+    mov cx, [dos_m33m]
+    mov dx, [dos_m33h]
+    mov ax, [dos_m33h+2]
+    mov [dos_m33om], cx
+    mov [dos_m33oh], dx
+    mov [dos_m33oh+2], ax
+    pop es
+    pop dx
+    pop cx
+    mov [dos_m33h], dx
+    mov [dos_m33h+2], es
+    mov [dos_m33m], cx
+    popf
+    jcxz .swdrop
+    cmp word [dos_m33h+2], 0
+    je .swdrop
+    call dos_m33_arm
+    jmp short .swout
+.swdrop:
+    call dos_m33_drop
+.swout:
+    mov cx, [dos_m33om]
+    mov dx, [dos_m33oh]
+    mov ax, [dos_m33oh+2]
+    mov es, ax
+    xor ax, ax
+    jmp short .out
 .none:
     xor ax, ax                     ; INT 33h's "not supported"
 .out:
@@ -10462,6 +10555,196 @@ dos_int33:
     pop si
     pop ds
     pop bp
+    iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_arm - hook IRQ0 so the event handler has something to be called from
+; clobbers: nothing
+;
+; **THE TICK IS THE ONLY THING THAT FIRES** (SPEC.md 96.10.4.1). A real mouse
+; driver dispatches from its OWN interrupt - the serial port's, or the aux
+; port's - and this box has neither: the kernel owns both ISRs and keeps
+; `mouse_x`/`mouse_y`/`mouse_btn` fresh for the whole bracket (SPEC.md 53.1),
+; which is what makes function 3 exact and costs a translation instead of a
+; driver. What it does not give is a moment of OUR code running, and a
+; callback needs one.
+;
+; Everything else the box gets control at is the program calling us, and a
+; program that installed a handler is precisely the program that has stopped
+; calling: Works installs one and never touches INT 33h again. `dos_getkey`
+; is no better - that is INT 21h's key read, and an application with a mouse
+; polls INT 16h itself.
+;
+; So: chain IRQ0. 18.2 Hz is coarser than a serial mouse's ~40 and it is what
+; an 8088-era program gets from a tick; for a menu-driven application it is
+; the difference between a mouse and none. Chaining the MOUSE IRQ would be
+; better and is not free - the kernel knows which one it is and we would have
+; to ask, and a PS/2 mouse is a different line again (SPEC.md 9.9).
+;
+; THE HOOK IS ONE-SHOT and the unhook is `dos_restore_machine`'s, which puts
+; the WHOLE IVT back (96.5) - so a second 0Ch re-arms nothing and there is no
+; way to leave a vector pointing into a bracket that has ended.
+; -----------------------------------------------------------------------------
+dos_m33_arm:
+    cmp byte [dos_m33hk], 0
+    jne .out
+    push ax
+    push es
+    pushf                           ; pushf/cli/popf and never cli/sti - this
+    cli                             ; is reached from `dos_int33`, whose own
+    xor ax, ax                      ; caller's IF is not ours to set
+    mov es, ax
+    mov ax, [es:0x08*4]             ; whatever is there NOW, which on a machine
+    mov [dos_m33old], ax            ; with the packet driver up is its own tick
+    mov ax, [es:0x08*4+2]           ; (96.23.4) - two hooks compose, because
+    mov [dos_m33old+2], ax          ; both chain what they found
+    mov word [es:0x08*4], dos_m33_tick
+    mov [es:0x08*4+2], cs
+    mov byte [dos_m33hk], 1
+    popf
+    pop es
+    pop ax
+.out:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_drop - forget the handler; the VECTOR stays hooked
+; clobbers: nothing
+;
+; Unhooking would mean putting back a vector that a third party may have
+; hooked since, which is the classic way to lose an interrupt chain. The
+; dispatcher's first test is the handler's segment, so a dropped handler costs
+; a compare and a jump per tick and nothing else.
+; -----------------------------------------------------------------------------
+dos_m33_drop:
+    pushf
+    cli
+    mov word [dos_m33h+2], 0        ; the SEGMENT first: it is the dispatcher's
+    mov word [dos_m33h], 0          ; own test, so a tick landing mid-drop sees
+    mov word [dos_m33m], 0          ; a handler that is already gone
+    popf
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_tick - IRQ0, chained, and the program's callback out of it
+;
+; **THE CHAIN GOES FIRST**, `dos_pkt_tick`'s rule (96.23.4.1) and for its
+; reason: the tick reaches the kernel at the depth it always did.
+;
+; **IT DOES NOT GO THROUGH `dos_mou_read`.** That routine feeds
+; `dos_mou_edge`, which is the press/release accumulator functions 5 and 6
+; consume (96.10.1) - and this runs from an interrupt that can land in the
+; middle of `dos_int33` doing exactly that, `dos_int33` having `sti`'d at its
+; own first instruction. A dispatcher that shared the accumulator would eat a
+; click the program was about to be told about, intermittently. So it asks
+; the host hook directly and keeps its OWN last-seen state, which nothing
+; else reads.
+;
+; **IT RUNS ON THE PROGRAM'S STACK, and that is the contract rather than a
+; shortcut** (96.10.4.2): the callback is program code entered at interrupt
+; time, which is what installing one means, and IRQ0 already lands on that
+; stack every tick. A private stack would cost 256 bytes of the core's bss in
+; every build, resident, to defend against a program whose stack cannot take
+; an interrupt - and such a program is already broken on any machine.
+; -----------------------------------------------------------------------------
+dos_m33_tick:
+    pushf                           ; the chain, exactly as an `int` would
+    call far [cs:dos_m33old]        ; have entered it - and through CS, since
+                                    ; DS is the interrupted program's
+    push ax
+    push ds
+    push cs
+    pop ds
+    cmp word [dos_m33h+2], 0        ; no handler: two instructions a tick
+    je .out
+    cmp byte [dos_m33bsy], 0        ; a callback that ran long enough to be
+    jne .out                        ; interrupted by the next tick
+    mov byte [dos_m33bsy], 1
+
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    xor bx, bx                      ; the LIVE pointer, from the host (96.44.3)
+    xor cx, cx
+    xor dx, dx
+    cmp word [dos_hkv + DHK_MOUSE], 0
+    je .nothing
+    call word [dos_hkv + DHK_MOUSE] ; BX = buttons, CX = x, DX = y
+
+    ; --- which of INT 33h's five conditions have happened since last time ---
+    xor ax, ax
+    cmp cx, [dos_m33lx]
+    jne .moved
+    cmp dx, [dos_m33ly]
+    je .nomove
+.moved:
+    or al, 1
+.nomove:
+    mov ah, [dos_m33lb]
+    mov si, bx                      ; SI = the live mask, AH = the last one
+    test si, 1
+    jz .lup
+    test ah, 1
+    jnz .rbtn
+    or al, 2                        ; left DOWN
+    jmp short .rbtn
+.lup:
+    test ah, 1
+    jz .rbtn
+    or al, 4                        ; left UP
+.rbtn:
+    test si, 2
+    jz .rup
+    test ah, 2
+    jnz .evdone
+    or al, 8                        ; right DOWN
+    jmp short .evdone
+.rup:
+    test ah, 2
+    jz .evdone
+    or al, 16                       ; right UP
+.evdone:
+    ; --- the mickeys, DERIVED from the position (96.10.2's last bullet) -----
+    mov si, cx
+    sub si, [dos_m33lx]
+    mov di, dx
+    sub di, [dos_m33ly]
+
+    ; --- and the state is banked BEFORE the call, never after: the callback
+    ; may take longer than a tick, and a second one that recomputed against
+    ; the old position would report the same movement twice
+    mov [dos_m33lx], cx
+    mov [dos_m33ly], dx
+    mov [dos_m33lb], bl
+
+    xor ah, ah
+    and ax, [dos_m33m]              ; only what the program asked for
+    jz .nothing
+    call far [dos_m33h]             ; AX = the events, BX = the buttons,
+                                    ; CX/DX = where, SI/DI = the mickeys, and
+                                    ; DS = OURS, which is the driver's own -
+                                    ; a handler sets up its own from CS
+.nothing:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    mov byte [dos_m33bsy], 0
+.out:
+    pop ds
+    pop ax
     iret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -11308,17 +11591,6 @@ DOS_CBASE   equ os88_image_end
                                         ; the call was filtered out
     HBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     HBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
-    HBSS DOS_B_TR33,   DOS_TR33_N           ; **THE MOUSE HISTOGRAM** (96.10.3):
-                                            ; one byte per INT 33h function,
-                                            ; saturating. The ring cannot carry
-                                            ; INT 33h - every host-side decoder
-                                            ; in os88dosdbg reads an entry as an
-                                            ; INT 21h call - and the question
-                                            ; "which mouse functions does this
-                                            ; program even ASK for" needs no
-                                            ; ordering and no arguments to
-                                            ; answer, so a counter per function
-                                            ; is the whole instrument
     HBSS DOS_B_TRSEG,  2        ; THE PART'S SEGMENT, banked by dos_entry.
                                 ; 0 = the part was refused (it is OP_OPT), and
                                 ; dos_trace tests it: an instrument that
@@ -11340,6 +11612,27 @@ DOS_CBASE   equ os88_image_end
     DBSS DOS_B_MPY,   2        ; between the buttons (SPEC.md 96.10.1)
     DBSS DOS_B_MRX,   2
     DBSS DOS_B_MRY,   2
+    DBSS DOS_B_M33H,   4        ; the INT 33h EVENT HANDLER (SPEC.md 96.10.4),
+                                ; segment 0 = none...
+    DBSS DOS_B_M33M,   2        ; ...and the events it asked for
+    DBSS DOS_B_M33OH,  4        ; the one function 14h displaced, staged across
+    DBSS DOS_B_M33OM,  2        ; the swap because ES:DX/CX are the ANSWER
+    DBSS DOS_B_M33OLD, 4        ; whatever was on IRQ0 when we hooked it
+    DBSS DOS_B_M33LX,  2        ; where the pointer was at the LAST DISPATCH -
+    DBSS DOS_B_M33LY,  2        ; ours alone, never dos_mou_edge's, which
+    DBSS DOS_B_M33LB,  1        ; functions 5 and 6 consume (96.10.4.1)
+    DBSS DOS_B_M33HK,  1        ; 1 = IRQ0 is hooked, and it is hooked ONCE
+    DBSS DOS_B_M33BSY, 1        ; 1 = a callback is running below us
+    DBSS DOS_B_M33SEG, 2        ; **WHERE THE MOUSE HISTOGRAM LIVES** (SPEC.md
+                                ; 96.10.3), 0 = nowhere. UNCONDITIONAL and in
+                                ; the CORE's block, which is what 96.44.2's
+                                ; first two rules leave: `dos_int33` is core,
+                                ; so it may not name a host cell, and a row
+                                ; only the DOSTRACE build emits would move
+                                ; every core cell after it. Two bytes in every
+                                ; build buy an instrument that costs the
+                                ; shipped one no code at all - the 32 buckets
+                                ; are in the trace PART, at DOS_TR33_OFF
     DBSS DOS_B_IMGHI, 2
     DBSS DOS_B_XFSEG, 2
     DBSS DOS_B_XLSEG, 2
@@ -16551,6 +16844,17 @@ dos_mpy equ dos_hbss + DOS_B_MSY    ; word: ...and its y (SPEC.md 96.36.4)
 dos_pic1    equ DOS_CBASE + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ DOS_CBASE + DOS_B_PIC2    ; byte:
 dos_isexe   equ DOS_CBASE + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
+dos_m33seg  equ DOS_CBASE + DOS_B_M33SEG  ; word: the trace part, or 0 (96.10.3)
+dos_m33h    equ DOS_CBASE + DOS_B_M33H    ; --- the event handler (96.10.4) ---
+dos_m33m    equ DOS_CBASE + DOS_B_M33M
+dos_m33oh   equ DOS_CBASE + DOS_B_M33OH
+dos_m33om   equ DOS_CBASE + DOS_B_M33OM
+dos_m33old  equ DOS_CBASE + DOS_B_M33OLD
+dos_m33lx   equ DOS_CBASE + DOS_B_M33LX
+dos_m33ly   equ DOS_CBASE + DOS_B_M33LY
+dos_m33lb   equ DOS_CBASE + DOS_B_M33LB
+dos_m33hk   equ DOS_CBASE + DOS_B_M33HK
+dos_m33bsy  equ DOS_CBASE + DOS_B_M33BSY
 %ifdef DOSTRACE
 dos_tracen equ dos_hbss + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew equ dos_hbss + DOS_B_TRACEW  ; word: its ring write index
@@ -16563,7 +16867,6 @@ dos_traceb  equ DOS_TRB_OFF         ; **AN OFFSET IN THE PART, NOT IN US**
 dos_tracei equ dos_hbss + DOS_B_TRACEI  ; ...the live entry's offset
 dos_trnm equ dos_hbss + DOS_B_TRNM   ; the names passed in
 dos_trnmi equ dos_hbss + DOS_B_TRNMI  ; ...how many so far
-dos_tr33  equ dos_hbss + DOS_B_TR33   ; DOS_TR33_N bytes: INT 33h per function
 dos_trdump  equ DOS_TRD_OFF         ; ...rendered, for the file - and in the
                                     ; part beside the ring. OSAPI_FILE_WRITE
                                     ; takes ES:BX, so handing it over costs
