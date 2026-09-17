@@ -129150,6 +129150,48 @@ those two rules leave exactly this shape. A host that sets no segment counts
 nothing and stores nowhere, so `kern_dos` and the shipped box both read as
 silent.
 
+
+##### 96.10.3.1 The slot is a count AND the arguments, and both sides keep the same one
+
+**A count alone answers *which*, and every design question here is *with
+what*.** `0Ch`'s event MASK decides whether a callback is eligible at all, and
+`0Ah`'s `BX` picks the software cursor over the hardware one — so a slot that
+said only "0Ch was called four times" could not tell a program that asked for
+no events from one this box answered wrongly. A slot is therefore
+`DOS_TR33_SZ` = **8 bytes: the count, then `BX`, `CX` and `DX` as they were at
+the LAST call of that function**, over `DOS_TR33_N` = 32 functions.
+
+**And one more slot after the 32, counting the callbacks the box actually
+MADE.** Without it, *"the program asked for events and then did nothing
+further"* has two readings — we never called it, or we called and it ignored
+us — and those are opposite defects. `DOS_TR33_CB` is that slot.
+
+**THE SAME SHAPE ON BOTH SIDES OF THE COMPARISON.** `tests/dostrap/trap.asm`
+is the reference driver a trace is diffed against, and its `NENT33` / `SZ33`
+are the box's `DOS_TR33_N` / `DOS_TR33_SZ` — `tools/os88dosdbg.py` asserts the
+equality rather than assuming it, so **one host-side reader decodes both sides
+of a diff**. A shape that drifted would compare a box against a reference
+through two different decoders, which is the one way this instrument could
+answer confidently and wrongly.
+
+The block carries a signature of its own, `DOSTRP33`, and not a bump of
+`DOSTRAP1`'s: a reader that predates the histogram then finds the ring,
+decodes it and stops, rather than walking off the end of a record it thinks it
+understands.
+
+##### 96.10.3.2 ...and the ORDER, which is the thing a histogram cannot say
+
+A histogram says a program asked for four functions. **It cannot say that the
+program asked for them and then STOPPED**, and that is the whole shape of the
+failure this instrument was built for: Microsoft Works parts from a real
+driver's sequence somewhere after `0Ch`, and a count per function cannot name
+where.
+
+So `DOS_TR33_SEQN` = **96 bytes, one per call, in order** — and then nothing.
+**The first 96 and not the last 96**, which is the decision in the row: what
+is wanted is the INIT, and a ring would spend its whole length on the poll
+loop that follows it. `tests/dostrap/trap.asm`'s `SEQ33` is the same 96 for
+§96.10.3.1's reason, so the same reader decodes both.
 ### 96.10.4 The event handler, and the tick it is called from
 
 `AX=000Ch` installs a far handler at `ES:DX` for the events in `CX`; `AX=0014h`
