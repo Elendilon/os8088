@@ -1,7 +1,7 @@
 # BUTTON-GESTURE-PLAN.md — the button is the one control the SDK never composed
 
-**STATUS: APPROVED AND BEING BUILT.** The owner approved it on 2026-09-17 with
-two changes, both folded in: `os88ui_btn` **becomes** the control rather than a
+**STATUS: BUILT, and the defect class is CLOSED.** The owner approved it on 2026-09-17 with
+two changes, both folded in and both built: `os88ui_btn` **becomes** the control rather than a
 second one being added beside it (BUTTON-GESTURE-PLAN §5), and the latched
 pressed state is generic `OS88UI_LATCH` rather than Audio's private case
 (BUTTON-GESTURE-PLAN §5.3). Measured on `elendilon-next` at
@@ -285,6 +285,27 @@ release fires or cancels, and the control does not un-draw while the pointer
 slides off. That is strictly better than today and is what the kernel's own
 dialogs do there. `os88ui_btninit` ignores that `CF` deliberately — a package
 must not have to ask.
+
+## 5.5 WHAT IS BUILT, AND WHAT IS STILL ON THE SCAFFOLD
+
+**The control, the flag, the gate and the driven test are built**, and **all
+ten press-fired carriers are converted** — dos, sheet, word, scribe, thewire,
+telnet, browser, notepad, artful, audio. That is the whole defect class: every
+button that fired on the press now fires on the release and inverts while held.
+
+`os88ui_btnraw` is the old loose-register painter, kept as the drawing body and
+as an explicit **SCAFFOLD**. Twenty-five call sites are still on it — every one
+of them **already release-fired** through a gesture of its own (a package arm,
+or the Control Panel's `cp_ctl`/`cp_pgprobe` probe, §13.8.3/§13.8.4), so none
+of them is the defect. Converting them is the consistency-and-size half and it
+is BUTTON-GESTURE-PLAN §8 step 7. `tests/btnsites.txt` holds the line: the raw
+count may only go **down**, and a new raw caller fails the build.
+
+The scaffold exists because the alternative was worse. A missed conversion
+**assembles cleanly** — a rect and a record are both just a word — so a
+big-bang rename would have left silently wrong buttons that no gate could see.
+On `os88ui_btnraw` an unconverted caller builds and behaves exactly as it did
+before.
 
 ## 6. THE GATE — `tests/btnsites.txt`
 
