@@ -30940,10 +30940,10 @@ derives is still the ceiling, and the shipped width is a decision below it. Read
 this for the arithmetic that bounds the constant and that one for what picks it.
 
 `DSK_RAH_RUNS` was **14**, and the ceiling is arithmetic rather than tuning.
-`dsk_rah_have` derives a cached sector's address as **one 16-bit offset** from
+`dsk_rah_serve` derives a cached sector's address as **one 16-bit offset** from
 `dsk_rah_seg` — `(slot × DSK_RAH_SECS + delta) << 9` — so the whole cache has
 to fit one segment: `RUNS × SECS ≤ 128`, which at a 9-sector chunk is 14 runs
-and 63KB. **15 wraps the offset silently**: `dsk_rah_take` would serve a
+and 63KB. **15 wraps the offset silently**: `dsk_rah_serve` would copy a
 sector from the front of the cache, the data would be wrong, and nothing
 anywhere would report it. There is a `%error` on it.
 
@@ -31314,11 +31314,17 @@ competing for — which is §18.95.4's curve doing what it said it would: the
 first 4.5 KB buys 72% and the last 27 KB buys 4%.
 
 **Only the round-robin bound had to become dynamic.** `dsk_rah_flush` still
-clears all `DSK_RAH_RUNS` records — 126 bytes of `.bss`, already paid, and
+clears all `DSK_RAH_RUNS` records — 63 bytes of `.bss`, already paid, and
 clearing slots that no memory backs is free — which is what makes every other
-loop safe: `dsk_rah_take` never writes a slot at or above `[dsk_rah_runs]`, so
+loop safe: `dsk_rah_fill` never writes a slot at or above `[dsk_rah_runs]`, so
 the ones above it hold `RAH_N` = 0 for ever and every scan skips them. The
 scans read the live count anyway, for the cycles rather than for correctness.
+
+**`[dsk_rah_next]` is a SLOT INDEX and not a byte offset** (§18.95.9), so that
+bound is read straight out of `[dsk_rah_runs]` at the one place it binds, and
+no second copy of the width exists anywhere to go stale. `kd_shed`
+(§96.44.11) narrows that word from another file entirely, which is exactly the
+kind of writer a mirrored bound is unsafe against.
 
 **There is no grow path and there does not need to be one.** Every claim sizes
 itself from what is free at that moment, and the cache is purgeable (§50.6),
@@ -31407,8 +31413,8 @@ a cap of 0 lands below `DSK_RAH_MIN` and refuses at the floor's own compare, so
 *hold nothing* is the same two instructions as *too small to be worth having*.
 
 **A ceiling that does not change does nothing at all**, and any other value
-**re-solves** — `dsk_rah_drop` then `dsk_rah_want`, whichever way the cap
-moved. The first half is what makes *asking* free: `DSK_RAH_AUTO` on a machine
+**re-solves** — `dsk_rah_redo`, which is the drop falling through into
+`dsk_rah_want`, whichever way the cap moved. The first half is what makes *asking* free: `DSK_RAH_AUTO` on a machine
 that has commanded nothing is a compare and a return, which is why the DOS
 box's Memory page can read the width back on every paint (§96.36.6).
 
@@ -31423,22 +31429,118 @@ the caller that commanded it down is the one whose program has just been all
 over the disk.
 
 A refused drop — `[dsk_rah_busy]`, a fill in flight — leaves the old width
-standing, `dsk_rah_want` returns at its own guard, and **AX reports what is
-really there** rather than what was asked for. That is the only case where the
+standing, the `dsk_rah_want` it falls into returns at its own guard, and
+**AX reports what is really there** rather than what was asked for. That is the only case where the
 answer and the request differ without CF being set, and it is why the answer is
 a number rather than an acknowledgement.
 
-`dsk_rah_drop` is `mem_shed_one`'s ending without its scan, and it refuses
-while `[dsk_rah_busy]` is set. That cannot be *our* fill — the transfer holds
-`[sch_lock]` — but `dsk_rah_fill` raises the flag two instructions before the
-lock is taken, and a tick landing in that window leaves a task that is about to
-write into the claim. Five bytes, so the question does not arise.
+`dsk_rah_redo`'s first half is `mem_shed_one`'s ending without its scan, and it
+refuses while `[dsk_rah_busy]` is set. That cannot be *our* fill — the transfer
+holds `[sch_lock]` — but `dsk_rah_fill` raises the flag two instructions before
+the lock is taken, and a tick landing in that window leaves a task that is about
+to write into the claim. Five bytes, so the question does not arise. **The CF it
+answers is read by nobody** — a refused drop wants the solve attempted anyway,
+and the solve refuses at its own guard — which is why the drop and the solve are
+one fall-through and not two calls (§18.95.9).
 
 **A REUSED CELL.** 0x0300 was `OSAPI_GFX_LINIT`, retired with the rest of
 §5.12.7's walk, so the table does not grow. A retired cell answers CF=1 and
 every caller of one has to test CF (§5.12.7), so there is no program that
 reaches this number and would notice. `OSAPI_DRV_CLASSK` took 0x0580 the same
 way in the same cycle.
+
+#### 18.95.9 …and the whole of it is 530 resident bytes, after a size pass
+
+The cache is **`.cold`, and `.cold` is resident** — it rides between the image
+rung and the FAT window inside `KERN_SIZE`'s span (§2.6), so every byte of it
+comes off the heap and therefore off the DOS arena, byte for byte, on both
+kernels. That is what makes a size pass over it worth taking: the surface was
+**651 bytes** (17 `.text` + 634 `.cold`) and is **530** (17 + 513), with the
+transfer loop's own call site 17 bytes shorter besides and three words of
+`.bss` gone with the routines that passed them through. Measured:
+
+| | `.text` | `.bss` | `.cold` | sum |
+|---|---:|---:|---:|---:|
+| `kern_big` | 49,891 → 49,891 | 6,092 → 6,086 | 40,899 → 40,761 | **−144** |
+| `kern_small` | 37,263 → 37,263 | 4,179 → 4,173 | 26,588 → 26,450 | **−144** |
+
+Identical because none of it is behind a build gate. No rung uncrossed, which
+per this file's own banner is not the point.
+
+Four of the six cuts are the same finding: **one question was being asked
+twice.**
+
+**`dsk_rah_serve` is `dsk_rah_have` + `dsk_rah_take` + the call site's branch
+ladder.** `dsk_xfer` used to call `take`, then `len`, then compare, then
+`fill`, then call `take` **again** — and the second `take` re-scanned the whole
+slot table to find the record the fill had just written, "which covers DI by
+construction". One routine holds that record in SI across the fill instead, so
+a miss that fills walks the table **once** rather than twice, and the two words
+of `.bss` the pair used to pass its answers through (`dsk_rah_rem`,
+`dsk_rah_got`) are gone with it. 153 bytes + 25 at the call site → 107 + 8.
+
+**`dsk_rah_len` is `dsk_rah_fill`'s first act**, because §18.95.1's pollution
+gate and the fill are the same divide. The old routine's own header said its
+*"OTHER caller is the pollution gate"*, and the gate called it and then called
+`fill`, which called it again. The fill now answers CF=1 to *no surplus* and to
+*the read failed* alike, which is what the one caller did with them anyway.
+
+**The round-robin cursor is a SLOT INDEX**, not a byte offset. The offset form
+made `RAH_REC` cancel out of one shift, and the price was recomputing
+`runs × 9` at every fill to know where to wrap — 19 bytes of shift-and-add
+inside `push ax`/`push bx`. An index wraps against `[dsk_rah_runs]` itself, so
+**no second copy of the width exists**: `kd_shed` (§96.44.11) narrows that word
+from `kerndos/kdshim.inc`, and a mirrored bound is exactly what a writer in
+another file breaks silently — a cursor past the new width fills a slot no
+memory backs. `[dsk_rah_slot]` went with it.
+
+**`dsk_rah_want` writes the width only once the memory is really there.** It
+used to store `[dsk_rah_runs]`, claim, and zero the word again on the refusal —
+two stores and a jump to end where a refusal already ends, and a window in
+which the word described a cache that did not exist.
+`kerndos/kdshim.inc`'s `mem_avail_lvl_x` carries a paragraph about answering 0
+rather than letting the claim be refused, *"to keep `dsk_rah_want` off its own
+floor test"*, for precisely that reason; the order here makes the hazard
+structural instead of avoided. The KB is `mul cx` against the **same CX the
+divide two lines up was given**, which is eight bytes and a stronger invariant
+than the shift-add it replaces — the multiplier can no longer drift from the
+divisor because it is not a second spelling of it.
+`tests/unit/t_dirwsize.py` is the row, and it checks that nothing writes CX
+in between.
+
+**`dsk_rah_drop` is `dsk_rah_redo` and falls through into `dsk_rah_want`**, its
+only caller having wanted the pair. Its CF is read by nobody.
+
+And `dsk_rah_wr` tests the overlap with two unsigned **subtracts** rather than
+two sums — `first − chunk_start < chunk_n`, or `chunk_start − first < count` —
+which needs one scratch register where a sum needed AX saved and restored
+around every iteration. The volume moves into DH beside a byte-wide slot
+counter in DL, since the width cannot exceed `DSK_RAH_RUNS`. The volume extent
+and the chunk cap became **one minimum** rather than two branches, because
+*past the end* already means *ask for one*, which is the minimum against 1.
+
+**What it does to the CLOCK**, since a size pass may not quietly cost speed.
+The two hot paths get faster: a hit is one scan minus a `call`/`ret` and a
+nested prologue, a fill saves a whole table walk (up to 7 slots × 13
+instructions) and a `div`, and `dsk_rah_wr`'s loop body goes from 15
+instructions to 12. Two **cold** paths pay ~114 cycles each for `mul` where a
+shift chain stood: once per MOUNT, against several ~24 ms sectors, and once per
+FILL, against a ~400 ms `int 13h`.
+
+**What was priced and refused**, so it is not re-derived:
+
+| | why not |
+|---|---|
+| a shared table scan for `dsk_rah_serve` and `dsk_rah_wr` | ~45 bytes for the resumable primitive plus ~12 at each of two call sites against 71 inline — **saves 2**, and the two want different registers live and disagree about the signature test |
+| folding `OSAPI_DSK_CACHE` into another slot as an `AH` verb, §51.11's shape | the cell is 3 bytes of table and a door is 6–9 (§20.3.1's free list is empty, so only a TAIL cell retires cleanly) — **costs 4** |
+| one key word per slot, `[dsk_sigcur]` mixed with the volume index | 19 bytes, for a **new collision class**: two volumes whose signatures differ by exactly the drive delta would serve each other's sectors, silently |
+| `dsk_rah_flush` via `stosw`, or zeroing the whole 63-byte table | ES is not `KERNEL_SEG` in kernel code, so it costs a push, a load and a pop — **+1** |
+| a blanket drop in `dsk_rah_wr` instead of the range test | 69 bytes, and it is §18.95's measured behaviour: a copy's writes are file data, and dropping on those evicts the source's chunks on every one |
+| a stored `[dsk_rah_lim]` = `runs × RAH_REC` for the fill's wrap | −15 in the fill for +3 in the solve and a word of `.bss` — but it is a **mirror**, and `kd_shed` is in another file. The slot index is 19 better *and* mirror-free |
+| hoisting `[disk_drive]`/`[dsk_sigcur]` out of `dsk_rah_serve`'s scan | 6 bytes a loop, and **there is no free register** — six values are live in six. Putting the volume in CH (the width is a byte) forces `dec cl`/`jnz` over `loop` and a 4-byte load: −3 inside, +6 outside, **+3** |
+| moving §18.95's four-test gate off `dsk_xfer` into `dsk_rah_serve` | 4 × 7 = 28 at the site against 28 plus a `stc`/`ret` exit in the routine — **+2** |
+| a table for the solve instead of the divide-and-clamp ladder | the ladder is a `div` (7) and three compares (21). A table indexed by KB wants hundreds of entries; a range search over it is longer than 21 |
+| merging `dsk_rah_redo` into `osapi_dsk_cache_x` outright | a published slot preserves every register but its outputs, so the pushes stay: the saving is the `call`/`ret`, and it would put the drop out of reach of any second caller. The fall-through gets 12 bytes with neither cost |
 
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 
@@ -132003,9 +132105,10 @@ So the middle rungs still want a **width cap** in `dsk_rah_want`, and
 §18.95.8 is that, **taken**. The estimate here was *"a word of `.bss` read at
 its `.width` clamp, plus a door to set it and a forced shed — about thirty
 resident bytes"*, and the honest figure is **101**: `.text` +1 (the cap is a
-BYTE, not a word) and `.cold` +100. Thirty was the clamp alone; the door,
-`dsk_rah_drop` and the re-arm are the other 71, and the re-arm is the half this
-paragraph had not thought of. No rung moved — which per this file's own banner
+BYTE, not a word) and `.cold` +100. Thirty was the clamp alone; the door, the
+drop and the re-arm are the other 71, and the re-arm is the half this
+paragraph had not thought of. (The drop is `dsk_rah_redo` since §18.95.9,
+which gave 12 of those 101 back by falling through into the solve.) No rung moved — which per this file's own banner
 is not the point, and the bytes are what is billed.
 
 **The doubling was NOT spent, and it does not bite.** `2 × n × 4.5 ≤ free` is
@@ -134406,7 +134509,7 @@ whether or not something else is living in the top of it — and it is why
 they were cut from rather than anything the program prints.
 
 Two things it cost, and the second is the sharper one. A program that used its
-top pages wrote over the cache, and `dsk_rah_have` then served **the program's
+top pages wrote over the cache, and `dsk_rah_serve` then served **the program's
 own bytes back as disk sectors** for the rest of the session. And
 `[dos_ldpara]` is what bounds `dos_load`'s READ, so an image large enough to
 reach the cache was read straight over it — on exactly the large programs this
