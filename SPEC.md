@@ -133471,6 +133471,15 @@ image's length is a test that has not been written down**. Nothing was wrong
 with the size pass; any change of size anywhere in the image re-rolls which
 byte of the boot sector the block lands on, and half the rolls are green.
 
+**And it re-rolled again while this was being fixed**, which is the claim above
+made good rather than argued. §96.12.4's AH=43h work added 68 bytes to
+`apps/dos/dos.asm`; `kd_glb` moved *up* to `KD_SEG:0x76C0`, `KDL_DPT` landed at
+boot-sector **+0xD0** instead of +0x8C, and the eleven bytes copied into
+`dsk_dpt` became `0A 00 6B 64 62 6F 6F 74 3A 20 67` — the loader's own
+`kdboot: g` string instead of its CHS arithmetic. A different eleven bytes,
+the same AH=09h, the same sentence on the glass. Two independent commits, in
+opposite directions, both landing on a non-zero byte.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
