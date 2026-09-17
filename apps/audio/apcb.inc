@@ -134,8 +134,6 @@ ap_onclick:                        ; CX = x, DX = y (SCREEN); SI = window
     call apu_layout
     call apu_baim                   ; the rects the press is about to be tested
                                     ; against, from the origin just read
-    mov bx, apu_btrec               ; **THEY ONLY ARM** (SPEC.md 13.6): Play,
-    call os88ui_btnpress            ; Stop and the rest all change what the
                                     ; machine is doing, so a mis-aimed press
                                     ; must be cancellable. ap_onup has the
                                     ; action

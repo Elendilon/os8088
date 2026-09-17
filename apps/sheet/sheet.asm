@@ -6815,7 +6815,7 @@ SH_FDLG_H      equ SH_FDLG_BTY2 + SH_DLG_BMARG + TITLE_H + 1
 
 sh_fdlg_tpl:
     dw 0, 0, SH_FDLG_W, SH_FDLG_H
-    dw 0, sh_fdlg_paint, 0, sh_fdlg_onclick
+    dw 0, sh_fdlg_paint, 0, 0    ; W_ONCLICK: os88ui_btninit's (20.5.1.3.3)
 
 ; Stage 2.x's Edit menu Insert.../Delete... reuse this same engine as kinds
 ; 3 and 4 - just a 2-item Row/Column pick instead of a 4-item format
@@ -7091,11 +7091,14 @@ sh_fdlg_open:
     push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
+    push dx
     mov ax, bx
     mov bx, sh_fdlg_btrec
     mov si, sh_fdlg_onup
     mov di, sh_fdlg_ondrag
-    call os88ui_btninit
+    mov dx, sh_fdlg_onclick           ; our own click work; the library takes
+    call os88ui_btninit             ; the press first (SPEC.md 20.5.1.3.3)
+    pop dx
     pop di
     pop si
     pop bx
@@ -7236,13 +7239,6 @@ sh_fdlg_onclick:
     push di
     push cx
     push dx
-    mov bx, sh_fdlg_btrec              ; **THE BUTTONS FIRST, AND THEY ONLY
-    call os88ui_btnpress               ; ARM** (SPEC.md 13.6): CX/DX are the
-    or ax, ax                          ; SCREEN point, which os88ui_btnpress
-    jz .rows                           ; preserves. This used to be two ladders
-    pop dx                             ; of content-relative literals that
-    pop cx                             ; ACTED here - a second description of a
-    jmp .out                           ; geometry the painter already owned.
                                        ; The prologue BANKED the point and the
                                        ; row path below is what consumes it,
                                        ; so this early exit has to discard it
@@ -7775,7 +7771,7 @@ SH_BDLG_B_SHADE   equ 0x20           ; same way - see sh_bdlg_open/_apply
 
 sh_bdlg_tpl:
     dw 0, 0, SH_BDLG_W, SH_BDLG_H
-    dw sh_s_bdlg_title, sh_bdlg_paint, 0, sh_bdlg_onclick
+    dw sh_s_bdlg_title, sh_bdlg_paint, 0, 0    ; W_ONCLICK: os88ui_btninit's (20.5.1.3.3)
 
 sh_s_bdlg_title: db 'Border', 0
 sh_bdlg_items: dw sh_bdlg_i0, sh_bdlg_i1, sh_bdlg_i2, sh_bdlg_i3, sh_bdlg_i4, sh_bdlg_i5
@@ -7829,11 +7825,14 @@ sh_bdlg_open:
     push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
+    push dx
     mov ax, bx
     mov bx, sh_bdlg_btrec
     mov si, sh_bdlg_onup
     mov di, sh_bdlg_ondrag
-    call os88ui_btninit
+    mov dx, sh_bdlg_onclick           ; our own click work; the library takes
+    call os88ui_btninit             ; the press first (SPEC.md 20.5.1.3.3)
+    pop dx
     pop di
     pop si
     pop bx
@@ -7977,16 +7976,8 @@ sh_bdlg_onclick:
     push bx
     push si
     push di
-    push cx                             ; **THE BUTTONS FIRST, AND THEY ONLY
-    push dx                             ; ARM** (SPEC.md 13.6): the ladder here
-    mov bx, sh_bdlg_btrec               ; was a second description of the
-    call os88ui_btnpress                ; painter's own geometry and it ACTED
-    pop dx                              ; on the press. The record is the one
-    pop cx                              ; description now (SPEC.md 22's fm_hit
-    or ax, ax                           ; discipline); the action is in
-    jnz .out                            ; sh_bdlg_onup
-    push cx
-    push dx
+    push cx                             ; the press was the LIBRARY's (SPEC.md
+    push dx                             ; 20.5.1.3.3) and never reaches here
     mov bx, si
     call OSAPI_WM_CONTENT
     pop bx
@@ -8158,7 +8149,7 @@ SH_IDLG_H    equ SH_IDLG_CAY2 + SH_DLG_BMARG + TITLE_H + 1
 
 sh_idlg_tpl:
     dw 0, 0, SH_IDLG_W, SH_IDLG_H
-    dw sh_s_id_tgoto, sh_idlg_paint, sh_idlg_onkey, sh_idlg_onclick
+    dw sh_s_id_tgoto, sh_idlg_paint, sh_idlg_onkey, 0    ; W_ONCLICK: os88ui_btninit's (20.5.1.3.3)
 ; The title above is only a PLACEHOLDER: sh_idlg_open overwrites
 ; [sh_idlg_tpl + WT_TITLE] with whichever of sh_s_id_t* the kind names, before
 ; OSAPI_WM_CREATE. WT_TITLE is a pointer TO the text, so the pointer has to go
@@ -8261,11 +8252,14 @@ sh_idlg_open:
     push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
+    push dx
     mov ax, bx
     mov bx, sh_idlg_btrec
     mov si, sh_idlg_onup
     mov di, sh_idlg_ondrag
-    call os88ui_btninit
+    mov dx, sh_idlg_onclick           ; our own click work; the library takes
+    call os88ui_btninit             ; the press first (SPEC.md 20.5.1.3.3)
+    pop dx
     pop di
     pop si
     pop bx
@@ -8404,9 +8398,6 @@ sh_idlg_onclick:
     mov si, sh_idlg_line               ; the field's rect is already
     call os88line_click                ; screen-absolute from the last paint
     jnc .redraw
-    mov bx, sh_idlg_btrec                ; **AND THEY ONLY ARM** (SPEC.md 13.6):
-    call os88ui_btnpress                ; CX/DX are still SCREEN here, which is
-    jmp .out                            ; what the record's rects are in. The
                                         ; six content-relative compares this
                                         ; replaces were a second description of
                                         ; the painter's geometry, and they
@@ -8995,7 +8986,7 @@ SH_LDLG_H    equ SH_LDLG_LY2 + SH_DLG_BMARG + TITLE_H + 1
 
 sh_ldlg_tpl:
     dw 0, 0, SH_LDLG_W, SH_LDLG_H
-    dw sh_s_ld_tfunc, sh_ldlg_paint, 0, sh_ldlg_onclick
+    dw sh_s_ld_tfunc, sh_ldlg_paint, 0, 0    ; W_ONCLICK: os88ui_btninit's (20.5.1.3.3)
 sh_ld_titles:  dw sh_s_ld_tfunc, sh_s_ld_tname
 sh_ld_prompts: dw sh_s_ld_pfunc, sh_s_ld_pname
 sh_s_ld_tfunc: db 'Paste Function', 0
@@ -9064,11 +9055,14 @@ sh_ldlg_open:
     push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
+    push dx
     mov ax, bx
     mov bx, sh_ldlg_btrec
     mov si, sh_ldlg_onup
     mov di, sh_ldlg_ondrag
-    call os88ui_btninit
+    mov dx, sh_ldlg_onclick           ; our own click work; the library takes
+    call os88ui_btninit             ; the press first (SPEC.md 20.5.1.3.3)
+    pop dx
     pop di
     pop si
     pop bx
@@ -9338,17 +9332,9 @@ sh_ldlg_onclick:
 .pgset:
     mov [sh_ldlg_top], ax
     jmp .redraw
-.notbar:
-    push cx                           ; --- the buttons, and they only ARM ---
-    push dx                           ; (SPEC.md 13.6) CX/DX are still SCREEN,
-    mov bx, sh_ldlg_btrec             ; which is what the record's rects are
-    call os88ui_btnpress              ; in; the six content-relative compares
-    pop dx                            ; this replaces were a second
-    pop cx                            ; description of the painter's own
-    or ax, ax                         ; geometry and they ACTED on the press
-    jnz .out
-    mov ax, cx
-    sub ax, [sh_ldlg_ox]
+.notbar:                              ; the buttons' press was the LIBRARY's
+    mov ax, cx                        ; (SPEC.md 20.5.1.3.3) and never reaches
+    sub ax, [sh_ldlg_ox]              ; here, so this is the LIST's arm alone
     mov bx, dx
     sub bx, [sh_ldlg_oy]
 .list:
@@ -9637,7 +9623,7 @@ SH_NDLG_H    equ SH_NDLG_BY2 + SH_DLG_BMARG + TITLE_H + 1   ; the text box is
 
 sh_ndlg_tpl:
     dw 0, 0, SH_NDLG_W, SH_NDLG_H
-    dw sh_s_ndlg_title, sh_ndlg_paint, sh_ndlg_onkey, sh_ndlg_onclick
+    dw sh_s_ndlg_title, sh_ndlg_paint, sh_ndlg_onkey, 0    ; W_ONCLICK: os88ui_btninit's (20.5.1.3.3)
 
 sh_s_ndlg_title: db 'Note', 0
 sh_s_ndlg_cell:  db 'Cell:', 0
@@ -9694,11 +9680,14 @@ sh_ndlg_open:
     push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
+    push dx
     mov ax, bx
     mov bx, sh_ndlg_btrec
     mov si, sh_ndlg_onup
     mov di, sh_ndlg_ondrag
-    call os88ui_btninit
+    mov dx, sh_ndlg_onclick           ; our own click work; the library takes
+    call os88ui_btninit             ; the press first (SPEC.md 20.5.1.3.3)
+    pop dx
     pop di
     pop si
     pop bx
@@ -9889,9 +9878,6 @@ sh_ndlg_onclick:
     mov si, sh_notebox                  ; the field first: its own rect is
     call os88text_click                 ; already screen-absolute from the
     jnc .redraw                         ; last paint, so no conversion here
-    mov bx, sh_ndlg_btrec                ; **AND THEY ONLY ARM** (SPEC.md 13.6):
-    call os88ui_btnpress                ; CX/DX are still SCREEN here, which is
-    jmp .out                            ; what the record's rects are in. The
                                         ; six content-relative compares this
                                         ; replaces were a second description of
                                         ; the painter's geometry, and they

@@ -36001,6 +36001,37 @@ its own call site — where it protected exactly one button.
 The cost is one `gfx_fill` per button per draw, which every caller that had
 thought about the problem was already paying.
 
+#### 20.5.1.3.3 The PRESS is the library's — `OSAPI_WM_ONCLICK` (API 0x05A0)
+
+`os88ui_btninit` installs all three of a gesture's edges, and until this cell
+existed it could only install two. `W_ONMOUSEUP` and `W_ONDRAG` have slots;
+`W_ONCLICK` is a **template word** (§20.4), settable only at `wm_create`. So
+the library could own the release and the tracking edge and *not* the press,
+and every package had to route its own clicks into `os88ui_btnpress`.
+
+**A package with more than one click path had to route them all**, and
+ArtfulType shipped without doing so: its modal was converted and the splash
+beside it was left on a private hit test, so New and Open drew pressed — the
+record was fine — and still acted on the press. Nothing static can see that;
+only driving the program finds it.
+
+The cell is five bytes of body (`mov [bx+W_ONCLICK], ax / ret`) and one table
+slot, because the word is already there and already dispatched. What it buys
+is that `os88ui_btnclick` is the window's click handler, the buttons see the
+press **before** the package does, and the package's own handler is chained
+from `OS88UI_BT_ONCLK` when the press was not a button's. There is no routing
+left to forget, and a package that has no click work of its own passes 0.
+
+It fixes the coordinate space with it. The record's rects are screen
+coordinates and `W_ONCLICK` delivers screen coordinates, so the press is now
+always tested in the space it arrived in — the Audio player armed nothing for
+a whole release because its own handler had made `CX`/`DX` content-relative
+before calling in.
+
+**Finding the record** is a walk of `OS88UI_BT_NEXT`, a list `btninit` pushes
+each record onto. A list rather than a fixed table because Sheet has five
+dialog windows and a table is a limit somebody eventually exceeds.
+
 #### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
 
 `OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns

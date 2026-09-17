@@ -345,7 +345,20 @@ OS88UI_BT_WIN    equ 8          ; the window, written by os88ui_btninit
 OS88UI_BT_DOWN   equ 10         ; THE LIBRARY'S: index PLUS ONE of the control
                                 ; a press is live on, 0 for none. Read it if
                                 ; you like; never write it
-OS88UI_BT_SIZE   equ 12
+OS88UI_BT_ONCLK  equ 12         ; YOUR own W_ONCLICK proc, or 0. The library
+                                ; installs ITSELF as the window's click
+                                ; handler (SPEC.md 20.5.1.3.3) and chains here
+                                ; when the press was not a button's, so a
+                                ; package cannot have a click path that skips
+                                ; the buttons - which is how ArtfulType's
+                                ; splash shipped acting on the press while its
+                                ; modal, converted the same day, did not
+OS88UI_BT_NEXT   equ 14         ; THE LIBRARY'S: the next record of this
+                                ; package, so one click thunk can serve any
+                                ; number of windows. A LIST and not a table
+                                ; because Sheet has five dialogs and a table
+                                ; would have a limit to get wrong
+OS88UI_BT_SIZE   equ 16
 
 ; OS88UI_BTNREC declares a group's record and lives in apps/os88api.inc, not
 ; here: a macro is PREPROCESSOR-time and must be defined before it is used,
@@ -1161,7 +1174,9 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 ; with a .text thunk apiece (SPEC.md 13.8.3). So the kernel sets its record's
 ; OS88UI_BT_WIN itself and installs nothing here.
 ; in:  BX = the record, AX = the window (after wm_create),
-;      SI = your W_ONMOUSEUP proc, DI = your W_ONDRAG proc (near, this segment)
+;      SI = your W_ONMOUSEUP proc, DI = your W_ONDRAG proc,
+;      DX = your own W_ONCLICK proc, or 0 if the buttons are all this window
+;      has (near ptrs, this segment)
 ; out: nothing; all registers preserved
 ;
 ; THE INSTALL IS THE LIBRARY'S JOB AND THAT IS THE MOST IMPORTANT LINE IN THIS
@@ -1194,7 +1209,13 @@ os88ui_btninit:
     push bx
     push cx
     push dx
+    push si
     mov [bx+OS88UI_BT_WIN], ax
+    mov [bx+OS88UI_BT_ONCLK], dx
+    mov si, [os88ui_btlist]     ; ...and onto the package's list of records,
+    mov [bx+OS88UI_BT_NEXT], si ; which os88ui_btnclick walks to find the one
+    mov [os88ui_btlist], bx     ; belonging to the window it was handed
+    pop si
     mov cx, ax                  ; CX = the window; BX is the slot call's arg
     mov bx, cx
     mov ax, si
@@ -1202,11 +1223,64 @@ os88ui_btninit:
     mov bx, cx
     mov ax, di
     call OSAPI_WM_ONDRAG        ; CF = 1 on kern_small: deliberately unread
-    pop dx
-    pop cx
+    mov bx, cx
+    mov ax, os88ui_btnclick     ; **AND THE PRESS IS OURS** (SPEC.md
+    call OSAPI_WM_ONCLICK       ; 20.5.1.3.3): the library sees it first and
+    pop dx                      ; chains to OS88UI_BT_ONCLK when it was not a
+    pop cx                      ; button's, so no click path can skip the
+    pop bx                      ; buttons
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_btnclick - W_ONCLICK, the LIBRARY's (SPEC.md 20.5.1.3.3)
+; in:  CX = x, DX = y (SCREEN), SI = the window; installed by os88ui_btninit
+; out: nothing
+;
+; THE PRESS REACHES THE BUTTONS BEFORE IT REACHES THE PACKAGE, and that is the
+; whole point. A package used to route its own press into os88ui_btnpress, and
+; a package with more than one click path had to route them all: ArtfulType
+; converted its modal, left its splash on a private hit test, and shipped two
+; buttons that drew pressed and still acted on the press. Nothing static could
+; see it. Now there is nothing to route.
+;
+; It also fixes the COORDINATE SPACE for good. The record's rects are screen
+; coordinates and CX/DX arrive as screen coordinates, so the press is tested
+; in the space it was given; the Audio player armed nothing for a release
+; because its own handler had already made them content-relative before
+; calling in.
+;
+; The record is found by walking this package's list on OS88UI_BT_WIN. A list
+; rather than a table because Sheet has five dialog windows and a table is a
+; limit somebody eventually exceeds.
+; -----------------------------------------------------------------------------
+os88ui_btnclick:
+    push ax
+    push bx
+    mov bx, [os88ui_btlist]
+.find:
+    or bx, bx
+    jz .out                     ; no record for this window: nothing of ours
+    cmp si, [bx+OS88UI_BT_WIN]
+    je .got
+    mov bx, [bx+OS88UI_BT_NEXT]
+    jmp short .find
+.got:
+    call os88ui_btnpress        ; AX = the button armed, 0 = not one of ours
+    or ax, ax
+    jnz .out
+    mov ax, [bx+OS88UI_BT_ONCLK]
+    or ax, ax
+    jz .out                     ; the package has no click work of its own
+    xchg ax, bx                 ; ...otherwise it gets the press in exactly
+    call bx                     ; the environment the kernel handed us - CX,
+.out:                           ; DX and SI are untouched all the way down
     pop bx
     pop ax
     ret
+
+os88ui_btlist: dw 0             ; the head of this package's record list -
+                                ; DATA, inline, for os88ui_armw's reason
 %endif                          ; OS88UI_KERNEL
 
 ; -----------------------------------------------------------------------------

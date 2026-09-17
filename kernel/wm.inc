@@ -2685,6 +2685,29 @@ wm_onmouseup:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_onclick - install (or clear) a window's CONTENT CLICK handler
+; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
+; out: nothing (all registers preserved)
+;
+; W_ONCLICK is a TEMPLATE word (SPEC.md 20.4) and was settable only at
+; wm_create until this cell existed. That was enough while a package owned its
+; own press handling; it stopped being enough when os88ui.inc's button grew a
+; gesture, because the library then had to be able to see the press BEFORE the
+; package does - and could install the release half (W_ONMOUSEUP) and the
+; tracking half (W_ONDRAG) and not the press. A package that forgot to route
+; one of its click paths into os88ui_btnpress got buttons that DREW pressed
+; and still ACTED on the press, which is invisible to every static check and
+; shipped exactly that way (SPEC.md 20.5.1.3.3).
+;
+; Five bytes, because the word is already there and already dispatched: this
+; only lets it be written late, which is what W_ONMOUSEUP and W_ONDRAG already
+; allow for their own halves.
+; -----------------------------------------------------------------------------
+wm_onclick:
+    mov [bx+W_ONCLICK], ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_ondrag - install (or clear) a window's tracking handler (SPEC.md 13.8.2)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)

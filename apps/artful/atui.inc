@@ -1303,8 +1303,6 @@ at_modal_click:
     push ax
     push bx
     push si
-    mov bx, at_btrec                ; **IT ONLY ARMS** (SPEC.md 13.6): Save,
-    call os88ui_btnpress            ; Cancel and Don't Save all decide the
     pop si                          ; document's fate, so none may fire on a
     pop bx                          ; press the user can still take back. The
     pop ax                          ; ladder this replaces was at_btnhit
@@ -1773,8 +1771,6 @@ at_splash_click:
     push ax
     push bx
     push si
-    mov bx, at_btrec                ; **NEW AND OPEN ONLY ARM** (SPEC.md 13.6):
-    call os88ui_btnpress            ; one opens a file dialog and the other
     pop si                          ; takes the whole screen, so neither may
     pop bx                          ; fire on a press the user can still take
     pop ax                          ; back. at_btn_up has the action. The

@@ -163,11 +163,16 @@ at_entry:
     push bx                         ; 20.5.1.3): neither is a template word,
     push si                         ; which is why this modal's three buttons
     push di                         ; fired on the press for as long as they
-    mov ax, bx                      ; existed
+    push dx                         ; existed
+    mov ax, bx
     mov bx, at_btrec
     mov si, at_onup
     mov di, at_ondrag
+    mov dx, at_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx

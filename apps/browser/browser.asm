@@ -278,6 +278,24 @@ br_entry:
     mov si, br_menus
     call OSAPI_MENU_SET
     mov [br_win], bx
+    push ax                         ; **THE BUTTONS' THREE SLOTS** (SPEC.md
+    push bx                         ; 20.5.1.3.3): btninit links this record so
+    push cx                         ; the library's click thunk can find it,
+    push dx                         ; and installs the PRESS as well as the
+    push si                         ; release and the tracking edge. br_onclick
+    push di                         ; is our own click work and the library
+    mov ax, bx                      ; chains to it when the press was not a
+    mov bx, br_btrec                ; button's - which is what stops a package
+    mov si, br_onup                 ; having a click path that skips them
+    mov di, br_ondrag
+    mov dx, br_onclick
+    call os88ui_btninit
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly
@@ -1816,12 +1834,11 @@ br_onclick:
     add ax, BR_TBH - 1
     cmp dx, ax
     ja .nostrip
-    mov bx, br_btrec                ; **THEY ONLY ARM** (SPEC.md 13.6): Back,
-    call os88ui_btnpress            ; Forward and Reload all fetch, so none of
-    jmp .out                        ; them may fire on a press the user can
-                                    ; still take back. br_onup has the action,
-                                    ; and it asks the SAME ok-predicate the
-                                    ; greying does (47 rule 5)
+    jmp .out                        ; the toolbar's press was the LIBRARY's
+                                    ; (SPEC.md 20.5.1.3.3) and never reaches
+                                    ; here; br_onup has the action, and it
+                                    ; asks the SAME ok-predicate the greying
+                                    ; does (47 rule 5)
 .nostrip:
     cmp cx, [br_sbx]
     jb .page                        ; not in the scroll bar: the PAGE's
@@ -6841,7 +6858,8 @@ br_tagtab:
 ; --- window template (SPEC.md 11) ----------------------------------------------
 br_tpl:
     dw 40, 30, 496, 150
-    dw br_ttl, br_paint, br_onkey, br_onclick
+    dw br_ttl, br_paint, br_onkey, 0    ; W_ONCLICK is installed by
+                                        ; os88ui_btninit (20.5.1.3.3)
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
 ; No Close item: SPEC.md 12.7 puts one in the app-NAME cell for every

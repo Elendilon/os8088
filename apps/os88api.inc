@@ -3234,6 +3234,8 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
     dw %5                       ; OS88UI_BT_N
     dw 0                        ; OS88UI_BT_WIN, written by os88ui_btninit
     dw 0                        ; OS88UI_BT_DOWN, THE LIBRARY'S
+    dw 0                        ; OS88UI_BT_ONCLK, your click proc - btninit
+    dw 0                        ; OS88UI_BT_NEXT, THE LIBRARY'S list link
 %endmacro
 
 %macro OS88_BSS 1
@@ -4319,6 +4321,16 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; OSAPI_FILE_APPEND. DRIVERS ONLY.
 
 ; --- back to the application slots: window callbacks (SPEC.md 13.7/11.93) -----
+%define OSAPI_WM_ONCLICK    KERNEL_SEG:0x05A0   ; BX = win ptr, AX = a near proc
+                                                 ; in YOUR segment (0 clears):
+                                                 ; the PRESS half of a content
+                                                 ; click. W_ONCLICK is a
+                                                 ; TEMPLATE word and this is
+                                                 ; the only way to write it
+                                                 ; late - os88ui_btninit uses
+                                                 ; it so the button control
+                                                 ; sees a press before you do
+                                                 ; (SPEC.md 20.5.1.3.3)
 %define OSAPI_WM_ONMOUSEUP  KERNEL_SEG:0x01F0   ; BX = win ptr, AX = a near proc
                                  ; in YOUR segment (0 clears it): the RELEASE
                                  ; half of a content click (SPEC.md 13.7).

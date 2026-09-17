@@ -183,11 +183,16 @@ te_entry:
     push bx                         ; 20.5.1.3): neither is a template word
     push si
     push di
+    push dx
     mov ax, bx
     mov bx, te_btrec
     mov si, te_onup
     mov di, te_ondrag
+    mov dx, te_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx
@@ -632,8 +637,6 @@ te_onclick:
     call te_layout
     call te_abdismiss               ; ...and by the click that dismisses them
     jc .out
-    mov bx, te_btrec                ; **IT ONLY ARMS** (SPEC.md 13.6): Connect
-    call os88ui_btnpress            ; and Close both have consequences, so a
     or ax, ax                       ; mis-aimed press must be cancellable -
     jnz .out                        ; te_onup has the action
 .field:

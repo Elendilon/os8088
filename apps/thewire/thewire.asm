@@ -323,11 +323,16 @@ wr_entry:
     push bx                             ; 20.5.1.3): neither is a template word
     push si
     push di
+    push dx
     mov ax, bx
     mov bx, wr_btrec
     mov si, wr_onup
     mov di, wr_ondrag
+    mov dx, wr_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx
@@ -2118,8 +2123,6 @@ wr_onclick:
     jb .out
     add cx, [wr_ox]                     ; the buttons want absolute again
     add dx, [wr_oy]
-    mov bx, wr_btrec                    ; **THEY ONLY ARM** (SPEC.md 13.6):
-    call os88ui_btnpress                ; Load Program launches and Add to
     jmp short .out                      ; Disk WRITES a floppy, so neither may
                                         ; fire on a press the user can still
                                         ; take back. wr_onup has the action

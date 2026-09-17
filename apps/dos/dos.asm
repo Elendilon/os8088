@@ -805,12 +805,15 @@ dos_entry:
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
 
+    push dx
     mov ax, bx                      ; **AND THE BUTTONS' GESTURE** (SPEC.md
-    mov bx, dos_btrec               ; 20.5.1.3): os88ui_btninit installs both
-    mov si, dos_onup                ; W_ONMOUSEUP and W_ONDRAG, neither of
-    mov di, dos_ondrag              ; which is a template word - which is
-    call os88ui_btninit             ; exactly why this box shipped without
-    mov bx, [dos_win]               ; them and fired every button on the press
+    mov bx, dos_btrec               ; 20.5.1.3): btninit installs all THREE
+    mov si, dos_onup                ; slots - the press, the release and the
+    mov di, dos_ondrag              ; tracking edge - and none of them is a
+    mov dx, dos_click               ; template word except the press, which
+    call os88ui_btninit             ; 20.5.1.3.3's cell now lets it write
+    pop dx                          ; late. dos_click is OUR own click work
+    mov bx, [dos_win]               ; and the library chains to it
 
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
@@ -8470,13 +8473,6 @@ dos_click:
     ; The caret is NOT given up here. A press that turns out to be a cancel
     ; must leave the field exactly as it was, so dos_defocus moved to the
     ; release beside the action it belongs to.
-    push bx
-    mov bx, dos_btrec
-    call os88ui_btnpress            ; AX = the button, 0 = not one of ours
-    pop bx
-    or ax, ax
-    jnz .out
-
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .setup
     mov si, dos_pln                 ; the bar's box is all that is left there
@@ -10297,7 +10293,10 @@ dos_tpl:
                                     ; origin on an 8-aligned column. The WIDTH
                                     ; is per-adapter and dos_pref says so;
                                     ; this row is the VGA/CGA one
-    dw dos_ttl, dos_paint, dos_key, dos_click
+    dw dos_ttl, dos_paint, dos_key, 0   ; W_ONCLICK is installed by
+                                    ; os88ui_btninit (SPEC.md
+                                    ; 20.5.1.3.3), so the buttons see
+                                    ; the press before dos_click does
 
     OS88_PREFER dos_pref, DOS_CONW, DOS_FRAMEH,  720, DOS_FRAMEH,  DOS_CONW, 300
                                     ; **A REAL WIDTH AND A GENEROUS HEIGHT**,
@@ -12011,7 +12010,7 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
     HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
-DOS_BTREC_SZ equ 12              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
+DOS_BTREC_SZ equ 16              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; and it has to be one: this block is laid
                                  ; out thousands of lines before os88ui.inc is
                                  ; included, so the real constant is not
