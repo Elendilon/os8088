@@ -126,11 +126,37 @@ def run():
                              "inside the window %s - a record that overlaps "
                              "other state reads like this" % (name, r0, list(wr)))
 
+            def dark():
+                """dark pixels inside button 0 - THE GLASS, not the record.
+
+                BT_DOWN is what the library thinks; this is what the user
+                sees. They came apart once already: every button on the
+                Control Panel drew through os88ui_btn_f, whose contract is a
+                RECT, and the record-based entry read a live count out of a
+                rectangle's coordinates - the state was perfect and the page
+                was white."""
+                fw, fh, d = m.fbuf(0)
+                n = 0
+                for y in range(max(0, r0[1] + 2), min(fh, r0[3] - 1)):
+                    for x in range(max(0, r0[0] + 2), min(fw, r0[2] - 1)):
+                        i = (y * fw + x) * 3
+                        if d[i:i + 3] == b"\x00\x00\x00":
+                            n += 1
+                return n
+
             if at is not False:
                 cx, cy = (r0[0] + r0[2]) // 2, (r0[1] + r0[3]) // 2
+                up0 = dark()
                 mo.to(cx, cy); os88marty.settle(m)
                 mo._edge(True); m.advance(frames=10); m.run()
                 held = rd(10)                              # BT_DOWN
+                dn = dark()
+                if dn <= up0:
+                    fails.append("%s: held, the button is not INVERTED on the "
+                                 "glass (%d dark pixels against %d upright) - "
+                                 "the record may say it is down and the "
+                                 "screen is what the user sees"
+                                 % (name, dn, up0))
                 # 3. the press ARMS - Audio's bug, where the hit test ran in
                 #    the wrong coordinate space and nothing ever armed.
                 if held == 0:
@@ -148,13 +174,22 @@ def run():
                 mo.to(cx, off_y, l=True)
                 m.advance(frames=30); m.run()
                 off = rd(10)
+                offdark = dark()
+                if held and abs(offdark - up0) > max(8, up0 // 4):
+                    fails.append("%s: the pointer slid OFF and the button is "
+                                 "still inverted on the GLASS (%d dark pixels, "
+                                 "upright was %d) - SPEC.md 13.8.1's cancel is "
+                                 "what tells the user the gesture is off"
+                                 % (name, offdark, up0))
                 if held and off != 0:
                     fails.append("%s: the pointer slid OFF the button and it "
                                  "is still down (BT_DOWN=%d) - the gesture "
                                  "cannot be cancelled" % (name, off))
                 mo._edge(False); os88marty.settle(m)
             print("  %-14s N=%d rect0=%s%s"
-                  % (name, n, r0, "" if at is False else " press/cancel ok"))
+                  % (name, n, r0,
+                     "" if at is False
+                     else " up=%d held=%d off=%d ok" % (up0, dn, offdark)))
             # Esc first: a package whose button DID fire may have taken the
             # whole screen (Artful's New does), and a menu pick cannot reach a
             # window that is not there any more.
