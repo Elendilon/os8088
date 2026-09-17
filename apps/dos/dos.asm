@@ -303,9 +303,15 @@ DOS_TR33_BY  equ DOS_TR33_SEQ + DOS_TR33_SEQN + 2
 DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_BY + DOS_TRNM_N * 15 + 96
 DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 
-DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
-                                    ; failure under investigation makes
-                                    ; exactly ONE open in a whole session
+DOS_TRNM_N  equ 48                  ; ...and names it keeps. It was 12, on the
+                                    ; reasoning that the failure under
+                                    ; investigation made exactly ONE open in a
+                                    ; whole session - true then, and the next
+                                    ; failure filled all twelve with `CON`
+                                    ; before the interesting name arrived
+                                    ; (SPEC.md 96.11.7 is why a program opens
+                                    ; CON eight times). DOSTRACE-only bss, so
+                                    ; the cost is a diagnostic build's alone
 DOS_TR33_N  equ 32                  ; INT 33h functions counted (SPEC.md
                                     ; 96.10.3). 32 covers every function a
                                     ; real-mode driver published up to
@@ -800,7 +806,7 @@ dos_entry:
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
 
     mov ax, bx                      ; **AND THE BUTTONS' GESTURE** (SPEC.md
-    mov bx, dos_btrec               ; 20.5.1.2): os88ui_btninit installs both
+    mov bx, dos_btrec               ; 20.5.1.3): os88ui_btninit installs both
     mov si, dos_onup                ; W_ONMOUSEUP and W_ONDRAG, neither of
     mov di, dos_ondrag              ; which is a template word - which is
     call os88ui_btninit             ; exactly why this box shipped without
@@ -2133,6 +2139,13 @@ dos_hook_vectors:
                                         ; a driver: the kernel's own ISR keeps
                                         ; mouse_x/y/btn fresh for the whole
                                         ; bracket (SPEC.md 53.1)
+    call dos_m33_hidden                 ; **AND THE CURSOR STARTS AWAY**
+                                        ; (SPEC.md 96.10.5): the show counter
+                                        ; is -1, which is not the zero a bss
+                                        ; arrives as - 0 means VISIBLE, so a
+                                        ; bracket that skipped this would put
+                                        ; a cursor on the screen of a program
+                                        ; that never asked for one
 
     ; --- ...AND THE REST OF THE BLOCK A REAL DOS OWNS (SPEC.md 96.5.2) ------
     ; Seven vectors were hooked above and the other fourteen of DOS's own were
@@ -4117,8 +4130,14 @@ dos_int21:
     jc .fherr
     call .fhabs
     jc .fhpath
+    cmp byte [dos_fname], 0         ; **A ROOT PARSES TO NO NAME AT ALL** and
+    je .att_dir                     ; is a DIRECTORY, not a missing file
+                                    ; (SPEC.md 96.12.4): `A:\` is what
+                                    ; Microsoft Works asks about before it
+                                    ; saves to another drive, and answering 2
+                                    ; is `Directory not found` on the glass
     call dos_fh_stat                ; the same lookup AH=3Dh opens through, so
-    jc .fnoent                      ; the two can never disagree about a name
+    jc .att_dirq                    ; the two can never disagree about a name
     mov cx, 0x20                    ; ARCHIVE. SPEC.md 19 keeps no attribute of
     mov ax, cx                      ; its own and this is what an ordinary
     jmp .fhok                       ; readable file reads as everywhere. .fhok
@@ -4127,6 +4146,13 @@ dos_int21:
                                     ; left by the front door, which since
                                     ; SPEC.md 96.6.2 is also the door that
                                     ; comes off the named drive
+.att_dirq:
+    call dos_att_isdir              ; ...and a FOLDER by that name is the other
+    jc .fnoent                      ; thing AH=43h is asked about. Only a name
+.att_dir:                           ; that is NEITHER is `file not found`
+    mov cx, 0x10                    ; DIRECTORY, which is the bit every caller
+    mov ax, cx                      ; tests
+    jmp .fhok
 .att_set:
     push bx
     call dos_fh_name                ; it still has to NAME something real...
@@ -4804,7 +4830,15 @@ DHK_CLAIM   equ 8                   ; AX = KB -> DX = segment, CF=1 refused; the
                                     ; a reason to take the arena arm it always
                                     ; takes here anyway
 DHK_FREE    equ 10                  ; DX = a segment DHK_CLAIM answered with
-DHK_NENT    equ 6
+DHK_TXT     equ 12                  ; the TEXT SCREEN the mouse cursor may draw
+                                    ; on: out ES = the segment, BX = columns,
+                                    ; DX = rows, CF=1 = there is none. **THE
+                                    ; WINDOWED HOST MUST NOT HAVE THIS ONE**
+                                    ; (SPEC.md 96.10.5.1): there the OS owns
+                                    ; every pixel and B800 is the kernel's, so
+                                    ; the cursor is a `kern_dos` capability and
+                                    ; the absent hook is how that is spelled
+DHK_NENT    equ 7
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_be_goto:
@@ -5278,8 +5312,8 @@ dos_paint:
     call dos_paint_set              ; ...and there is only the one now
     pop bx
     call dos_paint_furn
-    jmp .out
-.mainpage:
+    jmp .card                       ; ...and the About card over it, which is
+.mainpage:                          ; the window's and not the page's
 
     cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
     jne .nokick                      ; keeps at most one queued wake per window,
@@ -5312,8 +5346,23 @@ dos_paint:
     call con_rows_owed
     call con_takescroll
 %endif
-.out:
-    pop di
+.card:
+    ; --- AND THE ABOUT CARD LAST, OVER WHICHEVER PAGE IT WAS (SPEC.md 96.51) -
+    ; Both branches arrive here - the setup page by `jmp .card` above and the
+    ; main page by falling through - because the card is a property of the
+    ; WINDOW and not of the page, exactly as the band above is.
+    ;
+    ; **BX COMES FROM [dos_win] AND NOT FROM SI**: this proc is entered with
+    ; SI = the window, but the main page's `os88line_draw` loads SI with
+    ; dos_pln on the way past, so by here it is a string. [dos_win] is the one
+    ; window this package has and dos_entry wrote it.
+    cmp byte [dos_abon], 0
+    je .out
+    mov bx, [dos_win]
+    mov si, dos_ablines
+    call os88ui_about_d             ; the _d entry: the kernel's region is
+.out:                               ; armed, and re-arming would throw this
+    pop di                          ; paint's damage rect away
     pop si
     pop dx
     pop cx
@@ -5426,10 +5475,58 @@ dos_hexd:
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; -----------------------------------------------------------------------------
-; dos_about - the standard About card's handler (SPEC.md 12.2, 20.5.1)
+; dos_about / dos_abdismiss - the standard About card (SPEC.md 12.2, 20.5.1.1,
+; 96.51)
+;
+; **THIS WAS A BARE `ret`**, and that is worth a line rather than a silent fix:
+; the registration below `OSAPI_ABOUT_SET` has always been there, so the kernel
+; has always drawn `About DOS...` into the bar - and picking it did nothing at
+; all. A handler that returns is indistinguishable from a handler that drew
+; something small, which is why nobody reported it; what was behind the item
+; was the CREDIT, which is the whole argument of SPEC.md 20.5.1.1.
+;
+; The HANDLER entry (os88ui_about, not the _d one): ui_dispatch takes the gfx
+; lock and far-calls us with NO clip region armed (SPEC.md 11.3), so the widget
+; arms one itself. dos_paint uses the other entry.
 ; -----------------------------------------------------------------------------
 dos_about:
+    push bx
+    push si
+    mov byte [dos_abon], 1
+    mov bx, si                      ; SI = our window on entry
+    mov si, dos_ablines
+    call os88ui_about
+    pop si
+    pop bx
     ret
+
+; Any key or click takes it down. CF = 1 means the event was the card's and the
+; caller must not also act on it - a keystroke that dismisses must not reach
+; the path box, and a click that dismisses must not also hit a button.
+dos_abdismiss:
+    cmp byte [dos_abon], 0
+    je .none
+    mov byte [dos_abon], 0
+    mov si, [dos_win]               ; NOT the SI we were called with: the
+    call dos_paint                  ; console is what the card covered and
+    stc                             ; dos_paint is the only thing that knows
+    ret                             ; how to put a page back
+.none:
+    clc
+    ret
+
+; --- the card's lines (SPEC.md 20.5.1.1, 96.51) ------------------------------
+; SIX lines. The content is DOS_CONW = 640 px = 80 cells on VGA and CGA and 720
+; on Hercules, against a widest line of 34, so no adapter clamps this card and
+; nothing is split across two lines.
+dos_ablines:
+    dw dos_ab1, dos_ab2, dos_ab3, dos_ab4, dos_ab5, dos_ab6, 0
+dos_ab1:     db 'DOS for os8088', 0
+dos_ab2:     db 0
+dos_ab3:     db 'Runs .COM and .EXE programs', 0
+dos_ab4:     db 'natively - this machine IS an 8086', 0
+dos_ab5:     db 0
+dos_ab6:     db 'Contributed by Elendilon', 0
 
 ; -----------------------------------------------------------------------------
 ; dos_swap - the other page, onto the glass
@@ -8143,6 +8240,13 @@ dos_key:
     push si
     push di
     mov bx, si
+    ; --- THE ABOUT CARD EATS THE KEY THAT TAKES IT DOWN (SPEC.md 96.51) ------
+    ; ABOVE the Alt+Enter test below, which is otherwise "above everything":
+    ; a card that is up is what the user is looking at, so the keystroke that
+    ; dismisses it must not also go full screen, and must not reach the path
+    ; box either. CF = 1 from here means it was ours.
+    call dos_abdismiss
+    jc .done
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
     ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
@@ -8332,6 +8436,9 @@ dos_click:
     push si
     push di
     mov bx, si
+    call dos_abdismiss              ; ...and the click likewise: dismissing the
+    jc .out                         ; card is not also a button press or a
+                                    ; field focus (SPEC.md 96.51)
     ; **NO DST_IDLE GATE** (SPEC.md 96.32.1): an idle box is the internal
     ; COMMAND.COM and its bar is live, where the old main page had nothing on
     ; it but an arguments field for a program that did not exist.
@@ -8342,7 +8449,7 @@ dos_click:
     ; RELEASE. This used to be four os88ui_bhit ladders that ACTED here, which
     ; meant a mis-aimed press on 'Run' ran, and nothing on the glass ever said
     ; a control was being held. os88ui_btnpress arms and draws it down; the
-    ; action is in dos_onup (SPEC.md 20.5.1.2).
+    ; action is in dos_onup (SPEC.md 20.5.1.3).
     ;
     ; The caret is NOT given up here. A press that turns out to be a cancel
     ; must leave the field exactly as it was, so dos_defocus moved to the
@@ -8867,7 +8974,7 @@ dos_place:
     push si
     push di
     mov si, dos_btrec               ; **AND THE RECORD FOLLOWS THE PAGE**
-    mov word [si+OS88UI_BT_N], 2    ; (SPEC.md 20.5.1.2): both pages carry
+    mov word [si+OS88UI_BT_N], 2    ; (SPEC.md 20.5.1.3): both pages carry
                                     ; exactly two buttons, and only one page
                                     ; is ever up, so ONE record is repointed
                                     ; here rather than two being kept in step.
@@ -10207,7 +10314,7 @@ dos_l_run:  db 'Run', 0             ; --- and the top bar's (96.32.1)
 dos_l_full: db 'Full Screen', 0     ; ...and the console's own (96.33.5)
 dos_l_savb: db 'Save Shortcut', 0
 
-; --- the two button GROUPS' label arrays (SPEC.md 20.5.1.2) ------------------
+; --- the two button GROUPS' label arrays (SPEC.md 20.5.1.3) ------------------
 ; One array per page, in the same order as the rects each page's group holds,
 ; because os88ui_btn indexes both with the one number. dos_place points the
 ; record at the pair that is up.
@@ -10567,17 +10674,19 @@ dos_int33:
     or ax, ax
     jz .reset
     cmp ax, 1
-    je .none                       ; show/hide: the kernel owns the pointer and
-    cmp ax, 2                      ; the bracket holds the gfx lock, so it is
-    je .none                       ; not ON the screen to raise or lower - and
-    cmp ax, 3                      ; a REFUSAL would make a program that hides
-    je .pos                        ; before drawing abandon the drawing
+    je .show                       ; show/hide: A TEXT CURSOR, and only where
+    cmp ax, 2                      ; the host has a text screen to draw on
+    je .hide                       ; (SPEC.md 96.10.5) - in the windowed box
+    cmp ax, 3                      ; DHK_TXT is absent and both are the no-op
+    je .pos                        ; they were
     cmp ax, 4
     je .none                       ; set position: warping the host pointer is
     cmp ax, 5                      ; the kernel's, and a program that borrowed
     je .press                      ; the screen has not borrowed the arrow
     cmp ax, 6
     je .release
+    cmp ax, 0x0A
+    je .tcur
     cmp ax, 0x0B
     je .motion
     cmp ax, 0x0C
@@ -10586,7 +10695,59 @@ dos_int33:
     je .swpevt
     jmp .none
 
+.show:
+    ; AX=0001h. **THE COUNTER IS NOT A FLAG** (SPEC.md 96.10.5): it starts at
+    ; -1, `02h` takes a level and this releases one, so a program that hid
+    ; twice must show twice. It saturates at 0 rather than climbing, which is
+    ; what every driver does and what stops a show-happy program needing as
+    ; many hides to put it away.
+    cmp byte [dos_m33shw], 0
+    jge .shown                     ; SIGNED: -1 is 0FFh, and `jae` here reads
+    inc byte [dos_m33shw]          ; it as the largest byte there is
+.shown:
+    cmp word [dos_hkv + DHK_TXT], 0
+    je .shpaint                    ; ...AND HOOK THE TICK, but only where
+    call dos_m33_arm               ; there is something for it to move. `0Ch`
+                                   ; is not the only way to need it - a
+                                   ; program that shows the cursor and
+                                   ; installs no handler still wants its
+                                   ; pointer to move while it is busy - and in
+                                   ; the WINDOWED box there is no cursor at
+                                   ; all, so hooking IRQ0 there would buy
+                                   ; nothing and cost the DOS task's slice a
+                                   ; frame every tick. One-shot, so this and
+                                   ; `0Ch` compose
+.shpaint:
+    call dos_m33_paint
+    jmp .none
+.hide:
+    ; AX=0002h, and it has NO FLOOR on purpose - a program that hides five
+    ; times has asked for five shows, and clamping here would put the cursor
+    ; back up in the middle of its drawing.
+    dec byte [dos_m33shw]
+    call dos_m33_wipe
+    jmp .none
+.tcur:
+    ; AX=000Ah: BX = 0 SOFTWARE (CX = the screen mask, DX = the cursor mask),
+    ; BX = 1 HARDWARE - a CRTC scan-line pair, which is the machine's own text
+    ; caret and not something a POINTER may take over. The hardware arm is
+    ; ignored rather than refused, for `.none`'s reason: a program that asks
+    ; for a shape and is refused still expects a cursor.
+    or bx, bx
+    jnz .none
+    pushf                          ; one critical section over all four, for
+    cli                            ; `dos_m33_paint`'s reason one level up
+    call dos_m33_wipe              ; off FIRST, with the masks it went on with
+    mov [dos_m33sm], cx            ; - restoring under the new pair would put
+    mov [dos_m33cm], dx            ; back a cell that was never there
+    call dos_m33_paint
+    popf
+    jmp .none
+
 .reset:
+    call dos_m33_hidden            ; a reset puts the cursor away and takes the
+                                   ; masks back to the pair a driver powers up
+                                   ; with (SPEC.md 96.10.5)
     call dos_mou_zero              ; a reset clears the edge state with it
     call dos_m33_drop              ; ...and the EVENT HANDLER, which is what a
     mov ax, 0xFFFF                 ; real driver's reset does (SPEC.md 96.10.4)
@@ -10797,6 +10958,13 @@ dos_m33_tick:
     push ds
     push cs
     pop ds
+    call dos_m33_paint              ; **THE COARSE UPDATE POINT** (SPEC.md
+                                    ; 96.10.5.2), and it is BEFORE the handler
+                                    ; test on purpose: a program that shows
+                                    ; the cursor and then computes for a
+                                    ; second has installed no handler and
+                                    ; polls nothing, and the tick is the only
+                                    ; thing left that can move its pointer
     cmp word [dos_m33h+2], 0        ; no handler: two instructions a tick
     je .out
     cmp byte [dos_m33bsy], 0        ; a callback that ran long enough to be
@@ -10904,6 +11072,200 @@ dos_m33_tick:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
+; dos_m33_paint - put the mouse cursor where the pointer is, or take it off
+; clobbers: nothing
+;
+; **THE WHOLE OF THE DRAWING RULE IS ONE LINE** (SPEC.md 96.10.5):
+; `(cell AND screen_mask) XOR cursor_mask`, written into the text cell under
+; the pointer. There is no bitmap, no sprite and no shape - a text-mode mouse
+; cursor is an attribute the driver flips, which is why `0Ah` hands over two
+; masks and nothing else.
+;
+; **IT IS `kern_dos`'s CAPABILITY AND NOT THE BOX'S**, and `DHK_TXT` is how
+; that is spelled (96.10.5.1): in the windowed host the OS owns every pixel
+; and B800 is the kernel's, so the absent hook refuses and nothing is drawn.
+; The core is assembled once and both hosts read the same code.
+;
+; **A CURSOR THAT HAS NOT MOVED IS NOT REDRAWN.** That is not an optimisation:
+; between two of our paints the program may have written the cell itself, and
+; re-saving what is there would bank OUR OWN inverted cell as the thing to
+; restore - after which the inversion is permanent and travels with the
+; pointer. Returning early leaves the program's screen alone.
+; -----------------------------------------------------------------------------
+dos_m33_paint:
+    ; **THE HOST TEST IS FIRST AND BEFORE ANY PUSH**, because in the WINDOWED
+    ; box this routine is on a hot path and can never do anything: it is
+    ; reached from `dos_mou_read`, which is every `dos_getkey` poll, and there
+    ; is no text screen there to draw on and so nothing that could be left
+    ; behind to wipe. Three instructions rather than thirty (96.10.5.1).
+    cmp word [dos_hkv + DHK_TXT], 0
+    je .none
+    pushf                           ; **THE TICK PAINTS TOO, SO THIS IS A
+    cli                             ; CRITICAL SECTION** (SPEC.md 96.10.5.2).
+    push ax                         ; `dos_int33` `sti`s at its first
+    push bx                         ; instruction, so IRQ0 can land between
+    push cx                         ; the store that says WHERE the cursor is
+    push dx                         ; and the one that says WHAT WAS UNDER IT
+    push si                         ; - after which the wipe restores a cell
+    push di                         ; from the wrong place and leaves a
+    push es                         ; character the program never wrote.
+                                    ; pushf/cli/popf and never cli/sti: this
+                                    ; is reached from an ISR as well as from
+                                    ; the program
+    cmp byte [dos_m33shw], 0
+    jl .hide                        ; hidden, so make sure nothing is left
+                                    ; behind - a hide is a paint that wipes
+    call dos_m33_where              ; CX = x, DX = y, and NOT through
+    mov si, cx                      ; `dos_mou_read`: that feeds the edge
+    mov di, dx                      ; accumulator functions 5 and 6 consume
+    mov cl, 3                       ; (96.10.4.1), and this is called from the
+    shr si, cl                      ; tick as well as from the program
+    shr di, cl                      ; ...INT 33h's units are a 640x200 virtual
+                                    ; screen whatever the text mode is, so a
+                                    ; cell is 8 of them on BOTH axes
+    call word [dos_hkv + DHK_TXT]   ; ES = the segment, BX = columns, DX = rows
+    jc .hide
+    cmp si, bx                      ; a pointer at the very edge rounds to a
+    jb .colok                       ; cell that is one past the last one, and
+    mov si, bx                      ; a wild store into the program's memory
+    dec si                          ; is not a rounding error
+.colok:
+    cmp di, dx
+    jb .rowok
+    mov di, dx
+    dec di
+.rowok:
+    mov ax, di
+    mul bl                          ; AX = row * columns; AH is 0 coming in,
+    add ax, si                      ; rows being at most 50
+    shl ax, 1                       ; ...and a cell is two bytes
+    mov si, ax
+    mov ax, es
+    cmp ax, [dos_m33dv]             ; ALREADY THERE? then touch nothing at all
+    jne .move
+    cmp si, [dos_m33do]
+    je .out
+.move:
+    call dos_m33_wipe               ; off where it was, first
+    mov [dos_m33dv], es
+    mov [dos_m33do], si
+    mov ax, [es:si]
+    mov [dos_m33dc], ax             ; ...and what was under it
+    and ax, [dos_m33sm]
+    xor ax, [dos_m33cm]
+    mov [es:si], ax
+    jmp short .out
+.hide:
+    call dos_m33_wipe
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+.none:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_wipe - take the cursor off the glass, if it is on it
+; clobbers: nothing
+;
+; **IT CHECKS BEFORE IT RESTORES** (SPEC.md 96.10.5.3). A software cursor
+; cannot see the program's own writes - a DOS application draws its screen by
+; storing into B800 and tells nobody - so the cell we saved may since have
+; been replaced. Putting our copy back there would leave a character the
+; program never wrote, at a place the pointer has left: the artefact the
+; reporter describes under CTMOUSE as *"it doesn't always invert it correctly
+; in works"*.
+;
+; The test is exact and costs eight bytes: recompute what we WROTE, and
+; restore only if that is still what is there. A program that redrew the cell
+; keeps its own content and we simply forget ours.
+; -----------------------------------------------------------------------------
+dos_m33_wipe:
+    pushf                           ; nests correctly inside `dos_m33_paint`'s
+    cli                             ; own: the `popf` puts back the IF that
+    push ax                         ; was there, which there is 0
+    push si
+    push es
+    mov ax, [dos_m33dv]
+    or ax, ax
+    jz .out                         ; nothing drawn, which is every call in the
+                                    ; windowed box and most of them elsewhere
+    mov es, ax
+    mov si, [dos_m33do]
+    mov ax, [dos_m33dc]
+    and ax, [dos_m33sm]             ; what we PUT there, derived rather than
+    xor ax, [dos_m33cm]             ; banked - the masks cannot change under
+    cmp ax, [es:si]                 ; us without `0Ah`, which repaints
+    jne .gone
+    mov ax, [dos_m33dc]
+    mov [es:si], ax
+.gone:
+    mov word [dos_m33dv], 0
+.out:
+    pop es
+    pop si
+    pop ax
+    popf
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_hidden - the cursor's power-on state: away, and the default masks
+; clobbers: nothing
+;
+; Called at the bracket's IVT install and again by function 0, which is what a
+; real driver's reset does. `77FF`/`7700` is the pair every text-mode driver
+; powers up with - AND 77FF keeps the character and drops blink and intensity,
+; XOR 7700 then swaps foreground and background, which is the inverse-video
+; block a DOS program's user recognises as the mouse.
+;
+; **THE COUNTER IS -1 AND NOT 0**, which is the whole reason this routine
+; exists rather than a `DBSS` row being left at the zero bss arrives as: 0
+; means VISIBLE, so a bracket that forgot this would put a cursor on the
+; screen of a program that never asked for one.
+; -----------------------------------------------------------------------------
+dos_m33_hidden:
+    pushf
+    cli
+    call dos_m33_wipe               ; with the masks it is CURRENTLY wearing,
+    mov byte [dos_m33shw], 0xFF     ; before they go back to the defaults
+    mov word [dos_m33sm], 0x77FF
+    mov word [dos_m33cm], 0x7700
+    popf
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_where - the pointer, WITHOUT the edge accounting
+; out: BX = the button mask, CX = x, DX = y; CF undefined
+;
+; `dos_mou_read` is this plus `dos_mou_edge`, and the split exists because the
+; two callers that must NOT accumulate are the ones that run behind the
+; program's back: the IRQ0 dispatcher (96.10.4.1) and the cursor. An edge
+; consumed here is a click functions 5 and 6 never report.
+; -----------------------------------------------------------------------------
+dos_m33_where:
+    xor bx, bx
+    xor cx, cx
+    xor dx, dx
+    cmp word [dos_hkv + DHK_MOUSE], 0
+    je .out
+    call word [dos_hkv + DHK_MOUSE]
+.out:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
 ; dos_mou_zero - forget the edge state (function 0)
 ; clobbers: nothing
 ; -----------------------------------------------------------------------------
@@ -10935,14 +11297,15 @@ dos_mou_read:
     ; `int 16h` checks so that "press a key or click" keeps its edges - so
     ; this is not a corner: it is every DOS program that waits for input.
     push ax
-    xor bx, bx
-    xor cx, cx
-    xor dx, dx
-    cmp word [dos_hkv + DHK_MOUSE], 0
-    je .still
-    call word [dos_hkv + DHK_MOUSE]
-.still:
+    call dos_m33_where              ; the host read, which `dos_m33_tick` and
+                                    ; the cursor share (96.10.4.1)
     call dos_mou_edge               ; every state read feeds functions 5 and 6
+    call dos_m33_paint              ; ...AND MOVES THE CURSOR. This is the fine
+                                    ; update point and the tick is the coarse
+                                    ; one: a program waiting on a key polls
+                                    ; through here (96.10.5.2), which is most
+                                    ; of its idle time and far better than
+                                    ; 18.2 Hz
     pop ax
     ret
 %endif                              ; DOS_EXTCORE
@@ -11640,7 +12003,7 @@ DOS_BTREC_SZ equ 12              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; copy of a number safe
     ; --- THE SETUP AREA'S FURNITURE (SPEC.md 96.32.2), four words each -------
     HBSS DOS_B_TRECT, 8          ; 'Return' and 'Save Shortcut', and they are
-    HBSS DOS_B_SRECT, 8          ; ADJACENT ON PURPOSE (SPEC.md 20.5.1.2): a
+    HBSS DOS_B_SRECT, 8          ; ADJACENT ON PURPOSE (SPEC.md 20.5.1.3): a
                                  ; button group's rects must be contiguous
                                  ; because os88ui_btnpress walks them, so this
                                  ; pair is the Setup page's group and the pair
@@ -11653,9 +12016,13 @@ DOS_BTREC_SZ equ 12              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     HBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
     HBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
     HBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
-    HBSS DOS_B_BTREC, DOS_BTREC_SZ  ; the standard button record (20.5.1.2),
+    HBSS DOS_B_BTREC, DOS_BTREC_SZ  ; the standard button record (20.5.1.4),
                                  ; REPOINTED per page by dos_place - one
-                                 ; record, because only one page is ever up
+                                 ; record, because only one page is ever up.
+                                 ; DOS_B_SRECT is NOT here any more: it moved
+                                 ; up beside DOS_B_TRECT, a button group's
+                                 ; rects having to be contiguous
+    HBSS DOS_B_ABON,  1          ; the About card is up (SPEC.md 96.51)
 %endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -11792,6 +12159,19 @@ DOS_BTREC_SZ equ 12              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     DBSS DOS_B_M33LB,  1        ; functions 5 and 6 consume (96.10.4.1)
     DBSS DOS_B_M33HK,  1        ; 1 = IRQ0 is hooked, and it is hooked ONCE
     DBSS DOS_B_M33BSY, 1        ; 1 = a callback is running below us
+    DBSS DOS_B_M33SHW, 1        ; --- THE TEXT CURSOR (SPEC.md 96.10.5) -------
+                                ; the SHOW COUNTER, and it starts at -1 rather
+                                ; than 0: `01h` releases one nesting level and
+                                ; `02h` takes one, so a program that hid twice
+                                ; must show twice. Visible is exactly 0
+    DBSS DOS_B_M33SM,  2        ; the SCREEN mask, ANDed into the cell...
+    DBSS DOS_B_M33CM,  2        ; ...and the CURSOR mask, XORed after it. Both
+                                ; are STATE and not constants: Microsoft Works
+                                ; sets 77FF/7700 at startup and then 80FF/F000
+                                ; twice more (96.10.5)
+    DBSS DOS_B_M33DV,  2        ; where the cursor IS on the glass - segment,
+    DBSS DOS_B_M33DO,  2        ; offset, and the cell as it was before we
+    DBSS DOS_B_M33DC,  2        ; wrote. Segment 0 = nothing is drawn
     DBSS DOS_B_M33SEG, 2        ; **WHERE THE MOUSE HISTOGRAM LIVES** (SPEC.md
                                 ; 96.10.3), 0 = nowhere. UNCONDITIONAL and in
                                 ; the CORE's block, which is what 96.44.2's
@@ -12262,6 +12642,52 @@ dos_83:
 .done:
     pop di
     pop di
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_att_isdir - does [dos_fname] name a FOLDER in the directory we stand in?
+; out: CF=0 yes, CF=1 no. Preserves every register.
+;
+; `dos_cd_go`'s `.named` scan with the walk taken out: it answers the question
+; instead of acting on it, which is what AH=43h wants (SPEC.md 96.12.4).
+; OSAPI_FILE_FIND is by ORDINAL, so this is a walk of the directory and not a
+; lookup - the same cost `.named` has always paid, and paid once per AH=43h on
+; a name that is not a file.
+; -----------------------------------------------------------------------------
+dos_att_isdir:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; dos_be_find answers into ES:DI, and the
+                                    ; buffer is ours
+    xor cx, cx
+.scan:
+    mov di, dos_fent
+    call dos_be_find
+    jc .no
+    cmp word [dos_fent+14], OSAPI_FT_DIR
+    jb .scan                        ; a file is not a folder
+    mov si, dos_fname
+    mov di, dos_fent
+    call dos_streq
+    jne .scan
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -16743,6 +17169,13 @@ DOS_BSS_SIZE equ HB
                                     ; which is one pick out of a SHORT LIST of
                                     ; widths - a radio of five would be 80 px
                                     ; of a column that has 155
+%define OS88UI_ABOUT                ; ...and the About card (SPEC.md 96.51).
+                                    ; dos_about was a bare `ret` for the whole
+                                    ; of this package's life, so the kernel put
+                                    ; 'About DOS...' in the bar and the item
+                                    ; did NOTHING - which is 20.5.1.1's own
+                                    ; case, and what was missing behind it was
+                                    ; the credit
 %ifndef KD_BACKEND                  ; **THE WINDOW'S FURNITURE** (SPEC.md
                                     ; 96.43.2): buttons, fields, a radio and a
                                     ; line editor, and with the window half
@@ -16936,6 +17369,9 @@ dos_btrec equ dos_hbss + DOS_B_BTREC   ; ...and the button group's record
 %ifndef KD_BACKEND
 dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's
 %endif
+%ifndef KD_BACKEND
+dos_abon equ dos_hbss + DOS_B_ABON    ; byte: the About card is up
+%endif
 dos_erp     equ DOS_CBASE + DOS_B_ERP     ; word: the row being emitted
 %ifndef KD_BACKEND
 dos_lbuf equ dos_hbss + DOS_B_LBUF    ; a .LNK, read or written
@@ -17037,6 +17473,12 @@ dos_m33ly   equ DOS_CBASE + DOS_B_M33LY
 dos_m33lb   equ DOS_CBASE + DOS_B_M33LB
 dos_m33hk   equ DOS_CBASE + DOS_B_M33HK
 dos_m33bsy  equ DOS_CBASE + DOS_B_M33BSY
+dos_m33shw  equ DOS_CBASE + DOS_B_M33SHW  ; --- the text cursor (96.10.5) ---
+dos_m33sm   equ DOS_CBASE + DOS_B_M33SM
+dos_m33cm   equ DOS_CBASE + DOS_B_M33CM
+dos_m33dv   equ DOS_CBASE + DOS_B_M33DV
+dos_m33do   equ DOS_CBASE + DOS_B_M33DO
+dos_m33dc   equ DOS_CBASE + DOS_B_M33DC
 %ifdef DOSTRACE
 dos_tracen equ dos_hbss + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew equ dos_hbss + DOS_B_TRACEW  ; word: its ring write index

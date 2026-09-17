@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THE BUTTON REGISTRY (SPEC.md 20.5.1.2, tests/btnsites.txt).
+"""THE BUTTON REGISTRY (SPEC.md 20.5.1.3, tests/btnsites.txt).
 
 `os88ui_btn` is the standard button and carries the SPEC.md 13.7 gesture with
 it.  `os88ui_btnraw` is the bare painter underneath - no gesture at all - so a
@@ -95,7 +95,7 @@ def main():
                        "(%d record, %d raw). Every caller is registered with a "
                        "reason - and if this is a NEW raw caller it is a button "
                        "that fires on the press, which is the defect the "
-                       "registry exists for (SPEC.md 20.5.1.2)" % (path, rec, raw))
+                       "registry exists for (SPEC.md 20.5.1.3)" % (path, rec, raw))
             continue
         wrec, wraw, _ = reg[path]
         if raw > wraw:
@@ -118,7 +118,7 @@ def main():
     check("every button call site is registered, and the raw count only falls",
           not bad, 0, len(bad),
           "os88ui_btnraw is the painter with NO gesture; os88ui_btn is the "
-          "control (SPEC.md 20.5.1.2). A press-fired button and a "
+          "control (SPEC.md 20.5.1.3). A press-fired button and a "
           "release-fired one photograph identically, so nothing else in the "
           "suite can see this.")
     for b in bad:

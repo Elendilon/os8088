@@ -7088,7 +7088,7 @@ sh_fdlg_open:
     jc .out
     mov [sh_fdlg_win], bx
     push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                            ; 20.5.1.2): neither is a template word,
+    push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
     mov ax, bx
@@ -7219,7 +7219,7 @@ sh_fdlg_paint:
 ; sh_fdlg_onclick - in: CX=x, DX=y (screen-absolute, same convention as
 ; sh_onclick), SI=the dialog window
 ; -----------------------------------------------------------------------------
-; --- the dialogs' button groups (SPEC.md 20.5.1.2) ---------------------------
+; --- the dialogs' button groups (SPEC.md 20.5.1.3) ---------------------------
 ; OK is index 1 and Cancel index 2 in every one of the five, so the FLAGS are
 ; shared outright: OK carries the default ring and Cancel carries nothing.
 ; Only the labels differ, and only for three of them.
@@ -7826,7 +7826,7 @@ sh_bdlg_open:
     jc .out
     mov [sh_bdlg_win], bx
     push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                            ; 20.5.1.2): neither is a template word,
+    push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
     mov ax, bx
@@ -8258,7 +8258,7 @@ sh_idlg_open:
     jc .out
     mov [sh_idlg_win], bx
     push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                            ; 20.5.1.2): neither is a template word,
+    push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
     mov ax, bx
@@ -9061,7 +9061,7 @@ sh_ldlg_open:
     jc .out                            ; SI is still the template - and it is
     mov [sh_ldlg_win], bx              ; created HIDDEN, so the show is not
     push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                            ; 20.5.1.2): neither is a template word,
+    push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
     mov ax, bx
@@ -9691,7 +9691,7 @@ sh_ndlg_open:
     jc .out
     mov [sh_ndlg_win], bx
     push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                            ; 20.5.1.2): neither is a template word,
+    push bx                            ; 20.5.1.3): neither is a template word,
     push si                            ; which is why these buttons fired on
     push di                            ; the press for as long as they existed
     mov ax, bx
@@ -20041,7 +20041,7 @@ sh_fdlg_rowy   equ sh_fdlg_rowidx + 2       ; ...and that row's y
 sh_fdlg_rect   equ sh_fdlg_rowy + 2         ; 4 words: one button rect,
                                              ; reused for OK then Cancel
 sh_fdlg_btrec equ sh_fdlg_rect + 16   ; the standard button record (SPEC.md
-                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
 sh_fdlg_count  equ sh_fdlg_btrec + 12         ; word: this kind's row count
@@ -20126,7 +20126,7 @@ sh_ldlg_idx     equ sh_ldlg_i + 2            ; ...and the item it maps to
 sh_ldlg_rowy    equ sh_ldlg_idx + 2
 sh_ldlg_rect    equ sh_ldlg_rowy + 2         ; 8: os88ui_btn takes a POINTER
 sh_ldlg_btrec equ sh_ldlg_rect + 16   ; the standard button record (SPEC.md
-                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
 sh_ldsb         equ sh_ldlg_btrec + 12         ; 14: os88ui_sbar's seven words
@@ -20189,7 +20189,7 @@ sh_bdlg_rect   equ sh_bdlg_ry + 2          ; 4 words: one button rect,
 ; sh_drawborders' own scratch (stage 2.x) - the four edges' screen rect for
 ; whichever bordered cell it is currently drawing
 sh_bdlg_btrec equ sh_bdlg_rect + 16   ; the standard button record (SPEC.md
-                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
 sh_bdrawflags  equ sh_bdlg_btrec + 12        ; byte: that cell's border byte
@@ -20466,7 +20466,7 @@ sh_ndlg_rect      equ sh_ndlg_oy + 2   ; 4 words: one button rect, refilled
 ; stage 3.0c: the generic one-line input dialog, shared by Goto..., Row
 ; Height... and Column Width... (see SH_ID_* for why one dialog serves three).
 sh_ndlg_btrec equ sh_ndlg_rect + 16   ; the standard button record (SPEC.md
-                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
 sh_idlg_win       equ sh_ndlg_btrec + 12 ; word: 0 = none, the single-instance
@@ -20481,7 +20481,7 @@ sh_idlg_rect      equ sh_idlg_oy + 2   ; 4 words: one button rect
 ; it is looking at pinned its column and/or its row with '$', and its adjuster
 ; then declines to move the pinned half - that refusal is the whole feature.
 sh_idlg_btrec equ sh_idlg_rect + 16   ; the standard button record (SPEC.md
-                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
 sh_rw_absc        equ sh_idlg_btrec + 12 ; byte: Insert/Delete's scanner

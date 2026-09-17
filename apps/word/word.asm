@@ -17690,7 +17690,7 @@ wd_abopen:
     push si
     mov word [wd_btlbl], wd_s_ok    ; the About card's OK, through the one
     mov word [wd_btflg], OS88UI_FILL | OS88UI_DEF
-    mov bx, wd_btrec                ; control (SPEC.md 20.5.1.2). Word's
+    mov bx, wd_btrec                ; control (SPEC.md 20.5.1.3). Word's
     mov word [bx+OS88UI_BT_RECTS], wd_abok
     mov word [bx+OS88UI_BT_LABELS], wd_btlbl
     mov word [bx+OS88UI_BT_FLAGS], wd_btflg
@@ -20760,7 +20760,7 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
     WDVAR wd_dck,   1       ; byte: the attr byte the check boxes are editing
     WDVAR wd_dpad,  1       ; byte: keeps the words below even
     WDVAR wd_dgr,   8       ; 4 words: a button rect being drawn/hit
-    WDVAR wd_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.2):
+    WDVAR wd_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3):
     WDVAR wd_btflg, 2       ; a one-entry label array and a one-entry flag one
     WDVAR wd_btrec, 12      ; ...and the record itself
     WDVAR wd_dgdown, 2      ; WHICH control a press is live on - the WDD

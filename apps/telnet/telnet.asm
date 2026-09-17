@@ -180,7 +180,7 @@ te_entry:
     jc .out
     mov [te_win], bx
     push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                         ; 20.5.1.2): neither is a template word
+    push bx                         ; 20.5.1.3): neither is a template word
     push si
     push di
     mov ax, bx
@@ -442,7 +442,7 @@ te_paint:
     ret
 
 ; The record's two arrays. The LABEL one is a single entry and is PATCHED,
-; because this button's caption changes with the session (SPEC.md 20.5.1.2's
+; because this button's caption changes with the session (SPEC.md 20.5.1.3's
 ; arrays are the caller's, so a dynamic caption needs no special case).
 te_btlbl:  dw te_s_conn
 te_btflg:  dw OS88UI_FILL
@@ -2095,7 +2095,7 @@ te_want     equ te_hnd + 1           ; the user asked to close
 te_dirty    equ te_want + 1
 te_btn      equ te_dirty + 1         ; 8: the Connect button's rect
 te_btrec    equ te_btn + 8           ; the standard button record (SPEC.md
-                                      ; 20.5.1.2), beside the rect it names
+                                      ; 20.5.1.3), beside the rect it names
 te_line     equ te_btrec + 12         ; OS88LINE_SZ
 te_hbuf     equ te_line + OS88LINE_SZ ; TE_HOSTMAX: what the user typed
 te_host     equ te_hbuf + TE_HOSTMAX  ; ...and the half before the colon

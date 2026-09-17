@@ -287,7 +287,7 @@ OS88UI_DOWN equ 16              ; THE PRESSED LOOK (SPEC.md 13.8): interior
                                 ; caption in it, which says "pressed" about a
                                 ; control that will refuse.
                                 ;
-                                ; IT IS THE LIBRARY'S NOW (SPEC.md 20.5.1.2).
+                                ; IT IS THE LIBRARY'S NOW (SPEC.md 20.5.1.3).
                                 ; os88ui_btn resolves it from the record's
                                 ; OS88UI_BT_DOWN, so a caller neither sets it
                                 ; nor has to remember to pass it back from its
@@ -296,7 +296,7 @@ OS88UI_DOWN equ 16              ; THE PRESSED LOOK (SPEC.md 13.8): interior
                                 ; one whose omission left a repaint mid-press
                                 ; disagreeing with the glass.
 OS88UI_LATCH equ 32             ; THE SAME PICTURE, A DIFFERENT CAUSE (SPEC.md
-                                ; 20.5.1.3): this control's SETTING is on,
+                                ; 20.5.1.4): this control's SETTING is on,
                                 ; where OS88UI_DOWN means a press is live on
                                 ; it this instant. The caller's, in its flags
                                 ; array, because it is the caller that knows.
@@ -318,7 +318,7 @@ OS88UI_LATCH equ 32             ; THE SAME PICTURE, A DIFFERENT CAUSE (SPEC.md
                                 ; and ModPlug, Tracker and Paint each draw one
                                 ; by hand today.
 
-; --- THE RECORD (SPEC.md 20.5.1.2) -------------------------------------------
+; --- THE RECORD (SPEC.md 20.5.1.3) -------------------------------------------
 ; One per button GROUP, in the CALLER's data, because that is the shape the
 ; tree has rather than a preference: Sheet's ten buttons are five dialog
 ; PAIRS, ftpd's and Ether's are triples, and Calculator's and TexPad's are
@@ -388,7 +388,7 @@ OS88UI_BT_SIZE   equ 12
 %endif
 %ifndef OS88UI_NOBTN
 ; -----------------------------------------------------------------------------
-; os88ui_btn - draw ONE button of a group (SPEC.md 20.5.1.2)
+; os88ui_btn - draw ONE button of a group (SPEC.md 20.5.1.3)
 ; in:  BX = the record, AL = the button's index PLUS ONE; the gfx lock is held
 ;      (every callback and every kernel painter does hold it)
 ; out: nothing; all registers preserved
@@ -1111,7 +1111,7 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 %endif                          ; above. The kernel's is in .bss at the bottom
 
 ; =============================================================================
-; THE GESTURE (SPEC.md 13.7, 13.8, 20.5.1.2)
+; THE GESTURE (SPEC.md 13.7, 13.8, 20.5.1.3)
 ;
 ; Four entries, and between them they are every obligation a caller used to
 ; owe by hand. os88ui_bfind, os88ui_arm, os88ui_fire and os88ui_armed above

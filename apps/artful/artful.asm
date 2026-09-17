@@ -160,7 +160,7 @@ at_entry:
     jc .out
     mov [at_win], bx
     push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                         ; 20.5.1.2): neither is a template word,
+    push bx                         ; 20.5.1.3): neither is a template word,
     push si                         ; which is why this modal's three buttons
     push di                         ; fired on the press for as long as they
     mov ax, bx                      ; existed

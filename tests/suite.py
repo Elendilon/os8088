@@ -998,7 +998,7 @@ FAST = [
         "tests/unit/t_btnrules.py is the static half that catches a NEW "
         "offender", wants=("marty",)),
     Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
-        "SPEC.md 20.5.1.2's ratchet: os88ui_btn IS the button and carries the "
+        "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "
         "drive by hand - and twenty-five call sites drove it by firing on the "
         "PRESS with no pressed look. Every caller is registered in "
@@ -3799,6 +3799,57 @@ SOAK = [
         "that may since have been freed.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mouevt360.img")),
+    Row("dosattr", "soak", py("tests/dosattr.py"), 25.0,
+        "`AH=43h` IS ASKED ABOUT DIRECTORIES (SPEC.md 96.12.4). Microsoft "
+        "Works's Save As, given a name on another drive, asks about the "
+        "directory the file would go in before it writes anything - and puts "
+        "up `Directory not found` when that is refused. `.att_get` resolved "
+        "every name through `dos_fh_stat`, the FILE lookup AH=3Dh opens "
+        "through, so EVERY directory on EVERY disk read as missing. A ROOT is "
+        "the sharper half: `A:\\` parses to a drive and no 8.3 name at all, "
+        "so the lookup was for the empty name - which is why the failure "
+        "looked like the drive switch, and that works perfectly (the trace "
+        "shows AH=0Eh select A:, AH=19h confirming AL=00, and AH=0Eh back, "
+        "all before the refusal). THE REFERENCE IS THE SPECIFICATION and was "
+        "taken on the machine: IBM DOS 3.30 answers `\\` and `A:\\` with "
+        "CF=0 CX=0074, a subdirectory 0010, a file 0020, and only a missing "
+        "name CF=1 AX=0002. IT ASSERTS THE PROPERTY AND NOT DOS's EXACT CX "
+        "FOR A ROOT - 0074 is bits DOS never deliberately set, a root having "
+        "no directory entry to read them from, and copying an uninitialised "
+        "byte would be copying a bug and calling it a contract. ATTRDIR.COM "
+        "makes its own subdirectory and removes it again, and runs under a "
+        "real DOS unchanged. VERIFIED TO FAIL at A, B and C against the build "
+        "that shipped the defect.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/attrdir360.img")),
+    Row("kdmcur", "soak", py("tests/kdmcur.py"), 90.0,
+        "**A DOS MOUSE DRIVER DRAWS ITS OWN POINTER** (SPEC.md 96.10.5). "
+        "There is no compositor and no arrow the machine keeps for it, so "
+        "`01h` means put a cursor on the screen and keep it under the mouse - "
+        "and this box answered `01h` and `02h` with a shrug, on the reasoning "
+        "that the kernel owns the pointer. Right in the WINDOWED host and "
+        "wrong in `kern_dos`, where the program owns every pixel and the "
+        "kernel is not running at all, which is why the capability hangs off "
+        "a host hook (DHK_TXT) rather than an %ifdef. THE ASSERTION IS "
+        "ARITHMETIC AND NOT A PHOTOGRAPH: a text cursor is an attribute the "
+        "driver flips - `(cell AND screen_mask) XOR cursor_mask` - so "
+        "MCURSOR.COM writes a KNOWN word into every cell with `stosw` (what a "
+        "DOS application does; a driver that only saw int 10h writes would "
+        "pass a test written the other way), shows the cursor and reads the "
+        "cell under the pointer back out of the framebuffer. The mouse never "
+        "moves and there is nothing to settle. Five checks: the cell is "
+        "inverted (A), `02h` puts the original back byte for byte (B), the "
+        "MASKS ARE STATE - Works sets 77FF/7700 and then 80FF/F000 twice "
+        "more, measured against IBM DOS 3.30 with CTMOUSE (C) - and the show "
+        "counter NESTS, so hide/hide/show leaves it hidden (D) and the fourth "
+        "call brings it back (E). It runs under a real DOS unchanged, and "
+        "prints SKIP where INT 33h is not installed. IT IS TWO ARMS AND "
+        "BOTH ARE ASSERTIONS: under kern_dos the cursor must be drawn, and IN "
+        "THE WINDOW it must NOT be - there B800 is the kernel's framebuffer "
+        "and DHK_TXT is absent for that reason, so a row that only ran arm 3 "
+        "would pass just as happily with a box that scribbled on the desktop.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/mcursor360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
@@ -6305,6 +6356,26 @@ SOAK = [
         "books are checked beside it against MartyPC's own cycle counter, "
         "which is an authority outside the kernel's arithmetic.",
         needs=("marty",), serial=True, timeout=600),
+    Row("heapdrv", "soak", py("tests/heapdrv.py"), 20.0,
+        "SPEC.md 28.4.6: a DRIVER's own claims are on the heap page. "
+        "SOUND.DRV's image was on it - MEM_K_DRV is a kernel tag, so DrvImg "
+        "files under System - and the 8KB DMA ring the driver then claims for "
+        "itself was on no row at all: mem_own stamps a claim with the CALLING "
+        "segment, which for a driver is its image's, and that is neither a "
+        "kernel tag nor an instance nor any tm_ispt, so every arm of "
+        "tm_hmatch refused it and there was no third answer. It is a DEFECT "
+        "rather than a gap because tm_hsplit counts every live record into "
+        "HELD, so the ring was in the caption's total and in no column under "
+        "it - which is why this row asserts the ARITHMETIC (every live record "
+        "is on a row, counted off [tm_hrows] with the headings and pads taken "
+        "out) and only then the label. A row that looked for the word DrvBuf "
+        "alone would go green on a page that still lost the 8KB. Measured "
+        "red at 3 claim rows for 4 live records with the two arms reverted, "
+        "and the probe it prints on a miss found DrvImg on screen while the "
+        "ring's row was absent. It wants a Sound Blaster - os8088_5150_sb_gla "
+        "- and the driver is up at the first desktop frame there.",
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/sndmove360.img",)),
     Row("heapscrl", "soak", py("tests/heapscrl.py"), 120.0,
         "SPEC.md 28.4.4: the Task Manager's heap page scrolls, its bar "
         "survives six refreshes of the list beside it (tm_rowr), and a scroll "

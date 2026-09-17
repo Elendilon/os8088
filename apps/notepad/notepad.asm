@@ -10131,7 +10131,7 @@ np_pbutton:
     ret
 
 np_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP (SPEC.md
-                                ; 20.5.1.2): four rects, contiguous, in screen
+                                ; 20.5.1.3): four rects, contiguous, in screen
                                 ; coordinates - a hidden one is zeroed
 np_btlbl:   dw 0, 0, 0, 0       ; ...its labels, written as each is drawn
 np_btflg:   dw 0, 0, 0, 0       ; ...and its flags

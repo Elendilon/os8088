@@ -17700,8 +17700,8 @@ sc_abopen:
     cmp ax, 360                     ; name line as a toast instead - refusal
     jb .toast                       ; with the reason (SPEC.md 47)
     mov ax, [sc_ch]
-    cmp ax, 96
-    jb .toast
+    cmp ax, 128                     ; ...and 32 taller since the two credit
+    jb .toast                       ; lines (SPEC.md 95.12)
     mov ax, [sc_cw]
     sub ax, 344
     shr ax, 1
@@ -17711,7 +17711,7 @@ sc_abopen:
     add ax, 343
     mov [sc_abrect+4], ax
     mov ax, [sc_ch]
-    sub ax, 72
+    sub ax, 104
     shr ax, 1
     add ax, [sc_ct]
     mov dx, [sc_ct]
@@ -17721,7 +17721,7 @@ sc_abopen:
     mov ax, dx
 .yok:
     mov [sc_abrect+2], ax
-    add ax, 71
+    add ax, 103
     mov [sc_abrect+6], ax
     ; panel, frame, shadow - the dropdown's dress
     mov al, CWHITE
@@ -17750,8 +17750,12 @@ sc_abopen:
     inc cx
     mov dx, bx
     call OSAPI_GFX_FILL_GRAY
-    ; the three lines (SPEC.md 68.2): the name, the version, and where the
-    ; authentic UI came from - the Computer History Museum's Opus release
+    ; the FIVE lines (SPEC.md 95.12): the name, the version, where the authentic
+    ; UI came from - the Computer History Museum's Opus release - and then the
+    ; two credits. The fork INHERITED the first of them: Word's card carries
+    ; 'Ported by Jorge Gonzalez' and this box was cut from that one with the
+    ; line dropped, which is how a fork loses an attribution silently
+    ; (SPEC.md 20.5.1.1). The second names who took it on afterwards.
     mov cx, [sc_abrect]
     add cx, 8
     mov dx, [sc_abrect+2]
@@ -17767,6 +17771,14 @@ sc_abopen:
     mov si, sc_s_abou3
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
+    add dx, 12
+    mov si, sc_s_abou4
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    add dx, 12
+    mov si, sc_s_abou5
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
     ; the OK button
     mov ax, [sc_abrect]
     add ax, 148
@@ -17774,14 +17786,14 @@ sc_abopen:
     add ax, 47
     mov [sc_abok+4], ax
     mov ax, [sc_abrect+2]
-    add ax, 50
+    add ax, 82                      ; 50 + the two credit lines (SPEC.md 95.12)
     mov [sc_abok+2], ax
     add ax, 13
     mov [sc_abok+6], ax
     push si
     mov word [sc_btlbl], sc_s_ok    ; the About card's OK, through the one
     mov word [sc_btflg], OS88UI_FILL | OS88UI_DEF
-    mov bx, sc_btrec                ; control (SPEC.md 20.5.1.2), staged N=1:
+    mov bx, sc_btrec                ; control (SPEC.md 20.5.1.3), staged N=1:
     mov word [bx+OS88UI_BT_RECTS], sc_abok
     mov word [bx+OS88UI_BT_LABELS], sc_btlbl
     mov word [bx+OS88UI_BT_FLAGS], sc_btflg
@@ -20002,6 +20014,8 @@ sc_s_sp3:   db '   ', 0
 sc_s_about: db 'Scribe', 0
 sc_s_abou2: db 'os8088 word processor', 0
 sc_s_abou3: db 'Forked from WORD (SPEC.md 86)', 0
+sc_s_abou4: db 'Ported by Jorge Gonzalez', 0
+sc_s_abou5: db 'Updated by Koriban', 0
 sc_s_ok:    db 'OK', 0
 sc_m_noclose: db 'Close refused, try again', 0
 
@@ -21040,7 +21054,7 @@ section .text
     SCVAR sc_dck,   1       ; byte: the attr byte the check boxes are editing
     SCVAR sc_dpad,  1       ; byte: keeps the words below even
     SCVAR sc_dgr,   8       ; 4 words: a button rect being drawn/hit
-    SCVAR sc_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.2)
+    SCVAR sc_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3)
     SCVAR sc_btflg, 2
     SCVAR sc_btrec, 12
     SCVAR sc_dgdown, 2      ; WHICH control a press is live on, 0 for none

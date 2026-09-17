@@ -1,4 +1,4 @@
-# tests/btnsites.txt - the BUTTON registry (SPEC.md 20.5.1.2)
+# tests/btnsites.txt - the BUTTON registry (SPEC.md 20.5.1.3)
 #
 # `os88ui_btn` IS the standard button: it takes a RECORD and an index, resolves
 # the pressed look from OS88UI_BT_DOWN itself, and its four siblings -
@@ -52,7 +52,7 @@
 1 0 apps/notepad/notepad.asm        # record: the find panel's four
 1 0 apps/artful/atui.inc            # record: the modal's three
 1 0 apps/audio/apui.inc             # record: the seven transports, and
-                                    # OS88UI_LATCH's first consumer (20.5.1.3)
+                                    # OS88UI_LATCH's first consumer (20.5.1.4)
 
 # --- BACKLOG: on os88ui_btnraw, and ALREADY RELEASE-FIRED --------------------
 # None of these is the defect. Each fires on the release today through a

@@ -391,7 +391,7 @@ ap_entry:
     jc .fail
     mov [ap_win], bx
     push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                         ; 20.5.1.2): neither is a template word
+    push bx                         ; 20.5.1.3): neither is a template word
     push si
     push di
     mov ax, bx

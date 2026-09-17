@@ -2301,3 +2301,108 @@ five, and the one it never picked is the one that was broken.
 world), and asserts the world that ARRIVED rather than that the screen changed
 — because a silent load failure takes no mode, so there are no pixels to ask
 about. Verified to fail on SFO alone against the package before the fix.
+
+## 52. Microsoft Works: `Directory not found` when you pick another drive in Save As (FIXED — `AH=43h` was a FILE lookup, and a root parses to no file name at all: SPEC.md §96.12.4)
+
+Reported the same day as 47 and 48 and, like them, described from the glass:
+*"switching to another drive (Directory not Found)"*, then, asked how:
+*"I tabbed over to the directory browser and tried to select A: or D:. It
+correctly lists the drives we gave it, but trying to switch to one is what
+gives the error."*
+
+**The drive switch works and always did.** The trace shows `AH=0Eh` select
+A:, `AH=19h` answering `AL=00`, and `AH=0Eh` back to B: — all of it before
+anything fails. The refusal is the call *after* them: `AH=43h AL=00h`, which
+Works uses to ask *"is this directory there?"* before it writes, answering
+`CF=1 AX=0002`.
+
+`.att_get` resolved every name through `dos_fh_stat` — the **file** lookup
+`AH=3Dh` opens through (§96.11) — so a name that is a folder found nothing.
+Not just the drive's root: **every directory on every disk read as missing**,
+which nothing had noticed because nothing else in the tree had asked.
+
+**The root is the sharper half and is why the name recorder had to be
+widened.** `A:\` parses to a drive and *no 8.3 name at all*, so the lookup
+was for the empty string — and the twelve-slot recorder §96.11.7 had left in
+place was full of `CON` long before the interesting name arrived (a program
+opens `CON` eight times). At 48 slots the name came back **empty**, which is
+the whole diagnosis in one field.
+
+`dos_att_isdir` is `dos_cd_go`'s own `.named` scan with the walk taken out,
+and the root needs no scan at all — an empty name *is* the directory we
+stand in.
+
+**IBM DOS 3.30 is the specification and `tests/dostrap/attrdir.asm` runs
+under both machines unchanged** (docs/DOS-DEBUGGING.md): it answers `\` and
+`A:\` with `CF=0 CX=0074`, a subdirectory `0010`, a file `0020`, and only a
+missing name `CF=1 AX=0002`. We answer `0010` for the two roots deliberately
+— `0074` is bits DOS never set, a root having no directory entry to read them
+from, and what every caller tests is `CF` and bit 4. **The probe prints
+`ATTRDIR PASS` on both machines**, which is what says the assertion is not
+one only this box could satisfy.
+
+**The gate's own first version was the near-miss worth keeping.** `ask`
+pushed `AX` and `CX` and then did `or bl, bl` between the `int 21h` and the
+`jc` — so the judgement read *its own* flag, not DOS's. It printed `FAIL`
+beside five correct answers, and the same defect would later have printed
+`PASS` beside five wrong ones. The carry is banked into a byte by a `mov`
+now, `mov` being the one instruction there that writes no flags.
+
+## 53. Microsoft Works has a mouse, it works, and there is nothing to see (FIXED — in DOS the DRIVER draws the pointer: SPEC.md §96.10.5)
+
+The third of the Works reports and the only one where **the reporter brought
+the diagnosis**: *"Apparently we are expected to draw the cursor — including
+in text mode, which we never had to do before in our os — unless the program
+tells us somehow that it is taking over drawing the cursor itself."* That is
+exactly right, and it is the one part of `INT 33h` this box had answered with
+a shrug: `01h` and `02h` were both `.none`, on the reasoning that the kernel
+owns the pointer.
+
+**The reasoning is right in the windowed host and wrong under `kern_dos`**,
+where the program owns every pixel and the kernel is not running at all.
+There is no compositor and no arrow the machine keeps: `01h` means *put a
+cursor on the screen and keep it under the mouse*, and if the driver does not,
+nothing does.
+
+It is also the report that came with its own **correction**, and the
+correction is the more useful half: *"I went fully into a document and it DOES
+work — still no visible cursor of course cause we don't draw one, but if I
+push it up to the top and click I can open menus with it."* §96.10.4's event
+handler was working the whole time; what was missing was only the drawing.
+
+**The reference is what specified it.** Works under IBM DOS 3.30 with CTMOUSE
+loaded (docs/DOS-DEBUGGING.md), read off §96.10.3's histogram:
+
+```
+00 0A 0C 08 0A 0A 01 03 02 01 03 02 01 03 02 ...   (x25)
+0Ah x3: kind=0000, first 77FF/7700, last 80FF/F000
+```
+
+Three things fall out and each decided something. `kind=0` is the **software**
+cursor, so the whole drawing rule is `(cell AND screen_mask) XOR cursor_mask`
+and there is no shape to draw. The masks are asked for **three times with two
+different values**, so they are *state* — a hard-coded `77FF`/`7700` would
+draw the wrong cursor for most of a session. And `01 03 02` is show / ask /
+hide: **Works takes the cursor off before it draws its own screen**, which is
+what a well-behaved DOS application does and is why §96.10.5.3's guard is a
+guard rather than the main mechanism.
+
+**`DHK_TXT` is how "`kern_dos` only" is spelled.** The core is assembled once
+and joined to either host, so it cannot be an `%ifdef`: `kdentry.inc` fills
+the hook and `dos_hk_bind` does not, and in the window the cell stays the zero
+a `.bss` arrives as. `tests/kdmcur.py` asserts **both** arms, because a row
+that only ran arm 3 would pass just as happily with a box that scribbled on
+the desktop.
+
+Measured: `doscore.bin` **15,475 → 15,759** (+284, 113 bytes of `CORE_MAX`
+left), `kerndos.bin` +52, `DOS.O88` +254 packed. Nothing resident on a machine
+that is not running a DOS program.
+
+**The debugging cost one wasted arm and it was the harness's own.** The first
+gate ran only `ui.path("B:/MCURSOR.COM")` — which is the *windowed* box — and
+reported the cursor absent, correctly and uselessly. Reaching arm 3 is
+`tests/kdmouse.py`'s sequence: open `DOS.O88` itself, pick the Memory arm,
+then name the program. And the probe's own labels had no trailing space, so
+`C remasked0741` split as one token and the harness read the label as the
+cell — a parse that says *the cursor was drawn* about a machine where it was
+not.

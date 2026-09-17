@@ -2243,7 +2243,7 @@ br_inrect:
 
 ; --- br_btn1 - one toolbar button; CF on entry = 0 live, 1 disabled ----------
 ; in: AL = the button's index PLUS ONE, CF from its own ok-predicate
-; The toolbar group's arrays (SPEC.md 20.5.1.2). The FLAGS are rewritten each
+; The toolbar group's arrays (SPEC.md 20.5.1.3). The FLAGS are rewritten each
 ; pass by br_btn1, from the very predicate that decides the refusal.
 br_btlbl: dw br_s_back, br_s_fwd, br_s_rel
 br_btflg: dw OS88UI_FILL, OS88UI_FILL, OS88UI_FILL
@@ -7105,7 +7105,7 @@ br_r1       equ br_tby + 2            ; the three button rects {x1,y1,x2,y2}
 br_r2       equ br_r1 + 8
 br_r3       equ br_r2 + 8
 br_btrec    equ br_r3 + 8             ; the standard button record (SPEC.md
-                                       ; 20.5.1.2); the three rects above are
+                                       ; 20.5.1.3); the three rects above are
                                        ; the group it walks
 br_spen     equ br_r3 + 8             ; word: the state's pen, 8-aligned
 br_swid     equ br_spen + 2           ; word: ...and the cells it may use

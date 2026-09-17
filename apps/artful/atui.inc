@@ -1196,7 +1196,7 @@ at_mdbuttons:
 ; and that is the point of the shared control rather than an accident of it.
 ; -----------------------------------------------------------------------------
 ; in: ...and [at_bslot] = which of the group's three rects this one IS,
-;     0-based, set by the caller immediately before (SPEC.md 20.5.1.2). A
+;     0-based, set by the caller immediately before (SPEC.md 20.5.1.3). A
 ;     group's rects must be contiguous, so the three x/y/width triples this
 ;     modal used to keep - and hit-test from, separately - are one array now.
 at_button:
@@ -1262,7 +1262,7 @@ at_bslot:   db 0                    ; ...and which of the three it is
 at_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP, contiguous
 at_btlbl:   dw 0, 0, 0                     ; its labels, written per pass
 at_btflg:   dw 0, 0, 0                     ; ...and its flags
-at_btrec:   dw 0, 0, 0, 0, 0, 0        ; the standard record (20.5.1.2) - SIX
+at_btrec:   dw 0, 0, 0, 0, 0, 0        ; the standard record (20.5.1.3) - SIX
                                        ; WORDS, written out because this file
                                        ; is included before os88ui.inc and
                                        ; OS88UI_BT_SIZE is not defined yet.

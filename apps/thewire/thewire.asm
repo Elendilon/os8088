@@ -320,7 +320,7 @@ wr_entry:
     jc .out
     mov [wr_win], bx
     push ax                             ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                             ; 20.5.1.2): neither is a template word
+    push bx                             ; 20.5.1.3): neither is a template word
     push si
     push di
     mov ax, bx
@@ -1280,7 +1280,7 @@ wr_ddesc:
 ; draw's solid one and a disabled label comes out pixel-identical to a live
 ; one (os88ui.inc's own note).
 ; -----------------------------------------------------------------------------
-; The button group's arrays (SPEC.md 20.5.1.2). The FLAGS are rewritten every
+; The button group's arrays (SPEC.md 20.5.1.3). The FLAGS are rewritten every
 ; pass because wr_may decides each button's greying from the state.
 wr_btlbl: dw wr_s_run, wr_s_add
 wr_btflg: dw OS88UI_FILL, OS88UI_FILL
@@ -3928,7 +3928,7 @@ wr_ra       equ os88_image_end + WR_B0 + 14         ; 4 words: Load Program
 wr_rb       equ os88_image_end + WR_B0 + 22         ; 4 words: Add to Disk...
 wr_btrec    equ os88_image_end + WR_B0 + 30         ; the standard button
                                                     ; record (SPEC.md
-                                                    ; 20.5.1.2), beside the
+                                                    ; 20.5.1.3), beside the
                                                     ; two rects it names -
                                                     ; which are ADJACENT on
                                                     ; purpose, a group's

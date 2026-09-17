@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THE GESTURE, ON THE GLASS (SPEC.md 13.7, 13.8, 20.5.1.2).
+"""THE GESTURE, ON THE GLASS (SPEC.md 13.7, 13.8, 20.5.1.3).
 
 The four things a standard button must do, driven on a real emulated 8088:
 it goes DOWN while held, comes back UP when the pointer slides off it, goes
