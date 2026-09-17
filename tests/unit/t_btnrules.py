@@ -36,8 +36,22 @@ from harness import check, done                           # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 REGISTRY = os.path.join(ROOT, "tests", "btnsites.txt")
 
-REC = re.compile(r"^\s*call (?:\w+:)?(?:os88ui_btn|os88ui_kbtn|os88ui_btn_f)\b",
-                 re.M)
+# ...AND SO DOES A MACRO-WRAPPED CALL. kernel/fdlg.inc reaches everything
+# outside itself through `FDX <name>`, which is `call <name>` on kern_big and
+# `call COLD_SEG:xd_<name>` on kern_small, with `FDXF <name>` generating the
+# far thunk. NEITHER spelling contains `call os88ui_btn`, so the file was not
+# in the registry at all and could not be counted, let alone checked - and it
+# named os88ui_btn where it meant os88ui_kbtn, which took every button off the
+# Standard File dialog. A wrapper is how a caller hides from a grep; this
+# matches the VERB rather than the instruction.
+# ...and it matches ANY uppercase wrapper, not FDX by name: this tree has
+# six more of the same shape (FCPX/FCPXF for FILECP.DRV, OVWCALL, DKXPAD,
+# OSAPI_CSLOT, OSAPI_FARCELL), every one of which could reach the control
+# tomorrow and hide it again. `<MACRO> os88ui_btn` is the whole pattern, so
+# the rule is "the symbol appears as the first operand of a statement",
+# whatever verb precedes it.
+REC = re.compile(r"^\s*(?:call (?:\w+:)?|[A-Z][A-Z0-9_]* +)"
+                 r"(?:os88ui_btn|os88ui_kbtn|os88ui_btn_f)\b", re.M)
 # THE FAR ENTRY COUNTS. os88ui_btn_f is how an on-demand module reaches the
 # control (SPEC.md 2.6) - ctrl.inc and hiber.inc have a CS of their own - and
 # a `call COLD_SEG:os88ui_btn_f` is invisible to a grep for `call os88ui_btn`.
@@ -130,9 +144,23 @@ def main():
     # CLICK path, so the paint path drew nothing) - only driving it can, which
     # is tests/btngesture.py's DOS case.  It catches the half that is visible
     # from the source.
-    AIM = re.compile(r"OS88UI_BT_RECTS\]|OS88UI_BTNREC\s+\w+\s*,\s*\w")
-    CNT = re.compile(r"OS88UI_BT_N\]|OS88UI_BTNREC\s+\w+\s*,")
-    KBTN = re.compile(r"^\s*call os88ui_kbtn\b", re.M)
+    # ...or the rect array is NAMED in the declaration (`os88ui_arec: dw
+    # os88ui_ar, ...`), which is a record pointed at a STATIC array and needs
+    # no write. A leading `0` deliberately does not count: that is the three
+    # drivers' shape, where the rect is restaged per button and BT_RECTS has
+    # to be written - and they do write it.
+    AIM = re.compile(r"OS88UI_BT_RECTS\]|OS88UI_BTNREC\s+\w+\s*,\s*\w|"
+                     + r"^\w+:\s*dw\s+[A-Za-z_]\w*\s*,", re.M)
+    # ...OR THE COUNT IS IN THE DECLARATION, which is how the three drivers
+    # and the alert card do it: `eu_btrec: dw 0, eu_btlbl, eu_btflg, 1, 0...`
+    # presets N and never writes it again, because a one-button staging's
+    # count cannot change. That is the same concession OS88UI_BTNREC gets one
+    # spelling along, and without it this rule fires on correct code - which
+    # it did, silently, for as long as the check() below could not fail.
+    CNT = re.compile(r"OS88UI_BT_N\]|OS88UI_BTNREC\s+\w+\s*,|"
+                     + r"^\w+:\s*dw\s+[^;\n]*?,[^;\n]*?,[^;\n]*?,\s*[1-9]\d*\s*,",
+                     re.M)
+    KBTN = re.compile(r"^\s*(?:call|[A-Z][A-Z0-9_]*) +os88ui_kbtn\b", re.M)
     for path, (rec, raw) in sorted(live.items()):
         if not rec or path.endswith("os88ui.inc"):
             continue
@@ -143,7 +171,7 @@ def main():
         # nothing of its own to aim.
         FAR = re.compile(r"^\s*call \w+:os88ui_btn_f\b", re.M)
         if (KBTN.search(t0) or FAR.search(t0)) and \
-           not re.search(r"^\s*call os88ui_btn\b", t0, re.M):
+           not re.search(r"^\s*(?:call|[A-Z][A-Z0-9_]*) +os88ui_btn\b", t0, re.M):
             continue                # reaches the control through the kernel's
                                     # staging, which aims the record itself
         t = open(os.path.join(ROOT, path), encoding="utf-8",
@@ -161,17 +189,76 @@ def main():
                        "live count of 0 means every index is past the end and "
                        "os88ui_btn draws nothing (SPEC.md 20.5.1.3)" % path)
 
+    # --- AND THE LIBRARY'S OWN SITES ARE NOT EXEMPT ------------------------
+    # The loop above skips apps/os88ui.inc, because os88ui_btn's own gesture
+    # handlers are handed a record by their CALLER and have nothing to aim.
+    # That exemption is how the ALERT CARD shipped broken: os88ui_abtn1 went
+    # on handing os88ui_ar - a RECT - to an os88ui_btn that had started taking
+    # a record, and the registry counted the call as "the library's own" and
+    # asked nothing else about it. The live count came out of the rect's y2,
+    # the flags pointer out of its x2, OS88UI_BT_DOWN out of os88ui_asets'
+    # first word - so the DOS box's "Open windows are lost. Proceed?" filled
+    # the whole screen with a PRESSED button's black interior, at a rect read
+    # from four arbitrary words of the package's own image.
+    #
+    # So every call site in this file must PROVE, inside its own routine, that
+    # it is treating BX as a record: either it names a record symbol
+    # (`mov bx, os88ui_krec`) or it reads/writes a field through it
+    # (`[bx+OS88UI_BT_DOWN]`). Per ROUTINE and not a line window, so moving a
+    # load a few lines cannot make this fire for nothing.
+    #
+    # It is a proxy and it says so: it cannot tell a record from a 16-byte
+    # block of something else. What it CAN do is fail the build for the one
+    # shape both of this control's regressions had - a rect where a record
+    # goes - which no still can show, because the wrong picture is a fill at
+    # coordinates that came out of the right one.
+    REC_OK = re.compile(r"\[bx\s*\+\s*OS88UI_BT_\w+\]|"
+                        r"mov\s+bx\s*,\s*os88ui_\w*rec\b")
+    LBL = re.compile(r"^([A-Za-z_]\w*):", re.M)
+    CALL = re.compile(r"^\s*call os88ui_btn\b", re.M)
+    lines = ui.splitlines()
+    owner, cur = [], "(file top)"
+    for ln in lines:
+        m = LBL.match(ln)
+        if m:
+            cur = m.group(1)
+        owner.append(cur)
+    for n, ln in enumerate(lines):
+        if not CALL.match(ln):
+            continue
+        who = owner[n]
+        body = "\n".join(lines[i] for i in range(len(lines))
+                          if owner[i] == who)
+        if not REC_OK.search(body):
+            bad.append("apps/os88ui.inc:%d: %s calls os88ui_btn and nothing "
+                       "in it treats BX as a record - no [bx+OS88UI_BT_*] and "
+                       "no `mov bx, os88ui_*rec`. os88ui_btn takes a RECORD "
+                       "and an index; a RECT arriving there reads the live "
+                       "count out of y2 and the rect pointer out of x1 "
+                       "(SPEC.md 20.5.1.3)" % (n + 1, who))
+
     for path in sorted(reg):
         if path not in live:
             bad.append("%s is in tests/btnsites.txt and calls neither - drop "
                        "the line" % path)
 
-    check("every button call site is registered, and the raw count only falls",
-          not bad, 0, len(bad),
+    # **THE CONDITION COMES FIRST, and this call had it LAST.** harness.check
+    # is check(cond, what, why="", got=None, want=None), and this read
+    # check("<message>", not bad, 0, len(bad), "<why>") - so `cond` was a
+    # non-empty string literal, which is always truthy. The gate PASSED for
+    # every input it could ever be given: it printed its findings, `make`
+    # reported `ok btnrules`, and three of them had been printed on every
+    # build since the row landed. It is the green row that tests nothing
+    # (docs/WRITING-TESTS.md 1), in the file written to stop this control's
+    # regressions recurring - so the alert card's rect-for-a-record went out
+    # past a ratchet that was decoration.
+    check(not bad,
+          "every button call site is registered, and the raw count only falls",
           "os88ui_btnraw is the painter with NO gesture; os88ui_btn is the "
           "control (SPEC.md 20.5.1.3). A press-fired button and a "
           "release-fired one photograph identically, so nothing else in the "
-          "suite can see this.")
+          "suite can see this.",
+          got=len(bad), want=0)
     for b in bad:
         print("  " + b)
     nrec = sum(v[0] for v in live.values())

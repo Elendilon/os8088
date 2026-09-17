@@ -2329,6 +2329,49 @@ os88ui_ar:    dw 0, 0, 0, 0      ; ONE button's rect at a time - os88ui_krect's
                                  ; argument, and neither the painter nor the
                                  ; hit test needs two
 
+; --- ...and the one control's STAGING beside it (SPEC.md 20.5.1.3) ----------
+; os88ui_kbtn's shape on the PACKAGE side. os88ui_btn takes a RECORD and an
+; index; the alert has neither, because it lays its row out as a FORMULA
+; (os88ui_arect) and keeps its own arm - so it stages one button and draws it,
+; exactly as the kernel's three dialogs do through os88ui_krec. It cannot USE
+; os88ui_krec: that block is inside %ifdef OS88UI_KERNEL and this one is
+; inside %ifndef.
+;
+; **THIS IS WHERE THE ALERT WAS LEFT BEHIND, and it is 2414402c's defect at
+; the one call site a grep for `call os88ui_btn` DOES find.** os88ui_abtn1
+; went on handing os88ui_ar - a rect - to an os88ui_btn that had started
+; taking a record, so the live count came out of the rect's y2, the flags
+; pointer out of its x2 and the rect pointer out of its x1. Index 0 was `dec`ed
+; to -1 and drew NOTHING; index 1 read OS88UI_BT_DOWN out of os88ui_asets' own
+; first word, found 1, and painted a rectangle read from four arbitrary words
+; of the package's image with the PRESSED interior - black, across the whole
+; screen, which is what the DOS box's "Open windows are lost" question did.
+; The registry counted this site as "the library's own" and never asked
+; whether it had been converted; tests/unit/t_btnrules.py asks now.
+;
+; DATA and not bss, for os88ui_armw's reason above. Every field but the label
+; and the flags is a CONSTANT, so the record is declared already aimed and
+; os88ui_abtn1 writes only the two words that move.
+os88ui_arlbl: dw 0               ; the staged label, a one-entry array...
+os88ui_arflg: dw 0               ; ...and its flags, likewise
+os88ui_arec:
+    dw os88ui_ar                 ; OS88UI_BT_RECTS  - the rect above, restaged
+    dw os88ui_arlbl              ; OS88UI_BT_LABELS
+    dw os88ui_arflg              ; OS88UI_BT_FLAGS
+    dw 1                         ; OS88UI_BT_N      - ONE, always
+    dw 0                         ; OS88UI_BT_WIN    - os88ui_btn never reads
+                                 ; it, and the alert is not on the record's
+                                 ; gesture: os88ui_akey has Enter and Esc to
+                                 ; serve (SPEC.md 75.3), which os88ui_btnup
+                                 ; cannot
+    dw 0                         ; OS88UI_BT_DOWN   - stays 0: the pressed
+                                 ; look arrives in the FLAGS word instead,
+                                 ; which is what OS88UI_LATCH already does and
+                                 ; is cheaper than a second copy of
+                                 ; [os88ui_adown] to keep in step
+    dw 0                         ; OS88UI_BT_ONCLK
+    dw 0                         ; OS88UI_BT_NEXT
+
 ; the sets: a count byte then three label offsets, 8 bytes a row so the index
 ; is a shift (an 8086 has no cheap multiply by 7)
 os88ui_asets:
@@ -2594,8 +2637,13 @@ os88ui_abtn1:
     mov di, dx
     add di, di
     add si, di                  ; SI -> this button's label pointer
-    call os88ui_arect           ; BX -> the rect (AX is still the index)
-    mov di, OS88UI_FILL
+    call os88ui_arect           ; os88ui_ar, filled - and os88ui_arec already
+                                ; NAMES it, so the rect is staged rather than
+                                ; passed (BX is spent below; AX is still the
+                                ; index)
+    xor di, di                  ; no flags: OS88UI_FILL is the CONTROL's now
+                                ; (SPEC.md 20.5.1.3.1) and os88ui_btn ORs it
+                                ; in for every button there is
     or dl, dl
     jnz .nodef
     or di, OS88UI_DEF           ; button 0 carries the ring, and Enter fires
@@ -2604,7 +2652,11 @@ os88ui_abtn1:
     jne .nodown
     or di, OS88UI_DOWN          ; ...and the pressed look, DRAWN and not
 .nodown:                        ; XOR-ed (SPEC.md 13.8)
-    mov si, [si]
+    mov si, [si]                ; SI = the label itself, not its slot
+    mov [os88ui_arlbl], si      ; ...and both into the one-entry arrays
+    mov [os88ui_arflg], di      ; os88ui_arec points at
+    mov bx, os88ui_arec         ; THE RECORD, which is what os88ui_btn takes
+    mov al, 1                   ; one button, index 0, so PLUS ONE is 1
     call os88ui_btn
 .out:
     pop di
