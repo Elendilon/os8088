@@ -19639,6 +19639,17 @@ A title bar that IS covered therefore still flashes, and the honest fix for it
 is the same one the content needs — per-fragment drawing rather than a
 per-cell veto — not a second attempt at clipping this one.
 
+> **Correction, and read §11.97.4 with this section.** *"A glyph the region
+> cuts is a glyph that STRADDLES the cut"* was true of the whole tree when it
+> was written and is now true of one axis. §11.3.2 gave `font_char`
+> `wm_clip_rows`, so the **horizontal** cut this section MEASURED — a caption
+> covered from its tenth row down — draws the rows on our side of the edge
+> today; §39.14.11 cuts a display **seam** rather than dropping it. A
+> **vertical** cut is still a dropped cell, which is what a window overlapping
+> from the side makes, so the conclusion below stands. The 112 pixels do not:
+> that experiment wants re-running before anybody quotes the number again.
+> A **wholly** covered strip needs none of this and is answered in §11.97.4.
+
 **What §11.97 deliberately does not cover is the CONTENT**, which is the larger
 half of the same flash and a different piece of work: `wm_su_try` restores one rect
 (§5.8) where the visible region is a list, so bounding it means one
@@ -19701,6 +19712,159 @@ transient pixels over two runs — under the 10,665 recorded at Set 42, and the
 sum is the figure to quote because the per-frame worst is a coin toss at this
 sample size. It could not have gone the other way: the two pixels this lets
 through are overdrawn by nothing, so they cannot flash.
+
+#### 11.97.3 …and an EMPTY region means draw NOTHING, not draw everything
+
+Reported from the field as *"the file browser's shadow chrome is left on top of
+Paint's canvas"*, with a photograph of a 90° angle — a drop shadow's L — lying
+across a Paint window. The reporter's own repro: open a Disk window, open Paint
+over it, draw out to the edges, then drag Paint's grow box well inside. Paint
+**refuses** (§42.6.5: it will not crop artwork), the window does not move, and
+the Disk window's shadow is left standing on the canvas until something else
+repaints it.
+
+**`wm_chrome_clip` read its own answer backwards.** `wm_clip_occlf` has two
+distinct failures and they want opposite treatments, which its header says in as
+many words: *CF = 1 the list overflowed — nothing about it is valid*, and *CF = 0
+with `[wm_clip_n]` = 0 means the seed rect is entirely covered*. §11.97 handled
+the first correctly — an overflow degrades to **draw it**, `wm_covered`'s way,
+because a dropped pixel there is one this pass owes — and then fell through into
+the same branch for the second:
+
+```
+    jc .none                    ; overflowed: nothing about the list is valid
+    cmp word [wm_clip_n], 0
+    jne .out
+.none:
+    mov word [wm_clip_n], 0     ; OVERFLOW DEGRADES TO "DRAW IT"
+```
+
+`[wm_clip_n]` = 0 is **disarmed**, and disarmed means *draw freely*. So the one
+case where the region has proved that not a single chrome pixel is this window's
+is the case in which the chrome was drawn **whole and unclipped**, over whatever
+was on top of it. The feature inverted itself at exactly its own strongest
+answer.
+
+`wm_title_set` has always had this right — `cmp word [wm_clip_n], 0 / je .clear`,
+under the comment *"wholly covered: not one pixel of it is ours"* — and its next
+paragraph names the trap this fell into: *"`wm_clip_test` reads an empty list as
+'disarmed, draw freely', which is why the covered case had to be answered above
+it and not here."* `wm_clip_rect` answers it in ZF and `wm_clip_set` reads it as
+*invisible, skip the frame*. `wm_chrome_clip` was the one place in the tree that
+conflated the two, and it is the one place that had no word left to say it with:
+it returned nothing at all, `pushf`/`popf`-ing the caller's flags across itself.
+
+So it answers **CF = 1 = not one pixel of this chrome is ours — draw none of
+it**, the flag preservation goes (no caller read a flag across it; both
+overwrite CF before testing one), and the shadow-only site in `wm_paint_dmg`
+acts on it. The `pushf`/`popf` pays for most of the new logic: **+3 bytes of
+`.text`** in total.
+
+**Why skipping is sound is §11.97's own licence, not a new one.** The
+subtraction is `wm_clip_occlf`'s — each window above by the **frame it
+repaints** (§11.97.2) and not by the box it occupies — so an empty list means
+every pixel of this window's outline and drop shadow lies inside an upper
+window's frame. That upper window either redraws it later in this same pass
+(§11.91's transitive marking) or is simply still correct on the glass. Both
+readings make our pixels invisible; what made them *visible* was drawing them.
+
+**Why it is the shadow-only path that shipped the artifact.** Every caller of
+`wm_draw_win` guards with `wm_covered` (`wm_paint_dmg`'s `.dfull`,
+`wm_paint_all`'s `.win`) or has proved the window frontmost (`wm_front`'s tail
+call, `wm_rz_paint`'s grow arm), and `wm_covered` subtracts by the **occupied**
+box, so it claims at least as much as `wm_clip_occlf` does and answers *covered*
+whenever this would. The shadow-only path (§11.91.4) has no such guard, because
+it exists to put back two lines and a region pass would cost more than it saves
+— and it already had the answer in its hand and threw it away.
+
+**Why the resize is what exposed it.** `ui_grow` calls `wm_dmg_vacate` with the
+rect the window had at **mousedown**, before the negotiation, so a refusal still
+marks everything under the window as damaged; and the refusal then satisfies
+§11.90.3's pure-shrink test (origin unmoved, neither axis wider), which sets
+`[wm_dmg_rzwin]` and tells the app it owes its content **nothing**. So the window
+on top draws no content over the chrome the pass just put down — which is the
+difference between the flicker §11.97 measured and a pixel that stays. A drag
+shows the same draw as a flash and repairs it a frame later; a refused resize
+does not repair it at all.
+
+Measured on `os8088_xt_vga`, the reporter's own session — a Disk window at
+(103,80) 322×200 wholly inside a Paint window at (71,24) 498×322, grow box
+dragged inward and refused: the glass disagrees with a forced repaint on **520
+pixels before and 0 after**, every one of the 520 on the Disk window's own L —
+column 425 rows 81..280, row 280 columns 104..425. `tests/wmchrome.py` is the
+gate and it reads exactly that when the two windows open at those sizes; on a
+desktop too short to stack them — a 640x200 CGA — it cuts the lower window down
+to fit inside the upper one first, so the count is smaller and the property
+asserted is the same one: **not one pixel of a wholly covered shadow may be on
+the glass.**
+
+#### 11.97.4 …and a title strip that is WHOLLY covered is not drawn either
+
+The other half of the same report — *"the shadow chrome and **sometimes title
+chrome** is redrawn"*. §11.97.3 is about a region that came back empty; this is
+about the strip §11.97 never armed a region over at all.
+
+**This is not §11.97.1 being re-litigated**, and its premise needs restating
+before it is leaned on, because **it is no longer true as written**. §11.97.1
+refused to *clip* the title bar on the flat claim that a cell the region cuts is
+a cell `font_char` drops whole — measured as 112 differing pixels in the shape
+of the word `Note Pad`, a caption covered from its tenth row down losing its top
+five rows as well. **That measurement was of a HORIZONTAL cut, and §11.3.2 has
+since fixed exactly that**: `font_char` asks `wm_clip_rows`, not
+`wm_clip_test`, so a cell an edge crosses horizontally now draws the rows on our
+side of it. The same is true of a DISPLAY SEAM, which §39.14.11 cuts into two
+scratch cells rather than dropping. What survives of the claim is the **vertical**
+cut alone — `wm_clip_rows` still requires a fragment to cover the cell's full
+width, *"because half a row of a cell is the thing the renderers cannot
+express"* — and that is enough to keep §11.97.1's CONCLUSION standing, since a
+window overlapping from the side cuts vertically. It is not enough to keep
+quoting its reason.
+
+**A veto is outside all of it.** "Draw none of it" has no granularity to get
+wrong in either axis, so no reading of `font_char` can make it unsafe, and it is
+the question `wm_title_set` has always asked of its own strip: *wholly covered:
+not one pixel of it is ours*. §11.97.1's closing sentence — *the honest fix is
+per-fragment drawing, not a second attempt at clipping this one* — still stands
+for the strip that is **partly** covered, and that one still flashes. What is now
+open, and is NOT taken here, is that §11.97.1's own experiment would come out
+differently on today's tree and is worth re-running before the next person
+quotes its number.
+
+`wm_ttl_seen` is the test and it costs **no second occlusion walk**:
+`wm_chrome_clip` has just built the frame's visible region, the strip is a
+sub-rect of the frame, so the answer is a walk of the ≤16 rects already in hand
+— `wm_clip_walk` with the corners exchanged, which is §11.3.3's own idiom for
+turning containment into overlap. A **disarmed** list is the two cases that both
+mean *draw it* — nothing above us overlaps, or the region overflowed and
+degraded — and both are one `cmp` away. **30 bytes of `.text`.**
+
+Where it bites is a window whose title is under another and whose body is not,
+which is why `wm_covered` never caught it: that one asks about the **whole**
+window and answers *no, some of it shows*, so `wm_draw_win` runs and draws the
+title bar with no region armed at all.
+
+Measured on `os8088_xt_vga`: a Disk window moved so that its title strip alone
+lies under a Paint window, then Paint's grow box dragged inward and refused
+(§11.97.3's trigger, which marks the Disk window while telling Paint it owes its
+content nothing). The glass disagrees with a forced repaint on **5,138 pixels**,
+of which **4,063 are the Disk window's title strip standing on Paint's canvas**.
+With the veto in, those 4,063 go to **0**. Confirmed on 1bpp as well —
+`os8088_5150_cga_gla`, where the 640x200 desktop cannot host part 1 at all and
+part 2 reads **1,434 px of title strip before and 0 after**.
+
+**What the remaining ~1,075 are is NOT this and is worth writing down**, because
+it is the cull's own premise failing rather than a gap in §11.97. §11.3.3 rounds
+a cell OUTWARD during the damage pass and says in a block quote why that is
+safe: *"the pixels outside the region belong to a window that is painted over
+them a few instructions later in the same pass."* §11.90.3's pure-shrink
+optimisation is the case where that is false — `[wm_dmg_rzwin]` tells the window
+on top it owes its content **nothing**, so nothing repaints over the cells the
+cull deliberately rounded outward, and a band of the lower window's content
+stays on the upper window's canvas. It is the first counter-example to a
+precondition §11.3.3 states as a rule; the honest fix is §11.97's own deferred
+content work (per-fragment restore), and it is left open here rather than
+patched at the cull, which would take the sliver back off every straddling cell
+on every pass.
 
 ### 11.98 …and the window is TOLD when its box moved under it — `OSAPI_WM_ONRESIZE`
 

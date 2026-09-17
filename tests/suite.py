@@ -7074,6 +7074,10 @@ SOAK = [
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,
         wants=("build/trkship360.img",)),
+    Row("wmchrome", "soak", py("tests/wmchrome.py"), 170.0,
+        "chrome that is WHOLLY obstructed is not drawn - a covered drop "
+        "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4)",
+        needs=("marty",), serial=True),
     Row("wmartifact", "soak", py("tests/wmartifact.py"), 260.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",
