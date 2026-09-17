@@ -58270,6 +58270,104 @@ kernel-side state is right, so what remains is about what reached the CARD.
 **86Box with a VGA in the machine is the instrument, and the field is the
 verdict.**
 
+##### 39.19.4.1 …and `vid_text` is the SAME defect, reached by an fsx bracket
+
+Reported off the same two-card XT as §39.18.1.1, and it is that bug's mirror:
+Hercules primary with a CGA beside it, the DOS box dragged **onto the CGA**,
+Alt+Enter into full screen and back — *"the herc screen is corrupted, the CGA
+screen is fine."*
+
+§39.19.4 fixed `vid_setmode` by moving `vid_cga_equip` above the `VID_CGA`
+test so that either colour card gets it. **`vid_text` has the identical arm
+and never got the call**, and an fsx bracket is what reaches it:
+`fsx_mode(FSXM_TEXT80)` on a CGA display has already put `[vid_kind]` =
+`VID_CGA` (§39.18), and `vid_text` then asks for mode 3 while `40:10` still
+says **mono**, because the desktop's primary is the Hercules and `vid_equip`
+named it. The ROM's mode set is equipment-driven, so it forces mode 7 and the
+3B4h CRTC: the **Hercules** is retimed for 80x25 MDA text over its own
+graphics framebuffer, and the CGA — the display the app is actually on — is
+never touched.
+
+**Nothing puts the Hercules back**, and each step is correct on its own.
+`fsx_restore` calls `vid_setmode` BEFORE `vid_fsx_leave`, so `[vid_kind]` is
+still the bracket's and the mode it sets is the CGA's; `vid_fsx_leave`
+republishes geometry and deliberately sets no mode (§39.18.1); and
+`vid_unblank_kind`'s mono arm writes 3B8h = 0x0A, which puts the GRAPHICS bit
+back over a 6845 the ROM left timed for text. A graphics framebuffer scanned
+on text timings is the photograph the field sent.
+
+**`40:65h` CANNOT TELL THE TWO APART AND THE RASTER CAN.** IBM's mode-register
+table gives **mode 3 and mode 7 the same byte, `0x29`** — so the BIOS shadow
+reads identically whether the ROM honoured the request or forced it, and a
+test that watched that byte would call this fixed. What moves is the mono
+card's own raster. Measured on `os8088_5150_both_gla_mono`, inside the
+bracket:
+
+| | Hercules raster | Hercules pixels wrong after the bracket |
+|---|---|---|
+| before | **882**x370 — retimed for MDA text | **134,951** of 252,000 |
+| after | 912x370 — its graphics timings kept | **1,322** of 252,000 |
+
+The 1,322 that remain are the menu bar's clock, the pointer, and the
+straddling DOS window's own console content, which a full-screen session is
+entitled to change.
+
+**THE HALF NOBODY REPORTED IS THAT THE FULL SCREEN ITSELF WAS BROKEN**, on the
+display the app is on, for the whole session. The CGA never got mode 3, so it
+was still scanning its 640x200 bitmap while §96.33's teletype wrote character
+cells into `B8000` — and what the monitor showed was those cells as *pixels*:
+an 80-column block of blue, green and yellow, against the black-and-white text
+screen it is now. The figure is **0 coloured pixels after, against 20,320 of
+128,000 before**, and it is the leg a gate should carry, because a person who went
+full screen on the second monitor and came back to a wrecked first one has a
+reason not to mention what the second one looked like in between.
+
+**The flag has to be put BACK, and NOT by `vid_text`.** `vid_cga_equip` leaves
+`40:10` saying colour, and for the length of the bracket that is *required*:
+§96.33 has the DOS box write through the ROM's own teletype while it is full
+screen, and the ROM picks the card off that same flag — so restoring it in
+`vid_text` would send the program's output to the monitor it is not on.
+`vid_fsx_leave` is where it belongs, and `vid_disp_init` already wrote the
+pattern one caller along: put `[vid_kind]` back to the desktop's adapter,
+`vid_apply`, then `vid_equip`. Without it a Hercules-primary machine claims a
+colour primary for the rest of the session, which is the invariant §39.20's
+Restart reads — `vid_reboot` blanks 3B8h, locks graphics out and then asks for
+mode 7 through a flag naming the other card.
+
+**THERE IS A THIRD SITE AND IT IS THE SAME LINE AGAIN.** `fsx_setbios` — the
+`int 10h AH=00h` behind `fsx_mode`'s plain-BIOS rows — had no `vid_cga_equip`
+either, so every one of those rows carries this defect on the same machine:
+`FSXM_CGA320`, whose shipped consumer is TANK (§85.3), and Mode X's own
+`int 10h AX=0013h`. It is reached only with a colour `[vid_kind]` —
+`fsx_capstab` gives a Hercules display ids 0 and 4 alone and both branch away
+above the `xlatb` — so the call is correct there unconditionally, exactly as
+`vid_setmode` placing it above its `VID_CGA` test made it correct for the VGA
+arm as well as the CGA one. It is fixed **by inspection against the mechanism
+measured twice above** rather than by a repro of its own, because the forcing
+happens before the ROM looks at which mode was asked for — which is why §39.19.4
+caught mode 12h and this caught mode 3. What would exercise it is TANK launched
+from a Disk window that is itself on the second display.
+
+**None of the three is dual-display-only in its CODE, and all three are in
+practice.**
+`vid_text`'s colour arm on a one-display machine means a colour primary, where
+`vid_cga_equip` is the no-op its own guard makes it; `vid_fsx_leave` returns at
+`[fsx_vndisp] <= 1` before reaching anything. So the cost is **3 bytes each —
+9 on `kern_big` and 6 on `kern_small`, no rung crossed** — and the behaviour of
+every single-display machine is unchanged by construction rather than by a
+test. `tests/dispfsxherc.py` is the gate.
+
+**Its leg 3 must read the RASTERISATION and not the framebuffer**, which is the
+opposite of what `tests/dispfsxcga.py` needs, and the two together are the rule:
+this defect retimes a 6845 and writes no byte of VRAM, so the bytes are
+identical in both arms and only what the card SCANS can see it; that one leaves
+the card's memory perfect and moves a mode register, so the bytes are what says
+the desktop came back — and on a SECONDARY card in a graphics mode this
+emulator's rasterisation is not faithful anyway (docs/MARTYPC-DEBUG.md carries
+the measurement: a framebuffer that is uniformly `0xAA`/`0x55` comes back with
+black bands and a blue block in it). **Pick the instrument from where the defect
+lives.**
+
 #### 39.19.5 The dock's DAMAGE is the primary's too
 
 *"The dock is drawing first below the window any time I drag a window"* — a

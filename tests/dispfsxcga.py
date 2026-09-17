@@ -20,10 +20,13 @@ this file.
 
 **SO THE ASSERTION IS THE CARD'S MODE, NOT ITS PIXELS.** Green is what a person
 sees; a mode register is what is wrong, and `video(card=1)` answers it in one
-word. The pixels are asserted too, and as a DIFF against the same card before
-the bracket rather than against a golden image - the second display carries no
-chrome (SPEC.md 39.14.4), so what `wm_paint_all` puts back there has to be what
-was there, with no clock cell to move under it.
+word. The ground is asserted too, in leg 4, and as a DIFF against the same card
+before the bracket rather than against a golden image - the second display
+carries no chrome (SPEC.md 39.14.4), so what `wm_paint_all` puts back there has
+to be what was there, with no clock cell to move under it. It reads the
+framebuffer BYTES and not `fbuf`, which on a secondary card in a graphics mode
+this emulator does not rasterise faithfully - see `ground()` below, and
+docs/MARTYPC-DEBUG.md, which carries the measurement.
 
 **LEG 2 IS WHAT KEEPS THE ROW HONEST.** Every other leg here passes vacuously
 on a ROM that does not stamp 40:65h, or on a build where the bracket somehow
@@ -73,6 +76,29 @@ def cardmode(m, card=CGA):
     return str(m.video(card=card).get("mode"))
 
 
+CGA_VRAM = 0xB8000              # mode 6: 16,000 bytes, two interleaved banks
+
+
+def ground(m):
+    """The CGA's framebuffer BYTES - the desktop the kernel actually wrote.
+
+    NOT `fbuf(card=1)`, and that is a finding rather than a preference: on
+    this machine MartyPC's rasterisation of the SECOND card is not faithful.
+    Measured - the VRAM here is a perfect 50% dither, 8,000 bytes of 0xAA and
+    8,000 of 0x55 (SPEC.md 39.4's ground), which mode 6 can only draw as
+    uniform vertical stripes over the whole 640x200; what `fbuf` hands back
+    has black bands and a solid blue block in it. So the picture is the
+    emulator's and the bytes are ours, and leg 4 asks about ours.
+
+    The card's own STATE is still asserted, by legs 1-3 - which is the right
+    split, because this row's defect is a mode register and leaves the
+    framebuffer perfect. `tests/dispfsxherc.py` is the mirror and needs the
+    opposite instrument for the opposite reason: its defect is the CRTC, so
+    the bytes cannot see it and only the rasterisation can.
+    """
+    return m.read(CGA_VRAM, 16000)
+
+
 def bracket(m):
     return m.read(m.sym("fsx_cur"), 1)[0]
 
@@ -85,6 +111,28 @@ def wait_bracket(m, want, limit=10.0):
             return want
         time.sleep(0.15)
     return bracket(m)
+
+
+def wait_restored(m, S, limit=25.0):
+    """Wait until `vid_fsx_unblank` has run, and only THEN look at pixels.
+
+    `[fsx_cur]` going back to 0xFF is NOT the end of the restore - SPEC.md
+    53.6 clears it, then repaints the desktop, and only after that lights the
+    cards `vid_fsx_enter` darked. So a `settle` on the second display in
+    between is satisfied by two identical BLACK frames and returns with the
+    picture still to come.
+
+    `[fsx_vndisp]` is the exact gate: `vid_fsx_unblank` writes 1 to it as its
+    one-shot, after the repaint. Measured - this row passed standing alone and
+    read thousands of changed pixels under a four-lane soak, which is
+    docs/WRITING-TESTS.md's own warning about a wait sized on an idle box.
+    """
+    end = time.time() + limit
+    while time.time() < end:
+        if m.read(S("fsx_vndisp"), 1)[0] == 1:
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def main():
@@ -137,7 +185,7 @@ def main():
         # --- leg 1: the CGA is in a GRAPHICS mode before any of this -------
         before_mode = cardmode(m)
         before_shadow = shadow(m)
-        before_px = m.fbuf(card=CGA)
+        before_px = ground(m)
         if "Graphics" not in before_mode:
             sys.exit("dispfsxcga: the CGA is in %r before the bracket, so this "
                      "row never had the case in it" % before_mode)
@@ -181,6 +229,9 @@ def main():
         if wait_bracket(m, FSX_NONE) != FSX_NONE:
             sys.exit("dispfsxcga: Alt+Enter did not leave full screen "
                      "([fsx_cur]=%02X)" % bracket(m))
+        if not wait_restored(m, S):
+            sys.exit("dispfsxcga: vid_fsx_unblank never ran - the second "
+                     "display is still dark and nothing below can be read")
         settle(m, card=CGA)
 
         # --- leg 3: the CGA's MODE is where it was -------------------------
@@ -194,23 +245,25 @@ def main():
         else:
             print("  leg 3: card %d is still %s" % (CGA, after_mode))
 
-        # --- leg 4: ...and so are its PIXELS -------------------------------
-        after_px = m.fbuf(card=CGA)
-        if after_px[:2] != before_px[:2]:
-            fail("leg 4: the second display changed SIZE, %dx%d -> %dx%d"
-                 % (before_px[0], before_px[1], after_px[0], after_px[1]))
+        # --- leg 4: ...and so is the DESKTOP it draws ----------------------
+        # quiesce and not settle: the next read is guest MEMORY, and the
+        # repaint is still running when [fsx_vndisp] says the cards are lit
+        # (os88marty.quiesce's own rule).
+        after_px = os88marty.quiesce(m, lambda: ground(m),
+                                     what="the CGA's framebuffer")
+        diff = sum(1 for i in range(len(before_px))
+                   if before_px[i] != after_px[i])
+        if diff:
+            bad = [i for i in range(len(before_px))
+                   if before_px[i] != after_px[i]]
+            fail("leg 4: %d of %d framebuffer bytes on the second display "
+                 "differ across the bracket, first at +%d. SPEC.md 53.6 "
+                 "repaints the whole desktop and SPEC.md 39.14.4 puts no "
+                 "chrome on a secondary, so the ground owed is the one that "
+                 "was there" % (diff, len(before_px), bad[0]))
         else:
-            diff = sum(1 for i in range(0, len(before_px[2]), 3)
-                       if before_px[2][i:i + 3] != after_px[2][i:i + 3])
-            if diff:
-                fail("leg 4: %d of %d pixels on the second display differ "
-                     "across the bracket. SPEC.md 53.6 repaints the whole "
-                     "desktop and SPEC.md 39.14.4 puts no chrome on a "
-                     "secondary, so the picture owed is the one that was there"
-                     % (diff, before_px[0] * before_px[1]))
-            else:
-                print("  leg 4: all %d pixels identical across the bracket"
-                      % (before_px[0] * before_px[1]))
+            print("  leg 4: all %d framebuffer bytes identical across the "
+                  "bracket" % len(before_px))
 
     print("dispfsxcga: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1

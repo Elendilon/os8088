@@ -1778,6 +1778,15 @@ vid_fsx_leave:
     mov al, [fsx_vkind]
     mov [vid_kind], al
     call vid_apply
+    call vid_equip              ; 40:10 BACK TO THE PRIMARY'S KIND, because a
+                                ; bracket on a COLOUR second display left it
+                                ; saying colour: vid_text's own arm flips it so
+                                ; that the ROM's mode set - and SPEC.md 96.33's
+                                ; teletype under it - reach the card the app is
+                                ; on (SPEC.md 39.19.4.1). vid_disp_init's
+                                ; .extend arm is this same three-call pattern
+                                ; for the same reason, and leaving the flag is
+                                ; what SPEC.md 39.20's Restart then reads
     mov al, [fsx_vndisp]
     mov [vid_ndisp], al
     mov byte [vid_cur], 0

@@ -1366,6 +1366,25 @@ frame cannot fake: **read the PLANES**. They are memory and always current;
 then the plane number to 3CF) through `outb` and read `0xA0000`. Use `fbuf`
 for a settled machine and the planes for a stopped one.
 
+**AND ON A SECOND CARD IN A GRAPHICS MODE IT IS NOT FAITHFUL AT ALL.**
+Measured on `os8088_5150_both_gla_mono` (a Hercules primary with a CGA beside
+it), with the CGA holding nothing but SPEC.md §39.4's desktop ground: the
+card's own memory is a perfect 50% dither — **8,000 bytes of `0xAA` and 8,000
+of `0x55`**, which mode 6 can only scan as uniform vertical stripes over the
+whole 640x200 — and `fbuf(card=1)` hands back black bands and a solid blue
+block. The bytes are right and the picture is the emulator's. It costs a whole
+diagnosis if you meet it cold, because the picture is *stable*, so two captures
+agree and it reads as a real defect in whatever last drew there.
+
+So on a SECONDARY card ask the question the way that has no renderer in it:
+`read` its framebuffer (`0xB8000` for a CGA, 16,000 bytes in two interleaved
+banks) and compare bytes. `tests/dispfsxcga.py`'s leg 4 is the worked example.
+**The exception is a defect in the SCAN itself** — a 6845 left timed for the
+wrong mode writes no byte of VRAM, so the bytes are identical in both arms and
+only the rasterisation can see it; `tests/dispfsxherc.py` is that case, on the
+PRIMARY, where `fbuf` is faithful. Pick the instrument from where the defect
+lives, not from which is easier to read.
+
 **THE RENDERED FRAME IS NOT IN THE GUEST'S COORDINATE SYSTEM EITHER.** A
 whole-screen capture does not care; a CROP does. On a Hercules the card's
 frame is 720x350 for a 720x348 screen at dx = −16, dy = +2 (above); VGA and

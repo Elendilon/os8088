@@ -1333,6 +1333,22 @@ vid_text:
     mov ax, 0x0007
     jmp short .go
 .colour:
+    call vid_cga_equip          ; 39.19.4 ONE ROUTINE ALONG: the ROM's mode set
+                                ; is EQUIPMENT-driven, so asking for mode 3
+                                ; with 40:10 saying mono forces mode 7 and the
+                                ; 3B4h CRTC - which retimes the HERCULES for
+                                ; 80x25 text over its own graphics framebuffer
+                                ; and never touches the colour card at all.
+                                ; vid_setmode moved this call above its own
+                                ; VID_CGA test for exactly that; this arm is
+                                ; reached with a colour [vid_kind] on a MONO
+                                ; primary by an fsx bracket on the second
+                                ; display (SPEC.md 39.19.4.1), and the flag is
+                                ; put back by vid_fsx_leave and not here,
+                                ; because SPEC.md 96.33's teletype reads it for
+                                ; the length of the bracket. A no-op unless the
+                                ; flag says mono, so no colour-primary machine
+                                ; can see this
     mov ax, 0x0003
 .go:
     int 0x10

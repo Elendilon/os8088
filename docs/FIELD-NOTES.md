@@ -2181,3 +2181,74 @@ because reading a kernel byte needs no `ES`.
 kernel before the fix — leg 3 reads `Mode3TextCo80`, leg 4 counts 115,010 of
 128,000 pixels changed — while its leg 2 asserts that the ROM really does move
 40:65h, so the row cannot pass vacuously on a BIOS that does not.
+
+## 50. ...and the REVERSE: the DOS box full screen on the CGA corrupts the HERCULES (FIXED — `vid_text` never got §39.19.4's `vid_cga_equip`: SPEC.md §39.19.4.1)
+
+Entry 49's mirror, same machine, reported the next morning: *"Move the dos
+window over to cga (it won't fully fit because of wm_snap). Go fullscreen.
+Return. The herc screen is corrupted, the CGA screen is fine."* The photograph
+is the desktop sheared — the menu bar squeezed along the top, the dither
+repeating — which is a framebuffer scanned on the wrong timings and not
+anything drawn wrongly.
+
+**It is the EQUIPMENT FLAG, where 49 was the mode shadow.** §39.19.4 already
+knows that the PC/XT ROM's mode set is equipment-driven: with `40:10` bits 5:4
+saying `11b` it forces mode 7 and the 3B4h CRTC *whatever mode was asked for*.
+`vid_setmode` was fixed by moving `vid_cga_equip` above its `VID_CGA` test.
+**`vid_text` has the identical arm and never got the call** — and an fsx
+bracket is what reaches it, because `fsx_mode` on the second display sets
+`[vid_kind] = VID_CGA` while the desktop's primary, and so `40:10`, is still
+the Hercules. So `int 10h AX=0003h` retimed the **Hercules** for 80x25 MDA
+text over its own graphics framebuffer, and the CGA was never touched.
+
+Nothing puts it back, and every step on the way out is individually correct:
+`fsx_restore`'s `vid_setmode` runs before `vid_fsx_leave`, so it sets the
+*bracket's* display's mode; `vid_fsx_leave` republishes geometry and sets no
+mode by design (§39.18.1); and `vid_unblank_kind` writes 3B8h = 0x0A, which
+puts the graphics bit back over a 6845 still timed for text.
+
+**THE BYTE EVERYONE WOULD HAVE WATCHED CANNOT SEE THIS.** IBM's mode-register
+table gives **mode 3 and mode 7 the same value, `0x29`**, so 40:65h reads
+identically whether the ROM honoured the request or forced it — and entry 49's
+gate watches exactly that byte. The mono card's own RASTER is the
+discriminator: 912 wide with its graphics timings, **882** once the ROM has
+retimed it. Measured on `os8088_5150_both_gla_mono`, which is this machine.
+
+**Three things were broken and the report names one.** The Hercules was 134,951
+of 252,000 pixels wrong afterwards (1,322 now, and those are the clock, the
+pointer and the straddling window's own console). **The FULL SCREEN was also
+broken, on the monitor the app was on** — the CGA kept its 640x200 bitmap while
+§96.33's teletype wrote character cells into `B8000`, so it showed 20,320
+coloured pixels where an 80x25 text screen belongs; it is black-and-white text
+now. And `40:10` was left claiming a colour primary for the rest of the
+session, which is the flag §39.20's Restart reads.
+
+**The flag must NOT be restored by `vid_text`**: the DOS box writes through the
+ROM's own teletype while it is full screen and the ROM picks the card off that
+same flag, so putting it back early would send the program's output to the
+monitor it is not on. `vid_fsx_leave` is where it belongs — `vid_disp_init`'s
+extend arm already writes that exact `vid_kind` / `vid_apply` / `vid_equip`
+sequence.
+
+**A THIRD SITE had the same missing line**: `fsx_setbios`, the `int 10h AH=00h`
+behind `fsx_mode`'s plain-BIOS rows, so TANK's `FSXM_CGA320` (§85.3) and Mode
+X carry this defect on the same machine. It is fixed by inspection against the
+mechanism measured twice here — the ROM forces before it looks at which mode
+was asked for, which is why §39.19.4 caught mode 12h and this caught mode 3 —
+and what would exercise it is TANK launched from a Disk window already on the
+second display.
+
+**3 bytes each, 9 on kern_big and 6 on kern_small**, no rung crossed.
+`tests/dispfsxherc.py` is the gate and goes red on four of its five legs
+without the fix.
+
+**And it cost two INSTRUMENT findings, both now in docs/MARTYPC-DEBUG.md.**
+MartyPC's `fbuf` on a SECONDARY card in a graphics mode is not faithful — the
+CGA's memory here is a perfect 50% dither, 8,000 bytes of `0xAA` and 8,000 of
+`0x55`, and the rendered frame has black bands and a solid blue block in it —
+so entry 49's gate reads the framebuffer BYTES and this one reads the
+rasterisation, because this defect never touches a byte and that one leaves
+every byte perfect. And a `settle` after a bracket returns **mid-repaint**:
+`[fsx_cur]` is cleared before `wm_paint_all` runs and the cards are lit after
+it, so the first capture differed from the next by ~4,500 pixels on an idle
+box. Both rows converge now instead of trusting one settle.

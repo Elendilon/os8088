@@ -5360,6 +5360,20 @@ SOAK = [
         "Single or Extend, where the second display sits, and does it survive"
         "a",
         needs=("marty",), serial=True),
+    Row("dispfsxherc", "soak", py("tests/dispfsxherc.py"), 40.0,
+        "Does the PRIMARY survive an fsx bracket on the SECOND display?"
+        "(SPEC.md 39.19.4.1) dispfsxcga's MIRROR - the DOS box dragged onto"
+        "the CGA of a Hercules-primary desktop, taken full screen and brought"
+        "back. The ROM's mode set is EQUIPMENT-driven, so vid_text asking for"
+        "mode 3 while 40:10 still says mono forced mode 7 and the 3B4h CRTC -"
+        "retiming the HERCULES for 80x25 text over its own graphics"
+        "framebuffer and never touching the card the app is on. VERIFIED TO"
+        "FAIL against the kernel before the fix, on four of five legs: the"
+        "mono raster 912 -> 882, 134,950 of 252,000 Hercules pixels changed,"
+        "20,320 coloured pixels where the full screen's text belongs, and"
+        "40:10 left claiming a colour primary. Leg 2 is the RASTER and not"
+        "40:65h, because IBM gives mode 3 and mode 7 the same mode byte",
+        needs=("marty",), serial=True),
     Row("dispfsxcga", "soak", py("tests/dispfsxcga.py"), 35.0,
         "Does the SECOND display survive an fsx bracket on the first?"
         "(SPEC.md 39.18.1.1) A Hercules primary with a CGA beside it, the DOS"
