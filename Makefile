@@ -5158,8 +5158,17 @@ $(BUILD)/MOUEVT.COM: tests/dostrap/mouevt.asm | $(BUILD)
 $(BUILD)/mouevt360.img: $(BUILD)/MOUEVT.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MOUEVT.COM
 
+# --- ...AND THE ONE THAT ASKS ABOUT A DIRECTORY (SPEC.md 96.12.4) -----------
+# ATTRDIR.COM makes its own subdirectory and removes it again, so the disk
+# needs nothing but the program - and it must be WRITABLE for that.
+$(BUILD)/ATTRDIR.COM: tests/dostrap/attrdir.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/attrdir.asm
+
+$(BUILD)/attrdir360.img: $(BUILD)/ATTRDIR.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/ATTRDIR.COM
+
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img $(BUILD)/wrgap360.img $(BUILD)/mouevt360.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img $(BUILD)/wrgap360.img $(BUILD)/mouevt360.img $(BUILD)/attrdir360.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"
@@ -5167,7 +5176,8 @@ kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.i
 	@echo "          build/dosbig144.img for tests/kdbigexe.py,"
 	@echo "          build/condev360.img for tests/dosdev.py and"
 	@echo "          build/wrgap360.img for tests/dosgap.py and"
-	@echo "          build/mouevt360.img for tests/dosmouevt.py."
+	@echo "          build/mouevt360.img for tests/dosmouevt.py and"
+	@echo "          build/attrdir360.img for tests/dosattr.py."
 	@echo "          Run it with: python3 tests/kdpart.py"
 
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------
@@ -12822,7 +12832,7 @@ pentium: $(IMG) $(APPSIMG)
 # still re-checks every SHA-256 and re-assembles the part.
 clean:
 	find $(BUILD) -mindepth 1 -maxdepth 1 ! -name martypc ! -name cc \
-		! -name apple2-rom -exec rm -rf {} + 2>/dev/null || true
+		! -name apple2-rom ! -name nasm3 -exec rm -rf {} + 2>/dev/null || true
 	@rm -f $(BUILD)/apple2-rom/APPLE2.ROM
 
 clean-marty:
@@ -12831,4 +12841,9 @@ clean-marty:
 clean-cc:
 	rm -rf $(BUILD)/cc
 
-distclean: clean clean-marty clean-cc
+# The nasm 3 tools/setup-nasm3.sh builds. Spared by `clean` for build/cc's
+# reason - it is a pinned upstream instrument and rebuilding it is minutes.
+clean-nasm3:
+	rm -rf $(BUILD)/nasm3
+
+distclean: clean clean-marty clean-cc clean-nasm3

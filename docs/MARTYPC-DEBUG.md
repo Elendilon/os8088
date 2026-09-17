@@ -123,6 +123,168 @@ If a previous attempt is wedged, clear `/var/lib/dpkg/lock-frontend` and run
 `dpkg --configure -a` first — and **do not `pkill -f apt-get` from inside a
 Bash tool call**, because the pattern matches the calling shell and kills it.
 
+### An nasm 3 in a fresh container
+
+> **Do not follow this subsection by hand — run `tools/setup-nasm3.sh`.**
+> It probes first (so it is milliseconds on a Mac, where Homebrew's nasm is
+> already 3.x), checks all three traps below *before* it clones, and prints
+> the `export OS88_NASM3=` line at the end. This subsection is the ACCOUNT
+> of why the script does what it does — read it when the script stops, not
+> before.
+
+The `nasm3` soak row assembles the whole shipped set with an nasm 3 and
+**SKIPS** without one; a skip is the box declining to answer, never a pass.
+CONTRIBUTING.md's floor is 2 and every Linux box here answers 2.16, so on
+Linux the row needs an assembler built on purpose. **No distribution
+packages a 3.x yet** — Ubuntu noble ships 2.16.01, Debian trixie 2.16.03 —
+so `apt-get install nasm` gives you the version the row exists to *contrast*
+with.
+
+Three traps, and the reason this is a script rather than four lines in
+CONTRIBUTING.md is that **each one reports as something else**.
+
+**1. `www.nasm.us` is refused by the proxy, and it reads like the whole
+network being down.**
+
+```
+$ curl -sS https://www.nasm.us/pub/nasm/releasebuilds/
+curl: (56) CONNECT tunnel failed, response 403
+```
+
+That is the gateway refusing the tunnel, and it appears by name in the
+proxy's own status (`curl -sS "$HTTPS_PROXY/__agentproxy/status"`) as a
+`connect_rejected` relay failure. So: no tarball, no prebuilt binary. Do not
+spend time on mirrors — the point is the policy, not the host.
+
+Then probing GitHub answers 403 twice more, which is where attempts stop:
+
+```
+$ curl -sS -o /dev/null -w '%{http_code}\n' https://api.github.com/repos/netwide-assembler/nasm/tags
+403
+```
+
+**Those are GitHub's 403s, not the proxy's**, and the headers prove it:
+
+```
+$ curl -sS -D- -o /dev/null https://api.github.com/repos/netwide-assembler/nasm/tags
+HTTP/1.1 200 Connection Established     <- the proxy tunnelled it fine
+HTTP/1.1 403 Forbidden                  <- GitHub said no (unauthenticated API)
+```
+
+nasm.us has no `200 Connection Established` at all; curl exits 56 with an
+HTTP code of `000`.
+
+> **That pair of lines is the diagnostic, and it is worth more than this
+> whole subsection.** `200 Connection Established` then a 4xx means the far
+> end refused you and the network is fine. No `Connection Established` means
+> the proxy refused, and no retrying, auth or user-agent fiddling will help.
+
+**The practical rule is: do not probe, just clone.** `git clone` over HTTPS
+works regardless of those 403s, because it uses the smart-HTTP endpoints
+rather than the API or the release pages. Stable tags at the time of
+writing: `nasm-3.00`, `nasm-3.01`, `nasm-3.02` (plus a long tail of `rc`
+tags — filter them out).
+
+**2. The git tree ships no `configure` — it is generated.**
+
+Only the release tarballs carry one, and those live on the blocked host. An
+operator used to tarballs runs `./configure`, is told *no such file or
+directory*, and concludes the clone is broken or the branch is wrong. It
+isn't; `sh autogen.sh` is the step that has not been run. Its
+
+```
+mv: cannot stat 'autoconf/aclocal.m4': No such file or directory
+```
+
+is a **first-run artefact** of moving a file that does not exist yet — the
+script goes on to install its m4 macros and exit 0. Check for the FILE
+rather than reading the log.
+
+**3. A `/dev/null` that is a regular file silently breaks `./configure`, and
+the error names neither.**
+
+This is the one that actually stops people, and it took a `sh -x` trace to
+find. `./configure` runs to the end of its checks and then:
+
+```
+configure: creating ./config.status
+./config.status: line 528: 0a1,180: command not found
+./config.status: line 529: syntax error near unexpected token `newline'
+```
+
+`0a1,180` is **diff output** — an ed script comparing an empty file against
+a 180-line one. autoconf's default `cache_file` **is** `/dev/null`, and its
+cache flush is `if diff "$cache_file" confcache >/dev/null 2>&1`. When
+`/dev/null` is an ordinary file that redirect writes to it instead of
+discarding, and the diff's output ends up spliced into the `config.status`
+being generated, which then dies executing it.
+
+Nothing about nasm is wrong, re-cloning does not help, and
+`--cache-file=<anything>` does not either, because the `>/dev/null` is the
+broken half rather than the cache. Ask the question directly:
+
+```sh
+stat -c %F /dev/null        # must say: character special file
+```
+
+and repair the node, as root:
+
+```sh
+mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new \
+    && mv -f /dev/null.new /dev/null
+```
+
+**It is worth checking whatever you think of nasm.** Only `/dev/null` was
+wrong on the container this was found on — `zero`, `full`, `random`,
+`urandom`, `tty` and the loop devices were all correct character or block
+nodes carrying the image's build date, so the node had been *replaced*
+during the session rather than shipped broken. A regular-file `/dev/null`
+silently accumulates everything redirected into it, gives the wrong answer
+to `diff`, `cmp` and `test -s` against it, feeds junk to anything reading
+`< /dev/null` instead of EOF, and at mode 0644 refuses non-root writers
+outright. `tools/setup-nasm3.sh` asks in one second, before the clone,
+because four minutes is a long way to carry a one-second question.
+
+**Prerequisites** — all of these were already in the container, nothing had
+to be installed: `gcc`, `make`, `autoconf` (2.71 here), `automake`,
+`aclocal`, `autoheader`, `perl`, `git`.
+
+**A name is not a version.** `nasm3` on PATH has been a symlink to 2.16 on
+at least one box, and a gate that assembles the tree twice with the same
+assembler reports a pass about a version it never ran.
+`os88build.nasm3()` reads `-v` and never trusts a filename, so a mislabelled
+binary counts as *absence* and the row SKIPs rather than lying. The construct
+the row exists for is a label times a constant:
+
+```sh
+cat > /tmp/probe.asm <<'EOF'
+cpu 8086
+bits 16
+section .text vstart=0
+tab: dw 0,0,0
+fp:  dw 0
+     add di, fp - tab*7
+EOF
+
+nasm          -f bin -o /tmp/p.bin /tmp/probe.asm   # 2.16: silent, accepted
+"$OS88_NASM3" -f bin -o /tmp/p.bin /tmp/probe.asm   # 3.02: invalid operand type
+```
+
+That is not a toy — it is `kernel/mod.inc`'s `mod_fpr` as it was actually
+written, which assembled silently on everyone's 2.16, was refused outright
+by 3.x, and reached a merge un-buildable for anyone on Homebrew's nasm
+(fixed in `799c5a9`; SPEC.md §2.8 records why `MOD_TAB_OFF` exists).
+
+**One upstream bug found on the way, and it is NOT the blocker.** nasm's
+`autoconf/m4/pa_have_func.m4` does `AS_VAR_PUSHDEF([cache], …)` and never
+pops it, so the m4 macro `cache` stays defined for the rest of the
+expansion and rewrites autoconf's own epilogue: the generated `configure`
+says `updating pa_cv_func___builtin_prefetch $cache_file` where autoconf
+writes `updating cache $cache_file`. Its sibling `pa_add_flags.m4` pops
+correctly, which is what makes it an oversight rather than a design. It is
+cosmetic — adding `AS_VAR_POPDEF([cache])` restores the message and
+`./configure` still fails on trap 3 — so do not let it look like the cause.
+
 ### By hand
 
 ```sh

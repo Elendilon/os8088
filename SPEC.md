@@ -9220,6 +9220,50 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
+#### 7.4.5 The lock outlives the freeze by one cursor move
+
+§7.4.2 rule 1 reads *"a task can only draw while holding the gfx lock"*, and
+the converse is the trap: **the lock being held does not mean the cursor is
+standing still.** `gfx_unlock`'s tail moves it, deliberately, while the flag
+is still set — its own header says the order is binding, *"cursor_show redraws
+at the latest mouse position while we still own the screen; only then may the
+ISR draw again"*. So between `fpg_finish` (which clears `[fpg_on]`) and
+`.rel` (which clears `[gfx_lock_flag]`) there is a window in which the machine
+reads **frozen** and a TASK has just caught the arrow up to the hand.
+
+Four routines move it there, and every one of them is below `fpg_finish`:
+`fpg_finish`'s own `cursor_show` for the arrow `fpg_arm` hid (§7.4.3.1),
+`cur_shape_set`'s hide/show pair putting the clock away (§7.5.2),
+`cursor_show` when the promise was spent, and `cur_lazyend` when it was kept —
+that last one being the one with **no `[cur_level]` change to give it away**,
+since a promise that survived left the arrow lit all hold.
+
+**Measured**, on the `NOCURDISK=1` arm of `tests/curdisk.py` through a
+`PAINT.O88` launch, breaking on the mover and walking forward in 60-cycle
+steps:
+
+| | `[gfx_lock_flag]` | `[fpg_on]` | `[cur_level]` | `[cur_drawn_*]` | `[mouse_*]` |
+|---|---|---|---|---|---|
+| at the call | 1 | 0 | −1 | (164, 69) | (164, 27) |
+| +60 cycles | 1 | 0 | 0 | **(164, 27)** | (164, 27) |
+| +420 cycles | 0 | 0 | 0 | (164, 27) | (164, 27) |
+
+**420 cycles**, ~88 µs of a 4.77 MHz guest. That is nothing to the machine and
+everything to anything sampling it: a reader that calls `[fpg_on] || the lock`
+the freeze, and a change in `[cur_drawn_*]` across two frozen-looking samples
+an ISR draw, counts this teardown as a cursor move inside the hold — on the
+one kernel where a cursor move inside the hold is supposed to be unreachable.
+`tests/curdisk.py` failed that way in **8 of 90** recorded `NOCURDISK=1`
+launch legs — 7.4% at 696e1e49 and 11.1% after the merge that follows it,
+every one of them the same pair — and what fixes it is not a tolerance: a pair of samples is evidence only when the freeze reads
+the **same** at both ends, which every mover above breaks by sitting below
+`fpg_finish`, and which two samples a packet apart cannot fake by both landing
+inside 420 cycles.
+
+None of this is a defect and none of it is new — it is §7.1.4's promise being
+settled on the way out, and it is what makes the arrow arrive where the hand
+actually is rather than where the freeze began.
+
 ### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
@@ -19639,6 +19683,17 @@ A title bar that IS covered therefore still flashes, and the honest fix for it
 is the same one the content needs — per-fragment drawing rather than a
 per-cell veto — not a second attempt at clipping this one.
 
+> **Correction, and read §11.97.4 with this section.** *"A glyph the region
+> cuts is a glyph that STRADDLES the cut"* was true of the whole tree when it
+> was written and is now true of one axis. §11.3.2 gave `font_char`
+> `wm_clip_rows`, so the **horizontal** cut this section MEASURED — a caption
+> covered from its tenth row down — draws the rows on our side of the edge
+> today; §39.14.11 cuts a display **seam** rather than dropping it. A
+> **vertical** cut is still a dropped cell, which is what a window overlapping
+> from the side makes, so the conclusion below stands. The 112 pixels do not:
+> that experiment wants re-running before anybody quotes the number again.
+> A **wholly** covered strip needs none of this and is answered in §11.97.4.
+
 **What §11.97 deliberately does not cover is the CONTENT**, which is the larger
 half of the same flash and a different piece of work: `wm_su_try` restores one rect
 (§5.8) where the visible region is a list, so bounding it means one
@@ -19701,6 +19756,159 @@ transient pixels over two runs — under the 10,665 recorded at Set 42, and the
 sum is the figure to quote because the per-frame worst is a coin toss at this
 sample size. It could not have gone the other way: the two pixels this lets
 through are overdrawn by nothing, so they cannot flash.
+
+#### 11.97.3 …and an EMPTY region means draw NOTHING, not draw everything
+
+Reported from the field as *"the file browser's shadow chrome is left on top of
+Paint's canvas"*, with a photograph of a 90° angle — a drop shadow's L — lying
+across a Paint window. The reporter's own repro: open a Disk window, open Paint
+over it, draw out to the edges, then drag Paint's grow box well inside. Paint
+**refuses** (§42.6.5: it will not crop artwork), the window does not move, and
+the Disk window's shadow is left standing on the canvas until something else
+repaints it.
+
+**`wm_chrome_clip` read its own answer backwards.** `wm_clip_occlf` has two
+distinct failures and they want opposite treatments, which its header says in as
+many words: *CF = 1 the list overflowed — nothing about it is valid*, and *CF = 0
+with `[wm_clip_n]` = 0 means the seed rect is entirely covered*. §11.97 handled
+the first correctly — an overflow degrades to **draw it**, `wm_covered`'s way,
+because a dropped pixel there is one this pass owes — and then fell through into
+the same branch for the second:
+
+```
+    jc .none                    ; overflowed: nothing about the list is valid
+    cmp word [wm_clip_n], 0
+    jne .out
+.none:
+    mov word [wm_clip_n], 0     ; OVERFLOW DEGRADES TO "DRAW IT"
+```
+
+`[wm_clip_n]` = 0 is **disarmed**, and disarmed means *draw freely*. So the one
+case where the region has proved that not a single chrome pixel is this window's
+is the case in which the chrome was drawn **whole and unclipped**, over whatever
+was on top of it. The feature inverted itself at exactly its own strongest
+answer.
+
+`wm_title_set` has always had this right — `cmp word [wm_clip_n], 0 / je .clear`,
+under the comment *"wholly covered: not one pixel of it is ours"* — and its next
+paragraph names the trap this fell into: *"`wm_clip_test` reads an empty list as
+'disarmed, draw freely', which is why the covered case had to be answered above
+it and not here."* `wm_clip_rect` answers it in ZF and `wm_clip_set` reads it as
+*invisible, skip the frame*. `wm_chrome_clip` was the one place in the tree that
+conflated the two, and it is the one place that had no word left to say it with:
+it returned nothing at all, `pushf`/`popf`-ing the caller's flags across itself.
+
+So it answers **CF = 1 = not one pixel of this chrome is ours — draw none of
+it**, the flag preservation goes (no caller read a flag across it; both
+overwrite CF before testing one), and the shadow-only site in `wm_paint_dmg`
+acts on it. The `pushf`/`popf` pays for most of the new logic: **+3 bytes of
+`.text`** in total.
+
+**Why skipping is sound is §11.97's own licence, not a new one.** The
+subtraction is `wm_clip_occlf`'s — each window above by the **frame it
+repaints** (§11.97.2) and not by the box it occupies — so an empty list means
+every pixel of this window's outline and drop shadow lies inside an upper
+window's frame. That upper window either redraws it later in this same pass
+(§11.91's transitive marking) or is simply still correct on the glass. Both
+readings make our pixels invisible; what made them *visible* was drawing them.
+
+**Why it is the shadow-only path that shipped the artifact.** Every caller of
+`wm_draw_win` guards with `wm_covered` (`wm_paint_dmg`'s `.dfull`,
+`wm_paint_all`'s `.win`) or has proved the window frontmost (`wm_front`'s tail
+call, `wm_rz_paint`'s grow arm), and `wm_covered` subtracts by the **occupied**
+box, so it claims at least as much as `wm_clip_occlf` does and answers *covered*
+whenever this would. The shadow-only path (§11.91.4) has no such guard, because
+it exists to put back two lines and a region pass would cost more than it saves
+— and it already had the answer in its hand and threw it away.
+
+**Why the resize is what exposed it.** `ui_grow` calls `wm_dmg_vacate` with the
+rect the window had at **mousedown**, before the negotiation, so a refusal still
+marks everything under the window as damaged; and the refusal then satisfies
+§11.90.3's pure-shrink test (origin unmoved, neither axis wider), which sets
+`[wm_dmg_rzwin]` and tells the app it owes its content **nothing**. So the window
+on top draws no content over the chrome the pass just put down — which is the
+difference between the flicker §11.97 measured and a pixel that stays. A drag
+shows the same draw as a flash and repairs it a frame later; a refused resize
+does not repair it at all.
+
+Measured on `os8088_xt_vga`, the reporter's own session — a Disk window at
+(103,80) 322×200 wholly inside a Paint window at (71,24) 498×322, grow box
+dragged inward and refused: the glass disagrees with a forced repaint on **520
+pixels before and 0 after**, every one of the 520 on the Disk window's own L —
+column 425 rows 81..280, row 280 columns 104..425. `tests/wmchrome.py` is the
+gate and it reads exactly that when the two windows open at those sizes; on a
+desktop too short to stack them — a 640x200 CGA — it cuts the lower window down
+to fit inside the upper one first, so the count is smaller and the property
+asserted is the same one: **not one pixel of a wholly covered shadow may be on
+the glass.**
+
+#### 11.97.4 …and a title strip that is WHOLLY covered is not drawn either
+
+The other half of the same report — *"the shadow chrome and **sometimes title
+chrome** is redrawn"*. §11.97.3 is about a region that came back empty; this is
+about the strip §11.97 never armed a region over at all.
+
+**This is not §11.97.1 being re-litigated**, and its premise needs restating
+before it is leaned on, because **it is no longer true as written**. §11.97.1
+refused to *clip* the title bar on the flat claim that a cell the region cuts is
+a cell `font_char` drops whole — measured as 112 differing pixels in the shape
+of the word `Note Pad`, a caption covered from its tenth row down losing its top
+five rows as well. **That measurement was of a HORIZONTAL cut, and §11.3.2 has
+since fixed exactly that**: `font_char` asks `wm_clip_rows`, not
+`wm_clip_test`, so a cell an edge crosses horizontally now draws the rows on our
+side of it. The same is true of a DISPLAY SEAM, which §39.14.11 cuts into two
+scratch cells rather than dropping. What survives of the claim is the **vertical**
+cut alone — `wm_clip_rows` still requires a fragment to cover the cell's full
+width, *"because half a row of a cell is the thing the renderers cannot
+express"* — and that is enough to keep §11.97.1's CONCLUSION standing, since a
+window overlapping from the side cuts vertically. It is not enough to keep
+quoting its reason.
+
+**A veto is outside all of it.** "Draw none of it" has no granularity to get
+wrong in either axis, so no reading of `font_char` can make it unsafe, and it is
+the question `wm_title_set` has always asked of its own strip: *wholly covered:
+not one pixel of it is ours*. §11.97.1's closing sentence — *the honest fix is
+per-fragment drawing, not a second attempt at clipping this one* — still stands
+for the strip that is **partly** covered, and that one still flashes. What is now
+open, and is NOT taken here, is that §11.97.1's own experiment would come out
+differently on today's tree and is worth re-running before the next person
+quotes its number.
+
+`wm_ttl_seen` is the test and it costs **no second occlusion walk**:
+`wm_chrome_clip` has just built the frame's visible region, the strip is a
+sub-rect of the frame, so the answer is a walk of the ≤16 rects already in hand
+— `wm_clip_walk` with the corners exchanged, which is §11.3.3's own idiom for
+turning containment into overlap. A **disarmed** list is the two cases that both
+mean *draw it* — nothing above us overlaps, or the region overflowed and
+degraded — and both are one `cmp` away. **30 bytes of `.text`.**
+
+Where it bites is a window whose title is under another and whose body is not,
+which is why `wm_covered` never caught it: that one asks about the **whole**
+window and answers *no, some of it shows*, so `wm_draw_win` runs and draws the
+title bar with no region armed at all.
+
+Measured on `os8088_xt_vga`: a Disk window moved so that its title strip alone
+lies under a Paint window, then Paint's grow box dragged inward and refused
+(§11.97.3's trigger, which marks the Disk window while telling Paint it owes its
+content nothing). The glass disagrees with a forced repaint on **5,138 pixels**,
+of which **4,063 are the Disk window's title strip standing on Paint's canvas**.
+With the veto in, those 4,063 go to **0**. Confirmed on 1bpp as well —
+`os8088_5150_cga_gla`, where the 640x200 desktop cannot host part 1 at all and
+part 2 reads **1,434 px of title strip before and 0 after**.
+
+**What the remaining ~1,075 are is NOT this and is worth writing down**, because
+it is the cull's own premise failing rather than a gap in §11.97. §11.3.3 rounds
+a cell OUTWARD during the damage pass and says in a block quote why that is
+safe: *"the pixels outside the region belong to a window that is painted over
+them a few instructions later in the same pass."* §11.90.3's pure-shrink
+optimisation is the case where that is false — `[wm_dmg_rzwin]` tells the window
+on top it owes its content **nothing**, so nothing repaints over the cells the
+cull deliberately rounded outward, and a band of the lower window's content
+stays on the upper window's canvas. It is the first counter-example to a
+precondition §11.3.3 states as a rule; the honest fix is §11.97's own deferred
+content work (per-fragment restore), and it is left open here rather than
+patched at the cull, which would take the sliver back off every straddling cell
+on every pass.
 
 ### 11.98 …and the window is TOLD when its box moved under it — `OSAPI_WM_ONRESIZE`
 
@@ -117444,6 +117652,54 @@ all the same. `[cs_wldnow]` stayed `0FFh` and `cs_cmd_fly`'s `jc .out` skipped
 **every** flight: a simulator that opened its window, took a mode and drew
 nothing.
 
+###### 88.10.5.4.1 …and the READ is told a CAPACITY, which the LAST stream can never fill
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and the machine
+is incidental: **San Francisco is the last world in the file**, and that is the
+whole of it.
+
+`cs_wldget` asks `OSAPI_FILE_READ_AT` for `[cs_wgcap]` — the head slack plus
+the stream, rounded **up to whole clusters**, because §20.14.3 wants a cluster
+multiple for the capacity as well as the offset. Then it checked the delivered
+count against that same `[cs_wgcap]`. **A capacity is what you ASK for and a
+stream is what you NEED**, and the two differ by the rounding: every stream but
+the last has more file behind it, so the read fills the capacity and the check
+passes by accident. The last one ends at EOF, so it never can.
+
+Measured on the shipped package — 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long, so `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+It is not a geometry effect. At a 1,024-byte cluster the capacity is 2,048 and
+the shortfall is bigger, so **every floppy this ships on fails the same way**,
+and no other location does.
+
+What that costs is `cs_wldpick` returning `CF=1` with `[cs_wldnow]` still
+`0FFh`, which `cs_cmd_fly`'s `jc .out` turns into a Fly button that does
+nothing at all — §88.10.5.4's symptom exactly, reached through the other check
+in the same routine. Both are the same mistake in the same shape: **a size
+handed to a kernel call that verifies it, taken from the room rather than from
+the thing**.
+
+The fix is the predicate, not the read: compare against `[cs_wgslk]` +
+`[cs_wglen]`, the bytes the expansion is about to consume. Six bytes of the
+package image and nothing resident. **`apps/os88partsbody.inc` already had it
+right** — `op_load`'s chunk loop carries `[op_want]`, *"how much of what MUST
+arrive just did"*, and refuses on that — so the shared reader was never wrong
+and this is what the package's own hand-rolled copy of it lost.
+
+**No row flew San Francisco**, which is why it shipped: `skieswater` visits
+LBG, LCY and JFK, `skiesgeom` both Paris runways, and every other skies row
+takes the default. `tests/skiesworlds.py` flies **all nine**, one independent
+attempt each, and asserts the world that arrived rather than that the screen
+changed — which is the assertion that has an answer when a load silently does
+nothing.
+
 ##### 88.10.5.5 What it cost, and the one thing it takes away
 
 | the nine worlds | bytes |
@@ -130183,6 +130439,46 @@ succeeds, and the two halves then compose: `dos_fh_enter` walks to the folder
 part of `\A\B` and `dos_cd_go` takes the last step, which together is a
 chdir of arbitrary depth for no extra code.
 
+#### 96.12.4 `AH=43h` is asked about DIRECTORIES, and a root parses to no name at all
+
+`AH=43h AL=00h` is how a program asks *"is this there?"* without opening it —
+and what it asks about is very often a **folder**. Microsoft Works's Save As,
+given a name on another drive, asks about the directory the file would go in
+before it writes anything, and puts up **`Directory not found`** when that is
+refused.
+
+`.att_get` resolved every name through `dos_fh_stat`, which is the **file**
+lookup `AH=3Dh` opens through (§96.11) — so a name that is a folder found
+nothing and answered 2. Every directory on every disk read as missing.
+
+**A root is the sharper half of it**: `A:\` parses to a drive and *no 8.3 name
+at all*, so the lookup was for the empty name. That is the case Works actually
+hits, and it is why the failure looked like the drive switch — which works
+perfectly: the trace shows `AH=0Eh` select A:, `AH=19h` confirming `AL=00`,
+and `AH=0Eh` back to B:, all before the refusal.
+
+**IBM DOS 3.30's own answers are the specification**, taken with
+`tests/dostrap/attrdir.asm` on the machine rather than reasoned about:
+
+| asked about | DOS 3.30 | ours |
+|---|---|---|
+| `\` — the current root | `CF=0, CX=0074` | `CF=0, CX=0010` |
+| `A:\` — a root, drive-qualified | `CF=0, CX=0074` | `CF=0, CX=0010` |
+| a subdirectory | `CF=0, CX=0010` | `CF=0, CX=0010` |
+| a file | `CF=0, CX=0020` | `CF=0, CX=0020` |
+| a name that is not there | `CF=1, AX=0002` | `CF=1, AX=0002` |
+
+**`0074` for a root is not copied and the gate does not assert it.** The root
+has no directory entry to read attributes from, so those are bits DOS never
+deliberately set; what every caller tests is `CF` and bit 4, and both agree.
+Matching an uninitialised byte would be copying a bug and calling it a
+contract.
+
+`dos_att_isdir` is `dos_cd_go`'s own `.named` scan with the walk taken out —
+it answers the question instead of acting on it. `OSAPI_FILE_FIND` is by
+ordinal, so it is a directory walk and not a lookup, paid once per `AH=43h`
+on a name that is not a file.
+
 **A path that does not fit the buffer is still refused with 3**, by the copy
 loop that always did: `dos_fh_split` leaves a name it cannot shorten alone, so
 the failure is the old one rather than a half-walked path.
@@ -133257,6 +133553,64 @@ which is the assembler declining to answer a question the caller has got
 wrong. `.lowbss` is asserted the same way, against `KD_STACK` rather than the
 rung, because it sits under the stack at `LOW_SEG` rather than above the image.
 
+#### 96.38.4 …and the LAUNCH BLOCK is the one byte of bss nothing clears
+
+`kd_entry` zeroes `.bss` and `.lowbss` because `-f bin` emits nothing for a
+`nobits` section and nothing that puts this image in memory writes them
+(§96.38.3 is the same fact one rung along). It zeroes them **around** the
+launch block, by design: the block is the one thing already written by the
+time `kd_entry` runs — the stub's lands in `kd_lblock` and the gate's in
+`kd_glb`, and `[kd_lbp]` is the only thing that knows which.
+
+So the block is the one region of this image whose contents are nobody's job,
+and **whose job it is depends on which producer staged it**:
+
+- the **box** hands over 512 bytes it `rep movsw`'d whole out of `hbm_dosrec`,
+  which the package loader zeroed (§21 step 5). Every field the gather did not
+  fill is 0 because the buffer under it was;
+- the **gate** (`kerndos/kdosgate.inc`) writes about ten fields into
+  `kd_glb`, which is `resb KDL_SIZE` in `.bss` and which nothing had cleared.
+
+That matters because *absent* is spelt **zero** all over this ABI, and each
+spelling is deliberate: `KDL_DPT` = 0 means *leave `int 1Eh` alone*,
+`KDL_NVOL` = 0 means *keep the built-in volume table*, `KDLF_RAHSH` = 0 means
+*`KD_RAH_KEEP`*. A field says "I could not fill this" only by being written,
+and the gate was relying on a zero it never wrote.
+
+**It was invisible for as long as the bss happened to land on zeros, and where
+it lands is decided by the IMAGE'S LENGTH.** `kd_glb` sits at `KD_SEG:0x767C`
+— physical `0x7C7C`, which is **on the boot sector at 0x7C00**. `kdboot.bin`
+is 251 bytes and `tests/kdos.py` pads the rest of the sector with zeros, so
+while the block's `KDL_DPT` fell past byte 251 it read 0 and the vector was
+left alone. §18.95.9 took 138 bytes out of the image; the block slid down onto
+the loader's own code; `[kd_glb+KDL_DPT]` read `0x7C`; and `kd_entry` copied
+eleven bytes of `kdboot.asm` into `dsk_dpt` and pointed the BIOS at them.
+Every `int 13h` then answered **AH=09h** and the gate printed *"could not
+mount drive B (unit 1)"* about a floppy that was perfectly readable — the
+mount refusing at its first act, the boot-sector read, with §18.95's cache not
+even claimed yet.
+
+**The fix is the producer's and it is four instructions**: the gate clears
+`kd_glb` before it stages anything. Nothing resident moves — `kdosgate.inc` is
+inside `%ifdef KD_GATE` and no shipping path defines it — and what it buys is
+that the sentence §96.40.2 already states, *"a block whose first DPT byte is
+zero leaves the vector alone, which is the gate arm's case"*, is true of the
+code rather than of the machine it happened to run on.
+
+The lesson generalises past this block: **a test whose result is decided by an
+image's length is a test that has not been written down**. Nothing was wrong
+with the size pass; any change of size anywhere in the image re-rolls which
+byte of the boot sector the block lands on, and half the rolls are green.
+
+**And it re-rolled again while this was being fixed**, which is the claim above
+made good rather than argued. §96.12.4's AH=43h work added 68 bytes to
+`apps/dos/dos.asm`; `kd_glb` moved *up* to `KD_SEG:0x76C0`, `KDL_DPT` landed at
+boot-sector **+0xD0** instead of +0x8C, and the eleven bytes copied into
+`dsk_dpt` became `0A 00 6B 64 62 6F 6F 74 3A 20 67` — the loader's own
+`kdboot: g` string instead of its CHS arithmetic. A different eleven bytes,
+the same AH=09h, the same sentence on the glass. Two independent commits, in
+opposite directions, both landing on a non-zero byte.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
@@ -133983,6 +134337,12 @@ same segment with its own table at a different offset — so a handover that
 does not carry those bytes leaves the ROM reading code as an EOT and a gap
 length. A block whose first DPT byte is zero leaves the vector alone, which is
 the gate arm's case.
+
+**Which makes zeroing the block the PRODUCER's job** (§96.38.4). Every "I
+could not fill this" in the layout is spelt 0 — `KDL_DPT`, `KDL_NVOL`,
+`KDLF_RAHSH` — and `kd_entry` cannot establish it, because the block is the
+one thing already written by the time it clears the bss around it. The box
+gets it from the package loader; the gate does it itself.
 
 ### 96.40.2 What `kern_dos` does, and how the machine comes back
 
@@ -135174,7 +135534,7 @@ floor, *"18KB of claim behind a 36KB bar and 93% of what the ceiling saves"* —
 and `KD_RAH_L2` = 2 is deliberately below it, because at that point the
 alternative on offer is not a wider cache, it is no cache.
 
-Shedding is three stores and `dsk_rah_arm` makes the same three for the same
+Shedding is three stores and `dsk_rah_want` makes the same three for the same
 reasons: `dsk_rah_flush` clears **all** `DSK_RAH_RUNS` records so none names a
 chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
 back to 0, **which is the one that would be silent**, being the round-robin

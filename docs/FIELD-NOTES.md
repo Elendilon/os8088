@@ -2252,3 +2252,98 @@ every byte perfect. And a `settle` after a bracket returns **mid-repaint**:
 `[fsx_cur]` is cleared before `wm_paint_all` runs and the cards are lit after
 it, so the first capture differed from the next by ~4,500 pixels on an idle
 box. Both rows converge now instead of trusting one settle.
+
+## 51. CLEAR SKIES: San Francisco will not fly — the Fly button does nothing at all (FIXED — the LAST stream in the file can never fill a cluster-rounded read: SPEC.md §88.10.5.4.1)
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and **the machine
+is incidental**: San Francisco is the last world in the package file, and that
+is the whole of it. Reproduced on the first attempt and on the first shot,
+under MartyPC — nine locations poked one at a time, eight fly, SFO reports
+`cs_wldnow = FF` with nothing loaded at all.
+
+**A CAPACITY IS WHAT YOU ASK FOR AND A STREAM IS WHAT YOU NEED.** `cs_wldget`
+asks `OSAPI_FILE_READ_AT` for the head slack plus the stream **rounded up to
+whole clusters**, because §20.14.3 wants a cluster multiple for the capacity as
+well as the offset — and then it checked the *delivered* count against that
+same rounded number. Every stream but the last has more file behind it, so the
+read fills the capacity and the check passes by accident. The last one ends at
+EOF and never can.
+
+Measured on the shipped package, 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long — `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+At a 1,024-byte cluster the capacity is 2,048 and the shortfall is larger, so
+**every geometry this ships on fails identically** and no other location does.
+`cs_wldpick` returns `CF=1`, `[cs_wldnow]` stays `0FFh`, and `cs_cmd_fly`'s
+`jc .out` makes the button a no-op — which is §88.10.5.4's symptom exactly,
+reached through the *other* check in the same routine. Both are one mistake in
+one shape: **a size handed to a kernel call that verifies it, taken from the
+room rather than from the thing.**
+
+**`apps/os88partsbody.inc` already had it right.** `op_load`'s chunk loop
+carries `[op_want]` — *"how much of what MUST arrive just did"* — and refuses
+on that, so the shared parts reader was never wrong and this is what the
+package's own hand-rolled copy of that read lost. Six bytes of the package
+image, nothing resident, and `build/skies.o88` is the same 45,255 bytes.
+
+**WHY IT SHIPPED IS THE PART WORTH KEEPING: no row ever flew it.**
+`skieswater` visits LBG, LCY and JFK, `skiesgeom` both Paris runways, and every
+other skies row takes the default location — so of nine places the suite flew
+five, and the one it never picked is the one that was broken.
+`tests/skiesworlds.py` flies **all nine** now, one independent full load each
+(`[cs_wldnow]` forced to `0FFh` first, so nothing passes on its predecessor's
+world), and asserts the world that ARRIVED rather than that the screen changed
+— because a silent load failure takes no mode, so there are no pixels to ask
+about. Verified to fail on SFO alone against the package before the fix.
+
+## 52. Microsoft Works: `Directory not found` when you pick another drive in Save As (FIXED — `AH=43h` was a FILE lookup, and a root parses to no file name at all: SPEC.md §96.12.4)
+
+Reported the same day as 47 and 48 and, like them, described from the glass:
+*"switching to another drive (Directory not Found)"*, then, asked how:
+*"I tabbed over to the directory browser and tried to select A: or D:. It
+correctly lists the drives we gave it, but trying to switch to one is what
+gives the error."*
+
+**The drive switch works and always did.** The trace shows `AH=0Eh` select
+A:, `AH=19h` answering `AL=00`, and `AH=0Eh` back to B: — all of it before
+anything fails. The refusal is the call *after* them: `AH=43h AL=00h`, which
+Works uses to ask *"is this directory there?"* before it writes, answering
+`CF=1 AX=0002`.
+
+`.att_get` resolved every name through `dos_fh_stat` — the **file** lookup
+`AH=3Dh` opens through (§96.11) — so a name that is a folder found nothing.
+Not just the drive's root: **every directory on every disk read as missing**,
+which nothing had noticed because nothing else in the tree had asked.
+
+**The root is the sharper half and is why the name recorder had to be
+widened.** `A:\` parses to a drive and *no 8.3 name at all*, so the lookup
+was for the empty string — and the twelve-slot recorder §96.11.7 had left in
+place was full of `CON` long before the interesting name arrived (a program
+opens `CON` eight times). At 48 slots the name came back **empty**, which is
+the whole diagnosis in one field.
+
+`dos_att_isdir` is `dos_cd_go`'s own `.named` scan with the walk taken out,
+and the root needs no scan at all — an empty name *is* the directory we
+stand in.
+
+**IBM DOS 3.30 is the specification and `tests/dostrap/attrdir.asm` runs
+under both machines unchanged** (docs/DOS-DEBUGGING.md): it answers `\` and
+`A:\` with `CF=0 CX=0074`, a subdirectory `0010`, a file `0020`, and only a
+missing name `CF=1 AX=0002`. We answer `0010` for the two roots deliberately
+— `0074` is bits DOS never set, a root having no directory entry to read them
+from, and what every caller tests is `CF` and bit 4. **The probe prints
+`ATTRDIR PASS` on both machines**, which is what says the assertion is not
+one only this box could satisfy.
+
+**The gate's own first version was the near-miss worth keeping.** `ask`
+pushed `AX` and `CX` and then did `or bl, bl` between the `int 21h` and the
+`jc` — so the judgement read *its own* flag, not DOS's. It printed `FAIL`
+beside five correct answers, and the same defect would later have printed
+`PASS` beside five wrong ones. The carry is banked into a byte by a `mov`
+now, `mov` being the one instruction there that writes no flags.

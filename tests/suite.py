@@ -3779,6 +3779,29 @@ SOAK = [
         "that may since have been freed.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mouevt360.img")),
+    Row("dosattr", "soak", py("tests/dosattr.py"), 25.0,
+        "`AH=43h` IS ASKED ABOUT DIRECTORIES (SPEC.md 96.12.4). Microsoft "
+        "Works's Save As, given a name on another drive, asks about the "
+        "directory the file would go in before it writes anything - and puts "
+        "up `Directory not found` when that is refused. `.att_get` resolved "
+        "every name through `dos_fh_stat`, the FILE lookup AH=3Dh opens "
+        "through, so EVERY directory on EVERY disk read as missing. A ROOT is "
+        "the sharper half: `A:\\` parses to a drive and no 8.3 name at all, "
+        "so the lookup was for the empty name - which is why the failure "
+        "looked like the drive switch, and that works perfectly (the trace "
+        "shows AH=0Eh select A:, AH=19h confirming AL=00, and AH=0Eh back, "
+        "all before the refusal). THE REFERENCE IS THE SPECIFICATION and was "
+        "taken on the machine: IBM DOS 3.30 answers `\\` and `A:\\` with "
+        "CF=0 CX=0074, a subdirectory 0010, a file 0020, and only a missing "
+        "name CF=1 AX=0002. IT ASSERTS THE PROPERTY AND NOT DOS's EXACT CX "
+        "FOR A ROOT - 0074 is bits DOS never deliberately set, a root having "
+        "no directory entry to read them from, and copying an uninitialised "
+        "byte would be copying a bug and calling it a contract. ATTRDIR.COM "
+        "makes its own subdirectory and removes it again, and runs under a "
+        "real DOS unchanged. VERIFIED TO FAIL at A, B and C against the build "
+        "that shipped the defect.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/attrdir360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
@@ -4620,6 +4643,21 @@ SOAK = [
         "package, which compiles every path this row asserts on out",
         needs=("marty",), wants=("build/smallapps360.img", "build/small360.img"),
         serial=True),
+    Row("skiesworlds", "soak", py("tests/skiesworlds.py"), 25.0,
+        "SPEC.md 88.10.5.4.1: does EVERY Clear Skies location load its world"
+        "and fly? It exists because NOTHING FLEW SAN FRANCISCO - skieswater"
+        "visits LBG, LCY and JFK, skiesgeom both Paris runways, and every"
+        "other skies row takes the default, so the one location whose world is"
+        "the LAST stream in the package file shipped unflyable. cs_wldget"
+        "asked OSAPI_FILE_READ_AT for a capacity rounded UP to whole clusters"
+        "and then checked the DELIVERED count against that same rounded"
+        "number: every stream but the last has more file behind it and filled"
+        "it by accident, the last ends at EOF and never can. VERIFIED TO FAIL"
+        "against the package before the fix - eight locations fly either way"
+        "and SFO reports cs_wldnow FF, nothing loaded. The assertion is the"
+        "WORLD THAT ARRIVED and not a screen: a silent load failure takes no"
+        "mode, so there are no pixels to ask about",
+        needs=("marty",), serial=True),
     Row("skies", "soak", py("tests/skies.py"), 35.0,
         "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
         " under full throttle and the stick, crashes when the nose is held"
@@ -7122,6 +7160,10 @@ SOAK = [
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,
         wants=("build/trkship360.img",)),
+    Row("wmchrome", "soak", py("tests/wmchrome.py"), 170.0,
+        "chrome that is WHOLLY obstructed is not drawn - a covered drop "
+        "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4)",
+        needs=("marty",), serial=True),
     Row("wmartifact", "soak", py("tests/wmartifact.py"), 260.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",
