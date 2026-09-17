@@ -21344,6 +21344,49 @@ slot through which a package could supply another. **A width clamp in
 of screen-wide items would want ~83KB and would run off the end of the
 heap into `VIEW_SEG`.
 
+#### 12.4.1 `menu_hover` reads the pointer ONCE, and the `cli` is the whole of it
+
+`menu_hover` decides which item is under the pointer, `menu_drop`'s `.poll`
+LATCHES that answer in `[menu_sel]`, and the release ACTIVATES whatever is
+latched there. So the pair `([mouse_x], [mouse_y])` that routine reads is not
+a picture of the screen, it is a **command** — and it used to be read in two
+plain loads with interrupts enabled, either side of which the mouse ISR may
+run.
+
+`mou_apply` stores `[mouse_x]` and then `[mouse_y]` (§9). A packet decoded
+between `menu_hover`'s two loads therefore hands it the **old x with the new
+y**, which is a position the pointer never occupied — and because one
+Microsoft packet carries both deltas *and* the button level, the very report
+that RELEASES the button is the one that can tear.
+
+Measured on `os8088_xt_hdd` with the Builtins menu down (rect x 160..223,
+y 20..69) and one packet of `dx -100, dy +18, button up` sent from the title
+at (199, 10). The pointer goes to (99, 28), and **neither end of that move is
+a live item**: (199, 10) is above the first cell and (99, 28) is left of the
+rect. `[menu_sel]` came back **0** and TIMER LAUNCHED — 4 times in 320
+packets under a four-lane load, 0 times in 40 idle. x = 199 with y = 28 is
+the only pair that produces it, and nothing but a torn read produces that
+pair.
+
+**It is a user's gesture and not a harness artefact.** A serial mouse reports
+dx, dy and the buttons in one packet, so *slide off the menu and let go* — the
+commonest way anybody changes their mind about a menu — is exactly a large dx,
+some dy and the button up, arriving together.
+
+The fix is one reading under `pushf`/`cli` … `popf`. The row arithmetic is
+re-spelled with it, `sub ax, [menu_y1]` + `jbe` where it read `[menu_y1] + 1`
++ `jb`: the same rows are rejected (the frame row is the `jbe`'s equal case),
+and it frees the register the second coordinate now has to be held in, so
+`menu_hover` keeps its "clobbers AX only" contract.
+
+**The other three trackers are NOT changed, and what separates them is what
+is DONE with the pair.** `ui_drag`, `ui_grow` and the dock's drag read the
+same two words the same way; a torn pair there draws ONE XOR outline frame at
+a position that never existed, and the next pass of a loop running at the
+packet rate puts it right. Nothing is latched and nothing is run. `menu_hover`
+alone hands its answer to a release, which is why it alone pays the three
+bytes.
+
 ### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
