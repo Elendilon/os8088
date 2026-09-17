@@ -1529,7 +1529,8 @@ fdlg_defbtn:
 ; out: nothing (all registers preserved); the pen is left LIVE
 ;
 ; The drawing is os88ui_btn's now - the shared control, one source with every
-; package (apps/os88ui.inc). What is left here is the adapter: the column's
+; package (apps/os88ui.inc) - reached through os88ui_kbtn, which stages this
+; rect into the record that control takes. What is left here is the adapter: the column's
 ; fixed x, this button's y, and the window origin, turned into the screen rect
 ; the shared routine takes. AL is the shared routine's OWN flag word rather
 ; than a private encoding, so adding one is not two edits.
@@ -1567,7 +1568,57 @@ fdlg_btn:
     call fdlg_off               ; AX..DX = the inclusive SCREEN rect; neither
     FDX ui_krect4              ; this nor ui_krect4 touches DI
     mov bx, os88ui_krect
-    FDX os88ui_btn
+    FDX os88ui_kbtn             ; **os88ui_kbtn AND NOT os88ui_btn**, which is
+                                ; what apps.inc and files.inc already say two
+                                ; lines above their own call: os88ui_btn takes
+                                ; a RECORD and an index, and what this routine
+                                ; holds is the loose-register triple - BX a
+                                ; RECT, SI the label, DI the flags. os88ui_kbtn
+                                ; IS that contract staged into the one control.
+                                ;
+                                ; It named os88ui_btn for a build and every
+                                ; button of this dialog VANISHED. Every field
+                                ; came out of a coordinate: the live count
+                                ; from os88ui_krect+6, which is the button's
+                                ; own bottom Y; the flags pointer from +4 (x2);
+                                ; the labels pointer from +2 (y1); the rect
+                                ; pointer from +0 (x1); and OS88UI_BT_DOWN
+                                ; from +10, which is os88ui_krflg - the word
+                                ; the staging entry we should have called
+                                ; writes.
+                                ;
+                                ; The INDEX came out of AL, which fdlg_off had
+                                ; just left holding the low byte of the
+                                ; column's screen x1 - FD_BX1 + [fdlg_cx],
+                                ; about 314, so about 57 after the `dec`. That
+                                ; is the same number for all four buttons,
+                                ; because they differ only in Y, and it clears
+                                ; every one of their bottom-Y "counts"
+                                ; (104..164). So no call was refused: all four
+                                ; went on to draw the rect at
+                                ; index*8 + x1 - four words of kernel DATA at
+                                ; a fixed offset near 770 - and drew the same
+                                ; wild figure in the same wrong place, which
+                                ; is why the column reads as EMPTY rather than
+                                ; as four bad buttons.
+                                ;
+                                ; **THAT IT LOOKED EMPTY WAS LUCK, and worth
+                                ; not relying on.** What gets painted is
+                                ; whatever those four kernel words happen to
+                                ; hold: degenerate or off-pane here, a smear
+                                ; the moment they change. The alert card's
+                                ; identical defect filled the WHOLE SCREEN
+                                ; black (75.3) and Date/Time's filled it white
+                                ; - same bug, three symptoms, none of them a
+                                ; guide to the next one.
+                                ;
+                                ; The registry could not see this call at all:
+                                ; `FDX` is `call os88ui_btn` on kern_big and
+                                ; `call COLD_SEG:xd_os88ui_btn` on kern_small,
+                                ; and NEITHER spelling matches a grep for
+                                ; `call os88ui_btn` - so this file was not in
+                                ; tests/btnsites.txt to be counted. It is now,
+                                ; and t_btnrules reads the macro.
     jmp fdk_di
 
 ; -----------------------------------------------------------------------------
@@ -3200,8 +3251,13 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
 ; it, which is legal because every writer is on the UI task under the gfx lock
 ; (SPEC.md 13).  Two callers stage a rect they already hold WHOLE - fdlg's
 ; default button and apps.inc's Timer button - and both follow it with
-; `mov bx, os88ui_krect / call os88ui_btn`.  The eleven OTHER krect sites fill
+; `mov bx, os88ui_krect / call os88ui_kbtn`.  The eleven OTHER krect sites fill
 ; the words one at a time as they compute them and are not candidates.
+;
+; **os88ui_kbtn, not os88ui_btn**, and this sentence said the wrong one while
+; fdlg_btn did the wrong thing - the paragraph describing the pattern and the
+; two call sites following it are one fact in three places, so it was worth
+; correcting here as well as there.
 ;
 ; IT IS DOWN HERE WITH os88ui.inc AND FOR ITS REASON (SPEC.md 38.0): apps.inc
 ; near-calls it, so it cannot go into FDLG.DRV. It was in the middle of what is
@@ -3363,7 +3419,10 @@ fdlg_top_x:
     FDXF dsk_vol_slot_x
     FDXF dskw_char_x
     FDXF dskw_mkdir_x
-    FDXF os88ui_btn
+    FDXF os88ui_kbtn            ; the loose-register staging and NOT
+                                ; os88ui_btn - see fdlg_btn's own note. The
+                                ; image reaches one entry, exactly as ctrl.inc
+                                ; and hiber.inc reach os88ui_btn_f
                                 ; ...and NOT os88ui_arm / _fire / _armed: those
                                 ; three are `%ifdef OS88UI_ARM`, which nothing
                                 ; in this kernel defines, so the only fdlg

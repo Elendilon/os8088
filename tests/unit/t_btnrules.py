@@ -36,8 +36,22 @@ from harness import check, done                           # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 REGISTRY = os.path.join(ROOT, "tests", "btnsites.txt")
 
-REC = re.compile(r"^\s*call (?:\w+:)?(?:os88ui_btn|os88ui_kbtn|os88ui_btn_f)\b",
-                 re.M)
+# ...AND SO DOES A MACRO-WRAPPED CALL. kernel/fdlg.inc reaches everything
+# outside itself through `FDX <name>`, which is `call <name>` on kern_big and
+# `call COLD_SEG:xd_<name>` on kern_small, with `FDXF <name>` generating the
+# far thunk. NEITHER spelling contains `call os88ui_btn`, so the file was not
+# in the registry at all and could not be counted, let alone checked - and it
+# named os88ui_btn where it meant os88ui_kbtn, which took every button off the
+# Standard File dialog. A wrapper is how a caller hides from a grep; this
+# matches the VERB rather than the instruction.
+# ...and it matches ANY uppercase wrapper, not FDX by name: this tree has
+# six more of the same shape (FCPX/FCPXF for FILECP.DRV, OVWCALL, DKXPAD,
+# OSAPI_CSLOT, OSAPI_FARCELL), every one of which could reach the control
+# tomorrow and hide it again. `<MACRO> os88ui_btn` is the whole pattern, so
+# the rule is "the symbol appears as the first operand of a statement",
+# whatever verb precedes it.
+REC = re.compile(r"^\s*(?:call (?:\w+:)?|[A-Z][A-Z0-9_]* +)"
+                 r"(?:os88ui_btn|os88ui_kbtn|os88ui_btn_f)\b", re.M)
 # THE FAR ENTRY COUNTS. os88ui_btn_f is how an on-demand module reaches the
 # control (SPEC.md 2.6) - ctrl.inc and hiber.inc have a CS of their own - and
 # a `call COLD_SEG:os88ui_btn_f` is invisible to a grep for `call os88ui_btn`.
@@ -146,7 +160,7 @@ def main():
     CNT = re.compile(r"OS88UI_BT_N\]|OS88UI_BTNREC\s+\w+\s*,|"
                      + r"^\w+:\s*dw\s+[^;\n]*?,[^;\n]*?,[^;\n]*?,\s*[1-9]\d*\s*,",
                      re.M)
-    KBTN = re.compile(r"^\s*call os88ui_kbtn\b", re.M)
+    KBTN = re.compile(r"^\s*(?:call|[A-Z][A-Z0-9_]*) +os88ui_kbtn\b", re.M)
     for path, (rec, raw) in sorted(live.items()):
         if not rec or path.endswith("os88ui.inc"):
             continue
@@ -157,7 +171,7 @@ def main():
         # nothing of its own to aim.
         FAR = re.compile(r"^\s*call \w+:os88ui_btn_f\b", re.M)
         if (KBTN.search(t0) or FAR.search(t0)) and \
-           not re.search(r"^\s*call os88ui_btn\b", t0, re.M):
+           not re.search(r"^\s*(?:call|[A-Z][A-Z0-9_]*) +os88ui_btn\b", t0, re.M):
             continue                # reaches the control through the kernel's
                                     # staging, which aims the record itself
         t = open(os.path.join(ROOT, path), encoding="utf-8",
