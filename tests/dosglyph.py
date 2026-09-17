@@ -190,14 +190,21 @@ def break_store_row(m):
         % (seg, n, stride, 1 if rowsz == 80 else 2))
     if not seg or not n:
         sys.exit("dosglyph: the store is empty, so a miss cannot be staged")
+    # WHAT NAMES THE PACKAGE is the kernel's, not this file's (SPEC.md 25.9.4):
+    # kern_big keys on SPEC.md 54.2's eight-byte space-padded STEM and
+    # kern_small on the twelve-byte 8.3 name, so the eight bytes at the front
+    # of a row read differently per build.  Both are exactly eight; which one
+    # is a question about ICO_R_SIZE and is asked here rather than assumed.
+    want = b"DOS     " if r_size == 8 else b"DOS.O88\0"
     for i in range(n):
         row = seg * 16 + i * stride
-        if bytes(m.read(row, 8)) == b"DOS.O88\0":
+        if bytes(m.read(row, 8)) == want:
             m.write(row + r_size, b"\xFF\xFF")
-            say("row %d is DOS.O88: its size word is now 0xFFFF" % i)
+            say("row %d is %r: its size word is now 0xFFFF" % (i, want))
             return
-    sys.exit("dosglyph: the store has no DOS.O88 row - APPS/ was entered at "
-             "step 4, so the absorb or the harvest stored nothing for it")
+    sys.exit("dosglyph: the store has no %r row - APPS/ was entered at "
+             "step 4, so the absorb or the harvest stored nothing for it"
+             % want)
 
 
 shipped, reduced = shipped_and_reduced()

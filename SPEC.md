@@ -43162,8 +43162,11 @@ Three details are load-bearing:
 - **A missing body is answered from the WINDOW, never from the global.** A
   cache may still hold a listing the global has since replaced — that is the
   whole point of `[dsk_lstale]` and of `FS_IOFH` recording the shape a slot was
-  filled with. So `fmv_get_icon`'s `0xFF` calls `dsk_ico_blank` rather than
-  falling through to `dsk_get_icon_x`, which would paint another volume's icon.
+  filled with. So `fmv_get_icon` resolves its OWN byte through
+  `dsk_ico_stage` rather than falling through to `dsk_get_icon_x`, which would
+  paint another volume's icon. `dsk_ico_stage` takes a REFERENCE; the
+  index form `dsk_get_icon_x` is five instructions in front of it that read
+  the global array.
 - **The index byte is read two at a time**, because `fmv_copy_in` moves words.
   The second byte is the next entry's index, or the first byte past the array
   and still inside the claim — `FV_ICOIX`'s `%if` is what bounds that — and it
@@ -43725,11 +43728,25 @@ it by name - dead at runtime, and returned the day `.ovlw` shrinks.
 
 The volume's association cache (§54.7) held a 64-byte body per row in a 3KB
 claim kept for the session — the same pictures, under the same `(stem, size)`
-identity, as the store. `ico_key_stem` composes a row's key from the other
-end (`<STEM>.O88` NUL-padded to twelve, then the size), so an **absorbed**
-body and a **harvested** one land on one row and answer one another's lookups;
-§54.7.4 is the mechanism and the reason the claim is now a transient file
-buffer.
+identity, as the store. **That identity is `ASSOC.DAT`'s own**: on `kern_big`
+the store's key IS §54.2's eight-byte space-padded stem and the size word
+beside it, so `ico_key_stem` copies a row's eight bytes VERBATIM and
+`ico_key_of` takes `assoc_stem_of`'s answer about a directory entry — the
+same eight bytes from the other end. An **absorbed** body and a **harvested**
+one land on one row because both sides copy the same thing, not because one
+of them reconstructs what the other would have built. §54.7.4 is the
+mechanism and the reason the claim is now a transient file buffer.
+
+**It loses no identity**, which is what makes it available at all: a key is
+built for a type-1 entry and for nothing else (`ico_ref_try` asks the type
+first) and every package is a `.O88` (§20.1), so `<stem>` and `<stem>.O88`
+name exactly the same set and the four extension bytes carry no information.
+`kern_small` keeps the twelve-byte 8.3 name: it has no `ASSOC.DAT` (§54.0),
+so it has one key builder, nothing to agree with and no `assoc_stem_of` to
+call — measured, the stem walk it would have to grow for itself is **45 bytes
+against 22**, so the change that is worth 37 on the machine with memory costs
+23 on the machine with 128KB. The key shape is internal to one build: nothing
+on disk and no ABI names it.
 
 **A COMPOSED DOCUMENT BODY IS KEYED ON THE GLYPH IT CAME FROM**, and it is the
 only body in the store that is *derived* rather than read. `assoc_compose`
@@ -77416,7 +77433,17 @@ by 16.
 `assoc_img_glyph`, which finds the block in an IMAGE by its header flag; the
 last two through `asc_row_glyph`, which finds it in a CACHE ROW; and both fall
 back to `assoc_reduce` through one `assoc_glyph_take`, which copies eight bytes
-unless they are all zero. `tools/os88mini.py` prefers it the same way, so the
+unless they are all zero.
+
+**And the row form is ONE ladder for two stores.** `asc_gly_pair` takes
+`ES:SI` -> a 64-byte body with the shipped eight behind it, prefers those and
+reduces the body when they are blank — which is a cache row and §25.9's store
+row both, because `ASC_ROWGLY - ASC_ROWICO` and `ICO_R_GLYPH - ICO_R_BODY` are
+the same 64. It was written twice, here and in `asc_take`; `disk.inc` asserts
+that the two deltas agree at the point both constants exist, so the merge
+cannot rot. `asc_row_glyph` is two tail jumps into it — one for a version 2
+row, one straight to `asc_body_glyph` for a version 1 row, which has no glyph
+column at all. `tools/os88mini.py` prefers it the same way, so the
 glyph baked into the kernel for DOS IS the shipped one and a harvest agrees
 with it byte for byte — §54.3's invariant for the reduction, carried over.
 
@@ -77949,20 +77976,32 @@ one picture is exactly what §25.9 exists to end, and the cache was the larger
 of the two.
 
 So `asc_use` **absorbs and frees**. After `asc_merge_ext` has taken the
-declarations and `asc_seed` the locations and the glyphs, `asc_absorb` walks
-the rows once more and `ico_add`s every non-blank body under
-`ico_key_stem`'s composition of the same key the listing will ask with; then
-`asc_drop` returns the claim. Nothing above this layer holds a pointer into
+declarations, `asc_seed` walks the rows ONCE — taking each one's location and
+glyph, and calling `asc_row_take` for its body, which `ico_add`s every
+non-blank one under the same key the listing will ask with; then `asc_drop`
+returns the claim. It was two walks of the same table at the same stride from
+the same base, back to back, each with its own frame and row pointer; the two
+halves never read what the other writes, so the interleave is free.
+
+**`ico_need` is still called before that walk and that is load-bearing.**
+`mem_claim` compacts on its refusal path, the cache's claim is movable, and
+the walk holds a row OFFSET against the segment a compaction moves — so the
+one call that can claim is made with no row pointer live, and its carry is not
+tested, because a refused store still has to be seeded. A refusal then STAYS
+made: `asc_row_take` reads `[ico_seg]` rather than asking `ico_need` again per
+row, which would retry the claim, and compact, exactly where it must not. Nothing above this layer holds a pointer into
 it, because nothing above it ever did: every consumer of a row took a *copy*
 of what it wanted, and the body was the one thing that had no copy to take.
 
-**`ico_key_stem` is the load-bearing part.** A row names a package by stem and
-every package is a `.O88` (§20.1), so `<STEM>.O88` NUL-padded to twelve is
-what `ico_key_of` will build from that package's directory entry when the
-listing reaches it. Composing the key rather than inventing a second shape for
-it is what makes an absorbed body and a harvested one **one row that answers
-both** — a second shape would have been two rows holding one picture, which is
-the defect with the numbers rearranged.
+**`ico_key_stem` is the load-bearing part**, and since §25.9.4 it is also the
+cheapest thing in the file: the row names a package by stem, the store keys on
+that same stem, so the builder is a counted copy of eight bytes. It used to
+walk the stem to its first space, write `.O88` after it and NUL-pad the rest
+to the size word — a RECONSTRUCTION of what `ico_key_of` would build, which
+had to be got exactly right or the two keys for one package differed in their
+tail and the cache silently did not work. Either way the point is the same
+one: an absorbed body and a harvested one must be **one row that answers
+both**, and a second key shape would have been two rows holding one picture.
 
 **Absorbing is eager, and the sizing is measured rather than assumed.** A
 buffer that may still be needed is a buffer that may not be freed, so there is
@@ -77990,7 +78029,7 @@ wants, which is *after* `asc_use` has already declined to re-read.
 
 **`asc_lookup` is gone and the question it asked is now ungated.** It searched
 the claim for an offset into it; with no claim, *is this package's body
-already in RAM* is the store's question, and `ico_have` asks it on **both**
+already in RAM* is the store's question, and `ico_find` asks it on **both**
 kernels. `kern_small` has no `ASSOC.DAT` at all (§54.0) and so never had this
 lookup — and its harvest was therefore reading a package's first sector every
 mount for a body the store had held since the last one. On the 4.77 MHz floor
@@ -78007,8 +78046,8 @@ used to read that column off the cache row. A hit has no row now. A store that
 carried only the body would answer a hit with the *reduction* and so
 **downgrade a slot `asc_seed` had already resolved**, which is worse than not
 writing at all: the glyph would get quietly worse the moment a folder was
-browsed. So `ICO_R_GLYPH` is a column of the store row (`ICO_ROW` 80 → 88, and
-`kern_big` only — `kern_small` has no glyphs at all), `asc_absorb` puts a v2
+browsed. So `ICO_R_GLYPH` is a column of the store row (`kern_big` only —
+`kern_small` has no glyphs at all), `asc_row_take` puts a v2
 row's glyph in beside its body, and `asc_take` prefers it exactly as
 `asc_row_glyph` does, falling back to `asc_body_glyph`'s reduce when there is
 none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
@@ -78016,7 +78055,7 @@ none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
 a store row cannot disagree about what the iconless sentinel is.
 
 **The HARVEST fills that column too, and leaving it out is worse than leaving
-it empty.** `asc_absorb` fills it from a v2 cache row, but a package the cache
+it empty.** `asc_row_take` fills it from a v2 cache row, but a package the cache
 does not name — a disk with no `ASSOC.DAT`, or one whose row was missed — is
 stored by the harvest instead, and a row stored with an empty glyph column
 sends the *next* hit down `asc_take`'s reduce arm. That does not fail to write
@@ -78028,6 +78067,45 @@ the wrong glyph in it. So `ico_put` answers with the row it took and the
 harvest completes it out of `LD_H_GLYPH`. A package that genuinely ships none
 keeps `ico_add`'s zeros, and a hit reducing its body is exactly
 `assoc_img_glyph`'s own fallback.
+
+##### 25.9.5.1 The row's layout is DERIVED, and the walk answers three things
+
+`ICO_R_NAME` 0, then `ICO_R_SIZE` and `ICO_KEY` per build (8 and 10 where the
+key is a stem, 12 and 14 where it is a name — §25.9.4) — and everything after
+those is arithmetic on them: the body sits at `ICO_R_BODY` = `ICO_KEY`, the
+shipped glyph at `ICO_R_BODY + DSK_ICO_SIZE`, and `ICO_ROW` is whichever of
+those the build ends on, **82 on `kern_big` and 78 on `kern_small`**. It was
+written out — 16, 80, 88, 80 — with two pad bytes between the key and the body
+that nothing needed: the only alignment that binds a row is
+`dsk_copy_seg_x`'s `rep movsw`, which wants an even offset, and every
+`ICO_KEY` here is one. The `add` that walked that gap is inside a `%if` and
+emits nothing while the gap is 0.
+
+`ICO_KB` falls out of that and is not chosen: 48 rows of 82 is 3,936 bytes, so
+**the claim is 4KB where the written-out layout made it 5** — a kilobyte
+returned to a heap whose whole point (§25.9) is the DOS arena.
+
+`ico_rowoff` is `mul ah` and not a shift ladder, because a ladder needs an arm
+per row width and the multiply takes any of them in two bytes. The product
+cannot leave AX: the widest row here is 47 × 88, and 255 × 88 would still fit.
+
+**The scan answers WHERE as well as WHICH.** `ico_scan` walks the rows and
+returns `AL` = the row with `ES:DI` standing on it; on a miss it returns
+`AL` = `[ico_n]` with `ES:DI` on the first FREE row, which is past the end
+when the store is full — so `cmp al, ICO_NROW` is the whole of *is there
+room*, and a refused claim answers 0xFF into the same compare. `ico_find` is
+five bytes of frame around it for callers that want only the row, and
+`ico_add` keeps all three answers: it re-derived the claim, the count and the
+row offset when the scan that had just missed was standing on the row it was
+about to take.
+
+**One classification serves both icon passes.** Step 4 walks a real volume and
+step 4a' a redirected one (§62.9.2.1), and what each does in front of a sector
+read is identical to the instruction — bank the identity, send a folder to the
+built-in body, leave a document to pass 4b, spend a store hit. They differ
+only in what a MISS means, which is a sector read on one pass and nothing at
+all on the other, so `ico_ref_try` says that with a carry: the first pass
+branches on it and the second does not test it.
 
 **What the DECLARATION half costs, stated because it is the one thing a hit
 skips.** `assoc_note_app` merges a package header's §54.6 declarations and

@@ -1579,27 +1579,20 @@ ld_pkg_byname:
 
     cmp byte [si], 0
     je .byext
-    mov di, assoc_stemb         ; a NAME was given: its STEM names the slot,
-    mov cx, 8                   ; space-padded, which is the shape the table
-    mov al, ' '                 ; holds and assoc_app_of compares
-.pad:
-    mov [di], al
-    inc di
-    loop .pad
-    mov di, assoc_stemb
-    mov cx, 8
-.stem:
-    mov al, [si]
-    or al, al
-    jz .gotstem
-    cmp al, '.'
-    je .gotstem                 ; `NOTEPAD.O88` -> `NOTEPAD `
-    call ld_pkg_upc             ; ...and UPPERCASE, for assoc_app_of's own
-    mov [di], al                ; byte-exact compare (21.5.3.2): `notepad
-    inc si                      ; readme.txt` answered `Cannot open notepad`
-    inc di
-    loop .stem
-.gotstem:
+    call assoc_stem_of          ; a NAME was given: its STEM names the slot,
+                                ; space-padded, which is the shape the table
+                                ; holds and assoc_app_of compares - and that
+                                ; is SPEC.md 54.2's own walk, which this
+                                ; routine had written out again, pad loop and
+                                ; `.` stop and all. It answers DI =
+                                ; assoc_stemb and leaves SI alone
+    mov cx, 8                   ; ...then UPPERCASE IN PLACE, for
+.supc:                          ; assoc_app_of's byte-exact compare
+    mov al, [di]                ; (21.5.3.2): `notepad readme.txt` answered
+    call ld_pkg_upc             ; `Cannot open notepad`. A pad space folds to
+    mov [di], al                ; itself, so this needs no stop of its own -
+    inc di                      ; which is why the fold could come out of the
+    loop .supc                  ; copy and stop being a reason to have one
     mov si, assoc_stemb
     call assoc_app_of
     jmp short .have
