@@ -35861,6 +35861,55 @@ pass and not an attribution, so its credit went into the sentence
 rather than resident ones, and which §10.1 of WEAVE-SPEC makes *keep* the
 sentence after the toast retires itself.
 
+#### 20.5.1.2 The attribution sweep — the seven that still had no credit
+
+The card being cheap did not make the credits appear. A later audit walked
+every package in `apps/` for a contributor line and found **ten without one**,
+which splits three ways and only the first group is about this widget:
+
+- **Six had a card and no credit on it** — `AUDIO`, `DOTDEL`, `PACCMAN`,
+  `PACMAN`, `SCRIBE`, `THEWIRE`. Five of them gained a line where their card
+  is measured: §86.7, §93.15, §91, §95.12, §92.8.
+- **`DOS`'s handler was a bare `ret`** (§96.51) and `FONTVIEW` registered no
+  handler at all (§90.9) — the two shapes of "the cheapest thing an author
+  could do was nothing", eleven sections after that sentence was written.
+- **`FPTEST` and `IMGTEST` are instruments rather than software** and are
+  deliberately left alone: neither ships, and a capability gate has no author
+  to credit. `WIRE` (§78.9) does not ship either but *is* a program and does
+  carry one.
+
+**`PACMAN` (§89) is the one row still open, and it is open for a reason no
+edit here can close**: its card credits `Roklan / Atari disk version, 1982`
+and `Native 8086 adaptation` and names no person, and *who* made that
+adaptation is not recorded anywhere in the tree — not in the source header,
+not in §89, not in a plan. The other six were assigned by the owner and this
+one was not, so the line is left absent rather than guessed at. A credit
+invented to make a table look complete is worse than a blank, which is
+§47's argument about greying a fact rather than a guess, applied to an
+attribution.
+
+**Three findings are worth more than the seven lines.** The first is that a
+credit is lost by FORKING: `SCRIBE` was cut from a `word.asm` older than
+WORD's own porter line, so the fork shipped a three-line card crediting
+nobody, and §95.10's divergence table gained a row that is an attribution
+rather than a speed. The second is that a card can be FULL: `PACCMAN` sits at
+ten lines against CGA's 144-row content box, where eleven is 146 and its own
+host gate refuses it — so that credit was paid for by merging three provenance
+lines into two rather than by a line's worth of new card. The third is that
+the two-line split `MINES` and `HELLO` needed is the exception and not the
+rule: of the seven, **six had content boxes of 300 px or more** and took the
+credit as one line; only PaccMan's 224-pixel arcade field is in Mines'
+position at all.
+
+**`Contributed by` is the wording, and the name is spelled out.** The tree
+carries four forms and they mean different things — `Contributed by X` for
+original work, `Ported by X` where the program came from somewhere else (every
+C port, plus WORD, ModPlug, Missile and Artful), `Optimized by X` and
+`Updated by X` as a SECOND line beside one of the first two, never instead of
+it. `TRACKER` and `NOTEPAD` carry two lines each for that reason, and SCRIBE
+does now. What is never used is a handle or an abbreviation: it is
+`Jorge Gonzalez` in all thirteen places and never `jggonz`.
+
 **`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
 `BARONLY` is the button's opt-out spelled as a statement about the scroll bar
 (§13.10.6.5), and the About card is the first consumer for which that sentence
@@ -109545,9 +109594,17 @@ for the first `W_PAINT`. `ap_entry` kicks itself once with `OSAPI_WM_WAKE`;
 
 **About** (`OSAPI_ABOUT_SET`, §12.2) draws a white, black-framed card over the
 content — sized and centred from the live content box — with the package name,
-`Version 0.6b`, a one-line blurb, and the accepted rate set (§86.15).
-`[ap_abon]` gates it; `apu_draw` lays it last so it is on top, and the next
-click or key clears the flag and repaints.
+`Version 0.6b`, a one-line blurb, the accepted rate set (§86.15) and
+`Contributed by Pentagram`. `[ap_abon]` gates it; `apu_draw` lays it last so it
+is on top, and the next click or key clears the flag and repaints.
+
+**This card is hand-measured, not `os88ui_about`'s**, so the credit cost it
+geometry as well as a string: `APU_ABH` is **80** px where it was 66, and every
+offset in `apu_about_card` is `7 + n * APU_ABLH` rather than a literal, so the
+next line to arrive moves one constant instead of five. The WIDTH did not move
+— the widest line is the 32-cell rate set and the credit is 24 — and the
+window is 300 px on every adapter, which is why there is no per-adapter case
+here.
 
 ### 86.10 The playlist
 
@@ -119698,6 +119755,39 @@ The apps-disk figures are Font Viewer *and* `HELLO.O88` together (§27.0), plus
 one cluster of the `APPS/` directory itself at each geometry: two fewer 32-byte
 entries crossed a directory cluster on all four.
 
+### 90.9 The About card — the package that had no handler at all
+
+Font Viewer registered **no `OSAPI_ABOUT_SET` handler**, which is precisely
+the case §20.5.1.1 was written about: the kernel still puts `About Font
+Viewer...` in the bar, so the item was there and did nothing, and what was
+missing behind it was the **credit**. It is `os88ui_about` now, five lines:
+`Font Viewer for os8088`, `The system face browser`, a blank,
+**`Contributed by Jorge Gonzalez`**, `Any key or click closes`.
+
+**One size on every adapter, so there is no clamp case here.** `FV_W`/`FV_H`
+are fixed — 620 × 155, the whole CGA band with the dock excluded — and the
+content box is `FV_CW` = 618 px = 77 cells, against a widest line of 29. That
+is why this card needed none of the two-line splitting Mines' 144-pixel
+content and Hello's 238 × 71 forced on theirs.
+
+**Two entries, and this package uses both** (§20.5.1.1): `fv_about` is the
+handler and calls `os88ui_about`, which arms the clip itself because
+`ui_dispatch` does not; `fv_paint` draws the card **last**, after `fv_draw`,
+through `os88ui_about_d`, which does not re-arm and so keeps that paint's
+damage rect.
+
+`[fv_abon]` is the flag, one byte on the end of `FV_BSS_OWN`. `fv_abdismiss`
+is called at the **head** of both `fv_onkey` and `fv_onclick` and answers
+`CF = 1` when it took a card down, so the keystroke that dismisses is not also
+typed into the specimen and the click that dismisses is not also a catalogue
+selection. It repaints through `fv_redraw` and not the card's own rect: what
+the card covered is some mixture of a specimen row, a catalogue row and the
+divider, and `fv_redraw` is the one routine that puts all three back.
+
+The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
+this package takes, and without the opt-out it would carry `os88ui_glyph`'s
+116 bytes for a button nothing calls.
+
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
 The C toolchain's fourth application is **`apps/paccman/`**, package name
@@ -121210,10 +121300,22 @@ the review; the wave-3 paragraph above records the move).
 
 **The About card, on the glass.** Ten lines, all whole at the 224-pixel content
 box's width, none of them about how the build renders:
-`PaccMan for os8088` / `A C port of pacman.c,` / `commit 0f5ec5a` /
-`(c) 2020 Andre Weissflog` / `MIT. floooh/pacman.c` / `Tiles/sprites: Pac-Man` /
-`arcade ROMs (Namco)` / `Rules: Pac-Man Dossier` / `Arrows/WASD move. N new.` /
-`F full. P/Space pause.`
+`PaccMan for os8088` / `A C port of pacman.c` / `0f5ec5a, floooh, MIT` /
+`(c) 2020 Andre Weissflog` / `Tiles/sprites: Pac-Man` /
+`arcade ROMs (Namco)` / `Rules: Pac-Man Dossier` / `Ported by Jorge Gonzalez` /
+`Arrows/WASD move. N new.` / `F full. P/Space pause.`
+
+**TEN IS A CEILING AND THE PORTER'S CREDIT WAS PAID FOR BY A MERGE**
+(§20.5.1.1). CGA's content box is 144 rows and the widget measures
+`n * 12 + 14`, so ten lines is 134 and eleven is **146** — over, clamped, and
+the last line cut off; `pmcuitest`'s height gate says so and had already
+refused this exact card once. So the three lines that carried the reference —
+its name, its commit, and its repo with its licence — became **two**, and
+nothing the section requires the card to carry left it: the reference by name,
+the commit, the repo owner, the licence, the author's copyright, the ROM
+credit and the Dossier are all still on the glass. What the freed line buys is
+the one thing the card did not have and every other C port in this tree does —
+**who brought it to this machine.**
 
 **Provenance.** The code is Andre Weissflog's under MIT; the tile, sprite and
 colour tables are Pac-Man arcade ROM data (Namco) and the two register dumps
@@ -121644,7 +121746,10 @@ used with.
   picture is in flight bumps the generation and the worker drops the bytes.
 - **Refresh** re-fetches the catalog. **About** is `OSAPI_ABOUT_SET` (§12.2):
   `The Wire`, `Online Software Library`, `Software by wire.`, the catalog
-  date, `os8088.com`.
+  date, `os8088.com`, and the contributor credit §20.5.1.1 exists for —
+  `Contributed by Jorge Gonzalez`. Six lines; the content box is `WR_CW` =
+  384 px on every adapter, so the widest of them (29 cells) clears the
+  widget's clamp with room to spare and no line is split.
 
 ### 92.9 No driver, no link
 
@@ -124727,6 +124832,24 @@ this one back on the media disk, which is one line of the Makefile.
   three adapters and gates the rendered frame rate against the game's own tick
   counter (§93.5.3);
 - `tests/dotdelmd.py` is the two-card pass above, on `os8088_5150_both_gla`.
+
+### 93.15 The About card
+
+`OSAPI_ABOUT_SET` (§12.2) through `os88ui_about` (§20.5.1.1), seven lines:
+`DOT DELIRIUM`, a blank, `A maze chase for os8088.`, `Arrows steer.  P
+pauses.`, `F is full screen.`, a blank, and **`Contributed by Elendilon`**.
+
+The credit goes **last, after a blank line**, so the two key hints stay where
+a player's eye has already learned to find them. It is 24 cells, which is
+exactly what `A maze chase for os8088.` and `Arrows steer.  P pauses.` already
+were, so the card is **not one pixel wider** than the five-line version and no
+adapter's clamp moves; the height goes 74 → 98 against CGA's ~141-row content
+box, which is the tightest of the three.
+
+`[dd_abon]` gates it, `dd_paint` draws it last, and any click, key or menu
+pick takes it down — which also un-suspends the game, §93.5.6's third
+not-drawing test being the flag itself.
+
 ## 94. Picture decoders (`apps/os88img.inc`)
 
 Three file formats into one in-memory form: **packed 4bpp, two pixels per
@@ -125719,6 +125842,7 @@ all of it in **#172**:
 | `os88ui_drop` and the drag-and-drop bank | present | absent |
 | `OS88_REGION_MOVABLE`, `OS88_WORKER_RESTARTABLE` | declared | not declared |
 | `wd_eoutck`, `wd_nlpush`, `wd_upheight`, `wd_bandx` | present | absent |
+| the **porter's credit** on the About card — `Ported by Jorge Gonzalez` | a fourth line, and the box is 16 px taller for it | **was absent** until §95.12 put it back, with a second line for the fork |
 
 None of it is a defect in the picture work, and none of it reaches a shipped
 disk — SCRIBE is on none. It is a **maintenance** fact: the two files are no
@@ -125764,6 +125888,35 @@ The cheapest place to start is the pen: making `sc_advof` answer what
 change. It is not made here because it moves every caret, hit-test and
 alignment decision in the package at once, and that is a change to look at
 rather than to infer.
+
+### 95.12 The About box — five lines, and two of them are the ones a fork drops
+
+`sc_habout` → `sc_abopen`, a 344 × 104 panel centred in the content box with an
+OK button, refusing below 360 × 128 content with the version line as a toast
+instead (§47). Five lines: `Scribe`, `os8088 word processor`,
+`Forked from WORD (SPEC.md 86)`, **`Ported by Jorge Gonzalez`** and
+**`Updated by Koriban`**.
+
+**The fourth line is INHERITED and its absence is §95.10's failure mode in
+miniature.** WORD's card has carried `Ported by Jorge Gonzalez` since §68.2,
+and its box is 88 px rather than 72 *because of it* — the comment on WORD's
+own height check says "16 taller since the porter credit became a fourth
+line". Scribe was cut from an older `word.asm` and the line was not in the cut,
+so the fork shipped a card three lines long that credited nobody: the same
+class of silent loss as the movers and the save-unders in §95.10's table, but
+the thing lost was an **attribution** rather than a speed. Nothing reported it
+because a missing credit looks exactly like a card that never had one.
+
+The geometry is WORD's, two lines further on: lines at `+8`, `+20`, `+32`,
+`+44`, `+56` at the 12 px pitch, OK at `+82` (WORD's `+66` plus the two
+lines), box bottom at `+103` — **a 9 px gap under the button on both**, which
+is the check that the two boxes are still the same design. The refusal
+threshold moves with the height and not independently: 96 → 128 is the same
++32.
+
+Scribe banks no pixels under the box (it has no `wd_suab`, §95.10), so nothing
+else is sized by this and `sc_abclose` repairs from `sc_abrect` whatever the
+box turns out to be.
 
 ## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
 
@@ -136766,3 +136919,47 @@ Measured, both arms, with both corrections in:
 |---|---|---|
 | guarded | 134 | **1 of 16** |
 | `NOKDKBD=1` | 172 | **0 of 16** |
+
+### 96.51 The About card, and the handler that was a bare `ret`
+
+`dos_about` was registered with `OSAPI_ABOUT_SET` from the day the window
+existed, and its whole body was `ret`. The kernel therefore drew
+`About DOS...` into the app menu (§12.2) and picking it **did nothing at all**
+— the one failure mode §20.5.1.1 is written about, and the hardest kind to
+notice, because a handler that returns is indistinguishable on the glass from
+one that drew something small and quick. What was behind the item was the
+**credit**.
+
+Six lines: `DOS for os8088`, a blank, `Runs .COM and .EXE programs`,
+`natively - this machine IS an 8086`, a blank, and
+**`Contributed by Elendilon`**. The widest is 34 cells against a content box
+of `DOS_CONW` = 640 px on VGA and CGA and 720 on Hercules (§96.32's `dos_pref`
+row), so no adapter clamps the card and nothing is split across two lines.
+
+**Both entries are used, and the painter's one is the interesting half.**
+`dos_about` is the handler, so it calls `os88ui_about`, which arms the clip
+itself — `ui_dispatch` arms none. `dos_paint` draws the card **last** through
+`os88ui_about_d`, which does not re-arm and so keeps that paint's damage rect.
+
+**The card is the WINDOW's and not the page's**, which is the same statement
+`dos_paint` already makes about the console band: the setup page's exit is
+`jmp .card` rather than `jmp .out`, so the main page falls through to the card
+and the setup page jumps into it, and one branch cannot acquire a card the
+other lacks.
+
+**`BX` comes from `[dos_win]`, not from `SI`.** `dos_paint` is entered with
+`SI` = the window, but the main page's `os88line_draw` call loads `SI` with
+`dos_pln` on the way past, so by the tail it is a string. This is the same
+trap §96.32's entry-proc comment records about `OSAPI_ARG_FILE` and `op_load`,
+one routine along.
+
+`[dos_abon]` is the flag — one `HBSS` byte, inside the window half's
+`%ifndef KD_BACKEND`, so `kern_dos`'s backend build carries none of this.
+`dos_abdismiss` is called at the **head** of both `dos_key` and `dos_click`
+and answers `CF = 1` when it took a card down, so the event is not acted on
+twice. In `dos_key` it sits **above** the Alt+Enter test that is otherwise
+"above everything" (§96.33.5.1): a card that is up is what the user is looking
+at, so the key that dismisses it must not also take the machine full screen.
+It repaints by calling `dos_paint` rather than repairing the card's rect,
+because what the card covered is a console band or a setup page and
+`dos_paint` is the only thing that knows how to put either back.
