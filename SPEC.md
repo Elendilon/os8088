@@ -9253,8 +9253,9 @@ everything to anything sampling it: a reader that calls `[fpg_on] || the lock`
 the freeze, and a change in `[cur_drawn_*]` across two frozen-looking samples
 an ISR draw, counts this teardown as a cursor move inside the hold — on the
 one kernel where a cursor move inside the hold is supposed to be unreachable.
-`tests/curdisk.py` failed that way about one run in twenty, and what fixes it
-is not a tolerance: a pair of samples is evidence only when the freeze reads
+`tests/curdisk.py` failed that way in **8 of 90** recorded `NOCURDISK=1`
+launch legs — 7.4% at 696e1e49 and 11.1% after the merge that follows it,
+every one of them the same pair — and what fixes it is not a tolerance: a pair of samples is evidence only when the freeze reads
 the **same** at both ends, which every mover above breaks by sitting below
 `fpg_finish`, and which two samples a packet apart cannot fake by both landing
 inside 420 cycles.
