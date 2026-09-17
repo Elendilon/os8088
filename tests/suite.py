@@ -5056,7 +5056,16 @@ SOAK = [
         " because it is not the row's own business to report its absence: it"
         " said SKIP and returned 0 for its whole life, so the suite scored it"
         " `ok` in 0.1s and nothing ever drove the watchdog. wants= builds the"
-        " tree AND keeps it current, which a capability cannot do",
+        " tree AND keeps it current, which a capability cannot do."
+        " **ITS RUNNING CHECK WAS FALSE OF THE MACHINE** (88.14.4): it"
+        " required every banked IP to be a package offset, and the ring"
+        " banks whatever int 08h INTERRUPTED - which is regularly the ROM,"
+        " because cs_input polls int 16h (53.1) and that enters at"
+        " F000:E82E. On the tree it was written against it failed 12 of 12"
+        " three abreast naming e830/e832/e837/e83c/e84b, every one a"
+        " CORRECT sample, and passed serially on the same tree - which is"
+        " what made it look random. The CS is banked per slot now and the"
+        " row PLACES each sample instead of assuming it",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
     Row("skiesdrag", "soak", py("tests/skiesdrag.py"), 65.0,

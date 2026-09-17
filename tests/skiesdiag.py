@@ -33,6 +33,7 @@ slot and this asks the question that can be answered.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -57,10 +58,18 @@ def diagmap():
     """Assemble the CSDIAG package and take the four addresses off it.
 
     The listing rather than a map: nasm -f bin has no map, and these are
-    absolute offsets in the package's one segment either way."""
-    lst = os.path.join(ROOT, "build", "skiesdiag", "skies.lst")
-    binp = os.path.join(ROOT, "build", "skiesdiag", "skies.map.bin")
-    os.makedirs(os.path.dirname(lst), exist_ok=True)
+    absolute offsets in the package's one segment either way.
+
+    THE SCRATCH IS THIS PROCESS'S. Two invocations at once - this row and
+    `skieskfz`, which imports this function, or one of either run by hand
+    beside the suite - wrote the same `skies.lst` and each read what the
+    other had half-written. The symptom is NOT an error: a regex simply
+    misses and the row exits `no cs_render in the listing`, which reads as
+    the package having changed. Measured at 1 run in 24 three abreast."""
+    scratch = os.path.join(ROOT, "build", "skiesdiag", "map%d" % os.getpid())
+    lst = os.path.join(scratch, "skies.lst")
+    binp = os.path.join(scratch, "skies.map.bin")
+    os.makedirs(scratch, exist_ok=True)
     # -I THE PRIVATE TREE, and it is the tree's own and not build/'s: the
     # world index is GENERATED (SPEC.md 88.10.5), `make skiesdiag` writes a
     # copy of it beside the package it builds, and the two are only the same
@@ -111,7 +120,9 @@ def diagmap():
                     out["cs_render"] = int(m.group(1), 16)
                     break
             break
-    return out
+    if out["cs_render"] is not None:    # a scratch only this run can see -
+        shutil.rmtree(scratch, True)    # kept when a regex missed, so the
+    return out                          # listing is there to be looked at
 
 
 def main(argv):
@@ -202,8 +213,16 @@ def main(argv):
 
         # the kernel's own int 08h CS, out of the vector cs_diag_on displaced
         # - so "the kernel" is a fact off the guest rather than a constant
-        # this file mirrors
+        # this file mirrors. `cs_dold` is only written when the bracket goes
+        # up, which the check above has just established; read before that it
+        # is ZERO, and a zero here would fail every kernel sample for a reason
+        # that has nothing to do with the watchdog
         kseg = int.from_bytes(m.readseg(seg, sym["cs_dold"] + 2, 2), "little")
+        if not kseg or kseg == seg:
+            sys.exit("skiesdiag: cs_dold holds %04x:%04x - the bracket was not"
+                     " up when it was read, so nothing below can be placed"
+                     % (kseg, int.from_bytes(
+                         m.readseg(seg, sym["cs_dold"], 2), "little")))
 
         seen = []
         for _ in range(4):
