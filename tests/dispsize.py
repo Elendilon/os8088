@@ -50,10 +50,10 @@ beside a 640x200 CGA, Hercules primary, Extend / Right:
      was getting all three of a capture's questions wrong at once - see
      cardof() for the card, and the block itself for the tuple, the width and
      the pointer. What it reported was the menu bar's CLOCK on the card the
-     window is NOT on. live_set() is the one thing it needs that the rest of
-     the tree's capture gates do not: ModPlug is not an inert subject and
-     cannot be swapped for one, so the pixels it moves on its own are
-     measured here and classified out rather than tolerated.
+     window is NOT on, once a guest minute. steady() is the one thing it needs
+     that the rest of the tree's capture gates do not: ModPlug is not an inert
+     subject and cannot be swapped for one, so the capture is taken with the
+     drawing lock FREE rather than whenever the host asked.
 
   E  the facts a package takes from the ADAPTER, checked after a DRAG rather
      than after an Activate Mode. OSAPI_VIDEO answers about the primary
@@ -130,8 +130,12 @@ def cardof(m, cards, c):
     Legs A, B, D, E and F survived that because they assert ARITHMETIC (the
     file's own docstring says so); leg C is the one that captures pixels, and
     it compared a card the window is not on. What it caught there was the menu
-    bar's CLOCK - SPEC.md 12.1, repainted once a second by the UI task, inside
-    [vid_clk_hx] - which changes between any two captures a settle apart.
+    bar's CLOCK - SPEC.md 12.1, in [vid_clk_hx], which is (720-206) & ~7 = 512
+    on this display. Decoded at the capture's real width of 720 the pixels it
+    reported are x=680..694, y=8..14: the minutes field. menu.inc's own note
+    says the string changes once a MINUTE, and a settle is long enough on the
+    guest's clock to straddle that - MEASURED at 3 of 8 rounds, which is why
+    this arrived as an intermittent rather than as a row that simply failed.
 
     Resolved off the DISPLAY's own kind rather than [vid_kind], which answers
     about the boot adapter: this machine comes up as a CGA (the 5150's display
@@ -147,32 +151,44 @@ def cardof(m, cards, c):
     return got[0]
 
 
-def live_set(m, card, base, w, n=8):
-    """The pixels this screen moves BY ITSELF, with nothing touched at all.
+def steady(m, card, tries=60):
+    """A capture taken with the DRAWING LOCK FREE, which is the only kind
+    worth diffing when the subject is not inert.
 
-    ModPlug is not an inert subject the way dispcorner's Calculator is, and it
-    cannot be swapped for one - it is THE package that declares a size per
-    adapter (SPEC.md 56.4), which is the whole of what leg C is about. Its
-    worker invalidates the visualiser pane every frame whether or not anything
-    is playing (SPEC.md 56.7: "stopped, it animates like anywhere else"), so
-    `mppu_well` re-bevels and re-fills that pane ~18 times a second and a
-    capture can land between the two runs that meet at a corner. Measured on
-    os8088_5150_both_gla with nothing loaded: EXACTLY TWO pixels, the well's
-    (zx2,zy1) and (zx1,zy2) - content-relative (225,84) and (5,119) - flipping
-    black<->white in 24 of 24 captures taken with no repaint between them.
+    ModPlug cannot be swapped for an inert subject the way dispcorner swapped
+    in the Calculator - it IS the package that declares a size per adapter
+    (SPEC.md 56.4), which is the whole of what leg C is about. Its worker
+    invalidates the visualiser pane every frame whether or not anything is
+    playing (SPEC.md 56.7: "stopped, it animates like anywhere else"), so
+    `mppu_well` re-bevels and re-fills that pane ~18 times a second, and a
+    plain capture can be taken between the two bevel runs that meet at a
+    corner. Measured on os8088_5150_both_gla with nothing loaded: two pixels,
+    the well's (zx2,zy1) and (zx1,zy2), and a plain capture catches them
+    MID-DRAW about once in fifteen - which is a false FAIL for this leg once
+    in twenty-five runs.
 
-    THIS IS A CLASSIFICATION AND NOT A TOLERANCE, which is dispcorner's
-    `dither_split` rule one subject along: the set is MEASURED off this
-    machine at this moment, it is PRINTED beside the verdict, and a pixel
-    outside it is residue and fails. Nothing is excused by being small.
+    [gfx_lock_flag] is 0 exactly when no task is inside a drawing primitive
+    (kernel/vga12.inc: "strictly 0 or 1 and never a count"), which is SPEC.md
+    7.4.2.1's own argument - a free lock PROVES it - and ModPlug's frame holds
+    it across the whole of `mppu_frame`. So this is EXACT rather than a
+    classification, and the leg can then ask for zero differing pixels and
+    mean it. Measured against the plain capture it replaces: 0 of 30 against
+    2 of 30, for 0.77 retries a capture.
+
+    dispcorner.shot() has the same exposure and is deliberately left alone:
+    its own subject is chosen to be inert, so it has nothing to be exposed to.
     """
-    out = set()
-    for _ in range(n):
-        m.advance(frames=3)
-        m.run()
-        out |= set(dispcorner.diff(base, dispcorner.shot(m, (card,))[card][2],
-                                   w))
-    return out
+    for _ in range(tries):
+        m.pause()
+        if m.read(S("gfx_lock_flag"), 1)[0] == 0:
+            out = m.fbuf(card=card)
+            m.run()
+            return out
+        m.run()                     # ...somebody is mid-primitive. Let them
+        m.advance(frames=1)         # finish rather than photograph them.
+    sys.exit("dispsize: the drawing lock was held for %d tries - something is "
+             "painting without end, and no capture of this machine says "
+             "anything" % tries)
 
 
 def extend(m, mo, settle):
@@ -362,31 +378,25 @@ def main(argv):
         # CAPTURE's, not the kernel's idea of the display's. And the POINTER
         # has to be in the same place for both, because dispcorner.repaint
         # parks it before the second one.
-        before = dispcorner.shot(m, (sec,))[sec][2]
+        before = steady(m, sec)[2]
         mo.drag(x3 + w3 // 2, y3 + TITLE_H // 2, seam + 30 + w3 // 2,
                 y3 + TITLE_H // 2)
         settle(m, card=sec)
         x4, y4, w4, h4 = dispcp.win_rect(m, S, sl)
         mo.to(*PARK)
         settle(m, card=sec)
-        cw, _, inc = dispcorner.shot(m, (sec,))[sec]
-        live = live_set(m, sec, inc, cw)
+        cw, _, inc = steady(m, sec)
         dispcorner.repaint(m, mo, pri)
-        fullshot = dispcorner.shot(m, (sec,))[sec][2]
+        fullshot = steady(m, sec)[2]
         # ...and it must have SEEN the arrival, or the figure below is the
         # vacuous 0 of a capture pointed somewhere else (dispcorner.probe's
-        # `prev` guard, and the reason this leg could fail for a year without
-        # ever looking at the CGA).
+        # `prev` guard, and the reason this leg could report a verdict for a
+        # year without ever looking at the CGA).
         moved = len(dispcorner.diff(before, inc, cw))
-        resid = [p for p in dispcorner.diff(inc, fullshot, cw)
-                 if p not in live]
+        resid = dispcorner.diff(inc, fullshot, cw)
         say("...on the CGA at %dx%d, incremental against a full repaint: "
-            "%d differing pixel(s)%s"
-            % (w4, h4, len(resid),
-               "" if not live else
-               "  (%d live pixel(s) of the player's own visualiser pane, "
-               "%r, measured and excluded)" % (len(live),
-                                               dispcorner.bbox(sorted(live)))))
+            "%d differing pixel(s) (the drag moved %d)"
+            % (w4, h4, len(resid), moved))
         if not moved and a.gate:
             fail.append("C: the drag onto the CGA moved NO pixel of card %d, "
                         "so the count above is vacuous - this capture is not "
