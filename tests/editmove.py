@@ -451,6 +451,26 @@ def main():
         if top_p > fill:
             print("        %5d KB HOLE (to the top)" % ((top_p - fill) // 64))
 
+        # **RE-RESOLVE THE APP'S OWN SEGMENT FIRST.** A package REGION is a
+        # movable claim now, so the compaction this row provokes can move the
+        # program as well as the blocks it holds - and `seg` was read out of
+        # the window record BEFORE the pass. Everything below is keyed on it:
+        # `mine()` matches claims by OWNER, and `pword()` reads the package's
+        # words at `seg * 16 + offset`. Measured on Note Pad: the instance
+        # went 8520 -> 9a40, so the claims it still held read as owned by a
+        # segment the row was not asking about ("now holds []") and the two
+        # words came back as 4d60/4da0 - bytes read out of the base the
+        # program had VACATED, which then matched no claim and reported two
+        # relocation failures against a proc that had done its job.
+        #
+        # The kernel keeps W_SEG current across the move, which is what makes
+        # re-reading it the whole fix.
+        seg2, _ = pkg_seg(m, S, cfg["title"])
+        if seg2 and seg2 != seg:
+            print("  %s ITSELF moved %04x -> %04x (its region is movable "
+                  "too), so the words and the owner match below are read "
+                  "against the new base" % (cfg["title"], seg, seg2))
+            seg = seg2
         after = mine(claims(m, S), seg)
         held = [c[0] for c in after]
         print("%s now holds %s"

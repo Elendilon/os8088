@@ -96,11 +96,33 @@ def both_passes(cl, base, top):
     from the kernel's arithmetic, which is the point of it.
 
     `cl` is (base, para, owner, dma, rloc); rloc != 0 is movable and dma's top
-    bit is the top-down door. Purgeable claims are not modelled as dropped,
-    so this is a LOWER bound on what the guest may report - the assertion is
-    one-sided by construction, and one-sided the safe way."""
+    bit is the top-down door.
+
+    **PURGEABLE CLAIMS ARE MODELLED AS DROPPED, AND THEY DID NOT USED TO BE.**
+    This docstring said they were not, and called the result "a LOWER bound on
+    what the guest may report - one-sided by construction, and one-sided the
+    safe way". That was true and it stopped being enough the day the heap grew
+    a cache in this scenario: SPEC.md 25.9's machine-wide icon store claims
+    `MEM_P_ICO` (owner **fb01**, 5 KB here), the kernel's what-if correctly
+    counts it as droppable, and the region arm below - which asserts EQUALITY,
+    on the stated premise that the asker is the only package with claims -
+    read 266K against a model of 261K and called the kernel's answer memory
+    the pass cannot produce. The 5 KB was the icon store, and the pass really
+    can produce it.
+
+    A record is a cache when its high byte is in [MEM_PG_MIN, MEM_PG_MAX] =
+    [0xFB, 0xFE] (kernel/memory.inc): 0xFF is an ordinary claim and an
+    instance slot is a small number, so both fall outside by construction.
+    An ordinary claimant ranks MEM_LVL_TOP and so takes ANY cache, which is
+    the level these two questions are asked at - so every one of them comes
+    out of the map before the sweep. That keeps the model EXACT rather than
+    merely safe, which is what lets the region arm keep asserting equality
+    instead of being weakened to an inequality that would no longer catch the
+    27KB-short error it was written for."""
     MC_DMA_HI = 0x8000
-    live = sorted(cl)
+    MEM_PG_MIN, MEM_PG_MAX = 0xFB, 0xFE
+    live = sorted(c for c in cl
+                  if not (MEM_PG_MIN <= (c[2] >> 8) <= MEM_PG_MAX))
     def ceilmover(c):
         return c[4] != 0 and (c[3] & MC_DMA_HI)
     def newbase(c):
@@ -312,6 +334,24 @@ def main():
                   % (ravail, rmax, rwake, u16(b2, 154), seg))
             print("   the host's model of that map, both passes: %dK" % askmodel)
             if rmax != askmodel:
+                # **PRINT THE MAP THE MODEL WAS BUILT FROM.** The map above is
+                # the one AFTER the pass; `askmodel` came from `askmap`, read
+                # BEFORE it, and the two are different maps by construction -
+                # so a reader reasoning from what is printed cannot reproduce
+                # the number that failed. Every disagreement here is an
+                # arithmetic question about the PRE-pass map, and it was the
+                # one thing this row did not show.
+                print("   ...and the map it was built from (pre-pass), "
+                      "base %04x top %04x:" % (base, top))
+                for bs, pa, ow, dm, rl in sorted(askmap):
+                    print("      %04x %5d KB owner %04x%s%s"
+                          % (bs, pa // 64, ow, "  dma" if dm else "",
+                             "  MOVABLE" if rl else "  PINNED"))
+                owners = sorted({ow for _, _, ow, _, _ in askmap})
+                print("   owners in it: %s  (the equality above assumes the "
+                      "ASKER is the only package with claims - see the note "
+                      "beside askmodel)"
+                      % " ".join("%04x" % o for o in owners))
                 print("  FAIL: the what-if said %dK where the model says %dK - "
                       "%s (SPEC.md 66.4.3.2)"
                       % (rmax, askmodel,
