@@ -3120,7 +3120,7 @@ disk_mount_x:
     jae .h_folder               ; the one icon that is not harvested off the
     cmp word [si+16], 1         ; disk but built in
     jne .h_zero
-    call ico_have               ; already in the store (SPEC.md 25.9)? -
+    call ico_find               ; already in the store (SPEC.md 25.9)? -
     jc .h_read                  ; absorbed from this volume's ASSOC.DAT
                                 ; (54.7.4), or harvested on an earlier mount,
                                 ; or the same package on a disk already
@@ -3274,7 +3274,7 @@ disk_mount_x:
     cmp word [si+16], 1         ; copies in - it comes out of .text, so it
     jne .fsico_next             ; costs no I/O here either. Below it, packages
     call ico_key_of             ; packages only: a document's icon would need
-    call ico_have               ; 54.3's pass, which composes from a program
+    call ico_find               ; 54.3's pass, which composes from a program
     jc .fsico_next              ; THIS listing has no icon for
 %ifdef OS88_ASSOC
     call asc_take_x
@@ -7055,6 +7055,10 @@ ICO_R_SIZE  equ 12              ; ...and the low word of the size it reports
 ICO_R_BODY  equ 16
 ICO_KEY     equ 14              ; what ico_find compares: name and size
 %ifdef OS88_ASSOC
+%if ASC_ROWGLY - ASC_ROWICO != 80 - 16
+%error "asc_gly_pair walks an ASSOC.DAT row and a store row with ONE body of \
+code: the body-to-glyph delta has to be the same in both"
+%endif
 ICO_R_GLYPH equ 80              ; ...AND THE 8-BYTE SHIPPED GLYPH (SPEC.md
 ICO_ROW     equ 88              ; 54.3.2), which is here because SPEC.md
                                 ; 54.7.4 freed the cache's claim: the glyph a
@@ -7122,14 +7126,24 @@ ico_need:
     ret
 
 ; -----------------------------------------------------------------------------
-; ico_find - which row holds this key? (module internal)
-; in:       SI -> ICO_KEY bytes in the KERNEL segment
+; ico_find - which row holds ico_keyb's key? (module internal)
+; in:       ico_keyb holds the key (ico_key_of, ico_key_stem or ico_key_doc)
 ; out:      CF = 0 and AL = the row; CF = 1 = not stored
 ; clobbers: AL (an output) and the flags
+;
+; **THE KEY IS ALWAYS ico_keyb, so it is not an argument.** It was SI, with a
+; nine-byte `ico_have` in front of it whose whole body was `mov si, ico_keyb`,
+; and `ico_put` and `asc_absorb` each writing that same load before their own
+; `ico_add`. Three loads of one constant for a routine no caller can pass
+; anything else to - the key builders write THERE and nowhere else.
+;
+; TWO OTHER THINGS CAME OUT WITH IT. `[ico_n]` is compared in place rather
+; than staged into DL, which deletes the load AND the DX the load had to be
+; preserved in; and a full `repe cmpsb` that ends EQUAL leaves CF = 0 from its
+; own last compare, so the hit arm needs no `clc` and no jump over the miss.
 ; -----------------------------------------------------------------------------
 ico_find:
     push cx
-    push dx
     push di
     push si
     push es
@@ -7137,31 +7151,27 @@ ico_find:
     jc .no
     xor al, al
     xor di, di
-    mov dl, [ico_n]
+    mov si, ico_keyb
+    cld                         ; ...ONCE, not per row: nothing below sets DF
 .row:
-    cmp al, dl
+    cmp al, [ico_n]
     jae .no
     push si
     push di
     mov cx, ICO_KEY
-    cld
     repe cmpsb                  ; DS:SI is the key, ES:DI the row - DS is the
     pop di                      ; kernel segment (SPEC.md 1) and ES the claim
     pop si
-    je .hit
-    add di, ICO_ROW
+    je .out                     ; ...and CF = 0 already, from the compare that
+    add di, ICO_ROW             ; made them equal. `pop` writes no flag
     inc al
     jmp short .row
-.hit:
-    clc
-    jmp short .out
 .no:
     stc
 .out:
     pop es
     pop si
     pop di
-    pop dx
     pop cx
     ret
 
@@ -7170,23 +7180,21 @@ ico_find:
 ; in:       AL = the row
 ; out:      DI = its offset; clobbers DI and the flags
 ;
-; ICO_ROW is 80 = 64 + 16, so this is two shifts and an add rather than a mul.
+; **THE 8-BIT MULTIPLY, NOT A SHIFT LADDER.** It was three shifts and two adds
+; keyed on ICO_ROW's value - which meant a `%if` arm per row width, and 80 and
+; 88 needed different ones. `mul ah` takes ANY width in two bytes: 9 bytes
+; against 23, and the product cannot leave AX because the store's widest row
+; is ICO_NROW-1 = 47 of them (4,136, and 255 x 88 would still fit). The
+; 8088 prices `mul r8` at ~70 clocks against the ladder's ~50, and this is
+; called once per icon RESOLVED - 32 of them on a full listing, so 0.2 ms of
+; a repaint that spends 71 ms on one row of text (PERFORMANCE.md part 2).
+; assoc.inc's asc_row already uses this form and says so in as many words.
 ; -----------------------------------------------------------------------------
 ico_rowoff:
     push ax
-    push cx
-    xor ah, ah
+    mov ah, ICO_ROW
+    mul ah                      ; AX = AL * AH, and AH is a constant
     mov di, ax
-    mov cl, 6
-    shl di, cl                  ; row * 64
-    mov cl, 4
-    shl ax, cl                  ; row * 16
-    add di, ax                  ; = row * 80
-%if ICO_ROW == 88
-    shr ax, 1                   ; ...and row * 8 more for the glyph column
-    add di, ax                  ; = row * 88
-%endif
-    pop cx
     pop ax
     ret
 
@@ -7204,48 +7212,29 @@ ico_rowoff:
 ; -----------------------------------------------------------------------------
 ico_glyph_put:
     push ax
-    push bx
     push cx
     push si
     push di
     push es
-    call ico_need
-    jc .out
-    cmp al, [ico_n]             ; a stale row after a shed, ico_body's guard
-    jae .out
-    call ico_rowoff
-    add di, ICO_R_GLYPH
-    mov cx, 8
-    mov ax, es
-    call dsk_copy_seg_x         ; DX = source segment, AX = the claim
-.out:
+    call ico_body               ; ...WHICH IS THIS ROUTINE'S OWN ADDRESSING,
+    jc .out                     ; and it was written out a second time here:
+    add di, ICO_R_GLYPH - ICO_R_BODY    ; the claim, the stale-row guard and
+    mov cx, 8                   ; the row offset are three things `ico_body`
+    mov ax, es                  ; already does, and the glyph is a fixed
+    call dsk_copy_seg_x         ; distance past what it answers. DX = source
+.out:                           ; segment, AX = the claim
     pop es
     pop di
     pop si
     pop cx
-    pop bx
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; ico_glyph_at - where row AL's shipped glyph lives
-; in:       AL = the row
-; out:      CF = 0, ES = the claim and DI = the glyph's offset in it;
-;           CF = 1 = no store, or a stale row
-; clobbers: ES and DI (outputs) and the flags
-; -----------------------------------------------------------------------------
-ico_glyph_at:
-    call ico_body               ; the same two guards, and the same answer to
-    jc .out                     ; both: CF=1 is the generic icon
-    add di, ICO_R_GLYPH - ICO_R_BODY
-.out:
-    ret
 %endif                          ; OS88_ASSOC
 
 ; -----------------------------------------------------------------------------
-; ico_add - store a body under this key, or find the row that already has it
-; in:       SI -> ICO_KEY bytes in the KERNEL segment, DX = the body's segment,
-;           BX = its offset
+; ico_add - store a body under ico_keyb's key, or find the row that has it
+; in:       ico_keyb holds the key, DX = the body's segment, BX = its offset
 ; out:      CF = 0 and AL = the row; CF = 1 = no store, or it is full
 ; clobbers: AL (an output) and the flags
 ; -----------------------------------------------------------------------------
@@ -7267,6 +7256,7 @@ ico_add:
     push ax
     call ico_rowoff
     push di
+    mov si, ico_keyb
     mov cx, ICO_KEY
     cld
     rep movsb                   ; the KEY, DS:SI -> ES:DI
@@ -7365,23 +7355,26 @@ section .cold
 ico_key_of:
     push ax
     push cx
-    push si
     push di
     mov di, ico_keyb
     mov cx, 12                  ; the 8.3 name as 19.1 staged it, NUL-padded
-.cp:
-    mov al, [si]                ; THROUGH DS BOTH WAYS and not `rep movsb`:
-    mov [di], al                ; ico_keyb is `.bss` and so the KERNEL segment,
-    inc si                      ; while the harvest runs with ES = SS (it does
-    inc di                      ; `push ss / pop es` before the loop). A string
-    dec cx                      ; move here wrote twelve bytes into `.lowbss`
-    jnz .cp                     ; instead - measured, it corrupted the very
-                                ; reference array it was meant to feed
+    call dsk_ncopy              ; DS:SI -> DS:DI, THROUGH DS BOTH WAYS and not
+                                ; `rep movsb`: ico_keyb is `.bss` and so the
+                                ; KERNEL segment, while the harvest runs with
+                                ; ES = SS (it does `push ss / pop es` before
+                                ; the loop). A string move here wrote twelve
+                                ; bytes into `.lowbss` instead - measured, it
+                                ; corrupted the very reference array it was
+                                ; meant to feed. THAT IS SPEC.md 4's OWN
+                                ; COUNTED COPY, which preserves SI as well as
+                                ; DI - so the entry is still addressable below
+                                ; and this routine banks SI not at all, where
+                                ; the hand-rolled loop had to and got the pop
+                                ; order wrong once doing it
+    mov ax, [si+20]
+    mov [ico_keyb+ICO_R_SIZE], ax
     pop di
-    pop si                      ; ...SI is the entry again, and the pop order
-    mov ax, [si+20]             ; is di, si, cx, ax for the pushes above. It
-    mov [ico_keyb+ICO_R_SIZE], ax   ; was `pop si` FIRST, which put DI's value
-    pop cx                      ; in SI and read the size from nowhere
+    pop cx
     pop ax
     ret
 
@@ -7401,38 +7394,44 @@ ico_key_doc:
     push cx
     push si
     push di
-    mov di, ico_keyb
-    mov byte [di], 0xFF
-    mov byte [di+1], al
-    add di, 2
+    mov byte [ico_keyb], 0xFF
+    mov [ico_keyb+1], al
     mov bl, al                  ; ...AND THE GLYPH IT COMPOSED FROM, which is
-    xor bh, bh                  ; the half that was missing. The body this key
-    mov cl, 3                   ; names is assoc_compose's OUTPUT, so it is
-    shl bx, cl                  ; derived from state that MOVES - the baked
-    mov si, assoc_glyph         ; table, the seed, a hit and a harvest all
-    add si, bx                  ; write assoc_glyph - and a row keyed on the
-    mov cx, 8                   ; SLOT alone goes on answering with the
-.g:                             ; picture composed from whatever the glyph
-    mov al, [si]                ; used to be. SPEC.md 54.7.3's own complaint,
-    mov [di], al                ; one layer along: a slot assoc_app_new
-    inc si                      ; created UNRESOLVED composes the bare page,
-    inc di                      ; and without this the documents of that
-    dec cx                      ; association keep drawing it for the rest of
-    jnz .g                      ; the session even after the folder their
+    call assoc_glyph_di         ; the half that was missing (BH is zeroed
+                                ; there, so BL alone is enough). The body this
+                                ; key names is assoc_compose's OUTPUT, so it is
+                                ; derived from state that MOVES - the baked
+                                ; table, the seed, a hit and a harvest all
+                                ; write assoc_glyph - and a row keyed on the
+                                ; SLOT alone goes on answering with the
+                                ; picture composed from whatever the glyph
+                                ; used to be. SPEC.md 54.7.3's own complaint,
+                                ; one layer along: a slot assoc_app_new
+                                ; created UNRESOLVED composes the bare page,
+                                ; and without this the documents of that
+                                ; association keep drawing it for the rest of
+                                ; the session even after the folder their
                                 ; program lives in is browsed. Keyed on the
                                 ; glyph, a changed glyph is simply a different
                                 ; row and the stale one is never asked for
                                 ; again - it costs a row rather than a wrong
-                                ; picture, and the shed reclaims it
-    mov cx, ICO_KEY-2-8
-    xor al, al
-.z:
-    mov [di], al                ; THROUGH DS AND NOT `rep stosb`: the harvest
-    inc di                      ; runs with ES = SS (it does `push ss / pop
-    dec cx                      ; es` before the loop), so a string store here
-    jnz .z                      ; would write those bytes into `.lowbss`
-    pop di
-    pop si
+                                ; picture, and the shed reclaims it.
+                                ;
+                                ; WHERE a slot's glyph lives is
+                                ; `assoc_glyph_di`'s question, and it was
+                                ; asked again here, shift and all; the copy is
+                                ; SPEC.md 4's counted one, which is DS to DS
+                                ; and so right for a harvest running with
+                                ; ES = SS
+    mov si, di
+    mov di, ico_keyb+2
+    mov cx, 8
+    call dsk_ncopy
+    xor ax, ax                  ; ...and the tail, to the end of the key: a
+    mov [ico_keyb+10], ax       ; composed body reports no size, and two word
+    mov [ico_keyb+12], ax       ; stores are shorter than the loop that was
+    pop di                      ; here - which needed no string op either, for
+    pop si                      ; the ES = SS reason above
     pop cx
     pop bx
     pop ax
@@ -7476,15 +7475,18 @@ ico_key_stem:
     mov word [di], '.O'
     mov word [di+2], '88'
     add di, 4
-    mov cx, ico_keyb + ICO_R_SIZE
-    sub cx, di                  ; ...and NUL to the size word. A short stem
-    jcxz .size                  ; leaves bytes ico_key_of would have zeroed,
-.pad:                           ; and two keys for one package differing in
-    mov byte [di], 0            ; the tail is a miss that looks like a
-    inc di                      ; cache that does not work
-    dec cx
-    jnz .pad
-.size:
+    mov cx, ico_keyb + ICO_KEY
+    sub cx, di                  ; ...and NUL to the END OF THE KEY. A short
+.pad:                           ; stem leaves bytes ico_key_of would have
+    mov byte [di], 0            ; zeroed, and two keys for one package
+    inc di                      ; differing in the tail is a miss that looks
+    dec cx                      ; like a cache that does not work. Padding to
+    jnz .pad                    ; ICO_KEY rather than to ICO_R_SIZE is what
+                                ; retires the `jcxz` that guarded this loop:
+                                ; the stem is at most 8 and `.O88` is 4, so
+                                ; the count here never falls below 2, where a
+                                ; pad stopping at the size word reached
+                                ; exactly 0 on an 8-character stem
     mov [ico_keyb+ICO_R_SIZE], dx
     pop di
     pop si
@@ -7492,26 +7494,6 @@ ico_key_stem:
     pop ax
     ret
 %endif                          ; OS88_ASSOC
-
-; -----------------------------------------------------------------------------
-; ico_have - is this key's body already in the store? (module internal)
-; in:       ico_keyb holds the key (ico_key_of, ico_key_stem or ico_key_doc)
-; out:      CF = 0 and AL = the row; CF = 1 = not stored
-; clobbers: AL (an output) and the flags
-;
-; UNGATED, where the ASSOC.DAT lookup this replaces was OS88_ASSOC only, and
-; that is a saving on the kernel that has no ASSOC.DAT at all: the store
-; outlives a mount, so the second time a folder is opened its packages are
-; already in it and the harvest's sector read per package is simply not made.
-; The safety is the key's - a hit is the same name AND the same byte count,
-; which is what SPEC.md 54.7 already argued about the file.
-; -----------------------------------------------------------------------------
-ico_have:
-    push si
-    mov si, ico_keyb
-    call ico_find
-    pop si
-    ret
 
 ; -----------------------------------------------------------------------------
 ; ico_ref_set - entry AX references body BL (module internal)
@@ -7540,14 +7522,12 @@ ico_ref_set:
 ; the other order silently stores the index as the reference.
 ; -----------------------------------------------------------------------------
 ico_put:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push ax
-    mov si, ico_keyb
-    call ico_add                ; DX:BX is the body, SI the key
+    push bx                     ; TWO REGISTERS, where it banked six: `ico_add`
+    push ax                     ; clobbers AL alone and `ico_ref_set` nothing
+                                ; at all, so CX, DX, SI and DI were pushed and
+                                ; popped here against callees that already
+                                ; promise them
+    call ico_add                ; DX:BX is the body, and ico_keyb the key
     mov bl, ICO_R_NONE
     jc .set                     ; no store, or full: SPEC.md 25's generic icon
     mov bl, al
@@ -7555,10 +7535,6 @@ ico_put:
     pop ax                      ; ...the entry index, and AL is free again
     call ico_ref_set
     mov al, bl                  ; ...and the row is what the caller is told
-    pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
     ret
 
@@ -7596,17 +7572,15 @@ dsk_ico_ref_at:
     push ax
     push di
     push es
-    cmp al, ICO_R_NONE
-    je .none
-    cmp al, ICO_R_FOLDER
-    je .folder
-    call ico_body
-    jc .none
-    mov si, di
-    mov dx, es
-    clc
-    jmp short .out
-.folder:
+    cmp al, ICO_R_FOLDER        ; ONE COMPARE FOR BOTH SENTINELS: 0xFE and
+    jae .built                  ; 0xFF are the top two values, so everything
+    call ico_body               ; below them is a store row and the ROW is the
+    jc .none                    ; fall-through. It reaches `.out` with CF = 0
+    mov si, di                  ; already - `ico_body` cleared it and neither
+    mov dx, es                  ; `mov` writes a flag - which is the `clc` this
+    jmp short .out              ; arm used to carry
+.built:
+    ja .none                    ; 0xFF: SPEC.md 25's generic icon
     mov si, dsk_folder_ico
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
     clc                         ; rule 2: CS is COLD_SEG here)
@@ -7639,9 +7613,9 @@ dsk_ico_blank:
     xor ax, ax
 .bz:
     mov [di], ax
-    add di, 2
-    dec cx
-    jnz .bz
+    inc di                      ; two `inc`s and a `loop`, where this was an
+    inc di                      ; `add di, 2` and a `dec`/`jnz` pair: same
+    loop .bz                    ; work, two bytes less of it
     pop di
     pop cx
     pop ax

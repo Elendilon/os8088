@@ -167,6 +167,34 @@ assoc_stage:
     ret
 
 ; -----------------------------------------------------------------------------
+; asc_inkck - is this run of words ENTIRELY ZERO? (module internal)
+; in:  ES:SI -> the words, CX = how many (never 0 - the body ends in `loop`)
+; out: ZF = 1 = every word was zero; all registers preserved
+;
+; SPEC.md 54.2's UNRESOLVED SENTINEL and SPEC.md 54.7.3's ICONLESS one are the
+; same question asked of different lengths - four words of a glyph, sixteen of
+; an icon's data plane - and it was written out three times: in
+; assoc_glyph_take, in asc_body_glyph and again in asc_absorb, where the third
+; copy reads the same sixteen words as the second. `pop` writes no flag, so
+; the answer survives the unwind.
+; -----------------------------------------------------------------------------
+asc_inkck:
+    push ax
+    push cx
+    push si
+    xor ax, ax
+.w:
+    or ax, [es:si]
+    inc si
+    inc si
+    loop .w
+    or ax, ax
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_glyph_di - where an app slot's 8x8 glyph lives (SPEC.md 54.3)
 ; in:  BL = the app slot (BH is zeroed here, so BL alone is enough)
 ; out: DI -> its eight glyph bytes. BX and CX preserved; flags are not
@@ -459,28 +487,13 @@ assoc_glyph_take:
     push cx
     push si
     push di
-    mov cx, 4
-    xor ax, ax
-    push si
-.ink:
-    or ax, [es:si]
-    inc si
-    inc si
-    loop .ink
-    pop si
-    or ax, ax
-    stc
-    jz .out
-    mov cx, 4
-.copy:
-    mov ax, [es:si]
-    mov [di], ax
-    inc si
-    inc si
-    inc di
-    inc di
-    loop .copy
-    clc
+    mov cx, 4                   ; NEITHER LOOP IS THIS ROUTINE'S OWN: the
+    call asc_inkck              ; blank test is asc_inkck above and the copy
+    stc                         ; is SPEC.md 20.2's staging idiom, which is
+    jz .out                     ; ES:SI -> DS:DI and exactly what a glyph in a
+    mov cx, 8                   ; cache row, a store row or an image needs.
+    call assoc_stage            ; Both advance SI and this routine banks it
+    clc                         ; anyway
 .out:
     pop di
     pop si
@@ -1853,22 +1866,17 @@ asc_absorb:
     mov es, [asc_seg]
     mov si, di
     add si, ASC_ROWICO + 32     ; the body's DATA plane: an all-zero one is
-    mov cx, 16                  ; the ICONLESS sentinel (asc_row_glyph reads
-    xor ax, ax                  ; the same bytes the same way), and spending a
-.ink:                           ; row on it would buy the generic icon a miss
-    or ax, [es:si]              ; already draws
-    inc si
-    inc si
-    loop .ink
-    or ax, ax
-    jz .next
+    mov cx, 16                  ; the ICONLESS sentinel - asc_body_glyph reads
+    call asc_inkck              ; the same sixteen words the same way, which is
+    jz .next                    ; why the test is asc_inkck's and not written
+                                ; out here - and spending a row on it would buy
+                                ; the generic icon a miss that already draws it
     mov dx, [es:di+8]           ; the size and the stem beside it are the two
     mov si, di                  ; halves of the key the LISTING will ask with
     call ico_key_stem
     mov dx, [asc_seg]           ; ...and the body, out of the claim it is
     mov bx, di                  ; still sitting in
     add bx, ASC_ROWICO
-    mov si, ico_keyb
     call ico_add                ; a hit is idempotent, so a package on two
     jc .next                    ; mounted volumes takes one row
     cmp byte [asc_rowsz], ASC_ROW1
@@ -1902,7 +1910,7 @@ asc_drop:
     or dx, dx
     jz .out
     xor ax, ax
-    mov word [asc_seg], 0       ; FIRST, and asc_reloc's own header is why: a
+    mov [asc_seg], ax           ; FIRST, and asc_reloc's own header is why: a
     mov [asc_n], ax             ; segment word naming a block that is gone is
     mov [asc_ne], ax            ; not a missing answer, it is a live wrong one.
                                 ; The counts go with it - nothing reads them
@@ -2083,18 +2091,40 @@ asc_slot_of:
 ; writers - the seed and a hit - come through here, so they cannot disagree.
 ; -----------------------------------------------------------------------------
 asc_row_glyph:
+    cmp byte [asc_rowsz], ASC_ROW1
+    jne asc_gly_pair            ; a version 2 row has the pair; a version 1 one
+    jmp asc_body_glyph          ; has no glyph column at all, so the body is
+                                ; the whole of what is there. Two tail jumps
+                                ; and no frame: both callees preserve every
+                                ; register and return near
+
+; -----------------------------------------------------------------------------
+; asc_gly_pair - a slot's glyph out of a BODY with the SHIPPED eight behind it
+; in:  ES:SI -> the 64-byte icon body, BL = the slot, BH = 0
+; out: nothing (all registers preserved)
+;
+; **ONE WALKER FOR TWO STORES.** The shipped glyph, else the body reduced
+; (SPEC.md 54.3.2) - and that ladder was written twice, here for an ASSOC.DAT
+; row and again in asc_take for SPEC.md 25.9's store row, whose own comment
+; said *"asc_row_glyph one routine along does exactly this out of a CACHE
+; row"*. It is the same code because it is the same layout: ASC_ROWGLY -
+; ASC_ROWICO and ICO_R_GLYPH - ICO_R_BODY are both 64, which disk.inc asserts
+; at the point both constants exist.
+;
+; Getting it wrong is not a missing icon but a WORSE one: the reduction of a
+; CRT icon is an empty block, so an arm that reduced where a glyph was shipped
+; would DOWNGRADE a slot the seed had already resolved.
+; -----------------------------------------------------------------------------
+asc_gly_pair:
     push ax
     push cx
     push si
     push di
-    cmp byte [asc_rowsz], ASC_ROW1
-    je .body                    ; no glyph column in a version 1 row
     call assoc_glyph_di         ; DI -> the slot's glyph
     add si, ASC_ROWGLY - ASC_ROWICO
     call assoc_glyph_take
     jnc .out
     sub si, ASC_ROWGLY - ASC_ROWICO
-.body:
     call asc_body_glyph         ; ...reduced instead (SPEC.md 54.7.3)
 .out:
     pop di
@@ -2125,17 +2155,9 @@ asc_body_glyph:
     call assoc_glyph_di         ; DI -> the slot's glyph
     add si, 32                  ; the DATA plane
     mov cx, 16
-    xor ax, ax
-    push si
-.ink:
-    or ax, [es:si]              ; an all-zero body is the ICONLESS sentinel:
-    inc si                      ; leave the glyph alone rather than blanking
-    inc si                      ; one another volume resolved
-    loop .ink
-    pop si
-    or ax, ax
-    jz .out
-    call assoc_reduce
+    call asc_inkck              ; an all-zero body is the ICONLESS sentinel:
+    jz .out                     ; leave the glyph alone rather than blanking
+    call assoc_reduce           ; one another volume resolved
 .out:
     pop di
     pop si
@@ -2184,19 +2206,11 @@ asc_take_x:
     xor bh, bh
     call assoc_hint_here        ; ...it is HERE (SPEC.md 54.4.2 rung 1)
     mov al, cl
-    call ico_glyph_at           ; THE SHIPPED GLYPH FIRST (SPEC.md 54.3.2),
-    jc .body                    ; out of the store's own column - asc_row_glyph
-    mov si, di                  ; one routine along does exactly this out of a
-    call assoc_glyph_di         ; CACHE row, and a hit has no cache row since
-    call assoc_glyph_take       ; 54.7.4. Getting this wrong is not a missing
-    jnc .done                   ; icon but a WORSE one: the reduction of a CRT
-.body:                          ; icon is an empty block, so a hit that reduced
-    mov al, cl                  ; would DOWNGRADE the slot asc_seed resolved
-    call ico_body               ; ES:DI -> the 64-byte body. The STORE's copy,
-    jc .done                    ; which is the same picture the cache held and
-    mov si, di                  ; one fewer place to hold it
-    call asc_body_glyph         ; ...reduced, which is what a package shipping
-.done:                          ; no glyph has always got (54.3.2's body arm)
+    call ico_body               ; ES:DI -> the 64-byte body, with the eight
+    jc .done                    ; bytes the package SHIPS behind it. THE STORE
+    mov si, di                  ; ROW IS THE CACHE ROW'S LAYOUT, so the shipped
+    call asc_gly_pair           ; glyph and its reduce fallback are one walker
+.done:                          ; (SPEC.md 54.3.2) and not a second copy here
     pop es
     pop di
     pop si
