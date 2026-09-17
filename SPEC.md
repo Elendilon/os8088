@@ -130675,6 +130675,60 @@ removes is the visible half — the stale character left behind — and it leave
 only the case where the program overwrote the cell with something that
 happens to equal what we put there.
 
+#### 96.10.5.4 A cursor the program draws over stays gone, and that is the REFERENCE behaviour
+
+The other half of 96.10.5.3, and the one that looks like a defect. The wipe
+refuses to restore a cell the program has rewritten; the **paint** then
+returns early whenever the pointer is still in the cell it was in, so the
+cursor is not put back either. A program that redraws the screen under a hand
+that is holding still — a status line, a clock, a progress bar — takes the
+cursor with it, and it does not come back until the pointer next moves to a
+different cell.
+
+**That was investigated as a defect and is not one. It is exactly what a real
+driver does**, and the measurement is the reason this section exists rather
+than a fix.
+
+`tests/dostrap/mredraw.asm` puts a known word in the cell, shows the cursor,
+stores its own word over it, then polls `03h` five times and waits three
+BIOS ticks — everything an application would do that could give a driver its
+chance. Run on one machine under this box and under **IBM DOS 3.30 with
+CuteMouse 1.9.1** (COM1 03F8h/IRQ4, Microsoft mode), the two answer
+identically, letter for letter:
+
+| | this box | CuteMouse 1.9.1 |
+|---|---|---|
+| A the cursor is drawn | `7041` | `7041` |
+| B the program's word survives the store | `1E2A` | `1E2A` |
+| C a hide leaves that word alone | `1E2A` | `1E2A` |
+| D the pointer never moved | `0000` | `0000` |
+
+A passing is what makes the rest mean anything: only a driver can compose that
+cell, so CuteMouse is demonstrably installed and drawing.
+
+The mechanism is not a shortcut either. **A serial mouse that is not moving
+raises no interrupt**, so a driver whose repaint hangs off its own IRQ has
+nothing to repaint from, and neither driver hooks the tick for it. Every DOS
+program of the era was written and tested against exactly this, so a box that
+"improved" on it would be diverging from the thing it exists to imitate.
+
+So the early return stays, and `tests/kdmredraw.py` asserts the parity rather
+than an ideal: it is a **compatibility ratchet**, red if this box ever starts
+repainting where CuteMouse does not.
+
+The tempting fix is worth naming because it is nearly free and still wrong:
+repaint when the cell no longer holds what we composed, re-saving the
+program's own new content. It is about seventeen bytes, it cannot bank our own
+inverted cell (`0Ah` wipes with the old masks before it stores the new pair,
+so the masks cannot change under a live cursor), and it makes B read `612A`.
+It is refused on compatibility and on nothing else — it is a better cursor and
+a worse DOS.
+
+**The field report that led here is the same shape one level up**: under this
+box and under CTMOUSE alike, Microsoft Works shows no cursor over the dialog
+it opens on startup. Two independent drivers behaving identically is an
+observation about Works, not about either driver.
+
 ### 96.10.6 A function with no return value must leave `AX` ALONE
 
 `INT 33h` has **no not-supported convention**. There is no carry flag and no

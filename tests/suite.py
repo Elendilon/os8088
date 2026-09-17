@@ -3889,6 +3889,34 @@ SOAK = [
         "would pass just as happily with a box that scribbled on the desktop.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mcursor360.img")),
+    Row("kdmredraw", "soak", py("tests/kdmredraw.py"), 66.0,
+        "**WRITTEN TO PROVE A DEFECT, AND IT MEASURED THE OTHER WAY ROUND** "
+        "(SPEC.md 96.10.5.4). kdmcur asks whether the driver can draw; this "
+        "asks what happens when the APPLICATION draws over what it drew, "
+        "which every DOS program does constantly by storing into B800. A "
+        "software text cursor is an attribute flipped into a cell the driver "
+        "does not own and it gets no notification of that store, so the "
+        "cursor is LOST until the pointer next moves - a status line or a "
+        "clock redrawing under a hand holding still takes it away. That "
+        "looked like an obvious bug and the probe went red exactly as "
+        "predicted, `B 1E2A want 612A`. **CuteMouse 1.9.1 under IBM DOS 3.30, "
+        "on the same machine, answers all four letters IDENTICALLY** - and A "
+        "passing proves the driver is alive, because only a driver can "
+        "compose that cell. A serial mouse that is not moving raises no "
+        "interrupt, so there is nothing to repaint from and neither driver "
+        "hooks the tick for it. So the behaviour STAYS and this row is a "
+        "COMPATIBILITY RATCHET: red if this box ever repaints where CuteMouse "
+        "does not. Four checks: the cursor is drawn (A, the control), the "
+        "program's own word survives a store over it (B), a hide leaves that "
+        "word alone rather than restoring the cell the driver saved - which "
+        "would be a character the program never wrote, and is permanent (C) - "
+        "and the pointer never moved, so B and C are about the cell they "
+        "claim (D). VERIFIED TO FAIL by building the seventeen-byte guarded "
+        "re-save that would have been the fix. Both arms, because the two "
+        "hosts reach dos_m33_paint differently and a windowed arm asserting "
+        "the wrong thing is how this cursor shipped broken once already.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/mredraw360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

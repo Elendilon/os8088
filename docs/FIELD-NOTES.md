@@ -2477,3 +2477,66 @@ The vector's ADDRESS was the other suspect and is also not it: ours is at
 575.0 KB where a TSR sits at 52.5 KB, below the program — a genuine
 difference, and Works never looks at it beyond the `or ax,bx` test for
 `0000:0000`.
+
+## 55. Microsoft Works: the cursor is there, but not over the startup dialog, and not after a redraw (NOT OURS — CuteMouse answers identically: SPEC.md §96.10.5.4)
+
+The fifth Works report and the one with no fix in it, which is the finding.
+
+*"I have a cursor in works! Same issue ctmouse has — which means its probably
+a works itself issue — the cursor does not invert or display at all over open
+'dialogs' like the one that opens when you first open the program. Also, I
+cannot replicate the stationary cursor issue, so likely works does not redraw
+in this condition? You might have to make a custom program to test that."*
+
+Two observations, and **the reporter had already done the hard half of both**
+by running CTMOUSE beside our box on the same machine. That is the control
+this whole section of the tree is built on (docs/DOS-DEBUGGING.md), and it is
+worth saying plainly: *two independent drivers behaving identically is an
+observation about the application, not about either driver.*
+
+### The dialog
+
+Works sets 77FF/7700 and then 80FF/F000 twice more (§96.10.5, measured off
+`WORKS.EXE`). The second pair is `(cell AND 80FF) XOR F000`: it keeps the
+character and the blink bit, clears every colour bit and forces background
+`F`. Over ordinary grey-on-black text that is a bright block and obvious; over
+a dialog already drawn black-on-white (`70`) it produces `F0` — the same
+black on white, one intensity bit brighter. On a CGA that is close to
+invisible, and it is Works's own choice of mask, applied faithfully. CTMOUSE
+draws the same nothing for the same reason.
+
+### The redraw, which was investigated as OURS and is not
+
+The second half looked like a real defect of ours and was written up as one: a
+software text cursor is an attribute flipped into a cell the driver does not
+own, and it gets **no notification** when the application stores over that
+cell. `dos_m33_paint` returns early whenever the pointer has not changed
+cell, so a program that redraws under a hand holding still takes the cursor
+with it and does not get it back until the pointer moves.
+
+`tests/dostrap/mredraw.asm` was written to prove exactly that, and it did:
+
+```
+A drawn     7041 want 7041 ok
+B redrawn   1E2A want 612A BAD          <- the predicted defect
+C restored  1E2A want 1E2A ok
+D unmoved   0000 want 0000 ok
+```
+
+**Then the same `.COM` was run under IBM DOS 3.30 with CuteMouse 1.9.1 on the
+same machine, and it answered all four identically.** A serial mouse that is
+not moving raises no interrupt, so a driver whose repaint hangs off its own
+IRQ has nothing to repaint from, and neither driver hooks the tick for it.
+
+So there is no fix and the early return stays. `tests/kdmredraw.py` asserts
+the **parity** instead — a compatibility ratchet, red if this box ever starts
+repainting where CuteMouse does not. It was verified to fail by building the
+seventeen-byte guarded re-save that would have been the fix, which takes B to
+`612A` and leaves C green: a correct cursor, and a worse DOS.
+
+**The lesson is the order of the two runs.** Our own answer was wrong-looking,
+reproducible and fully explained by our own code, and every one of those is
+true of the reference too. Four earlier Works defects were found by putting
+the same program in front of a real DOS and diffing; this is the first time
+that method has said *stop, there is nothing here* — which is worth as much,
+and cost about fifteen minutes against the day a "fix" would have taken.

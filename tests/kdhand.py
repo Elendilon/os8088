@@ -122,6 +122,62 @@ def alert_button(m, base, dm, i, n=2):
     return left + A_BW // 2, wy + TITLE_H + A_BTNY + A_BH // 2
 
 
+def launch_whole(ui, program, drive="B:"):
+    """Give a DOS program the WHOLE machine, from a fresh desktop.
+
+    The Memory page's third arm (SPEC.md 96.36.1), driven the way
+    `tests/kdmouse.py` does it and for its reasons: open the BOX and not the
+    program (a program launched by ASSOCIATION is already running in the
+    window, and the Memory page cannot be re-armed underneath one), change
+    drive FIRST, then name the program with no drive on it (SPEC.md 96.48).
+
+    **THIS EXISTS BECAUSE THE SEQUENCE IS WRITTEN OUT THREE TIMES** - in
+    kdmouse, kdmcur and kdmix - and a fourth copy is how a shared sequence
+    starts drifting. Those three are deliberately NOT converted here: each is
+    a green row and a conversion is a change that has to be re-run, not a
+    tidy-up to fold into somebody else's. Convert them when you are next in
+    one, rather than adding a fifth copy.
+
+    Raises naming what it saw, so a miss is reported where it happened.
+    """
+    import dosmap
+    import os88mouse
+
+    m = ui.m
+    if not ui.path("A:/APPS/DOS.O88"):
+        raise RuntimeError("could not open DOS.O88 off the system disk")
+    os88marty.settle(m)
+    m.type_text(drive + "\n")
+    os88marty.settle(m)
+    dm = dosmap.package()
+    pseg = dosmap.instance(m)
+    base = pseg << 4
+    mo = os88mouse.Mouse(marty=m)
+
+    mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
+    os88marty.settle(m)
+    dis = rec(m, pseg, dm, RD_DIS)
+    if dis & (1 << WHOLE):
+        raise RuntimeError("the Shut down the OS arm is GREYED - this build "
+                           "does not carry kern_dos as a part (96.36.1)")
+    x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
+    pitch = rec(m, pseg, dm, RD_PITCH)
+    mo.click((x1 + x2) // 2, y1 + WHOLE * pitch + pitch // 2)
+    os88marty.settle(m)
+    if rec(m, pseg, dm, RD_SEL) != WHOLE:
+        raise RuntimeError("clicking the Shut down the OS arm did not pick it")
+    mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
+    os88marty.settle(m)
+    mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"))
+    os88marty.settle(m)
+    m.type_text(program)
+    os88marty.settle(m)
+    mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
+    os88marty.settle(m)
+    if alert_up(m, base, dm):
+        mo.click(*alert_button(m, base, dm, 1))                # Proceed
+
+
 def wait_desktop(m, ui, secs=300):
     """Wait for the RESTARTED machine to reach a graphics desktop.
 
