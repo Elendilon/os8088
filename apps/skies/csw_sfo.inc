@@ -234,6 +234,44 @@ CS_HILL cs_m_sfo_pres, 420, 240, 105, 190, 110    ; the Presidio bluff, west of
 CS_HILL cs_m_sfo_rock, 130, 115,  42,  75,  65    ; Alcatraz, in the gap
                                                   ; between the two bay pieces
 
+; --- the ground the deck's ends land on (SPEC.md 88.6.4.1) -------------------
+; Reported off the machine: "the golden gate bridge is beautiful, but its
+; roads are floating in mid air." They were. The deck reaches 700 m either
+; side of mid-strait and the banks are at 345, so 355 m of roadway at each end
+; stood 80 m over flat ground with nothing under it at all.
+;
+; ONE MODEL, TWO OBJECTS, MIRRORED - a CS_HILL is symmetric in z about its own
+; origin, so the same frustum serves Marin and the Presidio and the world pays
+; for one model. Its TOP IS AT 80, which is the deck's CSO_Y exactly: CS_BOX
+; emits no bottom face, so the slab's underside and this top are never a
+; coincident pair, and what the eye gets is a roadway sitting ON an embankment
+; with its 6 m side still showing.
+;
+; THE NUMBERS ARE SET BY THE THREE THINGS ALREADY THERE, in this order.
+; The base's near edge is 420 because the tower stands at 400 and is 12 deep,
+; so 412 is its back face - any closer and a 227 m landmark grows out of a
+; hillside instead of off the shore, which is the one thing the header says
+; this world arranges on purpose. The top's far edge is 720 because the deck
+; ends at 700, so the land runs 20 m past the road rather than the road
+; overhanging the land. And the base's far edge is 780 so the outboard side
+; slopes back down to sea level instead of ending in a wall.
+;
+; What is left unsupported is 345 to 420 - seventy-five metres, hard against
+; the tower that is holding it up, which is what the real bridge looks like.
+; The slope from 420 to 480 is 80 m in 60, steeper than 45 degrees: the Marin
+; headlands are cliffs, and a shallower ramp would have to start inside the
+; tower to reach the same height.
+;
+; It is a HILL and not a pier because the primitives cannot hold a ramp - a
+; CSM_STACK level is (wx, h, wz) and its four corners are (+-wx, h, +-wz), so
+; every level is an axis-aligned rectangle at one height and a road sloping
+; down to the ground is not expressible. Bringing the land up to the deck is
+; the same picture from the other side, and it is the shape this world already
+; draws three of.
+CS_HILL cs_m_sfo_appr, 300, 180,  80, 220, 120    ; base 600x360, top 440x240
+                                                  ; at 80 m - the deck's own
+                                                  ; underside
+
 ; --- what stands on the rock and in the city --------------------------------
 CS_BOX cs_m_sfo_pen,   55,  16,  22     ; the cellhouse: long, low and wider
                                         ; than it is deep, which is the shape
@@ -246,13 +284,20 @@ CS_BOX cs_m_sfo_dtwr,  22, 270,  22     ; and the tall flat-topped tower beside
                                         ; it, for something to judge it against
 
 ; --- the world ---------------------------------------------------------------
-; TWENTY-EIGHT objects and the last eight are CSO_DENSE, so twenty of them are
-; the San Francisco every rung below High draws. Twenty objects, 172 vertices. About eleven of them are in the frame on the
-; take-off run: the four of the bridge, the Pacific, the strait, the three
+; THIRTY objects and the last eight are CSO_DENSE, so twenty-two of them are
+; the San Francisco every rung below High draws. Twenty-two objects, 188
+; vertices - the approach headlands are the two newest and cost eight each
+; (88.6.4.1). About thirteen are in the frame on the
+; take-off run: the four of the bridge, the Pacific, the strait, the five
 ; hills and one or two of the bay pieces, with the city 49 degrees off the
 ; nose and outside the view. Most of those are past their CSO_LOD at 5 km, so
 ; what the first frame actually transforms is two towers, two far models and
 ; three centrelines.
+;
+; PRICED BY tests/unit/t_csworlds.py AND NOT BY EYE: the approaches took the
+; peak frame 425 -> 471 against Paris' 607, 0.70x -> 0.78x of the 1.15x this
+; world is held to, and CS_NVIS 26 -> 28 of the 32 an object may be the
+; thirty-third of.
 cs_ot_sfo:
     CS_OBJ cs_m_sfo_twr,  0,                  0,   400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
     CS_OBJ cs_m_sfo_twr,  0,                  0,  -400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
@@ -265,6 +310,8 @@ cs_ot_sfo:
     CS_OBJ cs_m_sfo_marw, 0,              -1150,  1200,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_mare, 0,                900,  1150,   0, 10000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pres, 0,               -500,  -950,   0,  9000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_appr, 0,                  0,   600,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_appr, 0,                  0,  -600,   0, 12000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_rock, 0,               2950,   430,   0,  7000,    0, cs_n_sfo_alc,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pen,  0,               2950,   430,  42,  6000,    0, cs_n_sfo_alc,  CSO_COLLIDE
     CS_OBJ cs_m_sfo_tram, 0,               3770, -1010,   0, 12000,    0, cs_n_sfo_tram, CSO_COLLIDE | CSO_POI

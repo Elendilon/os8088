@@ -113802,6 +113802,58 @@ one frame and the thirty-third is DROPPED, so a skyline denser than that loses
 buildings rather than dropping frames, and the fault would read as a missing
 model. Paris itself reaches twenty-six.
 
+##### 88.6.4.1 San Francisco: the bridge's roads had nothing under them
+
+Reported off the machine: *"the golden gate bridge is beautiful, but its roads
+are floating in mid air. Can we connect them to something?"*
+
+They were, and the arithmetic says how much. The deck reaches **700 m either
+side** of mid-strait so that both ends land on dry ground; the strait's banks
+are drawn at **345** so that both towers stand on land (the header's own
+departure from the real bridge, §88.6.4). Nobody put anything between those
+two numbers. So **355 m of roadway at each end stood 80 m over flat ground**,
+which is a fifth of the whole bridge and the part nearest the eye on a
+RUNWAY 31 departure.
+
+**The fix is a headland and not a pier, because the primitives cannot hold a
+ramp.** A `CSM_STACK` level is `(wx, h, wz)` and its four corners are
+`(±wx, h, ±wz)` — every level is an axis-aligned rectangle at one height, so a
+road sloping down to the ground is not expressible at all. Bringing the LAND
+UP to the deck is the same picture from the other side, and it is the shape
+this world already draws three of: `CS_HILL`, a two-level frustum.
+
+**One model, two objects.** A `CS_HILL` is symmetric in z about its own origin,
+so the same frustum serves Marin and the Presidio and the world pays for one
+model. `cs_m_sfo_appr` is base 600×360, top 440×240 at **h = 80** — the deck's
+own `CSO_Y` exactly. `CS_BOX` emits no bottom face (`cs_f_box` is four sides
+and a top), so the slab's underside and the hill's top are never a coincident
+pair with nothing to sort them; what the eye gets is a roadway sitting ON an
+embankment with its 6 m side still showing.
+
+**Three numbers already in the world set all four edges**, and in this order:
+
+| edge | value | what fixes it |
+|---|---:|---|
+| base, inboard | 420 | the tower is at 400 and 12 deep, so 412 is its back face |
+| top, inboard | 480 | 80 m of rise in 60 of run — the Marin headlands are cliffs |
+| top, outboard | 720 | the deck ends at 700, so land runs past road and not the other way |
+| base, outboard | 780 | the far side slopes back to sea level instead of ending in a wall |
+
+What is left unsupported is **345 to 420 — seventy-five metres, hard against
+the tower that is holding it up**, which is what the real bridge looks like. A
+shallower ramp cannot do better: to reach 80 m at a gentler grade it would have
+to start inside the tower, and a 227 m landmark growing out of a hillside is
+the one thing §88.6.4's header arranges the shore to avoid.
+
+**It is priced by the gate rather than argued about.** `tests/unit/t_csworlds.py`
+weighs an object as its expanded vertices plus three a face plus one an edge
+and holds each world's peak frame to 1.15× Paris; a frustum is 8 corners and
+5 faces, so the pair is 46. San Francisco goes **425 → 471 peak, 0.70× → 0.78×**
+of Paris' 607, and `CS_NVIS` 26 → 28 of the 32 an object may be the
+thirty-third of. Neither number is near its ceiling, which is the answer to
+*"we're trying to be performant in this scene"* — and the reason it can be
+answered at all is that the budget is a fast-tier row and not a judgement.
+
 #### 88.6.5 A river reduced to a LINE is blue
 
 Asked for off the machine: *"use blue lines (for coloured displays) for 'the
