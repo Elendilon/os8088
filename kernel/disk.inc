@@ -1243,30 +1243,17 @@ dsk_xfer:
     jne .nocache
     cmp byte [dsk_vkind], DVK_DRV
     je .nocache
-    call dsk_rah_take           ; CF=0 with AX = sectors copied out of it
-    jnc .served
-    call dsk_rah_len            ; a miss. Would a fill create any SURPLUS?
-    cmp si, ax
-    jae .nocache                ; no: the caller wants the whole chunk, so a
-                                ; fill would read exactly what the direct path
-                                ; reads, copy it out again, and evict a slot
-                                ; for sectors nobody will ask for twice. This
-                                ; is what keeps a streaming file read from
-                                ; flushing the directory chunks out from under
-                                ; a copy - and it is why the payload pays no
-                                ; copy at all (SPEC.md 18.95.1)
-    call dsk_rah_fill           ; yes: read to the end of DI's track
-    jc .nocache                 ; a failed fill is a fact about the
-                                ; SPECULATIVE tail, not about the sector
-                                ; asked for: fall through and read exactly
-                                ; what the caller wanted, with the retry
-                                ; ladder it always had (18.91: one bad
-                                ; sector costs its own 512 bytes, not the
-                                ; good ones beside it)
-    call dsk_rah_take           ; ...which covers DI by construction
-    jc .nocache
-.served:                        ; the same advance and THE SAME NOTCHES .count
-    jmp .count                  ; makes, which is the whole of SPEC.md
+    call dsk_rah_serve          ; CF=0 with AX = sectors copied out of it, the
+    jc .nocache                 ; slot filled first if a fill would have paid
+                                ; (SPEC.md 18.95.1). THREE CALLS AND A TEST
+                                ; STOOD HERE - take, len, the surplus compare,
+                                ; fill, take AGAIN - and the second take
+                                ; re-scanned the whole table for the slot the
+                                ; fill had just written. One routine holds the
+                                ; slot across the fill instead, so a miss that
+                                ; fills costs ONE scan rather than two
+    jmp .count                  ; the same advance and THE SAME NOTCHES .count
+                                ; makes, which is the whole of SPEC.md
                                 ; 12.8.2: a sector the cache served is a
                                 ; sector the operation is DONE with, and a bar
                                 ; that counts only what reached the drive
@@ -5125,7 +5112,7 @@ RAH_SIG equ 4                    ; nothing), and §18.8.1's key - the mount
 RAH_VOL equ 6                    ; signature and the volume index
 RAH_REC equ 9
 %if RAH_REC != DSK_RAH_SECS
-%error "dsk_rah_have derives a slot's byte offset with ONE shift, which needs \
+%error "dsk_rah_serve derives a slot's byte offset with ONE shift, which needs \
 the record stride and the chunk length to be the same number"
 %endif
 %if DSK_RAH_SECS * 512 != 4608
@@ -5142,9 +5129,9 @@ above the ceiling it can never be satisfied so the cache is dead code"
 %endif
 %if DSK_RAH_RUNS * DSK_RAH_SECS > 128
 %error "the WHOLE cache is addressed by one 16-bit offset from dsk_rah_seg \
-(dsk_rah_have shifts slot*SECS+delta left by 9), so RUNS*SECS*512 must fit a \
+(dsk_rah_serve shifts slot*SECS+delta left by 9), so RUNS*SECS*512 must fit a \
 segment: RUNS*SECS <= 128. At SECS=9 that is 14 runs, and 15 would wrap the \
-offset silently - dsk_rah_take would serve a sector from the front of the \
+offset silently - dsk_rah_serve would copy a sector from the front of the \
 cache and nothing would report it. More than 63KB needs a segment per slot. \
 THE SHIPPED WIDTH IS BELOW THIS CEILING AND IS A DECISION (§18.95.6), so this \
 assert no longer picks it: putting DSK_RAH_RUNS back to 14 would assemble, and \
@@ -5186,72 +5173,134 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 
 
 ; -----------------------------------------------------------------------------
-; dsk_rah_have - is sector AX cached, and is the cache this volume's?
-; in:  AX = the LBA wanted
-; out: CF=0 with SI = its byte offset inside [dsk_rah_seg] and [dsk_rah_rem] =
-;      how many sectors of its chunk follow it, itself included;
-;      CF=1 = ask the disk
-; clobbers: SI (the output), flags
+; dsk_rah_serve - serve dsk_xfer's run out of the cache, filling if it pays
+; in:  DI = the LBA wanted, SI = sectors still wanted, ES:BX = destination
+; out: CF=0 with AX = sectors copied (>= 1); CF=1 = read it off the platter
+; clobbers: AX (the output), flags
+;
+; ONE SCAN. This was `dsk_rah_have` + `dsk_rah_take` + four instructions at the
+; call site, and the shape cost two table walks on every miss that filled: the
+; fill picked a slot, wrote it, and threw the address away, and `dsk_rah_take`
+; was then called a second time to find it again "by construction". The slot is
+; held in SI across the fill instead, so the post-fill copy is entered with the
+; record already in hand and the delta known to be 0.
+;
+; The scan itself is §18.8.1's key - the volume index and the mount signature -
+; and then a containment test against the chunk's own extent. Only the LIVE
+; width is walked: the slots above it hold RAH_N = 0 for ever (18.95.5), so
+; scanning them would be correct and wasted.
+;
+; Registers, because there are six values and six registers: SI walks the
+; table, CX counts the slots, DX is the caller's run length, DI is the LBA and
+; then the copy's length, BX is the caller's destination all the way through,
+; and AX is the scratch every compare needs.
 ; -----------------------------------------------------------------------------
-dsk_rah_have:
+dsk_rah_serve:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov dx, si                  ; DX = sectors still wanted
+    mov si, dsk_rah_tab
+    mov cx, [dsk_rah_runs]      ; the LIVE width. Reached only with a claim
+.slot:                          ; live, so the count is never 0 here
+    cmp word [si+RAH_N], 0
+    je .next                    ; the slot says nothing
+    mov al, [disk_drive]
+    cmp al, [si+RAH_VOL]
+    jne .next
+    mov ax, [dsk_sigcur]
+    cmp ax, [si+RAH_SIG]
+    jne .next
+    mov ax, di
+    sub ax, [si+RAH_LBA]        ; AX = the sector's index inside the chunk
+    jc .next                    ; below this chunk (the subtract wrapped)
+    cmp ax, [si+RAH_N]
+    jb .copy                    ; ...and inside it: a HIT
+.next:
+    add si, RAH_REC
+    loop .slot
+
+    ; --- a miss: would a fill create any SURPLUS, and does it read? ---------
+    call dsk_rah_fill           ; DX in, and it answers CF=1 to BOTH questions
+    jc .no                      ; - no surplus to cache, or the read failed.
+                                ; Either way the caller reads exactly the
+                                ; sectors it asked for, with the retry ladder
+                                ; it always had (18.91: one bad sector costs
+                                ; its own 512 bytes, not the good ones beside
+                                ; it)
+    xor ax, ax                  ; a fill begins AT the LBA that missed, so the
+                                ; delta into the fresh chunk is 0
+
+    ; --- copy: AX = the delta, SI = the slot's record, BX = the destination -
+.copy:
+    mov di, [si+RAH_N]
+    sub di, ax                  ; DI = sectors of this chunk from here on
+    cmp di, dx
+    jbe .n
+    mov di, dx                  ; ...and never more than were asked for
+.n:
+    push di                     ; the answer, in sectors
+    sub si, dsk_rah_tab         ; slot * RAH_REC, and RAH_REC == DSK_RAH_SECS
+    add si, ax                  ; (asserted above), so one shift is
+    mov cl, 9                   ; slot*9*512 + delta*512
+    shl si, cl                  ; SI = the source offset inside the claim
+    shl di, cl                  ; DI = bytes, a chunk being 4,608 at most
+    mov cx, di
+    mov di, bx                  ; ES:BX is the destination
+    mov dx, [dsk_rah_seg]
+    mov ax, es
+    call dsk_copy_seg_x         ; ~1.6 ms a sector against the ~400 ms call it
+                                ; is standing in for
+    pop ax                      ; sectors copied
+    clc
+    jmp short .fin
+.no:
+    stc
+.fin:                           ; a pop leaves CF alone, so both answers share
+    pop di                      ; one epilogue
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_rah_fill - cache the rest of LBA DI's track, if a fill would pay
+; in:  DI = the LBA that missed, DX = sectors the caller still wants
+; out: CF=0 the chunk is cached and SI = its record; CF=1 there is nothing to
+;      serve - no surplus, or the read failed
+; clobbers: SI (the output), flags
+;
+; The length is the track's remainder from DI, capped by the chunk and by the
+; volume's extent. Not the track's START: a chunk that begins before the sector
+; asked for buys nothing a forward-only walk will use, and §19.2.3.1 measured
+; that exact mistake at 3 calls WORSE than no cache at all.
+;
+; **THE POLLUTION GATE IS THE SAME QUESTION AND IS NOW THE SAME ROUTINE.** It
+; used to be `dsk_rah_len` called from the call site and then called again from
+; here - one divide asked twice, and a routine whose own header said its "OTHER
+; caller is the pollution gate". A request already covering the whole chunk
+; creates no surplus, so a fill would read exactly what the direct path reads,
+; copy it out again, and evict a slot for sectors nobody will ask for twice.
+; That is what keeps a streaming file read from flushing the directory chunks
+; out from under a copy, and it is why the payload pays no copy at all
+; (SPEC.md 18.95.1).
+;
+; **The read re-enters `dsk_xfer`**, with `[dsk_rah_busy]` stopping it caching
+; its own fill - so no CHS conversion, no retry ladder and no EOT handling of
+; its own.
+; -----------------------------------------------------------------------------
+dsk_rah_fill:
     push ax
     push bx
     push cx
     push dx
-    mov bx, dsk_rah_tab
-    mov dx, [dsk_rah_runs]      ; the LIVE width, and this one is for the
-.slot:                          ; CYCLES: the slots above it hold RAH_N = 0 for
-    cmp word [bx+RAH_N], 0      ; ever (18.95.5), so scanning them would be
-    je .next                    ; correct and wasted. Reached only with a claim
-    mov cl, [disk_drive]        ; live, so the count is never 0 here
-    cmp cl, [bx+RAH_VOL]
-    jne .next
-    mov cx, [dsk_sigcur]
-    cmp cx, [bx+RAH_SIG]
-    jne .next
-    mov cx, ax
-    sub cx, [bx+RAH_LBA]
-    jc .next                    ; below this chunk (the subtract wrapped)
-    cmp cx, [bx+RAH_N]
-    jae .next                   ; ...or above it
-    mov si, [bx+RAH_N]
-    sub si, cx
-    mov [dsk_rah_rem], si       ; sectors of this chunk from here on
-    mov si, bx                  ; slot number * RAH_REC...
-    sub si, dsk_rah_tab
-    add si, cx                  ; ...plus the sector's index in the chunk, and
-    mov cl, 9                   ; RAH_REC == DSK_RAH_SECS (asserted above), so
-    shl si, cl                  ; one shift is slot*9*512 + delta*512
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-.next:
-    add bx, RAH_REC
-    dec dx
-    jnz .slot
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; dsk_rah_len - how many sectors would a fill at LBA DI move?
-; out: AX = 1..DSK_RAH_SECS
-; clobbers: AX (the output), flags
-;
-; The track's remainder from DI, capped by the chunk and by the volume's
-; extent. Its OTHER caller is the pollution gate: a request already covering
-; this many sectors creates no surplus, so there is nothing to cache and
-; nothing to evict for.
-; -----------------------------------------------------------------------------
-dsk_rah_len:
-    push cx
-    push dx
+    push di
+    push es
+    mov bx, dx                  ; BX = what the caller still wants: the divide
+                                ; below wants DX and the gate wants this
     mov ax, di
     xor dx, dx
     div word [disk_spt]
@@ -5262,74 +5311,50 @@ dsk_rah_len:
     mov ax, DSK_RAH_SECS
 .vol:
     mov cx, [dsk_totsec]
-    sub cx, di                  ; ...and how many the volume has left
-    jbe .one
-    cmp ax, cx
-    jbe .out
-    mov ax, cx
-    jmp short .out
-.one:
-    mov ax, 1                   ; past the end: ask for one and let dsk_xfer
-.out:                           ; refuse it exactly as it does today
-    pop dx
-    pop cx
-    ret
+    sub cx, di                  ; ...and how many the volume has left. At or
+    ja .cap                     ; past the end the subtract is 0 or borrows,
+    mov cx, 1                   ; and BOTH mean: ask for one and let dsk_xfer
+.cap:                           ; refuse it exactly as it does today, which is
+    cmp ax, cx                  ; the same MINIMUM the extent takes anyway - so
+    jbe .gate                   ; one cap serves both where two branches did
+    xchg ax, cx
+.gate:
+    cmp bx, ax
+    jae .nofill                 ; no surplus: there is nothing to cache
 
-; -----------------------------------------------------------------------------
-; dsk_rah_fill - read the rest of LBA DI's track into a slot
-; in:  DI = the LBA that missed; dsk_xfer's own registers are live
-; out: CF=0 the chunk is cached; CF=1 the read failed
-; clobbers: flags (every register preserved - it runs inside dsk_xfer's loop)
-;
-; The length is the track's remainder from DI, capped by the chunk and by the
-; volume's extent. Not the track's START: a chunk that begins before the sector
-; asked for buys nothing a forward-only walk will use, and §19.2.3.1 measured
-; that exact mistake at 3 calls WORSE than no cache at all.
-; -----------------------------------------------------------------------------
-dsk_rah_fill:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    mov si, [dsk_rah_next]      ; the slot to spend: round robin, because a
-    mov [dsk_rah_slot], si      ; chunk has no better claim than its neighbours
-    add si, RAH_REC
-    push ax                     ; THE ONE BOUND THAT MUST BE DYNAMIC (SPEC.md
-    push bx                     ; 18.95.5): this decides which slots are ever
-    mov ax, [dsk_rah_runs]      ; WRITTEN, so a stale ceiling here would fill a
-    mov bx, ax                  ; slot no memory backs. The scans elsewhere are
-    shl ax, 1                   ; safe whatever they read, because dsk_rah_flush
-    shl ax, 1                   ; clears all DSK_RAH_RUNS records and the ones
-    shl ax, 1                   ; above the live width then stay RAH_N = 0
-    add ax, bx                  ; AX = runs * RAH_REC, RAH_REC being 9
-    cmp si, ax
-    pop bx
-    pop ax
-    jb .picked
-    xor si, si
-.picked:
-    mov [dsk_rah_next], si
-    mov si, [dsk_rah_slot]
-    add si, dsk_rah_tab         ; SI = the slot's record
-    mov word [si+RAH_N], 0      ; ...and it holds nothing until the read works
-
-    call dsk_rah_len            ; AX = the chunk this LBA belongs to
+    ; --- spend a slot: round robin, a chunk having no better claim than its
+    ;     neighbours. [dsk_rah_next] is a SLOT INDEX, so the wrap is a compare
+    ;     against [dsk_rah_runs] itself and no width is mirrored anywhere -
+    ;     which matters, because kd_shed (96.44.11) narrows that word from
+    ;     outside this file and a stale bound fills a slot no memory backs
+    push ax                     ; the chunk length, over the multiply below -
+                                ; `mul` writes DX:AX and there is no third
+                                ; register free to keep it in
+    mov ax, [dsk_rah_next]
+    mov bx, ax
+    inc bx
+    cmp bx, [dsk_rah_runs]      ; THE ONE BOUND THAT MUST BE DYNAMIC (SPEC.md
+    jb .picked                  ; 18.95.5): this decides which slots are ever
+    xor bx, bx                  ; WRITTEN. The scans elsewhere are safe at any
+.picked:                        ; width, because dsk_rah_flush clears all
+    mov [dsk_rah_next], bx      ; DSK_RAH_RUNS records and the ones above the
+    mov cx, 9                   ; live width then stay RAH_N = 0
+    mul cx                      ; AX = slot * RAH_REC, RAH_REC being 9...
+    mov bx, ax
+    add ax, dsk_rah_tab
+    xchg ax, si                 ; SI = the slot's record (the output)
+    shl bx, cl                  ; ...and BX = its own run of the claim, RAH_REC
+                                ; == DSK_RAH_SECS making slot*512 it, with CL
+                                ; still the 9 the multiply was given
+    pop dx                      ; DX = the chunk length again
+    mov word [si+RAH_N], 0      ; it holds nothing until the read works
     mov [si+RAH_LBA], di
-    mov cx, ax                  ; CX = the chunk length
-    mov bx, [dsk_rah_slot]      ; the slot's own run of the claim: RAH_REC ==
-    mov dx, cx                  ; DSK_RAH_SECS, so slot*512 is it
-    push cx
-    mov cl, 9
-    shl bx, cl
-    pop cx
+    mov cx, dx
     mov es, [dsk_rah_seg]
     mov ax, di
     inc byte [dsk_rah_busy]     ; ...so this read is not itself cached
     call disk_read_x
-    dec byte [dsk_rah_busy]
+    dec byte [dsk_rah_busy]     ; (dec leaves CF alone)
     jc .out
     mov [si+RAH_N], dx          ; DX still holds the length: only now is the
     mov al, [disk_drive]        ; slot allowed to claim it has anything
@@ -5340,66 +5365,14 @@ dsk_rah_fill:
 .out:
     pop es
     pop di
-    pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
-
-; -----------------------------------------------------------------------------
-; dsk_rah_take - serve as much of dsk_xfer's run as the cache holds
-; in:  DI = the LBA wanted, SI = sectors still wanted, ES:BX = destination
-; out: CF=0 with AX = sectors copied (>= 1); CF=1 = nothing cached
-; clobbers: AX (the output), flags
-; -----------------------------------------------------------------------------
-dsk_rah_take:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov ax, di
-    call dsk_rah_have           ; SI = source offset, [dsk_rah_rem] = how many
-    jc .no
-    mov ax, [dsk_rah_rem]
-    pop di                      ; ...the caller's DI and SI back, to bound it
-    pop cx                      ; (CX = sectors still wanted)
-    push cx
-    push di
-    cmp ax, cx
-    jbe .have
-    mov ax, cx
-.have:
-    mov [dsk_rah_got], ax
-    mov cx, ax
-    mov dx, cx                  ; bytes = sectors * 512, and a chunk is 9, so
-    push cx                     ; 4,608 fits a word with room
-    mov cl, 9
-    shl dx, cl
-    pop cx
-    mov cx, dx
-    mov di, bx                  ; ES:BX is the destination
-    mov dx, [dsk_rah_seg]
-    mov ax, es
-    call dsk_copy_seg_x           ; ~1.6 ms a sector against the ~400 ms call it
-                                ; is standing in for
-    mov ax, [dsk_rah_got]
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
-.no:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+.nofill:
     stc
-    ret
+    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; dsk_rah_flush - forget every cached chunk
@@ -5407,7 +5380,7 @@ dsk_rah_take:
 ;
 ; ALL DSK_RAH_RUNS RECORDS, not [dsk_rah_runs] of them, and that is what makes
 ; every other loop in this file safe at any width (SPEC.md 18.95.5): the table
-; is 126 bytes of .bss whatever the claim is, dsk_rah_fill never writes a slot
+; is 63 bytes of .bss whatever the claim is, dsk_rah_fill never writes a slot
 ; at or above the live width, so the ones above it stay RAH_N = 0 for ever and
 ; a scan that over-runs finds nothing rather than garbage. It also means the
 ; count can shrink between claims without leaving a record behind that names a
@@ -5440,44 +5413,47 @@ dsk_rah_flush:
 ; first: a write to another volume cannot change this one's sectors, and
 ; without it the destination's data, whose LBAs are small numbers like
 ; anybody's, would evict the source's anyway.
+;
+; The overlap is two unsigned subtracts rather than two sums: the write starts
+; inside the chunk when `first - chunk_start < chunk_n`, and the chunk starts
+; inside the write when `chunk_start - first < count`. Either is an overlap,
+; both wrap harmlessly the wrong way round, and neither touches AX or CX - so
+; the caller's two inputs stay put and the scratch is one register instead of
+; the save-and-restore dance a sum needed.
 ; -----------------------------------------------------------------------------
 dsk_rah_wr:
     pushf
-    push ax
     push bx
     push dx
-    push si
+    push di
     cmp word [dsk_rah_seg], 0
     je .out                     ; no claim: the table means nothing yet
     mov bx, dsk_rah_tab
-    mov dx, [dsk_rah_runs]      ; ...and the same, behind the same guard
-.slot:
+    mov dh, [disk_drive]        ; DH = the volume and DL = the slots left: the
+    mov dl, [dsk_rah_runs]      ; width is a byte (<= DSK_RAH_RUNS), which buys
+.slot:                          ; the volume a register it can keep
     cmp word [bx+RAH_N], 0
     je .next
-    mov si, ax
-    mov ah, [disk_drive]
-    cmp ah, [bx+RAH_VOL]
-    jne .nextax
-    mov ax, [bx+RAH_LBA]
-    add ax, [bx+RAH_N]
-    cmp si, ax
-    jae .nextax                 ; the write starts at or after this chunk
-    mov ax, si
-    add ax, cx
-    cmp ax, [bx+RAH_LBA]
-    jbe .nextax                 ; ...or ends at or before it
+    cmp dh, [bx+RAH_VOL]
+    jne .next
+    mov di, ax
+    sub di, [bx+RAH_LBA]
+    cmp di, [bx+RAH_N]
+    jb .drop                    ; the write starts inside this chunk...
+    mov di, [bx+RAH_LBA]
+    sub di, ax
+    cmp di, cx
+    jae .next                   ; ...or the chunk starts inside the write
+.drop:
     mov word [bx+RAH_N], 0
-.nextax:
-    mov ax, si
 .next:
     add bx, RAH_REC
-    dec dx
+    dec dl
     jnz .slot
 .out:
-    pop si
+    pop di
     pop dx
     pop bx
-    pop ax
     popf
     ret
 
@@ -5509,6 +5485,61 @@ dsk_rah_reloc:
 .out:
     ret
 section .cold                   ; ...and back, or every routine below joins it
+
+; -----------------------------------------------------------------------------
+; dsk_rah_redo - give the cache back and solve for it again (SPEC.md 18.95.8)
+; preserves every register and the flags
+;
+; mem_shed_one's ending without its scan, and NOT reached through it: the shed
+; picks the cheapest cache the CLAIMANT outranks, and this is a named block
+; being given up rather than a claim being made room for.
+;
+; The order is free-then-forget, which is mem_shed_one's the other way round,
+; and the `cli` is what makes that safe: the rule there is that the naming word
+; must never point at memory somebody else already holds, and with interrupts
+; off there is nobody to hold it - the only claimants are tasks, and no ISR
+; allocates. Doing it this way means a refusal leaves the word, the width and
+; the block all still agreeing with each other, where forget-then-free would
+; have to put them back.
+;
+; **IT FALLS THROUGH INTO dsk_rah_want**, which is the only thing its one
+; caller ever wanted: a drop whose CF nobody read, followed by a solve. A
+; refusal here therefore costs nothing extra - `dsk_rah_want` returns at its
+; own "already held" guard - and the pair is one `call` at the call site
+; rather than two.
+; -----------------------------------------------------------------------------
+dsk_rah_redo:
+    pushf
+    push ax
+    push bx
+    push dx
+    cli
+    cmp byte [dsk_rah_busy], 0
+    jne .out                    ; A FILL IS IN FLIGHT. It cannot be OURS - the
+                                ; transfer holds [sch_lock] - but dsk_rah_fill
+                                ; sets this two instructions before the lock is
+                                ; taken, and a tick landing in that window
+                                ; leaves a task which is about to write into
+                                ; the claim. Five bytes to make the question
+                                ; not arise, rather than an argument about it
+    mov dx, [dsk_rah_seg]
+    or dx, dx
+    jz .out                     ; nothing held: already what was asked for
+    mov bx, MEM_P_DIRW
+    call mem_free_x             ; the record IS the allocator (SPEC.md 50.3),
+    jc .out                     ; so this is one word - and it refuses while a
+                                ; relocation proc is standing on the table
+                                ; (66.3 rule 3), which is a real answer and not
+                                ; a formality
+    xor ax, ax
+    mov [dsk_rah_seg], ax
+    mov [dsk_rah_runs], ax      ; no claim, so no width either - and this pair
+.out:                           ; is the whole of what a shed leaves behind
+    pop dx                      ; too (mem_pg_forget zeroes the seg; the width
+    pop bx                      ; is stale after one, which is why everything
+    pop ax                      ; that reads it tests the seg first)
+    popf
+                                ; ...and falls through
 
 ; -----------------------------------------------------------------------------
 ; dsk_rah_want - take the cache if we do not hold it
@@ -5559,15 +5590,16 @@ dsk_rah_want:
     ;
     ; `n <= heap / (SHARE * 4.5)` is `(heap / 2) / 9` at SHARE = 4, which is
     ; the SAME divide the free run already needs - so the whole bound is a
-    ; subtract, two shifts and a compare, and no second division.
+    ; subtract, one shift and a compare, and no second division.
     mov bx, [mem_top]
     sub bx, [mem_base]
-    mov cl, 6
-    shr bx, cl                  ; BX = the whole arena, KB
-    shr bx, 1                   ; ...and half of it: a quarter once the 9 has
-    cmp ax, bx                  ; had its turn, a chunk being 4.5KB
+    mov cl, 7
+    shr bx, cl                  ; BX = HALF the whole arena in KB: paragraphs
+                                ; to KB is >> 6 and the half is one more, a
+                                ; quarter once the 9 has had its turn
+    cmp ax, bx
     jbe .solve
-    mov ax, bx                  ; the machine's share binds before the moment's
+    xchg ax, bx                 ; the machine's share binds before the moment's
 .solve:
     xor dx, dx                  ; n = AX/9 - and n = 14 still wants the same
     mov cx, 9                   ; 126KB it always did, while 40KB of free run
@@ -5575,28 +5607,27 @@ dsk_rah_want:
     cmp ax, DSK_RAH_RUNS
     jbe .cap
     mov ax, DSK_RAH_RUNS        ; the ceiling: 18.95.4's segment-offset bound
-.cap:
-    mov bl, [dsk_rah_cap]       ; ...and A CEILING SOMEBODY ELSE SET (18.95.8),
-    xor bh, bh                  ; which is a third minimum and needs no
-    cmp ax, bx                  ; special case: DSK_RAH_AUTO is above every
-    jbe .width                  ; legal width, so an uncommanded machine loses
-    mov ax, bx                  ; this compare and carries on
-.width:
-    cmp ax, DSK_RAH_MIN
+.cap:                           ; - AND the one that makes AH zero, so the two
+                                ; bounds below are a byte wide
+    cmp al, [dsk_rah_cap]       ; ...and A CEILING SOMEBODY ELSE SET (18.95.8),
+    jbe .width                  ; which is a third minimum and needs no
+    mov al, [dsk_rah_cap]       ; special case: DSK_RAH_AUTO is above every
+.width:                         ; legal width, so an uncommanded machine loses
+                                ; this compare and carries on
+    cmp al, DSK_RAH_MIN
     jb .out                     ; ...and the floor, below which the metadata
-    mov [dsk_rah_runs], ax      ; eats the cache. THE WIDTH THIS CLAIM HAS
-    mov bx, ax
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add ax, bx                  ; AX = n*9...
+    push ax                     ; eats the cache. THE WIDTH THIS CLAIM WANTS -
+                                ; banked, because it is only WRITTEN once the
+                                ; memory is really there (below)
+    mul cx                      ; AX = n*9, CX being the 9 the divide left
+                                ; there and nothing between having touched it
     inc ax
     shr ax, 1                   ; ...and KB = ceil(n * 4.5), a chunk being
                                 ; 4,608 bytes. Exact at 14: (126+1)>>1 = 63
     mov bx, MEM_P_DIRW          ; NO 64KB PAGE HEAD (§18.95.7). It used to
     call mem_claim_x            ; claim the WHOLE block as one, so that
-    jc .none                    ; dsk_runcap never split a fill - and that is
-                                ; an OPTIMISATION and not a rule: dsk_runcap
+    pop ax                      ; dsk_runcap never split a fill - and that is
+    jc .out                     ; an OPTIMISATION and not a rule: dsk_runcap
                                 ; caps a run at the page boundary and dsk_xfer
                                 ; carries on from there, so a straddling fill
                                 ; is two int 13h and the right data either way.
@@ -5611,86 +5642,40 @@ dsk_rah_want:
                                 ; largest free run 32KB where 46 was there
                                 ; (§18.95.7). Prince of Persia pays 8 int 13h
                                 ; of 148 for it, and no measurable time
+    mov [dsk_rah_runs], ax      ; **THE WIDTH, AND ONLY NOW.** It used to be
+                                ; stored before the claim and zeroed again on
+                                ; the refusal, which is two stores and a jump
+                                ; to end where a refusal already ends - and it
+                                ; left a window in which the word described a
+                                ; cache that did not exist. kerndos/kdshim.inc
+                                ; has a paragraph about keeping this routine
+                                ; off its own floor test for exactly that
+                                ; reason; the order here makes it structural
     mov [dsk_rah_seg], dx
-    push ax                     ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
-    push bx                     ; shape and for its reason: this claim is taken
-    mov ax, dsk_rah_reloc       ; at a MOUNT, so after a shed it comes back
-    mov bx, MEM_P_DIRW          ; wherever the arena had room and stands there
-    call mem_movable_x          ; pinned for the session. ONE WORD names it
-    pop bx                      ; (mem_pg_own says so), the slot table holds
-    pop ax                      ; LBAs and not addresses, and a fill in flight
-                                ; is already pinned by mem_in_xfer
+    mov ax, dsk_rah_reloc       ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
+    call mem_movable_x          ; shape and for its reason: this claim is taken
+                                ; at a MOUNT, so after a shed it comes back
+                                ; wherever the arena had room and stands there
+                                ; pinned for the session. ONE WORD names it
+                                ; (mem_pg_own says so), the slot table holds
+                                ; LBAs and not addresses, and a fill in flight
+                                ; is already pinned by mem_in_xfer. BX is still
+                                ; MEM_P_DIRW - mem_claim preserves it
     call dsk_rah_flush          ; ...and it holds nothing yet. THE ONLY place
                                 ; that is established: .bss arrives at whatever
-                                ; -f bin left there, and dsk_rah_have would
+                                ; -f bin left there, and dsk_rah_serve would
                                 ; read it as chunks over random LBAs. It clears
                                 ; all DSK_RAH_RUNS records and not just the
                                 ; live ones, which is what makes every scan
                                 ; below safe at any width (18.95.5)
-    mov word [dsk_rah_next], 0
-    jmp short .out
-.none:
-    mov word [dsk_rah_runs], 0  ; refused: no claim, so no width either
+    xor ax, ax
+    mov [dsk_rah_next], ax      ; ...and no cursor may point past the width
 .out:
     pop dx
     pop cx
     pop bx
     pop ax
     popf
-    ret
-
-; -----------------------------------------------------------------------------
-; dsk_rah_drop - give the cache back (SPEC.md 18.95.8)
-; out: CF = 0 it is gone (or was never there); CF = 1 it is still held
-; preserves every register
-;
-; mem_shed_one's ending without its scan, and NOT reached through it: the shed
-; picks the cheapest cache the CLAIMANT outranks, and this is a named block
-; being given up rather than a claim being made room for.
-;
-; The order is free-then-forget, which is mem_shed_one's the other way round,
-; and the `cli` is what makes that safe: the rule there is that the naming word
-; must never point at memory somebody else already holds, and with interrupts
-; off there is nobody to hold it - the only claimants are tasks, and no ISR
-; allocates. Doing it this way means a refusal leaves the word, the width and
-; the block all still agreeing with each other, where forget-then-free would
-; have to put them back.
-; -----------------------------------------------------------------------------
-dsk_rah_drop:
-    pushf
-    push bx
-    push dx
-    cli
-    cmp byte [dsk_rah_busy], 0
-    jne .held                   ; A FILL IS IN FLIGHT. It cannot be OURS - the
-                                ; transfer holds [sch_lock] - but dsk_rah_fill
-                                ; sets this two instructions before the lock is
-                                ; taken, and a tick landing in that window
-                                ; leaves a task which is about to write into
-                                ; the claim. Five bytes to make the question
-                                ; not arise, rather than an argument about it
-    mov dx, [dsk_rah_seg]
-    or dx, dx
-    jz .out                     ; nothing held: already what was asked for
-    mov bx, MEM_P_DIRW
-    call mem_free_x             ; the record IS the allocator (SPEC.md 50.3),
-    jc .held                    ; so this is one word - and it refuses while a
-                                ; relocation proc is standing on the table
-                                ; (66.3 rule 3), which is a real answer and not
-                                ; a formality
-    mov word [dsk_rah_seg], 0
-    mov word [dsk_rah_runs], 0  ; no claim, so no width either - and this pair
-.out:                           ; is the whole of what a shed leaves behind
-    pop dx                      ; too (mem_pg_forget zeroes the seg; the width
-    pop bx                      ; is stale after one, which is why everything
-    popf                        ; that reads it tests the seg first)
-    clc
-    ret
-.held:
-    pop dx
-    pop bx
-    popf
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5735,8 +5720,8 @@ osapi_dsk_cache_x:
                                 ; page) and what makes an idempotent re-arm
                                 ; cost nothing
     mov [dsk_rah_cap], al
-    call dsk_rah_drop           ; ...otherwise RE-SOLVE, and the drop is owed
-    call dsk_rah_want           ; WHICHEVER WAY THE CAP MOVED. Narrowing needs
+    call dsk_rah_redo           ; ...otherwise RE-SOLVE, and the drop is owed
+                                ; WHICHEVER WAY THE CAP MOVED. Narrowing needs
                                 ; it because a claim cannot shrink in place;
                                 ; WIDENING needs it because there is no grow
                                 ; path (18.95.5.3) and without one the release
@@ -5750,9 +5735,10 @@ osapi_dsk_cache_x:
                                 ; the disk.
                                 ;
                                 ; A REFUSED DROP (a fill in flight) leaves the
-                                ; old width standing, `dsk_rah_want` returns at
-                                ; its own guard, and AX below reports what is
-                                ; really there rather than what was asked for
+                                ; old width standing, the solve it falls into
+                                ; returns at its own guard, and AX below
+                                ; reports what is really there rather than what
+                                ; was asked for
 .done:
     mov ax, [dsk_rah_runs]
     cmp word [dsk_rah_seg], 0
@@ -8463,11 +8449,16 @@ dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up
 ; it is in .text with a real initialiser, because a shed reads it and
 ; mem_pg_own names it.
 dsk_rah_tab:  resb DSK_RAH_RUNS * RAH_REC   ; one record per cached chunk
-dsk_rah_next: resw 1            ; the next slot to spend (round robin)
-dsk_rah_slot: resw 1            ; ...and the one being filled, in bytes
-dsk_rah_rem:  resw 1            ; dsk_rah_have's second answer: sectors of the
-                                ; chunk from the wanted one on, itself included
-dsk_rah_got:  resw 1            ; ...and how many dsk_rah_take actually copied
+dsk_rah_next: resw 1            ; the next slot to spend (round robin), as a
+                                ; SLOT INDEX - so the fill's wrap is a compare
+                                ; against [dsk_rah_runs] itself and no second
+                                ; copy of the width exists to go stale. It was
+                                ; a byte offset, with `runs * 9` recomputed at
+                                ; every fill to bound it. THREE more words
+                                ; stood here - the slot being filled, and
+                                ; dsk_rah_have's two answers to dsk_rah_take -
+                                ; and all three went with the routines that
+                                ; passed them (18.95.1)
 dsk_op:       resb 1            ; int 13h function for dsk_xfer: 02h / 03h
 dsk_run:      resw 1            ; sectors in the int 13h call being issued
                                 ; (SPEC.md 18.91). A module word for the same

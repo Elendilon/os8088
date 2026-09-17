@@ -68,7 +68,7 @@ The kernel's share, by routine (54.4s stage, 1,631 samples):
 | `dsk_copy_seg_x` | 2.40 | the cache-hit `rep movsw` |
 | `dsk_find_x` | 0.87 | the directory search |
 | `dsk_synth_x` | 0.67 | ...and its entry synthesis |
-| `dsk_rah_have` | 0.63 | the cache's slot scan |
+| `dsk_rah_have` | 0.63 | the cache's slot scan (`dsk_rah_serve` since §18.95.9) |
 | `dsk_xfer` | 0.37 | the transfer loop itself |
 | `dsk_dirw_get_x` | 0.17 | a directory sector |
 | `dsk_fat_ofs_x` | 0.17 | a FAT offset |
@@ -124,6 +124,13 @@ next reader concluding from a flat profile that the memcpy is the problem.
 
 A linear scan of the slot table per lookup. It was 14 slots and is 7
 (§18.95.6), so this has already halved. Worth a look only after 3.1.
+
+**THE SYMBOL IS `dsk_rah_serve` NOW** (§18.95.9), and the row moved with it in
+the only direction that matters here: the scan used to run **twice** on a miss
+that filled — once to miss, and once more after the fill, to find "by
+construction" the slot the fill had just written. It runs once. This 0.63 was
+measured before that, on a workload whose whole shape is misses that fill, so
+treat it as an **upper bound** and re-take it before ranking this row again.
 
 ## 4. What this is NOT
 
