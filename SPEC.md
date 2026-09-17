@@ -36210,6 +36210,42 @@ before calling in.
 each record onto. A list rather than a fixed table because Sheet has five
 dialog windows and a table is a limit somebody eventually exceeds.
 
+##### 20.5.1.3.4 `OS88UI_NOGEST` — the install side, opted out of
+
+The gesture above is **226 bytes** of every image that includes `os88ui.inc`,
+and **eight packages of thirty-one install it**: Artful, Audio, Browser, the
+DOS box, Note Pad, Sheet, Telnet and The Wire. The other twenty-three carry
+`os88ui_btninit`, `os88ui_btnclick`, `os88ui_btnpress`, `os88ui_btndrag`,
+`os88ui_btnup` and the record list head, and call none of them.
+
+`OS88UI_NOGEST` drops that block. It is `OS88UI_BARONLY`'s shape (§13.10.6.5.1)
+— an **opt-out**, so every existing consumer is byte-identical and a package
+that says nothing keeps the gesture — and it is stated the way that one is:
+*this package drives its controls itself.*
+
+**It is safe by CONSTRUCTION rather than by care, which is the whole reason it
+can exist at all.** §20.5.1.3.3's finding is that a package routing its own
+press is how ArtfulType shipped two buttons that fired on the press, and that
+nothing static can see it. A gate that merely *asked* a package not to would
+re-open exactly that door. This one removes the SYMBOLS, so a package that
+sets it and then calls `os88ui_btninit` does not ship a press-fired button —
+**it does not assemble**, and the error names the routine. The failure is at
+build time, at the call site, in the one file that could have made the mistake.
+
+It requires `OS88UI_ARM`. `os88ui_arm`/`fire`/`armed` with `os88ui_bfind` is
+the only other sanctioned press path (§13.7), so a package that has dropped
+the install side and declared no gesture of its own has no way left to hold a
+button down — and that is a package whose buttons fire on the press, arrived
+at by subtraction. `%error` refuses it.
+
+**Weave and Loom are the first consumers and they are why it was written.**
+The button work took `os88ui.inc` up 341 bytes, and a C package's image plus
+bss must fit one 64KB segment (§73.14): `WEAVE.O88` came out **102 bytes over**
+and `LOOM.O88` **100**. Both drive their controls through `os88ui_bfind` and
+`os88ui_arm`/`fire` already, so neither loses a behaviour — what the gate
+removes from them is code that was never reached. 
+
+
 #### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
 
 `OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns

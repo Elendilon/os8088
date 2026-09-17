@@ -404,6 +404,14 @@ OS88UI_BT_SIZE   equ 16
   %endif
  %endif
 %endif
+%ifdef OS88UI_NOGEST
+ %ifdef OS88UI_KERNEL
+  %error "OS88UI_NOGEST is a PACKAGE's: the kernel's dialogs install the gesture"
+ %endif
+ %ifndef OS88UI_ARM
+  %error "OS88UI_NOGEST without OS88UI_ARM leaves NO press path - the buttons would fire on the press (SPEC.md 20.5.1.3.4)"
+ %endif
+%endif
 %ifndef OS88UI_NOBTN
 ; -----------------------------------------------------------------------------
 ; os88ui_btn - draw ONE button of a group (SPEC.md 20.5.1.3)
@@ -1214,6 +1222,17 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 ; there, so a package must not have to ask - and one that did ask would be
 ; writing a kern_small special case into every application in the tree.
 ; -----------------------------------------------------------------------------
+%ifndef OS88UI_NOGEST
+; -----------------------------------------------------------------------------
+; THE INSTALL SIDE - 226 bytes, and twenty-three of thirty-one packages never
+; reach it (SPEC.md 20.5.1.3.4). `OS88UI_NOGEST` drops it for a package that
+; drives its controls itself through os88ui_bfind + arm/fire.
+;
+; IT REMOVES THE SYMBOLS RATHER THAN ASKING. 20.5.1.3.3's whole finding is
+; that a package routing its own press is invisible to anything static, so a
+; gate a package could set and then go on calling os88ui_btninit would re-open
+; that door. Setting this one and calling it does not assemble.
+; -----------------------------------------------------------------------------
 %ifndef OS88UI_KERNEL
 os88ui_btninit:
     push ax
@@ -1293,6 +1312,7 @@ os88ui_btnclick:
 os88ui_btlist: dw 0             ; the head of this package's record list -
                                 ; DATA, inline, for os88ui_armw's reason
 %endif                          ; OS88UI_KERNEL
+%endif                          ; OS88UI_NOGEST
 
 ; -----------------------------------------------------------------------------
 ; os88ui_btnpress - W_ONCLICK: arm whatever the press landed on
@@ -1304,6 +1324,7 @@ os88ui_btlist: dw 0             ; the head of this package's record list -
 ; them from OSAPI_WM_CONTENT before you call this if anything since the last
 ; paint could have moved the window.
 ; -----------------------------------------------------------------------------
+%ifndef OS88UI_NOGEST
 os88ui_btnpress:
     push bx
     push si
@@ -1420,6 +1441,7 @@ os88ui_btnup:
     pop si
     pop bx
     ret
+%endif                          ; OS88UI_NOGEST
 %endif                          ; OS88UI_ARM
 
 
