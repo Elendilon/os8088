@@ -1104,13 +1104,23 @@ dd_it_wfull: db 'Full', 0
 
 dd_ttl:     db 'Dot Delirium', 0
 
+; SEVEN lines: the name, the blurb, the two key hints - and the CREDIT, which
+; is what SPEC.md 20.5.1.1 made this a shared control for (SPEC.md 93.9). It
+; goes LAST, after a blank line, so the keys stay where a player's eye already
+; learned to find them.
+;
+; 'Contributed by Elendilon' is 24 cells, which is exactly what 'A maze chase
+; for os8088.' and 'Arrows steer.  P pauses.' already are - so the card is not
+; one pixel wider than it was and no adapter's clamp moves.
 dd_ablines:
-    dw dd_ab1, dd_ab2, dd_ab3, dd_ab4, dd_ab5, 0
+    dw dd_ab1, dd_ab2, dd_ab3, dd_ab4, dd_ab5, dd_ab6, dd_ab7, 0
 dd_ab1:     db 'DOT DELIRIUM', 0
 dd_ab2:     db 0
 dd_ab3:     db 'A maze chase for os8088.', 0
 dd_ab4:     db 'Arrows steer.  P pauses.', 0
 dd_ab5:     db 'F is full screen.', 0
+dd_ab6:     db 0
+dd_ab7:     db 'Contributed by Elendilon', 0
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT

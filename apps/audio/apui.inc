@@ -273,15 +273,25 @@ apu_draw:
 
 ; =============================================================================
 ; apu_about_card - the OSAPI_ABOUT_SET card (SPEC.md 86.7): a white panel with
-; a black frame and three lines, centred in the content box, on top of the
+; a black frame and FIVE lines, centred in the content box, on top of the
 ; player. Any click or key takes it down (ap_onclick / ap_onkey). Drawn under
 ; the gfx lock from apu_draw, so it survives a repaint and needs no flag of the
 ; window manager's.
+;
+; THE FIFTH LINE IS THE CREDIT, and it is why the card is 80 px tall where it
+; was 66: this panel is hand-measured rather than os88ui_about's self-measuring
+; one, so a line costs APU_ABLH here and every constant below moves with it.
+; The widest line is the rate set at 32 cells = 256 px, which the credit's 24
+; does not reach, so the WIDTH is unchanged - it is content width less 8 either
+; side, and the window is 300 px wide.
 ; =============================================================================
+APU_ABLH  equ 14                   ; the line pitch this card was drawn at
+APU_ABH   equ 80                   ; ...and its height: 5 lines + the air
 apu_ab1: db 'Audio Player for os8088', 0
 apu_ab2: db 'Version 0.6b', 0
 apu_ab3: db 'Play PCM and ADPCM audio files', 0
 apu_ab4: db 'Rates 8-22 kHz  +24/32/44 SB Pro', 0
+apu_ab5: db 'Contributed by Pentagram', 0
 
 apu_about_card:
     push ax
@@ -298,7 +308,7 @@ apu_about_card:
     add ax, 8
     mov [apab_x1], ax              ; x1
     mov ax, [apu_ch]
-    sub ax, 66
+    sub ax, APU_ABH
     jns .yok
     xor ax, ax
 .yok:
@@ -314,7 +324,7 @@ apu_about_card:
     add cx, [apu_cw]
     sub cx, 9                      ; x2
     mov dx, bx
-    add dx, 65                     ; y2
+    add dx, APU_ABH - 1            ; y2
     call OSAPI_GFX_FILL
     ; --- black frame ---
     mov al, 0
@@ -325,35 +335,42 @@ apu_about_card:
     add cx, [apu_cw]
     sub cx, 9
     mov dx, bx
-    add dx, 65
+    add dx, APU_ABH - 1
     call OSAPI_GFX_FRAME
     ; --- four lines (ink 0 on paper 15) ---
     mov si, apu_ab1
     mov cx, [apab_x1]
     add cx, 8
     mov dx, [apab_y1]
-    add dx, 7
+    add dx, 7 + 0 * APU_ABLH
     mov ax, 0x0F00
     call OSAPI_FONT_RUN
     mov si, apu_ab2
     mov cx, [apab_x1]
     add cx, 8
     mov dx, [apab_y1]
-    add dx, 21
+    add dx, 7 + 1 * APU_ABLH
     mov ax, 0x0F00
     call OSAPI_FONT_RUN
     mov si, apu_ab3
     mov cx, [apab_x1]
     add cx, 8
     mov dx, [apab_y1]
-    add dx, 35
+    add dx, 7 + 2 * APU_ABLH
     mov ax, 0x0F00
     call OSAPI_FONT_RUN
     mov si, apu_ab4
     mov cx, [apab_x1]
     add cx, 8
     mov dx, [apab_y1]
-    add dx, 49
+    add dx, 7 + 3 * APU_ABLH
+    mov ax, 0x0F00
+    call OSAPI_FONT_RUN
+    mov si, apu_ab5                ; the credit (SPEC.md 20.5.1.1, 86.7)
+    mov cx, [apab_x1]
+    add cx, 8
+    mov dx, [apab_y1]
+    add dx, 7 + 4 * APU_ABLH
     mov ax, 0x0F00
     call OSAPI_FONT_RUN
 .out:

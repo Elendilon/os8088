@@ -35948,6 +35948,55 @@ pass and not an attribution, so its credit went into the sentence
 rather than resident ones, and which §10.1 of WEAVE-SPEC makes *keep* the
 sentence after the toast retires itself.
 
+#### 20.5.1.2 The attribution sweep — the seven that still had no credit
+
+The card being cheap did not make the credits appear. A later audit walked
+every package in `apps/` for a contributor line and found **ten without one**,
+which splits three ways and only the first group is about this widget:
+
+- **Six had a card and no credit on it** — `AUDIO`, `DOTDEL`, `PACCMAN`,
+  `PACMAN`, `SCRIBE`, `THEWIRE`. Five of them gained a line where their card
+  is measured: §86.7, §93.15, §91, §95.12, §92.8.
+- **`DOS`'s handler was a bare `ret`** (§96.51) and `FONTVIEW` registered no
+  handler at all (§90.9) — the two shapes of "the cheapest thing an author
+  could do was nothing", eleven sections after that sentence was written.
+- **`FPTEST` and `IMGTEST` are instruments rather than software** and are
+  deliberately left alone: neither ships, and a capability gate has no author
+  to credit. `WIRE` (§78.9) does not ship either but *is* a program and does
+  carry one.
+
+**`PACMAN` (§89) is the one row still open, and it is open for a reason no
+edit here can close**: its card credits `Roklan / Atari disk version, 1982`
+and `Native 8086 adaptation` and names no person, and *who* made that
+adaptation is not recorded anywhere in the tree — not in the source header,
+not in §89, not in a plan. The other six were assigned by the owner and this
+one was not, so the line is left absent rather than guessed at. A credit
+invented to make a table look complete is worse than a blank, which is
+§47's argument about greying a fact rather than a guess, applied to an
+attribution.
+
+**Three findings are worth more than the seven lines.** The first is that a
+credit is lost by FORKING: `SCRIBE` was cut from a `word.asm` older than
+WORD's own porter line, so the fork shipped a three-line card crediting
+nobody, and §95.10's divergence table gained a row that is an attribution
+rather than a speed. The second is that a card can be FULL: `PACCMAN` sits at
+ten lines against CGA's 144-row content box, where eleven is 146 and its own
+host gate refuses it — so that credit was paid for by merging three provenance
+lines into two rather than by a line's worth of new card. The third is that
+the two-line split `MINES` and `HELLO` needed is the exception and not the
+rule: of the seven, **six had content boxes of 300 px or more** and took the
+credit as one line; only PaccMan's 224-pixel arcade field is in Mines'
+position at all.
+
+**`Contributed by` is the wording, and the name is spelled out.** The tree
+carries four forms and they mean different things — `Contributed by X` for
+original work, `Ported by X` where the program came from somewhere else (every
+C port, plus WORD, ModPlug, Missile and Artful), `Optimized by X` and
+`Updated by X` as a SECOND line beside one of the first two, never instead of
+it. `TRACKER` and `NOTEPAD` carry two lines each for that reason, and SCRIBE
+does now. What is never used is a handle or an abbreviation: it is
+`Jorge Gonzalez` in all thirteen places and never `jggonz`.
+
 **`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
 `BARONLY` is the button's opt-out spelled as a statement about the scroll bar
 (§13.10.6.5), and the About card is the first consumer for which that sentence
@@ -48648,6 +48697,90 @@ first, so the call is reached only for a record already known to be one — on a
 live desktop, one or two of the thirty-two — and `tm_hsum` and `tm_hgrp` each
 walk the table once per group. At `OSAPI`'s 46.7us that is under 2 ms on a
 full heap page, against the ~450 ms the page's own list repaint costs.
+
+### 28.4.6 A driver's own claims are System's, beside the `DrvImg` already there
+
+**§51.3 already says this and the kernel already does it — the heap page's
+LIST is the half that was left behind.** That section's own words are *"its
+IMAGE is a kernel claim (`MEM_K_DRV`), so the Task Manager counts it under
+System, which is what it is — **and so are the bulk buffers it claims for
+itself**"*, and it names what went wrong before `mem_sum_kb` learned to ask
+`drv_owns_seg`: the buffers were *"in the `HEAP` and `RAM` totals, and in the
+memory map's bands, **and in no line of the list**"*. The totals were fixed.
+The list was not, and this is that sentence still being true on the one page
+whose whole job is the per-claim detail.
+
+Measured on `os8088_5150_sb_gla`, a bare desktop with the sound driver
+attached and nothing else running:
+
+| record | `CLS_SEG` | `CLS_PARA` | `CLS_OWN` | on the page |
+|---|---|---|---|---|
+| the FAT window | `1B40` | 2048 | `FE02` | System, `FATwin` |
+| `SOUND.DRV`'s image | `9E80` | 384 | `FF03` | System, `DrvImg` |
+| **its 8KB DMA ring** | `9C80` | **512** | **`9E80`** | **nothing** |
+
+**The cause is that a driver is neither of the two things this page groups
+by.** §50.3's `mem_own` stamps a claim with the CALLER'S SEGMENT, and for a
+driver that is the segment its image was loaded into — `9E80` above. So the
+owner word is a plain conventional segment: it is not `0xFB..0xFF`, so the
+System arm refuses it; it is not an instance slot and matches no `tm_ispt`,
+so every instance arm refuses it; and `tm_hmatch` had no third answer. §28.4.5
+is the same defect one owner-kind along and this is its other half — there a
+kernel tag landed in the wrong group, here a segment landed in none.
+
+**A claim in no group is worse than a claim in the wrong one, because the
+caption counts it anyway.** `tm_hsplit` walks the snapshot directly and adds
+every live record to `HELD` or `PURGE`, so the ring was in the total on line
+two and in no column under it. That is §28.4.1's fault with the sign
+reversed, on the same page, and it is why this is a defect rather than a gap:
+the two figures a reader closes the page's arithmetic with cannot be closed.
+§51.3's *"`System`'s `HEAP` column now equals the `HEAP` total whenever
+nothing else holds a claim"* was true of the memory view and false one page
+along.
+
+**`tm_hdrv` is `drv_owns_seg` read off the snapshot, and it is the same two
+hops.** The kernel's fence walks `drv_tab` and then, for a segment that is not
+in it, asks who owns the claim based there and walks `drv_tab` again — *"ONE
+level, like `mem_own_drv`'s"* (§52.11.6), for a driver's SECOND image
+(§52.11.7). The page cannot reach `drv_tab`, and does not need to: a driver's
+image is itself a record in the claim table tagged `MEM_K_DRV`, so *"is this
+segment a driver image"* is *"is there a `MEM_K_DRV` record based there"* —
+the same set, off the copy the page has already taken. The second hop is then
+literally the kernel's: the claim based at the owner word is owned by a
+`MEM_K_DRV` record.
+
+**So it costs no kernel byte and no API cell**, which is the property §28.4
+was built around — `kernel.bin` is **byte-identical** across this change, and
+the whole of it is +74 bytes of `TASKMGR.O88`, a package image present only
+while the window is open. `kern_small` pays nothing at all: the heap page is
+inside `%ifdef TMF_HEAP` and `APP_SMALL` does not define it.
+
+**The TYPE column says `DrvBuf`**, not `Data`. Both carry a plain segment as
+their owner and the `.data` arm would have taken the ring silently, which is
+§28.4.3's rule — *a debug page must not label a claim as the nearest thing it
+recognises* — failing in the one direction that leaves no number on screen to
+notice. `DrvBuf` is what `SOUND.DRV`'s ring and staging pool, `ETHER.DRV`'s
+socket pool, the RAM disk's store and the hard disk's listing buffer all are:
+memory a driver asked for, on the page whose job is saying who has it. It is
+**not** in `tm_ktab` and cannot be — a driver's image segment is a different
+number on every boot, so this row is decided by a walk and not by a constant,
+which is also why `tests/unit/t_ktags.py` neither covers it nor should.
+
+**The cost is bounded by where the call sits.** `tm_hdrv` is reached only from
+the System group's two walks (`tm_hsum` and `tm_hgrp`) and only for a record
+whose owner is not a kernel tag, and from `tm_htype` only for a row already
+known to carry a segment. On the desktop measured above that is one record of
+three; on a busy machine it is the package data claims, each costing at most
+two 32-record passes of a word compare — under a millisecond against the
+~450 ms this page's own list repaint costs.
+
+**`tests/heapdrv.py` is the gate, and it asserts the arithmetic rather than
+the row**: every live record is on a row, counted off `[tm_hrows]` with the
+group headings and `tm_mrow_nolast`'s pad rows taken out. A row that only
+looked for the word `DrvBuf` would pass on a page that still lost the 8KB
+somewhere else. Measured red with the two arms reverted at **3 claim rows for
+4 live records** — short by exactly the ring — while the probe it prints on a
+miss found `DrvImg` on screen and the ring's row absent.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
@@ -73738,7 +73871,10 @@ does. Four things differ, and each is doing work:
   Sound Blaster that is 32KB of DMA buffer belonging to nobody. `mem_sum_kb`
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
-  claim.
+  claim. **That fixed the TOTALS and left "in no line of the list" true one
+  page along** — the heap page groups per claim through `tm_hmatch`, which
+  has its own copy of the same two tests and got neither, so `SOUND.DRV`'s
+  ring was on no row of it until §28.4.6.
 - **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
   image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
   load path with exactly one claim in it. It no longer does, and §51.1.2 is
@@ -109632,9 +109768,17 @@ for the first `W_PAINT`. `ap_entry` kicks itself once with `OSAPI_WM_WAKE`;
 
 **About** (`OSAPI_ABOUT_SET`, §12.2) draws a white, black-framed card over the
 content — sized and centred from the live content box — with the package name,
-`Version 0.6b`, a one-line blurb, and the accepted rate set (§86.15).
-`[ap_abon]` gates it; `apu_draw` lays it last so it is on top, and the next
-click or key clears the flag and repaints.
+`Version 0.6b`, a one-line blurb, the accepted rate set (§86.15) and
+`Contributed by Pentagram`. `[ap_abon]` gates it; `apu_draw` lays it last so it
+is on top, and the next click or key clears the flag and repaints.
+
+**This card is hand-measured, not `os88ui_about`'s**, so the credit cost it
+geometry as well as a string: `APU_ABH` is **80** px where it was 66, and every
+offset in `apu_about_card` is `7 + n * APU_ABLH` rather than a literal, so the
+next line to arrive moves one constant instead of five. The WIDTH did not move
+— the widest line is the 32-cell rate set and the credit is 24 — and the
+window is 300 px on every adapter, which is why there is no per-adapter case
+here.
 
 ### 86.10 The playlist
 
@@ -114052,6 +114196,73 @@ It also refuses what `CS_NVIS` refuses silently. Thirty-two objects can be in
 one frame and the thirty-third is DROPPED, so a skyline denser than that loses
 buildings rather than dropping frames, and the fault would read as a missing
 model. Paris itself reaches twenty-six.
+
+##### 88.6.4.1 San Francisco: the bridge's roads had nothing under them
+
+Reported off the machine: *"the golden gate bridge is beautiful, but its roads
+are floating in mid air. Can we connect them to something?"*
+
+They were, and the arithmetic says how much. The deck reaches **700 m either
+side** of mid-strait so that both ends land on dry ground; the strait's banks
+are drawn at **345** so that both towers stand on land (the header's own
+departure from the real bridge, §88.6.4). Nobody put anything between those
+two numbers. So **355 m of roadway at each end stood 80 m over flat ground**,
+which is a fifth of the whole bridge and the part nearest the eye on a
+RUNWAY 31 departure.
+
+**The fix is a headland and not a pier, because the primitives cannot hold a
+ramp.** A `CSM_STACK` level is `(wx, h, wz)` and its four corners are
+`(±wx, h, ±wz)` — every level is an axis-aligned rectangle at one height, so a
+road sloping down to the ground is not expressible at all. Bringing the LAND
+UP to the deck is the same picture from the other side, and it is the shape
+this world already draws three of: `CS_HILL`, a two-level frustum.
+
+**One model, two objects.** A `CS_HILL` is symmetric in z about its own origin,
+so the same frustum serves Marin and the Presidio and the world pays for one
+model. `cs_m_sfo_appr` is base 260×320, top 180×200 at **h = 80** — the deck's
+own `CSO_Y` exactly. `CS_BOX` emits no bottom face (`cs_f_box` is four sides
+and a top), so the slab's underside and the hill's top are never a coincident
+pair with nothing to sort them; what the eye gets is a roadway sitting ON an
+embankment with its 6 m side still showing.
+
+**IT IS SIZED BY THE TOWER IT MUST NOT EAT**, and that is the second thing the
+field said about it: *"the ground supports are inside of that hill. Maybe move
+them back just a bit so only the end of the roads go into them."* They were —
+and it was the **width** that did it rather than the position. The first build
+was 600 m across with its foot 8 m behind the tower, which puts 300 m of
+hillside **between the eye and the tower** from anywhere off the bridge's axis;
+this renderer sorts whole objects, so the nearer hill was drawn over the
+tower's lower 80 m and a 227 m landmark came back as a stump. Both numbers
+moved: **260 m across instead of 600, and the foot at 500 instead of 420.**
+
+**The four edges, in the order the things already there fix them:**
+
+| edge | value | what fixes it |
+|---|---:|---|
+| base, inboard | 500 | 88 m clear of the tower's back face at 412 — the slope starts BEHIND the tower, and the hill's bulk is out of its line from the side |
+| top, outboard | 760 | the deck ends at 700, so land runs past road and not the other way |
+| base, outboard | 820 | the far side slopes back to sea level instead of ending in a wall |
+| top, inboard | 560 | falls out: 80 m of rise in 60 of run |
+
+What is left unsupported is **345 to 500 — a hundred and fifty-five metres,
+with the tower standing in the middle of it**, against 355 an end before any of
+this. It is deliberately **not** the 75 m the first build reached: seventy-five
+bought a road with nothing under it at the cost of a bridge with no tower under
+it, which is the worse of the two pictures. A shallower ramp cannot do better
+either — to reach 80 m at a gentler grade it would have to start inside the
+tower, and a 227 m landmark growing out of a hillside is the one thing
+§88.6.4's header arranges the shore to avoid.
+
+**It is priced by the gate rather than argued about.** `tests/unit/t_csworlds.py`
+weighs an object as its expanded vertices plus three a face plus one an edge
+and holds each world's peak frame to 1.15× Paris; a frustum is 8 corners and
+5 faces, so the pair is 46. San Francisco goes **425 → 471 peak, 0.70× → 0.78×**
+of Paris' 607, and `CS_NVIS` 26 → 28 of the 32 an object may be the
+thirty-third of — unchanged by the reshaping, a frustum costing what a frustum
+costs whatever its extent. Neither number is near its ceiling, which is the
+answer to
+*"we're trying to be performant in this scene"* — and the reason it can be
+answered at all is that the budget is a fast-tier row and not a judgement.
 
 #### 88.6.5 A river reduced to a LINE is blue
 
@@ -119785,6 +119996,39 @@ The apps-disk figures are Font Viewer *and* `HELLO.O88` together (§27.0), plus
 one cluster of the `APPS/` directory itself at each geometry: two fewer 32-byte
 entries crossed a directory cluster on all four.
 
+### 90.9 The About card — the package that had no handler at all
+
+Font Viewer registered **no `OSAPI_ABOUT_SET` handler**, which is precisely
+the case §20.5.1.1 was written about: the kernel still puts `About Font
+Viewer...` in the bar, so the item was there and did nothing, and what was
+missing behind it was the **credit**. It is `os88ui_about` now, five lines:
+`Font Viewer for os8088`, `The system face browser`, a blank,
+**`Contributed by Jorge Gonzalez`**, `Any key or click closes`.
+
+**One size on every adapter, so there is no clamp case here.** `FV_W`/`FV_H`
+are fixed — 620 × 155, the whole CGA band with the dock excluded — and the
+content box is `FV_CW` = 618 px = 77 cells, against a widest line of 29. That
+is why this card needed none of the two-line splitting Mines' 144-pixel
+content and Hello's 238 × 71 forced on theirs.
+
+**Two entries, and this package uses both** (§20.5.1.1): `fv_about` is the
+handler and calls `os88ui_about`, which arms the clip itself because
+`ui_dispatch` does not; `fv_paint` draws the card **last**, after `fv_draw`,
+through `os88ui_about_d`, which does not re-arm and so keeps that paint's
+damage rect.
+
+`[fv_abon]` is the flag, one byte on the end of `FV_BSS_OWN`. `fv_abdismiss`
+is called at the **head** of both `fv_onkey` and `fv_onclick` and answers
+`CF = 1` when it took a card down, so the keystroke that dismisses is not also
+typed into the specimen and the click that dismisses is not also a catalogue
+selection. It repaints through `fv_redraw` and not the card's own rect: what
+the card covered is some mixture of a specimen row, a catalogue row and the
+divider, and `fv_redraw` is the one routine that puts all three back.
+
+The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
+this package takes, and without the opt-out it would carry `os88ui_glyph`'s
+116 bytes for a button nothing calls.
+
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
 The C toolchain's fourth application is **`apps/paccman/`**, package name
@@ -121297,10 +121541,22 @@ the review; the wave-3 paragraph above records the move).
 
 **The About card, on the glass.** Ten lines, all whole at the 224-pixel content
 box's width, none of them about how the build renders:
-`PaccMan for os8088` / `A C port of pacman.c,` / `commit 0f5ec5a` /
-`(c) 2020 Andre Weissflog` / `MIT. floooh/pacman.c` / `Tiles/sprites: Pac-Man` /
-`arcade ROMs (Namco)` / `Rules: Pac-Man Dossier` / `Arrows/WASD move. N new.` /
-`F full. P/Space pause.`
+`PaccMan for os8088` / `A C port of pacman.c` / `0f5ec5a, floooh, MIT` /
+`(c) 2020 Andre Weissflog` / `Tiles/sprites: Pac-Man` /
+`arcade ROMs (Namco)` / `Rules: Pac-Man Dossier` / `Ported by Jorge Gonzalez` /
+`Arrows/WASD move. N new.` / `F full. P/Space pause.`
+
+**TEN IS A CEILING AND THE PORTER'S CREDIT WAS PAID FOR BY A MERGE**
+(§20.5.1.1). CGA's content box is 144 rows and the widget measures
+`n * 12 + 14`, so ten lines is 134 and eleven is **146** — over, clamped, and
+the last line cut off; `pmcuitest`'s height gate says so and had already
+refused this exact card once. So the three lines that carried the reference —
+its name, its commit, and its repo with its licence — became **two**, and
+nothing the section requires the card to carry left it: the reference by name,
+the commit, the repo owner, the licence, the author's copyright, the ROM
+credit and the Dossier are all still on the glass. What the freed line buys is
+the one thing the card did not have and every other C port in this tree does —
+**who brought it to this machine.**
 
 **Provenance.** The code is Andre Weissflog's under MIT; the tile, sprite and
 colour tables are Pac-Man arcade ROM data (Namco) and the two register dumps
@@ -121731,7 +121987,10 @@ used with.
   picture is in flight bumps the generation and the worker drops the bytes.
 - **Refresh** re-fetches the catalog. **About** is `OSAPI_ABOUT_SET` (§12.2):
   `The Wire`, `Online Software Library`, `Software by wire.`, the catalog
-  date, `os8088.com`.
+  date, `os8088.com`, and the contributor credit §20.5.1.1 exists for —
+  `Contributed by Jorge Gonzalez`. Six lines; the content box is `WR_CW` =
+  384 px on every adapter, so the widest of them (29 cells) clears the
+  widget's clamp with room to spare and no line is split.
 
 ### 92.9 No driver, no link
 
@@ -124814,6 +125073,24 @@ this one back on the media disk, which is one line of the Makefile.
   three adapters and gates the rendered frame rate against the game's own tick
   counter (§93.5.3);
 - `tests/dotdelmd.py` is the two-card pass above, on `os8088_5150_both_gla`.
+
+### 93.15 The About card
+
+`OSAPI_ABOUT_SET` (§12.2) through `os88ui_about` (§20.5.1.1), seven lines:
+`DOT DELIRIUM`, a blank, `A maze chase for os8088.`, `Arrows steer.  P
+pauses.`, `F is full screen.`, a blank, and **`Contributed by Elendilon`**.
+
+The credit goes **last, after a blank line**, so the two key hints stay where
+a player's eye has already learned to find them. It is 24 cells, which is
+exactly what `A maze chase for os8088.` and `Arrows steer.  P pauses.` already
+were, so the card is **not one pixel wider** than the five-line version and no
+adapter's clamp moves; the height goes 74 → 98 against CGA's ~141-row content
+box, which is the tightest of the three.
+
+`[dd_abon]` gates it, `dd_paint` draws it last, and any click, key or menu
+pick takes it down — which also un-suspends the game, §93.5.6's third
+not-drawing test being the flag itself.
+
 ## 94. Picture decoders (`apps/os88img.inc`)
 
 Three file formats into one in-memory form: **packed 4bpp, two pixels per
@@ -125806,6 +126083,7 @@ all of it in **#172**:
 | `os88ui_drop` and the drag-and-drop bank | present | absent |
 | `OS88_REGION_MOVABLE`, `OS88_WORKER_RESTARTABLE` | declared | not declared |
 | `wd_eoutck`, `wd_nlpush`, `wd_upheight`, `wd_bandx` | present | absent |
+| the **porter's credit** on the About card — `Ported by Jorge Gonzalez` | a fourth line, and the box is 16 px taller for it | **was absent** until §95.12 put it back, with a second line for the fork |
 
 None of it is a defect in the picture work, and none of it reaches a shipped
 disk — SCRIBE is on none. It is a **maintenance** fact: the two files are no
@@ -125851,6 +126129,35 @@ The cheapest place to start is the pen: making `sc_advof` answer what
 change. It is not made here because it moves every caret, hit-test and
 alignment decision in the package at once, and that is a change to look at
 rather than to infer.
+
+### 95.12 The About box — five lines, and two of them are the ones a fork drops
+
+`sc_habout` → `sc_abopen`, a 344 × 104 panel centred in the content box with an
+OK button, refusing below 360 × 128 content with the version line as a toast
+instead (§47). Five lines: `Scribe`, `os8088 word processor`,
+`Forked from WORD (SPEC.md 86)`, **`Ported by Jorge Gonzalez`** and
+**`Updated by Koriban`**.
+
+**The fourth line is INHERITED and its absence is §95.10's failure mode in
+miniature.** WORD's card has carried `Ported by Jorge Gonzalez` since §68.2,
+and its box is 88 px rather than 72 *because of it* — the comment on WORD's
+own height check says "16 taller since the porter credit became a fourth
+line". Scribe was cut from an older `word.asm` and the line was not in the cut,
+so the fork shipped a card three lines long that credited nobody: the same
+class of silent loss as the movers and the save-unders in §95.10's table, but
+the thing lost was an **attribution** rather than a speed. Nothing reported it
+because a missing credit looks exactly like a card that never had one.
+
+The geometry is WORD's, two lines further on: lines at `+8`, `+20`, `+32`,
+`+44`, `+56` at the 12 px pitch, OK at `+82` (WORD's `+66` plus the two
+lines), box bottom at `+103` — **a 9 px gap under the button on both**, which
+is the check that the two boxes are still the same design. The refusal
+threshold moves with the height and not independently: 96 → 128 is the same
++32.
+
+Scribe banks no pixels under the box (it has no `wd_suab`, §95.10), so nothing
+else is sized by this and `sc_abclose` repairs from `sc_abrect` whatever the
+box turns out to be.
 
 ## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
 
@@ -129737,6 +130044,133 @@ and it binds here for a sharper reason: this box keeps the handle window and
 its owner in the core's bss, so a callback that re-enters `INT 21h` corrupts a
 transfer in flight. `[dos_m33bsy]` guards only our *own* re-entry — a callback
 still running when the next tick arrives.
+
+### 96.10.5 The text cursor, because in DOS the driver draws it
+
+A DOS mouse driver **draws its own pointer**. There is no compositor, no
+window server and no arrow the machine keeps for it: `INT 33h` function `01h`
+means *put a cursor on the screen and keep it under the mouse*, and if the
+driver does not, nothing does. That is the one part of the interface this box
+answered with a shrug — `01h` and `02h` were both no-ops, on the reasoning
+that the kernel owns the pointer — and the reasoning is right in the
+**windowed** host and wrong in `kern_dos`, where the program owns every pixel
+and the kernel is not running at all.
+
+**`kern_dos` is therefore the only host that has one**, and §96.10.5.1 is how
+that is said in code rather than in an `%ifdef`.
+
+**The drawing rule is one line.** In text mode a cursor is not a bitmap — it
+is an attribute the driver flips:
+
+    displayed = (cell AND screen_mask) XOR cursor_mask
+
+`0Ah` with `BX=0` hands over exactly those two words and nothing else, which
+is why there is no shape to draw and no sprite to save. `BX=1` asks for the
+**hardware** cursor instead — a CRTC scan-line pair — and that is the
+machine's own text caret rather than something a pointer may take over, so it
+is ignored rather than refused: a program that asks for a shape and is
+refused still expects a cursor.
+
+**The masks are STATE.** Microsoft Works sets `77FF`/`7700` at startup and
+then `80FF`/`F000` **twice more** — measured against IBM DOS 3.30 with
+CTMOUSE loaded (docs/DOS-DEBUGGING.md) — so a box that hard-coded the
+power-up pair would draw the wrong cursor for most of a session. The defaults
+are that power-up pair: `AND 77FF` keeps the character and drops blink and
+intensity, `XOR 7700` then swaps foreground and background, which is the
+inverse-video block a DOS user recognises as the mouse.
+
+**The show counter is not a flag.** It starts at **-1**, `02h` takes a
+nesting level and `01h` releases one, saturating at 0 — so a program that hid
+twice must show twice. It matters that -1 is not the zero a `.bss` arrives
+as: 0 means *visible*, so the bracket sets the state explicitly at its `IVT`
+install and a program that never calls `01h` never sees a cursor.
+
+The reference sequence is the specification and is worth reading whole:
+
+    00 0A 0C 08 0A 0A 01 03 02 01 03 02 01 03 02 ...
+
+`01 03 02` — show, ask where it is, hide — repeated 25 times. **Works takes
+the cursor off before it draws its own screen**, which is what a well-behaved
+DOS application does and what makes §96.10.5.3 a guard rather than the main
+mechanism.
+
+#### 96.10.5.1 `DHK_TXT`, and why the windowed host must not have it
+
+The core is assembled **once** and joined to either host (§96.44), so
+"`kern_dos` only" cannot be an `%ifdef` here. It is a host hook:
+
+    DHK_TXT   out: ES = the text segment, BX = columns, DX = rows
+                   CF=1 = there is no text screen you may draw on
+
+`dos_hk_bind` does not set it; `kdentry.inc` does. In the windowed box the
+cell stays the zero a `.bss` arrives as, `dos_m33_paint` refuses at its second
+instruction, and `01h`/`02h` are the no-ops they always were — which is
+correct there, because `B800` belongs to the kernel and the OS owns every
+pixel on the glass.
+
+`kern_dos`'s side reads the BDA the ROM maintains: `0040:0049` for the mode
+(7 → `B000`, 0–3 → `B800`, anything else refused, a graphics-mode pointer
+being function `09h`'s and not this one) and `0040:004A` for the width. So a
+program that changes mode mid-session gets a cursor in the right place
+without the box being told.
+
+**The width must fit a byte and the hook refuses one that does not.** The
+core's cell arithmetic is `row * columns` as `mul bl`, and it clamps the
+column against the whole of `BX` — so a width above 255 would be multiplied by
+its low byte and bounded by a different number, which is a store past the end
+of the screen. No text mode is that wide; a BDA that says so has been
+scribbled on, and refusing is the only answer that cannot corrupt the
+program's memory.
+
+#### 96.10.5.2 Two update points, and the critical section between them
+
+`INT 33h`'s coordinates are a **640x200 virtual screen whatever the text mode
+is**, so a cell is 8 units on both axes and the arithmetic is two shifts. The
+cursor is moved from two places:
+
+- **`dos_mou_read`** — every function `3`/`5`/`6` and every `dos_getkey`
+  poll. This is the fine one: a program waiting for input polls through here
+  continuously, which is most of its idle time.
+- **`dos_m33_tick`** — IRQ0, 18.2 Hz, and **before** the event-handler test,
+  because a program that shows the cursor and then computes for a second has
+  installed no handler and polls nothing. `01h` arms the tick for that reason;
+  `0Ch` is not the only way to need it — but only where `DHK_TXT` answers,
+  since in the windowed box the hook would buy nothing and cost the DOS task's
+  slice a frame every tick.
+
+**Both write the same three cells, so both are `pushf`/`cli`/`popf`.**
+`dos_int33` `sti`s at its first instruction, so IRQ0 can land between the
+store that says *where* the cursor is and the one that says *what was under
+it* — after which the wipe restores a cell from the wrong place and leaves a
+character the program never wrote. It is the intermittent kind of defect, and
+it costs four bytes not to have.
+
+**A cursor that has not moved is not redrawn**, and that is correctness rather
+than economy: between two paints the program may have written the cell
+itself, and re-saving what is there would bank *our own* inverted cell as the
+thing to restore — after which the inversion is permanent and travels with
+the pointer.
+
+#### 96.10.5.3 It checks before it restores
+
+A software cursor cannot see the program's own writes. A DOS application
+draws its screen by storing into `B800` and tells nobody, so the cell the
+driver saved may since have been replaced — and putting the saved copy back
+leaves **a character the program never wrote, at a place the pointer has
+left**. That is the artefact the reporter describes of CTMOUSE: *"it doesn't
+always invert it correctly in works"*.
+
+The guard is exact and costs eight bytes: recompute what we **wrote** — the
+masks cannot change under us without `0Ah`, which repaints — and restore only
+if that is still what is on the glass. A program that redrew the cell keeps
+its own content and the box simply forgets its copy.
+
+It is not a complete answer and nothing cheap is: a driver that wanted to be
+exact would have to hook `INT 10h` and hide around every BIOS write, and that
+still misses the direct stores, which is how every application draws. What it
+removes is the visible half — the stale character left behind — and it leaves
+only the case where the program overwrote the cell with something that
+happens to equal what we put there.
 
 ### 96.11 File handles, built on an API that has none
 
@@ -136917,3 +137351,47 @@ Measured, both arms, with both corrections in:
 |---|---|---|
 | guarded | 134 | **1 of 16** |
 | `NOKDKBD=1` | 172 | **0 of 16** |
+
+### 96.51 The About card, and the handler that was a bare `ret`
+
+`dos_about` was registered with `OSAPI_ABOUT_SET` from the day the window
+existed, and its whole body was `ret`. The kernel therefore drew
+`About DOS...` into the app menu (§12.2) and picking it **did nothing at all**
+— the one failure mode §20.5.1.1 is written about, and the hardest kind to
+notice, because a handler that returns is indistinguishable on the glass from
+one that drew something small and quick. What was behind the item was the
+**credit**.
+
+Six lines: `DOS for os8088`, a blank, `Runs .COM and .EXE programs`,
+`natively - this machine IS an 8086`, a blank, and
+**`Contributed by Elendilon`**. The widest is 34 cells against a content box
+of `DOS_CONW` = 640 px on VGA and CGA and 720 on Hercules (§96.32's `dos_pref`
+row), so no adapter clamps the card and nothing is split across two lines.
+
+**Both entries are used, and the painter's one is the interesting half.**
+`dos_about` is the handler, so it calls `os88ui_about`, which arms the clip
+itself — `ui_dispatch` arms none. `dos_paint` draws the card **last** through
+`os88ui_about_d`, which does not re-arm and so keeps that paint's damage rect.
+
+**The card is the WINDOW's and not the page's**, which is the same statement
+`dos_paint` already makes about the console band: the setup page's exit is
+`jmp .card` rather than `jmp .out`, so the main page falls through to the card
+and the setup page jumps into it, and one branch cannot acquire a card the
+other lacks.
+
+**`BX` comes from `[dos_win]`, not from `SI`.** `dos_paint` is entered with
+`SI` = the window, but the main page's `os88line_draw` call loads `SI` with
+`dos_pln` on the way past, so by the tail it is a string. This is the same
+trap §96.32's entry-proc comment records about `OSAPI_ARG_FILE` and `op_load`,
+one routine along.
+
+`[dos_abon]` is the flag — one `HBSS` byte, inside the window half's
+`%ifndef KD_BACKEND`, so `kern_dos`'s backend build carries none of this.
+`dos_abdismiss` is called at the **head** of both `dos_key` and `dos_click`
+and answers `CF = 1` when it took a card down, so the event is not acted on
+twice. In `dos_key` it sits **above** the Alt+Enter test that is otherwise
+"above everything" (§96.33.5.1): a card that is up is what the user is looking
+at, so the key that dismisses it must not also take the machine full screen.
+It repaints by calling `dos_paint` rather than repairing the card's rect,
+because what the card covered is a console band or a setup page and
+`dos_paint` is the only thing that knows how to put either back.

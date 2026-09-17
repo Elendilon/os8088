@@ -2347,3 +2347,62 @@ pushed `AX` and `CX` and then did `or bl, bl` between the `int 21h` and the
 beside five correct answers, and the same defect would later have printed
 `PASS` beside five wrong ones. The carry is banked into a byte by a `mov`
 now, `mov` being the one instruction there that writes no flags.
+
+## 53. Microsoft Works has a mouse, it works, and there is nothing to see (FIXED — in DOS the DRIVER draws the pointer: SPEC.md §96.10.5)
+
+The third of the Works reports and the only one where **the reporter brought
+the diagnosis**: *"Apparently we are expected to draw the cursor — including
+in text mode, which we never had to do before in our os — unless the program
+tells us somehow that it is taking over drawing the cursor itself."* That is
+exactly right, and it is the one part of `INT 33h` this box had answered with
+a shrug: `01h` and `02h` were both `.none`, on the reasoning that the kernel
+owns the pointer.
+
+**The reasoning is right in the windowed host and wrong under `kern_dos`**,
+where the program owns every pixel and the kernel is not running at all.
+There is no compositor and no arrow the machine keeps: `01h` means *put a
+cursor on the screen and keep it under the mouse*, and if the driver does not,
+nothing does.
+
+It is also the report that came with its own **correction**, and the
+correction is the more useful half: *"I went fully into a document and it DOES
+work — still no visible cursor of course cause we don't draw one, but if I
+push it up to the top and click I can open menus with it."* §96.10.4's event
+handler was working the whole time; what was missing was only the drawing.
+
+**The reference is what specified it.** Works under IBM DOS 3.30 with CTMOUSE
+loaded (docs/DOS-DEBUGGING.md), read off §96.10.3's histogram:
+
+```
+00 0A 0C 08 0A 0A 01 03 02 01 03 02 01 03 02 ...   (x25)
+0Ah x3: kind=0000, first 77FF/7700, last 80FF/F000
+```
+
+Three things fall out and each decided something. `kind=0` is the **software**
+cursor, so the whole drawing rule is `(cell AND screen_mask) XOR cursor_mask`
+and there is no shape to draw. The masks are asked for **three times with two
+different values**, so they are *state* — a hard-coded `77FF`/`7700` would
+draw the wrong cursor for most of a session. And `01 03 02` is show / ask /
+hide: **Works takes the cursor off before it draws its own screen**, which is
+what a well-behaved DOS application does and is why §96.10.5.3's guard is a
+guard rather than the main mechanism.
+
+**`DHK_TXT` is how "`kern_dos` only" is spelled.** The core is assembled once
+and joined to either host, so it cannot be an `%ifdef`: `kdentry.inc` fills
+the hook and `dos_hk_bind` does not, and in the window the cell stays the zero
+a `.bss` arrives as. `tests/kdmcur.py` asserts **both** arms, because a row
+that only ran arm 3 would pass just as happily with a box that scribbled on
+the desktop.
+
+Measured: `doscore.bin` **15,475 → 15,759** (+284, 113 bytes of `CORE_MAX`
+left), `kerndos.bin` +52, `DOS.O88` +254 packed. Nothing resident on a machine
+that is not running a DOS program.
+
+**The debugging cost one wasted arm and it was the harness's own.** The first
+gate ran only `ui.path("B:/MCURSOR.COM")` — which is the *windowed* box — and
+reported the cursor absent, correctly and uselessly. Reaching arm 3 is
+`tests/kdmouse.py`'s sequence: open `DOS.O88` itself, pick the Memory arm,
+then name the program. And the probe's own labels had no trailing space, so
+`C remasked0741` split as one token and the harness read the label as the
+cell — a parse that says *the cursor was drawn* about a machine where it was
+not.

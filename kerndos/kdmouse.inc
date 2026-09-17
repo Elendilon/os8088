@@ -306,6 +306,63 @@ kd_mou_read:
     popf
     ret
 
+; -----------------------------------------------------------------------------
+; kd_mou_txt - DHK_TXT (SPEC.md 96.10.5.1): the text screen the cursor may
+;              draw on
+; in:  nothing; DS = KD_SEG
+; out: ES = the segment, BX = columns, DX = rows, CF=1 = there is none
+;      AX destroyed, everything else preserved
+;
+; **IT ASKS THE BDA RATHER THAN REMEMBERING**, so a program that changes mode
+; mid-session gets its cursor in the right place with nothing told to us: the
+; ROM maintains `0040:0049` (the mode) and `0040:004A` (the width) on every
+; `int 10h AH=00h`, and a DOS program sets its mode through the ROM.
+;
+; Modes 0-3 are the colour text modes at `B800` and mode 7 is the mono one at
+; `B000`. **ANYTHING ELSE IS REFUSED**, which is not a limitation to apologise
+; for - a pointer in a graphics mode is function `09h`'s bitmap cursor and a
+; different feature (96.10.2).
+;
+; Rows are 25 and are not read back: `0040:0084` is EGA and later, and on the
+; 5150 this project is calibrated against it is somebody else's byte. The
+; ceiling only has to be a bound the core clamps against, and 25 is the true
+; one on every adapter that has these four modes.
+; -----------------------------------------------------------------------------
+kd_mou_txt:
+    push si
+    mov ax, 0x0040
+    mov es, ax
+    mov al, [es:0x49]               ; the mode the ROM last set
+    cmp al, 7
+    je .mono
+    cmp al, 3
+    ja .no                          ; 4, 5, 6 and everything above 7 are
+    mov si, 0xB800                  ; GRAPHICS, and a graphics pointer is 09h
+    jmp short .have
+.mono:
+    mov si, 0xB000
+.have:
+    mov bx, [es:0x4A]               ; the width, which is 40 in modes 0 and 1
+    or bx, bx                       ; ...and zero on a BDA nothing has written,
+    jz .no                          ; which would make the cell arithmetic a
+    or bh, bh                       ; wild store. **AND IT MUST FIT A BYTE**:
+    jnz .no                         ; the core's `row * columns` is `mul bl`,
+                                    ; so a width above 255 would be multiplied
+                                    ; by its low byte and clamped against the
+                                    ; whole word - two different numbers, and
+                                    ; a store past the end of the screen. No
+                                    ; text mode is that wide; a BDA that says
+                                    ; so has been scribbled on
+    mov dx, 25
+    mov es, si
+    pop si
+    clc
+    ret
+.no:
+    pop si
+    stc
+    ret
+
 section .bss
 kdm_base:   resw 1              ; the UART, 0 = no serial mouse on this machine
 kdm_line:   resb 1              ; ...and its bit in the master 8259's mask
