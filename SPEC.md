@@ -352,7 +352,7 @@ BMP hit it immediately, a Note Pad text file never would.
 
 ### 2.1.2 The mount-owned buffers are the FIRST bytes of `.lowbss`
 
-`disk_dir`, `disk_icons` and `dsk_secbuf` are 3,328 bytes with one property
+`disk_dir`, `dsk_icoix` and `dsk_secbuf` are 2,112 bytes with one property
 nothing else in `.lowbss` has: **they and the FAT window come alive at the
 same moment** — `drv_boot`'s first mount — and neither is touched before it.
 Put them at the bottom of the rung and the two are one contiguous region that
@@ -362,18 +362,23 @@ is dead for the whole of `kmain`:
   FAT_SEG   4,608   the FAT snapshot, filled at mount
   +           512   dsk_secbuf   FIRST: the one int 13h TARGET here, so it
                                  takes the rung's 512-aligned base
-  +           768   disk_dir     "ALWAYS exactly a mount snapshot"
-  +         2,048   disk_icons   "fully rewritten every mount"
-  =         7,936   of which 7,680 is READABLE (see below)
+  +         1,536   disk_dir     "ALWAYS exactly a mount snapshot", DSK_NENT
+                                 entries of DSK_DE_STRIDE
+  +            64   dsk_icoix    one reference byte per entry (§25.8)
+  =         6,720   of which 6,656 is READABLE (see below)
 ```
 
-**The region was 8,192 and is 7,936, and the 256 bytes are §19.1's.**
-`disk_dir` holds `DSK_NENT` entries at `DSK_DE_STRIDE`, and that stride
-narrowed from 32 to 24 when the staged listing stopped carrying the record's
-declared-zero tail — 256 bytes of `.lowbss` back to the heap. They come out of
-*here*, and the two facts are the same 256 bytes seen from either end. It is
-worth saying which way the trade runs: the heap gains them and the boot
-overlay's window half loses them.
+**The region was 8,192, then 7,936, and is 6,720** — three moves, and only
+the first was a narrowing of the same thing. `disk_dir` holds `DSK_NENT`
+entries at `DSK_DE_STRIDE`, and that stride narrowed from 32 to 24 when the
+staged listing stopped carrying the record's declared-zero tail — 256 bytes of
+`.lowbss` back to the heap. Then **`disk_icons` left this window entirely**
+(§25.9): its 2,048 bytes were a 16x16 body per entry, and the bodies are one
+machine-wide store now, referenced by the single byte per entry that
+`dsk_icoix` holds. And `DSK_NENT` went 32 → 64 in the other direction, which
+is the +768 on `disk_dir`. It is worth saying which way each trade runs: the
+heap gains all of it and the boot overlay's window half loses all of it, which
+is 1,216 bytes of ceiling that §2.5.3's guard no longer has.
 
 **The bases are 512-aligned and the SIZE is no longer a multiple of 512**, which
 matters because the overlay arrives on the kernel's own `int 13h` read. There
@@ -381,11 +386,11 @@ are TWO bases here: `LOW_SEG`, a rung base, and `dsk_secbuf`, the one buffer
 in the window that is itself an `int 13h` target — and §2.1.1 holds at both
 only because `dsk_secbuf` is the window's FIRST bytes, which `dskwin.inc`'s
 `%if` against the rung base is what holds (it sat at +2,816 once, 256 into a
-sector, and the build's size decided whether a read straddled a DMA page); the region is 15.5 sectors, so the usable ceiling is **7,680** and not
-7,936. `kernel.asm`'s `%if` therefore rounds `OVLW_SIZE` **up** to a whole
+sector, and the build's size decided whether a read straddled a DMA page); the region is 13.125 sectors, so the usable ceiling is **6,656** and not
+6,720. `kernel.asm`'s `%if` therefore rounds `OVLW_SIZE` **up** to a whole
 sector before comparing — the two were the same number while the mount window
-was 7 × 512 exactly, and a guard against 7,936 would pass a 15.5-sector
-overlay whose sixteenth sector lands on `vid_rowtab`.
+was 7 × 512 exactly, and a guard against 6,720 would pass a 13.125-sector
+overlay whose fourteenth sector lands on `vid_rowtab`.
 
 That is what the boot overlay is meant to land in and spill through
 (`docs/plans/completed/BOOT-LADDER-PLAN.md` stage B). §2.5 put `.ovl` in the FAT window on the
@@ -647,9 +652,10 @@ instead of for all 104.
 **It fits because of §2.1.2.** The FAT window is 4,608 and `.ovlw` outgrew it
 when §2.9.12's register moved twenty boot-only bodies into the overlay. The
 mount-owned buffers sit immediately above it now, dead until the same instant,
-so the region is **7,936** — of which **7,680 is readable**, the region being
-15.5 sectors since §19.1's staged listing narrowed. The guard at the foot of
-`kernel.asm` is against that, with `OVLW_SIZE` rounded up to a whole sector.
+so the region is **6,720** — of which **6,656 is readable**, the region being
+13.125 sectors since §25.9 took the icon bodies out of it. The guard at the
+foot of `kernel.asm` is against that, with `OVLW_SIZE` rounded up to a whole
+sector.
 
 **The window half needs no pointer and no liveness guard.** `FAT_SEG` is a
 constant this assembly knows, so `OVWCALL` is a plain far call — nothing to
@@ -664,7 +670,7 @@ bytes are simply forfeit.
 | `BOOT2_SECS` | 19 | **8** |
 | blob `int 13h`, 360 / 720 / 1.44 | 3 / 3 / 2 | **2 / 2 / 2** |
 | sectors read before the first splash pixel | 19 | **8** |
-| overlay pool | 7,168 (480 free) | 4,096 blob + **7,936 window, 7,680 readable** |
+| overlay pool | 7,168 (480 free) | 4,096 blob + **6,720 window, 6,656 readable** |
 | stage 1's floor, kern_big | 125 KB | **115 KB** (`MEMFIT`, derived: `kend` + 8 blob sectors + 2,560 bytes of sector and stack) |
 
 The eleven sectors that left the blob did not leave the disk: they are in the

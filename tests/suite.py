@@ -5397,7 +5397,15 @@ SOAK = [
         "never `paused`, a cap that overflows instead of wedging, and an "
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
-        needs=("marty",), serial=True),
+        # ALONE, for minesrc's reason one layer in: this row PARKS the guest
+        # on a breakpoint and then asserts that it is parked. MEASURED: it
+        # FAILS at --marty-jobs 4 with `the guest is parked at a stop
+        # ('running')` and PASSES at 1, and the two checks that DEPEND on the
+        # park pass in both - so the park happens and the assertion simply
+        # looked too early. A breakpoint's arrival is guest-paced and the
+        # look is host-paced, which is the one pairing contention can always
+        # break.
+        needs=("marty",), serial=True, alone=True),
     Row("altenter", "soak", py("tests/altenter.py"), 33.0,
         "SPEC.md 11.2.1.1: Alt+Enter reaches full screen in BOTH of the "
         "mechanisms apps use - ArtfulType on SPEC.md 11.2's LATCH, where one "
@@ -6082,7 +6090,20 @@ SOAK = [
         "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
         "does nothing on the strip, on an open cell or on a window that was "
         "not already frontmost.",
-        needs=("qemu", "nasm"), serial=True, timeout=900,
+        # ALONE: every click here is paced by a fixed `time.sleep(0.4)` in the
+        # row's own Mouse helper, with nothing confirming guest state - so it
+        # is the shape alone=True is for ("one whose clicks are paced by a
+        # host-timed settle"). MEASURED: it FAILS at --marty-jobs 4 and PASSES
+        # at 1, and the check that goes is G's second press, the one that
+        # follows the only full-window RAISE in the sequence. Under load the
+        # guest does ~37% less work per host wait
+        # (docs/plans/SOAK-PARALLEL.md 1), so the read landed before the flag.
+        # Converting the helper to a guest-confirmed wait (os88marty.quiesce
+        # over [mn_flags], SOAK-PARALLEL 11's pattern) would let it rejoin the
+        # shared lane; until somebody does that this is the honest answer, and
+        # it costs the run nothing - an alone row goes in the same run's
+        # one-at-a-time lane.
+        needs=("qemu", "nasm"), serial=True, alone=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
     Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "

@@ -59,7 +59,13 @@ import os88ui                                                  # noqa: E402
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
 VHD = "build/kdnoprog.vhd"
 CFG = "build/kdnoprog-cfg-%d.bin" % os.getpid()
-MACHINE = "os8088_5150_cga_hdd"
+# ...resolved through os88marty.machine(), NOT named bare: the ROM
+# `os8088_5150_cga_hdd` asks for is IBM's and is not in this tree
+# (CONTRIBUTING.md 6), so MartyPC's pinned build exits at once with `ROM set
+# ibm5150_82_v4 not found` - which is how this row failed the soak, before its
+# first assertion. machine() answers the GLaBIOS twin always, so the row
+# behaves the same on a contributor's box and on one with the ROM staged.
+MACHINE = M.machine("os8088_5150_cga_hdd")
 GONE = "C:\\NOSUCH.COM"                 # ...and it really is not there: the
                                         # fixture below writes four files and
                                         # this is not one of them

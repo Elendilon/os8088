@@ -61,7 +61,13 @@ KERNEL = os.path.join(ROOT, "build", "kernel.sys")
 VHD = os.path.join(ROOT, "build", "dosram.vhd")
 FLOPPY = os.path.join(ROOT, "build", "dosram360.img")
 PROG = "DOSHELLO.COM"
-MACHINE = "os8088_5150_cga_hdd"
+# ...resolved through os88marty.machine(), NOT named bare: the ROM
+# `os8088_5150_cga_hdd` asks for is IBM's and is not in this tree
+# (CONTRIBUTING.md 6), so MartyPC's pinned build exits at once with `ROM set
+# ibm5150_82_v4 not found` - which is how this row failed the soak, before its
+# first assertion. machine() answers the GLaBIOS twin always, so the row
+# behaves the same on a contributor's box and on one with the ROM staged.
+MACHINE = M.machine("os8088_5150_cga_hdd")
 
 CK_ON = 10                              # OS88UI_CK_ON
 HDD_CFGBIT = 1                          # kernel/driver.inc's drv_cfgbit, row 1

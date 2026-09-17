@@ -1228,6 +1228,75 @@ the same one — run it again, on purpose, with one variable moved.
 
 ---
 
+## H1. `trkscrl`: an ARROW KEY ARRIVES TWICE, and it is the ROM's
+
+**MEASURED, and it is not the scroll.** A1 above called this row's failure a
+product defect and was wrong once already (it was a shadowed key); this is the
+second time the row has reported something that is not its subject, and the
+shape is worth keeping.
+
+The row read `down +1 rows: view 0-> 2 scrolls 2 repaints 0 FAIL` - one
+`sendkey down`, two rows of movement, two scrolls. The two candidates - one
+event handled twice, or two events - are indistinguishable from outside, and
+nothing in the tree could tell them apart, because `trk_dbg_key` is hooked on
+the `.ascii` path and an arrow never reaches it.
+
+`tds_keys` and `tds_wkeys` (tests/trkscrl.inc, TRKDBG only; the shipped
+tracker assembles BYTE-IDENTICAL either way) are that instrument, one per
+route, and they answer it in one run:
+
+```
+  down  keys 2      up  keys 2
+  j     keys 1      u   keys 1      k/b/n/c  keys 1
+```
+
+**TWO EVENTS, and the application handled each one correctly** - one row per
+key, which is exactly right. Only the E0-prefixed keys double; every ASCII
+key arrives once.
+
+WHERE IT IS NOT:
+
+  * not the application - it increments once per event;
+  * not the fullscreen bracket's own `int 16h` poll (SPEC.md 53.1), because
+    the WINDOWED route doubles identically: `tds_wkeys` reads 2 through
+    `trk_onkey`, which `ui_task` dispatches;
+  * not `ui_task`, which dispatches exactly one `W_ONKEY` per key it takes
+    from int 16h - the ASCII rows prove that, being 1 for 1;
+  * not `kbm_isr`, which PEEKS port 0x60 and chains `jmp far [cs:kbm_old9]`;
+  * not `kbd_ovflow`, the kernel's ONLY write to the BIOS key buffer
+    (`mov [es:0x1C], ax`, kernel/mouse.inc, one site in the whole tree) -
+    and that path REMOVES the newest entry and runs only when the buffer is
+    already full.
+
+So the buffer held two entries and the ROM put them there. Under QEMU that
+ROM is SeaBIOS. **It is the emulator's keyboard, below os8088 entirely.**
+
+NOT A REGRESSION: `tools/os88bisect.py classify trkscrl -n 3` reads **3/3 bad
+at HEAD and 2/3 bad at the base** - already happening before the branch, and
+HEAD only made it deterministic.
+
+WHAT THE ROW DOES NOW: it asserts its own subject (45.12.2 - a jump of n rows
+is ONE gfx_scroll and no full repaint) **per key the app actually saw**, so
+two presses are expected to cost two one-row scrolls, and it prints a NOTE
+naming the count and the layer whenever a `sendkey` is not one key. It passes,
+and it says so: *"8 jumps, every one a single blit and pixel-identical to a
+repaint"*. Nothing is papered over - the doubling is on the glass every run.
+
+WHAT IS STILL OPEN, and it needs a period BIOS rather than more reasoning:
+does a real XT double an arrow too? If it does, every app that steers on
+Up/Down moves two rows a press on the target machine and that is a product
+defect worth a kernel answer; if it does not, this is one more entry for
+docs/TESTING.md's QEMU list. **It could not be taken here**: the row is on
+QEMU because "the graphics fullscreen is not what a tier-0 machine draws",
+and the windowed route - which needs no VGA and would answer it - could not
+be driven on MartyPC either, because `BEVERLY.MOD` opens by ASSOCIATION
+(SPEC.md 54) and the handler resolves on the disk it was launched from, so
+`os88ui.path("B:/BEVERLY.MOD")` gets `ld_status = 0` and no window. A row
+that drives TRKSCRL.O88 directly would clear that. Worth noting for whoever
+takes it: MartyPC DOES model a VGA (`os8088_xt_vga`), so the row's own reason
+for being on QEMU is worth re-reading before it is trusted.
+
+
 # The tally
 
 | | |

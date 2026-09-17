@@ -601,6 +601,14 @@ trk_onkey:
     push si
     push di
     mov bx, ax                      ; BL = ascii, BH = scan
+%ifdef TRKDBG
+    inc word [tds_wkeys]            ; bench-only, and the WINDOWED half of
+                                    ; tds_keys: one counter per route, because
+                                    ; the bracket polls int 16h itself (53.1)
+                                    ; and this one is dispatched by ui_task -
+                                    ; so which of the two doubles an arrow is
+                                    ; the whole question
+%endif
     call trk_reap                   ; F00/watchdog leftovers close first
     call trk_abdismiss              ; any key takes the About panel down and
     jc .out                         ; is spent doing it
@@ -1671,6 +1679,18 @@ trk_fsx_key:
     push dx
     push si
     push di
+%ifdef TRKDBG
+    inc word [tds_keys]             ; bench-only (tests/trkscrl.inc): HOW MANY
+                                    ; KEYS THE BRACKET ACTUALLY SAW. tests/
+                                    ; trkscrl.py measured Up/Down moving the
+                                    ; stopped view by TWO rows for one
+                                    ; `sendkey`, and the two candidates -
+                                    ; one event handled twice, or two events -
+                                    ; are indistinguishable from outside.
+                                    ; trk_dbg_key cannot answer it: that hook
+                                    ; is on the `.ascii` path and an arrow
+                                    ; never reaches it
+%endif
     or al, al                       ; the keypad trap again: arrows arrive
     jnz .ascii                      ; ascii 0 with a scan code
     cmp ah, 0x4B
