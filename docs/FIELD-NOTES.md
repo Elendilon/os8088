@@ -2140,3 +2140,164 @@ the guest, freezes the BIOS tick at `0040:006C`, and reads exactly like
 read, then the IRQ0 hook — each one **keeping** the symptom, which is what
 should have named the cause several builds sooner. The row uses `pace="wall"`
 and its docstring carries the corpse.
+
+## 49. Dual-screen Herc/CGA: leaving the DOS box's full screen turns the CGA GREEN and flickering (FIXED — the kernel was reading the ROM's ONE mode shadow for a machine with two cards: SPEC.md §39.18.1.1)
+
+Reported off 86Box, an `ibmxt` with a CGA and a Hercules Plus in it and the
+**Hercules made primary** in the Control Panel, the dock on bottom/auto and
+only `SOUND.DRV` mounted: *"opening dos.o88, pressing alt-enter to go
+fullscreen, then exiting fullscreen, with the dos window on the herc primary
+display caused the second cga display to turn green and flicker and have
+corrupted gfx."*
+
+**Reproduced first try on `os8088_5150_both_gla_mono`**, which is that machine
+— a Hercules primary with a CGA beside it — and the mechanism is one byte.
+`vid_unblank_kind`'s CGA arm sourced 3D8h from **40:65h, the BIOS's shadow of
+the CRT mode register**, and a BIOS keeps exactly one of those: it describes
+whichever card the ROM last set a mode on. `fsx_mode(FSXM_TEXT80)` on a
+Hercules display is `int 10h AX=0007h`, so the byte the CGA was handed on the
+way out was **mode 7's `0x29`** — 80x25 text, video on, **blink on** — written
+to a card whose 6845 still carried mode 6's timings.
+
+The three symptoms are three bits of that one byte. The desktop ground is
+§39.4's 50% dither, so decoded as character cells every other attribute byte
+is `0xAA`: background green, foreground light green, blinking. **66.0% of the
+card measured RGB (0,170,0)** and `video(card=1)` read `Mode3TextCo80` where it
+had read `Mode6HiResGraphics`. Nothing was wrong with the pixels the kernel
+wrote — §53.6's `wm_paint_all` repaints both displays correctly, and after the
+fix all 128,000 of them are identical across the round trip.
+
+**Three things it is NOT**, each of which was on the table before the trace:
+not the dock (the report mentions it and `fsx_run` drops an open one anyway),
+not `SOUND.DRV`, and **not Alt+Enter or the DOS box** — any BIOS mode set on
+any other card of a two-card machine does it, and the blank direction had the
+same defect with §64.3's idle blanker as its trigger. So the fix is at the
+source of the byte: `[vid_cgamode]`, banked by `vid_setmode` right after the
+CGA's own `int 10h AX=0006h`, which is the one instant 40:65h is known to
+describe that card. It came out **12 bytes on kern_big and 5 on kern_small**,
+because reading a kernel byte needs no `ES`.
+
+`tests/dispfsxcga.py` is the gate and it was **verified to fail** against the
+kernel before the fix — leg 3 reads `Mode3TextCo80`, leg 4 counts 115,010 of
+128,000 pixels changed — while its leg 2 asserts that the ROM really does move
+40:65h, so the row cannot pass vacuously on a BIOS that does not.
+
+## 50. ...and the REVERSE: the DOS box full screen on the CGA corrupts the HERCULES (FIXED — `vid_text` never got §39.19.4's `vid_cga_equip`: SPEC.md §39.19.4.1)
+
+Entry 49's mirror, same machine, reported the next morning: *"Move the dos
+window over to cga (it won't fully fit because of wm_snap). Go fullscreen.
+Return. The herc screen is corrupted, the CGA screen is fine."* The photograph
+is the desktop sheared — the menu bar squeezed along the top, the dither
+repeating — which is a framebuffer scanned on the wrong timings and not
+anything drawn wrongly.
+
+**It is the EQUIPMENT FLAG, where 49 was the mode shadow.** §39.19.4 already
+knows that the PC/XT ROM's mode set is equipment-driven: with `40:10` bits 5:4
+saying `11b` it forces mode 7 and the 3B4h CRTC *whatever mode was asked for*.
+`vid_setmode` was fixed by moving `vid_cga_equip` above its `VID_CGA` test.
+**`vid_text` has the identical arm and never got the call** — and an fsx
+bracket is what reaches it, because `fsx_mode` on the second display sets
+`[vid_kind] = VID_CGA` while the desktop's primary, and so `40:10`, is still
+the Hercules. So `int 10h AX=0003h` retimed the **Hercules** for 80x25 MDA
+text over its own graphics framebuffer, and the CGA was never touched.
+
+Nothing puts it back, and every step on the way out is individually correct:
+`fsx_restore`'s `vid_setmode` runs before `vid_fsx_leave`, so it sets the
+*bracket's* display's mode; `vid_fsx_leave` republishes geometry and sets no
+mode by design (§39.18.1); and `vid_unblank_kind` writes 3B8h = 0x0A, which
+puts the graphics bit back over a 6845 still timed for text.
+
+**THE BYTE EVERYONE WOULD HAVE WATCHED CANNOT SEE THIS.** IBM's mode-register
+table gives **mode 3 and mode 7 the same value, `0x29`**, so 40:65h reads
+identically whether the ROM honoured the request or forced it — and entry 49's
+gate watches exactly that byte. The mono card's own RASTER is the
+discriminator: 912 wide with its graphics timings, **882** once the ROM has
+retimed it. Measured on `os8088_5150_both_gla_mono`, which is this machine.
+
+**Three things were broken and the report names one.** The Hercules was 134,951
+of 252,000 pixels wrong afterwards (1,322 now, and those are the clock, the
+pointer and the straddling window's own console). **The FULL SCREEN was also
+broken, on the monitor the app was on** — the CGA kept its 640x200 bitmap while
+§96.33's teletype wrote character cells into `B8000`, so it showed 20,320
+coloured pixels where an 80x25 text screen belongs; it is black-and-white text
+now. And `40:10` was left claiming a colour primary for the rest of the
+session, which is the flag §39.20's Restart reads.
+
+**The flag must NOT be restored by `vid_text`**: the DOS box writes through the
+ROM's own teletype while it is full screen and the ROM picks the card off that
+same flag, so putting it back early would send the program's output to the
+monitor it is not on. `vid_fsx_leave` is where it belongs — `vid_disp_init`'s
+extend arm already writes that exact `vid_kind` / `vid_apply` / `vid_equip`
+sequence.
+
+**A THIRD SITE had the same missing line**: `fsx_setbios`, the `int 10h AH=00h`
+behind `fsx_mode`'s plain-BIOS rows, so TANK's `FSXM_CGA320` (§85.3) and Mode
+X carry this defect on the same machine. It is fixed by inspection against the
+mechanism measured twice here — the ROM forces before it looks at which mode
+was asked for, which is why §39.19.4 caught mode 12h and this caught mode 3 —
+and what would exercise it is TANK launched from a Disk window already on the
+second display.
+
+**3 bytes each, 9 on kern_big and 6 on kern_small**, no rung crossed.
+`tests/dispfsxherc.py` is the gate and goes red on four of its five legs
+without the fix.
+
+**And it cost two INSTRUMENT findings, both now in docs/MARTYPC-DEBUG.md.**
+MartyPC's `fbuf` on a SECONDARY card in a graphics mode is not faithful — the
+CGA's memory here is a perfect 50% dither, 8,000 bytes of `0xAA` and 8,000 of
+`0x55`, and the rendered frame has black bands and a solid blue block in it —
+so entry 49's gate reads the framebuffer BYTES and this one reads the
+rasterisation, because this defect never touches a byte and that one leaves
+every byte perfect. And a `settle` after a bracket returns **mid-repaint**:
+`[fsx_cur]` is cleared before `wm_paint_all` runs and the cards are lit after
+it, so the first capture differed from the next by ~4,500 pixels on an idle
+box. Both rows converge now instead of trusting one settle.
+
+## 51. CLEAR SKIES: San Francisco will not fly — the Fly button does nothing at all (FIXED — the LAST stream in the file can never fill a cluster-rounded read: SPEC.md §88.10.5.4.1)
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and **the machine
+is incidental**: San Francisco is the last world in the package file, and that
+is the whole of it. Reproduced on the first attempt and on the first shot,
+under MartyPC — nine locations poked one at a time, eight fly, SFO reports
+`cs_wldnow = FF` with nothing loaded at all.
+
+**A CAPACITY IS WHAT YOU ASK FOR AND A STREAM IS WHAT YOU NEED.** `cs_wldget`
+asks `OSAPI_FILE_READ_AT` for the head slack plus the stream **rounded up to
+whole clusters**, because §20.14.3 wants a cluster multiple for the capacity as
+well as the offset — and then it checked the *delivered* count against that
+same rounded number. Every stream but the last has more file behind it, so the
+read fills the capacity and the check passes by accident. The last one ends at
+EOF and never can.
+
+Measured on the shipped package, 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long — `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+At a 1,024-byte cluster the capacity is 2,048 and the shortfall is larger, so
+**every geometry this ships on fails identically** and no other location does.
+`cs_wldpick` returns `CF=1`, `[cs_wldnow]` stays `0FFh`, and `cs_cmd_fly`'s
+`jc .out` makes the button a no-op — which is §88.10.5.4's symptom exactly,
+reached through the *other* check in the same routine. Both are one mistake in
+one shape: **a size handed to a kernel call that verifies it, taken from the
+room rather than from the thing.**
+
+**`apps/os88partsbody.inc` already had it right.** `op_load`'s chunk loop
+carries `[op_want]` — *"how much of what MUST arrive just did"* — and refuses
+on that, so the shared parts reader was never wrong and this is what the
+package's own hand-rolled copy of that read lost. Six bytes of the package
+image, nothing resident, and `build/skies.o88` is the same 45,255 bytes.
+
+**WHY IT SHIPPED IS THE PART WORTH KEEPING: no row ever flew it.**
+`skieswater` visits LBG, LCY and JFK, `skiesgeom` both Paris runways, and every
+other skies row takes the default location — so of nine places the suite flew
+five, and the one it never picked is the one that was broken.
+`tests/skiesworlds.py` flies **all nine** now, one independent full load each
+(`[cs_wldnow]` forced to `0FFh` first, so nothing passes on its predecessor's
+world), and asserts the world that ARRIVED rather than that the screen changed
+— because a silent load failure takes no mode, so there are no pixels to ask
+about. Verified to fail on SFO alone against the package before the fix.

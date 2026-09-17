@@ -57843,16 +57843,17 @@ is therefore: the desktop's geometry back → `wm_paint_all` → unblank.
 whose mode never changed buys a 32KB clear nobody asked for and a 6845 sync
 transient somebody might see. `vid_unblank_kind` is the exact inverse instead:
 the Hercules' pair is the two writes `vid_setmode` itself makes (3BFh graphics
-allowed, then 3B8h graphics + page 0 + video), and the CGA's comes from the
-BIOS's own shadow of 3D8h at **40:65h** — that register is write-only on the
-card, so the ROM's record is the only honest source for what its mode set
-left there.
+allowed, then 3B8h graphics + page 0 + video), and the CGA's comes from
+`[vid_cgamode]`, the kernel's **own** shadow of 3D8h — that register is
+write-only on the card, so a record of what the mode set left there is the
+only honest source, and §39.18.1.1 is why the record has to be ours rather
+than the ROM's.
 
 **Both directions are one body**, entered through two stubs that differ only
 in the video-enable bit, which each puts **straight into DH** after banking DX
 — never into AH, because `vid_disp_init`'s Single arm holds the primary's kind
-there across the call and stores it back three instructions later. DH is the
-register that survives the CGA arm's `mov ax, 0x0040`. The Hercules arm branches on it and
+there across the call and stores it back three instructions later. The
+Hercules arm branches on it and
 writes exactly what each direction wrote before — 3B8h alone to blank, 3BFh
 then 3B8h to unblank — because 3BFh is the graphics *lock* and a blank that
 also locked graphics out would be a second piece of state for the unblank to
@@ -57884,6 +57885,74 @@ a Hercules+CGA machine the answer is `0x011` or `0x00F`, so Mode X is refused
 either way — and `fsx_mode` re-checks the same bit against the live
 `[vid_kind]` once the bracket has been entered, which is the answer that
 binds.
+
+##### 39.18.1.1 The CGA's mode byte is OURS to remember — a BIOS has one shadow and a machine has two cards
+
+Reported off an XT with a CGA and a Hercules in it, the **Hercules primary**:
+open the DOS box on the Hercules, Alt+Enter into full screen, come back out,
+and *"the second cga display turns green and flickers and has corrupted
+gfx"*. No pixel the kernel wrote is wrong — §53.6's `wm_paint_all` repaints
+both displays correctly on the way out. The CGA is in the **wrong mode**, and
+the byte that put it there came out of the ROM.
+
+**40:65h is the BIOS's shadow of the CRT mode register, and a BIOS has ONE of
+them.** It describes whichever card the ROM last set a mode on, which on a
+two-card machine need not be the card being asked about. Every step of the
+round trip is honest on its own and the sequence is not — measured on
+`os8088_5150_both_gla_mono`, a Hercules primary with a CGA beside it:
+
+| step | 40:65h | the CGA |
+|---|---|---|
+| extended desktop | `1E` | mode 6, 640x200 — `vid_setmode`'s own `int 10h AX=0006h` on the secondary |
+| bracket entered | `1E` | blanked, timings intact: `vid_fsx_enter` runs **before** any mode set |
+| `fsx_mode(FSXM_TEXT80)` | **`29`** | untouched — `vid_text` sets **mode 7 on the HERCULES**, and the ROM stamps its one shadow |
+| bracket left | `29` | **80x25 colour text** — `vid_unblank_kind` reads that shadow and `out 3D8h` |
+
+`0x29` is mode 7's value: bit 0 80x25 text, bit 3 video enable, **bit 5
+blink**. Written to a CGA whose 6845 still carries mode 6's timings it decodes
+the desktop's 640x200 bitmap as character cells — and the desktop ground is
+§39.4's 50% dither, so every other attribute byte is `0xAA`: **background
+green, foreground light green, blinking**. Measured on the glass, **66% of the
+card is RGB (0,170,0)**. The reporter's three symptoms are three bits of one
+byte.
+
+**So the kernel keeps its own shadow.** `[vid_cgamode]` is banked by
+`vid_setmode` immediately after the CGA's `int 10h AX=0006h` — the one moment
+40:65h is guaranteed to describe *this* card — and both directions of
+§39.18.1's body read it instead. What is put back is still the **ROM's**
+choice, so a BIOS that writes `0x1A` where IBM's writes `0x1E` (the composite
+colour-burst bit, and the field machine has a composite CGA in it) keeps its
+own answer; what is dropped is the assumption that nothing moved the byte in
+between. It is **cheaper than what it replaces** and so has no trade to weigh:
+a kernel byte needs no `ES`, so the arm's `mov ax, 0x0040` / `mov es, ax` and
+`vid_bk`'s `push es`/`pop es` go with it.
+
+**The BLANK direction had the same defect and it is the worse one.** In the
+table above the blank happens to run before the mode set and reads an honest
+byte — but nothing orders it that way in general: §64.3's idle blanker runs at
+any time, and once a bracket has set a BIOS mode on another card 40:65h stays
+poisoned for the rest of the session, so the blank would corrupt the CGA with
+no unblank involved. One shadow fixes both ends, which is why this is at the
+**source of the byte** and not at the bracket that exposed it.
+
+**It is not Alt+Enter's and not the DOS box's.** Any BIOS mode set on any
+other card does it: `vid_text` (mode 7, or mode 3 on a colour primary) and
+`fsx_setbios` (the plain CGA rows) are the two a bracket reaches, and a
+VGA-primary machine with a CGA beside it poisons the byte through `fsx_mode`'s
+own arms just the same. `tests/dispfsxcga.py` is the gate, and it asserts the
+**card's mode** rather than its pixels: green is what a person sees, and a
+mode register is what is wrong.
+
+**`[vid_cgamode]` can go stale too, and the one window it has is closed by
+construction** — worth stating, because "keep a copy" is only an answer if the
+copy cannot be read while it is wrong. The copy lies exactly when a bracket
+sets a mode on a CGA that *is* the bracket's own display: `vid_text`'s mode 3
+and `fsx_setbios`'s rows move that card and not the byte. Nothing may read it
+there. The kernel does not run inside a bracket (§53.1), so §64.3's blanker
+cannot; `vid_fsx_unblank` skips `[fsx_vdisp]`, which is that display; and
+`fsx_restore`'s own `vid_setmode` re-banks the byte before it returns. The
+shadow is therefore stale only while the card it describes is the one the app
+is drawing on, and honest again by the time anything asks.
 
 #### 39.18.3 The collapse belongs to the MODE SET, not to the bracket
 
@@ -58364,6 +58433,104 @@ still worth having as the control it turned out to be: it says the
 kernel-side state is right, so what remains is about what reached the CARD.
 **86Box with a VGA in the machine is the instrument, and the field is the
 verdict.**
+
+##### 39.19.4.1 …and `vid_text` is the SAME defect, reached by an fsx bracket
+
+Reported off the same two-card XT as §39.18.1.1, and it is that bug's mirror:
+Hercules primary with a CGA beside it, the DOS box dragged **onto the CGA**,
+Alt+Enter into full screen and back — *"the herc screen is corrupted, the CGA
+screen is fine."*
+
+§39.19.4 fixed `vid_setmode` by moving `vid_cga_equip` above the `VID_CGA`
+test so that either colour card gets it. **`vid_text` has the identical arm
+and never got the call**, and an fsx bracket is what reaches it:
+`fsx_mode(FSXM_TEXT80)` on a CGA display has already put `[vid_kind]` =
+`VID_CGA` (§39.18), and `vid_text` then asks for mode 3 while `40:10` still
+says **mono**, because the desktop's primary is the Hercules and `vid_equip`
+named it. The ROM's mode set is equipment-driven, so it forces mode 7 and the
+3B4h CRTC: the **Hercules** is retimed for 80x25 MDA text over its own
+graphics framebuffer, and the CGA — the display the app is actually on — is
+never touched.
+
+**Nothing puts the Hercules back**, and each step is correct on its own.
+`fsx_restore` calls `vid_setmode` BEFORE `vid_fsx_leave`, so `[vid_kind]` is
+still the bracket's and the mode it sets is the CGA's; `vid_fsx_leave`
+republishes geometry and deliberately sets no mode (§39.18.1); and
+`vid_unblank_kind`'s mono arm writes 3B8h = 0x0A, which puts the GRAPHICS bit
+back over a 6845 the ROM left timed for text. A graphics framebuffer scanned
+on text timings is the photograph the field sent.
+
+**`40:65h` CANNOT TELL THE TWO APART AND THE RASTER CAN.** IBM's mode-register
+table gives **mode 3 and mode 7 the same byte, `0x29`** — so the BIOS shadow
+reads identically whether the ROM honoured the request or forced it, and a
+test that watched that byte would call this fixed. What moves is the mono
+card's own raster. Measured on `os8088_5150_both_gla_mono`, inside the
+bracket:
+
+| | Hercules raster | Hercules pixels wrong after the bracket |
+|---|---|---|
+| before | **882**x370 — retimed for MDA text | **134,951** of 252,000 |
+| after | 912x370 — its graphics timings kept | **1,322** of 252,000 |
+
+The 1,322 that remain are the menu bar's clock, the pointer, and the
+straddling DOS window's own console content, which a full-screen session is
+entitled to change.
+
+**THE HALF NOBODY REPORTED IS THAT THE FULL SCREEN ITSELF WAS BROKEN**, on the
+display the app is on, for the whole session. The CGA never got mode 3, so it
+was still scanning its 640x200 bitmap while §96.33's teletype wrote character
+cells into `B8000` — and what the monitor showed was those cells as *pixels*:
+an 80-column block of blue, green and yellow, against the black-and-white text
+screen it is now. The figure is **0 coloured pixels after, against 20,320 of
+128,000 before**, and it is the leg a gate should carry, because a person who went
+full screen on the second monitor and came back to a wrecked first one has a
+reason not to mention what the second one looked like in between.
+
+**The flag has to be put BACK, and NOT by `vid_text`.** `vid_cga_equip` leaves
+`40:10` saying colour, and for the length of the bracket that is *required*:
+§96.33 has the DOS box write through the ROM's own teletype while it is full
+screen, and the ROM picks the card off that same flag — so restoring it in
+`vid_text` would send the program's output to the monitor it is not on.
+`vid_fsx_leave` is where it belongs, and `vid_disp_init` already wrote the
+pattern one caller along: put `[vid_kind]` back to the desktop's adapter,
+`vid_apply`, then `vid_equip`. Without it a Hercules-primary machine claims a
+colour primary for the rest of the session, which is the invariant §39.20's
+Restart reads — `vid_reboot` blanks 3B8h, locks graphics out and then asks for
+mode 7 through a flag naming the other card.
+
+**THERE IS A THIRD SITE AND IT IS THE SAME LINE AGAIN.** `fsx_setbios` — the
+`int 10h AH=00h` behind `fsx_mode`'s plain-BIOS rows — had no `vid_cga_equip`
+either, so every one of those rows carries this defect on the same machine:
+`FSXM_CGA320`, whose shipped consumer is TANK (§85.3), and Mode X's own
+`int 10h AX=0013h`. It is reached only with a colour `[vid_kind]` —
+`fsx_capstab` gives a Hercules display ids 0 and 4 alone and both branch away
+above the `xlatb` — so the call is correct there unconditionally, exactly as
+`vid_setmode` placing it above its `VID_CGA` test made it correct for the VGA
+arm as well as the CGA one. It is fixed **by inspection against the mechanism
+measured twice above** rather than by a repro of its own, because the forcing
+happens before the ROM looks at which mode was asked for — which is why §39.19.4
+caught mode 12h and this caught mode 3. What would exercise it is TANK launched
+from a Disk window that is itself on the second display.
+
+**None of the three is dual-display-only in its CODE, and all three are in
+practice.**
+`vid_text`'s colour arm on a one-display machine means a colour primary, where
+`vid_cga_equip` is the no-op its own guard makes it; `vid_fsx_leave` returns at
+`[fsx_vndisp] <= 1` before reaching anything. So the cost is **3 bytes each —
+9 on `kern_big` and 6 on `kern_small`, no rung crossed** — and the behaviour of
+every single-display machine is unchanged by construction rather than by a
+test. `tests/dispfsxherc.py` is the gate.
+
+**Its leg 3 must read the RASTERISATION and not the framebuffer**, which is the
+opposite of what `tests/dispfsxcga.py` needs, and the two together are the rule:
+this defect retimes a 6845 and writes no byte of VRAM, so the bytes are
+identical in both arms and only what the card SCANS can see it; that one leaves
+the card's memory perfect and moves a mode register, so the bytes are what says
+the desktop came back — and on a SECONDARY card in a graphics mode this
+emulator's rasterisation is not faithful anyway (docs/MARTYPC-DEBUG.md carries
+the measurement: a framebuffer that is uniformly `0xAA`/`0x55` comes back with
+black bands and a blue block in it). **Pick the instrument from where the defect
+lives.**
 
 #### 39.19.5 The dock's DAMAGE is the primary's too
 
@@ -117352,6 +117519,54 @@ It writes the bytes and *then* reports the mismatch — so the overlay held a
 correct world, the record had its 47 objects, and `cs_wldpick` returned `CF=1`
 all the same. `[cs_wldnow]` stayed `0FFh` and `cs_cmd_fly`'s `jc .out` skipped
 **every** flight: a simulator that opened its window, took a mode and drew
+nothing.
+
+###### 88.10.5.4.1 …and the READ is told a CAPACITY, which the LAST stream can never fill
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and the machine
+is incidental: **San Francisco is the last world in the file**, and that is the
+whole of it.
+
+`cs_wldget` asks `OSAPI_FILE_READ_AT` for `[cs_wgcap]` — the head slack plus
+the stream, rounded **up to whole clusters**, because §20.14.3 wants a cluster
+multiple for the capacity as well as the offset. Then it checked the delivered
+count against that same `[cs_wgcap]`. **A capacity is what you ASK for and a
+stream is what you NEED**, and the two differ by the rounding: every stream but
+the last has more file behind it, so the read fills the capacity and the check
+passes by accident. The last one ends at EOF, so it never can.
+
+Measured on the shipped package — 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long, so `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+It is not a geometry effect. At a 1,024-byte cluster the capacity is 2,048 and
+the shortfall is bigger, so **every floppy this ships on fails the same way**,
+and no other location does.
+
+What that costs is `cs_wldpick` returning `CF=1` with `[cs_wldnow]` still
+`0FFh`, which `cs_cmd_fly`'s `jc .out` turns into a Fly button that does
+nothing at all — §88.10.5.4's symptom exactly, reached through the other check
+in the same routine. Both are the same mistake in the same shape: **a size
+handed to a kernel call that verifies it, taken from the room rather than from
+the thing**.
+
+The fix is the predicate, not the read: compare against `[cs_wgslk]` +
+`[cs_wglen]`, the bytes the expansion is about to consume. Six bytes of the
+package image and nothing resident. **`apps/os88partsbody.inc` already had it
+right** — `op_load`'s chunk loop carries `[op_want]`, *"how much of what MUST
+arrive just did"*, and refuses on that — so the shared reader was never wrong
+and this is what the package's own hand-rolled copy of it lost.
+
+**No row flew San Francisco**, which is why it shipped: `skieswater` visits
+LBG, LCY and JFK, `skiesgeom` both Paris runways, and every other skies row
+takes the default. `tests/skiesworlds.py` flies **all nine**, one independent
+attempt each, and asserts the world that arrived rather than that the screen
+changed — which is the assertion that has an answer when a load silently does
 nothing.
 
 ##### 88.10.5.5 What it cost, and the one thing it takes away
