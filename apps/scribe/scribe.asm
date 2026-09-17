@@ -20617,6 +20617,13 @@ section .text
 ; which is exactly what every line of code referencing these fields already
 ; relies on.
 %assign SCB 508 + SC_MAXROWS*2      ; where the original block ends
+; The button record's size, a MIRROR of os88ui.inc's OS88UI_BT_SIZE
+; because this bss chain is laid out ABOVE that include and the symbol
+; is not defined yet. DOS_BTREC_SZ in apps/dos/dos.asm is the same
+; mirror for the same reason; the %if below the include is what stops
+; either copy drifting.
+SC_BTREC_SZ equ 16
+
 %macro SCVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + SCB
     %assign SCB SCB + %2
@@ -21056,7 +21063,24 @@ section .text
     SCVAR sc_dgr,   8       ; 4 words: a button rect being drawn/hit
     SCVAR sc_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3)
     SCVAR sc_btflg, 2
-    SCVAR sc_btrec, 12
+    SCVAR sc_btrec, SC_BTREC_SZ      ; the record itself - SC_BTREC_SZ and
+                            ; NOT 12, which is what it said and is
+                            ; FOUR SHORT of OS88UI_BT_SIZE: the
+                            ; record's OS88UI_BT_ONCLK (+12) and
+                            ; OS88UI_BT_NEXT (+14) landed on
+                            ; `sc_dgdown` just below and on the
+                            ; first word of `sc_dgrp`. Nothing
+                            ; writes those two offsets TODAY -
+                            ; this package drives the gesture off
+                            ; its own WDD list, not through
+                            ; os88ui_btninit - but btninit is
+                            ; exactly what a conversion adds, and
+                            ; what it would overwrite is this
+                            ; package's own "which control is a
+                            ; press live on". SHEET had the same
+                            ; shortfall and DOES call btninit, so
+                            ; there it was live: five records, four
+                            ; bytes each, every dialog open
     SCVAR sc_dgdown, 2      ; WHICH control a press is live on, 0 for none
 
 ; --- the real .DOC format (scdoc.inc, SPEC.md 68.4) --------------------------
@@ -21266,6 +21290,10 @@ section .text
                                 ; app had the SEVENTH private implementation
                                 ; of it (13.10.6), and its own header said so
 %include "os88ui.inc"
+%if SC_BTREC_SZ != OS88UI_BT_SIZE
+ %error "SC_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the bss chain is laid out before this include, so the size must be written twice; fix the literal"
+%endif
+
 %include "os88type.inc"         ; SPEC.md 6.5: proportional type, and the band
                                 ; it is composed into. AFTER os88ui.inc for no
                                 ; reason but tidiness - it depends on nothing

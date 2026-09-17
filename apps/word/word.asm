@@ -20258,6 +20258,13 @@ section .text
 ; which is exactly what every line of code referencing these fields already
 ; relies on.
 %assign WDB 508 + WD_MAXROWS*2      ; where the original block ends
+; The button record's size, a MIRROR of os88ui.inc's OS88UI_BT_SIZE
+; because this bss chain is laid out ABOVE that include and the symbol
+; is not defined yet. DOS_BTREC_SZ in apps/dos/dos.asm is the same
+; mirror for the same reason; the %if below the include is what stops
+; either copy drifting.
+WD_BTREC_SZ equ 16
+
 %macro WDVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + WDB
     %assign WDB WDB + %2
@@ -20762,7 +20769,24 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
     WDVAR wd_dgr,   8       ; 4 words: a button rect being drawn/hit
     WDVAR wd_btlbl, 2       ; the one control's staging (SPEC.md 20.5.1.3):
     WDVAR wd_btflg, 2       ; a one-entry label array and a one-entry flag one
-    WDVAR wd_btrec, 12      ; ...and the record itself
+    WDVAR wd_btrec, WD_BTREC_SZ      ; the record itself - WD_BTREC_SZ and
+                            ; NOT 12, which is what it said and is
+                            ; FOUR SHORT of OS88UI_BT_SIZE: the
+                            ; record's OS88UI_BT_ONCLK (+12) and
+                            ; OS88UI_BT_NEXT (+14) landed on
+                            ; `wd_dgdown` just below and on the
+                            ; first word of `wd_dgrp`. Nothing
+                            ; writes those two offsets TODAY -
+                            ; this package drives the gesture off
+                            ; its own WDD list, not through
+                            ; os88ui_btninit - but btninit is
+                            ; exactly what a conversion adds, and
+                            ; what it would overwrite is this
+                            ; package's own "which control is a
+                            ; press live on". SHEET had the same
+                            ; shortfall and DOES call btninit, so
+                            ; there it was live: five records, four
+                            ; bytes each, every dialog open      ; ...and the record itself
     WDVAR wd_dgdown, 2      ; WHICH control a press is live on - the WDD
                             ; record's address, 0 for none. Word's own,
                             ; because its buttons are entries in its list
@@ -20917,6 +20941,10 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
                                 ; which is the same story one control along -
                                 ; docs/plans/UI-MENU-ELEMENT.md
 %include "os88ui.inc"
+%if WD_BTREC_SZ != OS88UI_BT_SIZE
+ %error "WD_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the bss chain is laid out before this include, so the size must be written twice; fix the literal"
+%endif
+
 
 ; wd_mnrec's WDVAR size is a LITERAL (the counter is %assign and cannot see an
 ; assembler equ - this file's own WD_PROPDRAW comment is about that exact

@@ -237,6 +237,70 @@ def main():
                        "count out of y2 and the rect pointer out of x1 "
                        "(SPEC.md 20.5.1.3)" % (n + 1, who))
 
+    # --- AND THE RECORD MUST BE OS88UI_BT_SIZE BYTES WIDE ------------------
+    # os88ui_btninit writes OS88UI_BT_ONCLK at +12 and OS88UI_BT_NEXT at +14,
+    # so a record with only 12 bytes reserved puts four bytes of LIBRARY state
+    # on top of whatever the package declared next. SEVEN declarations in the
+    # tree were 12, and FIVE of them were live: Sheet reserves its records by
+    # `<next> equ <rec> + N` and calls btninit on all five dialogs, so every
+    # open wrote its click proc over `sh_fdlg_count`, over `sh_ldsb` (the
+    # scroll-bar block), and over `sh_idlg_win` - the Insert dialog's
+    # single-instance guard, which a code address makes read as "already
+    # open". The other direction is worse: Sheet writing those cells corrupts
+    # OS88UI_BT_NEXT, which is the list link os88ui_btnclick WALKS on every
+    # press, so a garbage pointer gets `[bx+OS88UI_BT_WIN]` compared and a
+    # garbage OS88UI_BT_ONCLK can be `call bx`-ed. Word and Scribe had the
+    # same shortfall latently - neither calls btninit yet, and the four bytes
+    # land on their own `*_dgdown`, "which control is a press live on".
+    #
+    # OS88UI_BTNREC emits the full eight words, so a file using the macro is
+    # right by construction. What this checks is the three hand-rolled shapes.
+    # A reservation given as a SYMBOL is accepted: the assembler guards those
+    # (`%if WD_BTREC_SZ != OS88UI_BT_SIZE`, DOS_BTREC_SZ's own mirror), and a
+    # symbol is what a fixed one looks like.
+    SIZE = 16                   # OS88UI_BT_SIZE, mirrored - and checked below
+    m = re.search(r"^OS88UI_BT_SIZE\s+equ\s+(\d+)", ui, re.M)
+    if not m or int(m.group(1)) != SIZE:
+        bad.append("apps/os88ui.inc's OS88UI_BT_SIZE is %s and this check "
+                   "mirrors %d - fix the literal here"
+                   % (m.group(1) if m else "?", SIZE))
+    elif True:
+        SIZE = int(m.group(1))
+    CHAIN = re.compile(r"^(\w+)\s+equ\s+(\w*btrec\w*)\s*\+\s*(\d+)",
+                       re.M | re.I)
+    VAR   = re.compile(r"^\s*[A-Z]\w*\s+(\w*btrec\w*)\s*,\s*(\d+)\s*(?:;|$)",
+                       re.M | re.I)
+    DWREC = re.compile(r"^(\w*btrec\w*)\s*:\s*dw\s+([^;\n]+)", re.M | re.I)
+    for base in SCAN:
+        for dp, _, fns in os.walk(os.path.join(ROOT, base)):
+            for fn in fns:
+                if not fn.endswith((".asm", ".inc")):
+                    continue
+                fp = os.path.join(dp, fn)
+                rel = os.path.relpath(fp, ROOT).replace(os.sep, "/")
+                s = open(fp, encoding="utf-8", errors="replace").read()
+                for nxt, rec, n in CHAIN.findall(s):
+                    if int(n) < SIZE:
+                        bad.append("%s: `%s equ %s + %s` reserves only %s "
+                                   "bytes for a button record - OS88UI_BT_SIZE "
+                                   "is %d, so os88ui_btninit writes "
+                                   "OS88UI_BT_ONCLK and OS88UI_BT_NEXT on top "
+                                   "of %s (SPEC.md 20.5.1.3.2)"
+                                   % (rel, nxt, rec, n, n, SIZE, nxt))
+                for rec, n in VAR.findall(s):
+                    if int(n) < SIZE:
+                        bad.append("%s: the bss slot for `%s` is %s bytes and "
+                                   "a button record is %d - the last four are "
+                                   "OS88UI_BT_ONCLK and OS88UI_BT_NEXT, and "
+                                   "they land on whatever is declared next "
+                                   "(SPEC.md 20.5.1.3.2)" % (rel, rec, n, SIZE))
+                for rec, body in DWREC.findall(s):
+                    if len(body.split(",")) * 2 < SIZE:
+                        bad.append("%s: `%s` is declared with %d words and a "
+                                   "button record is %d bytes (SPEC.md "
+                                   "20.5.1.3.2)"
+                                   % (rel, rec, len(body.split(",")), SIZE))
+
     for path in sorted(reg):
         if path not in live:
             bad.append("%s is in tests/btnsites.txt and calls neither - drop "
