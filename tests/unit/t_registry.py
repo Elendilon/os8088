@@ -395,6 +395,24 @@ def main():
         # call: under the runner an undeclared target is an error and not a
         # build. A wrong `wants=` therefore fails the row that owns it rather
         # than the run beside it, which is the property this flag is for.
+        # A `wants=` ENTRY IS A PATH, NEVER A MAKE TARGET, and getting that
+        # wrong is a row that SKIPS FOR EVER. tools/os88test.py's prebuild
+        # runs `make <entry>` and then asks `os.path.exists(ROOT/<entry>)`,
+        # so a phony target builds fine, exits 0, and still reports as an
+        # artefact that "would not build" - after which every row wanting it
+        # skips. `btngesture` landed with `wants=("marty",)`, which is the
+        # emulator CAPABILITY and belongs in `needs=`: it never ran once, and
+        # nobody investigates a skip (docs/WRITING-TESTS.md 1). The registry's
+        # own comment on `wants` already says "Paths, not make targets"; this
+        # is that sentence made checkable.
+        for w in r.wants:
+            check("/" in w, "row %s wants `%s`, which is not a path" % (r.name, w),
+                  "the runner builds a wants= entry with `make <it>` and then "
+                  "tests os.path.exists on it, so a phony target can never "
+                  "satisfy the check and the row skips on every run. An "
+                  "emulator or toolchain requirement goes in needs=; a build "
+                  "artefact goes here as the path the row opens",
+                  got=repr(w), want="a build/... path, or needs=(...)")
         if priv and not makes and r.builds:
             check(False, "row %s builds PRIVATELY and is still builds=True"
                   % r.name,

@@ -130415,11 +130415,23 @@ The core is assembled **once** and joined to either host (§96.44), so
     DHK_TXT   out: ES = the text segment, BX = columns, DX = rows
                    CF=1 = there is no text screen you may draw on
 
-`dos_hk_bind` does not set it; `kdentry.inc` does. In the windowed box the
-cell stays the zero a `.bss` arrives as, `dos_m33_paint` refuses at its second
-instruction, and `01h`/`02h` are the no-ops they always were — which is
-correct there, because `B800` belongs to the kernel and the OS owns every
-pixel on the glass.
+**BOTH HOSTS SET IT, and the first version of this section said only
+`kern_dos` should** — on the reasoning that in the window the OS owns every
+pixel and `B800` is the kernel's. That is true *outside* the fullscreen
+bracket, and a DOS program is never outside it: `dos_fsx_main` calls
+`OSAPI_FSX_MODE` with `FSXM_TEXT80` before the program is entered, and the
+kernel hands back the surface in `dos_fsi` — the very screen `con_tx_ice` has
+been writing the DOS console into since §96.34.4. So the windowed host has a
+text screen for the whole of a program's life, and refusing to draw on it was
+refusing on a fact that does not hold.
+
+**What is genuinely per-host is the SOURCE, not the existence.**
+`OSAPI_FSX_CAPS` answers the *display's* own kind for a window that is not on
+the primary (§53.7.1), so the BDA describes the machine where `FSI` describes
+the surface this bracket was given: a window on the second display would have
+been drawn on out of the wrong segment. `kern_dos` has no bracket and reads
+the BDA; the windowed host has one and reads its record. Two hosts, two hook
+bodies, one core — which is what §96.44.3's table is for.
 
 `kern_dos`'s side reads the BDA the ROM maintains: `0040:0049` for the mode
 (7 → `B000`, 0–3 → `B800`, anything else refused, a graphics-mode pointer
@@ -130484,6 +130496,46 @@ still misses the direct stores, which is how every application draws. What it
 removes is the visible half — the stale character left behind — and it leaves
 only the case where the program overwrote the cell with something that
 happens to equal what we put there.
+
+### 96.10.6 A function with no return value must leave `AX` ALONE
+
+`INT 33h` has **no not-supported convention**. There is no carry flag and no
+error code: a function that documents an output sets it, and a function that
+documents none comes back with the registers as they went in — so a real
+driver returns from `07h` or `08h` with `AX` still holding the function
+number, because nothing in it ever wrote to `AX`.
+
+This box used to answer every function it did not implement with
+`xor ax, ax`, under a comment reading *"INT 33h's not supported"*. **Zero is
+not a polite refusal — it is an answer**, and there is a caller asking that
+question.
+
+**Microsoft Works is that caller, and this cost the box the whole mouse
+cursor** (docs/FIELD-NOTES.md 54). Its mouse init, disassembled out of
+`WORKS.EXE` itself, ends:
+
+```
+    mov ax, 8
+    int 33h              ; set the Y range - NO documented return value
+    mov [98CAh], al      ; ...AND THAT IS THE `mouse present` FLAG
+```
+
+`08h` was not in the dispatcher, so it fell through to the zeroing exit, and
+the flag went in as 0. Every call before it — `00h`, `0Ah`, `0Ch` — had been
+answered correctly, and the trace of the init is identical to a real DOS with
+CTMOUSE loaded right up to that last instruction.
+
+**What it presents as is HALF a working mouse**, which is why it survived a
+gate and two field reports: the event handler installed at `0Ch` is still
+hooked and still called, so the buttons work and menus open, while the program
+never asks for a cursor (`01h`) and never polls the position (`03h`). Nothing
+in our own trace looks wrong, because nothing we *said* was wrong — the defect
+is a register we wrote to when we should have left it.
+
+`07h` and `08h` are named in the dispatcher now rather than falling off the
+end. They clamp nothing — the host's pointer is already inside the screen —
+but they are no-ops that preserve `AX`, and `tests/dostrap/mcursor.asm`'s
+check F is the ratchet.
 
 ### 96.11 File handles, built on an API that has none
 

@@ -1016,7 +1016,7 @@ FAST = [
         "code this replaces it already had. Soak because it is about one "
         "package and needs an emulator (docs/WRITING-TESTS.md 2.1); "
         "tests/unit/t_btnrules.py is the static half that catches a NEW "
-        "offender", wants=("marty",)),
+        "offender", needs=("marty",)),
     Row("btnall", "soak", py("tests/btnall.py"), 95,
         "EVERY converted button, DRIVEN: the record is aimed after a plain "
         "paint, its rects are a sane rectangle inside the window, a press "
@@ -1027,7 +1027,7 @@ FAST = [
         "whole click handler unconverted, Audio hit-tested screen rects with "
         "content-relative coordinates) and every one was found by a person "
         "looking at a screen. All four are visible in BT_DOWN and BT_N",
-        wants=("marty",)),
+        needs=("marty",)),
     Row("btncp", "soak", py("tests/btncp.py"), 75,
         "THE FAR SIDE of the button (SPEC.md 2.6): the Control Panel is an "
         "on-demand module with a CS of its own and reaches the control by "
@@ -1038,7 +1038,7 @@ FAST = [
         "coordinates, and Date/Time filled the whole screen white. It asserts "
         "PIXELS: a garbage rect whites the SCREEN, and a page that drew "
         "nothing has an empty pane",
-        wants=("marty",)),
+        needs=("marty",)),
     Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
         "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "

@@ -102,6 +102,20 @@ start:
     mov dl, 10
     int 0x21
 
+    ; --- F: A FUNCTION WITH NO RETURN VALUE LEAVES AX ALONE --------------
+    ; This is Microsoft Works's own test, instruction for instruction
+    ; (SPEC.md 96.10.6): it sets the Y range and then stores AL as its
+    ; `mouse present` flag. A box that answers 08h with a zero has told it
+    ; there is no mouse at the END of an init it answered correctly - and the
+    ; program then never asks for a cursor, while the event handler it already
+    ; installed keeps working. Half a working mouse, which is how this
+    ; survived a gate that only drove the drawing.
+    mov cx, 0
+    mov dx, 0x00C0                  ; Works's own arguments
+    mov ax, 0x0008
+    int 0x33
+    mov [r_f], ax
+
     ; --- the verdict, which is arithmetic and not a photograph -----------
     mov si, s_a
     mov ax, [r_a]
@@ -122,6 +136,10 @@ start:
     mov si, s_e
     mov ax, [r_e]
     mov bx, (CELL & M2_S) ^ M2_C
+    call judge
+    mov si, s_f
+    mov ax, [r_f]
+    mov bx, 0x0008                  ; AX as it went in, not a zero
     call judge
 
     cmp byte [n_bad], 0
@@ -311,6 +329,7 @@ s_b:     db 'B hidden   ', 0       ; are all the same width: the host side
 s_c:     db 'C remasked ', 0       ; splits this line on whitespace, and
 s_d:     db 'D nested   ', 0       ; `remasked0741` is one token
 s_e:     db 'E restored ', 0
+s_f:     db 'F ax kept   ', 0
 s_want:  db ' want ', 0
 s_yes:   db ' ok', 0
 s_no:    db ' BAD', 0
@@ -326,4 +345,5 @@ r_b:     dw 0
 r_c:     dw 0
 r_d:     dw 0
 r_e:     dw 0
+r_f:     dw 0
 n_bad:   db 0
