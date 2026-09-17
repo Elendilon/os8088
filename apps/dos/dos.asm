@@ -256,12 +256,30 @@ DOS_TRDUMPN equ 64                  ; ...and how many of them TRACE.LOG holds,
 ; bytes and no code.
 DOS_TRD_OFF equ 0                           ; the rendered dump...
 DOS_TRB_OFF equ DOS_TRDUMPN * 72            ; ...and THEN the ring
-DOS_TRACE_BY equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ + DOS_TRNM_N * 15 + 96
+DOS_TR33_OFF equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ
+                                            ; ...and the mouse histogram after
+                                            ; it, IN THE PART and not in bss
+                                            ; (SPEC.md 96.10.3): `dos_int33` is
+                                            ; CORE, so a host cell is one it
+                                            ; may not name at all (96.44.2
+                                            ; rule 2) and a conditional DBSS
+                                            ; row is refused by rule 1. What
+                                            ; the core owns is the SEGMENT,
+                                            ; two unconditional bytes
+DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_N + DOS_TRNM_N * 15 + 96
 DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
                                     ; failure under investigation makes
                                     ; exactly ONE open in a whole session
+DOS_TR33_N  equ 32                  ; INT 33h functions counted (SPEC.md
+                                    ; 96.10.3). 32 covers every function a
+                                    ; real-mode driver published up to
+                                    ; Microsoft 6.x bar the 0x20s, and the ones
+                                    ; above are the ones no 1987 program calls;
+                                    ; AX above this simply lands in the last
+                                    ; bucket, which is a reading too and not a
+                                    ; wild store
 DOS_ARGSZ   equ 128
 DOS_ARGMAX  equ 127                 ; ...what LN_MAX gets: 126 characters + NUL
 DOS_PBUF    equ 80                  ; the program's own path for the environment
@@ -734,6 +752,8 @@ dos_entry:
     xor al, al
     call op_seg                     ; AX = the part's segment, or 0
     mov [dos_trseg], ax
+    mov [dos_m33seg], ax            ; ...and the CORE's own copy, which is what
+                                    ; `dos_int33` may name (SPEC.md 96.10.3)
     pop es
 %endif
 
@@ -2906,7 +2926,17 @@ dos_int21:
     jz .opro                        ; and OSAPI_FILE_WRITE_AT can overwrite what
     cmp al, 2                       ; the file already owns. Mode 0 stays
     ja .opro                        ; read-only and 3..7 is not an access mode
-    or byte [si+FH_FLAGS], FHF_WRITE | FHF_INPLC
+    or byte [si+FH_FLAGS], FHF_WRITE | FHF_INPLC | FHF_MADE
+                                    ; **AND `MADE` AT THE OPEN** (96.11.6.3):
+                                    ; it means "the file is on the disk, so a
+                                    ; flush APPENDS rather than replacing",
+                                    ; which is true of an OPENED file from the
+                                    ; first instruction. `.iappend` used to
+                                    ; assert it instead, and that is a LIE on
+                                    ; a created handle reaching the same arm
+                                    ; through the gap above: nothing has been
+                                    ; flushed, so the file does not exist, and
+                                    ; the append would go onto nothing
 .opro:
     test byte [dos_fent+22], OSAPI_FIND_CZ
     jz .opdone
@@ -3042,15 +3072,35 @@ dos_int21:
                                     ; the record only here
     test byte [si+FH_FLAGS], FHF_INPLC
     jnz .fwinpl                     ; an AH=3Dh handle OVERWRITES (96.11.6)
-    mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
-    cmp ax, [si+FH_SIZE]            ; (SPEC.md 96.11.2): a write anywhere but
-    jne .fhacc                      ; the end is one a handle that CREATED the
-    mov ax, [si+FH_POS+2]           ; file cannot make, and reporting success
-    cmp ax, [si+FH_SIZE+2]          ; for it would lose the program's data
-    jne .fhacc                      ; silently
+
+    ; --- BEFORE the end, AT it, or PAST it - three answers (96.11.6.3) ------
+    ; It was `jne .fhacc` twice, which is not an ordering test at all: it
+    ; refused a write PAST the end exactly as it refused one BEHIND it, and
+    ; those are opposite cases. Behind is §96.11.2's real refusal - a write
+    ; into the middle of a file this handle created, which the append path
+    ; cannot make. PAST is a GAP, which 96.11.6.1 already lays, and Microsoft
+    ; Works reported it as `Cannot write file`: create, seek to 0x180 on the
+    ; empty file, write there, which is that section's own first bullet -
+    ; pre-allocating a header to patch later.
+    mov ax, [si+FH_POS+2]           ; the HIGH words first, so this is an
+    cmp ax, [si+FH_SIZE+2]          ; UNSIGNED 32-BIT compare and not two
+    ja .fwgap                       ; equality tests wearing one
+    jb .fhacc
+    mov ax, [si+FH_POS]
+    cmp ax, [si+FH_SIZE]
+    ja .fwgap
+    jb .fhacc
     call dos_fh_wrloop
     jc .fherr
     jmp .fhok
+.fwgap:
+    ; ...and the gap arm is dos_fh_wiloop's `.ihole`, which is chosen on the
+    ; same compare and needs no flag: it lays [SIZE, POS), rewinds, and hands
+    ; the program's own bytes back to the append accumulator through
+    ; `.iappend`. FHF_INPLC is NOT set here - `.ihstep` takes it for the
+    ; length of a chunk and `.iappend` gives it back, and a created handle
+    ; that kept it would flush through WRITE_AT onto a file that does not
+    ; exist yet.
 .fwinpl:
     call dos_fh_wiloop              ; ...and it may not GROW one: the loop
     jc .fherr                       ; stops at the end of file and answers
@@ -3080,9 +3130,19 @@ dos_int21:
     mov si, dos_fname
     call dos_be_delete
     pop si
-    jc .fhacc
+    jc .dlerr
     xor ax, ax
     jmp .fhok
+.dlerr:
+    cmp ax, FERR_NOENT              ; THE NAME IS NOT THERE, and DOS says 2 for
+    jne .fhacc                      ; that (SPEC.md 96.11.9) - `.rnerr` above
+    mov al, 2                       ; already makes this exact distinction for
+    jmp .fherr                      ; AH=56h, and AH=41h was sending every
+                                    ; refusal to 5. Microsoft Works unlinks the
+                                    ; backup name before each save, so it asks
+                                    ; this question on every Save As and got
+                                    ; "access denied" about a file that simply
+                                    ; was not there
 
 .seek:
     ; AH=42h: AL = the origin, BX = the handle, CX:DX = a SIGNED offset; out
@@ -10333,6 +10393,41 @@ dos_int33:
     push si
     push di
 
+%ifdef DOSTRACE
+    ; --- THE HISTOGRAM (SPEC.md 96.10.3), and NOTHING when the trace is off.
+    ; It is here and not in the ring because the ring's every host-side reader
+    ; decodes an entry as an INT 21h call - and the question this answers
+    ; wants no ordering and no arguments: WHICH mouse functions does the
+    ; program ask for at all. A program that never calls 33h reads as 32
+    ; zeroes, which is a finding; one that calls 0x0C and then waits reads as
+    ; a single 1 in a bucket we answer `not supported` to, which is a
+    ; different finding, and no amount of reading our own INT 21h trace
+    ; separates the two.
+    ;
+    ; **THE BUCKETS ARE IN THE PART AND THE SEGMENT IS THE CORE'S.** This
+    ; routine is core (96.44), so 96.44.2 rule 2 forbids it a host bss cell
+    ; and rule 1 forbids a DBSS row that only one build emits - which between
+    ; them leave exactly this shape. `[dos_m33seg]` is two unconditional core
+    ; bytes; a host that does not set it counts nothing and stores nowhere.
+    push si
+    push es
+    mov si, [dos_m33seg]
+    or si, si
+    jz .tr33out                     ; no part: the trace is silent and the
+    mov es, si                      ; program runs, which is what OP_OPT means
+    mov si, ax
+    cmp si, DOS_TR33_N              ; anything above lands in the top bucket,
+    jb .tr33in                      ; which is a reading and not a wild store
+    mov si, DOS_TR33_N - 1
+.tr33in:
+    cmp byte [es:si+DOS_TR33_OFF], 0xFF ; saturating: a poll loop must not wrap
+    je .tr33out                         ; the count round to zero and read as
+    inc byte [es:si+DOS_TR33_OFF]       ; "never called"
+.tr33out:
+    pop es
+    pop si
+%endif
+
     or ax, ax
     jz .reset
     cmp ax, 1
@@ -10349,16 +10444,22 @@ dos_int33:
     je .release
     cmp ax, 0x0B
     je .motion
-    jmp short .none
+    cmp ax, 0x0C
+    je .setevt
+    cmp ax, 0x14
+    je .swpevt
+    jmp .none
 
 .reset:
     call dos_mou_zero              ; a reset clears the edge state with it
-    mov ax, 0xFFFF                 ; a mouse IS installed - and it is, whatever
-    mov bx, 2                      ; the machine has, because the kernel found
-    jmp short .out                 ; one at boot or the pointer would not move
+    call dos_m33_drop              ; ...and the EVENT HANDLER, which is what a
+    mov ax, 0xFFFF                 ; real driver's reset does (SPEC.md 96.10.4)
+    mov bx, 2                      ; a mouse IS installed - and it is, whatever
+    jmp .out                       ; the machine has, because the kernel found
+                                   ; one at boot or the pointer would not move
 .pos:
     call dos_mou_read              ; BX = the buttons, CX = x, DX = y
-    jmp short .out
+    jmp .out
 .press:
     mov si, bx                     ; the button asked about, banked before the
     call dos_mou_read              ; read overwrites BX with the live mask
@@ -10369,7 +10470,7 @@ dos_int33:
     xor bh, bh                     ; it is a count and not a flag
     mov cx, [dos_mou_px]
     mov dx, [dos_mou_py]
-    jmp short .out
+    jmp .out
 .release:
     mov si, bx
     call dos_mou_read
@@ -10384,6 +10485,69 @@ dos_int33:
 .motion:
     call dos_mou_delta             ; CX = dx, DX = dy since the last call -
     jmp short .out                 ; derived, see the header
+.setevt:
+    ; AX=000Ch: ES:DX = the handler, CX = the events it wants (SPEC.md
+    ; 96.10.4). It answers nothing, which is why the machinery below has to
+    ; be right the first time: a program that installs one and is never
+    ; called has been told a mouse exists and then never hears from it again,
+    ; and cannot tell that from no mouse at all. Microsoft Works is that
+    ; program - it calls 00h, 08h, 0Ah and this, and then NOTHING.
+    ; **THE THREE STORES ARE ONE**, and `dos_int33` `sti`'d at its own first
+    ; instruction, so the tick below can land between any two of them: an
+    ; offset stored against the PREVIOUS segment is a far call into whatever
+    ; is there. It is four bytes to make it impossible.
+    pushf
+    cli
+    mov [dos_m33h], dx
+    mov [dos_m33h+2], es
+    mov [dos_m33m], cx
+    popf
+    jcxz .evdrop                   ; a mask of nothing IS the uninstall, and so
+    cmp word [dos_m33h+2], 0       ; is a segment of zero: both are how a
+    je .evdrop                     ; program takes its handler back before it
+    call dos_m33_arm               ; frees the code under it
+    jmp short .evout
+.evdrop:
+    call dos_m33_drop
+.evout:
+    xor ax, ax                     ; 0Ch returns nothing; AX is not a status
+    jmp short .out
+.swpevt:
+    ; AX=0014h: the same, and it hands the OLD one back in ES:DX/CX. Fifteen
+    ; bytes on top of 0Ch, and it is what a program that installs a handler
+    ; around one operation uses to put the previous one back.
+    push cx
+    push dx
+    push es
+    pushf                          ; the OUT and the IN are one section, for
+    cli                            ; .setevt's reason
+    mov cx, [dos_m33m]
+    mov dx, [dos_m33h]
+    mov ax, [dos_m33h+2]
+    mov [dos_m33om], cx
+    mov [dos_m33oh], dx
+    mov [dos_m33oh+2], ax
+    pop es
+    pop dx
+    pop cx
+    mov [dos_m33h], dx
+    mov [dos_m33h+2], es
+    mov [dos_m33m], cx
+    popf
+    jcxz .swdrop
+    cmp word [dos_m33h+2], 0
+    je .swdrop
+    call dos_m33_arm
+    jmp short .swout
+.swdrop:
+    call dos_m33_drop
+.swout:
+    mov cx, [dos_m33om]
+    mov dx, [dos_m33oh]
+    mov ax, [dos_m33oh+2]
+    mov es, ax
+    xor ax, ax
+    jmp short .out
 .none:
     xor ax, ax                     ; INT 33h's "not supported"
 .out:
@@ -10391,6 +10555,196 @@ dos_int33:
     pop si
     pop ds
     pop bp
+    iret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_arm - hook IRQ0 so the event handler has something to be called from
+; clobbers: nothing
+;
+; **THE TICK IS THE ONLY THING THAT FIRES** (SPEC.md 96.10.4.1). A real mouse
+; driver dispatches from its OWN interrupt - the serial port's, or the aux
+; port's - and this box has neither: the kernel owns both ISRs and keeps
+; `mouse_x`/`mouse_y`/`mouse_btn` fresh for the whole bracket (SPEC.md 53.1),
+; which is what makes function 3 exact and costs a translation instead of a
+; driver. What it does not give is a moment of OUR code running, and a
+; callback needs one.
+;
+; Everything else the box gets control at is the program calling us, and a
+; program that installed a handler is precisely the program that has stopped
+; calling: Works installs one and never touches INT 33h again. `dos_getkey`
+; is no better - that is INT 21h's key read, and an application with a mouse
+; polls INT 16h itself.
+;
+; So: chain IRQ0. 18.2 Hz is coarser than a serial mouse's ~40 and it is what
+; an 8088-era program gets from a tick; for a menu-driven application it is
+; the difference between a mouse and none. Chaining the MOUSE IRQ would be
+; better and is not free - the kernel knows which one it is and we would have
+; to ask, and a PS/2 mouse is a different line again (SPEC.md 9.9).
+;
+; THE HOOK IS ONE-SHOT and the unhook is `dos_restore_machine`'s, which puts
+; the WHOLE IVT back (96.5) - so a second 0Ch re-arms nothing and there is no
+; way to leave a vector pointing into a bracket that has ended.
+; -----------------------------------------------------------------------------
+dos_m33_arm:
+    cmp byte [dos_m33hk], 0
+    jne .out
+    push ax
+    push es
+    pushf                           ; pushf/cli/popf and never cli/sti - this
+    cli                             ; is reached from `dos_int33`, whose own
+    xor ax, ax                      ; caller's IF is not ours to set
+    mov es, ax
+    mov ax, [es:0x08*4]             ; whatever is there NOW, which on a machine
+    mov [dos_m33old], ax            ; with the packet driver up is its own tick
+    mov ax, [es:0x08*4+2]           ; (96.23.4) - two hooks compose, because
+    mov [dos_m33old+2], ax          ; both chain what they found
+    mov word [es:0x08*4], dos_m33_tick
+    mov [es:0x08*4+2], cs
+    mov byte [dos_m33hk], 1
+    popf
+    pop es
+    pop ax
+.out:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_drop - forget the handler; the VECTOR stays hooked
+; clobbers: nothing
+;
+; Unhooking would mean putting back a vector that a third party may have
+; hooked since, which is the classic way to lose an interrupt chain. The
+; dispatcher's first test is the handler's segment, so a dropped handler costs
+; a compare and a jump per tick and nothing else.
+; -----------------------------------------------------------------------------
+dos_m33_drop:
+    pushf
+    cli
+    mov word [dos_m33h+2], 0        ; the SEGMENT first: it is the dispatcher's
+    mov word [dos_m33h], 0          ; own test, so a tick landing mid-drop sees
+    mov word [dos_m33m], 0          ; a handler that is already gone
+    popf
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_tick - IRQ0, chained, and the program's callback out of it
+;
+; **THE CHAIN GOES FIRST**, `dos_pkt_tick`'s rule (96.23.4.1) and for its
+; reason: the tick reaches the kernel at the depth it always did.
+;
+; **IT DOES NOT GO THROUGH `dos_mou_read`.** That routine feeds
+; `dos_mou_edge`, which is the press/release accumulator functions 5 and 6
+; consume (96.10.1) - and this runs from an interrupt that can land in the
+; middle of `dos_int33` doing exactly that, `dos_int33` having `sti`'d at its
+; own first instruction. A dispatcher that shared the accumulator would eat a
+; click the program was about to be told about, intermittently. So it asks
+; the host hook directly and keeps its OWN last-seen state, which nothing
+; else reads.
+;
+; **IT RUNS ON THE PROGRAM'S STACK, and that is the contract rather than a
+; shortcut** (96.10.4.2): the callback is program code entered at interrupt
+; time, which is what installing one means, and IRQ0 already lands on that
+; stack every tick. A private stack would cost 256 bytes of the core's bss in
+; every build, resident, to defend against a program whose stack cannot take
+; an interrupt - and such a program is already broken on any machine.
+; -----------------------------------------------------------------------------
+dos_m33_tick:
+    pushf                           ; the chain, exactly as an `int` would
+    call far [cs:dos_m33old]        ; have entered it - and through CS, since
+                                    ; DS is the interrupted program's
+    push ax
+    push ds
+    push cs
+    pop ds
+    cmp word [dos_m33h+2], 0        ; no handler: two instructions a tick
+    je .out
+    cmp byte [dos_m33bsy], 0        ; a callback that ran long enough to be
+    jne .out                        ; interrupted by the next tick
+    mov byte [dos_m33bsy], 1
+
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    xor bx, bx                      ; the LIVE pointer, from the host (96.44.3)
+    xor cx, cx
+    xor dx, dx
+    cmp word [dos_hkv + DHK_MOUSE], 0
+    je .nothing
+    call word [dos_hkv + DHK_MOUSE] ; BX = buttons, CX = x, DX = y
+
+    ; --- which of INT 33h's five conditions have happened since last time ---
+    xor ax, ax
+    cmp cx, [dos_m33lx]
+    jne .moved
+    cmp dx, [dos_m33ly]
+    je .nomove
+.moved:
+    or al, 1
+.nomove:
+    mov ah, [dos_m33lb]
+    mov si, bx                      ; SI = the live mask, AH = the last one
+    test si, 1
+    jz .lup
+    test ah, 1
+    jnz .rbtn
+    or al, 2                        ; left DOWN
+    jmp short .rbtn
+.lup:
+    test ah, 1
+    jz .rbtn
+    or al, 4                        ; left UP
+.rbtn:
+    test si, 2
+    jz .rup
+    test ah, 2
+    jnz .evdone
+    or al, 8                        ; right DOWN
+    jmp short .evdone
+.rup:
+    test ah, 2
+    jz .evdone
+    or al, 16                       ; right UP
+.evdone:
+    ; --- the mickeys, DERIVED from the position (96.10.2's last bullet) -----
+    mov si, cx
+    sub si, [dos_m33lx]
+    mov di, dx
+    sub di, [dos_m33ly]
+
+    ; --- and the state is banked BEFORE the call, never after: the callback
+    ; may take longer than a tick, and a second one that recomputed against
+    ; the old position would report the same movement twice
+    mov [dos_m33lx], cx
+    mov [dos_m33ly], dx
+    mov [dos_m33lb], bl
+
+    xor ah, ah
+    and ax, [dos_m33m]              ; only what the program asked for
+    jz .nothing
+    call far [dos_m33h]             ; AX = the events, BX = the buttons,
+                                    ; CX/DX = where, SI/DI = the mickeys, and
+                                    ; DS = OURS, which is the driver's own -
+                                    ; a handler sets up its own from CS
+.nothing:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    mov byte [dos_m33bsy], 0
+.out:
+    pop ds
+    pop ax
     iret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -11258,6 +11612,27 @@ DOS_CBASE   equ os88_image_end
     DBSS DOS_B_MPY,   2        ; between the buttons (SPEC.md 96.10.1)
     DBSS DOS_B_MRX,   2
     DBSS DOS_B_MRY,   2
+    DBSS DOS_B_M33H,   4        ; the INT 33h EVENT HANDLER (SPEC.md 96.10.4),
+                                ; segment 0 = none...
+    DBSS DOS_B_M33M,   2        ; ...and the events it asked for
+    DBSS DOS_B_M33OH,  4        ; the one function 14h displaced, staged across
+    DBSS DOS_B_M33OM,  2        ; the swap because ES:DX/CX are the ANSWER
+    DBSS DOS_B_M33OLD, 4        ; whatever was on IRQ0 when we hooked it
+    DBSS DOS_B_M33LX,  2        ; where the pointer was at the LAST DISPATCH -
+    DBSS DOS_B_M33LY,  2        ; ours alone, never dos_mou_edge's, which
+    DBSS DOS_B_M33LB,  1        ; functions 5 and 6 consume (96.10.4.1)
+    DBSS DOS_B_M33HK,  1        ; 1 = IRQ0 is hooked, and it is hooked ONCE
+    DBSS DOS_B_M33BSY, 1        ; 1 = a callback is running below us
+    DBSS DOS_B_M33SEG, 2        ; **WHERE THE MOUSE HISTOGRAM LIVES** (SPEC.md
+                                ; 96.10.3), 0 = nowhere. UNCONDITIONAL and in
+                                ; the CORE's block, which is what 96.44.2's
+                                ; first two rules leave: `dos_int33` is core,
+                                ; so it may not name a host cell, and a row
+                                ; only the DOSTRACE build emits would move
+                                ; every core cell after it. Two bytes in every
+                                ; build buy an instrument that costs the
+                                ; shipped one no code at all - the 32 buckets
+                                ; are in the trace PART, at DOS_TR33_OFF
     DBSS DOS_B_IMGHI, 2
     DBSS DOS_B_XFSEG, 2
     DBSS DOS_B_XLSEG, 2
@@ -11303,29 +11678,23 @@ FH_VOL      equ 22                  ; the VOLUME the name is resolved against
                                     ; copy off B: onto C: reads the
                                     ; destination back into itself
 FH_SIZEOF   equ 23
+; --- FH_FLAGS: ONE BYTE, SEVEN BITS, AND THEY GO IN ORDER (SPEC.md 96.11.10)
+; **NOTHING ELSE MAY BE DEFINED BETWEEN THEM.** This block used to have the
+; four DOS_DEV_* codes sitting in the middle of it, and the reader that added
+; FHF_DEV looked at the line above the hole - 16 - and wrote 32, seven lines
+; away from the FHF_WROTE that already owned it. `tests/unit/t_bits.py` is the
+; gate now, and the ORDER is what makes it readable without one.
 FHF_USED    equ 1
 FHF_WRITE   equ 2                   ; opened by AH=3Ch: writes are accepted
 FHF_MADE    equ 4                   ; ...and at least one window has been
                                     ; flushed, so the next one APPENDS
+FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
+                                    ; expanded: the window is the file and
+                                    ; never refills (SPEC.md 96.11.1)
 FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
                                     ; EXISTS, so a write OVERWRITES through
                                     ; OSAPI_FILE_WRITE_AT and never moves the
                                     ; size (SPEC.md 96.11.6)
-FHF_DEV     equ 32                  ; a CHARACTER DEVICE and not a file at
-                                    ; all (SPEC.md 96.11.7): CON, NUL, PRN or
-                                    ; AUX, opened by name through AH=3Dh. The
-                                    ; record holds no position, no size and no
-                                    ; volume - FH_VOL carries the DOS_DEV_*
-                                    ; code instead, a device having no volume
-                                    ; for it to mean anything else about
-DOS_DEV_CON equ 0                   ; ...and the four names, in dos_devtab's
-DOS_DEV_NUL equ 1                   ; order, because the index IS the code
-DOS_DEV_PRN equ 2
-DOS_DEV_AUX equ 3
-DOS_NDEV    equ 4
-FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
-                                    ; expanded: the window is the file and
-                                    ; never refills (SPEC.md 96.11.1)
 FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
                                     ; AH=44h's bit 6 - "has NOT been written
                                     ; through" - is now CLEAR (SPEC.md
@@ -11333,6 +11702,28 @@ FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
                                     ; window has been FLUSHED: a program that
                                     ; writes eight bytes and asks has written,
                                     ; and nothing has reached the disk
+FHF_DEV     equ 64                  ; a CHARACTER DEVICE and not a file at
+                                    ; all (SPEC.md 96.11.7): CON, NUL, PRN or
+                                    ; AUX, opened by name through AH=3Dh. The
+                                    ; record holds no position, no size and no
+                                    ; volume - FH_VOL carries the DOS_DEV_*
+                                    ; code instead, a device having no volume
+                                    ; for it to mean anything else about
+                                    ; **IT WAS 32, WHICH FHF_WROTE ALREADY
+                                    ; OWNED** (SPEC.md 96.11.10): the FIRST
+                                    ; AH=40h on any handle then made it read
+                                    ; as a device, so every later read
+                                    ; answered end of file and every later
+                                    ; write was ACCEPTED AND DISCARDED with
+                                    ; the full count reported. That is how
+                                    ; Microsoft Works saved a document with
+                                    ; its 384-byte header all zeroes
+
+DOS_DEV_CON equ 0                   ; ...and the four device names, in
+DOS_DEV_NUL equ 1                   ; dos_devtab's order, because the index IS
+DOS_DEV_PRN equ 2                   ; the code
+DOS_DEV_AUX equ 3
+DOS_NDEV    equ 4
 
 DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
                                     ; program's name: "D:NNNNNNNN.EEE" is 14,
@@ -14704,8 +15095,14 @@ dos_fh_wiloop:
     call dos_fh_flush               ; ...the view first: the accumulator wants
     jc .ierr                        ; an empty window
     and byte [si+FH_FLAGS], ~FHF_INPLC
-    or byte [si+FH_FLAGS], FHF_MADE ; the file EXISTS, so a flush APPENDS
-    mov word [dos_wlen], 0          ; rather than replacing
+                                    ; **AND `MADE` IS NOT ASSERTED HERE** any
+                                    ; more (96.11.6.3): an OPENED file has it
+                                    ; from the open, and a CREATED one reaching
+                                    ; this arm through the gap has flushed
+                                    ; nothing yet - so setting it would send
+                                    ; the first flush to dos_be_append with no
+                                    ; file to append to
+    mov word [dos_wlen], 0
     push dx                         ; the running total, across the accumulator
     mov cx, bx                      ; what is still to go...
     mov dx, di                      ; ...from where the copy reached
@@ -16447,6 +16844,17 @@ dos_mpy equ dos_hbss + DOS_B_MSY    ; word: ...and its y (SPEC.md 96.36.4)
 dos_pic1    equ DOS_CBASE + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ DOS_CBASE + DOS_B_PIC2    ; byte:
 dos_isexe   equ DOS_CBASE + DOS_B_ISEXE   ; byte: 1 = an .EXE was set up
+dos_m33seg  equ DOS_CBASE + DOS_B_M33SEG  ; word: the trace part, or 0 (96.10.3)
+dos_m33h    equ DOS_CBASE + DOS_B_M33H    ; --- the event handler (96.10.4) ---
+dos_m33m    equ DOS_CBASE + DOS_B_M33M
+dos_m33oh   equ DOS_CBASE + DOS_B_M33OH
+dos_m33om   equ DOS_CBASE + DOS_B_M33OM
+dos_m33old  equ DOS_CBASE + DOS_B_M33OLD
+dos_m33lx   equ DOS_CBASE + DOS_B_M33LX
+dos_m33ly   equ DOS_CBASE + DOS_B_M33LY
+dos_m33lb   equ DOS_CBASE + DOS_B_M33LB
+dos_m33hk   equ DOS_CBASE + DOS_B_M33HK
+dos_m33bsy  equ DOS_CBASE + DOS_B_M33BSY
 %ifdef DOSTRACE
 dos_tracen equ dos_hbss + DOS_B_TRACEN  ; word: DOSTRACE's call counter
 dos_tracew equ dos_hbss + DOS_B_TRACEW  ; word: its ring write index

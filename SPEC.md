@@ -127312,6 +127312,119 @@ count rather than a flag.
 - **Everything else answers AX=0**, which is `INT 33h`'s "not supported" and
   what a real driver answers for a function it does not have.
 
+#### 96.10.3 The mouse histogram, because the ring cannot carry `INT 33h`
+
+A DOS program that "has no mouse" is two opposite defects wearing one symptom,
+and the `DOSTRACE` ring separates neither: **every** host-side decoder in
+`tools/os88dosdbg.py` reads a ring entry as an `INT 21h` call, so a program
+that never calls `INT 33h` at all and one whose calls this box answers wrongly
+both come back as a trace with no mouse in it.
+
+So the `DOSTRACE` build keeps a second, much smaller instrument: **one
+saturating byte per `INT 33h` function**, `DOS_TR33_N` = 32 of them, bumped at
+the top of `dos_int33` before anything dispatches. It is the whole of what the
+question needs — *which* functions, not in what order and not with what
+arguments — and the last bucket absorbs an `AX` above the table so that a
+program calling a function nobody has heard of is a reading rather than a wild
+store.
+
+**All zero is the most important reading of the three**, and the host prints it
+in those words rather than as a blank line:
+
+| the histogram says | what it means |
+|---|---|
+| nothing at all | the program found no mouse, or never looked — the box's answers are not in question |
+| `00h` alone | it asked whether a mouse was installed, was told yes, and then gave up on the *next* function it tried |
+| `0Ch` or `14h` set | it installed an **event handler** and is waiting for callbacks this box does not make (§96.10.2's last bullet) |
+
+The buckets live in the trace **part**, beside the ring, and the only thing in
+the core's own bss is the **two bytes naming that part's segment**. That is not
+tidiness: `dos_int33` is core (§96.44), so §96.44.2 rule 2 forbids it a host
+bss cell and rule 1 forbids a `DBSS` row only one build emits — between them
+those two rules leave exactly this shape. A host that sets no segment counts
+nothing and stores nowhere, so `kern_dos` and the shipped box both read as
+silent.
+
+### 96.10.4 The event handler, and the tick it is called from
+
+`AX=000Ch` installs a far handler at `ES:DX` for the events in `CX`; `AX=0014h`
+does the same and hands the previous one back. **They answer nothing**, which
+is what makes them dangerous to get wrong: a program that installs a handler
+and is never called has been told a mouse exists and then never hears from it
+again, and has no way to tell that from a machine with no mouse. Microsoft
+Works is exactly that program — §96.10.3's histogram reads `00h`, `08h`, `0Ah`,
+`0Ch`, and then nothing at all. It never polls function 3.
+
+`AX=0000h` (reset) drops the handler, which is what a real driver does.
+A mask of zero, or a segment of zero, is the uninstall — both are how a program
+takes its handler back before freeing the code under it. The three stores that
+install one are a **critical section**: `dos_int33` `sti`s at its own first
+instruction, so a tick landing between the offset and the segment would find a
+new offset against the old segment, and that is a far call into whatever is
+there.
+
+The handler is entered with `AX` = the events that fired, `BX` = the button
+mask, `CX`/`DX` = the position in the 640x200 virtual units of §96.10, `SI`/`DI`
+= the mickeys, and `DS` = **ours** — the driver's own data segment, which is
+the convention, so a handler loads its own from `CS`.
+
+#### 96.10.4.1 The tick is the only thing that fires
+
+A real mouse driver dispatches from **its own interrupt** — the serial port's,
+or the aux port's. This box has neither: the kernel owns both ISRs and keeps
+`mouse_x`, `mouse_y` and `mouse_btn` fresh for the whole bracket (§53.1), which
+is what makes function 3 exact and costs a translation instead of a driver.
+What it does not give is a moment of *our* code running, and a callback needs
+one.
+
+Everywhere else the box gets control is the program calling **us** — and a
+program that installed a handler is precisely the program that has stopped
+calling. `dos_getkey` is no better: that is `INT 21h`'s key read, and an
+application with a mouse polls `INT 16h` itself.
+
+So the core chains **IRQ0**, `dos_pkt_tick`'s shape (§96.23.4) and by its rules
+— the chain goes first, so the tick reaches the kernel at the depth it always
+did. Two hooks compose, because both chain what they found. The hook is
+one-shot, and the unhook is `dos_restore_machine`'s whole-IVT restore (§96.5),
+so there is no way to leave a vector pointing into a bracket that has ended.
+
+**18.2 Hz** is coarser than a serial mouse's ~40 and it is what an 8088-era
+program gets from a tick; for a menu-driven application it is the difference
+between a mouse and none. Chaining the *mouse* IRQ would be better and is not
+free: the kernel knows which line it is and we would have to ask, and a PS/2
+mouse is a different line again (§9.9).
+
+The dispatcher does **not** go through `dos_mou_read`. That routine feeds
+`dos_mou_edge`, which is the press/release accumulator functions 5 and 6
+consume (§96.10.1) — and this runs from an interrupt that can land in the
+middle of `dos_int33` doing exactly that. A dispatcher sharing the accumulator
+would eat a click the program was about to be told about, intermittently. So
+it asks the host hook directly and keeps its own last-seen position and button
+mask, which nothing else reads. The state is banked **before** the call, never
+after: a callback may take longer than a tick, and a second one computing
+against the old position would report the same movement twice.
+
+#### 96.10.4.2 It runs on the program's stack, and that is the contract
+
+`dos_pkt_tick` switches to a private stack and says why: its own chain is
+`OSAPI_DRV_CALL` into the kernel, into the driver, into a byte-at-a-time DMA
+loop. This one's chain is about thirty bytes, and everything below that is the
+**program's own callback** — code the program wrote knowing it runs at
+interrupt time, which is what installing one means, on a stack IRQ0 already
+lands on every tick.
+
+A private stack would cost **256 bytes of the core's bss in every build**,
+resident, to defend against a program whose stack cannot take an interrupt —
+and such a program is already broken on any machine. If a real one turns up,
+the stack is the fix and this paragraph is the record of why it was not taken
+first.
+
+A callback may not call `INT 21h`. That is DOS's own rule for mouse callbacks
+and it binds here for a sharper reason: this box keeps the handle window and
+its owner in the core's bss, so a callback that re-enters `INT 21h` corrupts a
+transfer in flight. `[dos_m33bsy]` guards only our *own* re-entry — a callback
+still running when the next tick arrives.
+
 ### 96.11 File handles, built on an API that has none
 
 `3Dh` open, `3Ch` create, `3Eh` close, `3Fh` read, `40h` write, `41h` delete,
@@ -127582,6 +127695,44 @@ is how one of them ends up holding a loop counter instead. For the same
 reason `dos_fh_fill` answers the window offset in `AX` and not `DI` — the
 caller's `DI` is where the bytes are *going*.
 
+##### 96.11.6.3 A created handle may seek past its end too
+
+`.fwrite`'s append test was `jne .fhacc` twice, which is not an ordering test
+at all: it refused a write **past** the end exactly as it refused one
+**behind** it, and those are opposite cases.
+
+- **Behind** the end is §96.11.2's real refusal. A write into the middle of a
+  file this handle created is one the append path cannot make, and reporting
+  success for it would lose the program's data silently.
+- **At** the end is the ordinary append.
+- **Past** the end is a **gap**, which §96.11.6.1 already lays — and which
+  that section's own first bullet names: *pre-allocating: create, seek to
+  `size-1`, write one byte, and the file is that size.*
+
+It is an unsigned 32-bit compare now, high words first, and the third answer
+goes to `dos_fh_wiloop`'s `.ihole` — chosen on that same compare and needing
+no flag. It lays `[SIZE, POS)`, rewinds, and hands the program's own bytes
+back to the append accumulator through `.iappend`.
+
+**Microsoft Works reported this as `Cannot write file`** on File > Save As
+(docs/FIELD-NOTES.md 47). Traced, the save is three calls: `AH=3Ch` creates
+`B:\WORD1.WPS` and gets handle 6, `AH=42h` seeks to **0x180 on the empty
+file**, and `AH=40h` writes 285 bytes there — a header it means to patch
+later. The create succeeded; the first write answered error 5.
+
+**`FHF_MADE` moves to the open, and that is the half that is easy to get
+wrong.** It means *the file is on the disk, so a flush APPENDS rather than
+replacing*, which is true of an **opened** file from the first instruction —
+but `.iappend` was asserting it instead. A **created** handle reaching that
+same arm through the gap has flushed nothing, so its file does not exist yet,
+and the append would go onto nothing. The open says it because the open
+knows it; `.iappend` no longer claims it.
+
+`FHF_INPLC` is deliberately **not** set on the way into the gap: `.ihstep`
+takes it for the length of a chunk and `.iappend` gives it back, and a created
+handle that kept it would flush through `WRITE_AT` onto a file that is not
+there.
+
 #### 96.11.7 `CON` is not a file name, and answering as though it were costs a program its handles
 
 `AH=3Dh` on **`CON`**, `NUL`, `PRN` or `AUX` opens a **character device**. The
@@ -127638,6 +127789,54 @@ fall through to `invalid function`, which the Works trace showed DOS does not
 answer. **DOS returns nothing and cannot fail**, so a flush that refuses is
 swallowed rather than reported: there is no register to report it in, and the
 close will try again and has somewhere to say so.
+
+#### 96.11.9 `AH=41h` on a name that is not there says 2, not 5
+
+`.fhacc`'s "access denied" is the honest answer for a *write* this layer
+cannot make (§96.11.2) and it was the answer for **every** way a delete could
+fail, a missing file included. DOS distinguishes the two, and a program is
+entitled to: `2` means *ask the user for another name*, `5` means *the file is
+there and you may not have it*.
+
+`OSAPI_FILE_DELETE` already says which — `FERR_NOENT` and nothing else means
+the name does not resolve — so the map is three instructions, and `AH=56h`'s
+`.rnerr` a few lines above had been making exactly this distinction since
+§96.31. Microsoft Works asks the question on **every** Save As, deleting the
+backup name before it writes, so the wrong code was answered once per save on
+the first program anyone ran on this box from outside the project. It is not
+visible there — Works ignores the answer — which is the argument for fixing it
+now rather than when something branches on it.
+
+Every other `FERR_*` still goes to `.fhacc`, which is right: a read-only file,
+a write-protected disk and a directory in the way are all "the file is there
+and you may not have it".
+
+#### 96.11.10 `FH_FLAGS` is one byte, and `FHF_DEV` was on a bit that was taken
+
+`FHF_DEV` (§96.11.7) went in as **32**, which `FHF_WROTE` (§96.7.1.2) had
+owned since the `AH=44h` work. The two `equ` lines were seven apart with the
+four `DOS_DEV_*` codes sitting between them, and the value was picked by
+looking at the line above — `FHF_INPLC equ 16`.
+
+It assembles, it boots, and `CON` opens exactly as the change intended. What
+it also does is this: `FHF_WROTE` is set by the **first `AH=40h` on any
+handle**, so from that moment the handle reads as a character *device*. Every
+later `AH=3Fh` takes `.fhrdeof` and answers **end of file**; every later
+`AH=40h` takes `.fwdev` and is **accepted and discarded with its full count
+reported**. Nothing fails, nothing is reported, and the data is gone.
+
+Microsoft Works's Save As is create → seek `0x180` → write the body → seek 0
+→ write the 384-byte header → close. The body is the *first* write, so it
+lands; the header is the second, so it is thrown away. The file comes out the
+right length, with the right body, and a header of 384 zero bytes — and the
+program is told it wrote 384.
+
+The bit is **64** now, and the block is in bit order with nothing else defined
+inside it, because the ordering is what makes the next one readable without a
+tool. `tests/unit/t_bits.py` is the tool: it derives each flag family from the
+code that uses it — a `test`/`or`/`and`/`xor` against a memory field enrols
+its constant in that field — and fails on two names with one value. 43
+families across the tree, and a flag added tomorrow is covered tomorrow.
 
 ### 96.12 Vectors, drives, the DTA and the directory
 

@@ -2040,3 +2040,103 @@ program on the shut-down arm. Task #27 is where both come back.
 `tests/dostrap/condev.asm` and the `dosdev` row are the gate, and they assert
 the property the loop rests on — **two opens, two different handles** — and
 not merely that `CON` opens.
+
+## 47. Microsoft Works: `Cannot write file`, on a floppy with 42 free clusters (FIXED — two defects, and the second one shipped the day before: SPEC.md §96.11.6.3, §96.11.10)
+
+The same 5150, the same Works 1.00, one error behind the last. With §96.11.7's
+`CON` fix in, Works reaches its New dialog and its word processor. Type
+something, `Alt`, `File`, `Save As`, take the default name, and:
+
+```
+                          FILE ERROR
+                          B:\WORD1.WPS
+                      Cannot write file.
+                            <  OK  >
+```
+
+Choosing another drive fails the same way. The disk has **42 free clusters**.
+
+**IT IS TWO DEFECTS AND ONE MASKS THE OTHER.** Works's Save As is one shape,
+and it is the shape of every format whose header depends on its body:
+
+```
+3C02 create WORD1.WPS      -> handle 6
+4202 seek END              -> 0
+4200 seek to 0180          -> 0180      the file is still EMPTY
+40   write 011D bytes      -> ax=0005 CF=1     <-- the error the user saw
+4200 seek to 0             -> 0
+40   write 0180 bytes      -> 0180              the header it left room for
+3E   close                 -> 0
+```
+
+**One**: `.fwrite`'s append-only guard was `jne .fhacc` twice, which is not an
+ordering test at all — it refused a write *past* the end in exactly the same
+breath as one *behind* it, and those are opposite cases. Behind is §96.11.2's
+real refusal; past is a **gap**, which `dos_fh_wiloop`'s `.ihole` already lays.
+Three answers now, on an unsigned 32-bit compare.
+
+**Two**: with that fixed, the save *succeeded* — `write 011D -> 011D`,
+`write 0180 -> 0180`, `close -> 0`, no dialog — and `WORD1.WPS` came off the
+floppy **669 bytes with the right body and a header of 384 zeroes**. Works was
+told it wrote 384 bytes and nothing was written. That is §96.11.10: `FHF_DEV`
+had been given bit 5, which `FHF_WROTE` already owned, so the **first `AH=40h`
+on any handle** made that handle read as a character device for ever after —
+every later read answering end of file, every later write accepted and
+discarded with its full count reported. It went in with entry 46's `CON` work
+the day before, seven `equ` lines from the value it collided with, with four
+unrelated `DOS_DEV_*` codes sitting in the gap.
+
+**Three things are worth more than the fixes.**
+
+`tests/unit/t_bits.py` (fast tier) now derives every flag family from the
+**code that uses it** — a `test`/`or`/`and`/`xor` against a memory field
+enrols its constant in that field — so nothing enumerates the 43 families in
+this tree and a flag added tomorrow is covered tomorrow. Grouping by name
+*prefix* was tried first and reports **81 false positives**.
+
+`os88dosdbg trace --flush-disk` writes B: back before the machine closes. The
+instance runs on a private clone and nothing persists it, so a successful save
+and a silent no-op look identical on the host — which cost a wrong conclusion
+about a fix that worked.
+
+And `tests/dostrap/wrgap.asm`'s step **C2** is what placed the second defect:
+it reads the header back on the same handle *before* the close. The source had
+been read three times by then and said the write could not be lost.
+
+## 48. Microsoft Works has a mouse and it does nothing (FIXED — it installs an EVENT HANDLER and never polls: SPEC.md §96.10.4)
+
+Reported with entry 47 and in the same sentence — *"works is supposed to have
+a mouse, and there is none"*. Functions 3, 5, 6 and `0Bh` were all exact
+throughout, which is why reading the code found nothing: the box's `INT 33h`
+answers the position and the buttons correctly and always did.
+
+**The `DOSTRACE` histogram (§96.10.3) answered it in one line.** The ring
+cannot carry `INT 33h` — every host-side decoder in `tools/os88dosdbg.py`
+reads an entry as an `INT 21h` call — so a program that never calls the mouse
+and one whose calls are answered wrongly both come back as a trace with no
+mouse in it. Thirty-two saturating bytes, one per function, and Works reads:
+
+```
+INT 33h: 00h reset/installed? x1, 08h set y range x1,
+         0Ah set text cursor x1, 0Ch SET EVENT HANDLER x1
+```
+
+Four calls, then nothing. **It never polls function 3.** A box that answers
+`0Ch` with `not supported` and makes no callbacks has told a program a mouse
+exists and then never mentions it again, which a program cannot tell from no
+mouse at all.
+
+§96.10.4 is what it takes to make that real on a machine whose kernel owns
+both mouse ISRs: chain IRQ0, because every other moment the box gets control
+is the program calling *us* and a program with a handler installed has stopped
+calling. 18.2 Hz against a serial mouse's ~40, 398 bytes, and `dosmouevt`
+reads `events 000F move 000D press 0001 release 0001`.
+
+**The debugging cost four A/B builds and none of them was the bug.**
+`os88mouserel.Rel` paces by FRAMES by default and `m.advance(frames=)` leaves
+the emulator **paused**; a test that moves the mouse and does not resume stops
+the guest, freezes the BIOS tick at `0040:006C`, and reads exactly like
+*moving the mouse hangs the machine*. The callback was removed, then the host
+read, then the IRQ0 hook — each one **keeping** the symptom, which is what
+should have named the cause several builds sooner. The row uses `pace="wall"`
+and its docstring carries the corpse.
