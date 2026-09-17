@@ -6719,6 +6719,12 @@ wm_dmg_cull db 0                ; ...and wm_draw_win turns it on around W_PAINT
                                 ; alone, which is what keeps wm_su_try's own
                                 ; region arming out of it. Two bytes and not
                                 ; one: the request outlives the state
+%ifdef KERN_BIG
+wm_clip_wf  dw 0                ; SPEC.md 11.3.4: which fragment won the row
+                                ; range, so its COLUMNS can be asked once
+wm_clip_cm  db 0FFh             ; ...and they are, as a mask on the glyph row
+                                ; byte: bit 7 the leftmost pixel, 0FFh all eight
+%endif
 wm_clip_r0  db 0                ; wm_clip_rows' answer (SPEC.md 11.3.2): the
 wm_clip_rn  db 8                ; first drawable row of the cell it was last
                                 ; asked about, and how many from there. Valid
@@ -7666,14 +7672,26 @@ wm_clip_rows:
     push bp
     mov byte [wm_clip_r0], 0
     CLIPQ
-    je .all                     ; disarmed: every row, the same answer
+%ifdef KERN_BIG
+    je .allj                    ; disarmed: every row, the same answer
                                 ; wm_clip_free gives for the whole shape
     cmp byte [wm_dmg_cull], 0
     je .norows                  ; SPEC.md 11.3.3: under the cull a cell that
     call wm_clip_test           ; overlaps at all is drawn WHOLE, so the row
-    jc .none                    ; range is every row or none - the partial
-    jmp short .all              ; answer this routine exists to give is what
-.norows:                        ; the cull is defined not to need
+    jc .nonej                   ; range is every row or none - the partial
+.allj:                          ; answer this routine exists to give is what
+    jmp .all                    ; the cull is defined not to need. (The two
+.nonej:                         ; trampolines are 11.3.4's alone: an 8086 has
+    jmp .none                   ; no near conditional jump and the mask block
+%else                           ; below puts both targets out of a short one's
+    je .all                     ; reach - on kern_small it is not there, so
+    cmp byte [wm_dmg_cull], 0   ; this arm is what shipped before 11.3.4 and
+    je .norows                  ; assembles byte for byte as it did)
+    call wm_clip_test
+    jc .none
+    jmp short .all
+%endif
+.norows:
 %ifdef KERN_BIG
     cmp byte [gfx_dnest], 0     ; SPEC.md 39.14.4, exactly as wm_clip_test:
     je .armed                   ; inside a whole-shape hook the caller's rect
@@ -7685,12 +7703,21 @@ wm_clip_rows:
 %endif
     mov si, wm_clip_tab
     mov di, [wm_clip_n]
-    xor bp, bp                  ; BP = the best row count found so far
+    xor bp, bp                  ; BP = the best row count found so far (and
+                                ; [wm_clip_wf] needs no init: the block below
+                                ; reads it only when BP says one was found)
 .frag:
-    cmp ax, [si+WCR_X1]         ; the cell's full width, or nothing: a
-    jl .next                    ; part-width row is what cannot be drawn
-    cmp cx, [si+WCR_X2]
-    jg .next
+%ifdef KERN_BIG
+    cmp cx, [si+WCR_X1]         ; OVERLAP, where this used to demand the cell's
+    jl .next                    ; full width - "a part-width row is what cannot
+    cmp ax, [si+WCR_X2]         ; be drawn" was a fact about the RENDERERS and
+    jg .next                    ; is not one now (SPEC.md 11.3.4)
+%else
+    cmp ax, [si+WCR_X1]         ; ...and on kern_small it still is: 11.3.4 is
+    jl .next                    ; KERN_BIG's, so the floor machine keeps the
+    cmp cx, [si+WCR_X2]         ; whole-cell drop and this is the test that
+    jg .next                    ; makes it (11.3.4.1)
+%endif
     push ax
     push cx
     mov ax, bx                  ; AX = max(y1, frag y1)
@@ -7711,6 +7738,13 @@ wm_clip_rows:
     mov bp, cx
     sub ax, bx                  ; ...and where they start, from y1
     mov [wm_clip_r0], al
+%ifdef KERN_BIG
+    mov [wm_clip_wf], si        ; THE WINNER IS BANKED AND NOT MEASURED: its
+                                ; COLUMNS are wanted once, after the walk, and
+                                ; working them out per fragment cost 60 bytes
+                                ; to answer a question about fragments that
+                                ; lose (SPEC.md 11.3.4)
+%endif
 .frag_no:
     pop cx
     pop ax
@@ -7720,6 +7754,40 @@ wm_clip_rows:
     jnz .frag
     or bp, bp
     jz .none
+
+%ifdef KERN_BIG
+    ; --- the winning fragment's COLUMNS, as a mask (SPEC.md 11.3.4) --------
+    ; ONCE, here, and not per fragment: only the winner is ever asked, and
+    ; working it out inside the walk cost 60 bytes to answer a question about
+    ; fragments that lose. INLINE and clobbering freely - `.ok` below is four
+    ; pops and a `ret`, so AX, BX, CX and DX are all dead from here.
+    ;
+    ; The cell is 8 wide, so the two distances ARE the mask:
+    ;   d0 = frag.x1 - x1   clamped at 0 ...the columns cut off the LEFT
+    ;   d1 = x2 - frag.x2   clamped at 0 ...and off the RIGHT
+    ;   mask = (0FFh >> d0) & (0FFh << d1)
+    ; A fragment covering the cell gives 0 and 0, so 0FFh falls out with no
+    ; branch of its own - two shifts where a 9-byte table plus two
+    ; `[cs:tab+bx]` lookups and a `not` used to be.
+    mov bx, [wm_clip_wf]
+    mov dx, [bx+WCR_X1]
+    sub dx, ax
+    jns .c0                     ; negative: it starts left of the cell and
+    xor dx, dx                  ; cuts nothing
+.c0:
+    sub cx, [bx+WCR_X2]
+    jns .c1
+    xor cx, cx
+.c1:
+    mov ax, 0FFFFh
+    xchg cx, dx                 ; CL = d0 - the shifts want it there
+    shr al, cl
+    mov cl, dl
+    shl ah, cl
+    and al, ah
+    mov [wm_clip_cm], al
+%endif
+
     mov ax, bp                  ; a BYTE store: [wm_clip_rn] is a db, and
     mov [wm_clip_rn], al        ; `mov [wm_clip_rn], bp` writes a WORD - it
                                 ; put BP's zero high byte over the first
@@ -7728,6 +7796,9 @@ wm_clip_rows:
                                 ; restored from the stack four lines down
     jmp short .ok
 .all:
+%ifdef KERN_BIG
+    mov byte [wm_clip_cm], 0FFh ; every column (SPEC.md 11.3.4)
+%endif
     mov ax, dx
     sub ax, bx
     inc ax
@@ -11553,22 +11624,27 @@ wm_draw_win:
 
 %ifndef REDRAWFULL
     call wm_ttl_seen            ; ...BUT A STRIP WHOLLY COVERED IS NOT DRAWN AT
-                                ; ALL (SPEC.md 11.97.4). A veto has no
-                                ; granularity to get wrong, so 11.97.1 does not
-                                ; reach it, and the region is already built
-    mov word [wm_clip_n], 0     ; ...AND THE REGION DIES BEFORE THE TITLE BAR,
-                                ; not after it (SPEC.md 11.97.1). font_char
-                                ; clips per whole CELL, so a glyph the region
-                                ; cuts is dropped ENTIRELY - including the rows
-                                ; of it this window can still see. Measured: a
-                                ; window whose title bar was covered from its
-                                ; 10th row down lost its caption's top 5 rows
-                                ; as well. 11.3's granularity rule, in the one
-                                ; place the plan for this said it could not bite
-    jc .notitle                 ; (the store above writes no flags)
+                                ; ALL (SPEC.md 11.97.4), which saves the bar's
+                                ; fifteen primitive CALLS where an armed region
+                                ; would only make each of them draw nothing
+ %ifndef KERN_BIG
+    mov word [wm_clip_n], 0     ; ...AND ON kern_small THE REGION DIES HERE, as
+                                ; 11.97.1 left it: there is no column mask on
+                                ; that build, so a cut caption cell is still
+                                ; dropped whole (SPEC.md 11.3.4.1). BEFORE the
+                                ; `jc`, which skips the draw and would skip
+                                ; this with it - and `mov` writes no flags, so
+                                ; the veto's answer survives it
+ %endif
+    jc .notitle
 %endif
-    call wm_draw_title          ; the title bar, active or not (BP decides)
-.notitle:
+    call wm_draw_title          ; ...where on KERN_BIG the region STAYS ARMED
+.notitle:                       ; across the bar (11.3.4): the fifteen fills
+%ifdef KERN_BIG                 ; clip per pixel as they always could, and the
+ %ifndef REDRAWFULL             ; caption clips per COLUMN
+    mov word [wm_clip_n], 0
+ %endif
+%endif
 
     call wm_su_try              ; THE RAISE CACHE (SPEC.md 11.96): if the
     jc .content                 ; content was banked when this window was

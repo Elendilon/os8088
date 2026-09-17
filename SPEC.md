@@ -15386,6 +15386,120 @@ The 26 that remain are the outward rounding doing its job: a cell the region
 cuts is painted whole, and something above paints over the part it does not
 own before the frame is finished.
 
+#### 11.3.4 …and it can draw whole COLUMNS of one too — the vertical cut
+
+§11.3.2 gave `font_char` a row range because a window edge crossing a line of
+text **horizontally** cut every cell in it and the whole line was dropped. The
+other axis was left where §11.3's granularity rule put it: *"a vertical cut is
+refused here as it always was, because half a row of a cell is the thing the
+renderers cannot express."*
+
+**That was never true of the renderers, and it is the reason §11.97.1 could not
+arm a region over a title bar.** Both of `font_char`'s cell writers already work
+by MASKING: each reads the glyph's row byte into `AH`, shifts it into a 16-bit
+window by `x & 7` and writes only the bits that survive — the VGA one through
+GC8's Bit Mask, the 1bpp one through `or`/`and`. A column cut is therefore one
+`and` on that byte, which is the same discovery §39.14.11 made about a display
+seam one axis along.
+
+So `wm_clip_rows` answers a **column mask** beside its row range, and
+`[wm_clip_cm]` is that byte — bit 7 the leftmost pixel, `0FFh` all eight. Four
+lines change in the renderers and nothing else about them does.
+
+**Its fragment test relaxes from containment to OVERLAP**, and the selection
+rule is deliberately left alone: the best fragment is still the one offering the
+most ROWS, and its columns are whatever they are. That can under-draw where the
+visible region is several fragments — a wide-but-short fragment losing to a
+tall-but-narrow one — and under-drawing is safe by §11.3.2's own argument, since
+any single fragment's intersection lies wholly inside the region. One window
+over another is one fragment and is exact.
+
+**The mask is built ONCE, after the walk, from the winning fragment** — banked
+as a pointer in `[wm_clip_wf]`. Building it per fragment is the obvious spelling
+and costs **60 bytes to answer a question about fragments that lose**. The cell
+is 8 wide, so the two distances *are* the mask:
+
+```
+    d0 = frag.x1 - x1   clamped at 0      ; columns cut off the LEFT
+    d1 = x2 - frag.x2   clamped at 0      ; ...and off the RIGHT
+    mask = (0FFh >> d0) & (0FFh << d1)
+```
+
+A fragment that covers the cell gives `d0 = d1 = 0`, so `0FFh` falls out with no
+branch of its own — two shifts, where a 9-byte table plus two `[cs:tab+bx]`
+lookups and a `not` were the first spelling.
+
+**What it costs is one `and reg, mem` per glyph ROW**, in each of the four
+renderer loops, paid by every `font_char` cell whether the region cuts it or
+not — the alternative, masking the glyph into a scratch cell once per cell the
+way §39.14.11 does, is 42 bytes of code plus 8 of `.lowbss` to save it.
+Measured on `os8088_xt_vga` with an exec breakpoint on `font_char` itself and
+the cycle delta between consecutive cells of one caption: **3,024 → 3,164 guest
+cycles a cell, +140, +4.6%** (medians; both builds read within 4 cycles across
+the run). That is ~29 µs a cell on the target machine, so an eight-cell caption
+costs an extra 232 µs.
+
+**It is a cost on `font_char` ALONE**, which is title captions and §6.6's
+registered transparent sites: every listing, menu and label on the machine is
+`font_run`, which this does not touch at all.
+
+> **Do not price this off a repaint through a host poll loop.** Two sessions
+> measured "a forced repaint" by setting `[cp_dirty]`, polling it at 20 ms and
+> taking the cycle delta — which reads **477,290 cycles on any desktop**,
+> because 477,290 cycles is 100 ms is five 20 ms sleeps. It is the POLL, and it
+> reads identically on three windows and on five. The breakpoint is the
+> instrument; a repaint is the wrong unit anyway, since how many cells one
+> reaches is a property of the DESKTOP (three windows reach `font_char` eight
+> times; twelve windows are twelve captions).
+
+**93 bytes of `.text`**, and what they buy is §11.97.4 turning into the whole
+title bar: with a column cut in hand the region stays armed across
+`wm_draw_title`, so the bar's fifteen `gfx_fill`-family calls clip per pixel as
+they always could and the caption clips per column.
+
+On the glass the reporter's answer is the plain one — *"the random title bar
+flashes are gone, and I'm not missing vertical or horizontal letters."* The
+arithmetic behind it is **noisier than it first looked and is quoted as medians
+here for that reason**: a `os8088_5150_cga_gla` drag release with the mover
+landing ON the lower window's title reads **2,779 transient pixels before and
+1,803 after** (n=5 and n=6), but the two ranges are 2,700–3,666 and 1,377–3,616
+and they overlap. Three samples of this measurement read 1,002/1,259/1,007 and
+made it look like a clean 2.8x; six of the same build read a median of 1,977.
+**Three samples is not a distribution here** — take six before quoting one.
+
+**The trap this cost a session is not in the arithmetic.** The scratch cell the
+first build masked into was declared beside `font_zero`, which is INSIDE the run
+`font_char`'s own glyph arithmetic addresses — `font_glyphs + (al - FONT_FIRST)
+* 8` — so eight bytes there moved `font_zero` and both §39.14.11 seam cells
+while their codes kept naming the old offsets, and a straddling title bar drew
+its seam cell blank. `tests/dispseam.py` caught it as 18 px. The `%if` beside
+those cells asserts they are adjacent to each other and **cannot see a cell
+inserted before the run it guards**.
+
+##### 11.3.4.1 …and it is `kern_big`'s alone
+
+The floor machine does not get it, and the reason is a **rung**. `kern_small`'s
+image rung had 73 bytes left; the cut is 78, so taking it there moves
+`KERN_SIZE` by a whole 512 — 65 steps of `KERN_BUDGET` spare down to 64, and
+512 bytes of a 128KB machine's RAM for a title bar that flashes. Gated, the
+floor machine's `kernel.bin` is **byte-for-byte identical** to the one before
+§11.3.4, which is what `%ifdef KERN_BIG` is worth checking rather than
+asserting.
+
+What `kern_small` keeps is §11.3.2's row range and §11.97.1's answer above it:
+`wm_clip_rows` demands the cell's full width again, a vertically cut caption
+cell is dropped whole, and `wm_draw_win` disarms the region **before**
+`wm_draw_title` rather than after it. §11.97.4's veto is untouched there — a
+title strip that is WHOLLY covered is still not drawn, which costs nothing and
+is where most of the artifact was.
+
+The gate reaches five places and `docs/plans/LAST-DROP-PERF.md` §5 is the
+register entry for putting them back: the fragment test, the winner bank, the
+mask block, `wm_clip_cm`'s two writers, and the four `and` in the renderers.
+**It is one `%ifdef` per site and no design decision is deferred with it** —
+the question is only whether the floor machine has 512 bytes to spend, and
+today it has better uses for them.
+
 ### 11.90 Showing a window costs one window, not one screen
 
 `wm_show` does **not** call `wm_paint_all`. Showing a window is the one
