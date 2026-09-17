@@ -8455,10 +8455,11 @@ dsk_rah_next: resw 1            ; the next slot to spend (round robin), as a
                                 ; copy of the width exists to go stale. It was
                                 ; a byte offset, with `runs * 9` recomputed at
                                 ; every fill to bound it. THREE more words
-                                ; stood here - the slot being filled, and
-                                ; dsk_rah_have's two answers to dsk_rah_take -
-                                ; and all three went with the routines that
-                                ; passed them (18.95.1)
+                                ; stood here - the slot being filled, and the
+                                ; two words the scan-and-copy halves used to
+                                ; pass an answer through before they became
+                                ; dsk_rah_serve - and all three went with the
+                                ; routines that passed them (18.95.1)
 dsk_op:       resb 1            ; int 13h function for dsk_xfer: 02h / 03h
 dsk_run:      resw 1            ; sectors in the int 13h call being issued
                                 ; (SPEC.md 18.91). A module word for the same

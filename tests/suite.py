@@ -6336,6 +6336,26 @@ SOAK = [
         "books are checked beside it against MartyPC's own cycle counter, "
         "which is an authority outside the kernel's arithmetic.",
         needs=("marty",), serial=True, timeout=600),
+    Row("heapdrv", "soak", py("tests/heapdrv.py"), 20.0,
+        "SPEC.md 28.4.6: a DRIVER's own claims are on the heap page. "
+        "SOUND.DRV's image was on it - MEM_K_DRV is a kernel tag, so DrvImg "
+        "files under System - and the 8KB DMA ring the driver then claims for "
+        "itself was on no row at all: mem_own stamps a claim with the CALLING "
+        "segment, which for a driver is its image's, and that is neither a "
+        "kernel tag nor an instance nor any tm_ispt, so every arm of "
+        "tm_hmatch refused it and there was no third answer. It is a DEFECT "
+        "rather than a gap because tm_hsplit counts every live record into "
+        "HELD, so the ring was in the caption's total and in no column under "
+        "it - which is why this row asserts the ARITHMETIC (every live record "
+        "is on a row, counted off [tm_hrows] with the headings and pads taken "
+        "out) and only then the label. A row that looked for the word DrvBuf "
+        "alone would go green on a page that still lost the 8KB. Measured "
+        "red at 3 claim rows for 4 live records with the two arms reverted, "
+        "and the probe it prints on a miss found DrvImg on screen while the "
+        "ring's row was absent. It wants a Sound Blaster - os8088_5150_sb_gla "
+        "- and the driver is up at the first desktop frame there.",
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/sndmove360.img",)),
     Row("heapscrl", "soak", py("tests/heapscrl.py"), 120.0,
         "SPEC.md 28.4.4: the Task Manager's heap page scrolls, its bar "
         "survives six refreshes of the list beside it (tm_rowr), and a scroll "

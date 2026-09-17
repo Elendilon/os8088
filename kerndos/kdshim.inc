@@ -380,14 +380,25 @@ mem_free_x:
 ; so AL's level argument is read and discarded.
 mem_avail_lvl_x:
     xor ax, ax                  ; NOTHING, once the program owns the arena
-    cmp byte [kd_spent], 0      ; (SPEC.md 96.44.11.3) - and answering 0 rather
-    jne .out                    ; than letting the claim be refused is what
-    mov ax, [kd_top]            ; keeps `dsk_rah_want` off its own floor test:
-    sub ax, [kd_floor]          ; it solves a WIDTH from this, stores it, and
-    mov cl, 6                   ; only then claims, so a refusal further down
-    shr ax, cl                  ; would leave `[dsk_rah_runs]` describing a
-.out:                           ; cache that does not exist
-    ret
+    cmp byte [kd_spent], 0      ; (SPEC.md 96.44.11.3): `mem_claim_x` refuses
+    jne .out                    ; there too, and this is the same answer given
+    mov ax, [kd_top]            ; one question earlier, so `dsk_rah_want` is
+    sub ax, [kd_floor]          ; told the arena is spent instead of solving a
+    mov cl, 6                   ; width against it and being turned away
+    shr ax, cl                  ; holding one.
+.out:
+    ret                         ; **THIS USED TO CARRY A SECOND REASON AND THE
+                                ; SECOND REASON IS GONE** (SPEC.md 18.95.9):
+                                ; it said the 0 kept `dsk_rah_want` off its own
+                                ; floor test, because that routine stored
+                                ; `[dsk_rah_runs]` BEFORE it claimed and a
+                                ; refusal below would leave the word describing
+                                ; a cache that did not exist. It stores the
+                                ; width only once `mem_claim_x` has answered,
+                                ; so the window is not avoided here any more -
+                                ; it does not exist. What is left is the line
+                                ; above, which is about the PROGRAM's memory
+                                ; and is this file's own
 
 ; SPEC.md 66.2's opt-in. Nothing compacts here, so a claim is as movable as it
 ; is ever going to be and the declaration is a no-op rather than a refusal.
@@ -402,7 +413,7 @@ mem_movable_x:
 ; TIME rather than all at once, and the rungs are widths the cache is still
 ; useful at.
 ;
-; `(runs * 9 + 1) >> 1` is the KB a width costs - `dsk_rah_arm`'s own
+; `(runs * 9 + 1) >> 1` is the KB a width costs - `dsk_rah_want`'s own
 ; arithmetic, mirrored here because the two have to agree to the byte or the
 ; base moves somewhere the slots do not follow.
 %ifndef KD_RAH_KEEP
@@ -447,7 +458,7 @@ kd_rahkb:
 ; where the surviving slots already are, slot i living at `i * 4,608` bytes
 ; from the base (18.95.5).
 ;
-; THREE STORES MAKE IT SAFE and `dsk_rah_arm` does the same three for the same
+; THREE STORES MAKE IT SAFE and `dsk_rah_want` does the same three for the same
 ; reasons: `dsk_rah_flush` clears ALL `DSK_RAH_RUNS` records, so none names a
 ; chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
 ; back to 0, **which is the one that would be silent** - it is the round-robin

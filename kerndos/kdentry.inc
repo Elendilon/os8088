@@ -190,7 +190,7 @@ kd_entry:
 
     ; --- AND THE ARENA AGAIN, BECAUSE THE MOUNT CLAIMED (SPEC.md 96.44.11) ----
     ; The block above sized the arena from `[kd_top]` and the mount then LOWERED
-    ; it: `dsk_rah_arm` solves the read-ahead's width from `mem_avail_lvl_x`,
+    ; it: `dsk_rah_want` solves the read-ahead's width from `mem_avail_lvl_x`,
     ; which here answers the whole arena, so it takes the `DSK_RAH_RUNS` ceiling
     ; - 32 KB off the top, every launch. Nothing re-read `[kd_top]` afterwards,
     ; so the program was told it owned memory the cache was sitting in.
@@ -199,7 +199,7 @@ kd_entry:
     ; before `dos_fh_setup`, which carves 96.11's window off the ceiling, and
     ; before `dos_ldpara` bounds `dos_load`'s READ. Left overstated, a program
     ; image big enough to reach the cache is read straight over it and the next
-    ; `dsk_rah_have` hit serves the program's own bytes as disk sectors - on
+    ; `dsk_rah_serve` hit serves the program's own bytes as disk sectors - on
     ; exactly the large programs this arm exists for.
     call kd_arena
     jc .noroom

@@ -9220,6 +9220,50 @@ options that do address the freeze itself.
 The driver-backed path is covered too, on half of this argument only —
 §7.4.1.1.
 
+#### 7.4.5 The lock outlives the freeze by one cursor move
+
+§7.4.2 rule 1 reads *"a task can only draw while holding the gfx lock"*, and
+the converse is the trap: **the lock being held does not mean the cursor is
+standing still.** `gfx_unlock`'s tail moves it, deliberately, while the flag
+is still set — its own header says the order is binding, *"cursor_show redraws
+at the latest mouse position while we still own the screen; only then may the
+ISR draw again"*. So between `fpg_finish` (which clears `[fpg_on]`) and
+`.rel` (which clears `[gfx_lock_flag]`) there is a window in which the machine
+reads **frozen** and a TASK has just caught the arrow up to the hand.
+
+Four routines move it there, and every one of them is below `fpg_finish`:
+`fpg_finish`'s own `cursor_show` for the arrow `fpg_arm` hid (§7.4.3.1),
+`cur_shape_set`'s hide/show pair putting the clock away (§7.5.2),
+`cursor_show` when the promise was spent, and `cur_lazyend` when it was kept —
+that last one being the one with **no `[cur_level]` change to give it away**,
+since a promise that survived left the arrow lit all hold.
+
+**Measured**, on the `NOCURDISK=1` arm of `tests/curdisk.py` through a
+`PAINT.O88` launch, breaking on the mover and walking forward in 60-cycle
+steps:
+
+| | `[gfx_lock_flag]` | `[fpg_on]` | `[cur_level]` | `[cur_drawn_*]` | `[mouse_*]` |
+|---|---|---|---|---|---|
+| at the call | 1 | 0 | −1 | (164, 69) | (164, 27) |
+| +60 cycles | 1 | 0 | 0 | **(164, 27)** | (164, 27) |
+| +420 cycles | 0 | 0 | 0 | (164, 27) | (164, 27) |
+
+**420 cycles**, ~88 µs of a 4.77 MHz guest. That is nothing to the machine and
+everything to anything sampling it: a reader that calls `[fpg_on] || the lock`
+the freeze, and a change in `[cur_drawn_*]` across two frozen-looking samples
+an ISR draw, counts this teardown as a cursor move inside the hold — on the
+one kernel where a cursor move inside the hold is supposed to be unreachable.
+`tests/curdisk.py` failed that way in **8 of 90** recorded `NOCURDISK=1`
+launch legs — 7.4% at 696e1e49 and 11.1% after the merge that follows it,
+every one of them the same pair — and what fixes it is not a tolerance: a pair of samples is evidence only when the freeze reads
+the **same** at both ends, which every mover above breaks by sitting below
+`fpg_finish`, and which two samples a packet apart cannot fake by both landing
+inside 420 cycles.
+
+None of this is a defect and none of it is new — it is §7.1.4's promise being
+settled on the way out, and it is what makes the arrow arrive where the hand
+actually is rather than where the freeze began.
+
 ### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
@@ -48562,6 +48606,90 @@ live desktop, one or two of the thirty-two — and `tm_hsum` and `tm_hgrp` each
 walk the table once per group. At `OSAPI`'s 46.7us that is under 2 ms on a
 full heap page, against the ~450 ms the page's own list repaint costs.
 
+### 28.4.6 A driver's own claims are System's, beside the `DrvImg` already there
+
+**§51.3 already says this and the kernel already does it — the heap page's
+LIST is the half that was left behind.** That section's own words are *"its
+IMAGE is a kernel claim (`MEM_K_DRV`), so the Task Manager counts it under
+System, which is what it is — **and so are the bulk buffers it claims for
+itself**"*, and it names what went wrong before `mem_sum_kb` learned to ask
+`drv_owns_seg`: the buffers were *"in the `HEAP` and `RAM` totals, and in the
+memory map's bands, **and in no line of the list**"*. The totals were fixed.
+The list was not, and this is that sentence still being true on the one page
+whose whole job is the per-claim detail.
+
+Measured on `os8088_5150_sb_gla`, a bare desktop with the sound driver
+attached and nothing else running:
+
+| record | `CLS_SEG` | `CLS_PARA` | `CLS_OWN` | on the page |
+|---|---|---|---|---|
+| the FAT window | `1B40` | 2048 | `FE02` | System, `FATwin` |
+| `SOUND.DRV`'s image | `9E80` | 384 | `FF03` | System, `DrvImg` |
+| **its 8KB DMA ring** | `9C80` | **512** | **`9E80`** | **nothing** |
+
+**The cause is that a driver is neither of the two things this page groups
+by.** §50.3's `mem_own` stamps a claim with the CALLER'S SEGMENT, and for a
+driver that is the segment its image was loaded into — `9E80` above. So the
+owner word is a plain conventional segment: it is not `0xFB..0xFF`, so the
+System arm refuses it; it is not an instance slot and matches no `tm_ispt`,
+so every instance arm refuses it; and `tm_hmatch` had no third answer. §28.4.5
+is the same defect one owner-kind along and this is its other half — there a
+kernel tag landed in the wrong group, here a segment landed in none.
+
+**A claim in no group is worse than a claim in the wrong one, because the
+caption counts it anyway.** `tm_hsplit` walks the snapshot directly and adds
+every live record to `HELD` or `PURGE`, so the ring was in the total on line
+two and in no column under it. That is §28.4.1's fault with the sign
+reversed, on the same page, and it is why this is a defect rather than a gap:
+the two figures a reader closes the page's arithmetic with cannot be closed.
+§51.3's *"`System`'s `HEAP` column now equals the `HEAP` total whenever
+nothing else holds a claim"* was true of the memory view and false one page
+along.
+
+**`tm_hdrv` is `drv_owns_seg` read off the snapshot, and it is the same two
+hops.** The kernel's fence walks `drv_tab` and then, for a segment that is not
+in it, asks who owns the claim based there and walks `drv_tab` again — *"ONE
+level, like `mem_own_drv`'s"* (§52.11.6), for a driver's SECOND image
+(§52.11.7). The page cannot reach `drv_tab`, and does not need to: a driver's
+image is itself a record in the claim table tagged `MEM_K_DRV`, so *"is this
+segment a driver image"* is *"is there a `MEM_K_DRV` record based there"* —
+the same set, off the copy the page has already taken. The second hop is then
+literally the kernel's: the claim based at the owner word is owned by a
+`MEM_K_DRV` record.
+
+**So it costs no kernel byte and no API cell**, which is the property §28.4
+was built around — `kernel.bin` is **byte-identical** across this change, and
+the whole of it is +74 bytes of `TASKMGR.O88`, a package image present only
+while the window is open. `kern_small` pays nothing at all: the heap page is
+inside `%ifdef TMF_HEAP` and `APP_SMALL` does not define it.
+
+**The TYPE column says `DrvBuf`**, not `Data`. Both carry a plain segment as
+their owner and the `.data` arm would have taken the ring silently, which is
+§28.4.3's rule — *a debug page must not label a claim as the nearest thing it
+recognises* — failing in the one direction that leaves no number on screen to
+notice. `DrvBuf` is what `SOUND.DRV`'s ring and staging pool, `ETHER.DRV`'s
+socket pool, the RAM disk's store and the hard disk's listing buffer all are:
+memory a driver asked for, on the page whose job is saying who has it. It is
+**not** in `tm_ktab` and cannot be — a driver's image segment is a different
+number on every boot, so this row is decided by a walk and not by a constant,
+which is also why `tests/unit/t_ktags.py` neither covers it nor should.
+
+**The cost is bounded by where the call sits.** `tm_hdrv` is reached only from
+the System group's two walks (`tm_hsum` and `tm_hgrp`) and only for a record
+whose owner is not a kernel tag, and from `tm_htype` only for a row already
+known to carry a segment. On the desktop measured above that is one record of
+three; on a busy machine it is the package data claims, each costing at most
+two 32-record passes of a word compare — under a millisecond against the
+~450 ms this page's own list repaint costs.
+
+**`tests/heapdrv.py` is the gate, and it asserts the arithmetic rather than
+the row**: every live record is on a row, counted off `[tm_hrows]` with the
+group headings and `tm_mrow_nolast`'s pad rows taken out. A row that only
+looked for the word `DrvBuf` would pass on a page that still lost the 8KB
+somewhere else. Measured red with the two arms reverted at **3 claim rows for
+4 live records** — short by exactly the ring — while the probe it prints on a
+miss found `DrvImg` on screen and the ring's row absent.
+
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
 The memory page's XMS line and the heap page's TOTAL, SPLIT and FRAG summaries
@@ -73651,7 +73779,10 @@ does. Four things differ, and each is doing work:
   Sound Blaster that is 32KB of DMA buffer belonging to nobody. `mem_sum_kb`
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
-  claim.
+  claim. **That fixed the TOTALS and left "in no line of the list" true one
+  page along** — the heap page groups per claim through `tm_hmatch`, which
+  has its own copy of the same two tests and got neither, so `SOUND.DRV`'s
+  ring was on no row of it until §28.4.6.
 - **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
   image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
   load path with exactly one claim in it. It no longer does, and §51.1.2 is
@@ -133549,6 +133680,64 @@ which is the assembler declining to answer a question the caller has got
 wrong. `.lowbss` is asserted the same way, against `KD_STACK` rather than the
 rung, because it sits under the stack at `LOW_SEG` rather than above the image.
 
+#### 96.38.4 …and the LAUNCH BLOCK is the one byte of bss nothing clears
+
+`kd_entry` zeroes `.bss` and `.lowbss` because `-f bin` emits nothing for a
+`nobits` section and nothing that puts this image in memory writes them
+(§96.38.3 is the same fact one rung along). It zeroes them **around** the
+launch block, by design: the block is the one thing already written by the
+time `kd_entry` runs — the stub's lands in `kd_lblock` and the gate's in
+`kd_glb`, and `[kd_lbp]` is the only thing that knows which.
+
+So the block is the one region of this image whose contents are nobody's job,
+and **whose job it is depends on which producer staged it**:
+
+- the **box** hands over 512 bytes it `rep movsw`'d whole out of `hbm_dosrec`,
+  which the package loader zeroed (§21 step 5). Every field the gather did not
+  fill is 0 because the buffer under it was;
+- the **gate** (`kerndos/kdosgate.inc`) writes about ten fields into
+  `kd_glb`, which is `resb KDL_SIZE` in `.bss` and which nothing had cleared.
+
+That matters because *absent* is spelt **zero** all over this ABI, and each
+spelling is deliberate: `KDL_DPT` = 0 means *leave `int 1Eh` alone*,
+`KDL_NVOL` = 0 means *keep the built-in volume table*, `KDLF_RAHSH` = 0 means
+*`KD_RAH_KEEP`*. A field says "I could not fill this" only by being written,
+and the gate was relying on a zero it never wrote.
+
+**It was invisible for as long as the bss happened to land on zeros, and where
+it lands is decided by the IMAGE'S LENGTH.** `kd_glb` sits at `KD_SEG:0x767C`
+— physical `0x7C7C`, which is **on the boot sector at 0x7C00**. `kdboot.bin`
+is 251 bytes and `tests/kdos.py` pads the rest of the sector with zeros, so
+while the block's `KDL_DPT` fell past byte 251 it read 0 and the vector was
+left alone. §18.95.9 took 138 bytes out of the image; the block slid down onto
+the loader's own code; `[kd_glb+KDL_DPT]` read `0x7C`; and `kd_entry` copied
+eleven bytes of `kdboot.asm` into `dsk_dpt` and pointed the BIOS at them.
+Every `int 13h` then answered **AH=09h** and the gate printed *"could not
+mount drive B (unit 1)"* about a floppy that was perfectly readable — the
+mount refusing at its first act, the boot-sector read, with §18.95's cache not
+even claimed yet.
+
+**The fix is the producer's and it is four instructions**: the gate clears
+`kd_glb` before it stages anything. Nothing resident moves — `kdosgate.inc` is
+inside `%ifdef KD_GATE` and no shipping path defines it — and what it buys is
+that the sentence §96.40.2 already states, *"a block whose first DPT byte is
+zero leaves the vector alone, which is the gate arm's case"*, is true of the
+code rather than of the machine it happened to run on.
+
+The lesson generalises past this block: **a test whose result is decided by an
+image's length is a test that has not been written down**. Nothing was wrong
+with the size pass; any change of size anywhere in the image re-rolls which
+byte of the boot sector the block lands on, and half the rolls are green.
+
+**And it re-rolled again while this was being fixed**, which is the claim above
+made good rather than argued. §96.12.4's AH=43h work added 68 bytes to
+`apps/dos/dos.asm`; `kd_glb` moved *up* to `KD_SEG:0x76C0`, `KDL_DPT` landed at
+boot-sector **+0xD0** instead of +0x8C, and the eleven bytes copied into
+`dsk_dpt` became `0A 00 6B 64 62 6F 6F 74 3A 20 67` — the loader's own
+`kdboot: g` string instead of its CHS arithmetic. A different eleven bytes,
+the same AH=09h, the same sentence on the glass. Two independent commits, in
+opposite directions, both landing on a non-zero byte.
+
 ### 96.26 The cable translation — a DOS program on the wire without a card
 
 §96.23's packet driver is a **card** feature: it rests on `ETHER.DRV`'s raw
@@ -134275,6 +134464,12 @@ same segment with its own table at a different offset — so a handover that
 does not carry those bytes leaves the ROM reading code as an EOT and a gap
 length. A block whose first DPT byte is zero leaves the vector alone, which is
 the gate arm's case.
+
+**Which makes zeroing the block the PRODUCER's job** (§96.38.4). Every "I
+could not fill this" in the layout is spelt 0 — `KDL_DPT`, `KDL_NVOL`,
+`KDLF_RAHSH` — and `kd_entry` cannot establish it, because the block is the
+one thing already written by the time it clears the bss around it. The box
+gets it from the package loader; the gate does it itself.
 
 ### 96.40.2 What `kern_dos` does, and how the machine comes back
 
@@ -135466,7 +135661,7 @@ floor, *"18KB of claim behind a 36KB bar and 93% of what the ceiling saves"* —
 and `KD_RAH_L2` = 2 is deliberately below it, because at that point the
 alternative on offer is not a wider cache, it is no cache.
 
-Shedding is three stores and `dsk_rah_arm` makes the same three for the same
+Shedding is three stores and `dsk_rah_want` makes the same three for the same
 reasons: `dsk_rah_flush` clears **all** `DSK_RAH_RUNS` records so none names a
 chunk at an offset the shrunk claim no longer covers; `[dsk_rah_next]` goes
 back to 0, **which is the one that would be silent**, being the round-robin
