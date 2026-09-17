@@ -1608,6 +1608,14 @@ cs_setclick:
 
 ; cs_flybtn - the Fly button as it stands: greyed with no mode to fly in
 ;             (SPEC.md 47), down while pressed. in: [cs_flyrect] current
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+cs_btlbl: dw 0
+cs_btflg: dw 0
+    OS88UI_BTNREC cs_btrec, 0, cs_btlbl, cs_btflg, 1
+
 cs_flybtn:
     push bx
     push si
@@ -1623,7 +1631,16 @@ cs_flybtn:
     je .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [cs_btlbl], si          ; label and DI its flags, so the record takes
+    mov [cs_btflg], di          ; all three and the picture is identical
+    mov [cs_btrec+OS88UI_BT_RECTS], bx
+    mov bx, cs_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop bx
@@ -1642,7 +1659,16 @@ cs_donebtn:
     je .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [cs_btlbl], si          ; label and DI its flags, so the record takes
+    mov [cs_btflg], di          ; all three and the picture is identical
+    mov [cs_btrec+OS88UI_BT_RECTS], bx
+    mov bx, cs_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop bx

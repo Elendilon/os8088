@@ -497,8 +497,13 @@ os88ui_btn:
     add cx, cx
     add cx, cx                  ; CX = index * 8, the rect stride
     add cx, [bx+OS88UI_BT_RECTS]
-    mov bx, cx                  ; BX = the rect
-    call os88ui_btnraw
+    mov bx, cx                  ; BX = the rect, and the body below is
+                                ; reached by FALLING THROUGH: it was
+                                ; os88ui_btnraw until every caller in the tree
+                                ; was converted, and a routine only this one
+                                ; reaches does not need a name. There is one
+                                ; way to draw a button now.
+    call os88ui_bdraw
 .out:
     pop di
     pop si
@@ -508,7 +513,7 @@ os88ui_btn:
     ret
 
 ; -----------------------------------------------------------------------------
-; os88ui_btnraw - the drawing body (INTERNAL - call os88ui_btn)
+; os88ui_bdraw - the drawing body (PRIVATE: os88ui_btn is the only caller)
 ; in:  BX = rect {x1,y1,x2,y2} inclusive, SI = NUL label, DI = OS88UI_* flags
 ;      caller holds the gfx lock
 ; out: nothing; all registers preserved
@@ -516,6 +521,12 @@ os88ui_btn:
 ; This is what os88ui_btn was before the record, unchanged to the byte: the
 ; conversion moved the ARGUMENTS and left the picture alone, which is what
 ; makes "every button looks exactly as it did" checkable rather than claimed.
+;
+; IT WAS CALLED os88ui_btnraw AND WAS REACHABLE FROM ANYWHERE, as the scaffold
+; that let the tree convert one caller at a time. That is exactly the thing a
+; scaffold must not become: the next author looking for "how do I draw a
+; button" would have found a painter with no gesture and copied it. Every
+; caller is converted, so the name is gone and this is private.
 ;
 ; **THE RECT IS IN SCREEN COORDINATES AND MUST BE COMPUTED FROM THE CONTENT
 ; ORIGIN EVERY TIME** - OSAPI_WM_CONTENT and OSAPI_WM_GEOM - never from a
@@ -571,7 +582,7 @@ os88ui_btn:
 ; its label is centred by the same arithmetic and its frame is in the same
 ; place. That is the property a separate flip routine cannot have.
 ; -----------------------------------------------------------------------------
-os88ui_btnraw:
+os88ui_bdraw:
     push ax
     push bx
     push cx
@@ -5608,6 +5619,17 @@ section .bss
 ; their own comment and had it right; this is what forgetting it costs.
 ; -----------------------------------------------------------------------------
 os88ui_krect: resw 4
+os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
+os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
+os88ui_krec:  resw OS88UI_BT_SIZE / 2
+                                ; OS88UI_BTNREC - that macro is in
+                                ; apps/os88api.inc, which the kernel does not
+                                ; include - so this record is .bss and
+                                ; os88ui_kbtn aims it at the call. It is ONE
+                                ; record for os88ui_krect's own reason: every
+                                ; kernel user is the UI task under the gfx
+                                ; lock, and a gesture is one press and one
+                                ; release
 
 
 %ifdef OS88UI_SCROLL
@@ -5647,6 +5669,36 @@ os88ui_sbd_id:   resw 2         ; WHICH BAR: its x1 and y1 (SPEC.md 13.10.5.10)
 os88ui_armw: resw 1
 %endif
 section .cold
+
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; os88ui_kbtn - the kernel's ONE-BUTTON staging for os88ui_btn (20.5.1.3)
+; in:  BX = the rect, SI = the label, DI = the flags; the gfx lock is held
+; out: nothing; all registers preserved
+;
+; The kernel's buttons are staged one at a time through os88ui_krect rather
+; than described as a contiguous group, and its gesture is its own arm
+; (SPEC.md 13.8.3) rather than the record's - so this aims the record at
+; whichever rect was staged and draws it. It exists so that os88ui_btnraw
+; could be DELETED: there is one way to draw a button and this is the kernel
+; reaching it, not a second control.
+; -----------------------------------------------------------------------------
+os88ui_kbtn:
+    push ax
+    push bx
+    mov [os88ui_krlbl], si
+    mov [os88ui_krflg], di
+    mov [os88ui_krec+OS88UI_BT_RECTS], bx
+    mov word [os88ui_krec+OS88UI_BT_LABELS], os88ui_krlbl
+    mov word [os88ui_krec+OS88UI_BT_FLAGS], os88ui_krflg
+    mov word [os88ui_krec+OS88UI_BT_N], 1
+    mov word [os88ui_krec+OS88UI_BT_DOWN], 0
+    mov bx, os88ui_krec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; os88ui_btn_f / os88ui_glyph_f - the far entries (SPEC.md 2.6)

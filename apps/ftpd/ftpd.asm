@@ -981,6 +981,14 @@ fd_draw_all:
 .fdone:                             ; it waits on the glass for the NEXT line
     ret
 
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+fd_btlbl: dw 0
+fd_btflg: dw 0
+    OS88UI_BTNREC fd_btrec, 0, fd_btlbl, fd_btflg, 1
+
 fd_draw_btn:
     push ax
     push bx
@@ -1013,7 +1021,16 @@ fd_draw_btn:
     jne .draw                       ; VARIABLE, so a W_PAINT arriving mid-
     or di, OS88UI_DOWN              ; gesture draws it the way it really is
 .draw:                              ; (SPEC.md 13.8.2)
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [fd_btlbl], si          ; label and DI its flags, so the record takes
+    mov [fd_btflg], di          ; all three and the picture is identical
+    mov [fd_btrec+OS88UI_BT_RECTS], bx
+    mov bx, fd_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop bx
@@ -1036,7 +1053,16 @@ fd_draw_setb:
     jne .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [fd_btlbl], si          ; label and DI its flags, so the record takes
+    mov [fd_btflg], di          ; all three and the picture is identical
+    mov [fd_btrec+OS88UI_BT_RECTS], bx
+    mov bx, fd_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop bx
@@ -1099,7 +1125,16 @@ fd_draw_done:
     jne .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [fd_btlbl], si          ; label and DI its flags, so the record takes
+    mov [fd_btflg], di          ; all three and the picture is identical
+    mov [fd_btrec+OS88UI_BT_RECTS], bx
+    mov bx, fd_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop bx

@@ -386,6 +386,16 @@ hd_iw_paint:
 ; explanation (SPEC.md 47 rule 2) - and ONE for the action button whichever of
 ; its three captions is on it (SPEC.md 52.10.6.1).
 ; -----------------------------------------------------------------------------
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; A Control Panel page draws its buttons one at a time, so the record is
+; pointed at whichever rect the caller staged. The GESTURE here is the
+; panel's own cp_ctl/cp_pgprobe probe (SPEC.md 13.8.4), which is already
+; release-fired; what changed is that the DRAW goes through the control.
+hdi_btlbl: dw 0
+hdi_btflg: dw 0
+    OS88UI_BTNREC hdi_btrec, 0, hdi_btlbl, hdi_btflg, 1
+
 hd_iw_button:
     push ax
     push bx
@@ -431,7 +441,16 @@ hd_iw_button:
                                 ; will fire (SPEC.md 13.8)
     mov bx, hd_ibrect           ; OS88UI_FILL because a RELEASE redraws this
     or di, OS88UI_FILL          ; button over a pressed one; on a full pass
-    call os88ui_btnraw             ; hd_ibtns_draw has already whited the band
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [hdi_btlbl], si          ; label and DI its flags, so the record takes
+    mov [hdi_btflg], di          ; all three and the picture is identical
+    mov [hdi_btrec+OS88UI_BT_RECTS], bx
+    mov bx, hdi_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop dx

@@ -1096,6 +1096,14 @@ rc_draw_btns:
 ; painter, a W_PAINT goes through it, and [rc_down] is consulted per button.
 ; Passing it as an argument would mean the press path knew and W_PAINT did not.
 ; -----------------------------------------------------------------------------
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+rc_btlbl: dw 0
+rc_btflg: dw 0
+    OS88UI_BTNREC rc_btrec, 0, rc_btlbl, rc_btflg, 1
+
 rc_btn:
     push ax
     push bx
@@ -1132,7 +1140,16 @@ rc_btn:
     jne .draw
     or di, OS88UI_DOWN              ; ...and DIS still outranks it inside
 .draw:                              ; os88ui_btn, which is where that rule lives
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [rc_btlbl], si          ; label and DI its flags, so the record takes
+    mov [rc_btflg], di          ; all three and the picture is identical
+    mov [rc_btrec+OS88UI_BT_RECTS], bx
+    mov bx, rc_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop bx
     pop ax

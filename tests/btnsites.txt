@@ -1,83 +1,80 @@
 # tests/btnsites.txt - the BUTTON registry (SPEC.md 20.5.1.3)
 #
-# `os88ui_btn` IS the standard button: it takes a RECORD and an index, resolves
-# the pressed look from OS88UI_BT_DOWN itself, and its four siblings -
-# os88ui_btninit, btnpress, btndrag, btnup - are the SPEC.md 13.7 gesture.
-# A caller that uses them cannot fire on the press, cannot forget to install
-# W_ONMOUSEUP, and cannot draw a repaint that disagrees with the glass.
+# `os88ui_btn` IS the standard button and there is no second way to draw one.
+# It takes a RECORD and an index, resolves the pressed look from
+# OS88UI_BT_DOWN, ORs the erase in itself, and its siblings - os88ui_btninit,
+# btnpress, btndrag, btnup - are the SPEC.md 13.7 gesture. btninit installs
+# all THREE edges, the press included (OSAPI_WM_ONCLICK, 20.5.1.3.3), so a
+# package cannot have a click path that skips the buttons.
 #
-# `os88ui_btnraw` is the old loose-register painter (rect, label, flags). It is
-# the drawing body and nothing else: it knows no gesture, so a caller on it owns
-# the whole of SPEC.md 13.6 by hand - which is how TWENTY-FIVE of the tree's
-# call sites came to fire on the PRESS with no pressed look at all.
+# `os88ui_btnraw` IS GONE. It was the loose-register painter - a button with
+# no gesture - kept reachable while the tree converted one caller at a time.
+# Twenty-five call sites were on it and every one is converted; the body is
+# private now (os88ui_bdraw, reached by falling through os88ui_btn) and
+# t_btnrules fails the build if the name comes back. A scaffold that outlives
+# its conversion is the thing the next author finds and copies.
 #
-# ONE LINE PER FILE: <record> <raw> <path>  # <reason>
+# ONE LINE PER FILE: <count> <path>  # <reason>
 #
-# A file NOT in this list may not call either - that is the case that matters,
-# because it is what a new package hits. A file in it may not exceed either
-# count, and may not fall below them either: lowering a `raw` after a
-# conversion is the diff saying the work happened.
-#
-# THIS IS A RATCHET, NOT A CLEAN GATE, and it starts where the tree is. What it
-# stops from day one is `raw` going UP - a NEW caller of os88ui_btnraw is a new
-# button that fires on the press, which is the defect this whole registry is
-# about. docs/plans/BUTTON-GESTURE-PLAN.md 8 is the order to work the rest down
-# in.
+# A file NOT in this list may not draw a button at all - that is the case that
+# matters, because it is what a new package hits. A file in it must match its
+# count exactly, so the numbers cannot rot in either direction.
 #
 # WHY A GATE AND NOT A SURVEY: docs/plans/completed/UIHELPERS-PLAN.md 15.4 is a
-# survey table of exactly this defect, and SEVEN of the ten carriers landed
-# AFTER it was written. SPEC.md 13.8.4 predicted that in as many words. A
-# survey cannot fail a build.
+# survey table of this defect and SEVEN of the ten carriers landed AFTER it
+# was written. SPEC.md 13.8.4 predicted that in as many words. A survey cannot
+# fail a build.
 #
-# WHY IT IS STATIC AND NOT A DRIVEN TEST: a press-fired button and a
-# release-fired one are THE SAME PIXELS in every still. The difference exists
-# only while a physical button is held, and no screenshot-driven row holds one
-# down - which is why this survived ten packages. The driven test is worth
-# having too (tests/dosbtn.py), and it is not what catches the eleventh package.
+# WHAT THIS CANNOT SEE, and tests/btnall.py can: a caller that draws through
+# the record and is wired up wrong. Five shipped that way - a record aimed in
+# the click path, one declared on top of the package's own state, a count
+# written after the draws, a press hit-tested in the wrong coordinate space,
+# and a whole click handler left unconverted. Every one was found by a person
+# looking at a screen, because a press-fired button and a release-fired one
+# are THE SAME PIXELS in every still.
 
 # --- the library's own ------------------------------------------------------
-6 1 apps/os88ui.inc                 # record: os88ui_btn's own body plus the
-                                    # About card's row and the alert's; raw:
-                                    # os88ui_btn IS the one call to btnraw
+7 apps/os88ui.inc                  # os88ui_btn's own dispatch, the About
+                                   # card's row, the alert's, and os88ui_kbtn
 
-# --- CONVERTED: the record, and the gesture with it --------------------------
-4 0 apps/dos/dos.asm                # record: the reported bug (SPEC.md 96.32)
-10 0 apps/sheet/sheet.asm           # record: five dialog pairs
-2 0 apps/word/word.asm              # record: staged N=1 - its buttons are
-                                    # entries in its own WDD control list
-2 0 apps/scribe/scribe.asm          # record: Word's shape, same lineage
-2 0 apps/thewire/thewire.asm        # record
-1 0 apps/telnet/telnet.asm          # record: one button, dynamic caption
-1 0 apps/browser/browser.asm        # record: one call, three toolbar buttons
-1 0 apps/notepad/notepad.asm        # record: the find panel's four
-1 0 apps/artful/atui.inc            # record: the modal's three
-1 0 apps/audio/apui.inc             # record: the seven transports, and
-                                    # OS88UI_LATCH's first consumer (20.5.1.4)
+# --- packages ---------------------------------------------------------------
+10 apps/sheet/sheet.asm            # five dialog pairs, a record each
+4 apps/dos/dos.asm                 # the bar's two and the Setup page's two,
+                                   # one record repointed per page
+3 apps/ftpd/ftpd.asm               # Stop, Setup, Done
+2 apps/word/word.asm               # staged N=1: entries in its own WDD list
+2 apps/scribe/scribe.asm           # Word's shape, same lineage
+2 apps/thewire/thewire.asm         # Load Program, Add to Disk
+2 apps/skies/skies.asm             # Fly, Done
+1 apps/browser/browser.asm         # one call, three toolbar buttons
+1 apps/telnet/telnet.asm           # Connect, with a dynamic caption
+1 apps/notepad/notepad.asm         # the find panel's four
+1 apps/artful/atui.inc             # the splash's two and the modal's three
+1 apps/audio/apui.inc              # the seven transports, and OS88UI_LATCH's
+                                   # first consumer (SPEC.md 20.5.1.4)
+1 apps/calc/calc.asm               # the keypad, staged one key at a time
+1 apps/paint/paint.asm             # Apply
+1 apps/piano/piano.asm             # its two buttons. The KEYS keep the press
+                                   # and must - a note is SPEC.md 13.6's safe
+                                   # prefix action
+1 apps/recorder/recorder.asm       # the transport
+1 apps/texpad/texpad.asm           # the top row, staged one at a time
+1 apps/weave/wdraw.inc             # correct through the C SDK's
+                                   # os88_wm_onmouseup
 
-# --- BACKLOG: on os88ui_btnraw, and ALREADY RELEASE-FIRED --------------------
-# None of these is the defect. Each fires on the release today through a
-# gesture of its own - a package arm, or the Control Panel's cp_ctl/cp_pgprobe
-# probe (SPEC.md 13.8.3, 13.8.4) - so converting them is a consistency and size
-# change rather than a bug fix, and it is BUTTON-GESTURE-PLAN 8 step 7.
-0 1 apps/calc/calc.asm              # backlog: bfind/arm/fire + cal_setdown
-0 1 apps/recorder/recorder.asm      # backlog: the same shape
-0 1 apps/texpad/texpad.asm          # backlog: the same shape
-0 1 apps/paint/paint.asm            # backlog: the same shape
-0 1 apps/piano/piano.asm            # backlog: its two buttons. The KEYS keep
-                                    # the press and must - a note is SPEC.md
-                                    # 13.6's safe prefix action
-0 2 apps/skies/skies.asm            # backlog: the same shape
-0 3 apps/ftpd/ftpd.asm              # backlog: the same shape
-0 1 apps/weave/wdraw.inc            # backlog: correct through the C SDK's
-                                    # os88_wm_onmouseup, which is why an asm
-                                    # grep reads this one as broken
-0 1 kernel/apps.inc                 # backlog: the Timer, SPEC.md 13.8.5
-0 1 kernel/files.inc                # backlog: the Disk window, SPEC.md 22.18
-0 3 drivers/ether/etherui.inc       # backlog: cp_ctl probe (SPEC.md 13.8.4)
-0 1 drivers/ether/ethcfg.inc        # backlog: cp_ctl probe
-0 2 drivers/hdd/page.inc            # backlog: cp_ctl probe
-0 1 drivers/hdd/tool.inc            # backlog: cp_ctl probe
-0 1 drivers/hdd/inst.inc            # backlog: cp_ctl probe
-0 1 drivers/net/netui.inc           # backlog: cp_ctl probe
-0 1 drivers/ramdisk/page.inc        # backlog: cp_ctl probe
-0 1 drivers/saver/svcfg.inc         # backlog: cp_ctl probe
+# --- drivers: the gesture is the Control Panel's probe (SPEC.md 13.8.4) -----
+# cp_ctl/cp_pgprobe is already release-fired, so what converted here is the
+# DRAW; the press half stays the panel's, which is the one mechanism a
+# package-side W_ONCLICK cannot serve.
+3 drivers/ether/etherui.inc        # Renew, Setup, and the third
+1 drivers/ether/ethcfg.inc
+2 drivers/hdd/page.inc
+1 drivers/hdd/tool.inc
+1 drivers/hdd/inst.inc
+1 drivers/net/netui.inc
+1 drivers/ramdisk/page.inc
+1 drivers/saver/svcfg.inc
+
+# --- the kernel: its own arm (SPEC.md 13.8.3), through os88ui_kbtn ----------
+1 kernel/apps.inc                  # the Timer's Start/Stop (SPEC.md 13.8.5)
+1 kernel/files.inc                 # the Disk window's (SPEC.md 22.18)

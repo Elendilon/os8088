@@ -36,8 +36,9 @@ from harness import check, done                           # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 REGISTRY = os.path.join(ROOT, "tests", "btnsites.txt")
 
-REC = re.compile(r"^\s*call os88ui_btn\b", re.M)
+REC = re.compile(r"^\s*call (?:os88ui_btn|os88ui_kbtn)\b", re.M)
 RAW = re.compile(r"^\s*call os88ui_btnraw\b", re.M)
+DEAD = re.compile(r"^os88ui_btnraw:", re.M)
 SCAN = ("apps", "drivers", "kernel")
 EXT = (".asm", ".inc", ".c", ".h")
 
@@ -51,17 +52,11 @@ def registry():
         f = body[0].split()
         if not f:
             continue
-        if len(f) != 3 or not f[0].isdigit() or not f[1].isdigit():
-            bad.append("%s:%d: want `<record> <raw> <path>  # <reason>`, got %r"
+        if len(f) != 2 or not f[0].isdigit():
+            bad.append("%s:%d: want `<count> <path>  # <reason>`, got %r"
                        % (os.path.basename(REGISTRY), n, line.rstrip()))
             continue
-        rec, raw, path = int(f[0]), int(f[1]), f[2]
-        if raw and not reason:
-            bad.append("%s:%d: %s calls os88ui_btnraw %d time(s) and gives no "
-                       "reason. A raw call is a button with NO gesture "
-                       "(SPEC.md 13.6) - say why, or convert it"
-                       % (os.path.basename(REGISTRY), n, path, raw))
-        out[path] = (rec, raw, reason)
+        out[f[1]] = (int(f[0]), 0, reason)
     return out, bad
 
 
@@ -89,6 +84,20 @@ def main():
     reg, bad = registry()
     live = tree()
 
+    # --- THE SCAFFOLD IS GONE AND MAY NOT COME BACK -------------------------
+    # os88ui_btnraw was the old loose-register painter, kept reachable while
+    # the tree converted one caller at a time. A scaffold that outlives its
+    # conversion is the thing the next author finds and copies - a painter
+    # with no gesture, which is the whole defect - so the body is private
+    # (os88ui_bdraw, one caller) and the name is not a symbol any more.
+    ui = open(os.path.join(ROOT, "apps", "os88ui.inc"), encoding="utf-8",
+              errors="replace").read()
+    if DEAD.search(ui):
+        bad.append("apps/os88ui.inc defines os88ui_btnraw again. It was the "
+                   "scaffold for the conversion and every caller is off it: "
+                   "a reachable painter with NO gesture is what the next "
+                   "package copies (SPEC.md 20.5.1.3)")
+
     for path, (rec, raw) in sorted(live.items()):
         if path not in reg:
             bad.append("%s is NOT in tests/btnsites.txt and calls the button "
@@ -97,15 +106,7 @@ def main():
                        "that fires on the press, which is the defect the "
                        "registry exists for (SPEC.md 20.5.1.3)" % (path, rec, raw))
             continue
-        wrec, wraw, _ = reg[path]
-        if raw > wraw:
-            bad.append("%s calls os88ui_btnraw %d time(s), registered for %d. "
-                       "THE RAW COUNT MAY ONLY GO DOWN: a new one is a button "
-                       "with no gesture (SPEC.md 13.6)" % (path, raw, wraw))
-        if raw < wraw:
-            bad.append("%s calls os88ui_btnraw %d time(s), registered for %d - "
-                       "lower the number, which is the diff saying the "
-                       "conversion happened" % (path, raw, wraw))
+        wrec, _wraw, _ = reg[path]
         if rec != wrec:
             bad.append("%s calls os88ui_btn %d time(s), registered for %d - "
                        "keep the count honest" % (path, rec, wrec))
@@ -123,8 +124,16 @@ def main():
     # from the source.
     AIM = re.compile(r"OS88UI_BT_RECTS\]|OS88UI_BTNREC\s+\w+\s*,\s*\w")
     CNT = re.compile(r"OS88UI_BT_N\]|OS88UI_BTNREC\s+\w+\s*,")
+    KBTN = re.compile(r"^\s*call os88ui_kbtn\b", re.M)
     for path, (rec, raw) in sorted(live.items()):
         if not rec or path.endswith("os88ui.inc"):
+            continue
+        t0 = open(os.path.join(ROOT, path), encoding="utf-8",
+                  errors="replace").read()
+        # os88ui_kbtn is the KERNEL's one-button staging and aims the record
+        # itself (SPEC.md 20.5.1.3), so a file that only calls that has
+        # nothing of its own to aim.
+        if KBTN.search(t0) and not re.search(r"^\s*call os88ui_btn\b", t0, re.M):
             continue
         t = open(os.path.join(ROOT, path), encoding="utf-8",
                  errors="replace").read()

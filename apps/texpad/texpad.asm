@@ -1177,6 +1177,14 @@ tp_btab:    dw tp_r_set, tp_r_cls, tp_r_mar, tp_r_gut, tp_r_pad
             dw tp_r_prev, tp_r_next
 TP_NBTN     equ 7
 
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+tp_btlbl: dw 0
+tp_btflg: dw 0
+    OS88UI_BTNREC tp_btrec, 0, tp_btlbl, tp_btflg, 1
+
 tp_btn1:
     push ax
     push bx
@@ -1263,7 +1271,16 @@ tp_btn1:
     or di, OS88UI_DIS           ; ...and DISABLED wins over DOWN inside
                                 ; os88ui_btn, so there is nothing to clear
 .draw:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [tp_btlbl], si          ; label and DI its flags, so the record takes
+    mov [tp_btflg], di          ; all three and the picture is identical
+    mov [tp_btrec+OS88UI_BT_RECTS], bx
+    mov bx, tp_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop dx
