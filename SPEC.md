@@ -113988,33 +113988,48 @@ this world already draws three of: `CS_HILL`, a two-level frustum.
 
 **One model, two objects.** A `CS_HILL` is symmetric in z about its own origin,
 so the same frustum serves Marin and the Presidio and the world pays for one
-model. `cs_m_sfo_appr` is base 600×360, top 440×240 at **h = 80** — the deck's
+model. `cs_m_sfo_appr` is base 260×320, top 180×200 at **h = 80** — the deck's
 own `CSO_Y` exactly. `CS_BOX` emits no bottom face (`cs_f_box` is four sides
 and a top), so the slab's underside and the hill's top are never a coincident
 pair with nothing to sort them; what the eye gets is a roadway sitting ON an
 embankment with its 6 m side still showing.
 
-**Three numbers already in the world set all four edges**, and in this order:
+**IT IS SIZED BY THE TOWER IT MUST NOT EAT**, and that is the second thing the
+field said about it: *"the ground supports are inside of that hill. Maybe move
+them back just a bit so only the end of the roads go into them."* They were —
+and it was the **width** that did it rather than the position. The first build
+was 600 m across with its foot 8 m behind the tower, which puts 300 m of
+hillside **between the eye and the tower** from anywhere off the bridge's axis;
+this renderer sorts whole objects, so the nearer hill was drawn over the
+tower's lower 80 m and a 227 m landmark came back as a stump. Both numbers
+moved: **260 m across instead of 600, and the foot at 500 instead of 420.**
+
+**The four edges, in the order the things already there fix them:**
 
 | edge | value | what fixes it |
 |---|---:|---|
-| base, inboard | 420 | the tower is at 400 and 12 deep, so 412 is its back face |
-| top, inboard | 480 | 80 m of rise in 60 of run — the Marin headlands are cliffs |
-| top, outboard | 720 | the deck ends at 700, so land runs past road and not the other way |
-| base, outboard | 780 | the far side slopes back to sea level instead of ending in a wall |
+| base, inboard | 500 | 88 m clear of the tower's back face at 412 — the slope starts BEHIND the tower, and the hill's bulk is out of its line from the side |
+| top, outboard | 760 | the deck ends at 700, so land runs past road and not the other way |
+| base, outboard | 820 | the far side slopes back to sea level instead of ending in a wall |
+| top, inboard | 560 | falls out: 80 m of rise in 60 of run |
 
-What is left unsupported is **345 to 420 — seventy-five metres, hard against
-the tower that is holding it up**, which is what the real bridge looks like. A
-shallower ramp cannot do better: to reach 80 m at a gentler grade it would have
-to start inside the tower, and a 227 m landmark growing out of a hillside is
-the one thing §88.6.4's header arranges the shore to avoid.
+What is left unsupported is **345 to 500 — a hundred and fifty-five metres,
+with the tower standing in the middle of it**, against 355 an end before any of
+this. It is deliberately **not** the 75 m the first build reached: seventy-five
+bought a road with nothing under it at the cost of a bridge with no tower under
+it, which is the worse of the two pictures. A shallower ramp cannot do better
+either — to reach 80 m at a gentler grade it would have to start inside the
+tower, and a 227 m landmark growing out of a hillside is the one thing
+§88.6.4's header arranges the shore to avoid.
 
 **It is priced by the gate rather than argued about.** `tests/unit/t_csworlds.py`
 weighs an object as its expanded vertices plus three a face plus one an edge
 and holds each world's peak frame to 1.15× Paris; a frustum is 8 corners and
 5 faces, so the pair is 46. San Francisco goes **425 → 471 peak, 0.70× → 0.78×**
 of Paris' 607, and `CS_NVIS` 26 → 28 of the 32 an object may be the
-thirty-third of. Neither number is near its ceiling, which is the answer to
+thirty-third of — unchanged by the reshaping, a frustum costing what a frustum
+costs whatever its extent. Neither number is near its ceiling, which is the
+answer to
 *"we're trying to be performant in this scene"* — and the reason it can be
 answered at all is that the budget is a fast-tier row and not a judgement.
 

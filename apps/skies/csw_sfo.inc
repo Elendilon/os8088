@@ -247,20 +247,30 @@ CS_HILL cs_m_sfo_rock, 130, 115,  42,  75,  65    ; Alcatraz, in the gap
 ; coincident pair, and what the eye gets is a roadway sitting ON an embankment
 ; with its 6 m side still showing.
 ;
-; THE NUMBERS ARE SET BY THE THREE THINGS ALREADY THERE, in this order.
-; The base's near edge is 420 because the tower stands at 400 and is 12 deep,
-; so 412 is its back face - any closer and a 227 m landmark grows out of a
-; hillside instead of off the shore, which is the one thing the header says
-; this world arranges on purpose. The top's far edge is 720 because the deck
-; ends at 700, so the land runs 20 m past the road rather than the road
-; overhanging the land. And the base's far edge is 780 so the outboard side
-; slopes back down to sea level instead of ending in a wall.
+; IT IS SIZED BY THE TOWER IT MUST NOT EAT, which is the second thing the
+; field said about it: "the ground supports are inside of that hill." They
+; were, and it was the WIDTH that did it rather than the position. A landform
+; 600 m across with its foot 8 m behind the tower puts 300 m of hillside
+; BETWEEN THE EYE AND THE TOWER from anywhere off the bridge's axis, and this
+; renderer sorts whole objects - so the nearer hill was drawn over the tower's
+; lower 80 m and a 227 m landmark came back as a stump. Both numbers moved:
+; 260 m across instead of 600, and the foot at 500 instead of 420.
 ;
-; What is left unsupported is 345 to 420 - seventy-five metres, hard against
-; the tower that is holding it up, which is what the real bridge looks like.
-; The slope from 420 to 480 is 80 m in 60, steeper than 45 degrees: the Marin
-; headlands are cliffs, and a shallower ramp would have to start inside the
-; tower to reach the same height.
+; THE FOUR EDGES, in the order the things already there fix them.
+; The base's near edge is 500, which is 88 m clear of the tower's back face at
+; 412 - far enough that the slope reads as starting BEHIND the tower rather
+; than at it, and far enough that the hill's own bulk is out of the tower's
+; line from the side. The top's far edge is 760 because the deck ends at 700,
+; so land runs past road rather than road overhanging land. The base's far
+; edge is 820 so the outboard side slopes back down to sea level instead of
+; ending in a wall. And the top's near edge falls out at 560: 80 m of rise in
+; 60 of run.
+;
+; What is left unsupported is 345 to 500 - a hundred and fifty-five metres, of
+; which the tower stands in the middle. That is 355 an end before any of this,
+; and it is deliberately NOT the 75 the first build got: seventy-five bought a
+; road with nothing under it at the cost of a bridge with no tower under it,
+; which is the worse of the two pictures.
 ;
 ; It is a HILL and not a pier because the primitives cannot hold a ramp - a
 ; CSM_STACK level is (wx, h, wz) and its four corners are (+-wx, h, +-wz), so
@@ -268,7 +278,7 @@ CS_HILL cs_m_sfo_rock, 130, 115,  42,  75,  65    ; Alcatraz, in the gap
 ; down to the ground is not expressible. Bringing the land up to the deck is
 ; the same picture from the other side, and it is the shape this world already
 ; draws three of.
-CS_HILL cs_m_sfo_appr, 300, 180,  80, 220, 120    ; base 600x360, top 440x240
+CS_HILL cs_m_sfo_appr, 130, 160,  80,  90, 100    ; base 260x320, top 180x200
                                                   ; at 80 m - the deck's own
                                                   ; underside
 
@@ -310,8 +320,8 @@ cs_ot_sfo:
     CS_OBJ cs_m_sfo_marw, 0,              -1150,  1200,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_mare, 0,                900,  1150,   0, 10000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pres, 0,               -500,  -950,   0,  9000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
-    CS_OBJ cs_m_sfo_appr, 0,                  0,   600,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
-    CS_OBJ cs_m_sfo_appr, 0,                  0,  -600,   0, 12000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_appr, 0,                  0,   660,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_sfo_appr, 0,                  0,  -660,   0, 12000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_rock, 0,               2950,   430,   0,  7000,    0, cs_n_sfo_alc,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pen,  0,               2950,   430,  42,  6000,    0, cs_n_sfo_alc,  CSO_COLLIDE
     CS_OBJ cs_m_sfo_tram, 0,               3770, -1010,   0, 12000,    0, cs_n_sfo_tram, CSO_COLLIDE | CSO_POI
