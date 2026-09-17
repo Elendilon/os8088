@@ -65402,7 +65402,32 @@ same disk and same clicks:** the 300KB module is `File too big` /
 `No module loaded` before, and `OS8088 300K TEST` / `Playing` after. The
 `.o88` grows 73 bytes.
 
-<<<<<<< HEAD
+#### 45.3.1.1 The early refusals are the whole guarantee that a bad pick does not stop the music
+
+`trk_fdone` refuses in three places that **stop nothing, free nothing and
+never touch the disk** — wrong extension, a size past the conversion's domain,
+a size past `OSAPI_MEM_AVAIL`'s largest run — and then, past `.sizeok`, it
+**frees the playing module before it claims the new one**. So a failure after
+that point leaves the machine with no module at all, the one that was playing
+included, and **the gate is the entire guarantee that a mis-picked file does
+not interrupt what is already playing** (§38.6).
+
+**The gate was broken and this is where it showed.** `fdlg_sizeof` handed over
+the file's **packed** size (§20.14.3, §38.6.1), so a compressed module sailed
+through `.nomem2` on a third of its real figure, reached `.alloc`, freed a
+playing module and then failed the read with `FERR_BIG`. Photographed: a
+Tracker playing *Beverly Hills Cop* turned into **`No module loaded`** by a
+load that never happened.
+
+**The free does not move below the read, and that is a decision.** The new
+claim comes out of the space the old blob occupies; holding both doubles the
+peak, and on the 640KB machine this project is calibrated against that is what
+makes a large module **unloadable** rather than merely slow — which is the
+ceiling §45.3.1 exists to have removed. The refusals that cannot be
+pre-checked — `.nomem` (the heap fragmented under a figure `OSAPI_MEM_AVAIL`
+had just answered), `.noring`, a genuine `FERR_IO` — are the residue of the
+single-copy peak, not an oversight.
+
 #### 45.3.2 …and the refusal asks for the room first (§66.4.3)
 
 §45.3.1 leaves `trk_fdone` asking `OSAPI_MEM_AVAIL` before it stops the
@@ -65500,33 +65525,6 @@ the one thing it could not keep — every real one this size is somebody's file
 and it is a real module rather than a blob because a file `mp_load` refused
 would exercise the claim and then fail the load, which is a green row about a
 machine that never played anything.
-=======
-#### 45.3.1.1 The early refusals are the whole guarantee that a bad pick does not stop the music
-
-`trk_fdone` refuses in three places that **stop nothing, free nothing and
-never touch the disk** — wrong extension, a size past the conversion's domain,
-a size past `OSAPI_MEM_AVAIL`'s largest run — and then, past `.sizeok`, it
-**frees the playing module before it claims the new one**. So a failure after
-that point leaves the machine with no module at all, the one that was playing
-included, and **the gate is the entire guarantee that a mis-picked file does
-not interrupt what is already playing** (§38.6).
-
-**The gate was broken and this is where it showed.** `fdlg_sizeof` handed over
-the file's **packed** size (§20.14.3, §38.6.1), so a compressed module sailed
-through `.nomem2` on a third of its real figure, reached `.alloc`, freed a
-playing module and then failed the read with `FERR_BIG`. Photographed: a
-Tracker playing *Beverly Hills Cop* turned into **`No module loaded`** by a
-load that never happened.
-
-**The free does not move below the read, and that is a decision.** The new
-claim comes out of the space the old blob occupies; holding both doubles the
-peak, and on the 640KB machine this project is calibrated against that is what
-makes a large module **unloadable** rather than merely slow — which is the
-ceiling §45.3.1 exists to have removed. The refusals that cannot be
-pre-checked — `.nomem` (the heap fragmented under a figure `OSAPI_MEM_AVAIL`
-had just answered), `.noring`, a genuine `FERR_IO` — are the residue of the
-single-copy peak, not an oversight.
->>>>>>> origin/main
 
 ### 45.4 Memory layout
 
