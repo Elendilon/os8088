@@ -2204,12 +2204,10 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
 ;
 %define OSAPI_DRV_CLASSK    KERNEL_SEG:0x0580   ; **WHAT ONE CLASS IS
                                  ; HOLDING** (SPEC.md 51.12). in AL = a DRVC_*
-                                 ; class, + DRVCK_ALL for the CEILING form;
-                                 ; out CF=0 with AX = the KB the LOADED
-                                 ; drivers of that class hold and CX = how
-                                 ; many answered, or CF=1 with AX=0 and CX=0 -
-                                 ; nothing of that class is loaded. Every
-                                 ; other register is preserved.
+                                 ; class; out CF=0 with AX = the KB the LOADED
+                                 ; drivers of that class hold, or CF=1 with
+                                 ; AX=0 - nothing of that class is loaded.
+                                 ; Every other register is preserved.
                                  ;
                                  ; The pair a checkbox wants, out of one walk:
                                  ; CF is the greying predicate and AX is the
@@ -2220,31 +2218,23 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; (32K)" - and the two are keyed the same
                                  ; way, by class, on purpose.
                                  ;
-                                 ; BIT 15 OF AX IS A FLAG, NOT A DIGIT: it is
-                                 ; set when one of the rows also holds a store
-                                 ; the USER sized on its own page (the RAM
-                                 ; disk's arena), which is not this kernel's
-                                 ; number to quote. Mask it off before you
-                                 ; print, and draw a '+' if you want to say so.
+                                 ; **IT WEIGHS THE HEAP** (SPEC.md 51.12.2):
+                                 ; per loaded row, the KB of the image plus
+                                 ; everything claimed with that image's
+                                 ; segment as its owner. So it is what an
+                                 ; unmount would hand back NOW - not what the
+                                 ; Drivers page prices, which is a ceiling and
+                                 ; read 20KB high on a silent Sound Blaster.
+                                 ; Plain kilobytes: there is no flag bit in it
+                                 ; and nothing to mask off.
                                  ;
-                                 ; The figures are BUILD-TIME constants - the
-                                 ; ones the Control Panel's Drivers page draws
-                                 ; - so the call costs no probe and no I/O,
-                                 ; and it is a fair estimate rather than a
-                                 ; measurement: what each driver holds while
-                                 ; doing its primary job, at the top rung of
-                                 ; any claim it sizes to the machine
-                                 ;
-                                 ; **ASK WITH DRVCK_ALL FOR A CAPTION AND
-                                 ; WITHOUT IT FOR A CONTROL** (SPEC.md
-                                 ; 51.12.1). With the bit set every row of the
-                                 ; class counts whether or not its driver is
-                                 ; mounted, and CF=0 whenever the table has
-                                 ; such a row - so "Network (Up to 39K)" says
-                                 ; the same thing on every machine. Without
-                                 ; it you get this machine now, which is the
-                                 ; only honest number to put beside a box
-                                 ; that offers to unmount something
+                                 ; **FOR A CAPTION, DO NOT CALL THIS AT ALL**
+                                 ; (SPEC.md 51.12.1). "Hard drives (Up to
+                                 ; 32K)" is about the CLASS and not about this
+                                 ; machine, so it is a constant - DRVM_CEIL_*
+                                 ; below - and asking the slot gives you
+                                 ; `(Up to  0K)` on the machine the page is
+                                 ; most often opened on
 ;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
@@ -2322,10 +2312,21 @@ PKGV_IDENT   equ 0              ; **VERB 0 OF EVERY PACKAGE DOOR IS IDENTIFY**
 ; drivers/os88drv.inc has no copy, it includes this file. A class is also a
 ; PUBLICATION SLOT: one driver of each may be attached at a time - which is
 ; why PKGV_IDENT above exists: a class does not name a driver.
-DRVCK_ALL    equ 0x80          ; ...OR'd into OSAPI_DRV_CLASSK's class byte
-                                ; for the ceiling form above (SPEC.md
-                                ; 51.12.1). Bit 7, because every class below
-                                ; is 1..5
+
+; ...AND WHAT A CLASS COULD COST, which is a CONSTANT (SPEC.md 51.12.1). This
+; is the `Up to NNK` a caption quotes: the sum of kernel/driver.inc's drv_memk
+; over the rows of that class, every term of it fixed at assembly time. It was
+; a runtime form of OSAPI_DRV_CLASSK (`DRVCK_ALL`, bit 7 of the class byte),
+; which walked a table of constants to add up constants - thirty-five resident
+; bytes to tell a caller something nasm knew.
+;
+; MIRRORED from kernel/driver.inc, where a `%if` checks each against drv_memk
+; and tests/unit/t_drvmem.py re-derives the sum from drv_tab's own class bytes;
+; tests/unit/t_mirror.py holds this copy level with that one. A package copies
+; the ANSWER here and derives nothing, which is what makes it different from
+; the per-driver copy 51.12.1 refuses.
+DRVM_CEIL_DISK equ 32          ; DRVC_DISK's ceiling, in KB
+DRVM_CEIL_NET  equ 33          ; ...and DRVC_NET's
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; Publishes no package entry point and is not

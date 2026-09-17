@@ -30,9 +30,10 @@ What it would catch, and every one is a silent failure:
   - the dial's ladder disagreeing with kern_dos  -> `DOS_CA_AUTORUN` is gated
     (96.36.6)                                       at assembly, but 32K/18K/
                                                     9K are only checked here
-  - a box's label and the total disagreeing      -> two reads of
-                                                    OSAPI_DRV_CLASSK where
-                                                    96.36.7 says one
+  - a box's label and the total disagreeing      -> the label is the CLASS's
+                                                    constant ceiling and the
+                                                    total is the live call
+                                                    (96.36.7.1, 51.12.1)
 
 It needs a machine with a fixed disk for arm 3 (the session has to have
 somewhere to go), and the figure it compares against is **DOSHELLO's own
@@ -252,14 +253,17 @@ def main():
                  "they are the same" % word("dos_mnkb"))
         if not netkb:
             fail("`%s` prints a ZERO on a machine with no card. The caption is "
-                 "the CLASS's ceiling and must be asked with DRVCK_ALL "
-                 "(SPEC.md 51.12.1); fed OSAPI_DRV_CLASSK's plain form it "
-                 "reports what is mounted, which here is nothing" % netraw)
+                 "the CLASS's CEILING - DRVM_CEIL_NET, a build-time constant "
+                 "out of the SDK (SPEC.md 51.12.1); fed OSAPI_DRV_CLASSK's "
+                 "live figure it reports what is mounted, which here is "
+                 "nothing" % netraw)
         # A CEILING IS NEVER BELOW WHAT IS HELD, and on this fixture it is
         # strictly above: DRVM_HDD counts HD_MAXVOL listing claims and one
-        # volume is mounted, so 32 against 14. That gap IS the two forms being
-        # two questions (SPEC.md 51.12.1, 51.12.2) - fed one figure they were
+        # volume is mounted, so 32 against 14. That gap IS the two being two
+        # questions (SPEC.md 51.12.1, 51.12.2) - fed one figure they were
         # equal here, which is exactly why the equality used to be asserted.
+        # The caption is a CONSTANT now and the live figure is a call, so
+        # this row is also what says the constant reached the label at all.
         if hddkb < hdkb:
             fail("`%s` says %d and the mounted class is HOLDING %d. A ceiling "
                  "below what is held is one of the two forms walking the "
@@ -268,9 +272,9 @@ def main():
             fail("`%s` says %d and the live figure is the same. On this "
                  "fixture they must DIFFER: the caption is DRVM_HDD's "
                  "ceiling - the image plus HD_MAXVOL listing claims - and one "
-                 "volume is mounted, so a plain OSAPI_DRV_CLASSK that weighs "
-                 "the heap cannot agree with it. Equal means both calls took "
-                 "the same arm (SPEC.md 51.12.2)" % (hddraw, hddkb))
+                 "volume is mounted, so OSAPI_DRV_CLASSK, which weighs the "
+                 "heap, cannot agree with it. Equal means the caption was "
+                 "filled from the call (SPEC.md 51.12.2)" % (hddraw, hddkb))
 
         # --- 1c: ...and the LIMIT moves the figure AS IT IS TYPED ------------
         # dos_mem_arena has clamped to [dos_memkb] since the page was reworked

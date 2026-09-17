@@ -6436,19 +6436,17 @@ dos_mck_place:
 
     ; --- ...AND THE CAPTIONS, WHICH ARE THE OTHER QUESTION (SPEC.md 51.12.1) -
     ; `(Up to NNK)` is about the CLASS and not about this machine's state, so
-    ; it is asked with DRVCK_ALL and the answer is the same on every machine.
+    ; it is a BUILD-TIME constant and the answer is the same on every machine.
     ; Fed the figures above it read `(Up to  0K)` on a machine with nothing of
     ; that class mounted - a true number that reads exactly like a page whose
     ; arithmetic has broken, and the state the box is MOST often opened in,
     ; since a user shutting the OS down for a DOS program tends not to have a
     ; hard disk or a card in the first place.
-    mov al, DRVC_DISK | DRVCK_ALL
-    call dos_classk
-    mov di, dos_mhddk
-    call dos_mem_num2
-    mov al, DRVC_NET | DRVCK_ALL
-    call dos_classk
-    mov di, dos_mnetk
+    mov ax, DRVM_CEIL_DISK          ; ...and the ceiling is a CONSTANT and not
+    mov di, dos_mhddk               ; a call (SPEC.md 51.12.1): the slot used
+    call dos_mem_num2               ; to walk a table of build-time figures to
+    mov ax, DRVM_CEIL_NET           ; add them up, and the SDK carries the sum
+    mov di, dos_mnetk               ; that walk was producing
     call dos_mem_num2
     mov si, dos_mhdd                ; ...then the three rects, one pitch apart
     mov ax, dos_l_mhdd
@@ -6471,19 +6469,19 @@ dos_mck_place:
     ret
 
 ; dos_classk - one class's KB, with the refusal folded into the figure
-; in:  AL = a DRVC_*, optionally | DRVCK_ALL
-; out: AX = the KB, 0 where the slot refused; clobbers CX and flags
+; in:  AL = a DRVC_*
+; out: AX = the KB, 0 where the slot refused; clobbers flags
 ;
-; Five call sites wanted the same four instructions after the slot, and the
-; last of them is the one worth having in one place: `DRVM_PLUS` is bit 15 of
-; the answer and NOT a digit, so a site that forgets the mask prints a figure
-; 32,768 too large on the one machine that has a RAM disk.
+; Three call sites wanted the same two instructions after the slot. There
+; used to be a third instruction and two more sites: the slot's answer once
+; carried `DRVM_PLUS` in bit 15 and once had a CEILING form, and both went
+; when it stopped quoting drv_memk (SPEC.md 51.12.2, 51.12.1) - what it
+; weighs now is the heap, in plain kilobytes.
 dos_classk:
     call OSAPI_DRV_CLASSK
     jnc .ok
     xor ax, ax                      ; CF = nothing of that class - the figure
 .ok:                                ; is 0 and not whatever AX was left as
-    and ah, 0x7F
     ret
 
 ; dos_mck1 - one box's rect and label (internal)

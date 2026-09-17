@@ -1144,16 +1144,6 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-; --- ...and the OTHER question a class can be asked (SPEC.md 51.12.1) -------
-; `osapi_drv_classk_x` answers what the LOADED rows of a class hold, which is
-; what a checkbox offering to unmount them needs. A caption saying what the
-; class would cost AT MOST is a different question with a different answer on
-; the same machine - and on a machine with nothing of that class mounted the
-; first answers ZERO, which is a true figure that reads as a broken one.
-; It rides in bit 7 of the class byte because every DRVC_* is 1..5 and every
-; register in that walk is already carrying something.
-DRVCK_ALL    equ 0x80           ; MIRRORED in apps/os88api.inc - t_mirror
-
 DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 19             ; ceil(build/ether.drv   / 1024)   every one
@@ -1212,6 +1202,32 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 %endif
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
+%endif
+
+; --- ...AND THE OTHER QUESTION A CLASS CAN BE ASKED (SPEC.md 51.12.1) -------
+; What a class COULD cost - the ceiling `Hard drives (Up to 32K)` quotes - is
+; the sum of the table above over the rows of that class, and every term of it
+; is fixed at ASSEMBLY TIME. It used to be a runtime form of
+; OSAPI_DRV_CLASSK (`DRVCK_ALL`, bit 7 of the class byte), which walked a
+; table of constants to add up constants: thirty-five resident bytes spent
+; re-deriving a number nasm already knew.
+;
+; So it is an `equ` MIRRORED into apps/os88api.inc, and three separate things
+; hold it honest - which is what SPEC.md 51.12.1's refusal of "a copy of the
+; constants in the package" was asking for and could not name. This is not a
+; third derivation: the package copies the ANSWER and derives nothing.
+;   1. the `%if` below - nasm itself, so DRVM_HDD moving fails the build
+;   2. tests/unit/t_drvmem.py - re-derives the sum from drv_tab's own class
+;      bytes, so a SECOND row of either class is caught as well
+;   3. tests/unit/t_mirror.py - the SDK's copy, for free and for ever
+;
+; A LITERAL and not `equ DRVM_HDD`, because t_mirror compares the text when it
+; is not a number and the SDK cannot see DRVM_HDD. The %if is what makes the
+; literal safe, and it is the half a package could never have had.
+DRVM_CEIL_DISK equ 32           ; MIRRORED in apps/os88api.inc - t_mirror
+DRVM_CEIL_NET  equ 33           ; ...ditto
+%if DRVM_CEIL_DISK != DRVM_HDD || DRVM_CEIL_NET != DRVM_ETH
+  %error "a class ceiling has drifted from drv_memk - apps/os88api.inc too"
 %endif
 
 drv_errstr:                     ; DRVE_* -> what the user is told
@@ -1470,12 +1486,10 @@ section .cold
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_classk_x - WHAT ONE CLASS IS HOLDING, in KB (SPEC.md 51.12)
-; in:  AL = a DRVC_* class, + DRVCK_ALL for the CEILING form (SPEC.md 51.12.1)
-; out: CF = 0, AX = the KB the loaded drivers of that class hold (bit 15 =
-;      DRVM_PLUS, "...and a store the user sizes on its own page"), CX = how
-;      many rows answered; CF = 1 with AX = 0 and CX = 0 - nothing of that
-;      class is loaded
-; clobbers: AX and CX (the outputs), flags. A SLOT: everything else is kept
+; in:  AL = a DRVC_* class
+; out: CF = 0, AX = the KB the loaded drivers of that class hold; CF = 1 with
+;      AX = 0 - nothing of that class is loaded
+; clobbers: AX (the output), flags. A SLOT: everything else is kept
 ;
 ; The Drivers page has priced a driver since drv_memk was written (SPEC.md
 ; 51.2.4), and it prices it PER ROW because that is what it draws. The
@@ -1490,69 +1504,40 @@ section .cold
 ; that is present and not loaded answers CF=1, which is the truth the
 ; checkbox wants: there is nothing to unmount and nothing to get back.
 ;
-; The figure is drv_memk's, so it is a BUILD-TIME constant and costs no probe
-; - and a caller estimating an arena is the one reader for whom a constant is
-; exactly right, because it is describing a machine that does not exist yet.
+; **IT WEIGHS THE HEAP AND NOT drv_memk** (SPEC.md 51.12.2): a driver's IMAGE
+; is owned by MEM_K_DRV, so it is named by its own base and DRVR_KB is the KB
+; drv_load claimed for it; everything the driver then claims for ITSELF
+; carries that base as its owner word (mem_own's `mov bx, es`), which is
+; exactly what mem_owned_kb sums. Two lookups a row, no probe, and nothing
+; that can drift.
 ;
-; **DRVCK_ALL IS THE SECOND QUESTION AND NOT A CONVENIENCE** (SPEC.md 51.12.1).
-; A CAPTION - "Hard drives (Up to 32K)" - is describing the class and not this
-; machine's state, so on a machine with no hard disk mounted the plain form
-; answers a perfectly true `0K` that reads as a page that has broken. With the
-; bit set, every row of the class counts whether or not its driver is there,
-; and CF = 0 whenever the TABLE has such a row - which is what a caption wants
-; and exactly what a checkbox must not have, the checkbox offering to unmount
-; something that is not mounted. The two forms are one walk and one table, so
-; a driver that grows moves both together; a package-side copy of the figure
-; would be a third derivation of a number t_drvmem exists to stop drifting.
+; **THE ANSWER IS ITS OWN PREDICATE**, which is where the count went (SPEC.md
+; 51.12.3). `CX = how many rows answered` was published, returned and read by
+; nobody, and it was carried only to reach `jcxz` - so the refusal is
+; `cmp ax, 1` instead: CF = 1 exactly when AX = 0, and AX = 0 exactly when no
+; row of the class is loaded, because drv_load writes DRVR_SEG and DRVR_KB
+; together and a driver image is never under a kilobyte (drv_load's own
+; `cmp ax, DRV_HDR_SZ / jb .bad`). Four bytes for eight, and one fewer
+; register in the contract.
 ; -----------------------------------------------------------------------------
 osapi_drv_classk_x:
     push bx
     push dx
     push si
-    mov dl, al                  ; DL = the class asked for, PLUS DRVCK_ALL if
-    xor dh, dh                  ; the caller wants the ceiling (SPEC.md 51.12.1)
-    xor si, si                  ; SI = the KB so far, DRVM_PLUS carried in 15
-    xor cx, cx
+    mov dl, al                  ; DL = the class asked for
+    xor dh, dh                  ; DH = the row index
+    xor si, si                  ; SI = the KB so far
 .row:
     mov al, dh
     call drv_row_x              ; BX = the row (AL preserved)
-    test dl, DRVCK_ALL          ; the CEILING form counts a row whose driver is
-    jnz .cls                    ; not mounted - it is asking what the class
-    cmp word [bx+DRVR_SEG], 0   ; COULD cost and not what it costs now
+    cmp word [bx+DRVR_SEG], 0
     je .next                    ; not loaded: it holds nothing
-.cls:
-    mov al, [bx+DRVR_CLASS]
-    xor al, dl                  ; ...and the compare masks the flag off rather
-    and al, ~DRVCK_ALL & 0xFF   ; than banking the class somewhere else: every
-    jnz .next                   ; register here is already carrying something
-    inc cx
-    test dl, DRVCK_ALL
-    jz .held                    ; the plain form weighs the HEAP (51.12.2)...
-    mov bl, dh                  ; ...and the ceiling form is drv_memk's
-    xor bh, bh                  ; constant, which is the one the Drivers page
-    shl bx, 1                   ; reads
-    mov bx, [drv_memk + bx]
-    mov ax, bx
-    and ah, 0x7F                ; DRVM_PLUS is a flag and not a digit, so the
-    add si, ax                  ; kilobytes ADD and the flag ORs - and the
-    and bx, DRVM_PLUS           ; mask is the WHOLE word, not its high byte:
-    or si, bx                   ; `and bh, 0x80` leaves BL holding a figure
-    jmp short .next
-
-    ; --- ...and what this row is HOLDING, which is two records ---------------
-    ; A driver's IMAGE is owned by MEM_K_DRV, so it is named by its own base
-    ; and DRVR_KB is the KB drv_load claimed for it. Everything the driver
-    ; then claims for itself carries that base as its OWNER word (mem_own's
-    ; `mov bx, es`), which is exactly what mem_owned_kb sums. Two lookups, no
-    ; probe, and no constant that can drift.
-.held:
-    mov ax, [bx+DRVR_KB]        ; the image...
-    push ax
-    mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner
-    call mem_owned_kb
-    pop bx
-    add ax, bx
-    add si, ax
+    cmp [bx+DRVR_CLASS], dl     ; ...and the compare is against the ROW rather
+    jne .next                   ; than a register, DL being the only bank here
+    add si, [bx+DRVR_KB]        ; the image drv_load claimed...
+    mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner.
+    call mem_owned_kb           ; BX is the row pointer and this spends it,
+    add si, ax                  ; which costs nothing: .row rebuilds it
 .next:
     inc dh
     cmp dh, DRV_MAX
@@ -1561,12 +1546,7 @@ osapi_drv_classk_x:
     pop si
     pop dx
     pop bx
-    jcxz .none                  ; ...and a class with no loaded row says so in
-    clc                         ; CF rather than in a zero, which a row
-    retf                        ; holding nothing would also be
-.none:
-    xor ax, ax
-    stc
+    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
     retf
 
 ; -----------------------------------------------------------------------------
@@ -4934,12 +4914,11 @@ osapi_drv_dlg_x:
     retf
 
 ; ...and "what is this class holding" (SPEC.md 51.12), which on a machine with
-; no driver layer is NOTHING, of no class, for ever. AX and CX are answers, so
-; the refusal states them rather than leaving the caller's registers looking
-; like a figure.
+; no driver layer is NOTHING, of no class, for ever. AX is the answer, so the
+; refusal states it rather than leaving the caller's register looking like a
+; figure - and it is the only one now, the count having gone (51.12.3).
 osapi_drv_classk_x:
     xor ax, ax
-    xor cx, cx
     stc
     retf
 
