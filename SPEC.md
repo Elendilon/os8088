@@ -129651,6 +129651,133 @@ its owner in the core's bss, so a callback that re-enters `INT 21h` corrupts a
 transfer in flight. `[dos_m33bsy]` guards only our *own* re-entry — a callback
 still running when the next tick arrives.
 
+### 96.10.5 The text cursor, because in DOS the driver draws it
+
+A DOS mouse driver **draws its own pointer**. There is no compositor, no
+window server and no arrow the machine keeps for it: `INT 33h` function `01h`
+means *put a cursor on the screen and keep it under the mouse*, and if the
+driver does not, nothing does. That is the one part of the interface this box
+answered with a shrug — `01h` and `02h` were both no-ops, on the reasoning
+that the kernel owns the pointer — and the reasoning is right in the
+**windowed** host and wrong in `kern_dos`, where the program owns every pixel
+and the kernel is not running at all.
+
+**`kern_dos` is therefore the only host that has one**, and §96.10.5.1 is how
+that is said in code rather than in an `%ifdef`.
+
+**The drawing rule is one line.** In text mode a cursor is not a bitmap — it
+is an attribute the driver flips:
+
+    displayed = (cell AND screen_mask) XOR cursor_mask
+
+`0Ah` with `BX=0` hands over exactly those two words and nothing else, which
+is why there is no shape to draw and no sprite to save. `BX=1` asks for the
+**hardware** cursor instead — a CRTC scan-line pair — and that is the
+machine's own text caret rather than something a pointer may take over, so it
+is ignored rather than refused: a program that asks for a shape and is
+refused still expects a cursor.
+
+**The masks are STATE.** Microsoft Works sets `77FF`/`7700` at startup and
+then `80FF`/`F000` **twice more** — measured against IBM DOS 3.30 with
+CTMOUSE loaded (docs/DOS-DEBUGGING.md) — so a box that hard-coded the
+power-up pair would draw the wrong cursor for most of a session. The defaults
+are that power-up pair: `AND 77FF` keeps the character and drops blink and
+intensity, `XOR 7700` then swaps foreground and background, which is the
+inverse-video block a DOS user recognises as the mouse.
+
+**The show counter is not a flag.** It starts at **-1**, `02h` takes a
+nesting level and `01h` releases one, saturating at 0 — so a program that hid
+twice must show twice. It matters that -1 is not the zero a `.bss` arrives
+as: 0 means *visible*, so the bracket sets the state explicitly at its `IVT`
+install and a program that never calls `01h` never sees a cursor.
+
+The reference sequence is the specification and is worth reading whole:
+
+    00 0A 0C 08 0A 0A 01 03 02 01 03 02 01 03 02 ...
+
+`01 03 02` — show, ask where it is, hide — repeated 25 times. **Works takes
+the cursor off before it draws its own screen**, which is what a well-behaved
+DOS application does and what makes §96.10.5.3 a guard rather than the main
+mechanism.
+
+#### 96.10.5.1 `DHK_TXT`, and why the windowed host must not have it
+
+The core is assembled **once** and joined to either host (§96.44), so
+"`kern_dos` only" cannot be an `%ifdef` here. It is a host hook:
+
+    DHK_TXT   out: ES = the text segment, BX = columns, DX = rows
+                   CF=1 = there is no text screen you may draw on
+
+`dos_hk_bind` does not set it; `kdentry.inc` does. In the windowed box the
+cell stays the zero a `.bss` arrives as, `dos_m33_paint` refuses at its second
+instruction, and `01h`/`02h` are the no-ops they always were — which is
+correct there, because `B800` belongs to the kernel and the OS owns every
+pixel on the glass.
+
+`kern_dos`'s side reads the BDA the ROM maintains: `0040:0049` for the mode
+(7 → `B000`, 0–3 → `B800`, anything else refused, a graphics-mode pointer
+being function `09h`'s and not this one) and `0040:004A` for the width. So a
+program that changes mode mid-session gets a cursor in the right place
+without the box being told.
+
+**The width must fit a byte and the hook refuses one that does not.** The
+core's cell arithmetic is `row * columns` as `mul bl`, and it clamps the
+column against the whole of `BX` — so a width above 255 would be multiplied by
+its low byte and bounded by a different number, which is a store past the end
+of the screen. No text mode is that wide; a BDA that says so has been
+scribbled on, and refusing is the only answer that cannot corrupt the
+program's memory.
+
+#### 96.10.5.2 Two update points, and the critical section between them
+
+`INT 33h`'s coordinates are a **640x200 virtual screen whatever the text mode
+is**, so a cell is 8 units on both axes and the arithmetic is two shifts. The
+cursor is moved from two places:
+
+- **`dos_mou_read`** — every function `3`/`5`/`6` and every `dos_getkey`
+  poll. This is the fine one: a program waiting for input polls through here
+  continuously, which is most of its idle time.
+- **`dos_m33_tick`** — IRQ0, 18.2 Hz, and **before** the event-handler test,
+  because a program that shows the cursor and then computes for a second has
+  installed no handler and polls nothing. `01h` arms the tick for that reason;
+  `0Ch` is not the only way to need it — but only where `DHK_TXT` answers,
+  since in the windowed box the hook would buy nothing and cost the DOS task's
+  slice a frame every tick.
+
+**Both write the same three cells, so both are `pushf`/`cli`/`popf`.**
+`dos_int33` `sti`s at its first instruction, so IRQ0 can land between the
+store that says *where* the cursor is and the one that says *what was under
+it* — after which the wipe restores a cell from the wrong place and leaves a
+character the program never wrote. It is the intermittent kind of defect, and
+it costs four bytes not to have.
+
+**A cursor that has not moved is not redrawn**, and that is correctness rather
+than economy: between two paints the program may have written the cell
+itself, and re-saving what is there would bank *our own* inverted cell as the
+thing to restore — after which the inversion is permanent and travels with
+the pointer.
+
+#### 96.10.5.3 It checks before it restores
+
+A software cursor cannot see the program's own writes. A DOS application
+draws its screen by storing into `B800` and tells nobody, so the cell the
+driver saved may since have been replaced — and putting the saved copy back
+leaves **a character the program never wrote, at a place the pointer has
+left**. That is the artefact the reporter describes of CTMOUSE: *"it doesn't
+always invert it correctly in works"*.
+
+The guard is exact and costs eight bytes: recompute what we **wrote** — the
+masks cannot change under us without `0Ah`, which repaints — and restore only
+if that is still what is on the glass. A program that redrew the cell keeps
+its own content and the box simply forgets its copy.
+
+It is not a complete answer and nothing cheap is: a driver that wanted to be
+exact would have to hook `INT 10h` and hide around every BIOS write, and that
+still misses the direct stores, which is how every application draws. What it
+removes is the visible half — the stale character left behind — and it leaves
+only the case where the program overwrote the cell with something that
+happens to equal what we put there.
+
 ### 96.11 File handles, built on an API that has none
 
 `3Dh` open, `3Ch` create, `3Eh` close, `3Fh` read, `40h` write, `41h` delete,

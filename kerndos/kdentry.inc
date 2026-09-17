@@ -291,6 +291,15 @@ kd_entry:
     ; launch block, which is where the port and the line came from.
     call kd_mou_start
     mov word [dos_hkv + DHK_MOUSE], kd_mou_read
+    mov word [dos_hkv + DHK_TXT],  kd_mou_txt
+                                ; **THE CURSOR IS THIS HOST'S AND ONLY THIS
+                                ; HOST'S** (SPEC.md 96.10.5.1). A DOS mouse
+                                ; driver draws its own pointer and nothing
+                                ; else will; here the program owns every
+                                ; pixel, so it can be drawn. The windowed box
+                                ; leaves this cell at zero and the core
+                                ; refuses at its second instruction, because
+                                ; there B800 is the kernel's
 %ifndef KD_NO_KBGUARD
     call kd_kbd_start           ; ...and the key buffer's guard, BEFORE the
                                 ; bank for the same reason (SPEC.md 96.50)

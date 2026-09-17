@@ -3802,6 +3802,34 @@ SOAK = [
         "that shipped the defect.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/attrdir360.img")),
+    Row("kdmcur", "soak", py("tests/kdmcur.py"), 90.0,
+        "**A DOS MOUSE DRIVER DRAWS ITS OWN POINTER** (SPEC.md 96.10.5). "
+        "There is no compositor and no arrow the machine keeps for it, so "
+        "`01h` means put a cursor on the screen and keep it under the mouse - "
+        "and this box answered `01h` and `02h` with a shrug, on the reasoning "
+        "that the kernel owns the pointer. Right in the WINDOWED host and "
+        "wrong in `kern_dos`, where the program owns every pixel and the "
+        "kernel is not running at all, which is why the capability hangs off "
+        "a host hook (DHK_TXT) rather than an %ifdef. THE ASSERTION IS "
+        "ARITHMETIC AND NOT A PHOTOGRAPH: a text cursor is an attribute the "
+        "driver flips - `(cell AND screen_mask) XOR cursor_mask` - so "
+        "MCURSOR.COM writes a KNOWN word into every cell with `stosw` (what a "
+        "DOS application does; a driver that only saw int 10h writes would "
+        "pass a test written the other way), shows the cursor and reads the "
+        "cell under the pointer back out of the framebuffer. The mouse never "
+        "moves and there is nothing to settle. Five checks: the cell is "
+        "inverted (A), `02h` puts the original back byte for byte (B), the "
+        "MASKS ARE STATE - Works sets 77FF/7700 and then 80FF/F000 twice "
+        "more, measured against IBM DOS 3.30 with CTMOUSE (C) - and the show "
+        "counter NESTS, so hide/hide/show leaves it hidden (D) and the fourth "
+        "call brings it back (E). It runs under a real DOS unchanged, and "
+        "prints SKIP where INT 33h is not installed. IT IS TWO ARMS AND "
+        "BOTH ARE ASSERTIONS: under kern_dos the cursor must be drawn, and IN "
+        "THE WINDOW it must NOT be - there B800 is the kernel's framebuffer "
+        "and DHK_TXT is absent for that reason, so a row that only ran arm 3 "
+        "would pass just as happily with a box that scribbled on the desktop.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/mcursor360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
