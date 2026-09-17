@@ -23,6 +23,10 @@ ENTSZ   equ 32                      ; bytes an entry - the same layout the box's
                                     ; DOS_TRACE_SZ), because the whole point of
                                     ; this program is that one reader decodes
                                     ; both
+SEQ33   equ 96                      ; ...and the first 96 calls IN ORDER, which
+                                    ; is what a histogram cannot say: that a
+                                    ; program asked for four functions and then
+                                    ; STOPPED (SPEC.md 96.10.3.2)
 NENT33  equ 32                      ; INT 33h functions counted, and the size of
 SZ33    equ 8                       ; a slot: count, then BX/CX/DX at the last
                                     ; call. THE SAME SHAPE AS THE BOX'S
@@ -123,6 +127,13 @@ new33:
     mov [si+2], bx
     mov [si+4], cx
     mov [si+6], dx
+    mov si, [m33n]                  ; ...AND THE ORDER (SPEC.md 96.10.3.2), the
+    cmp si, SEQ33                   ; same 96 bytes the box keeps, so one
+    jae .done                       ; reader decodes both
+    mov [si+m33seq], al
+    inc si
+    mov [m33n], si
+.done:
     pop ds
     pop si
     pop bx
@@ -417,7 +428,7 @@ s_hdr:    db 'os8088 DOS INT 21h trace', 13, 10
 ; takes six words, which is what keeps an old tool and a new TSR from decoding
 ; each other's bytes.
           db 'DOSTRP33'
-          dw m33, NENT33, SZ33
+          dw m33, NENT33, SZ33, m33seq, SEQ33
 
 armed:    db 0                      ; 0 until the EXEC that loads the subject
 old21:    dd 0
@@ -430,4 +441,6 @@ line:     times 128 db 0             ; ...a whole line: the header plus its
                                     ; two numbers is 60, and an entry 41
 ring:     times NENT * ENTSZ db 0
 m33:      times NENT33 * SZ33 db 0
+m33n:     dw 0
+m33seq:   times SEQ33 db 0
 resident_end:

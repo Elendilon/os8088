@@ -267,6 +267,7 @@ CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
           "DOS_TRACE_KB",
           "DOS_NFH", "DOS_FH0", "DOS_TR33_N", "DOS_TR33_OFF",
           "DOS_TR33_SZ", "DOS_TR33_CB", "DOS_TR33_BY",
+          "DOS_TR33_SEQ", "DOS_TR33_SEQN",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
 
 # INT 33h, by the numbers a 1987 program actually calls. The histogram
@@ -308,8 +309,8 @@ def trap_syms(com_path):
     # so that a reader predating it still decodes DOSTRAP1 and stops.
     j = b.find(b"DOSTRP33")
     if j >= 0:
-        m33, n33, sz33 = struct.unpack_from("<3H", b, j + 8)
-        d.update(m33=m33, n33=n33, sz33=sz33)
+        m33, n33, sz33, seq, nseq = struct.unpack_from("<5H", b, j + 8)
+        d.update(m33=m33, n33=n33, sz33=sz33, seq33=seq, nseq33=nseq)
     return d
 
 
@@ -764,7 +765,8 @@ INT33_ARGS = {
 }
 
 
-def mouse_lines(mou, sym, n=None, sz=None, cb=None, who="the box"):
+def mouse_lines(mou, sym, n=None, sz=None, cb=None, who="the box",
+                seq=None, nseq=0, cbseq=False):
     """What the program asked INT 33h for, with what, and what we answered.
 
     ALL ZERO IS THE MOST IMPORTANT READING and must not print as blank - a
@@ -775,6 +777,7 @@ def mouse_lines(mou, sym, n=None, sz=None, cb=None, who="the box"):
     """
     if sz is None:
         n, sz, cb = sym["DOS_TR33_N"], sym["DOS_TR33_SZ"], sym["DOS_TR33_CB"]
+        seq, nseq = sym["DOS_TR33_SEQ"], sym["DOS_TR33_SEQN"]
     out, hit = [], []
     for i in range(n):
         n = mou[i * sz]
@@ -792,6 +795,12 @@ def mouse_lines(mou, sym, n=None, sz=None, cb=None, who="the box"):
                    "or never looked")
     else:
         out.append("INT 33h: " + "; ".join(hit))
+    if seq is not None:
+        n = struct.unpack_from("<H", mou, seq + nseq)[0]
+        order = [mou[seq + i] for i in range(min(n, nseq))]
+        out.append("INT 33h, IN ORDER: " +
+                   (" ".join("%02X" % f for f in order) if order else "none")
+                   + ("" if n <= nseq else "  (+%d more)" % (n - nseq)))
     if cb is not None:
         calls = struct.unpack_from("<H", mou, cb)[0]
         out.append("INT 33h: %s made %d callback(s) into the program%s"
@@ -959,10 +968,13 @@ def cmd_ref(a):
             total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
             ring = bytes(m.read(base + lay["ring"], lay["nent"] * lay["entsz"]))
             psp = struct.unpack_from("<H", ring, 6)[0]   # entry 0's DX
-            refmou = None
+            refmou = refseq = None
             if "m33" in lay:
                 refmou = bytes(m.read(base + lay["m33"],
                                       lay["n33"] * lay["sz33"]))
+                # the TSR keeps its count in the word BEFORE the sequence
+                refseq = bytes(m.read(base + lay["seq33"] - 2,
+                                      lay["nseq33"] + 2))
             if a.shot:
                 wd, ht, px = m.fbuf()
                 os88marty.write_png_rgb(a.shot, wd, ht, px)
@@ -979,6 +991,13 @@ def cmd_ref(a):
     if refmou is not None:
         for ln in mouse_lines(refmou, None, lay["n33"], lay["sz33"]):
             print("  " + ln)
+    if refseq is not None:
+        n = struct.unpack_from("<H", refseq, 0)[0]
+        order = [refseq[2 + i] for i in range(min(n, lay["nseq33"]))]
+        print("  INT 33h, IN ORDER: " +
+              (" ".join("%02X" % f for f in order) if order else "none")
+              + ("" if n <= lay["nseq33"] else
+                 "  (+%d more)" % (n - lay["nseq33"])))
     return 0
 
 
@@ -1208,7 +1227,7 @@ def selfcheck():
         lay = trap_syms(com)
         ck("the TSR publishes its own layout", set(lay) ==
            {"ring", "total", "wr", "here", "nent", "entsz",
-            "m33", "n33", "sz33"})
+            "m33", "n33", "sz33", "seq33", "nseq33"})
         ck("...and both histograms are the same shape (SPEC.md 96.10.3.1)",
            lay.get("n33") == sym["DOS_TR33_N"] and
            lay.get("sz33") == sym["DOS_TR33_SZ"],

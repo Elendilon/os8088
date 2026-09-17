@@ -275,7 +275,22 @@ DOS_TR33_CB  equ DOS_TR33_N * DOS_TR33_SZ   ; ...and ONE MORE SLOT, counting
                                             ; never called, or we called and it
                                             ; ignored us - and they are
                                             ; opposite defects
-DOS_TR33_BY  equ DOS_TR33_CB + DOS_TR33_SZ
+DOS_TR33_SEQ equ DOS_TR33_CB + DOS_TR33_SZ
+DOS_TR33_SEQN equ 96                        ; ...and THE ORDER, one byte a call
+                                            ; (SPEC.md 96.10.3.2). A histogram
+                                            ; says a program asked for four
+                                            ; functions; it cannot say that it
+                                            ; asked for them and then STOPPED,
+                                            ; which is the whole shape of the
+                                            ; failure here - Microsoft Works
+                                            ; parts from a real driver's
+                                            ; sequence somewhere after 0Ch and
+                                            ; a count per function cannot name
+                                            ; where. FIRST 96 AND THEN NOTHING:
+                                            ; what is wanted is the INIT, and a
+                                            ; ring would spend it on the poll
+                                            ; loop that follows
+DOS_TR33_BY  equ DOS_TR33_SEQ + DOS_TR33_SEQN + 2
                                             ; ...and the mouse histogram after
                                             ; it, IN THE PART and not in bss
                                             ; (SPEC.md 96.10.3): `dos_int33` is
@@ -10450,6 +10465,12 @@ dos_int33:
     mov [es:si+2], bx               ; ...AND WHAT IT WAS ASKED (96.10.3.1) -
     mov [es:si+4], cx               ; the last call wins, which is right for an
     mov [es:si+6], dx               ; init sequence that calls each once
+    mov si, [es:DOS_TR33_OFF + DOS_TR33_SEQ + DOS_TR33_SEQN]
+    cmp si, DOS_TR33_SEQN           ; ...AND THE ORDER, until it is full
+    jae .tr33out                    ; (96.10.3.2)
+    mov [es:si+DOS_TR33_OFF+DOS_TR33_SEQ], al
+    inc si
+    mov [es:DOS_TR33_OFF + DOS_TR33_SEQ + DOS_TR33_SEQN], si
 .tr33out:
     pop es
     pop si
