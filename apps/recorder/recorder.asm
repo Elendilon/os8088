@@ -1132,7 +1132,7 @@ rc_btn:
     jne .draw
     or di, OS88UI_DOWN              ; ...and DIS still outranks it inside
 .draw:                              ; os88ui_btn, which is where that rule lives
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop bx
     pop ax

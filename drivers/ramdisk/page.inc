@@ -495,7 +495,7 @@ rp_btn:
                                 ; button never says it will fire
     call rp_rect_abs
     mov bx, rp_rect
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop dx
     pop cx

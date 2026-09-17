@@ -222,8 +222,28 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
-    Row("pacman-maze", "fast", py("tests/unit/t_pacman.py"), 0.1,
-        "the Atari maze has 260 reachable dots, bounded tunnel edges and complete sprites"),
+    Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
+        "every package under apps/ ships, or apps/RETIRED.txt says why not "
+        "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
+        "'apps/ - loadable packages; everything here ships' - and nothing "
+        "enforced it, so the shape it misses is not a package somebody chose "
+        "to withhold but one that ships nowhere because a list was edited and "
+        "nobody noticed; those two are indistinguishable from every angle but "
+        "intent. PACMAN is the worked example in BOTH directions: taking it "
+        "off the disk lists took it out of every BUILD too (found by a byte "
+        "audit months later, not by a person), and the same edit left it on "
+        "the LIVE volume, whose premise is completeness, where it went on "
+        "shipping for the whole time it was 'off the disks'. Two kinds, and "
+        "`retired` is checked harder than `instrument`: a retired package may "
+        "not be in `all` at all, where a bench may, because keeping a bench "
+        "assembling is the point of having it. Reads build/livepayload.txt - "
+        "the list `all` DERIVES from $(LIVEARGS), which is t_livefull's "
+        "reason too - and walks every shipped image recursively with "
+        "t_image's own Vol, matching the WHOLE 8.3 name: `ls` on the root "
+        "alone reported every package as not shipping, and a substring test "
+        "for WIRE.O88 matched THEWIRE.O88. FAST for t_movable's argument - it "
+        "is a rule about what apps/ means, so it belongs in front of the next "
+        "make rather than the next soak run"),
     Row("blobruns", "soak", py("tests/unit/t_blobruns.py"), 0.1,
         "how many int 13h calls stage 1 spends on the blob, per geometry "
         "(SPEC.md 15.3.8.5) - the count is NOT a function of BOOT2_SECS "
@@ -987,6 +1007,26 @@ FAST = [
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
+    Row("btngesture", "soak", py("tests/btngesture.py"), 26,
+        "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
+        "held, comes UP when the pointer slides off it, goes down again on the "
+        "way back, and does NOT act when the release lands elsewhere. Telnet's "
+        "Connect is the subject. The first assertion is the one that matters - "
+        "while it is HELD the action has not run, which under the press-fired "
+        "code this replaces it already had. Soak because it is about one "
+        "package and needs an emulator (docs/WRITING-TESTS.md 2.1); "
+        "tests/unit/t_btnrules.py is the static half that catches a NEW "
+        "offender", wants=("marty",)),
+    Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
+        "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
+        "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "
+        "drive by hand - and twenty-five call sites drove it by firing on the "
+        "PRESS with no pressed look. Every caller is registered in "
+        "tests/btnsites.txt with a reason and the raw count can only go down. "
+        "It is STATIC because a press-fired button and a release-fired one are "
+        "the same pixels in every still: the difference exists only while a "
+        "button is physically held, which is why this survived ten packages "
+        "and a written survey"),
     Row("deps", "fast", py("tests/unit/t_deps.py"), 0.1,
         "`make` MUST mean `all`. Adding the `deps` target near the top of the "
         "Makefile made it the default goal, so `make` printed a dependency "
@@ -1410,9 +1450,6 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
-    Row("pacman", "soak", py("tests/pacman.py"), 100.0,
-        "native 8088 Pac-Man movement, score, pellets, fruit, level transitions, "
-        "pause, full-screen repaint and worker teardown", needs=("marty",), wants=("build/pacman.o88",)),
     Row("paccman", "soak", py("tests/paccman.py"), 100.0,
         "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
         "(SPEC.md 91): the program opening on the attract screen with the "
@@ -5084,7 +5121,16 @@ SOAK = [
         " because it is not the row's own business to report its absence: it"
         " said SKIP and returned 0 for its whole life, so the suite scored it"
         " `ok` in 0.1s and nothing ever drove the watchdog. wants= builds the"
-        " tree AND keeps it current, which a capability cannot do",
+        " tree AND keeps it current, which a capability cannot do."
+        " **ITS RUNNING CHECK WAS FALSE OF THE MACHINE** (88.14.4): it"
+        " required every banked IP to be a package offset, and the ring"
+        " banks whatever int 08h INTERRUPTED - which is regularly the ROM,"
+        " because cs_input polls int 16h (53.1) and that enters at"
+        " F000:E82E. On the tree it was written against it failed 12 of 12"
+        " three abreast naming e830/e832/e837/e83c/e84b, every one a"
+        " CORRECT sample, and passed serially on the same tree - which is"
+        " what made it look random. The CS is banked per slot now and the"
+        " row PLACES each sample instead of assuming it",
         needs=("marty",), wants=("build/skiesdiag/apps360.img",),
         serial=True),
     Row("skiesdrag", "soak", py("tests/skiesdrag.py"), 65.0,

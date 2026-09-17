@@ -371,7 +371,7 @@ ec_btn:
     or di, OS88UI_DOWN          ; SPEC.md 13.8: the pressed look is DRAWN, not
 .up:                            ; XOR-ed - a repaint between the two edges must
                                 ; agree with the glass
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx

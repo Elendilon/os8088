@@ -21344,6 +21344,49 @@ slot through which a package could supply another. **A width clamp in
 of screen-wide items would want ~83KB and would run off the end of the
 heap into `VIEW_SEG`.
 
+#### 12.4.1 `menu_hover` reads the pointer ONCE, and the `cli` is the whole of it
+
+`menu_hover` decides which item is under the pointer, `menu_drop`'s `.poll`
+LATCHES that answer in `[menu_sel]`, and the release ACTIVATES whatever is
+latched there. So the pair `([mouse_x], [mouse_y])` that routine reads is not
+a picture of the screen, it is a **command** — and it used to be read in two
+plain loads with interrupts enabled, either side of which the mouse ISR may
+run.
+
+`mou_apply` stores `[mouse_x]` and then `[mouse_y]` (§9). A packet decoded
+between `menu_hover`'s two loads therefore hands it the **old x with the new
+y**, which is a position the pointer never occupied — and because one
+Microsoft packet carries both deltas *and* the button level, the very report
+that RELEASES the button is the one that can tear.
+
+Measured on `os8088_xt_hdd` with the Builtins menu down (rect x 160..223,
+y 20..69) and one packet of `dx -100, dy +18, button up` sent from the title
+at (199, 10). The pointer goes to (99, 28), and **neither end of that move is
+a live item**: (199, 10) is above the first cell and (99, 28) is left of the
+rect. `[menu_sel]` came back **0** and TIMER LAUNCHED — 4 times in 320
+packets under a four-lane load, 0 times in 40 idle. x = 199 with y = 28 is
+the only pair that produces it, and nothing but a torn read produces that
+pair.
+
+**It is a user's gesture and not a harness artefact.** A serial mouse reports
+dx, dy and the buttons in one packet, so *slide off the menu and let go* — the
+commonest way anybody changes their mind about a menu — is exactly a large dx,
+some dy and the button up, arriving together.
+
+The fix is one reading under `pushf`/`cli` … `popf`. The row arithmetic is
+re-spelled with it, `sub ax, [menu_y1]` + `jbe` where it read `[menu_y1] + 1`
++ `jb`: the same rows are rejected (the frame row is the `jbe`'s equal case),
+and it frees the register the second coordinate now has to be held in, so
+`menu_hover` keeps its "clobbers AX only" contract.
+
+**The other three trackers are NOT changed, and what separates them is what
+is DONE with the pair.** `ui_drag`, `ui_grow` and the dock's drag read the
+same two words the same way; a torn pair there draws ONE XOR outline frame at
+a position that never existed, and the next pass of a loop running at the
+packet rate puts it right. Nothing is latched and nothing is run. `menu_hover`
+alone hands its answer to a release, which is why it alone pays the three
+bytes.
+
 ### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
@@ -35734,100 +35777,13 @@ agreeing by hand.
 
 | | |
 |---|---|
-| `os88ui_btn` | `BX` = rect, `SI` = NUL label, `DI` = flags. Optional white interior, frame, optional default ring 2px out, label **centred in both axes**. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
-| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside |
-| `os88ui_bfind` | `BX` = an array of rects, `AX` = how many. Answers `AX` = the index **plus one**, 0 for none |
-| `os88ui_arm` / `os88ui_fire` | the §13.7 press/release pair. `arm` records what the press landed on; `fire` answers it and **clears**. Package side only |
+| `os88ui_btninit` | `BX` = record, `AX` = window, `SI` = your `W_ONMOUSEUP` proc, `DI` = your `W_ONDRAG` proc. Stores the window and **installs both slots for you**, ignoring the drag slot's `CF` (§20.5.1.3) |
+| `os88ui_btn` | `BX` = record, `AL` = index **plus one**. Draws ONE button of the group: optional white interior, frame, optional default ring 2px out, label **centred in both axes**, and the pressed look resolved from the record. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
+| `os88ui_btnpress` | `BX` = record, `CX`/`DX` = point. Arms and draws down. `AX` = index **plus one**, 0 = not ours |
+| `os88ui_btndrag` | `BX` = record, `CX`/`DX`. Tracks the pointer; redraws **only on a change** |
+| `os88ui_btnup` | `BX` = record, `CX`/`DX`. `AX` = the button that **fired**, 0 = cancelled |
+| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside. A rect test rather than a button, which is why it stays public where `os88ui_bfind`, `os88ui_arm`, `os88ui_fire` and `os88ui_armed` became the control's internals |
 | `os88ui_glyph` | the 12x12 **check box or radio button** (§31.2). `CX`/`DX` = top-left, `AL` = `OS88UI_GRADIO`/`GCHECK` or'd with `OS88UI_GON`, `AH` non-zero = disabled |
-
-**The glyph's flag rides in `AH`, and its white box is unconditional** —
-both departures from the button above, and both for a reason. A glyph has
-exactly one flag, and every Control Panel page is already holding the pane's
-left edge in `DI`, so `DI` would cost a push and a pop at six call sites to
-carry one bit that fits beside the index for free. And a radio's whole job
-is to be redrawn in place when the selection moves, so there is no caller
-for whom the erase is waste. It is **not cheap** — 44 set bits for an empty
-box and 64 for a crossed one, one drawing call each, so 35–50 ms on the
-field machine: draw the ROW that changed, never the page. The four bitmaps
-are ONE array indexed by `(kind | on)` and reached by arithmetic rather than
-through a table of pointers, because a table is data and lands in `.text`
-where the kernel has three bytes of rung left, while the arithmetic is code
-and lands in `.cold` where it has hundreds; the contiguity that rests on is
-asserted at assembly time.
-
-Flags: `OS88UI_DIS` (dithered frame *and* label — §47 rule 1 and 2 together),
-`OS88UI_DEF` (the default button's outer ring), `OS88UI_INK` (below), and
-`OS88UI_FILL`, which wants its own paragraph:
-
-**`OS88UI_FILL` asks "can this button be drawn a second time without the
-ground being repainted first?", NOT "is my background white".** A button
-whose greying can move always can be, and **`font_char` is transparent** — it
-ORs ink in and erases nothing — so a redraw's checkerboard caption lands on
-top of the previous solid one and the union is the solid one. `gfx_frame`
-*writes* rather than ORs, so the frame dithers correctly either way, and that
-split is what makes the failure read as *§47 rule 1 is broken* when rule 1 is
-working perfectly. Measured on a cycle-accurate 5150/CGA, the same refused
-button reached two ways: **158 ink pixels redrawn in place against 116
-freshly painted**, 0 apart after the fix. In the kernel exactly one button
-needs it for this reason — the file dialog's default, redrawn by
-`fdlg_draw_name` on the edge where `fdlg_actok` moves; Cancel, Drive and New
-Folder are drawn once onto a pane `wm_paint_all` has already whited and can
-never change what they say. `tests/fdlggrey.py` is the gate and it
-discriminates: 42 pixels differ without the flag, 0 with it.
-
-**`OS88UI_INK` puts the label's colour in `DI`'s HIGH BYTE**, for a button
-whose caption is deliberately not black — Piano's song buttons, which §47
-names as its own example of a colour that is decoration rather than state.
-It is a flag plus a byte rather than `AL = the colour` because every existing
-caller reaches `os88ui_btn` with arbitrary `AX`, and a silent reinterpretation
-of a live register is the shape of bug this file has already produced twice;
-`DI` is the flag word, so its high byte is 0 by construction at every call
-site. **Disabled wins**: a greyed control is `CDGRAY` and dithered whatever
-ink it asked for, because rule 1 is about state and this is about decoration.
-
-Eight things are load-bearing:
-
-- **A word declared in `.cold` and reached through `DS` is not that word**
-  (§2.6), and this section is where that bit. The three rect scratches were
-  first declared beside their callers, two of which are cold — the write and
-  the read used the same wrong address, so the buttons drew *perfectly*
-  while `fdlg_brect` put eight bytes of screen coordinates through the middle
-  of **`sch_isr`** and `cp_brect` through **`wm_destroy`**. `-w+error` is
-  clean on it and `os88ovlchk.py` does not see it, because that tool checks
-  calls and branches and this is a data reference. There is one kernel
-  scratch now, `os88ui_krect`, declared here in `.bss`; no kernel caller
-  declares a rect at all.
-
-- **`BP` addresses `SS`, and in a package `SS != DS`** (§20.1), so every rect
-  read in `os88ui_btn` carries a `ds:` override. Free in the kernel and
-  mandatory in a package, from one text.
-- **The include goes at the END of a package's source, just before
-  `OS88_BSS`** — not beside `os88api.inc`. The header and an `OS88_ICON16`
-  block are at fixed image offsets (§20.2), and code emitted between them
-  fails the icon macro's own assertion.
-- **A whole-rect fill and an interior fill are the same picture** once the
-  frame is drawn over the border, so `OS88UI_FILL` covers both and the Timer's
-  whole-rect version needed no flag of its own.
-- **Centring is not imposed** — it is what all four kernel buttons were
-  already doing with the arithmetic precomputed as a literal, which is what
-  made one body possible: `(116-104)/2` = `+6`, `(14-8)/2` = `+3`, and
-  `APP_TMR_LT = (APP_TMR_BH-8)/2`. Three literals and one formula, all the
-  same number.
-- **A label wider than its button** would make the halved padding a huge
-  unsigned number and put the text off screen; the guard is three bytes and is
-  kept.
-- **`os88ui_arm`'s word is DATA, not bss.** A package declares its bss as one
-  total with `equ` offsets (`OS88_BSS`), and a shared include cannot reserve
-  part of that without the package agreeing where. Two bytes of image is
-  cheaper than a convention.
-
-**What it is not for**: a skinned control. ModPlug's bevelled well and LED
-transport are a deliberate port of ModPlugPlayer's look (§56), and
-Minesweeper's cell is its own game's chrome — converting those would be
-undoing intended design rather than consolidating it.
-
-`tests/muptest` is the gate, and it gates §13.7's release rules and this
-control's arm with the same four gestures.
 
 #### 20.5.1.1 `OS88UI_ABOUT` — the standard About card, and the attribution it exists for
 
@@ -35961,6 +35917,145 @@ is simply false — it draws no bar and no button. `BARONLY` now implies
 `NOBTN`, so every existing consumer is **byte-identical**, which is checked
 rather than asserted: after the change exactly one package binary in the tree
 differed, and it was the one that had gained a card.
+
+#### 20.5.1.3 The button is a RECORD, and there is no second way to draw one
+
+`os88ui_btn` took a loose rect, label and flag word until 2026-09-17, and a
+caller that drew one that way owned the whole §13.7 gesture by hand — install
+two slots that are deliberately not template words, arm on the press, track on
+the drag, fire on the release, and pass `OS88UI_DOWN` back from its painter so
+a repaint agreed with the glass. Seven obligations, in three callbacks, none of
+which fails to assemble when it is missing. **Twenty-five of the tree's
+fifty-one call sites had skipped all of them and fired on the press.**
+
+The fix is not a second control to opt into. It is this one, changed, with the
+old signature **deleted** so that every caller converts and a new one cannot
+express the wrong thing: the record carries the rects, the labels, the flags
+and the count, and `BT_DOWN` — *which button is pressed right now* — belongs to
+the library. `docs/plans/BUTTON-GESTURE-PLAN.md` is the design record.
+
+| | |
+|---|---|
+| `OS88UI_BT_RECTS` 0 | near ptr to an array of 4-word **inclusive screen** rects, filled by your painter from `OSAPI_WM_CONTENT` every pass, because a window moves |
+| `OS88UI_BT_LABELS` 2 | near ptr to an array of near ptrs to NUL labels |
+| `OS88UI_BT_FLAGS` 4 | near ptr to an array of flag **words** (`OS88UI_DIS`, `OS88UI_DEF`, `OS88UI_INK`, `OS88UI_LATCH`), or 0 for none |
+| `OS88UI_BT_N` 6 | how many are **live this pass** — a paged window points one record at either page's buttons |
+| `OS88UI_BT_WIN` 8 | the window, written by `os88ui_btninit` |
+| `OS88UI_BT_DOWN` 10 | **the library's**: index plus one of the control a press is live on, 0 for none. Read it; never write it |
+
+`OS88UI_BT_SIZE` is 12. The record is the caller's data and there may be one
+per button GROUP rather than one per window, which is the shape the tree has:
+Sheet's ten buttons are five dialog pairs.
+
+**A group's rects must be contiguous**, because `os88ui_btnpress` walks them
+with `os88ui_bfind`. That is the single constraint the conversion imposes, and
+it is what makes the drawn control and the clickable control one description
+rather than two — §22's `fm_hit` discipline, which is the paragraph above this
+table arriving at the control it was written about.
+
+#### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
+
+`OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns
+it the caller no longer sets it. `OS88UI_LATCH` (32) means *this control's
+setting is ON* and is the caller's, in its flags array. **They draw the same
+picture** — interior black, label white, the frame unchanged in the same place
+— because they mean the same thing to somebody looking at the screen, and
+`OS88UI_DIS` outranks both exactly as §13.8 says.
+
+It exists because Audio drew Shuffle and Repeat with `OS88UI_DOWN` to mean
+*on*, which was correct while the flag was the caller's and collides the moment
+it is not. It is **generic rather than Audio's** because a latched button is an
+ordinary thing to want: ModPlug's transport, Tracker's and Paint's tool
+selections are all this shape and each draws it by hand today.
+
+**The glyph's flag rides in `AH`, and its white box is unconditional** —
+both departures from the button above, and both for a reason. A glyph has
+exactly one flag, and every Control Panel page is already holding the pane's
+left edge in `DI`, so `DI` would cost a push and a pop at six call sites to
+carry one bit that fits beside the index for free. And a radio's whole job
+is to be redrawn in place when the selection moves, so there is no caller
+for whom the erase is waste. It is **not cheap** — 44 set bits for an empty
+box and 64 for a crossed one, one drawing call each, so 35–50 ms on the
+field machine: draw the ROW that changed, never the page. The four bitmaps
+are ONE array indexed by `(kind | on)` and reached by arithmetic rather than
+through a table of pointers, because a table is data and lands in `.text`
+where the kernel has three bytes of rung left, while the arithmetic is code
+and lands in `.cold` where it has hundreds; the contiguity that rests on is
+asserted at assembly time.
+
+Flags: `OS88UI_DIS` (dithered frame *and* label — §47 rule 1 and 2 together),
+`OS88UI_DEF` (the default button's outer ring), `OS88UI_INK` (below), and
+`OS88UI_FILL`, which wants its own paragraph:
+
+**`OS88UI_FILL` asks "can this button be drawn a second time without the
+ground being repainted first?", NOT "is my background white".** A button
+whose greying can move always can be, and **`font_char` is transparent** — it
+ORs ink in and erases nothing — so a redraw's checkerboard caption lands on
+top of the previous solid one and the union is the solid one. `gfx_frame`
+*writes* rather than ORs, so the frame dithers correctly either way, and that
+split is what makes the failure read as *§47 rule 1 is broken* when rule 1 is
+working perfectly. Measured on a cycle-accurate 5150/CGA, the same refused
+button reached two ways: **158 ink pixels redrawn in place against 116
+freshly painted**, 0 apart after the fix. In the kernel exactly one button
+needs it for this reason — the file dialog's default, redrawn by
+`fdlg_draw_name` on the edge where `fdlg_actok` moves; Cancel, Drive and New
+Folder are drawn once onto a pane `wm_paint_all` has already whited and can
+never change what they say. `tests/fdlggrey.py` is the gate and it
+discriminates: 42 pixels differ without the flag, 0 with it.
+
+**`OS88UI_INK` puts the label's colour in `DI`'s HIGH BYTE**, for a button
+whose caption is deliberately not black — Piano's song buttons, which §47
+names as its own example of a colour that is decoration rather than state.
+It is a flag plus a byte rather than `AL = the colour` because every existing
+caller reaches `os88ui_btn` with arbitrary `AX`, and a silent reinterpretation
+of a live register is the shape of bug this file has already produced twice;
+`DI` is the flag word, so its high byte is 0 by construction at every call
+site. **Disabled wins**: a greyed control is `CDGRAY` and dithered whatever
+ink it asked for, because rule 1 is about state and this is about decoration.
+
+Eight things are load-bearing:
+
+- **A word declared in `.cold` and reached through `DS` is not that word**
+  (§2.6), and this section is where that bit. The three rect scratches were
+  first declared beside their callers, two of which are cold — the write and
+  the read used the same wrong address, so the buttons drew *perfectly*
+  while `fdlg_brect` put eight bytes of screen coordinates through the middle
+  of **`sch_isr`** and `cp_brect` through **`wm_destroy`**. `-w+error` is
+  clean on it and `os88ovlchk.py` does not see it, because that tool checks
+  calls and branches and this is a data reference. There is one kernel
+  scratch now, `os88ui_krect`, declared here in `.bss`; no kernel caller
+  declares a rect at all.
+
+- **`BP` addresses `SS`, and in a package `SS != DS`** (§20.1), so every rect
+  read in `os88ui_btn` carries a `ds:` override. Free in the kernel and
+  mandatory in a package, from one text.
+- **The include goes at the END of a package's source, just before
+  `OS88_BSS`** — not beside `os88api.inc`. The header and an `OS88_ICON16`
+  block are at fixed image offsets (§20.2), and code emitted between them
+  fails the icon macro's own assertion.
+- **A whole-rect fill and an interior fill are the same picture** once the
+  frame is drawn over the border, so `OS88UI_FILL` covers both and the Timer's
+  whole-rect version needed no flag of its own.
+- **Centring is not imposed** — it is what all four kernel buttons were
+  already doing with the arithmetic precomputed as a literal, which is what
+  made one body possible: `(116-104)/2` = `+6`, `(14-8)/2` = `+3`, and
+  `APP_TMR_LT = (APP_TMR_BH-8)/2`. Three literals and one formula, all the
+  same number.
+- **A label wider than its button** would make the halved padding a huge
+  unsigned number and put the text off screen; the guard is three bytes and is
+  kept.
+- **`os88ui_arm`'s word is DATA, not bss.** A package declares its bss as one
+  total with `equ` offsets (`OS88_BSS`), and a shared include cannot reserve
+  part of that without the package agreeing where. Two bytes of image is
+  cheaper than a convention.
+
+**What it is not for**: a skinned control. ModPlug's bevelled well and LED
+transport are a deliberate port of ModPlugPlayer's look (§56), and
+Minesweeper's cell is its own game's chrome — converting those would be
+undoing intended design rather than consolidating it.
+
+`tests/muptest` is the gate, and it gates §13.7's release rules and this
+control's arm with the same four gestures.
 
 ### 20.6 Worker tasks — one background task per package instance
 
@@ -38385,6 +38480,65 @@ run rather than two. A verb somebody waits seconds for does not notice.
 The cloner is the right host and not merely the one with room: both are
 `files.inc` verbs on the system volume, both take a claim and run to
 completion, and neither is ever wanted while the other runs.
+
+### 20.16 A package that DOES NOT SHIP says so in `apps/RETIRED.txt`
+
+CLAUDE.md's Layout section states the invariant this exists to hold:
+**"`apps/` — loadable packages; everything here ships."** Nothing enforced it,
+and what that misses is not a package somebody chose to withhold — it is a
+package that ships nowhere because a list was edited and nobody noticed. Those
+two are **indistinguishable from every angle except intent**, which is the
+argument §66.6.1's ratchet makes about an undeclared region one layer along:
+the case that matters is the one no diff shows.
+
+`apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
+package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
+gate, a `fast` row. **Two kinds, and they are checked differently:**
+
+| kind | what it means | what the gate demands |
+|---|---|---|
+| `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
+| `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
+
+**A `retired` package keeps its source and its SPEC.md section.** Deleting
+them would leave no account of what was tried, and this tree already keeps
+that kind of thing — `docs/history/` is explicitly "true of no tree you can
+check out". `make <name>` still builds a retired package, so the record can be
+*run* and not merely read; a retirement that deleted the only way to check the
+thing being retired is a claim nobody can audit. Its test files stay too,
+exempted in `t_registry.py`'s `UNREGISTERED` with that reason, because a
+`fast` row every contributor pays for may not be about a program that ships
+nowhere (docs/WRITING-TESTS.md 2.1).
+
+**The bar for a `retired` line is the owner's call and nothing else.** It is
+not a performance verdict or a size verdict that a later measurement could
+overturn — a program is retired because the person who owns the project says
+it is not worth shipping. A red row or a slow package is a thing to fix or to
+ask about, never a reason to add a line here.
+
+**Three things the gate had to get right, each of which was wrong first and
+gave a wrong answer in its own direction:**
+
+1. **The live payload is READ, not retyped.** `build/livepayload.txt` is what
+   `all` emits from `$(LIVEARGS)` itself, so it cannot disagree with the
+   Makefile; §80.6's row reads the same file for the same reason. This is the
+   check that matters most, because the live volume's premise is
+   **completeness** — it is where a package taken off the curated floppies
+   keeps shipping, which is exactly what happened to §89 (§89.12).
+2. **The images are walked RECURSIVELY.** Every shipped package lives in
+   `APPS/` or `GAMES/`, and `tools/os88fat.py ls` lists the root only — so the
+   first version reported *every* package as not shipping. It uses
+   `t_image.py`'s own `Vol.walk` now.
+3. **The 8.3 name is matched WHOLE.** A substring test for `WIRE.O88` matches
+   `THEWIRE.O88`, which reported WIREFRAME — an instrument that correctly
+   ships nowhere — as being on the network disk. And a package's 8.3 name is
+   not its directory name: `solitaire` ships as `SOLITAIR.O88`, so the
+   comparison is against the truncation the packer actually writes.
+
+**It turns one way.** A `retired` package that reappears on a disk FAILS here
+rather than being quietly accepted, so the file cannot rot into a list of
+things that used to be true — and a line naming a directory that no longer
+exists fails too.
 
 ## 21. loader.inc
 
@@ -119180,6 +119334,45 @@ freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
 MartyPC could not reproduce — which is itself a finding: whatever it is, it
 is not a function of the drawn state alone.
 
+#### 88.14.4 An IP in the ring is not an offset in this package
+
+The ring banks **whatever `int 08h` interrupted**, and while the flight is
+running that is regularly not us. Two places, both of them ordinary:
+
+| CS | what was interrupted |
+|---|---|
+| the package | the flight — the great majority of ticks |
+| `KERNEL_SEG` | a kernel slot the frame called, or `fsx_wait`'s own `hlt`, which is stage 10 |
+| `F000` | **`cs_input`'s `int 16h` keyboard poll** (§53.1) — the ROM's own handler |
+
+The third is the one nobody had placed. `tests/skiesdiag.py` asserted that
+every banked IP was a package offset, which is **false of this machine**:
+`int 16h` enters at `F000:E82E` on both ROMs here and a tick landing in the
+two dozen bytes after it banks `e832`, `e83c`, `e84b`. Measured on
+`os8088_5150_herc_gla`, that check went red in **7 runs of 9** — on a sample
+that was correct, reported as *"the ring holds package addresses (… e84b)"*,
+which reads as the watchdog being broken. It is the freeze itself that
+concentrates them: the IPs are sampled in the first seconds of the bracket,
+where the flight is still entering and the input poll is a much larger share
+of a tick than it is once it is flying.
+
+**`cs_dcseg` could not answer it**, and that is the defect rather than the
+ROM. It is one word written every tick, so it places the **newest** slot and
+says nothing about the other two — and the other two are *different ticks*,
+which is the whole reason there are three. So the CS is banked per slot in
+`cs_dcsr` beside the IP, one `mov` in `cs_diag_isr`, and a reading places
+every sample rather than the last one.
+
+The **painted** strip is unchanged at `CSD_BLKS` = 9 and block 9 is still
+`cs_dcseg`, because a photograph of a **frozen** machine needs exactly that
+one: all three slots hold the same address by then. Twelve blocks would not
+fit above the view either — §88.14.3's arithmetic is `CSD_TOP + 12 × CSD_ROWS`
+= 84 against a Hercules view at 74 — so the per-slot CS is bss the row and a
+debugger read, not glass.
+
+It costs the shipped build nothing: every line is inside `%ifdef CSDIAG` and
+`build/skies.o88` is byte-identical across the change.
+
 #### 88.14.3 The strip goes above the view — and NOT for the reason first given
 
 **The correction comes first, because the wrong reason was published.** The
@@ -119762,21 +119955,25 @@ What the measurements say about the design, in the order it matters:
    its neighbours' ink on both 1bpp adapters, because the shadow is blitted
    whole rows at a time and nothing draws to the card directly.
 
-## 89. Pac-Man (`apps/pacman/pacman.asm`)
+## 89. Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED**
+
+> **THIS PACKAGE IS RETIRED AND SHIPS NOWHERE** (§20.16, `apps/RETIRED.txt`).
+> It is a failed port, superseded by **DOT DELIRIUM** (§93), which is the maze
+> chase this project ships. `all` does not build it, no image or live payload
+> carries it, and `tests/unit/t_retired.py` fails if any of that changes. The
+> source, this section and `tests/pacman.py` all **stay**, and `make pacman`
+> still builds the package — a retirement that deleted the record would leave
+> no account of what was tried, and §89.12 is that account. Everything below
+> describes the package as it was built and is true of `make pacman`'s
+> artefact; nothing below is a statement about a shipped disk.
 
 `PACMAN.O88` is a native 8086 port of Roklan's Atari computer **disk version,
 revision 3.0, 10/03/82**, from `atari-pacman`, using only the public package
-ABI. **It came off the apps floppies while DOT DELIRIUM (§93) was developed** —
-the 360KB disk had eight spare clusters of 354, this package is six of them and
-that one is twelve — and it rides `GAMES/` on the live media, the one image
-that is not curated (§80.6).
-`all` names `$(BUILD)/pacman.o88` directly, so it keeps being built; taking it
-off the floppies is a 354-cluster decision and none of it is an argument about
-a 32MB partition. It is **not** on `build/apps-all.img` — that disk's 1.2MB
-geometry pays for a package out of RunCPM's drive A (§19.10.1). Prefix `pm_`; one
-segment per instance; no kernel changes, external ROM or heap claims.
-Provenance, the upstream license and reproducible extraction are in
-`apps/pacman/README.md` and `tools/pacman_assets.py`.
+ABI. Prefix `pm_`; one segment per instance; no kernel changes, external ROM
+or heap claims. Provenance, the upstream license and reproducible extraction
+are in `apps/pacman/README.md` and `tools/pacman_assets.py`. Its About card
+credits **`Ported by Jorge Gonzalez`** (§20.5.1.2) — a retirement is a
+decision about shipping and not about who did the work.
 
 ### 89.1 Rules and adaptations
 
@@ -119828,6 +120025,47 @@ and 338 by 140 respectively; content geometry determines which layout fits.
 The board is centered in the current content, including full screen. All
 self-initiated drawing arms the window clip. The status strip uses opaque
 FONT_RUN and changes only when its values change.
+
+### 89.12 The retirement, and the two ways the first one did not take
+
+The decision is the owner's: **it is a failed port and Dot Delirium is the one
+that ships.** That is not a measurement anything here could overturn, so this
+section records it rather than arguing it.
+
+**What is worth writing down is that it was removed twice before and neither
+removal was a removal.** The first took `PACMAN.O88` off the apps floppies —
+the 360KB disk had eight spare clusters of 354, this package is six of them
+and §93's is twelve, so the two could not both sit there — under a Makefile
+comment reading *"while DOT DELIRIUM is developed"*. That sentence has no
+expiry and nothing was watching it. Two things then went wrong:
+
+1. **It came out of every BUILD as well.** `$(BUILD)/pacman.o88` was named by
+   `APPS_GAMES` and by nothing else, so deleting it from the disk list deleted
+   the artefact. Nobody noticed by looking; a PR-cycle byte audit found it by
+   building three commits clean and seeing the file missing from one
+   (`docs/reports/PR-CYCLE-ACCOUNTING-2026-09-11.md` 6). The repair was to
+   name it in `all`, recorder's case.
+2. **It went on shipping on the LIVE VOLUME the whole time.** `LIVEPKGARGS`
+   carried `GAMES:$(BUILD)/pacman.o88`, and the live image's premise is
+   **completeness** (§80.6) — which is exactly why a package taken off the
+   curated floppies stays on it. So for that whole period "Pac-Man is off the
+   disks" was false about the one image whose payload is derived rather than
+   chosen, and `livefull` — the row that reads that payload — is a
+   completeness check and could not have objected.
+
+**That is why §20.16 is a registry with a gate and not a comment.** Both
+failures are the same shape: a shipping decision expressed as prose in one
+place, with three other places that had to agree and no way to find out that
+they did not.
+
+**And a gate may not rest on a shipping program.** `tests/regapp.py` used this
+package as its canonical case for §66.6.1.1's pair — a region declared movable
+at the entry and a worker hired later, from the **paint** — because the five
+applications beside it never reliably hire one on that machine (ftpd waits for
+the card, Audio for playback, and MartyPC has no NIC). Retiring the package
+would have quietly taken that shape out of the row, so it is
+`tests/regpair/regpair.asm` now: 208 bytes, ships nowhere, and exists for that
+row alone.
 
 ## 90. FONT VIEWER — the system face browser (`apps/fontview/fontview.asm`)
 
