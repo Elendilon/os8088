@@ -2301,3 +2301,49 @@ five, and the one it never picked is the one that was broken.
 world), and asserts the world that ARRIVED rather than that the screen changed
 — because a silent load failure takes no mode, so there are no pixels to ask
 about. Verified to fail on SFO alone against the package before the fix.
+
+## 52. Microsoft Works: `Directory not found` when you pick another drive in Save As (FIXED — `AH=43h` was a FILE lookup, and a root parses to no file name at all: SPEC.md §96.12.4)
+
+Reported the same day as 47 and 48 and, like them, described from the glass:
+*"switching to another drive (Directory not Found)"*, then, asked how:
+*"I tabbed over to the directory browser and tried to select A: or D:. It
+correctly lists the drives we gave it, but trying to switch to one is what
+gives the error."*
+
+**The drive switch works and always did.** The trace shows `AH=0Eh` select
+A:, `AH=19h` answering `AL=00`, and `AH=0Eh` back to B: — all of it before
+anything fails. The refusal is the call *after* them: `AH=43h AL=00h`, which
+Works uses to ask *"is this directory there?"* before it writes, answering
+`CF=1 AX=0002`.
+
+`.att_get` resolved every name through `dos_fh_stat` — the **file** lookup
+`AH=3Dh` opens through (§96.11) — so a name that is a folder found nothing.
+Not just the drive's root: **every directory on every disk read as missing**,
+which nothing had noticed because nothing else in the tree had asked.
+
+**The root is the sharper half and is why the name recorder had to be
+widened.** `A:\` parses to a drive and *no 8.3 name at all*, so the lookup
+was for the empty string — and the twelve-slot recorder §96.11.7 had left in
+place was full of `CON` long before the interesting name arrived (a program
+opens `CON` eight times). At 48 slots the name came back **empty**, which is
+the whole diagnosis in one field.
+
+`dos_att_isdir` is `dos_cd_go`'s own `.named` scan with the walk taken out,
+and the root needs no scan at all — an empty name *is* the directory we
+stand in.
+
+**IBM DOS 3.30 is the specification and `tests/dostrap/attrdir.asm` runs
+under both machines unchanged** (docs/DOS-DEBUGGING.md): it answers `\` and
+`A:\` with `CF=0 CX=0074`, a subdirectory `0010`, a file `0020`, and only a
+missing name `CF=1 AX=0002`. We answer `0010` for the two roots deliberately
+— `0074` is bits DOS never set, a root having no directory entry to read them
+from, and what every caller tests is `CF` and bit 4. **The probe prints
+`ATTRDIR PASS` on both machines**, which is what says the assertion is not
+one only this box could satisfy.
+
+**The gate's own first version was the near-miss worth keeping.** `ask`
+pushed `AX` and `CX` and then did `or bl, bl` between the `int 21h` and the
+`jc` — so the judgement read *its own* flag, not DOS's. It printed `FAIL`
+beside five correct answers, and the same defect would later have printed
+`PASS` beside five wrong ones. The carry is banked into a byte by a `mov`
+now, `mov` being the one instruction there that writes no flags.

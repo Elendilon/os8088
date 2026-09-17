@@ -74,6 +74,7 @@ import errno
 import json
 import os
 import re
+import stat
 import shutil
 import signal
 import subprocess
@@ -139,6 +140,25 @@ def requirements():
     B = lambda *p: os.path.join(ROOT, "build", *p)
     req = []
 
+    # **/dev/null ITSELF**, because a container can get this wrong and the
+    # failures do not name it. It was a REGULAR FILE on this box for half of
+    # one soak: autoconf's ./configure dies on a spliced config.status, a
+    # `>/dev/null 2>&1` that a long-lived process holds O_RDWR GROWS THE FILE
+    # instead of discarding (measured: 1 MB written is 1 MB on disk, and a
+    # shell truncate under the holder does not reclaim it), `diff`, `cmp` and
+    # `test -s` against it answer wrongly, and at mode 0644 a non-root writer
+    # gets EACCES. A two-hour run is a long way to carry a question that
+    # costs one stat, so it is asked with the assembler rather than found.
+    req.append(("/dev/null", os.path.exists("/dev/null")
+                and stat.S_ISCHR(os.stat("/dev/null").st_mode),
+                "EVERYTHING - it is not a soak dependency so much as a "
+                "working box. A regular file here breaks ./configure, grows "
+                "without bound where output should vanish, and makes diff "
+                "and cmp against it lie.",
+                "mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new \\\n"
+                "                     && mv -f /dev/null.new /dev/null"
+                "        (as root)"))
+
     req.append(("nasm", bool(shutil.which("nasm")),
                 "every build. Without it nothing under build/ can be made.",
                 _apt("nasm")))
@@ -154,13 +174,17 @@ def requirements():
                 "the `nasm3` row - the only thing that assembles this tree "
                 "with an nasm 3, which is what Homebrew installs and what "
                 "half the people building it have.",
-                "brew install nasm       (macOS: it is 3.x)\n"
-                "                  ...or build one and export "
-                "OS88_NASM3=<path>/nasm:\n"
-                "                     git clone --depth 1 -b nasm-3.02 "
-                "https://github.com/netwide-assembler/nasm.git\n"
-                "                     cd nasm && sh autogen.sh && "
-                "./configure && make"))
+                "tools/setup-nasm3.sh\n"
+                "                  (probes first, so it is instant on macOS "
+                "where brew's nasm\n"
+                "                   is already 3.x; on Linux it clones, "
+                "builds and prints the\n"
+                "                   `export OS88_NASM3=` line. The manual "
+                "route has three\n"
+                "                   traps that each report as something "
+                "else - the script\n"
+                "                   checks all three, and "
+                "docs/MARTYPC-DEBUG.md has the account)"))
 
     # The shipped artefacts. `all` builds these and the fast tier reads them;
     # a soak against a half-built tree fails rows for the tree's reason.
@@ -233,6 +257,18 @@ def requirements():
     # `os88test`'s prebuild now costs only the rows that DECLARED a failing
     # artefact: this one missing tool took a five-hour soak down at 37
     # minutes with 0 of 267 rows reported.
+    # Shell reserved words and no-binary builtins. `shutil.which` cannot find
+    # any of them, so without this list every recipe carrying a loop or a
+    # conditional reports its keyword as a missing tool.
+    _SHELL_WORDS = frozenset((
+        "for", "while", "until", "do", "done", "if", "then", "elif", "else",
+        "fi", "case", "esac", "in", "function", "select", "time",
+        "{", "}", "!", "[[", "]]", "(", ")",
+        "cd", "export", "local", "set", "shift", "source", "eval", "exec",
+        "trap", "unset", "alias", "declare", "readonly", "return", "exit",
+        ":", ".", "break", "continue", "wait", "umask",
+    ))
+
     try:
         sys.path.insert(0, os.path.join(ROOT, "tests"))
         import suite as _suite
@@ -253,9 +289,15 @@ def requirements():
                 cmd = w[0] if w else ""
                 # A leading `-` is an argument that got to the front of a line
                 # some other way; `/` and `$` are paths and make variables,
-                # neither of which this can answer for.
+                # neither of which this can answer for. And a SHELL KEYWORD is
+                # not a command at all - `which` cannot find one by
+                # construction, so a recipe with a loop in it reported the
+                # loop. `dirsw360`'s is `@for i in 01 02 ... done`, and the
+                # preflight named `for` as the tool it was missing, which is
+                # a fix nobody can apply.
                 if (cmd and not cmd.startswith("-") and "/" not in cmd
-                        and "$" not in cmd and not shutil.which(cmd)):
+                        and "$" not in cmd and cmd not in _SHELL_WORDS
+                        and not shutil.which(cmd)):
                     if f not in tools.setdefault(cmd, []):
                         tools[cmd].append(f)
         req.append(("declared artefacts", not tools,

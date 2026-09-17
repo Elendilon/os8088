@@ -303,9 +303,15 @@ DOS_TR33_BY  equ DOS_TR33_SEQ + DOS_TR33_SEQN + 2
 DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_BY + DOS_TRNM_N * 15 + 96
 DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 
-DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
-                                    ; failure under investigation makes
-                                    ; exactly ONE open in a whole session
+DOS_TRNM_N  equ 48                  ; ...and names it keeps. It was 12, on the
+                                    ; reasoning that the failure under
+                                    ; investigation made exactly ONE open in a
+                                    ; whole session - true then, and the next
+                                    ; failure filled all twelve with `CON`
+                                    ; before the interesting name arrived
+                                    ; (SPEC.md 96.11.7 is why a program opens
+                                    ; CON eight times). DOSTRACE-only bss, so
+                                    ; the cost is a diagnostic build's alone
 DOS_TR33_N  equ 32                  ; INT 33h functions counted (SPEC.md
                                     ; 96.10.3). 32 covers every function a
                                     ; real-mode driver published up to
@@ -4110,8 +4116,14 @@ dos_int21:
     jc .fherr
     call .fhabs
     jc .fhpath
+    cmp byte [dos_fname], 0         ; **A ROOT PARSES TO NO NAME AT ALL** and
+    je .att_dir                     ; is a DIRECTORY, not a missing file
+                                    ; (SPEC.md 96.12.4): `A:\` is what
+                                    ; Microsoft Works asks about before it
+                                    ; saves to another drive, and answering 2
+                                    ; is `Directory not found` on the glass
     call dos_fh_stat                ; the same lookup AH=3Dh opens through, so
-    jc .fnoent                      ; the two can never disagree about a name
+    jc .att_dirq                    ; the two can never disagree about a name
     mov cx, 0x20                    ; ARCHIVE. SPEC.md 19 keeps no attribute of
     mov ax, cx                      ; its own and this is what an ordinary
     jmp .fhok                       ; readable file reads as everywhere. .fhok
@@ -4120,6 +4132,13 @@ dos_int21:
                                     ; left by the front door, which since
                                     ; SPEC.md 96.6.2 is also the door that
                                     ; comes off the named drive
+.att_dirq:
+    call dos_att_isdir              ; ...and a FOLDER by that name is the other
+    jc .fnoent                      ; thing AH=43h is asked about. Only a name
+.att_dir:                           ; that is NEITHER is `file not found`
+    mov cx, 0x10                    ; DIRECTORY, which is the bit every caller
+    mov ax, cx                      ; tests
+    jmp .fhok
 .att_set:
     push bx
     call dos_fh_name                ; it still has to NAME something real...
@@ -12157,6 +12176,52 @@ dos_83:
 .done:
     pop di
     pop di
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_att_isdir - does [dos_fname] name a FOLDER in the directory we stand in?
+; out: CF=0 yes, CF=1 no. Preserves every register.
+;
+; `dos_cd_go`'s `.named` scan with the walk taken out: it answers the question
+; instead of acting on it, which is what AH=43h wants (SPEC.md 96.12.4).
+; OSAPI_FILE_FIND is by ORDINAL, so this is a walk of the directory and not a
+; lookup - the same cost `.named` has always paid, and paid once per AH=43h on
+; a name that is not a file.
+; -----------------------------------------------------------------------------
+dos_att_isdir:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; dos_be_find answers into ES:DI, and the
+                                    ; buffer is ours
+    xor cx, cx
+.scan:
+    mov di, dos_fent
+    call dos_be_find
+    jc .no
+    cmp word [dos_fent+14], OSAPI_FT_DIR
+    jb .scan                        ; a file is not a folder
+    mov si, dos_fname
+    mov di, dos_fent
+    call dos_streq
+    jne .scan
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
