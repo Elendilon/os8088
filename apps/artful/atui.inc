@@ -1205,6 +1205,14 @@ at_button:
     push dx
     push si
     push di
+    push si                         ; **THE RECORD IS AIMED IN THE PAINTER**,
+    mov si, at_btrec                ; because this is the routine every draw
+    mov word [si+OS88UI_BT_RECTS], at_brects
+    mov word [si+OS88UI_BT_LABELS], at_btlbl
+    mov word [si+OS88UI_BT_FLAGS], at_btflg
+    pop si                          ; goes through. Aiming it anywhere a paint
+                                    ; can skip leaves os88ui_btn with a null
+                                    ; array and no button on the glass
     mov di, dx                      ; DI = the default flag
     mov [at_btx], ax
     mov [at_bty], bx

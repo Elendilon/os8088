@@ -110,6 +110,34 @@ def main():
             bad.append("%s calls os88ui_btn %d time(s), registered for %d - "
                        "keep the count honest" % (path, rec, wrec))
 
+    # --- THE RECORD MUST BE AIMED, and by the file that draws from it -------
+    # A record whose BT_RECTS or BT_N is never written is all zeroes, and
+    # os88ui_btn draws NOTHING for an index past a live count of 0.  That is
+    # not a subtle failure: it is a button that is simply absent, and it
+    # shipped once - apps/artful/atui.inc set its flags and its rects and
+    # never the record's three POINTERS, so the modal had no buttons at all.
+    #
+    # It cannot catch the other half of that bug (DOS aimed its record in the
+    # CLICK path, so the paint path drew nothing) - only driving it can, which
+    # is tests/btngesture.py's DOS case.  It catches the half that is visible
+    # from the source.
+    AIM = re.compile(r"OS88UI_BT_RECTS\]")
+    CNT = re.compile(r"OS88UI_BT_N\]")
+    for path, (rec, raw) in sorted(live.items()):
+        if not rec or path.endswith("os88ui.inc"):
+            continue
+        t = open(os.path.join(ROOT, path), encoding="utf-8",
+                 errors="replace").read()
+        if not AIM.search(t):
+            bad.append("%s calls os88ui_btn but never writes "
+                       "OS88UI_BT_RECTS: its record's rect array is a null "
+                       "pointer and the buttons do not appear at all "
+                       "(SPEC.md 20.5.1.3)" % path)
+        if not CNT.search(t):
+            bad.append("%s calls os88ui_btn but never writes OS88UI_BT_N: a "
+                       "live count of 0 means every index is past the end and "
+                       "os88ui_btn draws nothing (SPEC.md 20.5.1.3)" % path)
+
     for path in sorted(reg):
         if path not in live:
             bad.append("%s is in tests/btnsites.txt and calls neither - drop "
