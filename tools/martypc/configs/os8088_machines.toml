@@ -593,6 +593,49 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# os8088_5150_cga_hdd_gla - the machine above on GLaBIOS, and THE ONLY REASON
+# IT DID NOT EXIST IS THAT NOTHING CHECKED. `tests/kdnoprog.py` and
+# `tests/dosram.py` both name `os8088_5150_cga_hdd` directly, and the period
+# ROM is not in this tree (CONTRIBUTING.md 6) - so MartyPC's pinned build exits
+# at once with `ROM set ibm5150_82_v4 not found` and both rows died before
+# their first assertion. `tests/unit/t_machines.py` exists to stop exactly
+# that and it PASSED, because its check 2 only looked at machines listed in
+# `os88marty.IBM_TWIN` - five of the thirteen that ask for the IBM romset.
+# That check reads the romset out of THIS FILE now, so a machine added here
+# without a twin is a failure the next `make` reports.
+#
+# It differs from its IBM twin in `rom_set` ALONE, which is what check 3
+# enforces: a twin that has drifted is worse than no twin, because the row
+# runs and the difference it measures is the config's rather than the kernel's.
+[[machine]]
+name = "os8088_5150_cga_hdd_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
 # os8088_5150_herc_hdd_gla - AN 8088 WITH A HARD DISK AND A **HERCULES**, which
 # is the one combination this tree had never been able to make. Every machine
 # with an `[machine.hdc]` in this file is a CGA or a VGA, so SPEC.md 87.5's

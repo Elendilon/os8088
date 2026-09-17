@@ -1729,6 +1729,16 @@ IBM_TWIN = {
     "os8088_5150_herc_sb": "os8088_5150_herc_sb_gla",
     "os8088_5150_both": "os8088_5150_both_gla",
     "os8088_5150_sb":   "os8088_5150_sb_gla",
+    # ...and the two HARD-DISK machines, which were missing. `tests/dosram.py`
+    # and `tests/kdnoprog.py` name `os8088_5150_cga_hdd`, so both rows exited
+    # at once on `ROM set ibm5150_82_v4 not found` - and `t_machines` did not
+    # complain, because it took THIS DICT as the list of IBM machines instead
+    # of reading the romset out of the config. It reads the config now, so this
+    # dict is a map of answers rather than the definition of the question, and
+    # an IBM machine with no row here fails that gate the moment a row names
+    # it. `os8088_5150_herc_hdd_gla` already existed and was simply unmapped.
+    "os8088_5150_cga_hdd":  "os8088_5150_cga_hdd_gla",
+    "os8088_5150_herc_hdd": "os8088_5150_herc_hdd_gla",
 }
 
 
