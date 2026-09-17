@@ -43107,8 +43107,11 @@ Three details are load-bearing:
 - **A missing body is answered from the WINDOW, never from the global.** A
   cache may still hold a listing the global has since replaced — that is the
   whole point of `[dsk_lstale]` and of `FS_IOFH` recording the shape a slot was
-  filled with. So `fmv_get_icon`'s `0xFF` calls `dsk_ico_blank` rather than
-  falling through to `dsk_get_icon_x`, which would paint another volume's icon.
+  filled with. So `fmv_get_icon` resolves its OWN byte through
+  `dsk_ico_stage` rather than falling through to `dsk_get_icon_x`, which would
+  paint another volume's icon. `dsk_ico_stage` takes a REFERENCE; the
+  index form `dsk_get_icon_x` is five instructions in front of it that read
+  the global array.
 - **The index byte is read two at a time**, because `fmv_copy_in` moves words.
   The second byte is the next entry's index, or the first byte past the array
   and still inside the claim — `FV_ICOIX`'s `%if` is what bounds that — and it
@@ -77363,7 +77366,17 @@ by 16.
 `assoc_img_glyph`, which finds the block in an IMAGE by its header flag; the
 last two through `asc_row_glyph`, which finds it in a CACHE ROW; and both fall
 back to `assoc_reduce` through one `assoc_glyph_take`, which copies eight bytes
-unless they are all zero. `tools/os88mini.py` prefers it the same way, so the
+unless they are all zero.
+
+**And the row form is ONE ladder for two stores.** `asc_gly_pair` takes
+`ES:SI` -> a 64-byte body with the shipped eight behind it, prefers those and
+reduces the body when they are blank — which is a cache row and §25.9's store
+row both, because `ASC_ROWGLY - ASC_ROWICO` and `ICO_R_GLYPH - ICO_R_BODY` are
+the same 64. It was written twice, here and in `asc_take`; `disk.inc` asserts
+that the two deltas agree at the point both constants exist, so the merge
+cannot rot. `asc_row_glyph` is two tail jumps into it — one for a version 2
+row, one straight to `asc_body_glyph` for a version 1 row, which has no glyph
+column at all. `tools/os88mini.py` prefers it the same way, so the
 glyph baked into the kernel for DOS IS the shipped one and a harvest agrees
 with it byte for byte — §54.3's invariant for the reduction, carried over.
 
@@ -77937,7 +77950,7 @@ wants, which is *after* `asc_use` has already declined to re-read.
 
 **`asc_lookup` is gone and the question it asked is now ungated.** It searched
 the claim for an offset into it; with no claim, *is this package's body
-already in RAM* is the store's question, and `ico_have` asks it on **both**
+already in RAM* is the store's question, and `ico_find` asks it on **both**
 kernels. `kern_small` has no `ASSOC.DAT` at all (§54.0) and so never had this
 lookup — and its harvest was therefore reading a package's first sector every
 mount for a body the store had held since the last one. On the 4.77 MHz floor
@@ -77954,8 +77967,8 @@ used to read that column off the cache row. A hit has no row now. A store that
 carried only the body would answer a hit with the *reduction* and so
 **downgrade a slot `asc_seed` had already resolved**, which is worse than not
 writing at all: the glyph would get quietly worse the moment a folder was
-browsed. So `ICO_R_GLYPH` is a column of the store row (`ICO_ROW` 80 → 88, and
-`kern_big` only — `kern_small` has no glyphs at all), `asc_absorb` puts a v2
+browsed. So `ICO_R_GLYPH` is a column of the store row (`kern_big` only —
+`kern_small` has no glyphs at all), `asc_absorb` puts a v2
 row's glyph in beside its body, and `asc_take` prefers it exactly as
 `asc_row_glyph` does, falling back to `asc_body_glyph`'s reduce when there is
 none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
@@ -77975,6 +77988,39 @@ the wrong glyph in it. So `ico_put` answers with the row it took and the
 harvest completes it out of `LD_H_GLYPH`. A package that genuinely ships none
 keeps `ico_add`'s zeros, and a hit reducing its body is exactly
 `assoc_img_glyph`'s own fallback.
+
+##### 25.9.5.1 The row's layout is DERIVED, and the walk answers three things
+
+`ICO_R_NAME` 0, `ICO_R_SIZE` 12, `ICO_KEY` 14 — and everything after those is
+arithmetic on them: the body sits at `ICO_R_BODY` = `ICO_KEY`, the shipped
+glyph at `ICO_R_BODY + DSK_ICO_SIZE`, and `ICO_ROW` is whichever of those the
+build ends on (86 on `kern_big`, 78 on `kern_small`). It was written out — 16,
+80, 88, 80 — with two pad bytes between the key and the body that nothing
+needed: the only alignment that binds a row is `dsk_copy_seg_x`'s `rep movsw`,
+which wants an even offset, and `ICO_KEY` is one. The `add` that walked that
+gap is inside a `%if` and emits nothing while the gap is 0.
+
+`ico_rowoff` is `mul ah` and not a shift ladder, because a ladder needs an arm
+per row width and the multiply takes any of them in two bytes. The product
+cannot leave AX: the widest row here is 47 × 88, and 255 × 88 would still fit.
+
+**The scan answers WHERE as well as WHICH.** `ico_scan` walks the rows and
+returns `AL` = the row with `ES:DI` standing on it; on a miss it returns
+`AL` = `[ico_n]` with `ES:DI` on the first FREE row, which is past the end
+when the store is full — so `cmp al, ICO_NROW` is the whole of *is there
+room*, and a refused claim answers 0xFF into the same compare. `ico_find` is
+five bytes of frame around it for callers that want only the row, and
+`ico_add` keeps all three answers: it re-derived the claim, the count and the
+row offset when the scan that had just missed was standing on the row it was
+about to take.
+
+**One classification serves both icon passes.** Step 4 walks a real volume and
+step 4a' a redirected one (§62.9.2.1), and what each does in front of a sector
+read is identical to the instruction — bank the identity, send a folder to the
+built-in body, leave a document to pass 4b, spend a store hit. They differ
+only in what a MISS means, which is a sector read on one pass and nothing at
+all on the other, so `ico_ref_try` says that with a carry: the first pass
+branches on it and the second does not test it.
 
 **What the DECLARATION half costs, stated because it is the one thing a hit
 skips.** `assoc_note_app` merges a package header's §54.6 declarations and

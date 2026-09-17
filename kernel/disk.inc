@@ -7083,10 +7083,12 @@ ico_need:
     mov byte [ico_n], 0
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
-    call mem_movable_x          ; ...and a refusal here only PINS it, which is
-                                ; a compaction that achieves less rather than
-                                ; anything wrong (SPEC.md 66.2)
-    mov dx, [ico_seg]
+    push dx                     ; ...and a refusal here only PINS it, which is
+    call mem_movable_x          ; a compaction that achieves less rather than
+    pop dx                      ; anything wrong (SPEC.md 66.2). The claim is
+                                ; banked across it rather than re-read out of
+                                ; [ico_seg], which is two bytes and asks
+                                ; nothing about what that routine does to DX
 .have:
     mov es, dx
     clc
@@ -7554,16 +7556,23 @@ ico_put:
 ico_ref_try:
     push ax
     push bx
+    mov ax, [si+16]             ; the type, read ONCE (SPEC.md 19.5)
+    cmp ax, 2                   ; a folder or the parent link: the one icon
+    jae .folder                 ; that is not harvested off the disk but is
+    dec ax                      ; built in. Below it, 1 is a package and 0 a
+    jnz .done                   ; document, whose blank slot already IS
+                                ; SPEC.md 25's generic icon and which pass 4b
+                                ; may compose over - and `dec` is one byte
+                                ; where a second `cmp` is four
     call ico_key_of             ; BANK ITS IDENTITY NOW (SPEC.md 25.9):
                                 ; .h_read stages the package's own header over
                                 ; dsk_ent, so this is the last moment the name
-                                ; is here
-    cmp word [si+16], 2         ; a folder or the parent link (SPEC.md 19.5):
-    jae .folder                 ; the one icon that is not harvested off the
-    cmp word [si+16], 1         ; disk but built in
-    jne .done                   ; a document: the blank slot it already has is
-                                ; SPEC.md 25's generic icon, and pass 4b may
-                                ; compose over it
+                                ; is here - and AFTER the type tests, not in
+                                ; front of them: it is the PACKAGE arm that
+                                ; needs it, and a DOS directory of 68 entries
+                                ; with no package in it was banking twelve
+                                ; bytes and a size word sixty-eight times for
+                                ; nobody
     call ico_find               ; already in the store (SPEC.md 25.9)? -
     jc .miss                    ; absorbed from this volume's ASSOC.DAT
                                 ; (54.7.4), or harvested on an earlier mount,
