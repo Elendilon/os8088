@@ -3420,8 +3420,22 @@ osapi_mouse_feed:
     jne .no
     pushf
     cli
+%ifndef NO_MOUPRIV
     mov [mou_psave], sp         ; MOUPRIV_ENTER's two useful instructions, and
     mov sp, mou_pstack + MOU_PSTK   ; only those - see the header
+%endif                          ; ...and GATED, because under NOMOUPRIV=1 there
+                                ; is no private stack to swap to: mou_pstack
+                                ; and mou_psave are inside the same
+                                ; `%ifndef NO_MOUPRIV` the macros are, so
+                                ; naming them unconditionally is an
+                                ; undefined-symbol error in an arm no ordinary
+                                ; build compiles. Skipping the swap is also the
+                                ; RIGHT behaviour rather than merely the
+                                ; buildable one: the whole of what that knob
+                                ; means is that the mouse path runs on the
+                                ; interrupted stack (SPEC.md 9.10), so a feed
+                                ; that swapped anyway would be measuring
+                                ; something the knob exists to remove
     push ax                     ; ...on the private stack, which is what it is
     mov ax, (MOU_FEEDROW << 8) | MOU_P2LINE
     call mou_settle             ; ONE settle for four backends (SPEC.md 9.5.1),
@@ -3432,7 +3446,9 @@ osapi_mouse_feed:
                                 ; woken - and it does it in the order that
                                 ; works, powering every port back up first
     call mou_apply
-    mov sp, [mou_psave]
+%ifndef NO_MOUPRIV
+    mov sp, [mou_psave]         ; ...and the restore is gated with it
+%endif
     popf
     clc
     ret
