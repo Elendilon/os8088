@@ -773,7 +773,54 @@ cycles** an operation:
 | **built** — `jmp far [dkv+4i]` + a 14-slot far table | **112** | **42** (measured) | — |
 | near vector + one shared far dispatcher | 56 + 28 + 84 + 6 = **174** | ~120 | a NEAR vector cannot name the module's segment, so the mounted arm needs a six-byte trampoline per operation to carry an index. The trampolines are what the far table buys its way out of |
 | `call near [dkv+2i]` at the CALL SITE, no entry points | 33 + 28 + 84 + 6 = **151** | ~30 | same trampolines, plus the basic bodies would need a second `retf` entry (they are near-called from inside `dock.inc` too, and are `kern_small`'s whole Dock), plus `hiber.inc` takes `dock_force`'s address and `cw_mem_disp` near-calls it |
-| `jmp far KERNEL_SEG:<body>` PATCHED in place at mount | 14 × 5 = **70** | ~22 | **the only scheme that beats the built one**, and it is self-modifying `.text`. Worth **42 bytes and 20 cycles**; the price is the one SCHED-IDLE-PLAN §8 already names — teaching `os88marty verify` a patch table — for a page that is only patched while a module nobody has mounted is mounted. Refused as a size pass's unilateral introduction of SMC, not on arithmetic |
+| **`jmp far KERNEL_SEG:<body>` PATCHED in place at mount** | 14 × 5 = **70** | ~22 | **the only scheme that beats the built one**, on both axes. It is not refused on arithmetic and it has its own row: **§7.8.1** |
+
+#### 7.8.1 The patched far jump — a row to say yes or no to, not a refusal to re-derive
+
+**Not built, deliberately.** It wins on both axes and the whole of the
+question is whether this project wants self-modifying `.text`.
+
+**The shape.** Each of the fourteen entry points becomes a five-byte
+`jmp far KERNEL_SEG:<basic body>` — an `EA` whose offset and segment are
+IMMEDIATES. `DOCK.DRV`'s `dkx_hook` rewrites those four bytes to its own
+`<modseg>:<landing pad>` and `dkx_unhook` writes the kernel's back, which is
+exactly what both already do to `dkv` today — the module carries both tables
+either way, so **the module side does not change at all**. `dkv` disappears.
+
+| | built (`jmp far [dkv+4i]`) | patched (`jmp far imm`) | delta |
+|---|---:|---:|---:|
+| entry points | 14 × 4 = 56 | 14 × 5 = **70** | +14 |
+| the table | 14 × 4 = **56** | none | **−56** |
+| **resident** | **112** | **70** | **−42** |
+| basic-path cost | **42 cycles**, MEASURED | ~22 cycles, PREDICTED | ~−20 |
+| the whole Dock feature | 486 | **444** | −42 |
+
+The 42 is measured — `dock_paint` → `db_paint` under MartyPC at 4.77 MHz, six
+identical samples. The 22 is `jmp far imm`'s 15 clocks against the 8088's
+`max(clocks, 4.34 × 5 bytes)` fetch floor and is **predicted, not measured**.
+
+**What it costs, and it is not a safety argument.** The write happens inside
+`dkx_hook`/`dkx_unhook`, in the module's own segment, under the graphics lock
+SPEC.md 30.5 already requires for a settings change — so no operation can be
+executing, and the 8088's four-byte prefetch queue is nowhere near the bytes
+being written. The price is the one
+`docs/plans/completed/SCHED-IDLE-PLAN.md` §8 already names for its own
+self-modifying option: **`os88marty verify` has to be taught the patch
+table**, or it reports fourteen five-byte runs differing from
+`build/kernel.bin` on any machine with a non-default Dock setting. `verify` is
+a REPORT and exits 0, so no tier goes red — which is the reason to teach it
+rather than a reason to leave it.
+
+**The knob shape, if it is taken.** SCHED-IDLE-PLAN §8's `NOSMC=1` — *"the
+only one that costs literally zero when off"* — is the precedent and the right
+spelling here: `%ifdef NOSMC` keeps `dkv` and the indirect entries, so the A/B
+is one define, the un-patched arm stays assembling, and the decision is
+reversible per build rather than per commit. That is this tree's standing
+pattern for a change somebody may want to look at twice (`NOCURDISK=1`,
+`NOMOUPRIV=1`, `NOSEAMCUT=1`).
+
+**What is NOT claimed:** that it reaches 400. It does not — 444 is 44 short,
+and `docs/reports/DOCK-RESIDENT-COST-2026-09-17.md` §6.4 says what would.
 
 **Two operation counts were also tried and are not worth having.** Folding
 `DKI_FORCE` away by letting the resident `db_force` read `[dock_la1]`/
