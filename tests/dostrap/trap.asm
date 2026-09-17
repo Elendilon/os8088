@@ -23,6 +23,11 @@ ENTSZ   equ 32                      ; bytes an entry - the same layout the box's
                                     ; DOS_TRACE_SZ), because the whole point of
                                     ; this program is that one reader decodes
                                     ; both
+NENT33  equ 32                      ; INT 33h functions counted, and the size of
+SZ33    equ 8                       ; a slot: count, then BX/CX/DX at the last
+                                    ; call. THE SAME SHAPE AS THE BOX'S
+                                    ; (SPEC.md 96.10.3.1), so one host-side
+                                    ; reader decodes both sides of a diff
 NENT    equ 512                     ; entries, 16KB. IT KEEPS THE FIRST ONES AND
                                     ; STOPS: this exists to find where two runs
                                     ; DIVERGE, and divergence is early - a ring
@@ -57,6 +62,24 @@ start:
     mov ax, 0x2521
     int 0x21
 
+    ; --- ...AND INT 33h, WHICH IS THE OTHER HALF OF A COMPARISON (96.10.3.1)
+    ; The box records which mouse functions a program asks for and with what;
+    ; without the same record from a REAL driver there is nothing to align it
+    ; against, and a difference in the program's own behaviour reads as a
+    ; defect in the box underneath. Load the driver BEFORE this TSR and the
+    ; chain is program -> here -> the real driver.
+    ;
+    ; A VECTOR OF ZERO IS NOT AN ERROR HERE: a machine with no mouse driver is
+    ; one this records nothing on and traces perfectly well otherwise, so the
+    ; hook goes in either way and `new33` refuses to chain into nothing.
+    mov ax, 0x3533
+    int 0x21
+    mov [old33], bx
+    mov [old33+2], es
+    mov dx, new33
+    mov ax, 0x2533
+    int 0x21
+
     mov si, s_on
     call puts
     mov dx, resident_end            ; ...and stay, keeping the ring
@@ -70,6 +93,46 @@ start:
     call puts
     mov ax, 0x4C01
     int 0x21
+
+; --- the MOUSE hook ---------------------------------------------------------
+; One saturating byte per function and the arguments of its last call, which is
+; exactly the box's own shape (SPEC.md 96.10.3.1) so the two decode with one
+; reader. It records BEFORE chaining, because what is wanted is what the
+; PROGRAM asked - a driver that rewrites a register on the way out is telling
+; us something else.
+new33:
+    push ax
+    push bx
+    push si
+    push ds
+    push cs
+    pop ds
+    mov si, ax
+    cmp si, NENT33                  ; anything above lands in the top bucket,
+    jb .in                          ; which is a reading and not a wild store
+    mov si, NENT33 - 1
+.in:
+    shl si, 1                       ; ...times SZ33, which is 8: three shifts
+    shl si, 1                       ; of ONE, the only shift an 8086 has
+    shl si, 1
+    add si, m33
+    cmp byte [si], 0xFF             ; saturating, so a poll loop cannot wrap
+    je .arg                         ; the count round to zero and read as
+    inc byte [si]                   ; "never called"
+.arg:
+    mov [si+2], bx
+    mov [si+4], cx
+    mov [si+6], dx
+    pop ds
+    pop si
+    pop bx
+    pop ax
+    cmp word [cs:old33+2], 0        ; NO DRIVER: answer AX=0, INT 33h's own
+    jne .chain                      ; "not supported", rather than jumping
+    xor ax, ax                      ; through a zeroed vector into the IVT
+    iret
+.chain:
+    jmp far [cs:old33]
 
 ; --- the hook ---------------------------------------------------------------
 new21:
@@ -349,8 +412,16 @@ s_hdr:    db 'os8088 DOS INT 21h trace', 13, 10
           db 'DOSTRAP1'
           dw ring, total, wr, here, NENT, ENTSZ
 
+; ...and the mouse histogram's own, as a SECOND signature rather than three
+; more words on the first: a reader that predates it still finds DOSTRAP1 and
+; takes six words, which is what keeps an old tool and a new TSR from decoding
+; each other's bytes.
+          db 'DOSTRP33'
+          dw m33, NENT33, SZ33
+
 armed:    db 0                      ; 0 until the EXEC that loads the subject
 old21:    dd 0
+old33:    dd 0
 here:     dw 0
 wr:       dw 0
 total:    dw 0
@@ -358,4 +429,5 @@ fh:       dw 0
 line:     times 128 db 0             ; ...a whole line: the header plus its
                                     ; two numbers is 60, and an entry 41
 ring:     times NENT * ENTSZ db 0
+m33:      times NENT33 * SZ33 db 0
 resident_end:

@@ -303,7 +303,14 @@ def trap_syms(com_path):
     b = open(com_path, "rb").read()
     i = b.index(b"DOSTRAP1") + 8
     ring, total, wr, here, nent, entsz = struct.unpack_from("<6H", b, i)
-    return dict(ring=ring, total=total, wr=wr, here=here, nent=nent, entsz=entsz)
+    d = dict(ring=ring, total=total, wr=wr, here=here, nent=nent, entsz=entsz)
+    # ...and the MOUSE histogram, a signature of its own (SPEC.md 96.10.3.1)
+    # so that a reader predating it still decodes DOSTRAP1 and stops.
+    j = b.find(b"DOSTRP33")
+    if j >= 0:
+        m33, n33, sz33 = struct.unpack_from("<3H", b, j + 8)
+        d.update(m33=m33, n33=n33, sz33=sz33)
+    return d
 
 
 def nasm(src, out, defines=(), incs=()):
@@ -740,18 +747,24 @@ def cmd_trace(a):
 # story, and `bx=0000 cx=0000 dx=0000` beside it is noise that hides the rows
 # that matter.
 INT33_ARGS = {
-    0x07: ("min x", "max x", None),
-    0x08: ("min y", "max y", None),
+    # The tuple is (BX, CX, DX) and `None` prints nothing - which is where the
+    # first version of this table was WRONG: functions 7, 8, 0Fh and 10h take
+    # their pair in CX and DX and use BX for nothing, so labelling BX as the
+    # first of them printed `min y=0000 max y=0000` for a call whose real
+    # arguments were CX and an unprinted DX. A mislabelled argument is worse
+    # than none: it reads as a measurement.
+    0x07: (None, "min x", "max x"),
+    0x08: (None, "min y", "max y"),
     0x09: ("hot x", "hot y", "mask at"),
     0x0A: ("kind", "screen mask", "cursor mask"),
     0x0C: (None, "EVENT MASK", "handler at"),
-    0x0F: ("x mickeys", "y mickeys", None),
-    0x10: ("left", "top", None),
+    0x0F: (None, "x mickeys", "y mickeys"),
+    0x10: (None, "left", "top"),
     0x14: (None, "EVENT MASK", "handler at"),
 }
 
 
-def mouse_lines(mou, sym):
+def mouse_lines(mou, sym, n=None, sz=None, cb=None, who="the box"):
     """What the program asked INT 33h for, with what, and what we answered.
 
     ALL ZERO IS THE MOST IMPORTANT READING and must not print as blank - a
@@ -760,9 +773,10 @@ def mouse_lines(mou, sym):
     CALLBACK count, for the same reason one layer along: `it asked for events
     and then did nothing` is us never calling or it ignoring us.
     """
-    sz, cb = sym["DOS_TR33_SZ"], sym["DOS_TR33_CB"]
+    if sz is None:
+        n, sz, cb = sym["DOS_TR33_N"], sym["DOS_TR33_SZ"], sym["DOS_TR33_CB"]
     out, hit = [], []
-    for i in range(sym["DOS_TR33_N"]):
+    for i in range(n):
         n = mou[i * sz]
         if not n:
             continue
@@ -778,11 +792,12 @@ def mouse_lines(mou, sym):
                    "or never looked")
     else:
         out.append("INT 33h: " + "; ".join(hit))
-    calls = struct.unpack_from("<H", mou, cb)[0]
-    out.append("INT 33h: the box made %d callback(s) into the program%s"
-               % (calls, "" if calls else
-                  " - so an event handler, if one is installed, has heard "
-                  "NOTHING"))
+    if cb is not None:
+        calls = struct.unpack_from("<H", mou, cb)[0]
+        out.append("INT 33h: %s made %d callback(s) into the program%s"
+                   % (who, calls, "" if calls else
+                      " - so an event handler, if one is installed, has heard "
+                      "NOTHING"))
     return out
 
 
@@ -877,6 +892,15 @@ def cmd_ref(a):
             for _ in range(a.boot_keys):
                 m.key("Enter")
                 time.sleep(3)
+            # --- ANYTHING THAT HAS TO BE RESIDENT FIRST, and the ORDER is the
+            # point: a mouse driver loaded AFTER this TSR owns INT 33h above
+            # it and the histogram records nothing, while one loaded BEFORE
+            # sits underneath and every call passes through. `--pre CTMOUSE`
+            # is the case this exists for.
+            for cmd in a.pre:
+                m.type_text(cmd)
+                m.key("Enter")
+                time.sleep(4)
             m.type_text("DOSTRAP")
             m.key("Enter")
             time.sleep(4)
@@ -935,6 +959,10 @@ def cmd_ref(a):
             total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
             ring = bytes(m.read(base + lay["ring"], lay["nent"] * lay["entsz"]))
             psp = struct.unpack_from("<H", ring, 6)[0]   # entry 0's DX
+            refmou = None
+            if "m33" in lay:
+                refmou = bytes(m.read(base + lay["m33"],
+                                      lay["n33"] * lay["sz33"]))
             if a.shot:
                 wd, ht, px = m.fbuf()
                 os88marty.write_png_rgb(a.shot, wd, ht, px)
@@ -948,6 +976,9 @@ def cmd_ref(a):
     print("os88dosdbg: %d call(s)%s, PSP %04X -> %s"
           % (total, " (CAPPED at %d - raise NENT in trap.asm)" % lay["nent"]
              if total > lay["nent"] else "", psp, a.out))
+    if refmou is not None:
+        for ln in mouse_lines(refmou, None, lay["n33"], lay["sz33"]):
+            print("  " + ln)
     return 0
 
 
@@ -1176,7 +1207,16 @@ def selfcheck():
         com = nasm(TRAP_ASM, os.path.join(d, "t.com"))
         lay = trap_syms(com)
         ck("the TSR publishes its own layout", set(lay) ==
-           {"ring", "total", "wr", "here", "nent", "entsz"})
+           {"ring", "total", "wr", "here", "nent", "entsz",
+            "m33", "n33", "sz33"})
+        ck("...and both histograms are the same shape (SPEC.md 96.10.3.1)",
+           lay.get("n33") == sym["DOS_TR33_N"] and
+           lay.get("sz33") == sym["DOS_TR33_SZ"],
+           "" if lay.get("sz33") == sym["DOS_TR33_SZ"] else
+           "TSR %sx%s vs box %dx%d - one reader cannot decode both, which is "
+           "the whole point of recording the reference at all"
+           % (lay.get("n33"), lay.get("sz33"),
+              sym["DOS_TR33_N"], sym["DOS_TR33_SZ"]))
         ck("both sides agree on the entry size",
            lay["entsz"] == sym["DOS_TRACE_SZ"],
            "" if lay["entsz"] == sym["DOS_TRACE_SZ"] else
@@ -1292,6 +1332,12 @@ def main():
             p.add_argument("--dos-disk", required=True,
                            help="YOUR bootable DOS floppy; it is copied, not edited")
             p.add_argument("--boot-secs", type=int, default=30)
+            p.add_argument("--pre", action="append", default=[],
+                           metavar="CMD",
+                           help="a command to run BEFORE the tracer installs "
+                                "- a mouse driver, say. The order matters: a "
+                                "driver loaded after DOSTRAP owns INT 33h "
+                                "above it and nothing is recorded")
             p.add_argument("--cd", default=None,
                            help="CD into this directory before running the "
                                 "program, for one that demands its own "
