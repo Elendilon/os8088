@@ -2020,7 +2020,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
-     $(BUILD)/hello.o88 $(BUILD)/pacman.o88 \
+     $(BUILD)/hello.o88 \
      $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 $(BUILD)/livepayload.txt \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      $(BUILD)/doscore.bin \
@@ -2039,17 +2039,25 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # every entry in this comment fails: silently, months later, when somebody
 # changes apps/os88ui.inc and the one caller nothing builds stops matching it.
 #
-# pacman.o88 is RECORDER'S CASE EXACTLY, and it arrived here by being caught
-# rather than by being remembered: PACMAN came off the disk lists while DOT
-# DELIRIUM is developed (the comment over APPS_GAMES says so), and the sentence
-# it was written with - "`make` still BUILDS build/pacman.o88 - it is only the
-# disk lists this leaves" - stopped being true in the same commit, because
-# $(BUILD)/pacman.o88 was in APPS_GAMES and nothing else named it. A PR-cycle
-# byte audit found it by building three commits clean and noticing the
-# artefact had vanished from one of them
-# (docs/reports/PR-CYCLE-ACCOUNTING-2026-09-11.md 6). That is the failure this
-# whole comment is about, caught by arithmetic instead of by the months-later
-# route - so the line goes here and the claim beside APPS_GAMES is true again.
+# pacman.o88 WAS HERE AND IS RETIRED (SPEC.md 89.12, apps/RETIRED.txt). It was
+# here as recorder's case - a package `all` must keep BUILDING after it came
+# off the disk lists, so that an edit to apps/os88ui.inc cannot break its only
+# caller unseen - and it is off this line now because a retired package is not
+# owed that: nothing is going to change under it, and `make pacman` is what
+# builds the record when somebody wants to look at it.
+#
+# The history is worth keeping, because it is the failure the rest of this
+# comment is about. PACMAN came off the disk lists "while DOT DELIRIUM is
+# developed", and the sentence it was written with - "`make` still BUILDS
+# build/pacman.o88 - it is only the disk lists this leaves" - stopped being
+# true in the same commit, because $(BUILD)/pacman.o88 was in APPS_GAMES and
+# nothing else named it. A PR-cycle byte audit found it by building three
+# commits clean and noticing the artefact had vanished from one of them
+# (docs/reports/PR-CYCLE-ACCOUNTING-2026-09-11.md 6) - arithmetic, months
+# before anybody would have looked. THAT is why the removal now goes through
+# a registry with a gate on it rather than through a comment: the same edit
+# also left the package on the live volume, where it shipped for the whole
+# time it was "off the disks", and nothing said so.
 #
 # hello.o88 is here for that same half and the case is STRONGER than
 # RECORDER's (SPEC.md 27.0). It came off every floppy there is by the owner's
@@ -6138,7 +6146,21 @@ $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc
 $(BUILD)/missile.o88: $(BUILD)/missile.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/missile.bin -o $@
 
-# Pac-Man, the native Roklan Atari disk port (SPEC.md 89).
+# Pac-Man, the native Roklan Atari disk port (SPEC.md 89) - **RETIRED**
+# (SPEC.md 89.12, apps/RETIRED.txt). `all` does not name it and no image
+# carries it; these rules and the `pacman` target below are the whole of what
+# is left, and they are deliberate rather than leftovers.
+#
+# THE TARGET IS WHAT MAKES THE RECORD RUNNABLE. SPEC.md 20.16 keeps a retired
+# package's source, its section and its tests precisely so that the decision
+# can be audited, and a retirement that deleted the only way to BUILD the
+# thing being retired is a claim nobody can check. tests/pacman.py and
+# tests/unit/t_pacman.py are still here and still run; they are out of every
+# tier (t_registry's UNREGISTERED says why) because no contributor should pay
+# an emulator boot for a program that ships nowhere.
+.PHONY: pacman
+pacman: $(BUILD)/pacman.o88
+
 $(BUILD)/pacman.bin: apps/pacman/pacman.asm apps/pacman/assets.inc apps/pacman/LICENSE apps/os88api.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/pacman/pacman.asm
 
@@ -6450,20 +6472,34 @@ $(BUILD)/sndmove360.img: $(BUILD)/filler.o88 $(BUILD)/sbtest.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/sbtest.o88
 
-# ...and CALC and PACMAN since SPEC.md 66.6.1.1, which are the two SHAPES the
+# ...and CALC and REGPAIR since SPEC.md 66.6.1.1, which are the two SHAPES the
 # five above do not carry. Every one of them hires a worker, so the row proved
 # the restart half and never once proved the plain one - and the plain one is
 # what 39 of the tree's 41 declarations are. CALC is the bare form with no
-# worker at all (movable on I_TASK == 0xFF alone); PACMAN is the canonical
-# worker pair, restartable at the top of a loop it re-seeds. Both are ~5KB, so
-# the disk pays almost nothing for them.
+# worker at all (movable on I_TASK == 0xFF alone); REGPAIR is the canonical
+# worker pair, restartable at the top of a loop, and hired from the PAINT.
+#
+# REGPAIR REPLACES PACMAN HERE, which was the pair's case until it was retired
+# (SPEC.md 89.12, apps/RETIRED.txt). A gate may not rest on a shipping program
+# - the program is free to change or go away for reasons that have nothing to
+# do with the gate, and this one did exactly that. tests/regpair is 208 bytes
+# and exists for no other purpose, so the shape cannot be taken out from under
+# the row again. It is ALSO why the five applications above are not enough:
+# ftpd hires only when the card is up and Audio only when playback starts, so
+# on regapp's machine - MartyPC, which has no NIC - neither ever hires at all.
 REGAPPS := $(BUILD)/word.o88 $(BUILD)/tank.o88 $(BUILD)/ftpd.o88 \
            $(BUILD)/browser.o88 $(BUILD)/audio.o88 \
-           $(BUILD)/calc.o88 $(BUILD)/pacman.o88
+           $(BUILD)/calc.o88 $(BUILD)/regpair.o88
 $(BUILD)/regapp360.img: $(BUILD)/filler.o88 $(BUILD)/paint.o88 $(REGAPPS) \
                         tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
 		$(BUILD)/paint.o88 $(REGAPPS)
+
+$(BUILD)/regpair.bin: tests/regpair/regpair.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/regpair/regpair.asm
+
+$(BUILD)/regpair.o88: $(BUILD)/regpair.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/regpair.bin -o $@
 
 # ...and the C SDK's, for tests/cmemmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). CHELLO is the C toolchain's
@@ -10718,16 +10754,18 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
-# PACMAN.O88 IS OFF THE DISKS WHILE DOT DELIRIUM IS DEVELOPED, by the owner's
-# decision and not as a shipping choice: the 360KB apps disk had eight spare
-# clusters, SPEC.md 89's package is six of them and SPEC.md 93's is twelve, so
-# taking the older one off is what lets the new one sit beside everything else
-# instead of on a second disk. `make` still BUILDS build/pacman.o88 - it is
-# only the disk lists this leaves, and that is true because `all` NAMES it
-# (beside recorder.o88, whose case this is exactly). It was not true for one
-# cycle: this line said so while APPS_GAMES was the only thing that had ever
-# built the package, so taking it off the disks took it out of every build
-# too.
+# PACMAN.O88 IS RETIRED - not "off the disks while Dot Delirium is developed",
+# which is what this said for a cycle and which was a sentence with no expiry
+# and nothing watching it. The owner has called it: it is a failed port, DOT
+# DELIRIUM (SPEC.md 93) is the maze chase this project ships, and the package
+# is not coming back. apps/RETIRED.txt is the registry, SPEC.md 89.12 the
+# record, and tests/unit/t_retired.py the gate that fails if it reappears on
+# any image, in the live payload or in `all`.
+#
+# What the original note got right is kept in SPEC.md 89.12: the 360KB apps
+# disk had eight spare clusters, 89's package is six of them and 93's twelve,
+# so the two could not both sit here - that is what started this, even though
+# it is no longer the reason.
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
@@ -11606,10 +11644,15 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS)))
 # 38.10). Chart is the sharp case - it declares no association, so File > Open
 # is its ONLY launch path and a spreadsheet on the volume is the one thing it
 # must have.
-LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 $(BUILD)/pacman.o88 \
+# PACMAN.O88 IS RETIRED and is off this list too (SPEC.md 89.12,
+# apps/RETIRED.txt). The live volume's premise is COMPLETENESS (SPEC.md 80.6),
+# which is why it was the last place the package still shipped after it came
+# off every floppy - and why taking it off the floppies alone was not the
+# removal anybody thought it was. tests/unit/t_retired.py reads
+# build/livepayload.txt and fails if it comes back.
+LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
                $(SCRIBEDISK) $(MEDIA_EXTRA)
 LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88) \
-               GAMES:$(BUILD)/pacman.o88 \
                $(addprefix SCRIBE:,$(SCRIBEDISK)) \
                $(addprefix MEDIA:,$(MEDIA_EXTRA))
 $(if $(LIVESYSARGS),,$(error LIVESYSARGS is empty - $(SYSAPPS) and $(APPSYS) \
