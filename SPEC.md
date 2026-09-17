@@ -80351,9 +80351,12 @@ about five primitive calls at ~18 Hz, for as long as it was open.
 On the target machine the fixed part of a `gfx_*` call is **756 µs**
 (PERFORMANCE.md), so that is ~4 ms of every worker frame spent drawing nothing,
 and it breaks PERFORMANCE rules 1 and 2 at once — repainting more than changed,
-and filling ground that no content follows. On real hardware it also *shows*:
-the well's `(zx2,zy1)` and `(zx1,zy2)` corners inverted at 18 Hz, which is the
-double-draw flash CLAUDE.md names as invisible in an emulator. It surfaced
+and filling ground that no content follows. It also *shows*: the well's
+`(zx2,zy1)` and `(zx1,zy2)` corners inverted at 18 Hz, which is a double-draw
+flash — and that is **measurable here** rather than a thing only the desk can
+see, `m.flicker` sampling once per completed frame (PERFORMANCE.md Part 3.1).
+After the fix a ModPlug window with nothing loaded reads `settled` with **no
+transient pixels and no changed frames at all**. It surfaced
 through `tests/dispsize.py` leg C — one differing pixel at the well's right
 edge, in two runs of three — because a capture of an incremental draw and a
 capture of a full repaint cannot agree about a pane that is being rewritten

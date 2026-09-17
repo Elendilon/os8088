@@ -2889,10 +2889,11 @@ mppu_frame:
     ; 220x35 repaint of a pane that CANNOT CHANGE - about five primitive calls
     ; ~18 times a second, for ever, on a machine where the fixed part of a gfx
     ; call is 756 us (PERFORMANCE.md). That is rule 1 and rule 2 at once, and
-    ; on real hardware it is a two-pixel flicker on the well's corners at
-    ; 18 Hz - the double-draw class CLAUDE.md says an emulator cannot show.
-    ; tests/dispsize.py leg C is where it surfaced: one differing pixel at the
-    ; well's right edge, in two runs of three.
+    ; it is a two-pixel flicker on the well's corners at 18 Hz - a double-draw
+    ; flash, which `m.flicker` MEASURES (PERFORMANCE.md Part 3.1) rather than
+    ; something only the desk can see. tests/dispsize.py leg C is where it
+    ; surfaced: one differing pixel at the well's right edge, in two runs of
+    ; three; after this the window reads `settled` with no transient pixels.
     ;
     ; THE EDGE IS WHY THIS IS A LATCH AND NOT A `cmp`/`je`. There is no eject
     ; here - both writers of [mpm_loaded] = 0 are inside loading a NEW module
