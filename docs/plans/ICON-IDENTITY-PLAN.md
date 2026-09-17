@@ -495,13 +495,15 @@ after:
 | | `.text` | `.cold` | `.bss` | `.lowbss` | `KERN_SIZE` |
 |---|---:|---:|---:|---:|---:|
 | `kern_big` before | 50,023 | 41,257 | 6,141 | 7,966 | 112,128 |
-| `kern_big` after | 50,023 | **41,009** | 6,141 | 7,966 | 112,128 |
+| `kern_big` after | 50,023 | **40,954** | **6,137** | 7,966 | **111,616** |
 | `kern_small` before | 37,290 | 26,731 | 4,179 | 5,236 | 75,776 |
 | `kern_small` after | 37,290 | **26,596** | 4,179 | 5,236 | **75,264** |
 
-**-248 and -135 of code**, `.bss` and `.lowbss` unmoved on both — the -1,216
-of `.lowbss` this whole plan is about is untouched — and `kern_small`
-UNCROSSED A COLD RUNG on the way, which was standing at 3 bytes of headroom.
+**-303 and -135 of code**, `.lowbss` unmoved on both — the -1,216 of
+`.lowbss` this whole plan is about is untouched — and **BOTH KERNELS UNCROSSED
+A 512-BYTE COLD RUNG**, kern_small's having been standing at 3 bytes of
+headroom. `ICO_KB` falls 5 -> 4 with the row, so the purgeable claim returns a
+further **1,024 bytes** of the arena this plan exists for.
 
 ### 14.1 The duplicates, in the order they were found
 
@@ -540,6 +542,54 @@ One cut is not in the icon store at all and is here because the same sweep
 found it: `ld_pkg_byname` (§21.5.3) had written out `assoc_stem_of`'s
 pad-and-stop walk a second time.
 
+And two more came out of a second look, after the first pass had refused both:
+
+10. **`asc_seed` and `asc_absorb` walked the same table twice**, back to back
+    out of `asc_use`, at the same stride from the same base, each with its own
+    frame and row pointer. One walk now; `asc_row_take` is the absorb's body.
+    What makes it safe is not the ordering (neither half reads what the other
+    writes) but `ico_need` staying IN FRONT of the walk: `mem_claim` compacts
+    on its refusal path and the loop holds a row offset against the segment a
+    compaction moves. The merge was BUILT WITHOUT THAT and it is the one thing
+    in this pass that would have shipped a live defect - the guard came back
+    on re-reading 11.1 point 2 of this file, at a cost of 15 of the 32 bytes
+    the merge saved.
+11. **The store's key IS `ASSOC.DAT`'s own stem** on kern_big - see 14.2's
+    first row, which is a refusal reversed.
+
+### 14.1.1 The refusal that was reversed: the key IS the stem
+
+The first pass refused re-cutting the store's key to `(8-byte space-padded
+stem, size)` on the grounds that `assoc_stem_of` is inside `%ifdef
+OS88_ASSOC`, so `kern_small` would have to grow its own stem walk. **That was
+a cost priced at zero rather than measured.** Measured, by assembling both
+bodies:
+
+| | today | stem key |
+|---|---:|---:|
+| `ico_key_of`, `kern_small` (its own walk) | 22 | **45** |
+| `ico_key_of`, `kern_big` (`assoc_stem_of`) | 22 | 29 |
+| `ico_key_stem` | 56 | **20** |
+| `ico_key_doc` | 43 | 35 |
+| `kern_big` total | 121 | **84** |
+
+So it is **-37 on `kern_big` and +23 on `kern_small`** — and the key shape is
+INTERNAL TO ONE BUILD. Nothing on disk names it, no ABI names it, and
+`kern_small` has no `ico_key_stem` to agree with in the first place. So it is
+taken on `kern_big` and not on `kern_small`, which is CLAUDE.md's own
+`gfx_points` rule one feature along: *the answer may differ per build*.
+
+**It loses no identity at all**, which is the part worth keeping: a key is
+built for a type-1 entry and for nothing else, and every package is a `.O88`
+(SPEC.md 20.1) — so `<stem>` and `<stem>.O88` name the same set and the four
+extension bytes were carrying no information. What it buys beyond the bytes is
+that the two builders now AGREE BY CONSTRUCTION: both copy the same eight
+bytes, where one used to rebuild what the other would have composed.
+
+And `ICO_ROW` 86 -> 82 takes `ICO_KB` from 5 to 4 — **1,024 bytes off a
+purgeable claim that stands in front of a DOS program**, which is a bigger
+number than the code.
+
 ### 14.2 What was costed and REFUSED
 
 - **The glyph column replaced by a per-slot "this glyph is SHIPPED" bit.**
@@ -554,20 +604,21 @@ pad-and-stop walk a second time.
   bytes** (`ico_scan` -9, `ico_add` -3, the builders +3) plus 12 bytes a row
   of a claim that is purgeable anyway — against a new failure mode, a
   collision drawing the wrong icon. Refused on the ratio, not on the risk.
-- **The key re-cut to `(8-byte space-padded stem, size)`**, which would make
-  `ico_key_stem` a plain copy: **-39 on `kern_big`**, 0 on `kern_small` and a
-  test literal to move. `assoc_stem_of` is inside `%ifdef OS88_ASSOC`, so
-  `kern_small` — where the rung is tight — would have to grow its own stem
-  walk to get it. Left.
 - **`ASSOC.DAT` carrying the 12-byte 8.3 name instead of the 8-byte stem**,
-  which deletes `ico_key_stem`'s composition outright (~-45). It is a file
-  format break reaching `tools/os88disk.py`, the version byte and two gates,
-  for bytes a shorter route did not have to spend.
-- **`asc_seed` and `asc_absorb` merged into one walk of the rows** — they are
-  called back to back over the same table and the frame is ~32 bytes. Priced
-  at **-14** once `asc_row_take` grows its own frame and `asc_seed` takes the
-  `ico_need` guard, against an ordering restructure: `asc_seed` skips a row
-  with no association slot and the absorb must not. Not worth it.
+  which deletes `ico_key_stem`'s composition outright (~-45 plus ~-16 from
+  retiring `[asc_rowsz]`'s two widths with it). **The tree has already taken
+  this decision and it went the other way** — `ASC_ROW1`'s own comment says
+  version 1 is *"READ, because an installed volume's cache was written once at
+  install and a refusal would send that machine back to the pre-54.7 harvest
+  in silence; never written"*. The name cannot share a width with the stem (it
+  needs the size and cluster words moved), so a v3 row means the kernel either
+  understands both shapes — which costs more than it saves — or refuses every
+  `ASSOC.DAT` already in the field. The version byte makes that refusal SAFE
+  (it is the existing *"a cache this build does not understand"* path, so no
+  corruption and no wrong picture) but not FREE: an upgraded machine loses its
+  declarations until each program's folder has been browsed, which is the
+  sentence above, verbatim, about the version that was kept for exactly this
+  reason.
 - **The mount path behind `mod.inc`.** It is the largest lever there is and it
   is illegal: `mod_need` goes to `[dsk_bootvol]` and only there, so a data
   floppy mounted on a one-drive machine would want the system disk back to
@@ -594,10 +645,14 @@ but the `ico_` prefix. What the feature itself costs, and what it costs now:
 
 | module | before | after |
 |---|---:|---:|
-| `kernel/disk.inc`, the store | 573 `.cold` + 14 `.text` | **469 + 14** |
-| `kernel/assoc.inc`, the glyph column and the absorb | 338 `.cold` | **299** |
+| `kernel/disk.inc`, the store | 573 `.cold` + 14 `.text` + 14 `.bss` | **431 + 14 + 10** |
+| `kernel/assoc.inc`, the glyph column and the absorb | 338 `.cold` | **263** |
 | `kernel/memory.inc`, `mem_pg_own`'s row | 6 `.text` | **6** |
 | `kernel/files.inc`, `fmv_get_icon` | 18 `.cold` | **-1** |
+
+...against **806** of feature, which is 1,048 less §21.5.3's 159 and
+§18.95.8's 89. **-303 of 806 on `kern_big`, 38%**, of which 22 is
+`ld_pkg_byname`'s and so not the store's either.
 
 The `memory.inc` row is `dw MEM_P_ICO, ico_seg, MEM_P_ICO_N` and is what makes
 the store purgeable at all — three words, nothing to cut.

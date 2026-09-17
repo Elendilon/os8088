@@ -3161,7 +3161,7 @@ disk_mount_x:
                                 ; goes 7effbfdfb1ff7e00 -> 7e818181b17e3c00,
                                 ; after which every .EXE on the machine draws
                                 ; its document icon with the wrong glyph in
-                                ; it. asc_absorb fills this column out of a v2
+                                ; it. asc_row_take fills this column out of a v2
                                 ; cache row, and the harvest has to fill it
                                 ; out of the header, or a package the cache
                                 ; does not name can never keep one
@@ -7017,9 +7017,46 @@ dsk_put_dir:
 ; with all six mounted, plus at most ASSOC_NAPP composed bodies. The file's own
 ; cap (ASC_NAPP) stays 32 because that is a VOLUME's question and the busiest
 ; holds 15.
-ICO_R_NAME  equ 0               ; the 8.3 name as SPEC.md 19.1 staged it
-ICO_R_SIZE  equ 12              ; ...and the low word of the size it reports
-ICO_KEY     equ 14              ; what ico_find compares: name and size
+ICO_R_NAME  equ 0               ; WHAT NAMES THE PACKAGE...
+%ifdef OS88_ASSOC
+ICO_R_SIZE  equ 8               ; ...the 8-BYTE SPACE-PADDED STEM on this
+ICO_KEY     equ 10              ; kernel, which is SPEC.md 54.2's own shape -
+                                ; the shape `ASSOC.DAT` stores and
+                                ; `assoc_stem_of` answers - and the low word
+                                ; of the size beside it.
+                                ;
+                                ; **IT LOSES NO IDENTITY.** A key is built for
+                                ; a TYPE-1 entry and for nothing else
+                                ; (`ico_ref_try` asks the type first), and
+                                ; every package is a `.O88` (SPEC.md 20.1) -
+                                ; so `<stem>` and `<stem>.O88` name exactly
+                                ; the same set and the four extension bytes
+                                ; carry no information at all.
+                                ;
+                                ; What it buys is that the two builders AGREE
+                                ; BY CONSTRUCTION rather than by composition:
+                                ; `ico_key_stem` copies the cache row's eight
+                                ; bytes verbatim where it used to rebuild
+                                ; `<STEM>.O88` and NUL-pad it, and
+                                ; `ico_key_of` takes `assoc_stem_of`'s answer,
+                                ; which is the same eight bytes from the other
+                                ; end. 121 bytes of key builder against 84,
+                                ; and ICO_ROW 86 -> 82 takes ICO_KB from 5 to
+                                ; 4 - a KILOBYTE off a claim that stands
+                                ; in front of a DOS program
+%else                           ; ...and the 12-byte 8.3 NAME as SPEC.md 19.1
+ICO_R_SIZE  equ 12              ; staged it on kern_small, which has no
+ICO_KEY     equ 14              ; `ASSOC.DAT` (SPEC.md 54.0) and so ONE key
+                                ; builder, nothing to agree with, and no
+                                ; `assoc_stem_of` to call: measured, the stem
+                                ; walk it would have to grow for itself is
+                                ; **45 bytes against 22**, so the same change
+                                ; that is worth 37 on the machine with memory
+                                ; costs 23 on the machine with 128KB. That is
+                                ; CLAUDE.md's own rule about `gfx_points`,
+                                ; one feature along: the answer may differ per
+                                ; build, and here it does
+%endif
 ICO_R_BODY  equ ICO_KEY         ; ...and THE BODY STRAIGHT BEHIND IT. It was
                                 ; 16, two pad bytes past a 14-byte key, and
                                 ; the only alignment that binds here is
@@ -7109,7 +7146,7 @@ ico_need:
 ;
 ; **THE KEY IS ALWAYS ico_keyb, so it is not an argument.** It was SI, with a
 ; nine-byte `ico_have` in front of it whose whole body was `mov si, ico_keyb`,
-; and `ico_put` and `asc_absorb` each writing that same load before their own
+; and `ico_put` and the absorb each writing that same load before their own
 ; `ico_add`. Three loads of one constant for a routine no caller can pass
 ; anything else to - the key builders write THERE and nowhere else.
 ;
@@ -7353,6 +7390,24 @@ section .cold
 ico_key_of:
     push ax
     push cx
+%ifdef OS88_ASSOC
+    push si
+    push di
+    mov ax, [si+20]             ; the size FIRST, while SI is still the entry
+    mov [ico_keyb+ICO_R_SIZE], ax
+    call assoc_stem_of          ; ...and SPEC.md 54.2's stem of its name, which
+                                ; is `assoc_stemb` and leaves SI alone. THE
+                                ; SAME EIGHT BYTES `ico_key_stem` reads out of
+                                ; a cache row, which is the whole of why an
+                                ; absorbed body and a harvested one land on
+                                ; one row
+    mov si, di
+    mov di, ico_keyb
+    mov cx, 8
+    call dsk_ncopy              ; DS:SI -> DS:DI, SPEC.md 4's counted copy
+    pop di
+    pop si
+%else
     push di
     mov di, ico_keyb
     mov cx, 12                  ; the 8.3 name as 19.1 staged it, NUL-padded
@@ -7372,6 +7427,7 @@ ico_key_of:
     mov ax, [si+20]
     mov [ico_keyb+ICO_R_SIZE], ax
     pop di
+%endif
     pop cx
     pop ax
     ret
@@ -7425,18 +7481,23 @@ ico_key_doc:
     mov di, ico_keyb+2
     mov cx, 8
     call dsk_ncopy
+%if ICO_KEY > 10
     xor ax, ax                  ; ...and the tail, to the end of the key: a
     mov [ico_keyb+10], ax       ; composed body reports no size, and two word
     mov [ico_keyb+12], ax       ; stores are shorter than the loop that was
-    pop di                      ; here - which needed no string op either, for
-    pop si                      ; the ES = SS reason above
+%endif                          ; here - which needed no string op either, for
+                                ; the ES = SS reason above. AND THERE IS NO
+                                ; TAIL on a 10-byte key: 0xFF, the slot and
+                                ; eight glyph bytes ARE the whole of it
+    pop di
+    pop si
     pop cx
     pop bx
     pop ax
     ret
 %endif                          ; OS88_ASSOC
 
-%ifdef OS88_ASSOC               ; its only caller is asc_absorb, and kern_small
+%ifdef OS88_ASSOC               ; its only caller is asc_row_take, and kern_small
                                 ; has no ASSOC.DAT to absorb (SPEC.md 54.0)
 ; -----------------------------------------------------------------------------
 ; ico_key_stem - the key an ASSOC.DAT row's body is stored under (SPEC.md 25.9.4)
@@ -7454,42 +7515,25 @@ ico_key_doc:
 ; which is the duplication this whole design is against.
 ; -----------------------------------------------------------------------------
 ico_key_stem:
-    push ax
     push cx
     push si
     push di
     mov di, ico_keyb
     mov cx, 8
-.stem:
-    mov al, [es:si]             ; THROUGH ES ONE WAY AND DS THE OTHER, so a
-    cmp al, ' '                 ; string move is wrong whichever segment it
-    je .ext                     ; took: the row is in the cache's claim and
-    mov [di], al                ; ico_keyb is `.bss`. The stem is SPACE-padded
-    inc si                      ; (54.2), so the first space ends it and an
-    inc di                      ; 8-character one ends on the counter
-    dec cx
-    jnz .stem
-.ext:
-    mov word [di], '.O'
-    mov word [di+2], '88'
-    add di, 4
-    mov cx, ico_keyb + ICO_KEY
-    sub cx, di                  ; ...and NUL to the END OF THE KEY. A short
-.pad:                           ; stem leaves bytes ico_key_of would have
-    mov byte [di], 0            ; zeroed, and two keys for one package
-    inc di                      ; differing in the tail is a miss that looks
-    dec cx                      ; like a cache that does not work. Padding to
-    jnz .pad                    ; ICO_KEY rather than to ICO_R_SIZE is what
-                                ; retires the `jcxz` that guarded this loop:
-                                ; the stem is at most 8 and `.O88` is 4, so
-                                ; the count here never falls below 2, where a
-                                ; pad stopping at the size word reached
-                                ; exactly 0 on an 8-character stem
+    call assoc_stage            ; ES:SI -> DS:DI, SPEC.md 20.2's staging idiom.
+                                ; VERBATIM, where this used to walk the stem to
+                                ; its first space, write `.O88` after it and
+                                ; NUL-pad the rest to the size word - a
+                                ; reconstruction of what `ico_key_of` would
+                                ; build, which had to be got exactly right or
+                                ; the two keys for one package differed in
+                                ; their tail and the cache silently did not
+                                ; work. Both sides copy the same eight bytes
+                                ; now, so there is nothing left to get wrong
     mov [ico_keyb+ICO_R_SIZE], dx
     pop di
     pop si
     pop cx
-    pop ax
     ret
 %endif                          ; OS88_ASSOC
 
