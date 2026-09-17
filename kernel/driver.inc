@@ -156,7 +156,24 @@ DRVC_POINT  equ 6               ; a POINTING DEVICE the kernel does not
                                 ; whether the caller is a PUBLISHED driver.
                                 ; APPENDED, never slotted into the retired 3:
                                 ; a class number is ABI (DRVC_RETIRED3 above)
+%ifdef OS88_DRIVERS
 DRVC_MAX    equ 6               ; classes, and so publication slots
+%else
+DRVC_MAX    equ 5               ; ...and FIVE where there is no driver layer at
+                                ; all (SPEC.md 51.0), because the only thing
+                                ; this constant sizes there is the `drv_owner`
+                                ; table of permanent zeros below, and a sixth
+                                ; class that can never be published is a word
+                                ; of a kernel with three bytes left in its
+                                ; image rung. It is safe to diverge because
+                                ; DRVC_MAX is NOT published: `apps/os88api.inc`
+                                ; mirrors the class NUMBERS a package passes to
+                                ; OSAPI_DRV_CALL and not the ceiling, so what a
+                                ; kern_small package asking for DRVC_POINT gets
+                                ; is `cmp al, DRVC_MAX`'s refusal, which is the
+                                ; true answer on a machine that can load no
+                                ; driver (SPEC.md 9.12.5)
+%endif
 
 DRVC_OVL    equ 0x40            ; NOT A CLASS, and mirrored from
                                 ; drivers/os88drv.inc: a driver-shaped image
