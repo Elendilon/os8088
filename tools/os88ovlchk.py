@@ -45,7 +45,7 @@ CELL = re.compile(r'^\s*OSAPI_(?:SLOT|JSLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
 # targets were not merely untested above - they were not in the label map at
 # all, which is how adding JSLOT alone would have bought nothing.
 CELLDEF = re.compile(r'^\s*OSAPI_(?:NSTUB|XSTUB)\s+([A-Za-z_]\w*)\s*,')
-MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd')  # module images (2.8).
+MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk')  # module images (2.8).
 # `.modp` is Cut/Copy/Paste and kern_small's ALONE (SPEC.md 22.3,
 # docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2): filecp.inc emits its bodies there on
 # that build and into `.cold` on kern_big, which is the first conditional
@@ -131,7 +131,12 @@ ENDMACRO_B = re.compile(r'^\s*%endmacro\b')
 LABEL = re.compile(r'^([A-Za-z_]\w*):')
 LABEL_DOT = re.compile(r'^[A-Za-z_.]\w*:')
 DRVBOOT = re.compile(r'^\s*OVL(?:GATE1?|CALL)\s+drv_boot_x\b')
-OVWCALL = re.compile(r'\bOVWCALL\s+(\w+)')
+OVWCALL = re.compile(r'\b(?:OVWCALL|OVBCALL)\s+(\w+)')
+# ...and OVBCALL with it (SPEC.md 2.5.3.2): on kern_big it IS an OVWCALL,
+# so rule 2e's question - is this body still there when the call is made -
+# is exactly as live for it as for the plain form. On kern_small the body
+# is in the blob and outlives the mount, so the rule is merely stricter
+# there than it needs to be, which is the safe direction.
 CSMEM = re.compile(r'\[[^]]*\bcs\s*:')
 RESERVE = re.compile(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b')
 WORD = re.compile(r'\b\w+\b')
@@ -540,9 +545,19 @@ def main():
     # survived the sweep that converted the other twenty-three sites because
     # the macro shared its line with a label - so it is checked rather than
     # reviewed.
+    # OVBCALL is the BUILD-CONDITIONAL entry (SPEC.md 2.5.3.2): it expands to
+    # OVLGATE1 on kern_small and to OVWCALL on kern_big, because the body it
+    # names is in `.ovl` on the first and `.ovlw` on the second. It is held to
+    # `.ovl` here for the same reason the conditional `section` blocks write
+    # their `.ovl` arm LAST - this scanner has ONE model and that model is
+    # kern_small, which is the build the split exists to protect. What the row
+    # buys is both directions: an OVBCALL aimed at a body that did NOT move
+    # fails (it would be a blob segment carrying a window offset on the small
+    # build), and an OVWCALL aimed at one that DID fails the other way.
     MACHALF = {'SPLCALL': '.ovl', 'OVLCALL': '.ovl', 'OVLCALLC': '.ovl',
                'OVLGATE': '.ovl', 'OVLGATE1': '.ovl', 'SPLSTUB': '.ovl',
-               'SPLGATE': '.ovl', 'SPLGATE1': '.ovl', 'OVWCALL': '.ovlw'}
+               'SPLGATE': '.ovl', 'SPLGATE1': '.ovl', 'OVWCALL': '.ovlw',
+               'OVBCALL': '.ovl'}
     MACPAT = re.compile(r'\b(' + '|'.join(MACHALF) + r')\s+(\w+)')
     REACH = {'.ovl': 'the blob, through [spl_fseg]',
              '.ovlw': 'the FAT window, by `call FAT_SEG:`'}

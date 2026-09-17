@@ -3787,16 +3787,15 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 ; out: AX = KB claimed by that owner (0 if none)
 ; clobbers: nothing else (flags)
 ;
-; TWO DOORS, ONE ROOM (docs/plans/MODULE-SELFCONTAIN-PLAN.md's shape): the far
-; entry is instance.inc's, which reaches it as COLD_SEG:mem_owned_kb_x, and the
-; near one is for callers already in COLD_SEG - osapi_drv_classk_x, which asks
-; it what a DRIVER's segment is holding (SPEC.md 51.12.2). Four bytes, against
-; a second copy of the scan.
+; ONE DOOR, AND NEAR. Both callers are in `.cold` already - instance.inc's
+; snapshot (SPEC.md 29.9) and osapi_drv_classk_x (51.12.2) - so neither has
+; ever needed a far entry. It had one, plus a four-byte trampoline in front of
+; the body to feed it, because the snapshot's `call COLD_SEG:mem_owned_kb_x`
+; was written while THAT body was still `.text` and was carried across
+; unexamined when it moved: instance.inc's own section comment says "its one
+; outbound is already `call COLD_SEG:` and stays exactly as it is". Six
+; resident bytes for a segment crossing to the segment it was already in.
 ; -----------------------------------------------------------------------------
-mem_owned_kb_x:
-    call mem_owned_kb
-    retf
-
 mem_owned_kb:
     push cx
     push si

@@ -1763,16 +1763,24 @@ SS_TMAX    equ 16               ; the LAYOUT's ceiling on MAX_TASKS, so the
                                 ; written past its own buffer by exactly that
 SS_TCYC    equ SS_TSTATE + SS_TMAX         ; SS_TMAX dwords: MAX_TASKS dwords: cycles per task
 SS_INST    equ SS_TCYC + SS_TMAX * 4       ; ...then the instance records
+; A SNAPSHOT RECORD IS THE KERNEL'S OWN INSTANCE RECORD, copied verbatim
+; (SPEC.md 29.1.2) - which is why the fields sit where they do and why the
+; stride is 32. Read them by NAME: the kernel owns these numbers and a
+; renumber changes this file and kernel/instance.inc together, the standing
+; arrangement MAX_TASKS, INST_MAX and MEM_MAX are already under.
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
-SSI_TASK   equ 1                ; byte: its task slot, 0xFF = task-less
+SSI_FLAGS  equ 1                ; byte: bit 0 = minimized (was a pad)
 SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
-SSI_RSVD   equ 3                ; byte: pad
-SSI_SIZE   equ 4                ; word: its region in BYTES, 0 for a built-in
+SSI_TASK   equ 3                ; byte: its task slot, 0xFF = task-less
+SSI_WIN    equ 4                ; word: OPAQUE - the kernel's own window record.
+                                ; Non-zero means "has a window"; it is not an
+                                ; address you may do anything else with
 SSI_SEG    equ 6                ; word: the region's base segment
-SSI_CYC    equ 8                ; dword: cycles billed to its callbacks
-SSI_KB     equ 12               ; word: KB it holds off the claim heap
-SSI_NAME   equ 14               ; 16 bytes: its name, NUL-terminated
-SSI_RECSZ  equ 30
+SSI_SIZE   equ 8                ; word: its region in BYTES, 0 for a built-in
+SSI_KB     equ 10               ; word: KB it holds off the claim heap
+SSI_NAME   equ 12               ; 16 bytes: its name, NUL-terminated
+SSI_CYC    equ 28               ; dword: cycles billed to its callbacks
+SSI_RECSZ  equ 32
 SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
 
 ; --- OSAPI_CLAIM_SNAPSHOT's buffer -----------------------------------------------
@@ -2204,12 +2212,10 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
 ;
 %define OSAPI_DRV_CLASSK    KERNEL_SEG:0x0580   ; **WHAT ONE CLASS IS
                                  ; HOLDING** (SPEC.md 51.12). in AL = a DRVC_*
-                                 ; class, + DRVCK_ALL for the CEILING form;
-                                 ; out CF=0 with AX = the KB the LOADED
-                                 ; drivers of that class hold and CX = how
-                                 ; many answered, or CF=1 with AX=0 and CX=0 -
-                                 ; nothing of that class is loaded. Every
-                                 ; other register is preserved.
+                                 ; class; out CF=0 with AX = the KB the LOADED
+                                 ; drivers of that class hold, or CF=1 with
+                                 ; AX=0 - nothing of that class is loaded.
+                                 ; Every other register is preserved.
                                  ;
                                  ; The pair a checkbox wants, out of one walk:
                                  ; CF is the greying predicate and AX is the
@@ -2220,31 +2226,23 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; (32K)" - and the two are keyed the same
                                  ; way, by class, on purpose.
                                  ;
-                                 ; BIT 15 OF AX IS A FLAG, NOT A DIGIT: it is
-                                 ; set when one of the rows also holds a store
-                                 ; the USER sized on its own page (the RAM
-                                 ; disk's arena), which is not this kernel's
-                                 ; number to quote. Mask it off before you
-                                 ; print, and draw a '+' if you want to say so.
+                                 ; **IT WEIGHS THE HEAP** (SPEC.md 51.12.2):
+                                 ; per loaded row, the KB of the image plus
+                                 ; everything claimed with that image's
+                                 ; segment as its owner. So it is what an
+                                 ; unmount would hand back NOW - not what the
+                                 ; Drivers page prices, which is a ceiling and
+                                 ; read 20KB high on a silent Sound Blaster.
+                                 ; Plain kilobytes: there is no flag bit in it
+                                 ; and nothing to mask off.
                                  ;
-                                 ; The figures are BUILD-TIME constants - the
-                                 ; ones the Control Panel's Drivers page draws
-                                 ; - so the call costs no probe and no I/O,
-                                 ; and it is a fair estimate rather than a
-                                 ; measurement: what each driver holds while
-                                 ; doing its primary job, at the top rung of
-                                 ; any claim it sizes to the machine
-                                 ;
-                                 ; **ASK WITH DRVCK_ALL FOR A CAPTION AND
-                                 ; WITHOUT IT FOR A CONTROL** (SPEC.md
-                                 ; 51.12.1). With the bit set every row of the
-                                 ; class counts whether or not its driver is
-                                 ; mounted, and CF=0 whenever the table has
-                                 ; such a row - so "Network (Up to 39K)" says
-                                 ; the same thing on every machine. Without
-                                 ; it you get this machine now, which is the
-                                 ; only honest number to put beside a box
-                                 ; that offers to unmount something
+                                 ; **FOR A CAPTION, DO NOT CALL THIS AT ALL**
+                                 ; (SPEC.md 51.12.1). "Hard drives (Up to
+                                 ; 32K)" is about the CLASS and not about this
+                                 ; machine, so it is a constant - DRVM_CEIL_*
+                                 ; below - and asking the slot gives you
+                                 ; `(Up to  0K)` on the machine the page is
+                                 ; most often opened on
 ;
 %define OSAPI_DRV_CALL      KERNEL_SEG:0x0448   ; in BH = a DRVC_* class,
                                  ; BL = a verb THAT DRIVER defines; AX, CX, DX,
@@ -2322,10 +2320,21 @@ PKGV_IDENT   equ 0              ; **VERB 0 OF EVERY PACKAGE DOOR IS IDENTIFY**
 ; drivers/os88drv.inc has no copy, it includes this file. A class is also a
 ; PUBLICATION SLOT: one driver of each may be attached at a time - which is
 ; why PKGV_IDENT above exists: a class does not name a driver.
-DRVCK_ALL    equ 0x80          ; ...OR'd into OSAPI_DRV_CLASSK's class byte
-                                ; for the ceiling form above (SPEC.md
-                                ; 51.12.1). Bit 7, because every class below
-                                ; is 1..5
+
+; ...AND WHAT A CLASS COULD COST, which is a CONSTANT (SPEC.md 51.12.1). This
+; is the `Up to NNK` a caption quotes: the sum of kernel/driver.inc's drv_memk
+; over the rows of that class, every term of it fixed at assembly time. It was
+; a runtime form of OSAPI_DRV_CLASSK (`DRVCK_ALL`, bit 7 of the class byte),
+; which walked a table of constants to add up constants - thirty-five resident
+; bytes to tell a caller something nasm knew.
+;
+; MIRRORED from kernel/driver.inc, where a `%if` checks each against drv_memk
+; and tests/unit/t_drvmem.py re-derives the sum from drv_tab's own class bytes;
+; tests/unit/t_mirror.py holds this copy level with that one. A package copies
+; the ANSWER here and derives nothing, which is what makes it different from
+; the per-driver copy 51.12.1 refuses.
+DRVM_CEIL_DISK equ 32          ; DRVC_DISK's ceiling, in KB
+DRVM_CEIL_NET  equ 33          ; ...and DRVC_NET's
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; Publishes no package entry point and is not
@@ -2342,6 +2351,10 @@ DRVC_NET     equ 4              ; **THE ETHERNET CARD** (SPEC.md 72), and
 DRVC_FILE    equ 5              ; a volume served by somebody answering
                                 ; questions about FILES rather than sectors
                                 ; (SPEC.md 62.9)
+DRVC_POINT   equ 6              ; a pointing device the kernel does not
+                                ; drive itself - the CH375 USB mouse (SPEC.md
+                                ; 9.12). Publishes no package entry point; its
+                                ; one kernel call is OSAPI_MOUSE_FEED
 %define OSAPI_FILE_HERE     KERNEL_SEG:0x0228   ; out DX = YOUR instance's
                                  ; current directory (0 = the root), BL = its
                                  ; drive. No disk I/O.
@@ -3769,6 +3782,32 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; refusal costs you the picture
                                                 ; and nothing more, so there is
                                                 ; nothing for you to act on
+%define OSAPI_MOUSE_FEED    KERNEL_SEG:0x0598   ; AX = dx, BX = dy (signed;
+                                                ; POSITIVE dy IS DOWN), CL =
+                                                ; buttons in mouse_btn's bits
+                                                ; (1 left, 2 right). ONE
+                                                ; RELATIVE REPORT from a
+                                                ; pointing device the kernel
+                                                ; does not drive itself
+                                                ; (SPEC.md 9.12). DRIVERS
+                                                ; ONLY, and only the one
+                                                ; published in DRVC_POINT:
+                                                ; out CF=1 refused for anybody
+                                                ; else, and always on
+                                                ; kern_small. The first report
+                                                ; accepted settles the mouse
+                                                ; contest on the caller, and
+                                                ; the serial and PS/2 ports
+                                                ; are retired on the UI task's
+                                                ; next pass. Callable from a
+                                                ; worker. CLOBBERS AX, BX, CX,
+                                                ; DX, SI and DI - mou_apply
+                                                ; spends all six and banking
+                                                ; them was twelve resident
+                                                ; bytes for a caller that
+                                                ; wanted none of it (SPEC.md
+                                                ; 9.12.5). BP, DS and ES come
+                                                ; back yours
 %define OSAPI_WM_DAMAGE     KERNEL_SEG:0x03B0   ; BX = your window ptr, called
                                                 ; from inside your own W_PAINT.
                                                 ; CF=1 = draw the WHOLE content

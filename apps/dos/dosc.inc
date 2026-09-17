@@ -539,6 +539,47 @@ dosc_ceq:
     ret
 
 ; -----------------------------------------------------------------------------
+; dos_pgname - [dos_tname] -> the 13-byte launch cell at DI, UPPER CASE
+; in:  DI -> a 13-byte cell.  out: nothing; clobbers AX, CX, SI, DI, flags
+;
+; **THE CASE IS OURS AND IT USED TO BE THE KERNEL'S** (SPEC.md 21.5.3.2).
+; OSAPI_PKG_START's document arm compares BOTH names - the program's and the
+; document's - against the association tables, which are uppercase-exact
+; because they are built from FAT names, and a name that arrives from a
+; KEYBOARD is not: `open readme.txt` found no association for `.txt` while
+; `OPEN README.TXT` opened Note Pad. The kernel folded it there for one cycle,
+; in 44 resident bytes of every machine ever booted - .cold is resident, so
+; they came off the heap and off this box's own arena - on behalf of one
+; caller, and the caller is this one.
+;
+; It comes free HERE because the walk already existed: this copy was written
+; out THREE times in this file, once for the program name and twice for a
+; document, and the fold is one `call dos_upc` inside the one that is left.
+;
+; ALWAYS TERMINATED INSIDE 13 (SPEC.md 4): dos_path_take_si refuses anything
+; over twelve characters, so the forced NUL is belt and braces - and the
+; bound is load-bearing at dos_pgdoc, whose bytes at +13 are the locator's
+; directory cluster WORD and volume BYTE (SPEC.md 21.5.3). They are BINARY,
+; the caller writes them immediately after this returns, and a fold that
+; reached them would turn a cluster of 0x6C6C into 0x4C4C.
+; -----------------------------------------------------------------------------
+dos_pgname:
+    mov si, dos_tname
+    mov cx, 13
+.c:
+    mov al, [si]
+    call dos_upc                    ; a NUL folds to itself, so the stop below
+    mov [di], al                    ; needs no test of its own in front
+    inc si
+    inc di
+    or al, al
+    jz .done
+    loop .c
+    mov byte [di-1], 0
+.done:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_con_open - `OPEN <document>`: the double-click, typed (SPEC.md 96.33.22)
 ; in:  the line is in dsh_line; UI task under W_ONKEY, gfx lock HELD
 ; out: nothing; clobbers everything but the segments
@@ -557,19 +598,8 @@ dos_con_open:
     je .bad
     call dos_path_take_si
     jc .bad
-    mov si, dos_tname
     mov di, dos_pgdoc
-    mov cx, 13
-.cp:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jz .named
-    loop .cp
-    mov byte [di-1], 0
-.named:
+    call dos_pgname
     mov ax, [dos_pgdir]
     mov [dos_pgdoc+13], ax
     mov al, [dos_pgvol]
@@ -674,19 +704,8 @@ dos_con_pkg:
     mov [dos_pgpvol], al            ; getting this backwards is silent - the
                                     ; launch stands in the DOCUMENT's folder
                                     ; and refuses there (SPEC.md 96.33.21.1)
-    mov si, dos_tname
     mov di, dos_pkgn
-    mov cx, 13
-.cp:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jz .named
-    loop .cp
-    mov byte [di-1], 0
-.named:
+    call dos_pgname
     ; --- ...AND A DOCUMENT AFTER IT (SPEC.md 96.33.21.1) -------------------
     ; SI at entry was dos_con_ext's second output, the argument tail. The copy
     ; above spent it, so it comes back off the stack for one more pass of the
@@ -706,19 +725,8 @@ dos_con_pkg:
                                     ; which is what it did before this existed
     push si
     push di
-    mov si, dos_tname
     mov di, dos_pgdoc
-    mov cx, 13
-.dcp:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jz .dnamed
-    loop .dcp
-    mov byte [di-1], 0
-.dnamed:
+    call dos_pgname
     mov ax, [dos_pgdir]             ; the locator OSAPI_ARG_FILE answers with,
     mov [dos_pgdoc+13], ax          ; in the order it answers it (SPEC.md
     mov al, [dos_pgvol]             ; 21.5.3)

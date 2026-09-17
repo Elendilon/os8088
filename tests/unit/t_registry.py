@@ -413,6 +413,55 @@ def main():
                   got="builds=True", want="a `make` in %s"
                        % (", ".join(scripts) or "its command"))
 
+    # ...AND NOT ONE OF THEM MAY NAME AN ABSOLUTE CHECKOUT PATH.
+    #
+    # A script that hard-codes the tree it was written in does not fail in a
+    # git worktree - it SILENTLY TESTS THE OTHER TREE. Measured: run from a
+    # worktree, `tests/dispapp.py` reported "no MartyPC run directory at
+    # /home/user/os8088/build/martypc/run", the MAIN checkout, and on a box
+    # where that tree HAS been built (the normal case) it would have booted
+    # that kernel and those floppies while reporting on the worktree.
+    # `tests/arkpuwipe.py` had already written the consequence down - os88sym
+    # re-assembles ROOT/kernel/kernel.asm and compares it against
+    # ROOT/build/kernel.bin, so a literal ROOT answers about a different
+    # kernel from the image being booted - and fixed itself alone, which is
+    # exactly how one file's note fails to reach the other thirty-seven.
+    #
+    # It went unnoticed because nothing here ran from a worktree until
+    # parallel agents did; the literal is correct in the checkout it was
+    # written in, and every one of these scripts passed there.
+    #
+    # The check is the PATH SHAPE and not one project's directory: any
+    # absolute path into a home or checkout root inside a string literal.
+    # A comment may name one - two files explain the trap in prose.
+    home = re.compile(r"""["'](/(?:home|Users)/[^"'\n]*)["']""")
+    _td = os.path.join(ROOT, "tests")
+    for name in sorted(os.listdir(_td)) + \
+            ["unit/" + n for n in sorted(os.listdir(os.path.join(_td, "unit")))]:
+        if not name.endswith(".py"):
+            continue
+        path = os.path.join(_td, name)
+        try:
+            src = open(path, encoding="utf-8").read()
+        except OSError:
+            continue
+        hits = []
+        for n, line in enumerate(src.split("\n"), 1):
+            if line.lstrip().startswith("#"):
+                continue                                  # prose may name one
+            m = home.search(line)
+            if m:
+                hits.append((n, m.group(1)))
+        for n, lit in hits:
+            check(False,
+                  "tests/%s:%d hard-codes an absolute checkout path" % (name, n),
+                  "a literal root is right in the checkout it was written in "
+                  "and WRONG in a git worktree, where it does not fail - it "
+                  "silently reads the OTHER tree's build/ and kernel. Derive "
+                  "it: `_OS88_ROOT = os.path.dirname(os.path.dirname("
+                  "os.path.abspath(__file__)))`, then os.path.join off that",
+                  got=lit, want="a path derived from __file__")
+
     print("t_registry: %d files in tests/, %d registered, %d exempted, "
           "%d build" % (found, len(reg), len(UNREGISTERED),
                         sum(1 for r in suite.rows() if r.builds)))
