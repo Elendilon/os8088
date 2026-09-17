@@ -48398,6 +48398,90 @@ live desktop, one or two of the thirty-two — and `tm_hsum` and `tm_hgrp` each
 walk the table once per group. At `OSAPI`'s 46.7us that is under 2 ms on a
 full heap page, against the ~450 ms the page's own list repaint costs.
 
+### 28.4.6 A driver's own claims are System's, beside the `DrvImg` already there
+
+**§51.3 already says this and the kernel already does it — the heap page's
+LIST is the half that was left behind.** That section's own words are *"its
+IMAGE is a kernel claim (`MEM_K_DRV`), so the Task Manager counts it under
+System, which is what it is — **and so are the bulk buffers it claims for
+itself**"*, and it names what went wrong before `mem_sum_kb` learned to ask
+`drv_owns_seg`: the buffers were *"in the `HEAP` and `RAM` totals, and in the
+memory map's bands, **and in no line of the list**"*. The totals were fixed.
+The list was not, and this is that sentence still being true on the one page
+whose whole job is the per-claim detail.
+
+Measured on `os8088_5150_sb_gla`, a bare desktop with the sound driver
+attached and nothing else running:
+
+| record | `CLS_SEG` | `CLS_PARA` | `CLS_OWN` | on the page |
+|---|---|---|---|---|
+| the FAT window | `1B40` | 2048 | `FE02` | System, `FATwin` |
+| `SOUND.DRV`'s image | `9E80` | 384 | `FF03` | System, `DrvImg` |
+| **its 8KB DMA ring** | `9C80` | **512** | **`9E80`** | **nothing** |
+
+**The cause is that a driver is neither of the two things this page groups
+by.** §50.3's `mem_own` stamps a claim with the CALLER'S SEGMENT, and for a
+driver that is the segment its image was loaded into — `9E80` above. So the
+owner word is a plain conventional segment: it is not `0xFB..0xFF`, so the
+System arm refuses it; it is not an instance slot and matches no `tm_ispt`,
+so every instance arm refuses it; and `tm_hmatch` had no third answer. §28.4.5
+is the same defect one owner-kind along and this is its other half — there a
+kernel tag landed in the wrong group, here a segment landed in none.
+
+**A claim in no group is worse than a claim in the wrong one, because the
+caption counts it anyway.** `tm_hsplit` walks the snapshot directly and adds
+every live record to `HELD` or `PURGE`, so the ring was in the total on line
+two and in no column under it. That is §28.4.1's fault with the sign
+reversed, on the same page, and it is why this is a defect rather than a gap:
+the two figures a reader closes the page's arithmetic with cannot be closed.
+§51.3's *"`System`'s `HEAP` column now equals the `HEAP` total whenever
+nothing else holds a claim"* was true of the memory view and false one page
+along.
+
+**`tm_hdrv` is `drv_owns_seg` read off the snapshot, and it is the same two
+hops.** The kernel's fence walks `drv_tab` and then, for a segment that is not
+in it, asks who owns the claim based there and walks `drv_tab` again — *"ONE
+level, like `mem_own_drv`'s"* (§52.11.6), for a driver's SECOND image
+(§52.11.7). The page cannot reach `drv_tab`, and does not need to: a driver's
+image is itself a record in the claim table tagged `MEM_K_DRV`, so *"is this
+segment a driver image"* is *"is there a `MEM_K_DRV` record based there"* —
+the same set, off the copy the page has already taken. The second hop is then
+literally the kernel's: the claim based at the owner word is owned by a
+`MEM_K_DRV` record.
+
+**So it costs no kernel byte and no API cell**, which is the property §28.4
+was built around — `kernel.bin` is **byte-identical** across this change, and
+the whole of it is +74 bytes of `TASKMGR.O88`, a package image present only
+while the window is open. `kern_small` pays nothing at all: the heap page is
+inside `%ifdef TMF_HEAP` and `APP_SMALL` does not define it.
+
+**The TYPE column says `DrvBuf`**, not `Data`. Both carry a plain segment as
+their owner and the `.data` arm would have taken the ring silently, which is
+§28.4.3's rule — *a debug page must not label a claim as the nearest thing it
+recognises* — failing in the one direction that leaves no number on screen to
+notice. `DrvBuf` is what `SOUND.DRV`'s ring and staging pool, `ETHER.DRV`'s
+socket pool, the RAM disk's store and the hard disk's listing buffer all are:
+memory a driver asked for, on the page whose job is saying who has it. It is
+**not** in `tm_ktab` and cannot be — a driver's image segment is a different
+number on every boot, so this row is decided by a walk and not by a constant,
+which is also why `tests/unit/t_ktags.py` neither covers it nor should.
+
+**The cost is bounded by where the call sits.** `tm_hdrv` is reached only from
+the System group's two walks (`tm_hsum` and `tm_hgrp`) and only for a record
+whose owner is not a kernel tag, and from `tm_htype` only for a row already
+known to carry a segment. On the desktop measured above that is one record of
+three; on a busy machine it is the package data claims, each costing at most
+two 32-record passes of a word compare — under a millisecond against the
+~450 ms this page's own list repaint costs.
+
+**`tests/heapdrv.py` is the gate, and it asserts the arithmetic rather than
+the row**: every live record is on a row, counted off `[tm_hrows]` with the
+group headings and `tm_mrow_nolast`'s pad rows taken out. A row that only
+looked for the word `DrvBuf` would pass on a page that still lost the 8KB
+somewhere else. Measured red with the two arms reverted at **3 claim rows for
+4 live records** — short by exactly the ring — while the probe it prints on a
+miss found `DrvImg` on screen and the ring's row absent.
+
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
 The memory page's XMS line and the heap page's TOTAL, SPLIT and FRAG summaries
@@ -73487,7 +73571,10 @@ does. Four things differ, and each is doing work:
   Sound Blaster that is 32KB of DMA buffer belonging to nobody. `mem_sum_kb`
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
-  claim.
+  claim. **That fixed the TOTALS and left "in no line of the list" true one
+  page along** — the heap page groups per claim through `tm_hmatch`, which
+  has its own copy of the same two tests and got neither, so `SOUND.DRV`'s
+  ring was on no row of it until §28.4.6.
 - **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
   image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
   load path with exactly one claim in it. It no longer does, and §51.1.2 is
