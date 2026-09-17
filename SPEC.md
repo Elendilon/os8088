@@ -35902,24 +35902,25 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy. **256 of those bytes move by `rep movsw`** — the
-twelve 16-byte names and the `MAX_TASKS` dword cycle counters, both of which
-are contiguous at both ends — and the rest is field-at-a-time, because the
-gather really is strided there (a task state is one byte every `T_SIZE`, and
-an instance record and its snapshot row have different layouts). That is
-roughly **2.2–2.6 ms with interrupts off on a 4.77 MHz 8088** — still the
-longest IF=0 window in the system, and safe by about 3×, not comfortably: the
-8250 holds exactly one mouse byte and the next arrives ~8.3 ms behind it at
-1200 baud, and the PIT (55 ms) is merely delayed. **A caller must treat it as
-a twice-a-second call, not a per-frame one** — at that cadence the window is
-noise, per frame it is a stall the mouse can feel.
+about 414 bytes of copy. **All but the task states move by `rep movsw`** — the
+`MAX_TASKS` dword cycle counters, and since §29.1.2 the **whole instance
+table**, which is one string move because a snapshot record IS an instance
+record. What is left field-at-a-time is the one gather that really is strided:
+a task state is one byte every `T_SIZE`. That is roughly **1.8–2.2 ms with
+interrupts off on a 4.77 MHz 8088** — still the longest IF=0 window in the
+system, and safe by about 3.5×, not comfortably: the 8250 holds exactly one
+mouse byte and the next arrives ~8.3 ms behind it at 1200 baud, and the PIT
+(55 ms) is merely delayed. **A caller must treat it as a twice-a-second call,
+not a per-frame one** — at that cadence the window is noise, per frame it is a
+stall the mouse can feel.
 
 Both figures are derived rather than measured, by the same method: 8088
 clocks with EA and prefetch costs. What the string ops took out is about
-6,500 clocks — the names are ~209 clocks a record against ~700, the counters
-~409 against ~864, the task states ~312 against ~384 — and the `cld` those
-copies need sits **after** the `pushf`, so the `popf` gives the caller its own
-DF back. A package that runs with `std` is not rare (§20).
+8,600 clocks — the instance records are ~26 clocks a WORD against a
+transcription costing ~590 a record, the counters ~409 against ~864, the task
+states ~312 against ~384 — and the `cld` those copies need sits **after** the
+`pushf`, so the `popf` gives the caller its own DF back. A package that runs
+with `std` is not rare (§20).
 
 **`SSI_SEG` is a SAMPLE, not a handle.** It is a package's region base copied
 into the caller's own buffer, so once §66.6's door opens no kernel fix-up can
@@ -36866,20 +36867,30 @@ dispatcher — and **not** `ld_check_hdr`, which is about the *file*: a part has
 no file size to be compared against, and the flags-bit arithmetic §20.12.3
 describes belongs to the container.
 
-What replaces it is **three** bounds, and the arm applies all of them to the
-same `image + bss`:
+What it runs instead is **`ld_hdr_size`**, and that is not a third copy of
+anything: it is the part of `ld_check_hdr` that was never about the file — the
+image, the bss and the entry, and every bound on them — factored out and called
+from both. Two of the three bounds below are its body and the third is this
+arm's own.
 
-1. the `add`'s **carry** — each operand is a 16-bit header field and the sum is
-   17 bits;
+1. the `add`'s **carry** on `image + bss` — each operand is a 16-bit header
+   field and the sum is 17 bits;
 2. **`APP_MAX_SIZE`**, the same 60KB ceiling every other package has. `ld_check_hdr`
-   applies it to a *file* and this path never goes near it, so without the test
-   a re-homed program would be bounded by a 16-bit word and nothing else — a
-   silent divergence between two ways of starting the same kind of program, and
-   the wrong direction to diverge in;
+   applies it to a *file* and this path never goes near it, so without a shared
+   body a re-homed program would be bounded by a 16-bit word and nothing else —
+   a silent divergence between two ways of starting the same kind of program,
+   and the wrong direction to diverge in;
 3. **`AX`, the bytes the loader says are available at `DX`** — the loader's word
    for what it actually put there, not the part's word for what it wants.
    §51.1.2's warning is why it is that way round: *the header is a FILE, and a
-   foreign tool may write any `LD_H_BSS` it likes*.
+   foreign tool may write any `LD_H_BSS` it likes*. This one is the arm's alone
+   and is applied to the `DX` `ld_hdr_size` answers with.
+
+**Sharing the body gave this arm a fourth check it did not have**: the entry
+offset is `>= LD_HDR_SIZE` and `< image`, which every package launched off a
+disk has always been held to and a re-homed one was not. It is the same
+divergence argument as bound 2, one field along — and it is a strictly tighter
+fence in front of `inst_entry_ok`'s, below.
 
 **And the same value is `I_SIZE`, which is not optional.** Step 9 publishes
 `[ld_need]`, and `ld_alloc` left the **loader's** region size in it — so without
@@ -37028,6 +37039,14 @@ Measured against the tree it landed on, `.text` being the scarce side
 | `.text` | the table cell (`OSAPI_XCELL`, 8 bytes) + its `call COLD_SEG:` thunk |
 | `.bss` | `ld_rehome` and `ld_rehsz` |
 | `.cold` | `osapi_pkg_rehome_x`, `ld_start`'s step 8a, `mem_reown_x` (20 bytes of it the trim, §20.12.10.5), and `ld_alloc`'s clear |
+
+The arm has since been swept and step 8a is **51 bytes smaller** than that
+table was written against, with no check removed and one added (§20.12.10.4):
+the header's size fields go through `ld_hdr_size`, shared with `ld_check_hdr`,
+and the re-own/free pair is one `xchg` rather than a second `mov di, [ld_rec] /
+call ld_slot / mov dx, [ld_base]` — `mem_reown_x` preserves every register, so
+the two words `mem_free_x` wants are the two it was handed, the other way
+round. The six bytes an ordinary launch pays are unchanged.
 
 `mem_reown_x` is `mem_free_owner_x` with one instruction changed, and
 deliberately a **second walk** rather than one walk with a flag: the obvious
@@ -38037,6 +38056,14 @@ on entry. Steps:
    It is done here rather than at step 9 because `dsk_get_dir` stages into
    `dsk_ent`, which is shared scratch that the icon harvest and the reads
    below all spend. Step 9 hands the package a pointer to it (§20.12.1).
+   **`ld_lname_cp` is the one body that does it** — at most `LD_NAMELEN`
+   characters and then a NUL, SI banked. All three entries into the pipeline
+   make this copy (this one out of the staged entry, `ld_run_name_x` out of the
+   caller's 8.3 name, `OSAPI_PKG_START`'s image arm out of the N stub's staged
+   copy) and each carried its own loop, in three spellings. Banking SI is what
+   let this site join: it used to lean on `rep movsb` leaving SI advanced by
+   exactly `LD_NAMELEN`, so the three entry fields it reads next were written
+   as subtractions from that.
 2. Peek the header: AX = [ld_clus] → `dsk_clus2lba` (CF → status 2), then
    `disk_read` 1 sector into `dsk_secbuf` (UI-task-only shared scratch) —
    the first sector of the first cluster IS the file's first 512 bytes,
@@ -48963,6 +48990,70 @@ The Standard File dialog (§38) is deliberately **not** here: it is a modal
 interaction the kernel runs on behalf of the front application, not an
 application, and §38 explains what that buys.
 
+#### 29.1.1 The table has ONE walk — `inst_next`
+
+Every question the kernel asks of the table is *"for each record that is not
+free"*, and it was written out five times: `inst_of_seg`, `inst_find_kind`,
+`inst_park_all` and `app_launch`'s two scans each carried `mov di, inst_tab /
+mov cx, INST_MAX` over a `cmp byte [di+I_STATE], 0 / je .next` body and closed
+with `add di, I_RECSZ / loop`.
+
+`inst_next` is that walk, once.
+
+```nasm
+; in:  DI = the record just visited, or `inst_tab - I_RECSZ` to start
+; out: CF = 0 and DI = the next record with I_STATE != 0;
+;      CF = 1 and DI = one past the table
+; clobbers: DI (the output) and the flags. NOTHING ELSE, CX INCLUDED.
+```
+
+**The bound is the POINTER and not a count**, which is what makes it free at
+the call sites rather than merely shorter: three of the five banked CX purely
+to hold the count, and `app_launch`'s cap check counted *down* in DX because CL
+was already the answer it was accumulating. `cmp di, inst_tab + INST_MAX *
+I_RECSZ` needs no register, so CX comes back to all of them. A site costs the
+`call` and a `jc`.
+
+It stops on a **dying** record as well as a live one, and the two callers that
+care (`inst_find_kind`, and `app_launch`'s cap check by way of not caring) ask
+`I_STATE` themselves. A **free** record is not a walk: `inst_alloc` is looking
+for exactly the row this skips, and keeps its own scan.
+
+#### 29.1.2 …and `osapi_sys_snapshot`'s record IS this record
+
+`OSAPI_SYS_SNAPSHOT` (§20.9) publishes one `SSI_*` record per instance, and
+every field of it sits at its `I_*` offset with `SSI_RECSZ = I_RECSZ = 32`. So
+the instance half of a snapshot is **one `rep movsw` of the whole table** —
+`mov cx, INST_MAX * I_RECSZ / 2` — where it was a field-by-field transcription
+between two layouts: eight reads, eight writes and a second `rep movsw` for the
+name, all inside the `cli` window the call exists to keep short.
+
+| `SSI_*` | = | what it is |
+|---|---|---|
+| `SSI_STATE` 0 | `I_STATE` | 0 free, 1 live, 2 dying |
+| `SSI_FLAGS` 1 | `I_FLAGS` | bit 0 = minimized. **Was a pad byte** |
+| `SSI_KIND` 2 | `I_KIND` | bit 7 = `KIND_PKG` |
+| `SSI_TASK` 3 | `I_TASK` | task slot, 0xFF = none |
+| `SSI_WIN` 4 | `I_WIN` | **OPAQUE** — the kernel's own window record. Read it as *has a window* or not at all |
+| `SSI_SEG` 6 | `I_SPTR` | the region's base segment (§20.9's "a SAMPLE, not a handle" still binds) |
+| `SSI_SIZE` 8 | `I_SIZE` | region bytes, 0 for a built-in |
+| `SSI_KB` 10 | *(over `I_ICON`)* | KB held off the claim heap |
+| `SSI_NAME` 12 | `I_NAME` | 16 bytes, NUL-terminated |
+| `SSI_CYC` 28 | `I_CYC` | dword, cycles billed |
+| `SSI_RECSZ` 32 | `I_RECSZ` | |
+
+**`SSI_KB` is the one field that is not the record's**, and it lands on
+`I_ICON` because an icon pointer means nothing outside the kernel and the KB
+figure is computed *after* the `cli` window closes (§20.9) — so whatever the
+copy left there is always overwritten.
+
+**It is an ABI move**: `apps/os88api.inc` carries the mirror, `SSI_RECSZ` went
+30 → 32 and `SYS_SNAPSHOT_SIZE` with it, and every `.o88` that reads a snapshot
+— the Task Manager (§28) and Audio (§62) — is rebuilt against the new offsets.
+Both files carry an `%if` ladder that fails the build if an `I_*` field moves
+without its twin, which is the standing arrangement `MAX_TASKS`, `INST_MAX` and
+`MEM_MAX` are already under.
+
 ### 29.2 Concurrency rules (binding)
 
 1. **Publish-last**: a record becomes visible by the `I_STATE ← 1` byte
@@ -49043,6 +49134,7 @@ init-less:
 | symbol | contract |
 |--------|----------|
 | `inst_init` | zero `inst_tab` + `inst_launch`. From kmain, after wm_init. |
+| `inst_next` | the table's ONE walk (§29.1.1). in DI = the record just visited, or `inst_tab - I_RECSZ` to start; out CF=0 + DI = the next record with I_STATE != 0, CF=1 + DI = one past the table. Clobbers DI and the flags and **nothing else, CX included** — the bound is the pointer, not a count. |
 | `inst_ptr` | in AL = instance index; out DI = record ptr. |
 | `inst_idx` | its inverse: in DI = record ptr; out AX = instance index (AH = 0 — the table is `INST_MAX` records of `I_RECSZ`, so the quotient never leaves a byte). Preserves every other register including CX, because five of its callers banked CX only for the shift count the open-coded form needed. `I_RECSZ` is a power of two by construction and this is the one place that fact is spelled. |
 | `inst_of_win` | in BX = window ptr; out CF=0 + DI = record (via `wm_ptr2idx` + `wm_owner`), CF=1 if unowned. Preserves BX. |
@@ -49056,11 +49148,11 @@ init-less:
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
 | `inst_minimize` | in BX = window ptr, lock held: set I_FLAGS bit0 (unowned → skip), wm_hide. |
 | `inst_restore` | in DI = record, lock held: clear I_FLAGS bit0, wm_show I_WIN. |
-| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, gfx_unlock, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
+| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: `inst_rel_rec`, `toast_owner_gone`, gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, `inst_sweep_seg`, gfx_unlock, `mem_free_rec`, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). **I_WIN = 0 is a case it answers itself** — the destroy is skipped and everything else runs, because `wm_destroy` with BX = 0 would zero the cold-entry `jmp` at 0800:0000 — so `inst_pkg_alive` has one leg where it used to carry a second copy of this routine. Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
 | `inst_wchk` | module-internal (§20.6). in BX = an untrusted window ptr; out CF=0 if BX lies inside `wm_wins` and is record-aligned, CF=1 otherwise. Preserves everything but the flags. The fence in front of `inst_of_win` for package-supplied pointers, whose `div cl` would otherwise fault. |
 | `inst_pkg_fence` | module-internal (§20.6, §53.1). in AX = a near entry offset, BX = an untrusted window ptr, ES = the caller's DS; out CF=1 refused, or CF=0 and DI = the instance record. `inst_wchk`, `inst_of_win`, I_STATE = 1, I_KIND bit 7, `ES == I_SPTR`, `AX < I_SIZE`. Clobbers DX (the ES scratch) and DI; both callers write DX immediately after it, which is why the scratch costs no bank. Written out twice until size pass 2 — `inst_pkg_spawn` below and `fsx_run` (§53.1), whose copy carried the comment "the fence is `inst_pkg_spawn`'s, verbatim". `inst_pkg_spawn`'s own `I_TASK = 0xFF` test is NOT part of it and now runs after it rather than between the I_STATE and I_KIND arms; every arm answers the same CF=1 with nothing changed, so the order is not observable. |
-| `inst_pkg_spawn` | API slot 0x0160 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index derived as (record − inst_tab) >> 5, the `app_launch` idiom), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
-| `inst_pkg_alive` | API slot 0x0168 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
+| `inst_pkg_spawn` | API slot 0x0160 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index, off `inst_fhome_idx` — the one place that `(record − inst_tab) >> 5` lives), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
+| `inst_pkg_alive` | API slot 0x0168 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released — that case is `inst_task_die`'s own guard now rather than a second copy of it here, which also means such a record's toast goes with it like any other's. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
 | `inst_launch_post` | in AL = kind: one atomic word store of kind+1 into `inst_launch` — the deferred launch channel for lock-held posters (drained by ui_task step 3, §13). Rapid double posts coalesce (last wins). |
 
 **Sound teardown (§34.3, Phase 1).** Both free points release the
