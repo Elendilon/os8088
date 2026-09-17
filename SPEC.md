@@ -663,7 +663,8 @@ publish, nothing to retire. That is also the trade: the blob half can refuse a
 late call through `[spl_fseg]` (§2.9.5.1) and this half cannot, because the
 bytes are simply forfeit.
 
-**What it buys, measured:**
+**What it bought at the split, measured** (the Dock setup split in §30.5
+later raises the disposable blob from 8 to 9 sectors):
 
 | | before | after |
 |---|---:|---:|
@@ -703,6 +704,87 @@ last two was written against a defect it then found:
   into that table, executed it, and unwound its own stack until `sch_switch`'s
   canary caught the wreckage. Nothing named the overlay, which is the whole
   reason these are rules and not review.
+
+##### 2.5.3.2 …and on `kern_small` the halves are a BUILD CHOICE, because the window half is the LISTING's
+
+§2.5.3 splits the overlay by **deadline**, and most of what is in it does not
+care: a body whose every caller runs before `drv_boot`'s first mount is
+correct in `.ovlw` *and* correct in `.ovl`, the blob's lifetime being the
+longer of the two. For that class the half is a question about **whose bytes**,
+and the two kernels answer it differently.
+
+- On `kern_big` the window half is free real estate. Its region is 11,328
+  bytes (a 9-sector FAT window plus §2.1.2's 6,720) against a 5,120-byte
+  `.ovlw`, so there is no pressure and `.ovlw` wins on the entry: `OVWCALL` is
+  `call FAT_SEG:` at **5 bytes**, where the blob needs `OVLGATE1`'s **9**.
+- On `kern_small` the region is 2,336 bytes and **every byte of it is the Disk
+  window's listing**. `DSK_FAT_SECS` is 2, so the FAT window is 1,024 and
+  cannot fall (a 360KB floppy declares a 2-sector FAT, and §18.2 rule 10 is an
+  acceptance threshold, so 1 would refuse every volume the kernel can mount).
+  What is left is `dsk_secbuf` 512, `disk_dir` and `dsk_icoix` — and while
+  `.ovlw` needs them, they may not shrink.
+
+**That is the wall, and it is worth naming because it does not look like one.**
+`DSK_OVLPAD` is 0 today, so nothing in that region is dead padding and the
+arithmetic reads as if the listing were sized by the listing. It is not: cut
+`DSK_NENT` and the region falls below `roundup(OVLW_SIZE, 512)` and the build
+stops at the guard at the foot of `kernel.asm`. A session that went looking
+for icon bytes to save on this kernel hit exactly that and reported it as
+*"kern_small doesn't get smaller because I can't shrink the icon space,
+`.ovlw` is there."*
+
+So a body in this class carries **both** spellings, written once:
+
+```nasm
+%ifndef KERN_SMALL
+section .ovlw                   ; kern_big: the cheaper entry
+%else
+section .ovl                    ; kern_small: the bytes the region needs back
+%endif
+```
+
+…and its call site is `OVBCALL`, which is `OVWCALL` on one build and
+`OVLGATE1` on the other. **It is not a third kind of entry** — it expands to
+one of the two §2.5.3 already defines — and the four resident bytes a site
+costs `kern_small` are the whole price of the move.
+
+**Two bodies take it today**, chosen for size against call sites rather than
+for subject: `mouse.inc`'s serial probe (`mouse_init` and the four routines
+only it reaches — **648 bytes**, one site) and `vidsel.inc`'s adapter probe
+(`vid_probe_avail`, `vid_memchk`, `vid_cga_alias` — **262 bytes**, one site).
+910 bytes, 8 resident bytes of `.text`, and `.ovlw` goes 2,820 → **1,910**,
+which rounds to 2,048 and fits a 32-entry listing's 2,336 with 288 to spare.
+
+**It costs no disk read and no boot time**, which is the part that makes it a
+better trade than it was proposed as. The blob is `BOOT2_SECS` sectors
+*whatever `.ovl` contains* (§2.9.6), so on `kern_small` there were 1,561 bytes
+of blob that stage 1 was already reading and NASM was filling with zeros. The
+move spends those. `.ovlw`, meanwhile, is real file bytes at the end of the
+kernel image, so the image gets **910 bytes shorter** and `MODC_START` with
+it.
+
+**And on its own it is worth NOTHING.** Neither half is on the memory ladder:
+`.ovl` is inside the blob and `.ovlw` lands on a window the ladder reserved
+anyway, so moving a byte between them moves `HEAP_SEG` by zero — which is
+docs/plans/completed/KERN-SMALL-CUT-BUILT.md's *sections are not heap* stated
+one more time. What the move buys is **permission for the region to shed**,
+and the shedding is §22.6.2.
+
+Three rules bind a body that takes this:
+
+- **`.ovl` is written LAST** in the conditional. `tools/os88ovlchk.py` reads
+  source and cannot evaluate a `%ifdef`, so it files the block by the arm it
+  sees last — and the model it should carry is `kern_small`'s, that being the
+  build the split exists to protect. It is `filecp.inc`'s rule (§22.3.0) at a
+  different boundary and for the same reason.
+- **The whole near-call closure moves with it.** `.ovl` and `.ovlw` are
+  different address spaces, so a body that near-calls a neighbour takes the
+  neighbour. `mouse_init` reaches `mou_p2_init` on `kern_big` only, and the
+  PS/2 blocks — which `kern_small` does not assemble at all — carry the same
+  conditional so that the scanner's one model stays self-consistent.
+- **`OVBCALL` is held to the `.ovl` arm by rule 2d**, so aiming it at a body
+  that did *not* move fails the build, and aiming a plain `OVWCALL` at one
+  that did fails it the other way. Both were verified by breaking them.
 
 ### 2.6 Cold code — resident, but not in the segment
 
@@ -1161,9 +1243,10 @@ sector nothing: unset, the `%ifdef` is not assembled.
 **A module is `.cold` code that ships as a file instead of as part of the
 kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
-finished. **Four exist**: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
-the floppy formatter (§18.96), `CLONE.DRV`, the disk cloner (§18.99), and
-`HIBER.DRV`, hibernate and resume (§87) — plus, on `kern_small` alone,
+finished. Both builds carry `CTRL.DRV`, the Control Panel (§31),
+`FORMAT.DRV`, the floppy formatter (§18.96), and `CLONE.DRV`, the disk cloner
+(§18.99). `kern_big` also carries `HIBER.DRV` (§87) and the optional
+`DOCK.DRV`, advanced Dock behavior (§30.5); `kern_small` instead carries
 `FILECP.DRV` and `FDLG.DRV` (§22.3, §38.0), bodies `kern_big` keeps resident.
 **On the disk every one is a `'CZ'` container** (§20.13.5): `os88mod.py`
 checks each image the way `mod_check` will and then wraps it, `mod_need`
@@ -1244,17 +1327,18 @@ in the tree.
 - **`MOD_NENT` is what the modules use and not a round number.** It is
   **7**, which is what the largest module declares — §38.0's Standard File
   dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
-  `kern_big`; `kern_small` ships a one-entry stub), `CP_NENT` 6 on `kern_big`
-  and 5 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 1. Every module
+  `kern_big` only), `CP_NENT` 7 on `kern_big`
+  and 6 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 2, and one
+  Dock dispatcher entry. Every module
   header ends `times MOD_NENT - X dw 0`, which makes an eighth entry a **hard
   NASM error in the file that grew** rather than an overrun. It is **not**
   per-build, and that was tried: `tools/os88mod.py` scrapes the first
   `MOD_NENT equ` out of `mod.inc` and cannot evaluate an `%ifdef`. It was 8
   for as long as the scale factor had to be a power of two so `mod_fpr` could
   shift; ×7 is `×8 − ×1`, four instructions, and the power of two was buying
-  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 4 on
-  `kern_big` and 6 on `kern_small`: `MOD_FCP` 4 and `MOD_FDLG` 5 exist under
-  `FCP_MOD` alone, after `MOD_HIBER` 3.
+  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 5 on
+  `kern_big` and 6 on `kern_small`. BIG has `MOD_HIBER` 3 and `MOD_DOCK` 4;
+  SMALL has `MOD_FCP` 3, `MOD_FDLG` 4 and `MOD_DOCK` 5.
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -2771,7 +2855,8 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_`. **`.cold`** (§2.6) |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
-| `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
+| `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
+| `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
@@ -11673,6 +11758,66 @@ cycle stops at the first mouse, and `mou_lockon` then leaves that port alone
 for the rest of the session. A machine with a modem and **no** mouse at all
 is the case that pays, and it pays what it paid before.
 
+#### 9.5.1.1 `mou_settle` — one contest, one place that ends it
+
+Four backends can win one machine's pointer contest — the serial run
+(`mou_claim`), the aux port (`mou_p2_isr`, §9.9), a pointing **driver**
+(`osapi_mouse_feed`, §9.12) and `kern_emu`'s backdoor (`vmm_boot_x`, §9.11.2)
+— and ending the contest is five stores that must all happen:
+
+```nasm
+mou_settle:                 ; in: AH = the winning row, AL = its 8259 line
+    cmp byte [mou_seen], 0  ;     (MOU_P2LINE for a backend on no line)
+    jne .out                ; out: nothing. Clobbers AX
+    mov [mou_port], ah
+    mov [mou_line], al
+    mov ax, 0x0101
+    mov [mou_idany], ax     ; ...and [mou_seen] with it: ADJACENT bytes
+    mov [mou_ptr], al
+.out:
+    ret
+```
+
+**Three of the four had already diverged** when this was factored out: the
+serial arm set no `[mou_idany]`, the PS/2 arm set neither that nor
+`[mou_line]`'s constant, and only the driver's set all five. `mou_apply`
+(§9.9.3) carries the identical argument one layer down — *"a second copy of
+this would be a second place for that fall-through to be got wrong, and it
+would be got wrong"* — and this is that argument about the layer above it.
+
+`[mou_idany]` rides with `[mou_seen]` because the two are **adjacent**, so the
+pair is one word store; §9.4.2's published-block assertion is what keeps them
+so. Setting it on every backend is free of consequence rather than merely
+harmless: its one reader is `mou_hotplug`'s state-0 arm, which is reached only
+while `[mou_seen]` is still 0.
+
+**Nothing here retires the losers.** `mou_hotplug`'s `.have` arm does that on
+the UI task's next pass, and it does it in the ORDER that works — power back
+up on every port first, *then* `mou_lockon` — which a backend calling
+`mou_lockon` out of its own settle skips. The serial and PS/2 arms have always
+relied on that pass and §9.12's driver now does too.
+
+**It is a MACRO plus a routine, and the split is the 128KB kernel's.** The
+stores are `MOU_SETTLE_STORES`, sixteen bytes with no test and no return; the
+routine around them is the form a *second* caller wants. `kern_small` has no
+second caller — `mou_p2_isr` is `KERN_BIG`'s and so is the driver (§51.0) — so
+factoring for one caller there was measured at **+10 `.text` and a crossed
+512-byte image rung** on a kernel with three bytes left in one. `mou_claim`
+takes the macro inline there, where the `cmp byte [mou_seen], 0` the routine
+would make is already two instructions above it. `vmm_boot_x` keeps its own
+copy for a different reason: it is `.ovlw`, whose bytes the machine takes back
+at the end of `kmain`, so converting it would spend a four-byte resident thunk
+to delete twenty-five bytes that are not resident.
+
+**Two callers pay a few cycles for it and neither pays a byte.** `mou_claim`
+tests `[mou_seen]` at its own top and the routine tests it again — free, the
+site being reached once a session. `mou_p2_isr` dropped its test entirely and
+now calls unconditionally, so every PS/2 packet after the first spends the
+call, the compare and the `ret`: about **40 cycles, at up to 100 packets a
+second, on a machine that has 4,770,000** — and keeping its own test to avoid
+them would cost **7 resident bytes for ever**, which is the wrong side of the
+trade this project makes.
+
 #### 9.5.2 Which line fired says nothing about which port has the byte
 
 **The base-to-IRQ mapping is a convention, and a real machine does not have
@@ -12547,10 +12692,28 @@ this key, on any BIOS* — and it gets §9.6.4's answer: the kernel reads the
 
 **The latch is `kbd_track`'s and costs nothing to find**, because that routine
 is already looking at the byte and already knows where the bit lives. A fresh
-Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map sets
-`[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the ordinary `W_ONKEY`
-dispatch, so it reaches the **front window** and nothing else, exactly as a
-typed key does. A package writes one test and it is true on every machine.
+Enter make (`0x1C`) arriving while the Alt bit (`0x38`) is set in the map puts
+**that scancode** in `[kbd_ae]`; `ui_task` spends it as `AX = 1C00` through the
+ordinary `W_ONKEY` dispatch, so it reaches the **front window** and nothing
+else, exactly as a typed key does. A package writes one test and it is true on
+every machine.
+
+**The latch holds the SCANCODE and not a flag, and that is the whole shape of
+the spend.** `kbd_track` is standing on `AL = KSC_ENTER` when it stores, so the
+store is the accumulator form and names no constant; `ui_task` is then
+
+```nasm
+    xor ax, ax
+    xchg ah, [kbd_ae]           ; read-and-clear in one - kbm_p5spend's idiom
+    or ah, ah
+    jz .events
+```
+
+— four instructions that produce `AX = 0x1C00` *and* empty the latch, where a
+compare, a branch, a store and a `mov ax, imm16` produce the same thing five
+bytes larger. It is also the only spelling with no race in it: a test followed
+by a separate store has a window in which `kbd_track` can set a latch that the
+store then throws away, and `xchg` has none.
 
 Five things hold it up.
 
@@ -12569,15 +12732,32 @@ Five things hold it up.
   once, which is one `OSAPI_KEY_DOWN` call in its entry proc; §96.33.5.1 is
   the worked example. Arming this way rather than at boot is what makes the
   feature cost **zero** on every machine that does not use it.
-- **A BIOS that DOES deliver it must not deliver it twice.** `kbd_aeclaim`
-  runs on the typed key before `kbm_key` does, and it is §9.6.4's rule one
-  key along: an `AH = 1C` whose `AL` is neither `0Dh` (typed, or with Shift)
-  nor `0Ah` (with Ctrl) is Alt+Enter, so it **normalises `AL` to zero and
-  clears `[kbd_ae]`**. Without the clear, SeaBIOS fires both paths and one
-  press toggles a mode twice — §9.6.4's flashing menu from a fifth direction.
-  The normalisation is the other half of the one-test promise: SeaBIOS says
-  `1CF0` and an enhanced ROM says `1C00`, and a package may not have to know
-  which of them it is running on.
+- **A BIOS that DOES deliver it must not deliver it twice, and THE LATCH IS
+  THE TEST.** A typed key arriving with the latch still full is that same
+  press coming round the other way, and the scancode says so without any
+  decode of `AL`:
+
+  ```nasm
+      cmp ah, [kbd_ae]        ; the ROM's scancode IS the one the ISR latched
+      jne .notae
+      or ah, ah               ; ...and an Alt+numpad character reports AH = 0,
+      jnz .altenter           ; which equals an EMPTY latch - the one case the
+  .notae:                     ; compare above cannot judge on its own
+  ```
+
+  The typed copy is then **dropped** and the latch spent in its place, which
+  normalises and de-duplicates in one move: SeaBIOS says `1CF0` and an
+  enhanced ROM says `1C00`, and what a package sees is `1C00` on both without
+  the kernel knowing which spelling this ROM chose. Without it SeaBIOS fires
+  both paths — §9.6.4's flashing menu from a fifth direction.
+
+  **This replaced a `kbd_aeclaim` that decoded `AL` instead** (`AH = 1C` whose
+  `AL` is neither `0Dh` typed-or-shifted nor `0Ah` with Ctrl), and the
+  replacement is the same answer asked of something that was *already decided*:
+  the ISR judged this press off the scancode with the Alt bit in front of it,
+  and re-deriving the verdict from the ASCII a second time was a second test of
+  the same fact. Twenty-two bytes became ten, and the new one is correct on a
+  ROM whose `AL` nobody has seen.
 - **A bracket that owned the screen owns the latch too.** `fsx_restore`
   already drains the BIOS key buffer on the way home (§53.6) for the reason
   that the keystroke which *ended* an exclusive app must not also be
@@ -12598,6 +12778,26 @@ Five things hold it up.
 cannot work, for the reason above it: the ROM enqueues *nothing* for this
 combination, so there is no keystroke to hang the test on. Testing bit 3 on a
 plain Enter answers a question about a key the user never pressed.
+
+**The fetch moved above `blk_wake`, and that is what pays for the spend.**
+`ui_task` used to wake the screen saver and *then* take the key out of the BIOS
+buffer, carrying `blk_wake`'s verdict across the `int 16h` in a `pushf`/`popf`
+pair. `blk_wake` banks `AX` and answers in the flags (`blank.inc`), so fetching
+first is the same machine with the bank in the other direction — and it leaves
+**one** wake call that both arms reach, the latch's by a `jmp short` and the
+typed one by falling into it. The pair is gone with it. The KFZ ladder (§8.3.1)
+follows the path, so its marks 2 and 3 swap meanings: 2 is now *the key is out
+of the BIOS buffer* and 3 is *`blk_wake` returned*.
+
+**What the whole feature costs: 46 bytes of `.text` and no `.bss`, on both
+kernels**, measured against a tree with it removed (`kern_big` 49,951 → 49,997;
+`kern_small` 37,218 → 37,264). It was 72 when it landed, and the 26 came off in
+four places, none of them a behaviour: the latch carries the scancode instead
+of a flag (the spend is an `xchg`, not a compare-branch-store-load), the
+delivering-BIOS test asks the latch instead of re-decoding `AL`, `kbd_aeclaim`
+is gone as a routine rather than shrunk, and the two arms share one `blk_wake`.
+Two of those 26 are the `pushf`/`popf` above, which is a simplification of code
+that was here before this feature and is banked with it.
 
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
@@ -13308,7 +13508,8 @@ The one such combination in the tree, and each half is load-bearing.
 finds the driver serving sound, or disks, or files. The kernel is this one's
 only caller and holds its row, so there is nothing to publish and nothing to
 find. `DRVC_MAX` stays 5. (The row is `kern_emu`'s alone — §9.11.7 — so
-`DRV_MAX` is **6** there, **5** on `kern_big` and **4** on `kern_small`.) `drv_load_row` already stops a `DRVC_OVL` row after
+`DRV_MAX` is **7** there, **6** on `kern_big` and **4** on `kern_small` —
+the seventh and sixth being §9.12's USB mouse.) `drv_load_row` already stops a `DRVC_OVL` row after
 `drv_check`, with `DRVR_SEG` and `DRVR_ENT` live and no verb sent, and leaves
 the attaching to the owner — the same division `HDD.DRV`/`HDDTOOL.DRV` runs
 on, and the same one `XMEM.DRV` reaches through `drv_load_at`.
@@ -13609,7 +13810,7 @@ baseline of its own in docs/KERNEL-MEMORY.md, blessable by
 | drivers | `$(EMUDRIVERS)` = `$(DRIVERS)` **plus** `VMMOUSE.DRV` — an addition, where `$(SMALLDRIVERS)` is a restatement from nothing |
 | `SYSTEM.CFG` | **shipped on this disk and on no other**, bit 5 set. Every row is not-wanted by default (§51.3), and a `kern_emu` machine that must be told to enable the one feature it was built for has been given nothing |
 | apps disk | the **shipped** `build/apps.img`, unchanged — `kern_emu` defines `KERN_BIG`, so it holds the same API table at the same offsets |
-| `DRV_MAX` | 6 here, 5 on `kern_big`, 4 on `kern_small` |
+| `DRV_MAX` | 7 here, 6 on `kern_big` (both counting §9.12's USB mouse), 4 on `kern_small` |
 | geometry | 1.44MB only. 360KB exists for real period hardware, and no machine that needs a 360KB floppy can execute a 386 instruction |
 
 **Rows 0-4 do not move, so `SYSTEM.CFG` stays readable both ways.** The row
@@ -13625,6 +13826,337 @@ same one-byte-per-row assertion `drv_memk` has always had.
 on the `build/emuk/` kernel, and `tests/vmmouse.py` sets `$OS88_BUILD` and
 `$OS88_DEFINES` so `os88sym` resolves against it — on the shipped kernel
 `vmm_on` is not a wrong address, it is not a symbol at all.
+
+### 9.12 The CH375 USB mouse — the Book8088's
+
+The **Book8088** is an 8088 laptop with one USB-A socket, wired to a WCH
+**CH375B** host controller at I/O ports **`0x260` (data) and `0x261`
+(command)**. Its BIOS uses the chip to boot from a flash drive; nothing uses it
+for a mouse. `USBMOUSE.DRV` does. The protocol is from WCH's CH375 datasheet
+and the public-domain proof of concept that first read a mouse on that machine
+(github.com/joshuashaffer/book8088-ch375mouse-poc, `a81b753`). Any 8-bit ISA
+CH375 card at `0x260` looks the same to it.
+
+**It is `kern_big`'s, and §9.11.7's argument does not reach it.** That section
+took the absolute pointer off the shipped kernel because *an 8088 has nothing
+to speak a 32-bit backdoor to*. A CH375 is an 8-bit ISA peripheral and the
+machine that carries it *is* an 8088, so a separate build would be a separate
+set of disks for a machine that boots the shipped ones. What the shipped kernel
+pays instead is kept to a slot, a class and a row, with **no poll site and no
+per-switch cost** (§9.12.5).
+
+| | |
+|---|---|
+| file | `USBMOUSE.DRV`, on every `kern_big` system disk |
+| class | **`DRVC_POINT` = 6**, a real publication slot (42 bytes: §51.2.1's price) |
+| row | `drv_tab` row 5 on `kern_big`, row 6 on `kern_emu` (after the absolute mouse); **`SYSTEM.CFG` bit 6** on both; not wanted by default (§51.3) |
+| kernel | **`OSAPI_MOUSE_FEED`**, slot **`0x0598`** — drivers only |
+| hooks | **nothing**: no vector, no IRQ line. A worker task polls the chip |
+
+#### 9.12.1 Why a worker and a slot, and not §9.11's pump
+
+§9.11.3 drains the backdoor from `ui_task`'s pass **and from `task_yield`**,
+which is what keeps a drag loop fed and costs every task switch on `kern_emu`
+a compare. Carried to `kern_big` that compare would be paid on every switch of
+every XT in the field, for a chip almost none of them have. So the driver
+brings its own context instead:
+
+- a **driver worker** (§51.7), spawned at `DRVV_READY`. Workers are
+  `TF_SERVICE`, so they stay eligible inside an exclusive bracket (§53.2) and
+  the pointer keeps working in a full-screen game;
+- a **drivers-only slot** that takes one relative report and applies it. The
+  apply is `vmm_poll`'s relative arm to the instruction: `pushf`/`cli`,
+  `MOUPRIV_ENTER`, `mou_apply`, `MOUPRIV_LEAVE`, `popf`. §9.10's invariant
+  holds — the `cur_move` chain lands on `mou_pstack`, never on the worker's
+  192-byte stack. It may borrow that stack because the whole apply is IF=0 and
+  both mouse ISRs run IF=0 from gate to `iret`, so neither can be inside
+  `MOUPRIV_ENTER` while a task is running.
+
+A class is what makes both possible without new kernel code: `drv_task`'s
+spawn fence and every other driver fence ask "is this a *published* driver's
+segment" (§51.7), and publication is per class. A `DRVC_OVL` row (§9.11.1)
+would have needed a boot attach of its own and a spawn of its own. The class
+also gets the Drivers page's tick and untick, `drv_shutdown` before `int 19h`
+and hibernate's detach (§87.4) for free.
+
+```
+OSAPI_MOUSE_FEED  KERNEL_SEG:0x0598   X cell
+in:  AX = dx, BX = dy, signed; POSITIVE dy IS DOWN (the HID convention, which
+     is the screen's); CL = buttons in mouse_btn's own bits (1 left, 2 right)
+out: CF = 0 applied; CF = 1 refused - the caller's segment is not the one
+     published in DRVC_POINT. kern_small: always CF = 1 (§20.8 rule 4)
+     CLOBBERS AX, BX, CX, DX, SI and DI. BP, DS and ES come back the
+     caller's, as every X cell leaves them
+```
+
+**It clobbers, and that is a decision rather than an oversight** (§9.12.5).
+`mou_apply` spends all six registers, so the slot used to bank them — six
+pushes and six pops, **twelve resident bytes on every machine for ever**,
+bought for nobody: `USBMOUSE.DRV` has exactly two call sites and each one
+`ret`s the instruction after. A driver that does need one of them pushes it in
+its own image, which is compressed disk present only while it is mounted.
+
+**The fence is `ES == [drv_fseg6]`**, one class's slot and not a walk of all
+six: a sound driver has no business moving the pointer, and `osapi_vol_fence`
+— the shared walk — writes `[dsk_vcls]` as a side effect, which a worker must
+not do behind a volume add in flight on the UI task.
+
+**The first accepted report settles the contest** through `mou_settle`
+(§9.5.1.1), the one routine all four backends end it in: `[mou_port] =
+MOU_FEEDROW` (**8**, reachable by no device and distinct from `MOU_VMROW`),
+`[mou_line] = MOU_P2LINE`, `[mou_seen]`, `[mou_ptr]` and `[mou_idany]` set. A
+serial mouse that spoke first is retired by the first USB report; unticking
+the driver does not un-retire it, so that takes effect at the next restart.
+
+**It does NOT call `mou_lockon` itself any more, and that is a fix rather
+than a saving.** It used to, which retired the losing UARTs *before*
+`mou_hotplug`'s `.have` arm puts power back on every port — the ordering that
+arm exists to get right, and which §9.4 records as the way to strand a mouse
+unpowered for a session. The first report wakes the UI task (`mou_apply` calls
+`sch_wake_ui`, §8.1.2.2), so `.have` runs on the very next pass and retires
+them there, which is exactly what a PS/2 winner and a serial winner have
+always relied on. Five bytes, and the right order.
+
+**The whole body is `mou_pstack`'s**, settle included, because `mou_apply`'s
+`cur_move` chain is what §9.10 moved off task stacks and the worker's is
+`SCH_DRV_STK` = 192. It swaps UNCONDITIONALLY where `MOUPRIV_ENTER` tests
+`SS == LOW_SEG` first: that test is there for an ISR that may have interrupted
+a ROM service which switched stacks (§7.4's `int 13h`), and this is not an
+ISR — it is a plain call on a task, where SS is `LOW_SEG` by §1. Neither store
+needs the macro's `cs:` override either, an X cell arriving with DS =
+KERNEL_SEG. Ten of the eleven bytes between the two spellings are that.
+
+#### 9.12.2 Attach — the chip, and whose it is
+
+`DRVV_ATTACH` runs at boot or on a Drivers-page click, and touches the bus as
+little as it can:
+
+1. **`CHECK_EXIST`** (`0x06`) with `0x57` must answer `0xA8`. An undriven
+   `0x260` floats to `0xFF` — `DRVE_HW`, nothing touched.
+2. **`TEST_CONNECT`** (`0x16`). `USB_INT_USB_READY` (`0x18`) means *somebody
+   has already configured a device* — on a Book8088, the BIOS serving a boot
+   flash drive through `int 13h`. Resetting that bus would take the disk away
+   from under the machine. So the configuration descriptor is read **at the
+   device's current address, without a reset** (`GET_DESCR 2`), and anything
+   that is not a boot mouse is refused with **`DRVE_BUSY`** — "found it and
+   cannot have it". A mouse, or a descriptor that will not come, proceeds: a
+   BIOS that probed a mouse at POST leaves it `READY` too, and refusing that
+   would refuse every mouse.
+
+Nothing else happens at attach. Enumeration waits on the device (a bus reset,
+then up to half a second before a mouse answers), and attach runs before the
+first paint — so it is the worker's.
+
+#### 9.12.3 The worker
+
+One loop, parked at `OSAPI_TASK_PARK` once a pass (§66.5.5), with three
+states:
+
+- **idle** — no device. `TEST_CONNECT` every `UM_IDLET` (9) ticks, and any
+  pending interrupt consumed. `USB_INT_CONNECT` or `USB_INT_USB_READY` moves
+  to enumerate. That is the whole hot-plug path.
+- **enumerate** — `SET_USB_MODE 7` (bus reset), two ticks, `SET_USB_MODE 6`
+  (host, SOF on), wait for the connect, four ticks of settling; `0B 17 D8`,
+  the proof of concept's low-speed switch (most mice are 1.5 Mbps and the
+  datasheet documents full speed only); `GET_DESCR 1`; `SET_ADDRESS 2` and
+  `SET_USB_ADDR 2`; `GET_DESCR 2`, parsed as a descriptor chain for an
+  interface of class 3 protocol 2 and its first interrupt-IN endpoint;
+  `SET_CONFIG`; then two class requests as hand-built control transfers —
+  **`SET_PROTOCOL(boot)`**, so the report is the 3-byte boot layout whatever
+  the mouse defaults to, and `SET_IDLE(0)`. A STALL on either is ignored (a
+  boot-protocol-only mouse is entitled to one). Not a mouse — a flash drive, a
+  keyboard — parks in **other**: no port touched but the `INT#` bit, until a
+  disconnect.
+- **run** — `SET_ENDP6` with the toggle, `ISSUE_TOKEN (ep << 4) | 9`, and wait.
+  `USB_INT_SUCCESS` flips the toggle, reads the report and feeds it;
+  `USB_INT_DISCONNECT` feeds a release if a button was down (a button held
+  across an unplug is otherwise a drag that never ends) and goes idle; a STALL
+  is `CLR_STALL` and a fresh DATA0; `UM_ERRMAX` (8) other failures in a row
+  re-enumerate.
+
+**Waiting is the `INT#` bit, not a delay.** The datasheet's parallel table:
+reading the command port returns `INT#` in bit 7, low = pending. So the worker
+sets `SET_RETRY 25 85` — **the chip retries a NAK by itself, forever** — and
+the transaction completes only when the mouse has something to say. An idle
+mouse costs one `in` a tick. After a report the worker **yields instead of
+sleeping** for `UM_HOTT` (9) ticks, so a moving mouse is read as fast as it
+reports rather than at 18.2 Hz.
+
+**If `INT#` does not reach bit 7 on some board, the worker finds out and
+falls back.** The first enumeration transaction waits three ticks for the bit;
+a `GET_STATUS` that then answers `USB_INT_SUCCESS` anyway proves the bit is
+dead, and the driver switches to **poll mode**: `SET_RETRY 25 05` (a NAK comes
+back at once as `0x2A`) and a status read two ticks after each token — the
+proof of concept's own delay-then-status shape, at 18.2 Hz / 2.
+
+**Every command is one IF=0 window.** The datasheet bounds the gap between a
+command byte and its data at **100 µs** (TSC) and between data bytes at 100
+µs (TSD). A timer tick and a task switch in that gap is ~700 µs on the target
+(PERFORMANCE.md), so a command written with interrupts on is a command the chip
+may drop. The longest window is `RD_USB_DATA` of a 64-byte descriptor.
+
+**The report.** Boot protocol: byte 0 buttons (bit 0 left, bit 1 right; the
+middle button is dropped — §10 has two), bytes 1 and 2 signed dx and dy. A
+report shorter than 3 bytes is dropped. Both deltas are **halved with the
+remainder carried** (`UM_SHIFT` = 1): a USB mouse counts at 400-800 dpi against
+a serial mouse's ~200, so unscaled it crossed a 640-pixel screen in a finger's
+width. A report that moves nothing and changes no button is not fed.
+
+**`DRVV_DETACH`** sets the stop byte; `drv_unload` waits on `[drv_wcnt]`
+(§51.7) while the worker feeds a release if a button is down, sends `ABORT_NAK`
+and **`RESET_ALL`** — the chip back in device mode as it powered up, so the
+BIOS after an `int 19h` finds what it expects — and exits. A detach with no
+worker resets the chip itself.
+
+#### 9.12.4 Not done
+
+- **Not verified on a Book8088.** No emulator in this tree carries a CH375
+  (docs/TESTING.md), so the protocol is exercised against a model (§9.12.6)
+  written from the same datasheet reading as the driver. The first field run
+  is the first time either meets the chip.
+- **A configuration descriptor is read at most 64 bytes** — the CH375's
+  buffer. A composite receiver whose mouse interface is past byte 64 (some
+  wireless keyboard-and-mouse dongles) is not found.
+- **No wheel, no middle button, no report-protocol mice.** A mouse that STALLs
+  `SET_PROTOCOL` and sends a report ID first will read as garbage.
+- **A click shorter than one poll can be lost in poll mode**, where the chip
+  holds only the last report.
+- **The port is not configurable.** `0x260` is the Book8088's and the lo-tech
+  card's default; the card's jumpers offer `0x230`-`0x250` too.
+
+#### 9.12.5 Cost
+
+Measured by `tools/kernsize.py` against the kernel before it; **no footprint
+rung crossed** on any build, and `KERN_SIZE` is unchanged on all three.
+
+| | `kern_big` | `kern_small` |
+|---|---|---|
+| `.text` | **+94** — **49 of mechanism** (the slot cell 8, `osapi_mouse_feed` 41) and **45 of Control Panel tick** (the row 16, two strings 23, `drv_fptr6` 4, `drv_memk`'s word 2). §9.12.5.2 is why those are two numbers | **+10** — the cell and a two-instruction refusal, which is §20.8 rule 4's price and not this driver's (§9.12.5.3) |
+| `.bss` | **+38** — `drv_owner` and `drv_svc` for a sixth class | 0 |
+| `.cold` | **+9** — `drv_attach` keeping an attach's `AL` (§51.3) | 0 |
+| `.ovl` | **+1** — `drv_cfgbit`'s sixth byte | 0 |
+| the footprint | no rung: 70 bytes left in the image rung, 150 in cold | no rung |
+| every `task_yield` | **0** | **0** |
+| the system disk | `USBMOUSE.DRV`, 1,648 bytes of image, 1,390 on the floppy packed | none (§24.5: no drivers there) |
+
+##### 9.12.5.1 It shipped at 145 and 12, and the size pass is what the numbers above are
+
+`.text` fell **145 → 94** on `kern_big` and **12 → 10** on `kern_small`, in
+four pieces, and the whole kernel's `.text` fell **further than the feature
+did** — 50,023 → 49,963, **−60** — because one of the four also paid on two
+call sites that were there before this driver was:
+
+| | `kern_big` |
+|---|---|
+| the settle into `mou_settle` (§9.5.1.1) | **−22** here, and **−12** in `mou_claim` and **−21** in `mou_p2_isr` against a 24-byte routine |
+| the six pushes and six pops | **−12** — the clobber contract above |
+| `MOUPRIV_ENTER`/`_LEAVE` → the two instructions of them this context needs | **−11** |
+| `mou_lockon` off the settle path, and a straight-line `CF` | **−7** |
+| `DRVC_MAX` back to 5 where there is no driver layer | **−2**, `kern_small` only |
+
+`osapi_mouse_feed` is **41 bytes**: a 12-byte fence, `pushf`/`cli`/`popf`, an
+11-byte stack swap, an 8-byte settle, `call mou_apply`, and four bytes of
+answer.
+
+##### 9.12.5.2 The 94 is TWO numbers, and only one of them is about the driver
+
+| | `kern_big` |
+|---|---|
+| the slot cell and `osapi_mouse_feed` | **49** — the mechanism |
+| **the Control Panel tick** | **45** — the `drv_tab` row (16), its file name and display name (23), `drv_fptr6`/`drv_fseg6` (4) and `drv_memk`'s word (2) |
+
+**The 45 is a product decision and not a build one.** It does not come down
+without taking the row out of `drv_tab`, and the row IS the only way a user
+has to turn this driver on: §51.3 makes every row not-wanted by default, so a
+driver with no tick is a driver nobody can reach. Whoever wants those 45 bytes
+is asking for the CH375 mouse to be un-switchable, which is a question for the
+person who asked for the feature.
+
+The two strings are the biggest item in it and they are **not** reducible to
+one. The tree has that exact economy twice — `ss_row` (§79.2) and `xm_row`
+(§41.12) both point `DRVR_TITLE` at their own file name — and both say in as
+many words why they may: *"there is no row, no caption and no Drivers page
+here, so nothing ever draws it."* This row is the opposite of that on both
+counts: `cp_listrow` and `cp_drv_paint` draw `DRVR_TITLE` on the Drivers page,
+and `ovl_spl_msg_drv` draws it on the **loading screen** while the driver is
+being read. `USBMOUSE.DRV` in either place is a file name where every other
+row shows a name, and the panel's column is nine glyphs, which truncates it to
+`USBMOUSE.`.
+
+##### 9.12.5.3 Four things costed and REFUSED, with the arithmetic
+
+- **Retiring the cell.** `0x0598` is the **last** cell — `osapi_table_end` is
+  `0x05A0` — so retiring it SHRINKS the table 178 → 177 rather than holing it,
+  and §20.3.1's free list stays empty. That is **8 bytes off BOTH kernels**,
+  and it is still refused, for a reason that is not the one first written
+  down: **a retired cell needs a DOOR, and every door in this kernel costs six
+  to nine bytes to open.** A door needs a selector test it does not already
+  make, and it forces a register shuffle, because this slot's `AX = dx,
+  BX = dy` collides with whatever registers the door already uses — there is
+  no door in the tree that leaves both free.
+
+  | door | what it costs to open | `kern_big` | `kern_small` |
+  |---|---|---|---|
+  | `OSAPI_DRV_TASK` `0x0248`, `AX = 1` — the right door by meaning, and its first act is already the `ES`-is-a-driver fence | `dec ax`/`jz`/`inc ax` (4) and a `.feed` arm (13), both `.cold`; the body then needs `mov ax, dx` + `mov bx, si` (4) | `.text` −18, `.cold` **+17**, net **−1** | **−10** |
+  | `OSAPI_DRV_CALL` `0x0448`, `BH = 0` — the one driver-family door with a `.text` body, so no trampoline at all | `or bh, bh`/`jnz`/`jmp` (7 — the `jmp` cannot be short, the body being 30KB away) plus `mov bx, dx` (2) | **+1** | **−10** |
+
+  So the eight bytes the tail gives back are spent opening the door, on the
+  kernel that actually has the feature. `kern_small` gets the full ten only
+  because there is no feed there to open a door for — **which makes those ten
+  §20.8 rule 4's price and not this driver's**, and that price is worth asking
+  about once rather than sixteen times: **sixteen cell targets are a bare
+  refusal stub on `kern_small`**, which is 128 bytes of table plus their
+  bodies. That is a register entry and not this section's to keep — it is
+  **docs/plans/LAST-DROP-BYTES.md §7.7.7**, with the list, the figure and the
+  two constraints. What belongs here is only the consequence for this slot:
+  it is at the TAIL, so it is the one that could be retired today, for ten
+  bytes on a kernel that does not have the feature, at the cost of
+  `OSAPI_MOUSE_FEED` ceasing to be a name in the SDK. Not taken.
+- **`DRVC_POINT` reusing the retired class 3** would delete `drv_fptr6`,
+  `drv_fseg6` and 38 bytes of `.bss`. It is **unsafe**, and `drv_cls_svc_x` is
+  where: classes 1, 2 and 3 keep index `class-1` while 4 and up are compacted
+  down by one, so **class 3 and class 4 land on the SAME `drv_svc` slot** —
+  harmless only for as long as class 3 is never published. A published class-3
+  driver would overwrite `DRVC_NET`'s service table, which is precisely the
+  silent cross-class disconnection §51.2.1 exists to prevent.
+- **Giving `DRVC_POINT` no `drv_svc` slot at all is worth 38 bytes of `.bss`
+  and IS actionable — as its own change, with a gate.** The driver publishes
+  only `DSV_NAME`, which the kernel reads **nowhere** (three matches in
+  `kernel/`, all of them comments), so the 36-byte slot is dead the day it is
+  allocated. What blocks it is that `drv_cls_svc_x` would have to refuse one
+  class, it has **ten callers**, and its documented refusal value is
+  `DI = 0` — which is `drv_svc + 0`, the SOUND driver's table. A missed `CF`
+  test is therefore not a crash but a silent cross-class overwrite.
+  **The check that makes it loud is a source walk in `tools/os88ovlchk.py`'s
+  shape**, and it is filed as a row whoever wants the bytes can take —
+  **docs/plans/LAST-DROP-BYTES.md §7.7.8**, gate first and size change second,
+  because the same walk covers `drv_cls_fp_x`'s identical refusal and is worth
+  more than the 38 bytes that motivated it.
+- **`kern_small`'s two-byte refusal** could be a second label on
+  `drv_pkg_call_x`'s existing `stc`/`ret`, for **−2**. It would put a
+  `mouse.inc` symbol in `driver.inc` against §4's ownership table, for two
+  bytes.
+
+#### 9.12.6 The gate — a CH375 that is a model
+
+`make usbmousetest` builds `build/usbmsim.img`: the shipped `kern_big`, a
+`SYSTEM.CFG` with bit 6 set, and **`USBMOUSE.DRV` assembled with
+`-DCH375SIM`**. That build swaps the four port primitives — command out, data
+out, data in, status in — for calls into `drivers/usbmouse/ch375sim.inc`, a
+CH375 and a boot mouse in about four hundred lines, with a **mailbox** at a
+fixed offset in the image: plug, device kind (mouse or flash drive), `INT#`
+readable or not, and one report slot the model hands out on the next IN token.
+The shipped driver never assembles the model; the gate disk is the only place
+it exists.
+
+`tests/usbmouse.py` boots that disk under **MartyPC** — an 8088, which is the
+CPU the driver ships for — finds the driver's segment through its row, and
+drives the mailbox: plug a mouse and expect the contest settled on
+`MOU_FEEDROW`; post reports and expect `mouse_x`/`mouse_y` to move by half of
+them with the remainder carried; press and release through the menu bar and
+expect the menu to open and close; unplug with the button down and expect the
+release; plug a flash drive and expect the worker to leave it alone; and the
+same in poll mode with `INT#` dead.
 
 
 ## 10. events.inc
@@ -22280,7 +22812,8 @@ and such a page acts on the press exactly as before.
 `kern_big`'s.** `W_ONMOUSEUP` is in `kern_small`'s window record too
 (`WIN_SIZE` 28 includes it) and `W_ONDRAG` is not (§13.8.2), so `cp_kinit`,
 `cp_onup`, `cpf_cp_onup`, `CPE_ONUP`, `cp_pt` and `cp_drv_ev` are unconditional
-and `CP_NENT` is **5** there against 6. On `kern_small` `cp_onup_x` reduces to
+and `CP_NENT` is **6** there against 7 (including §30.5's layout entry).
+On `kern_small` `cp_onup_x` reduces to
 `cp_pt` + `DSV_CPUP` through `cp_drv_ev` and stops: the static pages there
 still act on the press, and none of the kernel's own arm, probe or pressed
 look crosses over. Without that edge the driver pages are dead on the 128KB
@@ -26492,8 +27025,9 @@ Four sectors, every one of them at the very top of `.text` — which is why
 carrying *"`.text` MAY NOT FALL BELOW 50,178 BYTES … and the answer then is a
 design change, not a new number"* in capitals. **This is that design change.**
 With one blob length the band is seven sectors wide and reaches memory 6,656,
-so `KSIG_OFF` is 6,656 (file sector 21) and the floor under `.text` is
-**6,658**. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
+so `KSIG_OFF` became 6,656 (file sector 21). §30.5 later adds one
+boot-blob sector and moves it to 6,144, keeping file sector 21 and a
+**6,146** floor under `.text`. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
 and requires the offset to cross on all of them, so a second blob length that
 comes back fails the fast tier instead of leaving one arm's canary inert — the
 "both lengths" rule lived in a Makefile comment and was enforced by nothing.
@@ -29929,17 +30463,19 @@ without leaving the constant no legal value — *"and the answer then is a desig
 change, not a new number"*. The next kernel size pass takes `.text` by ~600.
 The change is §15.3.8.5.1: the knob arm's blob was brought under 4,096, so
 **there is one blob length**, the band is the seven-sector single-length one,
-and `KSIG_OFF` is **6,656 — memory sector 13, file sector 21.**
+and `KSIG_OFF` became **6,656 — memory sector 13, file sector 21.**
+§30.5's layout setup later raises the blob to nine sectors, so the offset is
+now **6,144 — memory sector 12, still file sector 21**.
 
 It is a *lone* sector where 106 sat in a run of five, and that trade is
 deliberate: margin against a BPB that moves is worth less than margin against
 `.text`, because a geometry is a decision somebody takes and `.text` shrinks
-whenever anyone tidies anything. The floor under `.text` is **6,658** instead
+whenever anyone tidies anything. The floor under `.text` is **6,146** instead
 of 50,178. `tests/unit/t_canary.py` reads **every** `BOOT2_SECS*` equate and
 requires the offset to cross on all of them, so a second blob length coming
 back fails the fast tier rather than leaving one arm's canary inert — until
 this change that rule existed only as a Makefile comment and was enforced by
-nothing. 6,656 is inside the first 64KB, so the compare still reuses the `ES`
+nothing. 6,144 is inside the first 64KB, so the compare still reuses the `ES`
 the handoff already loads, and the word is the same for every geometry because
 `KERNEL.SYS` is one file. `tests/suite.py`'s `canary` row asserts all of that against the
 images `make` just built, so it cannot drift — and it asserts it over **every**
@@ -30485,10 +31021,10 @@ derives is still the ceiling, and the shipped width is a decision below it. Read
 this for the arithmetic that bounds the constant and that one for what picks it.
 
 `DSK_RAH_RUNS` was **14**, and the ceiling is arithmetic rather than tuning.
-`dsk_rah_have` derives a cached sector's address as **one 16-bit offset** from
+`dsk_rah_serve` derives a cached sector's address as **one 16-bit offset** from
 `dsk_rah_seg` — `(slot × DSK_RAH_SECS + delta) << 9` — so the whole cache has
 to fit one segment: `RUNS × SECS ≤ 128`, which at a 9-sector chunk is 14 runs
-and 63KB. **15 wraps the offset silently**: `dsk_rah_take` would serve a
+and 63KB. **15 wraps the offset silently**: `dsk_rah_serve` would copy a
 sector from the front of the cache, the data would be wrong, and nothing
 anywhere would report it. There is a `%error` on it.
 
@@ -30859,11 +31395,17 @@ competing for — which is §18.95.4's curve doing what it said it would: the
 first 4.5 KB buys 72% and the last 27 KB buys 4%.
 
 **Only the round-robin bound had to become dynamic.** `dsk_rah_flush` still
-clears all `DSK_RAH_RUNS` records — 126 bytes of `.bss`, already paid, and
+clears all `DSK_RAH_RUNS` records — 63 bytes of `.bss`, already paid, and
 clearing slots that no memory backs is free — which is what makes every other
-loop safe: `dsk_rah_take` never writes a slot at or above `[dsk_rah_runs]`, so
+loop safe: `dsk_rah_fill` never writes a slot at or above `[dsk_rah_runs]`, so
 the ones above it hold `RAH_N` = 0 for ever and every scan skips them. The
 scans read the live count anyway, for the cycles rather than for correctness.
+
+**`[dsk_rah_next]` is a SLOT INDEX and not a byte offset** (§18.95.9), so that
+bound is read straight out of `[dsk_rah_runs]` at the one place it binds, and
+no second copy of the width exists anywhere to go stale. `kd_shed`
+(§96.44.11) narrows that word from another file entirely, which is exactly the
+kind of writer a mirrored bound is unsafe against.
 
 **There is no grow path and there does not need to be one.** Every claim sizes
 itself from what is free at that moment, and the cache is purgeable (§50.6),
@@ -30952,8 +31494,8 @@ a cap of 0 lands below `DSK_RAH_MIN` and refuses at the floor's own compare, so
 *hold nothing* is the same two instructions as *too small to be worth having*.
 
 **A ceiling that does not change does nothing at all**, and any other value
-**re-solves** — `dsk_rah_drop` then `dsk_rah_want`, whichever way the cap
-moved. The first half is what makes *asking* free: `DSK_RAH_AUTO` on a machine
+**re-solves** — `dsk_rah_redo`, which is the drop falling through into
+`dsk_rah_want`, whichever way the cap moved. The first half is what makes *asking* free: `DSK_RAH_AUTO` on a machine
 that has commanded nothing is a compare and a return, which is why the DOS
 box's Memory page can read the width back on every paint (§96.36.6).
 
@@ -30968,22 +31510,118 @@ the caller that commanded it down is the one whose program has just been all
 over the disk.
 
 A refused drop — `[dsk_rah_busy]`, a fill in flight — leaves the old width
-standing, `dsk_rah_want` returns at its own guard, and **AX reports what is
-really there** rather than what was asked for. That is the only case where the
+standing, the `dsk_rah_want` it falls into returns at its own guard, and
+**AX reports what is really there** rather than what was asked for. That is the only case where the
 answer and the request differ without CF being set, and it is why the answer is
 a number rather than an acknowledgement.
 
-`dsk_rah_drop` is `mem_shed_one`'s ending without its scan, and it refuses
-while `[dsk_rah_busy]` is set. That cannot be *our* fill — the transfer holds
-`[sch_lock]` — but `dsk_rah_fill` raises the flag two instructions before the
-lock is taken, and a tick landing in that window leaves a task that is about to
-write into the claim. Five bytes, so the question does not arise.
+`dsk_rah_redo`'s first half is `mem_shed_one`'s ending without its scan, and it
+refuses while `[dsk_rah_busy]` is set. That cannot be *our* fill — the transfer
+holds `[sch_lock]` — but `dsk_rah_fill` raises the flag two instructions before
+the lock is taken, and a tick landing in that window leaves a task that is about
+to write into the claim. Five bytes, so the question does not arise. **The CF it
+answers is read by nobody** — a refused drop wants the solve attempted anyway,
+and the solve refuses at its own guard — which is why the drop and the solve are
+one fall-through and not two calls (§18.95.9).
 
 **A REUSED CELL.** 0x0300 was `OSAPI_GFX_LINIT`, retired with the rest of
 §5.12.7's walk, so the table does not grow. A retired cell answers CF=1 and
 every caller of one has to test CF (§5.12.7), so there is no program that
 reaches this number and would notice. `OSAPI_DRV_CLASSK` took 0x0580 the same
 way in the same cycle.
+
+#### 18.95.9 …and the whole of it is 530 resident bytes, after a size pass
+
+The cache is **`.cold`, and `.cold` is resident** — it rides between the image
+rung and the FAT window inside `KERN_SIZE`'s span (§2.6), so every byte of it
+comes off the heap and therefore off the DOS arena, byte for byte, on both
+kernels. That is what makes a size pass over it worth taking: the surface was
+**651 bytes** (17 `.text` + 634 `.cold`) and is **530** (17 + 513), with the
+transfer loop's own call site 17 bytes shorter besides and three words of
+`.bss` gone with the routines that passed them through. Measured:
+
+| | `.text` | `.bss` | `.cold` | sum |
+|---|---:|---:|---:|---:|
+| `kern_big` | 49,891 → 49,891 | 6,092 → 6,086 | 40,899 → 40,761 | **−144** |
+| `kern_small` | 37,263 → 37,263 | 4,179 → 4,173 | 26,588 → 26,450 | **−144** |
+
+Identical because none of it is behind a build gate. No rung uncrossed, which
+per this file's own banner is not the point.
+
+Four of the six cuts are the same finding: **one question was being asked
+twice.**
+
+**`dsk_rah_serve` is `dsk_rah_have` + `dsk_rah_take` + the call site's branch
+ladder.** `dsk_xfer` used to call `take`, then `len`, then compare, then
+`fill`, then call `take` **again** — and the second `take` re-scanned the whole
+slot table to find the record the fill had just written, "which covers DI by
+construction". One routine holds that record in SI across the fill instead, so
+a miss that fills walks the table **once** rather than twice, and the two words
+of `.bss` the pair used to pass its answers through (`dsk_rah_rem`,
+`dsk_rah_got`) are gone with it. 153 bytes + 25 at the call site → 107 + 8.
+
+**`dsk_rah_len` is `dsk_rah_fill`'s first act**, because §18.95.1's pollution
+gate and the fill are the same divide. The old routine's own header said its
+*"OTHER caller is the pollution gate"*, and the gate called it and then called
+`fill`, which called it again. The fill now answers CF=1 to *no surplus* and to
+*the read failed* alike, which is what the one caller did with them anyway.
+
+**The round-robin cursor is a SLOT INDEX**, not a byte offset. The offset form
+made `RAH_REC` cancel out of one shift, and the price was recomputing
+`runs × 9` at every fill to know where to wrap — 19 bytes of shift-and-add
+inside `push ax`/`push bx`. An index wraps against `[dsk_rah_runs]` itself, so
+**no second copy of the width exists**: `kd_shed` (§96.44.11) narrows that word
+from `kerndos/kdshim.inc`, and a mirrored bound is exactly what a writer in
+another file breaks silently — a cursor past the new width fills a slot no
+memory backs. `[dsk_rah_slot]` went with it.
+
+**`dsk_rah_want` writes the width only once the memory is really there.** It
+used to store `[dsk_rah_runs]`, claim, and zero the word again on the refusal —
+two stores and a jump to end where a refusal already ends, and a window in
+which the word described a cache that did not exist.
+`kerndos/kdshim.inc`'s `mem_avail_lvl_x` carries a paragraph about answering 0
+rather than letting the claim be refused, *"to keep `dsk_rah_want` off its own
+floor test"*, for precisely that reason; the order here makes the hazard
+structural instead of avoided. The KB is `mul cx` against the **same CX the
+divide two lines up was given**, which is eight bytes and a stronger invariant
+than the shift-add it replaces — the multiplier can no longer drift from the
+divisor because it is not a second spelling of it.
+`tests/unit/t_dirwsize.py` is the row, and it checks that nothing writes CX
+in between.
+
+**`dsk_rah_drop` is `dsk_rah_redo` and falls through into `dsk_rah_want`**, its
+only caller having wanted the pair. Its CF is read by nobody.
+
+And `dsk_rah_wr` tests the overlap with two unsigned **subtracts** rather than
+two sums — `first − chunk_start < chunk_n`, or `chunk_start − first < count` —
+which needs one scratch register where a sum needed AX saved and restored
+around every iteration. The volume moves into DH beside a byte-wide slot
+counter in DL, since the width cannot exceed `DSK_RAH_RUNS`. The volume extent
+and the chunk cap became **one minimum** rather than two branches, because
+*past the end* already means *ask for one*, which is the minimum against 1.
+
+**What it does to the CLOCK**, since a size pass may not quietly cost speed.
+The two hot paths get faster: a hit is one scan minus a `call`/`ret` and a
+nested prologue, a fill saves a whole table walk (up to 7 slots × 13
+instructions) and a `div`, and `dsk_rah_wr`'s loop body goes from 15
+instructions to 12. Two **cold** paths pay ~114 cycles each for `mul` where a
+shift chain stood: once per MOUNT, against several ~24 ms sectors, and once per
+FILL, against a ~400 ms `int 13h`.
+
+**What was priced and refused**, so it is not re-derived:
+
+| | why not |
+|---|---|
+| a shared table scan for `dsk_rah_serve` and `dsk_rah_wr` | ~45 bytes for the resumable primitive plus ~12 at each of two call sites against 71 inline — **saves 2**, and the two want different registers live and disagree about the signature test |
+| folding `OSAPI_DSK_CACHE` into another slot as an `AH` verb, §51.11's shape | the cell is 3 bytes of table and a door is 6–9 (§20.3.1's free list is empty, so only a TAIL cell retires cleanly) — **costs 4** |
+| one key word per slot, `[dsk_sigcur]` mixed with the volume index | 19 bytes, for a **new collision class**: two volumes whose signatures differ by exactly the drive delta would serve each other's sectors, silently |
+| `dsk_rah_flush` via `stosw`, or zeroing the whole 63-byte table | ES is not `KERNEL_SEG` in kernel code, so it costs a push, a load and a pop — **+1** |
+| a blanket drop in `dsk_rah_wr` instead of the range test | 69 bytes, and it is §18.95's measured behaviour: a copy's writes are file data, and dropping on those evicts the source's chunks on every one |
+| a stored `[dsk_rah_lim]` = `runs × RAH_REC` for the fill's wrap | −15 in the fill for +3 in the solve and a word of `.bss` — but it is a **mirror**, and `kd_shed` is in another file. The slot index is 19 better *and* mirror-free |
+| hoisting `[disk_drive]`/`[dsk_sigcur]` out of `dsk_rah_serve`'s scan | 6 bytes a loop, and **there is no free register** — six values are live in six. Putting the volume in CH (the width is a byte) forces `dec cl`/`jnz` over `loop` and a 4-byte load: −3 inside, +6 outside, **+3** |
+| moving §18.95's four-test gate off `dsk_xfer` into `dsk_rah_serve` | 4 × 7 = 28 at the site against 28 plus a `stc`/`ret` exit in the routine — **+2** |
+| a table for the solve instead of the divide-and-clamp ladder | the ladder is a `div` (7) and three compares (21). A table indexed by KB wants hundreds of entries; a range search over it is longer than 21 |
+| merging `dsk_rah_redo` into `osapi_dsk_cache_x` outright | a published slot preserves every register but its outputs, so the pushes stay: the saving is the `call`/`ret`, and it would put the drop out of reach of any second caller. The fall-through gets 12 bytes with neither cost |
 
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 
@@ -34037,7 +34675,57 @@ paid for it.
 
 **Frotz ships without a story.** `tools/getstories.py` fetches those and they
 are never committed (§61), so what rides here is the interpreter; `make zdisk`
-is still where a story disk comes from.
+is still where a story disk comes from. **The live media does carry them**
+(§80.6) — that volume is 32MB and the whole library is 2,519KB, where this one
+is a floppy the library alone would not fit on.
+
+### 19.10.1 The four packages that ride no floppy do not ride this one either — the 1.2MB disk decides it
+
+`RECORDER.O88` (§35.1), `HELLO.O88` (§27.0), `PACMAN.O88` (§89) and
+`SCRIBE.O88` (§95) are each built by `all` and carried by no shipped floppy,
+and every one of those four decisions is a **360KB cluster argument**: DOT
+DELIRIUM wanted PACMAN's six of the 354, two word processors are 49KB of one
+apps disk, `HELLO` is the SDK's worked example rather than a program. This
+disk's premise is completeness, so they belong here — **and they do not fit.**
+
+**The second geometry is the binding one**, which is the whole finding.
+`build/apps-all-120.img` is 2,371 clusters against 1.44MB's 2,847, and RunCPM's
+drive `A\0` on it is the ranked fill that absorbs whatever is left over: **43
+clusters, 21 of the master disk's 77 files**. Measured:
+
+| added | `A\0` budget | what the fill chooses |
+|---|---|---|
+| — | 43 clusters | 21 master-disk files |
+| the three small packages + `$(MEDIA_EXTRA)`, 12,844 bytes | **14** | **one file: its own `LEFT-OFF.TXT`** |
+| …and SCRIBE's three, 56,048 more | **−104** | nothing |
+
+A negative budget is answered by choosing nothing and `--verify` passes on the
+result, so what ships is **a CP/M emulator with no CP/M on its drive A** —
+thirteen kilobytes of package for twenty-one programs, on a disk nobody asked
+to make that trade. And a 1.44MB-only entry is not the answer either: the two
+geometries share **one** payload list on purpose, because *two hand-maintained
+everything-lists is exactly how they drift*.
+
+**So they ride the live media instead** (§80.6), where the whole of it is 0.2%
+of a 32MB partition and none of the four arguments is about 354 clusters.
+`$(ALLAPPSARGS)` and both everything-floppies are unchanged. The same goes for
+`$(MEDIA_EXTRA)`, the category disks' documents (§24.6.2) that `MEDIA/` here
+still lacks — `SALES.SLK`, `WRITING.MD`, `SAMPLE.BMP` — so Sheet, **Chart**
+(whose only launch path is `File > Open`: it declares no association at all),
+ArtfulType and Paint open their dialog on a folder with nothing they can read
+on this disk and not on the live one.
+
+**SCRIBE's "the two would collide" was stale**, and it is recorded here because
+it is what kept it off the live media too. WORD declares `.DOC`; a second
+claimant would not be refused but would *win or lose by directory order*,
+because `kernel/assoc.inc`'s `assoc_ext_new` ends in `mov [bx+3], dl`.
+`apps/scribe/scribe.asm` designed that out at the source — it declares **no
+association block at all** and spends twenty lines saying why — so the
+collision has been impossible since the fork landed.
+
+`tests/unit/t_livefull.py` is what keeps the live side of this true (§80.6):
+its PART A sweeps `apps/` and fails the build when a directory there reaches
+no payload list.
 
 ## 20. Loadable programs — the .o88 package format
 
@@ -35397,24 +36085,25 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy. **256 of those bytes move by `rep movsw`** — the
-twelve 16-byte names and the `MAX_TASKS` dword cycle counters, both of which
-are contiguous at both ends — and the rest is field-at-a-time, because the
-gather really is strided there (a task state is one byte every `T_SIZE`, and
-an instance record and its snapshot row have different layouts). That is
-roughly **2.2–2.6 ms with interrupts off on a 4.77 MHz 8088** — still the
-longest IF=0 window in the system, and safe by about 3×, not comfortably: the
-8250 holds exactly one mouse byte and the next arrives ~8.3 ms behind it at
-1200 baud, and the PIT (55 ms) is merely delayed. **A caller must treat it as
-a twice-a-second call, not a per-frame one** — at that cadence the window is
-noise, per frame it is a stall the mouse can feel.
+about 414 bytes of copy. **All but the task states move by `rep movsw`** — the
+`MAX_TASKS` dword cycle counters, and since §29.1.2 the **whole instance
+table**, which is one string move because a snapshot record IS an instance
+record. What is left field-at-a-time is the one gather that really is strided:
+a task state is one byte every `T_SIZE`. That is roughly **1.8–2.2 ms with
+interrupts off on a 4.77 MHz 8088** — still the longest IF=0 window in the
+system, and safe by about 3.5×, not comfortably: the 8250 holds exactly one
+mouse byte and the next arrives ~8.3 ms behind it at 1200 baud, and the PIT
+(55 ms) is merely delayed. **A caller must treat it as a twice-a-second call,
+not a per-frame one** — at that cadence the window is noise, per frame it is a
+stall the mouse can feel.
 
 Both figures are derived rather than measured, by the same method: 8088
 clocks with EA and prefetch costs. What the string ops took out is about
-6,500 clocks — the names are ~209 clocks a record against ~700, the counters
-~409 against ~864, the task states ~312 against ~384 — and the `cld` those
-copies need sits **after** the `pushf`, so the `popf` gives the caller its own
-DF back. A package that runs with `std` is not rare (§20).
+8,600 clocks — the instance records are ~26 clocks a WORD against a
+transcription costing ~590 a record, the counters ~409 against ~864, the task
+states ~312 against ~384 — and the `cld` those copies need sits **after** the
+`pushf`, so the `popf` gives the caller its own DF back. A package that runs
+with `std` is not rare (§20).
 
 **`SSI_SEG` is a SAMPLE, not a handle.** It is a package's region base copied
 into the caller's own buffer, so once §66.6's door opens no kernel fix-up can
@@ -36361,20 +37050,30 @@ dispatcher — and **not** `ld_check_hdr`, which is about the *file*: a part has
 no file size to be compared against, and the flags-bit arithmetic §20.12.3
 describes belongs to the container.
 
-What replaces it is **three** bounds, and the arm applies all of them to the
-same `image + bss`:
+What it runs instead is **`ld_hdr_size`**, and that is not a third copy of
+anything: it is the part of `ld_check_hdr` that was never about the file — the
+image, the bss and the entry, and every bound on them — factored out and called
+from both. Two of the three bounds below are its body and the third is this
+arm's own.
 
-1. the `add`'s **carry** — each operand is a 16-bit header field and the sum is
-   17 bits;
+1. the `add`'s **carry** on `image + bss` — each operand is a 16-bit header
+   field and the sum is 17 bits;
 2. **`APP_MAX_SIZE`**, the same 60KB ceiling every other package has. `ld_check_hdr`
-   applies it to a *file* and this path never goes near it, so without the test
-   a re-homed program would be bounded by a 16-bit word and nothing else — a
-   silent divergence between two ways of starting the same kind of program, and
-   the wrong direction to diverge in;
+   applies it to a *file* and this path never goes near it, so without a shared
+   body a re-homed program would be bounded by a 16-bit word and nothing else —
+   a silent divergence between two ways of starting the same kind of program,
+   and the wrong direction to diverge in;
 3. **`AX`, the bytes the loader says are available at `DX`** — the loader's word
    for what it actually put there, not the part's word for what it wants.
    §51.1.2's warning is why it is that way round: *the header is a FILE, and a
-   foreign tool may write any `LD_H_BSS` it likes*.
+   foreign tool may write any `LD_H_BSS` it likes*. This one is the arm's alone
+   and is applied to the `DX` `ld_hdr_size` answers with.
+
+**Sharing the body gave this arm a fourth check it did not have**: the entry
+offset is `>= LD_HDR_SIZE` and `< image`, which every package launched off a
+disk has always been held to and a re-homed one was not. It is the same
+divergence argument as bound 2, one field along — and it is a strictly tighter
+fence in front of `inst_entry_ok`'s, below.
 
 **And the same value is `I_SIZE`, which is not optional.** Step 9 publishes
 `[ld_need]`, and `ld_alloc` left the **loader's** region size in it — so without
@@ -36523,6 +37222,14 @@ Measured against the tree it landed on, `.text` being the scarce side
 | `.text` | the table cell (`OSAPI_XCELL`, 8 bytes) + its `call COLD_SEG:` thunk |
 | `.bss` | `ld_rehome` and `ld_rehsz` |
 | `.cold` | `osapi_pkg_rehome_x`, `ld_start`'s step 8a, `mem_reown_x` (20 bytes of it the trim, §20.12.10.5), and `ld_alloc`'s clear |
+
+The arm has since been swept and step 8a is **51 bytes smaller** than that
+table was written against, with no check removed and one added (§20.12.10.4):
+the header's size fields go through `ld_hdr_size`, shared with `ld_check_hdr`,
+and the re-own/free pair is one `xchg` rather than a second `mov di, [ld_rec] /
+call ld_slot / mov dx, [ld_base]` — `mem_reown_x` preserves every register, so
+the two words `mem_free_x` wants are the two it was handed, the other way
+round. The six bytes an ordinary launch pays are unchanged.
 
 `mem_reown_x` is `mem_free_owner_x` with one instruction changed, and
 deliberately a **second walk** rather than one walk with a flag: the obvious
@@ -37128,8 +37835,39 @@ claims 1,943 bytes for a 2,682-byte document.
 |---|---|---|
 | `OSAPI_FILE_READ` | **unpacked**, in `DX:AX` | **unpacked** |
 | `OSAPI_FILE_FIND` +18 | **unpacked**, with **bit 0 of +22** set | — |
+| the Standard File dialog's completion `DX:CX` (§38.6) | **unpacked** | — |
 | `OSAPI_FILE_READ_AT` | on-disk | **raw — the packed bytes** |
 | `OSAPI_FILE_DFREE`, the free-space arithmetic | on-disk | — |
+| a LISTING row, §19.1's staged entry at +20 | on-disk — *what it occupies* | — |
+
+**THE DIALOG ROW IS NEW AND THE TABLE'S OMISSION OF IT WAS THE BUG.** §38.6
+hands every completion proc the chosen file's size precisely so that an
+application can fund its claim before the motor turns, and `fdlg_sizeof`
+answered out of the LISTING — the last row above, the one that is deliberately
+raw. So the dialog and `OSAPI_FILE_FIND` disagreed about the same file, and
+the dialog was the wrong one:
+
+> `BEVERLY.MOD` is **116,085** bytes and **42,174** lz4-packed. Tracker and
+> ModPlug claimed 42KB off the dialog, `dskw_rbody` checked that capacity
+> against the 116,085 it was about to deliver, and both printed **"File too
+> big"** for a module that fits a 640KB machine six times over.
+> **Double-clicking the same file worked**, because §54.7's association route
+> goes through `OSAPI_FILE_FIND`.
+
+`kernel/compress.inc`'s `cmz_sizes` had already written the general hazard
+down — *"a listing showing a compressed file shows what it occupies, and a
+verb claiming from that would claim a third of what the read is about to
+deliver"* — at the one call site that solved it. The dialog was the call site
+that did not, and no row of this table named it, so there was nothing to read
+the hazard off. `fdlg_sizeof` decodes the hint now (§38.6.1).
+
+**The listing row stays raw and that is not a second defect.** A listing shows
+what a file occupies because that is what a listing is about, and §19.1's
+record is meaningful only to offset 23 — `kernel/dskwin.inc` took the eight
+dead bytes off the staged stride because 256 bytes of `.lowbss` is the
+tightest rung in the kernel. Widening it back to carry three bytes of hint
+would cost every entry of every volume on every machine, to answer a question
+asked once per dialog.
 
 **`OSAPI_FILE_READ_AT` IS THE RAW PATH AND STAYS RAW**, and it has a SIZE cell
 to go with it: `OSAPI_FILE_FIND_RAW` (0x0500) is the same walk into the same
@@ -37501,6 +38239,14 @@ on entry. Steps:
    It is done here rather than at step 9 because `dsk_get_dir` stages into
    `dsk_ent`, which is shared scratch that the icon harvest and the reads
    below all spend. Step 9 hands the package a pointer to it (§20.12.1).
+   **`ld_lname_cp` is the one body that does it** — at most `LD_NAMELEN`
+   characters and then a NUL, SI banked. All three entries into the pipeline
+   make this copy (this one out of the staged entry, `ld_run_name_x` out of the
+   caller's 8.3 name, `OSAPI_PKG_START`'s image arm out of the N stub's staged
+   copy) and each carried its own loop, in three spellings. Banking SI is what
+   let this site join: it used to lean on `rep movsb` leaving SI advanced by
+   exactly `LD_NAMELEN`, so the three entry fields it reads next were written
+   as subtractions from that.
 2. Peek the header: AX = [ld_clus] → `dsk_clus2lba` (CF → status 2), then
    `disk_read` 1 sector into `dsk_secbuf` (UI-task-only shared scratch) —
    the first sector of the first cluster IS the file's first 512 bytes,
@@ -37654,7 +38400,10 @@ OSAPI_PKG_START KERNEL_SEG:0x0520        ; an N cell
                 non-zero. ANY segment — it is COPIED into a region of the
                 kernel's own, never adopted, so you may free your claim the
                 moment this returns.
-                ...or, when DX:CX is ZERO, a DOCUMENT to open it with (§21.5.3)
+                ...or, when DX:CX is ZERO, a DOCUMENT to open it with (§21.5.3),
+                whose 8.3 name and the name in SI are both UPPER CASE — this
+                arm compares them against the association tables, which are
+                uppercase-exact, and does not fold (§21.5.3.2)
        ES     = 0 means *I am passing you nothing through `ES:DI`* — ONE
                 sentence covering both arms, and the image arm already
                 enforced it
@@ -37710,7 +38459,7 @@ been told how it went*, and `CF = 1, AL = LD_EBAD` for the one thing the
 caller could not have known — that nothing on this machine opens it. A caller
 wanting a richer answer wants the plain arm and a program name.
 
-##### 21.5.3.2 …and the names are folded to UPPER CASE here too
+##### 21.5.3.2 BOTH NAMES ARRIVE UPPER CASE, and the CALLER folds them
 
 The association tables are **uppercase-exact** — `assoc_find` compares bytes
 and `assoc_ext_of` says so in its own header — because they are built from FAT
@@ -37720,19 +38469,66 @@ Reported off the glass: `open readme.txt` found no association for `.txt`
 while `OPEN README.TXT` opened Note Pad, and `notepad readme.txt` answered
 `Cannot open notepad` because `assoc_app_of` compares the stem byte for byte.
 
-**This arm has to fold and the plain arm does not**, which is the asymmetry
-worth understanding rather than a special case: the plain arm resolves through
-the FILE layer, and `dskw_char_x` upcases on the way past. Nothing in the
-association path goes through it.
+**So the document arm needs a fold and the plain arm does not**, which is the
+asymmetry worth understanding rather than a special case: the plain arm
+resolves through the FILE layer, and `dskw_char_x` upcases on the way past.
+Nothing in the association path goes through it.
 
 **The whole NAME, not just the extension.** The package opens the document by
 that name — `OSAPI_ARG_FILE` hands it over and the package GOTOs and READs it
 — so a lowercase 8.3 name matches nothing on a FAT volume either. Folding the
-extension alone would have turned a visible refusal into a package opening an
-empty window on a file it could not find, which is the worse failure.
+extension alone would turn a visible refusal into a package opening an empty
+window on a file it could not find, which is the worse failure.
 
-It stops at the NUL: the bytes past the name belong to nobody and folding them
-would be a lie about what was passed.
+**THE FOLD IS THE CALLER'S AND IT USED TO BE THE KERNEL'S.** It shipped here,
+as `ld_pkg_upc` and two loops — one over the 13-byte document name and one
+over the program name's 8-byte stem — and that was **44 resident bytes**:
+`.cold` is resident, so they came off the heap, and off the DOS arena with it,
+on every machine ever booted. What they bought was one caller being able to
+pass keyboard text, and **that caller is `apps/dos/` and there is no other**.
+The Wire, the only other user of the slot, is on the image arm and passes
+`ES = 0`. The box folds in `dos_pgname`, the copy that fills both launch
+cells, and **it is free there**: that copy was written out three times in
+`dosc.inc` — once for the program name and twice for a document — so naming
+it removed more box bytes than the fold added, and `OPEN` and `PROGRAM
+DOCUMENT` are covered by one site with neither console handler having to
+remember (§96.33.22.1).
+
+The rule for a future caller is therefore one line of this slot's `in:` block:
+**on the document arm, both the name in `SI` and the 8.3 name in the locator
+are upper case.** It fails softly and visibly if they are not — `AL =
+LD_EBAD`, *nothing on this machine opens it* — and `tests/dosopen.py` is the
+gate, typing `notepad readme.txt`, `OPEN readme.txt` and `NOTEPAD readme.TXT`
+and requiring Note Pad on all three.
+
+A fold would stop at the NUL if one were here: the bytes past the name belong
+to nobody and folding them would be a lie about what was passed. The locator's
+cluster WORD and volume BYTE are binary and must never be folded at all, which
+is why `dsh_upper`'s NUL stop is load-bearing on the box side.
+
+##### 21.5.3.3 The locator's shape IS the kernel's own three cells
+
+`assoc_doc` (13), `assoc_dclus` (word) and `assoc_ddrv` (byte) are declared as
+**one 16-byte block** in `assoc.inc`, with `equ` names rather than three
+`resb` lines. That is not tidiness: it is the published locator above, in the
+published order, so the document arm's copy is **one `assoc_stage` of 16** and
+not a 13-byte stage followed by two hand-written field reads against the `SI`
+that stage happened to leave behind.
+
+`assoc_fnb` used to sit in the MIDDLE of the three. A block cannot have a line
+inserted into it, which is the whole reason for declaring it as one.
+
+The fold's departure (§21.5.3.2) is what makes the single walk legal at all:
+a folding copy of 16 bytes would have upper-cased the cluster word and the
+volume byte, and a directory cluster of `0x6C6C` would have silently become
+`0x4C4C`. The two changes are one change.
+
+The same paragraph's other byte: `ld_pkg_start_x` reads `ES` **once**, for the
+image arm's *an image at segment 0 is the interrupt vector table* refusal, and
+hands `AX` to the by-name arm rather than having it read the register again.
+`mov` writes no flag, so the `or ax, dx` that decides which arm to take is
+still the flag the `jz` reads with the `mov ax, es` sitting between them.
+There is exactly one entry to `ld_pkg_byname` and it is that `jz`.
 
 ##### 21.5.3.1 The cache is seeded HERE, because no caller's path does it
 
@@ -39982,7 +40778,7 @@ cap. They are now **four words** — `[dsk_dseg]`, `[dsk_doff]`, `[dsk_ioff]`,
 
 | | segment | entries | icons | cap |
 |---|---|---|---|---|
-| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 |
+| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 on `kern_big`, **32** on `kern_small` (§22.6.2) |
 | a driver-backed volume | its driver's claim | 0 | `DSK_VENT × 32` | `DSK_VENT` = 64 |
 
 The claim is **6KB** — 64 × (32 bytes of entry + 64 bytes of icon) — made by
@@ -40053,6 +40849,69 @@ goes back to a floppy and then holds a 32-entry listing in a 64-entry claim —
 which is precisely the disagreement this section is about, moved one field
 along. The byte costs nothing: it is `+15`, the second of the two `FS_FERR` /
 `FS_LDST` holes §59.5 left behind, and `FS_SIZE` does not move.
+
+#### 22.6.2 `DSK_NENT` is 64 on `kern_big` and 32 on `kern_small`
+
+Sixty-four was taken **for the DOS box**: DOS directories are busier than this
+OS's ever were — LEMMINGS 68 entries, F15 66, TD1 41 — and a listing that
+stops at 32 stops halfway down a real one. `kern_small` has no DOS box. The
+plan to run one there exists and **was not realised**, so a reader who takes
+the plan for a description of the tree will find an argument for 64 that does
+not apply to this kernel; the artefact is what settles it, and
+`build/small.img` and `build/small360.img` carry **12 root entries with 8 in
+the busiest folder**.
+
+So `disk_dir` is 768 bytes there rather than 1,536 and `dsk_icoix` 32 rather
+than 64:
+
+```
+                                  kern_big   kern_small
+dsk_secbuf                             512          512
+disk_dir       (DSK_NENT x 24)       1,536          768
+dsk_icoix      (DSK_ICOIX_N)            64           32
+                                   -------      -------
+DSK_WIN_BYTES                        2,112        1,312
+FAT window     (DSK_FAT_SECS x 512)  4,608        1,024
+                                   -------      -------
+region                               6,720        2,336
+```
+
+**800 bytes of `.lowbss`**, and on the tightest rung in the kernel they are
+worth more than that: `LOW_PARA` is `((KLOW_SIZE + STK0_SIZE + 511) / 512) *
+32`, so `.lowbss` 5,236 → 4,436 uncrosses a whole 512-byte step and
+`HEAP_SEG` falls 64 paragraphs. **1,024 bytes of heap on a machine with
+128KB**, measured on `kernsize`'s ladder line: `HEAP 0x12c0 = 75.0 KB` →
+`HEAP 0x1280 = 74.0 KB`. The banner rule applies in the usual direction —
+the 800 bytes are what the change is worth and the 1,024 is when the machine
+pays it — and here the rung happened to fall the generous way.
+
+**It cannot be taken on its own, and that is §2.5.3.2.** `.ovlw` is loaded
+onto this region and the guard is
+`roundup(OVLW_SIZE, 512) <= FAT_PARA*16 + DSK_WIN_BYTES`. At 32 entries the
+ceiling is 2,336, so `.ovlw` has to be **2,048 or less** first, and it was
+2,820. Moving the mouse and adapter probes into `.ovl` is what makes room;
+moving them on their own moves `HEAP_SEG` by **zero**. Neither half is a
+change anybody can land alone.
+
+**32 is a multiple of 32 and that is a requirement**: `files.inc`'s `FS_IOFH`
+holds a listing's icon base in ONE byte, so `DSK_NENT × DSK_DE_STRIDE` must be
+a multiple of 256 — at a stride of 24 that makes 32 the only legal value below
+64, and 0 the only one below 32. The value is therefore not a dial.
+
+**Nothing on `kern_small` can want 64.** `[dsk_nmax]` is only ever raised to
+`DSK_VENT` by `dsk_list_pick`, for a `DVK_DRV` volume, and §51.0 takes the
+loadable-driver mechanism out of that build entirely — `DVOL_MAX` is 4 there
+for the same reason, every volume it will ever have being a BIOS floppy.
+`fmv_fit`'s `cmp word [dsk_nmax], DSK_NENT` therefore always takes the
+`VIEW_KB` arm.
+
+**And the host side reads the number rather than mirroring it.**
+`tools/os88disk.py` refuses a disk with more listed entries in a directory
+than the kernel can show, and it parses `DSK_NENT` out of `kernel/dskwin.inc`
+instead of restating it. With two arms in that file it now parses **both**,
+defaults to `kern_big`'s, and takes `--kern-small` on exactly the four
+recipes that already pass `--fatcap 2` — one fact about one disk, said about
+its FAT and about its listing.
 
 ### 22.7 The status line's resting state — this folder's size, this volume's free space
 
@@ -42810,8 +43669,11 @@ Three details are load-bearing:
 - **A missing body is answered from the WINDOW, never from the global.** A
   cache may still hold a listing the global has since replaced — that is the
   whole point of `[dsk_lstale]` and of `FS_IOFH` recording the shape a slot was
-  filled with. So `fmv_get_icon`'s `0xFF` calls `dsk_ico_blank` rather than
-  falling through to `dsk_get_icon_x`, which would paint another volume's icon.
+  filled with. So `fmv_get_icon` resolves its OWN byte through
+  `dsk_ico_stage` rather than falling through to `dsk_get_icon_x`, which would
+  paint another volume's icon. `dsk_ico_stage` takes a REFERENCE; the
+  index form `dsk_get_icon_x` is five instructions in front of it that read
+  the global array.
 - **The index byte is read two at a time**, because `fmv_copy_in` moves words.
   The second byte is the next entry's index, or the first byte past the array
   and still inside the claim — `FV_ICOIX`'s `%if` is what bounds that — and it
@@ -43369,15 +44231,43 @@ array had a SECOND JOB nobody had written down: it was the boot overlay's
 landing ground. Shrinking the listing takes that room away, so the pad replaces
 it by name - dead at runtime, and returned the day `.ovlw` shrinks.
 
+**AND IT WAS, TWICE, so `DSK_OVLPAD` is 0 today.** First `DSK_NENT` doubled to
+64 and put 768 bytes of real ENTRIES back in the same region, which the
+overlay could use and the listing also wanted — a pad is only ever the bytes
+nothing else is doing a job with. Then §22.6.2 took `DSK_NENT` back to 32 on
+this kernel, and that is the shed this paragraph was waiting for: §2.5.3.2
+moved 910 bytes of `.ovlw` into the blob first, so the region could fall
+3,136 → 2,336 with the overlay still landing inside it. The pad stayed at
+zero throughout and the 800 bytes went to the heap rather than to a label.
+**The order is the whole lesson**: the listing cannot shrink under an overlay
+that needs the room, so a session that comes here looking for icon bytes to
+save on `kern_small` must cut `.ovlw` before it cuts anything in the
+region — one did, hit the guard, and reported it as the icon space being
+unshrinkable.
+
 #### 25.9.4 `ASSOC.DAT` absorbs INTO it, which is what lets that claim go
 
 The volume's association cache (§54.7) held a 64-byte body per row in a 3KB
 claim kept for the session — the same pictures, under the same `(stem, size)`
-identity, as the store. `ico_key_stem` composes a row's key from the other
-end (`<STEM>.O88` NUL-padded to twelve, then the size), so an **absorbed**
-body and a **harvested** one land on one row and answer one another's lookups;
-§54.7.4 is the mechanism and the reason the claim is now a transient file
-buffer.
+identity, as the store. **That identity is `ASSOC.DAT`'s own**: on `kern_big`
+the store's key IS §54.2's eight-byte space-padded stem and the size word
+beside it, so `ico_key_stem` copies a row's eight bytes VERBATIM and
+`ico_key_of` takes `assoc_stem_of`'s answer about a directory entry — the
+same eight bytes from the other end. An **absorbed** body and a **harvested**
+one land on one row because both sides copy the same thing, not because one
+of them reconstructs what the other would have built. §54.7.4 is the
+mechanism and the reason the claim is now a transient file buffer.
+
+**It loses no identity**, which is what makes it available at all: a key is
+built for a type-1 entry and for nothing else (`ico_ref_try` asks the type
+first) and every package is a `.O88` (§20.1), so `<stem>` and `<stem>.O88`
+name exactly the same set and the four extension bytes carry no information.
+`kern_small` keeps the twelve-byte 8.3 name: it has no `ASSOC.DAT` (§54.0),
+so it has one key builder, nothing to agree with and no `assoc_stem_of` to
+call — measured, the stem walk it would have to grow for itself is **45 bytes
+against 22**, so the change that is worth 37 on the machine with memory costs
+23 on the machine with 128KB. The key shape is internal to one build: nothing
+on disk and no ABI names it.
 
 **A COMPOSED DOCUMENT BODY IS KEYED ON THE GLYPH IT CAME FROM**, and it is the
 only body in the store that is *derived* rather than read. `assoc_compose`
@@ -43414,11 +44304,20 @@ example, and it is built rather than carried.
 
 ### 27.0 HELLO NO LONGER SHIPS — built by `all`, carried by no floppy
 
-`HELLO.O88` is off the apps disks at every geometry, off the small apps disks,
-off `build/apps-all.img` (§19.10), off the category disks (§24.6) and off the
-live media (§80). It is not in `$(APPS_TOOLS)`, so every list derived from that
-one lost it in the same edit, and it is on no system disk either — it was never
-a core package (§24.3). This is `RECORDER.O88`'s arrangement (§35.1) reached
+`HELLO.O88` is off the apps disks at every geometry, off the small apps disks
+and off the category disks (§24.6). It is not in `$(APPS_TOOLS)`, so every list
+derived from that one lost it in the same edit, and it is on no system disk
+either — it was never a core package (§24.3).
+
+**It IS on the live media** (§80.6), and that is not a reversal of the
+paragraph above. That image is the one that is *not* curated: completeness is
+its premise, so what rides it is decided by what this project builds rather
+than by what a 360KB disk has room to demonstrate. The SDK's worked example on
+the medium somebody downloads to see what the machine is, is exactly where a
+worked example belongs; the row it occupied in `APPS/` on a floppy someone
+actually uses is not. It is **not** on `build/apps-all.img`, and §19.10.1 is
+the arithmetic that decided so — that disk's 1.2MB geometry pays for a package
+out of RunCPM's drive A. This is `RECORDER.O88`'s arrangement (§35.1) reached
 from the other end: that one is a finished application whose disks ran out of
 reasons to carry it, and this one is a **demonstration** that was on a shipped
 floppy because the SDK's first example happened to be written before there was
@@ -48401,6 +49300,108 @@ The Standard File dialog (§38) is deliberately **not** here: it is a modal
 interaction the kernel runs on behalf of the front application, not an
 application, and §38 explains what that buys.
 
+#### 29.1.1 The table has ONE walk — `inst_next`
+
+Every question the kernel asks of the table is *"for each record that is not
+free"*, and it was written out five times: `inst_of_seg`, `inst_find_kind`,
+`inst_park_all` and `app_launch`'s two scans each carried `mov di, inst_tab /
+mov cx, INST_MAX` over a `cmp byte [di+I_STATE], 0 / je .next` body and closed
+with `add di, I_RECSZ / loop`.
+
+`inst_next` is that walk, once.
+
+```nasm
+; in:  DI = the record just visited, or `inst_tab - I_RECSZ` to start
+; out: CF = 0 and DI = the next record with I_STATE != 0;
+;      CF = 1 and DI = one past the table
+; clobbers: DI (the output) and the flags. NOTHING ELSE, CX INCLUDED.
+```
+
+**The bound is the POINTER and not a count**, which is what makes it free at
+the call sites rather than merely shorter: three of the five banked CX purely
+to hold the count, and `app_launch`'s cap check counted *down* in DX because CL
+was already the answer it was accumulating. `cmp di, inst_tab + INST_MAX *
+I_RECSZ` needs no register, so CX comes back to all of them. A site costs the
+`call` and a `jc`.
+
+It stops on a **dying** record as well as a live one, and the two callers that
+care (`inst_find_kind`, and `app_launch`'s cap check by way of not caring) ask
+`I_STATE` themselves. A **free** record is not a walk: `inst_alloc` is looking
+for exactly the row this skips, and keeps its own scan.
+
+`files.inc`'s **`fm_reloc`** is the sixth caller and the only one outside this
+file — the listing cache's relocation proc (§66.6), which walks the Disk
+instances to find the one holding the block being moved.
+
+##### 29.1.1.1 The five walks that are NOT this one
+
+Every other `inst_tab` walk in the kernel was costed against `inst_next` and
+each is refused for a reason worth writing down, because the reasons are
+different and four of them are not about bytes.
+
+1. **`dock.inc`'s tile loop and `dockmod.inc`'s `.walk` are PER-SLOT, not
+   per-record.** `db_key` answers 0 for a free or dying row *on purpose*
+   (§29.2 rule 3) and the loop carries three cursors in lockstep — the record,
+   the `dock_ck` key beside it and the slot index — so a row this walk skipped
+   is a tile the strip would never notice had **gone**. `dockmod.inc`'s `.walk`
+   writes the slot index itself into `dock_pos`. A walk that skips rows cannot
+   answer either question.
+2. **`fsx.inc`'s sound-release loop is per-slot for the same reason one step
+   along**: `snd_release_inst` takes `AL = instance slot` (§34.3) and the loop
+   carries it as an `inc al`, while DI holds the *caller's* record — the one
+   grant that stays — and `inst_next` writes DI.
+3. **`dockmod.inc`'s `.count` IS this walk, and converting it would cost
+   resident bytes to save module ones.** `DOCK.DRV` is an on-demand module
+   (§2.8, §30.5) whose only route into the kernel is a resident far thunk, so
+   the conversion is `+6` bytes of `.text` on every machine for about `-4` in
+   an image that is present only while the advanced Dock is mounted, on
+   kern_big alone. Different money (docs/KERNEL-MEMORY.md), and the wrong way
+   round.
+4. **`files.inc`'s `fm_count` IS this walk — `I_STATE != 0`, exactly — and it
+   is `.cold`.** `inst_next` is `.text`, and the two are different address
+   spaces (§2.6), so it would need a `.cold` twin: 18 bytes to save 9.
+5. **`files.inc`'s `fmv_ifirst`/`fmv_inext` is this walk, arrived at
+   independently and one filter further on** — the same `inst_tab - I_RECSZ`
+   start, the same pointer bound, the same CF contract, with `I_STATE = 1` and
+   `I_KIND = KIND_FILES` folded in and seven callers in `.cold`. It is not a
+   site to convert; it is the same design, and the section split is why there
+   are two of them rather than one.
+
+#### 29.1.2 …and `osapi_sys_snapshot`'s record IS this record
+
+`OSAPI_SYS_SNAPSHOT` (§20.9) publishes one `SSI_*` record per instance, and
+every field of it sits at its `I_*` offset with `SSI_RECSZ = I_RECSZ = 32`. So
+the instance half of a snapshot is **one `rep movsw` of the whole table** —
+`mov cx, INST_MAX * I_RECSZ / 2` — where it was a field-by-field transcription
+between two layouts: eight reads, eight writes and a second `rep movsw` for the
+name, all inside the `cli` window the call exists to keep short.
+
+| `SSI_*` | = | what it is |
+|---|---|---|
+| `SSI_STATE` 0 | `I_STATE` | 0 free, 1 live, 2 dying |
+| `SSI_FLAGS` 1 | `I_FLAGS` | bit 0 = minimized. **Was a pad byte** |
+| `SSI_KIND` 2 | `I_KIND` | bit 7 = `KIND_PKG` |
+| `SSI_TASK` 3 | `I_TASK` | task slot, 0xFF = none |
+| `SSI_WIN` 4 | `I_WIN` | **OPAQUE** — the kernel's own window record. Read it as *has a window* or not at all |
+| `SSI_SEG` 6 | `I_SPTR` | the region's base segment (§20.9's "a SAMPLE, not a handle" still binds) |
+| `SSI_SIZE` 8 | `I_SIZE` | region bytes, 0 for a built-in |
+| `SSI_KB` 10 | *(over `I_ICON`)* | KB held off the claim heap |
+| `SSI_NAME` 12 | `I_NAME` | 16 bytes, NUL-terminated |
+| `SSI_CYC` 28 | `I_CYC` | dword, cycles billed |
+| `SSI_RECSZ` 32 | `I_RECSZ` | |
+
+**`SSI_KB` is the one field that is not the record's**, and it lands on
+`I_ICON` because an icon pointer means nothing outside the kernel and the KB
+figure is computed *after* the `cli` window closes (§20.9) — so whatever the
+copy left there is always overwritten.
+
+**It is an ABI move**: `apps/os88api.inc` carries the mirror, `SSI_RECSZ` went
+30 → 32 and `SYS_SNAPSHOT_SIZE` with it, and every `.o88` that reads a snapshot
+— the Task Manager (§28) and Audio (§62) — is rebuilt against the new offsets.
+Both files carry an `%if` ladder that fails the build if an `I_*` field moves
+without its twin, which is the standing arrangement `MAX_TASKS`, `INST_MAX` and
+`MEM_MAX` are already under.
+
 ### 29.2 Concurrency rules (binding)
 
 1. **Publish-last**: a record becomes visible by the `I_STATE ← 1` byte
@@ -48481,6 +49482,7 @@ init-less:
 | symbol | contract |
 |--------|----------|
 | `inst_init` | zero `inst_tab` + `inst_launch`. From kmain, after wm_init. |
+| `inst_next` | the table's ONE walk (§29.1.1). in DI = the record just visited, or `inst_tab - I_RECSZ` to start; out CF=0 + DI = the next record with I_STATE != 0, CF=1 + DI = one past the table. Clobbers DI and the flags and **nothing else, CX included** — the bound is the pointer, not a count. |
 | `inst_ptr` | in AL = instance index; out DI = record ptr. |
 | `inst_idx` | its inverse: in DI = record ptr; out AX = instance index (AH = 0 — the table is `INST_MAX` records of `I_RECSZ`, so the quotient never leaves a byte). Preserves every other register including CX, because five of its callers banked CX only for the shift count the open-coded form needed. `I_RECSZ` is a power of two by construction and this is the one place that fact is spelled. |
 | `inst_of_win` | in BX = window ptr; out CF=0 + DI = record (via `wm_ptr2idx` + `wm_owner`), CF=1 if unowned. Preserves BX. |
@@ -48494,11 +49496,11 @@ init-less:
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
 | `inst_minimize` | in BX = window ptr, lock held: set I_FLAGS bit0 (unowned → skip), wm_hide. |
 | `inst_restore` | in DI = record, lock held: clear I_FLAGS bit0, wm_show I_WIN. |
-| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, gfx_unlock, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
+| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: `inst_rel_rec`, `toast_owner_gone`, gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, `inst_sweep_seg`, gfx_unlock, `mem_free_rec`, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). **I_WIN = 0 is a case it answers itself** — the destroy is skipped and everything else runs, because `wm_destroy` with BX = 0 would zero the cold-entry `jmp` at 0800:0000 — so `inst_pkg_alive` has one leg where it used to carry a second copy of this routine. Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
 | `inst_wchk` | module-internal (§20.6). in BX = an untrusted window ptr; out CF=0 if BX lies inside `wm_wins` and is record-aligned, CF=1 otherwise. Preserves everything but the flags. The fence in front of `inst_of_win` for package-supplied pointers, whose `div cl` would otherwise fault. |
 | `inst_pkg_fence` | module-internal (§20.6, §53.1). in AX = a near entry offset, BX = an untrusted window ptr, ES = the caller's DS; out CF=1 refused, or CF=0 and DI = the instance record. `inst_wchk`, `inst_of_win`, I_STATE = 1, I_KIND bit 7, `ES == I_SPTR`, `AX < I_SIZE`. Clobbers DX (the ES scratch) and DI; both callers write DX immediately after it, which is why the scratch costs no bank. Written out twice until size pass 2 — `inst_pkg_spawn` below and `fsx_run` (§53.1), whose copy carried the comment "the fence is `inst_pkg_spawn`'s, verbatim". `inst_pkg_spawn`'s own `I_TASK = 0xFF` test is NOT part of it and now runs after it rather than between the I_STATE and I_KIND arms; every arm answers the same CF=1 with nothing changed, so the order is not observable. |
-| `inst_pkg_spawn` | API slot 0x0160 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index derived as (record − inst_tab) >> 5, the `app_launch` idiom), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
-| `inst_pkg_alive` | API slot 0x0168 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
+| `inst_pkg_spawn` | API slot 0x0160 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index, off `inst_fhome_idx` — the one place that `(record − inst_tab) >> 5` lives), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
+| `inst_pkg_alive` | API slot 0x0168 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released — that case is `inst_task_die`'s own guard now rather than a second copy of it here, which also means such a record's toast goes with it like any other's. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
 | `inst_launch_post` | in AL = kind: one atomic word store of kind+1 into `inst_launch` — the deferred launch channel for lock-held posters (drained by ui_task step 3, §13). Rapid double posts coalesce (last wins). |
 
 **Sound teardown (§34.3, Phase 1).** Both free points release the
@@ -48614,10 +49616,17 @@ with no ALIAS row.
 The other five `OSAPI_JSLOT` stubs stay: each does something a thunk cannot —
 an optional name, a two-name copy, a `drv_owns_seg` fence.
 
-**Zero new `cw_` shims.** Its one outbound call is `call COLD_SEG:mem_owned_kb_x`
-and it was already spelled that way — the deliberate exclusion §29.9's own
-comment describes, `mem_owned_kb` being four hundred iterations that have no
-business inside the window.
+**Zero new `cw_` shims.** Its one outbound call is `mem_owned_kb` — the
+deliberate exclusion §29.9's own comment describes, being four hundred
+iterations that have no business inside the window.
+
+**It is NEAR, and that took a second look** (§51.12.2). It was
+`call COLD_SEG:mem_owned_kb_x` and *"it was already spelled that way"* was the
+whole of the reasoning — true, and true because it was written while this body
+was still `.text`. Once the body moved here that spelling became a far call
+from `COLD_SEG` to `COLD_SEG`, with a four-byte trampoline in `memory.inc`
+kept alive to receive it. Six resident bytes, and one segment crossing per row
+of a snapshot the Task Manager takes once a second.
 
 ## 30. dock.inc — the dock strip
 
@@ -49102,6 +50111,245 @@ rect over the vacated frame and the tile's interior inverts through §30.3's
 mark diff — one `gfx_xor_fill`, no icon redrawn. Going the other way,
 `inst_restore` is unchanged.
 
+### 30.5 Where the strip stands — bottom, left or right
+
+The strip used to be pinned to the bottom of the primary, and every reader of
+`[vid_dock_y0]` — the band a window is fitted into, the zoom rect, the drive
+column, the dither's last row — assumed so. **It can stand on the left or the
+right edge now**, chosen on the Control Panel's Dock page (§31.13) and kept in
+`SYSTEM.CFG`'s `DK` key (§51.5). **This section, §30.6 and §31.13 are
+`kern_big`'s alone.** `kern_small` has a bottom strip that never hides, no
+Dock page, no `DK` key and no `DOCK.DRV`: every kernel site the feature
+touched is `%ifdef DOCK_OPT` over its pre-feature code, so the 128KB floor
+machine pays nothing for it. A `SYSTEM.CFG` written by `kern_big` carries a
+`DK` record that `kern_small`'s reader skips as an unknown key (§51.5 rule
+1), and drops when that kernel next writes the file. The setting is
+one byte, `[dock_cfg]`:
+
+```nasm
+DOCK_P_BOTTOM equ 0             ; bits 0..1: the edge
+DOCK_P_LEFT   equ 1
+DOCK_P_RIGHT  equ 2
+DOCK_F_AUTO   equ 4             ; bit 2: hide it (30.6)
+```
+
+Advanced Dock behavior lives in optional `DOCK.DRV`, using §2.8's loader,
+build/layout validation and pinned module claim. Bottom placement without
+auto-hide needs no Dock module. Applying a non-default setting loads it once;
+returning to the basic bottom Dock restores basic geometry and disarms/frees
+the module after its last call returns. Settings changes hold the graphics
+lock, so drawing callbacks cannot still be executing the module at unload.
+Painting, hit testing and UI ticks never perform disk I/O.
+
+The module owns advanced geometry, tile packing, hover/linger and clip-region
+maintenance, drawing and input. **Every Dock operation is a four-byte far
+indirect jump through its own slot of `dkv`, and there is no dispatcher.** A
+slot at rest is `KERNEL_SEG:<basic body>`; while a module is mounted it is
+that image's segment and body. The jump is a JUMP, so the caller's own near
+return address is never touched, no register is banked and nothing is pushed:
+the basic Dock runs at the stack depth it always had and pays **42 guest
+cycles** for the whole mechanism, measured (the index-in-BP router it replaced
+was 227).
+
+**The module owns both halves of the table.** `mod_fp` entry 0 is `dkx_hook`,
+which writes this image's landing pads in, and entry 1 is `dkx_unhook`, which
+writes the kernel's own bodies back and forgets an open strip on its way out;
+`dkf_apply` is their only caller and calls each directly, so neither needs a
+kernel entry point. A module is refused unless it was assembled with this very
+kernel — build number and layout stamp both (§2.8.2) — so its copy of the
+basic table is not a guess about the kernel's offsets, it *is* them. That is
+what lets the kernel store the basic table once, as `dkv`'s rest state, with
+no second copy to restore from and no per-operation trampoline to carry an
+index the module no longer needs. `mod_disarm` rests both entries on
+`mod_gone`, so calling one with nothing mounted is a refusal rather than a
+hazard. Each landing pad near-calls its body and then far-jumps home to a bare
+`ret` in the kernel, which pops the caller's own near return address; nothing
+on that path touches a flag, so the CF an operation answers with arrives
+intact.
+
+**A slot's basic body is the whole guard.** Four operations exist only while a
+module is mounted (a hidden strip's tick, an open hole); their slots rest on
+`dkb_ret`/`dkb_clc`, so the kernel-side `[dock_auto]` and `[gfx_hole]` tests
+that used to stand in front of them — and which `dkx_pass`, `dkx_hole_sub` and
+`dkx_hole_win` each make again for themselves — are gone. Kernel
+routines only the module calls are reached through module-side `dkk_*` stubs
+(`push cs` + a near call, then a far jump whose near `ret` lands on
+`cw_kretf`), so they cost no resident shim. The basic bottom renderer remains
+resident; advanced rendering code does not.
+
+**The advanced geometry lives in the module image, not in the kernel's
+`.bss`.** The whole-strip rect, the along axis, the tile pitch and length,
+`[dock_cap]`, `[dock_pos]`, `[dock_hidden]`, `[dock_auto]` and the hover timer
+are written by `dkx_geom`/`dkx_live_set` and read by nothing outside that
+image, so a machine with no module mounted carries none of them; the module
+names them `[cs:...]`, DS being the kernel's throughout (§2.6). What the
+kernel keeps is exactly what the kernel reads: the LIVE rect
+`[dock_lx1]..[dock_ly2]` with its rule and field crosses, its across extent
+`[dock_lc1]/[dock_lc2]`, `[dock_side]`, `[dock_up]`, `[dock_c0]` and
+`[dock_thk]`. `dkx_live_set` therefore copies its seven consecutive words out
+of this image and into the kernel's. Basic geometry setup
+has boot-overlay and Control Panel copies; fullscreen return restores bounds
+without loading either module. Saved advanced settings request `DOCK.DRV`
+after the system volume is mounted. A missing, incompatible or unallocatable
+module falls back to the basic Dock and live setting at boot, leaving the
+existing settings file untouched. A Control Panel load failure leaves the old
+setting active and reports the refusal. The module is not a driver-table entry and cannot be detached there.
+
+`dock_geom` calculates the layout and `dock_band` publishes its desktop
+bounds. `vid_init` calls setup after the chrome's extent is published
+(§39.16); adapter and display-layout switches recalculate it, and
+`dock_apply` — the geometry,
+`desk_rowcalc`, `wm_refit`, a raise-cache drop and `dock_force` — is what the
+page and the settings reader call when the byte itself changes.
+
+| word | bottom | left | right |
+|---|---|---|---|
+| strip rect `[dock_sx1]..[dock_sy2]` | `0, ph-24 .. pw-1, ph-1` | `0, MBAR_H .. 31, ph-1` | `pw-32, MBAR_H .. pw-1, ph-1` |
+| the rule | row `sy1` | column `sx2` | column `sx1` |
+| tile *i* | `(8 + 28i, sy1+3)` | `(4, MBAR_H+4 + 24i)` | `(sx1+4, MBAR_H+4 + 24i)` |
+| `[vid_dock_y0]` — band's first row NOT in it | `ph - T` | `ph` | `ph` |
+| `[vid_band_x0]` / `[vid_band_xe]` | `0` / `pw` | `T` / `pw` | `0` / `pw - T` |
+
+*T* is the strip's **reserved** thickness: `DOCK_H` = 24 at the bottom,
+`DOCK_SW` = 32 on a side — a 24px tile needs a rule, a field and a margin
+each side of it — and **1** when the strip hides. `[vid_desk_zx]` is
+`[vid_band_xe] - 56`, so the drive column moves in off a right-hand strip.
+
+**The long axis is the one the damage span lives on.** §30.3.1's span and
+§30.3.3's painted span were x ranges; they are ranges along the strip now — x
+for the bottom, y for a side — and every routine that turns one into a rect
+(`dkx_span_fill`, `dock_px_hit`, `wm_dock_under`'s damage) swaps the pair on
+a side strip and nowhere else. `dock_force_x` is gone: `wm_paint_dmg` hands
+its whole damage rect to `dock_force_r`, which intersects it with the **live**
+rect (below) and unions the along-span, so the "does the damage reach the
+strip" test that used to sit in `wm_paint_dmg` as `y2 >= [vid_dock_y0]` is
+the intersection, and on a side strip it is an x test it could never have
+been.
+
+**Every site that fitted a window to "the desktop band" takes the x fence as
+well**: `wm_fit`, `wm_fit_box`'s primary arm, `wm_land_snap`, `wm_zoom`,
+`wm_disp_rest`, `wm_dmg_bands` and `wm_paint_all`'s dither. The three
+over-the-strip tests — `wm_dock_clear`, `wm_su_owed` and `dock_px_hit` — are
+rect overlaps against the live rect, which on the bottom strip are the tests
+they always were.
+
+**Two things are the bottom strip's alone**, and both are cheaper left alone
+than generalised:
+
+- **`wm_dock_snap`'s nudge** (§11.90). A window left a few pixels over a side
+  strip stays there and `wm_dock_under` pays for it, which is what that
+  routine is for. It also does not nudge off a hidden strip: half of a 1px
+  thickness is 0 rows.
+- **`OSAPI_VIDEO` and `OSAPI_WM_DISPLAY` publish only the ROW** (`CX` = the
+  first row the dock owns). There is no slot for the band's x extent and none
+  is added: a package sizes itself against the band's HEIGHT, and where a
+  window lands in x is `wm_fit`'s decision, which does see the fence. A side
+  strip answers `CX` = the screen's height.
+
+#### 30.5.1 A side strip that cannot hold every tile holds fewer
+
+A side strip lays tiles top to bottom at a 24px pitch from `MBAR_H + 4`, so
+the tiles it has room for are `(ph - MBAR_H - 8 - 20) / 24 + 1`, capped at
+`INST_MAX`: **every one** on VGA (12), **eleven** on Hercules and EGA, and
+**seven** on CGA's 200 rows. `dock_geom` writes that as `[dock_cap]`; the
+bottom strip's is always `INST_MAX` (8 + 12·28 = 344 of 640). Every edge is
+offered on every adapter, and nothing greys.
+
+**A strip that holds every tile keeps §30's stable mapping** — position *i* is
+slot *i*, holes and all. One that holds fewer **packs**: `dkx_map` writes
+`[dock_pos]`, the slot each position shows, and the live instances take
+positions in slot order with no holes, because a hole would spend a tile the
+strip does not have. `dock_paint` walks positions and keys them (§30.3's diff
+is per position, so a packed tile whose record changed is an identity change
+and rebuilds); `dkx_hit` maps the position back to a slot; `inst_tile_rect`
+asks `dock_slot_rect`, so a minimize flies to the tile the instance is shown
+at.
+
+**When more instances are live than there are tiles, the minimized ones are
+taken first.** The strip is the only way back to a minimized window, where an
+open one can be clicked. Seven minimized instances on a CGA side strip still
+leaves an eighth unreachable from the strip, and that is the limit of the
+arithmetic rather than a case handled.
+
+### 30.6 A strip that hides — the line, the hover and the linger
+
+With `DOCK_F_AUTO` set the strip is drawn as **one line of the chrome's ink on
+the outer edge** — the primary's last row, its first column or its last — and
+the band gives back all but that one pixel (§30.5's *T* = 1). A pointer that
+rests **on the line for `DOCK_HOVER_T` = 5 ticks** (0.27 s, the nearest
+tick to ¼ s) opens it; once open, it closes **`DOCK_LEAVE_T` = 14 ticks**
+(0.77 s, the nearest to ¾ s) after the pointer leaves the strip's rect, and
+a pointer that comes back inside that time resets the count.
+
+`[dock_hidden]` is the one byte the module's own painters ask, and
+`dkx_live_set` is its one writer: hidden is *auto and not open*. It is in the
+module image with the rest of the advanced geometry (§30.5), which no kernel
+painter reads — what they read is the LIVE rect, and it already says
+everything a hidden strip needs to say. The **live rect**
+`[dock_lx1]..[dock_ly2]`, the live rule and field crosses and the live along
+range follow it — the line's own 1px rect while hidden, the whole strip
+otherwise — so `dock_paint`, `dkx_hit`, `dock_px_hit`, `wm_dock_clear`,
+`wm_su_owed` and `wm_dock_under` never ask which mode they are in. A hidden
+`dock_paint` restores the line over the forced span and **skips the tiles
+entirely**: their keys keep what they last were, and the reveal forces the
+whole strip, whose `.zap` clears every key before a tile is drawn.
+
+**The hover is timed off `ui_task`'s tick passes** (§13.12) — `dock_pass`,
+whose slot rests on `dkb_ret` while no module is mounted and whose module
+body's own first instruction is the `[dock_auto]` compare (§30.5). It declines while a
+button is held, while a §11.2 fullscreen window or a saver session (§79.5)
+covers the screen, and while a modal file dialog (§38.2) owns every press.
+
+#### 30.6.1 The open strip is a HOLE in the clip region — nothing waits for it
+
+**The strip is drawn under windows (§30), so a hidden strip that opened under
+them would open behind whatever the user was looking at** — and holding the
+screen while it is open, the way an open menu does, would stop every task on
+the machine from drawing for as long as the pointer rests there. Neither is
+acceptable, and the clip region (§11.3) is what answers both: it is already
+how a background painter is kept off the windows above it.
+
+`dkx_open` takes the lock **for the draw alone**, makes the whole strip
+live, forces and paints it, then enables `[gfx_hole]` and releases the lock.
+The dock does not allocate a save-under. Closing always repaints its old rect
+with `wm_paint_dmg`, after making the hidden line live again. This trades the
+clean-buffer fast close for less resident code and no transient heap claim.
+
+The existing region subtractor `wm_clip_subr` supplies both dock clip paths:
+`gfx_hole_arm` seeds the virtual desktop and subtracts the live dock;
+`dock_hole_sub` subtracts it from a region already being built. There is no
+second intersection scan and no cached copy of the hole region. One desktop
+rect minus one strip needs at most four fragments, within the clip capacity.
+The deferred cursor hide is spent before arming that region.
+`CLIPQ`, `CLIPQF` and primitive entries share `gfx_clip_query`, preserving
+registers and returning ZF = 1 only when no clip is required. This replaces
+repeated inline checks with a call/return on each query.
+
+Window painters, desktop painters and unregioned primitives continue drawing
+around the open strip. Raise-cache capture and restore still refuse windows
+that overlap it. Menus and the dock itself temporarily suspend the hole and
+region while drawing; the open dock returns CF = 0 because it damages no
+window beneath it. Damage beneath it does not force its tiles.
+
+**Clicks go to the open strip first.** The left and right press paths ask the
+dock before `wm_hit` while `[dock_up]` is set. A press outside passes through.
+
+Hover and linger share one active flag and start tick: only one can be running
+at a time. Transitioning or cancelling resets the flag; elapsed ticks use
+modular subtraction, retaining the 5-tick hover and 14-tick linger.
+
+Four things close or forget it: the linger (`dock_pass`), a §11.2 fullscreen
+window (closed, and the repaint puts the window's pixels under the strip
+back), a saver session (**forgotten** by `dock_drop` — the saver owns every
+pixel and repaints on its way out, and a damage repaint would draw over it),
+and an fsx bracket or a geometry change (`dock_drop` again — the whole screen
+is repainted after both).
+
+**What is not clipped**: `gfx_xor_fill` takes no region. A desktop zone's
+selection XOR under an open right-hand strip inverts the strip's pixels, and
+the next XOR puts them back; zones under the strip cannot be clicked while it
+is open, so only a selection cleared from elsewhere reaches it.
+
 ## 31. ctrl.inc — the Control Panel window
 
 Built-in singleton app kind (KIND_CTRL = 5, cap 1), window "Control Panel",
@@ -49192,6 +50440,8 @@ cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
            dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0   ; §31.6
            dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
+           dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0   ; §76.4
+           dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; §31.13
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME   equ 1     ; the Date/Time item's index: §12.1 selects it by name
@@ -49208,12 +50458,12 @@ CP_IBX1 to CP_IBX2 = 85 and the name starts at CP_IX = 6, so a tenth glyph
 would cross the divider. `'Scheduler'` and `'Date/Time'` are both exactly
 at that limit.
 
-**The list holds NINE rows and no more, and that is a build-time guard.**
-Row *i*'s bar runs `CP_I0Y + i*CP_IROWH .. + CP_IBH - 1`, so row 8 ends at 129
-inside a 132-tall content box and row 9 would run through the bottom border
-onto the desktop. Six static items plus the **three** drivers that publish a
-page (§31.9 — the hard disk's, the debug monitor's and the network link's; the
-sound driver publishes none) is exactly nine, and `%if CP_ITEMS + 3 > (CP_CH -
+**The pane holds NINE rows, and a longer list scrolls** (§31.1.5, which the
+Dock row made necessary). Row *i*'s bar runs `CP_I0Y + i*CP_IROWH .. + CP_IBH - 1`,
+so row 8 ends at 129 inside a 132-tall content box and row 9 would run through
+the bottom border onto the desktop. Six static items plus the **three** drivers
+that publish a page (§31.9 — the hard disk's, the debug monitor's and the
+network link's; the sound driver publishes none) was exactly nine, and `%if CP_ITEMS + 3 > (CP_CH -
 CP_I0Y) / CP_IROWH` is what makes a fourth fail to assemble rather than fail
 on the glass. It has fired twice and grown the window twice — 120 → 140 when
 Date/Time took its two option rows (§31.5), 140 → 151 when `DRVC_NET` (§62)
@@ -49354,6 +50604,34 @@ which is the argument for doing it at the first reorder rather than the third.
 through `DS` is not that table — the read and the write use the same wrong
 address, so the feature would have worked while five bytes landed somewhere in
 the kernel. `tools/os88ovlchk.py` refused the build, twice on this page now.
+
+#### 31.1.5 The item list scrolls too
+
+The Dock row (§31.13) is a seventh static item, and seven plus three driver
+pages is ten rows in a pane that holds nine. **kern_big only**: `kern_small`
+has no Dock row, so its list still fits and none of this is assembled there. The window cannot grow — 151 is
+already the minimum that fits CGA — so the list scrolls, the way the Drivers
+page's list did first (§31.1.1).
+
+**A list of nine rows or fewer is the list it always was**: no arrows, and the
+pitch and first row of §31.1 unchanged, so every machine that does not load
+three page-publishing drivers draws the identical pane. A longer list shows
+**eight** rows from `[cp_ltop]` and puts two arrows where the ninth row was —
+`CP_DSW`-wide cells at x 22 and 52, row 118, drawn from the Drivers page's own
+interior fill and triangle, each greyed at its own end through one predicate
+(`cp_larrowok`, §47 rule 2).
+
+`cp_pick` answers an **ordinal** (the row plus `[cp_ltop]`) and `cp_listrow`
+draws nothing for an ordinal off the screen, so a selection change that
+leaves the view costs no pixels and nothing above either routine learned the
+list scrolls. An arrow acts on the press, like a row, and repaints the pane:
+every row moved, which is the one whole-pane repaint a scroll owes.
+
+**A selection made from outside the panel scrolls itself into view** — the
+menu bar clock opening Date/Time, `drv_notice` opening Drivers. `[cp_lsel]` is
+the selection the list last showed; `cp_lfix` (called by every whole-list
+paint) scrolls only when `[cp_sel]` differs from it, and a click on a row
+updates both, so a user's own scroll is never undone by the next repaint.
 
 #### 31.1.2 A scroll drew the list three times, and twice of that was the ARROW
 
@@ -50625,6 +51903,38 @@ three: `cp_vid_cap` is gone, drawn inline in `cp_vid_paint` on ground
 `cp_page` has already whitened, and `cp_vid_click` redraws the dots and the
 button and stops. The page has no state line left at all.
 
+### 31.13 Dock page — where the strip stands, and whether it hides
+
+`Dock` is the seventh static row in `cp_items`, **last**, so no record index
+before it moves (§31.10.1) — `CP_IDOCK` is 6. **kern_big only** (§30.5):
+`kern_small`'s list has no Dock row and does not scroll. It is the Theme page's
+shape (§76.4): a radio group and a check box, applied on the spot, remembered
+at the close, with no caption — Auto-hide needs no explanation.
+
+```nasm
+CPK_R0Y  equ 18                 ; Bottom glyph top; Left 34, Right 50
+CPK_ROWH equ 16
+CPK_AY   equ 74                 ; 'Auto-hide' check box glyph top
+```
+
+| id | control | greyed when |
+|---|---|---|
+| 1 | Bottom | never |
+| 2 | Left | never — a short screen holds fewer tiles (§30.5.1) |
+| 3 | Right | never |
+| 4 | Auto-hide | never |
+
+A click that changes the byte calls `dock_apply` through `cw_dock_apply`, sets
+`[cp_wdirty]` (§31.8 — no page writes on a click) and posts `[cp_dirty]`, and
+`wm_paint_all` puts the strip, the band and the drive column up where they now
+belong: its dither covers the rows and columns the strip has just vacated, and
+`dock_apply`'s `wm_refit` has already moved every window back inside the new
+band. A click on the live row, or on a greyed one, changes nothing and draws
+nothing.
+
+**The list grew to ten rows and scrolls** (§31.1.5): the window cannot grow,
+because 151 is already the minimum that fits CGA.
+
 ## 32. softgfx.inc — the software renderer (§39's 1bpp driver)
 
 **What it is.** A latch-free, port-free CPU implementation of `vga12.inc`'s
@@ -51659,8 +52969,14 @@ any live stream and frees the grant.
 
 ### 35.1 IT NO LONGER SHIPS — built by `all`, carried by no floppy
 
-`RECORDER.O88` is off the apps disks at every geometry, off `build/apps-all.img`
-(§19.10) and off the live media (§80). It is not in `$(APPS_TOOLS)`, so every
+`RECORDER.O88` is off the apps disks at every geometry and off
+`build/apps-all.img` (§19.10.1 has the arithmetic: that disk's 1.2MB geometry
+pays for a package out of RunCPM's drive A). **It is on the live media**
+(§80.6) — that image is not curated and completeness is its premise, so a
+package this project builds and ships nowhere would be missing from the
+release rather than left off a disk; the sentence below is about the four apps
+FLOPPIES, which is where the decision was taken and the only place it holds.
+It is not in `$(APPS_TOOLS)`, so every
 list derived from that one lost it in the same edit and none of them names it
 any more: the small disks' `$(SMALLOMIT)` (§24.5) and the field combo's
 `$(COMBO_DROP)` both had a row for it, and both rows are **gone rather than
@@ -52694,6 +54010,36 @@ column sees, and that placement is load-bearing: the button column jumps to
 that label when it misses, so a test reached only by falling out of the column
 would never see a click on the left half of the dialog.
 
+#### 38.4.1 The scroll bar's four verdicts are ONE addition
+
+`os88ui_sbhit` answers `OS88UI_SBUP`, `SBDOWN`, `SBPGUP`, `SBPGDN` = **1, 2,
+3, 4**, and those are consecutive by construction (`apps/os88ui.inc`). What
+each of them does to `[fdlg_scrl]` is therefore a signed byte in a four-entry
+table — `fdlg_sbdel`, indexed by `answer − OS88UI_SBUP` — so the ladder of
+four `cmp`/`je` pairs with a one-line arm behind each is an index, a `cbw`
+and an `add`. `fdlg_clamp` catches either end, exactly as it did for the
+four arms.
+
+Two facts make ONE unsigned compare the whole bounds check: `SBNONE` (0)
+wraps to `0FFh` under the subtract and `SBTHUMB` (5) lands on 4, so
+`cmp al, 4 / jae` rejects both. A thumb press still falls out of the ladder
+unchanged and reaches `.out`, which is what it has always done here — the
+drag was already grabbed above (§13.10.5).
+
+**The table is `.text`, not `.cold`**, with the rest of this module's data and
+for its reason (§2.8.6): everything below the section toggle is addressed
+through CS and this is read through DS. That costs `kern_small` **4 resident
+bytes** to take 24 off `FDLG.DRV`'s image. A `[cs:]` read would have moved
+those four into the image on both builds at +1 a site, and it is refused:
+this file's "every byte of data above the single toggle" is the invariant
+that makes a `db` added below it a silent wrong-segment read, and it is worth
+more than four bytes.
+
+`files.inc` carries the same four-arm ladder for the Disk window and is **not**
+converted: its arms are not one addition each — §22.11's `fm_scroll_by` has
+an incremental tier the dialog has no equivalent of — so the shape does not
+transfer.
+
 ### 38.5 State (`.bss`, singleton)
 
 ```nasm
@@ -52707,11 +54053,28 @@ fdlg_sel   resw 1   ; selected DISPLAY row, 0FFFFh = none
 fdlg_scrl  resw 1   ; first visible row
 fdlg_clkt  resw 1   ; birth tick of the last click (double-click window)
 fdlg_name  resb 16  ; the name: default in, chosen out, edited in Save mode
-fdlg_nlen  resb 1   ; its length, 0..12
-fdlg_hdr   resb 28  ; header line scratch
-fdlg_row   resb 20  ; one row's name, staged out of dsk_ent
-fdlg_num   resb 8   ; the size column
+fdlg_nlen  resb 1   ; its length, 0..12          -- ADJACENT, and BINDING
+fdlg_ncur  resb 1   ; the caret, 0..[fdlg_nlen]  -- see below
+fdlg_row   resb 18  ; one row's name, staged out of dsk_ent
+fdlg_num   resb 11  ; the size column (fm_ultoa: 10 digits + NUL)
 ```
+
+(An extract: the block also carries the layout cache, the staged row's type
+and size, the folder-naming shadow and, on `kern_big`, `fdlg_path`. The file
+is the list.)
+
+**`fdlg_nlen` and `fdlg_ncur` are adjacent, and that is binding.** Emptying
+the name box zeroes the length and the caret together, so `fdlg_nclear` writes
+them in one `mov [fdlg_nlen], ax`; separating them makes that store scribble
+on whatever moved in between, with no diagnostic. It is a `.bss` ORDER and
+nothing more — no reader of either name knows, and `tests/fdlggrey.py` asks
+`os88sym` for each one by name — but the store is silent about it, so the
+order is written down here as well as beside the two `resb`.
+
+`fdlg_nclear` is the one writer of the empty box: it takes the box's new
+PURPOSE in AL (0 a file name, 1 a new folder's, §38.3) and is what
+`fdlg_open` and `fdlg_newfolder` share, those being the two moments the box
+is emptied and the only thing that differs between them.
 
 `fdlg_name` is the one buffer the caller's default arrives in and the
 chosen name leaves in; it is valid to the callback for the duration of the
@@ -52782,6 +54145,16 @@ the size, not the largest run** — and read. `apps/tracker` is the reference
 consumer, and its three early refusals stop nothing and free nothing, so a
 mis-picked file does not interrupt what is already playing.
 
+**That last clause is load-bearing and it depends entirely on the figure being
+right** (§45.3.1.1): past the refusals the player frees the playing module to
+make room for the new claim, so the gate is the *whole* guarantee that a
+refused load leaves the machine as it found it. When `DX:CX` was the packed
+size a compressed module walked straight through the gate and destroyed what
+was playing to then fail its own read. The answer is a correct figure and
+**not** a reordering — holding both blobs doubles the peak on the 640KB
+machine this project is calibrated for, which is what makes a large module
+unloadable rather than merely slow.
+
 Adding `DX:CX` is **backward compatible**: it is an extra *input*, and a
 callback written against the older contract simply ignores two registers it
 was already free to clobber.
@@ -52803,6 +54176,43 @@ any of the three no longer matches a live (`I_STATE` = 1) record: a package
 whose window was closed while the dialog was up has had its region freed
 (§29.2 rule 7), and its near pointer no longer means anything. Checking the
 window pointer alone would not do — window slots are reused.
+
+#### 38.6.1 The size is what the READ will deliver, not what the file occupies
+
+`DX:CX` is the figure `OSAPI_FILE_READ` is about to hand over, so for a
+**compressed** file (§20.14) it is the **unpacked** size — the same answer
+`OSAPI_FILE_FIND` +18 gives, and for the same reason: the callback funds a
+claim with it.
+
+**It was the on-disk size and that was a bug.** `fdlg_sizeof` answered out of
+the mount's staged listing entry, whose +20 is deliberately raw (§19.1), so
+every compressed file was reported at a fraction of its real length and the
+reference consumer above did exactly what this section tells it to: claimed
+that fraction, then failed its own read. `BEVERLY.MOD` — 116,085 bytes,
+42,174 lz4-packed, and the default build packs every data file — produced
+**"File too big"** in both MOD players on a machine with 500KB free, while
+**double-clicking the same file loaded it**, the association route going
+through `OSAPI_FILE_FIND` instead. §20.14.3's table now carries a row for this
+surface; it did not, which is why nothing pointed the two implementations at
+each other.
+
+**What it costs.** This routine was written to answer out of RAM with no
+floppy I/O at all, so that an app could refuse a load without the motor ever
+spinning up, and the hint is not in the listing — §19.1's record is meaningful
+to offset 23 and `kernel/dskwin.inc` took the dead bytes off that stride
+because `.lowbss` is the tightest rung in the kernel. So the routine now
+**stats the name** when the listing says it is really a file, and reads the
+three-byte hint out of `dskw_raw` exactly as `cmz_sizes` does. One directory
+walk, once, on the OK path, immediately before the caller reads the whole
+file — and usually served out of §18.95's sector cache, the listing on screen
+having just walked the same directory. A name that is **not found**, a
+**folder**, a **typed Save name** and a **redirected volume** (§62.9) all still
+cost nothing: they leave by the listing half, before the stat. The redirected
+guard is correctness and not speed — `dskw_stat`'s `DVK_FILE` arm asks the
+driver and never writes `dskw_raw`.
+
+**42 bytes of `.cold`**, no rung crossed, `KERN_CODE_MAX` untouched; on
+`kern_small` the module is `FDLG.DRV` and it costs nothing resident.
 
 ### 38.7 Lifecycle
 
@@ -52909,6 +54319,11 @@ no longer always reaches it.
 | `fdlg_rows` | Out: AX = `disk_nfiles`. There is no offset any more — §19.5 put the `..` row in the listing, so a display row is a directory index. |
 | `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
 | `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
+| `fdlg_hidx` | Internal. Out: CF=0 with BX = this instance's file-home slot **and SI → that slot's `inst_fname` row**; CF=1 = no live requester. The SI half is why `fdlg_home_name` and `fdlg_home_save` are nine and twenty-six bytes: `slot * INST_FNSZ` is a `mul` (13 is not a shift) and it was written at both. The two index-only callers bank SI already. |
+| `fdlg_orig` | Internal. In: SI = the dialog's window. Out: AX/DX = the content origin, `[fdlg_cx]`/`[fdlg_cy]` set, everything else preserved. The painter, the keyboard and `fdlg_pt` all need the cache before they can place anything, and `wm_content` takes the window in BX where this module carries it in SI. A consequence worth having: `fdlg_pt` no longer clobbers BX. |
+| `fdlg_nclear` | Internal. In: AL = the box's new purpose (0 file, 1 folder). Empties the name box; out AX = 0. §38.5. |
+| `fdlg_nosel` | Internal. Nothing selected, listing at the top; out AX = 0, which `fdlg_open` uses for the third word (`[fdlg_clkt]`) and `fdlg_go` deliberately does not — a navigation must not reset the double-click window. |
+| `fdlg_wfill` | Internal. In: AX..DX = a content-relative rect. White pen, `fdlg_off`, fill — the three steps the two partial redraws of §38.8 share. Not a general helper: every other fill in this module is a colour its caller chose. |
 
 **What this deliberately does not do.** No filtering by extension (an Open
 dialog that hid `.TXT` from Note Pad would be a lie about what is on the
@@ -64780,6 +66195,32 @@ same disk and same clicks:** the 300KB module is `File too big` /
 `No module loaded` before, and `OS8088 300K TEST` / `Playing` after. The
 `.o88` grows 73 bytes.
 
+#### 45.3.1.1 The early refusals are the whole guarantee that a bad pick does not stop the music
+
+`trk_fdone` refuses in three places that **stop nothing, free nothing and
+never touch the disk** — wrong extension, a size past the conversion's domain,
+a size past `OSAPI_MEM_AVAIL`'s largest run — and then, past `.sizeok`, it
+**frees the playing module before it claims the new one**. So a failure after
+that point leaves the machine with no module at all, the one that was playing
+included, and **the gate is the entire guarantee that a mis-picked file does
+not interrupt what is already playing** (§38.6).
+
+**The gate was broken and this is where it showed.** `fdlg_sizeof` handed over
+the file's **packed** size (§20.14.3, §38.6.1), so a compressed module sailed
+through `.nomem2` on a third of its real figure, reached `.alloc`, freed a
+playing module and then failed the read with `FERR_BIG`. Photographed: a
+Tracker playing *Beverly Hills Cop* turned into **`No module loaded`** by a
+load that never happened.
+
+**The free does not move below the read, and that is a decision.** The new
+claim comes out of the space the old blob occupies; holding both doubles the
+peak, and on the 640KB machine this project is calibrated against that is what
+makes a large module **unloadable** rather than merely slow — which is the
+ceiling §45.3.1 exists to have removed. The refusals that cannot be
+pre-checked — `.nomem` (the heap fragmented under a figure `OSAPI_MEM_AVAIL`
+had just answered), `.noring`, a genuine `FERR_IO` — are the residue of the
+single-copy peak, not an oversight.
+
 #### 45.3.2 …and the refusal asks for the room first (§66.4.3)
 
 §45.3.1 leaves `trk_fdone` asking `OSAPI_MEM_AVAIL` before it stops the
@@ -71973,7 +73414,10 @@ it reaches through the table that entry returns.
 ```
 in:  AL = verb, DS = CS = the driver's segment, ES = KERNEL_SEG
 DRVV_ATTACH (0)  probe + hook.  out CF=0 and SI = the service table;
-                 CF=1 = no hardware, AND NOTHING WAS HOOKED
+                 CF=1 = refused, AND NOTHING WAS HOOKED - with AL = a
+                 DRVE_* saying why (DRVE_BUSY: found it, cannot have it),
+                 or anything else for DRVE_HW. PRESERVE BX: drv_attach
+                 reads the row through it on return
 DRVV_DETACH (1)  silence, unhook, restore, free. Cannot fail.
 DRVV_TIER   (2)  in AH = how much of yourself the user wants (SND_RT_*,
                  34.8). out CF=0 and SI = the service table, RE-COPIED
@@ -72295,7 +73739,10 @@ too** — a load into a class whose publication slot another row already holds
 software is asking for something a class-keyed slot cannot do.
 
 Two plumbing details make it *arrive*, and without either the refusal is
-correct and silent. `drv_attach` **banks a `DRVV_READY` refusal into
+correct and silent. `drv_attach` **keeps an attach refusal's `AL`** — it
+restored the caller's `AX` over it until §9.12's mouse refused a flash drive
+with `DRVE_BUSY` and the row read `No hardware found`, so no attach had ever
+been able to say anything else — and it **banks a `DRVV_READY` refusal into
 `DRVR_ERR`** — that answer used to be dropped, which is fine for "I could not
 re-mount" and useless here, because attach itself succeeded so the load is not
 a failure. And `drv_load` clears the previous attempt's code **before** the
@@ -72501,7 +73948,8 @@ the wrong settings. Every value now travels with a key that says what it is.
         db  data[len]
 ```
 
-Seven keys today, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
+`DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
+only. Seven keys at the time this paragraph was written, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
 clock 12/24, `CS` clock seconds, `SM` scheduler mode, and
 `HD` — a **driver's** own settings, whose contents the kernel does not know
 (§51.9). They are ASCII so a hex dump of the file reads as the list of
@@ -76593,6 +78041,24 @@ Associations are consulted for **type 0 only**, so a package can never be
 shadowed by an `O88` row and a folder is never associated. That falls out of
 where the test sits; it is not a separate rule.
 
+### 54.2.1 `assoc_slot_of` — the extension walk, written once
+
+*What opens this?* is `assoc_ext_of` and then `assoc_find`, in that order,
+with the extension buffer the only thing standing between them. It was
+written out **three times** — `assoc_docicon` (the document tile),
+`assoc_post` (the double-click) and `OSAPI_PKG_START`'s document arm
+(§21.5.3) — and two of the three banked `SI` round the pair by hand, because
+`assoc_find` wants the buffer in the register the caller's own name is in.
+
+`assoc_slot_of` is the pair named: `SI` → a staged display name, out `CF = 0`
+with `AL` = the app slot and `BX` → the matched row, **`SI` preserved**. The
+shuffle comes out of every caller and the routine costs less than the three
+copies of it did.
+
+It is the same finding as §19.2.4.3's, one layer along: a walk the layer
+already owns, written out again at the call site because the call site was
+written first.
+
 ### 54.3 The icon: a page frame with the program's glyph inset
 
 The document page is a 16×16 dog-eared page — the second icon in this kernel
@@ -76706,7 +78172,17 @@ by 16.
 `assoc_img_glyph`, which finds the block in an IMAGE by its header flag; the
 last two through `asc_row_glyph`, which finds it in a CACHE ROW; and both fall
 back to `assoc_reduce` through one `assoc_glyph_take`, which copies eight bytes
-unless they are all zero. `tools/os88mini.py` prefers it the same way, so the
+unless they are all zero.
+
+**And the row form is ONE ladder for two stores.** `asc_gly_pair` takes
+`ES:SI` -> a 64-byte body with the shipped eight behind it, prefers those and
+reduces the body when they are blank — which is a cache row and §25.9's store
+row both, because `ASC_ROWGLY - ASC_ROWICO` and `ICO_R_GLYPH - ICO_R_BODY` are
+the same 64. It was written twice, here and in `asc_take`; `disk.inc` asserts
+that the two deltas agree at the point both constants exist, so the merge
+cannot rot. `asc_row_glyph` is two tail jumps into it — one for a version 2
+row, one straight to `asc_body_glyph` for a version 1 row, which has no glyph
+column at all. `tools/os88mini.py` prefers it the same way, so the
 glyph baked into the kernel for DOS IS the shipped one and a harvest agrees
 with it byte for byte — §54.3's invariant for the reduction, carried over.
 
@@ -77239,20 +78715,32 @@ one picture is exactly what §25.9 exists to end, and the cache was the larger
 of the two.
 
 So `asc_use` **absorbs and frees**. After `asc_merge_ext` has taken the
-declarations and `asc_seed` the locations and the glyphs, `asc_absorb` walks
-the rows once more and `ico_add`s every non-blank body under
-`ico_key_stem`'s composition of the same key the listing will ask with; then
-`asc_drop` returns the claim. Nothing above this layer holds a pointer into
+declarations, `asc_seed` walks the rows ONCE — taking each one's location and
+glyph, and calling `asc_row_take` for its body, which `ico_add`s every
+non-blank one under the same key the listing will ask with; then `asc_drop`
+returns the claim. It was two walks of the same table at the same stride from
+the same base, back to back, each with its own frame and row pointer; the two
+halves never read what the other writes, so the interleave is free.
+
+**`ico_need` is still called before that walk and that is load-bearing.**
+`mem_claim` compacts on its refusal path, the cache's claim is movable, and
+the walk holds a row OFFSET against the segment a compaction moves — so the
+one call that can claim is made with no row pointer live, and its carry is not
+tested, because a refused store still has to be seeded. A refusal then STAYS
+made: `asc_row_take` reads `[ico_seg]` rather than asking `ico_need` again per
+row, which would retry the claim, and compact, exactly where it must not. Nothing above this layer holds a pointer into
 it, because nothing above it ever did: every consumer of a row took a *copy*
 of what it wanted, and the body was the one thing that had no copy to take.
 
-**`ico_key_stem` is the load-bearing part.** A row names a package by stem and
-every package is a `.O88` (§20.1), so `<STEM>.O88` NUL-padded to twelve is
-what `ico_key_of` will build from that package's directory entry when the
-listing reaches it. Composing the key rather than inventing a second shape for
-it is what makes an absorbed body and a harvested one **one row that answers
-both** — a second shape would have been two rows holding one picture, which is
-the defect with the numbers rearranged.
+**`ico_key_stem` is the load-bearing part**, and since §25.9.4 it is also the
+cheapest thing in the file: the row names a package by stem, the store keys on
+that same stem, so the builder is a counted copy of eight bytes. It used to
+walk the stem to its first space, write `.O88` after it and NUL-pad the rest
+to the size word — a RECONSTRUCTION of what `ico_key_of` would build, which
+had to be got exactly right or the two keys for one package differed in their
+tail and the cache silently did not work. Either way the point is the same
+one: an absorbed body and a harvested one must be **one row that answers
+both**, and a second key shape would have been two rows holding one picture.
 
 **Absorbing is eager, and the sizing is measured rather than assumed.** A
 buffer that may still be needed is a buffer that may not be freed, so there is
@@ -77280,7 +78768,7 @@ wants, which is *after* `asc_use` has already declined to re-read.
 
 **`asc_lookup` is gone and the question it asked is now ungated.** It searched
 the claim for an offset into it; with no claim, *is this package's body
-already in RAM* is the store's question, and `ico_have` asks it on **both**
+already in RAM* is the store's question, and `ico_find` asks it on **both**
 kernels. `kern_small` has no `ASSOC.DAT` at all (§54.0) and so never had this
 lookup — and its harvest was therefore reading a package's first sector every
 mount for a body the store had held since the last one. On the 4.77 MHz floor
@@ -77297,8 +78785,8 @@ used to read that column off the cache row. A hit has no row now. A store that
 carried only the body would answer a hit with the *reduction* and so
 **downgrade a slot `asc_seed` had already resolved**, which is worse than not
 writing at all: the glyph would get quietly worse the moment a folder was
-browsed. So `ICO_R_GLYPH` is a column of the store row (`ICO_ROW` 80 → 88, and
-`kern_big` only — `kern_small` has no glyphs at all), `asc_absorb` puts a v2
+browsed. So `ICO_R_GLYPH` is a column of the store row (`kern_big` only —
+`kern_small` has no glyphs at all), `asc_row_take` puts a v2
 row's glyph in beside its body, and `asc_take` prefers it exactly as
 `asc_row_glyph` does, falling back to `asc_body_glyph`'s reduce when there is
 none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
@@ -77306,7 +78794,7 @@ none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
 a store row cannot disagree about what the iconless sentinel is.
 
 **The HARVEST fills that column too, and leaving it out is worse than leaving
-it empty.** `asc_absorb` fills it from a v2 cache row, but a package the cache
+it empty.** `asc_row_take` fills it from a v2 cache row, but a package the cache
 does not name — a disk with no `ASSOC.DAT`, or one whose row was missed — is
 stored by the harvest instead, and a row stored with an empty glyph column
 sends the *next* hit down `asc_take`'s reduce arm. That does not fail to write
@@ -77318,6 +78806,45 @@ the wrong glyph in it. So `ico_put` answers with the row it took and the
 harvest completes it out of `LD_H_GLYPH`. A package that genuinely ships none
 keeps `ico_add`'s zeros, and a hit reducing its body is exactly
 `assoc_img_glyph`'s own fallback.
+
+##### 25.9.5.1 The row's layout is DERIVED, and the walk answers three things
+
+`ICO_R_NAME` 0, then `ICO_R_SIZE` and `ICO_KEY` per build (8 and 10 where the
+key is a stem, 12 and 14 where it is a name — §25.9.4) — and everything after
+those is arithmetic on them: the body sits at `ICO_R_BODY` = `ICO_KEY`, the
+shipped glyph at `ICO_R_BODY + DSK_ICO_SIZE`, and `ICO_ROW` is whichever of
+those the build ends on, **82 on `kern_big` and 78 on `kern_small`**. It was
+written out — 16, 80, 88, 80 — with two pad bytes between the key and the body
+that nothing needed: the only alignment that binds a row is
+`dsk_copy_seg_x`'s `rep movsw`, which wants an even offset, and every
+`ICO_KEY` here is one. The `add` that walked that gap is inside a `%if` and
+emits nothing while the gap is 0.
+
+`ICO_KB` falls out of that and is not chosen: 48 rows of 82 is 3,936 bytes, so
+**the claim is 4KB where the written-out layout made it 5** — a kilobyte
+returned to a heap whose whole point (§25.9) is the DOS arena.
+
+`ico_rowoff` is `mul ah` and not a shift ladder, because a ladder needs an arm
+per row width and the multiply takes any of them in two bytes. The product
+cannot leave AX: the widest row here is 47 × 88, and 255 × 88 would still fit.
+
+**The scan answers WHERE as well as WHICH.** `ico_scan` walks the rows and
+returns `AL` = the row with `ES:DI` standing on it; on a miss it returns
+`AL` = `[ico_n]` with `ES:DI` on the first FREE row, which is past the end
+when the store is full — so `cmp al, ICO_NROW` is the whole of *is there
+room*, and a refused claim answers 0xFF into the same compare. `ico_find` is
+five bytes of frame around it for callers that want only the row, and
+`ico_add` keeps all three answers: it re-derived the claim, the count and the
+row offset when the scan that had just missed was standing on the row it was
+about to take.
+
+**One classification serves both icon passes.** Step 4 walks a real volume and
+step 4a' a redirected one (§62.9.2.1), and what each does in front of a sector
+read is identical to the instruction — bank the identity, send a folder to the
+built-in body, leave a document to pass 4b, spend a store hit. They differ
+only in what a MISS means, which is a sector read on one pass and nothing at
+all on the other, so `ico_ref_try` says that with a carry: the first pass
+branches on it and the second does not test it.
 
 **What the DECLARATION half costs, stated because it is the one thing a hit
 skips.** `assoc_note_app` merges a package header's §54.6 declarations and
@@ -78257,6 +79784,33 @@ Tracker refuses first and touches nothing; `.toobig`'s comment claiming
 "nothing is playing that this interrupted" was already wrong and is left
 alone, because the sized path can no longer reach it for any file a real heap
 could hold.
+
+#### 56.14.1 Two refusals, two sentences — and the ordering wart that outlived them
+
+`mpp_load_name` said **"File too big"** for two different things: a size past
+the conversion's domain (`DX >= 1023`, about 64MB — genuinely a statement
+about the file) and a size past `OSAPI_MEM_AVAIL`'s largest run, which is a
+statement about **this machine, today**. The second sends the reader to look at
+the file, which is the one thing that is not the matter; closing a window
+fixes it. Tracker has had `trk_s_nofit` — **"Too big for free memory"** — for
+both halves of that distinction since §45.3.1, and ModPlug borrows the string
+now, so the two players answer the same question the same way. §47's rule
+about greying a fact and never a guess, applied to a refusal.
+
+**The ordering wart is NOT fixed and is stated rather than hidden.** §56.14
+ported Tracker's refusals but not its shape: this player stops playback and
+frees the previous claim **before** `.alloc` looks at the size, where Tracker
+refuses first and touches nothing (§45.3.1.1). `.toobig`'s comment claiming
+"nothing is playing that this interrupted" has been wrong since, and rested on
+the sized path being unreachable for any file a real heap could hold.
+
+**That premise was false for as long as `fdlg_sizeof` reported packed sizes**
+(§38.6.1): a compressed module reached `.nofit` on a third of its figure with
+the previous module already freed. The figure is correct now and the premise
+holds again — but it is a premise, where Tracker's ordering is a guarantee.
+The fix is to hoist `.alloc`'s sizing above the stop-and-free; it is not
+attempted here, and the free itself cannot simply move below the read for
+§45.3.1.1's reason.
 
 ---
 
@@ -97167,10 +98721,11 @@ Package `RUNCPM`, directory `apps/runcpm/`, images `build/runcpm.img` /
 `runcpm720.img` / `runcpm120.img` / `runcpm360.img` (each `--verify`'d), 86Box machine
 `vm/386-runcpm` (a copy of `vm/386-c-word` with the B: image and uuid
 changed), on `apps-all.img` as a folder of its own `RUNCPM\` (§19.10 — the
-CCP, the `.OVL` and drive `A\0` must sit beside the package, below). **Nothing
-third-party is committed** (CONTRIBUTING.md §6): `tools/getruncpm.py`
-fetches RunCPM at the pinned commit at build time (`make runcpm-src`, the
-stamp `build/runcpm-src.stamp`) — `CCP/CCP-DR.60K`, `LICENSE`,
+CCP, the `.OVL` and drive `A\0` must sit beside the package, below).
+`tools/getruncpm.py` takes RunCPM's files at the pinned commit at build time
+(`make runcpm-src`, the stamp `build/runcpm-src.stamp`) out of the
+**committed `apps/runcpm/cache/cpmcache.zip`** (§74.6.1), reaching GitHub
+only for a file the zip lacks — `CCP/CCP-DR.60K`, `LICENSE`,
 `DISK/1STREAD.ME` and `DISK/A0.zip`, every artifact's SHA-256 checked, the
 master disk unpacked into `build/runcpm-disk/A/0` MINUS the three files above
 65,535 bytes, which `A/0/LEFT-OFF.TXT` names on the disk — the way
@@ -97305,14 +98860,28 @@ The RUNCPM floppies carry **CP/M software of their own beside RunCPM's master
 disk** — arcade games, dungeon crawlers, a word processor and a compiler —
 fetched by **`tools/getcpmsw.py`** from the public **RunCPM software
 collection** on Google Drive, the `A..P/0..F` drive tree RunCPM users share
-(`A/0` of it is the master disk `getruncpm.py` fetches). **Nothing it
-downloads is committed** (CONTRIBUTING.md §6, `tools/getstories.py`'s
-paragraph and §74.5's rule): what is committed is the PIN — a Drive file id,
-a SHA-256 and a size **per file** — the bytes land in `build/cpmsw/`, and a
-collection that moved under us is a hard failure, never a warning, so the
-images still rebuild byte-for-byte. `make cpmsw` fetches; `--from DIR` takes
+(`A/0` of it is the master disk `getruncpm.py` fetches). What is pinned is
+a Drive file id, a SHA-256 and a size **per file**; the bytes come out of
+the committed cache zip (§74.6.1) and land in `build/cpmsw/`, and a file
+that does not match its pin is a hard failure, never a warning, so the
+images still rebuild byte-for-byte. `make cpmsw` extracts; `--from DIR` takes
 the files off a local copy instead; `--refresh` re-reads the collection and
 prints a new table to paste in.
+
+#### 74.6.1 The committed cache: `apps/runcpm/cache/cpmcache.zip`
+
+**Both CP/M fetches read one committed zip before the network**, a
+user-decided departure from CONTRIBUTING.md §6 in `apps/c64/rom/`'s shape and
+recorded in `apps/runcpm/cache/README.md`. The reason is time: Drive answers
+the collection one request and one virus-scan form a file, some eighty of
+them, and that was minutes of every clean `make live`. The zip holds
+`runcpm/<path>` for each `getruncpm.PINNED` entry and `cpmsw/<AREA>/<NAME>`
+for each `getcpmsw.PINNED` one, nothing else, and is a TRANSPORT rather than
+a second source of truth: every member is checked against the same pin a
+download is. `tools/cpmcache.py --check` verifies it (the `cpmcache` fast
+row); a moved pin falls through to the network, and `tools/cpmcache.py
+--pack` then rebuilds the zip — deterministically, so an unchanged repack is
+invisible to git.
 
 **The collection's own `<DRIVE>/<USER>` coordinates are the key of
 everything fetched** — `build/cpmsw/N/0/…`, so `--from` a local copy works
@@ -103505,6 +105074,201 @@ machinery — `drutil list` to know a burner is attached at all (none: the
 menu row says so and does nothing, §47's shape), `hdiutil burn` to burn and
 verify. macOS only, and it says so: on Linux the same job is `lsblk` and
 `dd`, and a guide pretending to cover both would test as neither.
+
+### 80.5 A period ROM reports the card's own geometry — the image is retargeted as it is written
+
+§80.1's 16 × 63 is right for the consumer it was chosen for and wrong for
+the one it was not. A modern BIOS booting a USB stick *derives* its
+geometry from the partition table; an **XTIDE Universal BIOS** — or any
+option ROM answering int 13h for an IDE or CompactFlash card on an XT —
+derives nothing from the table. It reports the card's own IDENTIFY
+geometry, translated by its addressing mode: **NORMAL** (1024 cylinders or
+fewer, the card's P-CHS as it is), **LARGE** (1025–8192 cylinders, the
+heads doubled until the cylinders fit in 1024 — Revised Enhanced CHS), or
+**LBA** (8193 and up, assisted-LBA heads chosen by capacity). Under any
+geometry but 16 × 63 the image's CHS arithmetic — the MBR's column
+(§52.10.1), the BPB the boot record and `dsk_bpb_check` both divide by
+(§52.10.2) — lands on other sectors, and the field's first CompactFlash card
+did exactly that. What the screen says names which way it missed:
+
+| the ROM's geometry | what happens |
+|---|---|
+| a different sectors-per-track | `Not bootable` — C0/H1/S1 was not LBA 63, and the MBR read zeros |
+| fewer heads or sectors than 16 × 63 | `Disk error`, or the boot record's lone `D` — a read past the ROM's own track |
+| 63 spt and MORE than 16 heads (LARGE: 32, 64, 128) | a desktop, because everything below LBA 1008 is where cylinder 0 puts it under any such shape — and every file past it read off the wrong sectors |
+
+**Field note 33's invariant holds and decides the shape**: the geometry
+that *wrote* the volume is the one that reads it back. For a raw-written
+image the writer is the **imager**, and what it must write is the geometry
+the reader will use. Nothing in the image's LBA layout depends on geometry —
+the FATs, the root, `KERNEL.SYS`'s flat run are all at the same LBAs
+whatever the ROM believes — and exactly **ten bytes** do: the entry's two
+CHS columns (six) and `BPB_SecPerTrk`/`BPB_NumHeads` (four).
+`tools/os88disk.py --retarget IMG --geometry HEADS/SPT -o OUT` rewrites
+those and nothing else (`hdd_retarget` is the function, and the imager
+calls it in memory); it refuses heads outside 1..255, sectors outside 1..63,
+and a partition whose last sector would need a cylinder past 1023, and it
+refuses an image whose table and volume do not already agree, so a foreign
+disk cannot be quietly rewritten. `--verify-hdd` checks, for every
+partition, that the entry's CHS columns describe the same sectors the
+volume's own BPB geometry does — the disagreement note 33 was, made a
+diagnostic.
+
+**The imager asks, because it cannot know.** The card's IDENTIFY data is the
+only source of its geometry and a USB card reader does not pass it through
+(a mass-storage bridge speaks SCSI, and macOS offers no ATA pass-through to
+a user program), so for a partitioned image on a USB-bus device the imager
+puts the question once, before the typed confirmation: keep 16 × 63 (a PC's
+USB boot, QEMU, 86Box with the geometry typed in), or the heads and sectors
+the booting ROM reports. What it can compute is the answer XTIDE's Auto rule
+gives a card **of this capacity whose P-CHS is 16 × 63** — which is what
+CompactFlash cards above 504 MiB report, the ATA convention — so it offers
+that as the suggestion with the mode named (LARGE 32/64/128 heads, LBA 255),
+and the reader checks the mode against XTIDE's boot menu, which shows the
+mode and the capacity and not the C/H/S. Below 504 MiB the ROM is in NORMAL
+and the geometry is the card's own, which the imager says rather than
+guesses (§47's rule, on the host). A geometry can also be typed. The image
+FILE is never touched: the retargeted bytes are what is hashed, written and
+read back, and both digests are printed.
+
+**Measured, as an A/B on the ROM in question.** 86Box's `ibmxt86` with
+`hdc_1 = xtide` (XTIDE Universal BIOS r631, the ROM 86Box ships) and one
+IDE drive of **512 cylinders × 4 heads × 32 sectors** — a small
+CompactFlash card's shape, and every one of its three numbers different
+from the image's. The stock image: `Master at 300h: 86B_HD00`, `Booting
+C»C`, **`Not bootable`** — the table's first row, C0/H1/S1 being LBA 32 on
+that drive. The same image after `--retarget --geometry 512/4/32`, padded
+to the drive: the desktop, with **C:** on the dock beside A: and B:, ninety
+seconds from power-on. QEMU boots a 64-head retarget to the same desktop,
+which proves less — SeaBIOS derives its geometry from the table, so it
+agrees with any consistent image — and `tests/unit/t_hddgeom.py` is the
+host-side gate: the ten bytes and only those, a round trip that is the
+identity, every refusal, and `--verify-hdd` on the live image at four
+geometries.
+
+**And in the field, the NORMAL-mode case.** A 256 MB SanDisk CompactFlash
+card in a **Book8088** — the 8088 laptop that boots CompactFlash through
+the XTIDE Universal BIOS — is 980 cylinders × 16 heads × **32** sectors, the
+older SanDisk shape rather than the 16 × 63 that the retrocmp geometry table
+lists for other 256 MB cards; XTIDE is in NORMAL mode for a card that size
+and reports it as it is. The stock image did not boot; the image written as
+16/32 did (2026-09-15). It is the case the imager cannot compute, and the
+reason the prompt names that card as its example.
+
+**What would make it automatic is on the other end of the cable.** The one
+machine that knows the geometry is the XT itself, where int 13h AH=08h
+answers — an MBR that asked, compared the answer with the boot record's
+BPB, rewrote the ten bytes on the disk and then chained would make any
+raw-written image boot under any ROM with no question asked, and the MBR
+has 263 bytes free for it. Not taken here: it writes to the boot medium at
+boot, and a ROM that does not answer AH=08h at all (note 33's card) would
+get nothing from it. It is recorded as the next step rather than the
+absent one.
+
+### 80.6 The live volume carries EVERYTHING, and `t_livefull` is what says so
+
+The live media is the one image in this tree whose premise is
+**completeness**. Every floppy here is a curation and says so: 354 clusters is
+the geometry that runs out first, this project keeps making applications, and
+§24.6.1 makes being on a 360KB disk *a decision with a date on it* rather than
+a property of the package. The live volume is **16,324 clusters of 2,048
+bytes**, it is on demand, and it is what a release page offers to somebody who
+wants the machine rather than a floppy — so a program missing from it is
+missing from the release rather than left off a disk.
+
+**That premise had nothing holding it, and it had already failed four ways.**
+The image was 154 files of a 32MB partition with 30,950KB free:
+
+- **`THEWIRE.O88` was absent, and that was a bug rather than a decision.**
+  §92.11 keeps it off every apps floppy for a real reason — the desktop zone
+  launches it **by name out of the BOOT volume's `SYSTEM/`** (§26.7), so a copy
+  on B: is never the one that runs. `$(LIVEARGS)` took `$(ALLAPPSARGS)`'s
+  `SYSTEM/` payload wholesale, which is `$(APPSYS)` — the Task Manager alone,
+  correct for a floppy. But **the live media is one volume: it *is* the boot
+  volume.** Every live USB and CD this project has cut booted to a desktop
+  whose Wire zone opened nothing. The fix is `$(LIVESYSARGS)`, derived as the
+  difference between `$(SYSAPPS)` and `$(APPSYS)`, so a second SYSAPPS package
+  lands here the day it lands there.
+- **The four packages that ride no floppy at all** — `RECORDER.O88` (§35.1),
+  `HELLO.O88` (§27.0), `PACMAN.O88` (§89) and `SCRIBE.O88` (§95) — were off
+  this image too, and **every one of those four exclusions is a 360KB-cluster
+  argument**: DOT DELIRIUM wanted PACMAN's six, two word processors are 49KB
+  of one apps disk. None of it is true at 32MB. They ride `$(LIVEPKGARGS)`,
+  which is **live-only and not `$(ALLAPPSARGS)`** — §19.10.1 is that
+  arithmetic, and it is the everything-FLOPPY's 1.2MB geometry that refuses
+  them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because it
+  resolves `SCRIBE.OVL` in the launching instance's directory (§19.2.1), and
+  because its `WELCOME.DOC` is a second copy of the name `WORD/` carries.
+- **`FROTZ.O88` rode `APPS/` with nothing to play.** The library is fetched
+  rather than committed (§61), which is why it was skipped — and that is not a
+  reason on a target that already acquires two other fetches. All fifteen
+  stories are 2,519KB, more than any floppy holds, which is why the Makefile
+  cuts the list per geometry; **a cut on a volume with 26MB free is a decision
+  nobody took.** They ride `STORIES/` in the story disk's own three folders,
+  with `BRONZE.PIX` in `STORIES/ART/` (§61.7), and the list is read out of
+  `getstories.py`'s MANIFEST at recipe time rather than written down again.
+- **Both CP/M fills were priced in floppy clusters.** `getruncpm.py --select`
+  and `getcpmsw.py --select` take a geometry and fill to its budget, and the
+  recipe passed `1440` — so a 32MB partition carried **62 of the master disk's
+  77 files, with a `LEFT-OFF.TXT` on it naming the other fifteen**, and no CP/M
+  software at all, the games being a fetch this target had never acquired.
+  Each tool has an **`hdd`** arm now: every area, the whole master disk, a
+  megabyte held back to save into, and the three files above the 65,535-byte
+  record limit (§74.3) still named in `LEFT-OFF.TXT`, which is the only honest
+  entry left in it.
+
+**The image is 420 files and 3,216 of 16,324 clusters** — 26,216KB still free,
+which matters: a stick is writable (§80.3) and the user's own documents go on
+it, so a payload that filled it would be a decision to take rather than to
+discover.
+
+**And `MEDIA/` finally has documents for the programs that open one.**
+`$(APPS_DATA)` is TeXPad's two `.TEX` files, the browser's page and the module;
+§24.6.2 wrote `SALES.SLK`, `WRITING.MD` and `SAMPLE.BMP` for the category
+disks and they never reached the image that is supposed to carry everything —
+so Sheet, **Chart** (whose *only* launch path is File > Open: it declares no
+association at all), ArtfulType and Paint all shipped here with an empty folder
+under the dialog that opens by default (§38.10). `$(MEDIA_EXTRA)` is derived
+from the category disks' own list in both `PKGZ` arms at once, and rides
+`$(LIVEPKGARGS)` with the four packages for §19.10.1's reason.
+
+**`$(LIVEFOLDERS)` is derived too, and is not `$(ALLAPPSFOLDERS)`.**
+`getruncpm.py --folders` prices every folder directory at a cluster, and this
+tree has folders the everything-floppy has not: `SCRIBE/`, `STORIES/` and its
+four, and **nine** CP/M areas under `RUNCPM/A` where the floppy has none. At
+26MB free an under-priced fill changes nothing today, which is precisely why it
+would sit there being wrong — so it is derived off `$(LIVEARGS)` itself plus
+the two fetch tools' own answers, the way `$(ALLAPPSDIRS)` is.
+
+**`tests/unit/t_livefull.py` is the enforcement, and it is two halves that are
+not interchangeable.** Nothing in this tree had ever read the live image,
+which is why four separate gaps sat in it at once.
+
+- **PART A asks `make` what the payload lists say and needs no image**, through
+  a `print-%` target whose whole existence is this gate: a check that answered
+  by re-implementing these lists in Python would be a *second* list to keep in
+  step, which is the failure it is written to catch. It sweeps `apps/` and
+  requires a package on the live media for every directory there, the name
+  derived mechanically (uppercase, first eight characters — `solitaire` is the
+  only one the truncation moves). **This is the row that fails the build on the
+  day somebody adds `apps/newthing/` and does not put it on the image**, and it
+  runs in the FAST tier, where no live image exists.
+- **PART B walks `build/os8088-usb.img`** when `make usb` has built one,
+  because a list can name a file that never lands — a folder the recipe forgot,
+  a `--select` that truncated. It checks every promised basename against the
+  FAT16 directory, every story against `getstories`' MANIFEST, every area
+  against `getcpmsw`'s `AREAS`, and every master-disk file against the fetch's
+  own `A0.list`. That last one is the check that a floppy-priced selection
+  cannot pass, and a truncated selection reads exactly like a working disk.
+
+**The exemptions are a list with a reason each**, which is `$(CORE_SYSONLY)`'s
+shape (§24.3) borrowed: `apps/cc` is the C SDK, `apps/fptest` and
+`apps/imgtest` are capability gates, and `apps/wire` is WIREFRAME — an
+*instrument* and not an application (§78.9), the only entry there that is a
+decision about the program rather than about the folder. A package leaves the
+live media by being written down, which cannot be done by accident; and an
+exemption naming a directory that no longer exists fails too, because an
+exception excusing nothing is how an exception list rots.
 
 ## 81. SHEET — the spreadsheet (`apps/sheet/sheet.asm`)
 
@@ -117368,7 +119132,14 @@ What the measurements say about the design, in the order it matters:
 
 `PACMAN.O88` is a native 8086 port of Roklan's Atari computer **disk version,
 revision 3.0, 10/03/82**, from `atari-pacman`, using only the public package
-ABI. It ships in `GAMES/` on every software-disk geometry. Prefix `pm_`; one
+ABI. **It came off the apps floppies while DOT DELIRIUM (§93) was developed** —
+the 360KB disk had eight spare clusters of 354, this package is six of them and
+that one is twelve — and it rides `GAMES/` on the live media, the one image
+that is not curated (§80.6).
+`all` names `$(BUILD)/pacman.o88` directly, so it keeps being built; taking it
+off the floppies is a 354-cluster decision and none of it is an argument about
+a 32MB partition. It is **not** on `build/apps-all.img` — that disk's 1.2MB
+geometry pays for a package out of RunCPM's drive A (§19.10.1). Prefix `pm_`; one
 segment per instance; no kernel changes, external ROM or heap claims.
 Provenance, the upstream license and reproducible extraction are in
 `apps/pacman/README.md` and `tools/pacman_assets.py`.
@@ -122813,12 +124584,31 @@ build of the same source and not a rename of the first: `SCRIBE.O88` and
 
 `make scribe` builds the package, `make scribedisk` its floppy in all four
 geometries. The **package** is in `all` and the **floppy** is not: `scribe.o88`
-is named there for `wire.o88`'s and `recorder.o88`'s reason — it ships on no
-disk, so building it is the only thing that keeps it assembling — while SCRIBE
-is on no shipped disk because WORD is the one that ships. Putting both on the
-apps floppy would spend 49KB to show two word processors that at the fork point
-differ only in their name. `apps/cword` is on demand for the same reason
-(§73.12).
+is named there for `wire.o88`'s and `recorder.o88`'s reason — building it is
+the only thing that keeps it assembling — while SCRIBE is on no shipped FLOPPY
+because WORD is the one that ships there. Putting both on the apps floppy would
+spend 49KB to show two word processors that at the fork point differ only in
+their name. `apps/cword` is on demand for the same reason (§73.12).
+
+**It IS on the live media** (§80.6), in a `SCRIBE/` folder of its own beside
+`WORD/` — that image is not curated and 49KB is not an argument about a 32MB
+partition. It has to be its own folder rather than a second `.O88` in `APPS/`:
+`SCRIBE.OVL` is resolved in the launching instance's directory (§19.2.1),
+which is the same requirement that gives each Word a folder, and its
+`WELCOME.DOC` is a second copy of the name `WORD/` already carries. It is
+**not** on `build/apps-all.img`: its three files are 56,048 bytes and take that
+disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1).
+
+**And the two cannot collide, which is §95.2's whole subject and was for a
+while believed the other way round.** The everything-disk kept SCRIBE off with
+a note saying WORD and SCRIBE "would collide" — a claim that had been false
+since the fork landed, because this package declares **no association block at
+all** and says in twenty lines of `scribe.asm` why: `assoc_ext_new` ends in
+`mov [bx+3], dl`, so a second claimant on `.DOC` overwrites rather than being
+refused, and the owner of a double-click would be decided by directory order
+and would move when a disk was rebuilt. WORD keeps the double-click. SCRIBE
+reads and writes exactly the bytes Word does through `File > Open` and `Save
+As`, and `.RTF` is its own default (§95.4).
 
 ### 95.1 It carries the `sc_` prefix and the `sc*.inc` filenames
 
@@ -126738,10 +128528,19 @@ Reported off the glass, at `A:\>` on a stock system disk: `notepad
 readme.txt` and `open readme.txt` both refused, and `open README.TXT` opened
 Note Pad. Two defects, and the second one hid behind the first.
 
-**THE CASE** is §21.5.3.2 and it is the kernel's. Both names had to be folded
-and only the extension was ever going to be noticed — a lowercase document
-name matches nothing on a FAT volume either, so the package would have opened
-an empty window on a file it could not find.
+**THE CASE** is §21.5.3.2. Both names had to be folded and only the extension
+was ever going to be noticed — a lowercase document name matches nothing on a
+FAT volume either, so the package would have opened an empty window on a file
+it could not find. **It is THIS BOX's fold and it used to be the kernel's**,
+and it cost this box nothing: `dos_pgname` is the copy that fills `dos_pkgn`
+and `dos_pgdoc` from `[dos_tname]`, it was written out THREE times in
+`dosc.inc` before it had a name — the program's name, `OPEN`'s document and
+`PROGRAM DOCUMENT`'s — and the fold is one `call dos_upc` inside the one loop
+that is left. The 44 resident bytes the kernel spent folding on behalf of this
+one caller came back to every machine's heap, including this box's own arena.
+`dos_upc` is already across the core seam (§96.44.5); `dsh_upper`, the
+whole-string form, is **not**, and reaching for it would have cost both hosts
+a `DOSC_E` slot to save one loop in one of them.
 
 **THE MESSAGE** was one string doing two jobs and getting both wrong: *"There
 is no program on this disk for that file."*
@@ -129841,13 +131640,23 @@ a class to the sweep — it takes one **off the skip list** — so the register
 can only reach the three rows the loop was already deciding about, and naming
 a class the sweep was going to take regardless changes nothing.
 
-**The whole resident cost is four bytes**: `drv_suspend_x` banks `BL` in
-`[hb_spmask]` and the decision is `HIBER.DRV`'s, inside `hbm_sweep`, where it
-hangs off the skip itself — a row that was going to be taken does not pay for
-it. The mask is written on the resume too, where it means nothing: that is
-what stops one call's mask outliving it, and `hbm_detach` zeroes the byte for
-the same reason. **A hibernate is not this slot**, and its sweep is today's
-list whatever the last suspend asked for.
+**The whole resident cost is ZERO**, and it was four bytes plus a `.bss` byte
+until somebody asked what they were for. `drv_suspend_x` used to bank `BL` in
+a kernel `[hb_spmask]` so that `hbm_sweep` could read it out of the module —
+on the reading that a register cannot survive a module load. **It survives**:
+`mod_need` clobbers **flags only, every register preserved** (that is its own
+contract, written for exactly this reason — it sits under thunks whose
+caller's arguments are already in registers), `hbf_need` brackets it in
+`push ax`/`pop ax`, and `modh_e_perform` is `call`/`retf`. So `BL` arrives at
+`hbm_drvsusp` untouched, which banks it in `[cs:hbm_spm]` — **module data**,
+present only while the call is in flight.
+
+The mask is written on **both** verbs, where the resume's means nothing: that
+is what stops one call's mask outliving it, and `hbm_detach` zeroes the byte
+for the same reason. **A hibernate is not this slot**, and its sweep is
+today's list whatever the last suspend asked for. The decision stays
+`HIBER.DRV`'s, inside `hbm_sweep`, where it hangs off the skip itself — a row
+that was going to be taken does not pay for it.
 
 There is no matching bit on the resume. `[hb_susp]` records the rows a suspend
 actually took out, so what comes back is what went — which is §51.11.1's
@@ -129860,9 +131669,9 @@ to sweep (§51.11.3).
 ### 51.12 What a class is holding (`OSAPI_DRV_CLASSK`)
 
 `0x0580`. `AL` = a `DRVC_*`; out `CF=0` with `AX` = the KB the **loaded**
-drivers of that class hold and `CX` = how many answered, or `CF=1` with `AX=0`
-and `CX=0` — nothing of that class is loaded. A SLOT: no caller segment is
-involved, and every other register is preserved.
+drivers of that class hold, or `CF=1` with `AX=0` — nothing of that class is
+loaded. A SLOT: no caller segment is involved, and every other register is
+preserved.
 
 The Control Panel has priced a driver since `drv_memk` was written (§51.2.4),
 and it prices it **per row**, because that is what the Drivers page draws. The
@@ -129877,38 +131686,29 @@ the number beside it, so what greys and what is offered cannot disagree
 which is the truth the checkbox wants: there is nothing to unmount and nothing
 to get back.
 
-**Bit 15 of `AX` is a flag and not a digit.** `DRVM_PLUS` is set when one of
-the rows also holds a store the **user** sized on its own page — the RAM
-disk's arena, `[rd_kb]`, which is not this kernel's number to quote. Mask it
-off before printing and draw a `+` if you want to say so, which is what the
-Drivers page does.
-
-The figures are `drv_memk`'s, so they are **build-time constants**: the call
-costs no probe and no I/O, and it is a fair estimate rather than a measurement
-— what each driver holds while doing its primary job, at the top rung of any
-claim it sizes to the machine (§51.2.4 has the rule and
-`tests/unit/t_drvmem.py` keeps each term honest against the `.drv` the build
-just produced). A caller estimating an arena that does not exist yet is
-exactly the reader for whom a constant is right.
+**The answer is plain kilobytes** — §51.12.2 is what it weighs. There is no
+flag bit in it and nothing to mask off. `DRVM_PLUS` was in bit 15 while the
+figure was `drv_memk`'s, whose RAM-disk row carries it; the heap sum carries
+no such thing, because a store the user sized is claimed memory like any
+other and gets counted rather than footnoted.
 
 **It took the retired cell at `0x0580`** — `OSAPI_FILE_MOVE`'s, withdrawn into
 `0x0578`'s verb byte (§22.25) — so the table gains no byte and §20.3.1's free
-list is empty again. On `kern_small` it is `xor ax,ax` / `xor cx,cx` / `stc`:
+list is empty again. On `kern_small` it is `xor ax,ax` / `stc` / `retf`:
 nothing of any class is loaded there, for ever, and the refusal states the
-answers rather than leaving the caller's registers looking like a figure.
+answer rather than leaving the caller's register looking like a figure.
 
-#### 51.12.1 `DRVCK_ALL` — the CEILING, which is a different question
+#### 51.12.1 The CEILING is a different question, and it is a CONSTANT
 
-`AL` = a `DRVC_*` **OR'd with `DRVCK_ALL`** (`0x80`) asks what the class would
-cost at most: every row of that class counts whether or not its driver is
-mounted, and `CF=0` whenever the *table* has such a row. `DRVC_*` runs 1..5,
-so bit 7 was free; the walk masks it off at the class compare rather than
-banking the class in a register, every register in that loop already carrying
-something. **Eight bytes of `.cold`, resident.**
+*What would this class cost at most* — the `Hard drives (Up to 32K)` a caption
+quotes — is the sum of `drv_memk` over the rows of that class, and **every
+term of it is fixed at assembly time**. So it is not a call. It is
+`DRVM_CEIL_DISK` and `DRVM_CEIL_NET`, `equ`s in `kernel/driver.inc` mirrored
+into `apps/os88api.inc`.
 
-**It exists because a caption and a control want different numbers.** The
-plain form above is right for a checkbox — it offers to unmount something, and
-on a machine with nothing mounted there is nothing to offer and nothing to get
+**It exists because a caption and a control want different numbers.** §51.12's
+form is right for a checkbox — it offers to unmount something, and on a
+machine with nothing mounted there is nothing to offer and nothing to get
 back. A *caption* is describing the class and not this machine's state, so fed
 the same figure the DOS box's Memory page read `Hard drives (Up to  0K)` on a
 machine with no hard disk: a perfectly true number that is indistinguishable
@@ -129916,27 +131716,72 @@ from a page whose arithmetic has died. Worse, that is the state the page is
 **most** often opened in, a user shutting the OS down for a DOS program being
 disproportionately a user with no hard disk and no card.
 
-The alternative was a copy of the constants in the package, and it is refused
-for the reason `tests/unit/t_drvmem.py` exists: `drv_memk`'s terms are an
-*image size* plus *claims declared in the drivers' own sources*, both of which
-move when a driver grows and neither of which any linker checks (§1). One
-table and two questions keeps a growing driver moving both answers together; a
-package-side copy would be a third derivation of a figure that already has two
-and needs a test to hold them level.
+**It was a runtime form of the slot and that was the mistake.** `AL` OR'd with
+`DRVCK_ALL` (`0x80`) made the same walk count every row of the class whether
+or not its driver was mounted, and read the figure out of `drv_memk`. That is
+**thirty-five resident bytes walking a table of constants to add up
+constants** — a machine doing at run time, on every repaint, arithmetic nasm
+had already done. The retirement is the whole of §51.12.3's saving and most of
+this slot's.
+
+**A mirror is not the copy this section used to refuse.** The alternative
+weighed when the runtime form was built was *a copy of the constants in the
+package* — `DRVM_IMG_HDD`, the claim terms, added up a second time — and it
+was refused for the reason `tests/unit/t_drvmem.py` exists: those terms are an
+image size plus claims declared in the drivers' own sources, both of which
+move when a driver grows and **neither of which any linker checks** (§1). A
+package-side copy would be *a third derivation of a figure that already has
+two*. `DRVM_CEIL_*` derives nothing — it carries the **answer**, once — and
+three things hold it level, none of which needs anybody to remember:
+
+| | |
+|---|---|
+| `kernel/driver.inc`'s `%if` | nasm itself: `DRVM_CEIL_DISK != DRVM_HDD` fails the build |
+| `tests/unit/t_drvmem.py` | re-derives the sum from `drv_tab`'s own class bytes, so a **second** row of either class is caught too |
+| `tests/unit/t_mirror.py` | the SDK's copy, for free and for ever — every name defined in more than one file |
+
+The literal is what makes the mirror possible: `t_mirror` compares the text
+when a value is not a number, and the SDK cannot see `DRVM_HDD`. So the kernel
+carries `equ 32` and the `%if` is what makes `32` safe.
+
+**On `kern_small` the caption now says `Up to 32K` where the slot used to make
+it say `Up to  0K`**, and that is the fix arriving on one more machine rather
+than a regression. `Up to` is about the class (§96.36.7.1: the box is a
+*request*, `include these if available`, and a `.LNK` outlives the setup it
+was saved under). The arena arithmetic is untouched — it reads §51.12's live
+figure, which on a driverless kernel is 0 whichever way the box is set.
 
 **The two forms must not be confused at the call site**, and the shape that
-prevents it is that they are asked separately and banked separately —
-`dos_mck_place` reads the loaded figure into `[dos_mhkb]`/`[dos_mnkb]` for the
-arena arithmetic and the ceiling straight into the label's own digits, so
-neither can be read for the other's purpose later.
+prevents it is that they no longer look alike: `dos_mck_place` *calls* for the
+loaded figure into `[dos_mhkb]`/`[dos_mnkb]` and *loads an immediate* for the
+label's digits.
+
+#### 51.12.3 The count was published, returned, and read by nobody
+
+The slot also answered `CX` = how many rows answered, and `DRVM_PLUS` in bit
+15. **Neither had a reader.** Every call site in the tree goes through the DOS
+box's own `dos_classk`, which discards `CX` and (until §51.12.2 stopped the
+figure being `drv_memk`'s) masked bit 15 off again immediately.
+
+`CX` was not free. It was maintained — `xor cx,cx`, `inc cx` — for one
+purpose: to reach `jcxz` and set `CF`. **The answer is its own predicate**, so
+the whole tail is `cmp ax, 1`: `CF=1` exactly when `AX=0`, and `AX=0` exactly
+when no row of the class is loaded, because `drv_load` writes `DRVR_SEG` and
+`DRVR_KB` together and a driver image is never under a kilobyte (its own
+`cmp ax, DRV_HDR_SZ` / `jb .bad`). **Four bytes where eight stood, and one
+fewer register in the contract** — on both builds, the `kern_small` stub
+losing its `xor cx,cx` with it.
+
+That is §18.4.6's question asked one slot along — *is every field read by
+anybody* — and it answered the same way twice in two passes.
 
 #### 51.12.2 The plain form weighs the HEAP, not `drv_memk`
 
 The plain form answers what the class's loaded rows are **holding right now**,
 summed off `mem_tab`: for each loaded row, `DRVR_KB` — the KB `drv_load`
 claimed for the image — plus `mem_owned_kb` of that row's `DRVR_SEG`. Two
-lookups, no probe, and nothing that can drift. Only `DRVCK_ALL` reads
-`drv_memk`.
+lookups, no probe, and nothing that can drift. **Nothing in this slot reads
+`drv_memk` any more** — the form that did is §51.12.1's constant now.
 
 **It was `drv_memk` for both and the field measured what that costs.** On an
 IBM 5150 with a Sound Blaster, the DOS box's Memory page read the arena 20 KB
@@ -129952,8 +131797,7 @@ program got 447.
 defines it as *what a driver holds while doing its primary job, at the top
 rung of any claim it sizes to the machine* — right for the Drivers page's
 column and for a caption about the class, and wrong for *what would I get back
-if this class went away now*, which is the only question the plain form is
-asked. `DRVC_DISK` is the same story one row along: `8 + 4×6` as a ceiling and
+if this class went away now*, which is the only question this slot is asked. `DRVC_DISK` is the same story one row along: `8 + 4×6` as a ceiling and
 14 with one volume mounted.
 
 **The two records are found by the ownership rule and not by a list.** A
@@ -129961,8 +131805,18 @@ driver's image is owned by `MEM_K_DRV`, so it is named by its own base rather
 than by anything class-specific — hence `DRVR_KB`. Everything the driver then
 claims for *itself* carries that base as its **owner word**, because
 `mem_own`'s last act is `mov bx, es` (§50.2). `mem_owned_kb` is exactly that
-sum and already existed; it gained a near entry beside its far one, four
-bytes, rather than a second copy of the scan.
+sum and already existed, so this costs no second copy of the scan.
+
+**And it costs no door either, which took a second look.** It gained a near
+entry in front of its far one — a four-byte trampoline — on the reading that
+the far entry was somebody's. It was **nobody's**: `mem_owned_kb_x`'s one
+other caller is `osapi_sys_snapshot_x`, which is itself `.cold`, and its
+`call COLD_SEG:mem_owned_kb_x` is a far call from `COLD_SEG` **to
+`COLD_SEG`** — written while that body was still `.text` and carried across
+unexamined when it moved, under a section comment that says in as many words
+*"its one outbound is already `call COLD_SEG:` and stays exactly as it is"*.
+One near door serves both: **six resident bytes**, and one fewer segment
+crossing per row of a snapshot the Task Manager takes once a second.
 
 **Why the kernel and not the caller.** `OSAPI_CLAIM_SNAPSHOT` publishes the
 whole of `mem_tab` and the Task Manager's `tm_hmatch` already groups a
@@ -129976,6 +131830,9 @@ already one call away from.
 
 **Nothing on the Control Panel moves**: `cp_drv_mem1` reads `drv_memk`
 directly and not through this slot.
+
+**What is left of this slot is 52 bytes of `.cold`**, against 102 when it was
+answering two questions and counting rows nobody read (§51.12.1, §51.12.3).
 
 ### 96.23 The packet driver — a Crynwr interface over `ETHER.DRV`
 
@@ -130588,9 +132445,10 @@ So the middle rungs still want a **width cap** in `dsk_rah_want`, and
 §18.95.8 is that, **taken**. The estimate here was *"a word of `.bss` read at
 its `.width` clamp, plus a door to set it and a forced shed — about thirty
 resident bytes"*, and the honest figure is **101**: `.text` +1 (the cap is a
-BYTE, not a word) and `.cold` +100. Thirty was the clamp alone; the door,
-`dsk_rah_drop` and the re-arm are the other 71, and the re-arm is the half this
-paragraph had not thought of. No rung moved — which per this file's own banner
+BYTE, not a word) and `.cold` +100. Thirty was the clamp alone; the door, the
+drop and the re-arm are the other 71, and the re-arm is the half this
+paragraph had not thought of. (The drop is `dsk_rah_redo` since §18.95.9,
+which gave 12 of those 101 back by falling through into the solve.) No rung moved — which per this file's own banner
 is not the point, and the bytes are what is billed.
 
 **The doubling was NOT spent, and it does not bite.** `2 × n × 4.5 ≤ free` is
@@ -130701,12 +132559,11 @@ subsection carries two boxes, `Hard drives (NNN K)` and `Network (NNN K)`,
 and clearing one sets that class's bit in `OSAPI_DRV_SUSPEND`'s `BL`
 (§51.11.4).
 
-**The figure in the label and the figure the arena row adds are ONE number
-read once.** `dos_mck_place` asks `OSAPI_DRV_CLASSK` per class, banks the
-answer, patches it into the label in place and hands the same word to
-`dos_mem_arena` — so what the box says it gives back and what the total moves
-by cannot disagree (§47 rule 5), and a driver unloaded between two reads
-cannot make them.
+**The figure the arena row adds is ONE number read once.** `dos_mck_place`
+asks `OSAPI_DRV_CLASSK` per class and banks the answer, and `dos_mem_arena`
+is handed that same word — so a driver unloaded between two reads cannot make
+the terms of one total disagree (§47 rule 5). The figure in the LABEL is a
+different question and §96.36.7.1 is why; it is patched in from a constant.
 
 **A class nothing has mounted greys, and is forced ON.** `OSAPI_DRV_CLASSK`'s
 CF is that fact. An unticked box means *take it out* and there is nothing to
@@ -130740,9 +132597,10 @@ machine in front of you (§96.25.1) while the tick records an intent for another
 one.
 
 **`Up to` is what carries that**, and it is why the caption's figure is the
-CLASS's ceiling and not this machine's (`DRVCK_ALL`, §51.12.1). `Network (Up
-to 33K)` is about the box's future, on whatever machine the `.LNK` is opened
-on: the most it could cost to leave this ticked. The **estimate** above it is
+CLASS's ceiling and not this machine's — `DRVM_CEIL_NET`, a constant out of
+the SDK and not a call at all (§51.12.1). `Network (Up to 33K)` is about the
+box's future, on whatever machine the `.LNK` is opened on: the most it could
+cost to leave this ticked. The **estimate** above it is
 about the machine in front of you and stays on the plain form — what is
 mounted here, which is what clearing the box actually hands back.
 
@@ -132991,7 +134849,7 @@ whether or not something else is living in the top of it — and it is why
 they were cut from rather than anything the program prints.
 
 Two things it cost, and the second is the sharper one. A program that used its
-top pages wrote over the cache, and `dsk_rah_have` then served **the program's
+top pages wrote over the cache, and `dsk_rah_serve` then served **the program's
 own bytes back as disk sectors** for the rest of the session. And
 `[dos_ldpara]` is what bounds `dos_load`'s READ, so an image large enough to
 reach the cache was read straight over it — on exactly the large programs this

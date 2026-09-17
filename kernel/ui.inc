@@ -129,43 +129,58 @@ ui_task:
     ; scancode is what carries it, exactly as 9.6.4's keypad 5 is carried.
     ; kbd_track latched it; this is the spend, and it goes down the SAME
     ; dispatch a typed key does, so it reaches the front window and nothing
-    ; else. One compare on a pass with no key, which is most of them.
-    cmp byte [kbd_ae], 0
-    je .events
-    mov byte [kbd_ae], 0        ; SPENT whatever happens below, exactly as a
-                                ; typed key is taken out of the BIOS buffer
-                                ; before the dark-screen test drops it
-    call blk_wake               ; it is user input like any other (SPEC.md
-    jc .events                  ; 64.2), and the screen having been dark means
-                                ; the user never saw the window this was for
-    mov ax, KSC_ENTER << 8      ; AL = 0, AH = the Enter scancode: the code an
-    jmp short .dispatch         ; ENHANCED ROM would have given us anyway
+    ; else. Four instructions on a pass with no key, which is most of them.
+.altenter:                      ; ...AND THE DELIVERING-BIOS ARM BELOW REJOINS
+    xor ax, ax                  ; HERE, which is what makes one latch answer
+    xchg ah, [kbd_ae]           ; both. READ-AND-CLEAR IN ONE - kbm_p5spend's
+                                ; own idiom, a byte along, and race-free where
+                                ; a test and a separate store are not - and the
+                                ; latch holds the SCANCODE, so AX is now exactly
+                                ; the 0x1C00 an ENHANCED ROM would have given
+                                ; us, SPENT whatever happens below
+    or ah, ah                   ; ...or 0, which is the ordinary pass with
+    jz .events                  ; nothing latched and is most of them
+    jmp short .kwake            ; the ONE thing this arm still needs is the
+                                ; wake, and .typed's is just below
 .typed:
     KFZ 1                       ; 1: a key is pending
+    mov ah, 0x00                ; fetch it: AL = ascii, AH = scan. AHEAD OF
+    int 0x16                    ; blk_wake NOW, which is what lets the latch's
+                                ; arm above share the call - and it DELETES the
+                                ; pushf/popf that used to carry blk_wake's
+                                ; verdict across this int 16h, because there is
+                                ; no longer a verdict to carry
+    KFZ 2                       ; 2: the key is out of the BIOS buffer
+.kwake:
     call blk_wake               ; a key is USER INPUT whatever it turns out to
                                 ; be, so the idle clock restarts here (SPEC.md
                                 ; 64.2) and CF says whether this keystroke is
-                                ; the one that lit the screen
-    KFZ 2                       ; 2: blk_wake returned (SPEC.md 64)
-    mov ah, 0x00                ; fetch it: AL = ascii, AH = scan - the wake
-    pushf                       ; case still has to take the key OUT of the
-    int 0x16                    ; BIOS buffer, so only the DELIVERY differs.
-    popf                        ; The verdict is banked across the call: int
-                                ; 16h is a BIOS service and the flags it
-                                ; returns are its own business, not ours
-    KFZ 3                       ; 3: the key is out of the BIOS buffer
+                                ; the one that lit the screen. It banks AX
+                                ; (blank.inc), so the keystroke survives it
+    KFZ 3                       ; 3: blk_wake returned (SPEC.md 64)
     jc .events                  ; the screen was dark, so the user never saw
                                 ; the window this would have gone to: drop it
-    call kbd_aeclaim            ; a BIOS that DOES deliver Alt+Enter (SPEC.md
-                                ; 9.7.1): normalise AL and drop the latch the
-                                ; ISR set for this same press, or SeaBIOS
-                                ; toggles the mode twice
+    cmp ah, [kbd_ae]            ; A BIOS THAT DOES DELIVER ALT+ENTER (SPEC.md
+    jne .notae                  ; 9.7.1) - SeaBIOS says 1CF0, an enhanced ROM
+    or ah, ah                   ; 1C00 - has just handed us the key the ISR
+    jnz .altenter               ; ALSO latched, and the SCANCODE IT LATCHED IS
+                                ; THE TEST: the two agree only when this typed
+                                ; key is that press. So the typed copy is
+                                ; dropped and the latch is spent in its place -
+                                ; one press, one dispatch, and the AX a package
+                                ; sees is 0x1C00 on every BIOS without the
+                                ; kernel knowing which spelling this ROM chose.
+                                ; The or is the one case the compare cannot
+                                ; judge: a BIOS reports an Alt+numpad character
+                                ; with AH = 0, which equals an empty latch
+.notae:
     call kbm_key                ; with no mouse on the machine, the arrows ARE
     jc .events                  ; the mouse (SPEC.md 9.6) and this key is not
                                 ; the application's. One compare per keystroke
-                                ; on a machine that has one
+                                ; on a machine that has one. 0x1C is not in
+                                ; kbm_tab and AL = 0 is not Space, so the
+                                ; synthesised key passes through untouched
     KFZ 4                       ; 4: kbm_key passed it through (SPEC.md 9.6)
-.dispatch:
     call gfx_lock               ; handler draws; it runs under the lock
     KFZ 5                       ; 5: WE HAVE THE GFX LOCK. A bar that stops at
                                 ;    4 is a mutex nobody released
@@ -301,6 +316,13 @@ ui_task:
                                 ; is nothing left here to say
 
 .on_desktop:
+%ifdef DOCK_OPT
+    cmp byte [dock_up], 0       ; an OPEN hidden dock is over every window
+    je .wmhit                   ; (SPEC.md 30.6.1), so it answers first
+    call dock_click
+    jc .yj1
+.wmhit:
+%endif
     call wm_hit                 ; BX = window hit (0 = none), AL = region
     or bx, bx
     jz .desk_icons              ; no window: dock, then desktop icons
@@ -738,6 +760,15 @@ ui_task:
                                 ; edge is drawn - toast_show is reachable from
                                 ; a lock-holding callback, a worker holding
                                 ; nothing, and kernel code
+%ifdef DOCK_OPT
+    call dock_pass              ; a pointer resting on a HIDDEN strip's line
+                                ; opens it, and one that left an open strip
+                                ; closes it (SPEC.md 30.6) - one byte compare
+                                ; on a machine that does not hide its strip.
+                                ; A tick-coalesced step for the toast's reason:
+                                ; a dwell measured in ticks cannot
+                                ; tell 55 ms of lateness from none
+%endif
     ; --- 4. the clock: keep time always, draw only when something changed ----
     ; Taking the gfx lock blinks the cursor, and that blink IS the flicker
     ; the "seconds in menu bar" setting exists to remove - so the lock is
@@ -1205,6 +1236,13 @@ ui_rdown:
 %endif
     jmp .ret
 .hit:
+%ifdef DOCK_OPT
+    cmp byte [dock_up], 0       ; an OPEN hidden dock answers first, over the
+    je .whit                    ; windows (SPEC.md 30.6.1)
+    call dock_rclick
+    jc .ret
+.whit:
+%endif
     call wm_hit                 ; BX = window hit (0 = none), AL = region
     or bx, bx
     jz .strip                   ; no window: the dock gets the press, and the

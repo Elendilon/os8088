@@ -42,7 +42,7 @@
 ; =============================================================================
 
 %ifdef KERN_EMU
-DRV_MAX     equ 6               ; rows in drv_tab. The FIFTH is SPEC.md 72's
+DRV_MAX     equ 7               ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; Ethernet card and the SIXTH is SPEC.md
                                 ; 9.11's absolute mouse - the one DRVC_OVL row
                                 ; in the table, which takes no publication
@@ -50,9 +50,14 @@ DRV_MAX     equ 6               ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; a bit for it and the page can untick it.
                                 ; **kern_emu ALONE** (SPEC.md 9.11.7): the row
                                 ; is the sixth on that build and does not
-                                ; exist on the other two.
+                                ; exist on the other two. The SEVENTH is
+                                ; kern_big's sixth, the CH375 USB mouse
+                                ; (SPEC.md 9.12) - after the absolute mouse
+                                ; here so that row keeps index 5
 %elifdef KERN_BIG
-DRV_MAX     equ 5               ; ...and kern_big stops at the parallel link.
+DRV_MAX     equ 6               ; ...and kern_big stops at the CH375 USB mouse
+                                ; (SPEC.md 9.12), appended after the parallel
+                                ; link so rows 0-4 keep their indices.
                                 ; The absolute mouse's row was HERE until
                                 ; SPEC.md 9.11.7 and the machine this project
                                 ; is calibrated against could never use it:
@@ -143,7 +148,32 @@ DRVC_FILE   equ 5               ; a volume served by somebody ANSWERING
                                 ; under an emulator are the same shape, and
                                 ; the last of those is the only one of the
                                 ; four that can be tested in a container
-DRVC_MAX    equ 5               ; classes, and so publication slots
+DRVC_POINT  equ 6               ; a POINTING DEVICE the kernel does not
+                                ; drive itself (SPEC.md 9.12): the CH375 USB
+                                ; mouse. A real class and not DRVC_OVL because
+                                ; the driver needs a WORKER, and drv_task's
+                                ; spawn fence - like every driver fence - asks
+                                ; whether the caller is a PUBLISHED driver.
+                                ; APPENDED, never slotted into the retired 3:
+                                ; a class number is ABI (DRVC_RETIRED3 above)
+%ifdef OS88_DRIVERS
+DRVC_MAX    equ 6               ; classes, and so publication slots
+%else
+DRVC_MAX    equ 5               ; ...and FIVE where there is no driver layer at
+                                ; all (SPEC.md 51.0), because the only thing
+                                ; this constant sizes there is the `drv_owner`
+                                ; table of permanent zeros below, and a sixth
+                                ; class that can never be published is a word
+                                ; of a kernel with three bytes left in its
+                                ; image rung. It is safe to diverge because
+                                ; DRVC_MAX is NOT published: `apps/os88api.inc`
+                                ; mirrors the class NUMBERS a package passes to
+                                ; OSAPI_DRV_CALL and not the ceiling, so what a
+                                ; kern_small package asking for DRVC_POINT gets
+                                ; is `cmp al, DRVC_MAX`'s refusal, which is the
+                                ; true answer on a machine that can load no
+                                ; driver (SPEC.md 9.12.5)
+%endif
 
 DRVC_OVL    equ 0x40            ; NOT A CLASS, and mirrored from
                                 ; drivers/os88drv.inc: a driver-shaped image
@@ -589,7 +619,15 @@ CFG_SSN     equ 13              ; db: [ss_mins], minutes of idle before any of
                                 ; honours the period, and a floppy carried
                                 ; between the two kernels must not come back
                                 ; with the modes silently re-ticked
+%ifdef DOCK_OPT
+CFG_DOCK    equ 14              ; db: [dock_cfg], where the dock stands and
+                                ; whether it hides (SPEC.md 30.5). A plain
+                                ; store, and the unpack re-derives the
+                                ; geometry from it, because that is not one
+CFG_DBLOB   equ 15              ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
+%else
 CFG_DBLOB   equ 14              ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
+%endif
                                 ; and the kernel does not know what is in
                                 ; them (SPEC.md 51.9). It knows the NAME and
                                 ; the LENGTH, carries them to disk and back,
@@ -664,12 +702,19 @@ CFG_NB      equ CFG_DBLOB + DRV_BLOB_SZ     ; no RAM disk here, so no second
                                 ; reached from the Theme page and belongs to
                                 ; the same question: what the machine spends
                                 ; on looking like itself
+%ifdef DOCK_OPT
+    dw 'DK'                     ; DocK - its edge and Auto-hide (SPEC.md 30.5).
+    db 1, 1, CFG_DOCK           ; A key of its own rather than a byte on 'TH':
+                                ; growing that record would bump its ver and
+                                ; put everybody's theme back to Bright once.
+                                ; kern_big's alone, like the feature
+%endif
     dw 'HD'                     ; Hard Disk - the DRIVER's own blob (51.9)
     db 1, DRV_BLOB_SZ, CFG_DBLOB
 %ifdef KERN_BIG
     dw 'RD'                     ; Ram Disk - the second one (51.9.1)
     db 1, DRV_RBLOB_SZ, CFG_RBLOB
-CFG_NKEY    equ 9
+CFG_NKEY    equ 10              ; ...and 'DK' (DOCK_OPT is kern_big's)
 %else
 CFG_NKEY    equ 8               ; no 'RD' key: kern_small has no RAM disk, and
 %endif                          ; an unknown key is DROPPED rather than carried
@@ -712,7 +757,13 @@ CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
     dw ss_secs
     db CFG_SSN
     dw ss_mins
+%ifdef DOCK_OPT
+    db CFG_DOCK
+    dw dock_cfg
+DRV_CFG_MAPN equ 9
+%else
 DRV_CFG_MAPN equ 8
+%endif
 
 ; --- whose blob is whose (SPEC.md 51.9.1) ------------------------------------
 ; row index, size, offset into the struct. The ROW and not the class, for the
@@ -733,9 +784,13 @@ DRV_CFG_MAPN equ 8
 ; the kernel at the image's offset.
 %1 %+ _bit:
 %ifdef KERN_EMU
-    db 0, 1, 4, 2, 3, 5         ; sound, hdd, ether, ramdisk, net, vmmouse
+    db 0, 1, 4, 2, 3, 5, 6      ; sound, hdd, ether, ramdisk, net, vmmouse,
+                                ; usbmouse
 %elifdef KERN_BIG
-    db 0, 1, 4, 2, 3            ; sound, hdd, ether, ramdisk, net
+    db 0, 1, 4, 2, 3, 6         ; sound, hdd, ether, ramdisk, net, usbmouse -
+                                ; BIT 6 ON BOTH BUILDS, row 5 here and row 6
+                                ; there: bit 5 is the absolute mouse's even on
+                                ; a build that has no such row (SPEC.md 9.12)
 %else
     db 0, 1, 3, 2               ; sound, hdd, ether, net
 %endif
@@ -836,6 +891,12 @@ drv_t_vmm:   db 'Absolute mouse', 0  ; ALONE (SPEC.md 9.11.7) - 27 bytes that
                                 ; between - the one that HAS the driver
                                 ; mechanism and has no use for this driver
 %endif
+%ifdef KERN_BIG
+drv_f_usbm:  db 'USBMOUSE.DRV', 0 ; SPEC.md 9.12's CH375 mouse. kern_big's and
+drv_t_usbm:  db 'USB Mouse', 0  ; not kern_small's: the whole driver mechanism
+                                ; is OS88_DRIVERS already, and a 128KB machine
+                                ; with a CH375 has no disk that carries the file
+%endif
 drv_f_eth:   db 'ETHER.DRV', 0   ; ...and the card's, on BOTH builds: the store
 drv_t_eth:   db 'Ethernet', 0    ; a RAM disk is made of is what kern_small has
                                 ; none of, and a network card is not
@@ -876,6 +937,10 @@ drv_fptr4:   dw PKG_DISP        ; here and nowhere else
 drv_fseg4:   dw 0               ; class 4 (DRVC_NET)
 drv_fptr5:   dw PKG_DISP
 drv_fseg5:   dw 0               ; class 5 (DRVC_FILE)
+drv_fptr6:   dw PKG_DISP
+drv_fseg6:   dw 0               ; class 6 (DRVC_POINT). osapi_mou_feed's
+                                ; fence reads this segment word by name
+                                ; (SPEC.md 9.12.1)
 
 drv_cfgname: db 'SYSTEM.CFG', 0
 drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
@@ -1048,6 +1113,21 @@ vmm_row:                        ; row 5: the VMware absolute pointer (SPEC.md
     db 0
 %endif
 
+%ifdef KERN_BIG
+usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
+                                ; the driver's segment here
+    dw PKG_DISP, 0              ; row 5 (row 6 on kern_emu, after the absolute
+    dw drv_f_usbm, drv_t_usbm   ; mouse): the CH375 USB mouse (SPEC.md 9.12).
+    dw 0, 0                     ; DRVC_POINT - a real class, because its
+    db DRVC_POINT               ; worker needs drv_task's publication fence
+    db 0                        ; NOT wanted by default (SPEC.md 51.3): attach
+                                ; writes to port 0x260, and on anything but a
+                                ; machine with a CH375 there that is somebody
+                                ; else's card
+    db DRVE_OK
+    db 0
+%endif
+
 
 ; =============================================================================
 ; What a driver costs to RUN, in KB (SPEC.md 31.6.2)
@@ -1081,16 +1161,6 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-; --- ...and the OTHER question a class can be asked (SPEC.md 51.12.1) -------
-; `osapi_drv_classk_x` answers what the LOADED rows of a class hold, which is
-; what a checkbox offering to unmount them needs. A caption saying what the
-; class would cost AT MOST is a different question with a different answer on
-; the same machine - and on a machine with nothing of that class mounted the
-; first answers ZERO, which is a true figure that reads as a broken one.
-; It rides in bit 7 of the class byte because every DRVC_* is 1..5 and every
-; register in that walk is already carrying something.
-DRVCK_ALL    equ 0x80           ; MIRRORED in apps/os88api.inc - t_mirror
-
 DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 19             ; ceil(build/ether.drv   / 1024)   every one
@@ -1100,6 +1170,7 @@ DRVM_IMG_NET equ 7              ; ceil(build/net.drv     / 1024) - SEVEN
                                 ; icon in drivers/wirezone.inc, which both
                                 ; network drivers include
 DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
+DRVM_IMG_USBM equ 2             ; ceil(build/usbmouse.drv / 1024)
 
 DRVM_SND     equ DRVM_IMG_SND + 8 + 20    ; SBL_DMASZ (the DMA-visible double
                                 ; buffer and record ring) + SBL_POOLKB (the
@@ -1124,6 +1195,10 @@ DRVM_RAM     equ (DRVM_IMG_RAM + 4 + 8) | DRVM_PLUS
 DRVM_VMM     equ DRVM_IMG_VMM   ; the absolute mouse claims nothing either: it
                                 ; hooks no vector, owns no port and keeps no
                                 ; buffer. The image IS the whole footprint
+DRVM_USBM    equ DRVM_IMG_USBM  ; the USB mouse claims nothing: its one
+                                ; buffer is the 64-byte descriptor, in the
+                                ; image. Its worker's stack is SCH_DRV_STK of
+                                ; the kernel's, not a claim
 DRVM_NET     equ DRVM_IMG_NET   ; the parallel link claims NOTHING: its packet
                                 ; buffers are bss, and a driver's bss ships
                                 ; INSIDE its image (DRV_H_IMG)
@@ -1139,8 +1214,37 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 %ifdef KERN_EMU
     dw DRVM_VMM                 ; row 5: the absolute mouse (kern_emu alone)
 %endif
+%ifdef KERN_BIG
+    dw DRVM_USBM                ; the CH375 USB mouse, last on both big builds
+%endif
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
+%endif
+
+; --- ...AND THE OTHER QUESTION A CLASS CAN BE ASKED (SPEC.md 51.12.1) -------
+; What a class COULD cost - the ceiling `Hard drives (Up to 32K)` quotes - is
+; the sum of the table above over the rows of that class, and every term of it
+; is fixed at ASSEMBLY TIME. It used to be a runtime form of
+; OSAPI_DRV_CLASSK (`DRVCK_ALL`, bit 7 of the class byte), which walked a
+; table of constants to add up constants: thirty-five resident bytes spent
+; re-deriving a number nasm already knew.
+;
+; So it is an `equ` MIRRORED into apps/os88api.inc, and three separate things
+; hold it honest - which is what SPEC.md 51.12.1's refusal of "a copy of the
+; constants in the package" was asking for and could not name. This is not a
+; third derivation: the package copies the ANSWER and derives nothing.
+;   1. the `%if` below - nasm itself, so DRVM_HDD moving fails the build
+;   2. tests/unit/t_drvmem.py - re-derives the sum from drv_tab's own class
+;      bytes, so a SECOND row of either class is caught as well
+;   3. tests/unit/t_mirror.py - the SDK's copy, for free and for ever
+;
+; A LITERAL and not `equ DRVM_HDD`, because t_mirror compares the text when it
+; is not a number and the SDK cannot see DRVM_HDD. The %if is what makes the
+; literal safe, and it is the half a package could never have had.
+DRVM_CEIL_DISK equ 32           ; MIRRORED in apps/os88api.inc - t_mirror
+DRVM_CEIL_NET  equ 33           ; ...ditto
+%if DRVM_CEIL_DISK != DRVM_HDD || DRVM_CEIL_NET != DRVM_ETH
+  %error "a class ceiling has drifted from drv_memk - apps/os88api.inc too"
 %endif
 
 drv_errstr:                     ; DRVE_* -> what the user is told
@@ -1399,12 +1503,10 @@ section .cold
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_classk_x - WHAT ONE CLASS IS HOLDING, in KB (SPEC.md 51.12)
-; in:  AL = a DRVC_* class, + DRVCK_ALL for the CEILING form (SPEC.md 51.12.1)
-; out: CF = 0, AX = the KB the loaded drivers of that class hold (bit 15 =
-;      DRVM_PLUS, "...and a store the user sizes on its own page"), CX = how
-;      many rows answered; CF = 1 with AX = 0 and CX = 0 - nothing of that
-;      class is loaded
-; clobbers: AX and CX (the outputs), flags. A SLOT: everything else is kept
+; in:  AL = a DRVC_* class
+; out: CF = 0, AX = the KB the loaded drivers of that class hold; CF = 1 with
+;      AX = 0 - nothing of that class is loaded
+; clobbers: AX (the output), flags. A SLOT: everything else is kept
 ;
 ; The Drivers page has priced a driver since drv_memk was written (SPEC.md
 ; 51.2.4), and it prices it PER ROW because that is what it draws. The
@@ -1419,69 +1521,40 @@ section .cold
 ; that is present and not loaded answers CF=1, which is the truth the
 ; checkbox wants: there is nothing to unmount and nothing to get back.
 ;
-; The figure is drv_memk's, so it is a BUILD-TIME constant and costs no probe
-; - and a caller estimating an arena is the one reader for whom a constant is
-; exactly right, because it is describing a machine that does not exist yet.
+; **IT WEIGHS THE HEAP AND NOT drv_memk** (SPEC.md 51.12.2): a driver's IMAGE
+; is owned by MEM_K_DRV, so it is named by its own base and DRVR_KB is the KB
+; drv_load claimed for it; everything the driver then claims for ITSELF
+; carries that base as its owner word (mem_own's `mov bx, es`), which is
+; exactly what mem_owned_kb sums. Two lookups a row, no probe, and nothing
+; that can drift.
 ;
-; **DRVCK_ALL IS THE SECOND QUESTION AND NOT A CONVENIENCE** (SPEC.md 51.12.1).
-; A CAPTION - "Hard drives (Up to 32K)" - is describing the class and not this
-; machine's state, so on a machine with no hard disk mounted the plain form
-; answers a perfectly true `0K` that reads as a page that has broken. With the
-; bit set, every row of the class counts whether or not its driver is there,
-; and CF = 0 whenever the TABLE has such a row - which is what a caption wants
-; and exactly what a checkbox must not have, the checkbox offering to unmount
-; something that is not mounted. The two forms are one walk and one table, so
-; a driver that grows moves both together; a package-side copy of the figure
-; would be a third derivation of a number t_drvmem exists to stop drifting.
+; **THE ANSWER IS ITS OWN PREDICATE**, which is where the count went (SPEC.md
+; 51.12.3). `CX = how many rows answered` was published, returned and read by
+; nobody, and it was carried only to reach `jcxz` - so the refusal is
+; `cmp ax, 1` instead: CF = 1 exactly when AX = 0, and AX = 0 exactly when no
+; row of the class is loaded, because drv_load writes DRVR_SEG and DRVR_KB
+; together and a driver image is never under a kilobyte (drv_load's own
+; `cmp ax, DRV_HDR_SZ / jb .bad`). Four bytes for eight, and one fewer
+; register in the contract.
 ; -----------------------------------------------------------------------------
 osapi_drv_classk_x:
     push bx
     push dx
     push si
-    mov dl, al                  ; DL = the class asked for, PLUS DRVCK_ALL if
-    xor dh, dh                  ; the caller wants the ceiling (SPEC.md 51.12.1)
-    xor si, si                  ; SI = the KB so far, DRVM_PLUS carried in 15
-    xor cx, cx
+    mov dl, al                  ; DL = the class asked for
+    xor dh, dh                  ; DH = the row index
+    xor si, si                  ; SI = the KB so far
 .row:
     mov al, dh
     call drv_row_x              ; BX = the row (AL preserved)
-    test dl, DRVCK_ALL          ; the CEILING form counts a row whose driver is
-    jnz .cls                    ; not mounted - it is asking what the class
-    cmp word [bx+DRVR_SEG], 0   ; COULD cost and not what it costs now
+    cmp word [bx+DRVR_SEG], 0
     je .next                    ; not loaded: it holds nothing
-.cls:
-    mov al, [bx+DRVR_CLASS]
-    xor al, dl                  ; ...and the compare masks the flag off rather
-    and al, ~DRVCK_ALL & 0xFF   ; than banking the class somewhere else: every
-    jnz .next                   ; register here is already carrying something
-    inc cx
-    test dl, DRVCK_ALL
-    jz .held                    ; the plain form weighs the HEAP (51.12.2)...
-    mov bl, dh                  ; ...and the ceiling form is drv_memk's
-    xor bh, bh                  ; constant, which is the one the Drivers page
-    shl bx, 1                   ; reads
-    mov bx, [drv_memk + bx]
-    mov ax, bx
-    and ah, 0x7F                ; DRVM_PLUS is a flag and not a digit, so the
-    add si, ax                  ; kilobytes ADD and the flag ORs - and the
-    and bx, DRVM_PLUS           ; mask is the WHOLE word, not its high byte:
-    or si, bx                   ; `and bh, 0x80` leaves BL holding a figure
-    jmp short .next
-
-    ; --- ...and what this row is HOLDING, which is two records ---------------
-    ; A driver's IMAGE is owned by MEM_K_DRV, so it is named by its own base
-    ; and DRVR_KB is the KB drv_load claimed for it. Everything the driver
-    ; then claims for itself carries that base as its OWNER word (mem_own's
-    ; `mov bx, es`), which is exactly what mem_owned_kb sums. Two lookups, no
-    ; probe, and no constant that can drift.
-.held:
-    mov ax, [bx+DRVR_KB]        ; the image...
-    push ax
-    mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner
-    call mem_owned_kb
-    pop bx
-    add ax, bx
-    add si, ax
+    cmp [bx+DRVR_CLASS], dl     ; ...and the compare is against the ROW rather
+    jne .next                   ; than a register, DL being the only bank here
+    add si, [bx+DRVR_KB]        ; the image drv_load claimed...
+    mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner.
+    call mem_owned_kb           ; BX is the row pointer and this spends it,
+    add si, ax                  ; which costs nothing: .row rebuilds it
 .next:
     inc dh
     cmp dh, DRV_MAX
@@ -1490,12 +1563,7 @@ osapi_drv_classk_x:
     pop si
     pop dx
     pop bx
-    jcxz .none                  ; ...and a class with no loaded row says so in
-    clc                         ; CF rather than in a zero, which a row
-    retf                        ; holding nothing would also be
-.none:
-    xor ax, ax
-    stc
+    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
     retf
 
 ; -----------------------------------------------------------------------------
@@ -2919,7 +2987,7 @@ drv_attach:
     push es
     mov al, DRVV_ATTACH
     call drv_call_ent           ; out: CF, and SI = its service table
-    jc .out
+    jc .no
     mov es, [bx+DRVR_SEG]
     call drv_publish            ; SI is an offset in ES, so copy it now
     cmp byte [bx+DRVR_CLASS], DRVC_SOUND
@@ -2948,6 +3016,17 @@ drv_attach:
     clc                         ; A refusal is STILL not a failed attach: the
                                 ; driver is up at whatever tier it could reach,
                                 ; and the Sound page shows which
+    jmp short .out
+.no:                            ; A REFUSAL KEEPS ITS AL. drv_load's .nohwal
+    push bp                     ; banks the reason the driver gave - DRVE_BUSY
+    mov bp, sp                  ; is "found it and cannot have it" - and the
+    mov [bp+8], al              ; `pop ax` below put the CALLER's AL back over
+    pop bp                      ; it, so every refusal read DRVE_HW. Nothing
+                                ; answered a reason until SPEC.md 9.12's mouse
+                                ; refused a flash drive. So the driver's AL is
+                                ; written INTO the saved AX (SS:BP+8, over es,
+                                ; bp and si), and CF is still the driver's:
+                                ; push, mov and pop write no flag
 .out:
     pop es
     pop bp
@@ -3618,6 +3697,13 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
 %endif
     mov ax, [drv_cfg+CFG_WANT]
     call %1 %+ _want_set
+%ifdef DOCK_OPT
+    call KERNEL_SEG:cw_dock_apply ; the map above stored [dock_cfg]; the band,
+                                ; the strip and the drive column are DERIVED
+                                ; from it (SPEC.md 30.5), which is not a store.
+                                ; No window exists yet, so the refit inside it
+                                ; walks an empty table
+%endif
     call COLD_SEG:drvf_ss_mins2idle   ; the map above stored [ss_mins]; the
                                 ; TICKS blk_pass compares against are derived
                                 ; from it and clamped (SPEC.md 79.4), which is
@@ -4845,12 +4931,11 @@ osapi_drv_dlg_x:
     retf
 
 ; ...and "what is this class holding" (SPEC.md 51.12), which on a machine with
-; no driver layer is NOTHING, of no class, for ever. AX and CX are answers, so
-; the refusal states them rather than leaving the caller's registers looking
-; like a figure.
+; no driver layer is NOTHING, of no class, for ever. AX is the answer, so the
+; refusal states it rather than leaving the caller's register looking like a
+; figure - and it is the only one now, the count having gone (51.12.3).
 osapi_drv_classk_x:
     xor ax, ax
-    xor cx, cx
     stc
     retf
 

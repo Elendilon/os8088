@@ -244,10 +244,12 @@ ss_row:
 blk_wake:
     push ax                     ; ONE bank, and ONE exit. AX is banked because
     mov ax, [ticks]             ; this routine's contract is flags and nothing
-    mov [blk_t0], ax            ; else: ui.inc calls it mid-keystroke, between
-    xor al, al                  ; int 16h's peek and its fetch, and fsx_restore
-    cmp [blk_on], al            ; from inside its own saved frame. The idle
-    je .out                     ; period restarts here, lit or dark - this is
+    mov [blk_t0], ax            ; else: ui.inc calls it HOLDING THE KEYSTROKE -
+    xor al, al                  ; int 16h has already fetched it (SPEC.md 9.7.1
+    cmp [blk_on], al            ; moved the fetch above this call so the latch's
+    je .out                     ; arm could share it) - and fsx_restore from
+                                ; inside its own saved frame. The idle period
+                                ; restarts here, lit or dark - this is
                                 ; the only place it is set outside boot.
                                 ;
                                 ; AL = 0 IS THREE THINGS AT ONCE: blk_set's

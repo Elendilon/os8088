@@ -453,11 +453,11 @@ fm_kinit_x:
 %ifdef KERN_SMALL
     call fmv_owner              ; MEM_P_VIEW + the slot, off DI (SPEC.md 50.6)
 %else
-    mov ax, si                  ; window lists a driver-backed volume (22.6)
-    sub ax, inst_tab
-    mov cl, 5
-    shr ax, cl
-    mov bx, ax
+    push di                     ; window lists a driver-backed volume (22.6).
+    mov di, si                  ; `(record - inst_tab) >> 5` is ld_slot, which
+    call ld_slot                ; is `.cold` like this and is where that
+    pop di                      ; arithmetic lives - it reads DI, and DI is the
+                                ; state block here and still owed below
 %endif
     mov ax, VIEW_KB
     call mem_claim_x
@@ -773,16 +773,15 @@ fmv_get_icon:
     call fmv_copy_in            ; the first byte past the array and still
                                 ; inside the claim; it is overwritten below
     mov al, [dsk_ico]
-    call dsk_ico_ref_at         ; ...and THE BODY COMES OUT OF THE ONE STORE
-    jc .none                    ; (SPEC.md 25.9). The window used to carry its
-    mov di, dsk_ico             ; own copy of every body - 64 bytes an entry -
-    mov cx, DSK_ICO_SIZE        ; which is what a volume-independent key makes
-    mov ax, KERNEL_SEG          ; unnecessary: the reference resolves whatever
-    call dsk_copy_seg_x         ; is mounted now
-    jmp short .out
-.none:
-    call dsk_ico_blank
-.out:
+    call dsk_ico_stage          ; ...and THE BODY COMES OUT OF THE ONE STORE
+                                ; (SPEC.md 25.9). The window used to carry its
+                                ; own copy of every body - 64 bytes an entry -
+                                ; which is what a volume-independent key makes
+                                ; unnecessary: the reference resolves whatever
+                                ; is mounted now. Staging it - the resolve,
+                                ; the 64-byte copy and the all-zero fallback -
+                                ; is disk.inc's routine and was written out a
+                                ; second time here
     pop di
     pop si
     pop dx
@@ -812,6 +811,15 @@ fmv_get_icon:
 ; Seven routines in this file carried this eight-instruction scaffold. It is
 ; NOT fm_count's: that one asks I_STATE != 0, live OR dying, which is a
 ; different question about a different set.
+;
+; IT IS instance.inc's inst_next (SPEC.md 29.1.1) WITH TWO FILTERS FOLDED IN,
+; and the two were written independently to the same design - same
+; `inst_tab - I_RECSZ` start, same pointer bound, same CF contract. They stay
+; separate because THIS one is `.cold` and that one is `.text`, which are
+; different address spaces (SPEC.md 2.6): a near call between them is a jump
+; into the wrong segment and a thunk costs more than either body. fm_reloc,
+; the one walker in this file that is `.text`, calls inst_next instead - and
+; says so where it stands.
 ; -----------------------------------------------------------------------------
 fmv_ifirst:
     mov si, inst_tab-I_RECSZ
@@ -1031,12 +1039,10 @@ fmv_owner:
     pop ax                      ; before anything reaches here
     ret
 .have:
-    sub ax, inst_tab
-    push cx
-    mov cl, 5
-    shr ax, cl
-    pop cx
-    mov bx, ax
+    push di                     ; ...and the same arithmetic, said in the same
+    mov di, ax                  ; one place (ld_slot, `.cold` like this and
+    call ld_slot                ; banking CX itself)
+    pop di
     pop ax
     ret
 %endif
@@ -8466,32 +8472,32 @@ section .text
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL              ; purgeable there, so it is shed and never moved
 fm_reloc:
-    push ax
-    push cx
     push si
     push di
-    mov si, inst_tab            ; ITS OWN WALK, and it stays that way: this
-    mov cx, INST_MAX            ; routine is `.text` and fmv_ifirst is `.cold`,
-.scan:                          ; so the near call the other six make is a
-    cmp byte [si+I_STATE], 1    ; jump into another address space
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
-    mov di, [si+I_SPTR]
-    cmp [di+FS_VSEG], bx
-    jne .next
-    mov [di+FS_VSEG], dx
-.next:
-    add si, I_RECSZ
-    loop .scan
+    mov di, inst_tab - I_RECSZ  ; NOT fmv_ifirst, and that has not changed: that
+.scan:                          ; one is `.cold` and this routine is `.text`, so
+    call inst_next              ; the near call the other six make is a jump
+    jc .done                    ; into another address space. What it CAN reach
+                                ; is instance.inc's own walk (SPEC.md 29.1.1),
+                                ; which is `.text` like this - so the record
+                                ; cursor moves to DI and the state block to SI,
+                                ; and CX stops being a counter at all
+    cmp byte [di+I_STATE], 1
+    jne .scan
+    cmp byte [di+I_KIND], KIND_FILES
+    jne .scan
+    mov si, [di+I_SPTR]
+    cmp [si+FS_VSEG], bx
+    jne .scan
+    mov [si+FS_VSEG], dx
+    jmp short .scan
+.done:
     cmp [fm_vseg], bx           ; ...and the mirror, which is the half a word
     jne .out                    ; poke would have missed
     mov [fm_vseg], dx
 .out:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    pop di                      ; ...and NEITHER AX NOR CX IS BANKED: CX was the
+    pop si                      ; count `inst_next` does not need, and AX was
+    ret                         ; never written on any arm of this routine
 %endif                          ; KERN_SMALL - fm_reloc is kern_big's
 

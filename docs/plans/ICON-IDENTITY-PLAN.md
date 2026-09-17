@@ -480,3 +480,179 @@ resident for ever and comes off the DOS arena too; a purgeable byte comes back
 when the last listing closes), and it is worth writing down that the trade is
 what it is rather than a saving: **-1,216 for ever, +2,048 while a listing is
 warm.** What `kern_small` gets for it is the 64-entry listing and the shed.
+
+## 14. THE SIZE PASS, and what it found
+
+The store shipped in five waves and was never size-passed. It has been now,
+and the finding is worth more than the bytes: **almost none of it was tight
+code written large. It was capabilities the kernel already owned, written
+again** — which is what happens when a feature is built in waves, each wave
+correct on its own and none of them looking sideways.
+
+**Measured**, `nasm -DKERNSIZE` both arms, at the branch's own baseline and
+after:
+
+| | `.text` | `.cold` | `.bss` | `.lowbss` | `KERN_SIZE` |
+|---|---:|---:|---:|---:|---:|
+| `kern_big` before | 50,023 | 41,257 | 6,141 | 7,966 | 112,128 |
+| `kern_big` after | 50,023 | **40,954** | **6,137** | 7,966 | **111,616** |
+| `kern_small` before | 37,290 | 26,731 | 4,179 | 5,236 | 75,776 |
+| `kern_small` after | 37,290 | **26,596** | 4,179 | 5,236 | **75,264** |
+
+**-303 and -135 of code**, `.lowbss` unmoved on both — the -1,216 of
+`.lowbss` this whole plan is about is untouched — and **BOTH KERNELS UNCROSSED
+A 512-BYTE COLD RUNG**, kern_small's having been standing at 3 bytes of
+headroom. `ICO_KB` falls 5 -> 4 with the row, so the purgeable claim returns a
+further **1,024 bytes** of the arena this plan exists for.
+
+### 14.1 The duplicates, in the order they were found
+
+Each of these is one capability with two bodies of code, and in five of the
+nine cases the second body's own comment said so.
+
+1. **`asc_row_glyph` and `asc_take`'s glyph half are the SAME LADDER** —
+   shipped glyph, else the body reduced — and they are the same code because
+   they are the same layout: `ASC_ROWGLY - ASC_ROWICO` and `ICO_R_GLYPH -
+   ICO_R_BODY` are both 64. `asc_gly_pair` is that ladder once and
+   `asc_row_glyph` is two tail jumps into it; `disk.inc` asserts the delta at
+   the point both constants exist.
+2. **The all-zero test (the UNRESOLVED and ICONLESS sentinels, §54.2 and
+   §54.7.3) was written THREE times**, and two of the three read the same
+   sixteen words. `asc_inkck` is it once.
+3. **`assoc_glyph_take`'s copy is `assoc_stage`**, §20.2's staging idiom,
+   ES:SI -> DS:DI, already in the same file.
+4. **`ico_key_of`'s and `ico_key_doc`'s byte loops are `dsk_ncopy`**, §4's
+   counted copy — which preserves SI as well as DI, so the key builder banks
+   SI not at all where the hand-rolled loop had to.
+5. **`ico_key_doc` re-derived where a slot's glyph lives**, shift and all,
+   beside `assoc_glyph_di`.
+6. **`ico_glyph_put` re-derived the claim, the stale-row guard and the row
+   offset** beside `ico_body`.
+7. **`ico_add` re-derived everything `ico_find` had just computed** — a second
+   `ico_need`, a second read of `[ico_n]` and an `ico_rowoff` over it — when
+   the scan that had missed ended standing on the free row.
+8. **The harvest and the redirected-volume pass classify an entry
+   identically**, differing only in what a MISS means, which is what a carry
+   says: `ico_ref_try`.
+9. **"Stage the body a reference names into `dsk_ico`" was written in two
+   files**, and `dsk_ico_ref_at` was a routine, a frame and a carry handing an
+   address to its ONE caller six instructions along.
+
+One cut is not in the icon store at all and is here because the same sweep
+found it: `ld_pkg_byname` (§21.5.3) had written out `assoc_stem_of`'s
+pad-and-stop walk a second time.
+
+And two more came out of a second look, after the first pass had refused both:
+
+10. **`asc_seed` and `asc_absorb` walked the same table twice**, back to back
+    out of `asc_use`, at the same stride from the same base, each with its own
+    frame and row pointer. One walk now; `asc_row_take` is the absorb's body.
+    What makes it safe is not the ordering (neither half reads what the other
+    writes) but `ico_need` staying IN FRONT of the walk: `mem_claim` compacts
+    on its refusal path and the loop holds a row offset against the segment a
+    compaction moves. The merge was BUILT WITHOUT THAT and it is the one thing
+    in this pass that would have shipped a live defect - the guard came back
+    on re-reading 11.1 point 2 of this file, at a cost of 15 of the 32 bytes
+    the merge saved.
+11. **The store's key IS `ASSOC.DAT`'s own stem** on kern_big - see 14.2's
+    first row, which is a refusal reversed.
+
+### 14.1.1 The refusal that was reversed: the key IS the stem
+
+The first pass refused re-cutting the store's key to `(8-byte space-padded
+stem, size)` on the grounds that `assoc_stem_of` is inside `%ifdef
+OS88_ASSOC`, so `kern_small` would have to grow its own stem walk. **That was
+a cost priced at zero rather than measured.** Measured, by assembling both
+bodies:
+
+| | today | stem key |
+|---|---:|---:|
+| `ico_key_of`, `kern_small` (its own walk) | 22 | **45** |
+| `ico_key_of`, `kern_big` (`assoc_stem_of`) | 22 | 29 |
+| `ico_key_stem` | 56 | **20** |
+| `ico_key_doc` | 43 | 35 |
+| `kern_big` total | 121 | **84** |
+
+So it is **-37 on `kern_big` and +23 on `kern_small`** — and the key shape is
+INTERNAL TO ONE BUILD. Nothing on disk names it, no ABI names it, and
+`kern_small` has no `ico_key_stem` to agree with in the first place. So it is
+taken on `kern_big` and not on `kern_small`, which is CLAUDE.md's own
+`gfx_points` rule one feature along: *the answer may differ per build*.
+
+**It loses no identity at all**, which is the part worth keeping: a key is
+built for a type-1 entry and for nothing else, and every package is a `.O88`
+(SPEC.md 20.1) — so `<stem>` and `<stem>.O88` name the same set and the four
+extension bytes were carrying no information. What it buys beyond the bytes is
+that the two builders now AGREE BY CONSTRUCTION: both copy the same eight
+bytes, where one used to rebuild what the other would have composed.
+
+And `ICO_ROW` 86 -> 82 takes `ICO_KB` from 5 to 4 — **1,024 bytes off a
+purgeable claim that stands in front of a DOS program**, which is a bigger
+number than the code.
+
+### 14.2 What was costed and REFUSED
+
+- **The glyph column replaced by a per-slot "this glyph is SHIPPED" bit.**
+  384 heap bytes and ~96 of code, which is the largest single removal the
+  store offers. **`tests/dosglyph.py` step 4 refuses it**: it poisons the slot
+  with the reduction and then opens `APPS/`, and the repair has to come from
+  somewhere. A flag can say *do not downgrade this slot*; it cannot RESTORE
+  eight bytes, and the only other place those eight bytes live is the
+  package's own first sector — the ~400 ms read the hit exists to avoid. The
+  column is load-bearing and stays.
+- **A 2-byte checksum key in place of the 14-byte one.** Priced at **-9 code
+  bytes** (`ico_scan` -9, `ico_add` -3, the builders +3) plus 12 bytes a row
+  of a claim that is purgeable anyway — against a new failure mode, a
+  collision drawing the wrong icon. Refused on the ratio, not on the risk.
+- **`ASSOC.DAT` carrying the 12-byte 8.3 name instead of the 8-byte stem**,
+  which deletes `ico_key_stem`'s composition outright (~-45 plus ~-16 from
+  retiring `[asc_rowsz]`'s two widths with it). **The tree has already taken
+  this decision and it went the other way** — `ASC_ROW1`'s own comment says
+  version 1 is *"READ, because an installed volume's cache was written once at
+  install and a refusal would send that machine back to the pre-54.7 harvest
+  in silence; never written"*. The name cannot share a width with the stem (it
+  needs the size and cluster words moved), so a v3 row means the kernel either
+  understands both shapes — which costs more than it saves — or refuses every
+  `ASSOC.DAT` already in the field. The version byte makes that refusal SAFE
+  (it is the existing *"a cache this build does not understand"* path, so no
+  corruption and no wrong picture) but not FREE: an upgraded machine loses its
+  declarations until each program's folder has been browsed, which is the
+  sentence above, verbatim, about the version that was kept for exactly this
+  reason.
+- **The mount path behind `mod.inc`.** It is the largest lever there is and it
+  is illegal: `mod_need` goes to `[dsk_bootvol]` and only there, so a data
+  floppy mounted on a one-drive machine would want the system disk back to
+  draw its icons.
+- **The store claimed at mount time instead of lazily**, which shrinks
+  `ico_need` from 54 bytes to ~14. It is the plan's own design (§10 wave 2: a
+  machine that never opens a Disk window never claims it) and a regression on
+  the 128KB machine.
+
+### 14.3 The accounting, since the brief's was wrong in two places
+
+The pass was briefed at "≈+1,048 code bytes, halve it". Two of the four
+modules in that figure are not this feature:
+
+| named | bytes | whose |
+|---|---:|---|
+| `kernel/loader.inc` `ld_pkg_byname` / `ld_pkg_upc` | +159 | §21.5.3, the DOS shell's `open <document>` arm |
+| `kernel/disk.inc` `dsk_rah_drop` / `osapi_dsk_cache_x` / `dsk_rah_cap` | +89 | §18.95.8, the read-ahead cache's width command |
+
+and the brief's list of "the drawing side" — `ico_core`, `ico_pass`,
+`ico_pool`, `ico_disk32`, `ico_app16` and the rest — is `kernel/icons.inc`
+(§10), which predates this branch entirely and shares nothing with the store
+but the `ico_` prefix. What the feature itself costs, and what it costs now:
+
+| module | before | after |
+|---|---:|---:|
+| `kernel/disk.inc`, the store | 573 `.cold` + 14 `.text` + 14 `.bss` | **431 + 14 + 10** |
+| `kernel/assoc.inc`, the glyph column and the absorb | 338 `.cold` | **263** |
+| `kernel/memory.inc`, `mem_pg_own`'s row | 6 `.text` | **6** |
+| `kernel/files.inc`, `fmv_get_icon` | 18 `.cold` | **-1** |
+
+...against **806** of feature, which is 1,048 less §21.5.3's 159 and
+§18.95.8's 89. **-303 of 806 on `kern_big`, 38%**, of which 22 is
+`ld_pkg_byname`'s and so not the store's either.
+
+The `memory.inc` row is `dw MEM_P_ICO, ico_seg, MEM_P_ICO_N` and is what makes
+the store purgeable at all — three words, nothing to cut.

@@ -410,6 +410,16 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define FDLG_MOD 1
 %endif
 
+; SPEC.md 30.5-30.6's Dock PLACEMENT and AUTO-HIDE - the left and right
+; edges, the hidden strip, the Control Panel's Dock page, SYSTEM.CFG's 'DK'
+; key and the DOCK.DRV module that carries the advanced half - are kern_big's
+; alone. kern_small keeps the bottom Dock exactly as it was before the
+; feature: every site the feature touched is `%ifdef DOCK_OPT` over the new
+; code with the old code in its `%else`, so the 128KB floor pays nothing.
+%ifdef KERN_BIG
+  %define DOCK_OPT 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -2148,6 +2158,18 @@ DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
                                 ; the cap fits with 1,280 to spare. The clock
                                 ; was 40% of that overlay and this is what it
                                 ; was really worth.
+                                ;
+                                ; **AND THIS NUMBER IS THE ONE HALF OF THE
+                                ; REGION THAT CANNOT MOVE.** The other half is
+                                ; DSK_WIN_BYTES, which SPEC.md 22.6.2 has just
+                                ; cut 2,112 -> 1,312; this one is at its floor
+                                ; already, because the SMALLEST geometry this
+                                ; OS boots - a 360KB floppy - declares a
+                                ; 2-sector FAT, and rule 10 is an ACCEPTANCE
+                                ; threshold rather than a buffer, so 1 would
+                                ; refuse every volume rather than merely list
+                                ; less of one. Region 1,024 + 1,312 = 2,336,
+                                ; and the `.ovlw` guard is what holds it.
 %else
 DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; Exactly what the largest geometry this OS
@@ -2420,7 +2442,11 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; reaches memory 6,656. A second blob length pinned the canary to the part of
 ; `.text` a size pass eats first, which is how it came to have thirty bytes of
 ; headroom left. The Makefile's KSIG_OFF block is the other end of this.
-BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
+; The ninth sector holds the boot copy of Dock layout setup (SPEC.md 30.5).
+; The whole blob is freed before the desktop; KERN_BUDGET is unchanged. It is
+; nine on kern_small too, which has no such copy: KSIG_OFF (the Makefile) is
+; one constant for every kernel, and it names file sector 21 only at nine.
+BOOT2_SECS  equ 9               ; sectors stage 1 reads before it jumps - the
                                 ; loader and its screen up to OVL_AT, then the
                                 ; boot overlay from there to BOOT2_PAD. THE
                                 ; SPLIT IS OVL_AT AND THE TOTAL IS THIS, so
@@ -2574,6 +2600,9 @@ section .modpb   nobits vfollows=.modp
 %endif
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
+%endif
+%ifdef DOCK_OPT
+section .modk    start=MODK_START vstart=0
 %endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
@@ -4208,14 +4237,37 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          kern_small the what-if IS the
                                   ;          plain answer and the post refuses
                                   ;          (SPEC.md 66.0)
-osapi_table_end:                  ; 0x0598. TWO cells came off the tail in
+    OSAPI_XCELL osapi_mouse_feed  ; 0x0598 - X: ONE RELATIVE REPORT from a
+                                  ;          pointing device the kernel does
+                                  ;          not drive itself (SPEC.md 9.12):
+                                  ;          AX = dx, BX = dy (positive is
+                                  ;          down), CL = buttons. DRIVERS ONLY
+                                  ;          - the fence is ES == the segment
+                                  ;          published in DRVC_POINT, which is
+                                  ;          why it is an X cell. out CF=1
+                                  ;          refused. THE CELL IS IN BOTH
+                                  ;          KERNELS (SPEC.md 20.8 rule 4); on
+                                  ;          kern_small the body refuses.
+                                  ;          CLOBBERS AX, BX, CX, DX, SI and
+                                  ;          DI: mou_apply spends all six and
+                                  ;          the six pushes that hid that were
+                                  ;          twelve resident bytes bought for
+                                  ;          a caller that wanted none of them
+                                  ;          (SPEC.md 9.12.5). It came
+                                  ;          from main at 0x0550, which this
+                                  ;          tree had already spent, and took
+                                  ;          the tail cell the size pass freed
+                                  ;          (OSAPI_MEM_COMPACT_WAKE's)
+osapi_table_end:                  ; 0x05A0. TWO cells came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb
                                   ; now (SPEC.md 66.4.3), and the DOS
                                   ; handoff (0x05A0, one cycle) is verb 2
                                   ; of 0x0550 (51.11, 96.40). The table
                                   ; shrank rather than holing, so the
-                                  ; free list (20.3.1) stays empty
+                                  ; free list (20.3.1) stays empty - and
+                                  ; 0x0598 went straight back out to
+                                  ; OSAPI_MOUSE_FEED above
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -4223,8 +4275,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 177 * 8
-%error "os8088 API jump table must be exactly 177 8-byte slots"
+%if OSAPI_TABLE_LEN != 178 * 8
+%error "os8088 API jump table must be exactly 178 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -5101,6 +5153,35 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
     call spl_gate
 %endmacro
 
+; OVBCALL - into whichever half THIS BUILD put the body in (SPEC.md 2.5.3.2).
+; A boot-only body that finishes before the first mount may live in EITHER
+; half: `.ovlw` is the cheaper entry (5 bytes against 9) and `.ovl` is the one
+; whose bytes cost the FAT window nothing. kern_big takes the cheap entry,
+; its window having 6,208 bytes of slack; kern_small takes the blob, because
+; the region `.ovlw` lands on is what stops the mount buffers shedding (the
+; `.ovlw` guard at the foot of this file, and DSK_NENT in dskwin.inc).
+;
+; **IT IS NOT A THIRD KIND OF ENTRY** - it expands to one of the two above and
+; nothing else, so there is nothing new at the site to get wrong. What it buys
+; is that the two arms are written ONCE, here, rather than at every call site.
+; The four resident bytes it costs kern_small per site are the whole price of
+; the move, and there are two sites.
+;
+; tools/os88ovlchk.py knows this name (MACHALF) and holds it to the `.ovl`
+; arm, which is the kern_small model that every build-conditional `section`
+; in the tree is written to - so an OVBCALL aimed at a body that did NOT move
+; fails rule 2d exactly as a mismatched OVLGATE1 would, and an OVWCALL aimed
+; at one that DID fails it the other way.
+%ifdef KERN_SMALL
+%macro OVBCALL 1
+    OVLGATE1 %1
+%endmacro
+%else
+%macro OVBCALL 1
+    OVWCALL %1
+%endmacro
+%endif
+
 ; SPLSTUB - one three-instruction landing per SHARED target, emitted at the gate
 %macro SPLSTUB 1
 splg_%1:
@@ -5236,7 +5317,7 @@ kmain:
                                 ; vidsel.inc executes what has not loaded yet
 %endif
     MARK 9
-    OVWCALL  vid_probe_avail    ; ...and which OTHER adapters this machine has
+    OVBCALL  vid_probe_avail    ; ...and which OTHER adapters this machine has
                                 ; (SPEC.md 39.11.1). AFTER the mode is set, and
                                 ; that is the whole correctness argument: a VGA
                                 ; in mode 12h decodes A000 only, so B000 and
@@ -5345,7 +5426,9 @@ kmain:
     OVLGATE1 ovl_spl_msg_mouse   ; ...and SAY SO (SPEC.md 15.6.4). AFTER the
                                 ; notch, which is what raises [spl_live]:
                                 ; composed before it, the line is never drawn
-    OVWCALL  mouse_init         ; IRQ4 live; cursor stays hidden until shown
+    OVBCALL  mouse_init         ; IRQ4 live; cursor stays hidden until shown.
+                                ; OVBCALL, not OVWCALL: the serial probe is in
+                                ; `.ovl` on kern_small (SPEC.md 2.5.3.2)
     MARK 19
     BPMARK 5                    ; ...and SPEC.md 9.4.1's two waits, which are
                                 ; the largest phase of a boot that is not
@@ -6144,6 +6227,7 @@ section .text
 %include "icons.inc"
 %include "desk.inc"
 %include "dock.inc"
+%include "dockmod.inc"            ; empty unless DOCK_OPT (kern_big)
 %include "ctrl.inc"
 %include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
@@ -6655,6 +6739,15 @@ cw_thm_desk:            call thm_desk
 %ifdef OS88_THEME
 cw_thm_set:             call thm_set
                     retf
+%endif
+%ifdef DOCK_OPT
+cw_dock_band:           call dock_band
+                       retf
+cw_dock_apply:          call dock_apply     ; the Dock page and the settings
+cw_kretf:           retf                    ; reader (SPEC.md 30.5). DOCK.DRV's
+                                            ; dkk_* stubs return through this
+cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
+                    retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
 ; THE SCREEN SAVER'S WAY BACK (SPEC.md 79.6), and it is THREE calls behind one
 ; shim rather than three shims, because the image rung it comes out of has
@@ -7438,11 +7531,24 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 ; to a whole sector and the payload rounded UP to one. That was the same
 ; number while the region was 8,192 - the mount window being 7 x 512 exactly -
 ; and it stopped being when SPEC.md 19.1's staged listing narrowed to
-; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. The region is 7,936
-; now, of which 7,680 is readable, and comparing against 7,936 would pass a
-; 15.5-sector overlay whose sixteenth sector lands on vid_rowtab.
+; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. Comparing against the
+; raw region would pass an overlay whose LAST sector lands on vid_rowtab.
+;
+; The two builds are a long way apart here and both are measured:
+;
+;   kern_big    region 6,720 (4,608 + 2,112), readable 6,656, `.ovlw` 5,084
+;               -> 5,120 rounded. 1,536 spare.
+;   kern_small  region 2,336 (1,024 + 1,312), readable 2,048, `.ovlw` 1,910
+;               -> 2,048 rounded. 288 spare.
+;
+; **kern_small is the binding one and it is a two-sided guard there**: the
+; region is the Disk window's LISTING (SPEC.md 22.6.2) and the payload is what
+; SPEC.md 2.5.3.2 did not move into the blob, so a byte added to `.ovlw` and a
+; byte given to `disk_dir` fail this in the same way. `.ovl` on that build has
+; 651 bytes of blob left, which is where an `.ovlw` body goes when this stops
+; fitting; kern_big's `.ovl` has 473, so kern_big is still what binds the blob.
 %if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
-%error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3"
+%error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3. ON kern_small BOTH SIDES MOVE: the region is DSK_NENT's listing (22.6.2) and the payload is what 2.5.3.2 left in `.ovlw`, so either add a body to the OVBCALL set or put the listing back"
 %endif
 
 ; --- the on-demand modules' file positions (SPEC.md 2.8) ---------------------
@@ -7458,15 +7564,28 @@ MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
 %ifdef KERN_BIG
 MODH_START   equ MODL_START + MODL_SIZE   ; hibernate, kern_big's alone
-MODMAP_START equ MODH_START + MODH_SIZE
+MODK_START   equ MODH_START + MODH_SIZE
 %else
 MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
-MODMAP_START equ MODD_START + MODD_SIZE
+MODMAP_START equ MODD_START + MODD_SIZE   ; no Dock module (SPEC.md 30.5)
 %endif                                    ; The
                                           ; compressor has no image of its
                                           ; own: it rides in the cloner's
                                           ; (SPEC.md 20.15.3)
+
+%ifdef DOCK_OPT
+MODMAP_START equ MODK_START + MODK_SIZE
+%endif
+
+%ifdef DOCK_OPT
+section .modk
+modk_end:
+MODK_SIZE equ modk_end - $$
+%if MODK_SIZE > MOD_MAX_KB*1024
+  %error "Dock module exceeds its maximum claim"
+%endif
+%endif
 
 section .modc
 modc_end:
@@ -7569,6 +7688,9 @@ mod_map:
 %else
     dd MODP_START, MODP_SIZE    ; ...or kern_small's fourth (SPEC.md 22.3)
     dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
+%endif
+%ifdef DOCK_OPT
+    dd MODK_START, MODK_SIZE    ; optional advanced Dock (kern_big)
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
@@ -8097,6 +8219,12 @@ section .modl
 section .modh
 %if ($ - $$) != MODH_SIZE
   %error "something landed in .modh below modh_end - os88mod.py would CUT the hibernate module short of it"
+%endif
+%endif
+%ifdef DOCK_OPT
+section .modk
+%if $ != modk_end
+  %error "something landed in .modk after modk_end"
 %endif
 %endif
 section .modmap

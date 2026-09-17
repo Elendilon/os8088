@@ -129,6 +129,7 @@ Read first: [§9 mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 | `0x00C8` | `OSAPI_MOUSE` | out CX=mouse_x, DX=mouse_y, AL=mouse_btn |
 | `0x03F0` | `OSAPI_KEY_DOWN` | AL = a make scancode (KSC_*). out CF=1 down, CF=0 up; every register kept |
 | `0x0540` | `OSAPI_CUR_BUSY` | I AM ABOUT TO GO QUIET FOR A WHILE (SPEC.md 7.5). NO ARGUMENT. The pointer becomes a CLOCK for the rest of the gfx-lock hold you are inside, and... |
+| `0x0598` | `OSAPI_MOUSE_FEED` | AX = dx, BX = dy (signed; POSITIVE dy IS DOWN), CL = buttons in mouse_btn's bits (1 left, 2 right)... |
 | `0x0338` | `OSAPI_EVQ_PENDING` | out AX = events still queued behind the one being dispatched (SPEC.md 13.4)... |
 
 ### Files and volumes
@@ -239,7 +240,7 @@ Read first: [§31 ctrl.inc — the Control Panel window](../SPEC.md#31-ctrlinc--
 | `0x0188` | `OSAPI_CPU_INFO` | no inputs; out AL = CPU_8086 / CPU_286 / CPU_386, AH = feature bits (the CPU_F_* below): bit 0 A20 verified open, bit 1 HMA claimed, bit 2 unreal... |
 | `0x04A0` | `OSAPI_DRV_CALL_AT` | OSAPI_DRV_CALL, EXCEPT ES IS YOURS (SPEC.md 20.11.2)... |
 | `0x0550` | `OSAPI_DRV_SUSPEND` | AL = 1 suspend / 0 resume / 2 handoff (above). ES:DI = a buffer of DQ_SIZE records or DI = 0 (suspend), ES:SI = a KDH_* record (handoff). out CF=0... |
-| `0x0580` | `OSAPI_DRV_CLASSK` | **WHAT ONE CLASS IS HOLDING** (SPEC.md 51.12). in AL = a DRVC_* class, + DRVCK_ALL for the CEILING form... |
+| `0x0580` | `OSAPI_DRV_CLASSK` | **WHAT ONE CLASS IS HOLDING** (SPEC.md 51.12). in AL = a DRVC_* class... |
 | `0x0448` | `OSAPI_DRV_CALL` | in BH = a DRVC_* class, BL = a verb THAT DRIVER defines; AX, CX, DX, SI and DI are the driver's to define too... |
 | `0x0320` | `OSAPI_CLIP_PUT` | ES:SI = the text, CX = its length. CX = 0 EMPTIES the clipboard and is not an error. Out CF=1 = refused (over CLIP_MAXKB, or the heap could not fund... |
 | `0x0328` | `OSAPI_CLIP_GET` | ES:DI = your buffer, CX = its capacity. Out CF=1 = empty (AX = CX = 0)... |
@@ -470,5 +471,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *Superseded and closed - `docs/history/` (9):* `DUAL-DISPLAY-BUG2.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `KERN-SPLIT-PLAN.md`, `SOUND-PLAN.md`, `TRACKER-PLAN.md`, `WM-ARTIFACTS.md`
 
-*Measurements, each true of the tree it was taken on - `docs/reports/` (16):* `BUSY-CURSOR-COST-2026-09-10.md`, `CYCLONE-STACK-2026-09-10.md`, `DOS-GAMES-2026-09-16.md`, `DOS-INT21-REGISTERS-2026-09-15.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GFXBENCH-SIZE-PASS-2026-09-16.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERN-DOS-BUDGET-2026-09-13.md`, `KERN-DOS-PART-COST-2026-09-14.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `MODULE-RESIDENT-DATA-2026-09-12.md`, `PR-CYCLE-ACCOUNTING-2026-09-11.md`, `SBRATE-COMMIT-COST-2026-09-11.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
+*Measurements, each true of the tree it was taken on - `docs/reports/` (18):* `BUSY-CURSOR-COST-2026-09-10.md`, `CYCLONE-STACK-2026-09-10.md`, `DOCK-RESIDENT-COST-2026-09-17.md`, `DOS-GAMES-2026-09-16.md`, `DOS-INT21-REGISTERS-2026-09-15.md`, `DOTDEL-FRAME-PROFILE-2026-09-09.md`, `GFXBENCH-SIZE-PASS-2026-09-16.md`, `GLYPH-AND-LINE-COST-2026-09-10.md`, `KERN-DOS-BUDGET-2026-09-13.md`, `KERN-DOS-PART-COST-2026-09-14.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-07.md`, `KERNEL-BYTES-SINCE-SQUASH-2026-09-17.md`, `MODULE-RESIDENT-DATA-2026-09-12.md`, `PR-CYCLE-ACCOUNTING-2026-09-11.md`, `SBRATE-COMMIT-COST-2026-09-11.md`, `SKIES-FRAME-DELTA-2026-09-10.md`, `STKDIAG-PC5150-2026-09-10.md`, `TIER-TIMINGS-2026-09-07.md`
 

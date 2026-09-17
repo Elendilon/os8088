@@ -277,12 +277,6 @@ hb_susp:    resw 1              ; the rows OSAPI_DRV_SUSPEND took out, to put
                                 ; and not [hb_drvmask], because a hibernate can
                                 ; be taken while a suspend stands and the two
                                 ; sets come back at different moments
-hb_spmask:  resb 1              ; ...and the classes THIS suspend was asked to
-                                ; take as well (SPEC.md 51.11.4), bit 1<<class.
-                                ; The slot's BL, banked here because the sweep
-                                ; that reads it is in HIBER.DRV and a module
-                                ; runs with DS = KERNEL_SEG. One byte does it:
-                                ; DRVC_MAX is 5
                                 ; ...and NO staging cells: the kernel already
                                 ; has both singletons this module wanted, and
                                 ; hbm_btn satisfies the invariant that makes
@@ -374,15 +368,14 @@ hb_probe_x:
 drv_suspend_x:
     cmp al, 2
     je osapi_dos_handoff_x
-    mov [hb_spmask], bl         ; ...and the extra classes, for hbm_sweep to
-                                ; read out of the module (SPEC.md 51.11.4).
-                                ; FOUR BYTES, which is the whole resident cost
-                                ; of the feature: the decision it feeds is
-                                ; HIBER.DRV's. Written on the resume too,
-                                ; where it means nothing and where writing it
-                                ; unconditionally is what keeps a mask from
-                                ; outliving the call that set it
-    add al, HB_P_RESUME         ; 0 / 1 -> the module's own two verbs
+    add al, HB_P_RESUME         ; 0 / 1 -> the module's own two verbs.
+                                ; **BL IS NOT BANKED** (SPEC.md 51.11.4): it
+                                ; RIDES, because mod_need clobbers flags only
+                                ; and modh_e_perform is `call/retf`, so the
+                                ; slot's own register reaches hbm_drvsusp
+                                ; untouched. The byte it used to be stored in
+                                ; was kernel .bss and the store four bytes of
+                                ; .cold, for a decision that is the module's
     call hbf_need
     jc osapi_dos_handoff_x.no
     call far [HBFP + HBE_PERFORM*4]
@@ -1595,7 +1588,7 @@ hbm_detach:
     push di
     push bp
     mov si, hb_drvmask
-    mov byte [hb_spmask], 0     ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
+    mov byte [cs:hbm_spm], 0    ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
                                 ; LIST, whatever the last suspend asked for
                                 ; (SPEC.md 51.11.4): the mask is a slot
                                 ; argument, and a hibernate is not that slot
@@ -1613,7 +1606,7 @@ hbm_detach:
 
 ; hbm_sweep - unload every driver that owns a chip, and note the rows
 ; in:  SI = the word to note them in (cleared first); DL = one more DRVC_* to
-;      leave standing, or 0; [hb_spmask] = classes to let go of ANYWAY, bit
+;      leave standing, or 0; [cs:hbm_spm] = classes to let go of ANYWAY, bit
 ;      1<<class; ES:DI = a DQ_SIZE-record buffer each driver is asked
 ;      DRVV_HWINFO into on the way past, or DI = 0 for no question
 ; out: CX = records written
@@ -1624,11 +1617,11 @@ hbm_detach:
 ; neither owns a chip anyone is about to take. The caller's third is 96.23.6.
 ;
 ; ...AND THE CALLER MAY HAVE ASKED FOR ONE OF THEM ANYWAY (SPEC.md 51.11.4).
-; [hb_spmask] is the slot's BL, bit 1<<class: a set bit does not ADD a class
+; [cs:hbm_spm] is the slot's BL, bit 1<<class: a set bit does not ADD a class
 ; to the sweep, it takes one OFF the skip list, so the mask can only reach the
 ; three rows this loop was already deciding about and a 0 is exactly today.
 ; The test hangs off the skip itself, so a row that was going to be taken pays
-; nothing for it.
+; nothing for it. It is MODULE data, so the whole feature is resident-free.
 hbm_sweep:
     mov word [si], 0
     mov byte [cs:hbm_swn], 0
@@ -1650,7 +1643,7 @@ hbm_sweep:
     mov cl, al                  ; so the index is banked for four instructions
     mov ch, 1
     shl ch, cl
-    test [hb_spmask], ch
+    test [cs:hbm_spm], ch
     pop cx                      ; ...which does not touch the ZF `test` set
     jz .next
 .take:
@@ -1719,10 +1712,16 @@ hbm_reload_m:
 ; hbm_drvsusp - OSAPI_DRV_SUSPEND's suspend and resume (SPEC.md 51.11), reached
 ;               through hbm_perform with the slot's AL + HB_P_RESUME
 ; in:  AL = HB_P_SUSPEND, ES:DI = the caller's DQ_SIZE-record buffer or DI = 0,
-;      [hb_spmask] = the slot's BL; or AL = HB_P_RESUME
+;      BL = the slot's own class mask (SPEC.md 51.11.4); or AL = HB_P_RESUME
 ; out: CX = records written (0 on a resume); CF = 0 - the sweep cannot refuse
 ; -----------------------------------------------------------------------------
 hbm_drvsusp:
+    mov [cs:hbm_spm], bl        ; THE SLOT'S OWN BL, still in the register the
+                                ; caller put it in (SPEC.md 51.11.4) - banked
+                                ; HERE, in the module, on both verbs. Writing
+                                ; it on the resume too is what stops one
+                                ; call's mask outliving it, which is what the
+                                ; kernel's byte used to be for
     cmp al, HB_P_SUSPEND
     je .suspend
     mov dx, [hb_susp]           ; RESUME: the rows a suspend noted and only
@@ -1738,7 +1737,7 @@ hbm_drvsusp:
                                 ; built on the driver staying mounted - so it
                                 ; is the sweep's third skip and not a fourth
                                 ; rule, which is what puts it under the same
-                                ; [hb_spmask] bit as the other two: a caller
+                                ; [cs:hbm_spm] bit as the other two: a caller
                                 ; that does not want the wire either says so
                                 ; (SPEC.md 51.11.4)
     call hbm_sweep              ; CX = the records
@@ -3607,6 +3606,11 @@ hbm_dosflag:    db 0            ; what HBP_DOS is to say, across hbm_wrimg
 hbm_dosheld:    db 0            ; 1 = hbm_wrimg took the gfx lock and [sch_lock]
                                 ; and still holds them, so step 4 must not
 hbm_swn:        db 0            ; hbm_sweep's record count, across the ask
+hbm_spm:        db 0            ; OSAPI_DRV_SUSPEND's class mask (SPEC.md
+                                ; 51.11.4), banked by hbm_drvsusp off the
+                                ; slot's own BL. MODULE data: one byte DRVC_MAX
+                                ; wide, present only while the call is in
+                                ; flight - the kernel keeps nothing at all
 hbm_s_d1:       db 'Not our handoff record', 0
 hbm_s_d2:       db 'That folder has moved', 0
 hbm_s_d3:       db 'DOS.O88 is not there now', 0

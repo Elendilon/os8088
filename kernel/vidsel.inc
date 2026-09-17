@@ -104,7 +104,25 @@ vid_dbg_blk:
 ; What this buys is 256 bytes of the 64KB segment - the scarce guard - that
 ; stop existing when kmain gives the blob back.
 ; =============================================================================
-section .ovlw
+%ifndef KERN_SMALL
+section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3) -
+                                ; forfeit at the first mount, and this build's
+                                ; window has room to spare
+%else
+section .ovl                    ; ...and kern_small: the BLOB half instead
+                                ; (SPEC.md 2.5.3.2). Same deadline either way -
+                                ; every caller here runs before drv_boot - so
+                                ; the choice is only about WHOSE bytes: on this
+                                ; kernel `.ovlw` is what sizes the FAT window
+                                ; plus the mount buffers, and those bytes are
+                                ; the listing's. The blob is already read and
+                                ; has room, so the body goes there and the
+                                ; region sheds. `.ovl` is written LAST on
+                                ; purpose: tools/os88ovlchk.py reads SOURCE and
+                                ; cannot evaluate the %ifdef, so it files this
+                                ; block by the arm below - which is the build
+                                ; the check exists to protect
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_memchk - is there display RAM at this segment? (SPEC.md 39.11.1)
@@ -1052,6 +1070,11 @@ vid_switch:
                                 ; 39.13/39.16). Before desk_rowcalc and
                                 ; wm_refit, which read what it publishes
 %endif
+%ifdef DOCK_OPT
+    call dock_geom              ; ...and the strip on its edge, which on this
+                                ; adapter may not be the edge it was on
+                                ; (SPEC.md 30.5.1)
+%endif
     call desk_rowcalc           ; 4. the two things vid_apply does not own
     call wm_refit
 %ifdef KERN_BIG
@@ -1738,6 +1761,9 @@ vid_fsx_leave:
     mov [vid_ndisp], al
     mov byte [vid_cur], 0
     call vid_desk_union
+%ifdef DOCK_OPT
+    call dock_band              ; ...and the strip where the user put it (30.5)
+%endif
     pop ax
 .out:
     ret
@@ -2255,6 +2281,10 @@ vid_disp_init:
     mov byte [vid_ndisp], 2
     call vid_desk_union         ; ...and the DESKTOP is both of them now
 .out:
+%ifdef DOCK_OPT
+    call dock_geom              ; vid_apply put the BOTTOM strip's band back
+                                ; on every arm above (SPEC.md 30.5)
+%endif
     pop di
     pop ax
     ret
