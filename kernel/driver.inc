@@ -1162,7 +1162,7 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; would be arithmetic rather than advice
 
 DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
-DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
+DRVM_IMG_HDD equ 9              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 19             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 9              ; ceil(build/ramdisk.drv / 1024)   of these
 DRVM_IMG_NET equ 7              ; ceil(build/net.drv     / 1024) - SEVEN
@@ -1241,7 +1241,7 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 ; A LITERAL and not `equ DRVM_HDD`, because t_mirror compares the text when it
 ; is not a number and the SDK cannot see DRVM_HDD. The %if is what makes the
 ; literal safe, and it is the half a package could never have had.
-DRVM_CEIL_DISK equ 32           ; MIRRORED in apps/os88api.inc - t_mirror
+DRVM_CEIL_DISK equ 33           ; MIRRORED in apps/os88api.inc - t_mirror
 DRVM_CEIL_NET  equ 33           ; ...ditto
 %if DRVM_CEIL_DISK != DRVM_HDD || DRVM_CEIL_NET != DRVM_ETH
   %error "a class ceiling has drifted from drv_memk - apps/os88api.inc too"

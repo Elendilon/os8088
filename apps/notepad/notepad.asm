@@ -525,26 +525,41 @@ np_entry:
                                     ; to open at content x = 61 there, skew 5,
                                     ; which typebench prices at 9.4% of every
                                     ; keystroke (SPEC.md 11.94)
-%ifdef OS88UI_SBDRAG
     pushf                           ; THE ENTRY STILL OWES THE LOADER
                                     ; wm_create's CF, and OSAPI_WM_ONDRAG
                                     ; STATES a flag of its own (SPEC.md
-                                    ; 13.8.2) - so the two installs go inside
+                                    ; 13.8.2) - so the installs go inside
                                     ; a pushf exactly as the CPU_INFO block
                                     ; below does
+%ifdef OS88UI_SBDRAG
     mov ax, np_ontimer              ; 13.10.5.4.2's PAUSE commit - FIRST of the
     call OSAPI_WM_ONTIMER           ; three, because the `sbb al, al` below
                                     ; captures OSAPI_WM_ONDRAG's OWN CF and a
                                     ; third install after it would answer for
                                     ; the wrong slot
+%endif                              ; OS88UI_SBDRAG
+                                    ; **THESE TWO ARE THE BUTTONS' AND NOT THE
+                                    ; BAR'S** (SPEC.md 13.7): np_onup is where
+                                    ; os88ui_btnup fires the find panel's four,
+                                    ; and np_ondrag is where os88ui_btndrag
+                                    ; tracks the held one. They were inside the
+                                    ; %ifdef above, so `SBDRAGOFF=1` installed
+                                    ; NO release handler at all and Close/All/
+                                    ; Repl/Next drew pressed and did nothing -
+                                    ; a build error only because np_fp_act went
+                                    ; with them
     mov ax, np_onup                 ; SPEC.md 13.7 / 13.8.2: the release and
     call OSAPI_WM_ONMOUSEUP         ; the tracking edge, both AFTER wm_create
     mov ax, np_ondrag               ; and neither a template word
     call OSAPI_WM_ONDRAG
+%ifdef OS88UI_SBDRAG
     sbb al, al                      ; CF = 1 on kern_small: 0xFF into the byte
-    mov [np_nodrag], al             ; the grab site tests
+    mov [np_nodrag], al             ; the grab site tests. The CAPTURE is the
+                                    ; bar's even though the install above is
+                                    ; not: with no bar gesture there is no
+                                    ; thumb to hold inert
+%endif                              ; OS88UI_SBDRAG
     popf
-%endif
     mov ax, np_onwake               ; SPEC.md 54.10: the kernel calls this once
     call OSAPI_WM_ONWAKE            ; our window is on the glass, and the
                                     ; launch document loads in front of it
@@ -967,7 +982,6 @@ np_sbclick:
     pop ax
     ret
 
-%ifdef OS88UI_SBDRAG
 ; -----------------------------------------------------------------------------
 ; np_ondrag / np_onup - the thumb gesture's other two edges (SPEC.md 13.10.5)
 ; in:  CX = x, DX = y (ABSOLUTE), SI = window ptr; gfx lock held
@@ -1029,6 +1043,7 @@ np_ondrag:
     mov bx, np_btrec            ; THE FIND PANEL'S BUTTONS FIRST: the held one
     call os88ui_btndrag         ; follows the pointer. A package has ONE arm
     pop si                      ; word, so the bar and the buttons cannot both
+%ifdef OS88UI_SBDRAG
     call os88ui_sbdragging      ; be live
     jc np_sbd_out
     mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
@@ -1043,6 +1058,11 @@ np_ondrag:
     call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
     jc np_sbd_out               ; row
     jmp short np_sbd_go
+%else
+    jmp short np_sbd_out        ; no bar gesture in this arm: the
+                                ; buttons above are the whole of it
+%endif                          ; OS88UI_SBDRAG
+%ifdef OS88UI_SBDRAG
 np_ontimer:                     ; the thumb has been STILL for NP_SBIDLE ticks
     push ax                     ; (SPEC.md 13.9 disarms before this runs, and
     push bx                     ; this does not re-arm: a pause is ONE commit
@@ -1053,6 +1073,7 @@ np_ontimer:                     ; the thumb has been STILL for NP_SBIDLE ticks
     call os88ui_sbowed          ; ...and NOT os88ui_sbdrop: a pause is not the
     jc np_sbd_out               ; end of the gesture, so the record survives it
     jmp short np_sbd_go
+%endif                          ; OS88UI_SBDRAG
 np_onup:
     push ax
     push bx
@@ -1071,6 +1092,7 @@ np_onup:
     pop si
     jmp np_sbd_out
 .nobtn:
+%ifdef OS88UI_SBDRAG
     call os88ui_sbdragging
     jc np_sbd_out
     mov bx, si                  ; the pause timer must not outlive the gesture
@@ -1089,13 +1111,13 @@ np_sbd_go:                      ; FLAT labels and not `.go`/`.out`: the two
     call np_scrollto            ; AX = the row the hand is on, SI = the window
     jc np_sbd_out               ; an end stop: not one pixel changes
     call np_redraw
+%endif                          ; OS88UI_SBDRAG
 np_sbd_out:
     pop dx
     pop cx
     pop bx
     pop ax
     ret
-%endif
 
 ; =============================================================================
 ; Scrolling the PIXELS (SPEC.md 27.7.2)

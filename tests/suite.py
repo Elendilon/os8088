@@ -1501,7 +1501,14 @@ SOAK = [
         "budget before this port, so a row that boots two machines belongs "
         "where there is no wall clock to overrun - what the full tier "
         "carries instead is t_ctoolchain BUILDING paccman, which runs "
-        "build.sh\'s three host gates", needs=("marty", "cc"), wants=("build/paccman.o88",)),
+        "build.sh\'s three host gates", needs=("marty", "cc"),
+        # BOTH PORTS, because the measurement above is the two side by side:
+        # the C one under test and PACMAN.O88 on a second machine. Wave 4 added
+        # that bracket and not this name, so in a frozen tree the row ran every
+        # assertion, printed the whole verdict, and then died on
+        # `cannot read build/pacman.o88` - a pass wearing a failure, and the
+        # ABSENT-artefact shape docs/WRITING-TESTS.md 4 is about.
+        wants=("build/paccman.o88", "build/pacman.o88")),
     Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
         "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
         "the box has, which on this container, on CI and on every Debian or "
