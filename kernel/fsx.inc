@@ -599,6 +599,19 @@ fsx_setbios:
     push di
     push bp
     push es
+    call vid_cga_equip          ; THE THIRD SITE OF SPEC.md 39.19.4's defect,
+                                ; and the same fix: this routine is reached
+                                ; only with a COLOUR [vid_kind] (fsx_capstab
+                                ; gives a Hercules display ids 0 and 4 alone,
+                                ; and both branch away above the xlatb), so on
+                                ; a MONO-primary machine with the bracket on a
+                                ; colour second display 40:10 still says mono
+                                ; and the ROM would force mode 7 and the 3B4h
+                                ; CRTC - retiming the PRIMARY over its own
+                                ; graphics framebuffer and leaving this card
+                                ; untouched. TANK's FSXM_CGA320 (SPEC.md 85.3)
+                                ; is the shipped consumer; vid_fsx_leave puts
+                                ; the flag back (SPEC.md 39.19.4.1)
     xor ah, ah
     int 0x10
     pop es
