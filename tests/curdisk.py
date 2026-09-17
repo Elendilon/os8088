@@ -58,8 +58,10 @@ old rule went red 8 times (7.4% and 11.1%), every one of them the same pair
 `(1,1)->(1,0)` at the same place, and the new rule 0 times.  To produce one
 on demand rather than waiting for it: break on `cur_lazyend`/`cursor_show`
 once the widget has been up 30 samples, and take the leg's next sample inside
-the window.  So a pair counts only when the
-freeze reads the SAME at both ends, and the four task-level movers there are
+the window.
+
+So a pair counts only when the freeze reads the SAME at both ends, and the
+four task-level movers there are
 (`fpg_finish`'s show, `cur_shape_set`'s pair, `cursor_show`, `cur_lazyend`)
 all sit after `fpg_finish` has flipped `[fpg_on]`, so every one of them makes
 a pair whose two ends disagree.  Two samples 33 ms apart cannot both land in
