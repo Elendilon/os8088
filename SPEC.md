@@ -11677,6 +11677,66 @@ cycle stops at the first mouse, and `mou_lockon` then leaves that port alone
 for the rest of the session. A machine with a modem and **no** mouse at all
 is the case that pays, and it pays what it paid before.
 
+#### 9.5.1.1 `mou_settle` — one contest, one place that ends it
+
+Four backends can win one machine's pointer contest — the serial run
+(`mou_claim`), the aux port (`mou_p2_isr`, §9.9), a pointing **driver**
+(`osapi_mouse_feed`, §9.12) and `kern_emu`'s backdoor (`vmm_boot_x`, §9.11.2)
+— and ending the contest is five stores that must all happen:
+
+```nasm
+mou_settle:                 ; in: AH = the winning row, AL = its 8259 line
+    cmp byte [mou_seen], 0  ;     (MOU_P2LINE for a backend on no line)
+    jne .out                ; out: nothing. Clobbers AX
+    mov [mou_port], ah
+    mov [mou_line], al
+    mov ax, 0x0101
+    mov [mou_idany], ax     ; ...and [mou_seen] with it: ADJACENT bytes
+    mov [mou_ptr], al
+.out:
+    ret
+```
+
+**Three of the four had already diverged** when this was factored out: the
+serial arm set no `[mou_idany]`, the PS/2 arm set neither that nor
+`[mou_line]`'s constant, and only the driver's set all five. `mou_apply`
+(§9.9.3) carries the identical argument one layer down — *"a second copy of
+this would be a second place for that fall-through to be got wrong, and it
+would be got wrong"* — and this is that argument about the layer above it.
+
+`[mou_idany]` rides with `[mou_seen]` because the two are **adjacent**, so the
+pair is one word store; §9.4.2's published-block assertion is what keeps them
+so. Setting it on every backend is free of consequence rather than merely
+harmless: its one reader is `mou_hotplug`'s state-0 arm, which is reached only
+while `[mou_seen]` is still 0.
+
+**Nothing here retires the losers.** `mou_hotplug`'s `.have` arm does that on
+the UI task's next pass, and it does it in the ORDER that works — power back
+up on every port first, *then* `mou_lockon` — which a backend calling
+`mou_lockon` out of its own settle skips. The serial and PS/2 arms have always
+relied on that pass and §9.12's driver now does too.
+
+**It is a MACRO plus a routine, and the split is the 128KB kernel's.** The
+stores are `MOU_SETTLE_STORES`, sixteen bytes with no test and no return; the
+routine around them is the form a *second* caller wants. `kern_small` has no
+second caller — `mou_p2_isr` is `KERN_BIG`'s and so is the driver (§51.0) — so
+factoring for one caller there was measured at **+10 `.text` and a crossed
+512-byte image rung** on a kernel with three bytes left in one. `mou_claim`
+takes the macro inline there, where the `cmp byte [mou_seen], 0` the routine
+would make is already two instructions above it. `vmm_boot_x` keeps its own
+copy for a different reason: it is `.ovlw`, whose bytes the machine takes back
+at the end of `kmain`, so converting it would spend a four-byte resident thunk
+to delete twenty-five bytes that are not resident.
+
+**Two callers pay a few cycles for it and neither pays a byte.** `mou_claim`
+tests `[mou_seen]` at its own top and the routine tests it again — free, the
+site being reached once a session. `mou_p2_isr` dropped its test entirely and
+now calls unconditionally, so every PS/2 packet after the first spends the
+call, the compare and the `ret`: about **40 cycles, at up to 100 packets a
+second, on a machine that has 4,770,000** — and keeping its own test to avoid
+them would cost **7 resident bytes for ever**, which is the wrong side of the
+trade this project makes.
+
 #### 9.5.2 Which line fired says nothing about which port has the byte
 
 **The base-to-IRQ mapping is a convention, and a real machine does not have
@@ -13689,20 +13749,46 @@ in:  AX = dx, BX = dy, signed; POSITIVE dy IS DOWN (the HID convention, which
      is the screen's); CL = buttons in mouse_btn's own bits (1 left, 2 right)
 out: CF = 0 applied; CF = 1 refused - the caller's segment is not the one
      published in DRVC_POINT. kern_small: always CF = 1 (§20.8 rule 4)
-     every register preserved
+     CLOBBERS AX, BX, CX, DX, SI and DI. BP, DS and ES come back the
+     caller's, as every X cell leaves them
 ```
+
+**It clobbers, and that is a decision rather than an oversight** (§9.12.5).
+`mou_apply` spends all six registers, so the slot used to bank them — six
+pushes and six pops, **twelve resident bytes on every machine for ever**,
+bought for nobody: `USBMOUSE.DRV` has exactly two call sites and each one
+`ret`s the instruction after. A driver that does need one of them pushes it in
+its own image, which is compressed disk present only while it is mounted.
 
 **The fence is `ES == [drv_fseg6]`**, one class's slot and not a walk of all
 six: a sound driver has no business moving the pointer, and `osapi_vol_fence`
 — the shared walk — writes `[dsk_vcls]` as a side effect, which a worker must
 not do behind a volume add in flight on the UI task.
 
-**The first accepted report settles the contest** exactly as `vmm_boot_x`
-does (§9.11.2): `[mou_port] = MOU_FEEDROW` (**8**, reachable by no device and
-distinct from `MOU_VMROW`), `[mou_line] = MOU_P2LINE`, `[mou_seen]`,
-`[mou_ptr]` and `[mou_idany]` set, then `mou_lockon`. A serial mouse that
-spoke first is retired by the first USB report; unticking the driver does not
-un-retire it, so that takes effect at the next restart.
+**The first accepted report settles the contest** through `mou_settle`
+(§9.5.1.1), the one routine all four backends end it in: `[mou_port] =
+MOU_FEEDROW` (**8**, reachable by no device and distinct from `MOU_VMROW`),
+`[mou_line] = MOU_P2LINE`, `[mou_seen]`, `[mou_ptr]` and `[mou_idany]` set. A
+serial mouse that spoke first is retired by the first USB report; unticking
+the driver does not un-retire it, so that takes effect at the next restart.
+
+**It does NOT call `mou_lockon` itself any more, and that is a fix rather
+than a saving.** It used to, which retired the losing UARTs *before*
+`mou_hotplug`'s `.have` arm puts power back on every port — the ordering that
+arm exists to get right, and which §9.4 records as the way to strand a mouse
+unpowered for a session. The first report wakes the UI task (`mou_apply` calls
+`sch_wake_ui`, §8.1.2.2), so `.have` runs on the very next pass and retires
+them there, which is exactly what a PS/2 winner and a serial winner have
+always relied on. Five bytes, and the right order.
+
+**The whole body is `mou_pstack`'s**, settle included, because `mou_apply`'s
+`cur_move` chain is what §9.10 moved off task stacks and the worker's is
+`SCH_DRV_STK` = 192. It swaps UNCONDITIONALLY where `MOUPRIV_ENTER` tests
+`SS == LOW_SEG` first: that test is there for an ISR that may have interrupted
+a ROM service which switched stacks (§7.4's `int 13h`), and this is not an
+ISR — it is a plain call on a task, where SS is `LOW_SEG` by §1. Neither store
+needs the macro's `cs:` override either, an X cell arriving with DS =
+KERNEL_SEG. Ten of the eleven bytes between the two spellings are that.
 
 #### 9.12.2 Attach — the chip, and whose it is
 
@@ -13809,13 +13895,69 @@ rung crossed** on any build, and `KERN_SIZE` is unchanged on all three.
 
 | | `kern_big` | `kern_small` |
 |---|---|---|
-| `.text` | **+145** — the slot cell (8), `osapi_mouse_feed`, the row (16) and two strings, `drv_fptr6` (4), `drv_memk`'s word | **+12** — the cell, a two-instruction refusal, and `drv_owner`'s stub growing a word with `DRVC_MAX` |
+| `.text` | **+94** — the slot cell (8), `osapi_mouse_feed` (**41**), the row (16) and two strings (23), `drv_fptr6` (4), `drv_memk`'s word | **+10** — the cell and a two-instruction refusal |
 | `.bss` | **+38** — `drv_owner` and `drv_svc` for a sixth class | 0 |
 | `.cold` | **+9** — `drv_attach` keeping an attach's `AL` (§51.3) | 0 |
 | `.ovl` | **+1** — `drv_cfgbit`'s sixth byte | 0 |
 | the footprint | no rung: 70 bytes left in the image rung, 150 in cold | no rung |
 | every `task_yield` | **0** | **0** |
 | the system disk | `USBMOUSE.DRV`, 1,648 bytes of image, 1,390 on the floppy packed | none (§24.5: no drivers there) |
+
+##### 9.12.5.1 It shipped at 145 and 12, and the size pass is what the numbers above are
+
+`.text` fell **145 → 94** on `kern_big` and **12 → 10** on `kern_small`, in
+four pieces, and the whole kernel's `.text` fell **further than the feature
+did** — 50,023 → 49,963, **−60** — because one of the four also paid on two
+call sites that were there before this driver was:
+
+| | `kern_big` |
+|---|---|
+| the settle into `mou_settle` (§9.5.1.1) | **−22** here, and **−12** in `mou_claim` and **−21** in `mou_p2_isr` against a 24-byte routine |
+| the six pushes and six pops | **−12** — the clobber contract above |
+| `MOUPRIV_ENTER`/`_LEAVE` → the two instructions of them this context needs | **−11** |
+| `mou_lockon` off the settle path, and a straight-line `CF` | **−7** |
+| `DRVC_MAX` back to 5 where there is no driver layer | **−2**, `kern_small` only |
+
+`osapi_mouse_feed` is **41 bytes**: a 12-byte fence, `pushf`/`cli`/`popf`, an
+11-byte stack swap, an 8-byte settle, `call mou_apply`, and four bytes of
+answer.
+
+**Four things were costed and REFUSED, and the arithmetic is why:**
+
+- **Retiring the cell onto an existing `OSAPI_DRV_*` door** — the shape
+  §66.4.3 and §51.11 both took. `OSAPI_DRV_TASK` (`0x0248`) is the right door
+  by meaning: a driver's own worker is what calls it, its first act is the
+  `ES`-is-a-driver fence this slot wants, and on `kern_small` it is already a
+  `retf` stub, so the refusal would cost nothing there. **It is a WASH on
+  `kern_big` and that is the whole reason it was not taken**: the body is
+  `.cold`, so the dispatch (`cmp ax, 1` + `je`), the class compare and a
+  `call KERNEL_SEG:` trampoline are **+17–18 `.cold`** against **−18–22
+  `.text`` — and `.cold` is resident. It would improve the number in the table
+  above by moving eighteen bytes between two resident sections. The
+  `kern_small` side alone is worth 10 bytes and cannot be had on one kernel:
+  the table is one ABI.
+- **`DRVC_POINT` reusing the retired class 3** would delete `drv_fptr6`,
+  `drv_fseg6` and 38 bytes of `.bss`. It is **unsafe**, and `drv_cls_svc_x` is
+  where: classes 1, 2 and 3 keep index `class-1` while 4 and up are compacted
+  down by one, so **class 3 and class 4 land on the SAME `drv_svc` slot** —
+  harmless only for as long as class 3 is never published. A published class-3
+  driver would overwrite `DRVC_NET`'s service table, which is precisely the
+  silent cross-class disconnection §51.2.1 exists to prevent.
+- **Giving `DRVC_POINT` no `drv_svc` slot at all** (it publishes only
+  `DSV_NAME`, which the kernel reads *nowhere*) is worth the same **38 bytes
+  of `.bss`** and needs `drv_cls_svc_x` to refuse one class. There are **ten
+  callers**, and a missed `CF` test there writes `DI = 0`, which is class 1's
+  table — the sound driver's. Ten call sites against 38 bytes, with that
+  failure mode, is not a trade to make inside a size pass.
+- **`kern_small`'s two-byte refusal** could be a second label on
+  `drv_pkg_call_x`'s existing `stc`/`ret`, for **−2**. It would put a
+  `mouse.inc` symbol in `driver.inc` against §4's ownership table, for two
+  bytes.
+
+What is left is **45 bytes that are the price of a Control Panel tick** — the
+16-byte `drv_tab` row, its file name and display name (23), `drv_fptr6` (4)
+and `drv_memk`'s word — and they do not come down without taking the row away,
+which takes with it the only way a user has to turn the driver on.
 
 #### 9.12.6 The gate — a CH375 that is a model
 

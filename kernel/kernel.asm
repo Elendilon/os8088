@@ -4236,7 +4236,12 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          refused. THE CELL IS IN BOTH
                                   ;          KERNELS (SPEC.md 20.8 rule 4); on
                                   ;          kern_small the body refuses.
-                                  ;          Preserves every register. It came
+                                  ;          CLOBBERS AX, BX, CX, DX, SI and
+                                  ;          DI: mou_apply spends all six and
+                                  ;          the six pushes that hid that were
+                                  ;          twelve resident bytes bought for
+                                  ;          a caller that wanted none of them
+                                  ;          (SPEC.md 9.12.5). It came
                                   ;          from main at 0x0550, which this
                                   ;          tree had already spent, and took
                                   ;          the tail cell the size pass freed

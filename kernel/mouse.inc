@@ -966,6 +966,78 @@ mou_idjudge:
 section .text                   ; ...and the overlay's serial five end here
 
 ; -----------------------------------------------------------------------------
+; mou_settle - THE CONTEST IS OVER AND THIS BACKEND WON (SPEC.md 9.5.1)
+;
+; The five state bytes, written in ONE place, because there are four backends
+; that can win one machine's contest - the serial run (mou_claim), the aux
+; port (mou_p2_isr), a pointing DRIVER (osapi_mouse_feed, SPEC.md 9.12) and
+; kern_emu's backdoor (vmm_boot_x, SPEC.md 9.11.2) - and four copies of a
+; five-store sequence is four places for one of the stores to be left out.
+; Three of the four had already diverged when this was factored: the serial
+; arm set no [mou_idany], the PS/2 arm set neither that nor [mou_line]'s
+; constant, and only the driver's set all five. mou_apply carries the
+; identical argument one layer down (a second copy of the both-buttons
+; fall-through "would be got wrong"), and this is the same argument about the
+; layer above it.
+;
+; THREE OF THE FOUR, and vmm_boot_x KEEPS ITS OWN COPY deliberately: it is
+; `.ovlw` code, whose bytes the machine takes back at the end of kmain, so
+; converting it would spend a four-byte `.text` thunk (the `ovw_mou_lockon`
+; shape - an overlay cannot near-call `.text`) to delete twenty-five bytes
+; that are not resident in the first place. +4 to save 0.
+;
+; [mou_idany] rides with [mou_seen] because the two are ADJACENT bytes - the
+; SPEC.md 9.4.2 layout assertion at the foot of this file is what keeps them
+; so - and the pair is then one word store rather than two byte stores.
+; Setting it on every backend is free of consequence, not merely harmless:
+; its one reader is mou_hotplug's state-0 arm, which is reached only while
+; [mou_seen] is still 0, so no path can observe the difference.
+;
+; NOTHING HERE RETIRES THE LOSERS. mou_hotplug's `.have` arm does that on the
+; UI task's next pass, and it does it in the right ORDER - power back up on
+; every port FIRST, then mou_lockon - which a backend calling mou_lockon from
+; its own settle skips. The serial and PS/2 arms have always relied on that
+; pass; SPEC.md 9.12's driver now does too.
+;
+; IT IS A MACRO PLUS A ROUTINE, AND THE SPLIT IS THE 128KB KERNEL'S. The
+; STORES are the thing that must exist once and they are MOU_SETTLE_STORES,
+; sixteen bytes with no test and no return. The routine around them is the
+; form a SECOND caller wants - the test and the `ret` - and kern_small has no
+; second caller, because mou_p2_isr is KERN_BIG's and so is the driver
+; (SPEC.md 51.0). Factoring for one caller there was MEASURED at +10 `.text`
+; and it crossed a 512-byte image rung on a kernel that had three bytes left
+; in one; kern_small takes the macro inline in mou_claim instead, where the
+; `cmp byte [mou_seen], 0` the routine would do is already two instructions
+; above it, and pays +1 for the [mou_idany] that arm never used to set.
+;
+; ins:  AH = the winning row (a mou_bases index, MOU_P2ROW, or MOU_FEEDROW);
+;       AL = the 8259 bit its packets arrived on, or MOU_P2LINE for a backend
+;       that is on no serial line at all
+; outs: none. Clobbers AX; every other register preserved
+; -----------------------------------------------------------------------------
+%macro MOU_SETTLE_STORES 0
+    mov [mou_port], ah
+    mov [mou_line], al          ; the LINE, not the base (SPEC.md 9.5.2.1)
+    mov ax, 0x0101
+    mov [mou_idany], ax         ; [mou_idany] and [mou_seen], one word - the
+                                ; %error at the foot of this file is what
+                                ; keeps the two adjacent
+    mov [mou_ptr], al           ; ...and the machine HAS a pointer, which is
+                                ; the OTHER question (SPEC.md 9.6.6): the
+                                ; keyboard mouse asks this one and not
+                                ; "who won the serial contest"
+%endmacro
+
+%ifdef KERN_BIG
+mou_settle:
+    cmp byte [mou_seen], 0
+    jne .out                    ; settled, and never revisited
+    MOU_SETTLE_STORES
+.out:
+    ret
+%endif
+
+; -----------------------------------------------------------------------------
 ; mou_claim - one more complete packet, on port BX (SPEC.md 9.5)
 ;
 ; [mou_need] of them IN A ROW on one port settles [mou_port] and sets
@@ -1018,12 +1090,13 @@ mou_claim:
                                 ; whose identify burst already named it the
                                 ; only mouse-shaped one (SPEC.md 9.4.1)
     jb .out
-    mov [mou_port], bl          ; settled. mou_hotplug's next pass retires
-    mov byte [mou_seen], 1      ; every other port
-    mov byte [mou_ptr], 1       ; ...and the machine HAS a pointer, which is
-                                ; the other question (SPEC.md 9.6.6)
-    mov al, [mou_lfired]        ; ...and THIS is the line those packets came in
-    mov [mou_line], al          ; on, which the base cannot say (SPEC 9.5.2.1)
+    mov ah, bl                  ; settled. mou_hotplug's next pass retires
+    mov al, [mou_lfired]        ; every other port - and THIS is the line those
+%ifdef KERN_BIG                 ; packets came in on, which the base cannot say
+    call mou_settle             ; (SPEC.md 9.5.2.1). The [mou_seen] test the
+%else                           ; routine repeats is four lines above, so on
+    MOU_SETTLE_STORES           ; the build where this is the ONLY settle site
+%endif                          ; the stores go in without one
 .out:
     pop ax
     ret
@@ -1946,20 +2019,18 @@ mou_p2_byte:
                                 ; motion; a believed overflow flag costs a
                                 ; pointer that jumps the width of the screen
 
-    cmp byte [mou_seen], 0      ; the FIRST packet settles it and is acted on -
-    jne .go                     ; there is no run threshold on this side.
-    mov byte [mou_port], MOU_P2ROW  ; [mou_need] exists because a Hayes result
-    mov byte [mou_line], MOU_P2LINE ; code is a well-formed Microsoft packet
-    mov byte [mou_ptr], 1       ; ...and the machine HAS a pointer (SPEC.md
-                                ; 9.6.6): the keyboard mouse asks THIS, not
-                                ; "who won the serial contest", so it stands
-                                ; down beside a PS/2 winner too
-    mov byte [mou_seen], 1      ; (SPEC.md 9.5.1); the aux port carries ONE
-                                ; device and it answered a reset before its
-                                ; interrupt was ever armed (SPEC.md 9.9.4).
-                                ; MOU_P2LINE is not a master-8259 bit, so
-                                ; mou_lockon masks both serial lines and
-                                ; neither of this mouse's own
+    mov ax, (MOU_P2ROW << 8) | MOU_P2LINE   ; the FIRST packet settles it and
+    call mou_settle             ; is acted on - there is no run threshold on
+                                ; this side, [mou_need] existing because a
+                                ; Hayes result code is a well-formed Microsoft
+                                ; packet and the aux port carries ONE device
+                                ; that answered a reset before its interrupt
+                                ; was ever armed (SPEC.md 9.9.4). MOU_P2LINE is
+                                ; not a master-8259 bit, so mou_lockon masks
+                                ; both serial lines and neither of this
+                                ; mouse's own. AX is dead here and reloaded at
+                                ; .go; DH (byte 0) and BL (the Y magnitude)
+                                ; are live and mou_settle preserves both
 .go:
 %ifdef MOU_DIAG
     inc word [mou_p2pkt]        ; a WHOLE packet, past sync and past overflow
@@ -3262,13 +3333,19 @@ mou_byte:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_mouse_feed - slot 0x0550: one relative report from a DRIVER (SPEC.md
+; osapi_mouse_feed - slot 0x0598: one relative report from a DRIVER (SPEC.md
 ;                    9.12.1)
 ;
 ; in:  AX = dx, BX = dy, signed, POSITIVE dy IS DOWN; CL = the buttons in
 ;      mouse_btn's own two bits. ES = the caller's DS (an X cell). Task
 ;      context - the CH375 mouse's worker
-; out: CF = 0 applied; CF = 1 refused. Every register preserved
+; out: CF = 0 applied; CF = 1 refused. CLOBBERS AX, BX, CX, DX, SI AND DI -
+;      mou_apply spends all six, and the six pushes that used to hide that
+;      were twelve resident bytes bought for NOBODY: both call sites in
+;      USBMOUSE.DRV return the instruction after, so the driver pays nothing
+;      to save what it needs and the kernel stops paying for what it does not
+;      (SPEC.md 9.12.5). BP, DS and ES come back the caller's, as every X cell
+;      leaves them
 ;
 ; vmm_poll's relative arm, taken out of a pump and put behind a fence: the
 ; driver brings its own context (a TF_SERVICE worker), so the shipped kernel
@@ -3282,12 +3359,20 @@ mou_byte:
 ; the UI task. A zero ES is refused first: [drv_fseg6] is 0 whenever no pointer
 ; driver is published, and a zero must never match a zero.
 ;
-; THE WHOLE BODY IS ON mou_pstack, the contest settle included - mou_lockon
-; and mou_p2_off are the deepest part of it and the worker's stack is
-; SCH_DRV_STK. The swap is inside the cli for vmm_poll's reason (SP is what
-; sch_switch banks), and borrowing the stack is safe for SPEC.md 9.10's: both
-; mouse ISRs are IF=0 from gate to iret, so no task runs while one is inside
-; MOUPRIV_ENTER, and nothing here re-enables interrupts.
+; THE WHOLE BODY IS ON mou_pstack, the contest settle included, because
+; mou_apply's cur_move chain is exactly what SPEC.md 9.10 moved OFF task
+; stacks and the worker's is SCH_DRV_STK = 192. The swap is inside the cli for
+; vmm_poll's reason (SP is what sch_switch banks), and borrowing the stack is
+; safe for SPEC.md 9.10's: both mouse ISRs are IF=0 from gate to iret, so no
+; task runs while one is inside MOUPRIV_ENTER, and nothing here re-enables
+; interrupts.
+;
+; IT SWAPS UNCONDITIONALLY where MOUPRIV_ENTER tests SS first, and that is
+; ten bytes of the difference. The macro's test exists because a ROM service
+; the kernel calls with IF=1 may have switched stacks under an ISR (SPEC.md
+; 7.4's int 13h); this is not an ISR, it is a plain task call, and SS is
+; LOW_SEG in every os8088 task context by SPEC.md 1. Nor does either store
+; need the macro's cs: override: an X cell arrives with DS = KERNEL_SEG.
 ; -----------------------------------------------------------------------------
 MOU_FEEDROW equ 8               ; [mou_port] once a DRIVER has won. Past
                                 ; MOU_P2ROW and distinct from kern_emu's
@@ -3297,12 +3382,6 @@ MOU_FEEDROW equ 8               ; [mou_port] once a DRIVER has won. Past
                                 ; both UARTs and the aux port
 %ifdef OS88_DRIVERS
 osapi_mouse_feed:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
     mov dx, es
     or dx, dx
     jz .no
@@ -3310,30 +3389,24 @@ osapi_mouse_feed:
     jne .no
     pushf
     cli
-    MOUPRIV_ENTER
-    cmp byte [mou_port], MOU_FEEDROW
-    je .settled                 ; every report after the first: one compare
-    mov byte [mou_port], MOU_FEEDROW    ; settle it as vmm_boot_x does
-    mov byte [mou_line], MOU_P2LINE     ; (SPEC.md 9.11.2), on the first
-    mov byte [mou_seen], 1              ; report and not at attach: a CH375
-    mov byte [mou_ptr], 1               ; with nothing plugged in has not
-    mov byte [mou_idany], 1             ; proven a pointer, and must not
-    call mou_lockon                     ; retire a serial mouse that has
-.settled:
-    call mou_apply              ; clobbers what the pushes above bank
-    MOUPRIV_LEAVE
+    mov [mou_psave], sp         ; MOUPRIV_ENTER's two useful instructions, and
+    mov sp, mou_pstack + MOU_PSTK   ; only those - see the header
+    push ax                     ; ...on the private stack, which is what it is
+    mov ax, (MOU_FEEDROW << 8) | MOU_P2LINE
+    call mou_settle             ; ONE settle for four backends (SPEC.md 9.5.1),
+    pop ax                      ; and it is a no-op on every report after the
+                                ; first. No mou_lockon here: mou_hotplug's
+                                ; .have arm retires the losers on the UI task's
+                                ; next pass - which mou_apply below has just
+                                ; woken - and it does it in the order that
+                                ; works, powering every port back up first
+    call mou_apply
+    mov sp, [mou_psave]
     popf
     clc
-    jmp short .out
+    ret
 .no:
     stc
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 %else
 osapi_mouse_feed:               ; kern_small: no driver can be published, so
@@ -5591,7 +5664,7 @@ mou_p2lb0   db 0                ; the last byte 0 accepted, so a stream that
   %error "mouse: SPEC.md 9.4.2 block - mou_idlast/mou_ident moved"
 %endif
 %if MOUDBG(mou_idany)  != 25 || MOUDBG(mou_seen)   != 26
-  %error "mouse: SPEC.md 9.4.2 block - mou_idany/mou_seen moved"
+  %error "mouse: SPEC.md 9.4.2 block - mou_idany/mou_seen moved (and mou_settle writes the PAIR as one word, SPEC.md 9.5.1)"
 %endif
 %if MOUDBG(mou_hpst)   != 27 || MOUDBG(mou_hpt)    != 28
   %error "mouse: SPEC.md 9.4.2 block - mou_hpst/mou_hpt moved"

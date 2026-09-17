@@ -3787,10 +3787,18 @@ OSAPI_CUR_CROSS equ 1           ; the aiming crosshair, hot spot at its centre
                                                 ; else, and always on
                                                 ; kern_small. The first report
                                                 ; accepted settles the mouse
-                                                ; contest on the caller and
-                                                ; retires the serial and PS/2
-                                                ; ports. Callable from a
-                                                ; worker; every register kept
+                                                ; contest on the caller, and
+                                                ; the serial and PS/2 ports
+                                                ; are retired on the UI task's
+                                                ; next pass. Callable from a
+                                                ; worker. CLOBBERS AX, BX, CX,
+                                                ; DX, SI and DI - mou_apply
+                                                ; spends all six and banking
+                                                ; them was twelve resident
+                                                ; bytes for a caller that
+                                                ; wanted none of it (SPEC.md
+                                                ; 9.12.5). BP, DS and ES come
+                                                ; back yours
 %define OSAPI_WM_DAMAGE     KERNEL_SEG:0x03B0   ; BX = your window ptr, called
                                                 ; from inside your own W_PAINT.
                                                 ; CF=1 = draw the WHOLE content
