@@ -266,6 +266,7 @@ BSS = ("dos_tracen", "dos_tracew", "dos_trseg", "dos_trnm",
 CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
           "DOS_TRACE_KB",
           "DOS_NFH", "DOS_FH0", "DOS_TR33_N", "DOS_TR33_OFF",
+          "DOS_TR33_SZ", "DOS_TR33_CB", "DOS_TR33_BY",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
 
 # INT 33h, by the numbers a 1987 program actually calls. The histogram
@@ -700,7 +701,7 @@ def cmd_trace(a):
         # IN THE PART beside the ring, for the same reason the ring is:
         # `dos_int33` is CORE, and 96.44.2 leaves it no host bss cell to use.
         mou = bytes(m.read((trseg << 4) + sym["DOS_TR33_OFF"],
-                           sym["DOS_TR33_N"]))
+                           sym["DOS_TR33_BY"]))
 
         if a.shot:
             wd, ht, px = m.fbuf()
@@ -729,22 +730,60 @@ def cmd_trace(a):
              psp, a.out))
     if names:
         print("  names the program passed: %s" % ", ".join(names))
-    print("  " + mouse_line(mou))
+    for ln in mouse_lines(mou, sym):
+        print("  " + ln)
     return 0
 
 
-def mouse_line(mou):
-    """One line: what the program asked INT 33h for, or that it asked nothing.
+# Which functions are worth printing an ARGUMENT for, and what to call it.
+# Everything else prints its count alone: `03h position x812` is the whole
+# story, and `bx=0000 cx=0000 dx=0000` beside it is noise that hides the rows
+# that matter.
+INT33_ARGS = {
+    0x07: ("min x", "max x", None),
+    0x08: ("min y", "max y", None),
+    0x09: ("hot x", "hot y", "mask at"),
+    0x0A: ("kind", "screen mask", "cursor mask"),
+    0x0C: (None, "EVENT MASK", "handler at"),
+    0x0F: ("x mickeys", "y mickeys", None),
+    0x10: ("left", "top", None),
+    0x14: (None, "EVENT MASK", "handler at"),
+}
+
+
+def mouse_lines(mou, sym):
+    """What the program asked INT 33h for, with what, and what we answered.
 
     ALL ZERO IS THE MOST IMPORTANT READING and must not print as blank - a
     program that never calls the mouse at all and one whose calls we answer
-    wrongly are opposite defects, and only this tells them apart.
+    wrongly are opposite defects, and only this tells them apart.  So is the
+    CALLBACK count, for the same reason one layer along: `it asked for events
+    and then did nothing` is us never calling or it ignoring us.
     """
-    hit = [(i, n) for i, n in enumerate(mou) if n]
+    sz, cb = sym["DOS_TR33_SZ"], sym["DOS_TR33_CB"]
+    out, hit = [], []
+    for i in range(sym["DOS_TR33_N"]):
+        n = mou[i * sz]
+        if not n:
+            continue
+        bx, cx, dx = struct.unpack_from("<3H", mou, i * sz + 2)
+        names = INT33_ARGS.get(i)
+        args = ""
+        if names:
+            args = " " + " ".join("%s=%04X" % (nm, v)
+                                  for nm, v in zip(names, (bx, cx, dx)) if nm)
+        hit.append("%02Xh %s x%d%s" % (i, INT33.get(i, "?"), n, args))
     if not hit:
-        return "INT 33h: NOT CALLED ONCE - the program found no mouse, or never looked"
-    return "INT 33h: " + ", ".join(
-        "%02Xh %s x%d" % (i, INT33.get(i, "?"), n) for i, n in hit)
+        out.append("INT 33h: NOT CALLED ONCE - the program found no mouse, "
+                   "or never looked")
+    else:
+        out.append("INT 33h: " + "; ".join(hit))
+    calls = struct.unpack_from("<H", mou, cb)[0]
+    out.append("INT 33h: the box made %d callback(s) into the program%s"
+               % (calls, "" if calls else
+                  " - so an event handler, if one is installed, has heard "
+                  "NOTHING"))
+    return out
 
 
 def _dump_state(m, base, sym, psp, a):

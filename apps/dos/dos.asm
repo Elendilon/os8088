@@ -257,6 +257,25 @@ DOS_TRDUMPN equ 64                  ; ...and how many of them TRACE.LOG holds,
 DOS_TRD_OFF equ 0                           ; the rendered dump...
 DOS_TRB_OFF equ DOS_TRDUMPN * 72            ; ...and THEN the ring
 DOS_TR33_OFF equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ
+DOS_TR33_SZ equ 8                           ; count, then BX, CX and DX AS THEY
+                                            ; WERE at the last call of that
+                                            ; function (SPEC.md 96.10.3.1). A
+                                            ; count alone answers `which` and
+                                            ; the design questions are all
+                                            ; `with what`: 0Ch's event MASK
+                                            ; decides whether a callback is
+                                            ; eligible at all, and 0Ah's BX
+                                            ; picks the software cursor over
+                                            ; the hardware one
+DOS_TR33_CB  equ DOS_TR33_N * DOS_TR33_SZ   ; ...and ONE MORE SLOT, counting
+                                            ; the callbacks the box actually
+                                            ; MADE. Without it `the program
+                                            ; asked for events and did nothing
+                                            ; further` has two readings - we
+                                            ; never called, or we called and it
+                                            ; ignored us - and they are
+                                            ; opposite defects
+DOS_TR33_BY  equ DOS_TR33_CB + DOS_TR33_SZ
                                             ; ...and the mouse histogram after
                                             ; it, IN THE PART and not in bss
                                             ; (SPEC.md 96.10.3): `dos_int33` is
@@ -266,7 +285,7 @@ DOS_TR33_OFF equ DOS_TRB_OFF + DOS_TRACEN * DOS_TRACE_SZ
                                             ; row is refused by rule 1. What
                                             ; the core owns is the SEGMENT,
                                             ; two unconditional bytes
-DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_N + DOS_TRNM_N * 15 + 96
+DOS_TRACE_BY equ DOS_TR33_OFF + DOS_TR33_BY + DOS_TRNM_N * 15 + 96
 DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
@@ -10420,9 +10439,17 @@ dos_int33:
     jb .tr33in                      ; which is a reading and not a wild store
     mov si, DOS_TR33_N - 1
 .tr33in:
-    cmp byte [es:si+DOS_TR33_OFF], 0xFF ; saturating: a poll loop must not wrap
-    je .tr33out                         ; the count round to zero and read as
-    inc byte [es:si+DOS_TR33_OFF]       ; "never called"
+    shl si, 1                       ; ...times DOS_TR33_SZ, which is 8 - three
+    shl si, 1                       ; shifts of ONE, the only shift an 8086 has
+    shl si, 1
+    add si, DOS_TR33_OFF
+    cmp byte [es:si], 0xFF          ; saturating: a poll loop must not wrap the
+    je .tr33arg                     ; count round to zero and read as "never
+    inc byte [es:si]                ; called"
+.tr33arg:
+    mov [es:si+2], bx               ; ...AND WHAT IT WAS ASKED (96.10.3.1) -
+    mov [es:si+4], cx               ; the last call wins, which is right for an
+    mov [es:si+6], dx               ; init sequence that calls each once
 .tr33out:
     pop es
     pop si
@@ -10730,6 +10757,24 @@ dos_m33_tick:
     xor ah, ah
     and ax, [dos_m33m]              ; only what the program asked for
     jz .nothing
+%ifdef DOSTRACE
+    ; --- AND THE BOX COUNTS ITS OWN CALLBACKS (SPEC.md 96.10.3.1), because
+    ; "the program asked for events and then did nothing" has two readings and
+    ; they are opposite defects: we never called it, or we called and it
+    ; ignored us. Nothing in the INT 21h ring or the per-function histogram
+    ; can tell them apart - a callback makes no INT 21h call and is not an
+    ; INT 33h call either.
+    push bx
+    push es
+    mov bx, [dos_m33seg]
+    or bx, bx
+    jz .cbdone
+    mov es, bx
+    inc word [es:DOS_TR33_OFF + DOS_TR33_CB]
+.cbdone:
+    pop es
+    pop bx
+%endif
     call far [dos_m33h]             ; AX = the events, BX = the buttons,
                                     ; CX/DX = where, SI/DI = the mickeys, and
                                     ; DS = OURS, which is the driver's own -
