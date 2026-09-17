@@ -511,6 +511,10 @@ def drive(m, script, label):
         wait:8          sleep that many seconds of HOST time
         key:AltLeft     one MartyKey by name (W3C KeyboardEvent.code)
         text:hello      ASCII through type_text, shifted characters included
+        move:40;24      a RELATIVE mouse move, in mouse units. The pair is
+                        SEMICOLON-separated because the comma already splits
+                        one step from the next
+        click / click:r press and release a button, left unless `r`
 
     **IT EXISTS BECAUSE THE INTERESTING CALLS ARE PAST THE MENU.** The tracer
     ran a program and watched; everything it could reach was what a program
@@ -519,6 +523,20 @@ def drive(m, script, label):
     reaches - and the reference side needs the SAME four, or the diff aligns
     two different programs (SPEC.md 96.44.13.1's lesson one level out).
 
+    **THE MOUSE IS HERE BECAUSE A TRACE WITHOUT ONE ASKS THE WRONG QUESTION.**
+    Microsoft Works installs an INT 33h event handler (SPEC.md 96.10.4) and
+    then waits, so a script that only types drives a program that has been
+    told nothing: its mouse histogram (96.10.3) reads the same whether the box
+    makes callbacks or not, because no event ever happens. The first run of
+    this file's `--keys` measured exactly that and the answer looked like a
+    finding.
+
+    **IT PACES BY WALL CLOCK AND NOT BY FRAMES**, which is not a preference.
+    `os88mouserel.Rel`'s default is `m.advance(frames=)`, and advance leaves
+    the emulator PAUSED - so a trace that moved the mouse and carried on would
+    stop the guest, freeze the BIOS tick at 0040:006C, and read as the program
+    hanging. That is a day's worth of A/B builds if it is met cold.
+
     Nothing here is clever about what is on the screen: a step is a step and
     the waits are the operator's to get right. A script that misses puts the
     program somewhere else and the trace says so, which is the honest failure
@@ -526,6 +544,15 @@ def drive(m, script, label):
     """
     if not script:
         return
+    mo = [None]
+
+    def mouse():
+        if mo[0] is None:
+            sys.path.insert(0, HERE)
+            import os88mouserel                                   # noqa: E402
+            mo[0] = os88mouserel.Rel(m, pace="wall")
+        return mo[0]
+
     for step in script.split(","):
         step = step.strip()
         if not step:
@@ -537,9 +564,15 @@ def drive(m, script, label):
             m.key(arg)
         elif kind == "text":
             m.type_text(arg)
+        elif kind == "move":
+            dx, _, dy = arg.partition(";")
+            mouse().move(int(dx), int(dy or 0))
+        elif kind == "click":
+            mouse().packet(r=(arg == "r"))
+            mouse().packet()
         else:
-            raise SystemExit("os88dosdbg: --keys step %r is not wait:, key: "
-                             "or text:" % step)
+            raise SystemExit("os88dosdbg: --keys step %r is not wait:, key:, "
+                             "text:, move: or click" % step)
         print("  %s: %s" % (label, step), file=sys.stderr)
 
 
@@ -1203,9 +1236,13 @@ def main():
         p.add_argument("--keys", default="",
                        help="drive an INTERACTIVE program once it is up: a "
                             "comma-separated list of wait:SECS, key:NAME "
-                            "(a W3C KeyboardEvent.code, e.g. AltLeft) and "
-                            "text:ASCII. Give `trace` and `ref` the SAME "
-                            "script or the diff aligns two different runs")
+                            "(a W3C KeyboardEvent.code, e.g. AltLeft), "
+                            "text:ASCII, move:DX;DY and click[:r]. Give "
+                            "`trace` and `ref` the SAME script or the diff "
+                            "aligns two different runs - and give a program "
+                            "that installs a mouse EVENT HANDLER some "
+                            "movement, or it is being traced while it waits "
+                            "for something that never happens")
         p.add_argument("--flush-disk", default="",
                        help="write B: back to this file before the machine "
                             "closes, so a WRITE can be checked against the "
