@@ -468,7 +468,26 @@ mou_pall:
 ;     the inline form is DS-relative data and an indirect far call, so it drops
 ;     into any section. It costs 17 bytes a site, twice.
 ; =============================================================================
-section .ovlw
+%ifndef KERN_SMALL
+section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3) -
+                                ; forfeit at the first mount, and this build's
+                                ; window has room to spare
+%else
+section .ovl                    ; ...and kern_small: the BLOB half instead
+                                ; (SPEC.md 2.5.3.2). The deadline is the same
+                                ; either way - kmain runs the whole probe ~60
+                                ; lines above drv_boot - so the choice is only
+                                ; about WHOSE bytes: on this kernel `.ovlw` is
+                                ; what sizes the FAT window plus the mount
+                                ; buffers, and those bytes are the listing's.
+                                ; The blob is already read and has room, so the
+                                ; body goes there and the region sheds.
+                                ; `.ovl` is written LAST on purpose:
+                                ; tools/os88ovlchk.py reads SOURCE and cannot
+                                ; evaluate the %ifdef, so it files this block
+                                ; by the arm below - which is the build the
+                                ; check exists to protect
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_uart - is there an 8250 at port BX's base? (SPEC.md 9.5)
@@ -1451,7 +1470,22 @@ mou_p2wr:
     pop ax
     ret
 
-section .ovlw                  ; ...and the PS/2 half's first (see the block
+%ifndef KERN_SMALL
+section .ovlw
+%else
+section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
+                                ; this arm is NEVER ASSEMBLED - the KERN_BIG
+                                ; conditional that opens above mou_p2wr
+                                ; encloses all of it. It is written anyway
+                                ; because tools/os88ovlchk.py cannot evaluate
+                                ; either conditional and mouse_init near-calls
+                                ; mou_p2_init: the two blocks have to land in
+                                ; ONE section in its model or that call reads
+                                ; as a crossing. On kern_big both really are
+                                ; `.ovlw`, so the model's `.ovl -> .ovl` is the
+                                ; same answer about the same pair of bodies
+%endif
+                                ; ...and the PS/2 half's first (see the block
                                 ; above mou_uart). mou_p2rd is read-only on the
                                 ; 8042 and mou_p2_init and mou_p2dev are its
                                 ; only callers; mou_p2_off, which is the runtime
@@ -1527,7 +1561,22 @@ mou_p2wcmd:
 .out:
     ret
 
-section .ovlw                  ; ...and the overlay's last three: mou_p2dev,
+%ifndef KERN_SMALL
+section .ovlw
+%else
+section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
+                                ; this arm is NEVER ASSEMBLED - the KERN_BIG
+                                ; conditional that opens above mou_p2wr
+                                ; encloses all of it. It is written anyway
+                                ; because tools/os88ovlchk.py cannot evaluate
+                                ; either conditional and mouse_init near-calls
+                                ; mou_p2_init: the two blocks have to land in
+                                ; ONE section in its model or that call reads
+                                ; as a crossing. On kern_big both really are
+                                ; `.ovlw`, so the model's `.ovl -> .ovl` is the
+                                ; same answer about the same pair of bodies
+%endif
+                                ; ...and the overlay's last three: mou_p2dev,
                                 ; mou_p2flush and mou_p2_init, all of which only
                                 ; mouse_init's probe reaches
 ; -----------------------------------------------------------------------------

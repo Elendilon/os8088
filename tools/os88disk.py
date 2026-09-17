@@ -91,21 +91,31 @@ def _listing_cap():
     with no assembler: the fallback is the value the kernel shipped with, which
     is wrong in the SAFE direction (it refuses a disk that would have worked
     rather than building one the kernel cannot list).
+
+    **AND IT IS PER-KERNEL SINCE SPEC.md 22.6.2** - 64 on kern_big, 32 on
+    kern_small, which has no DOS box to list a DOS directory for.  So the
+    file holds two `DSK_NENT equ` lines behind a `%ifndef KERN_SMALL` and
+    this returns BOTH, kern_big's first, because that is the default every
+    caller wants and `--kern-small` is what selects the other.  Returning
+    the smaller for every disk would refuse a 40-file kern_big folder the
+    kernel lists perfectly well, which is the exact bug the paragraph above
+    is about.
     """
     import re as _re
     src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "..", "kernel", "dskwin.inc")
     try:
         with open(src) as f:
-            m = _re.search(r"^DSK_NENT\s+equ\s+(\d+)", f.read(), _re.M)
+            m = _re.findall(r"^DSK_NENT\s+equ\s+(\d+)", f.read(), _re.M)
         if m:
-            return int(m.group(1))
+            return int(m[0]), int(m[-1])
     except OSError:
         pass
-    return 32
+    return 32, 32
 
 
-MAX_FILES = _listing_cap()    # kernel listing cap (SPEC.md section 19)
+MAX_FILES, SMALL_FILES = _listing_cap()   # kernel listing cap, big and small
+                                          # (SPEC.md section 19, 25.8.1)
 VOL_LABEL = b"OS8088APPS "    # 11 bytes, BS_VolLab == root label entry
 SYS_LABEL = b"OS8088SYS  "    # ...and what a --boot/--kernel disk is called
 VOL_ID = 0x88000888           # the FALLBACK serial, and the value every
@@ -966,13 +976,21 @@ def build(args) -> int:
                      f"{key or 'the root'}")
             taken[n] = None
 
+    # ...and WHICH kernel is asked, since SPEC.md 22.6.2 made DSK_NENT
+    # per-build: a disk written for kern_small is listed by a 32-entry
+    # listing and one written for kern_big by a 64-entry one. The cap is the
+    # kernel's number either way - neither is restated here - and the four
+    # recipes that pass `--kern-small` are exactly the four that pass
+    # `--fatcap 2`, which is the same build saying the same thing about its
+    # other disk constant.
+    cap = SMALL_FILES if args.kern_small else MAX_FILES
     for key in dirs:
         shown = len(kids[key]) + sum(
             1 for n, _, _ in groups[key]
             if not sys_attr(n, bool(boot)) & A_HIDDEN)
-        if shown > MAX_FILES and not args.deep_folders:
+        if shown > cap and not args.deep_folders:
             fail(f"{shown} listed entries in folder {key}; the kernel "
-                 f"lists at most {MAX_FILES} per directory (--deep-folders "
+                 f"lists at most {cap} per directory (--deep-folders "
                  f"if this folder is a data store the file API walks, not "
                  f"one the Disk window shows)")
     # MAX_FILES is a DISPLAY cap, so only what the kernel would list counts
@@ -980,9 +998,9 @@ def build(args) -> int:
     # slot. It still takes a directory slot, which is the second check.
     shown = len(root_dirs) + sum(1 for n, _, _ in root_files
                                  if not sys_attr(n, bool(boot)) & A_HIDDEN)
-    if shown > MAX_FILES:
+    if shown > cap:
         fail(f"{shown} listed root entries; the kernel lists "
-             f"at most {MAX_FILES} per directory")
+             f"at most {cap} per directory")
 
     # A folder's own directory is a cluster chain like any other file: two
     # link entries ('.', '..'), one entry per subfolder, and its files,
@@ -1642,6 +1660,10 @@ def main() -> int:
                     help="create this folder even if no file names it "
                          "(repeatable); each component an 8.3 stem with no "
                          "extension, '/' between them for a nested one")
+    ap.add_argument("--kern-small", action="store_true",
+                    help="this disk is for kern_small, whose listing holds "
+                         "DSK_NENT = 32 entries rather than kern_big's 64 "
+                         "(SPEC.md 22.6.2). Goes with --fatcap 2")
     ap.add_argument("--deep-folders", action="store_true",
                     help="allow more than the kernel's 32-entry LISTING cap "
                          "in a subfolder (never the root): the Disk window "

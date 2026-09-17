@@ -35,10 +35,15 @@ minutes rather than an afternoon.
 > in `kernel/` cite these bodies by their row number and would otherwise point at
 > nothing:
 >
+> **READ `.ovl` IN THIS TABLE AS "THE BOOT OVERLAY"**: SPEC.md 2.5.3 split it
+> into `.ovl` (the blob, dead at `spl_finish`) and `.ovlw` (the FAT window,
+> dead at the first mount) long after these rows landed, and most of them are
+> in the window half today. Where the two builds now disagree the row says so.
+>
 > | row | body | where it is now |
 > |---:|---|---|
 > | 1 | `drv_boot_x` | `.ovl` |
-> | 2 | `vid_probe_avail` + `vid_memchk` + `vid_cga_alias` | `.ovl` |
+> | 2 | `vid_probe_avail` + `vid_memchk` + `vid_cga_alias` | `.ovlw` on `kern_big`, **`.ovl` on `kern_small`** — SPEC.md 2.5.3.2 |
 > | 3 | `sched_init` | `.ovl` |
 > | 4 | `dsk_boot_from_x` + `dsk_bootltr` | `.ovl` |
 > | 5 | `xm_boot_x` | `.ovl` |
@@ -93,24 +98,43 @@ this tree that gives a `KERN_BUDGET` rung back.
 `kernel/kernel.asm` sets the constants and asserts the two bounds at its own foot:
 
 ```
-BOOT2_SECS  equ 19            ; SPEC.md 2.9.12
-OVL_AT      equ 2560          ; where `.ovl` starts inside the blob
-BOOT2_PAD   equ BOOT2_SECS * 512                       =  9,728
+BOOT2_SECS  equ 9             ; SPEC.md 2.5.3 split the overlay; 15.3.8.5.1 and
+OVL_AT      equ 2624          ; 2.9.13 then took the blob to NINE sectors
+BOOT2_PAD   equ BOOT2_SECS * 512                       =  4,608
 
 %if BOOT2_SIZE > OVL_AT            -> "the loader has outgrown its share"
 %if OVL_AT + OVL_SIZE > BOOT2_PAD  -> "the boot overlay does not fit"
 ```
 
-Measured on this tree, `nasm -DKERNSIZE` reading `kernel.asm`'s own `ks:` line:
+**THIS SECTION READ `BOOT2_SECS 19` / `OVL_AT 2560` FOR A LONG TIME AND BOTH
+WERE WRONG.** §2.5.3 split the overlay by deadline and sent eleven sectors of
+it back into the kernel's own read, §15.3.8.5.1's splash size pass took the
+loader's half to one `OVL_AT`, and §2.9.13 packed the kernel — so what this
+paragraph called load-bearing, *"nineteen sectors, and at 17 it does not fit
+at all"*, describes a blob that has not existed for a long time. Re-measure
+before quoting; that is what the paragraph below the table has always said and
+it is the only part of the old text that survived.
+
+Measured on this tree, `nasm -DKERNSIZE` reading `kernel.asm`'s own `ks:` line
+— **and it is per-build now**, §2.5.3.2 having made the `.ovl`/`.ovlw` split a
+build choice on `kern_small`:
 
 ```
-blob      BOOT2_SECS 19 sectors = 9,728 bytes
-  .boot2  2,457                                       of OVL_AT 2,560   ->   103 free
-  .ovl    6,688                                       of 7,168          ->   480 free
-                                                      TOTAL BLOB SLACK      583 bytes
-  ...and on the tightest single-knob arm, BOOTMARK=1:                       420 bytes
-  ...BOOTMARK=1 MOUDIAG=1 together (not a requirement, §5):                 348 bytes
+blob      BOOT2_SECS 9 sectors = 4,608 bytes
+  .boot2  2,250                              of OVL_AT 2,624   ->   374 free (both)
+  .ovl    1,511  kern_big                    of 1,984          ->   473 free
+  .ovl    1,333  kern_small                  of 1,984          ->   651 free
+                                             TOTAL BLOB SLACK      847 / 1,025 bytes
+  ...BOOTMARK=1:                                                   847 / 953
+  ...BOOTMARK=1 MOUDIAG=1 together (not a requirement, §5):         841 / 922
 ```
+
+**`kern_big` is what binds the blob, and keeping it that way is a rule.**
+`kern_small`'s `.ovl` grew 910 bytes when §2.5.3.2 moved the mouse and adapter
+probes into it, and it was left with more room than `kern_big` has on purpose:
+the day the small build has less, a body added to `.ovl` breaks one kernel and
+not the other, and the cheap answer — move an `.ovlw` body across — stops
+being available in the direction it is needed.
 
 **Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment
 requirement — the only constraints are the two `%if`s above — and moving it costs
@@ -119,11 +143,20 @@ BOOT2_SECS sectors either way, so no image byte, no RAM and no extra int 13h
 changes — only the split."* Quote the single figure, and re-derive it after any
 change to either side rather than trusting a number in prose.
 
-**Nineteen sectors is now LOAD-BEARING, which it was not when this file was
-written.** The pass spent the pool: at 18 sectors the same build has **71 bytes**
-left and at 17 it **does not fit at all** (441 short). The blob cannot be given
-back, and a change that grows `.boot2` or `.ovl` by more than §1's figure is a
-`BOOT2_SECS` conversation (§4), not a build fix.
+**Nine sectors is LOAD-BEARING** — a change that grows `.boot2` or `.ovl` by
+more than the figure above is a `BOOT2_SECS` conversation (§4), not a build
+fix, and `BOOT2_SECS` is in `MIN_RAM_KB`'s guard 5 (SPEC.md 2.5.1.1) as well
+as in every boot's read. `SPLSTARS=1` is the worked example of running out:
+the twinkle and the kernel decompressor are 2,748 bytes of a 2,624-byte
+`.boot2`, so that knob requires `NOKZIP=1` (SPEC.md 15.3.8.5.2).
+
+**On `kern_small` there is a second, cheaper pool beside it**: `.ovlw` has 138
+bytes before it rounds up a sector, and a body moved the other way (from
+`.ovl` back to `.ovlw`) costs the blob nothing. The two headrooms are ONE
+number — move a byte across and one grows as the other shrinks — and on that
+build it currently stands at **789 bytes**, split 651 blob / 138 window. That
+invariance is why the split point is a judgement about which side is more
+likely to grow rather than an optimisation.
 
 `.boot2`'s share is not freely tradable *down* either: its fifth sector is
 SPEC.md §15.3.4's row composer, which ships, so `OVL_AT` cannot go to 2,048.
