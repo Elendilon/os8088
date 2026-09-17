@@ -240,9 +240,18 @@ def main(argv):
         away = sorted(set((cs, ip) for cs, ip in banked if cs != seg))
         print("      sampled outside the package: %s"
               % (" ".join("%04x:%04x" % x for x in away) or "none"))
-        # A SAMPLE THAT IS OURS IS AN OFFSET INSIDE OUR IMAGE, and that is
-        # what catches an instrument reading the wrong word off the frame:
-        # junk is spread over a 64KB range and the package is 0xcdc0 of it
+        # A SAMPLE THAT IS OURS IS AN OFFSET INSIDE OUR IMAGE, and that
+        # is what catches an instrument reading the wrong word off the frame:
+        # junk is spread over a 64KB range and the package is 0xcab0 of it.
+        # 7ac6ea14 reached the same diagnosis and could only say "at least
+        # one of them is in 0..0xE000", on the ground that "cs_dcseg is a
+        # single word and names only the LAST sample, so no per-slot filter
+        # is available to do better". That was true of the instrument and it
+        # cost FOUR BYTES of a CSDIAG-only ISR to stop being true (88.14.4).
+        # Its own `own` filter is worth keeping in mind: `0 < v < 0xE000`
+        # admits a KERNEL offset - 0060:3a41, 0060:00b8 and 0060:bebc were
+        # all banked here - so a ring holding nothing but kernel samples
+        # reads as "the watchdog is watching the flight" when it is not
         check(len(set(ip for _c, ip in banked)) > 2 and mine
               and all(0 < ip < sym["image"] for ip in mine),
               "every sample banked with OUR cs is an offset inside the"
