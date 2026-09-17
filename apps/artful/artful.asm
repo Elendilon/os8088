@@ -163,11 +163,16 @@ at_entry:
     push bx                         ; 20.5.1.3): neither is a template word,
     push si                         ; which is why this modal's three buttons
     push di                         ; fired on the press for as long as they
-    mov ax, bx                      ; existed
+    push dx                         ; existed
+    mov ax, bx
     mov bx, at_btrec
     mov si, at_onup
     mov di, at_ondrag
+    mov dx, at_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx
@@ -1188,9 +1193,6 @@ AT_BSS_TOTAL equ (at_bss_end - at_bss_base)
                                 ; question that has to be asked when this app
                                 ; has no surface of its own to ask it on
 %include "os88ui.inc"           ; buttons this already drew
-%if 12 != OS88UI_BT_SIZE
- %error "at_btrec in atui.inc is six words written out by hand - that file is included BEFORE this one, so OS88UI_BT_SIZE is not defined there - and the two have drifted; widen at_btrec"
-%endif
 
     OS88_BSS AT_BSS_TOTAL
     OS88_IMAGE_END

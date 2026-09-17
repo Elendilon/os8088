@@ -1293,6 +1293,14 @@ cal_drawall:
 ; control - and because a flag word that is already the painter's own
 ; vocabulary does not need translating (SPEC.md 13.8).
 ; -----------------------------------------------------------------------------
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+cal_btlbl: dw 0
+cal_btflg: dw 0
+    OS88UI_BTNREC cal_btrec, 0, cal_btlbl, cal_btflg, 1
+
 cal_btn:
     push ax
     push bx
@@ -1317,7 +1325,16 @@ cal_btn:
     shl ax, cl
     mov bx, cal_rects
     add bx, ax                      ; BX = the rect
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [cal_btlbl], si          ; label and DI its flags, so the record takes
+    mov [cal_btflg], di          ; all three and the picture is identical
+    mov [cal_btrec+OS88UI_BT_RECTS], bx
+    mov bx, cal_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop cx

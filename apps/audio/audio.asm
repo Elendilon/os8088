@@ -394,11 +394,16 @@ ap_entry:
     push bx                         ; 20.5.1.3): neither is a template word
     push si
     push di
+    push dx
     mov ax, bx
     mov bx, apu_btrec
     mov si, ap_onup
     mov di, ap_ondrag
+    mov dx, ap_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx

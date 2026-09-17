@@ -278,6 +278,24 @@ br_entry:
     mov si, br_menus
     call OSAPI_MENU_SET
     mov [br_win], bx
+    push ax                         ; **THE BUTTONS' THREE SLOTS** (SPEC.md
+    push bx                         ; 20.5.1.3.3): btninit links this record so
+    push cx                         ; the library's click thunk can find it,
+    push dx                         ; and installs the PRESS as well as the
+    push si                         ; release and the tracking edge. br_onclick
+    push di                         ; is our own click work and the library
+    mov ax, bx                      ; chains to it when the press was not a
+    mov bx, br_btrec                ; button's - which is what stops a package
+    mov si, br_onup                 ; having a click path that skips them
+    mov di, br_ondrag
+    mov dx, br_onclick
+    call os88ui_btninit
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly
@@ -1816,12 +1834,11 @@ br_onclick:
     add ax, BR_TBH - 1
     cmp dx, ax
     ja .nostrip
-    mov bx, br_btrec                ; **THEY ONLY ARM** (SPEC.md 13.6): Back,
-    call os88ui_btnpress            ; Forward and Reload all fetch, so none of
-    jmp .out                        ; them may fire on a press the user can
-                                    ; still take back. br_onup has the action,
-                                    ; and it asks the SAME ok-predicate the
-                                    ; greying does (47 rule 5)
+    jmp .out                        ; the toolbar's press was the LIBRARY's
+                                    ; (SPEC.md 20.5.1.3.3) and never reaches
+                                    ; here; br_onup has the action, and it
+                                    ; asks the SAME ok-predicate the greying
+                                    ; does (47 rule 5)
 .nostrip:
     cmp cx, [br_sbx]
     jb .page                        ; not in the scroll bar: the PAGE's
@@ -2202,11 +2219,6 @@ br_toolbar:
     push di
     call br_hsync                   ; the History menu answers the same
                                     ; question these two buttons do
-    mov bx, br_btrec                ; the group, described once
-    mov word [bx+OS88UI_BT_RECTS], br_r1
-    mov word [bx+OS88UI_BT_LABELS], br_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], br_btflg
-    mov word [bx+OS88UI_BT_N], 3
     call br_okback
     mov al, 1
     call br_btn1
@@ -2247,6 +2259,7 @@ br_inrect:
 ; pass by br_btn1, from the very predicate that decides the refusal.
 br_btlbl: dw br_s_back, br_s_fwd, br_s_rel
 br_btflg: dw OS88UI_FILL, OS88UI_FILL, OS88UI_FILL
+    OS88UI_BTNREC br_btrec, br_r1, br_btlbl, br_btflg, 3
 
 br_btn1:
     push bx
@@ -6845,7 +6858,8 @@ br_tagtab:
 ; --- window template (SPEC.md 11) ----------------------------------------------
 br_tpl:
     dw 40, 30, 496, 150
-    dw br_ttl, br_paint, br_onkey, br_onclick
+    dw br_ttl, br_paint, br_onkey, 0    ; W_ONCLICK is installed by
+                                        ; os88ui_btninit (20.5.1.3.3)
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
 ; No Close item: SPEC.md 12.7 puts one in the app-NAME cell for every
@@ -7104,10 +7118,14 @@ br_tby      equ br_sbold + 2         ; word: the strip's top, derived
 br_r1       equ br_tby + 2            ; the three button rects {x1,y1,x2,y2}
 br_r2       equ br_r1 + 8
 br_r3       equ br_r2 + 8
-br_btrec    equ br_r3 + 8             ; the standard button record (SPEC.md
-                                       ; 20.5.1.3); the three rects above are
-                                       ; the group it walks
-br_spen     equ br_r3 + 8             ; word: the state's pen, 8-aligned
+br_spen     equ br_r3 + 8         ; word: the state's pen, 8-aligned.
+                                       ; **PAST THE RECORD**, which was
+                                       ; declared at br_r3 + 8 beside it and
+                                       ; ALIASED it: every write to one
+                                       ; corrupted the other, and a record
+                                       ; whose rect pointer had been
+                                       ; overwritten drew a pressed button as
+                                       ; a black box over half the screen
 br_swid     equ br_spen + 2           ; word: ...and the cells it may use
 br_histn    equ br_swid + 2           ; word: entries in the stack
 br_histi    equ br_histn + 2          ; word: where we are in it

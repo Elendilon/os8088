@@ -35953,6 +35953,85 @@ it is what makes the drawn control and the clickable control one description
 rather than two — §22's `fm_hit` discipline, which is the paragraph above this
 table arriving at the control it was written about.
 
+#### 20.5.1.3.2 `OS88UI_BTNREC` — the record is DECLARED, not assembled
+
+A record whose pointers and count are written at run time has three ways to be
+wrong and every one of them shipped: aimed in the click path and so not aimed
+for a paint; the count written after the draws it governs; and declared as an
+`equ` off another block, ALIASING the package's own state. The symptoms were a
+window with no buttons, a window with no buttons, and a black rectangle over
+half the screen.
+
+`OS88UI_BTNREC name, rects, labels, flags, n` emits the six words with the
+three pointers and the live count already set, and owns the storage. There is
+then nothing to aim, nothing to aim late, and no offset for a neighbour to
+collide with. **A group whose count varies still writes `OS88UI_BT_N`** — a
+paged window, or a modal that is sometimes one button and sometimes three —
+and that write must come *before* the draws it is about.
+
+What the macro cannot own is `W_ONCLICK`: it is a **template word** (§20.4) and
+there is no `OSAPI_WM_ONCLICK` to install late, so a package still routes its
+own press into `os88ui_btnpress`. A package with more than one click path has
+to route them all, and ArtfulType's splash shipped acting on the press because
+the modal was converted and the splash beside it was not. Nothing static can
+see that, which is what `tests/btnall.py` is for: it drives each package's
+buttons and reads the record back at every edge.
+
+#### 20.5.1.3.1 The erase belongs to the CONTROL, not the caller
+
+`OS88UI_FILL` asks `os88ui_btn` to white the interior before it draws. It used
+to be optional and it was right that it was: a button that could never be
+drawn **pressed** was drawn once over a known ground, and filling would have
+repainted somebody else's pixels for nothing.
+
+**The record ends that, because it carries the gesture.** Every button can now
+be drawn pressed, and the upright redraw that follows a release — or a slide
+off the control, which is §13.8's whole point — has to wipe the black interior
+the pressed state left. Skip it and the frame is redrawn round a black box
+with the caption lettered **black on black**: the button goes dark and its text
+disappears.
+
+So `os88ui_btn` ORs the flag in itself and a caller cannot forget it. The DOS
+box is why this is stated rather than assumed: it had always drawn its two bar
+buttons with `xor di, di`, which was **correct** for as long as nothing could
+press them, and the day the record gave them a gesture that same correct line
+made them vanish on the first drag-off. Paint had already written the rule at
+its own call site — where it protected exactly one button.
+
+The cost is one `gfx_fill` per button per draw, which every caller that had
+thought about the problem was already paying.
+
+#### 20.5.1.3.3 The PRESS is the library's — `OSAPI_WM_ONCLICK` (API 0x05A0)
+
+`os88ui_btninit` installs all three of a gesture's edges, and until this cell
+existed it could only install two. `W_ONMOUSEUP` and `W_ONDRAG` have slots;
+`W_ONCLICK` is a **template word** (§20.4), settable only at `wm_create`. So
+the library could own the release and the tracking edge and *not* the press,
+and every package had to route its own clicks into `os88ui_btnpress`.
+
+**A package with more than one click path had to route them all**, and
+ArtfulType shipped without doing so: its modal was converted and the splash
+beside it was left on a private hit test, so New and Open drew pressed — the
+record was fine — and still acted on the press. Nothing static can see that;
+only driving the program finds it.
+
+The cell is five bytes of body (`mov [bx+W_ONCLICK], ax / ret`) and one table
+slot, because the word is already there and already dispatched. What it buys
+is that `os88ui_btnclick` is the window's click handler, the buttons see the
+press **before** the package does, and the package's own handler is chained
+from `OS88UI_BT_ONCLK` when the press was not a button's. There is no routing
+left to forget, and a package that has no click work of its own passes 0.
+
+It fixes the coordinate space with it. The record's rects are screen
+coordinates and `W_ONCLICK` delivers screen coordinates, so the press is now
+always tested in the space it arrived in — the Audio player armed nothing for
+a whole release because its own handler had made `CX`/`DX` content-relative
+before calling in.
+
+**Finding the record** is a walk of `OS88UI_BT_NEXT`, a list `btninit` pushes
+each record onto. A list rather than a fixed table because Sheet has five
+dialog windows and a table is a limit somebody eventually exceeds.
+
 #### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
 
 `OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns
@@ -80312,6 +80391,45 @@ moved still redraws its whole groove, because the groove fill is what erases
 the old handle. The §22.2/§38.3 answer — erase the band it left, draw the band
 it arrived at — applies unchanged, and would also remove the last erase-then-
 draw pair on this face.
+
+#### 56.12.1 …and an empty well is not animation
+
+The visualiser is the one element on this face with no state worth comparing —
+it *is* animation — so `mppu_frame` invalidates `MPPI_VIZ` directly rather than
+earning it through a signature (§56.12). **That reasoning stops holding the
+moment there is no module loaded**, and nothing noticed: `mppu_draw_viz` calls
+`mppu_well` — a bevel and a fill of a 220×35 pane — and only *then* asks
+`cmp byte [mpm_loaded], 0`, *"an empty well: there is no level to draw"*. So a
+ModPlug window sitting with nothing open repainted a pane that cannot change,
+about five primitive calls at ~18 Hz, for as long as it was open.
+
+On the target machine the fixed part of a `gfx_*` call is **756 µs**
+(PERFORMANCE.md), so that is ~4 ms of every worker frame spent drawing nothing,
+and it breaks PERFORMANCE rules 1 and 2 at once — repainting more than changed,
+and filling ground that no content follows. It also *shows*: the well's
+`(zx2,zy1)` and `(zx1,zy2)` corners inverted at 18 Hz, which is a double-draw
+flash — and that is **measurable here** rather than a thing only the desk can
+see, `m.flicker` sampling once per completed frame (PERFORMANCE.md Part 3.1).
+After the fix a ModPlug window with nothing loaded reads `settled` with **no
+transient pixels and no changed frames at all**. It surfaced
+through `tests/dispsize.py` leg C — one differing pixel at the well's right
+edge, in two runs of three — because a capture of an incremental draw and a
+capture of a full repaint cannot agree about a pane that is being rewritten
+between them.
+
+**The fix is a latch and not a `cmp`/`je`, and the reason is the edge.** There
+is no eject here: both writers of `[mpm_loaded] = 0` are inside loading a *new*
+module — `mpm_load`'s own head, and the free of the old blob — so the state
+that persists is a load that **failed**, where the flag stays 0 while the bars
+still hold the module that is gone. `mppu_viz_reset` is on the success path
+only. So `mppu_frame` banks `[mpm_loaded]` in `mppu_vizld` and acts on the
+transition: 0 → 1 carries on (the load path resets and repaints anyway), 1 → 0
+clears the bars and paints **once**, and no change with nothing loaded skips
+the pane entirely. The end state is the picture the old code reached by
+decaying and then repainting it for ever — the same pixels, drawn once.
+
+**25 bytes of package image and one byte of bss, none of it resident.** The
+gate is `dispsize` itself, whose leg C is what it was hiding behind.
 
 ### 56.13 What the port to this branch had to change
 

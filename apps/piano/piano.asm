@@ -1355,6 +1355,14 @@ pn_draw_msg:
 ; control since it existed: one edit, and the file dialog, the Control
 ; Panel, the Timer and every package can have a coloured caption.
 ; -----------------------------------------------------------------------------
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+pn_btlbl: dw 0
+pn_btflg: dw 0
+    OS88UI_BTNREC pn_btrec, 0, pn_btlbl, pn_btflg, 1
+
 pn_btn:
     push ax
     push bx
@@ -1378,7 +1386,16 @@ pn_btn:
     or di, dx                       ; (os88ui.inc)
 .go:
     mov bx, pn_brect
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [pn_btlbl], si          ; label and DI its flags, so the record takes
+    mov [pn_btflg], di          ; all three and the picture is identical
+    mov [pn_btrec+OS88UI_BT_RECTS], bx
+    mov bx, pn_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     pop di
     pop si
     pop dx

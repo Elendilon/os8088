@@ -1017,6 +1017,17 @@ FAST = [
         "package and needs an emulator (docs/WRITING-TESTS.md 2.1); "
         "tests/unit/t_btnrules.py is the static half that catches a NEW "
         "offender", needs=("marty",)),
+    Row("btnall", "soak", py("tests/btnall.py"), 95,
+        "EVERY converted button, DRIVEN: the record is aimed after a plain "
+        "paint, its rects are a sane rectangle inside the window, a press "
+        "ARMS, and sliding off UN-arms. It exists because reading the code "
+        "was not enough - four packages shipped broken in a row (DOS aimed "
+        "its record in the click path, Browser declared the record on top of "
+        "its own state, Artful wrote the count after the draws and left a "
+        "whole click handler unconverted, Audio hit-tested screen rects with "
+        "content-relative coordinates) and every one was found by a person "
+        "looking at a screen. All four are visible in BT_DOWN and BT_N",
+        needs=("marty",)),
     Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
         "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "

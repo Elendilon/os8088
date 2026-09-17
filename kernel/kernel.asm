@@ -4258,7 +4258,16 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          tree had already spent, and took
                                   ;          the tail cell the size pass freed
                                   ;          (OSAPI_MEM_COMPACT_WAKE's)
-osapi_table_end:                  ; 0x05A0. TWO cells came off the tail in
+    OSAPI_SLOT wm_onclick         ; 0x05A0 - BX = window, AX = a near proc in
+                                  ;          YOUR segment (0 clears it): the
+                                  ;          PRESS half of a content click.
+                                  ;          W_ONCLICK is a template word and
+                                  ;          this is the only way to write it
+                                  ;          late, which os88ui_btninit needs
+                                  ;          so the button control can see a
+                                  ;          press before the package does
+                                  ;          (SPEC.md 20.5.1.3.3)
+osapi_table_end:                  ; 0x05A8. TWO cells came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb
                                   ; now (SPEC.md 66.4.3), and the DOS
@@ -4275,8 +4284,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 178 * 8
-%error "os8088 API jump table must be exactly 178 8-byte slots"
+%if OSAPI_TABLE_LEN != 179 * 8
+%error "os8088 API jump table must be exactly 179 8-byte slots"
 %endif
 
 ; =============================================================================

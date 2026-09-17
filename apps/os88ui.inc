@@ -345,7 +345,25 @@ OS88UI_BT_WIN    equ 8          ; the window, written by os88ui_btninit
 OS88UI_BT_DOWN   equ 10         ; THE LIBRARY'S: index PLUS ONE of the control
                                 ; a press is live on, 0 for none. Read it if
                                 ; you like; never write it
-OS88UI_BT_SIZE   equ 12
+OS88UI_BT_ONCLK  equ 12         ; YOUR own W_ONCLICK proc, or 0. The library
+                                ; installs ITSELF as the window's click
+                                ; handler (SPEC.md 20.5.1.3.3) and chains here
+                                ; when the press was not a button's, so a
+                                ; package cannot have a click path that skips
+                                ; the buttons - which is how ArtfulType's
+                                ; splash shipped acting on the press while its
+                                ; modal, converted the same day, did not
+OS88UI_BT_NEXT   equ 14         ; THE LIBRARY'S: the next record of this
+                                ; package, so one click thunk can serve any
+                                ; number of windows. A LIST and not a table
+                                ; because Sheet has five dialogs and a table
+                                ; would have a limit to get wrong
+OS88UI_BT_SIZE   equ 16
+
+; OS88UI_BTNREC declares a group's record and lives in apps/os88api.inc, not
+; here: a macro is PREPROCESSOR-time and must be defined before it is used,
+; and every package includes the SDK at its top and this file near its bottom.
+; The offsets above are `equ`s and forward-resolve, which is why they can stay.
 
 ; --- OS88UI_BARONLY - the bar WITHOUT the button (SPEC.md 13.10.6.5) ---------
 ; An OPT-OUT, and it is 13.10.4's own rule pointed the other way: that section
@@ -438,6 +456,28 @@ os88ui_btn:
     mov di, [bx+si]             ; base registers - so the record moves aside
     pop bx                      ; for one instruction and comes straight back
 .down:
+    or di, OS88UI_FILL          ; **THE ERASE IS NOT OPTIONAL ANY MORE, AND IT
+                                ; IS THE CONTROL'S JOB RATHER THAN THE
+                                ; CALLER'S** (SPEC.md 20.5.1.3.1). A button
+                                ; that could never be drawn PRESSED could skip
+                                ; it and leave the ground to whatever drew it;
+                                ; once the record carries the gesture, EVERY
+                                ; button can be pressed, and the upright
+                                ; redraw that follows a release has to wipe
+                                ; the black interior the pressed one left.
+                                ; Without it the frame is redrawn round a
+                                ; black box and the caption is lettered BLACK
+                                ; ON BLACK: the button goes dark and its text
+                                ; disappears, which is what the DOS box did
+                                ; the day it was converted - it had always
+                                ; drawn with `xor di, di`, correctly, because
+                                ; nothing had ever pressed it.
+                                ;
+                                ; Paint had already written the rule down at
+                                ; its own call site and it was still one
+                                ; caller's to remember, which is the whole
+                                ; argument for putting it here: a capability
+                                ; the button gains has to reach every button.
     mov cx, ax
     inc cx
     cmp cx, [bx+OS88UI_BT_DOWN]
@@ -457,8 +497,13 @@ os88ui_btn:
     add cx, cx
     add cx, cx                  ; CX = index * 8, the rect stride
     add cx, [bx+OS88UI_BT_RECTS]
-    mov bx, cx                  ; BX = the rect
-    call os88ui_btnraw
+    mov bx, cx                  ; BX = the rect, and the body below is
+                                ; reached by FALLING THROUGH: it was
+                                ; os88ui_btnraw until every caller in the tree
+                                ; was converted, and a routine only this one
+                                ; reaches does not need a name. There is one
+                                ; way to draw a button now.
+    call os88ui_bdraw
 .out:
     pop di
     pop si
@@ -468,7 +513,7 @@ os88ui_btn:
     ret
 
 ; -----------------------------------------------------------------------------
-; os88ui_btnraw - the drawing body (INTERNAL - call os88ui_btn)
+; os88ui_bdraw - the drawing body (PRIVATE: os88ui_btn is the only caller)
 ; in:  BX = rect {x1,y1,x2,y2} inclusive, SI = NUL label, DI = OS88UI_* flags
 ;      caller holds the gfx lock
 ; out: nothing; all registers preserved
@@ -476,6 +521,12 @@ os88ui_btn:
 ; This is what os88ui_btn was before the record, unchanged to the byte: the
 ; conversion moved the ARGUMENTS and left the picture alone, which is what
 ; makes "every button looks exactly as it did" checkable rather than claimed.
+;
+; IT WAS CALLED os88ui_btnraw AND WAS REACHABLE FROM ANYWHERE, as the scaffold
+; that let the tree convert one caller at a time. That is exactly the thing a
+; scaffold must not become: the next author looking for "how do I draw a
+; button" would have found a painter with no gesture and copied it. Every
+; caller is converted, so the name is gone and this is private.
 ;
 ; **THE RECT IS IN SCREEN COORDINATES AND MUST BE COMPUTED FROM THE CONTENT
 ; ORIGIN EVERY TIME** - OSAPI_WM_CONTENT and OSAPI_WM_GEOM - never from a
@@ -531,7 +582,7 @@ os88ui_btn:
 ; its label is centred by the same arithmetic and its frame is in the same
 ; place. That is the property a separate flip routine cannot have.
 ; -----------------------------------------------------------------------------
-os88ui_btnraw:
+os88ui_bdraw:
     push ax
     push bx
     push cx
@@ -1134,7 +1185,9 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 ; with a .text thunk apiece (SPEC.md 13.8.3). So the kernel sets its record's
 ; OS88UI_BT_WIN itself and installs nothing here.
 ; in:  BX = the record, AX = the window (after wm_create),
-;      SI = your W_ONMOUSEUP proc, DI = your W_ONDRAG proc (near, this segment)
+;      SI = your W_ONMOUSEUP proc, DI = your W_ONDRAG proc,
+;      DX = your own W_ONCLICK proc, or 0 if the buttons are all this window
+;      has (near ptrs, this segment)
 ; out: nothing; all registers preserved
 ;
 ; THE INSTALL IS THE LIBRARY'S JOB AND THAT IS THE MOST IMPORTANT LINE IN THIS
@@ -1167,7 +1220,13 @@ os88ui_btninit:
     push bx
     push cx
     push dx
+    push si
     mov [bx+OS88UI_BT_WIN], ax
+    mov [bx+OS88UI_BT_ONCLK], dx
+    mov si, [os88ui_btlist]     ; ...and onto the package's list of records,
+    mov [bx+OS88UI_BT_NEXT], si ; which os88ui_btnclick walks to find the one
+    mov [os88ui_btlist], bx     ; belonging to the window it was handed
+    pop si
     mov cx, ax                  ; CX = the window; BX is the slot call's arg
     mov bx, cx
     mov ax, si
@@ -1175,11 +1234,64 @@ os88ui_btninit:
     mov bx, cx
     mov ax, di
     call OSAPI_WM_ONDRAG        ; CF = 1 on kern_small: deliberately unread
-    pop dx
-    pop cx
+    mov bx, cx
+    mov ax, os88ui_btnclick     ; **AND THE PRESS IS OURS** (SPEC.md
+    call OSAPI_WM_ONCLICK       ; 20.5.1.3.3): the library sees it first and
+    pop dx                      ; chains to OS88UI_BT_ONCLK when it was not a
+    pop cx                      ; button's, so no click path can skip the
+    pop bx                      ; buttons
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_btnclick - W_ONCLICK, the LIBRARY's (SPEC.md 20.5.1.3.3)
+; in:  CX = x, DX = y (SCREEN), SI = the window; installed by os88ui_btninit
+; out: nothing
+;
+; THE PRESS REACHES THE BUTTONS BEFORE IT REACHES THE PACKAGE, and that is the
+; whole point. A package used to route its own press into os88ui_btnpress, and
+; a package with more than one click path had to route them all: ArtfulType
+; converted its modal, left its splash on a private hit test, and shipped two
+; buttons that drew pressed and still acted on the press. Nothing static could
+; see it. Now there is nothing to route.
+;
+; It also fixes the COORDINATE SPACE for good. The record's rects are screen
+; coordinates and CX/DX arrive as screen coordinates, so the press is tested
+; in the space it was given; the Audio player armed nothing for a release
+; because its own handler had already made them content-relative before
+; calling in.
+;
+; The record is found by walking this package's list on OS88UI_BT_WIN. A list
+; rather than a table because Sheet has five dialog windows and a table is a
+; limit somebody eventually exceeds.
+; -----------------------------------------------------------------------------
+os88ui_btnclick:
+    push ax
+    push bx
+    mov bx, [os88ui_btlist]
+.find:
+    or bx, bx
+    jz .out                     ; no record for this window: nothing of ours
+    cmp si, [bx+OS88UI_BT_WIN]
+    je .got
+    mov bx, [bx+OS88UI_BT_NEXT]
+    jmp short .find
+.got:
+    call os88ui_btnpress        ; AX = the button armed, 0 = not one of ours
+    or ax, ax
+    jnz .out
+    mov ax, [bx+OS88UI_BT_ONCLK]
+    or ax, ax
+    jz .out                     ; the package has no click work of its own
+    xchg ax, bx                 ; ...otherwise it gets the press in exactly
+    call bx                     ; the environment the kernel handed us - CX,
+.out:                           ; DX and SI are untouched all the way down
     pop bx
     pop ax
     ret
+
+os88ui_btlist: dw 0             ; the head of this package's record list -
+                                ; DATA, inline, for os88ui_armw's reason
 %endif                          ; OS88UI_KERNEL
 
 ; -----------------------------------------------------------------------------
@@ -5507,6 +5619,17 @@ section .bss
 ; their own comment and had it right; this is what forgetting it costs.
 ; -----------------------------------------------------------------------------
 os88ui_krect: resw 4
+os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
+os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
+os88ui_krec:  resw OS88UI_BT_SIZE / 2
+                                ; OS88UI_BTNREC - that macro is in
+                                ; apps/os88api.inc, which the kernel does not
+                                ; include - so this record is .bss and
+                                ; os88ui_kbtn aims it at the call. It is ONE
+                                ; record for os88ui_krect's own reason: every
+                                ; kernel user is the UI task under the gfx
+                                ; lock, and a gesture is one press and one
+                                ; release
 
 
 %ifdef OS88UI_SCROLL
@@ -5546,6 +5669,36 @@ os88ui_sbd_id:   resw 2         ; WHICH BAR: its x1 and y1 (SPEC.md 13.10.5.10)
 os88ui_armw: resw 1
 %endif
 section .cold
+
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; os88ui_kbtn - the kernel's ONE-BUTTON staging for os88ui_btn (20.5.1.3)
+; in:  BX = the rect, SI = the label, DI = the flags; the gfx lock is held
+; out: nothing; all registers preserved
+;
+; The kernel's buttons are staged one at a time through os88ui_krect rather
+; than described as a contiguous group, and its gesture is its own arm
+; (SPEC.md 13.8.3) rather than the record's - so this aims the record at
+; whichever rect was staged and draws it. It exists so that os88ui_btnraw
+; could be DELETED: there is one way to draw a button and this is the kernel
+; reaching it, not a second control.
+; -----------------------------------------------------------------------------
+os88ui_kbtn:
+    push ax
+    push bx
+    mov [os88ui_krlbl], si
+    mov [os88ui_krflg], di
+    mov [os88ui_krec+OS88UI_BT_RECTS], bx
+    mov word [os88ui_krec+OS88UI_BT_LABELS], os88ui_krlbl
+    mov word [os88ui_krec+OS88UI_BT_FLAGS], os88ui_krflg
+    mov word [os88ui_krec+OS88UI_BT_N], 1
+    mov word [os88ui_krec+OS88UI_BT_DOWN], 0
+    mov bx, os88ui_krec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; os88ui_btn_f / os88ui_glyph_f - the far entries (SPEC.md 2.6)

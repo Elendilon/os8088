@@ -42,6 +42,7 @@ Read first: [§11 wm.inc — windows](../SPEC.md#11-wminc--windows); [§20 Loada
 | `0x03B0` | `OSAPI_WM_DAMAGE` | BX = your window ptr, called from inside your own W_PAINT... |
 | `0x03A8` | `OSAPI_WM_OWNBG` | BX = window ptr, AL = 0 clear / non-0 set. "I paint EVERY PIXEL of my content myself", so the kernel's white fill in front of W_PAINT is skipped... |
 | `0x0378` | `OSAPI_WM_SAVEU` | BX = window ptr, AL = 0 clear / OSAPI_SAVEU_* set. A PROMISE: this window's content does not change while it is not drawing, so a raise may put its... |
+| `0x05A0` | `OSAPI_WM_ONCLICK` | BX = win ptr, AX = a near proc in YOUR segment (0 clears): the PRESS half of a content click... |
 | `0x01F0` | `OSAPI_WM_ONMOUSEUP` | BX = win ptr, AX = a near proc in YOUR segment (0 clears it): the RELEASE half of a content click (SPEC.md 13.7)... |
 | `0x0490` | `OSAPI_WM_ONRCLICK` | BX = win ptr, AX = a near proc in YOUR segment (0 clears it): the RIGHT button, pressed in your content (SPEC.md 13.11)... |
 | `0x03D8` | `OSAPI_WM_ONRESIZE` | BX = win ptr, AX = a near proc in YOUR segment (0 clears it): "your content box CHANGED, and you did not ask" (SPEC.md 11.98)... |

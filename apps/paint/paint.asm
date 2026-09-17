@@ -5100,6 +5100,14 @@ pt_szdraw:
 ; in:  [pt_ox]/[pt_oy]; the gfx lock is held
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+
+; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
+; One button at a time: this package's rects are not one contiguous group,
+; so the record is pointed at whichever rect the caller staged.
+pt_btlbl: dw 0
+pt_btflg: dw 0
+    OS88UI_BTNREC pt_btrec, 0, pt_btlbl, pt_btflg, 1
+
 pt_szdraw_apply:
     push ax
     push bx
@@ -5144,7 +5152,16 @@ pt_szdraw_apply:
     je .nodn
     or di, OS88UI_DOWN
 .nodn:
-    call os88ui_btnraw
+    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
+    push bx                     ; already holds this button's rect, SI its
+    mov [pt_btlbl], si          ; label and DI its flags, so the record takes
+    mov [pt_btflg], di          ; all three and the picture is identical
+    mov [pt_btrec+OS88UI_BT_RECTS], bx
+    mov bx, pt_btrec
+    mov al, 1
+    call os88ui_btn
+    pop bx
+    pop ax
     mov byte [pt_pen], CBLACK       ; os88ui_btn leaves the KERNEL's pen live;
                                     ; [pt_pen] is this module's own and the
                                     ; two are not the same variable

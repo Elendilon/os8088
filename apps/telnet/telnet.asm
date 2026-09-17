@@ -183,11 +183,16 @@ te_entry:
     push bx                         ; 20.5.1.3): neither is a template word
     push si
     push di
+    push dx
     mov ax, bx
     mov bx, te_btrec
     mov si, te_onup
     mov di, te_ondrag
+    mov dx, te_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx
@@ -446,6 +451,7 @@ te_paint:
 ; arrays are the caller's, so a dynamic caption needs no special case).
 te_btlbl:  dw te_s_conn
 te_btflg:  dw OS88UI_FILL
+    OS88UI_BTNREC te_btrec, te_btn, te_btlbl, te_btflg, 1
 
 ; --- te_button - Connect, or Close while a session is up ---------------------
 te_button:
@@ -460,10 +466,6 @@ te_button:
 .draw:                              ; called a refused session `Close`
     mov [te_btlbl], si
     mov bx, te_btrec
-    mov word [bx+OS88UI_BT_RECTS], te_btn
-    mov word [bx+OS88UI_BT_LABELS], te_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], te_btflg
-    mov word [bx+OS88UI_BT_N], 1
     mov al, 1
     call os88ui_btn
     pop di
@@ -635,8 +637,6 @@ te_onclick:
     call te_layout
     call te_abdismiss               ; ...and by the click that dismisses them
     jc .out
-    mov bx, te_btrec                ; **IT ONLY ARMS** (SPEC.md 13.6): Connect
-    call os88ui_btnpress            ; and Close both have consequences, so a
     or ax, ax                       ; mis-aimed press must be cancellable -
     jnz .out                        ; te_onup has the action
 .field:
@@ -2094,9 +2094,7 @@ te_hnd      equ te_spawned + 1
 te_want     equ te_hnd + 1           ; the user asked to close
 te_dirty    equ te_want + 1
 te_btn      equ te_dirty + 1         ; 8: the Connect button's rect
-te_btrec    equ te_btn + 8           ; the standard button record (SPEC.md
-                                      ; 20.5.1.3), beside the rect it names
-te_line     equ te_btrec + 12         ; OS88LINE_SZ
+te_line     equ te_btn + 8           ; OS88LINE_SZ
 te_hbuf     equ te_line + OS88LINE_SZ ; TE_HOSTMAX: what the user typed
 te_host     equ te_hbuf + TE_HOSTMAX  ; ...and the half before the colon
 te_sline    equ te_host + TE_HOSTMAX  ; CON_COLS+1: the padded status field.

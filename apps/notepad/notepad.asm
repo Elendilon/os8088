@@ -10135,9 +10135,7 @@ np_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP (SPEC.md
                                 ; coordinates - a hidden one is zeroed
 np_btlbl:   dw 0, 0, 0, 0       ; ...its labels, written as each is drawn
 np_btflg:   dw 0, 0, 0, 0       ; ...and its flags
-np_btrec:   dw 0, 0, 0, 0, 0, 0 ; ...and the record itself, six words written
-                                ; out because OS88UI_BT_SIZE is not defined
-                                ; this early; the %if by the include guards it
+    OS88UI_BTNREC np_btrec, np_brects, np_btlbl, np_btflg, 4
 
 ; -----------------------------------------------------------------------------
 ; np_fpaint - draw the whole panel
@@ -10210,11 +10208,6 @@ np_fpaint:
     call OSAPI_FONT_RUN             ; The tick box to its left is a fill of
                                     ; its own and ends 5px short of this pen
 
-    mov bx, np_btrec
-    mov word [bx+OS88UI_BT_RECTS], np_brects
-    mov word [bx+OS88UI_BT_LABELS], np_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], np_btflg
-    mov word [bx+OS88UI_BT_N], 4
     mov bx, 3
     mov si, np_b_next
     call np_pbutton
@@ -11130,9 +11123,6 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; dialog has a floor of ~800 bytes wherever it
                                 ; lives, and this is where that is affordable
 %include "os88ui.inc"
-%if 12 != OS88UI_BT_SIZE
- %error "np_btrec is six words written out by hand, above this include, and OS88UI_BT_SIZE has drifted - widen it"
-%endif
 
 ; ...and it is ABOVE the bss counter below because that block sizes a field
 ; from OS88UI_AMAX: an %assign is evaluated where it stands, so a constant it

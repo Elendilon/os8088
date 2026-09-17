@@ -323,11 +323,16 @@ wr_entry:
     push bx                             ; 20.5.1.3): neither is a template word
     push si
     push di
+    push dx
     mov ax, bx
     mov bx, wr_btrec
     mov si, wr_onup
     mov di, wr_ondrag
+    mov dx, wr_onclick                ; OUR own click work; the library
+                                    ; takes the press FIRST and chains
+                                    ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
+    pop dx
     pop di
     pop si
     pop bx
@@ -1284,6 +1289,7 @@ wr_ddesc:
 ; pass because wr_may decides each button's greying from the state.
 wr_btlbl: dw wr_s_run, wr_s_add
 wr_btflg: dw OS88UI_FILL, OS88UI_FILL
+    OS88UI_BTNREC wr_btrec, wr_ra, wr_btlbl, wr_btflg, 2
 
 wr_dbtns:
     push ax
@@ -1311,10 +1317,6 @@ wr_dbtns:
                                         ; (tests/thewire.py), where the pixels
                                         ; of a checkerboard caption are not
     mov bx, wr_btrec                    ; the record describes the pair once
-    mov word [bx+OS88UI_BT_RECTS], wr_ra
-    mov word [bx+OS88UI_BT_LABELS], wr_btlbl
-    mov word [bx+OS88UI_BT_FLAGS], wr_btflg
-    mov word [bx+OS88UI_BT_N], 2
 
     xor al, al                          ; Load Program
     call wr_may
@@ -2121,8 +2123,6 @@ wr_onclick:
     jb .out
     add cx, [wr_ox]                     ; the buttons want absolute again
     add dx, [wr_oy]
-    mov bx, wr_btrec                    ; **THEY ONLY ARM** (SPEC.md 13.6):
-    call os88ui_btnpress                ; Load Program launches and Add to
     jmp short .out                      ; Disk WRITES a floppy, so neither may
                                         ; fire on a press the user can still
                                         ; take back. wr_onup has the action
@@ -3926,16 +3926,9 @@ WR_B0       equ 102
 wr_sb       equ os88_image_end + WR_B0              ; 7 words (13.10)
 wr_ra       equ os88_image_end + WR_B0 + 14         ; 4 words: Load Program
 wr_rb       equ os88_image_end + WR_B0 + 22         ; 4 words: Add to Disk...
-wr_btrec    equ os88_image_end + WR_B0 + 30         ; the standard button
-                                                    ; record (SPEC.md
-                                                    ; 20.5.1.3), beside the
-                                                    ; two rects it names -
-                                                    ; which are ADJACENT on
-                                                    ; purpose, a group's
-                                                    ; being walked together
-wr_line     equ os88_image_end + WR_B0 + 42         ; WR_LINEN, the PAINTERS'
-wr_sline    equ os88_image_end + WR_B0 + 42 + WR_LINEN
-WR_OMSGO    equ WR_B0 + 42 + WR_LINEN + WR_STATN + 1
+wr_line     equ os88_image_end + WR_B0 + 30         ; WR_LINEN, the PAINTERS'
+wr_sline    equ os88_image_end + WR_B0 + 30 + WR_LINEN
+WR_OMSGO    equ WR_B0 + 30 + WR_LINEN + WR_STATN + 1
 wr_omsg     equ os88_image_end + WR_OMSGO           ; 48: and the OUTCOME's,
                                                     ; which may NOT be wr_line.
                                                     ; [wr_msg] points at it and

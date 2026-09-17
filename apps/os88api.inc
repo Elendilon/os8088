@@ -3195,6 +3195,49 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; default when this macro is absent). The argument must be a plain constant
 ; expression with no forward references.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; OS88UI_BTNREC - DECLARE a button group's record (SPEC.md 20.5.1.3.2)
+;   OS88UI_BTNREC my_btns, my_rects, my_labels, my_flags, 3
+;   OS88UI_BTNREC my_btns, my_rects, my_labels, 0, 1      ; no flags array
+;
+; **USE THIS RATHER THAN DECLARING A RECORD BY HAND.** It emits the six words
+; with the three pointers and the live count ALREADY SET, which is not a
+; convenience - it is the only way three of this control's five shipped
+; defects could not have happened:
+;
+;   * a record aimed in the CLICK path was not aimed on the PAINT path, so a
+;     plain repaint drew with a live count of 0 and the buttons were absent
+;     (the DOS box);
+;   * a count written AFTER the draws meant every paint used the previous one
+;     and the first used zero (ArtfulType, twice - its modal and its splash
+;     were separate callers);
+;   * a record declared as an `equ` off the end of another block ALIASED the
+;     package's own state words, so each write corrupted the other and a press
+;     filled a garbage rectangle over half the screen (the browser).
+;
+; Aimed at assembly time there is nothing to aim late, nothing to aim in the
+; wrong routine, and the storage is the macro's rather than an offset somebody
+; has to keep clear. A group whose COUNT varies - a paged window, a modal that
+; is sometimes one button and sometimes three - still writes OS88UI_BT_N, and
+; that write must come BEFORE the draws it is about.
+;
+; It lives HERE rather than in os88ui.inc because a macro is preprocessor-time
+; and must be defined before it is used: every package includes this file at
+; its top and os88ui.inc near its bottom. The OS88UI_BT_* offsets are `equ`s
+; and forward-resolve, which is why they can stay with the control.
+; -----------------------------------------------------------------------------
+%macro OS88UI_BTNREC 5
+%1:
+    dw %2                       ; OS88UI_BT_RECTS
+    dw %3                       ; OS88UI_BT_LABELS
+    dw %4                       ; OS88UI_BT_FLAGS (0 = none)
+    dw %5                       ; OS88UI_BT_N
+    dw 0                        ; OS88UI_BT_WIN, written by os88ui_btninit
+    dw 0                        ; OS88UI_BT_DOWN, THE LIBRARY'S
+    dw 0                        ; OS88UI_BT_ONCLK, your click proc - btninit
+    dw 0                        ; OS88UI_BT_NEXT, THE LIBRARY'S list link
+%endmacro
+
 %macro OS88_BSS 1
     %ifdef OS88__HAVE_END
         %error "OS88_BSS must appear before OS88_IMAGE_END"
@@ -4278,6 +4321,16 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; OSAPI_FILE_APPEND. DRIVERS ONLY.
 
 ; --- back to the application slots: window callbacks (SPEC.md 13.7/11.93) -----
+%define OSAPI_WM_ONCLICK    KERNEL_SEG:0x05A0   ; BX = win ptr, AX = a near proc
+                                                 ; in YOUR segment (0 clears):
+                                                 ; the PRESS half of a content
+                                                 ; click. W_ONCLICK is a
+                                                 ; TEMPLATE word and this is
+                                                 ; the only way to write it
+                                                 ; late - os88ui_btninit uses
+                                                 ; it so the button control
+                                                 ; sees a press before you do
+                                                 ; (SPEC.md 20.5.1.3.3)
 %define OSAPI_WM_ONMOUSEUP  KERNEL_SEG:0x01F0   ; BX = win ptr, AX = a near proc
                                  ; in YOUR segment (0 clears it): the RELEASE
                                  ; half of a content click (SPEC.md 13.7).
