@@ -49439,18 +49439,52 @@ lock, so drawing callbacks cannot still be executing the module at unload.
 Painting, hit testing and UI ticks never perform disk I/O.
 
 The module owns advanced geometry, tile packing, hover/linger and clip-region
-maintenance, drawing and input. Every Dock operation is a six-byte stub that
-banks BP, loads its `DKI_*` index and jumps to `dock_route`: loaded, the
-module's one private entry calls through its own `dkx_tab`; unloaded, the
-router tail-jumps through `dock_btab` to the basic body, so the basic Dock
-runs at the stack depth it always had. The two tables list the operations in
-one order and assembly refuses a mismatch; the module build/layout stamps
-refuse one from another build. Operations only a loaded module can be asked
-for (hover, an open hole) sit past `DKB_N` and have no basic row. Kernel
+maintenance, drawing and input. **Every Dock operation is a four-byte far
+indirect jump through its own slot of `dkv`, and there is no dispatcher.** A
+slot at rest is `KERNEL_SEG:<basic body>`; while a module is mounted it is
+that image's segment and body. The jump is a JUMP, so the caller's own near
+return address is never touched, no register is banked and nothing is pushed:
+the basic Dock runs at the stack depth it always had and pays **42 guest
+cycles** for the whole mechanism, measured (the index-in-BP router it replaced
+was 227).
+
+**The module owns both halves of the table.** `mod_fp` entry 0 is `dkx_hook`,
+which writes this image's landing pads in, and entry 1 is `dkx_unhook`, which
+writes the kernel's own bodies back and forgets an open strip on its way out;
+`dkf_apply` is their only caller and calls each directly, so neither needs a
+kernel entry point. A module is refused unless it was assembled with this very
+kernel — build number and layout stamp both (§2.8.2) — so its copy of the
+basic table is not a guess about the kernel's offsets, it *is* them. That is
+what lets the kernel store the basic table once, as `dkv`'s rest state, with
+no second copy to restore from and no per-operation trampoline to carry an
+index the module no longer needs. `mod_disarm` rests both entries on
+`mod_gone`, so calling one with nothing mounted is a refusal rather than a
+hazard. Each landing pad near-calls its body and then far-jumps home to a bare
+`ret` in the kernel, which pops the caller's own near return address; nothing
+on that path touches a flag, so the CF an operation answers with arrives
+intact.
+
+**A slot's basic body is the whole guard.** Four operations exist only while a
+module is mounted (a hidden strip's tick, an open hole); their slots rest on
+`dkb_ret`/`dkb_clc`, so the kernel-side `[dock_auto]` and `[gfx_hole]` tests
+that used to stand in front of them — and which `dkx_pass`, `dkx_hole_sub` and
+`dkx_hole_win` each make again for themselves — are gone. Kernel
 routines only the module calls are reached through module-side `dkk_*` stubs
 (`push cs` + a near call, then a far jump whose near `ret` lands on
 `cw_kretf`), so they cost no resident shim. The basic bottom renderer remains
-resident; advanced rendering code does not. Shared geometry and state remain in the kernel. Basic geometry setup
+resident; advanced rendering code does not.
+
+**The advanced geometry lives in the module image, not in the kernel's
+`.bss`.** The whole-strip rect, the along axis, the tile pitch and length,
+`[dock_cap]`, `[dock_pos]`, `[dock_hidden]`, `[dock_auto]` and the hover timer
+are written by `dkx_geom`/`dkx_live_set` and read by nothing outside that
+image, so a machine with no module mounted carries none of them; the module
+names them `[cs:...]`, DS being the kernel's throughout (§2.6). What the
+kernel keeps is exactly what the kernel reads: the LIVE rect
+`[dock_lx1]..[dock_ly2]` with its rule and field crosses, its across extent
+`[dock_lc1]/[dock_lc2]`, `[dock_side]`, `[dock_up]`, `[dock_c0]` and
+`[dock_thk]`. `dkx_live_set` therefore copies its seven consecutive words out
+of this image and into the kernel's. Basic geometry setup
 has boot-overlay and Control Panel copies; fullscreen return restores bounds
 without loading either module. Saved advanced settings request `DOCK.DRV`
 after the system volume is mounted. A missing, incompatible or unallocatable
@@ -49544,8 +49578,11 @@ tick to ¼ s) opens it; once open, it closes **`DOCK_LEAVE_T` = 14 ticks**
 (0.77 s, the nearest to ¾ s) after the pointer leaves the strip's rect, and
 a pointer that comes back inside that time resets the count.
 
-`[dock_hidden]` is the one byte the painters ask, and `dkx_live_set` is its
-one writer: hidden is *auto and not open*. The **live rect**
+`[dock_hidden]` is the one byte the module's own painters ask, and
+`dkx_live_set` is its one writer: hidden is *auto and not open*. It is in the
+module image with the rest of the advanced geometry (§30.5), which no kernel
+painter reads — what they read is the LIVE rect, and it already says
+everything a hidden strip needs to say. The **live rect**
 `[dock_lx1]..[dock_ly2]`, the live rule and field crosses and the live along
 range follow it — the line's own 1px rect while hidden, the whole strip
 otherwise — so `dock_paint`, `dkx_hit`, `dock_px_hit`, `wm_dock_clear`,
@@ -49555,7 +49592,8 @@ entirely**: their keys keep what they last were, and the reveal forces the
 whole strip, whose `.zap` clears every key before a tile is drawn.
 
 **The hover is timed off `ui_task`'s tick passes** (§13.12) — `dock_pass`,
-one byte compare on every pass that is not in auto mode. It declines while a
+whose slot rests on `dkb_ret` while no module is mounted and whose module
+body's own first instruction is the `[dock_auto]` compare (§30.5). It declines while a
 button is held, while a §11.2 fullscreen window or a saver session (§79.5)
 covers the screen, and while a modal file dialog (§38.2) owns every press.
 

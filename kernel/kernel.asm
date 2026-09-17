@@ -6695,8 +6695,6 @@ cw_thm_set:             call thm_set
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
                        retf
-cw_dock_drop: call dock_drop
-    retf
 cw_dock_apply:          call dock_apply     ; the Dock page and the settings
 cw_kretf:           retf                    ; reader (SPEC.md 30.5). DOCK.DRV's
                                             ; dkk_* stubs return through this
