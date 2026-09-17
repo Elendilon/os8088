@@ -968,6 +968,15 @@ def cmd_ref(a):
             total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
             ring = bytes(m.read(base + lay["ring"], lay["nent"] * lay["entsz"]))
             psp = struct.unpack_from("<H", ring, 6)[0]   # entry 0's DX
+            if a.state:
+                stem = os.path.splitext(a.out)[0]
+                open(stem + ".psp.bin", "wb").write(
+                    bytes(m.read(psp << 4, 256)))
+                open(stem + ".ivt.bin", "wb").write(bytes(m.read(0, 1024)))
+                open(stem + ".bda.bin", "wb").write(
+                    bytes(m.read(0x400, 256)))
+                print("  state: %s.{psp,ivt,bda}.bin"
+                      % os.path.basename(stem), file=sys.stderr)
             refmou = refseq = None
             if "m33" in lay:
                 refmou = bytes(m.read(base + lay["m33"],
@@ -1379,8 +1388,13 @@ def main():
             p.add_argument("--system", default="build/os8088-720.img")
             p.add_argument("--build", action="store_true",
                            help="build (and verify) the kernel disk first")
-            p.add_argument("--state", action="store_true",
-                           help="also dump the PSP, IVT, BDA and handle table")
+        # **ON BOTH VERBS**, which it was not: the state with no call in it -
+        # the PSP, the BDA, the vectors - is exactly what the diff points at
+        # when two runs make the same calls with different arguments, and a
+        # dump of one side alone answers nothing. `cmp` is the reader.
+        p.add_argument("--state", action="store_true",
+                       help="also dump the PSP, IVT and BDA (and, on `trace`, "
+                            "the box's handle table) beside the JSON")
         p.set_defaults(fn=fn)
 
     p = sub.add_parser("diff", help="align two traces; say where they part")
