@@ -1623,7 +1623,7 @@ cs_flybtn:
     je .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx
@@ -1642,7 +1642,7 @@ cs_donebtn:
     je .draw
     or di, OS88UI_DOWN
 .draw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx

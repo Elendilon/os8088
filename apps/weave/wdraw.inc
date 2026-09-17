@@ -617,7 +617,7 @@ _wd_button:
 .nofill:
     mov bx, [bp+4]                  ; the rect: OURS, so DS-relative, which is
     mov si, [bp+6]                  ; what os88ui_btn's own ds: overrides want
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop dx

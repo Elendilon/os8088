@@ -450,7 +450,7 @@ hd_tw_button:
 .nodn:                          ; greyed button never says it will fire
     mov bx, hd_tbrect           ; OS88UI_FILL because a RELEASE redraws this
     or di, OS88UI_FILL          ; button over a pressed one; on a full repaint
-    call os88ui_btn             ; hd_win_erase has already whited the ground
+    call os88ui_btnraw             ; hd_win_erase has already whited the ground
     pop di
     pop si
     pop dx

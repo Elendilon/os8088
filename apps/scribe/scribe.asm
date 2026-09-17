@@ -17779,7 +17779,7 @@ sc_abopen:
     mov bx, sc_abok
     mov si, sc_s_ok
     mov di, OS88UI_FILL | OS88UI_DEF
-    call os88ui_btn
+    call os88ui_btnraw
     pop si
     mov byte [sc_about], 1
     jmp short .out
@@ -18181,7 +18181,7 @@ sc_dgctl:
 .nbdis:
     mov di, ax
     mov bx, sc_dgr
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
 .done:
     clc

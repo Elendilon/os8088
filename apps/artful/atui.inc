@@ -1214,7 +1214,7 @@ at_button:
     or di, OS88UI_DEF
 .go:
     mov bx, at_brect
-    call os88ui_btn
+    call os88ui_btnraw
     mov cx, [at_xw]
     pop di
     pop si

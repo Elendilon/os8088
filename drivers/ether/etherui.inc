@@ -453,7 +453,7 @@ eth_draw_btns:
     jne .rdraw
     or  di, OS88UI_DOWN
 .rdraw:
-    call os88ui_btn
+    call os88ui_btnraw
     mov bx, eth_r2
     mov si, eu_s_setup
     mov di, OS88UI_FILL
@@ -461,7 +461,7 @@ eth_draw_btns:
     jne .sdraw
     or  di, OS88UI_DOWN
 .sdraw:
-    call os88ui_btn
+    call os88ui_btnraw
     mov bx, eth_r3
     call eu_bufcap              ; the caption IS the readout: whatever the
     mov di, OS88UI_FILL         ; ladder actually got, not what was asked for
@@ -474,7 +474,7 @@ eth_draw_btns:
     jne .bdraw
     or  di, OS88UI_DOWN
 .bdraw:
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
     pop si
     pop bx

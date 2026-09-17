@@ -1064,7 +1064,7 @@ apu_draw_buttons:
     push di
     mov bx, apu_abr
     mov di, cx
-    call os88ui_btn                ; BX = rect, SI = label, DI = flags
+    call os88ui_btnraw                ; BX = rect, SI = label, DI = flags
     pop di
     inc di
     jmp .b

@@ -7087,6 +7087,19 @@ sh_fdlg_open:
     call OSAPI_WM_CREATE
     jc .out
     mov [sh_fdlg_win], bx
+    push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                            ; 20.5.1.2): neither is a template word,
+    push si                            ; which is why these buttons fired on
+    push di                            ; the press for as long as they existed
+    mov ax, bx
+    mov bx, sh_fdlg_btrec
+    mov si, sh_fdlg_onup
+    mov di, sh_fdlg_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     call OSAPI_WM_SHOW
 .out:
     pop di
@@ -7172,26 +7185,28 @@ sh_fdlg_paint:
     mov ax, [sh_fdlg_oy]
     add ax, SH_FDLG_BTY2
     mov [sh_fdlg_rect+6], ax
-    mov bx, sh_fdlg_rect
-    mov si, sh_s_fd_ok
-    mov di, OS88UI_DEF
-    call os88ui_btn
-    mov ax, [sh_fdlg_ox]
+    mov ax, [sh_fdlg_ox]               ; ...and Cancel into rect ONE, beside it
     add ax, 96
-    mov [sh_fdlg_rect], ax
+    mov [sh_fdlg_rect+8], ax
     mov ax, [sh_fdlg_oy]
     add ax, SH_FDLG_BTY1
-    mov [sh_fdlg_rect+2], ax
+    mov [sh_fdlg_rect+10], ax
     mov ax, [sh_fdlg_ox]
     add ax, 150
-    mov [sh_fdlg_rect+4], ax
+    mov [sh_fdlg_rect+12], ax
     mov ax, [sh_fdlg_oy]
     add ax, SH_FDLG_BTY2
-    mov [sh_fdlg_rect+6], ax
-    mov bx, sh_fdlg_rect
-    mov si, sh_s_fd_cancel
-    xor di, di
-    call os88ui_btn
+    mov [sh_fdlg_rect+14], ax
+    mov word [sh_fdlg_btrec+OS88UI_BT_RECTS], sh_fdlg_rect
+    mov word [sh_fdlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
+    mov word [sh_fdlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
+    mov word [sh_fdlg_btrec+OS88UI_BT_N], 2
+    mov bx, sh_fdlg_btrec
+    mov al, 1
+    call os88ui_btn                    ; OK
+    mov al, 2
+    call os88ui_btn                    ; ...and Cancel
+
     pop di
     pop si
     pop dx
@@ -7204,6 +7219,16 @@ sh_fdlg_paint:
 ; sh_fdlg_onclick - in: CX=x, DX=y (screen-absolute, same convention as
 ; sh_onclick), SI=the dialog window
 ; -----------------------------------------------------------------------------
+; --- the dialogs' button groups (SPEC.md 20.5.1.2) ---------------------------
+; OK is index 1 and Cancel index 2 in every one of the five, so the FLAGS are
+; shared outright: OK carries the default ring and Cancel carries nothing.
+; Only the labels differ, and only for three of them.
+sh_dlg_bflags: dw OS88UI_DEF, 0
+sh_dlg_blfd:   dw sh_s_fd_ok,   sh_s_fd_cancel
+sh_dlg_blidlg: dw sh_s_idlg_ok, sh_s_idlg_can
+sh_dlg_blndlg: dw sh_s_ndlg_ok, sh_s_ndlg_can
+
+; -----------------------------------------------------------------------------
 sh_fdlg_onclick:
     push ax
     push bx
@@ -7211,31 +7236,24 @@ sh_fdlg_onclick:
     push di
     push cx
     push dx
+    mov bx, sh_fdlg_btrec              ; **THE BUTTONS FIRST, AND THEY ONLY
+    call os88ui_btnpress               ; ARM** (SPEC.md 13.6): CX/DX are the
+    or ax, ax                          ; SCREEN point, which os88ui_btnpress
+    jz .rows                           ; preserves. This used to be two ladders
+    pop dx                             ; of content-relative literals that
+    pop cx                             ; ACTED here - a second description of a
+    jmp .out                           ; geometry the painter already owned.
+                                       ; The prologue BANKED the point and the
+                                       ; row path below is what consumes it,
+                                       ; so this early exit has to discard it
+                                       ; or `.out` is reached two words deep
+.rows:
     mov bx, si
     call OSAPI_WM_CONTENT              ; -> ax=content x, dx=content y
     pop bx
     sub bx, dx                         ; bx = click y, content-relative
     pop cx
     sub cx, ax                         ; cx = click x, content-relative
-    cmp cx, 8
-    jb .checkcancel
-    cmp cx, 62
-    ja .checkcancel
-    cmp bx, SH_FDLG_BTY1
-    jb .checkcancel
-    cmp bx, SH_FDLG_BTY2
-    ja .checkcancel
-    jmp .doOK
-.checkcancel:
-    cmp cx, 96
-    jb .checkrows
-    cmp cx, 150
-    ja .checkrows
-    cmp bx, SH_FDLG_BTY1
-    jb .checkrows
-    cmp bx, SH_FDLG_BTY2
-    ja .checkrows
-    jmp .doCancel
 .checkrows:
     cmp cx, 8
     jb .out
@@ -7252,21 +7270,50 @@ sh_fdlg_onclick:
     mov si, [sh_fdlg_win]
     call sh_fdlg_paint
     jmp .out
-.doOK:
+.out:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_fdlg_onup / sh_fdlg_ondrag - the release and the tracking edge (13.7/13.8.2)
+; -----------------------------------------------------------------------------
+sh_fdlg_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, sh_fdlg_btrec
+    call os88ui_btnup                 ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    cmp al, 1
+    jne .ucancel
     call sh_fdlg_apply
     call sh_fdlg_close
     cmp byte [sh_savepend], 0         ; File Format's OK owes a Save As, and it
-    je .out                           ; runs only now that the format dialog's
+    je .uout                          ; runs only now that the format dialog's
     mov byte [sh_savepend], 0         ; window is DESTROYED. Opening the file
     mov si, [sh_ownwin]               ; dialog from inside apply would stack a
     mov al, FDLG_SAVE                 ; second dialog on a window slot that is
     call sh_dlg                       ; still in use, which is how one gets
-    jmp .out                          ; orphaned behind the other
-.doCancel:
+    jmp short .uout                   ; orphaned behind the other
+.ucancel:
     call sh_fdlg_close
-.out:
+.uout:
     pop di
     pop si
+    pop bx
+    pop ax
+    ret
+
+sh_fdlg_ondrag:
+    push ax
+    push bx
+    mov bx, sh_fdlg_btrec
+    call os88ui_btndrag
     pop bx
     pop ax
     ret
@@ -7778,6 +7825,19 @@ sh_bdlg_open:
     call OSAPI_WM_CREATE
     jc .out
     mov [sh_bdlg_win], bx
+    push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                            ; 20.5.1.2): neither is a template word,
+    push si                            ; which is why these buttons fired on
+    push di                            ; the press for as long as they existed
+    mov ax, bx
+    mov bx, sh_bdlg_btrec
+    mov si, sh_bdlg_onup
+    mov di, sh_bdlg_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     call OSAPI_WM_SHOW
 .out:
     pop si
@@ -7881,20 +7941,26 @@ sh_bdlg_paint:
     mov ax, [sh_bdlg_oy]
     add ax, 40
     mov [sh_bdlg_rect+6], ax
-    mov bx, sh_bdlg_rect
-    mov si, sh_s_fd_ok
-    mov di, OS88UI_DEF
-    call os88ui_btn
+    mov ax, [sh_bdlg_rect]             ; Cancel: OK's x, two new y's
+    mov [sh_bdlg_rect+8], ax
+    mov ax, [sh_bdlg_rect+4]
+    mov [sh_bdlg_rect+12], ax
     mov ax, [sh_bdlg_oy]
     add ax, 50
-    mov [sh_bdlg_rect+2], ax
+    mov [sh_bdlg_rect+10], ax
     mov ax, [sh_bdlg_oy]
     add ax, 70
-    mov [sh_bdlg_rect+6], ax
-    mov bx, sh_bdlg_rect
-    mov si, sh_s_fd_cancel
-    xor di, di
-    call os88ui_btn
+    mov [sh_bdlg_rect+14], ax
+    mov word [sh_bdlg_btrec+OS88UI_BT_RECTS], sh_bdlg_rect
+    mov word [sh_bdlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
+    mov word [sh_bdlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
+    mov word [sh_bdlg_btrec+OS88UI_BT_N], 2
+    mov bx, sh_bdlg_btrec
+    mov al, 1
+    call os88ui_btn                    ; OK
+    mov al, 2
+    call os88ui_btn                    ; ...and Cancel
+
     pop di
     pop si
     pop dx
@@ -7911,6 +7977,14 @@ sh_bdlg_onclick:
     push bx
     push si
     push di
+    push cx                             ; **THE BUTTONS FIRST, AND THEY ONLY
+    push dx                             ; ARM** (SPEC.md 13.6): the ladder here
+    mov bx, sh_bdlg_btrec               ; was a second description of the
+    call os88ui_btnpress                ; painter's own geometry and it ACTED
+    pop dx                              ; on the press. The record is the one
+    pop cx                              ; description now (SPEC.md 22's fm_hit
+    or ax, ax                           ; discipline); the action is in
+    jnz .out                            ; sh_bdlg_onup
     push cx
     push dx
     mov bx, si
@@ -7919,18 +7993,6 @@ sh_bdlg_onclick:
     sub bx, dx                          ; bx = click y, content-relative
     pop cx
     sub cx, ax                          ; cx = click x, content-relative
-    cmp cx, SH_BDLG_GX2 + 10
-    jb .checkrows
-    cmp cx, SH_BDLG_W - 10
-    ja .checkrows
-    cmp bx, 20
-    jb .checkrows
-    cmp bx, 40
-    jle .doOK
-    cmp bx, 50
-    jb .checkrows
-    cmp bx, 70
-    jle .doCancel
 .checkrows:
     cmp cx, SH_BDLG_GX1 + 8
     jb .out
@@ -7969,15 +8031,42 @@ sh_bdlg_onclick:
     mov si, [sh_bdlg_win]
     call sh_bdlg_paint
     jmp .out
-.doOK:
-    call sh_bdlg_apply
-    call sh_bdlg_close
-    jmp .out
-.doCancel:
-    call sh_bdlg_close
 .out:
     pop di
     pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_bdlg_onup / sh_bdlg_ondrag - the release and the tracking edge (13.7/13.8.2)
+; -----------------------------------------------------------------------------
+sh_bdlg_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, sh_bdlg_btrec
+    call os88ui_btnup                  ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    cmp al, 1
+    jne .ucancel
+    call sh_bdlg_apply
+.ucancel:
+    call sh_bdlg_close
+.uout:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+sh_bdlg_ondrag:
+    push ax
+    push bx
+    mov bx, sh_bdlg_btrec
+    call os88ui_btndrag
     pop bx
     pop ax
     ret
@@ -8168,6 +8257,19 @@ sh_idlg_open:
     call OSAPI_WM_CREATE
     jc .out
     mov [sh_idlg_win], bx
+    push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                            ; 20.5.1.2): neither is a template word,
+    push si                            ; which is why these buttons fired on
+    push di                            ; the press for as long as they existed
+    mov ax, bx
+    mov bx, sh_idlg_btrec
+    mov si, sh_idlg_onup
+    mov di, sh_idlg_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     call OSAPI_WM_SHOW
 .out:
     pop di
@@ -8231,20 +8333,26 @@ sh_idlg_paint:
     mov ax, [sh_idlg_oy]
     add ax, SH_IDLG_OKY2
     mov [sh_idlg_rect+6], ax
-    mov bx, sh_idlg_rect
-    mov si, sh_s_idlg_ok
-    mov di, OS88UI_DEF
-    call os88ui_btn
-    mov ax, [sh_idlg_oy]               ; Cancel - same x, two new y's
+    mov ax, [sh_idlg_rect]             ; Cancel: OK's x, two new y's
+    mov [sh_idlg_rect+8], ax
+    mov ax, [sh_idlg_rect+4]
+    mov [sh_idlg_rect+12], ax
+    mov ax, [sh_idlg_oy]
     add ax, SH_IDLG_CAY1
-    mov [sh_idlg_rect+2], ax
+    mov [sh_idlg_rect+10], ax
     mov ax, [sh_idlg_oy]
     add ax, SH_IDLG_CAY2
-    mov [sh_idlg_rect+6], ax
-    mov bx, sh_idlg_rect
-    mov si, sh_s_idlg_can
-    xor di, di
-    call os88ui_btn
+    mov [sh_idlg_rect+14], ax
+    mov word [sh_idlg_btrec+OS88UI_BT_RECTS], sh_idlg_rect
+    mov word [sh_idlg_btrec+OS88UI_BT_LABELS], sh_dlg_blidlg
+    mov word [sh_idlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
+    mov word [sh_idlg_btrec+OS88UI_BT_N], 2
+    mov bx, sh_idlg_btrec
+    mov al, 1
+    call os88ui_btn                    ; OK
+    mov al, 2
+    call os88ui_btn                    ; ...and Cancel
+
 
     pop di
     pop si
@@ -8296,42 +8404,56 @@ sh_idlg_onclick:
     mov si, sh_idlg_line               ; the field's rect is already
     call os88line_click                ; screen-absolute from the last paint
     jnc .redraw
-    mov bx, [sh_idlg_win]
-    push cx
-    push dx
-    call OSAPI_WM_CONTENT
-    pop dx
-    pop cx
-    sub cx, ax
-    sub dx, [sh_idlg_oy]
-    cmp cx, SH_IDLG_BTX1
-    jb .out
-    cmp cx, SH_IDLG_BTX2
-    ja .out
-    cmp dx, SH_IDLG_OKY1
-    jb .out
-    cmp dx, SH_IDLG_OKY2
-    jle .doOK
-    cmp dx, SH_IDLG_CAY1
-    jb .out
-    cmp dx, SH_IDLG_CAY2
-    jle .doCancel
-    jmp .out
+    mov bx, sh_idlg_btrec                ; **AND THEY ONLY ARM** (SPEC.md 13.6):
+    call os88ui_btnpress                ; CX/DX are still SCREEN here, which is
+    jmp .out                            ; what the record's rects are in. The
+                                        ; six content-relative compares this
+                                        ; replaces were a second description of
+                                        ; the painter's geometry, and they
+                                        ; ACTED on the press; sh_idlg_onup has
+                                        ; the action now
 .redraw:
     mov si, [sh_idlg_win]
     call sh_idlg_paint
     jmp .out
-.doOK:
-    call sh_idlg_apply
-    call sh_idlg_close
-    jmp .out
-.doCancel:
-    call sh_idlg_close
 .out:
     pop di
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_idlg_onup / sh_idlg_ondrag - the release and the tracking edge (13.7/13.8.2)
+; -----------------------------------------------------------------------------
+sh_idlg_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, sh_idlg_btrec
+    call os88ui_btnup                  ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    cmp al, 1
+    jne .ucancel
+    call sh_idlg_apply
+.ucancel:
+    call sh_idlg_close
+.uout:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+sh_idlg_ondrag:
+    push ax
+    push bx
+    mov bx, sh_idlg_btrec
+    call os88ui_btndrag
     pop bx
     pop ax
     ret
@@ -8938,6 +9060,19 @@ sh_ldlg_open:
     call OSAPI_WM_CREATE               ; the window comes back in BX, NOT SI -
     jc .out                            ; SI is still the template - and it is
     mov [sh_ldlg_win], bx              ; created HIDDEN, so the show is not
+    push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                            ; 20.5.1.2): neither is a template word,
+    push si                            ; which is why these buttons fired on
+    push di                            ; the press for as long as they existed
+    mov ax, bx
+    mov bx, sh_ldlg_btrec
+    mov si, sh_ldlg_onup
+    mov di, sh_ldlg_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     call OSAPI_WM_SHOW                 ; optional
 .out:
     pop di
@@ -9105,20 +9240,26 @@ sh_ldlg_paint:
     mov ax, [sh_ldlg_oy]
     add ax, SH_LDLG_OKY2
     mov [sh_ldlg_rect+6], ax
-    mov bx, sh_ldlg_rect
-    mov si, sh_s_fd_ok
-    mov di, OS88UI_DEF
-    call os88ui_btn
+    mov ax, [sh_ldlg_rect]             ; Cancel: OK's x, two new y's
+    mov [sh_ldlg_rect+8], ax
+    mov ax, [sh_ldlg_rect+4]
+    mov [sh_ldlg_rect+12], ax
     mov ax, [sh_ldlg_oy]
     add ax, SH_LDLG_CAY1
-    mov [sh_ldlg_rect+2], ax
+    mov [sh_ldlg_rect+10], ax
     mov ax, [sh_ldlg_oy]
     add ax, SH_LDLG_CAY2
-    mov [sh_ldlg_rect+6], ax
-    mov bx, sh_ldlg_rect
-    mov si, sh_s_fd_cancel
-    xor di, di
-    call os88ui_btn
+    mov [sh_ldlg_rect+14], ax
+    mov word [sh_ldlg_btrec+OS88UI_BT_RECTS], sh_ldlg_rect
+    mov word [sh_ldlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
+    mov word [sh_ldlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
+    mov word [sh_ldlg_btrec+OS88UI_BT_N], 2
+    mov bx, sh_ldlg_btrec
+    mov al, 1
+    call os88ui_btn                    ; OK
+    mov al, 2
+    call os88ui_btn                    ; ...and Cancel
+
     pop di
     pop si
     pop dx
@@ -9198,28 +9339,18 @@ sh_ldlg_onclick:
     mov [sh_ldlg_top], ax
     jmp .redraw
 .notbar:
-    mov ax, cx                        ; --- the buttons ---
+    push cx                           ; --- the buttons, and they only ARM ---
+    push dx                           ; (SPEC.md 13.6) CX/DX are still SCREEN,
+    mov bx, sh_ldlg_btrec             ; which is what the record's rects are
+    call os88ui_btnpress              ; in; the six content-relative compares
+    pop dx                            ; this replaces were a second
+    pop cx                            ; description of the painter's own
+    or ax, ax                         ; geometry and they ACTED on the press
+    jnz .out
+    mov ax, cx
     sub ax, [sh_ldlg_ox]
     mov bx, dx
     sub bx, [sh_ldlg_oy]
-    cmp ax, SH_LDLG_BTX1
-    jb .list
-    cmp ax, SH_LDLG_BTX2
-    ja .list
-    cmp bx, SH_LDLG_OKY1
-    jb .notok
-    cmp bx, SH_LDLG_OKY2
-    ja .notok
-    call sh_ldlg_apply
-    call sh_ldlg_close
-    jmp .out
-.notok:
-    cmp bx, SH_LDLG_CAY1
-    jb .out
-    cmp bx, SH_LDLG_CAY2
-    ja .out
-    call sh_ldlg_close
-    jmp .out
 .list:
     cmp ax, SH_LDLG_LX1
     jb .out
@@ -9248,6 +9379,39 @@ sh_ldlg_onclick:
 .out:
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_ldlg_onup / sh_ldlg_ondrag - the release and the tracking edge (13.7/13.8.2)
+; -----------------------------------------------------------------------------
+sh_ldlg_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, sh_ldlg_btrec
+    call os88ui_btnup                 ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    cmp al, 1
+    jne .ucancel
+    call sh_ldlg_apply
+.ucancel:
+    call sh_ldlg_close
+.uout:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+sh_ldlg_ondrag:
+    push ax
+    push bx
+    mov bx, sh_ldlg_btrec
+    call os88ui_btndrag
     pop bx
     pop ax
     ret
@@ -9526,6 +9690,19 @@ sh_ndlg_open:
     call OSAPI_WM_CREATE
     jc .out
     mov [sh_ndlg_win], bx
+    push ax                            ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                            ; 20.5.1.2): neither is a template word,
+    push si                            ; which is why these buttons fired on
+    push di                            ; the press for as long as they existed
+    mov ax, bx
+    mov bx, sh_ndlg_btrec
+    mov si, sh_ndlg_onup
+    mov di, sh_ndlg_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     mov byte [sh_noteopen], 1
     call OSAPI_WM_SHOW
 .out:
@@ -9641,20 +9818,26 @@ sh_ndlg_paint:
     mov ax, [sh_ndlg_oy]
     add ax, SH_NDLG_OKY2
     mov [sh_ndlg_rect+6], ax
-    mov bx, sh_ndlg_rect
-    mov si, sh_s_ndlg_ok
-    mov di, OS88UI_DEF
-    call os88ui_btn
-    mov ax, [sh_ndlg_oy]                ; Cancel - same x, two new y's
+    mov ax, [sh_ndlg_rect]             ; Cancel: OK's x, two new y's
+    mov [sh_ndlg_rect+8], ax
+    mov ax, [sh_ndlg_rect+4]
+    mov [sh_ndlg_rect+12], ax
+    mov ax, [sh_ndlg_oy]
     add ax, SH_NDLG_CAY1
-    mov [sh_ndlg_rect+2], ax
+    mov [sh_ndlg_rect+10], ax
     mov ax, [sh_ndlg_oy]
     add ax, SH_NDLG_CAY2
-    mov [sh_ndlg_rect+6], ax
-    mov bx, sh_ndlg_rect
-    mov si, sh_s_ndlg_can
-    xor di, di
-    call os88ui_btn
+    mov [sh_ndlg_rect+14], ax
+    mov word [sh_ndlg_btrec+OS88UI_BT_RECTS], sh_ndlg_rect
+    mov word [sh_ndlg_btrec+OS88UI_BT_LABELS], sh_dlg_blndlg
+    mov word [sh_ndlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
+    mov word [sh_ndlg_btrec+OS88UI_BT_N], 2
+    mov bx, sh_ndlg_btrec
+    mov al, 1
+    call os88ui_btn                    ; OK
+    mov al, 2
+    call os88ui_btn                    ; ...and Cancel
+
 
     pop di
     pop si
@@ -9706,42 +9889,56 @@ sh_ndlg_onclick:
     mov si, sh_notebox                  ; the field first: its own rect is
     call os88text_click                 ; already screen-absolute from the
     jnc .redraw                         ; last paint, so no conversion here
-    mov bx, [sh_ndlg_win]
-    push cx
-    push dx
-    call OSAPI_WM_CONTENT
-    pop dx
-    pop cx
-    sub cx, ax                          ; cx,dx = content-relative
-    sub dx, [sh_ndlg_oy]
-    cmp cx, SH_NDLG_BTX1
-    jb .out
-    cmp cx, SH_NDLG_BTX2
-    ja .out
-    cmp dx, SH_NDLG_OKY1
-    jb .out
-    cmp dx, SH_NDLG_OKY2
-    jle .doOK
-    cmp dx, SH_NDLG_CAY1
-    jb .out
-    cmp dx, SH_NDLG_CAY2
-    jle .doCancel
-    jmp .out
+    mov bx, sh_ndlg_btrec                ; **AND THEY ONLY ARM** (SPEC.md 13.6):
+    call os88ui_btnpress                ; CX/DX are still SCREEN here, which is
+    jmp .out                            ; what the record's rects are in. The
+                                        ; six content-relative compares this
+                                        ; replaces were a second description of
+                                        ; the painter's geometry, and they
+                                        ; ACTED on the press; sh_ndlg_onup has
+                                        ; the action now
 .redraw:
     mov si, sh_notebox                  ; only the caret moved: redraw the
     call os88text_draw                  ; box, not the dialog's chrome
     jmp .out
-.doOK:
-    call sh_ndlg_apply
-    call sh_ndlg_close
-    jmp .out
-.doCancel:
-    call sh_ndlg_close
 .out:
     pop di
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_ndlg_onup / sh_ndlg_ondrag - the release and the tracking edge (13.7/13.8.2)
+; -----------------------------------------------------------------------------
+sh_ndlg_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, sh_ndlg_btrec
+    call os88ui_btnup                  ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    cmp al, 1
+    jne .ucancel
+    call sh_ndlg_apply
+.ucancel:
+    call sh_ndlg_close
+.uout:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+sh_ndlg_ondrag:
+    push ax
+    push bx
+    mov bx, sh_ndlg_btrec
+    call os88ui_btndrag
     pop bx
     pop ax
     ret
@@ -19669,7 +19866,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 3138
+    OS88_BSS 3238
     OS88_IMAGE_END
 
 sh_selcol     equ os88_image_end + 0
@@ -19843,7 +20040,11 @@ sh_fdlg_rowidx equ sh_fdlg_itemsptr + 2     ; the row loop's own index
 sh_fdlg_rowy   equ sh_fdlg_rowidx + 2       ; ...and that row's y
 sh_fdlg_rect   equ sh_fdlg_rowy + 2         ; 4 words: one button rect,
                                              ; reused for OK then Cancel
-sh_fdlg_count  equ sh_fdlg_rect + 8         ; word: this kind's row count
+sh_fdlg_btrec equ sh_fdlg_rect + 16   ; the standard button record (SPEC.md
+                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; now - OK then Cancel - because a
+                                         ; group's rects must be contiguous
+sh_fdlg_count  equ sh_fdlg_btrec + 12         ; word: this kind's row count
                                              ; (4 for Number/Align/Font, 2
                                              ; for Insert/Delete's Row/
                                              ; Column pick) - see
@@ -19924,7 +20125,11 @@ sh_ldlg_i       equ sh_ldlg_oy + 2           ; the paint loop's row counter
 sh_ldlg_idx     equ sh_ldlg_i + 2            ; ...and the item it maps to
 sh_ldlg_rowy    equ sh_ldlg_idx + 2
 sh_ldlg_rect    equ sh_ldlg_rowy + 2         ; 8: os88ui_btn takes a POINTER
-sh_ldsb         equ sh_ldlg_rect + 8         ; 14: os88ui_sbar's seven words
+sh_ldlg_btrec equ sh_ldlg_rect + 16   ; the standard button record (SPEC.md
+                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; now - OK then Cancel - because a
+                                         ; group's rects must be contiguous
+sh_ldsb         equ sh_ldlg_btrec + 12         ; 14: os88ui_sbar's seven words
 sh_ldlg_src     equ sh_ldsb + 14             ; -> the string being pasted
 ; --- stage 3.0c: defined names ---
 sh_nnames       equ sh_ldlg_src + 2
@@ -19983,7 +20188,11 @@ sh_bdlg_rect   equ sh_bdlg_ry + 2          ; 4 words: one button rect,
 
 ; sh_drawborders' own scratch (stage 2.x) - the four edges' screen rect for
 ; whichever bordered cell it is currently drawing
-sh_bdrawflags  equ sh_bdlg_rect + 8        ; byte: that cell's border byte
+sh_bdlg_btrec equ sh_bdlg_rect + 16   ; the standard button record (SPEC.md
+                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; now - OK then Cancel - because a
+                                         ; group's rects must be contiguous
+sh_bdrawflags  equ sh_bdlg_btrec + 12        ; byte: that cell's border byte
 sh_bx1         equ sh_bdrawflags + 1
 sh_by1         equ sh_bx1 + 2
 sh_bx2         equ sh_by1 + 2
@@ -20256,7 +20465,11 @@ sh_ndlg_rect      equ sh_ndlg_oy + 2   ; 4 words: one button rect, refilled
 
 ; stage 3.0c: the generic one-line input dialog, shared by Goto..., Row
 ; Height... and Column Width... (see SH_ID_* for why one dialog serves three).
-sh_idlg_win       equ sh_ndlg_rect + 8 ; word: 0 = none, the single-instance
+sh_ndlg_btrec equ sh_ndlg_rect + 16   ; the standard button record (SPEC.md
+                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; now - OK then Cancel - because a
+                                         ; group's rects must be contiguous
+sh_idlg_win       equ sh_ndlg_btrec + 12 ; word: 0 = none, the single-instance
 sh_idlg_kind      equ sh_idlg_win + 2  ; byte: SH_ID_*                   gate
 sh_idlg_buf       equ sh_idlg_kind + 1 ; SH_EDITMAX bytes: what is typed
 sh_idlg_line      equ sh_idlg_buf + SH_EDITMAX   ; OS88LINE_SZ bytes
@@ -20267,7 +20480,11 @@ sh_idlg_rect      equ sh_idlg_oy + 2   ; 4 words: one button rect
 ; stage 3.0e: absolute references. Each scanner records whether the reference
 ; it is looking at pinned its column and/or its row with '$', and its adjuster
 ; then declines to move the pinned half - that refusal is the whole feature.
-sh_rw_absc        equ sh_idlg_rect + 8 ; byte: Insert/Delete's scanner
+sh_idlg_btrec equ sh_idlg_rect + 16   ; the standard button record (SPEC.md
+                                         ; 20.5.1.2); the rect above is TWO rects
+                                         ; now - OK then Cancel - because a
+                                         ; group's rects must be contiguous
+sh_rw_absc        equ sh_idlg_btrec + 12 ; byte: Insert/Delete's scanner
 sh_rw_absr        equ sh_rw_absc + 1
 sh_cp_absc        equ sh_rw_absr + 1   ; byte: Copy/Paste + Fill's scanner
 sh_cp_absr        equ sh_cp_absc + 1

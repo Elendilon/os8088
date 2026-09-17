@@ -17635,7 +17635,7 @@ wd_abopen:
     mov bx, wd_abok
     mov si, wd_s_ok
     mov di, OS88UI_FILL | OS88UI_DEF
-    call os88ui_btn
+    call os88ui_btnraw
     pop si
     mov byte [wd_about], 1
     jmp short .out
@@ -18041,7 +18041,7 @@ wd_dgctl:
 .nbdis:
     mov di, ax
     mov bx, wd_dgr
-    call os88ui_btn
+    call os88ui_btnraw
     pop di
 .done:
     clc

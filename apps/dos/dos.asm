@@ -799,6 +799,13 @@ dos_entry:
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
 
+    mov ax, bx                      ; **AND THE BUTTONS' GESTURE** (SPEC.md
+    mov bx, dos_btrec               ; 20.5.1.2): os88ui_btninit installs both
+    mov si, dos_onup                ; W_ONMOUSEUP and W_ONDRAG, neither of
+    mov di, dos_ondrag              ; which is a template word - which is
+    call os88ui_btninit             ; exactly why this box shipped without
+    mov bx, [dos_win]               ; them and fired every button on the press
+
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
     call OSAPI_KEY_DOWN             ; (SPEC.md 9.7): kbm_isr does not track a
@@ -5287,14 +5294,11 @@ dos_paint:
     mov si, dos_pln
     call os88line_draw              ; the path box: empty IS a state, so it is
                                     ; drawn at DST_IDLE like every other one
-    mov bx, dos_erect               ; **AND IT SAYS `Setup`** (SPEC.md
-    mov si, dos_l_tset              ; 96.32.2.1): it opened a two-page area
-    xor di, di
-    call os88ui_btn
-    mov bx, dos_rrect
-    mov si, dos_l_run
-    xor di, di
-    call os88ui_btn
+    mov bx, dos_btrec               ; **AND IT SAYS `Setup`** (SPEC.md
+    mov al, DOS_BT_ENV              ; 96.32.2.1): it opened a two-page area
+    call os88ui_btn                 ; - the record carries the rect, the label
+    mov al, DOS_BT_RUN              ; and the pressed look, so a repaint
+    call os88ui_btn                 ; mid-press agrees with the glass
     pop bx
 
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
@@ -6293,13 +6297,10 @@ dos_paint_furn:
 
     call dos_furn_rects             ; the two rects, both from one arithmetic
     push bx
-    mov bx, dos_srect
-    mov si, dos_l_savb
-    xor di, di
+    mov bx, dos_btrec
+    mov al, DOS_BT_SAV
     call os88ui_btn
-    mov bx, dos_trect
-    mov si, dos_l_retb
-    xor di, di
+    mov al, DOS_BT_RET
     call os88ui_btn
     pop bx
     pop di
@@ -8336,63 +8337,30 @@ dos_click:
     ; it but an arguments field for a program that did not exist.
     call dos_place                  ; every control of this page, once
 
+    ; --- EVERY BUTTON ON EITHER PAGE, ARMED AND NOT FIRED --------------------
+    ; SPEC.md 13.6: a button has no safe prefix action, so it wants the
+    ; RELEASE. This used to be four os88ui_bhit ladders that ACTED here, which
+    ; meant a mis-aimed press on 'Run' ran, and nothing on the glass ever said
+    ; a control was being held. os88ui_btnpress arms and draws it down; the
+    ; action is in dos_onup (SPEC.md 20.5.1.2).
+    ;
+    ; The caret is NOT given up here. A press that turns out to be a cancel
+    ; must leave the field exactly as it was, so dos_defocus moved to the
+    ; release beside the action it belongs to.
+    push bx
+    mov bx, dos_btrec
+    call os88ui_btnpress            ; AX = the button, 0 = not one of ours
+    pop bx
+    or ax, ax
+    jnz .out
+
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .setup
-
-    ; --- THE TOP BAR (SPEC.md 96.32.1) ---------------------------------------
-    push bx
-    mov bx, dos_erect
-    call os88ui_bhit
-    pop bx
-    jc .notenv
-    call dos_defocus                ; the caret does not follow us off the page
-    mov byte [dos_page], DOS_PAGE_SET
-    call dos_swap
-    jmp .out
-.notenv:
-    push bx
-    mov bx, dos_rrect
-    call os88ui_bhit
-    pop bx
-    jc .barfld
-    call dos_defocus                ; **A BUTTON TAKES THE CARET TOO.** Every
-                                    ; control that consumes a click owes the
-                                    ; focused field its caret back - one cell
-                                    ; through os88line_caroff, never a redraw
-                                    ; of the field (SPEC.md 13.14.6)
-    call dos_go                     ; Run: what the box names, as it stands
-    jmp .out
-.barfld:
-    mov si, dos_pln                 ; ...and the box itself
+    mov si, dos_pln                 ; the bar's box is all that is left there
     jmp .field
 
-    ; --- THE SETUP PAGE: the furniture first, then its own controls ----------
+    ; --- THE SETUP PAGE: its own controls, the buttons having had the press --
 .setup:
-    push bx
-    mov bx, dos_trect
-    call os88ui_bhit
-    pop bx
-    jc .notret
-    call dos_defocus
-    call dos_mem_take               ; **THE LIMIT IS READ ON THE WAY OUT**, so
-                                    ; a number typed with nothing pressed after
-                                    ; it is still the setting - a field that
-                                    ; commits only on Enter loses what was
-                                    ; typed, silently
-    mov byte [dos_page], DOS_PAGE_MAIN
-    call dos_swap
-    jmp .out
-.notret:
-    push bx
-    mov bx, dos_srect
-    call os88ui_bhit
-    pop bx
-    jc .notsav
-    call dos_defocus                ; ...as Run does, and for its reason
-    call dos_mem_take               ; ...and the shortcut carries what is in
-    call dos_sav_go                 ; the boxes NOW, for the same reason
-    jmp .out
-.notsav:
     call dos_click_mem              ; the memory block's field and its radio
     jnc .out                        ; CF=1 = none of those, so it is the
     call dos_fld_hit                ; arguments box or an environment row
@@ -8425,6 +8393,109 @@ dos_click:
     pop bx
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_ondrag - W_ONDRAG (SPEC.md 13.8.2): the held button tracks the pointer
+; in:  CX = x, DX = y (SCREEN), SI = the window; UI task, gfx lock held
+; out: nothing; preserves all registers
+;
+; The window can have been dragged since the press, so the rects are placed
+; again before the record is asked - CX/DX are already screen coordinates,
+; which is what os88ui_btndrag wants.
+; -----------------------------------------------------------------------------
+dos_ondrag:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, si
+    push cx
+    push dx
+    call dos_place
+    pop dx
+    pop cx
+    mov bx, dos_btrec
+    call os88ui_btndrag             ; redraws only if the answer CHANGED
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_onup - W_ONMOUSEUP (SPEC.md 13.7): the button FIRES here
+; in:  CX = x, DX = y (SCREEN, and possibly outside the window), SI = window
+; out: nothing; preserves all registers
+;
+; Every one of these four actions used to run from dos_click, on the PRESS.
+; A mis-aimed press on 'Run' ran the command; there was no way to change your
+; mind once the button was down, and nothing on the glass said it was down at
+; all. os88ui_btnup answers only for a press and a release on the SAME
+; control, so sliding off is now the cancel it always should have been.
+;
+; THE CARET IS GIVEN UP HERE and not at the press, which is where dos_defocus
+; used to sit. A control that consumes a click owes the focused field its
+; caret back (SPEC.md 13.14.6) - but only if it actually fires, because a
+; press the user slid away from must leave the field exactly as it was.
+; -----------------------------------------------------------------------------
+dos_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, si
+    push cx
+    push dx
+    call dos_place                  ; the window can have moved (13.7)
+    pop dx
+    pop cx
+    mov bx, dos_btrec
+    call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .out
+
+    cmp byte [dos_page], DOS_PAGE_MAIN
+    jne .setup
+    cmp al, DOS_BT_ENV
+    jne .run
+    call dos_defocus                ; the caret does not follow us off the page
+    mov byte [dos_page], DOS_PAGE_SET
+    call dos_swap
+    jmp short .out
+.run:
+    call dos_defocus
+    call dos_go                     ; Run: what the box names, as it stands
+    jmp short .out
+.setup:
+    cmp al, DOS_BT_RET
+    jne .sav
+    call dos_defocus
+    call dos_mem_take               ; **THE LIMIT IS READ ON THE WAY OUT**, so
+                                    ; a number typed with nothing pressed after
+                                    ; it is still the setting - a field that
+                                    ; commits only on Enter loses what was
+                                    ; typed, silently
+    mov byte [dos_page], DOS_PAGE_MAIN
+    call dos_swap
+    jmp short .out
+.sav:
+    call dos_defocus                ; ...as Run does, and for its reason
+    call dos_mem_take               ; ...and the shortcut carries what is in
+    call dos_sav_go                 ; the boxes NOW, for the same reason
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8795,11 +8866,23 @@ dos_place:
                                     ; was testing against the content height
     push si
     push di
+    mov si, dos_btrec               ; **AND THE RECORD FOLLOWS THE PAGE**
+    mov word [si+OS88UI_BT_N], 2    ; (SPEC.md 20.5.1.2): both pages carry
+                                    ; exactly two buttons, and only one page
+                                    ; is ever up, so ONE record is repointed
+                                    ; here rather than two being kept in step.
+                                    ; It is done in dos_place because that is
+                                    ; already the routine every caller runs
+                                    ; before it draws or hit-tests
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .setup
+    mov word [si+OS88UI_BT_RECTS], dos_erect
+    mov word [si+OS88UI_BT_LABELS], dos_bt_barl
     call dos_bar_rects              ; the path box and the bar's two buttons
     jmp short .out
 .setup:
+    mov word [si+OS88UI_BT_RECTS], dos_trect
+    mov word [si+OS88UI_BT_LABELS], dos_bt_setl
     call dos_furn_rects             ; Save Shortcut and Return
     call dos_cmd_place              ; ...the command box on the title row...
     call dos_fld_place              ; ...the arguments box...
@@ -10123,6 +10206,13 @@ dos_l_tset: db 'Setup', 0           ; ...and its name, which the title row
 dos_l_run:  db 'Run', 0             ; --- and the top bar's (96.32.1)
 dos_l_full: db 'Full Screen', 0     ; ...and the console's own (96.33.5)
 dos_l_savb: db 'Save Shortcut', 0
+
+; --- the two button GROUPS' label arrays (SPEC.md 20.5.1.2) ------------------
+; One array per page, in the same order as the rects each page's group holds,
+; because os88ui_btn indexes both with the one number. dos_place points the
+; record at the pair that is up.
+dos_bt_barl: dw dos_l_tset, dos_l_run       ; DOS_BT_ENV, DOS_BT_RUN
+dos_bt_setl: dw dos_l_retb, dos_l_savb      ; DOS_BT_RET, DOS_BT_SAV
 ; --- the memory page (SPEC.md 96.25) -----------------------------------------
 ; The two figures are PATCHED IN PLACE by dos_mem_num and drawn as part of one
 ; opaque font_run, which is dos_fmt_exit's shape: a number assembled anywhere
@@ -11540,9 +11630,22 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
     HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
+DOS_BTREC_SZ equ 12              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
+                                 ; and it has to be one: this block is laid
+                                 ; out thousands of lines before os88ui.inc is
+                                 ; included, so the real constant is not
+                                 ; defined yet. The %if beside that include
+                                 ; fails the BUILD if the two ever disagree,
+                                 ; which is the only thing that makes a second
+                                 ; copy of a number safe
     ; --- THE SETUP AREA'S FURNITURE (SPEC.md 96.32.2), four words each -------
-    HBSS DOS_B_TRECT, 8          ; ...and 'Return'. 'Save Shortcut' keeps
-                                 ; dos_srect, which it already had
+    HBSS DOS_B_TRECT, 8          ; 'Return' and 'Save Shortcut', and they are
+    HBSS DOS_B_SRECT, 8          ; ADJACENT ON PURPOSE (SPEC.md 20.5.1.2): a
+                                 ; button group's rects must be contiguous
+                                 ; because os88ui_btnpress walks them, so this
+                                 ; pair is the Setup page's group and the pair
+                                 ; above is the bar's. dos_srect used to sit
+                                 ; nine declarations further down
     HBSS DOS_B_LNV,   2          ; the field's view and length as they were
     HBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
     HBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
@@ -11550,7 +11653,9 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
     HBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
     HBSS DOS_B_BRECT, 8          ; the page button's rect, x1 y1 x2 y2
-    HBSS DOS_B_SRECT, 8          ; ...and Save Shortcut's
+    HBSS DOS_B_BTREC, DOS_BTREC_SZ  ; the standard button record (20.5.1.2),
+                                 ; REPOINTED per page by dos_place - one
+                                 ; record, because only one page is ever up
 %endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -16647,6 +16752,9 @@ DOS_BSS_SIZE equ HB
                                     ; one level up: a build with no window uses
                                     ; none
 %include "os88ui.inc"
+%if DOS_BTREC_SZ != OS88UI_BT_SIZE
+ %error "DOS_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the HBSS block is laid out before this include, so the size must be written twice; fix the literal"
+%endif
 %include "os88line.inc"
 %endif
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------
@@ -16813,7 +16921,17 @@ dos_nkey equ dos_hbss + DOS_B_NKEY    ; word: ...over this many keys
 dos_page equ dos_hbss + DOS_B_PAGE    ; byte: DOS_PAGE_*
 %endif
 %ifndef KD_BACKEND
+; --- the button groups' indices, PLUS ONE (os88ui_btn's convention) --------
+; 0 is "no button" throughout os88ui.inc, so every index a caller passes or
+; reads is one-based and these are what os88ui_btnpress and os88ui_btnup
+; answer.
+DOS_BT_ENV equ 1                       ; the bar: 'Setup', then 'Run'
+DOS_BT_RUN equ 2
+DOS_BT_RET equ 1                       ; the Setup page: 'Return', then 'Save
+DOS_BT_SAV equ 2                       ; Shortcut' - a different page, so the
+                                       ; numbers may repeat
 dos_brect equ dos_hbss + DOS_B_BRECT   ; the page button's rect
+dos_btrec equ dos_hbss + DOS_B_BTREC   ; ...and the button group's record
 %endif
 %ifndef KD_BACKEND
 dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's

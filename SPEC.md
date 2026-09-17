@@ -35690,11 +35690,147 @@ agreeing by hand.
 
 | | |
 |---|---|
-| `os88ui_btn` | `BX` = rect, `SI` = NUL label, `DI` = flags. Optional white interior, frame, optional default ring 2px out, label **centred in both axes**. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
-| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside |
-| `os88ui_bfind` | `BX` = an array of rects, `AX` = how many. Answers `AX` = the index **plus one**, 0 for none |
-| `os88ui_arm` / `os88ui_fire` | the §13.7 press/release pair. `arm` records what the press landed on; `fire` answers it and **clears**. Package side only |
+| `os88ui_btninit` | `BX` = record, `AX` = window, `SI` = your `W_ONMOUSEUP` proc, `DI` = your `W_ONDRAG` proc. Stores the window and **installs both slots for you**, ignoring the drag slot's `CF` (§20.5.1.2) |
+| `os88ui_btn` | `BX` = record, `AL` = index **plus one**. Draws ONE button of the group: optional white interior, frame, optional default ring 2px out, label **centred in both axes**, and the pressed look resolved from the record. Caller holds the gfx lock. All registers preserved, and **the pen is put back live on every path** |
+| `os88ui_btnpress` | `BX` = record, `CX`/`DX` = point. Arms and draws down. `AX` = index **plus one**, 0 = not ours |
+| `os88ui_btndrag` | `BX` = record, `CX`/`DX`. Tracks the pointer; redraws **only on a change** |
+| `os88ui_btnup` | `BX` = record, `CX`/`DX`. `AX` = the button that **fired**, 0 = cancelled |
+| `os88ui_bhit` | `BX` = rect, `CX`/`DX` = point (which is how `W_ONCLICK` and `W_ONMOUSEUP` hand it to you). CF = 0 inside. A rect test rather than a button, which is why it stays public where `os88ui_bfind`, `os88ui_arm`, `os88ui_fire` and `os88ui_armed` became the control's internals |
 | `os88ui_glyph` | the 12x12 **check box or radio button** (§31.2). `CX`/`DX` = top-left, `AL` = `OS88UI_GRADIO`/`GCHECK` or'd with `OS88UI_GON`, `AH` non-zero = disabled |
+
+#### 20.5.1.1 `OS88UI_ABOUT` — the standard About card, and the attribution it exists for
+
+The fourth shared element, gated by `%define OS88UI_ABOUT`. Its argument is
+the scroll bar's rather than the button's: a button was five bodies that
+agreed, and this was **seventeen private implementations of one card** —
+`arkanoid`, `browser`, `calc`, `cyclone`, `ftpd`, `missile`, `modplug`,
+`paint`, `solitaire`, `tamegram`, `telnet`, `texpad`, `tracker`, `wire`, and
+three more — each a white fill plus a black frame plus a column of centred
+lines, each measuring the card its own way, and no two of them agreeing.
+
+**The reason it is worth a section is the OTHER ten packages.** `fractal`,
+`hello`, `mines`, `notepad`, `piano`, `recorder`, `tank`, `taskmgr`, `sheet`
+and `chart` shipped with **no About handler at all** or with a one-line toast
+in place of one, and every one of them is somebody's contributed work. The
+cheapest thing an author could do was nothing, and what went missing when they
+did it was the CREDIT. §12.2's `OSAPI_ABOUT_SET` is a two-line registration;
+what stopped people was the ~200 lines of card behind it, and that is what
+this removes.
+
+| | |
+|---|---|
+| `os88ui_about` | `BX` = your window, `SI` = your line table. **From your ABOUT HANDLER.** Arms the clip itself, then draws. `CF` = 1: not one pixel of your content is visible and nothing was drawn |
+| `os88ui_about_d` | the same card, **from your PAINTER**, where the kernel's region is already armed. Draw it LAST |
+
+**Two entries, not a flag, and the difference is a real defect either way
+round.** `ui_dispatch` takes the gfx lock and far-calls the About handler; it
+arms **no clip region**, because the kernel arms one for a `W_PAINT` and for
+nothing else (§11.3). A card drawn from a handler without `OSAPI_WM_CLIP_SET`
+lands on top of whatever window is covering yours. Re-arming inside a
+`W_PAINT` is the opposite error: `wm_clip_set` seeds from the whole content
+rect, so it throws that paint's damage region away and redraws the entire card
+for a two-pixel repair. `os88ui_arm`/`os88ui_armed`'s rule — two names for
+what the two callers actually are.
+
+**The card is MEASURED and CLAMPED, never pinned.** The widest line sets the
+width and the count sets the height, both clamped to the live content box:
+§39's three adapters give one window three content sizes, and a card sized on
+VGA hangs out of a CGA's. Lines are drawn with `UI_RUN`, so no pixel of the
+card is written twice (§6.1); the only fill is the ground under the frame and
+the gaps. Black on white is the one pairing that says the same thing on all
+three adapters (§39.4).
+
+**Keep the lines short.** A line wider than the clamped card starts at the
+left margin and clips at the frame rather than centring itself off the left
+edge — which is what an unguarded `shr` of a negative width does — but it is
+still clipped. Mines' content is 144px, Hello's 238 x 71; both split the
+credit across two lines for that reason and say so where the strings are.
+
+**The widget draws; the app remembers.** There is no state byte here and no
+dismissal. Your `[x_abon]`, your painter drawing the card last while it is
+set, and your click/key/menu handler taking it down are four lines each and
+they are entangled with what the app is doing underneath — Arkanoid pauses a
+live ball, Tracker drops the worker's frame, Fractal's worker keeps CACHING
+rows while it skips drawing them so one repaint settles the whole debt,
+Task Manager's incremental painter would otherwise letter changed rows
+straight through the card. A widget that owned that would have to know all
+four.
+
+**A C package reaches it through `os88_about_card()`** (§73), declared in
+`apps/cc/os88.h` and thunked in `os88thunk.asm` under `CC_HAS_ABOUT` +
+`OS88UI_ABOUT`. The line table is a C array of `const char *` ended by a `0`
+entry, which in the near model **is** `os88ui_about`'s own format — a word a
+line — so nothing is staged or converted. `os88_about_card_d` is the painter's
+entry, for the reason above. `WEAVE` is the first consumer; the C statics have
+to be declared **above `os88_paint()`**, which is the C rule the assembly side
+does not have.
+
+**`LOOM` is the one package that asked for the card and could not have it**,
+and the reason is worth writing down rather than reading as inconsistency: it
+sits **242 bytes** under `os88pkg`'s `0xF000` budget (image 54,982 + bss 6,216
+= 61,198 of 61,440) and the card is **546**. Finding 304 bytes there is a size
+pass and not an attribution, so its credit went into the sentence
+`ovl_about()` already writes to the status row — which is **overlay** bytes
+rather than resident ones, and which §10.1 of WEAVE-SPEC makes *keep* the
+sentence after the toast retires itself.
+
+**`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
+`BARONLY` is the button's opt-out spelled as a statement about the scroll bar
+(§13.10.6.5), and the About card is the first consumer for which that sentence
+is simply false — it draws no bar and no button. `BARONLY` now implies
+`NOBTN`, so every existing consumer is **byte-identical**, which is checked
+rather than asserted: after the change exactly one package binary in the tree
+differed, and it was the one that had gained a card.
+
+#### 20.5.1.2 The button is a RECORD, and there is no second way to draw one
+
+`os88ui_btn` took a loose rect, label and flag word until 2026-09-17, and a
+caller that drew one that way owned the whole §13.7 gesture by hand — install
+two slots that are deliberately not template words, arm on the press, track on
+the drag, fire on the release, and pass `OS88UI_DOWN` back from its painter so
+a repaint agreed with the glass. Seven obligations, in three callbacks, none of
+which fails to assemble when it is missing. **Twenty-five of the tree's
+fifty-one call sites had skipped all of them and fired on the press.**
+
+The fix is not a second control to opt into. It is this one, changed, with the
+old signature **deleted** so that every caller converts and a new one cannot
+express the wrong thing: the record carries the rects, the labels, the flags
+and the count, and `BT_DOWN` — *which button is pressed right now* — belongs to
+the library. `docs/plans/BUTTON-GESTURE-PLAN.md` is the design record.
+
+| | |
+|---|---|
+| `OS88UI_BT_RECTS` 0 | near ptr to an array of 4-word **inclusive screen** rects, filled by your painter from `OSAPI_WM_CONTENT` every pass, because a window moves |
+| `OS88UI_BT_LABELS` 2 | near ptr to an array of near ptrs to NUL labels |
+| `OS88UI_BT_FLAGS` 4 | near ptr to an array of flag **words** (`OS88UI_DIS`, `OS88UI_DEF`, `OS88UI_INK`, `OS88UI_LATCH`), or 0 for none |
+| `OS88UI_BT_N` 6 | how many are **live this pass** — a paged window points one record at either page's buttons |
+| `OS88UI_BT_WIN` 8 | the window, written by `os88ui_btninit` |
+| `OS88UI_BT_DOWN` 10 | **the library's**: index plus one of the control a press is live on, 0 for none. Read it; never write it |
+
+`OS88UI_BT_SIZE` is 12. The record is the caller's data and there may be one
+per button GROUP rather than one per window, which is the shape the tree has:
+Sheet's ten buttons are five dialog pairs.
+
+**A group's rects must be contiguous**, because `os88ui_btnpress` walks them
+with `os88ui_bfind`. That is the single constraint the conversion imposes, and
+it is what makes the drawn control and the clickable control one description
+rather than two — §22's `fm_hit` discipline, which is the paragraph above this
+table arriving at the control it was written about.
+
+#### 20.5.1.3 `OS88UI_LATCH` — the pressed look, with a second cause
+
+`OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns
+it the caller no longer sets it. `OS88UI_LATCH` (32) means *this control's
+setting is ON* and is the caller's, in its flags array. **They draw the same
+picture** — interior black, label white, the frame unchanged in the same place
+— because they mean the same thing to somebody looking at the screen, and
+`OS88UI_DIS` outranks both exactly as §13.8 says.
+
+It exists because Audio drew Shuffle and Repeat with `OS88UI_DOWN` to mean
+*on*, which was correct while the flag was the caller's and collides the moment
+it is not. It is **generic rather than Audio's** because a latched button is an
+ordinary thing to want: ModPlug's transport, Tracker's and Paint's tool
+selections are all this shape and each draws it by hand today.
 
 **The glyph's flag rides in `AH`, and its white box is unconditional** —
 both departures from the button above, and both for a reason. A glyph has
@@ -35784,90 +35920,6 @@ undoing intended design rather than consolidating it.
 
 `tests/muptest` is the gate, and it gates §13.7's release rules and this
 control's arm with the same four gestures.
-
-#### 20.5.1.1 `OS88UI_ABOUT` — the standard About card, and the attribution it exists for
-
-The fourth shared element, gated by `%define OS88UI_ABOUT`. Its argument is
-the scroll bar's rather than the button's: a button was five bodies that
-agreed, and this was **seventeen private implementations of one card** —
-`arkanoid`, `browser`, `calc`, `cyclone`, `ftpd`, `missile`, `modplug`,
-`paint`, `solitaire`, `tamegram`, `telnet`, `texpad`, `tracker`, `wire`, and
-three more — each a white fill plus a black frame plus a column of centred
-lines, each measuring the card its own way, and no two of them agreeing.
-
-**The reason it is worth a section is the OTHER ten packages.** `fractal`,
-`hello`, `mines`, `notepad`, `piano`, `recorder`, `tank`, `taskmgr`, `sheet`
-and `chart` shipped with **no About handler at all** or with a one-line toast
-in place of one, and every one of them is somebody's contributed work. The
-cheapest thing an author could do was nothing, and what went missing when they
-did it was the CREDIT. §12.2's `OSAPI_ABOUT_SET` is a two-line registration;
-what stopped people was the ~200 lines of card behind it, and that is what
-this removes.
-
-| | |
-|---|---|
-| `os88ui_about` | `BX` = your window, `SI` = your line table. **From your ABOUT HANDLER.** Arms the clip itself, then draws. `CF` = 1: not one pixel of your content is visible and nothing was drawn |
-| `os88ui_about_d` | the same card, **from your PAINTER**, where the kernel's region is already armed. Draw it LAST |
-
-**Two entries, not a flag, and the difference is a real defect either way
-round.** `ui_dispatch` takes the gfx lock and far-calls the About handler; it
-arms **no clip region**, because the kernel arms one for a `W_PAINT` and for
-nothing else (§11.3). A card drawn from a handler without `OSAPI_WM_CLIP_SET`
-lands on top of whatever window is covering yours. Re-arming inside a
-`W_PAINT` is the opposite error: `wm_clip_set` seeds from the whole content
-rect, so it throws that paint's damage region away and redraws the entire card
-for a two-pixel repair. `os88ui_arm`/`os88ui_armed`'s rule — two names for
-what the two callers actually are.
-
-**The card is MEASURED and CLAMPED, never pinned.** The widest line sets the
-width and the count sets the height, both clamped to the live content box:
-§39's three adapters give one window three content sizes, and a card sized on
-VGA hangs out of a CGA's. Lines are drawn with `UI_RUN`, so no pixel of the
-card is written twice (§6.1); the only fill is the ground under the frame and
-the gaps. Black on white is the one pairing that says the same thing on all
-three adapters (§39.4).
-
-**Keep the lines short.** A line wider than the clamped card starts at the
-left margin and clips at the frame rather than centring itself off the left
-edge — which is what an unguarded `shr` of a negative width does — but it is
-still clipped. Mines' content is 144px, Hello's 238 x 71; both split the
-credit across two lines for that reason and say so where the strings are.
-
-**The widget draws; the app remembers.** There is no state byte here and no
-dismissal. Your `[x_abon]`, your painter drawing the card last while it is
-set, and your click/key/menu handler taking it down are four lines each and
-they are entangled with what the app is doing underneath — Arkanoid pauses a
-live ball, Tracker drops the worker's frame, Fractal's worker keeps CACHING
-rows while it skips drawing them so one repaint settles the whole debt,
-Task Manager's incremental painter would otherwise letter changed rows
-straight through the card. A widget that owned that would have to know all
-four.
-
-**A C package reaches it through `os88_about_card()`** (§73), declared in
-`apps/cc/os88.h` and thunked in `os88thunk.asm` under `CC_HAS_ABOUT` +
-`OS88UI_ABOUT`. The line table is a C array of `const char *` ended by a `0`
-entry, which in the near model **is** `os88ui_about`'s own format — a word a
-line — so nothing is staged or converted. `os88_about_card_d` is the painter's
-entry, for the reason above. `WEAVE` is the first consumer; the C statics have
-to be declared **above `os88_paint()`**, which is the C rule the assembly side
-does not have.
-
-**`LOOM` is the one package that asked for the card and could not have it**,
-and the reason is worth writing down rather than reading as inconsistency: it
-sits **242 bytes** under `os88pkg`'s `0xF000` budget (image 54,982 + bss 6,216
-= 61,198 of 61,440) and the card is **546**. Finding 304 bytes there is a size
-pass and not an attribution, so its credit went into the sentence
-`ovl_about()` already writes to the status row — which is **overlay** bytes
-rather than resident ones, and which §10.1 of WEAVE-SPEC makes *keep* the
-sentence after the toast retires itself.
-
-**`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
-`BARONLY` is the button's opt-out spelled as a statement about the scroll bar
-(§13.10.6.5), and the About card is the first consumer for which that sentence
-is simply false — it draws no bar and no button. `BARONLY` now implies
-`NOBTN`, so every existing consumer is **byte-identical**, which is checked
-rather than asserted: after the change exactly one package binary in the tree
-differed, and it was the one that had gained a card.
 
 ### 20.6 Worker tasks — one background task per package instance
 

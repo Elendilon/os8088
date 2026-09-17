@@ -10036,7 +10036,7 @@ np_pbutton:
                                 ; would or its caption onto the old one
                                 ; (os88ui.inc's own note), and this is the
                                 ; cheapest way for that never to become true
-    call os88ui_btn
+    call os88ui_btnraw
 .out:
     pop di
     pop si

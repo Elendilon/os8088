@@ -1,6 +1,10 @@
 # BUTTON-GESTURE-PLAN.md — the button is the one control the SDK never composed
 
-**STATUS: PROPOSED. Nothing here is built.** Measured on `elendilon-next` at
+**STATUS: APPROVED AND BEING BUILT.** The owner approved it on 2026-09-17 with
+two changes, both folded in: `os88ui_btn` **becomes** the control rather than a
+second one being added beside it (BUTTON-GESTURE-PLAN §5), and the latched
+pressed state is generic `OS88UI_LATCH` rather than Audio's private case
+(BUTTON-GESTURE-PLAN §5.3). Measured on `elendilon-next` at
 `4eaabc3e`, 2026-09-17. Every byte figure below that is marked MEASURED comes
 off a `nasm -l` listing of the shipped source; every figure marked PREDICTED is
 an estimate against a measured comparable and is flagged as such at the point
@@ -180,66 +184,107 @@ What the library already carries, MEASURED in the same listings:
 | `os88ui_arm` + `os88ui_fire` + `os88ui_armed` + the word | 20 |
 | | **353** |
 
-## 5. THE PROPOSAL — `os88ui_bpanel`, in the drop-down's shape
+## 5. THE DECISION — `os88ui_btn` BECOMES the control; there is no second one
 
-A record-based button panel, so the composition happens once in the library
-instead of once per package. It is deliberately **not** a new look, a new
-painter or a new policy: it is `os88ui_btn` plus the four calls every correct
-caller already makes, with the state that sequences them moved into the
-caller's record.
+**Owner's call, 2026-09-17, and it supersedes this section's first draft.** The
+draft proposed `os88ui_bpanel` *beside* `os88ui_btn`, opt-in behind a define.
+That was wrong for this tree:
 
-### 5.1 The record, in the caller's data
+> *"we own the whole codebase and every app ever written is in it, so instead
+> of adding a new control to opt into, lets CHANGE the old control -
+> os88ui_btn - so it is the only one, and convert everyone to use just it.
+> Less confusion in the future."*
+
+The closed world is what makes it available, and it is worth more than the
+churn it costs. An opt-in control leaves **two** ways to draw a button and the
+wrong one keeps working — which is the defect this plan is about, preserved in
+the fix. Deleting the old signature is what makes the correct thing the only
+expressible thing: after this, a package physically cannot draw a standard
+button without a record, and the record's documented use is the gesture.
+
+### 5.1 The record, in the caller's data — one per button GROUP
+
+Per GROUP and not per window, because that is the shape the tree has: Sheet's
+ten sites are **five dialog pairs**, ftpd and Ether are triples, Calculator and
+TexPad are loops over a table.
 
 ```
-my_panel:
-    dw  my_rects        ; OS88UI_BP_RECTS: an array of 4-word rects, SCREEN
-                        ; coords, filled by YOUR painter from OSAPI_WM_CONTENT
-    dw  my_labels       ; OS88UI_BP_LABELS: near ptrs to NUL strings
-    dw  4               ; OS88UI_BP_N: how many are LIVE this pass
-    dw  0               ; OS88UI_BP_FLAGS: near ptr to a per-button flag byte
-                        ; array (OS88UI_DIS, OS88UI_DEF, OS88UI_INK), or 0
-    dw  0               ; OS88UI_BP_WIN: your window ptr
-    dw  0               ; OS88UI_BP_DOWN: which is drawn pressed, 0 = none.
-                        ; THE LIBRARY'S - read it from W_PAINT, never write it
+OS88UI_BT_RECTS  equ 0      ; near ptr: array of 4-word INCLUSIVE screen rects,
+                            ; filled by YOUR painter from OSAPI_WM_CONTENT
+OS88UI_BT_LABELS equ 2      ; near ptr: array of near ptrs to NUL labels
+OS88UI_BT_FLAGS  equ 4      ; near ptr: array of flag WORDS, or 0 for none
+OS88UI_BT_N      equ 6      ; how many are LIVE this pass
+OS88UI_BT_WIN    equ 8      ; the window
+OS88UI_BT_DOWN   equ 10     ; LIBRARY-OWNED: index+1 drawn pressed, 0 = none.
+                            ; Read it if you like; never write it
+OS88UI_BT_SIZE   equ 12
 ```
 
-`OS88UI_BP_N` being a per-pass count is what lets one record serve a package
-with pages: DOS points it at the main page's two rects or the setup page's two.
-It is `cal_nrect`'s own device (calc already varies its count to hide the
-history rows), promoted into the record.
+`OS88UI_BT_N` being per-pass is what lets one record serve a paged window: DOS
+points it at the main page's two rects or the setup page's two. It is
+`cal_nrect`'s own device promoted into the record.
 
-### 5.2 The four entries
+### 5.2 The five entries, and that is the whole surface
 
-| call it from | entry | what it does |
+| call it from | entry | in / out |
 |---|---|---|
-| `W_PAINT` | `os88ui_bpaint` | draws all `N`, passing `OS88UI_DOWN` for `BP_DOWN` — so **a repaint agrees with the glass by construction**, which is §13.8's whole argument for a drawn state over an XOR |
-| `W_ONCLICK` | `os88ui_bppress` | `bfind`, `arm`, draw down. Out: `AX` = index+1 spent here, 0 = not ours, hand the press on |
-| `W_ONDRAG` | `os88ui_bpdrag` | `armed`, `bfind`, compare, **redraw only on a change**. Nothing to test |
-| `W_ONMOUSEUP` | `os88ui_bpup` | draws up first, then `fire`, `bfind`, compare. Out: `AX` = the button that FIRED, 0 = cancelled |
+| once, after `wm_create` | `os88ui_btninit` | `BX` = record, `AX` = window, `SI`/`DI` = your two procs. Stores the window and **installs both slots**, ignoring the drag slot's `CF` (BUTTON-GESTURE-PLAN §5.4). It takes your procs rather than installing `ret` defaults — a default would silently overwrite a handler installed before it, which is this whole defect one layer in |
+| `W_PAINT` | `os88ui_btn` | `BX` = record, `AL` = index+1. Draws ONE, resolving the pressed look from `BT_DOWN` itself |
+| `W_ONCLICK` | `os88ui_btnpress` | `BX` = record, `CX`/`DX` = point. Out `AX` = index+1 armed, 0 = not ours — hand the press on |
+| `W_ONDRAG` | `os88ui_btndrag` | `BX` = record, `CX`/`DX`. Tracks; redraws **only on a change** |
+| `W_ONMOUSEUP` | `os88ui_btnup` | `BX` = record, `CX`/`DX`. Out `AX` = the button that **FIRED**, 0 = cancelled |
 
-An application's whole obligation becomes: declare the record, fill the rects
-in the painter it already has, call four one-liners, and switch on `bpup`'s
-answer. **Obligations 3 to 7 of BUTTON-GESTURE-PLAN §3.2 stop existing.**
-Obligations 1 and 2 remain and are the subject of BUTTON-GESTURE-PLAN §5.4.
+`os88ui_btn` still draws ONE button and still carries that name, so the loops
+and the pairs both read as they do today; what changes is that it takes the
+record and an index instead of a loose rect, label and flag word. **Obligations
+1 to 7 of BUTTON-GESTURE-PLAN §3.2 all stop existing**: 1 and 2 become
+`btninit`, 3 to 6 become one call each, and 7 becomes automatic because the
+painter resolves the pressed look from the record rather than from a flag the
+caller has to remember to pass.
 
-### 5.3 It is opt-in, like the scroll bar
+### 5.2.1 What is DELETED, and what stays
 
-Behind `OS88UI_BPANEL`, `OS88UI_SCROLL`'s gate exactly, so a package that draws
-one decorative button pays nothing. Every package that does not define it must
-assemble **byte-identical** — that is a gate, not an intention
-(BUTTON-GESTURE-PLAN §10).
+**Deleted: `os88ui_btn`'s loose-register signature** (`BX` = rect, `SI` =
+label, `DI` = flags). That deletion is the point — every one of the 51 sites
+converts, and a site that did not convert does not assemble.
+
+`os88ui_bhit` **stays public**: it is a rect test rather than a button, and
+`os88ui_radhit` is built on it. `os88ui_bfind`, `os88ui_arm`, `os88ui_fire` and
+`os88ui_armed` become **internal** to the control — they are the pieces the
+composition is made of and there is no longer any reason for a caller to hold
+them. Their bodies are unchanged.
+
+### 5.3 `OS88UI_LATCH` — the pressed look with a second cause
+
+**Owner's call**, resolving what was BUTTON-GESTURE-PLAN §9.2's open question:
+
+> *"OS88UI_LATCH - yes. More things will need that state, so having it generic
+> is the way to go."*
+
+Audio draws Shuffle and Repeat with `OS88UI_DOWN` to mean *this setting is on*
+— a **latched** state, not a press. Once `BT_DOWN` is library-owned those two
+meanings collide on one flag, so they separate:
+
+| flag | means | who sets it |
+|---|---|---|
+| `OS88UI_DOWN` (16) | a press is live on this control right now | **the library**, from `BT_DOWN` |
+| `OS88UI_LATCH` (32) | this control's setting is ON | **the caller**, in its flags array |
+
+They draw the **same** picture — interior black, label white, frame unchanged —
+because they mean the same thing to a user looking at it. `OS88UI_DIS` still
+outranks both (§13.8's rule, and §47 rule 1 behind it). Generic rather than
+Audio's, because a latched button is an ordinary thing to want and the next one
+should not invent it again: ModPlug, Tracker and Paint all have tool states
+that are this shape today and draw them by hand.
 
 ### 5.4 `kern_small` degrades, it does not refuse
 
-`OSAPI_WM_ONDRAG` answers **CF = 1** on `kern_small` (§13.8.2). `os88ui_bpanel`
+`OSAPI_WM_ONDRAG` answers **CF = 1** on `kern_small` (§13.8.2). The control
 must therefore work with no drag edge at all: press arms and draws down,
-release fires or cancels, and the control simply does not un-draw while the
-pointer slides off. That is strictly better than today and matches what the
-kernel's own dialogs do there. **The install is the library's job, not the
-caller's** — a `os88ui_bpinit(BX = window)` that installs both slots and
-ignores a CF from the drag one is what removes obligations 1 and 2, and it is
-the single highest-value part of this proposal, because those two are the ones
-whose omission is silent.
+release fires or cancels, and the control does not un-draw while the pointer
+slides off. That is strictly better than today and is what the kernel's own
+dialogs do there. `os88ui_btninit` ignores that `CF` deliberately — a package
+must not have to ask.
 
 ## 6. THE GATE — `tests/btnsites.txt`
 
@@ -361,15 +406,10 @@ canvas**, a text caret, and a list-row *selection*. These are not buttons and
 must not be registered as ones. `os88ui_bpanel` covers the standard button and
 nothing else.
 
-### 9.2 Audio's `OS88UI_DOWN` is a TOGGLE, and that is a real question
+### 9.2 Audio's latched buttons — ANSWERED
 
-`apu_btn` passes `OS88UI_DOWN` for Shuffle and Repeat when the setting is
-**on** — a latched state, not a press state. A converted panel drives
-`OS88UI_DOWN` from `BP_DOWN`, so the two meanings collide on one flag.
-**Unresolved.** The options are a second flag (`OS88UI_LATCH`, drawn
-identically, OR-ed by the caller), or Audio keeping its own painter for those
-two. It is one package and one pair of buttons, and it should not hold up the
-other nine.
+Was the open question; `OS88UI_LATCH` is the answer and it is generic rather
+than Audio's. BUTTON-GESTURE-PLAN §5.3.
 
 ### 9.3 Not converting the bevelled transports
 
@@ -421,18 +461,16 @@ is not what will catch the eleventh package.
 
 ## 12. WHAT IS OPEN
 
-1. **BUTTON-GESTURE-PLAN §9.2**, Audio's latched flag. One package, needs a
-   decision.
-2. Whether `bpinit` should install `W_ONDRAG` **and** `W_ONMOUSEUP`, or whether
-a package that wants no drag edge should say so. Installing both
-unconditionally is simpler and costs a slot write on `kern_big` and a
-refused call on `kern_small`; it is probably right, and it is not measured.
-3. Whether the eight correct packages convert at all (BUTTON-GESTURE-PLAN §8
-   step 7). It is a size
-question and BUTTON-GESTURE-PLAN §7.3 item 1 answers it.
-4. Whether `os88ui_bpanel` should own the **glyph** controls' gesture too.
-`os88ui_chkhit`/`os88ui_radhit` already exist, so the composition there is
-half-done, and a panel that drove buttons, checks and radios from one record
-is the obvious next shape. **Deliberately out of scope here** — it widens a
-defect fix into a redesign, and the drop-down proves the per-control record
-works.
+Two of the four are ANSWERED by the owner and are folded into
+BUTTON-GESTURE-PLAN §5 and BUTTON-GESTURE-PLAN §5.3: the control replaces
+`os88ui_btn` rather than joining it, and `OS88UI_LATCH` is generic. What is
+left:
+
+1. Whether the eight already-correct packages convert at all
+   (BUTTON-GESTURE-PLAN §8 step 7). **Answered by the owner's decision**: the
+   old signature is deleted, so they must. What is still open is only whether
+   any of them keeps a private painter for a reason the record cannot express.
+2. Whether `os88ui_btn` should own the **glyph** controls' gesture too.
+   `os88ui_chkhit`/`os88ui_radhit` exist, so the composition there is
+   half-done. **Deliberately out of scope** — it widens a defect fix into a
+   redesign, and the drop-down proves the per-control record works.

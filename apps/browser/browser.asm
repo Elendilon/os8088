@@ -1292,7 +1292,9 @@ br_ondrag:
     push cx
     push dx
     push si
-    call os88ui_sbdragging
+    mov bx, br_btrec            ; THE BUTTONS FIRST: the held one follows the
+    call os88ui_btndrag         ; pointer, and a package has ONE arm word, so
+    call os88ui_sbdragging      ; the bar and the buttons cannot both be live
     jc br_sbd_out
     mov bx, si                  ; 13.10.5.4.2: EVERY movement pushes the
     mov ax, BR_SBIDLE           ; one-shot out, which is what makes it an
@@ -1320,6 +1322,38 @@ br_onup:
     push cx
     push dx
     push si
+    mov bx, br_btrec            ; the toolbar FIRES here (SPEC.md 13.7)
+    call os88ui_btnup           ; AX = what fired, 0 = nothing of ours
+    or ax, ax
+    jz .nobtn
+    push si
+    cmp al, 1
+    jne .nb2
+    call br_okback              ; ONE predicate for the greying and the
+    jc .bdone                   ; refusal, so they cannot disagree (47 rule 5)
+    mov bx, [br_histi]
+    dec bx
+    mov [br_histi], bx
+    call br_hgo
+    jmp short .bdone
+.nb2:
+    cmp al, 2
+    jne .nb3
+    call br_okfwd
+    jc .bdone
+    mov bx, [br_histi]
+    inc bx
+    mov [br_histi], bx
+    call br_hgo
+    jmp short .bdone
+.nb3:
+    call br_okrel
+    jc .bdone
+    call br_reload
+.bdone:
+    pop si
+    jmp br_sbd_out
+.nobtn:
     call os88ui_sbdragging
     jc br_sbd_out
     mov bx, si                  ; the pause timer must not outlive the
@@ -1782,35 +1816,12 @@ br_onclick:
     add ax, BR_TBH - 1
     cmp dx, ax
     ja .nostrip
-    mov bx, br_r1
-    call br_inrect
-    jc .t2
-    call br_okback                  ; ONE predicate for the greying and the
-    jc .out                         ; refusal, so they cannot disagree
-    mov bx, [br_histi]              ; (SPEC.md 47 rule 5) - and a greyed
-    dec bx                          ; control explains itself, so a refused
-    mov [br_histi], bx              ; click says nothing more (rule 6)
-    call br_hgo
-    jmp .out
-.t2:
-    mov bx, br_r2
-    call br_inrect
-    jc .t3
-    call br_okfwd
-    jc .out
-    mov bx, [br_histi]
-    inc bx
-    mov [br_histi], bx
-    call br_hgo
-    jmp .out
-.t3:
-    mov bx, br_r3
-    call br_inrect
-    jc .out
-    call br_okrel                   ; ONE predicate for the greying and the
-    jc .out                         ; refusal...
-    call br_reload                  ; ...and ONE action behind both its doors
-    jmp .out
+    mov bx, br_btrec                ; **THEY ONLY ARM** (SPEC.md 13.6): Back,
+    call os88ui_btnpress            ; Forward and Reload all fetch, so none of
+    jmp .out                        ; them may fire on a press the user can
+                                    ; still take back. br_onup has the action,
+                                    ; and it asks the SAME ok-predicate the
+                                    ; greying does (47 rule 5)
 .nostrip:
     cmp cx, [br_sbx]
     jb .page                        ; not in the scroll bar: the PAGE's
@@ -2191,17 +2202,19 @@ br_toolbar:
     push di
     call br_hsync                   ; the History menu answers the same
                                     ; question these two buttons do
-    mov bx, br_r1
-    mov si, br_s_back
+    mov bx, br_btrec                ; the group, described once
+    mov word [bx+OS88UI_BT_RECTS], br_r1
+    mov word [bx+OS88UI_BT_LABELS], br_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], br_btflg
+    mov word [bx+OS88UI_BT_N], 3
     call br_okback
+    mov al, 1
     call br_btn1
-    mov bx, br_r2
-    mov si, br_s_fwd
     call br_okfwd
+    mov al, 2
     call br_btn1
-    mov bx, br_r3
-    mov si, br_s_rel
     call br_okrel
+    mov al, 3
     call br_btn1
     call br_status
     pop di
@@ -2229,14 +2242,31 @@ br_inrect:
     ret
 
 ; --- br_btn1 - one toolbar button; CF on entry = 0 live, 1 disabled ----------
+; in: AL = the button's index PLUS ONE, CF from its own ok-predicate
+; The toolbar group's arrays (SPEC.md 20.5.1.2). The FLAGS are rewritten each
+; pass by br_btn1, from the very predicate that decides the refusal.
+br_btlbl: dw br_s_back, br_s_fwd, br_s_rel
+br_btflg: dw OS88UI_FILL, OS88UI_FILL, OS88UI_FILL
+
 br_btn1:
+    push bx
     push di
+    push si
     mov di, OS88UI_FILL
     jnc .live
     or di, OS88UI_DIS
 .live:
+    mov bl, al                      ; the flag goes in the record's array, at
+    xor bh, bh                      ; this button's slot, so the painter and
+    dec bx                          ; the record agree by construction
+    add bx, bx
+    add bx, br_btflg
+    mov [bx], di
+    mov bx, br_btrec
     call os88ui_btn
+    pop si
     pop di
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7074,6 +7104,9 @@ br_tby      equ br_sbold + 2         ; word: the strip's top, derived
 br_r1       equ br_tby + 2            ; the three button rects {x1,y1,x2,y2}
 br_r2       equ br_r1 + 8
 br_r3       equ br_r2 + 8
+br_btrec    equ br_r3 + 8             ; the standard button record (SPEC.md
+                                       ; 20.5.1.2); the three rects above are
+                                       ; the group it walks
 br_spen     equ br_r3 + 8             ; word: the state's pen, 8-aligned
 br_swid     equ br_spen + 2           ; word: ...and the cells it may use
 br_histn    equ br_swid + 2           ; word: entries in the stack

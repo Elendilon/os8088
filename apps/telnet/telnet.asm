@@ -179,6 +179,19 @@ te_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [te_win], bx
+    push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    push bx                         ; 20.5.1.2): neither is a template word
+    push si
+    push di
+    mov ax, bx
+    mov bx, te_btrec
+    mov si, te_onup
+    mov di, te_ondrag
+    call os88ui_btninit
+    pop di
+    pop si
+    pop bx
+    pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
@@ -428,19 +441,30 @@ te_paint:
     pop ax
     ret
 
+; The record's two arrays. The LABEL one is a single entry and is PATCHED,
+; because this button's caption changes with the session (SPEC.md 20.5.1.2's
+; arrays are the caller's, so a dynamic caption needs no special case).
+te_btlbl:  dw te_s_conn
+te_btflg:  dw OS88UI_FILL
+
 ; --- te_button - Connect, or Close while a session is up ---------------------
 te_button:
     push ax
     push bx
     push si
     push di
-    mov bx, te_btn
     mov si, te_s_conn
     cmp byte [te_state], TS_UP      ; **THE SAME PREDICATE te_toggle USES**, so
     jne .draw                       ; the label and the action cannot disagree
     mov si, te_s_disc               ; (SPEC.md 47 rule 5). It was `jb`, which
 .draw:                              ; called a refused session `Close`
-    mov di, OS88UI_FILL
+    mov [te_btlbl], si
+    mov bx, te_btrec
+    mov word [bx+OS88UI_BT_RECTS], te_btn
+    mov word [bx+OS88UI_BT_LABELS], te_btlbl
+    mov word [bx+OS88UI_BT_FLAGS], te_btflg
+    mov word [bx+OS88UI_BT_N], 1
+    mov al, 1
     call os88ui_btn
     pop di
     pop si
@@ -573,6 +597,33 @@ te_wscroll:
 .out:
     pop cx
     ret
+te_onup:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, te_btrec
+    call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
+    or ax, ax
+    jz .uout
+    call te_toggle
+    call te_button                  ; the caption follows the state
+.uout:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+te_ondrag:
+    push ax
+    push bx
+    mov bx, te_btrec
+    call os88ui_btndrag
+    pop bx
+    pop ax
+    ret
+
 te_onclick:
     push ax
     push bx
@@ -584,11 +635,10 @@ te_onclick:
     call te_layout
     call te_abdismiss               ; ...and by the click that dismisses them
     jc .out
-    mov bx, te_btn
-    call os88ui_bhit
-    jc .field
-    call te_toggle
-    jmp short .redraw
+    mov bx, te_btrec                ; **IT ONLY ARMS** (SPEC.md 13.6): Connect
+    call os88ui_btnpress            ; and Close both have consequences, so a
+    or ax, ax                       ; mis-aimed press must be cancellable -
+    jnz .out                        ; te_onup has the action
 .field:
     push si
     mov si, te_line
@@ -2044,7 +2094,9 @@ te_hnd      equ te_spawned + 1
 te_want     equ te_hnd + 1           ; the user asked to close
 te_dirty    equ te_want + 1
 te_btn      equ te_dirty + 1         ; 8: the Connect button's rect
-te_line     equ te_btn + 8           ; OS88LINE_SZ
+te_btrec    equ te_btn + 8           ; the standard button record (SPEC.md
+                                      ; 20.5.1.2), beside the rect it names
+te_line     equ te_btrec + 12         ; OS88LINE_SZ
 te_hbuf     equ te_line + OS88LINE_SZ ; TE_HOSTMAX: what the user typed
 te_host     equ te_hbuf + TE_HOSTMAX  ; ...and the half before the colon
 te_sline    equ te_host + TE_HOSTMAX  ; CON_COLS+1: the padded status field.
