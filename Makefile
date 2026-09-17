@@ -9952,7 +9952,7 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
                        $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA_360) \
                        $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
-	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/$(KERNNAME) \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
 		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
@@ -9968,7 +9968,7 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
                     $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA) \
                     $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
-	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/$(KERNNAME) \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
 		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
@@ -10160,6 +10160,13 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@echo "pkgsize:   its saving is the HEAP CLAIM, 32KB -> 18/17/16KB, which is"
 	@echo "pkgsize:   what puts it on the 128KB machine at all"
 
+# --kern-small WITH IT, on all four small-disk recipes: SPEC.md 22.6.2 makes
+# DSK_NENT per-build (32 there against kern_big's 64), and os88disk.py's
+# per-directory cap is that number read out of the kernel. The flag picks the
+# arm; it does not restate the value. The two flags travel together because
+# they are one fact - this disk is for that kernel - said about its FAT and
+# about its listing.
+#
 # --fatcap 2 ON BOTH, exactly as the small SYSTEM disks above take it, and it
 # is not cosmetic on the 1.44MB one: kern_small's DSK_FAT_SECS is 2 and mount
 # rule 10 REFUSES a volume declaring more, so a plain 1.44MB FAT12 (9 FAT
@@ -10172,7 +10179,7 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 
 $(BUILD)/smallapps360.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
                            $$(SMALLDATA_360) tools/os88disk.py
-	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA_360)) \
@@ -10182,7 +10189,7 @@ $(BUILD)/smallapps360.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYS
 
 $(BUILD)/smallapps.img: $(SMALLPKGS) $$(SMALLTOOLS) $$(SMALLGAMES) $(SMALLSYSAPPS) \
                         $$(SMALLDATA) tools/os88disk.py
-	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA)) \

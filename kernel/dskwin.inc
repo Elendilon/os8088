@@ -75,16 +75,29 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; the driver mechanism out - so there the pool only ever serves these arrays,
 ; which is what makes the simpler code correct rather than merely smaller.
 %ifdef KERN_SMALL
-DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN.** This was 768 while
-                                 ; a listing held 32 entries: `.ovlw` is read
+DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN, AND IT STAYED ZERO
+                                 ; THROUGH THE CUT.** This was 768 while a
+                                 ; listing held 32 entries: `.ovlw` is read
                                  ; onto the FAT window and the mount buffers
                                  ; (SPEC.md 2.5.3), and taking the icon bodies
                                  ; out left the overlay short. Doubling
-                                 ; DSK_NENT puts 768 bytes of ENTRIES back in
+                                 ; DSK_NENT put 768 bytes of ENTRIES back in
                                  ; the same region, which is room the overlay
                                  ; can use and the listing also wants - so the
-                                 ; pad is not needed and the bytes now do a
-                                 ; job. kernel.asm's `.ovlw` %if is the guard
+                                 ; pad was not needed and the bytes did a job.
+                                 ;
+                                 ; SPEC.md 22.6.2 then took DSK_NENT back to
+                                 ; 32 and the pad did NOT come back with it,
+                                 ; which is the whole point of the order that
+                                 ; change was made in: SPEC.md 2.5.3.2 moved
+                                 ; 910 bytes of `.ovlw` into the blob FIRST,
+                                 ; so the overlay rounds to 2,048 and still
+                                 ; lands inside a 2,336-byte region. Cut the
+                                 ; listing without cutting `.ovlw` and this
+                                 ; constant is what has to absorb it - 736
+                                 ; bytes of DEAD `.lowbss`, and a shrink that
+                                 ; buys nothing. kernel.asm's `.ovlw` %if is
+                                 ; the guard that says which case you are in
 %endif
 
 ; **THERE IS NO PER-LISTING POOL ANY MORE** (SPEC.md 25.9). A listing owns one
@@ -113,7 +126,34 @@ DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the references
 ; entry (32 of directory + 64 of icon), so 64 entries is a 6KB claim, made by
 ; the driver at mount and mirrored per open Disk window by the file manager
 ; (SPEC.md 22.6). Both numbers are here so nothing can disagree about them.
+;
+; **AND IT IS PER-BUILD SINCE SPEC.md 22.6.2**: 64 on kern_big, 32 on
+; kern_small. Sixty-four was taken for the DOS box - "DOS directories are
+; busier than ours ever were: LEMMINGS 68 entries, F15 66, TD1 41" - and
+; kern_small has no DOS box: the plan to run one there was not realised, and
+; `build/small.img` / `build/small360.img` carry 12 root entries with 8 in the
+; busiest folder. So on that kernel the second 768 bytes of `disk_dir` list
+; nothing any disk it ships has, while `.lowbss` is the tightest rung in the
+; kernel and its bottom 2,112 bytes are what the boot overlay's window half
+; spills through.
+;
+; **IT DOES NOT MOVE ALONE.** `.ovlw` is loaded ONTO this region (SPEC.md
+; 2.5.3) and kernel.asm's guard is `roundup(OVLW_SIZE, 512) <= FAT_PARA*16 +
+; DSK_WIN_BYTES`: at 32 entries that ceiling is 2,336, so `.ovlw` has to be
+; 2,048 or less first. SPEC.md 2.5.3.2 is what makes it so - the serial mouse
+; probe and the adapter probe go in `.ovl` on this kernel, out of blob stage 1
+; already reads. Cutting this number on its own is a `%error`, and moving those
+; bodies on their own moves HEAP_SEG by NOTHING. The pair is the change.
+;
+; The arms are THIS WAY ROUND because tools/os88disk.py parses the first
+; `DSK_NENT equ <n>` out of this file for its per-directory build cap, and the
+; DEFAULT that cap wants is kern_big's; `--kern-small` is what selects the
+; other, and t_mirror is what would notice if the parse stopped working.
+%ifndef KERN_SMALL
 DSK_NENT     equ 64
+%else
+DSK_NENT     equ 32
+%endif
 DSK_VENT     equ 64
 DSK_VBYTES   equ DSK_VENT * DSK_DE_STRIDE + DSK_ICOIX_N   ; 1,600
 DSK_VKB      equ 2              ; ...and the WINDOW CACHE for one is 2KB where
@@ -210,7 +250,15 @@ dsk_ovlpad: resb DSK_OVLPAD     ; ...AND THE BOOT OVERLAY'S LANDING GROUND,
                                 ; not its listing, is what sizes this region.
                                 ; The %if in kernel.asm is what says whether
                                 ; the figure is still right, and shrinking
-                                ; `.ovlw` is what gives these bytes back
+                                ; `.ovlw` is what gives these bytes back -
+                                ; WHICH HAS NOW BEEN DONE (SPEC.md 2.5.3.2),
+                                ; and the bytes went to the LISTING's own cut
+                                ; rather than to this label: DSK_NENT 64 -> 32
+                                ; (SPEC.md 22.6.2) with DSK_OVLPAD still 0, so
+                                ; the region fell 3,136 -> 2,336 and HEAP_SEG
+                                ; with it. This label emits nothing today and
+                                ; is kept because the NEXT thing that joins
+                                ; `.ovlw` needs somewhere to be told about
 %endif
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base

@@ -104,7 +104,25 @@ vid_dbg_blk:
 ; What this buys is 256 bytes of the 64KB segment - the scarce guard - that
 ; stop existing when kmain gives the blob back.
 ; =============================================================================
-section .ovlw
+%ifndef KERN_SMALL
+section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3) -
+                                ; forfeit at the first mount, and this build's
+                                ; window has room to spare
+%else
+section .ovl                    ; ...and kern_small: the BLOB half instead
+                                ; (SPEC.md 2.5.3.2). Same deadline either way -
+                                ; every caller here runs before drv_boot - so
+                                ; the choice is only about WHOSE bytes: on this
+                                ; kernel `.ovlw` is what sizes the FAT window
+                                ; plus the mount buffers, and those bytes are
+                                ; the listing's. The blob is already read and
+                                ; has room, so the body goes there and the
+                                ; region sheds. `.ovl` is written LAST on
+                                ; purpose: tools/os88ovlchk.py reads SOURCE and
+                                ; cannot evaluate the %ifdef, so it files this
+                                ; block by the arm below - which is the build
+                                ; the check exists to protect
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_memchk - is there display RAM at this segment? (SPEC.md 39.11.1)

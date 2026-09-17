@@ -60,16 +60,25 @@ from harness import check, done                           # noqa: E402
 # `dsk_ovlpad` is NOT in this table on purpose: `DSK_OVLPAD` is 0 today
 # (dskwin.inc says "AND IT IS ZERO AGAIN"), so the label emits nothing and
 # never reaches the listing. Give it a row here if it is ever non-zero again.
+#
+# **AND THE ARMS ARE DIFFERENT AGAIN** (SPEC.md 22.6.2): `DSK_NENT` is 64 on
+# kern_big and 32 on kern_small, so `disk_dir` is 1,536 there and 768 here and
+# `dsk_icoix` follows it.  Sixty-four was taken for the DOS box and kern_small
+# has none; what makes the cut LANDABLE is SPEC.md 2.5.3.2, which moved the
+# serial mouse probe and the adapter probe into `.ovl` so that `.ovlw` rounds
+# to 2,048 and fits the smaller region.  The two are one change: the listing
+# cannot shrink under an overlay that needs the room, and the overlay moving
+# on its own moves HEAP_SEG by nothing.
 WANT = {
     "kern_big":   [("dsk_secbuf", 512), ("disk_dir", 1536),
                    ("dsk_icoix", 64)],
-    "kern_small": [("dsk_secbuf", 512), ("disk_dir", 1536),
-                   ("dsk_icoix", 64)],
+    "kern_small": [("dsk_secbuf", 512), ("disk_dir", 768),
+                   ("dsk_icoix", 32)],
 }
 FAT_BYTES = {"kern_big": 4608, "kern_small": 1024}   # DSK_FAT_SECS * 512
 # ...and what the two make between them: the region the boot overlay spills
 # through, and the part of it a whole-sector int 13h read can actually reach.
-REGION = {"kern_big": (6720, 6656), "kern_small": (3136, 3072)}
+REGION = {"kern_big": (6720, 6656), "kern_small": (2336, 2048)}
 SECTOR = 512
 # `disk_dir` is DSK_NENT * DSK_DE_STRIDE and DSK_DE_STRIDE is 24, not
 # DSK_DE_SIZE's 32 (SPEC.md 19.1): a staged listing does not carry the

@@ -705,6 +705,87 @@ last two was written against a defect it then found:
   canary caught the wreckage. Nothing named the overlay, which is the whole
   reason these are rules and not review.
 
+##### 2.5.3.2 …and on `kern_small` the halves are a BUILD CHOICE, because the window half is the LISTING's
+
+§2.5.3 splits the overlay by **deadline**, and most of what is in it does not
+care: a body whose every caller runs before `drv_boot`'s first mount is
+correct in `.ovlw` *and* correct in `.ovl`, the blob's lifetime being the
+longer of the two. For that class the half is a question about **whose bytes**,
+and the two kernels answer it differently.
+
+- On `kern_big` the window half is free real estate. Its region is 11,328
+  bytes (a 9-sector FAT window plus §2.1.2's 6,720) against a 5,120-byte
+  `.ovlw`, so there is no pressure and `.ovlw` wins on the entry: `OVWCALL` is
+  `call FAT_SEG:` at **5 bytes**, where the blob needs `OVLGATE1`'s **9**.
+- On `kern_small` the region is 2,336 bytes and **every byte of it is the Disk
+  window's listing**. `DSK_FAT_SECS` is 2, so the FAT window is 1,024 and
+  cannot fall (a 360KB floppy declares a 2-sector FAT, and §18.2 rule 10 is an
+  acceptance threshold, so 1 would refuse every volume the kernel can mount).
+  What is left is `dsk_secbuf` 512, `disk_dir` and `dsk_icoix` — and while
+  `.ovlw` needs them, they may not shrink.
+
+**That is the wall, and it is worth naming because it does not look like one.**
+`DSK_OVLPAD` is 0 today, so nothing in that region is dead padding and the
+arithmetic reads as if the listing were sized by the listing. It is not: cut
+`DSK_NENT` and the region falls below `roundup(OVLW_SIZE, 512)` and the build
+stops at the guard at the foot of `kernel.asm`. A session that went looking
+for icon bytes to save on this kernel hit exactly that and reported it as
+*"kern_small doesn't get smaller because I can't shrink the icon space,
+`.ovlw` is there."*
+
+So a body in this class carries **both** spellings, written once:
+
+```nasm
+%ifndef KERN_SMALL
+section .ovlw                   ; kern_big: the cheaper entry
+%else
+section .ovl                    ; kern_small: the bytes the region needs back
+%endif
+```
+
+…and its call site is `OVBCALL`, which is `OVWCALL` on one build and
+`OVLGATE1` on the other. **It is not a third kind of entry** — it expands to
+one of the two §2.5.3 already defines — and the four resident bytes a site
+costs `kern_small` are the whole price of the move.
+
+**Two bodies take it today**, chosen for size against call sites rather than
+for subject: `mouse.inc`'s serial probe (`mouse_init` and the four routines
+only it reaches — **648 bytes**, one site) and `vidsel.inc`'s adapter probe
+(`vid_probe_avail`, `vid_memchk`, `vid_cga_alias` — **262 bytes**, one site).
+910 bytes, 8 resident bytes of `.text`, and `.ovlw` goes 2,820 → **1,910**,
+which rounds to 2,048 and fits a 32-entry listing's 2,336 with 288 to spare.
+
+**It costs no disk read and no boot time**, which is the part that makes it a
+better trade than it was proposed as. The blob is `BOOT2_SECS` sectors
+*whatever `.ovl` contains* (§2.9.6), so on `kern_small` there were 1,561 bytes
+of blob that stage 1 was already reading and NASM was filling with zeros. The
+move spends those. `.ovlw`, meanwhile, is real file bytes at the end of the
+kernel image, so the image gets **910 bytes shorter** and `MODC_START` with
+it.
+
+**And on its own it is worth NOTHING.** Neither half is on the memory ladder:
+`.ovl` is inside the blob and `.ovlw` lands on a window the ladder reserved
+anyway, so moving a byte between them moves `HEAP_SEG` by zero — which is
+docs/plans/completed/KERN-SMALL-CUT-BUILT.md's *sections are not heap* stated
+one more time. What the move buys is **permission for the region to shed**,
+and the shedding is §22.6.2.
+
+Three rules bind a body that takes this:
+
+- **`.ovl` is written LAST** in the conditional. `tools/os88ovlchk.py` reads
+  source and cannot evaluate a `%ifdef`, so it files the block by the arm it
+  sees last — and the model it should carry is `kern_small`'s, that being the
+  build the split exists to protect. It is `filecp.inc`'s rule (§22.3.0) at a
+  different boundary and for the same reason.
+- **The whole near-call closure moves with it.** `.ovl` and `.ovlw` are
+  different address spaces, so a body that near-calls a neighbour takes the
+  neighbour. `mouse_init` reaches `mou_p2_init` on `kern_big` only, and the
+  PS/2 blocks — which `kern_small` does not assemble at all — carry the same
+  conditional so that the scanner's one model stays self-consistent.
+- **`OVBCALL` is held to the `.ovl` arm by rule 2d**, so aiming it at a body
+  that did *not* move fails the build, and aiming a plain `OVWCALL` at one
+  that did fails it the other way. Both were verified by breaking them.
+
 ### 2.6 Cold code — resident, but not in the segment
 
 `section .cold start=COLD_START vstart=0`, same contract as the overlay —
@@ -40670,7 +40751,7 @@ cap. They are now **four words** — `[dsk_dseg]`, `[dsk_doff]`, `[dsk_ioff]`,
 
 | | segment | entries | icons | cap |
 |---|---|---|---|---|
-| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 |
+| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 on `kern_big`, **32** on `kern_small` (§22.6.2) |
 | a driver-backed volume | its driver's claim | 0 | `DSK_VENT × 32` | `DSK_VENT` = 64 |
 
 The claim is **6KB** — 64 × (32 bytes of entry + 64 bytes of icon) — made by
@@ -40741,6 +40822,69 @@ goes back to a floppy and then holds a 32-entry listing in a 64-entry claim —
 which is precisely the disagreement this section is about, moved one field
 along. The byte costs nothing: it is `+15`, the second of the two `FS_FERR` /
 `FS_LDST` holes §59.5 left behind, and `FS_SIZE` does not move.
+
+#### 22.6.2 `DSK_NENT` is 64 on `kern_big` and 32 on `kern_small`
+
+Sixty-four was taken **for the DOS box**: DOS directories are busier than this
+OS's ever were — LEMMINGS 68 entries, F15 66, TD1 41 — and a listing that
+stops at 32 stops halfway down a real one. `kern_small` has no DOS box. The
+plan to run one there exists and **was not realised**, so a reader who takes
+the plan for a description of the tree will find an argument for 64 that does
+not apply to this kernel; the artefact is what settles it, and
+`build/small.img` and `build/small360.img` carry **12 root entries with 8 in
+the busiest folder**.
+
+So `disk_dir` is 768 bytes there rather than 1,536 and `dsk_icoix` 32 rather
+than 64:
+
+```
+                                  kern_big   kern_small
+dsk_secbuf                             512          512
+disk_dir       (DSK_NENT x 24)       1,536          768
+dsk_icoix      (DSK_ICOIX_N)            64           32
+                                   -------      -------
+DSK_WIN_BYTES                        2,112        1,312
+FAT window     (DSK_FAT_SECS x 512)  4,608        1,024
+                                   -------      -------
+region                               6,720        2,336
+```
+
+**800 bytes of `.lowbss`**, and on the tightest rung in the kernel they are
+worth more than that: `LOW_PARA` is `((KLOW_SIZE + STK0_SIZE + 511) / 512) *
+32`, so `.lowbss` 5,236 → 4,436 uncrosses a whole 512-byte step and
+`HEAP_SEG` falls 64 paragraphs. **1,024 bytes of heap on a machine with
+128KB**, measured on `kernsize`'s ladder line: `HEAP 0x12c0 = 75.0 KB` →
+`HEAP 0x1280 = 74.0 KB`. The banner rule applies in the usual direction —
+the 800 bytes are what the change is worth and the 1,024 is when the machine
+pays it — and here the rung happened to fall the generous way.
+
+**It cannot be taken on its own, and that is §2.5.3.2.** `.ovlw` is loaded
+onto this region and the guard is
+`roundup(OVLW_SIZE, 512) <= FAT_PARA*16 + DSK_WIN_BYTES`. At 32 entries the
+ceiling is 2,336, so `.ovlw` has to be **2,048 or less** first, and it was
+2,820. Moving the mouse and adapter probes into `.ovl` is what makes room;
+moving them on their own moves `HEAP_SEG` by **zero**. Neither half is a
+change anybody can land alone.
+
+**32 is a multiple of 32 and that is a requirement**: `files.inc`'s `FS_IOFH`
+holds a listing's icon base in ONE byte, so `DSK_NENT × DSK_DE_STRIDE` must be
+a multiple of 256 — at a stride of 24 that makes 32 the only legal value below
+64, and 0 the only one below 32. The value is therefore not a dial.
+
+**Nothing on `kern_small` can want 64.** `[dsk_nmax]` is only ever raised to
+`DSK_VENT` by `dsk_list_pick`, for a `DVK_DRV` volume, and §51.0 takes the
+loadable-driver mechanism out of that build entirely — `DVOL_MAX` is 4 there
+for the same reason, every volume it will ever have being a BIOS floppy.
+`fmv_fit`'s `cmp word [dsk_nmax], DSK_NENT` therefore always takes the
+`VIEW_KB` arm.
+
+**And the host side reads the number rather than mirroring it.**
+`tools/os88disk.py` refuses a disk with more listed entries in a directory
+than the kernel can show, and it parses `DSK_NENT` out of `kernel/dskwin.inc`
+instead of restating it. With two arms in that file it now parses **both**,
+defaults to `kern_big`'s, and takes `--kern-small` on exactly the four
+recipes that already pass `--fatcap 2` — one fact about one disk, said about
+its FAT and about its listing.
 
 ### 22.7 The status line's resting state — this folder's size, this volume's free space
 
@@ -44059,6 +44203,20 @@ read onto the FAT window and the mount buffers (SPEC.md 2.5.3), so the icon
 array had a SECOND JOB nobody had written down: it was the boot overlay's
 landing ground. Shrinking the listing takes that room away, so the pad replaces
 it by name - dead at runtime, and returned the day `.ovlw` shrinks.
+
+**AND IT WAS, TWICE, so `DSK_OVLPAD` is 0 today.** First `DSK_NENT` doubled to
+64 and put 768 bytes of real ENTRIES back in the same region, which the
+overlay could use and the listing also wanted — a pad is only ever the bytes
+nothing else is doing a job with. Then §22.6.2 took `DSK_NENT` back to 32 on
+this kernel, and that is the shed this paragraph was waiting for: §2.5.3.2
+moved 910 bytes of `.ovlw` into the blob first, so the region could fall
+3,136 → 2,336 with the overlay still landing inside it. The pad stayed at
+zero throughout and the 800 bytes went to the heap rather than to a label.
+**The order is the whole lesson**: the listing cannot shrink under an overlay
+that needs the room, so a session that comes here looking for icon bytes to
+save on `kern_small` must cut `.ovlw` before it cuts anything in the
+region — one did, hit the guard, and reported it as the icon space being
+unshrinkable.
 
 #### 25.9.4 `ASSOC.DAT` absorbs INTO it, which is what lets that claim go
 

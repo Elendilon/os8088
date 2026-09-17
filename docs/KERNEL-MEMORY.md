@@ -180,9 +180,11 @@ line:
 - **`boot`** — the same size against guard 5.
 - **`segment`** — `.text` + `.bss` against guard 2.
 - **`ladder`** — every segment base, and the line every RAM figure in the
-  project falls out of: **heap KB = int 12h − 111.5** on `kern_big`
-  (**80.5** on `kern_small`; both move with every rung crossing — re-read
-  the line rather than carrying the number).
+  project falls out of: **heap KB = int 12h − 110.5** on `kern_big`
+  (**74.0** on `kern_small`; both move with every rung crossing — re-read
+  the line rather than carrying the number, which is exactly what the two
+  figures in this bullet failed at: they read 111.5 and 80.5 for a while
+  after the kernel had come down under both).
 - **`*** ... CROSSED`** (or `UNCROSSED`) — the BILLING EVENT: the machine's
   RAM moved.
 
@@ -327,17 +329,20 @@ not a section move.
 | `.vgabuf` (848) | `VGABUF_SEG` 0x1BA0 | 1,024 | `vga_p4tab` and `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder. **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 1,024 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
 | **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1BE0 | **112,640** | 111.5 KB on VGA, 110.5 on a 1bpp adapter |
 
-`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0B60  FAT 0x1240  LOW 0x1280
-HEAP 0x1420` — **80,896 bytes, 80.5 KB** — so a 128KB machine has 47.5 KB of
+`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0a80  FAT 0x1100  LOW 0x1140
+HEAP 0x1280` — **74,240 bytes, 74.0 KB** — so a 128KB machine has 54.0 KB of
 heap by arithmetic; `tests/small128.py` boots one under MartyPC and reads
-what is actually free after the boot-time claims (50.5 KB when `kend` was
-78.0 KB, docs/plans/completed/KERN-SMALL-CUT-BUILT.md). A 640KB machine
-reporting 639KB has ~527 KB under `kern_big` before any driver or read-ahead
+what is actually free after the boot-time claims, and on this tree the two
+AGREE: **55,296 bytes = 54.0 KB, with no pinned claim standing**. The last
+kilobyte of that is SPEC.md 22.6.2's `DSK_NENT` cut, which took `.lowbss`
+5,236 → 4,436 and the low rung two 512-byte steps with it. A 640KB machine
+reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
 claim.
 
-**Not in the span**: the boot overlay (`.ovl` 1,417 bytes in stage 2's blob,
-`.ovlw` 5,037 bytes loaded onto the FAT window and the mount buffers, both
-dead by the first desktop — see below), the on-demand modules (files read
+**Not in the span**: the boot overlay (`.ovl` 1,511 bytes in stage 2's blob,
+`.ovlw` 5,084 bytes loaded onto the FAT window and the mount buffers, both
+dead by the first desktop — see below; on `kern_small` the split is a BUILD
+CHOICE and reads 1,333 / 1,910, SPEC.md §2.5.3.2), the on-demand modules (files read
 into a heap claim when asked for, §2.8), and the menu save-under, which is a
 heap claim taken by `menu_drop` and released before the picked item runs,
 sized from the rect actually dropped (`menu_save_kb`, §12.4; `MENU_SAVE_KB`

@@ -2158,6 +2158,18 @@ DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
                                 ; the cap fits with 1,280 to spare. The clock
                                 ; was 40% of that overlay and this is what it
                                 ; was really worth.
+                                ;
+                                ; **AND THIS NUMBER IS THE ONE HALF OF THE
+                                ; REGION THAT CANNOT MOVE.** The other half is
+                                ; DSK_WIN_BYTES, which SPEC.md 22.6.2 has just
+                                ; cut 2,112 -> 1,312; this one is at its floor
+                                ; already, because the SMALLEST geometry this
+                                ; OS boots - a 360KB floppy - declares a
+                                ; 2-sector FAT, and rule 10 is an ACCEPTANCE
+                                ; threshold rather than a buffer, so 1 would
+                                ; refuse every volume rather than merely list
+                                ; less of one. Region 1,024 + 1,312 = 2,336,
+                                ; and the `.ovlw` guard is what holds it.
 %else
 DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; Exactly what the largest geometry this OS
@@ -5141,6 +5153,35 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
     call spl_gate
 %endmacro
 
+; OVBCALL - into whichever half THIS BUILD put the body in (SPEC.md 2.5.3.2).
+; A boot-only body that finishes before the first mount may live in EITHER
+; half: `.ovlw` is the cheaper entry (5 bytes against 9) and `.ovl` is the one
+; whose bytes cost the FAT window nothing. kern_big takes the cheap entry,
+; its window having 6,208 bytes of slack; kern_small takes the blob, because
+; the region `.ovlw` lands on is what stops the mount buffers shedding (the
+; `.ovlw` guard at the foot of this file, and DSK_NENT in dskwin.inc).
+;
+; **IT IS NOT A THIRD KIND OF ENTRY** - it expands to one of the two above and
+; nothing else, so there is nothing new at the site to get wrong. What it buys
+; is that the two arms are written ONCE, here, rather than at every call site.
+; The four resident bytes it costs kern_small per site are the whole price of
+; the move, and there are two sites.
+;
+; tools/os88ovlchk.py knows this name (MACHALF) and holds it to the `.ovl`
+; arm, which is the kern_small model that every build-conditional `section`
+; in the tree is written to - so an OVBCALL aimed at a body that did NOT move
+; fails rule 2d exactly as a mismatched OVLGATE1 would, and an OVWCALL aimed
+; at one that DID fails it the other way.
+%ifdef KERN_SMALL
+%macro OVBCALL 1
+    OVLGATE1 %1
+%endmacro
+%else
+%macro OVBCALL 1
+    OVWCALL %1
+%endmacro
+%endif
+
 ; SPLSTUB - one three-instruction landing per SHARED target, emitted at the gate
 %macro SPLSTUB 1
 splg_%1:
@@ -5276,7 +5317,7 @@ kmain:
                                 ; vidsel.inc executes what has not loaded yet
 %endif
     MARK 9
-    OVWCALL  vid_probe_avail    ; ...and which OTHER adapters this machine has
+    OVBCALL  vid_probe_avail    ; ...and which OTHER adapters this machine has
                                 ; (SPEC.md 39.11.1). AFTER the mode is set, and
                                 ; that is the whole correctness argument: a VGA
                                 ; in mode 12h decodes A000 only, so B000 and
@@ -5385,7 +5426,9 @@ kmain:
     OVLGATE1 ovl_spl_msg_mouse   ; ...and SAY SO (SPEC.md 15.6.4). AFTER the
                                 ; notch, which is what raises [spl_live]:
                                 ; composed before it, the line is never drawn
-    OVWCALL  mouse_init         ; IRQ4 live; cursor stays hidden until shown
+    OVBCALL  mouse_init         ; IRQ4 live; cursor stays hidden until shown.
+                                ; OVBCALL, not OVWCALL: the serial probe is in
+                                ; `.ovl` on kern_small (SPEC.md 2.5.3.2)
     MARK 19
     BPMARK 5                    ; ...and SPEC.md 9.4.1's two waits, which are
                                 ; the largest phase of a boot that is not
@@ -7488,11 +7531,24 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 ; to a whole sector and the payload rounded UP to one. That was the same
 ; number while the region was 8,192 - the mount window being 7 x 512 exactly -
 ; and it stopped being when SPEC.md 19.1's staged listing narrowed to
-; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. The region is 7,936
-; now, of which 7,680 is readable, and comparing against 7,936 would pass a
-; 15.5-sector overlay whose sixteenth sector lands on vid_rowtab.
+; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. Comparing against the
+; raw region would pass an overlay whose LAST sector lands on vid_rowtab.
+;
+; The two builds are a long way apart here and both are measured:
+;
+;   kern_big    region 6,720 (4,608 + 2,112), readable 6,656, `.ovlw` 5,084
+;               -> 5,120 rounded. 1,536 spare.
+;   kern_small  region 2,336 (1,024 + 1,312), readable 2,048, `.ovlw` 1,910
+;               -> 2,048 rounded. 288 spare.
+;
+; **kern_small is the binding one and it is a two-sided guard there**: the
+; region is the Disk window's LISTING (SPEC.md 22.6.2) and the payload is what
+; SPEC.md 2.5.3.2 did not move into the blob, so a byte added to `.ovlw` and a
+; byte given to `disk_dir` fail this in the same way. `.ovl` on that build has
+; 651 bytes of blob left, which is where an `.ovlw` body goes when this stops
+; fitting; kern_big's `.ovl` has 473, so kern_big is still what binds the blob.
 %if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
-%error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3"
+%error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3. ON kern_small BOTH SIDES MOVE: the region is DSK_NENT's listing (22.6.2) and the payload is what 2.5.3.2 left in `.ovlw`, so either add a body to the OVBCALL set or put the listing back"
 %endif
 
 ; --- the on-demand modules' file positions (SPEC.md 2.8) ---------------------
