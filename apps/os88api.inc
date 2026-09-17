@@ -1763,16 +1763,24 @@ SS_TMAX    equ 16               ; the LAYOUT's ceiling on MAX_TASKS, so the
                                 ; written past its own buffer by exactly that
 SS_TCYC    equ SS_TSTATE + SS_TMAX         ; SS_TMAX dwords: MAX_TASKS dwords: cycles per task
 SS_INST    equ SS_TCYC + SS_TMAX * 4       ; ...then the instance records
+; A SNAPSHOT RECORD IS THE KERNEL'S OWN INSTANCE RECORD, copied verbatim
+; (SPEC.md 29.1.2) - which is why the fields sit where they do and why the
+; stride is 32. Read them by NAME: the kernel owns these numbers and a
+; renumber changes this file and kernel/instance.inc together, the standing
+; arrangement MAX_TASKS, INST_MAX and MEM_MAX are already under.
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
-SSI_TASK   equ 1                ; byte: its task slot, 0xFF = task-less
+SSI_FLAGS  equ 1                ; byte: bit 0 = minimized (was a pad)
 SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
-SSI_RSVD   equ 3                ; byte: pad
-SSI_SIZE   equ 4                ; word: its region in BYTES, 0 for a built-in
+SSI_TASK   equ 3                ; byte: its task slot, 0xFF = task-less
+SSI_WIN    equ 4                ; word: OPAQUE - the kernel's own window record.
+                                ; Non-zero means "has a window"; it is not an
+                                ; address you may do anything else with
 SSI_SEG    equ 6                ; word: the region's base segment
-SSI_CYC    equ 8                ; dword: cycles billed to its callbacks
-SSI_KB     equ 12               ; word: KB it holds off the claim heap
-SSI_NAME   equ 14               ; 16 bytes: its name, NUL-terminated
-SSI_RECSZ  equ 30
+SSI_SIZE   equ 8                ; word: its region in BYTES, 0 for a built-in
+SSI_KB     equ 10               ; word: KB it holds off the claim heap
+SSI_NAME   equ 12               ; 16 bytes: its name, NUL-terminated
+SSI_CYC    equ 28               ; dword: cycles billed to its callbacks
+SSI_RECSZ  equ 32
 SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
 
 ; --- OSAPI_CLAIM_SNAPSHOT's buffer -----------------------------------------------
