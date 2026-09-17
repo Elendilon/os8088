@@ -773,16 +773,15 @@ fmv_get_icon:
     call fmv_copy_in            ; the first byte past the array and still
                                 ; inside the claim; it is overwritten below
     mov al, [dsk_ico]
-    call dsk_ico_ref_at         ; ...and THE BODY COMES OUT OF THE ONE STORE
-    jc .none                    ; (SPEC.md 25.9). The window used to carry its
-    mov di, dsk_ico             ; own copy of every body - 64 bytes an entry -
-    mov cx, DSK_ICO_SIZE        ; which is what a volume-independent key makes
-    mov ax, KERNEL_SEG          ; unnecessary: the reference resolves whatever
-    call dsk_copy_seg_x         ; is mounted now
-    jmp short .out
-.none:
-    call dsk_ico_blank
-.out:
+    call dsk_ico_stage          ; ...and THE BODY COMES OUT OF THE ONE STORE
+                                ; (SPEC.md 25.9). The window used to carry its
+                                ; own copy of every body - 64 bytes an entry -
+                                ; which is what a volume-independent key makes
+                                ; unnecessary: the reference resolves whatever
+                                ; is mounted now. Staging it - the resolve,
+                                ; the 64-byte copy and the all-zero fallback -
+                                ; is disk.inc's routine and was written out a
+                                ; second time here
     pop di
     pop si
     pop dx
