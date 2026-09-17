@@ -5720,8 +5720,28 @@ os88ui_kbtn:
 ; Packages never see either: both are inside %ifdef OS88UI_KERNEL.
 ; -----------------------------------------------------------------------------
 os88ui_btn_f:
-    call os88ui_btn
-    retf
+    call os88ui_kbtn            ; **os88ui_kbtn AND NOT os88ui_btn.** This
+    retf                        ; entry's published contract is BX = a RECT,
+                                ; SI = the label, DI = the flags - the
+                                ; loose-register one - and the far callers are
+                                ; ctrl.inc and hiber.inc, which are on-demand
+                                ; modules with a CS of their own and cannot be
+                                ; converted by editing apps/ or kernel/ alone.
+                                ; os88ui_kbtn is exactly that contract staged
+                                ; into the one control, so the far side is
+                                ; unchanged and there is still only one
+                                ; painter underneath.
+                                ;
+                                ; It pointed straight at os88ui_btn for one
+                                ; build and that was a REGRESSION: os88ui_btn
+                                ; takes a RECORD now, so a rect arrived where
+                                ; a record was expected, the live count and
+                                ; the rect pointer were read out of the rect's
+                                ; own coordinates, and the Control Panel's
+                                ; Date/Time page filled the whole screen white
+                                ; while Theme lost its buttons. A FAR call is
+                                ; invisible to a grep for `call os88ui_btn`,
+                                ; which is how the sweep missed both.
 %ifdef OS88UI_ARM
 ; ...and the arm's three, for ctrl.inc - which is an ON-DEMAND MODULE
 ; (SPEC.md 2.8) running from a heap claim with a CS of its own, so it reaches
