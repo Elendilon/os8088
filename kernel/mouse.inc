@@ -2622,25 +2622,30 @@ kbd_track:
     call kbd_bit
     test al, 0x80               ; bit 7 = break
     jnz .up
-    test [kbd_dnmap+bx], ah     ; ALREADY down, so this make is a TYPEMATIC
-    jnz .out                    ; REPEAT and not a press (SPEC.md 9.7.1). The
-                                ; bit is set either way, so the store below is
-                                ; skipped with it - what must not happen twice
-                                ; is the latch, a toggle armed by the ROM's own
-                                ; ~10Hz repeat being a screen that flickers
-                                ; between two modes for as long as a key is
-                                ; held. 9.7's opening is that int 16h cannot
-                                ; tell a repeat from a press; the map is
-                                ; exactly what carries the difference
-    or [kbd_dnmap+bx], ah
-    cmp al, KSC_ENTER           ; ...and Enter pressed with Alt ALREADY held is
-    jne .out                    ; the one combination no XT BIOS delivers at
+    cmp al, KSC_ENTER           ; Enter's MAKE with Alt ALREADY held is the one
+    jne .set                    ; combination no XT BIOS delivers at all (SPEC.md
+                                ; 9.7.1) - so the kernel reads the scancode,
+                                ; exactly as 9.6.4 reads keypad 5's. CHEAPEST
+                                ; TEST FIRST: every other keystroke in the
+                                ; machine leaves on these two bytes
+    test [kbd_dnmap+bx], ah     ; ...unless Enter is ALREADY down, which makes
+    jnz .set                    ; this the ROM's own ~10Hz typematic repeat and
+                                ; not a press. 9.7's opening is that int 16h
+                                ; cannot tell the two apart; the map is exactly
+                                ; what carries the difference, and without this
+                                ; a held Alt+Enter is a toggle firing ten times
+                                ; a second
     test byte [kbd_dnmap + (KSC_ALT >> 3)], 1 << (KSC_ALT & 7)
-    jz .out                     ; all (SPEC.md 9.7.1) - so the kernel reads the
-    mov byte [kbd_ae], 1        ; scancode, exactly as 9.6.4 reads keypad 5's.
-                                ; Spent in TASK context by ui_task, so IRQ1
-                                ; queues nothing and this needed no new rule
-    jmp short .out              ; about what an ISR may call
+    jz .set
+    mov [kbd_ae], al            ; AL IS KSC_ENTER HERE, so the latch carries the
+                                ; SCANCODE rather than a flag - which is what
+                                ; lets ui_task spend it into AX without naming
+                                ; the key a second time. Spent in TASK context,
+                                ; so IRQ1 queues nothing and this needed no new
+                                ; rule about what an ISR may call
+.set:
+    or [kbd_dnmap+bx], ah
+    jmp short .out
 .up:
     not ah
     and [kbd_dnmap+bx], ah
@@ -2682,33 +2687,6 @@ kbd_down:
     jnz .z                      ; below is still testing the dec
     mov byte [kbd_armed], 1     ; ...and only NOW may the ISR write here
     jmp short .go
-
-; -----------------------------------------------------------------------------
-; kbd_aeclaim - a BIOS that DOES deliver Alt+Enter (SPEC.md 9.7.1)
-; in:  AL = ascii, AH = scan, as int 16h returned them
-; out: AL normalised to 0 when this was Alt+Enter; every other register kept
-;
-; SPEC.md 9.6.4's rule one key along, and for its reason: without the clear
-; below, a delivering BIOS fires BOTH paths and one press toggles a mode twice.
-; The normalisation is the other half - SeaBIOS says 1CF0 and an enhanced ROM
-; says 1C00, and a package may not have to know which of them it is on, so the
-; kernel makes the promise true instead of each app re-deriving it.
-;
-; AH = 1C is the Enter key's scancode whatever rides in AL, so the two ASCII
-; values it carries legitimately are what this has to step around: 0Dh typed
-; (and with Shift, which is the same byte) and 0Ah with Ctrl.
-; -----------------------------------------------------------------------------
-kbd_aeclaim:
-    cmp ah, KSC_ENTER
-    jne .out
-    cmp al, 13                  ; typed, or with Shift
-    je .out
-    cmp al, 10                  ; ...or with Ctrl
-    je .out
-    xor al, al                  ; ...so it is Alt+Enter, whichever byte this
-    mov [kbd_ae], al            ; ROM chose to say so with - and the latch the
-.out:                           ; ISR set for the SAME press is spent here
-    ret
 
 ; =============================================================================
 ; The overrun guard (SPEC.md 9.8) - A FULL BIOS BUFFER IS A HANG, NOT A BEEP
@@ -3051,14 +3029,18 @@ kbm_slast   db 0                ; the ScrollLock level kbm_ui last saw (9.6.2)
 kbm_eat     db 0                ; kbm_pollm: eat a key we did not claim
 kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 kbd_ae      db 0                ; SPEC.md 9.7.1: an Alt+Enter the ISR saw and
-                                ; ui_task has not spent yet. .text with a real
-                                ; initialiser for kbd_armed's OWN reason below
-                                ; - kbd_track writes it from inside int 09h, so
-                                ; it must read 0 from the machine's first
-                                ; keystroke and not from whatever padding the
-                                ; boot read lands on a .bss byte (SPEC.md
-                                ; 12.8.5.1). Cleared again by fsx_restore: a
-                                ; bracket that owned the screen owned this too
+                                ; ui_task has not spent yet, held as the
+                                ; SCANCODE (KSC_ENTER) rather than a flag - so
+                                ; the spend is one xchg into AH and the AX a
+                                ; W_ONKEY sees is built without naming the key
+                                ; twice. .text with a real initialiser for
+                                ; kbd_armed's OWN reason below - kbd_track
+                                ; writes it from inside int 09h, so it must
+                                ; read 0 from the machine's first keystroke and
+                                ; not from whatever padding the boot read lands
+                                ; on a .bss byte (SPEC.md 12.8.5.1). Cleared
+                                ; again by fsx_restore: a bracket that owned
+                                ; the screen owned this too
 kbd_armed   db 0                ; SPEC.md 9.7: has anything ever ASKED for key
                                 ; state? Until it has, kbm_isr does not read
                                 ; the port for it. .text with a real
