@@ -5177,6 +5177,7 @@ dos_hk_bind:
     mov word [dos_hkv + DHK_POLL], dos_hk_poll
     mov word [dos_hkv + DHK_TTY],  dos_hk_tty
     mov word [dos_hkv + DHK_MOUSE], dos_hk_mouse
+    mov word [dos_hkv + DHK_TXT],  dos_hk_txt
     mov word [dos_hkv + DHK_CLAIM], dos_hk_claim
     mov word [dos_hkv + DHK_FREE],  dos_hk_free
     pop ax
@@ -5234,6 +5235,47 @@ dos_hk_tty:
     clc
     ret
 .rom:
+    stc
+    ret
+
+; --- dos_hk_txt - DHK_TXT: the text screen the mouse cursor may draw on ------
+; out: ES = the segment, BX = columns, DX = rows, CF=1 = there is none
+;
+; **THIS HOST HAS ONE TOO, and 96.10.5.1 first said it did not** - on the
+; reasoning that in the window the OS owns every pixel and `B800` is the
+; kernel's. That is true OUTSIDE the fullscreen bracket and a DOS program is
+; NEVER outside it: `dos_fsx_main` calls `OSAPI_FSX_MODE` with `FSXM_TEXT80`
+; before the program is entered, and the kernel hands back the surface in
+; `dos_fsi` - which is the very screen `con_tx_ice` has been writing the DOS
+; console into since 96.34.4.
+;
+; **AND THE BDA WOULD HAVE BEEN THE WRONG SOURCE HERE**, which is why this is
+; a hook and not one shared body: `OSAPI_FSX_CAPS` answers the DISPLAY's own
+; kind for a window that is not on the primary (53.7.1), so the BDA describes
+; the machine where FSI describes the surface this bracket was given.
+; `kern_dos` has no bracket and reads the BDA; this host has a bracket and
+; reads its record. Two hosts, two bodies, one core (96.44.3).
+dos_hk_txt:
+    mov ax, [dos_fsi + FSI_SEG]
+    or ax, ax
+    jz .no                          ; no bracket up: the record is still the
+                                    ; zero a bss arrives as
+    cmp byte [dos_fsi + FSI_BPP], 0 ; TEXT is bpp 0 (apps/os88api.inc). A
+    jne .no                         ; GRAPHICS bracket is function 09h's
+                                    ; bitmap cursor, which is a different
+                                    ; feature and not this one
+    mov bx, [dos_fsi + FSI_W]       ; COLUMNS in a text mode
+    or bh, bh                       ; ...and it must fit a byte, because the
+    jnz .no                         ; core's `row * columns` is a `mul bl`
+    or bl, bl
+    jz .no
+    mov dx, [dos_fsi + FSI_H]       ; ROWS
+    or dx, dx
+    jz .no
+    mov es, ax
+    clc
+    ret
+.no:
     stc
     ret
 
@@ -10595,6 +10637,14 @@ dos_int33:
     je .press                      ; the screen has not borrowed the arrow
     cmp ax, 6
     je .release
+    cmp ax, 7
+    je .none                       ; set the X / Y RANGE. We clamp nothing -
+    cmp ax, 8                      ; the host's pointer is already inside the
+    je .none                       ; screen - so these are no-ops, but they
+                                   ; must be no-ops that LEAVE AX ALONE, which
+                                   ; is the whole of SPEC.md 96.10.6 and is
+                                   ; what Microsoft Works reads as "is there a
+                                   ; mouse"
     cmp ax, 0x0A
     je .tcur
     cmp ax, 0x0B
@@ -10756,7 +10806,25 @@ dos_int33:
     xor ax, ax
     jmp short .out
 .none:
-    xor ax, ax                     ; INT 33h's "not supported"
+    ; **AX IS LEFT EXACTLY AS IT CAME IN, and that is SPEC.md 96.10.6.** This
+    ; used to be `xor ax, ax` under a comment reading *"INT 33h's not
+    ; supported"* - and INT 33h HAS NO SUCH CONVENTION. A function that
+    ; documents no output leaves the registers alone, so a real driver comes
+    ; back with AX still holding the function number, and zeroing it is not a
+    ; polite refusal: it is an ANSWER, to a question the caller may be asking.
+    ;
+    ; MICROSOFT WORKS IS THAT CALLER and it cost this box the whole feature
+    ; (docs/FIELD-NOTES.md 54). Its mouse init is
+    ;
+    ;       mov ax, 8 / int 33h        ; set the Y range - no return value
+    ;       mov [98CAh], al            ; ...AND THAT IS THE `mouse present`
+    ;                                  ; FLAG
+    ;
+    ; so our zero told it there was no mouse, at the END of an init sequence
+    ; every call of which we had answered correctly. It then never asks for a
+    ; cursor (01h) and never polls the position (03h) - while the event
+    ; handler it installed at 0Ch keeps being called, so the buttons work and
+    ; nothing is ever drawn. A defect that presents as HALF a working mouse.
 .out:
     pop di
     pop si

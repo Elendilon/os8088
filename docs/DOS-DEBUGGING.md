@@ -41,9 +41,24 @@ correct, right up to the call where the two sequences stopped agreeing.
 | runs align, one side has extra calls | the program **branched** — read the last agreed call |
 | same site, same arguments, different answer | **we answered wrong** — this is the common one |
 | same site, same answer, program diverges later | the program read something with **no call in it** — PSP, BDA, IVT, its own memory |
-| nothing aligns at all | different program, or one trace wrapped |
+| nothing aligns at all | different program, one trace wrapped, **or the program runs from a dynamically-placed OVERLAY** — see below |
 
-The third row is the one to be ready for. `--state` dumps the PSP, the IVT,
+**A program that executes out of overlays breaks the alignment key, and the
+failure looks like "nothing aligns at all".** The key is `CS - PSP : IP`, on
+the reasoning that it does not move between two machines that loaded the
+program at different addresses — which is true of the base image and false of
+an overlay, whose segment depends on how much memory was free. Microsoft
+Works is that program: aligning two of its runs reported **1 call of 130
+aligned**, with the IPs matching exactly (`0398`, `0404`, `063C`, `0610`) and
+only the segment bases differing (`636F` against `8D7E`).
+
+**The tell is in the gap listing itself**: `os8088 alone` and `dos alone`
+print the same functions at the same `:IP` with a different `+segment`. When
+you see that, re-align on `(function, IP)` alone and the divergence falls out
+in one pass — docs/FIELD-NOTES.md 54 is the worked example, and it is how
+§96.10.6 was found after two rounds of looking at the wrong subject.
+
+The third row of the table is the one to be ready for. `--state` dumps the PSP, the IVT,
 the BDA and the box's handle table for exactly that case; §96.21.4 is eight
 PSP fields that were zero here and are not zero under DOS, found that way.
 
