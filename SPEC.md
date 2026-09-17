@@ -49019,6 +49019,44 @@ care (`inst_find_kind`, and `app_launch`'s cap check by way of not caring) ask
 `I_STATE` themselves. A **free** record is not a walk: `inst_alloc` is looking
 for exactly the row this skips, and keeps its own scan.
 
+`files.inc`'s **`fm_reloc`** is the sixth caller and the only one outside this
+file — the listing cache's relocation proc (§66.6), which walks the Disk
+instances to find the one holding the block being moved.
+
+##### 29.1.1.1 The five walks that are NOT this one
+
+Every other `inst_tab` walk in the kernel was costed against `inst_next` and
+each is refused for a reason worth writing down, because the reasons are
+different and four of them are not about bytes.
+
+1. **`dock.inc`'s tile loop and `dockmod.inc`'s `.walk` are PER-SLOT, not
+   per-record.** `db_key` answers 0 for a free or dying row *on purpose*
+   (§29.2 rule 3) and the loop carries three cursors in lockstep — the record,
+   the `dock_ck` key beside it and the slot index — so a row this walk skipped
+   is a tile the strip would never notice had **gone**. `dockmod.inc`'s `.walk`
+   writes the slot index itself into `dock_pos`. A walk that skips rows cannot
+   answer either question.
+2. **`fsx.inc`'s sound-release loop is per-slot for the same reason one step
+   along**: `snd_release_inst` takes `AL = instance slot` (§34.3) and the loop
+   carries it as an `inc al`, while DI holds the *caller's* record — the one
+   grant that stays — and `inst_next` writes DI.
+3. **`dockmod.inc`'s `.count` IS this walk, and converting it would cost
+   resident bytes to save module ones.** `DOCK.DRV` is an on-demand module
+   (§2.8, §30.5) whose only route into the kernel is a resident far thunk, so
+   the conversion is `+6` bytes of `.text` on every machine for about `-4` in
+   an image that is present only while the advanced Dock is mounted, on
+   kern_big alone. Different money (docs/KERNEL-MEMORY.md), and the wrong way
+   round.
+4. **`files.inc`'s `fm_count` IS this walk — `I_STATE != 0`, exactly — and it
+   is `.cold`.** `inst_next` is `.text`, and the two are different address
+   spaces (§2.6), so it would need a `.cold` twin: 18 bytes to save 9.
+5. **`files.inc`'s `fmv_ifirst`/`fmv_inext` is this walk, arrived at
+   independently and one filter further on** — the same `inst_tab - I_RECSZ`
+   start, the same pointer bound, the same CF contract, with `I_STATE = 1` and
+   `I_KIND = KIND_FILES` folded in and seven callers in `.cold`. It is not a
+   site to convert; it is the same design, and the section split is why there
+   are two of them rather than one.
+
 #### 29.1.2 …and `osapi_sys_snapshot`'s record IS this record
 
 `OSAPI_SYS_SNAPSHOT` (§20.9) publishes one `SSI_*` record per instance, and

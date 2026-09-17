@@ -1029,10 +1029,15 @@ inst_ptr:
 ; of them carried the same `; I_RECSZ = 32` comment, which is a duplicate
 ; asking to be one.
 ;
-; THE SWEEP IS NOT FINISHED, and the sentence above reads as though it were.
-; Sites still compute `(ptr - inst_tab) >> 5` by hand, two of them in THIS
-; file within a few hundred lines, and two more are separate helpers doing the
-; identical thing into BX. Grep `sub .*inst_tab` before adding a seventh.
+; THE SWEEP IS FINISHED NOW, and there are exactly TWO bodies left because
+; there have to be: this one, and loader.inc's `ld_slot`, which is the same
+; arithmetic into BX in `.cold` - the two sections are different address
+; spaces (SPEC.md 2.6) and a shim between them costs 5 `.text` bytes against
+; ld_slot's 13. `inst_fhome_idx` below is this body with a different output
+; register and nothing else. Every hand-rolled copy is gone - app_launch's,
+; inst_pkg_spawn's, loader.inc's `.abort`, files.inc's two - so
+; `grep 'sub .*inst_tab' kernel/` answers with the two bodies and nothing
+; else. KEEP IT THAT WAY: add a third and the grep stops being the check.
 ; -----------------------------------------------------------------------------
 inst_idx:
     push cx
