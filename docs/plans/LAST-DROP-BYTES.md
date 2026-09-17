@@ -835,6 +835,88 @@ python3 tests/unit/t_blobruns.py --sectors 19
 python3 tools/os88ovlchk.py                    # from a tree root; 11 checks
 ```
 
+### 7.8 The Dock's routing is at its floor at 112 bytes — three cheaper schemes, all refused
+
+SPEC.md 30.5's fourteen Dock operations cost `kern_big` **112 resident bytes**:
+fourteen four-byte `jmp far [dkv + 4i]` entry points and a fourteen-slot far
+pointer table. Twenty-eight of those bytes are a repeated `KERNEL_SEG`, which
+looks like the obvious thing to take, and it is not takeable. Priced on
+`6bfcffb7`, where the scheme it replaced was **155 bytes** and **227 guest
+cycles** an operation:
+
+| scheme | resident bytes | basic-path cycles | why not |
+|---|---:|---:|---|
+| **built** — `jmp far [dkv+4i]` + a 14-slot far table | **112** | **42** (measured) | — |
+| near vector + one shared far dispatcher | 56 + 28 + 84 + 6 = **174** | ~120 | a NEAR vector cannot name the module's segment, so the mounted arm needs a six-byte trampoline per operation to carry an index. The trampolines are what the far table buys its way out of |
+| `call near [dkv+2i]` at the CALL SITE, no entry points | 33 + 28 + 84 + 6 = **151** | ~30 | same trampolines, plus the basic bodies would need a second `retf` entry (they are near-called from inside `dock.inc` too, and are `kern_small`'s whole Dock), plus `hiber.inc` takes `dock_force`'s address and `cw_mem_disp` near-calls it |
+| **`jmp far KERNEL_SEG:<body>` PATCHED in place at mount** | 14 × 5 = **70** | ~22 | **the only scheme that beats the built one**, on both axes. It is not refused on arithmetic and it has its own row: **§7.8.1** |
+
+#### 7.8.1 The patched far jump — a row to say yes or no to, not a refusal to re-derive
+
+**Not built, deliberately.** It wins on both axes and the whole of the
+question is whether this project wants self-modifying `.text`.
+
+**The shape.** Each of the fourteen entry points becomes a five-byte
+`jmp far KERNEL_SEG:<basic body>` — an `EA` whose offset and segment are
+IMMEDIATES. `DOCK.DRV`'s `dkx_hook` rewrites those four bytes to its own
+`<modseg>:<landing pad>` and `dkx_unhook` writes the kernel's back, which is
+exactly what both already do to `dkv` today — the module carries both tables
+either way, so **the module side does not change at all**. `dkv` disappears.
+
+| | built (`jmp far [dkv+4i]`) | patched (`jmp far imm`) | delta |
+|---|---:|---:|---:|
+| entry points | 14 × 4 = 56 | 14 × 5 = **70** | +14 |
+| the table | 14 × 4 = **56** | none | **−56** |
+| **resident** | **112** | **70** | **−42** |
+| basic-path cost | **42 cycles**, MEASURED | ~22 cycles, PREDICTED | ~−20 |
+| the whole Dock feature | 486 | **444** | −42 |
+
+The 42 is measured — `dock_paint` → `db_paint` under MartyPC at 4.77 MHz, six
+identical samples. The 22 is `jmp far imm`'s 15 clocks against the 8088's
+`max(clocks, 4.34 × 5 bytes)` fetch floor and is **predicted, not measured**.
+
+**What it costs, and it is not a safety argument.** The write happens inside
+`dkx_hook`/`dkx_unhook`, in the module's own segment, under the graphics lock
+SPEC.md 30.5 already requires for a settings change — so no operation can be
+executing, and the 8088's four-byte prefetch queue is nowhere near the bytes
+being written. The price is the one
+`docs/plans/completed/SCHED-IDLE-PLAN.md` §8 already names for its own
+self-modifying option: **`os88marty verify` has to be taught the patch
+table**, or it reports fourteen five-byte runs differing from
+`build/kernel.bin` on any machine with a non-default Dock setting. `verify` is
+a REPORT and exits 0, so no tier goes red — which is the reason to teach it
+rather than a reason to leave it.
+
+**The knob shape, if it is taken.** SCHED-IDLE-PLAN §8's `NOSMC=1` — *"the
+only one that costs literally zero when off"* — is the precedent and the right
+spelling here: `%ifdef NOSMC` keeps `dkv` and the indirect entries, so the A/B
+is one define, the un-patched arm stays assembling, and the decision is
+reversible per build rather than per commit. That is this tree's standing
+pattern for a change somebody may want to look at twice (`NOCURDISK=1`,
+`NOMOUPRIV=1`, `NOSEAMCUT=1`).
+
+**What is NOT claimed:** that it reaches 400. It does not — 444 is 44 short,
+and `docs/reports/DOCK-RESIDENT-COST-2026-09-17.md` §6.4 says what would.
+
+**Two operation counts were also tried and are not worth having.** Folding
+`DKI_FORCE` away by letting the resident `db_force` read `[dock_la1]`/
+`[dock_la2]` is −8 +1 = **−7** and is DEAD: those two words are now in the
+module image (SPEC.md 30.5), so no resident body can read them. Moving the four
+module-only operations onto `mod_fp`'s already-allocated spare slots — which
+cost the kernel nothing, `MOD_NENT` being 7 and the Dock using 2 — is **+8**
+rather than −16, because `mod_disarm` rests a slot on `mod_gone`'s `retf` and a
+far JUMP to it would pop a near frame as CS:IP, so each would have to buy back
+the six- to eight-byte guard the table's own `dkb_ret`/`dkb_clc` slot replaced.
+Only `gfx_hole_arm` qualifies (its call site tests `[gfx_hole]` already) and it
+is **4 bytes** for a hole in an otherwise uniform table.
+
+**And the rung it would take to uncross is not in this feature.** `kern_big`'s
+image rung wants `.text + .bss` at 55,808 and the tree stands at 56,074; the
+whole Dock placement feature's `.text + .bss` is 441. Uncrossing means taking
+**266 of those 441**, which is 60% of a feature whose mechanism is already at
+its floor and whose remaining bytes are one `%ifdef` at a time across nine
+files.
+
 ---
 
 ## 9. Evidence owed by whoever takes a row
