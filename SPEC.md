@@ -35953,6 +35953,30 @@ it is what makes the drawn control and the clickable control one description
 rather than two — §22's `fm_hit` discipline, which is the paragraph above this
 table arriving at the control it was written about.
 
+#### 20.5.1.3.1 The erase belongs to the CONTROL, not the caller
+
+`OS88UI_FILL` asks `os88ui_btn` to white the interior before it draws. It used
+to be optional and it was right that it was: a button that could never be
+drawn **pressed** was drawn once over a known ground, and filling would have
+repainted somebody else's pixels for nothing.
+
+**The record ends that, because it carries the gesture.** Every button can now
+be drawn pressed, and the upright redraw that follows a release — or a slide
+off the control, which is §13.8's whole point — has to wipe the black interior
+the pressed state left. Skip it and the frame is redrawn round a black box
+with the caption lettered **black on black**: the button goes dark and its text
+disappears.
+
+So `os88ui_btn` ORs the flag in itself and a caller cannot forget it. The DOS
+box is why this is stated rather than assumed: it had always drawn its two bar
+buttons with `xor di, di`, which was **correct** for as long as nothing could
+press them, and the day the record gave them a gesture that same correct line
+made them vanish on the first drag-off. Paint had already written the rule at
+its own call site — where it protected exactly one button.
+
+The cost is one `gfx_fill` per button per draw, which every caller that had
+thought about the problem was already paying.
+
 #### 20.5.1.4 `OS88UI_LATCH` — the pressed look, with a second cause
 
 `OS88UI_DOWN` means *a press is live on this control*, and once `BT_DOWN` owns

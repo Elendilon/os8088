@@ -7107,7 +7107,14 @@ br_r3       equ br_r2 + 8
 br_btrec    equ br_r3 + 8             ; the standard button record (SPEC.md
                                        ; 20.5.1.3); the three rects above are
                                        ; the group it walks
-br_spen     equ br_r3 + 8             ; word: the state's pen, 8-aligned
+br_spen     equ br_btrec + 12         ; word: the state's pen, 8-aligned.
+                                       ; **PAST THE RECORD**, which was
+                                       ; declared at br_r3 + 8 beside it and
+                                       ; ALIASED it: every write to one
+                                       ; corrupted the other, and a record
+                                       ; whose rect pointer had been
+                                       ; overwritten drew a pressed button as
+                                       ; a black box over half the screen
 br_swid     equ br_spen + 2           ; word: ...and the cells it may use
 br_histn    equ br_swid + 2           ; word: entries in the stack
 br_histi    equ br_histn + 2          ; word: where we are in it

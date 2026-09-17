@@ -1124,6 +1124,10 @@ at_mdbuttons:
     jne .single
     mov ax, [at_msx2]
     sub ax, 64                      ; Save (56 wide), 8 in from the right
+    mov word [at_btrec+OS88UI_BT_N], 3   ; **THE COUNT FIRST**: os88ui_btn
+                                    ; refuses an index past the LIVE count, so
+                                    ; a count written after the draws is a
+                                    ; count of zero on the pass that matters
     mov si, at_s_save
     mov [at_btlbl], si
     mov byte [at_bslot], 0
@@ -1150,13 +1154,13 @@ at_mdbuttons:
     mov [at_b3x], ax
     mov [at_b3y], bx
     mov [at_b3w], cx
-    mov word [at_btrec+OS88UI_BT_N], 3
     jmp short .out
 .single:
     mov ax, [at_msx1]
     add ax, [at_msx2]
     shr ax, 1
     sub ax, 20                      ; OK is 40 wide: centre it
+    mov word [at_btrec+OS88UI_BT_N], 1   ; the count first, as above
     mov si, at_s_ok
     mov [at_btlbl], si
     mov byte [at_bslot], 0
@@ -1167,7 +1171,6 @@ at_mdbuttons:
     mov [at_b1w], cx
     mov word [at_b2w], 0
     mov word [at_b3w], 0
-    mov word [at_btrec+OS88UI_BT_N], 1
 .out:
     pop si
     pop dx
@@ -1730,7 +1733,10 @@ at_splash:
     sub bx, 30                      ; button top
     mov ax, [at_spcx]
     sub ax, 76
+    mov word [at_btrec+OS88UI_BT_N], 2   ; the splash's pair, count first
     mov si, at_s_new
+    mov [at_btlbl], si
+    mov byte [at_bslot], 0
     mov dx, 1
     call at_button
     mov [at_b1x], ax
@@ -1739,6 +1745,8 @@ at_splash:
     mov ax, [at_spcx]
     add ax, 12
     mov si, at_s_open
+    mov [at_btlbl+2], si
+    mov byte [at_bslot], 1
     xor dx, dx
     call at_button
     mov [at_b2x], ax
