@@ -1039,11 +1039,7 @@ apu_draw_buttons:
     push dx
     push si
     push di
-    mov bx, apu_btrec              ; the group, described once
-    mov word [bx+OS88UI_BT_RECTS], apu_arects
-    mov word [bx+OS88UI_BT_LABELS], apu_blabs
-    mov word [bx+OS88UI_BT_FLAGS], apu_bflg
-    mov word [bx+OS88UI_BT_N], 7
+    call apu_baim                  ; the record, and the ABSOLUTE rects
     xor di, di
 .b:
     cmp di, 7
@@ -1053,25 +1049,6 @@ apu_draw_buttons:
     mov cl, 3
     shl bx, cl
     add bx, apu_rects
-    push bx
-    mov dx, di                     ; the group's rects are ABSOLUTE and live
-    mov cl, 3                      ; in one contiguous array, because that is
-    shl dx, cl                     ; what os88ui_btnpress walks (SPEC.md
-    add dx, apu_arects             ; 20.5.1.3). apu_abr was one scratch rect
-    mov si, dx                     ; restaged seven times, and apu_hit then
-    mov ax, [bx+0]                 ; answered by DIVIDING by a pitch - a
-    add ax, [apu_ox]               ; second description of the same row
-    mov [si+0], ax
-    mov ax, [bx+2]
-    add ax, [apu_oy]
-    mov [si+2], ax
-    mov ax, [bx+4]
-    add ax, [apu_ox]
-    mov [si+4], ax
-    mov ax, [bx+6]
-    add ax, [apu_oy]
-    mov [si+6], ax
-    pop bx
     mov cl, 3
     ; label + flags
     mov si, di
@@ -1210,6 +1187,59 @@ apu_hit:
     mov ax, AP_B_NONE
     pop dx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; apu_baim - aim the record and build the group's ABSOLUTE rects
+; in:  [apu_ox]/[apu_oy] current; out: nothing, all registers preserved
+;
+; BOTH the painter and ap_onclick run this, which is the whole point: a record
+; aimed only where the painter goes is a record that is not aimed when a press
+; arrives, and rects built only by the painter are stale the moment the window
+; moves. apu_rects is the content-relative description and this is the screen
+; one; apu_hit used to be a THIRD, answering by dividing the row by a pitch.
+; -----------------------------------------------------------------------------
+apu_baim:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov bx, apu_btrec
+    mov word [bx+OS88UI_BT_RECTS], apu_arects
+    mov word [bx+OS88UI_BT_LABELS], apu_blabs
+    mov word [bx+OS88UI_BT_FLAGS], apu_bflg
+    mov word [bx+OS88UI_BT_N], 7
+    xor di, di
+.r:
+    cmp di, 7
+    jae .done
+    mov bx, di
+    mov cl, 3
+    shl bx, cl
+    mov si, bx
+    add si, apu_arects
+    add bx, apu_rects
+    mov ax, [bx+0]
+    add ax, [apu_ox]
+    mov [si+0], ax
+    mov ax, [bx+2]
+    add ax, [apu_oy]
+    mov [si+2], ax
+    mov ax, [bx+4]
+    add ax, [apu_ox]
+    mov [si+4], ax
+    mov ax, [bx+6]
+    add ax, [apu_oy]
+    mov [si+6], ax
+    inc di
+    jmp short .r
+.done:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
     ret
 
     APBUF apu_arects, 56           ; THE GROUP: seven ABSOLUTE rects, so the

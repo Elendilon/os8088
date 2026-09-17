@@ -51,6 +51,26 @@ BUILDS_WITHOUT_MAKE = {
 
 # Not registered, and why. Keep the reason specific and true.
 UNREGISTERED = {
+    # --- the rows of a RETIRED package (SPEC.md 20.16, apps/RETIRED.txt) ---
+    # These two drive PACMAN.O88, which `all` no longer builds (SPEC.md
+    # 89.12), so a registered row would need `wants=("build/pacman.o88",)`
+    # and would spend an emulator boot on a program that ships nowhere. They
+    # are KEPT rather than deleted for the same reason the source and SPEC.md
+    # 89 are: `make pacman` still builds the package, so the record can be
+    # run by whoever wants to look at it - and a retirement that deleted the
+    # only way to check the thing being retired is a claim nobody can audit.
+    # If the decision is ever reversed, these go back in a tier; while it
+    # stands, they are documentation with a shebang.
+    "pacman.py": "drives PACMAN.O88, which is RETIRED - `make pacman` still "
+                 "builds it and this still runs, but no tier spends an "
+                 "emulator boot on a package that ships nowhere",
+    "t_pacman.py": "the Atari maze's reachability and sprite check, for the "
+                   "RETIRED PACMAN.O88. Host-side and 0.1s, so the cost is "
+                   "not the argument - it is that `all` no longer builds the "
+                   "package it is about, and a fast row every contributor "
+                   "pays for may not be about a program that ships nowhere "
+                   "(docs/WRITING-TESTS.md 2.1)",
+
     # --- library and support code, not tests ---
     "dispcells.py": "the CELLS-not-calls counter two gates share (SPEC.md "
                     "11.3.3), not a test",

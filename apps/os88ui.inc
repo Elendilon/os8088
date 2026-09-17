@@ -438,6 +438,28 @@ os88ui_btn:
     mov di, [bx+si]             ; base registers - so the record moves aside
     pop bx                      ; for one instruction and comes straight back
 .down:
+    or di, OS88UI_FILL          ; **THE ERASE IS NOT OPTIONAL ANY MORE, AND IT
+                                ; IS THE CONTROL'S JOB RATHER THAN THE
+                                ; CALLER'S** (SPEC.md 20.5.1.3.1). A button
+                                ; that could never be drawn PRESSED could skip
+                                ; it and leave the ground to whatever drew it;
+                                ; once the record carries the gesture, EVERY
+                                ; button can be pressed, and the upright
+                                ; redraw that follows a release has to wipe
+                                ; the black interior the pressed one left.
+                                ; Without it the frame is redrawn round a
+                                ; black box and the caption is lettered BLACK
+                                ; ON BLACK: the button goes dark and its text
+                                ; disappears, which is what the DOS box did
+                                ; the day it was converted - it had always
+                                ; drawn with `xor di, di`, correctly, because
+                                ; nothing had ever pressed it.
+                                ;
+                                ; Paint had already written the rule down at
+                                ; its own call site and it was still one
+                                ; caller's to remember, which is the whole
+                                ; argument for putting it here: a capability
+                                ; the button gains has to reach every button.
     mov cx, ax
     inc cx
     cmp cx, [bx+OS88UI_BT_DOWN]

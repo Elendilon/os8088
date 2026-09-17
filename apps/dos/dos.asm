@@ -5769,6 +5769,18 @@ dos_bar_rects:
     push dx
     push si
     push di
+    mov si, dos_btrec               ; **THE RECORD IS AIMED WHERE THE RECTS
+    mov word [si+OS88UI_BT_RECTS], dos_erect
+    mov word [si+OS88UI_BT_LABELS], dos_bt_barl
+    mov word [si+OS88UI_BT_N], 2    ; ARE COMPUTED**, and that is the whole
+                                    ; rule: this routine is what the PAINTER
+                                    ; calls and what dos_place calls, so a
+                                    ; record aimed here is aimed on every path
+                                    ; that can draw or hit-test. Aiming it in
+                                    ; dos_place instead left BT_N at 0 on the
+                                    ; paint path, and os88ui_btn draws nothing
+                                    ; for an index past the live count - two
+                                    ; buttons that simply were not there
     call OSAPI_WM_GEOM              ; CX = content width
     jc .out
     mov di, cx                      ; DI = it, across the call below
@@ -6426,6 +6438,10 @@ dos_furn_rects:
     push dx
     push si
     push di
+    mov si, dos_btrec               ; the Setup page's pair, aimed here for
+    mov word [si+OS88UI_BT_RECTS], dos_trect
+    mov word [si+OS88UI_BT_LABELS], dos_bt_setl
+    mov word [si+OS88UI_BT_N], 2    ; dos_bar_rects' reason
     call OSAPI_WM_GEOM              ; CX = content width, DX = its height
     jc .out
     mov di, cx
@@ -8567,6 +8583,20 @@ dos_onup:
     call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
     or ax, ax
     jz .out
+    mov bx, si                      ; **BX BACK TO THE WINDOW BEFORE ANYTHING
+                                    ; ACTS.** Every one of the four actions
+                                    ; below reaches dos_swap, dos_go or
+                                    ; dos_sav_go, and all three take the
+                                    ; WINDOW in BX - dos_swap's first move is
+                                    ; OSAPI_WM_CONTENT with it. Left pointing
+                                    ; at the record they got a garbage window,
+                                    ; WM_CONTENT answered ~0, and the Setup
+                                    ; page painted its controls over the menu
+                                    ; bar and the desktop. The press handler
+                                    ; this code came out of held the window in
+                                    ; BX throughout, which is why its own
+                                    ; os88ui_bhit calls were each bracketed
+                                    ; with push bx / pop bx
 
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .setup
@@ -8973,23 +9003,11 @@ dos_place:
                                     ; was testing against the content height
     push si
     push di
-    mov si, dos_btrec               ; **AND THE RECORD FOLLOWS THE PAGE**
-    mov word [si+OS88UI_BT_N], 2    ; (SPEC.md 20.5.1.3): both pages carry
-                                    ; exactly two buttons, and only one page
-                                    ; is ever up, so ONE record is repointed
-                                    ; here rather than two being kept in step.
-                                    ; It is done in dos_place because that is
-                                    ; already the routine every caller runs
-                                    ; before it draws or hit-tests
     cmp byte [dos_page], DOS_PAGE_MAIN
     jne .setup
-    mov word [si+OS88UI_BT_RECTS], dos_erect
-    mov word [si+OS88UI_BT_LABELS], dos_bt_barl
     call dos_bar_rects              ; the path box and the bar's two buttons
     jmp short .out
 .setup:
-    mov word [si+OS88UI_BT_RECTS], dos_trect
-    mov word [si+OS88UI_BT_LABELS], dos_bt_setl
     call dos_furn_rects             ; Save Shortcut and Return
     call dos_cmd_place              ; ...the command box on the title row...
     call dos_fld_place              ; ...the arguments box...

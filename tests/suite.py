@@ -222,8 +222,28 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
-    Row("pacman-maze", "fast", py("tests/unit/t_pacman.py"), 0.1,
-        "the Atari maze has 260 reachable dots, bounded tunnel edges and complete sprites"),
+    Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
+        "every package under apps/ ships, or apps/RETIRED.txt says why not "
+        "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
+        "'apps/ - loadable packages; everything here ships' - and nothing "
+        "enforced it, so the shape it misses is not a package somebody chose "
+        "to withhold but one that ships nowhere because a list was edited and "
+        "nobody noticed; those two are indistinguishable from every angle but "
+        "intent. PACMAN is the worked example in BOTH directions: taking it "
+        "off the disk lists took it out of every BUILD too (found by a byte "
+        "audit months later, not by a person), and the same edit left it on "
+        "the LIVE volume, whose premise is completeness, where it went on "
+        "shipping for the whole time it was 'off the disks'. Two kinds, and "
+        "`retired` is checked harder than `instrument`: a retired package may "
+        "not be in `all` at all, where a bench may, because keeping a bench "
+        "assembling is the point of having it. Reads build/livepayload.txt - "
+        "the list `all` DERIVES from $(LIVEARGS), which is t_livefull's "
+        "reason too - and walks every shipped image recursively with "
+        "t_image's own Vol, matching the WHOLE 8.3 name: `ls` on the root "
+        "alone reported every package as not shipping, and a substring test "
+        "for WIRE.O88 matched THEWIRE.O88. FAST for t_movable's argument - it "
+        "is a rule about what apps/ means, so it belongs in front of the next "
+        "make rather than the next soak run"),
     Row("blobruns", "soak", py("tests/unit/t_blobruns.py"), 0.1,
         "how many int 13h calls stage 1 spends on the blob, per geometry "
         "(SPEC.md 15.3.8.5) - the count is NOT a function of BOOT2_SECS "
@@ -1430,9 +1450,6 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
-    Row("pacman", "soak", py("tests/pacman.py"), 100.0,
-        "native 8088 Pac-Man movement, score, pellets, fruit, level transitions, "
-        "pause, full-screen repaint and worker teardown", needs=("marty",), wants=("build/pacman.o88",)),
     Row("paccman", "soak", py("tests/paccman.py"), 100.0,
         "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
         "(SPEC.md 91): the program opening on the attract screen with the "

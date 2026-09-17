@@ -131,17 +131,29 @@ ap_onclick:                        ; CX = x, DX = y (SCREEN); SI = window
     mov [apu_oy], dx
     pop dx
     pop cx
-    sub cx, [apu_ox]
-    sub dx, [apu_oy]
     call apu_layout
+    call apu_baim                   ; the rects the press is about to be tested
+                                    ; against, from the origin just read
     mov bx, apu_btrec               ; **THEY ONLY ARM** (SPEC.md 13.6): Play,
     call os88ui_btnpress            ; Stop and the rest all change what the
                                     ; machine is doing, so a mis-aimed press
                                     ; must be cancellable. ap_onup has the
-                                    ; action, and apu_hit's divide-by-pitch
-                                    ; answer is gone with the ladder
+                                    ; action
+    or ax, ax
+    jnz .out                        ; **ARMED, DRAWN DOWN, AND THAT IS ALL.**
+                                    ; The blanket apu_repaint below used to run
+                                    ; on EVERY click - it was how the old press
+                                    ; path put the transport back - and it
+                                    ; repaints the whole window, which is
+                                    ; PERFORMANCE.md's rule 1 with a full
+                                    ; redraw behind it. os88ui_btnpress draws
+                                    ; the ONE button that changed
+    sub cx, [apu_ox]                ; CX/DX are SCREEN until here, because the
+    sub dx, [apu_oy]                ; record's rects are; everything below
+                                    ; wants them content-relative
 .rep:
     call apu_repaint
+.out:
     pop di
     pop si
     pop dx
