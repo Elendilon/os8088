@@ -127312,6 +127312,34 @@ count rather than a flag.
 - **Everything else answers AX=0**, which is `INT 33h`'s "not supported" and
   what a real driver answers for a function it does not have.
 
+#### 96.10.3 The mouse histogram, because the ring cannot carry `INT 33h`
+
+A DOS program that "has no mouse" is two opposite defects wearing one symptom,
+and the `DOSTRACE` ring separates neither: **every** host-side decoder in
+`tools/os88dosdbg.py` reads a ring entry as an `INT 21h` call, so a program
+that never calls `INT 33h` at all and one whose calls this box answers wrongly
+both come back as a trace with no mouse in it.
+
+So the `DOSTRACE` build keeps a second, much smaller instrument: **one
+saturating byte per `INT 33h` function**, `DOS_TR33_N` = 32 of them, bumped at
+the top of `dos_int33` before anything dispatches. It is the whole of what the
+question needs — *which* functions, not in what order and not with what
+arguments — and the last bucket absorbs an `AX` above the table so that a
+program calling a function nobody has heard of is a reading rather than a wild
+store.
+
+**All zero is the most important reading of the three**, and the host prints it
+in those words rather than as a blank line:
+
+| the histogram says | what it means |
+|---|---|
+| nothing at all | the program found no mouse, or never looked — the box's answers are not in question |
+| `00h` alone | it asked whether a mouse was installed, was told yes, and then gave up on the *next* function it tried |
+| `0Ch` or `14h` set | it installed an **event handler** and is waiting for callbacks this box does not make (§96.10.2's last bullet) |
+
+`DOSTRACE` only: the counter, its bss row and the host's read are all inside
+the `%ifdef`, so a shipped `DOS.O88` carries none of it.
+
 ### 96.11 File handles, built on an API that has none
 
 `3Dh` open, `3Ch` create, `3Eh` close, `3Fh` read, `40h` write, `41h` delete,
@@ -127582,6 +127610,44 @@ is how one of them ends up holding a loop counter instead. For the same
 reason `dos_fh_fill` answers the window offset in `AX` and not `DI` — the
 caller's `DI` is where the bytes are *going*.
 
+##### 96.11.6.3 A created handle may seek past its end too
+
+`.fwrite`'s append test was `jne .fhacc` twice, which is not an ordering test
+at all: it refused a write **past** the end exactly as it refused one
+**behind** it, and those are opposite cases.
+
+- **Behind** the end is §96.11.2's real refusal. A write into the middle of a
+  file this handle created is one the append path cannot make, and reporting
+  success for it would lose the program's data silently.
+- **At** the end is the ordinary append.
+- **Past** the end is a **gap**, which §96.11.6.1 already lays — and which
+  that section's own first bullet names: *pre-allocating: create, seek to
+  `size-1`, write one byte, and the file is that size.*
+
+It is an unsigned 32-bit compare now, high words first, and the third answer
+goes to `dos_fh_wiloop`'s `.ihole` — chosen on that same compare and needing
+no flag. It lays `[SIZE, POS)`, rewinds, and hands the program's own bytes
+back to the append accumulator through `.iappend`.
+
+**Microsoft Works reported this as `Cannot write file`** on File > Save As
+(docs/FIELD-NOTES.md 47). Traced, the save is three calls: `AH=3Ch` creates
+`B:\WORD1.WPS` and gets handle 6, `AH=42h` seeks to **0x180 on the empty
+file**, and `AH=40h` writes 285 bytes there — a header it means to patch
+later. The create succeeded; the first write answered error 5.
+
+**`FHF_MADE` moves to the open, and that is the half that is easy to get
+wrong.** It means *the file is on the disk, so a flush APPENDS rather than
+replacing*, which is true of an **opened** file from the first instruction —
+but `.iappend` was asserting it instead. A **created** handle reaching that
+same arm through the gap has flushed nothing, so its file does not exist yet,
+and the append would go onto nothing. The open says it because the open
+knows it; `.iappend` no longer claims it.
+
+`FHF_INPLC` is deliberately **not** set on the way into the gap: `.ihstep`
+takes it for the length of a chunk and `.iappend` gives it back, and a created
+handle that kept it would flush through `WRITE_AT` onto a file that is not
+there.
+
 #### 96.11.7 `CON` is not a file name, and answering as though it were costs a program its handles
 
 `AH=3Dh` on **`CON`**, `NUL`, `PRN` or `AUX` opens a **character device**. The
@@ -127638,6 +127704,54 @@ fall through to `invalid function`, which the Works trace showed DOS does not
 answer. **DOS returns nothing and cannot fail**, so a flush that refuses is
 swallowed rather than reported: there is no register to report it in, and the
 close will try again and has somewhere to say so.
+
+#### 96.11.9 `AH=41h` on a name that is not there says 2, not 5
+
+`.fhacc`'s "access denied" is the honest answer for a *write* this layer
+cannot make (§96.11.2) and it was the answer for **every** way a delete could
+fail, a missing file included. DOS distinguishes the two, and a program is
+entitled to: `2` means *ask the user for another name*, `5` means *the file is
+there and you may not have it*.
+
+`OSAPI_FILE_DELETE` already says which — `FERR_NOENT` and nothing else means
+the name does not resolve — so the map is three instructions, and `AH=56h`'s
+`.rnerr` a few lines above had been making exactly this distinction since
+§96.31. Microsoft Works asks the question on **every** Save As, deleting the
+backup name before it writes, so the wrong code was answered once per save on
+the first program anyone ran on this box from outside the project. It is not
+visible there — Works ignores the answer — which is the argument for fixing it
+now rather than when something branches on it.
+
+Every other `FERR_*` still goes to `.fhacc`, which is right: a read-only file,
+a write-protected disk and a directory in the way are all "the file is there
+and you may not have it".
+
+#### 96.11.10 `FH_FLAGS` is one byte, and `FHF_DEV` was on a bit that was taken
+
+`FHF_DEV` (§96.11.7) went in as **32**, which `FHF_WROTE` (§96.7.1.2) had
+owned since the `AH=44h` work. The two `equ` lines were seven apart with the
+four `DOS_DEV_*` codes sitting between them, and the value was picked by
+looking at the line above — `FHF_INPLC equ 16`.
+
+It assembles, it boots, and `CON` opens exactly as the change intended. What
+it also does is this: `FHF_WROTE` is set by the **first `AH=40h` on any
+handle**, so from that moment the handle reads as a character *device*. Every
+later `AH=3Fh` takes `.fhrdeof` and answers **end of file**; every later
+`AH=40h` takes `.fwdev` and is **accepted and discarded with its full count
+reported**. Nothing fails, nothing is reported, and the data is gone.
+
+Microsoft Works's Save As is create → seek `0x180` → write the body → seek 0
+→ write the 384-byte header → close. The body is the *first* write, so it
+lands; the header is the second, so it is thrown away. The file comes out the
+right length, with the right body, and a header of 384 zero bytes — and the
+program is told it wrote 384.
+
+The bit is **64** now, and the block is in bit order with nothing else defined
+inside it, because the ordering is what makes the next one readable without a
+tool. `tests/unit/t_bits.py` is the tool: it derives each flag family from the
+code that uses it — a `test`/`or`/`and`/`xor` against a memory field enrols
+its constant in that field — and fails on two names with one value. 43
+families across the tree, and a flag added tomorrow is covered tomorrow.
 
 ### 96.12 Vectors, drives, the DTA and the directory
 

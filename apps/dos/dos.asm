@@ -262,6 +262,14 @@ DOS_TRACE_KB equ (DOS_TRACE_BY + 1023) / 1024
 DOS_TRNM_N  equ 12                  ; ...and names it keeps. Plenty: the
                                     ; failure under investigation makes
                                     ; exactly ONE open in a whole session
+DOS_TR33_N  equ 32                  ; INT 33h functions counted (SPEC.md
+                                    ; 96.10.3). 32 covers every function a
+                                    ; real-mode driver published up to
+                                    ; Microsoft 6.x bar the 0x20s, and the ones
+                                    ; above are the ones no 1987 program calls;
+                                    ; AX above this simply lands in the last
+                                    ; bucket, which is a reading too and not a
+                                    ; wild store
 DOS_ARGSZ   equ 128
 DOS_ARGMAX  equ 127                 ; ...what LN_MAX gets: 126 characters + NUL
 DOS_PBUF    equ 80                  ; the program's own path for the environment
@@ -2906,7 +2914,17 @@ dos_int21:
     jz .opro                        ; and OSAPI_FILE_WRITE_AT can overwrite what
     cmp al, 2                       ; the file already owns. Mode 0 stays
     ja .opro                        ; read-only and 3..7 is not an access mode
-    or byte [si+FH_FLAGS], FHF_WRITE | FHF_INPLC
+    or byte [si+FH_FLAGS], FHF_WRITE | FHF_INPLC | FHF_MADE
+                                    ; **AND `MADE` AT THE OPEN** (96.11.6.3):
+                                    ; it means "the file is on the disk, so a
+                                    ; flush APPENDS rather than replacing",
+                                    ; which is true of an OPENED file from the
+                                    ; first instruction. `.iappend` used to
+                                    ; assert it instead, and that is a LIE on
+                                    ; a created handle reaching the same arm
+                                    ; through the gap above: nothing has been
+                                    ; flushed, so the file does not exist, and
+                                    ; the append would go onto nothing
 .opro:
     test byte [dos_fent+22], OSAPI_FIND_CZ
     jz .opdone
@@ -3042,15 +3060,35 @@ dos_int21:
                                     ; the record only here
     test byte [si+FH_FLAGS], FHF_INPLC
     jnz .fwinpl                     ; an AH=3Dh handle OVERWRITES (96.11.6)
-    mov ax, [si+FH_POS]             ; APPEND-ONLY, and the refusal is the point
-    cmp ax, [si+FH_SIZE]            ; (SPEC.md 96.11.2): a write anywhere but
-    jne .fhacc                      ; the end is one a handle that CREATED the
-    mov ax, [si+FH_POS+2]           ; file cannot make, and reporting success
-    cmp ax, [si+FH_SIZE+2]          ; for it would lose the program's data
-    jne .fhacc                      ; silently
+
+    ; --- BEFORE the end, AT it, or PAST it - three answers (96.11.6.3) ------
+    ; It was `jne .fhacc` twice, which is not an ordering test at all: it
+    ; refused a write PAST the end exactly as it refused one BEHIND it, and
+    ; those are opposite cases. Behind is §96.11.2's real refusal - a write
+    ; into the middle of a file this handle created, which the append path
+    ; cannot make. PAST is a GAP, which 96.11.6.1 already lays, and Microsoft
+    ; Works reported it as `Cannot write file`: create, seek to 0x180 on the
+    ; empty file, write there, which is that section's own first bullet -
+    ; pre-allocating a header to patch later.
+    mov ax, [si+FH_POS+2]           ; the HIGH words first, so this is an
+    cmp ax, [si+FH_SIZE+2]          ; UNSIGNED 32-BIT compare and not two
+    ja .fwgap                       ; equality tests wearing one
+    jb .fhacc
+    mov ax, [si+FH_POS]
+    cmp ax, [si+FH_SIZE]
+    ja .fwgap
+    jb .fhacc
     call dos_fh_wrloop
     jc .fherr
     jmp .fhok
+.fwgap:
+    ; ...and the gap arm is dos_fh_wiloop's `.ihole`, which is chosen on the
+    ; same compare and needs no flag: it lays [SIZE, POS), rewinds, and hands
+    ; the program's own bytes back to the append accumulator through
+    ; `.iappend`. FHF_INPLC is NOT set here - `.ihstep` takes it for the
+    ; length of a chunk and `.iappend` gives it back, and a created handle
+    ; that kept it would flush through WRITE_AT onto a file that does not
+    ; exist yet.
 .fwinpl:
     call dos_fh_wiloop              ; ...and it may not GROW one: the loop
     jc .fherr                       ; stops at the end of file and answers
@@ -3080,9 +3118,19 @@ dos_int21:
     mov si, dos_fname
     call dos_be_delete
     pop si
-    jc .fhacc
+    jc .dlerr
     xor ax, ax
     jmp .fhok
+.dlerr:
+    cmp ax, FERR_NOENT              ; THE NAME IS NOT THERE, and DOS says 2 for
+    jne .fhacc                      ; that (SPEC.md 96.11.9) - `.rnerr` above
+    mov al, 2                       ; already makes this exact distinction for
+    jmp .fherr                      ; AH=56h, and AH=41h was sending every
+                                    ; refusal to 5. Microsoft Works unlinks the
+                                    ; backup name before each save, so it asks
+                                    ; this question on every Save As and got
+                                    ; "access denied" about a file that simply
+                                    ; was not there
 
 .seek:
     ; AH=42h: AL = the origin, BX = the handle, CX:DX = a SIGNED offset; out
@@ -10333,6 +10381,29 @@ dos_int33:
     push si
     push di
 
+%ifdef DOSTRACE
+    ; --- THE HISTOGRAM (SPEC.md 96.10.3), and NOTHING when the trace is off.
+    ; It is here and not in the ring because the ring's every host-side reader
+    ; decodes an entry as an INT 21h call - and the question this answers
+    ; wants no ordering and no arguments: WHICH mouse functions does the
+    ; program ask for at all. A program that never calls 33h reads as 32
+    ; zeroes, which is a finding; one that calls 0x0C and then waits reads as
+    ; a single 1 in a bucket we answer `not supported` to, which is a
+    ; different finding, and no amount of reading our own INT 21h trace
+    ; separates the two.
+    push si
+    mov si, ax
+    cmp si, DOS_TR33_N              ; anything above lands in the top bucket,
+    jb .tr33in                      ; which is a reading and not a wild store
+    mov si, DOS_TR33_N - 1
+.tr33in:
+    cmp byte [si+dos_tr33], 0xFF    ; saturating: a poll loop must not wrap the
+    je .tr33up                      ; count round to zero and read as "never
+    inc byte [si+dos_tr33]          ; called"
+.tr33up:
+    pop si
+%endif
+
     or ax, ax
     jz .reset
     cmp ax, 1
@@ -11237,6 +11308,17 @@ DOS_CBASE   equ os88_image_end
                                         ; the call was filtered out
     HBSS DOS_B_TRNM,   DOS_TRNM_N * 13      ; the NAMES the program passed
     HBSS DOS_B_TRNMI,  1                    ; ...and how many, capped
+    HBSS DOS_B_TR33,   DOS_TR33_N           ; **THE MOUSE HISTOGRAM** (96.10.3):
+                                            ; one byte per INT 33h function,
+                                            ; saturating. The ring cannot carry
+                                            ; INT 33h - every host-side decoder
+                                            ; in os88dosdbg reads an entry as an
+                                            ; INT 21h call - and the question
+                                            ; "which mouse functions does this
+                                            ; program even ASK for" needs no
+                                            ; ordering and no arguments to
+                                            ; answer, so a counter per function
+                                            ; is the whole instrument
     HBSS DOS_B_TRSEG,  2        ; THE PART'S SEGMENT, banked by dos_entry.
                                 ; 0 = the part was refused (it is OP_OPT), and
                                 ; dos_trace tests it: an instrument that
@@ -11303,29 +11385,23 @@ FH_VOL      equ 22                  ; the VOLUME the name is resolved against
                                     ; copy off B: onto C: reads the
                                     ; destination back into itself
 FH_SIZEOF   equ 23
+; --- FH_FLAGS: ONE BYTE, SEVEN BITS, AND THEY GO IN ORDER (SPEC.md 96.11.10)
+; **NOTHING ELSE MAY BE DEFINED BETWEEN THEM.** This block used to have the
+; four DOS_DEV_* codes sitting in the middle of it, and the reader that added
+; FHF_DEV looked at the line above the hole - 16 - and wrote 32, seven lines
+; away from the FHF_WROTE that already owned it. `tests/unit/t_bits.py` is the
+; gate now, and the ORDER is what makes it readable without one.
 FHF_USED    equ 1
 FHF_WRITE   equ 2                   ; opened by AH=3Ch: writes are accepted
 FHF_MADE    equ 4                   ; ...and at least one window has been
                                     ; flushed, so the next one APPENDS
+FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
+                                    ; expanded: the window is the file and
+                                    ; never refills (SPEC.md 96.11.1)
 FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
                                     ; EXISTS, so a write OVERWRITES through
                                     ; OSAPI_FILE_WRITE_AT and never moves the
                                     ; size (SPEC.md 96.11.6)
-FHF_DEV     equ 32                  ; a CHARACTER DEVICE and not a file at
-                                    ; all (SPEC.md 96.11.7): CON, NUL, PRN or
-                                    ; AUX, opened by name through AH=3Dh. The
-                                    ; record holds no position, no size and no
-                                    ; volume - FH_VOL carries the DOS_DEV_*
-                                    ; code instead, a device having no volume
-                                    ; for it to mean anything else about
-DOS_DEV_CON equ 0                   ; ...and the four names, in dos_devtab's
-DOS_DEV_NUL equ 1                   ; order, because the index IS the code
-DOS_DEV_PRN equ 2
-DOS_DEV_AUX equ 3
-DOS_NDEV    equ 4
-FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
-                                    ; expanded: the window is the file and
-                                    ; never refills (SPEC.md 96.11.1)
 FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
                                     ; AH=44h's bit 6 - "has NOT been written
                                     ; through" - is now CLEAR (SPEC.md
@@ -11333,6 +11409,28 @@ FHF_WROTE   equ 32                  ; AH=40h has been made on this handle, so
                                     ; window has been FLUSHED: a program that
                                     ; writes eight bytes and asks has written,
                                     ; and nothing has reached the disk
+FHF_DEV     equ 64                  ; a CHARACTER DEVICE and not a file at
+                                    ; all (SPEC.md 96.11.7): CON, NUL, PRN or
+                                    ; AUX, opened by name through AH=3Dh. The
+                                    ; record holds no position, no size and no
+                                    ; volume - FH_VOL carries the DOS_DEV_*
+                                    ; code instead, a device having no volume
+                                    ; for it to mean anything else about
+                                    ; **IT WAS 32, WHICH FHF_WROTE ALREADY
+                                    ; OWNED** (SPEC.md 96.11.10): the FIRST
+                                    ; AH=40h on any handle then made it read
+                                    ; as a device, so every later read
+                                    ; answered end of file and every later
+                                    ; write was ACCEPTED AND DISCARDED with
+                                    ; the full count reported. That is how
+                                    ; Microsoft Works saved a document with
+                                    ; its 384-byte header all zeroes
+
+DOS_DEV_CON equ 0                   ; ...and the four device names, in
+DOS_DEV_NUL equ 1                   ; dos_devtab's order, because the index IS
+DOS_DEV_PRN equ 2                   ; the code
+DOS_DEV_AUX equ 3
+DOS_NDEV    equ 4
 
 DOS_PFIN    equ 24                  ; AH=29h reads at most this much of the
                                     ; program's name: "D:NNNNNNNN.EEE" is 14,
@@ -14704,8 +14802,14 @@ dos_fh_wiloop:
     call dos_fh_flush               ; ...the view first: the accumulator wants
     jc .ierr                        ; an empty window
     and byte [si+FH_FLAGS], ~FHF_INPLC
-    or byte [si+FH_FLAGS], FHF_MADE ; the file EXISTS, so a flush APPENDS
-    mov word [dos_wlen], 0          ; rather than replacing
+                                    ; **AND `MADE` IS NOT ASSERTED HERE** any
+                                    ; more (96.11.6.3): an OPENED file has it
+                                    ; from the open, and a CREATED one reaching
+                                    ; this arm through the gap has flushed
+                                    ; nothing yet - so setting it would send
+                                    ; the first flush to dos_be_append with no
+                                    ; file to append to
+    mov word [dos_wlen], 0
     push dx                         ; the running total, across the accumulator
     mov cx, bx                      ; what is still to go...
     mov dx, di                      ; ...from where the copy reached
@@ -16459,6 +16563,7 @@ dos_traceb  equ DOS_TRB_OFF         ; **AN OFFSET IN THE PART, NOT IN US**
 dos_tracei equ dos_hbss + DOS_B_TRACEI  ; ...the live entry's offset
 dos_trnm equ dos_hbss + DOS_B_TRNM   ; the names passed in
 dos_trnmi equ dos_hbss + DOS_B_TRNMI  ; ...how many so far
+dos_tr33  equ dos_hbss + DOS_B_TR33   ; DOS_TR33_N bytes: INT 33h per function
 dos_trdump  equ DOS_TRD_OFF         ; ...rendered, for the file - and in the
                                     ; part beside the ring. OSAPI_FILE_WRITE
                                     ; takes ES:BX, so handing it over costs

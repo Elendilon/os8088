@@ -5070,13 +5070,26 @@ $(BUILD)/CONDEV.COM: tests/dostrap/condev.asm | $(BUILD)
 $(BUILD)/condev360.img: $(BUILD)/CONDEV.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/CONDEV.COM
 
+# --- ...AND THE ONE THAT WRITES PAST THE END (SPEC.md 96.11.6.3) ------------
+# WRGAP.COM alone on a 360KB floppy, and the disk has to be WRITABLE and
+# EMPTY: the probe creates two files of its own and the sizes it checks are
+# what the FAT says afterwards. An empty volume is the fixture for the same
+# reason CONDEV's is - nothing here is about what was already on the disk.
+$(BUILD)/WRGAP.COM: tests/dostrap/wrgap.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/wrgap.asm
+
+$(BUILD)/wrgap360.img: $(BUILD)/WRGAP.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/WRGAP.COM
+
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img $(BUILD)/wrgap360.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"
 	@echo "          build/cwdsub.img for tests/kdcwd.py, and"
-	@echo "          build/dosbig144.img for tests/kdbigexe.py."
+	@echo "          build/dosbig144.img for tests/kdbigexe.py,"
+	@echo "          build/condev360.img for tests/dosdev.py and"
+	@echo "          build/wrgap360.img for tests/dosgap.py."
 	@echo "          Run it with: python3 tests/kdpart.py"
 
 # --- the wave-1 gate's DOS program and its disk (SPEC.md 96.7) ---------------

@@ -308,6 +308,25 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("bits", "fast", py("tests/unit/t_bits.py"), 0.5,
+        "TWO FLAGS THAT SHARE ONE BYTE MAY NOT SHARE A BIT (SPEC.md 96.11.10). "
+        "t_mirror's sibling and the same class of gate: a flag is `NAME equ "
+        "32` and nothing in nasm knows what a bit field is, so the only thing "
+        "between 43 flag families and two names on one bit was sorting the "
+        "`equ` lines by eye. `FHF_DEV equ 32` went in beside `FHF_INPLC equ "
+        "16` - the line above it - seven lines from the `FHF_WROTE equ 32` "
+        "that owned bit 5, with four unrelated DOS_DEV_* codes in the gap. It "
+        "assembled, it booted, CON opened; and the first AH=40h on ANY handle "
+        "then made that handle read as a character DEVICE for ever, so every "
+        "later read answered end of file and every later write was ACCEPTED "
+        "AND DISCARDED with its full count reported. Microsoft Works saved a "
+        "document with a 384-byte header of zeroes and said nothing. THE LIST "
+        "MAINTAINS ITSELF: nothing enumerates the families, it reads the CODE "
+        "- a test/or/and/xor whose destination is a memory field and whose "
+        "source is a bare constant enrols that constant in that field - so a "
+        "flag added tomorrow is covered tomorrow. A PREFIX IS NOT A FAMILY "
+        "and grouping by one reports 81 false positives in this tree. "
+        "VERIFIED TO FAIL by putting FHF_DEV back on 32."),
     Row("artpath", "fast", py("tests/unit/t_artpath.py"), 0.1,
         "a row that opens a BUILD ARTEFACT must resolve it through "
         "os88build.at(), or it reads build/ while the soak is reading its own "
@@ -3660,6 +3679,27 @@ SOAK = [
         "two answers that trace showed DOS giving and us refusing.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/condev360.img")),
+    Row("dosgap", "soak", py("tests/dosgap.py"), 25.0,
+        "A WRITE PAST THE END OF A FILE THE SAME HANDLE CREATED (SPEC.md "
+        "96.11.6.3). Microsoft Works could not save a document - `Cannot "
+        "write file`, on a floppy with 42 free clusters - and its Save As is "
+        "one shape: create, seek to 0x180 on the EMPTY file, write the body "
+        "there, seek back to 0 and lay the 384-byte header it left room for. "
+        "A format whose header can only be filled in once the body is written "
+        "has no other shape to be. `.fwrite`'s append-only guard was two "
+        "`jne`s, which is not an ordering test at all: it refused a write "
+        "PAST the end in the same breath as one BEHIND it, and those are "
+        "opposite cases - behind is 96.11.2's real refusal, past is a GAP "
+        "`dos_fh_wiloop`'s `.ihole` already lays. WRGAP.COM runs under this "
+        "box and under a real DOS unchanged, so its expected answers are the "
+        "reference's; its last step also covers AH=41h on a name that is not "
+        "there, which answered `access denied` where DOS says `file not "
+        "found` (96.11.9). THE GAP'S OWN CONTENT IS DELIBERATELY NOT "
+        "ASSERTED - DOS leaves it undefined, so a probe checking it would "
+        "fail against the reference for being right. VERIFIED TO FAIL at step "
+        "B against the build that shipped the defect.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/wrgap360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

@@ -255,11 +255,41 @@ def dos_syms(names, defines=("DOSTRACE",)):
 BSS = ("dos_tracen", "dos_tracew", "dos_trseg", "dos_trnm",
        "dos_trnmi", "dos_ldpsp", "dos_state", "dos_arena",
        "dos_apara", "dos_fhtab", "dos_wown", "dos_wlen",
-       "dos_wfill", "dos_wbytes")
+       "dos_wfill", "dos_wbytes", "dos_tr33",
+       # ...and the rest of the WINDOW, which is the state a trace cannot
+       # show at all (SPEC.md 96.11): every handle call goes through one
+       # 8KB view and whether it is a view or an accumulator, whose it is,
+       # where it sits and whether it is dirty decide the answer. A write
+       # that reports its full count and loses the bytes is that record
+       # disagreeing with the handle's, and nothing in the ring says so.
+       "dos_wseg", "dos_wbase", "dos_wdirty")
 CONSTS = ("DOS_TRACEN", "DOS_TRACE_SZ", "DOS_TRNM_N", "DOS_TRB_OFF",
           "DOS_TRACE_KB",
-          "DOS_NFH", "DOS_FH0",
+          "DOS_NFH", "DOS_FH0", "DOS_TR33_N",
           "FH_SIZEOF", "FH_NAME", "FH_FLAGS", "FH_POS", "FH_SIZE")
+
+# INT 33h, by the numbers a 1987 program actually calls. The histogram
+# (SPEC.md 96.10.3) is one saturating byte per function, so what it needs on
+# this side is only a name per index - and a name matters here, because the
+# finding this exists for is a program calling ONE function we answer "not
+# supported" to and then waiting for ever.
+INT33 = {
+    0x00: "reset/installed?",   0x01: "show cursor",
+    0x02: "hide cursor",        0x03: "position+buttons",
+    0x04: "set position",       0x05: "press counts",
+    0x06: "release counts",     0x07: "set x range",
+    0x08: "set y range",        0x09: "set gfx cursor",
+    0x0A: "set text cursor",    0x0B: "read motion",
+    0x0C: "SET EVENT HANDLER",  0x0D: "light pen on",
+    0x0E: "light pen off",      0x0F: "set mickeys/pixel",
+    0x10: "conditional off",    0x13: "double-speed thresh",
+    0x14: "swap event handler", 0x15: "state buffer size",
+    0x16: "save state",         0x17: "restore state",
+    0x18: "alt event handler",  0x19: "read alt handler",
+    0x1A: "set sensitivity",    0x1B: "read sensitivity",
+    0x1C: "set rate",           0x1D: "set display page",
+    0x1E: "read display page",  0x1F: "disable driver",
+}
 
 
 def trap_syms(com_path):
@@ -473,6 +503,46 @@ def build_trace_disk(system_img, out_img, verbose=True):
 # =============================================================================
 # the traces
 # =============================================================================
+def drive(m, script, label):
+    """Type at an INTERACTIVE program, so a trace can reach its menus.
+
+    `--keys` is a comma-separated list of steps:
+
+        wait:8          sleep that many seconds of HOST time
+        key:AltLeft     one MartyKey by name (W3C KeyboardEvent.code)
+        text:hello      ASCII through type_text, shifted characters included
+
+    **IT EXISTS BECAUSE THE INTERESTING CALLS ARE PAST THE MENU.** The tracer
+    ran a program and watched; everything it could reach was what a program
+    does on the way UP. Microsoft Works reports `Cannot write file` on File >
+    Save As, which is four keystrokes in and which no amount of waiting
+    reaches - and the reference side needs the SAME four, or the diff aligns
+    two different programs (SPEC.md 96.44.13.1's lesson one level out).
+
+    Nothing here is clever about what is on the screen: a step is a step and
+    the waits are the operator's to get right. A script that misses puts the
+    program somewhere else and the trace says so, which is the honest failure
+    - a driver that hunted for menu text would be a second thing to debug.
+    """
+    if not script:
+        return
+    for step in script.split(","):
+        step = step.strip()
+        if not step:
+            continue
+        kind, _, arg = step.partition(":")
+        if kind == "wait":
+            time.sleep(float(arg))
+        elif kind == "key":
+            m.key(arg)
+        elif kind == "text":
+            m.type_text(arg)
+        else:
+            raise SystemExit("os88dosdbg: --keys step %r is not wait:, key: "
+                             "or text:" % step)
+        print("  %s: %s" % (label, step), file=sys.stderr)
+
+
 def _agree(stride, where):
     """The one thing a host-side reader cannot be wrong about quietly.
 
@@ -500,9 +570,11 @@ def _entries(ring, stride, nent, total, wr):
     return out
 
 
-def _save(path, meta, entries, names=()):
+def _save(path, meta, entries, names=(), mouse=None):
     doc = dict(meta)
     doc["names"] = list(names)
+    if mouse is not None:
+        doc["mouse"] = list(mouse)      # INT 33h per function (SPEC.md 96.10.3)
     doc["entries"] = entries
     with open(path, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1)
@@ -510,6 +582,7 @@ def _save(path, meta, entries, names=()):
 
 
 def cmd_trace(a):
+    import os88marty                                                  # noqa: E402
     import os88ui                                                     # noqa: E402
     import os88geom                                                   # noqa: E402
 
@@ -551,6 +624,8 @@ def cmd_trace(a):
         def w16(off):
             return struct.unpack("<H", bytes(m.read(base + off, 2)))[0]
 
+        drive(m, a.keys, "keys")
+
         last, end = None, time.time() + a.timeout
         while time.time() < end:
             total = w16(sym["dos_tracen"])
@@ -588,19 +663,52 @@ def cmd_trace(a):
         raw = bytes(m.read(base + sym["dos_trnm"], nm * 13))
         names = [raw[i * 13:(i + 1) * 13].split(b"\0")[0].decode("latin1")
                  for i in range(nm)]
+        # ...and the MOUSE, which the ring cannot carry (SPEC.md 96.10.3)
+        mou = bytes(m.read(base + sym["dos_tr33"], sym["DOS_TR33_N"]))
 
+        if a.shot:
+            wd, ht, px = m.fbuf()
+            os88marty.write_png_rgb(a.shot, wd, ht, px)
+        if a.flush_disk:
+            # **THE PROGRAM'S OWN ANSWER IS NOT EVIDENCE THAT A FILE EXISTS.**
+            # `launch()` clones the disk into the instance's private tree and
+            # nothing writes an image back, so every sector the guest wrote
+            # lives and dies in RAM (os88marty.Marty.flush). A trace that ends
+            # with `write -> cf=0, close -> cf=0` and a disk on the host with
+            # no such file on it is the reader looking at the PRISTINE copy,
+            # which reads exactly like a save that silently did nothing - it
+            # cost this session a wrong conclusion about a fix that worked.
+            m.flush(1, os.path.abspath(a.flush_disk))
+            print("os88dosdbg: B: written back to %s" % a.flush_disk,
+                  file=sys.stderr)
         if a.state:
             _dump_state(m, base, sym, psp, a)
 
     entries = _entries(ring, stride, nent, total, wr)
     _save(a.out, dict(source="os8088", program=a.program, psp=psp, total=total,
-                      wrapped=total > nent, machine=a.machine), entries, names)
+                      wrapped=total > nent, machine=a.machine), entries, names,
+          mouse=list(mou))
     print("os88dosdbg: %d call(s)%s, PSP %04X -> %s"
           % (total, " (WRAPPED - raise DOS_TRACEN)" if total > nent else "",
              psp, a.out))
     if names:
         print("  names the program passed: %s" % ", ".join(names))
+    print("  " + mouse_line(mou))
     return 0
+
+
+def mouse_line(mou):
+    """One line: what the program asked INT 33h for, or that it asked nothing.
+
+    ALL ZERO IS THE MOST IMPORTANT READING and must not print as blank - a
+    program that never calls the mouse at all and one whose calls we answer
+    wrongly are opposite defects, and only this tells them apart.
+    """
+    hit = [(i, n) for i, n in enumerate(mou) if n]
+    if not hit:
+        return "INT 33h: NOT CALLED ONCE - the program found no mouse, or never looked"
+    return "INT 33h: " + ", ".join(
+        "%02Xh %s x%d" % (i, INT33.get(i, "?"), n) for i, n in hit)
 
 
 def _dump_state(m, base, sym, psp, a):
@@ -619,6 +727,19 @@ def _dump_state(m, base, sym, psp, a):
                        sym["FH_SIZEOF"] * sym["DOS_NFH"]))
     open(stem + ".fhtab.bin", "wb").write(tab)
     print("  state: %s.{psp,ivt,bda,fhtab}.bin" % os.path.basename(stem))
+
+    def b8(n):
+        return m.read(base + sym[n], 1)[0]
+
+    def w16(n):
+        return struct.unpack("<H", bytes(m.read(base + sym[n], 2)))[0]
+
+    own = b8("dos_wown")
+    wbase = struct.unpack("<I", bytes(m.read(base + sym["dos_wbase"], 4)))[0]
+    print("    window: own=%s base=%08X len=%d of %d dirty=%d holds-file=%d"
+          % ("none" if own == 0xFF else str(own + sym["DOS_FH0"]), wbase,
+             w16("dos_wlen"), w16("dos_wbytes"),
+             b8("dos_wdirty"), b8("dos_wfill")))
     for i in range(sym["DOS_NFH"]):
         r = tab[i * sym["FH_SIZEOF"]:(i + 1) * sym["FH_SIZEOF"]]
         if not r[sym["FH_FLAGS"]] and not r[0]:
@@ -727,6 +848,7 @@ def cmd_ref(a):
             m.key("Enter")
             seg = struct.unpack("<HH", bytes(m.read(0x21 * 4, 4)))[1]
             base = seg << 4
+            drive(m, a.keys, "keys")
             end = time.time() + a.timeout
             while time.time() < end:
                 total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
@@ -1070,6 +1192,23 @@ def main():
         p.add_argument("--until", type=int, default=0,
                        help="stop once this many calls are logged (0: run to the "
                             "program's exit, or to the ring's cap)")
+        p.add_argument("--shot", default="",
+                       help="a PNG of the final screen. With --keys it is how "
+                            "you find out whether the script landed where you "
+                            "meant: a miss leaves the program somewhere else "
+                            "and the trace alone cannot say where")
+        p.add_argument("--keys", default="",
+                       help="drive an INTERACTIVE program once it is up: a "
+                            "comma-separated list of wait:SECS, key:NAME "
+                            "(a W3C KeyboardEvent.code, e.g. AltLeft) and "
+                            "text:ASCII. Give `trace` and `ref` the SAME "
+                            "script or the diff aligns two different runs")
+        p.add_argument("--flush-disk", default="",
+                       help="write B: back to this file before the machine "
+                            "closes, so a WRITE can be checked against the "
+                            "SECTORS. The instance runs on a private clone and "
+                            "nothing persists it, so without this a successful "
+                            "save and a silent no-op look identical on the host")
         if need:
             p.add_argument("--dos-disk", required=True,
                            help="YOUR bootable DOS floppy; it is copied, not edited")
@@ -1080,7 +1219,6 @@ def main():
                                 "(the double-click gives our side this free)")
             p.add_argument("--boot-keys", type=int, default=2,
                            help="Enters for the date and time prompts (DOS 3.3: 2)")
-            p.add_argument("--shot", help="write a PNG of the screen at the end")
             p.add_argument("--free", nargs="*", default=[], metavar="NAME",
                            help="files to leave out of the COPY of the DOS disk, "
                                 "to make room for the tracer; your own disk is "
