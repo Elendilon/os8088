@@ -117357,6 +117357,54 @@ all the same. `[cs_wldnow]` stayed `0FFh` and `cs_cmd_fly`'s `jc .out` skipped
 **every** flight: a simulator that opened its window, took a mode and drew
 nothing.
 
+###### 88.10.5.4.1 …and the READ is told a CAPACITY, which the LAST stream can never fill
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and the machine
+is incidental: **San Francisco is the last world in the file**, and that is the
+whole of it.
+
+`cs_wldget` asks `OSAPI_FILE_READ_AT` for `[cs_wgcap]` — the head slack plus
+the stream, rounded **up to whole clusters**, because §20.14.3 wants a cluster
+multiple for the capacity as well as the offset. Then it checked the delivered
+count against that same `[cs_wgcap]`. **A capacity is what you ASK for and a
+stream is what you NEED**, and the two differ by the rounding: every stream but
+the last has more file behind it, so the read fills the capacity and the check
+passes by accident. The last one ends at EOF, so it never can.
+
+Measured on the shipped package — 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long, so `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+It is not a geometry effect. At a 1,024-byte cluster the capacity is 2,048 and
+the shortfall is bigger, so **every floppy this ships on fails the same way**,
+and no other location does.
+
+What that costs is `cs_wldpick` returning `CF=1` with `[cs_wldnow]` still
+`0FFh`, which `cs_cmd_fly`'s `jc .out` turns into a Fly button that does
+nothing at all — §88.10.5.4's symptom exactly, reached through the other check
+in the same routine. Both are the same mistake in the same shape: **a size
+handed to a kernel call that verifies it, taken from the room rather than from
+the thing**.
+
+The fix is the predicate, not the read: compare against `[cs_wgslk]` +
+`[cs_wglen]`, the bytes the expansion is about to consume. Six bytes of the
+package image and nothing resident. **`apps/os88partsbody.inc` already had it
+right** — `op_load`'s chunk loop carries `[op_want]`, *"how much of what MUST
+arrive just did"*, and refuses on that — so the shared reader was never wrong
+and this is what the package's own hand-rolled copy of it lost.
+
+**No row flew San Francisco**, which is why it shipped: `skieswater` visits
+LBG, LCY and JFK, `skiesgeom` both Paris runways, and every other skies row
+takes the default. `tests/skiesworlds.py` flies **all nine**, one independent
+attempt each, and asserts the world that arrived rather than that the screen
+changed — which is the assertion that has an answer when a load silently does
+nothing.
+
 ##### 88.10.5.5 What it cost, and the one thing it takes away
 
 | the nine worlds | bytes |

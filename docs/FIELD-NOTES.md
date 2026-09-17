@@ -2252,3 +2252,52 @@ every byte perfect. And a `settle` after a bracket returns **mid-repaint**:
 `[fsx_cur]` is cleared before `wm_paint_all` runs and the cards are lit after
 it, so the first capture differed from the next by ~4,500 pixels on an idle
 box. Both rows converge now instead of trusting one settle.
+
+## 51. CLEAR SKIES: San Francisco will not fly — the Fly button does nothing at all (FIXED — the LAST stream in the file can never fill a cluster-rounded read: SPEC.md §88.10.5.4.1)
+
+*"I'm unable to fly in san fran - clicking the fly button does nothing (no
+error, but also, no flying)."* Reported off a 286 with a VGA, and **the machine
+is incidental**: San Francisco is the last world in the package file, and that
+is the whole of it. Reproduced on the first attempt and on the first shot,
+under MartyPC — nine locations poked one at a time, eight fly, SFO reports
+`cs_wldnow = FF` with nothing loaded at all.
+
+**A CAPACITY IS WHAT YOU ASK FOR AND A STREAM IS WHAT YOU NEED.** `cs_wldget`
+asks `OSAPI_FILE_READ_AT` for the head slack plus the stream **rounded up to
+whole clusters**, because §20.14.3 wants a cluster multiple for the capacity as
+well as the offset — and then it checked the *delivered* count against that
+same rounded number. Every stream but the last has more file behind it, so the
+read fills the capacity and the check passes by accident. The last one ends at
+EOF and never can.
+
+Measured on the shipped package, 45,255 bytes, the ninth stream at sector 86
+and 1,223 bytes long — `44,032 + 1,223` is **exactly** the file's length:
+
+| stream | needs | capacity asked | file has after the base | |
+|---|---:|---:|---:|---|
+| `csw7` Rio | 1,247 | 1,536 | 2,759 | ok |
+| **`csw8` San Francisco** | **1,223** | **1,536** | **1,223** | **refused** |
+
+At a 1,024-byte cluster the capacity is 2,048 and the shortfall is larger, so
+**every geometry this ships on fails identically** and no other location does.
+`cs_wldpick` returns `CF=1`, `[cs_wldnow]` stays `0FFh`, and `cs_cmd_fly`'s
+`jc .out` makes the button a no-op — which is §88.10.5.4's symptom exactly,
+reached through the *other* check in the same routine. Both are one mistake in
+one shape: **a size handed to a kernel call that verifies it, taken from the
+room rather than from the thing.**
+
+**`apps/os88partsbody.inc` already had it right.** `op_load`'s chunk loop
+carries `[op_want]` — *"how much of what MUST arrive just did"* — and refuses
+on that, so the shared parts reader was never wrong and this is what the
+package's own hand-rolled copy of that read lost. Six bytes of the package
+image, nothing resident, and `build/skies.o88` is the same 45,255 bytes.
+
+**WHY IT SHIPPED IS THE PART WORTH KEEPING: no row ever flew it.**
+`skieswater` visits LBG, LCY and JFK, `skiesgeom` both Paris runways, and every
+other skies row takes the default location — so of nine places the suite flew
+five, and the one it never picked is the one that was broken.
+`tests/skiesworlds.py` flies **all nine** now, one independent full load each
+(`[cs_wldnow]` forced to `0FFh` first, so nothing passes on its predecessor's
+world), and asserts the world that ARRIVED rather than that the screen changed
+— because a silent load failure takes no mode, so there are no pixels to ask
+about. Verified to fail on SFO alone against the package before the fix.
