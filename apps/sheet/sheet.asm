@@ -19852,7 +19852,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 3238
+    OS88_BSS 3258
     OS88_IMAGE_END
 
 sh_selcol     equ os88_image_end + 0
@@ -20030,7 +20030,7 @@ sh_fdlg_btrec equ sh_fdlg_rect + 16   ; the standard button record (SPEC.md
                                          ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
-sh_fdlg_count  equ sh_fdlg_btrec + 12         ; word: this kind's row count
+sh_fdlg_count  equ sh_fdlg_btrec + OS88UI_BT_SIZE         ; word: this kind's row count
                                              ; (4 for Number/Align/Font, 2
                                              ; for Insert/Delete's Row/
                                              ; Column pick) - see
@@ -20115,7 +20115,7 @@ sh_ldlg_btrec equ sh_ldlg_rect + 16   ; the standard button record (SPEC.md
                                          ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
-sh_ldsb         equ sh_ldlg_btrec + 12         ; 14: os88ui_sbar's seven words
+sh_ldsb         equ sh_ldlg_btrec + OS88UI_BT_SIZE         ; 14: os88ui_sbar's seven words
 sh_ldlg_src     equ sh_ldsb + 14             ; -> the string being pasted
 ; --- stage 3.0c: defined names ---
 sh_nnames       equ sh_ldlg_src + 2
@@ -20178,7 +20178,7 @@ sh_bdlg_btrec equ sh_bdlg_rect + 16   ; the standard button record (SPEC.md
                                          ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
-sh_bdrawflags  equ sh_bdlg_btrec + 12        ; byte: that cell's border byte
+sh_bdrawflags  equ sh_bdlg_btrec + OS88UI_BT_SIZE        ; byte: that cell's border byte
 sh_bx1         equ sh_bdrawflags + 1
 sh_by1         equ sh_bx1 + 2
 sh_bx2         equ sh_by1 + 2
@@ -20455,7 +20455,7 @@ sh_ndlg_btrec equ sh_ndlg_rect + 16   ; the standard button record (SPEC.md
                                          ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
-sh_idlg_win       equ sh_ndlg_btrec + 12 ; word: 0 = none, the single-instance
+sh_idlg_win       equ sh_ndlg_btrec + OS88UI_BT_SIZE ; word: 0 = none, the single-instance
 sh_idlg_kind      equ sh_idlg_win + 2  ; byte: SH_ID_*                   gate
 sh_idlg_buf       equ sh_idlg_kind + 1 ; SH_EDITMAX bytes: what is typed
 sh_idlg_line      equ sh_idlg_buf + SH_EDITMAX   ; OS88LINE_SZ bytes
@@ -20470,7 +20470,7 @@ sh_idlg_btrec equ sh_idlg_rect + 16   ; the standard button record (SPEC.md
                                          ; 20.5.1.3); the rect above is TWO rects
                                          ; now - OK then Cancel - because a
                                          ; group's rects must be contiguous
-sh_rw_absc        equ sh_idlg_btrec + 12 ; byte: Insert/Delete's scanner
+sh_rw_absc        equ sh_idlg_btrec + OS88UI_BT_SIZE ; byte: Insert/Delete's scanner
 sh_rw_absr        equ sh_rw_absc + 1
 sh_cp_absc        equ sh_rw_absr + 1   ; byte: Copy/Paste + Fill's scanner
 sh_cp_absr        equ sh_cp_absc + 1
