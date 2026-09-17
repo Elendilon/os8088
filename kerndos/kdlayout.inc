@@ -57,7 +57,14 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; because DOS has no such call - AH=3Ah removes an empty directory and refuses
 ; a populated one, which is the strict `dskw_rmdir` arm `dos_k_rmdir` already
 ; takes. 381 bytes of the rung left.
-KD_IMG_KB   equ 34              ; the image rung: every progbits section PLUS
+KD_IMG_KB   equ 35              ; 34 until SPEC.md 96.11.7's character devices
+                                ; raised CORE_MAX by a kilobyte, and this rung
+                                ; reserves the core's block - so a kilobyte
+                                ; there is a kilobyte here, which is a kilobyte
+                                ; off the DOS program. Task #27 is where both
+                                ; come back; the owner's call was *"working at
+                                ; all is most important"*.
+                                ; the image rung: every progbits section PLUS
 KIMG_PARA   equ KD_IMG_KB * 64  ; the bss, rounded up to whole KB and asserted
                                 ; at the foot of each root.  IT HAS TO CLEAR
                                 ; THE WHOLE THING and not just `.text`: FAT_SEG

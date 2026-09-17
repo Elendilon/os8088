@@ -127582,6 +127582,63 @@ is how one of them ends up holding a loop counter instead. For the same
 reason `dos_fh_fill` answers the window offset in `AX` and not `DI` — the
 caller's `DI` is where the bytes are *going*.
 
+#### 96.11.7 `CON` is not a file name, and answering as though it were costs a program its handles
+
+`AH=3Dh` on **`CON`**, `NUL`, `PRN` or `AUX` opens a **character device**. The
+box resolved every name through the directory, found no such file, and
+answered **error 2**. Microsoft Works, the first program anyone ran on this
+box from outside the project, could not open its own `WORKS.INI` as a result —
+and the message it printed was `Too many files open`, which is the one error
+the box was *not* returning.
+
+**The path from one to the other is the whole lesson, and only a reference
+trace could show it** (docs/DOS-DEBUGGING.md). Traced against IBM DOS 3.30 on
+the same disk, one call site diverges:
+
+| | | |
+|---|---|---|
+| `os8088 43` | `AH=3D AL=02 → 0002 CF` | `@+0BD1:082A` |
+| `dos 41` | `AH=3D AL=02 → 0007 ok` | `@+0BD1:082A` |
+| `dos 42` | `AH=3D AL=02 → 0008 ok` | the same site |
+| `dos 43` | `AH=3D AL=02 → 0009 ok` | …and again |
+| `dos 44` | `AH=3D AL=02 → 0004 CF` | **DOS itself answers 4** |
+| `dos 45` | `AH=3E close BX=0007` | …and Works hands them all back |
+
+Works opens `CON` **in a loop until DOS refuses**, to find out how many
+handles it has left, and then closes them. Under DOS it counts three. Under
+us the first open fails, it counts **zero**, and every later open it wants is
+refused *by Works* before it reaches us. The handle table had **one** slot of
+eight in use throughout; `DOS_NFH` was never the problem and nothing leaked.
+
+**A device therefore takes a REAL slot**, and that is a requirement rather
+than an implementation choice: answering with one of the five standard handles
+would hand the loop the same number for ever and it would never end.
+`FHF_DEV` marks the record, `FH_VOL` carries the `DOS_DEV_*` code — a device
+has no volume for that field to mean anything else about — and `FHF_WRITE` is
+**not** set whatever the mode said, because that bit is what makes the close
+create a file.
+
+`dos_fh_isdev` is four compares and not a parser, because the name has already
+been through `dos_fh_core`: bare, upper case, drive and folder stripped. **An
+extension is ignored** — `CON.TXT` is the console, which is the rule behind
+every *"you cannot call a file CON"* a DOS user has ever met.
+
+Reads answer **end of file**, which is what handle 0 already does here.
+Writes to `CON` take the teletype, which is what handles 1 and 2 already do;
+`NUL`, `PRN` and `AUX` **accept every byte and write none**. A refusal would
+be the wrong answer — a program that cannot print usually cannot carry on
+either — and DOS's own answer for a printer nobody has plugged in is to take
+the bytes.
+
+#### 96.11.8 `AH=0Dh` is a flush, and there is one buffer to flush
+
+Disk reset: commit what is buffered and forget the rest. There is one buffer
+here — the write window — so `dos_fh_flush` is the whole of it. It used to
+fall through to `invalid function`, which the Works trace showed DOS does not
+answer. **DOS returns nothing and cannot fail**, so a flush that refuses is
+swallowed rather than reported: there is no register to report it in, and the
+close will try again and has somewhere to say so.
+
 ### 96.12 Vectors, drives, the DTA and the directory
 
 The calls that are not I/O and not memory, and that a program makes without
@@ -128768,6 +128825,20 @@ it is measured, and what it measures is three separate things:
 that same 8237 inside `dsk_xfer`, so "the program can write DMA registers" and
 "a transfer the program set up completes" are different questions, and the
 second is the one every interesting use of a sound card sits on.
+
+
+#### 96.22.2 `AL=08h` — is this drive removable?
+
+`BL` = the drive, `0` meaning the one the program is standing on; out `AX` = 0
+removable, 1 fixed. It is the question a program asks before it **caches** a
+directory, and it was falling to `invalid function` — the **first differing
+answer** in the Works trace, ahead of §96.11.7's opens.
+
+`OSAPI_VOL_KIND`'s `VK_REMOVABLE` and `VK_FIXED` are the same two values in
+the same order, so the door's answer *is* this call's and there is no mapping
+to get wrong. A drive with no volume answers **15**, invalid drive, which is
+what DOS answers for a letter it has nothing mounted on. `DX` is not an output
+of this sub-function, so `[bp-8]` is left alone where `AL=00h` publishes it.
 
 #### 96.18.1 The mask the bracket hands over, and the page nobody would test
 

@@ -1979,3 +1979,64 @@ about the source, and the point of the machine list is that claims about the
 source were what everyone had. It is green: **29 checks on
 `os8088_5150_herc_hdd_gla`, the same 29 its CGA twin passes**, and `hibernatem`
 keeps it that way.
+
+## 46. Microsoft Works: `Too many files open`, with one file open (FIXED — `CON` was resolved through the directory: SPEC.md §96.11.7)
+
+**The first program anyone ran on this box from outside the project**, and the
+first report from upstream. An IBM PC 5150 on the fork owner's `pc5150`
+profile — 4.77 MHz 8088, Hercules, Sound Blaster — with Microsoft Works 1.00
+(`WORKS.EXE`, 313,702 bytes) on a 360KB floppy in B:. Works **launches and
+draws its splash screen**, then puts up
+
+```
+                          FILE ERROR
+                         B:\WORKS.INI
+                     Too many files open.
+                            <  OK  >
+```
+
+The handle table had **one slot of eight in use** at that moment — `WORKS.EXE`
+itself — and **the box never returns error 4 at all** on that path: `.fmany`
+is reachable only from `dos_fh_new` refusing a full table. So the message was
+about a condition nothing had reported, and `DOS_NFH` was never the question.
+
+**Only a reference trace could have found it** (docs/DOS-DEBUGGING.md's whole
+premise: our side looked right, and it was right). Traced under this box and
+under a real IBM DOS 3.30 on the same disk, one call site diverges:
+
+| | | |
+|---|---|---|
+| `os8088 43` | `AH=3D AL=02 → 0002 CF` | `@+0BD1:082A` |
+| `dos 41` | `AH=3D AL=02 → 0007 ok` | the same site |
+| `dos 42` | `AH=3D AL=02 → 0008 ok` | …and again |
+| `dos 43` | `AH=3D AL=02 → 0009 ok` | …and again |
+| `dos 44` | `AH=3D AL=02 → 0004 CF` | **DOS itself answers 4** |
+| `dos 45` | `AH=3E close BX=0007` | and Works hands them all back |
+
+The name is **`CON`**. Works opens the console over and over at one site until
+DOS refuses, to count how many handles it has left, then closes them. Under
+DOS it counts three. Under us the first open answered *file not found* —
+because the box resolves every name through the directory and `CON` is not a
+file — so it counted **zero**, and every open it wanted after that it refused
+by itself. The error text is Works being right about what we told it.
+
+**THE FIX IS THAT A DEVICE IS NOT A FILE NAME** (SPEC.md §96.11.7). `AH=3Dh`
+tests `CON`/`NUL`/`PRN`/`AUX` before the directory and hands out a real slot
+marked `FHF_DEV`; reads answer end of file, `CON` writes take the teletype,
+and the other three accept their bytes and write none. **A real slot is the
+requirement and not a detail**: answering with one of the five standard
+handles would give the counting loop the same number for ever and it would
+never end.
+
+The same trace named two more, both refusals DOS does not make: **`AH=44h
+AL=08h`** — is this drive removable — which is the *first* differing answer
+of the run (§96.22.2), and **`AH=0Dh`**, disk reset (§96.11.8).
+
+**What it cost was a kilobyte of the DOS core**, on the owner's call —
+*"raise the image by a kb for now, and we will optimize afterwards. Working
+at all is most important."* `CORE_MAX` had 30 bytes of slack and the device
+path is 192; `KD_IMG_KB` goes with it, so it is also a kilobyte off the DOS
+program on the shut-down arm. Task #27 is where both come back.
+`tests/dostrap/condev.asm` and the `dosdev` row are the gate, and they assert
+the property the loop rests on — **two opens, two different handles** — and
+not merely that `CON` opens.

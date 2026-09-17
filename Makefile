@@ -5060,8 +5060,18 @@ $(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
 		SUB:$(BUILD)/CWDHERE.COM SUB:$(BUILD)/HERE.TXT $(BUILD)/CWDHERE.COM
 
+# --- ...AND THE ONE THAT ASKS WHETHER CON IS A DEVICE (SPEC.md 96.11.7) -----
+# CONDEV.COM alone on a 360KB floppy. It needs no data file: what it tests is
+# what the box does with a name that is NOT on the disk and must not be looked
+# for there, so an empty volume is the honest fixture.
+$(BUILD)/CONDEV.COM: tests/dostrap/condev.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/condev.asm
+
+$(BUILD)/condev360.img: $(BUILD)/CONDEV.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/CONDEV.COM
+
 .PHONY: kdostest
-kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img
+kdostest: $(IMG360) $(IMG720) $(IMG) $(BUILD)/doscom360.img $(BUILD)/doscom144.img $(BUILD)/cwdsub.img $(BUILD)/dosbig144.img $(BUILD)/condev360.img
 	@echo "kdostest: the SHIPPED system disks already carry kern_dos as a part"
 	@echo "          of APPS/DOS.O88 - what this target adds is the B: floppy"
 	@echo "          of DOS programs: build/doscom360.img and doscom144.img,"

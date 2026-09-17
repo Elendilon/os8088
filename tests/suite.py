@@ -3643,6 +3643,23 @@ SOAK = [
         "on both, against the build that shipped them.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/apps360.img")),
+    Row("dosdev", "soak", py("tests/dosdev.py"), 25.0,
+        "`CON` IS A CHARACTER DEVICE, NOT A FILE NAME THAT IS MISSING "
+        "(SPEC.md 96.11.7). Microsoft Works - the first program anyone ran on "
+        "this box from outside the project - could not open its own WORKS.INI "
+        "and said `Too many files open` about it, while the handle table held "
+        "ONE slot of eight. Traced against IBM DOS 3.30 on the same disk, "
+        "Works opens CON at one call site until DOS refuses, counts what it "
+        "got and closes them: DOS hands it 7, 8, 9 then error 4, and we "
+        "failed the FIRST one with `file not found`, so it counted zero. THE "
+        "ASSERTION IS NOT `CON OPENS` - it is that two opens give two "
+        "DIFFERENT handles, which is what the counting loop rests on and what "
+        "an answer of `handle 1` would hang for ever. CONDEV.COM runs under "
+        "this box and under a real DOS unchanged, so its expected answers are "
+        "the reference\'s; it also covers AH=44h AL=08h and AH=0Dh, the other "
+        "two answers that trace showed DOS giving and us refusing.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/condev360.img")),
     Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "

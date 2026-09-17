@@ -2690,6 +2690,8 @@ dos_int21:
     je .ff
     cmp ah, 0x4F
     je .fn
+    cmp ah, 0x0D
+    je .dskreset
     cmp ah, 0x39
     je .mkdir
     cmp ah, 0x3A
@@ -2798,7 +2800,8 @@ dos_int21:
     ja .fwrite                      ; ...and anything above them is a file
     or bx, bx
     jz .bad                         ; handle 0 is stdin: writing to it is not
-    push si                         ; a thing, and DOS answers 0 bytes anyway
+.wcon:                              ; ...and a CON opened by name lands here
+    push si                         ; too (SPEC.md 96.11.7)
     push cx
     mov si, dx
     mov ds, [bp]                    ; THE PROGRAM'S DS, off the frame - [bp] and
@@ -2875,6 +2878,8 @@ dos_int21:
     jc .fherr                       ; the record exists to put it in
     call .fhabs
     jc .fhpath
+    call dos_fh_isdev               ; A DEVICE IS NOT ON THE DISK (96.11.7)
+    jnc .opdev
     call dos_fh_stat                ; fills [dos_fent]
     jc .fnoent
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
@@ -2924,7 +2929,34 @@ dos_int21:
     jmp .fhok
 .opbig:
     mov byte [si+FH_FLAGS], 0       ; hand the slot back: a refused open must
-    jmp short .fhacc                ; not spend one
+    jmp .fhacc                      ; not spend one - a NEAR jump now, the
+                                    ; device arm below having moved .fhacc out
+                                    ; of a short one's reach
+
+.opdev:
+    ; **A CHARACTER DEVICE TAKES A REAL SLOT** (SPEC.md 96.11.7), and that is
+    ; the whole point rather than an implementation detail: Microsoft Works
+    ; opens CON over and over AT ONE CALL SITE until DOS refuses, to find out
+    ; how many handles it has left. Answering with one of the five standard
+    ; handles would hand it the same number for ever and the loop would never
+    ; end; answering `file not found` - which is what a name resolved through
+    ; the directory gets - tells it the answer is ZERO, and it then refuses to
+    ; open its own files (docs/FIELD-NOTES.md 43).
+    ;
+    ; AL is the DOS_DEV_* code and dos_fh_new preserves it.
+    call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
+    jc .fmany
+    call dos_fh_setname             ; the name is the DEVICE's, which is what
+                                    ; AH=44h and a debugger want to see
+    mov [si+FH_VOL], al             ; ...and the code, where a file keeps its
+                                    ; volume: a device has none (96.11.7)
+    mov byte [si+FH_FLAGS], FHF_USED | FHF_DEV
+                                    ; NOT FHF_WRITE, whatever the mode said:
+                                    ; that bit makes the CLOSE create a file,
+                                    ; and .fwrite tests FHF_DEV before it
+    call dos_jft_sync
+    mov ax, bx
+    jmp .fhok
 
 .create:
     ; AH=3Ch: DS:DX = an ASCIZ name, CX = attributes; out AX = a handle. The
@@ -2980,13 +3012,16 @@ dos_int21:
     push bx
     call dos_fh_slot
     jc .fhrdev
+    test byte [si+FH_FLAGS], FHF_DEV ; ...and one opened BY NAME reads the same
+    jnz .fhrdeof                     ; way (SPEC.md 96.11.7)
     call dos_fh_rdloop              ; AX = delivered
     jc .fherr
     jmp .fhok
 .fhrdev:
     cmp bx, DOS_FH0                 ; a DEVICE handle: stdin has no line editor
     jae .fhbad                      ; here, so it is at end of file, which is
-    xor ax, ax                      ; what a program reading it will act on
+.fhrdeof:                           ; what a program reading it will act on
+    xor ax, ax
     jmp .fhok
 
 .fwrite:
@@ -2994,6 +3029,8 @@ dos_int21:
     push bx
     call dos_fh_slot
     jc .fhbad
+    test byte [si+FH_FLAGS], FHF_DEV ; ...OR A DEVICE, which is neither a file
+    jnz .fwdev                       ; nor one of the five (SPEC.md 96.11.7)
     test byte [si+FH_FLAGS], FHF_WRITE
     jz .fhacc
     or byte [si+FH_FLAGS], FHF_WROTE ; **AH=44h's BIT 6 IS THE ONLY READER**
@@ -3019,6 +3056,18 @@ dos_int21:
     jc .fherr                       ; stops at the end of file and answers
     jmp .fhok                       ; the short count, which is what DOS
                                     ; answers for a full disk
+
+.fwdev:
+    ; A DEVICE WRITE IS ACCEPTED WHOLE (SPEC.md 96.11.7). CON goes to the
+    ; teletype, which is what handles 1 and 2 already do; the other three are
+    ; devices this machine has not got, and DOS's own answer for a printer
+    ; nobody has plugged in is to accept the bytes. A REFUSAL is the wrong
+    ; answer: a program that cannot print usually cannot carry on either.
+    pop bx                          ; the handle back, undoing .fwrite's push
+    cmp byte [si+FH_VOL], DOS_DEV_CON
+    je .wcon
+    mov ax, cx                      ; NUL, PRN, AUX: every byte accounted for
+    jmp .ok                         ; and none of them written
 
 .unlink:
     ; AH=41h: DS:DX = an ASCIZ name.
@@ -3848,6 +3897,19 @@ dos_int21:
                                     ; it has. BX and CX are the OEM and serial,
                                     ; and 0/0 is what IBM DOS 3.30 answers too
 
+.dskreset:
+    ; AH=0Dh - DISK RESET: flush what is buffered and forget the rest. There
+    ; is one buffer here, the write window, and flushing it is the whole of
+    ; what this call can mean - a program issues it precisely so that what it
+    ; has written is on the disk before it does something else. It used to
+    ; fall to `.bad` and answer `invalid function`, which Works's trace
+    ; against IBM DOS 3.30 showed as an answer DOS does not give (96.11.8).
+    ; **DOS RETURNS NOTHING AND CANNOT FAIL**, so a flush that refuses is
+    ; swallowed rather than reported: there is no register to report it in,
+    ; and the close will try again and has somewhere to say so.
+    call dos_fh_flush               ; ONE window, so this IS "flush everything"
+    jmp .ok
+
 .ioctl:
     ; AH=44h - IOCTL, and only the two sub-functions a C runtime asks
     ; (SPEC.md 96.22). AL=00h is "WHAT IS THIS HANDLE?", and it is the call a
@@ -3861,6 +3923,8 @@ dos_int21:
     je .ioc_get
     cmp al, 0x01
     je .ioc_set
+    cmp al, 0x08
+    je .ioc_rem
     jmp .bad                        ; the block-device sub-functions are a
 .ioc_get:                           ; different feature, refused by name
     cmp bx, DOS_FH0
@@ -3912,6 +3976,27 @@ dos_int21:
     or dh, dh                       ; DH must be zero: anything else is a
     jne .ioc_bad                    ; device request, and we have no device
     jmp .ok
+.ioc_rem:
+    ; AL=08h - DOES THIS DRIVE USE REMOVABLE MEDIA? BL = the drive, 0 being
+    ; the default one; out AX = 0 removable, 1 fixed. It is the question a
+    ; program asks before it CACHES a directory, and refusing it is what
+    ; Works's trace against IBM DOS 3.30 showed as the first differing answer
+    ; (SPEC.md 96.22.2). OSAPI_VOL_KIND's VK_REMOVABLE/VK_FIXED are the same
+    ; two values in the same order, so the door's answer IS this one.
+    mov al, bl
+    or al, al
+    jnz .ioc_rdrv
+    mov al, [dos_vol]               ; 0 = "the drive I am standing on"
+    inc al
+.ioc_rdrv:
+    dec al                          ; 1 = A:, and a volume index is 0-based
+    call dos_be_vkind               ; out CF=1 no such volume, else AL = VK_*
+    jc .ioc_rbad
+    xor ah, ah                      ; ...and DX is NOT this call's answer, so
+    jmp .ok                         ; [bp-8] is left alone: only AX is
+.ioc_rbad:                          ; published, which .ok does
+    mov ax, 15                      ; invalid drive, which is what DOS answers
+    jmp .badax                      ; for a letter it has no volume for
 .ioc_bad:
     mov ax, 6                       ; invalid handle
     jmp .badax
@@ -11226,6 +11311,18 @@ FHF_INPLC   equ 16                  ; opened by AH=3Dh for writing: the file
                                     ; EXISTS, so a write OVERWRITES through
                                     ; OSAPI_FILE_WRITE_AT and never moves the
                                     ; size (SPEC.md 96.11.6)
+FHF_DEV     equ 32                  ; a CHARACTER DEVICE and not a file at
+                                    ; all (SPEC.md 96.11.7): CON, NUL, PRN or
+                                    ; AUX, opened by name through AH=3Dh. The
+                                    ; record holds no position, no size and no
+                                    ; volume - FH_VOL carries the DOS_DEV_*
+                                    ; code instead, a device having no volume
+                                    ; for it to mean anything else about
+DOS_DEV_CON equ 0                   ; ...and the four names, in dos_devtab's
+DOS_DEV_NUL equ 1                   ; order, because the index IS the code
+DOS_DEV_PRN equ 2
+DOS_DEV_AUX equ 3
+DOS_NDEV    equ 4
 FHF_WHOLE   equ 8                   ; a COMPRESSED file, read whole and
                                     ; expanded: the window is the file and
                                     ; never refills (SPEC.md 96.11.1)
@@ -14769,6 +14866,82 @@ dos_fh_wrloop:
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_fh_isdev - is the name in [dos_fname] a CHARACTER DEVICE? (SPEC.md 96.11.7)
+; out: CF=0 with AL = the DOS_DEV_* code; CF=1 = an ordinary file name, AL kept
+; clobbers: the flags, and AL only on the CF=0 path
+;
+; The name has already been through dos_fh_core, so it is BARE, UPPER CASE and
+; has lost its drive letter and its folder part - which is exactly the shape a
+; device test wants, and is why this is four compares rather than a parser.
+;
+; **AN EXTENSION IS IGNORED**, because DOS ignores it: `CON.TXT` is the
+; console and always has been, which is the rule behind every "you cannot
+; call a file CON" a DOS user has ever met. The test is therefore "the three
+; letters, then a NUL or a dot".
+; -----------------------------------------------------------------------------
+dos_fh_isdev:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, dos_devtab
+    xor dl, dl                      ; DL = the code, which is the ROW
+.one:
+    mov di, dos_fname
+    mov cl, 3                       ; every device name here is three letters
+.cmp:
+    mov bl, [si]
+    inc si
+    cmp bl, [di]
+    jne .next
+    inc di
+    dec cl
+    jnz .cmp
+    mov bl, [di]                    ; ...and the name has to END there
+    or bl, bl
+    jz .yes
+    cmp bl, '.'
+    je .yes
+.next:
+    inc dl
+    mov al, dl                      ; SI may have stopped mid-name, so the next
+    mov cl, 2                       ; row is computed rather than walked to
+    shl al, cl                      ; (the rows are four bytes each)
+    xor ah, ah
+    mov si, dos_devtab
+    add si, ax
+    cmp dl, DOS_NDEV
+    jb .one
+    stc
+    jmp short .out
+.yes:
+    mov al, dl
+    clc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; --- the names it knows (SPEC.md 96.11.7) ----------------------------------
+; FOUR BYTES A ROW so the row index IS the DOS_DEV_* code and the walk above
+; can COMPUTE the next row rather than walk to it - it stops mid-name on a
+; mismatch. Three letters and a pad byte; the pad is never compared, the
+; length being the constant 3.
+;
+; IT LIVES HERE, past the `ret` and inside the core's own gate, and not with
+; the box's other literals: those are in the WINDOW half (`%ifndef
+; KD_BACKEND`), which the core build gates out - so a table put beside them
+; assembles for the box and leaves kern_dos with an undefined symbol.
+dos_devtab: db 'CON', 0
+            db 'NUL', 0
+            db 'PRN', 0
+            db 'AUX', 0
 
 ; -----------------------------------------------------------------------------
 ; dos_fh_slot - the record for handle BX

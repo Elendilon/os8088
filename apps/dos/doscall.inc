@@ -61,7 +61,16 @@ CORE_ORG    equ 0x0080
 ; opposite sides, so growing either one costs the other. This is a rung the
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
-CORE_MAX    equ 14848
+CORE_MAX    equ 15872            ; +1024 for SPEC.md 96.11.7's character
+                                ; devices, on the owner's call: *"raise the
+                                ; image by a kb for now, and we will optimize
+                                ; afterwards. Working at all is most
+                                ; important."* It was 30 bytes of slack against
+                                ; a 14,818-byte core, and the device path does
+                                ; not fit in 30. Task #27 is where it comes
+                                ; back: a kilobyte here is a kilobyte off
+                                ; KD_IMG_KB, so it is a kilobyte off the DOS
+                                ; program on the shut-down arm
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------
