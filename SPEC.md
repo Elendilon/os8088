@@ -91680,9 +91680,9 @@ exactly — one lane, one frame, on a window a few hundred pixels wide.
 **Two widenings, and the LOOK is untouched.** The pickup still leaves the glass
 on the same frame at the same place; nothing about the drawing changes.
 
-- **`CY_PUNEAR` = 1 lane either side.** `cy_pu_near` answers whether the claw
-  is close enough.
-- **`CY_PUGRACE` = 6 frames of grace.** A pickup that reached the lip with the
+- **`CY_PUNEAR` lanes either side.** `cy_pu_near` answers whether the claw is
+  close enough. **It is 0 today — the exact lane only (§67.24.3).**
+- **`CY_PUGRACE` = 4 frames of grace.** A pickup that reached the lip with the
   claw elsewhere files a record — lane, kind, timer — and `cy_pu_grace` re-tests
   it once a frame until the timer runs out. Sweeping onto its lane just after
   it landed still collects it.
@@ -91727,6 +91727,28 @@ it is collected** rather than at a fixed depth, so an early take looks like one.
 Net, the window is about nine frames wide — roughly 2.8 of reach plus 6 of
 grace — and **centred on the lip instead of starting at it**, where before it
 was one frame plus fifteen of afterthought.
+
+#### 67.24.3 …and the adjacency came back OUT
+
+Played again: *"the lower + grace is giving me what I wanted without the
+adjacency — my fault for trying too many things at once to fix the same
+problem."* Three knobs went in together for one complaint, so the credit could
+not be assigned until they were separated; the reach below the lip is the one
+that did the work, and the lane either side is what made a sweep feel loose on
+top of it.
+
+`CY_PUNEAR` is **0** and `CY_PUGRACE` is **4** (0.22 s). The neighbour test is
+`%if CY_PUNEAR`'d rather than deleted, so it costs nothing while it is off and
+comes back by moving one constant — which is the point, this being a feel
+judgement that may be re-made at the next play.
+
+**`tests/cycpu.py` READS BOTH CONSTANTS out of `cyclone.asm` and derives what
+each case should do.** A row that wrote down "one lane either side counts"
+would stop being a gate and start being a lie the first time the owner turned
+a knob — `tests/unit/t_mirror.py`'s rule applied to a number this file would
+otherwise be the second copy of. Verified both ways: at `CY_PUNEAR` = 1 the
+adjacency and wrap cases expect and get a take, at 0 they expect and get none,
+and the row is 14/14 on each.
 
 #### 67.24.1 …and what the row had to learn to measure it
 

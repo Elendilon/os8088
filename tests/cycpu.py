@@ -20,13 +20,29 @@ reset it between cases. The pickup is PLACED rather than waited for - dropping
 one needs a kill and a one-in-eight roll - at a depth one step short of the
 lip, so the very next frame is the one that decides.
 """
-import sys, os, time, argparse
+import sys, os, re, time, argparse
 
 _R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_R, "tools"))
 sys.path.insert(0, os.path.join(_R, "tests"))
 import os88marty, os88mouse, os88sym, os88geom, dispcp          # noqa: E402
 from cycweb import pkg_syms, Pkg, u16, CYS_TITLE, CYS_PLAY      # noqa: E402
+
+def equ(name):
+    """Read an `equ` straight out of the app.
+
+    THE EXPECTATIONS ARE DERIVED FROM IT and not written down here: CY_PUNEAR
+    and CY_PUGRACE are play-feel knobs the owner turns, so a row that hard-coded
+    "one lane either side counts" would go from a gate to a lie the first time
+    one of them moved. tests/unit/t_mirror.py's rule, applied to a constant this
+    file would otherwise be the second copy of.
+    """
+    src = open(os.path.join(_R, "apps/cyclone/cyclone.asm")).read()
+    m = re.search(r"^%s\s+equ\s+(\d+)" % name, src, re.M)
+    if not m:
+        raise RuntimeError("no `%s equ` in cyclone.asm" % name)
+    return int(m.group(1))
+
 
 CY_TOPD = 17
 CYP_JUMP = 2
@@ -139,6 +155,10 @@ def main():
     a = ap.parse_args()
     S = os88sym.linear
     bad = 0
+    near, grace = equ("CY_PUNEAR"), equ("CY_PUGRACE")
+    print("CY_PUNEAR = %d (%s), CY_PUGRACE = %d frames (%.2fs)"
+          % (near, "one lane either side" if near else "the exact lane only",
+             grace, grace / 18.2))
     with os88marty.launch(os.path.join(_R, "build/os8088-360.img"),
                           apps=os.path.join(_R, "build/apps360.img"),
                           machine=a.machine, boot=False) as m:
@@ -177,15 +197,16 @@ def main():
         g = Game(m, p)
 
         bad += case(g, "claw ON the lane",          5, 5)
-        bad += case(g, "claw one lane LEFT",        5, 4)
-        bad += case(g, "claw one lane RIGHT",       5, 6)
+        bad += case(g, "claw one lane LEFT",        5, 4, want=bool(near))
+        bad += case(g, "claw one lane RIGHT",       5, 6, want=bool(near))
         bad += case(g, "claw three lanes away",     5, 8, want=False)
-        # wait=3 and not 0: a record filed on one frame is first tested on the
-        # next, so sweeping on immediately proves the scan runs and nothing
-        # about the TIMER. Three ticks is half of CY_PUGRACE.
-        bad += case(g, "...swept on, inside grace", 5, 8, claw1=5, wait=3)
-        bad += case(g, "...swept on, too late",     5, 8, claw1=5, wait=12,
-                    want=False)
+        # HALF the window, not 0: a record filed on one frame is first tested
+        # on the next, so sweeping on immediately proves the scan runs and
+        # nothing at all about the TIMER.
+        bad += case(g, "...swept on, inside grace", 5, 8, claw1=5,
+                    wait=grace // 2)
+        bad += case(g, "...swept on, too late",     5, 8, claw1=5,
+                    wait=grace + 6, want=False)
 
         # --- SPEC.md 67.24.2: the zone reaches BELOW the lip ---------------
         # The take has to happen while the pickup is still short of CY_TOPD,
@@ -231,9 +252,9 @@ def main():
             bad += case(g, "%s: lane 0, claw 0 (control)" % shape[6:],
                         0, 0, want=True)
             bad += case(g, "%s: lane 0, claw %d (wrap L)" % (shape[6:], nl - 1),
-                        0, nl - 1, want=bool(closed))
+                        0, nl - 1, want=bool(closed) and bool(near))
             bad += case(g, "%s: lane %d, claw 0 (wrap R)" % (shape[6:], nl - 1),
-                        nl - 1, 0, want=bool(closed))
+                        nl - 1, 0, want=bool(closed) and bool(near))
 
         print("\ncycpu: %d failing case(s)" % bad)
     return 1 if bad else 0

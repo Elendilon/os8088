@@ -192,13 +192,20 @@ CY_MAXENEM  equ 10                  ; live enemies. The arcade's on-screen cap
 CY_MAXSHOT  equ 6                   ; player shots in flight
 CY_MAXESHOT equ 6                   ; enemy shots
 CY_MAXPU    equ 3                   ; powerup pickups on the web at once
-CY_PUGRACE  equ 6                   ; SPEC.md 67.24: frames a pickup stays
+CY_PUGRACE  equ 4                   ; SPEC.md 67.24: frames a pickup stays
                                     ; collectable after it has left the glass -
-                                    ; about a THIRD of a second at 18fps. It
-                                    ; was 15, and 0.8s is long enough to cross
-                                    ; the web and collect from the far side,
-                                    ; which is not sweeping by (67.24.2)
-CY_PUNEAR   equ 1                   ; ...and how many lanes either side count
+                                    ; under a quarter second at 18fps. It was
+                                    ; 15, and 0.8s is long enough to cross the
+                                    ; web and collect from the far side, which
+                                    ; is not sweeping by (67.24.2)
+CY_PUNEAR   equ 0                   ; ...and how many lanes either side count.
+                                    ; ZERO: the exact lane only (67.24.3). The
+                                    ; reach below the lip turned out to be the
+                                    ; half that was wanted, and this one was
+                                    ; the half that made a sweep feel loose.
+                                    ; Set it to 1 to have it back - the code is
+                                    ; %if'd rather than deleted, so it costs
+                                    ; nothing while it is off
 CY_PUREACH  equ 1                   ; ...and how many DEPTH STEPS short of the
                                     ; lip it can already be taken, so the
                                     ; window is an AREA and not an instant
@@ -5825,6 +5832,7 @@ cy_pu_near:
     mov cx, [cy_plane]
     cmp bx, cx
     je .yes
+%if CY_PUNEAR
     mov ax, bx
     sub ax, CY_PUNEAR
     call cy_wrap
@@ -5835,6 +5843,7 @@ cy_pu_near:
     call cy_wrap
     cmp ax, cx
     je .yes
+%endif
     stc
     jmp short .out
 .yes:
