@@ -3223,7 +3223,39 @@ hbm_wake:
     call KERNEL_SEG:cw_wm_paint_all
     ; 5. the two files are spent, and the drivers come back -----------------
     call hbm_forget
-    call hbm_reload
+    ; **AND A SUSPEND'S ROWS COME BACK THROUGH THIS DOOR TOO** (SPEC.md
+    ; 51.11.5). `[hb_drvmask]` is what `hbm_detach` found still MOUNTED when it
+    ; swept, so a row `OSAPI_DRV_SUSPEND` had ALREADY unmounted is not in it -
+    ; and the whole of arm 3 is exactly that shape: `dos_lbfill` suspends the
+    ; sound card to build the program's BLASTER= (SPEC.md 96.44.13) long before
+    ; the handoff writes the image, so the picture is of a machine that is
+    ; missing it and the reload below was told nothing about it.
+    ;
+    ; The LIVE return is the suspender's to pay and it pays it - the box gets a
+    ; `wm_wake` carrying the exit code and answers it with its own resume
+    ; (SPEC.md 96.35.5). **THIS DOOR IT CANNOT.** A DOS program that crashes,
+    ; or a machine switched off with one running, comes home by a COLD BOOT and
+    ; Resume: `[hb_doscode]` is `KDH_NOCODE` there, so the arm below never
+    ; reaches `wm_wake` and the box is restored onto the desktop with no wake
+    ; ever delivered. Nothing in any package runs, so nothing in any package
+    ; can put the card back - the user's machine is simply silent from then on.
+    ;
+    ; So the two sets are UNIONED here and only here: at the one moment the
+    ; whole machine is coming back, which is the moment every set is due.
+    ; `hb_susp` stays a word of its own everywhere else for the reason its
+    ; declaration gives - a hibernate can be taken while a suspend stands and
+    ; the two come back at different moments - and this IS the moment for both.
+    ; It is spent as it is read, so the live return's own resume then reloads
+    ; nothing rather than `drv_load`-ing a row that is already mounted.
+    ;
+    ; `hbm_reload_m` and not `hbm_reload`, so `[hb_drvmask]` is not written:
+    ; `hbm_hib`'s failure unwind calls `hbm_reload` to undo a detach that never
+    ; became an image, and a suspender standing behind THAT one still holds its
+    ; rows and is still going to ask for them.
+    mov dx, [hb_drvmask]
+    or dx, [hb_susp]
+    mov word [hb_susp], 0
+    call hbm_reload_m
     ; 5b. ...and the DOS program's exit code, to the box that asked for it ---
     ; **THIS IS THE ONLY THING THE RETURN ADDS TO THE WAKE**
     ; (docs/plans/KERN-DOS-PLAN.md 8). `[hb_dosseg]`/`[hb_dosoff]` are the

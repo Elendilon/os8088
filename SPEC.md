@@ -133030,6 +133030,38 @@ wake — and both go through it. A machine left silent with an ordinary window o
 screen is the failure this pays for, and it is worse than the one the bracket
 fence prevented, because there is no full-screen program to explain it.
 
+**And `dos_run` is not every exit, because ARM 3 does not end in `dos_run`.**
+The handoff posts and jumps `.outq`, which reaches none of that bracket on
+purpose — nothing has ended yet, and the drivers must stay out for the handoff
+to have their space. The path ENDS on the **return**, in `dos_wake`'s
+`DOSKPART` block, and that block set the state, banked the arena, printed the
+console line and returned. It owed a resume and paid it nowhere.
+
+`dos_lbfill` calls `dos_drv_take` on this arm as well — the `BLASTER=` row has
+to exist before it can be gathered (§96.44.13) — so the launch leaves with the
+sound row in `[hb_susp]`, the driver unmounted and `[dos_drvout]` at 1. The
+kernel's own reload cannot cover it: `[hb_drvmask]` is what the detach found
+still mounted, and §51.11.5 is the whole account. It read as a machine that
+resumed perfectly and was then silent for the rest of the session.
+
+`[dos_drvout]` stuck at 1 is the second half, and it is a memory fault rather
+than a silent one: the next `dos_drv_take` early-returns (§96.35), so a launch
+runs with ~14 KB less arena than the machine would give it and a `BLASTER=`
+nobody refreshed.
+
+**The COLD door needs a third call site**, because on it this package is never
+asked anything at all. §51.11.5's union puts the card back there; what is left
+is our flag, and it is cleared on whatever wake next reaches the box —
+`dos_wake`'s `.nocode` arm, **after** the `DST_CPWAIT` test and that is the
+whole guard. A wake can find `[dos_drvout]` set for exactly two reasons: the
+compaction wait, where the drivers stay out on purpose and that line has
+already gone; and a handoff whose return never came through here. Every other
+path pairs take with back inside one `dos_run` call, which no wake can land in
+the middle of. It is `dos_drv_back` and not a store to the flag, so it is right
+whatever the other side did — with `[hb_susp]` already spent the resume puts
+back nothing and costs one module read, and with it standing it puts back the
+rows.
+
 ### 96.27 `AH=36h` — and it was the REFUSAL that was the defect
 
 §96.21.8 named this call and predicted exactly how it would fail:
@@ -133337,6 +133369,50 @@ next.
 
 **On `kern_small`** the stub already ignores `BL`, there being no driver layer
 to sweep (§51.11.3).
+
+#### 51.11.5 A hibernate WAKE spends `[hb_susp]`, because there is a door no caller can answer
+
+§51.11.1's obligation is on the caller and stays on the caller. This is the
+one case where the caller is never given the chance, and the kernel pays it
+instead.
+
+`[hb_drvmask]` is what `hbm_detach` found still **mounted** when it swept, so
+a row a suspend had **already** unmounted is not in it. The whole of §96.40's
+handoff is that shape: `dos_lbfill` suspends the sound card to build the
+program's `BLASTER=` (§96.44.13) long before the image is written, so the
+picture is of a machine that is missing it and `hbm_wake`'s reload was told
+nothing about it. The two words are separate for the reason `hb_susp`'s own
+declaration gives — a hibernate can be taken while a suspend stands, and the
+two sets come back at different moments.
+
+**The live return is the suspender's and it pays it**: the box is handed a
+`wm_wake` carrying the exit code and answers it with its own resume
+(§96.35.5). **The cold boot it cannot.** A DOS program that crashes, or a
+machine switched off with one running, comes home by Resume rather than by the
+live return — and `hbm_wake` reaches `wm_wake` only when it has an exit code
+to deliver, so on that door the box is restored onto the desktop with **no
+wake ever sent**. No package code runs at all, so no package can put the card
+back, and the machine is simply silent for the rest of the session.
+
+So the two sets are **unioned at the wake**, at the one moment the whole
+machine is coming back, which is the moment every set is due. `[hb_susp]` is
+spent as it is read, so a live return's own resume then reloads nothing rather
+than `drv_load`-ing a row that is already mounted. When no suspend stands the
+union is `or dx, 0` and the mask is bit-identical to what `hbm_reload` would
+have passed — an ordinary hibernate is unchanged by construction.
+
+It is `hbm_reload_m` and **not** `hbm_reload`, so `[hb_drvmask]` is not
+written: `hbm_hib`'s failure unwind calls `hbm_reload` to undo a detach that
+never became an image, and a suspender standing behind **that** one still
+holds its rows and is still going to ask for them.
+
+The whole of it is `HIBER.DRV`'s, and `kernel.bin` is byte-identical across
+the change — **zero resident bytes**.
+
+The caller's flag is the other half and stays the caller's: `[dos_drvout]`
+left set makes the next `dos_drv_take` early-return, so a launch runs with
+~14 KB less arena than the machine would give it (§96.35). §96.35.5 is where
+the box clears it.
 
 ### 51.12 What a class is holding (`OSAPI_DRV_CLASSK`)
 
