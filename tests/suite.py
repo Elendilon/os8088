@@ -2383,6 +2383,26 @@ SOAK = [
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
+    Row("cycplay", "soak", py("tests/cycplay.py"), 55.0,
+        "SPEC.md 67.23: a kill scores what cy_kindsc SAYS it scores, the "
+        "superzapper is recharged at the top of every level, and firing one "
+        "says something different from earning one. The score half is why the "
+        "row exists: cy_kindsc is a table of WORDS and cy_score_kind indexed "
+        "it by the KIND, so a tanker paid 25,600 where the table says 100 and "
+        "a fuseball 12,800 where it says 250 - which reads as a bonus life "
+        "every few kills and was reported as the 20,000 threshold being too "
+        "low. THE FIRST ENTRY OF SUCH A TABLE IS ALWAYS RIGHT, which is how "
+        "it lived: a glance at a flipper kill says nothing is wrong, and the "
+        "row therefore checks ALL FIVE. The superzapper is the instrument - "
+        "it calls cy_score_kind once per live enemy, so a board holding "
+        "exactly one turns one keystroke into one readable award, with no "
+        "play and no waiting for a wave. VERIFIED TO FAIL: it IS the break - "
+        "taking `shl bx, 1` back out reads the four wrong numbers above. It "
+        "checks the running image against its own re-assembly first, because "
+        "a knob build left in build/ moves every symbol and the row then "
+        "fails ninety seconds later complaining about the warp. 55s is 33.7s "
+        "MEASURED idle. SOAK: it is ONE package and wants an emulator",
+        needs=("marty", "nasm"), serial=True),
     Row("cycfire", "soak", py("tests/cycfire.py"), 50.0,
         "Does holding the mouse button repeat the gun, and does a press on "
         "somebody else's window leave it alone? (SPEC.md 67.11.3)",

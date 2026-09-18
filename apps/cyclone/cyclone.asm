@@ -285,7 +285,10 @@ CYP_LASER   equ 0                   ; particle laser: shots pierce
 CYP_DROID   equ 1                   ; AI droid: an autonomous second gun
 CYP_JUMP    equ 2                   ; jump: hop over what is on your lane
 CYP_ZAP     equ 3                   ; an extra superzapper charge
-CYP_KINDS   equ 4
+CYP_LIFE    equ 4                   ; a spare life (SPEC.md 67.23.2)
+CYP_KINDS   equ 5
+CY_ZAPMAX   equ 3                   ; superzapper charges the HUD can show
+CY_LIVEMAX  equ 9                   ; ...and lives, which is one HUD digit
 
 ; game states
 CYS_TITLE   equ 0                   ; attract screen, animating
@@ -562,14 +565,16 @@ cy_s_small      db 'Window too small', 0
 cy_s_paused     db 'PAUSED', 0
 cy_s_avoid      db 'AVOID THE SPIKES', 0
 cy_s_superzap   db 'SUPERZAPPER RECHARGE', 0
+cy_s_zapfired   db 'SUPERZAPPER!', 0
 
 ; the powerup names, indexed by CYP_*
 cy_pu_names:
-    dw cy_pn_laser, cy_pn_droid, cy_pn_jump, cy_pn_zap
+    dw cy_pn_laser, cy_pn_droid, cy_pn_jump, cy_pn_zap, cy_pn_life
 cy_pn_laser     db 'PARTICLE LASER', 0
 cy_pn_droid     db 'AI DROID', 0
 cy_pn_jump      db 'JUMP', 0
 cy_pn_zap       db 'ZAPPER CHARGE', 0
+cy_pn_life      db 'SPARE LIFE', 0
 
 ; The attract screen's scrolling text. One line per row, an empty string is a
 ; blank line, and the list ends with 0FFh.
@@ -3801,7 +3806,9 @@ cy_newgame:
     mov word [cy_bonus], 0
     mov byte [cy_lives], 3
     mov word [cy_level], 1
-    mov byte [cy_zap], 1
+    mov byte [cy_zap], 0            ; ...and cy_startlevel's recharge below is
+                                    ; what makes it 1, so level 1 is told about
+                                    ; its charge exactly as every later one is
     mov word [cy_pw_laser], 0
     mov word [cy_pw_droid], 0
 %ifdef DROIDNOW
@@ -3841,6 +3848,8 @@ cy_startlevel:
     mov byte [cy_full], 1
     mov byte [cy_huddirty], 1
     mov word [cy_spawnt], 0
+    call cy_zap_recharge            ; SPEC.md 67.23.3: one charge on the house,
+                                    ; every level, and the line that says so
     call cy_wavesize
     pop di
     pop dx
@@ -4848,13 +4857,35 @@ cy_superzap:
     mov al, CYSFX_ZAP
     call cy_sfx
     mov byte [cy_huddirty], 1
-    mov si, cy_s_superzap
+    mov si, cy_s_zapfired           ; SPEC.md 67.23.3: what a zapper FIRING
+                                    ; says. 'SUPERZAPPER RECHARGE' is what a
+                                    ; level start says, and using one to
+                                    ; announce a charge being SPENT was the
+                                    ; one line the game had for both
     call cy_msg_set
 .out:
     pop si
     pop cx
     pop bx
     pop ax
+    ret
+
+; --- cy_zap_recharge ----------------------------------------------------------
+; SPEC.md 67.23.3: one free charge at the top of every level, and the line that
+; announces it. It is SILENT when the player is already at the cap, because a
+; 'SUPERZAPPER RECHARGE' that recharged nothing is a message that lies - and
+; the cap is reachable, the powerup granting charges too.
+; -----------------------------------------------------------------------------
+cy_zap_recharge:
+    push si
+    cmp byte [cy_zap], CY_ZAPMAX
+    jae .out
+    inc byte [cy_zap]
+    mov byte [cy_huddirty], 1
+    mov si, cy_s_superzap
+    call cy_msg_set
+.out:
+    pop si
     ret
 
 ; --- cy_do_jump ---------------------------------------------------------------
@@ -5453,6 +5484,15 @@ cy_score_kind:
     push dx
     mov bl, al
     mov bh, 0
+    shl bx, 1                       ; **cy_kindsc IS A WORD TABLE** (SPEC.md
+                                    ; 67.23). Without this the kind is a BYTE
+                                    ; offset into it, so three of the five
+                                    ; kinds read a word straddling two entries:
+                                    ; a tanker paid 25,600 where the table says
+                                    ; 100 and a fuseball 12,800 where it says
+                                    ; 250. cy_ekext beside it is the same shape
+                                    ; and always had the shift; cy_ekcol is
+                                    ; `db` and rightly has none
     mov ax, [cy_kindsc + bx]
     mov bx, [cy_level]
     inc bx
@@ -5651,7 +5691,9 @@ cy_maybe_drop:
     mov bl, 3                       ; + the particle laser
     cmp word [cy_level], 6
     jb .k
-    mov bl, 4                       ; + the AI droid
+    mov bl, 5                       ; + the AI droid and the SPARE LIFE, which
+                                    ; takes an equal slice like every other
+                                    ; kind (SPEC.md 67.23.2)
 .k:
     mov bh, 0
     xor dx, dx
@@ -5667,6 +5709,9 @@ cy_maybe_drop:
     cmp dl, 2
     je .have
     mov al, CYP_DROID
+    cmp dl, 3
+    je .have
+    mov al, CYP_LIFE
 .have:
     mov [cy_u_kind + si], al
     mov byte [cy_u_act + si], 1
@@ -5758,9 +5803,19 @@ cy_pu_take:
     inc byte [cy_pw_jump]
     jmp short .say
 .z:
-    cmp byte [cy_zap], 3
+    cmp al, CYP_ZAP
+    jne .life
+    cmp byte [cy_zap], CY_ZAPMAX
     jae .say
     inc byte [cy_zap]
+    jmp short .say
+.life:
+    ; SPEC.md 67.23.2: the SPARE LIFE. It is the only deliberate source of one
+    ; now - 67.23.1 took the accidental source away - and it caps where the HUD
+    ; does, the counter being a single digit.
+    cmp byte [cy_lives], CY_LIVEMAX
+    jae .say
+    inc byte [cy_lives]
 .say:
     shl bx, 1
     mov si, [cy_pu_names + bx]
@@ -6160,11 +6215,7 @@ cy_play_render:
     shl cx, 1
     mov di, cx
     mov ah, [cy_e_dp + di + 1]
-    push ax
-    mov al, [cy_e_lane + si]
-    call cy_spk_mark                ; the spike wants the REAL depth
-    pop ax
-    call cy_dmap                    ; ...the drawing wants the mapped one
+    call cy_dmap                    ; the drawing wants the MAPPED depth
     call cy_setrect
     mov ax, si
     add ax, CY_OB_E
@@ -6173,6 +6224,21 @@ cy_play_render:
     mov bh, 0
     mov al, [cy_ekcol + bx]
     call cy_obj_show
+    ; --- SPEC.md 67.23.4: THE MARK IS OWED BY AN ERASE, NOT BY EXISTING -----
+    ; This stood ABOVE the draw and fired for every live enemy every frame,
+    ; which is exactly the enemies that did not move - the header's own "most
+    ; enemies most frames" and the single biggest saving in the game loop. A
+    ; mover that did not move erased nothing, so the spike under it and the web
+    ; around it are still whole and marking them dirty spends cy_spk_draw's
+    ; whole chain - one gfx_fill a depth step, up to sixteen - on a repair of
+    ; undamaged pixels. The dead branch above keeps its mark: cy_obj_hide
+    ; really does erase.
+    jc .enext
+    mov al, [cy_e_lane + si]        ; ...and the spike wants the REAL depth,
+    mov bx, si                      ; which is why it is re-read here rather
+    shl bx, 1                       ; than banked across the draw
+    mov ah, [cy_e_dp + bx + 1]
+    call cy_spk_mark
 .enext:
     inc si
     jmp short .eloop
@@ -7087,7 +7153,7 @@ cy_hs_submit:
     ret
 
 ; =============================================================================
-; INITIALS AND THE SCORE FILE (SPEC.md 67.20)
+; INITIALS AND THE SCORE FILE (SPEC.md 67.23)
 ; =============================================================================
 
 cy_hs_file: db 'CYCLONE.HS', 0
@@ -7392,7 +7458,7 @@ cy_bcopy:
 ; --- cy_init_begin ------------------------------------------------------------
 ; The score made the table: take three initials for it.
 ;
-; It is a MODE rather than a state (SPEC.md 67.20): CYS_OVER already draws the
+; It is a MODE rather than a state (SPEC.md 67.23): CYS_OVER already draws the
 ; debris and the banner, and a sixth state would have to be added to the render
 ; dispatch, cy_draw_all's list and cy_track's layout branch for the sake of one
 ; text line.

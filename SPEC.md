@@ -91539,6 +91539,133 @@ than a name-and-score line could be read, 6 was right for six lines, and
 nineteen more arrived. A row every 660 ms, a line on the glass for 2.6 s of its
 four-row crossing, and a whole cycle about 16 s.
 
+### 67.23 A play pass: the score, the lives, the zapper and the churn
+
+Four things found by playing it, of which the first is a defect and the last
+is the one that made levels 11+ crawl.
+
+#### 67.23.1 A WORD TABLE INDEXED BY A BYTE — where the lives were coming from
+
+Reported as *"I am getting a spare life every few kills"*, and the reporter's
+own diagnosis was that the 20,000-point bonus threshold was too low. It was
+not. `cy_score_kind` read
+
+```
+    mov bl, al                      ; AL = the kind that died, 0..4
+    mov bh, 0
+    mov ax, [cy_kindsc + bx]        ; ...and cy_kindsc is `dw`
+```
+
+`cy_kindsc` is a table of WORDS and `bx` is the kind, so three of the five
+kinds read a word straddling two entries:
+
+| kind | table says | actually paid |
+|---|---|---|
+| flipper | 150 | 150 |
+| tanker | 100 | **25,600** |
+| spiker | 50 | 100 |
+| fuseball | 250 | **12,800** |
+| pulsar | 200 | 50 |
+
+At level 3 the multiplier is 2, so one tanker was **51,200 points** — and the
+screenshot that came with the report reads `0237400 LV03 x9`, a score of
+237,400 on level 3 with the life counter pinned at its cap of nine. Four
+tankers.
+
+`shl bx, 1` is the whole fix. **`cy_ekext` beside it is the same shape and
+always had the shift**, and `cy_ekcol` is `db` and rightly has none, which is
+why nothing else in the file was wrong and why this one survived: it is the
+only `dw` table in the app indexed straight off a kind.
+
+**The 20,000 threshold is left alone deliberately.** With the tables reading
+what they say, a level at the multiplier cap scores about 36,000, so a bonus
+life is roughly one every level and a half — worth re-judging by playing it,
+not by arithmetic against numbers that were wrong.
+
+#### 67.23.2 CYP_LIFE — the deliberate source
+
+A spare life should come from somewhere a player can see. `CYP_LIFE` is a
+fifth powerup kind, taking an equal slice of the drop table from level 6 where
+the AI droid unlocks (so the divisor there goes 4 → 5), and it caps at
+`CY_LIVEMAX` = 9 where the HUD's single digit does. `CY_ZAPMAX` is named for
+the same reason — both caps were bare literals in one arm each.
+
+#### 67.23.3 The superzapper: a free charge a level, and TWO lines
+
+`cy_startlevel` grants one charge through `cy_zap_recharge`, so every level
+opens with a zapper whether or not the player earned one, and `cy_newgame`
+stops seeding `[cy_zap]` itself — level 1 is told about its charge exactly as
+every later level is. The grant is **silent at the cap**, because a
+'SUPERZAPPER RECHARGE' that recharged nothing is a message that lies, and the
+cap is reachable: the powerup grants charges too.
+
+And the two events say different things. `cy_s_superzap` —
+*SUPERZAPPER RECHARGE* — is the level's grant; firing one says
+`cy_s_zapfired`, *SUPERZAPPER!*. The game had one line for both, on the FIRING,
+which is the one event that is not a recharge.
+
+#### 67.23.4 THE MARK IS OWED BY AN ERASE, NOT BY EXISTING
+
+Reported as *"on later levels there is a lot of slowdown… things that collect
+in the lower half that never move and never go away, but seem to cause a bunch
+of churn"*, with the suggested fix being to batch arrivals the way §79.5.11
+did for the screen saver. **The diagnosis was right and the fix is not
+batching.**
+
+`cy_spk_draw` redraws a spike as a CHAIN — one `gfx_fill` per depth step, up to
+sixteen — because a lane is not axis-aligned and one rect cannot follow it
+(§67.19). That is fine; what was wrong is how often it ran. `cy_play_render`
+called `cy_spk_mark` for **every live enemy on every frame**, above the draw
+and unconditionally, so a stationary enemy over a spiked lane dirtied it every
+frame and spent the whole chain repairing undamaged pixels. §67.1's own header
+says *"a mover that did not move is not drawn… at low depth this is most
+frames and most enemies"* — so the mark fired for precisely the movers that
+had erased nothing.
+
+The mark moves below `cy_obj_show` and behind its carry: **CF = 1 means the
+rect did not change, so nothing was erased and the spike and the web under it
+are still whole.** The dead branch keeps its unconditional mark, `cy_obj_hide`
+really does erase. It is about twenty instructions.
+
+Measured with `CYPROF` (§67.22) on a Hercules 5150, ten movers on a fixed
+board so both arms carry the same load, spikes poked to depth 14 on every lane
+rather than grinding to level 11:
+
+| | no spikes | every lane spiked | the spikes' own cost |
+|---|---|---|---|
+| before | 5.0 fills/frame | 8.0 | **3.0** |
+| after | 2.3 | 3.0 | **0.7** |
+
+**Arrivals a frame fall 54% with no spikes on the board and 63% with them**,
+and the frame rate goes 0.84–0.86 to 0.91 of a tick. The no-spike column moves
+because `cy_spk_mark` calls `cy_web_mark` on the way in — the web repair was
+churning on the same stationary movers.
+
+**BATCHING IS REFUSED, and the arithmetic is why**: a spike step is a 3x3
+block, so a whole 16-step spike is 16 `gfx_fill` arrivals at ~756 µs = 12.1 ms,
+against 144 points through `OSAPI_GFX_POINTS` at ~614 µs of arrival plus ~126
+µs a point = 18.8 ms. Batching wins where the unit is a PIXEL — the starfield,
+and Cyclone's own vectors, which already commit that way (§5.12.5). For a
+block, a fill is already the cheap form.
+
+##### 67.23.4.1 …and it is why dying was slow, too
+
+Reported separately as *"when I die with a lot of stuff on the screen it slows
+down a ton — we don't need to be redrawing movers during the death animation
+at all, they are all still during that time"*. They are still, and they were
+not being redrawn: `cy_obj_show` took its did-not-move exit for every one of
+them. What was not still was the **repair they triggered on the way past**, and
+that is the same defect one state along. With the mark behind the carry, a
+`CYS_DIE` window measures **0.0 fills a tick** from the mover loops — the
+throe's only drawing is its own debris.
+
+**Repairing a DEPTH RANGE rather than the whole chain was considered and is
+not taken.** It would cut the remaining 0.7, at the price of a second per-lane
+array, two draw modes and a widening rule whose failure is a spike with a hole
+eaten in it — and §67.19 is exactly the class of bug that costs this app days.
+0.7 fills a frame is not what is slow.
+
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
