@@ -1123,11 +1123,20 @@ gfx_lstepv:
 ; reached `cs:` and every table `ss:`, so the loop touches no segment register
 ; at all - which is two loads a point that used to be there.
 ; -----------------------------------------------------------------------------
-%macro GFXPT_LOOP 1
+%macro GFXPT_LOOP 1-2 0
 %%each:
     mov si, [ds:bp]             ; --- the point, out of the caller's segment
     mov dx, [ds:bp+2]
     add bp, 4
+%if %2
+    ; SPEC.md 5.6.9.4: the array is VIRTUAL and this expansion is hooked to a
+    ; display whose origin is not (0,0), so the point comes down by it here -
+    ; the two instructions the whole second expansion exists to confine. Every
+    ; word below is then the display's own, which is what gfx_ls_box already
+    ; answers in (39.14.9) and what vid_rowtab is indexed by.
+    sub si, [cs:vid_ox]
+    sub dx, [cs:vid_oy]
+%endif
     cmp si, [cs:gfx_ls_bx1]     ; --- still inside the resolved rect?
     jl %%miss
     cmp si, [cs:gfx_ls_bx2]
@@ -1265,13 +1274,14 @@ gfx_points:
                                 ; and the thinnest in the tree has 44 bytes
                                 ; spare (docs/FIELD-NOTES.md 42)
 %ifdef GFX_VGA                  ; GFX_VGA is defined exactly when KERN_BIG is
-    cmp byte [vid_ndisp], 1     ; (kernel.asm:445), so ONE gate covers both a
-    ja .slow                    ; second display - which resolves per POINT
-    cmp byte [vid_mono], 0      ; (39.14) - and a planar adapter. Neither test
-    je .slow                    ; survives kern_small's assembly, so that build
-    cmp byte [vid_planes], 1    ; gets the fast arm alone and `.slow` is a
-    jne .slow                   ; branch nothing can take (SPEC.md 5.6.4.5's
-    jmp short .fast             ; shape one routine along)
+    mov byte [gfx_pt_hk], 0     ; (kernel.asm:445), so ONE gate covers both a
+    cmp byte [vid_mono], 0      ; planar adapter - which is gfx_pixel's work
+    je .slow                    ; either way - and a second display, which is
+    cmp byte [vid_planes], 1    ; SPEC.md 5.6.9.4's question below. Neither
+    jne .slow                   ; test survives kern_small's assembly, so that
+    cmp byte [vid_ndisp], 1     ; build gets the fast arm alone and `.slow` is
+    jbe .fast                   ; a branch nothing can take (5.6.4.5's shape
+    jmp .span                   ; one routine along)
 
     ; SPEC.md 5.6.9.2: one gfx_pixel a point - it clips, resolves the display
     ; and draws on a planar adapter itself. It sits HERE, between the gates and
@@ -1290,6 +1300,121 @@ gfx_points:
     call gfx_pixel
     dec si
     jnz .sp
+    jmp .out
+
+    ; --- SPEC.md 5.6.9.4: DOES THE WHOLE ARRAY FIT ONE DISPLAY? -------------
+    ; This is 39.14.7.1's gate one routine along, and it is here for the same
+    ; reason the field found there: without it a second display sent EVERY
+    ; point down `.slow`, WHATEVER the window was over. That is not "a display
+    ; resolve per point instead of two compares" - it is giving up the inline
+    ; loop altogether, so each point became a whole `gfx_fill` arrival (a
+    ; gfx_pixel IS one, vga12.inc:1053) with `gfx_disp_run`'s walk over both
+    ; displays on top of it. Cyclone, whose every vector commits here (67.4),
+    ; measured 2.72 fps against 0.59 on a repaint with the window ENTIRELY on
+    ; the primary - 4.59x, for a second card it never drew a pixel on.
+    ;
+    ; The bounding box is a SCAN and the scan is the price of the gate: ~14
+    ; instructions a point against the ~3,000 cycles a point it buys back, and
+    ; it is inside the `[vid_ndisp]` short-circuit above, so a one-card machine
+    ; does not execute one instruction of it. The clip region's own bbox would
+    ; have been O(rects) instead - and is REFUSED, because a window callback
+    ; normally has no region armed at all (39.14.9) and the answer would then
+    ; be "the whole virtual screen", which straddles by construction and gives
+    ; the gate back to `.slow` in exactly the case it is for.
+    ;
+    ; THE FOUR BOUNDS LIVE IN REGISTERS and not in the scratch words below,
+    ; which is the same instruction COUNT and about half the instruction
+    ; BYTES - `cmp ax, bx` is 2 where `cmp ax, [gfx_pt_x1]` is 4. On an 8088
+    ; that is the difference that matters: the fetch floor is 4.34 cycles a
+    ; byte (PERFORMANCE.md Part 2), so this loop is fetch-bound exactly as the
+    ; draw loop is, and the first spelling of it - memory operands throughout
+    ; - left a quarter of the win on the floor.
+.span:
+    push si                     ; SI/CX are the caller's array and count and
+    push cx                     ; both are still wanted below
+    mov bx, [es:si]             ; BX = min x, DX = max x, DI = min y,
+    mov dx, bx                  ; BP = max y - and the box starts AT THE FIRST
+    mov di, [es:si+2]           ; POINT, so no sentinel can be wrong for a
+    mov bp, di                  ; screen of any size
+.bb:
+    mov ax, [es:si]
+    cmp ax, bx
+    jge .bb1
+    mov bx, ax
+.bb1:
+    cmp ax, dx
+    jle .bb2
+    mov dx, ax
+.bb2:
+    mov ax, [es:si+2]
+    cmp ax, di
+    jge .bb3
+    mov di, ax
+.bb3:
+    cmp ax, bp
+    jle .bb4
+    mov bp, ax
+.bb4:
+    add si, 4
+    loop .bb
+    mov [gfx_pt_x1], bx         ; ...and ONCE, not per point: the anchor is
+    mov [gfx_pt_y1], di         ; wanted twice below - by vid_span_one and by
+    mov [gfx_pt_x2], dx         ; gfx_disp_enter after it
+    mov [gfx_pt_y2], bp
+    pop cx
+    pop si
+    cmp byte [gfx_dnest], 0
+    jne .slow                   ; an OUTER whole-shape hook already chose a
+                                ; display and translated for it; `.slow` is
+                                ; what it wants, exactly as gfx_blit4's gate
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [gfx_pt_x1]         ; vid_span_one takes an INCLUSIVE rect, which
+    mov bx, [gfx_pt_y1]         ; is what a bounding box already is
+    mov cx, [gfx_pt_x2]
+    mov dx, [gfx_pt_y2]
+    call vid_span_one           ; CF = 0: it fits the display holding (x1,y1),
+    jc .spanno                  ; and the DEAD ZONE is caught in there
+    mov ax, [gfx_pt_x1]         ; ...so hook it. gfx_disp_enter resolves the
+    mov bx, [gfx_pt_y1]         ; display from the anchor and publishes its
+    call gfx_disp_enter         ; origin in [vid_ox]/[vid_oy]
+    mov byte [gfx_pt_hk], 1     ; ...and the leave is owed at `.out`
+    clc
+.spanno:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jc .slow                    ; STRADDLING: per point, which is what it has
+                                ; always been - and now the only case that is
+    ; --- HOOKED. Is the display's ORIGIN zero? ------------------------------
+    ; On display 0 it is, in both layouts (39.19.3), so VIRTUAL IS LOCAL and
+    ; the three class loops below draw the array untranslated at exactly the
+    ; speed a one-card machine gets. That is the case the report is about and
+    ; it costs NOT ONE INSTRUCTION in the loop.
+    ;
+    ; On any other display the points have to come down by the origin, and
+    ; that is `.xfast`: ONE general loop rather than three more class copies -
+    ; kern_small's own decision for its own reason (5.6.9.3), the cheapest
+    ; third of the win given up for four fifths of the bytes, and here the
+    ; bytes would buy it only on the second card.
+    cmp word [vid_ox], 0
+    jne .xfast
+    cmp word [vid_oy], 0
+    je .fast
+.xfast:
+    call gfx_ls_ink
+    mov word [gfx_ls_bx1], 1    ; 5.6.9.1: an EMPTY box, as `.fast` does
+    mov word [gfx_ls_bx2], 0
+    mov bp, si
+    mov [gfx_pt_cseg], es
+    mov dx, es
+    mov bx, [vid_rseg]
+    mov ds, dx
+    mov es, bx
+    GFXPT_LOOP 0, 1
     jmp .out
 .fast:
 %endif
@@ -1337,6 +1462,12 @@ gfx_points:
     mov ax, cs                  ; DS back, by reload rather than by pop: kernel
     mov ds, ax                  ; code always runs DS = CS = KERNEL_SEG, so
     pop es                      ; there is nothing to remember
+%ifdef GFX_VGA
+    cmp byte [gfx_pt_hk], 0     ; SPEC.md 5.6.9.4: the whole-shape hook is
+    je .nohk                    ; owed a leave, once a CALL - and only this
+    call gfx_dleave             ; routine's own hook, never an outer one's
+.nohk:
+%endif
     pop bp
     pop di
     pop si
@@ -4912,6 +5043,26 @@ gfx_ls_vy       resw 1          ; what wm_clip_tab is in (SPEC.md 39.14.9)
 gfx_pt_cseg     resw 1          ; SPEC.md 5.6.9: gfx_points' array segment.
                                 ; ES is the framebuffer inside its loop, so
                                 ; the caller's cannot stay there
+%ifdef GFX_VGA
+; --- SPEC.md 5.6.9.4: the array's BOUNDING BOX, and whether it was hooked ---
+; Lock-held scratch like every other block in this file. Written only on a
+; machine with two displays - the gate short-circuits on [vid_ndisp] before
+; any of it is touched - so a one-card machine neither reads nor writes them.
+;
+; INSIDE THE GATE, and that is nine bytes rather than a tidiness: GFX_VGA is
+; defined exactly when KERN_BIG is, kern_small has no second display to ask
+; about, and nine bytes of a 128KB machine's .bss for a question it can never
+; be asked is what the byte rule at the top of CLAUDE.md is about. The first
+; spelling of this block sat beside gfx_pt_cseg, which BOTH builds need
+; because `.slow` uses it, and kern_small read +9 for nothing.
+gfx_pt_x1       resw 1
+gfx_pt_y1       resw 1
+gfx_pt_x2       resw 1
+gfx_pt_y2       resw 1
+gfx_pt_hk       resb 1          ; did THIS call take the whole-shape hook? The
+                                ; leave is owed once a CALL, so it is a flag
+                                ; and not a second gate on [vid_ndisp]
+%endif
 
 vgas_col         resw 1          ; gfx_scroll (SPEC.md 5.5): left byte column
 vgas_nb          resw 1          ;   bytes per row

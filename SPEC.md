@@ -5049,6 +5049,83 @@ of the caller's stack, twice, which is the right way round. Measured on the
 guest at `gfx_ls_box`'s entry plus its own pushes: **26**, the same as the
 routine this replaced.
 
+##### 5.6.9.4 A SECOND DISPLAY IS NOT A REASON TO GIVE UP THE LOOP
+
+§5.6.9.2 above sent a two-display machine to the `gfx_pixel` fallback on the
+strength of one compare — `cmp byte [vid_ndisp], 1 / ja .slow`, with **no test
+of where the points actually are** — and called it *"exactly what the caller
+would have paid without this slot"*. That sentence is the defect. It is true of
+an array that STRADDLES the seam and false of every other one, and almost every
+array is every other one: a window is normally over one card entirely.
+
+**This is §39.14.7.1's gate one routine along, and it was priced the same way —
+by the field.** Reported as *"Cyclone runs very slowly with the extended
+desktop on, with the window fully on the primary"* (Hercules primary, CGA
+secondary). Measured on `os8088_5150_both_gla_mono`, the window at x 199..520
+on a 720-wide primary so that the second card never saw a pixel of it, forcing
+`cy_full` — Cyclone's whole-web repaint, which is the biggest `gfx_points` load
+the game has:
+
+| desktop | frames/tick | fps |
+|---|---|---|
+| Single | 0.150 | **2.72** |
+| Extend (Right) | 0.033 | **0.59** |
+| Single again | 0.150 | **2.72** |
+
+**4.59x**, and the third row is the control: the same Control Panel round-trip
+with the mode put back, which is what rules out focus and drift. It has to be
+there, because Cyclone PAUSES when it loses focus and the pause is sticky
+(§67), so the first shape of this measurement read **0 frames** in both arms
+after the panel opened and would have been written up as a hang.
+
+**Why it is that large, and why nobody saw it under light load.** A point on
+the fallback is a `gfx_pixel`, and a `gfx_pixel` is a whole `gfx_fill` of a
+1x1 rect — §5.7's ~756 µs arrival — with `gfx_disp_run`'s walk over both
+displays on top of it, against an inline loop of ~26 instructions. But
+`cy_worker` sleeps to a DEADLINE, so a frame that still fits its tick costs the
+same whatever it drew: the claw sweeping over a stopped wave measured **0.997
+against 0.981**, 1.6%, because the tick absorbed it. The cost is only visible
+in frames that MISS their tick, which is why the load has to be the repaint.
+
+**The gate.** The array's BOUNDING BOX, then `vid_span_one` — the same routine
+`gfx_blit4` and `font_run` ask — and, when it fits, `gfx_disp_enter` on the
+box's top-left. `vid_span_one` catches the DEAD ZONE itself, so the anchor is
+safe. A straddling array still goes per point, and that is now the only case
+that does.
+
+**The box is a SCAN, and the scan is the price of the gate**: ~14 instructions
+a point against the ~3,000 cycles a point it buys back. It sits inside the
+`[vid_ndisp]` short-circuit, so a one-card machine — every machine but one —
+does not execute an instruction of it. **The clip region's own bounding box
+would have been O(rects) rather than O(points) and is REFUSED**: a window
+callback normally has no region armed at all (§39.14.9), so the answer would be
+*the whole virtual screen*, which straddles by construction and hands the gate
+straight back to `.slow` in the one case it exists for.
+
+**The hooked display's ORIGIN is what decides which loop runs, and on display 0
+it is (0,0) in both layouts (§39.19.3).** So virtual IS local there, the three
+class loops of §5.6.9.3 draw the array untranslated, and the case the report is
+about costs **not one instruction in the loop** — it is the one-card speed
+exactly. Any other display needs the points brought down by the origin, and
+that is two instructions confined to a FOURTH expansion of `GFXPT_LOOP`, in its
+general one-loop form rather than three more class copies: kern_small's own
+decision (§5.6.9.3) for its own reason, the cheapest third of the win given up
+for four fifths of the bytes, and here the bytes would buy it on the second
+card alone.
+
+**`gfx_ls_box` needed nothing.** §39.14.9 already made it scan `wm_clip_tab` in
+virtual space and hand the survivor back translated and clamped to the active
+display, for the walk that no longer exists — so the one piece of machinery a
+hooked `gfx_points` depends on was built, and gated, three cycles before there
+was a caller for it.
+
+**It was never scoped to Cyclone.** `gfx_points` is the whole of §5.6's family
+since §5.12.7, so every app-side walker in the tree commits through it:
+`apps/cyclone`, `apps/missile`, `apps/mines`, `apps/tank`, `drivers/saver` and
+any C package reaching `os88_gfx_points`. Cyclone is merely the loudest, being
+the one whose entire render is points.
+
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
