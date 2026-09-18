@@ -14,13 +14,18 @@
 ; DRIFTS - a pixel every four frames, reflected inside the middle half of the
 ; screen - which costs two adds and takes the hole for a walk.
 ;
-; THE FRAME IS 2 CALLS A STAR, an erase and a draw, so SV_NSTAR is the frame
-; budget and nothing else: 28 stars is 56 `gfx_*` calls, about 42ms of the
-; ~756us fixed cost on the 4.77MHz 8088 - a frame a tick with the divides
-; taking it a little past one, which for a starfield is a frame rate and not a
-; deadline. Raising it is a straight trade against that and nothing else
-; changes. It was 22, which counted 16 lit on a 640x200 screen and read as
-; empty rather than as deep space.
+; THE FRAME WAS 2 CALLS A STAR, an erase and a draw, so SV_NSTAR was the frame
+; budget and nothing else: 28 stars was 56 `gfx_*` calls, about 42ms of the
+; ~756us fixed cost on the 4.77MHz 8088. **IT IS THREE CALLS A FRAME NOW,
+; WHATEVER SV_NSTAR IS** (SPEC.md 79.5.11) - a band a pen plus the erase - so
+; a star costs its own arithmetic and nothing else, and the count is bounded
+; by the projection's two divides rather than by an arrival.
+;
+; SO THE FIELD IS 40 AND NOT 28, which is what that bought (79.5.11.4).
+; MEASURED with tests/saverate.py at one frame a tick on both 1bpp adapters:
+; 28 left 39.8% of a Hercules idle and 40 leaves 18.7%, against 4.4% at 48 and
+; nothing at all at 56. It was 22 before 28, which counted 16 lit on a 640x200
+; screen and read as empty rather than as deep space.
 ;
 ; **THE NEW STAR IS DRAWN BEFORE THE OLD ONE IS TAKEN OFF**, and that order is
 ; the whole of what stops the field twinkling. Erase-then-draw leaves every
@@ -72,7 +77,7 @@
 ; fast".
 ; =============================================================================
 
-SV_NSTAR    equ 28
+SV_NSTAR    equ 40
 SV_SK       equ 96              ; the projection's scale
 SV_SXY      equ 700             ; ...and the cube a star is born in. It was
                                 ; 1023 and that is measurably too wide: a star

@@ -106065,6 +106065,48 @@ arrival rather than two, which is why the frame is three and not four. The
 1bpp column is untouched — it was already all white, for §79.5's dither reason.
 
 
+##### 79.5.11.4 …and the field is 40 stars, because the margin is what it bought
+
+§79.5.11.2's win was headroom rather than frames, and headroom is only worth
+having if something spends it. `SV_NSTAR` is what spends it: the frame is
+three arrivals **whatever the count is** now, so a star costs its own
+projection — two `imul`/`idiv` pairs and a handful of stores — and nothing
+else. Raising it used to buy two more arrivals a star.
+
+**Swept with `tests/saverate.py`, one frame a tick throughout**, on the two
+1bpp adapters that matter (the second display is BLANKED during a session —
+§79.1.1 — so this is all the primary):
+
+| `SV_NSTAR` | CGA halted | Hercules halted | fps |
+|---|---|---|---|
+| 28 (before) | 42.1% | 39.8% | 18.08 |
+| 36 | 28.6% | — | 18.21 |
+| **40** | **21.0%** | **18.7%** | **18.08** |
+| 44 | 15.7% | — | 18.08 |
+| 48 | — | 4.4% | 17.88 |
+| 56 | 0.0% | — | 17.21 |
+| 84 | 0.0% | — | 16.24 |
+
+**40**, for a field 43% denser than before with about a fifth of the machine
+still idle. Hercules is consistently the dearer of the two and is what the
+number is cut from: it is nearly twice the area, so fewer stars project off
+screen and are reborn unseen, and more of the field is drawn every frame.
+
+**The curve does not fall off a cliff, and that is worth knowing before anyone
+raises it further.** Past 48 the mode simply stops halting and then starts
+dropping frames gracefully — 17.21 at 56, 16.24 at 84 — rather than taking
+§8.1.2.4's step down to 9.1. What it costs instead is the whole machine: 0%
+halted is a saver that leaves nothing for a `SOUND.DRV` tick, a NIC poll or
+anything else the field machine has in it, which is why the number is chosen
+against idle time and not against the frame rate.
+
+`SV_PTMAX` goes 40 → 64 with it. Overflowing the point list is not a defect —
+`gfxe_padd` commits the full list and carries on — so it is a tuning number,
+worth one ~756 µs arrival when it is wrong. The `%if` beside it IS a bound: the
+shapes mode's own need is exact, and an edit that sized the buffer for the
+stars alone would silently cost that mode an arrival an edge.
+
+
 ### 79.6 Waking, the cursor, and the repaint
 
 §64.2 is unchanged: the input that brings the desktop back is **consumed**,
