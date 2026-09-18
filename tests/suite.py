@@ -2680,6 +2680,33 @@ SOAK = [
         "asks",
         needs=("marty",), serial=True,
         wants=("build/ptstest360.img",)),
+    Row("ptsext", "soak", py("tests/ptsext.py"), 70.0,
+        "SPEC.md 5.6.9.4: the row above's claim, on a machine with TWO CARDS. "
+        "gfxpoints asks the only question worth asking - does gfx_points draw "
+        "what a gfx_pixel loop draws - and asks it on one display, where the "
+        "slot has one path. An extended desktop gives it three more, and the "
+        "one that fixed the field's report (the array fits one display, so it "
+        "is HOOKED to that display and drawn by the same inline loop) had no "
+        "gate at all. Four arms on one boot, on os8088_5150_both_gla_mono - "
+        "Hercules primary, CGA second, which is the pair the report came off: "
+        "single, then the window on the primary (the hooked arm), on the "
+        "secondary (the TRANSLATED arm, GFXPT_LOOP's second expansion) and "
+        "across the seam (per point, which is what shipped before). VERIFIED "
+        "TO FAIL AND TARGETED: replacing the two translating instructions "
+        "with nops takes the SECONDARY arm red on all three cases - 0 lit "
+        "against 24, 12 and 24 - and leaves the other three green, while "
+        "`make test-fast` stays 46/46 against that same broken kernel, which "
+        "is the whole reason this row exists. The straddling arm reads the "
+        "two cards STITCHED into the virtual desktop and not one of them: "
+        "each band is cut by the seam, so neither framebuffer holds a whole "
+        "one, and comparing per card reads half of A against half of B and "
+        "then indexes the other card at a negative x, which Python slices "
+        "silently. 70s is 41.6s MEASURED on an idle container, with the "
+        "~1.6x this suite allows for its slowest box. SOAK and not fast or "
+        "full, for gfxpoints' own reasons - one kernel slot, an emulator, "
+        "and 'did you obviously break the OS' is not what it asks",
+        needs=("marty",), serial=True,
+        wants=("build/ptstest360.img",)),
     Row("regmove", "soak", py("tests/regmove.py"), 130.0,
         "A package's REGION moves and the package keeps working (SPEC.md "
         "66.6.1). 66.6 said since it was written that a region can never move "
