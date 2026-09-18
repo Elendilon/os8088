@@ -91773,6 +91773,53 @@ rather than in the game:
   `[cy_u_act]` to leave 1, which is the event itself.
 
 
+#### 67.24.4 THE CLAW SKIPS LANES — sweeping is an ARC, not a sample
+
+Played again with the timing right: *"I think I figured out the sweep issue —
+we're not actually present in each lane during a sweep on some boards, because
+we can entirely skip a lane. Maybe what needs to happen is to run the pickup
+routine as each lane is passed, not just on the actual draw frame."*
+
+That is exactly it, and it is the MOUSE. The keyboard moves one lane a frame
+(`add ax, [cy_dir]`, §67.16), so it cannot skip; `cy_aim_mouse` puts the claw
+on the lane **nearest the pointer**, so one flick moves it several lanes in a
+single frame and every lane in between is never `[cy_plane]` on any frame
+boundary. Testing that word alone therefore misses a pickup the claw
+demonstrably went over — and it explains *"on some boards"*: the more lanes a
+shape has, the more of them one flick steps across.
+
+**`[cy_psweep0]` is where the claw was when pickups were last tested**, and
+with `[cy_plane]` it is the ARC swept since. `cy_pu_near` asks whether the
+pickup's lane is anywhere on that arc. The capture is at the **end** of
+`cy_pu_update` and not the top of the frame, deliberately: *"since we last
+looked"* covers the motion whatever caused it, and `cy_aim_mouse` is not the
+only mover.
+
+**The arc is the SHORT way round on a closed web**, which is the part that
+would be wrong if it were skipped: 15 → 2 on a sixteen-lane web is three lanes
+forward, not thirteen backward, and reading it the long way would make every
+pickup on the board collectable on any flick. On an open web the claw cannot
+wrap at all, so the arc is simply the range between the two.
+
+This is what the adjacency of §67.24 was standing in for, badly: ±1 lane widens
+the target everywhere, all the time, including when the claw is standing still.
+The arc widens it **only along the path the claw actually travelled**, which is
+what "sweep by" means. `CY_PUNEAR` stays 0.
+
+##### 67.24.4.1 …and it makes a teleporting claw a sweep, which the row had to learn
+
+The fourth harness trap, after §67.24.1's three, and the same shape: the row
+sets the claw and then places a pickup, so **every case inherited an arc
+reaching back to the previous case's lane** and collected things it should not.
+Nine of twenty cases failed that way while the six new sweep cases — the ones
+actually under test — passed. `Game.arm` parks the claw and spends two ticks
+letting `[cy_psweep0]` catch up before anything is placed.
+
+The behaviour it exposed is correct and worth keeping in mind anywhere else the
+claw is moved by fiat: a jump IS a sweep, because nothing downstream can tell
+the difference.
+
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It

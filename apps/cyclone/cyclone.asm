@@ -5754,6 +5754,15 @@ cy_maybe_drop:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; cy_pu_update - drift every pickup, and take the ones the claw reached
+;
+; SPEC.md 67.24.4: it brackets itself with [cy_psweep0], so the take tests
+; below see the ARC the claw swept since the last time pickups were looked at
+; rather than the single lane it happens to be on now. The capture is at the
+; END and not the top of the frame on purpose - "since we last looked" covers
+; the motion whatever caused it, and cy_aim_mouse is not the only mover.
+; -----------------------------------------------------------------------------
 cy_pu_update:
     push ax
     push bx
@@ -5807,6 +5816,8 @@ cy_pu_update:
     inc si
     jmp short .each
 .out:
+    mov ax, [cy_plane]              ; ...and the arc starts again HERE
+    mov [cy_psweep0], ax
     pop si
     pop bx
     pop ax
@@ -5827,9 +5838,11 @@ cy_pu_near:
     push ax
     push bx
     push cx
+    push dx
+    push si
     mov bl, al
-    mov bh, 0
-    mov cx, [cy_plane]
+    mov bh, 0                       ; BX = the pickup's lane
+    mov cx, [cy_plane]              ; CX = where the claw is NOW
     cmp bx, cx
     je .yes
 %if CY_PUNEAR
@@ -5844,13 +5857,65 @@ cy_pu_near:
     cmp ax, cx
     je .yes
 %endif
+    ; --- SPEC.md 67.24.4: THE ARC, not the sample -------------------------
+    ; cy_aim_mouse puts the claw on the lane NEAREST the pointer, so a sweep
+    ; moves it several lanes in one frame and every lane in between is never
+    ; [cy_plane] on any frame boundary. Testing that word alone therefore
+    ; misses a pickup the claw demonstrably went over, which is why sweeping
+    ; worked on some boards and not others: the more lanes a shape has, the
+    ; more of them one flick of the pointer steps across.
+    mov dx, [cy_psweep0]
+    cmp dx, cx
+    je .no                          ; it has not moved since we last looked
+    cmp word [cy_closed], 0
+    je .open
+    ; CLOSED: it went the SHORT way round, so the arc is measured that way -
+    ; 15 -> 2 on a sixteen-lane web is three lanes forward and not thirteen
+    ; backward, and taking the long reading would make every pickup on the
+    ; board collectable on any flick.
+    mov ax, cx
+    sub ax, dx
+    jns .fwd
+    add ax, [cy_nlane]
+.fwd:                               ; AX = the forward distance
+    mov si, [cy_nlane]
+    shr si, 1
+    cmp ax, si
+    jbe .arc                        ; forward IS the short way
+    xchg cx, dx                     ; ...otherwise the arc runs the other way,
+    mov ax, cx                      ; so start it at where the claw ended up
+    sub ax, dx
+    jns .arc
+    add ax, [cy_nlane]
+.arc:                               ; DX = the arc's start, AX = its length
+    mov si, bx
+    sub si, dx
+    jns .arcc
+    add si, [cy_nlane]
+.arcc:
+    cmp si, ax
+    jbe .yes
+    jmp short .no
+.open:
+    ; OPEN: the claw cannot wrap, so the arc is simply the range between them
+    cmp dx, cx
+    jb .olo
+    xchg dx, cx
+.olo:                               ; DX <= CX now
+    cmp bx, dx
+    jb .no
+    cmp bx, cx
+    jbe .yes
+.no:
     stc
     jmp short .out
 .yes:
     clc
 .out:
-    pop cx                          ; `pop` touches no flag on an 8086, so the
-    pop bx                          ; answer above survives all three
+    pop si                          ; `pop` touches no flag on an 8086, so the
+    pop dx                          ; answer above survives all five
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -8759,6 +8824,9 @@ CY_TWORDS equ 14
     CBUF  cy_g_lane, CY_MAXPU
     CBUF  cy_g_kind, CY_MAXPU
     CBUF  cy_g_t, CY_MAXPU
+    CWORD cy_psweep0                ; SPEC.md 67.24.4: where the claw was when
+                                    ; pickups were last tested, which with
+                                    ; [cy_plane] is the ARC it swept since
 
     CBUF  cy_d_act, CY_MAXDBR
     CBUF  cy_d_x, CY_MAXDBR * 2

@@ -2411,7 +2411,10 @@ SOAK = [
         "swept on too late, taken a step BEFORE the lip (67.24.2 - asserted "
         "by reading [cy_u_dp] back after the take, which is what separates "
         "'early' from 'eventually') and NOT taken from deep in the tube - and "
-        "then the WEB'S TOPOLOGY, which is why "
+        "swept ACROSS it both ways and the short way round a wrap (67.24.4 - the "
+        "claw SKIPS lanes, cy_aim_mouse putting it on the lane nearest the "
+        "pointer, so the test is the ARC since pickups were last looked at), "
+        "and then the WEB'S TOPOLOGY, which is why "
         "cy_pu_near asks cy_wrap instead of doing arithmetic on the index: "
         "lane 0's neighbour is the LAST lane on a closed web and lane 0 "
         "itself on an open one, so the same pair of positions must answer "
@@ -2425,7 +2428,7 @@ SOAK = [
         "CYS_PLAY (asserted per case, so it cannot masquerade as the feature "
         "failing), and a fixed wait cannot bound a frame that is repainting "
         "the whole web - the row waits for [cy_u_act] to leave 1, which is "
-        "the event itself. 45s is 27.4s MEASURED idle, over two runs. SOAK: "
+        "the event itself. 45s is 28.1s MEASURED idle, over two runs. SOAK: "
         "it is ONE package and wants an emulator",
         needs=("marty", "nasm"), serial=True),
     Row("cycfire", "soak", py("tests/cycfire.py"), 50.0,

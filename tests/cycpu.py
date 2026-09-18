@@ -63,8 +63,16 @@ class Game:
     def __init__(self, m, p):
         self.m, self.p = m, p
 
-    def place(self, lane, dp=None):
-        """One JUMP pickup, one drift short of the lip, and nothing else."""
+    def arm(self, lane):
+        """Empty the board, park the claw on `lane`, and LET THE SWEEP BRACKET
+        CATCH UP before anything is placed.
+
+        [cy_psweep0] is where the claw was when pickups were last tested, so
+        teleporting the claw between cases is itself a sweep (SPEC.md 67.24.4)
+        - and it is, correctly. Without this settle every case inherits an arc
+        reaching back to the PREVIOUS case's lane and collects things it should
+        not, which reads as the feature over-triggering.
+        """
         p, m = self.p, self.m
         # PIN THE WAVE. cy_spawn_tick is stubbed so nothing new arrives, and a
         # level with cy_wleft and cy_left both zero is a level CLEARED: the
@@ -73,10 +81,16 @@ class Game:
         # from the feature being broken - and cost a debugging round here.
         p.ww("cy_wleft", 40)
         p.ww("cy_left", 1)
-        p.wb("cy_pw_jump", 0)
         for i in range(3):                      # CY_MAXPU
             m.write(p.addr("cy_u_act") + i, bytes([0]))
             m.write(p.addr("cy_g_t") + i, bytes([0]))
+        self.claw(lane)
+        self.ticks(2)                           # ...so psweep0 == cy_plane
+        p.wb("cy_pw_jump", 0)
+
+    def place(self, lane, dp=None):
+        """One JUMP pickup, one drift short of the lip, and nothing else."""
+        p, m = self.p, self.m
         m.write(p.addr("cy_u_kind"), bytes([CYP_JUMP]))
         m.write(p.addr("cy_u_lane"), bytes([lane]))
         m.write(p.addr("cy_u_dp"),
@@ -129,7 +143,7 @@ class Game:
 def case(g, name, lane, claw0, claw1=None, wait=0, want=True, dp=None):
     """A pickup on `lane` with the claw on `claw0`; then, optionally, the claw
     sweeps to `claw1` `wait` ticks after it landed."""
-    g.claw(claw0)
+    g.arm(claw0)
     g.place(lane, dp)
     if not g.land():
         print("  %-34s VOID - the pickup never reached the lip" % name)
@@ -212,7 +226,7 @@ def main():
         # The take has to happen while the pickup is still short of CY_TOPD,
         # and [cy_u_dp] is not cleared when the slot is freed - so reading it
         # back after the take is what proves "early" rather than "eventually".
-        g.claw(5)
+        g.arm(5)
         g.place(5, EARLY_DP)
         g.land()
         dp = p.rw("cy_u_dp")
@@ -222,8 +236,35 @@ def main():
                  "ok" if ok else "FAIL"))
         bad += not ok
 
+        # --- SPEC.md 67.24.4: THE CLAW SKIPS LANES ------------------------
+        # cy_aim_mouse jumps straight to the lane nearest the pointer, so a
+        # sweep is a jump of several lanes in ONE frame and the lanes in
+        # between are never [cy_plane] on a frame boundary. Poking the lane
+        # between two ticks is exactly that motion, and [cy_psweep0] is
+        # captured at the END of cy_pu_update so the poke lands inside the arc.
+        def sweep(name, lane, frm, to, want):
+            g.arm(frm)
+            g.place(lane)
+            g.ticks(1)              # ...the pickup enters the zone here
+            g.claw(to)              # ...and the claw jumps ACROSS it here
+            g.ticks(2)
+            got = g.took()
+            ok = got == want
+            print("  %-34s took=%-5s want=%-5s  %s"
+                  % (name, got, want, "ok" if ok else "FAIL"))
+            return 0 if ok else 1
+
+        bad += sweep("swept ACROSS it, 3 -> 7", 5, 3, 7, True)
+        bad += sweep("swept ACROSS it, 7 -> 3", 5, 7, 3, True)
+        bad += sweep("swept past, never over it", 5, 7, 9, False)
+        bad += sweep("stood still, wrong lane", 5, 9, 9, False)
+        # ...and the SHORT way round: on a closed web 15 -> 2 is three lanes
+        # forward, so lane 8 is on the far side and must NOT be collected.
+        bad += sweep("wrapped 15 -> 2, lane 0", 0, 15, 2, True)
+        bad += sweep("wrapped 15 -> 2, lane 8", 8, 15, 2, False)
+
         # ...and not from arbitrarily far down the tube
-        g.claw(5)
+        g.arm(5)
         g.place(5, DEEP_DP)
         g.ticks(1)
         ok = not g.took()
