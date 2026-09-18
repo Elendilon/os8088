@@ -105993,6 +105993,78 @@ no strip, and on Hercules six instructions per band plus a clamp per bubble
 blot — far inside §79.5.8's budget, which the pass still fits with the same
 margin.
 
+#### 79.5.11 The starfield draws in THREE arrivals, not fifty-six
+
+The starfield was the last mode in the driver still plotting one star at a
+time: `OSAPI_GFX_PIXEL` for a far one, a 2x2 `OSAPI_GFX_FILL` for a near one,
+and `sv_star_step` called both a **draw and an erase per star**. At
+`SV_NSTAR` = 28 that is **56 `gfx_*` arrivals a frame** — about **42 ms** of
+§5.7's ~756 µs fixed part on a 4.77 MHz 8088, against a 54.9 ms tick. The cube
+and sea life had been composed bands for cycles and the shapes mode had gone
+to `OSAPI_GFX_POINTS` at §5.12.5; this one was simply never swept.
+
+It is a list now. `sv_star_plot` projects and **records** where each star
+lands and touches the screen not at all; `sv_star_emit` then walks the field
+once per DEPTH BAND, appending through `gfxe_padd`, and commits each band in
+one `OSAPI_GFX_POINTS`. **Three arrivals a frame** — near band, far band,
+erase — against fifty-six.
+
+**The 2x2 near star is four points and not a fill**, which is the one
+judgement that reverses `sv_star_blot`'s. That routine was right that a fill
+and a pixel are the same single arrival, so brightness by depth was free; the
+conversion removes the arrival it was equal to, and four entries in an array
+that is going up anyway beat a second ~756 µs call.
+
+##### 79.5.11.1 The draw order the header insists on is UNCHANGED
+
+§79.5's *"the new star is drawn before the old one is taken off"* is what stops
+the field strobing, and it survives batching exactly: **every band is drawn
+before one old pixel comes off.** That needs the whole field's previous blot
+to outlive pass 1, where the per-star order needed only one at a time, so
+`sv_sex`/`sv_sey`/`sv_sew` become the arrays `sv_opx`/`sv_opy`/`sv_ow`.
+
+`sv_star_erase` keeps `sv_star_off`'s test verbatim — a far star can project to
+the same pixel two frames running, and without it the field would lose exactly
+the stars that move least. It compares the ORIGIN only, as it always did, which
+is safe because a blot never shrinks at a fixed origin: z only falls, so a size
+goes 1 → 2x2 and back only at a rebirth, which moves the star.
+
+**Erase-all-then-draw-all is still the wrong order, but for a reason that has
+now nearly expired** — §79.5 priced it at *"the whole field absent for 21 ms of
+a 55 ms frame"*, and 21 ms was 28 arrivals. Batched it would be under one. The
+order is kept anyway: it costs three arrays in an overlay and nothing on the
+clock, and the invariant is cheaper to keep than to re-argue.
+
+##### 79.5.11.2 What it actually bought, which was NOT the frame rate
+
+`tests/saverate.py`, CGA, four modes:
+
+| | before | after |
+|---|---|---|
+| starfield | 18.08 fps, **5.1% halted** | 17.88 fps, **42.7% halted** |
+
+**It was already keeping up, and that is the finding.** §79.5's own header said
+the divides took it *"a little past one frame a tick"*; it made the tick, with
+almost nothing to spare. So the win is not frames, it is the **37.6 points of
+machine** the mode stops eating — 95% of a 4.77 MHz 8088 down to 57%. That
+matters in the two places a thin margin does: an adapter or a second display
+that makes each arrival dearer used to push the mode over §8.1.2.4's step and
+halve it to 9.1 fps outright, and there is now room for it not to.
+
+**Cost: +241 bytes of `SAVER.DRV`'s image** (+64 on the floppy, lz4), of which
+168 is the three arrays. An overlay, so it is disk and a heap claim while the
+saver runs and **nothing resident**.
+
+##### 79.5.11.3 SV_HOT is white
+
+The near band was `CYELLOW`. It is `CWHITE` now — an owner's look decision,
+taken while the mode was open rather than left for a cycle when it would cost
+a second pass over this file. It has a side effect worth naming: `SV_HOT` and
+`SV_MAIN` become one ink, so the two nearest depth bands commit in **one**
+arrival rather than two, which is why the frame is three and not four. The
+1bpp column is untouched — it was already all white, for §79.5's dither reason.
+
+
 ### 79.6 Waking, the cursor, and the repaint
 
 §64.2 is unchanged: the input that brings the desktop back is **consumed**,
