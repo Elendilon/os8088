@@ -192,6 +192,11 @@ CY_MAXENEM  equ 10                  ; live enemies. The arcade's on-screen cap
 CY_MAXSHOT  equ 6                   ; player shots in flight
 CY_MAXESHOT equ 6                   ; enemy shots
 CY_MAXPU    equ 3                   ; powerup pickups on the web at once
+CY_PUGRACE  equ 15                  ; SPEC.md 67.24: frames a pickup stays
+                                    ; collectable after it has left the glass -
+                                    ; about 0.8s at 18fps, which is the length
+                                    ; of a sweep rather than of a reaction
+CY_PUNEAR   equ 1                   ; ...and how many lanes either side count
 CY_RIMSTEP  equ 14                  ; frames between rim steps: slow enough
                                     ; to be shootable, fast enough to matter
 CY_MAXDBR   equ 8                   ; debris particles in the game-over burst
@@ -3979,6 +3984,9 @@ cy_clearboard:
     mov di, cy_u_act
     mov cx, CY_MAXPU
     rep stosb
+    mov di, cy_g_t                  ; ...and the grace windows with them, or a
+    mov cx, CY_MAXPU                ; pickup filed on the last level is taken
+    rep stosb                       ; on the first frame of the next one
     mov di, cy_d_act
     mov cx, CY_MAXDBR
     rep stosb
@@ -5737,6 +5745,7 @@ cy_pu_update:
     push ax
     push bx
     push si
+    call cy_pu_grace                ; SPEC.md 67.24, and BEFORE the drift loop
     xor si, si
 .each:
     cmp si, CY_MAXPU
@@ -5751,10 +5760,19 @@ cy_pu_update:
     jb .live
     mov byte [cy_u_act + si], 2     ; reached the rim
     mov al, [cy_u_lane + si]
-    cmp al, [cy_plane]
-    jne .next
+    call cy_pu_near                 ; SPEC.md 67.24: the claw's lane OR either
+    jc .miss                        ; neighbour, not the one exact lane
     mov al, [cy_u_kind + si]
     call cy_pu_take
+    jmp short .next
+.miss:
+    ; ...and it is not gone yet. The claw may still sweep onto it, which is
+    ; what the arcade lets you do and what one frame on one lane does not.
+    mov al, [cy_u_lane + si]
+    mov [cy_g_lane + si], al
+    mov al, [cy_u_kind + si]
+    mov [cy_g_kind + si], al
+    mov byte [cy_g_t + si], CY_PUGRACE
     jmp short .next
 .live:
     mov [cy_u_dp + bx], ax
@@ -5764,6 +5782,81 @@ cy_pu_update:
 .out:
     pop si
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cy_pu_near - is the claw close enough to take a pickup on lane AL?
+; in:   AL = the pickup's lane
+; out:  CF = 0 close enough, CF = 1 not. Preserves every register.
+;
+; THE NEIGHBOURS COME FROM cy_wrap (SPEC.md 67.16), which is the web's own
+; topology and not arithmetic on the index: on a CLOSED web lane 0's left
+; neighbour is the last lane, and on an OPEN one - the flat ribbon, the vee -
+; it is lane 0 itself, so the ends of an open web do not wrap round the back.
+; Asking cy_wrap is how that stays true when a shape is added.
+; -----------------------------------------------------------------------------
+cy_pu_near:
+    push ax
+    push bx
+    push cx
+    mov bl, al
+    mov bh, 0
+    mov cx, [cy_plane]
+    cmp bx, cx
+    je .yes
+    mov ax, bx
+    sub ax, CY_PUNEAR
+    call cy_wrap
+    cmp ax, cx
+    je .yes
+    mov ax, bx
+    add ax, CY_PUNEAR
+    call cy_wrap
+    cmp ax, cx
+    je .yes
+    stc
+    jmp short .out
+.yes:
+    clc
+.out:
+    pop cx                          ; `pop` touches no flag on an 8086, so the
+    pop bx                          ; answer above survives all three
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cy_pu_grace - spend the windows SPEC.md 67.24 opened
+;
+; A pickup that reached the lip with the claw elsewhere left the glass on that
+; frame - the look is unchanged - but stays TAKEABLE for CY_PUGRACE frames, so
+; sweeping onto its lane just after it landed collects it. Called once a frame
+; from cy_pu_update, above the drift loop, so a window filed this frame is
+; first tested on the next one rather than twice on this one.
+; -----------------------------------------------------------------------------
+cy_pu_grace:
+    push ax
+    push si
+    xor si, si
+.each:
+    cmp si, CY_MAXPU
+    jae .out
+    cmp byte [cy_g_t + si], 0
+    je .next
+    mov al, [cy_g_lane + si]
+    call cy_pu_near
+    jc .tick
+    mov byte [cy_g_t + si], 0
+    mov al, [cy_g_kind + si]
+    call cy_pu_take
+    jmp short .next
+.tick:
+    dec byte [cy_g_t + si]
+.next:
+    inc si
+    jmp short .each
+.out:
+    pop si
     pop ax
     ret
 
@@ -8630,6 +8723,13 @@ CY_TWORDS equ 14
     CBUF  cy_u_kind, CY_MAXPU
     CBUF  cy_u_lane, CY_MAXPU
     CBUF  cy_u_dp, CY_MAXPU * 2
+    ; SPEC.md 67.24: a pickup that reached the lip while the claw was somewhere
+    ; else stays COLLECTABLE for a while. These three are that window, one
+    ; record per slot - the record is filed under the slot the pickup was
+    ; leaving, which bounds the table for free
+    CBUF  cy_g_lane, CY_MAXPU
+    CBUF  cy_g_kind, CY_MAXPU
+    CBUF  cy_g_t, CY_MAXPU
 
     CBUF  cy_d_act, CY_MAXDBR
     CBUF  cy_d_x, CY_MAXDBR * 2

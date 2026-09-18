@@ -91666,6 +91666,68 @@ eaten in it — and §67.19 is exactly the class of bug that costs this app days
 0.7 fills a frame is not what is slow.
 
 
+### 67.24 A pickup can be SWEPT UP, not just stood under
+
+Reported as *"powerups currently require us to be in the exact lane at the
+exact moment the powerup arrives, which is hard to see because the viewport is
+so small… my goal is to be able to sweep by a powerup and collect it like the
+actual Tempest lets you, which currently is basically impossible."*
+
+It was literally that. `cy_pu_update` drifted a pickup outward and, on the ONE
+frame it crossed `CY_TOPD`, took it only if `[cy_u_lane]` equalled `[cy_plane]`
+exactly — one lane, one frame, on a window a few hundred pixels wide.
+
+**Two widenings, and the LOOK is untouched.** The pickup still leaves the glass
+on the same frame at the same place; nothing about the drawing changes.
+
+- **`CY_PUNEAR` = 1 lane either side.** `cy_pu_near` answers whether the claw
+  is close enough.
+- **`CY_PUGRACE` = 15 frames of grace.** A pickup that reached the lip with the
+  claw elsewhere files a record — lane, kind, timer — and `cy_pu_grace` re-tests
+  it once a frame until the timer runs out. Sweeping onto its lane just after
+  it landed still collects it. About 0.8 s at 18 fps, which is the length of a
+  sweep rather than of a reaction.
+
+**The neighbours come from `cy_wrap` (§67.16), not from arithmetic on the
+index**, and that is the whole reason the routine exists rather than being two
+compares inline: on a CLOSED web lane 0's left neighbour is the last lane, and
+on an OPEN one — the flat ribbon, the vee — it is lane 0 itself, so the ends of
+an open web must not wrap round the back. Asking `cy_wrap` is how that stays
+true when a shape is added. `tests/cycpu.py` asserts both, on the circle and on
+the flat, in the same run.
+
+The grace record is filed **under the slot the pickup is leaving**, which
+bounds the table at `CY_MAXPU` for free. Two drops landing in the same slot
+inside 15 frames would lose the older window; at one drop per eight kills that
+is rare, and what is lost is the grace rather than the pickup — the behaviour
+this section replaces.
+
+**Cost: +129 bytes of `CYCLONE.O88`** and nine bytes of its state. It is a
+package image, so none of it is resident.
+
+#### 67.24.1 …and what the row had to learn to measure it
+
+`tests/cycpu.py` places a pickup one drift short of the lip rather than waiting
+for a drop — a drop needs a kill and a one-in-eight roll — and reads
+`[cy_pw_jump]`, which the JUMP pickup increments and nothing else does. Three
+things had to be got right and each was wrong first, all three in the HARNESS
+rather than in the game:
+
+- **`os88marty.advance` ends STOPPED.** A `time.sleep` after it runs no guest
+  time at all, so every case below the shape change was measuring a paused
+  machine. Every wait in the row is guest CYCLES now.
+- **A stubbed spawner empties the wave.** With `cy_wleft` and `cy_left` both
+  zero the level is CLEARED, the game warps out, and `cy_pu_update` does not
+  run in those states — which reads exactly like the pickup never being taken.
+  The row pins the counters and asserts `CYS_PLAY` per case, so that failure
+  names itself instead of looking like a broken feature.
+- **A fixed wait cannot bound a frame that repaints.** A shape change sets
+  `[cy_full]` and `cy_draw_all` is ~200 ms — three or four ticks inside ONE
+  frame — so a fixed wait after it lands mid-repaint. Tuning it made the
+  failures MOVE between runs, which is the tell. The row waits for
+  `[cy_u_act]` to leave 1, which is the event itself.
+
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It

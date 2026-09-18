@@ -2403,6 +2403,28 @@ SOAK = [
         "fails ninety seconds later complaining about the warp. 55s is 33.7s "
         "MEASURED idle. SOAK: it is ONE package and wants an emulator",
         needs=("marty", "nasm"), serial=True),
+    Row("cycpu", "soak", py("tests/cycpu.py"), 45.0,
+        "SPEC.md 67.24: can a pickup be SWEPT UP? It used to be taken only if "
+        "the claw was on its EXACT lane on the ONE frame it reached the lip, "
+        "which on this window is very nearly impossible. Twelve cases: on the "
+        "lane, one either side, three away, swept on inside the grace window "
+        "and swept on too late - and then the WEB'S TOPOLOGY, which is why "
+        "cy_pu_near asks cy_wrap instead of doing arithmetic on the index: "
+        "lane 0's neighbour is the LAST lane on a closed web and lane 0 "
+        "itself on an open one, so the same pair of positions must answer "
+        "differently on the circle and on the flat ribbon, and the row runs "
+        "both. It places a pickup one drift short of the lip rather than "
+        "waiting for a drop (a drop needs a kill and a one-in-eight roll) and "
+        "reads [cy_pw_jump], which the JUMP pickup increments and nothing "
+        "else does. THREE HARNESS TRAPS are written into it, all three found "
+        "the hard way: advance() ends STOPPED so a sleep after it runs no "
+        "guest time, a stubbed spawner empties the wave and the game leaves "
+        "CYS_PLAY (asserted per case, so it cannot masquerade as the feature "
+        "failing), and a fixed wait cannot bound a frame that is repainting "
+        "the whole web - the row waits for [cy_u_act] to leave 1, which is "
+        "the event itself. 45s is 27.4s MEASURED idle, over two runs. SOAK: "
+        "it is ONE package and wants an emulator",
+        needs=("marty", "nasm"), serial=True),
     Row("cycfire", "soak", py("tests/cycfire.py"), 50.0,
         "Does holding the mouse button repeat the gun, and does a press on "
         "somebody else's window leave it alone? (SPEC.md 67.11.3)",
