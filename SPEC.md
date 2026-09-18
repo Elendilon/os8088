@@ -5126,6 +5126,103 @@ any C package reaching `os88_gfx_points`. Cyclone is merely the loudest, being
 the one whose entire render is points.
 
 
+##### 5.6.9.5 …and the BOUNDING BOX was the wrong instrument
+
+§5.6.9.4's gate scanned the array for its bounding box, asked `vid_span_one`,
+and hooked the display when it fitted. It works, and it cost two things that
+did not have to be paid.
+
+**The scan is O(points) and it showed.** With the window entirely on the
+primary, Cyclone's repaint measured **2.72 fps single against 2.34 extend —
+1.16x** for a second card it never drew a pixel on. Replacing the scan with
+"the box is the first point" (wrong, but a fair price probe) read **1.03x**, so
+eleven of those sixteen points were the scan itself.
+
+**And it needed a second copy of the loop.** A hooked display means
+display-local coordinates, and the array is virtual, so any display whose
+origin is not (0,0) wanted a translating expansion of `GFXPT_LOOP`. That was
+**203 bytes of the 361** — 56% of the fix, to serve the second card alone.
+
+**Both go away if the loop stops being display-local.** §39.14.9 made
+`gfx_ls_box` scan `wm_clip_tab` in virtual space and translate the survivor
+BACK, because the walk it served ran in the display's coordinates. That walk no
+longer exists (§5.12.7). Run the loop in **virtual** coordinates instead and the
+translation is not moved, it is deleted: `gfx_ls_vx`/`gfx_ls_vy`, the two adds,
+`gfx_ls_lx`/`gfx_ls_ly` and both conversions all go, and the box comes back
+virtual, intersected with the display's own virtual rect — which is the one
+thing the clamp was ever for.
+
+**The loop pays nothing for it, and that is measured in instructions rather
+than claimed.** §5.6.9.3's currency is instructions removed, at 17.15 cycles
+each. The display's origin enters in two places and each is paid for out of a
+saving already in hand:
+
+- **y is free.** `BX` holds `vid_rowtab - 2*oy`, resolved once a pass, so
+  `mov di, [ss:bx+di]` indexes the display's own table with a VIRTUAL y. It is
+  also **two bytes shorter** than the `disp16` it replaces.
+- **BX is free because SI is dead.** `mov bx, si / and bx, 7 /
+  mov bl, [cs:bx+gfx_bitset]` becomes `and si, 7 / mov al, [cs:si+gfx_bitset]`
+  — the point's x is not read again after the byte is computed, so it indexes
+  the bit table itself. That is **one instruction removed**, and it is what the
+  x term is then spent on.
+- **x costs that one instruction**: `sub ax, [cs:gfx_pt_kx]`, where `kx` is
+  `ox >> 3`. Exact, because a display origin is a multiple of 8 (§39.19.3 puts
+  it at the primary's own width).
+
+So the inner loop is **26 instructions before and 26 after**, and a one-card
+machine — which never has a non-zero origin — runs the same count on the same
+bytes. On `kern_small` the origin terms are not in the assembly at all: there
+is no second display and no `[vid_ox]`, so the names are `%define`d onto the
+words that already hold the answer and that build keeps the SI saving as a
+straight win.
+
+##### 5.6.9.5.1 The pass REPORTS, instead of the call measuring
+
+With the loop virtual, no bounding box is needed to decide anything. Hook the
+display the **first point** is on and run. `gfx_ls_box` already resolves every
+point that leaves the current rect; when the point it is asked about lies
+outside the active display **rather than merely outside the clip**, it sets
+`PT_OOB`. A point that is only clipped away must not set it, or an ordinary
+damage repaint would pay a whole extra pass.
+
+So an array that fits one display — very nearly all of them — runs **once**,
+on the inline loop, and **paid nothing to find that out**. A straddling array
+runs **twice**, once per card, each pass on the inline loop, drawing the points
+that card holds and skipping the rest. `VID_NDISP_MAX` is 2, so `xor dl, 1` is
+the other card and one extra pass is all there can ever be.
+
+Measured, same disk and same window as §5.6.9.4: **2.72 fps single against 2.63
+extend, 1.03x** — and what is left is not this slot at all, it is every other
+primitive in the frame paying `gfx_disp_run`'s walk over both displays.
+
+**`[gfx_dnest]` is what says whether this call hooked**, so no flag records it:
+the gate refuses to hook unless it found that byte zero, so a non-zero one at
+the tail is this call's own and nobody else's.
+
+**Cost:** `.text` +166, `.bss` +7 on `kern_big` — against §5.6.9.4's 370, and
+no rung crossed. **`kern_small` comes out 5 bytes SMALLER than before the
+feature existed** (`.text` -1, `.bss` -4): it has one display, so it takes the
+SI saving and the deleted `gfx_ls_vx`/`gfx_ls_vy` as a straight win and pays
+for none of the rest — every origin term is `%define`d onto a word that
+already holds the answer.
+
+**Where the 166 goes, and why it is the floor for this shape.** `gfx_pt_resolve`
+59 (five derived words — the biased row-table base, the biased row bound, the
+byte-column offset and the display's virtual right and bottom); the gate 48;
+the pass tail 49; `gfx_ls_box`'s off-display report 36 and its four clamps 50;
+`gfx_pt_row` +8 — less the deletions §5.6.9.5 names. Two levers go lower and
+both are the owner's call rather than this section's:
+
+- **Collapsing §5.6.9.3's three-class split** frees **257 bytes**, which is
+  more than this feature costs — and spends **92 cycles a point** everywhere to
+  do it. That is the only route under 50, and it gives back more speed than
+  §5.6.9.5 won.
+- **Dropping the second card to `gfx_pixel`** — primary fast, secondary and
+  straddle per point — is about 75 bytes all in, because the loop then needs no
+  origin at all. It is the §5.6.9.4 shape with the scan replaced by the report,
+  and it gives up what the field asked for.
+
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field

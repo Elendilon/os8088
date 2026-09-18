@@ -16,11 +16,19 @@ package in ONE frame, so each arm is self-comparing: no golden image, no
 reference build, and a wrong display or a wrong translation shows up as bands
 that differ rather than as a screenshot somebody has to judge.
 
-BREAK IT ON PURPOSE (docs/WRITING-TESTS.md 1) - run, and TARGETED: replacing
-GFXPT_LOOP's two translating instructions with `nop`s takes the SECONDARY arm
-red on all three cases (0 lit against 24, 12 and 24) and leaves single, primary
-and straddle green. `make test-fast` stayed 46/46 green against that same
-broken kernel, which is this row's whole reason for existing.
+BREAK IT ON PURPOSE (docs/WRITING-TESTS.md 1) - and it did not have to be
+staged, because this row CAUGHT THE DESIGN'S OWN BUG. SPEC.md 39.3.1 has
+vid_ctx_act CLEAR [vid_rowmax] on a non-primary display, so every point there
+takes gfx_points' "row past the table" path - and 5.6.9.5 made the loop's y
+VIRTUAL without telling gfx_pt_row, which then asked gfx_rowbase_calc for a row
+20 past the end of the CGA's aperture. The secondary arm went red on all three
+cases (0 lit against 24, 12 and 24) with single, primary and straddle green,
+which is exactly the shape a targeted row should have. `make test-fast` was
+46/46 against that same broken kernel, and so was every other emulator row that
+does not extend the desktop - which is this row's whole reason for existing.
+
+The staged version is the same thing by hand: `nop` out GFXPT_LOOP's
+`sub ax, [cs:gfx_pt_kx]` and the secondary arm goes red alone.
 
 THE STRADDLING ARM READS A STITCHED DESKTOP and not one card. Each band is cut
 by the seam, so neither framebuffer holds a whole one; the first shape of this
