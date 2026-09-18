@@ -91820,6 +91820,43 @@ claw is moved by fiat: a jump IS a sweep, because nothing downstream can tell
 the difference.
 
 
+### 67.25 A death does not restart the wave
+
+Reported as *"once I get above level 13ish it feels like I can die, play for a
+long time, then die, and never progress — is it resetting the number of enemies
+needed to complete the wave?"* It was.
+
+`cy_die_update` called `cy_wavesize` on the way back to `CYS_WARPIN`, and that
+routine sets `[cy_wleft]` — the still-to-spawn count — to the FULL wave for the
+level. `cy_wavesize`'s ramp is `(level - 1) * 3 + 8` capped at 40, so **from
+level 13 on every death put 40 enemies back on the pile**, and two deaths in a
+level meant the level could not be finished at all. Below that the reset was
+smaller and read as difficulty rather than as a defect, which is why it took
+until 13 to feel wrong.
+
+**The call is simply gone.** The only other things `cy_wavesize` sets are
+`[cy_kinds]` and `[cy_espd]`, which are written nowhere else in the app and are
+functions of `[cy_level]` alone — so at a death they are already right, and
+re-deriving them was the whole of what the call legitimately did.
+`cy_clearboard` beside it zeroes `[cy_left]` and does not touch `[cy_wleft]`,
+so the scene still clears exactly as it did.
+
+**What was on the web is FORGIVEN, not put back on the to-spawn pile.** The
+alternative — `cy_wleft += cy_left` before clearing — keeps the level's total
+honest to the enemy, and is the wrong call for the same reason the report
+exists: the enemies that killed the player should not have to be killed again.
+It is a small mercy on a death and it points the same way the fix does.
+
+**`[cy_towave]` is write-only** and was already: `cy_wavesize` stores it and
+nothing in the tree reads it, in the app or out of it. It is left alone here
+rather than swept up with the fix, and named so the next reader of this code
+does not take it for the wave's live total.
+
+`tests/cycplay.py` gates it, and the row was written before the fix and watched
+go red: `wleft 8` against 7 on a level-1 board, which is `cy_wavesize`'s ramp
+answering for the level instead of the counter being left alone.
+
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It

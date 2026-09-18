@@ -6301,8 +6301,18 @@ cy_die_update:
     je .over
     dec byte [cy_lives]
     mov byte [cy_huddirty], 1
-    call cy_clearboard
-    call cy_wavesize
+    call cy_clearboard              ; ...which zeroes cy_left: the scene goes
+    ; --- SPEC.md 67.25: AND cy_wavesize IS NOT CALLED HERE -------------------
+    ; It was, and it sets [cy_wleft] to the FULL wave for the level - so every
+    ; death put the still-to-spawn count back to 40 from level 13 on, and a
+    ; player who died twice could play for a long time and never reach the end
+    ; of the level. The only other things it sets are [cy_kinds] and [cy_espd],
+    ; which are LEVEL constants written nowhere else, so they are already right
+    ; and re-deriving them was the whole of what the call legitimately did.
+    ;
+    ; What cy_clearboard took off the web is FORGIVEN rather than put back on
+    ; the to-spawn pile: the scene clears as it always did, and the enemies
+    ; that killed the player do not have to be killed again.
     mov byte [cy_state], CYS_WARPIN
     mov byte [cy_wpha], CY_WARP_SPOKE
     mov byte [cy_wstarted], 0

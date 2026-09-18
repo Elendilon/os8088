@@ -109,6 +109,23 @@ def main():
                 print("  zapper fired says +%d (cy_s_zapfired is +%d)  %s"
                       % (msg, fired, "ok" if msg == fired else "FAIL"))
                 bad += (msg != fired)
+        # --- 5. A DEATH DOES NOT RESTART THE WAVE (SPEC.md 67.25) ---------
+        # cy_die_update called cy_wavesize, which sets cy_wleft to the FULL
+        # wave for the level - so every death put the still-to-spawn count back
+        # to 40 from level 13 on, and a player who died twice could play for a
+        # long time and never reach the end of the level.
+        p.wb("cy_lives", 3)
+        p.ww("cy_wleft", 7)             # ...7 still to come
+        p.ww("cy_left", 2)              # ...and 2 on the web
+        p.wb("cy_state", 4)             # CYS_DIE
+        p.ww("cy_dietim", 1)            # ...expiring now
+        m.advance(cycles=3 * 262000)
+        wl, lf, lv = p.rw("cy_wleft"), p.rw("cy_left"), p.rb("cy_lives")
+        ok = wl == 7 and lf == 0 and lv == 2
+        print("  after a death: wleft %d (want 7), left %d (want 0), "
+              "lives %d (want 2)   %s" % (wl, lf, lv, "ok" if ok else "FAIL"))
+        bad += not ok
+
         print("\ncycplay: %d failing check(s)" % bad)
     return 1 if bad else 0
 

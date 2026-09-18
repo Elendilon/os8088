@@ -2384,7 +2384,8 @@ SOAK = [
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
     Row("cycplay", "soak", py("tests/cycplay.py"), 55.0,
-        "SPEC.md 67.23: a kill scores what cy_kindsc SAYS it scores, the "
+        "SPEC.md 67.23 and 67.25: a kill scores what cy_kindsc SAYS it "
+        "scores, A DEATH DOES NOT RESTART THE WAVE, the "
         "superzapper is recharged at the top of every level, and firing one "
         "says something different from earning one. The score half is why the "
         "row exists: cy_kindsc is a table of WORDS and cy_score_kind indexed "
@@ -2401,7 +2402,12 @@ SOAK = [
         "checks the running image against its own re-assembly first, because "
         "a knob build left in build/ moves every symbol and the row then "
         "fails ninety seconds later complaining about the warp. 55s is 33.7s "
-        "MEASURED idle. SOAK: it is ONE package and wants an emulator",
+        "MEASURED idle. The wave check is the one that was written FIRST and "
+        "watched go red: cy_die_update called cy_wavesize, which puts "
+        "[cy_wleft] back to the full wave for the level, so from level 13 on "
+        "every death put 40 enemies back on the pile and two deaths meant the "
+        "level could not be finished. SOAK: it is ONE package and wants an "
+        "emulator",
         needs=("marty", "nasm"), serial=True),
     Row("cycpu", "soak", py("tests/cycpu.py"), 45.0,
         "SPEC.md 67.24: can a pickup be SWEPT UP? It used to be taken only if "
