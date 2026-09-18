@@ -30,7 +30,11 @@ from cycweb import pkg_syms, Pkg, u16, CYS_TITLE, CYS_PLAY      # noqa: E402
 
 CY_TOPD = 17
 CYP_JUMP = 2
-NEAR_DP = CY_TOPD * 256 - 45        # one 90-unit drift short of the lip
+LIP = CY_TOPD * 256
+NEAR_DP = LIP - 45                  # one 90-unit drift short of the lip
+CY_PUREACH = 1                      # depth steps below the lip it is takeable
+EARLY_DP = (CY_TOPD - CY_PUREACH) * 256 - 45    # ...one drift short of THAT
+DEEP_DP = (CY_TOPD - CY_PUREACH) * 256 - 400    # ...and well below the zone
 CYCPT = 262000                      # guest cycles a TICK: 4.77MHz / 18.2Hz.
                                     # EVERY wait here is in these and not in
                                     # time.sleep - os88marty.advance's own
@@ -43,8 +47,8 @@ class Game:
     def __init__(self, m, p):
         self.m, self.p = m, p
 
-    def place(self, lane):
-        """One JUMP pickup, one step short of the lip, and nothing else."""
+    def place(self, lane, dp=None):
+        """One JUMP pickup, one drift short of the lip, and nothing else."""
         p, m = self.p, self.m
         # PIN THE WAVE. cy_spawn_tick is stubbed so nothing new arrives, and a
         # level with cy_wleft and cy_left both zero is a level CLEARED: the
@@ -59,7 +63,8 @@ class Game:
             m.write(p.addr("cy_g_t") + i, bytes([0]))
         m.write(p.addr("cy_u_kind"), bytes([CYP_JUMP]))
         m.write(p.addr("cy_u_lane"), bytes([lane]))
-        m.write(p.addr("cy_u_dp"), NEAR_DP.to_bytes(2, "little"))
+        m.write(p.addr("cy_u_dp"),
+                (NEAR_DP if dp is None else dp).to_bytes(2, "little"))
         m.write(p.addr("cy_u_act"), bytes([1]))
 
     def claw(self, lane):
@@ -105,11 +110,11 @@ class Game:
         return self.p.rb("cy_pw_jump") != 0
 
 
-def case(g, name, lane, claw0, claw1=None, wait=0, want=True):
+def case(g, name, lane, claw0, claw1=None, wait=0, want=True, dp=None):
     """A pickup on `lane` with the claw on `claw0`; then, optionally, the claw
     sweeps to `claw1` `wait` ticks after it landed."""
     g.claw(claw0)
-    g.place(lane)
+    g.place(lane, dp)
     if not g.land():
         print("  %-34s VOID - the pickup never reached the lip" % name)
         return 1
@@ -175,9 +180,36 @@ def main():
         bad += case(g, "claw one lane LEFT",        5, 4)
         bad += case(g, "claw one lane RIGHT",       5, 6)
         bad += case(g, "claw three lanes away",     5, 8, want=False)
-        bad += case(g, "...swept on, inside grace", 5, 8, claw1=5, wait=0)
-        bad += case(g, "...swept on, too late",     5, 8, claw1=5, wait=20,
+        # wait=3 and not 0: a record filed on one frame is first tested on the
+        # next, so sweeping on immediately proves the scan runs and nothing
+        # about the TIMER. Three ticks is half of CY_PUGRACE.
+        bad += case(g, "...swept on, inside grace", 5, 8, claw1=5, wait=3)
+        bad += case(g, "...swept on, too late",     5, 8, claw1=5, wait=12,
                     want=False)
+
+        # --- SPEC.md 67.24.2: the zone reaches BELOW the lip ---------------
+        # The take has to happen while the pickup is still short of CY_TOPD,
+        # and [cy_u_dp] is not cleared when the slot is freed - so reading it
+        # back after the take is what proves "early" rather than "eventually".
+        g.claw(5)
+        g.place(5, EARLY_DP)
+        g.land()
+        dp = p.rw("cy_u_dp")
+        ok = g.took() and dp < LIP
+        print("  %-34s took=%-5s dp=%d (lip %d)  %s"
+              % ("taken a step BEFORE the lip", g.took(), dp, LIP,
+                 "ok" if ok else "FAIL"))
+        bad += not ok
+
+        # ...and not from arbitrarily far down the tube
+        g.claw(5)
+        g.place(5, DEEP_DP)
+        g.ticks(1)
+        ok = not g.took()
+        print("  %-34s took=%-5s  %s"
+              % ("not taken from deep in the tube", g.took(),
+                 "ok" if ok else "FAIL"))
+        bad += not ok
 
         # --- AND THE WEB'S TOPOLOGY, which is the reason cy_pu_near asks
         # cy_wrap instead of doing arithmetic on the index. Lane 0's left

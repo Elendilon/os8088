@@ -91682,11 +91682,11 @@ on the same frame at the same place; nothing about the drawing changes.
 
 - **`CY_PUNEAR` = 1 lane either side.** `cy_pu_near` answers whether the claw
   is close enough.
-- **`CY_PUGRACE` = 15 frames of grace.** A pickup that reached the lip with the
+- **`CY_PUGRACE` = 6 frames of grace.** A pickup that reached the lip with the
   claw elsewhere files a record — lane, kind, timer — and `cy_pu_grace` re-tests
   it once a frame until the timer runs out. Sweeping onto its lane just after
-  it landed still collects it. About 0.8 s at 18 fps, which is the length of a
-  sweep rather than of a reaction.
+  it landed still collects it.
+- **`CY_PUREACH` = 1 depth step of reach** *below* the lip — §67.24.2.
 
 **The neighbours come from `cy_wrap` (§67.16), not from arithmetic on the
 index**, and that is the whole reason the routine exists rather than being two
@@ -91702,8 +91702,31 @@ inside 15 frames would lose the older window; at one drop per eight kills that
 is rare, and what is lost is the grace rather than the pickup — the behaviour
 this section replaces.
 
-**Cost: +129 bytes of `CYCLONE.O88`** and nine bytes of its state. It is a
+**Cost: +155 bytes of `CYCLONE.O88`** and nine bytes of its state. It is a
 package image, so none of it is resident.
+
+#### 67.24.2 The window is an AREA, not an instant with a timer bolted to it
+
+The first shape of this was grace alone, at 15 frames, and it was reported back
+as *"still a little off balance-wise — this allows them to sweep clear from the
+other side, and I'm more looking for sweeping by the general area."* Both halves
+of that are one mistake: **0.8 s is long enough to cross the web**, so the
+window was generous in TIME to make up for being a single point in SPACE.
+
+So the trade goes the other way. The grace drops to **6 frames, about a third
+of a second** — long enough to cover the frame a sweep actually lands on and
+not long enough to walk anywhere — and the collect point gains **one drawing
+position of reach below the lip**: `cy_pu_update` now runs the same
+`cy_pu_near` test on every frame the pickup is within `CY_PUREACH` steps of
+`CY_TOPD`, and takes it there.
+
+That is where a sweeping claw and a rising pickup actually meet. It also
+changes the feedback in the right direction: the pickup leaves the glass **when
+it is collected** rather than at a fixed depth, so an early take looks like one.
+
+Net, the window is about nine frames wide — roughly 2.8 of reach plus 6 of
+grace — and **centred on the lip instead of starting at it**, where before it
+was one frame plus fifteen of afterthought.
 
 #### 67.24.1 …and what the row had to learn to measure it
 

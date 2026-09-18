@@ -192,11 +192,17 @@ CY_MAXENEM  equ 10                  ; live enemies. The arcade's on-screen cap
 CY_MAXSHOT  equ 6                   ; player shots in flight
 CY_MAXESHOT equ 6                   ; enemy shots
 CY_MAXPU    equ 3                   ; powerup pickups on the web at once
-CY_PUGRACE  equ 15                  ; SPEC.md 67.24: frames a pickup stays
+CY_PUGRACE  equ 6                   ; SPEC.md 67.24: frames a pickup stays
                                     ; collectable after it has left the glass -
-                                    ; about 0.8s at 18fps, which is the length
-                                    ; of a sweep rather than of a reaction
+                                    ; about a THIRD of a second at 18fps. It
+                                    ; was 15, and 0.8s is long enough to cross
+                                    ; the web and collect from the far side,
+                                    ; which is not sweeping by (67.24.2)
 CY_PUNEAR   equ 1                   ; ...and how many lanes either side count
+CY_PUREACH  equ 1                   ; ...and how many DEPTH STEPS short of the
+                                    ; lip it can already be taken, so the
+                                    ; window is an AREA and not an instant
+                                    ; with a timer bolted to it
 CY_RIMSTEP  equ 14                  ; frames between rim steps: slow enough
                                     ; to be shootable, fast enough to matter
 CY_MAXDBR   equ 8                   ; debris particles in the game-over burst
@@ -5776,6 +5782,20 @@ cy_pu_update:
     jmp short .next
 .live:
     mov [cy_u_dp + bx], ax
+    ; --- SPEC.md 67.24.2: IT IS TAKEABLE A STEP BEFORE THE LIP --------------
+    ; The grace window alone makes the collect point an INSTANT with a timer
+    ; after it; this makes it an AREA. One drawing position short of the lip is
+    ; where a sweeping claw and a rising pickup actually meet, and taking it
+    ; there is what "sweep by" means - the pickup leaves the glass when it is
+    ; collected, which is the feedback, rather than at a fixed depth.
+    cmp ax, (CY_TOPD - CY_PUREACH) * 256
+    jb .next
+    mov al, [cy_u_lane + si]
+    call cy_pu_near
+    jc .next
+    mov byte [cy_u_act + si], 2
+    mov al, [cy_u_kind + si]
+    call cy_pu_take
 .next:
     inc si
     jmp short .each
