@@ -525,6 +525,7 @@ np_entry:
                                     ; to open at content x = 61 there, skew 5,
                                     ; which typebench prices at 9.4% of every
                                     ; keystroke (SPEC.md 11.94)
+%ifdef NPF_FIND
     pushf                           ; THE ENTRY STILL OWES THE LOADER
                                     ; wm_create's CF, and OSAPI_WM_ONDRAG
                                     ; STATES a flag of its own (SPEC.md
@@ -538,28 +539,22 @@ np_entry:
                                     ; third install after it would answer for
                                     ; the wrong slot
 %endif                              ; OS88UI_SBDRAG
-                                    ; **THESE TWO ARE THE BUTTONS' AND NOT THE
-                                    ; BAR'S** (SPEC.md 13.7): np_onup is where
-                                    ; os88ui_btnup fires the find panel's four,
-                                    ; and np_ondrag is where os88ui_btndrag
-                                    ; tracks the held one. They were inside the
-                                    ; %ifdef above, so `SBDRAGOFF=1` installed
-                                    ; NO release handler at all and Close/All/
-                                    ; Repl/Next drew pressed and did nothing -
-                                    ; a build error only because np_fp_act went
-                                    ; with them
     mov ax, np_onup                 ; SPEC.md 13.7 / 13.8.2: the release and
     call OSAPI_WM_ONMOUSEUP         ; the tracking edge, both AFTER wm_create
-    mov ax, np_ondrag               ; and neither a template word
-    call OSAPI_WM_ONDRAG
+    mov ax, np_ondrag               ; and neither a template word. **THE FIND
+    call OSAPI_WM_ONDRAG            ; PANEL'S, NOT THE BAR'S**: these two were
+                                    ; under the %ifdef above, so SBDRAGOFF=1
+                                    ; installed no release handler and the
+                                    ; panel's four buttons never fired
 %ifdef OS88UI_SBDRAG
     sbb al, al                      ; CF = 1 on kern_small: 0xFF into the byte
     mov [np_nodrag], al             ; the grab site tests. The CAPTURE is the
-                                    ; bar's even though the install above is
-                                    ; not: with no bar gesture there is no
-                                    ; thumb to hold inert
+                                    ; bar's even where the install is not:
+                                    ; with no bar gesture there is no thumb
+                                    ; to hold inert
 %endif                              ; OS88UI_SBDRAG
     popf
+%endif                              ; NPF_FIND
     mov ax, np_onwake               ; SPEC.md 54.10: the kernel calls this once
     call OSAPI_WM_ONWAKE            ; our window is on the glass, and the
                                     ; launch document loads in front of it
@@ -982,6 +977,27 @@ np_sbclick:
     pop ax
     ret
 
+%ifdef NPF_FIND
+; -----------------------------------------------------------------------------
+; THE BLOCK IS THE FIND PANEL'S, and the bar only borrows two of its handlers.
+; np_ondrag and np_onup are ONE pair serving TWO gestures - os88ui_btndrag /
+; os88ui_btnup for the panel's four buttons (SPEC.md 13.7) and the thumb's
+; track/drop for the bar - so they exist whenever EITHER does, and each bar-
+; only part inside them carries its own %ifdef OS88UI_SBDRAG.
+;
+; They used to sit under that one instead, whose own header calls it "the
+; thumb gesture's other two edges". NPF_FIND and OS88UI_SBDRAG are not the
+; same question: APP_SMALL drops both, SBDRAGOFF drops only the bar. So
+; `SBDRAGOFF=1` installed NO release handler at all and Close / All / Repl /
+; Next drew pressed and did nothing - and it only ever showed up as a BUILD
+; error, `np_fp_act' not defined, because the panel's action routine had been
+; moved in beside them when the button work put it on the release.
+; -----------------------------------------------------------------------------
+%ifdef OS88UI_SBDRAG
+ %ifndef NPF_FIND
+  %error "the bar gesture borrows np_ondrag/np_onup, which are the find panel's"
+ %endif
+%endif
 ; -----------------------------------------------------------------------------
 ; np_ondrag / np_onup - the thumb gesture's other two edges (SPEC.md 13.10.5)
 ; in:  CX = x, DX = y (ABSOLUTE), SI = window ptr; gfx lock held
@@ -1118,6 +1134,7 @@ np_sbd_out:
     pop bx
     pop ax
     ret
+%endif                          ; NPF_FIND
 
 ; =============================================================================
 ; Scrolling the PIXELS (SPEC.md 27.7.2)
