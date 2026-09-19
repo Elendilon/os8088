@@ -8023,13 +8023,20 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ; still holds one body per entry. Written per arm rather than in terms of
 ; DSK_ICO_N alone, because the point of this guard is that both sides are
 ; spelled out independently and have to agree.
+; ...and docs/plans/LISTING-HOME-PLAN.md 13 took the ENTRIES and their
+; reference index out of it altogether: a listing is written into the store
+; its caller keeps - a Disk window's own claim, or the Standard File dialog's
+; - so the only thing left in `.lowbss` that belongs to the mount is the
+; SECTOR BUFFER. The row is 512 bytes on kern_big, and on kern_small it is
+; that plus dsk_ovlpad, the boot overlay's landing ground, which is the one
+; term here that was never about listing anything.
 %ifdef KERN_SMALL
-%if SKB_DSK != DSK_ICOIX_N + DSK_NENT*DSK_DE_STRIDE + DSK_OVLPAD + 512
-%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.9): the sector buffer, the entries, one reference byte per entry, and dsk_ovlpad - the boot overlay's floor, which only this kernel needs"
+%if SKB_DSK != DSK_OVLPAD + 512
+%error "sys_kb: the Disk bufs row is no longer the mount's own scratch (SPEC.md 2.1.2, docs/plans/LISTING-HOME-PLAN.md 13): the sector buffer and dsk_ovlpad - the boot overlay's floor, which only this kernel needs. The ENTRIES are the caller's store now and are not here at all"
 %endif
 %else
-%if SKB_DSK != DSK_ICOIX_N + DSK_NENT*DSK_DE_STRIDE + 512
-%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.9): the sector buffer, the entries and one reference byte per entry, and NO icon bodies - those are the machine-wide store's"
+%if SKB_DSK != 512
+%error "sys_kb: the Disk bufs row is no longer the mount's own scratch (SPEC.md 2.1.2, docs/plans/LISTING-HOME-PLAN.md 13): the SECTOR BUFFER and nothing else. The entries and their reference index went into the caller's store, and there are no icon bodies - those are the machine-wide store's"
 %endif
 %endif
 ;

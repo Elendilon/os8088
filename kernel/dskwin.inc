@@ -73,29 +73,44 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; a listing owns a reference byte per entry and nothing else. DSK_ICO_SIZE is
 ; still the width of one body, in the store.
 %ifdef KERN_SMALL
-DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN, AND IT STAYED ZERO
-                                 ; THROUGH THE CUT.** This was 768 while a
-                                 ; listing held 32 entries: `.ovlw` is read
-                                 ; onto the FAT window and the mount buffers
-                                 ; (SPEC.md 2.5.3), and taking the icon bodies
-                                 ; out left the overlay short. Doubling
-                                 ; DSK_NENT put 768 bytes of ENTRIES back in
-                                 ; the same region, which is room the overlay
-                                 ; can use and the listing also wants - so the
-                                 ; pad was not needed and the bytes did a job.
+DSK_OVLPAD   equ 512            ; **AND IT IS 512 AGAIN** - not as a shrink
+                                 ; that buys nothing, but as the thing this
+                                 ; label was KEPT for.
                                  ;
-                                 ; SPEC.md 22.6.2 then took DSK_NENT back to
-                                 ; 32 and the pad did NOT come back with it,
-                                 ; which is the whole point of the order that
-                                 ; change was made in: SPEC.md 2.5.3.2 moved
-                                 ; 910 bytes of `.ovlw` into the blob FIRST,
-                                 ; so the overlay rounds to 2,048 and still
-                                 ; lands inside a 2,336-byte region. Cut the
-                                 ; listing without cutting `.ovlw` and this
-                                 ; constant is what has to absorb it - 736
-                                 ; bytes of DEAD `.lowbss`, and a shrink that
-                                 ; buys nothing. kernel.asm's `.ovlw` %if is
-                                 ; the guard that says which case you are in
+                                 ; docs/plans/LISTING-HOME-PLAN.md 13 took the
+                                 ; ENTRIES and their reference index out of
+                                 ; `.lowbss` entirely: a listing is written
+                                 ; into the store its caller keeps. That is
+                                 ; 800 bytes here, and `.ovlw` is read onto
+                                 ; the FAT window and the mount buffers
+                                 ; (SPEC.md 2.5.3), so taking all 800 leaves
+                                 ; the overlay 512 short of a home - measured,
+                                 ; kernel.asm's `.ovlw` %if refusing by
+                                 ; exactly that. So 288 of the 800 is heap and
+                                 ; 512 is held here, which is this build's own
+                                 ; standing finding restated: on kern_small
+                                 ; the OVERLAY sizes this region, not the
+                                 ; listing.
+                                 ;
+                                 ; **IT IS TEMPORARY AND THE WAY OUT IS
+                                 ; PRICED**: `.ovl` has 651 bytes of blob free
+                                 ; here against the 364 an `.ovlw` body must
+                                 ; move to retire this, which is 13.5's fourth
+                                 ; commit. kern_big has no pad and needs none.
+                                 ;
+                                 ; The history below is why the label survived
+                                 ; with nothing in it. It was 768 while a
+                                 ; listing held 32 entries; doubling DSK_NENT
+                                 ; put 768 bytes of ENTRIES in the same region,
+                                 ; which is room the overlay can use and the
+                                 ; listing also wants, so the pad was not
+                                 ; needed and the bytes did a job. SPEC.md
+                                 ; 22.6.2 then took DSK_NENT back to 32 and the
+                                 ; pad did NOT come back, because SPEC.md
+                                 ; 2.5.3.2 had moved 910 bytes of `.ovlw` into
+                                 ; the blob first. Cut the region without
+                                 ; cutting `.ovlw` and this constant absorbs
+                                 ; it - which is exactly where we are
 %endif
 
 ; **THERE IS NO PER-LISTING POOL ANY MORE** (SPEC.md 25.9). A listing owns one
@@ -194,23 +209,24 @@ dsk_secbuf: resb 512            ; sector scratch: BPB read, root-dir scan,
                                 ; aligns it - at +2,816 it was 256 into a
                                 ; sector and the build's own size decided
                                 ; whether the first mount failed with 09h
-disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
-                                ; DSK_DE_STRIDE apiece and not DSK_DE_SIZE:
-                                ; 19.1's bytes 24..31 are zero and no reader
-                                ; in the tree looks at them,
-                                ; built by disk_mount from the FAT directory
-                                ; (SPEC.md 19) - never a raw on-disk image.
-                                ; The FLOOR listing: a driver-backed volume
-                                ; lists into its driver's claim instead, and
-                                ; [dsk_dseg]/[dsk_doff] say which is in use
-dsk_icoix:  resb DSK_ICOIX_N    ; entry i's POOL SLOT, or 0xFF for no icon
-                                ; (SPEC.md 25.8). Blanked every mount, which
-                                ; is 64 bytes of `rep stosb` where the array
-                                ; below took 2,048 of `rep stosw`
-                                ; **AND NO `disk_icons`** (SPEC.md 25.9): the
-                                ; bodies are in the machine-wide store, so the
-                                ; window that was 2,816 bytes is 832 - the
-                                ; entries and one reference byte apiece
+                                ; **AND NO `disk_dir` AND NO `dsk_icoix`**
+                                ; (docs/plans/LISTING-HOME-PLAN.md 13). The
+                                ; floor listing was DSK_NENT synthesized
+                                ; entries and one icon-reference byte each -
+                                ; 1,600 bytes on kern_big and 800 on
+                                ; kern_small, in `.lowbss`, which sits BELOW
+                                ; HEAP_SEG and so costs the heap and the DOS
+                                ; arena byte for byte, on every machine, for
+                                ; ever, whether or not anything was listing.
+                                ;
+                                ; A listing is written where its CALLER keeps
+                                ; a store now: a Disk window's FS_VSEG claim,
+                                ; which it already held, or one the Standard
+                                ; File dialog takes while it is up. Both are
+                                ; TRANSIENT, so a machine on the desktop or
+                                ; inside a fullscreen game pays nothing at
+                                ; all - and a caller with nowhere for a
+                                ; listing gets a quiet mount instead of one.
 %ifdef KERN_SMALL
 dsk_ovlpad: resb DSK_OVLPAD     ; ...AND THE BOOT OVERLAY'S LANDING GROUND,
                                 ; which the icon array was doing as a SECOND
@@ -241,9 +257,6 @@ dsk_ovlpad: resb DSK_OVLPAD     ; ...AND THE BOOT OVERLAY'S LANDING GROUND,
 %endif
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base
-%if dsk_icoix - disk_dir != DSK_NENT*DSK_DE_STRIDE
-  %error "the reference index must sit immediately past the entries: disk.inc's dsk_ioff initialiser IS that layout, and dsk_dest_x derives the same offset for every other store. A byte between them and the floor listing's index is at one offset while a window's is at another (docs/plans/LISTING-HOME-PLAN.md 13.2)"
-%endif
 %if (dsk_secbuf - $$) % 512     ; against the RUNG base, not dsk_win_base: a
   %error "dsk_secbuf is not 512-byte aligned inside LOW_SEG: an int 13h read from an unaligned base can straddle a 64KB DMA page and fail with error 09h. Keep it FIRST in the window (SPEC.md 2.1.1/2.1.2, guard 6)"
 %endif                          ; block sorted above this file would slide it

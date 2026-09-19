@@ -352,33 +352,39 @@ BMP hit it immediately, a Note Pad text file never would.
 
 ### 2.1.2 The mount-owned buffers are the FIRST bytes of `.lowbss`
 
-`disk_dir`, `dsk_icoix` and `dsk_secbuf` are 2,112 bytes with one property
-nothing else in `.lowbss` has: **they and the FAT window come alive at the
-same moment** — `drv_boot`'s first mount — and neither is touched before it.
-Put them at the bottom of the rung and the two are one contiguous region that
-is dead for the whole of `kmain`:
+`dsk_secbuf` has one property nothing else in `.lowbss` has: **it and the FAT
+window come alive at the same moment** — `drv_boot`'s first mount — and
+neither is touched before it. Put it at the bottom of the rung and the two are
+one contiguous region that is dead for the whole of `kmain`:
 
 ```
   FAT_SEG   4,608   the FAT snapshot, filled at mount
-  +           512   dsk_secbuf   FIRST: the one int 13h TARGET here, so it
-                                 takes the rung's 512-aligned base
-  +         1,536   disk_dir     "ALWAYS exactly a mount snapshot", DSK_NENT
-                                 entries of DSK_DE_STRIDE
-  +            64   dsk_icoix    one reference byte per entry (§25.8)
-  =         6,720   of which 6,656 is READABLE (see below)
+  +           512   dsk_secbuf   the one int 13h TARGET here, so it takes the
+                                 rung's 512-aligned base
+  =         5,120   of which 5,120 is READABLE (see below)
 ```
 
-**The region was 8,192, then 7,936, and is 6,720** — three moves, and only
-the first was a narrowing of the same thing. `disk_dir` holds `DSK_NENT`
-entries at `DSK_DE_STRIDE`, and that stride narrowed from 32 to 24 when the
-staged listing stopped carrying the record's declared-zero tail — 256 bytes of
-`.lowbss` back to the heap. Then **`disk_icons` left this window entirely**
-(§25.9): its 2,048 bytes were a 16x16 body per entry, and the bodies are one
-machine-wide store now, referenced by the single byte per entry that
-`dsk_icoix` holds. And `DSK_NENT` went 32 → 64 in the other direction, which
-is the +768 on `disk_dir`. It is worth saying which way each trade runs: the
-heap gains all of it and the boot overlay's window half loses all of it, which
-is 1,216 bytes of ceiling that §2.5.3's guard no longer has.
+**The region was 8,192, then 7,936, then 6,720, and is 5,120** — and the last
+move is different in kind from the three before it. Those were narrowings of a
+shared listing; this one is its ABOLITION.
+
+`DSK_DE_STRIDE` narrowed from 32 to 24 when the staged listing stopped
+carrying the record's declared-zero tail. Then **`disk_icons` left this window
+entirely** (§25.9): its 2,048 bytes were a 16x16 body per entry, and the
+bodies are one machine-wide store now, referenced by a single byte per entry.
+And `DSK_NENT` went 32 → 64 in the other direction, +768.
+
+**Then `disk_dir` and `dsk_icoix` left too, and there is no floor listing at
+all** (§22.6.3). A listing is written into the store its CALLER supplied, so
+what used to be 1,600 bytes of every machine's `.lowbss` — below `HEAP_SEG`,
+so heap and DOS arena byte for byte, present whether or not anything was
+listing — is a Disk window's own claim or the Standard File dialog's, and both
+are transient. A machine on the desktop, or inside a fullscreen game, carries
+no listing anywhere.
+
+On `kern_small` `DSK_OVLPAD` holds 512 of those bytes back, and that is the
+build's own standing finding rather than a shortfall in the change: `.ovlw` is
+read onto this region, so there the OVERLAY sizes it and not the listing.
 
 **The bases are 512-aligned and the SIZE is no longer a multiple of 512**, which
 matters because the overlay arrives on the kernel's own `int 13h` read. There
@@ -2827,7 +2833,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | file                | owns                                                    |
 |---------------------|---------------------------------------------------------|
 | `kernel/kernel.asm` | entry, constants, init order, includes, .bss layout, **os8088 API jump table at 0x0010** (§20.3) + osapi helper routines, **boot splash entry at 0x0008** (§15) |
-| `kernel/dskwin.inc` | the mount-owned window (§2.1.2): `disk_dir`, `dsk_icoix`, `dsk_secbuf` and the constants that size them (`DSK_DE_SIZE`, `DSK_DE_STRIDE`, `DSK_ICO_SIZE`, `DSK_NENT`, `DSK_ICOIX_N` — `DSK_VENT` was a fifth until §22.6). Everything else about a listing is `disk.inc`'s — these are here only because their ADDRESS is load-bearing and a reservation is placed by the order its file is included, so this is the **first file `kernel.asm` includes**. Prefix `dsk_`/`disk_`, reached through SS with the rest of `.lowbss` |
+| `kernel/dskwin.inc` | the mount-owned window (§2.1.2): `dsk_secbuf`, `dsk_ovlpad` and the constants that size a LISTING — which no longer lives here at all (§22.6.3) (`DSK_DE_SIZE`, `DSK_DE_STRIDE`, `DSK_ICO_SIZE`, `DSK_NENT`, `DSK_ICOIX_N` — `DSK_VENT` was a fifth until §22.6). Everything else about a listing is `disk.inc`'s — these are here only because their ADDRESS is load-bearing and a reservation is placed by the order its file is included, so this is the **first file `kernel.asm` includes**. Prefix `dsk_`/`disk_`, reached through SS with the rest of `.lowbss` |
 | `kernel/viddet.inc` | video adapters (§39): the boot probe, the live geometry block, mode set/teardown (`vid_setmode`/`vid_text`/`vid_init`), the shared addressing helpers `gfx_rowbase`/`gfx_nextrow`, the 1bpp colour map `gfx_ink` — prefix `vid_`; included **before** `splash.inc`, and all its data lives in `.text` |
 | `kernel/splash.inc` | boot-time loading screen (§15): the first adapter probe and mode set, welcome dialog, pixel progress bar, spinning vector "8088" — on a 1bpp adapter the progress bar alone (§39.6); far-ticked by the boot sector per sector read; self-contained, no .bss |
 | `kernel/vga12.inc`  | mode 12h planar primitives, save/restore, gfx lock, `gfx_scroll` (§5.5); the coordinate core `vga_rect_setup` that both renderers share (§39.3) — the mode set left for `viddet.inc`; and `gfx_rect_isect`/`gfx_rect_isectcf`, the **four-edge rect intersect the whole kernel shares** (§5.11), hosted in the lowest layer so `wm.inc`'s five sites are backward references |
@@ -28287,10 +28293,10 @@ never diverge between the two directions.
 |--------------|----------------------------------------------------------------|
 | `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Issues as few int 13h calls as the track, the 64KB DMA page and the buffer allow (§18.91) — the contract is unchanged, only the call count. Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
 | `disk_write` | identical contract, source instead of destination: in: AX=LBA, CX=sector count, ES:BX → source. Out: CF=1 on unrecoverable error, and `[dsk_ioerr]` = the last int 13h status byte (AH), which is how §18.4 tells write-protected media (03h) from a real failure. Preserves registers per §1, and is likewise FS-agnostic. **No LBA gate of its own beyond `dsk_xfer`'s cyl<80 rule** — every caller is §18.4, which computes LBAs only from the validated §18.1 layout. |
-| `disk_mount` | in: DL=drive (0=A, 1=B). Sets `[disk_drive]`, restores the fallback geometry 9/2 with `disk_nfiles`=0, reads LBA 0 with that *fallback* geometry (CHS 0/0/1 — identical under any real floppy geometry) into `dsk_secbuf`, then runs the §18.3 mount sequence: BPB validation (§18.2), FAT snapshot into `FAT_SEG`, root-directory scan into the synthesized `disk_dir` cache, icon harvest into `disk_icons`. Out: CF=0 with `disk_spt`/`disk_heads`/`disk_nfiles`, the §18.1 variables and both caches filled; CF=1 with `disk_nfiles`=0 and fallback 9/2 (unreadable, unformatted, or any §18.2 rule failed). Clobbers CF only. A torn mount is a failed mount; **no cross-mount state survives** — every open/refresh fully remounts, never stale. |
+| `disk_mount` | in: DL=drive (0=A, 1=B). Sets `[disk_drive]`, restores the fallback geometry 9/2 with `disk_nfiles`=0, reads LBA 0 with that *fallback* geometry (CHS 0/0/1 — identical under any real floppy geometry) into `dsk_secbuf`, then runs the §18.3 mount sequence: BPB validation (§18.2), FAT snapshot into `FAT_SEG`, root-directory scan into the synthesized listing **at `[dsk_dseg]:[dsk_doff]`, which the caller supplied** (§22.6.3) — and a mount with no destination is QUIET, so the scan, the sort and the icon harvest are all skipped. Out: CF=0 with `disk_spt`/`disk_heads`/`disk_nfiles`, the §18.1 variables and the caller's store filled; CF=1 with `disk_nfiles`=0 and fallback 9/2 (unreadable, unformatted, or any §18.2 rule failed). Clobbers CF only. A torn mount is a failed mount; **no cross-mount state survives** — every open/refresh fully remounts, never stale. |
 | `disk_drive`  | byte variable, current drive (init 1 = B:)                   |
 | `disk_nfiles` | word, valid after a successful mount (else 0)                |
-| `disk_dir`    | 1024-byte **`.lowbss`** buffer (§2.1): the **synthesized directory cache** — 32 × 32-byte entries in the §19 staged layout, built by `disk_mount` from the FAT root directory (never a raw on-disk image). Written through ES at mount; read only via `dsk_get_dir` |
+| `disk_dir`    | **RETIRED** (§22.6.3). It was a `.lowbss` buffer holding the synthesized directory cache in the §19 staged layout. A listing is written into the store its CALLER supplied through `dsk_dest`, so there is no buffer here and a mount with no destination is quiet. Still written through ES at mount and still read only via `dsk_get_dir` — what changed is which segment those name |
 | `disk_icons`  | 2048-byte **`.lowbss`** buffer (§2.1): 32 × 64-byte **harvested** icon bodies (§19); entry i belongs to directory entry i, all-zero = no icon. Fully rewritten every mount (the §29.1 I_ICON rule rests on that). Read only via `dsk_get_icon` |
 | `dsk_get_dir` | in: AX = entry index. Stages that entry's 32 bytes from `LOW_SEG` into the kernel-segment buffer `dsk_ent`; out: SI = `dsk_ent`. Consumers keep an ordinary DS:SI pointer and never see a segment |
 | `dsk_get_icon`| in: AX = entry index. Same, 64 bytes into `dsk_ico`; out: SI = `dsk_ico` |
@@ -41661,15 +41667,11 @@ configurations: the `.lowbss` floor, and a **6KB claim donated by the driver**
 of a `DVK_DRV` volume, handed to `osapi_vol_add` in DX and giving a hard disk
 `DSK_VENT` = 64 entries where a floppy then got 32.
 
-**The donation is GONE and there is one configuration.** Three of the words
-survive — `[dsk_ioff]` went with §25.9 — and **nothing writes any of them**:
-`dsk_list_pick` and `dsk_list_floor` are deleted, `mem_rr_tab`'s two rows with
-them, and the `.text` initialisers (`LOW_SEG`, `disk_dir`, `DSK_NENT`) are the
-whole of the configuration for the life of the machine.
-
-| | segment | entries | icons | cap |
-|---|---|---|---|---|
-| every volume, whatever mounted it | `LOW_SEG` | `disk_dir` | (references only, §25.9) | `DSK_NENT` = 64 on `kern_big`, **32** on `kern_small` (§22.6.2) |
+**The donation is GONE and there is one configuration** — and §22.6.3 has
+since given the four words a different job, so the paragraph below is the
+history rather than the contract: `dsk_list_pick` and `dsk_list_floor` are
+deleted and `mem_rr_tab`'s two rows with them, but the words are WRITTEN
+again, by `dsk_dest_x`, and by the caller of every loud mount.
 
 **Two changes took the claim's reason away and neither was looking at it.**
 §25.9 moved the icon bodies out of a listing and into one machine-wide store,
@@ -41718,6 +41720,69 @@ will ever visit and nothing is ever given back and re-taken. What is left for
 `fmv_fit` to decide is whether the window has a cache **at all**: a claim
 refused at `fm_kinit` gets another chance at each `fmv_store` rather than
 condemning the window to paint from the global snapshot for its whole life.
+
+#### 22.6.3 A LISTING HAS NO HOME: the destination is an argument
+
+`disk_dir` and `dsk_icoix` do not exist. There is no floor listing, no global
+mount snapshot, and no buffer anywhere that a listing lands in by default.
+**A mount writes where its CALLER told it to**, and a caller that told it
+nowhere gets a quiet mount (§18.9) instead of one.
+
+`dsk_dest` is that argument:
+
+| | |
+|---|---|
+| **in** | `DX` = the store's segment, **0 = there is nowhere**; `BX` = entry 0's offset in it |
+| **out** | nothing (all registers preserved) |
+| **sets** | `[dsk_dseg]`, `[dsk_doff]`, and `[dsk_ioff]` **derived** — the reference index sits immediately past `[dsk_nmax]` entries of `DSK_DE_STRIDE`, and deriving it here rather than passing it is what gives a store ONE shape |
+
+A store is `DSK_NENT × DSK_DE_STRIDE` entries then `DSK_ICOIX_N` reference
+bytes — 1,600 bytes on `kern_big`, 800 on `kern_small` — which is exactly the
+layout a Disk window's cache already had, so `fmv_iofs`'s arithmetic and the
+harvest's are the same arithmetic.
+
+**Who supplies one, and for how long:**
+
+| consumer | store | lifetime |
+|---|---|---|
+| a Disk window | its own `FS_VSEG` claim, taken at `fm_kinit` | the window's |
+| the Standard File dialog | `MEM_K_FDLG`, `VIEW_KB`, taken at `fdlg_open` | the dialog's |
+| anything else | **none** | — |
+
+That last row is most of the machine and is the point. `inst_vol_enter` on
+every package file call, `drv_vol_back`, `assoc_back`, the boot mount, a
+driver registering a volume, `osapi_vol_mount` — none of them wants a
+listing, and none of them now pays for one. So the resident cost of listing a
+directory is **zero bytes**, and the transient cost is 2KB per open Disk
+window plus 2KB while a dialog is up.
+
+**The destination is set for a mount and cleared after it.** A `.bss` word
+may not name a heap claim across arbitrary time: the Disk window's claim is
+MOVABLE on `kern_big` and PURGEABLE on `kern_small`, and nothing would fix
+the word if the block moved. `fmv_load` aims it, mounts, and aims it back at
+0 before it returns; the dialog holds it for as long as it is up, which is
+also as long as it holds the claim.
+
+**What makes that span safe is measured, not argued.** `tools/dsegaudit.py`
+asks whether anything holding this block can reach a `mem_claim`, which
+COMPACTS on its refusal path (§50.6.2). Every routine in the write window —
+`dsk_synth`, `dsk_put_dir`, `dsk_sortdir`, `dsk_ent_ofs`, `dsk_rd1` — reaches
+**no claim**. The one claimer in the whole mount is `asc_use`, in the icon
+harvest, after the listing is written and sorted, with `ES` already forced to
+`LOW_SEG` across it for this exact reason (§66.5.10.2). `dsegaudit` is a
+registered row, and it understands a `pop es` as ending a live window — a
+`push es` / load / read / `pop es` / call is the SAFE idiom and used to be
+reported as live to the end of the routine.
+
+**A consumer with no store lists NOTHING, and that is deliberate.** There is
+nothing to fall back to, so `fmv_copy_in` answers an all-zero entry and
+`dsk_get_icon` answers `ICO_R_NONE` rather than reading the segment
+`[dsk_dseg]` holds when there is no destination — which is 0, the interrupt
+vector table, drawn as file names. In practice no painter asks: a storeless
+consumer got a QUIET mount, so `[disk_nfiles]` is 0, `FS_N` is 0, and there
+are no rows. On `kern_small`, where the cache is purgeable, a shed leaves the
+window owing an `FSD_CACHE` debt and raises `[fm_fchk]`, so it re-claims and
+re-lists rather than going quietly blank.
 
 #### 22.6.1 …and a window's cache keeps the shape it was FILLED with
 

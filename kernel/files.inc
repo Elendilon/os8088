@@ -276,12 +276,31 @@ FS_VKB      equ 18              ; byte: how many KB that claim actually is.
                                 ; byte stays: a refusal clears FS_VSEG and
                                 ; this says so, which is the documented
                                 ; fallback rather than an error
-FS_DIRTY    equ 19              ; byte: 1 = a file operation has changed the
-                                ; folder this window is showing since its
-                                ; cache was built, so neither the cache nor
-                                ; the pixels are a picture of it any more
-                                ; (SPEC.md 22.8). Spent by fm_focus when the
-                                ; window next comes to the front
+FS_DIRTY    equ 19              ; byte: the refresh debt (SPEC.md 22.8), spent
+                                ; by fm_focus when the window next comes to
+                                ; the front. THREE VALUES, because a listing
+                                ; has no shared home any more
+                                ; (docs/plans/LISTING-HOME-PLAN.md 13):
+                                ;   0  nothing owed
+                                ;   1  CACHE AND PIXELS are both stale - a
+                                ;      file operation changed this folder
+                                ;      since the cache was built, so coming
+                                ;      to the front costs a re-list
+                                ;   2  the CACHE IS FRESH and only the pixels
+                                ;      are old. fmv_bcast hands a sibling the
+                                ;      new listing but does not redraw it, so
+                                ;      what that window owes is a REPAINT and
+                                ;      nothing more
+                                ;
+                                ; The split exists because the global snapshot
+                                ; is gone: fm_focus used to spend a 1 by
+                                ; copying that snapshot, which was free, and
+                                ; the only thing left to copy it from now is
+                                ; a MOUNT. Telling the two debts apart is what
+                                ; keeps the sibling case cheaper than it was
+                                ; rather than dearer - it pays nothing at all
+FSD_CACHE   equ 1               ; ...the two values, named
+FSD_PIXELS  equ 2
 FS_FREE     equ 20              ; word: KB free on the volume this window is
                                 ; showing, 0xFFFF = not known. Read ONCE per
                                 ; mount, in fmv_load, because counting it
@@ -652,17 +671,32 @@ fmv_copy_in:
     push si
     mov dx, [fm_vseg]
     or dx, dx
-    jnz .have                   ; no cache (the claim was refused): read the
-    mov dx, [dsk_dseg]          ; GLOBAL snapshot at the matching offset. It
-    add si, [dsk_doff]          ; used to need the ICON base swapped over too,
-                                ; a slot's being 0-based where the snapshot's
-                                ; is not; there is no icon region in either
-                                ; now (SPEC.md 25.9), so entries are the whole
-                                ; of it
+    jnz .have
+
+    ; --- NO STORE, AND NO FLOOR TO FALL BACK TO (13.1) ---------------------
+    ; This read the GLOBAL snapshot at the matching offset, and there is no
+    ; global snapshot: a window with no claim was given a QUIET mount, so it
+    ; has FS_N = 0 and its painter asks for no rows at all. The zero below is
+    ; belt and braces rather than a path - and it is worth the six bytes,
+    ; because the value [dsk_dseg] holds when there is no destination is 0,
+    ; and a copy from segment 0 reads the INTERRUPT VECTOR TABLE and draws it
+    ; as file names.
+    push es
+    mov ax, ds
+    mov es, ax
+    push di
+    shr cx, 1
+    xor ax, ax
+    cld
+    rep stosw                   ; an all-zero entry: no name, type 0
+    pop di
+    pop es
+    jmp short .out
 .have:
     mov ax, ds                  ; the kernel segment, out of DS: this module
                                 ; is .cold, so CS is COLD_SEG (SPEC.md 2.6)
     call dsk_copy_seg_x
+.out:
     pop si
     pop dx
     pop bx
@@ -1146,6 +1180,21 @@ fmv_demote:
     mov dx, [si+FS_VSEG]
     mov word [si+FS_VSEG], 0
     mov byte [si+FS_VKB], 0
+
+    ; **AND THE WINDOW IS OWED A RE-LIST** (13.1). Shedding this used to cost
+    ; the window its fast path and nothing else: it fell back to the GLOBAL
+    ; snapshot and kept drawing. There is no global snapshot, so a shed
+    ; window has no listing at all - and would simply go blank, silently,
+    ; under memory pressure, which is the one condition nobody is watching.
+    ;
+    ; The debt is what heals it: fmv_fit re-claims at the next store, and
+    ; fm_focus spends an FSD_CACHE by re-listing. [fm_fchk] is why it does
+    ; not wait for a click - the shed window may be the FRONT one, where a
+    ; focus change is a click that never comes (SPEC.md 22.8).
+    mov byte [si+FS_DIRTY], FSD_CACHE
+    mov byte [fm_fchk], 1
+    mov byte [ui_post], 1
+
     cmp [fm_vseg], dx
     jne .out
     mov word [fm_vseg], 0
@@ -1194,14 +1243,11 @@ fmv_load:
     push ax
     push dx
     push bx
-    mov dx, [di+FS_VSEG]
-    xor bx, bx                  ; entry 0 at the base of the claim
-    or dx, dx
-    jnz .dest
-    mov dx, LOW_SEG             ; no claim: the floor, as before
-    mov bx, disk_dir
-.dest:
-    call dsk_dest_x
+    mov dx, [di+FS_VSEG]        ; 0 = this window has NO store, and there is
+    xor bx, bx                  ; no floor to fall back to any more: the
+    call dsk_dest_x             ; mount goes quiet and the window paints
+                                ; SPEC.md 22's refusal in its row area
+                                ; instead of a listing (13.5 commit 3)
     pop bx
     pop dx
     pop ax
@@ -1262,9 +1308,9 @@ fmv_load:
     ; none, where this word is naming the floor.
     push bx
     push dx
-    mov dx, LOW_SEG
-    mov bx, disk_dir
-    call dsk_dest_x
+    xor dx, dx                  ; NOWHERE, which is now the default: the
+    call dsk_dest_x             ; floor listing is gone and a mount with no
+                                ; store is quiet (13.1)
     pop dx
     pop bx
 
@@ -1469,7 +1515,7 @@ fmv_mark:
     mov dx, [di+FS_CWD]
     cmp dx, [dsk_cwd]
     jne .next
-    mov byte [di+FS_DIRTY], 1
+    mov byte [di+FS_DIRTY], FSD_CACHE
     cmp byte [dskw_batch], 0    ; a multi-file operation owes its own
                                 ; coherence pass and pays it at the END
     jne .next                   ; (fmv_reload_all + fmv_repaint_all, 22.3),
@@ -1578,33 +1624,28 @@ fm_focus_x:
                                 ; window in the system, and it is two
                                 ; compares
     mov di, [di+I_SPTR]
-    cmp byte [di+FS_DIRTY], 0
-    je .clean
+    mov al, [di+FS_DIRTY]
+    or al, al
+    jz .clean
     mov byte [di+FS_DIRTY], 0
     call fm_vp_set              ; BX = the window: everything below reads the
     mov di, [fm_vp]             ; acting window through the published block
-    mov al, [di+FS_DRV]
-    cmp al, [disk_drive]
-    jne .load
-    mov dx, [di+FS_CWD]
-    cmp dx, [dsk_cwd]
-    jne .load
-    cmp byte [dsk_lstale], 0    ; a quiet mount leaves the globals empty and
-    jne .load                   ; owed (SPEC.md 18.9) - not a listing to take
-    cmp byte [dsk_mntok], 0     ; and they have to have come from a mount
-    je .load                    ; that actually worked
-    cmp word [disk_nfiles], 0   ; ...AND THEY HAVE TO HOLD SOMETHING. A Disk
-    je .load                    ; window's own mount goes into its CLAIM now
-                                ; (13.1) and leaves the floor honestly empty,
-                                ; which the three tests above cannot tell from
-                                ; a good listing: same volume, same folder, no
-                                ; debt owed and the mount worked. Without this
-                                ; line a window coming to the front adopts an
-                                ; empty listing and redraws as '0 files'
-    call fmv_take               ; the globals ARE this folder: pure memory
-    jmp short .drawn
-.load:
-    mov al, [di+FS_DRV]         ; they are not, so re-list where we stand -
+
+    ; --- WHICH DEBT? (docs/plans/LISTING-HOME-PLAN.md 13) ------------------
+    ; This used to ask whether the GLOBAL snapshot happened to be this
+    ; window's folder, and take it by memory copy if it was. There is no
+    ; global snapshot: a mount writes into the caller's own store, so the
+    ; only thing left to copy one from is another mount.
+    ;
+    ; So the question moved to where the answer already is. fmv_bcast hands
+    ; every window on a written folder the new listing and redraws only the
+    ; acting one, and it now says so - FSD_PIXELS on the siblings it filled,
+    ; FSD_CACHE everywhere a listing really did go stale. A sibling coming to
+    ; the front then pays NOTHING, where it used to pay a copy; only a
+    ; genuinely stale cache pays the mount.
+    cmp al, FSD_PIXELS
+    je .drawn                   ; the cache is already this folder's
+    mov al, [di+FS_DRV]         ; it is not, so re-list where we stand -
     mov dx, [di+FS_CWD]         ; exactly what Refresh costs (SPEC.md 22)
     call fmv_load
 .drawn:
@@ -1648,35 +1689,49 @@ fmv_bcast:
     push dx
     push si
     push di
-    call dsk_relist_x   ; PAY THE DEBT BEFORE ADOPTING ANYTHING.
-                                ; Every window below takes the global snapshot
-                                ; by memory copy (fmv_take), so if the write
-                                ; that got us here DEFERRED its rebuild
-                                ; (SPEC.md 18.4) the thing being broadcast is
-                                ; disk_nfiles = 0 - and it lands in the cache
-                                ; of every window on this folder, the acting
-                                ; one included, which its caller then repaints
-                                ; from. Measured: deleting one file out of a
-                                ; Disk window redrew it as 'Drive B: 0 files'.
-                                ; dsk_relist is idempotent and costs nothing
-                                ; when nothing is owed.
+    ; --- THE ACTING WINDOW RE-LISTS FIRST, and the rest copy from IT ------
+    ; (docs/plans/LISTING-HOME-PLAN.md 13.) This was `dsk_relist_x`: pay the
+    ; floor listing's debt so the snapshot every window below adopts is a
+    ; real one. There is no floor and no snapshot - a mount writes into the
+    ; caller's own store - so the one listing that can be broadcast is the
+    ; one the window that DID the write is about to hold.
+    ;
+    ; Its own reasoning survives the change word for word: if the write
+    ; deferred its rebuild (SPEC.md 18.4) the thing being broadcast is an
+    ; EMPTY listing, and it lands in the cache of every window on this folder
+    ; including the acting one, which its caller then repaints from.
+    ; Measured, before that was understood: deleting one file out of a Disk
+    ; window redrew it as 'Drive B: 0 files'.
+    mov di, [fm_vp]
+    or di, di
+    jz .done                    ; no acting window: nothing wrote, and there
+                                ; is nothing to hand anybody
+    mov al, [di+FS_DRV]
+    mov dx, [di+FS_CWD]
+    call fmv_load               ; ...into ITS store, which is the source below
     call fmv_ifirst
     jc .done
 .scan:
     mov di, [si+I_SPTR]
+    cmp di, [fm_vp]             ; the source itself: it has the listing, and
+    je .next                    ; fm_edit_commit's caller is about to repaint
+                                ; it, so its debt was settled by the fmv_load
+                                ; above rather than here
     mov al, [di+FS_DRV]
     cmp al, [disk_drive]
     jne .next
     mov dx, [di+FS_CWD]
     cmp dx, [dsk_cwd]
     jne .next
-    call fmv_take               ; adopt the snapshot: pure memory
-    cmp di, [fm_vp]             ; the ACTING window - and only it - is about
-    jne .next                   ; to be repainted by the caller that reached
-    mov byte [di+FS_DIRTY], 0   ; fm_edit_commit, so its refresh debt (22.8)
-                                ; is settled here. A sibling gets its cache
-                                ; and keeps the debt: nothing redraws it, so
-                                ; its pixels are still the folder as it was
+    call fmv_take               ; adopt the acting window's listing: still
+                                ; pure memory, one claim to another
+    mov byte [di+FS_DIRTY], FSD_PIXELS  ; ...AND SAY WHICH DEBT IS LEFT. This
+                                ; sibling's CACHE is now the folder and only
+                                ; its pixels are old, so fm_focus owes it a
+                                ; repaint and not a mount (22.8). It used to
+                                ; keep an undifferentiated 1 and pay a copy
+                                ; for it; there is nothing left to copy from,
+                                ; so without this it would pay a MOUNT
 .next:
     call fmv_inext
     jnc .scan
@@ -1689,31 +1744,58 @@ fmv_bcast:
     ret
 
 ; -----------------------------------------------------------------------------
-; fmv_take - make one window's cache BE the current global snapshot (22.1)
-; in:  DI = state block; the globals are already the new truth and are this
-;      window's own (drive, folder) - the caller has compared them
+; fmv_take - make one window's cache BE THE ACTING WINDOW'S (SPEC.md 22.1)
+; in:  DI = the destination state block, showing the same (drive, folder) as
+;      [fm_vp] - the caller has compared them, and [fm_vp] has just been
+;      re-listed
 ; out: nothing (all registers preserved)
 ;
-; The memory half of a re-list, with no mount in it: fmv_load does the same
-; four stores around a dsk_chdir. Factored out because fmv_bcast and
-; fm_focus (SPEC.md 22.8) both need exactly this and a second copy of it is
-; a second place that can disagree about what a fresh cache means.
+; The memory half of a re-list, with no mount in it. **THE SOURCE MOVED**
+; (docs/plans/LISTING-HOME-PLAN.md 13): it was the global mount snapshot, and
+; that is gone - a mount writes into the caller's own store - so the listing
+; a sibling adopts is the one the window that did the write is holding.
+;
+; It is still pure memory and the copy is still fmv_store's, unchanged: this
+; aims `dsk_dest_x` at the SOURCE window's claim, so what fmv_store reads
+; through [dsk_dseg]/[dsk_ioff] is that claim instead of the floor. One
+; copier, two kinds of source, and no second opinion about what a fresh cache
+; means.
 ; -----------------------------------------------------------------------------
 fmv_take:
     push ax
-    mov ax, [disk_nfiles]
+    push bx
+    push dx
+    push si
+    mov si, [fm_vp]             ; the SOURCE: whoever fmv_bcast just re-listed
+    or si, si
+    jz .out
+    cmp si, di
+    je .out                     ; itself - nothing to copy, and fmv_store's
+                                ; own identity test would skip it anyway
+    mov dx, [si+FS_VSEG]
+    or dx, dx
+    jz .out                     ; the source has no store, so there is no
+                                ; listing anywhere to hand over
+    mov ax, [si+FS_N]
     mov [di+FS_N], ax
-    mov byte [di+FS_MOK], 0     ; the mount's own verdict, which is what
-    cmp byte [dsk_mntok], 0     ; fmv_load records too - after a successful
-    je .listed                  ; write it is always 1 (SPEC.md 18.4)
-    mov byte [di+FS_MOK], 1
-.listed:
+    mov al, [si+FS_MOK]         ; the mount's verdict travels with the listing
+    mov [di+FS_MOK], al         ; it describes, and that mount was the
+                                ; source's (SPEC.md 18.4)
     mov word [di+FS_SEL], 0xFFFF    ; the listing was rebuilt: indices into
     mov word [di+FS_SCRL], 0        ; the old one mean nothing
-    call fmv_store
+    xor bx, bx                  ; entry 0 at the base of the source's claim
+    call dsk_dest_x
+    call fmv_store              ; ...which copies it into DI's own
+    xor dx, dx                  ; and the destination goes back to NOWHERE,
+    call dsk_dest_x             ; for fmv_load's reason: a `.bss` word may not
+                                ; name a claim across arbitrary time
     call fm_measure             ; a write moved both figures: the file that
                                 ; arrived is in the folder AND off the free
                                 ; list, so neither survives the copy
+.out:
+    pop si
+    pop dx
+    pop bx
     pop ax
     ret
 section .text                   ; DATA, so back to the kernel segment: cold code
@@ -4645,7 +4727,7 @@ fm_fmt_home:
     mov word [di+FS_CWD], 0
     mov word [di+FS_SEL], 0xFFFF    ; indices into a listing that no longer
     mov word [di+FS_SCRL], 0        ; describes anything
-    mov byte [di+FS_DIRTY], 1
+    mov byte [di+FS_DIRTY], FSD_CACHE
     mov byte [fm_fchk], 1       ; ...and it may be the FRONT window, where
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
                                 ; waiting for a focus change means waiting for

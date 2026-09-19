@@ -23,13 +23,15 @@ Four things, none of them visible on the glass:
      the mount was aimed at it rather than at `LOW_SEG`.
   3  the store actually holds the listing: entry 0's name, read out of the
      claim, is one of the names the dialog is showing.
-  4  and it goes back.  After Cancel, `[fdlg_vseg]` is 0 again and
-     `[dsk_dseg]` names `LOW_SEG` - a `.bss` word may not be left naming a
-     freed block, and it is MOVABLE on kern_big and PURGEABLE on kern_small.
+  4  and it goes back.  After Cancel, `[fdlg_vseg]` is 0 again and so is
+     `[dsk_dseg]` - a `.bss` word may not be left naming a freed block, and
+     this one is MOVABLE on kern_big and PURGEABLE on kern_small.  ZERO and
+     not `LOW_SEG`: there is no floor listing to point back AT, and zero is
+     what makes the next mount with nobody asking a quiet one.
 
-VERIFIED TO FAIL by forcing `fdlg_vclaim` down its `.floor` arm: 1 and 4 stay
-green, 2 goes red naming LOW_SEG, and 3 goes red because the floor holds
-whichever folder was listed there last.
+VERIFIED TO FAIL by forcing `fdlg_vclaim` to skip the claim: 1 stays green,
+2 goes red naming 0000, and 3 goes red because there is nothing in the store
+to read.
 """
 import sys
 
@@ -184,9 +186,11 @@ with M.launch("build/os8088-360.img", apps="build/muptest.img",
         fail("[fdlg_vseg] is still %04X after the dialog closed - the claim "
              "leaks, and an Open/Cancel loop eats the heap 2KB at a time"
              % vseg2)
-    if dseg2 != low:
+    if dseg2 != 0:
         fail("[dsk_dseg] still names %04X after the dialog closed - a .bss "
              "word is left naming a FREED block, and the next loud mount "
-             "writes a listing into whatever took its place" % dseg2)
+             "writes a listing into whatever took its place. It must be "
+             "ZERO: there is no floor listing to point back at, and zero is "
+             "what makes a mount nobody asked for a QUIET one" % dseg2)
 
 print("fdlgstore: ok")

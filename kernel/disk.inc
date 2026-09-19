@@ -851,10 +851,15 @@ section .text                   ; DATA, so back to the kernel segment
 ; reader is smaller this way: `mov es, [dsk_dseg]` is four bytes where
 ; `mov ax, LOW_SEG` + `mov es, ax` is five and wants a scratch register. They
 ; are in .text and not .bss for the reason the paragraph below gives.
-dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in, 0 = there
-                                ; is nowhere and a loud mount is quiet
-dsk_doff:    dw disk_dir         ; entry 0's offset in it
-dsk_ioff:    dw dsk_icoix        ; **AND `dsk_ioff` IS BACK**, for a different
+dsk_dseg:    dw 0                ; the segment the listing lives in, and ZERO
+                                ; IS THE DEFAULT: a listing has no home of
+                                ; its own, so a mount that nobody gave a
+                                ; store to has nowhere to put one and is
+                                ; quiet. It was LOW_SEG:disk_dir, the floor
+                                ; listing, and `.lowbss` is 1,600 bytes
+                                ; lighter for its going
+dsk_doff:    dw 0                ; entry 0's offset in it
+dsk_ioff:    dw 0                ; **AND `dsk_ioff` IS BACK**, for a different
                                 ; job than the one SPEC.md 25.9 retired. That
                                 ; one was the base of a per-listing ARRAY OF
                                 ; BODIES; this is the base of the one
@@ -863,9 +868,7 @@ dsk_ioff:    dw dsk_icoix        ; **AND `dsk_ioff` IS BACK**, for a different
                                 ; `.lowbss` address - it follows the entries
                                 ; into whatever store the caller supplied.
                                 ; DERIVED by dsk_dest_x rather than passed, so
-                                ; a store has one shape and not two, and the
-                                ; initialiser is that shape for `.lowbss`:
-                                ; dsk_icoix IS disk_dir + DSK_NENT*STRIDE
+                                ; a store has one shape and not two
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
 
 ; The current directory (SPEC.md 19.2) - the one disk_dir lists and the one
@@ -2928,7 +2931,14 @@ disk_mount_x:
     ; volume's. An empty listing is a state the whole kernel already handles;
     ; a wrong one is not. [dsk_lstale] is the debt, and dsk_relist pays it.
     cmp byte [dsk_quiet], 0
-    je .listing
+    jne .quiet
+    cmp word [dsk_dseg], 0      ; ...AND A MOUNT WITH NOWHERE TO PUT A LISTING
+    jne .listing                ; IS QUIET TOO (13.1). A listing has no home
+                                ; of its own: it is written into the store its
+                                ; CALLER supplied through dsk_dest_x, and a
+                                ; caller that supplied none - the boot mount,
+                                ; a driver registering a volume, inst_vol_enter
+                                ; on every package file call - did not want one
 .quiet:                         ; ...and .fsmount's copy of this arrives here
     mov word [disk_nfiles], 0
     mov byte [dsk_lstale], 1
@@ -7729,7 +7739,11 @@ dsk_get_icon_x:
     mov si, ax
     add si, [dsk_ioff]          ; ...and reads it back out of the same store
     mov es, [dsk_dseg]          ; (ico_ref_set above)
-    mov al, [es:si]
+    mov al, ICO_R_NONE          ; **NO STORE, NO REFERENCE**: a mount with no
+    cmp word [dsk_dseg], 0      ; destination built no listing, so there is
+    je .none                    ; nothing to have a reference IN - and the
+    mov al, [es:si]             ; segment this would read is 0, which is the
+.none:                          ; interrupt vector table drawn as an icon
     pop es
     call dsk_ico_stage
     pop ax

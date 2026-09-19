@@ -389,14 +389,22 @@ fdlg_vclaim:
     mov bx, MEM_K_FDLG
     mov ax, VIEW_KB             ; the Disk window's size: a store is one shape
     FDX mem_claim_x             ; (13.2), so the two cannot disagree
-    jc .floor
+    jc .none
     mov [fdlg_vseg], dx
-    xor bx, bx                  ; entry 0 at the base of the claim
     jmp short .aim
-.floor:
-    mov dx, LOW_SEG             ; no room: the floor listing, as before
-    mov bx, disk_dir
+.none:
+    xor dx, dx                  ; **EXPLICITLY**, and not on the assumption
+                                ; that a refused mem_claim answers 0: its
+                                ; banner documents DX on SUCCESS and nothing
+                                ; on the failure arm, so aiming the mount at
+                                ; whatever it happened to leave would write a
+                                ; listing into a segment nobody owns. Zero
+                                ; makes the dialog's mounts quiet and its
+                                ; list area empty, which is the honest answer
+                                ; - there is no floor listing to fall back to
+                                ; any more (13.1)
 .aim:
+    xor bx, bx
     FDX dsk_dest_x
     pop dx
     pop bx
@@ -417,8 +425,8 @@ fdlg_vfree:
     push ax
     push bx
     push dx
-    mov dx, LOW_SEG             ; the destination goes back FIRST, so no path
-    mov bx, disk_dir            ; out of here leaves a `.bss` word naming a
+    xor dx, dx                  ; the destination goes back FIRST, so no path
+    xor bx, bx                  ; out of here leaves a `.bss` word naming a
     FDX dsk_dest_x              ; block that is about to be freed
     mov dx, [fdlg_vseg]
     or dx, dx

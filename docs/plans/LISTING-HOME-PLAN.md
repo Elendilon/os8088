@@ -500,18 +500,38 @@ happened to be raised.
 
 ### 13.5 The commits
 
-1. **The destination is an input, and the Disk window supplies it.** The
-   mount writes entries and the icon index into `[dsk_dseg]`; `fmv_load`
-   points it at `FS_VSEG`; `fmv_store` loses both block copies; `fm_measure`
-   reads the window's cache; `fmv_sync_x` becomes a quiet stand.
-2. **`fdlg` gets its own store**, claimed at open and freed at close.
-3. **The store becomes mandatory and the global goes.** `FS_VSEG` = 0 paints
-   a refusal in the row area rather than falling back — PERFORMANCE.md rule
-   6, and it is what `fmv_fit`'s retry already heals. `MEM_P_VIEW` stops being
-   purgeable on `kern_small`. `disk_dir` and `dsk_icoix` are deleted, with
-   `DSK_OVLPAD` 512 holding `kern_small`'s overlay ceiling.
+1. **BUILT.** The destination is an input and the Disk window supplies it.
+2. **BUILT.** `fdlg` claims its own store at open and frees it at close.
+3. **BUILT.** The global is gone: `disk_dir` and `dsk_icoix` are deleted,
+   `[dsk_dseg]` = 0 is *nowhere* and makes a loud mount quiet, and
+   `DSK_OVLPAD` is 512 again to hold `kern_small`'s overlay ceiling.
+   **`.lowbss` −1,600 on `kern_big`** (`LOW_PARA` −1,536, three rungs) and
+   −288 on `kern_small`.
 4. **`.ovlw` → `.ovl` on `kern_small`**, retiring that pad and taking its 800
    bytes in full.
+
+Two things in 3 came out differently from the design above and are worth the
+correction:
+
+* **`MEM_P_VIEW` STAYS PURGEABLE on `kern_small`.** Removing it was in the
+  sketch and it costs that build up to 8KB of shed capacity on a 128KB
+  machine, which is a worse trade than the thing it was protecting against.
+  What the shed needed was not to be impossible but not to be SILENT: a shed
+  window has no listing at all now, where it used to fall back to the global,
+  so `fmv_demote` leaves it an `FSD_CACHE` debt and raises `[fm_fchk]`. It
+  re-claims and re-lists instead of going quietly blank.
+* **`FS_DIRTY` grew a second value, and that is what kept the sibling case
+  cheap.** `fm_focus` used to spend the debt by copying the global, which was
+  free; there is nothing left to copy from, so spending it would have meant a
+  MOUNT. `fmv_bcast` knows which windows it just filled, so it says so —
+  `FSD_PIXELS` on a sibling whose cache is fresh and only whose pixels are
+  old, `FSD_CACHE` where a listing really did go stale. A sibling coming to
+  the front now pays **nothing**, where before it paid a copy.
+
+And `fmv_take`'s source moved with it: it reads the ACTING window's claim
+(`[fm_vp]`) rather than the global, by aiming `dsk_dest_x` at that claim and
+letting `fmv_store`'s existing copy do the work. One copier, two kinds of
+source, and no second opinion about what a fresh cache means.
 
 `KD_INIT` cannot refuse — it *"preserves all"* and the window exists before it
 runs — so *mandatory* is a refusal ON THE GLASS and not a window that fails
