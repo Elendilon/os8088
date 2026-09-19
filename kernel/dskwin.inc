@@ -73,44 +73,31 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; a listing owns a reference byte per entry and nothing else. DSK_ICO_SIZE is
 ; still the width of one body, in the store.
 %ifdef KERN_SMALL
-DSK_OVLPAD   equ 512            ; **AND IT IS 512 AGAIN** - not as a shrink
-                                 ; that buys nothing, but as the thing this
-                                 ; label was KEPT for.
+DSK_OVLPAD   equ 0              ; **AND IT IS ZERO AGAIN.**
                                  ;
                                  ; docs/plans/LISTING-HOME-PLAN.md 13 took the
                                  ; ENTRIES and their reference index out of
-                                 ; `.lowbss` entirely: a listing is written
-                                 ; into the store its caller keeps. That is
-                                 ; 800 bytes here, and `.ovlw` is read onto
-                                 ; the FAT window and the mount buffers
-                                 ; (SPEC.md 2.5.3), so taking all 800 leaves
-                                 ; the overlay 512 short of a home - measured,
-                                 ; kernel.asm's `.ovlw` %if refusing by
-                                 ; exactly that. So 288 of the 800 is heap and
-                                 ; 512 is held here, which is this build's own
-                                 ; standing finding restated: on kern_small
-                                 ; the OVERLAY sizes this region, not the
-                                 ; listing.
+                                 ; `.lowbss` entirely - 800 bytes here - and
+                                 ; `.ovlw` is read onto this region (SPEC.md
+                                 ; 2.5.3), so for one commit 512 of those 800
+                                 ; were held back here rather than given to
+                                 ; the heap: the overlay had nowhere else to
+                                 ; land. Six boot-only bodies then moved into
+                                 ; the BLOB half instead - sched_init,
+                                 ; mem_init, font_init, wm_init, files_init
+                                 ; and snd_init, through the OVBCALL set that
+                                 ; SPEC.md 2.5.3.2 built for exactly this -
+                                 ; and `.ovlw` fell 1,900 to 1,342, which
+                                 ; rounds to 1,536 and fits the region with
+                                 ; the pad at nothing.
                                  ;
-                                 ; **IT IS TEMPORARY AND THE WAY OUT IS
-                                 ; PRICED**: `.ovl` has 651 bytes of blob free
-                                 ; here against the 364 an `.ovlw` body must
-                                 ; move to retire this, which is 13.5's fourth
-                                 ; commit. kern_big has no pad and needs none.
-                                 ;
-                                 ; The history below is why the label survived
-                                 ; with nothing in it. It was 768 while a
-                                 ; listing held 32 entries; doubling DSK_NENT
-                                 ; put 768 bytes of ENTRIES in the same region,
-                                 ; which is room the overlay can use and the
-                                 ; listing also wants, so the pad was not
-                                 ; needed and the bytes did a job. SPEC.md
-                                 ; 22.6.2 then took DSK_NENT back to 32 and the
-                                 ; pad did NOT come back, because SPEC.md
-                                 ; 2.5.3.2 had moved 910 bytes of `.ovlw` into
-                                 ; the blob first. Cut the region without
-                                 ; cutting `.ovlw` and this constant absorbs
-                                 ; it - which is exactly where we are
+                                 ; So this build takes the whole 800 after
+                                 ; all, and the label is kept for the third
+                                 ; time for the reason it was kept the first:
+                                 ; the NEXT thing that joins `.ovlw` needs
+                                 ; somewhere to be told about. kernel.asm's
+                                 ; `.ovlw` %if is the guard that says whether
+                                 ; you are in that case
 %endif
 
 ; **THERE IS NO PER-LISTING POOL ANY MORE** (SPEC.md 25.9). A listing owns one

@@ -507,8 +507,19 @@ happened to be raised.
    `DSK_OVLPAD` is 512 again to hold `kern_small`'s overlay ceiling.
    **`.lowbss` −1,600 on `kern_big`** (`LOW_PARA` −1,536, three rungs) and
    −288 on `kern_small`.
-4. **`.ovlw` → `.ovl` on `kern_small`**, retiring that pad and taking its 800
-   bytes in full.
+4. **BUILT.** `.ovlw` → `.ovl` on `kern_small`: six boot-only bodies moved
+   into the blob half through the `OVBCALL` set SPEC.md 2.5.3.2 built for
+   exactly this - `sched_init`, `mem_init`, `font_init`, `wm_init`,
+   `files_init` and `snd_init`. `.ovlw` **1,900 → 1,342**, which rounds to
+   1,536 and fits the region with `DSK_OVLPAD` at nothing, so `kern_small`
+   takes the whole 800 after all. `kern_big`'s `kernel.bin` is BYTE-IDENTICAL
+   across it.
+
+   `cpu_detect` was the obvious seventh and is REFUSED: `xmem.inc` reaches it
+   with a hard-coded `call FAT_SEG:cpu_detect`, so moving the body would
+   leave that site calling into the FAT window. The six that moved were
+   chosen by asking the question that actually binds - does the block make or
+   receive a NEAR call across the two halves - and all six make none.
 
 Two things in 3 came out differently from the design above and are worth the
 correction:

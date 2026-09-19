@@ -382,9 +382,13 @@ listing — is a Disk window's own claim or the Standard File dialog's, and both
 are transient. A machine on the desktop, or inside a fullscreen game, carries
 no listing anywhere.
 
-On `kern_small` `DSK_OVLPAD` holds 512 of those bytes back, and that is the
-build's own standing finding rather than a shortfall in the change: `.ovlw` is
-read onto this region, so there the OVERLAY sizes it and not the listing.
+On `kern_small` `.ovlw` is read onto this region, so there the OVERLAY sizes
+it and not the listing — and for one commit `DSK_OVLPAD` held 512 of those
+bytes back for want of anywhere else for the overlay to land. Six boot-only
+bodies then moved into the BLOB half through §2.5.3.2's `OVBCALL` set
+(`sched_init`, `mem_init`, `font_init`, `wm_init`, `files_init`, `snd_init`),
+`.ovlw` fell 1,900 → 1,342, and the pad is 0 again: that build takes the
+whole 800 too.
 
 **The bases are 512-aligned and the SIZE is no longer a multiple of 512**, which
 matters because the overlay arrives on the kernel's own `int 13h` read. There

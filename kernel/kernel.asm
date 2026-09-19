@@ -5285,7 +5285,7 @@ kmain:
                                 ; multi-sector read past it silently returns
                                 ; the OTHER HEAD's sectors
     MARK 4
-    OVWCALL  sched_init         ; pre-emption live from here on. IN THE BLOB
+    OVBCALL  sched_init         ; pre-emption live from here on. IN THE BLOB
                                 ; (docs/plans/LAST-DROP-BYTES.md row 3) - one
                                 ; caller, and this is it
     MARK 5
@@ -5345,7 +5345,7 @@ kmain:
                                 ; up scanning our raster and black
 %endif
     MARK 11
-    OVWCALL  mem_init_x         ; the claim heap (SPEC.md 50): int 12h, the
+    OVBCALL  mem_init_x         ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
     MARK 12
@@ -5402,11 +5402,11 @@ kmain:
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
 %else
-    OVWCALL  font_init          ; needs int 10h, so after the mode is set
+    OVBCALL  font_init          ; needs int 10h, so after the mode is set
 %endif
     MARK 14
     BPMARK 3                    ; ...the typeface
-    OVWCALL  wm_init
+    OVBCALL  wm_init
     MARK 15
 %ifdef BANDCOMP
     call band_init              ; SPEC.md 5.9.2: the composer's 2KB, before the
@@ -5461,7 +5461,7 @@ kmain:
     MARK 21
     OVWCALL  dock_init          ; dock strip scratch (SPEC.md 30)
     MARK 22
-    OVWCALL  files_init_x       ; Disk module state (no window at boot)
+    OVBCALL  files_init_x       ; Disk module state (no window at boot)
     MARK 23
                                 ; NO loader_init: all four of the loader's
                                 ; resting values ARE zero (LD_OK is 0) and
@@ -5484,7 +5484,7 @@ kmain:
                                 ; because the overlay this lives in is dead by
                                 ; then: drv_boot's own mount writes over it
     MARK 26
-    OVWCALL  snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
+    OVBCALL  snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
