@@ -123,40 +123,78 @@ the same predicate `[dsk_lstale]` already expresses.
 says every loud caller either has a window, can own a claim, or should not be
 loud.
 
-## 6. THE `.ovlw` CEILING, and it is exactly tight
+## 6. THE `.ovlw` CEILING — MEASURED, and it is not the blocker
 
 `.ovlw` — the boot overlay's window half — is **loaded onto this region** and
-`kernel.asm` guards it:
+`kernel.asm:7559` guards it:
 
 ```
-FAT window                               4,608
-DSK_WIN_BYTES (secbuf 512 + 1,536 + 64)  2,112
-ceiling                                  6,720
-OVLW_SIZE 5,074, rounded to 512          5,120     headroom 1,600
+roundup(OVLW_SIZE, 512)  <=  FAT_PARA*16 + DSK_WIN_BYTES
 ```
 
-Take `disk_dir` and `dsk_icoix` out and the ceiling is **5,120** against an
-`.ovlw` that rounds to **5,120** — **zero headroom**. It fits by nothing at
-all. So `.ovlw` bodies have to move into `.ovl` FIRST, and this is not
-optional.
+Both sides, both builds, measured on this tree (`-DKERNSIZE`, and
+`DSK_WIN_BYTES` is `dsk_secbuf` 512 + `disk_dir` + `dsk_icoix` + `DSK_OVLPAD`):
 
-`.ovl` has **473 bytes** of blob left (`OVL_AT` 2,624 + `OVL_SIZE` 1,511 of
-`BOOT2_PAD` 4,608). Past that, `BOOT2_SECS` goes 9 → 10.
+| | `.ovlw` | rounded | FAT window | `DSK_WIN_BYTES` | ceiling | spare |
+|---|---|---|---|---|---|---|
+| `kern_big` | 5,074 | 5,120 | 4,608 | 2,112 | 6,720 | 1,600 |
+| `kern_small` | 1,900 | 2,048 | 1,024 | 1,312 | 2,336 | 288 |
 
-**The cost of that is not boot time** — the blob is one contiguous read and an
-`int 13h` is ~400 ms near enough whatever it moves. It is `KSIG_OFF`: the
-canary must sit on a sector that crosses a head on all four geometries and the
-file sector is the memory sector **plus `BOOT2_SECS`**, so the legal band
-moves with the blob length (the Makefile tabulates it for 8 and 9).
-`tests/unit/t_canary.py` is the gate. **The owner rates this low**: §18.93.1
-is a fallback for a BIOS class nobody has yet produced, so re-deriving the
-band is arithmetic rather than risk.
+Take `disk_dir` and `dsk_icoix` out and `DSK_WIN_BYTES` is `dsk_secbuf`
+alone:
 
+| | new ceiling | rounded `.ovlw` | verdict |
+|---|---|---|---|
+| `kern_big` | **5,120** | 5,120 | **passes — by exactly nothing** |
+| `kern_small` | 1,536 | 2,048 | **fails by 512** |
+
+**This revises the section's own conclusion.** It said the `.ovlw` bodies
+*"have to move into `.ovl` FIRST, and this is not optional."* They do not, and
+it is:
+
+* `kern_big` passes **today**, with no overlay work at all. The full 1,600
+  bytes are reachable and the guard holds at zero spare — which is loud, not
+  silent: it is a `%error` at assembly, and `kern_small` has shipped at 288
+  spare (148 real bytes of `.ovlw` growth) for a cycle already.
+* `kern_small` has a landing pad built for exactly this. `DSK_OVLPAD` is 0
+  and `dskwin.inc:215` says why it is kept: *"the NEXT thing that joins
+  `.ovlw` needs somewhere to be told about."* Set it to 512 and the region is
+  1,024 + 1,024 = 2,048, which is the rounded `.ovlw` exactly.
+
+So on `kern_small` the deletion buys **288 bytes, not 800** — and that is
+`dskwin.inc`'s own standing finding restated: *"kern_small saves less than
+kern_big … because its boot overlay, not its listing, is what sizes this
+region."* The other 512 is real and is held by the overlay, not by the
+listing.
+
+**`.ovlw` → `.ovl` is therefore not a prerequisite, it is the SECOND HALF OF
+THE PRIZE**, and it is what turns `kern_small`'s 288 into 800 and
+`kern_big`'s zero spare into a rung of it. Priced:
+
+| | `.ovl` now | capacity (`BOOT2_PAD` − `OVL_AT`) | free | needs to move |
+|---|---|---|---|---|
+| `kern_big` | 1,511 | 1,984 | 473 | 466, for one rung of spare |
+| `kern_small` | 1,333 | 1,984 | 651 | 364, to retire the pad |
+
+Both fit — `kern_big` by seven bytes, which is not a margin anybody should
+build on. `BOOT2_SECS` 9 → 10 adds 512 to both and costs **no resident
+byte**: the blob is `mem_unblob`'d at the end of `kmain`. What it costs is
+`KSIG_OFF`, the boot canary's file sector, which must cross a head on all
+four geometries and whose legal band moves with the blob length (the Makefile
+tabulates it for 8 and 9). `tests/unit/t_canary.py` is the gate, and **the
+owner rates re-deriving it low**: SPEC.md 18.93.1 is a fallback for a BIOS
+class nobody has yet produced, so it is arithmetic rather than risk.
 ## 7. What it buys
 
-**~1,600 bytes of `.lowbss` on `kern_big`**, three 512-byte rungs off
-`LOW_PARA`, and every one of them is heap AND DOS arena byte for byte. On
-`kern_small` it is 800.
+**1,600 bytes of `.lowbss` on `kern_big`** — rungs off `LOW_PARA`, and every
+one of them is heap AND DOS arena byte for byte. On `kern_small` it is
+**288 at wave 5 and 800 once wave 6 lands**, and §6 is why the two numbers
+are different: there the overlay sizes the region, not the listing.
+
+The rung count is deliberately not quoted here. `.lowbss` stands at 7,966 in
+a rung of 8,704, so what 1,600 bytes uncross is a thing to MEASURE at wave 5
+and not to predict — and per CLAUDE.md's banner the bytes are the answer
+either way.
 
 ## 8. A SIDE FINDING, ASKED AND REFUSED
 
@@ -191,14 +229,52 @@ do. Splitting the two would want a third mount mode, and §3's finding is that
 two is what the mount has; a third is a mechanism to design rather than a
 flag to pass.
 
-## 9. Open, in the order they bind
+## 9. WAVES, in the order they bind
 
-1. ~~Does anything read the global between an `OSAPI_FILE_GOTO` and the next
-   loud mount?~~ **ANSWERED, and the answer closes it**: `fmv_sync`'s free
-   path does, through `[dsk_lstale]`. §8.
-2. Where does `fdlg`'s claim come from, and what does it do when refused? The
-   dialog is modal, so "paint from nothing" is not the graceful answer a Disk
+0. **`hiber.inc` — BUILT.** §4. The one reader no window's cache could ever
+   serve, so it converts to a by-name stat and leaves the list entirely.
+1. **`loader.inc`** — `ld_run_body_x` reads by INDEX into the acting window's
+   own listing, and `ld_pending` is that window's row + 1. The window's cache
+   is the right source; the by-name entry beside it reads no listing at all.
+   The easiest of the conversions.
+2. **`files.inc` Disk-window navigation** — point the mount at `FS_VSEG`,
+   which already holds exactly this.
+3. **`fdlg.inc`** — the heaviest reader and the only one with no store. Modal
+   and temporal, so it can afford a claim for its lifetime. **Open: where
+   does that claim come from, and what does the dialog do when refused?** It
+   is modal, so *"paint from nothing"* is not the graceful answer a Disk
    window has.
-3. Is `dsk_relist_x`'s debt collectable when nobody is standing, or does the
-   flag simply stay raised until someone loud arrives?
-4. `.ovlw` -> `.ovl` first, and by how much, before any of the above.
+4. **`dskw_remount_x` / `dsk_relist_x`** — whoever is standing. **Open: is
+   the debt collectable with nobody standing, or does the flag simply stay
+   raised until someone loud arrives?**
+5. **THE DELETION** — `disk_dir` and `dsk_icoix` out of `.lowbss`, with
+   `DSK_OVLPAD` 512 on `kern_small`. 1,600 bytes on `kern_big`, 288 on
+   `kern_small`. §6 says this needs no overlay work.
+6. **`.ovlw` → `.ovl`**, and `BOOT2_SECS` 9 → 10 if the bodies do not fit
+   473 bytes with a margin. Retires `kern_small`'s pad — its remaining 512 —
+   and gives `kern_big` back a rung of spare. §6.
+
+## 10. A FOLLOW-ON THIS PLAN DOES NOT COVER: `kern_dos`
+
+Wave 0 converted the kernel's two hibernate sites, and `kerndos/` has **two
+more of exactly that shape** — `kdresume.inc:78` and `kdgate.inc:62`, both
+`dsk_find_name_x` then `dsk_get_dir_x` for a first cluster and a size. They
+are the whole of `kern_dos`'s use of the global listing.
+
+That matters there because `kerndos/kdlayout.inc:151` holds `KD_LOW_KB` at
+**3 rather than 2** on this exact ground — *"`disk_dir` STAYS: it looked as
+dead as the icons and 96.47's live resume reads it"* — so converting both
+would put a **kilobyte of the DOS box's arena** back. `dskwin.inc:163`'s
+`DSK_WANT_ICONS` note carries the same claim and would need the same
+correction.
+
+It is a separate build with its own budget and its own gates (`kdhdd`,
+`kdmouse`), so it is named here rather than absorbed. One thing to check
+first: `dskw_stat_x` lives in `.cold`, and `kern_dos` has no `COLD_SEG`.
+
+**And `kdresume.inc` is fragile in a way worth writing down whatever is
+decided.** It does a LOUD `disk_mount_x`, then `dsk_chdir_q_x` to the root —
+which is quiet, and a quiet chdir leaves `[disk_nfiles]` = 0. The find that
+follows works only because `dsk_here_ok` sees it is already standing there
+and returns without mounting, so the listing it walks is the LOUD mount's.
+Nothing in either comment says the two are coupled.
