@@ -749,6 +749,55 @@ fmv_get_dir:
     ret
 
 ; -----------------------------------------------------------------------------
+; fmv_ld_ent - stage the entry at AX out of A NAMED window's own cache
+; in:  AX = entry index, DI = that window's state block. Its FS_VSEG must not
+;      be 0 - the caller has looked, because with no cache fmv_copy_in falls
+;      back to the GLOBAL snapshot and the whole point of this entry is that
+;      the global is not this window's directory
+; out: CF=0 with SI -> dsk_ent, holding DSK_DE_STRIDE meaningful bytes;
+;      CF=1 = AX is past FS_N and nothing is staged
+; clobbers: SI (the output), CF
+;
+; fmv_get_dir reads the ACTING view, which [fm_vp]/[fm_vseg] name and which
+; fm_vp_set is the only writer of. The loader is not a painter and has no
+; acting window: what it has is [ld_pwin], the state block of whoever POSTED
+; the index, and SPEC.md 22.1 is explicit that this "may not be the one
+; currently mounted". So this banks the acting view, borrows it and puts it
+; back - two words rather than a second writer of a pair whose whole rule is
+; that they have exactly one (SPEC.md 22.6.1). [fm_vinst] is untouched
+; because nothing on the loader's path reads it.
+;
+; docs/plans/LISTING-HOME-PLAN.md wave 1 is what this is for: the launch path
+; was the last consumer that needed the GLOBAL snapshot to BE a particular
+; window's directory, and making it so is a loud mount - the scan, the sort
+; and one int 13h per type-1 file - on every double-click.
+; -----------------------------------------------------------------------------
+fmv_ld_ent:
+    cmp ax, [di+FS_N]           ; the window's OWN count, which fmv_load and
+    jb .in                      ; fmv_take both write whether or not the
+    stc                         ; claim stood (SPEC.md 22.6.1)
+    ret
+.in:
+    push bx
+    push dx
+    mov bx, [fm_vp]             ; the acting view, banked...
+    mov dx, [fm_vseg]
+    push bx
+    push dx
+    mov [fm_vp], di             ; ...borrowed...
+    mov bx, [di+FS_VSEG]
+    mov [fm_vseg], bx
+    call fmv_get_dir            ; SI -> dsk_ent
+    pop dx                      ; ...and put back. A pop does not touch CF,
+    pop bx                      ; and neither does a mov, so the clc below is
+    mov [fm_vseg], dx           ; the only thing that writes it
+    mov [fm_vp], bx
+    pop dx
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fmv_get_icon - stage one icon slot out of THIS window's cache
 ; in:  AX = entry index (0..31)
 ; out: SI -> dsk_ico, holding 64 bytes (all-zero = no icon)

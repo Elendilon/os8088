@@ -233,10 +233,34 @@ flag to pass.
 
 0. **`hiber.inc` — BUILT.** §4. The one reader no window's cache could ever
    serve, so it converts to a by-name stat and leaves the list entirely.
-1. **`loader.inc`** — `ld_run_body_x` reads by INDEX into the acting window's
-   own listing, and `ld_pending` is that window's row + 1. The window's cache
-   is the right source; the by-name entry beside it reads no listing at all.
-   The easiest of the conversions.
+1. **`loader.inc` — BUILT.** `loader_run_x` stages the entry itself now, out
+   of `[ld_pwin]`'s own cache through `fmv_ld_ent`, and `ld_run_body_x`'s
+   step 1 is one compare on the entry's TYPE. It was the last consumer in the
+   launch path that needed the global to BE a particular window's directory,
+   and both of its neighbours had already stopped — `ui.inc` goes by name
+   (SPEC.md 21.4) and `assoc_run_x` reads `FS_DRV`/`FS_CWD` off the poster's
+   block (54.9.1). +77 bytes of `.cold`, no rung crossed, and
+   `tests/ldcost.py` is the gate.
+
+   **MEASURED, and the headline arm is not the common one** — `os88marty`'s
+   `disk()`, 360KB pair, `B:/APPS`, launching `CALC.O88`:
+
+   | | reads | sectors | seeks | transfer |
+   |---|---|---|---|---|
+   | same window, before / after | 2 / 2 | 12 / 12 | 1 / 1 | 347 / 354 ms |
+   | other window, before / after | **10 / 4** | **58 / 13** | **7 / 2** | **1,310 / 471 ms** |
+
+   Six `int 13h` at ~400 ms apiece is ~2.4 guest seconds on the target
+   machine. **The same-window arm is PARITY and that is the finding**: §8's
+   lesson one layer down. `fmv_sync_x`'s free path was already two compares
+   and a `ret` there, so the first build of this wave — a quiet chdir in its
+   place — measured **3 reads / 531 ms against 2 / 306**, a change that
+   removes a mount and adds a bigger one. `dsk_here_ok` asks whether the
+   media CANNOT have changed and a floppy's always can. The shipped arm keeps
+   `fmv_sync_x`'s own `(FS_DRV, FS_CWD)` compare in front of the chdir, and
+   deliberately does NOT keep its `[dsk_lstale]` test: that one exists
+   because its free path leaves the caller resolving an index against the
+   global snapshot, and this one does not.
 2. **`files.inc` Disk-window navigation** — point the mount at `FS_VSEG`,
    which already holds exactly this.
 3. **`fdlg.inc`** — the heaviest reader and the only one with no store. Modal

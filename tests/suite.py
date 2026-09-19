@@ -4142,6 +4142,32 @@ SOAK = [
         "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
         needs=("marty",), serial=True,
         wants=("build/pathtest360.img",)),
+    Row("ldcost", "soak", py("tests/ldcost.py"), 120.0,
+        "A LAUNCH READS THE POSTER'S OWN CACHE, AND THE COST IS THE "
+        "ASSERTION (docs/plans/LISTING-HOME-PLAN.md wave 1). loader_run_x is "
+        "handed a directory INDEX plus [ld_pwin], the Disk window that "
+        "posted it, and SPEC.md 22.1 says that window 'may not be the one "
+        "currently mounted' - so it used to make the GLOBAL snapshot be that "
+        "folder with a LOUD mount (scan, sort, icon harvest) to resolve an "
+        "index against a listing the poster already holds a copy of. NOTHING "
+        "INSIDE THE GUEST CAN SEE THIS: both spellings open the same package "
+        "into the same window and a screenshot of either is the same "
+        "picture, so it counts at the CONTROLLER with os88marty.disk(), "
+        "pathcost's and dosmedia's reason. TWO ARMS AND NEITHER IS WORTH "
+        "HAVING ALONE. Arm A acts in the window it last moved, which is the "
+        "common case and where fmv_sync_x's free path was already two "
+        "compares and a ret - so the bar is PARITY, and that arm exists "
+        "because the first build of the wave FAILED it: a quiet chdir is not "
+        "free in a free path's place, dsk_here_ok asking whether the media "
+        "CANNOT have changed and a floppy's always can, measured 3 reads / "
+        "531 ms against 2 / 306. Arm B is the case the wave is for - a "
+        "second Disk window on the other drive makes the standing folder not "
+        "the poster's - and reads 4 / 13 / 2 against the loud sync's 10 / 58 "
+        "/ 7, which is six int 13h at ~400 ms apiece on a 4.77 MHz XT. "
+        "VERIFIED TO FAIL BOTH WAYS: fmv_sync_x put back takes B to 10 "
+        "reads, and the 'already standing there' test taken out takes A "
+        "to 3.",
+        needs=("marty",), serial=True),
     Row("dosargs", "soak", py("tests/dosargs.py"), 90.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
         "software worth running is configured by its command line and the box "
