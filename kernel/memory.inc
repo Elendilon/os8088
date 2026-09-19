@@ -202,6 +202,26 @@ MEM_K_CMPR equ 0xFF0D           ; the Compress verb's working block (SPEC.md
                                 ; 0xFF0B is skipped (it was MEM_K_OVL and is
                                 ; retired above) and so is 0xFF0C, which is
                                 ; MEM_K_HIB's
+MEM_K_FDLG equ 0xFF0F           ; the Standard File dialog's LISTING (SPEC.md
+                                ; 38.2, docs/plans/LISTING-HOME-PLAN.md 13):
+                                ; claimed at fdlg_open, handed to dsk_dest_x
+                                ; so every mount the dialog makes writes
+                                ; straight into it, and freed at fdlg_close.
+                                ; Transient with the dialog, which is the
+                                ; whole of why it costs no resident byte.
+                                ;
+                                ; It exists because a listing no longer has a
+                                ; home of its own. The module's own header
+                                ; said it needed "NO cache of its own" and
+                                ; read the mount snapshot directly; there is
+                                ; no snapshot to read now, so modality buys
+                                ; something different - not that the dialog
+                                ; can share one buffer, but that it can hold
+                                ; ONE claim while it is up and nobody else is
+                                ; listing.
+                                ;
+                                ; 0xFF0E is MEM_K_ICO_UNUSED above, kept as a
+                                ; tombstone, so this is 0xFF0F
 MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; sized to what is in it, freed when it is
                                 ; emptied, and deliberately NOT an instance's,

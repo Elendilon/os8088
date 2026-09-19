@@ -4142,6 +4142,32 @@ SOAK = [
         "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
         needs=("marty",), serial=True,
         wants=("build/pathtest360.img",)),
+    Row("fdlgstore", "soak", py("tests/fdlgstore.py"), 90.0,
+        "THE FILE DIALOG LISTS INTO ITS OWN STORE "
+        "(docs/plans/LISTING-HOME-PLAN.md 13). A listing has no home of its "
+        "own any more - a mount writes where its CALLER keeps a store - and "
+        "the Standard File dialog claims one at fdlg_open and frees it at "
+        "fdlg_close, which is what lets disk_dir leave `.lowbss` entirely. "
+        "THE FAILURE IS SILENT AND THAT IS THE WHOLE REASON FOR THE ROW: "
+        "fdlg_vclaim falls back to the floor listing when the claim is "
+        "refused, and a dialog reading the floor looks EXACTLY like one "
+        "reading its own store - same rows, same icons, same pixels - so "
+        "every other fdlg* row stays green with the feature doing nothing, "
+        "and stays green after the floor is deleted and the fallback "
+        "becomes a blank list. Four things, none visible on the glass: "
+        "[fdlg_vseg] is 0 with no dialog up, because the store is TRANSIENT "
+        "and a desktop pays nothing for it; with one up it names a real "
+        "claim and [dsk_dseg] IS that claim, so the mount was aimed at it "
+        "and not at LOW_SEG; entry 0 read straight out of the claim is a "
+        "real name, so something actually wrote there; and after Cancel "
+        "both words are back, because a .bss word left naming a freed block "
+        "is the next loud mount writing a listing into whatever took its "
+        "place - and this one is MOVABLE on kern_big and PURGEABLE on "
+        "kern_small. VERIFIED TO FAIL by forcing fdlg_vclaim down its "
+        "`.floor` arm: it reads `fdlg_vseg=0000 dsk_dseg=1940` and names "
+        "the refusal.",
+        needs=("marty",), serial=True,
+        wants=("build/muptest.img",)),
     Row("ldcost", "soak", py("tests/ldcost.py"), 120.0,
         "A LAUNCH READS THE POSTER'S OWN CACHE, AND THE COST IS THE "
         "ASSERTION (docs/plans/LISTING-HOME-PLAN.md wave 1). loader_run_x is "
