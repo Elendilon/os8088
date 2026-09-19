@@ -93,7 +93,7 @@ drives `dsk_chdir_x`.
 | `files.inc` Disk-window navigation | that window's `FS_VSEG` claim — it already holds exactly this |
 | `fdlg.inc` × 6 | **its own claim.** Modal and temporal, so it can afford one for its lifetime; it is also the heaviest reader, so it wants the full shape |
 | `dskw_remount_x` / `dsk_relist_x` | whoever is standing — the acting window. With no window standing there is no consumer, so the debt need not be paid at all |
-| `hiber.inc` × 2 | **none.** Both want first-cluster-by-name; a by-name stat gives it. Already reached through `COLD_SEG:hbk_bp`, a BP-indirect far thunk, so re-pointing it is the same shape at the same cost |
+| `hiber.inc` × 2 | **none — BUILT (wave 1).** Both wanted first-cluster-by-name; `dskw_stat_x` answers the cluster in BX and the size in DX:CX off a directory walk. It was reached through `COLD_SEG:hbk_bp` already, so re-pointing it was the same shape at the same cost — and the DOS-handoff site collapsed two thunked far calls (find-then-stage) into one. `kernel.bin` byte-identical, `hiber.drv` −14. It went first because a resume runs with **no Disk window in existence**, so it is the one reader no window's cache could ever serve |
 | `osapi_vol_mount_x` | **none obviously needed.** A driver mounts a volume; the desktop draws a zone; the listing is built when a window opens it |
 | `osapi_file_goto` | **none — see §8** |
 | `dskw_chdir_dl` | the write path's own |
@@ -158,24 +158,44 @@ band is arithmetic rather than risk.
 `LOW_PARA`, and every one of them is heap AND DOS arena byte for byte. On
 `kern_small` it is 800.
 
-## 8. A SIDE FINDING worth taking on its own
+## 8. A SIDE FINDING, ASKED AND REFUSED
 
-**`OSAPI_FILE_GOTO` builds a listing no package can read.** It is a LOUD
-`dsk_chdir` — scan, sort, and **one `int 13h` per type-1 file** for the icon
-harvest — and a package reads a directory with `OSAPI_FILE_FIND`, which
-re-walks the disk. `inst_vol_enter` afterwards finds the machine already
-standing there and does nothing.
+**`OSAPI_FILE_GOTO` builds a listing no package can read** — and it must go
+on building it anyway. It is a LOUD `dsk_chdir` (scan, sort, and one
+`int 13h` per type-1 file for the icon harvest) where a package reads a
+directory with `OSAPI_FILE_FIND`, which re-walks the disk itself;
+`inst_vol_enter` afterwards finds the machine already standing there and does
+nothing. Every step of that says the harvest is pure cost, and the obvious
+conclusion — make the slot quiet — is **wrong**.
 
-If nothing else reads the global across that call, the slot should be quiet
-and the harvest is pure cost on every package that navigates. **That is a
-performance change, independent of this plan's memory question, and it should
-be verified rather than assumed** — the reason it is loud may simply be that
-nobody asked.
+**The reader is not a package, it is the next Disk window to act.**
+`fmv_sync` (kernel/files.inc:1231) takes its free path only when the acting
+window's `(FS_DRV, FS_CWD)` already matches `[disk_drive]`/`[dsk_cwd]` **and
+`[dsk_lstale]` is 0**; that third test exists precisely because a quiet mount
+leaves the globals naming the right folder with `disk_nfiles` = 0 and the
+rebuild owed, and resolving an index against nothing is the silent half of
+docs/FIELD-NOTES.md 4. A quiet `OSAPI_FILE_GOTO` raises that debt. So the
+package that navigates would not stop paying for the listing — it would hand
+the bill to the **Disk window it was launched from**, which is standing in
+that very folder in the common case, turning its next action's
+compare-and-ret into a full mount.
+
+That is not a saving moved, it is a saving lost: the loud walk happens once
+per navigate, the sync's free path is taken on every action after it. **The
+slot stays loud**, and the reason it is loud turns out not to be that nobody
+asked.
+
+The honest remainder is narrower and is not this plan's: the **icon harvest**
+specifically has no reader in a package's navigate, only the scan and sort
+do. Splitting the two would want a third mount mode, and §3's finding is that
+two is what the mount has; a third is a mechanism to design rather than a
+flag to pass.
 
 ## 9. Open, in the order they bind
 
-1. Does anything read the global between an `OSAPI_FILE_GOTO` and the next
-   loud mount? (§8 — and it decides a real `int 13h` cost either way.)
+1. ~~Does anything read the global between an `OSAPI_FILE_GOTO` and the next
+   loud mount?~~ **ANSWERED, and the answer closes it**: `fmv_sync`'s free
+   path does, through `[dsk_lstale]`. §8.
 2. Where does `fdlg`'s claim come from, and what does it do when refused? The
    dialog is modal, so "paint from nothing" is not the graceful answer a Disk
    window has.
