@@ -7090,14 +7090,16 @@ SOAK = [
         "66.5.10).",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
-    Row("hdmove", "soak", py("tests/hdmove.py"), 120.0,
-        "Compact the heap out from under a DONATED listing claim (SPEC.md "
-        "66.5.10.2) - the only claim in the tree with three holders, two of "
-        "them the kernel's and on the far side of the ABI from the callback. "
-        "A declaration is not a mechanism: check 1 is that the block MOVED, "
-        "and check 4b that no word anywhere still holds the old base",
-        needs=("marty", "nasm"), serial=True, timeout=900,
-        wants=("build/heapfrag360.img",)),
+    Row("hdnoclaim", "soak", py("tests/hdnoclaim.py"), 75.0,
+        "A mounted hard-disk partition costs NO HEAP (SPEC.md 22.6). It "
+        "REPLACES `hdmove`, which compacted the heap out from under the 6KB "
+        "listing claim HDD.DRV used to donate per partition; the donation is "
+        "retired, so the gate is its inverse - the driver owns its image and "
+        "nothing else, [dsk_dseg] names no claim with a hard disk listing, "
+        "and the volume still lists. Nothing REFUSES a claim that comes "
+        "back: osapi_vol_add ignores DX now, so it would leak 6KB a mount "
+        "in silence",
+        needs=("marty",), serial=True, timeout=600),
     Row("heaphi", "soak", py("tests/heaphi.py"), 90.0,
         "A driver's second image goes at the TOP of the heap (SPEC.md "
         "50.3.2.1). The user's sequence - tick Hard Drive, tick Ram Disk, "

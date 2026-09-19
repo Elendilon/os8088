@@ -1694,13 +1694,11 @@ ld_msrc:    resw 2              ; OSAPI_PKG_START's source image, offset then
 ld_pending: resb 1              ; 0 = none, else directory index + 1
                                 ; (set by files.inc, consumed by ui.inc).
                                 ; A BYTE: the index is bounded by
-                                ; [dsk_nmax], which is DSK_NENT for a FAT
-                                ; volume and DSK_VENT for a driver-backed
-                                ; one, so the stored value is 1..64. The
-                                ; guard is on the larger of the two - and it
-                                ; has to be, because dskwin.inc's DSK_VENT is
-                                ; twice DSK_NENT and it is the one that binds
-%if DSK_NENT > 254 || DSK_VENT > 254
+                                ; [dsk_nmax], which is DSK_NENT for every
+                                ; volume on the machine (SPEC.md 22.6 retired
+                                ; the driver-backed DSK_VENT), so the stored
+                                ; value is 1..64
+%if DSK_NENT > 254
   %error "[ld_pending] is a BYTE holding a directory index + 1, and \
 [dsk_nmax] has outgrown it (kernel/dskwin.inc)"
 %endif

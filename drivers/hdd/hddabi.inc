@@ -72,10 +72,14 @@ HDV_VOL      equ 2              ; db: the kernel's volume index
 HDV_PART     equ 3              ; db: which partition slot (0..3)
 HDV_BASE     equ 4              ; dd: its first LBA on the device
 HDV_SECS     equ 8              ; dw: its length, <= 65,535 by construction
-HDV_LSEG     equ 10             ; dw: the listing claim, 0 = none
-HDV_VOLH     equ 12             ; db: OUR handle for it - the row's own index,
+                                ; HDV_LSEG WAS HERE - the 6KB listing claim
+                                ; this driver funded for the volume, retired
+                                ; with the donation itself (SPEC.md 22.6)
+HDV_VOLH     equ 10             ; db: OUR handle for it - the row's own index,
                                 ; which is what comes back in DSV_BLK's AH
-HDV_SIZE     equ 16
+HDV_SIZE     equ 12             ; ...and the stride follows it down: hd_vol_row
+                                ; reaches a row with `mul ah`, so this has
+                                ; never had to be a power of two
 
 ; --- the partition table's on-disk shape, at LBA 0 --------------------------
 HP_TBL       equ 446            ; where the four entries start

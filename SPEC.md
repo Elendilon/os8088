@@ -2827,7 +2827,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | file                | owns                                                    |
 |---------------------|---------------------------------------------------------|
 | `kernel/kernel.asm` | entry, constants, init order, includes, .bss layout, **os8088 API jump table at 0x0010** (§20.3) + osapi helper routines, **boot splash entry at 0x0008** (§15) |
-| `kernel/dskwin.inc` | the mount-owned window (§2.1.2): `disk_dir`, `disk_icons`, `dsk_secbuf` and the four constants that size them (`DSK_DE_SIZE`, `DSK_ICO_SIZE`, `DSK_NENT`, `DSK_VENT`). Everything else about a listing is `disk.inc`'s — these are here only because their ADDRESS is load-bearing and a reservation is placed by the order its file is included, so this is the **first file `kernel.asm` includes**. Prefix `dsk_`/`disk_`, reached through SS with the rest of `.lowbss` |
+| `kernel/dskwin.inc` | the mount-owned window (§2.1.2): `disk_dir`, `dsk_icoix`, `dsk_secbuf` and the constants that size them (`DSK_DE_SIZE`, `DSK_DE_STRIDE`, `DSK_ICO_SIZE`, `DSK_NENT`, `DSK_ICOIX_N` — `DSK_VENT` was a fifth until §22.6). Everything else about a listing is `disk.inc`'s — these are here only because their ADDRESS is load-bearing and a reservation is placed by the order its file is included, so this is the **first file `kernel.asm` includes**. Prefix `dsk_`/`disk_`, reached through SS with the rest of `.lowbss` |
 | `kernel/viddet.inc` | video adapters (§39): the boot probe, the live geometry block, mode set/teardown (`vid_setmode`/`vid_text`/`vid_init`), the shared addressing helpers `gfx_rowbase`/`gfx_nextrow`, the 1bpp colour map `gfx_ink` — prefix `vid_`; included **before** `splash.inc`, and all its data lives in `.text` |
 | `kernel/splash.inc` | boot-time loading screen (§15): the first adapter probe and mode set, welcome dialog, pixel progress bar, spinning vector "8088" — on a 1bpp adapter the progress bar alone (§39.6); far-ticked by the boot sector per sector read; self-contained, no .bss |
 | `kernel/vga12.inc`  | mode 12h planar primitives, save/restore, gfx lock, `gfx_scroll` (§5.5); the coordinate core `vga_rect_setup` that both renderers share (§39.3) — the mode set left for `viddet.inc`; and `gfx_rect_isect`/`gfx_rect_isectcf`, the **four-edge rect intersect the whole kernel shares** (§5.11), hosted in the lowest layer so `wm.inc`'s five sites are backward references |
@@ -29282,8 +29282,9 @@ DV_UNIT   db  the int 13h DL, or the driver's handle
 DV_FLAGS  db  bit 0 = show a desktop zone (§26.1)
 DV_CLASS  db  which DRVC_* serves it, when DV_KIND is 1 (§18.7.3)
 DV_SECS   dw  sectors in the volume (rule 13's replacement)
-DV_SEG    dw  the listing claim its driver donated, 0 = the floor (§22.6)
-DV_LBL    db[8]  the desktop label, NUL-terminated and INLINE
+DV_LBL    db[6]  the desktop label, NUL-terminated and INLINE
+          ..13    (DV_SEG was at 6, retired with the donation - §22.6)
+          14..15  SPARE: DV_SIZE stays 16 so a row is a shift
 DV_SIZE   16
 ```
 
@@ -33846,9 +33847,12 @@ donated claim, and a window's view cache. The table below is why: the record
 is meaningful to offset 23 and bytes 24..31 are declared zero, so a listing
 that stored them stored eight zero bytes per entry for the life of the
 machine — **256 bytes of `.lowbss` on a floppy**, which is the tightest rung
-in the kernel. Nothing published moved and no `.DRV` rebuilds: a driver still
-stages 32 bytes, `HDD_LISTKB` is still 6 (5,632 rounds up to 6KB), and the
-kernel simply stops carrying the zeroes forward.
+in the kernel. Nothing published moved and no `.DRV` rebuilt: a driver still
+stages 32 bytes, `HDD_LISTKB` was still 6 (5,632 rounding up to 6KB), and the
+kernel simply stopped carrying the zeroes forward. That last clause is what
+made the claim four times bigger than what went in it once §25.9 took the icon
+bodies out as well, which is how §22.6 came to retire the donation entirely —
+a ceiling nobody re-reads is a ceiling that stops describing anything.
 
 The two are not interchangeable and three places prove it. `dsk_ent` keeps
 `DSK_DE_SIZE`, because `osapi_fs_ent` copies a driver's whole record into it
@@ -41648,36 +41652,72 @@ and it is checked rather than assumed, because everything read off the disk
 is hostile. Without it the folder still lists and still opens, but going up
 out of it lands in the folder it used to live in.
 
-### 22.6 The listing has a home, not an address
+### 22.6 The listing has ONE home, and the donated claim is retired
 
-`disk_dir` and `disk_icons` were two fixed `.lowbss` labels and a hard 32-entry (as it then was)
-cap. They are now **four words** — `[dsk_dseg]`, `[dsk_doff]`, `[dsk_ioff]`,
-`[dsk_nmax]` — so there is one code path with two configurations:
+`disk_dir` and `disk_icons` were two fixed `.lowbss` labels and a hard 32-entry
+(as it then was) cap. They became **four words** — `[dsk_dseg]`, `[dsk_doff]`,
+`[dsk_ioff]`, `[dsk_nmax]` — so that one code path could serve two
+configurations: the `.lowbss` floor, and a **6KB claim donated by the driver**
+of a `DVK_DRV` volume, handed to `osapi_vol_add` in DX and giving a hard disk
+`DSK_VENT` = 64 entries where a floppy then got 32.
+
+**The donation is GONE and there is one configuration.** Three of the words
+survive — `[dsk_ioff]` went with §25.9 — and **nothing writes any of them**:
+`dsk_list_pick` and `dsk_list_floor` are deleted, `mem_rr_tab`'s two rows with
+them, and the `.text` initialisers (`LOW_SEG`, `disk_dir`, `DSK_NENT`) are the
+whole of the configuration for the life of the machine.
 
 | | segment | entries | icons | cap |
 |---|---|---|---|---|
-| a BIOS floppy | `LOW_SEG` | `disk_dir` | (references only, SPEC.md 25.9) | `DSK_NENT` = 64 on `kern_big`, **32** on `kern_small` (§22.6.2) |
-| a driver-backed volume | its driver's claim | 0 | `DSK_VENT × 32` | `DSK_VENT` = 64 |
+| every volume, whatever mounted it | `LOW_SEG` | `disk_dir` | (references only, §25.9) | `DSK_NENT` = 64 on `kern_big`, **32** on `kern_small` (§22.6.2) |
 
-The claim is **6KB** — 64 × (32 bytes of entry + 64 bytes of icon) — made by
-the driver before it calls `osapi_vol_add` and handed over with the volume
-(§18.7). A driver that cannot fund it passes 0 and the volume lists into the
-kernel's own floor, which works and shows fewer files: refusal is a normal
-path (§50.3), and a hard disk's root is the one place a floppy's cap starts to
-hurt.
+**Two changes took the claim's reason away and neither was looking at it.**
+§25.9 moved the icon bodies out of a listing and into one machine-wide store,
+which was **four fifths of the 6KB** — what a donated claim then held was 64
+entries × `DSK_DE_STRIDE` 24 = **1,536 bytes of 6,144**, the reference bytes
+staying in `.lowbss` where `dsk_ico_at` reads them through SS. Then §22.6.2
+raised `DSK_NENT` to **64** for the DOS box, and the floor became the same cap
+the claim was funding. After that the mechanism cost 6KB per mounted partition
+— 24KB on a four-partition machine, of which at most one was ever the live
+listing — to deliver what `disk_dir` was already delivering for free.
 
-Nothing downstream learned anything. `dsk_get_dir` and `dsk_get_icon` already
-staged one entry into the kernel segment for every consumer (§18); they now
-take their segment from a word instead of a constant, and the mount writes
-through the same pair.
+**It is not coming back per-driver, and that is the finding rather than the
+arithmetic.** The only thing the mechanism could ever buy is `DSK_VENT` >
+`DSK_NENT`: a hard disk listing more than a floppy, out of heap its driver
+owns, charging a floppy-only machine nothing. But the two are busy for the
+same reason — a DOS install is busy wherever it sits, and LEMMINGS' 67 files
+in one folder are 67 on either medium — so the next raise raises `DSK_NENT`
+and every volume gets it. A second cap buys a ~768-byte `.lowbss` deferral on
+a machine with no hard disk, against a permanent second code path, a per-row
+word, a relocation proc, two `mem_rr_tab` rows and a per-window re-size.
+
+`osapi_vol_add`'s DX is **reserved and must be 0**. `DV_SEG` is out of the
+volume row; `DV_SIZE` stays **16**, because that is what makes a row a shift
+rather than a multiply, so what the word bought is two spare bytes at 14..15.
+
+What this cost the tree: `kern_big` **−129 resident bytes**, `kern_small`
+**−121**, `HDD.DRV`'s image **8,664 → 8,152** (`DRVM_IMG_HDD` 9 → 8, and
+`DRVM_CEIL_DISK` **33 → 8**, which is the `Hard drives (Up to NNK)` caption
+§51.12.1 quotes). What it gives the user is **6KB of low heap per mounted
+partition**.
+
+Nothing downstream learned anything, then or now. `dsk_get_dir` and
+`dsk_get_icon` already staged one entry into the kernel segment for every
+consumer (§18); they take their segment from a word rather than a constant,
+and that word now only ever holds the one value.
 
 **The per-window view cache follows the volume, not the launch** (§22.1).
 `fmv_fit` re-claims a Disk window's cache when the window moves to a volume
 whose listing is bigger, and a refused claim clears `FS_VSEG` — which is the
 documented fallback and not an error: the window then paints from the global
-snapshot at the cost of the floppy I/O it would otherwise have avoided. A
-machine with only floppies never pays for the bigger cache, because nothing
-ever asks for it.
+snapshot at the cost of the floppy I/O it would otherwise have avoided.
+
+**`fmv_fit` IS A RETRY NOW, NOT A RE-SIZE.** With one listing size there is
+one cache size, so `fm_kinit`'s `VIEW_KB` claim covers every volume the window
+will ever visit and nothing is ever given back and re-taken. What is left for
+`fmv_fit` to decide is whether the window has a cache **at all**: a claim
+refused at `fm_kinit` gets another chance at each `fmv_store` rather than
+condemning the window to paint from the global snapshot for its whole life.
 
 #### 22.6.1 …and a window's cache keeps the shape it was FILLED with
 
@@ -41686,10 +41726,16 @@ ever asks for it.
 fact about **the cache being painted**. Those are the same word on a machine
 with one kind of volume and two different words on every other:
 
-  * a floppy's cache is `VIEW_KB` = 3KB — 32 entries at 0, 32 icon slots at
+  * a floppy's cache was `VIEW_KB` = 3KB — 32 entries at 0, 32 icon slots at
     **1024**;
-  * a hard disk's is `DSK_VKB` = 6KB — 64 entries at 0, 64 icon slots at
+  * a hard disk's was `DSK_VKB` = 6KB — 64 entries at 0, 64 icon slots at
     **2048**.
+
+**Both halves of that disagreement have since dissolved** — §25.9 took the
+icon bodies out of every cache and §22.6 retired the second listing size — so
+there is one shape and `[dsk_nmax]` cannot name the wrong one. The section
+stays because `FS_IOFH` is still in the record and the reasoning below is why
+it is where it is; read it as the account of a defect, not of today's layout.
 
 `fmv_reload_all` (§22.3) mounts **every** Disk window's volume in turn and
 `fmv_repaint_all` then repaints **all of them**, so after any Cut/Copy/Paste —
@@ -41720,12 +41766,14 @@ the two callers that mean the global: `fmv_store`, which is copying it, and
 cache of its own stores `FS_IOFH` = 0 and `fmv_viofs` defers to `fmv_iofs`,
 so the two halves of that fallback cannot disagree about a base.
 
-**It cannot be derived from `FS_VKB`**, which was the first fix tried and is
-worth writing down because it looks right: `fmv_fit` only ever GROWS the
-claim, so a window that has visited a hard disk keeps its 6KB cache when it
-goes back to a floppy and then holds a 32-entry listing in a 64-entry claim —
+**It could not be derived from `FS_VKB`**, which was the first fix tried and
+is worth writing down because it looks right: `fmv_fit` only ever GREW the
+claim, so a window that had visited a hard disk kept its 6KB cache when it
+went back to a floppy and then held a 32-entry listing in a 64-entry claim —
 which is precisely the disagreement this section is about, moved one field
-along. The byte costs nothing: it is `+15`, the second of the two `FS_FERR` /
+along. (There is one cache size now, so that particular trap is closed by
+there being nothing to grow to; the field stays, and so does the rule that a
+window records the shape it was filled with rather than reading a global.) The byte costs nothing: it is `+15`, the second of the two `FS_FERR` /
 `FS_LDST` holes §59.5 left behind, and `FS_SIZE` does not move.
 
 #### 22.6.2 `DSK_NENT` is 64 on `kern_big` and 32 on `kern_small`
@@ -41776,12 +41824,12 @@ holds a listing's icon base in ONE byte, so `DSK_NENT × DSK_DE_STRIDE` must be
 a multiple of 256 — at a stride of 24 that makes 32 the only legal value below
 64, and 0 the only one below 32. The value is therefore not a dial.
 
-**Nothing on `kern_small` can want 64.** `[dsk_nmax]` is only ever raised to
+**Nothing on `kern_small` can want 64.** `[dsk_nmax]` was only ever raised to
 `DSK_VENT` by `dsk_list_pick`, for a `DVK_DRV` volume, and §51.0 takes the
 loadable-driver mechanism out of that build entirely — `DVOL_MAX` is 4 there
-for the same reason, every volume it will ever have being a BIOS floppy.
-`fmv_fit`'s `cmp word [dsk_nmax], DSK_NENT` therefore always takes the
-`VIEW_KB` arm.
+for the same reason, every volume it will ever have being a BIOS floppy. §22.6
+has since retired the second cap on BOTH kernels, so `[dsk_nmax]` is
+`DSK_NENT` everywhere and `fmv_fit` has no arm left to choose between.
 
 **And the host side reads the number rather than mirroring it.**
 `tools/os88disk.py` refuses a disk with more listed entries in a directory
@@ -44485,9 +44533,10 @@ project ships, which is deliberate on the arm whose whole purpose is a 128KB
 machine.
 
 **It does not follow that `kern_big` should take it, and it should not.**
-`kern_big`'s index has to be `DSK_VENT` = 64 bytes rather than 32, because a
-`DVK_DRV` volume lists sixty-four entries through the same array; the
-allocator is the same `.cold` +152 either way. Built and measured on that arm:
+`kern_big`'s index has to be 64 bytes rather than 32, because its listing is
+sixty-four entries (it was `DSK_VENT`'s 64 for a `DVK_DRV` volume, and is
+`DSK_NENT`'s own 64 since §22.6 and §22.6.2); the allocator is the same
+`.cold` +152 either way. Built and measured on that arm:
 
 | pool | sum saved | headroom over the worst shipped folder |
 |---|---|---|
@@ -52207,7 +52256,7 @@ function*:
 | row | KB | = image + what it holds to work |
 |---|---|---|
 | Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
-| Hard Drive | ~32 | 8 image + 4 × 6 listing claims (`HDD_LISTKB`, `HD_MAXVOL`) |
+| Hard Drive | ~8 | 8 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
 | os88net | ~6 | 6 image, and no heap claim at all |
@@ -88928,9 +88977,18 @@ cannot be a barrier for longer than it exists.**
 
 #### 66.5.10.1 A donated claim has holders the callback cannot reach
 
-**The HDD's per-partition listing claim (§22.6) is the one block in the tree
-that is structurally unmovable for a reason no declaration can fix**, and it
-is worth writing down because it is the first claim with more than one owner.
+> **THE CLAIM THIS SUBSECTION AND §66.5.10.2 ARE ABOUT NO LONGER EXISTS.**
+> §22.6 retired the HDD's donated listing claim outright — §25.9 had taken
+> four fifths of it away and §22.6.2 raised the `.lowbss` floor to the same
+> cap it funded, so it bought nothing. Both subsections are kept as the design
+> record, because the PROBLEM they solve is general and will recur the next
+> time one component claims a block and hands it to another: the two rows they
+> put in `mem_rr_tab` are gone, the argument for putting them there is not.
+> `tests/hdmove.py` went with the claim and `tests/hdnoclaim.py` replaced it.
+
+**The HDD's per-partition listing claim (§22.6) was the one block in the tree
+that was structurally unmovable for a reason no declaration can fix**, and it
+is worth writing down because it was the first claim with more than one owner.
 
 The driver claims 6KB and **hands it over** with `osapi_vol_add`. Afterwards
 the same segment is written down in three places:
@@ -89053,7 +89111,7 @@ top now has **no barrier in it at all** — every claim there is movable or
 purgeable — so a compaction can actually deliver what the Task Manager has
 been reporting.
 
-`tests/hdmove.py` is the gate, and it is `rdmove`'s shape: heapfrag combs the
+`tests/hdmove.py` **was** the gate, and it was `rdmove`'s shape: heapfrag combs the
 arena, the hard disk is ticked in above it, heapfrag dies to open the ground,
 and heapfrag again forces the compaction. **The claim moved `6FC0 -> 3EE0`** —
 199KB down — with `HDV_LSEG`, `DV_SEG` and the block's own bytes all following
@@ -89557,7 +89615,9 @@ and third parties use them as such. On `os8088_xt_hdd` the XT-IDE option ROM
 keeps two words at int C1h and int C3h; one of them read `0x8000`, a package
 claim moved off `0x8000`, the sweep rewrote the ROM's word to `0x6000`, and the
 hard disk then probed as **"No hardware found"** — a machine with no C: drive,
-produced by a heap compaction, silently. `tests/hdmove.py` is what caught it.
+produced by a heap compaction, silently. `tests/hdmove.py` is what caught it —
+the row is retired with §22.6's claim, and docs/WRITING-TESTS.md §13 incident
+31 is where that catch is recorded now.
 
 So the vector rows are cut to the slots a driver can legitimately own: the
 hardware IRQ vectors, int 08h–0Fh and int 70h–77h. That is a fact rather than
@@ -138003,7 +138063,7 @@ heads and fails honestly, which is what a hard disk did here before this.
 
 **Only three fields of sixteen come over**, and the rest are not an oversight:
 `DV_FLAGS` bit 0 is a desktop zone and there is no desktop, `DV_CLASS` is 0 on
-every BIOS row, `DV_SECS` and `DV_SEG` are what a MOUNT fills — writing them
+every BIOS row, `DV_SECS` is what a MOUNT fills — writing it
 here would be staler than not — and `DV_LBL` is a label nothing draws. A
 `DVK_DRV` or `DVK_FILE` row could not come at all, its transport being a
 loadable driver that does not exist on the other side, so the gather wrote

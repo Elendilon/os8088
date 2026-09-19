@@ -33,7 +33,7 @@ DSK_FIND_SZ  equ 24              ; dsk_find's answer (SPEC.md 19.7.1): a
                                  ; word, the first cluster, a 32-bit size and
                                  ; one reserved word
 
-; DSK_DE_SIZE, DSK_ICO_SIZE, DSK_NENT, DSK_VENT, DSK_VBYTES and DSK_VKB are in
+; DSK_DE_SIZE, DSK_DE_STRIDE, DSK_ICO_SIZE, DSK_NENT and DSK_ICOIX_N are in
 ; kernel/dskwin.inc, with the `.lowbss` pair they size. They went there because
 ; the pair's ADDRESS became load-bearing (SPEC.md 2.1.2) - it has to sit at the
 ; bottom of the rung, against the FAT window - and a reservation is placed by
@@ -181,9 +181,16 @@ DV_CLASS     equ 3               ; db: the DRVC_* whose published DSV_BLK owns
                                  ; still reached with a shift
 DV_SECS      equ 4               ; dw: sectors in the volume, 0 = unknown.
                                  ;     BPB rule 13's replacement reads it
-DV_SEG       equ 6               ; dw: the listing claim its driver donated,
-                                 ;     0 = use the .lowbss floor (22.6)
-DV_LBL       equ 8               ; db[8]: the desktop label, NUL-terminated
+                                 ; DV_SEG WAS HERE - a word naming the listing
+                                 ; claim the row's driver donated, 0 meaning
+                                 ; the `.lowbss` floor. SPEC.md 22.6 retired
+                                 ; the donation, so every volume lists into
+                                 ; the floor and there is nothing per-row to
+                                 ; record. DV_SIZE does NOT shrink with it:
+                                 ; 16 is what makes a row a shift rather than
+                                 ; a multiply, so what the word bought is two
+                                 ; SPARE bytes at 14..15 for whoever needs one
+DV_LBL       equ 6               ; db[8]: the desktop label, NUL-terminated
                                  ;     and INLINE - a desktop label is six
                                  ;     glyphs (the 48px zone), and inline
                                  ;     means `lea si, [bx+DV_LBL]` is already
@@ -825,11 +832,20 @@ section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
 
-; The listing's home. A floppy uses the .lowbss buffers below and a cap of
-; DSK_NENT; a driver-backed volume uses the claim its driver donated, with a
-; bigger cap (SPEC.md 22.6). ONE code path, two configurations - every reader
-; goes through dsk_get_dir / dsk_get_icon, which already staged an entry into
-; the kernel segment and now just take their segment from a word.
+; The listing's home, and there is ONE (SPEC.md 22.6). Every volume on the
+; machine lists into the .lowbss buffers below with a cap of DSK_NENT. A
+; DVK_DRV volume used to list into a claim its driver donated instead, with a
+; bigger cap - one code path, two configurations - and these three words are
+; what made that one code path possible.
+;
+; **NOTHING WRITES THEM NOW.** dsk_list_pick and dsk_list_floor are deleted and
+; mem_rr_tab's two rows with them, so the initialisers here ARE the
+; configuration, for the life of the machine. They are kept as words rather
+; than folded into immediates because every reader is smaller this way: `mov
+; es, [dsk_dseg]` is four bytes where `mov ax, LOW_SEG` + `mov es, ax` is five
+; and wants a scratch register. They are in .text and not .bss for the reason
+; the paragraph below gives, and it now binds harder: with no writer at all, a
+; .bss home would mean whatever the RAM held.
 dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in
 dsk_doff:    dw disk_dir         ; entry 0's offset in it
 
@@ -1763,7 +1779,6 @@ dsk_boot_from_x:
 .got:
     mov [bx+DV_UNIT], dl
     mov word [bx+DV_SECS], 0    ; unknown - see the header
-    mov word [bx+DV_SEG], 0     ; no donated listing claim: the .lowbss floor
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop, like any volume
     mov byte [bx+DV_LBL], 0     ; ...and named by the kernel, not by us
     mov ax, bx
@@ -1958,7 +1973,6 @@ dsk_flop_add_x:
 .got:
     mov [bx+DV_UNIT], cl
     mov word [bx+DV_SECS], 0    ; unknown, like every other floppy's
-    mov word [bx+DV_SEG], 0     ; no donated listing claim: the .lowbss floor
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop - the caller only calls
                                 ; for a drive the equipment word claims
     mov byte [bx+DV_LBL], 0     ; ...and NAMED by the kernel, not here: an
@@ -2204,7 +2218,6 @@ dsk_vol_add:
 .got:                           ; volume"
     mov [bx+DV_UNIT], ah
     mov [bx+DV_SECS], cx
-    mov [bx+DV_SEG], dx         ; the donated listing claim, 0 = the floor
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop
     lea di, [bx+DV_LBL]         ; the label is INLINE, so this is the copy
     mov cx, 7                   ; and there is nothing to point at
@@ -2304,7 +2317,6 @@ dsk_vol_del:
                                 ; has to reach (SPEC.md 26.3)
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
-    mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
     call dsk_fatw_drop          ; AL is still the index; it also puts the
                                 ; live window back if this volume owned it
@@ -2314,7 +2326,6 @@ dsk_vol_del:
     mov byte [dsk_mntok], 0     ; to A: with the write gate shut, exactly as a
     mov word [disk_nfiles], 0   ; failed mount leaves things (SPEC.md 18.3)
     mov word [dsk_fatw0], 0xFFFF
-    call dsk_list_floor
 .out:
     pop bx
     pop ax
@@ -2353,50 +2364,18 @@ dsk_vol_drop_drv_x:
     jb .next
     jmp kretc_cx
 
-%endif                          ; KD_BUILD - and `dsk_list_floor`/`dsk_list_pick`
-                                ; below are NOT in the band: the mount calls
-                                ; them, and the listing stays for 96.47's
-                                ; resume (96.44.7.1)
-; -----------------------------------------------------------------------------
-; dsk_list_floor - point the listing at the .lowbss buffers (module internal)
-; in:  nothing
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-dsk_list_floor:
-    mov word [dsk_dseg], LOW_SEG
-    mov word [dsk_doff], disk_dir
-    mov word [dsk_nmax], DSK_NENT
-    ret
-
-; -----------------------------------------------------------------------------
-; dsk_list_pick - choose the listing buffer for the volume being mounted
-; in:  BL = volume index
-; out: nothing (all registers preserved)
+%endif                          ; KD_BUILD
+; dsk_list_floor and dsk_list_pick lived here, and SPEC.md 22.6 deleted both.
+; There were two homes for a listing - the `.lowbss` floor, and the claim a
+; DVK_DRV volume's driver donated - so the mount had to CHOOSE one and the
+; volume-removal path had to put it back. With the donation retired there is
+; one home, [dsk_dseg]/[dsk_doff]/[dsk_nmax] are written by nobody, and their
+; `.text` initialisers below are the whole of the configuration.
 ;
-; A driver-backed volume whose driver donated a claim lists into it, with
-; DSK_VENT entries; everything else uses the floor. The claim's layout is
-; DSK_VENT entries followed by DSK_VENT icon slots, which is exactly the
-; per-window view cache's layout too (SPEC.md 22.6) - one shape, so fmv_store
-; stays a pair of block copies.
-; -----------------------------------------------------------------------------
-dsk_list_pick:
-    push ax
-    push bx
-    call dsk_list_floor
-    call dsk_vol_row_x
-    jc .out
-    cmp byte [bx+DV_KIND], DVK_DRV
-    jne .out
-    mov ax, [bx+DV_SEG]
-    or ax, ax
-    jz .out                     ; no claim: the floor, and a 32-entry listing
-    mov [dsk_dseg], ax
-    mov word [dsk_doff], 0
-    mov word [dsk_nmax], DSK_VENT
-.out:
-    pop bx
-    pop ax
-    ret
+; **THE THREE WORDS STAY, and that is a size decision rather than inertia**:
+; every reader is `mov es, [dsk_dseg]` at four bytes, where the immediate form
+; is `mov ax, LOW_SEG` + `mov es, ax` at five AND costs a scratch register at
+; sites that have none to spare.
 
 ; =============================================================================
 ; The API slots a DRVC_DISK driver mounts a volume through (SPEC.md 51.8)
@@ -2516,7 +2495,7 @@ osapi_fs_ent_x:
                                 ; whole class of bug, in the one place every
                                 ; redirected entry passes
     call dsk_put_dir            ; AX = the index, and the listing's home is
-    inc word [dsk_fsn]          ; whatever dsk_list_pick chose
+    inc word [dsk_fsn]          ; the one every volume has (SPEC.md 22.6)
     pop di
     pop si
     pop dx
@@ -2824,10 +2803,6 @@ disk_mount_x:
     mov word [dsk_fatd1], 0     ; window itself is invalid until rule 10 has
     mov word [dsk_fatw0], 0xFFFF    ; sized it (SPEC.md 18.8)
     mov word [dsk_fatwn], 1
-    push bx
-    mov bl, dl                  ; the listing's home follows the VOLUME: the
-    call dsk_list_pick          ; .lowbss floor, or the claim its driver
-    pop bx                      ; donated (SPEC.md 22.6)
     mov byte [ld_pending], 0    ; a queued click indexes the OLD directory;
                                 ; never let it run against the new one
     cmp byte [dsk_keepcwd], 0   ; a remount always lands at the root, and
@@ -3965,7 +3940,7 @@ dsk_sortdir:
     mov ax, cx
     mov cx, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
     mul cx                      ; the stride is no longer a power of two -
-                                ; count <= DSK_VENT so DX is 0, and DX is
+                                ; count <= DSK_NENT so DX is 0, and DX is
                                 ; overwritten on the next line anyway. Every
                                 ; register here is banked at entry
     add ax, bx
@@ -4548,13 +4523,9 @@ dsk_fatw_claim:
 ; live window has a SECOND naming word, [dsk_fatseg]; dsk_fatw_demote below is
 ; where that now lives.
 ; dsk_dseg_reloc lived here: the KERNEL's half of a DONATED claim's move
-; (SPEC.md 66.5.10.2). It walked dsk_vtab's DV_SEG by value and then the live
-; [dsk_dseg] - which is two rows of mem_rr_tab and nothing else, so it is two
-; rows of mem_rr_tab. What it knew that this file must not forget is WHY the
-; scan is by value and covers free rows too: a compaction can fire while a
-; different volume is current, and a free row's DV_SEG is stale rather than
-; meaningless (6.1's clear leaves it alone), so writing the new base into one
-; keeps the table honest where skipping it would need a kind test.
+; (SPEC.md 66.5.10.2), later two rows of mem_rr_tab, and now NOTHING - SPEC.md
+; 22.6 retired the donation, so no listing is ever in a claim and [dsk_dseg] is
+; LOW_SEG for the life of the machine. Both rows are out of mem_rr_tab with it.
 section .cold                   ; ...and back, or every routine below joins it
 
 dsk_fatw_drop:
@@ -6921,9 +6892,9 @@ dsk_find_name_x:
 ; out:      SI = its offset inside [dsk_dseg]
 ; clobbers: SI (the output), flags
 ;
-; A multiply and not a shift: DSK_ICO_SIZE is 64 and the index now runs to
-; DSK_VENT, so index*64 is still a word - but writing it as one operation is
-; what stops the two halves of the pair from disagreeing when a cap changes.
+; A multiply and not a shift: DSK_DE_STRIDE is 24 and no longer a power of
+; two. Writing it as one operation is what stops the two halves of the pair
+; from disagreeing when the cap changes.
 ; -----------------------------------------------------------------------------
 dsk_ent_ofs:
     push ax
@@ -8141,9 +8112,9 @@ dsk_fdd_retire:
                                 ; needs no ovw_dsk_vol_slot shim out here
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
-    mov byte [bx+DV_LBL], 0     ; DV_SECS and DV_SEG are left alone: both still
-                                ; read 0 from the initialiser here, and a row
-                                ; dsk_vol_add later takes is filled by it
+    mov byte [bx+DV_LBL], 0     ; DV_SECS is left alone: it still reads 0 from
+                                ; the initialiser here, and a row dsk_vol_add
+                                ; later takes is filled by it
     cmp byte [disk_drive], 1
     jne .out
     mov byte [disk_drive], 0    ; nothing may be left naming a free row

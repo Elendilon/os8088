@@ -90,9 +90,9 @@ IDE_C_INITP  equ 0x91
 ; ATTACH IS ALL-OR-NOTHING and this one has an easy time of it: the probe
 ; writes no port that is not a read-back of a drive's own task file, claims
 ; no memory, and hooks no interrupt. A window still costs a Control Panel
-; click; a mounted volume and its listing claim do NOT any more - they are
-; hd_ready's, one verb later, for every drive the probe found (SPEC.md
-; 52.6.1). Detach gives all of it back either way.
+; click; a mounted volume does NOT any more - it is hd_ready's, one verb
+; later, for every drive the probe found (SPEC.md 52.6.1). Detach gives all of
+; it back either way.
 ; -----------------------------------------------------------------------------
 hd_entry:
     cmp al, DRVV_DETACH
@@ -162,11 +162,6 @@ hd_detach:
     je .next
     mov al, [bx+HDV_VOL]
     call OSAPI_VOL_DEL
-    mov dx, [bx+HDV_LSEG]
-    or dx, dx
-    jz .noseg
-    call OSAPI_MEM_FREE
-.noseg:
     mov byte [bx+HDV_USED], 0
 .next:
     add bx, HDV_SIZE

@@ -268,11 +268,14 @@ FS_VSEG     equ 16              ; word: this window's listing-cache claim
                                 ; VIEW_KB and the instance's teardown frees
                                 ; it, so nothing here has a close hook
 FS_VKB      equ 18              ; byte: how many KB that claim actually is.
-                                ; A driver-backed volume lists DSK_VENT
-                                ; entries and needs DSK_VKB (SPEC.md 22.6),
-                                ; so the cache is RE-claimed when the window
-                                ; moves to one - and a refusal just clears
-                                ; FS_VSEG, which is the documented fallback
+                                ; ONE SIZE NOW - every volume lists DSK_NENT
+                                ; entries, so fm_kinit's VIEW_KB covers the
+                                ; machine and no window is ever re-claimed
+                                ; (SPEC.md 22.6). It was two while a
+                                ; driver-backed volume could list more. The
+                                ; byte stays: a refusal clears FS_VSEG and
+                                ; this says so, which is the documented
+                                ; fallback rather than an error
 FS_DIRTY    equ 19              ; byte: 1 = a file operation has changed the
                                 ; folder this window is showing since its
                                 ; cache was built, so neither the cache nor
@@ -339,22 +342,21 @@ FV_ICOIX    equ 0               ; SPEC.md 25.8.5's index, and it is the FIRST
                                 ; and the BODY base below is computed rather
                                 ; than stored, so it is free to be 832.
                                 ;
-                                ; WHY IT HAD TO MOVE: the pool's size is
-                                ; [dsk_icomax] now, 16 on a floppy and
-                                ; DSK_VENT out of a driver's own claim, so an
-                                ; index ABOVE the pool sits at an offset that
-                                ; MOVES WITH THE VOLUME KIND - and nothing
-                                ; records which kind a slot was filled with
-                                ; (FS_IOFH's own comment says FS_VKB cannot be
-                                ; asked, fmv_fit only ever growing the claim).
-                                ; Below the pool it is at a fixed offset for
-                                ; both, and no window gains a byte of state
+                                ; WHY IT HAD TO MOVE: the pool's size was
+                                ; per-volume - 16 on a floppy, DSK_VENT out of
+                                ; a driver's own claim - so an index ABOVE the
+                                ; pool sat at an offset that MOVED WITH THE
+                                ; VOLUME KIND, and nothing recorded which kind
+                                ; a slot was filled with. Below the pool it is
+                                ; at a fixed offset, and no window gains a
+                                ; byte of state. SPEC.md 25.9 then took the
+                                ; bodies out entirely and 22.6 the donated
+                                ; claim, so neither half of that can recur -
+                                ; the reasoning is kept because the FIELD's
+                                ; position is what it bought
 FV_ICOBODY  equ DSK_ICOIX_N     ; ...so the bodies start after it
 %if DSK_NENT*DSK_DE_STRIDE + DSK_ICOIX_N > VIEW_KB*1024
-  %error "the view cache no longer fits VIEW_KB: entries, then one REFERENCE byte per entry (DSK_ICOIX_N, which is DSK_VENT-wide). fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
-%endif
-%if DSK_VENT*DSK_DE_STRIDE + DSK_ICOIX_N > DSK_VKB*1024
-  %error "the DRIVER-BACKED view cache no longer fits DSK_VKB: a driver-backed volume lists DSK_VENT entries, and its window slot carries those and a reference byte apiece"
+  %error "the view cache no longer fits VIEW_KB: entries, then one REFERENCE byte per entry (DSK_ICOIX_N). fm_kinit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
 %endif
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
                                 ; line are both staged whole and truncated
@@ -448,12 +450,12 @@ fm_kinit_x:
     mov byte [di+FS_VKB], 0     ; owned by THIS instance so its teardown
     mov byte [di+FS_IOFH], 0    ; ...and NOTHING in it yet, whatever the last
                                 ; tenant of this KD_POOL block left (22.6.1)
-    push bx                     ; frees it (SPEC.md 50.2/50.4). fmv_fit
-    push dx                     ; RE-claims it at DSK_VKB the moment this
+    push bx                     ; frees it (SPEC.md 50.2/50.4). ONE SIZE
+    push dx                     ; covers every volume, so this is the only
 %ifdef KERN_SMALL
     call fmv_owner              ; MEM_P_VIEW + the slot, off DI (SPEC.md 50.6)
 %else
-    push di                     ; window lists a driver-backed volume (22.6).
+    push di                     ; claim a window's cache ever needs (22.6).
     mov di, si                  ; `(record - inst_tab) >> 5` is ld_slot, which
     call ld_slot                ; is `.cold` like this and is where that
     pop di                      ; arithmetic lives - it reads DI, and DI is the
@@ -705,8 +707,8 @@ fmv_iofs:
 ; out and the base fmv_copy_in subtracts from it would be two different
 ; volumes' arithmetic.
 ; -----------------------------------------------------------------------------
-%if ((DSK_NENT * DSK_DE_STRIDE) & 0xFF) || ((DSK_VENT * DSK_DE_STRIDE) & 0xFF)
-%error "FS_IOFH holds an icon base in ONE byte: nmax*DSK_DE_STRIDE must be a multiple of 256. It is 768 and 1,536 at a stride of 24 and was 1,024 and 2,048 at 32 - a stride that is not a multiple of 8 breaks this for BOTH caps at once"
+%if ((DSK_NENT * DSK_DE_STRIDE) & 0xFF)
+%error "FS_IOFH holds an icon base in ONE byte: DSK_NENT*DSK_DE_STRIDE must be a multiple of 256. It is 1,536 at a stride of 24 and was 2,048 at 32 - a stride that is not a multiple of 8 breaks it"
 %endif
 fmv_viofs:
     push si
@@ -734,7 +736,7 @@ fmv_get_dir:
     push di
     push dx                     ; index * DSK_DE_STRIDE. A MULTIPLY, because
     mov cx, DSK_DE_STRIDE       ; the stride is no longer a power of two;
-    mul cx                      ; index <= DSK_VENT so DX is 0, and it is
+    mul cx                      ; index <= DSK_NENT so DX is 0, and it is
     pop dx                      ; banked because this routine's contract is
     mov si, ax                  ; "clobbers SI"
     mov di, dsk_ent
@@ -886,8 +888,8 @@ fmv_store:
                                 ; SIBLING in exactly that state on purpose,
                                 ; so nothing may bank them until it is redrawn
 .nowin:
-    call fmv_fit                ; the claim has to be big enough for THIS
-    mov byte [di+FS_IOFH], 0    ; volume's listing before anything is copied
+    call fmv_fit                ; a window whose fm_kinit claim was refused
+    mov byte [di+FS_IOFH], 0    ; gets another chance before anything is copied
     mov ax, [di+FS_VSEG]
     or ax, ax
     jz .none                    ; no cache: nothing to write it into, and
@@ -906,19 +908,16 @@ fmv_store:
     ; contract; carrying the pool through instead deletes that loop AND a
     ; whole KB of every window's claim.
     ;
-    ; THE COUNT IS [dsk_icomax] AND NOT DSK_ICO_N: a driver-backed volume
-    ; raises the ceiling to DSK_VENT out of its own claim, so a hard disk's
-    ; window has more bodies to carry than a floppy's array even has room for.
     mov si, dsk_icoix           ; ...AND THE INDEX, WHICH IS ALL THERE IS NOW
     mov di, bx                  ; (SPEC.md 25.9). The bodies used to follow it
     add di, FV_ICOIX            ; and are in the machine-wide store instead, so
     mov cx, DSK_ICOIX_N         ; a window carries one byte an entry rather
     push dx                     ; than 64.
     mov dx, LOW_SEG             ;
-    call dsk_copy_seg_x         ; NOT fmv_copy_out: its source segment is
-    pop dx                      ; [dsk_dseg], which is the DRIVER'S CLAIM on a
-                                ; hard disk, and the index lives in `.lowbss`
-                                ; wherever the listing is
+    call dsk_copy_seg_x         ; NOT fmv_copy_out, whose source segment is
+    pop dx                      ; [dsk_dseg]: the index lives in `.lowbss` and
+                                ; the entries are read through that word, so
+                                ; the two halves name their segments apart
     pop di
     mov [di+FS_IOFH], bh        ; ...AND THE SHAPE IT WAS FILLED WITH, which
                                 ; is this mount's and not whichever one paints
@@ -941,47 +940,41 @@ fmv_copy_out:
     ret
 
 ; -----------------------------------------------------------------------------
-; fmv_fit - make this window's cache big enough for the volume being listed
+; fmv_fit - make sure this window HAS a cache before the listing is copied
 ; in:  DI = state block
 ; out: nothing (all registers preserved)
 ;
-; A floppy's listing is 3KB and a driver-backed volume's is DSK_VKB (SPEC.md
-; 22.6), and a window moves between the two by clicking a desktop icon - so
-; the claim is re-made when the shape changes rather than sized once at
-; launch, and a machine with only floppies never pays for the bigger one.
+; **IT WAS A RE-SIZE AND IT IS A RETRY** (SPEC.md 22.6). There were two listing
+; sizes - a floppy's and the bigger one a driver-backed volume listed out of
+; its driver's donated claim - so a window that clicked from one desktop icon
+; to the other had to give its claim back and take a larger one. The donation
+; is retired and there is one size, so the only thing left to decide is
+; whether this window has a cache at all: fm_kinit claims one, and a window
+; whose claim was REFUSED there gets another chance here rather than painting
+; from the global snapshot for the rest of its life.
 ;
-; A refused claim clears FS_VSEG, which is the documented fallback and not an
+; A refused claim leaves FS_VSEG 0, which is the documented fallback and not an
 ; error: the window then paints from the global snapshot (SPEC.md 22.1) and
 ; costs floppy I/O it would otherwise have avoided.
+;
+; FS_VKB and FS_VSEG are set and cleared TOGETHER - here and at fm_kinit, the
+; only two places either moves - so the one test covers both and there is no
+; old block to give back first.
 ; -----------------------------------------------------------------------------
 fmv_fit:
     push ax
     push bx
     push cx
     push dx
-    mov al, VIEW_KB             ; how many KB THIS listing needs
-    cmp word [dsk_nmax], DSK_NENT
-    jbe .want
-    mov al, DSK_VKB
-.want:
-    cmp al, [di+FS_VKB]
-    jbe .out                    ; what we hold already covers it
-    mov cl, al
-    mov dx, [di+FS_VSEG]        ; give the old one back FIRST: claiming the
-    or dx, dx                   ; new one while holding it can refuse on a
-    jz .claim                   ; machine that had the room all along (50.3)
-    call fmv_owner
-    call mem_free_x
-    mov word [di+FS_VSEG], 0
-    mov byte [di+FS_VKB], 0
-.claim:
+    cmp byte [di+FS_VKB], VIEW_KB
+    jae .out                    ; we already hold one, and there is only one
+                                ; size it could be
     call fmv_owner              ; BX = the owning instance slot
-    mov al, cl
-    xor ah, ah
+    mov ax, VIEW_KB
     call mem_claim_x
     jc .out                     ; refused: no cache, and that is a normal
     mov [di+FS_VSEG], dx        ; path (SPEC.md 50.3)
-    mov [di+FS_VKB], cl
+    mov byte [di+FS_VKB], VIEW_KB
 %ifndef KERN_SMALL
     call fmv_movable            ; purgeable on kern_small, so never movable
 %endif

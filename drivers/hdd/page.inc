@@ -1172,10 +1172,9 @@ hd_page_repaint:
 ; out: nothing; [hd_msg] says what happened
 ; clobbers: flags
 ;
-; The listing claim comes FIRST and is handed to the kernel with the volume,
-; because a mounted volume with no listing buffer lists 32 entries instead of
-; DSK_VENT and there is no second chance to say so (SPEC.md 22.6). A refused
-; claim is not an error - the volume mounts with the kernel's own floor.
+; It mounts the FIRST FAT partition and stops; the loop that takes all four is
+; hd_mount_all's. Neither claims anything: SPEC.md 22.6 retired the listing
+; donation, so a mounted volume costs this driver a hd_vols row and no heap.
 ; -----------------------------------------------------------------------------
 hd_mount:
     push ax
@@ -1251,10 +1250,10 @@ hd_mount:
 ; out: [hd_nmnt] incremented on success; [hd_msg] set on a failure
 ; clobbers: flags
 ;
-; The listing claim comes FIRST and is handed to the kernel with the volume,
-; because a mounted volume with no listing buffer lists 32 entries instead of
-; DSK_VENT and there is no second chance to say so (SPEC.md 22.6). A refused
-; claim is not an error - the volume mounts with the kernel's own floor.
+; NO LISTING CLAIM (SPEC.md 22.6). This used to claim 6KB and hand it over
+; with the volume, so that the partition listed more entries than the kernel's
+; own floor gave a floppy; the floor is the same cap for every volume now, so
+; the claim funded nothing and DX goes over as 0.
 ;
 ; A partition whose TYPE says FAT and whose CONTENT does not is dropped here:
 ; osapi_vol_mount answers CF=1, the row goes back, and the loop carries on to
@@ -1279,47 +1278,17 @@ hd_mount_one:
     mov ax, [si+HP_SECS]
     mov [bx+HDV_SECS], ax
 
-    mov ax, HDD_LISTKB          ; the listing claim (SPEC.md 22.6), and it
-    call OSAPI_MEM_CLAIM        ; STAYS LOW - measured, not assumed (SPEC.md
-    jnc .claimed                ; 50.3.2.1): sent high it cost 9KB, because a
-                                ; pinned claim BELOW every movable one is
-                                ; packed past and costs the big run nothing
-    xor dx, dx                  ; refused: the kernel's 32-entry floor, which
-.claimed:                       ; works and shows fewer files
-    mov [bx+HDV_LSEG], dx       ; ...and PINNED for a moment longer: DX is
-                                ; still this base and OSAPI_VOL_ADD below is
-                                ; about to write it down as the kernel's own
-                                ; DV_SEG (SPEC.md 18.7). Declared movable up
-                                ; here, a compaction between the two calls
-                                ; moved the block, hd_lst_reloc corrected
-                                ; HDV_LSEG - and the STALE DX went into DV_SEG
-                                ; anyway, from where dsk_list_pick copies it
-                                ; into [dsk_dseg]. Nothing here holds sch_lock,
-                                ; and hd_mount_one runs under the gfx lock,
-                                ; which yields
-
     mov al, [bx+HDV_VOLH]       ; our own handle IS the row index
     mov cx, [bx+HDV_SECS]
+    xor dx, dx                  ; no donated listing claim: the kernel's own
+                                ; buffers, which is every volume now (22.6)
     xor si, si                  ; no label: the KERNEL derives 'HDD C'..'HDD F'
     call OSAPI_VOL_ADD          ; from the volume index, which is the only
     jc .novol                   ; place that knows it (SPEC.md 26.1)
     mov [bx+HDV_VOL], al
-    mov byte [bx+HDV_USED], 1
-
-    mov dx, [bx+HDV_LSEG]       ; ...AND NOW IT MOVES (SPEC.md 66.5.10.2).
-    or dx, dx                   ; Where it lands is a property of the SESSION
-    jz .nolist                  ; and not of the code - on a desktop that has
-    push bx                     ; been used, the gap under 18.95's read-ahead
-    mov ax, hd_lst_reloc        ; is taken and this first-fits ABOVE that cache
-    call OSAPI_MEM_MOVABLE      ; instead, where pinned it costs the whole
-    pop bx                      ; 63KB. TWO words, not one: HDV_LSEG here and
-.nolist:                        ; the kernel's DV_SEG, which dsk_dseg_reloc
-                                ; already scans BY VALUE for every move - and
-                                ; that is exactly why the ORDER matters. BX is
-                                ; the hd_vols row and is needed below
-
-    mov al, [bx+HDV_VOL]        ; reloaded: hd_lst_reloc's address went through
-    call OSAPI_VOL_MOUNT        ; AX, so the volume index is no longer in it
+    mov byte [bx+HDV_USED], 1   ; AL is STILL the volume index - the reload
+    call OSAPI_VOL_MOUNT        ; that was here existed because the movable
+                                ; declaration passed its proc through AX
     jc .badvol
     inc byte [hd_nmnt]
     jmp short .out
@@ -1327,11 +1296,6 @@ hd_mount_one:
     call hd_unmount_row         ; typed FAT, is not FAT: give it all back and
     jmp short .out              ; leave the loop to try the next slot
 .novol:
-    mov dx, [bx+HDV_LSEG]
-    or dx, dx
-    jz .nofree
-    call OSAPI_MEM_FREE
-.nofree:
     mov byte [bx+HDV_USED], 0
 .full:
     mov word [hd_msg], hd_s_mfull
@@ -1343,41 +1307,10 @@ hd_mount_one:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; hd_lst_reloc - the listing claim moved (SPEC.md 66.5.10.2)
-; in:  BX = the base it WAS at, DX = the base it is at now; DS = CS = ours,
-;      ES = KERNEL_SEG
-; out: nothing (every register preserved)
-;
-; ONE WORD. HDV_LSEG is the only place this driver writes the segment down, and
-; it writes it for exactly one purpose - to free the block - so there is no
-; derived pointer, no offset banked off it and nothing paragraph-aligned to
-; recompute. The kernel's own two naming words (dsk_vtab's DV_SEG and
-; [dsk_dseg]) are fixed by dsk_dseg_reloc before this is reached, which is what
-; makes a DONATED claim movable at all: the callback reaches the owner, and the
-; owner is only one of the three holders (SPEC.md 66.5.10.1).
-;
-; BY VALUE and not by [hd_sel]'s row, because a compaction can fire while a
-; different partition is the selected one - and because a driver's proc is
-; handed the old base and nothing else.
-; -----------------------------------------------------------------------------
-hd_lst_reloc:
-    push ax
-    push cx
-    push si
-    mov si, hd_vols
-    mov cx, HD_MAXVOL
-.scan:
-    cmp [si+HDV_LSEG], bx
-    jne .next
-    mov [si+HDV_LSEG], dx
-.next:
-    add si, HDV_SIZE
-    loop .scan
-    pop si
-    pop cx
-    pop ax
-    ret
+; hd_lst_reloc lived here - the owner's half of a DONATED listing claim's move
+; (SPEC.md 66.5.10.2), a by-value walk of hd_vols patching HDV_LSEG. SPEC.md
+; 22.6 retired the donation, so this driver holds no claim on the kernel's
+; behalf and declares nothing movable.
 
 ; -----------------------------------------------------------------------------
 ; hd_already - is [hd_sel]'s partition [hd_pslot] mounted already?
@@ -1517,13 +1450,7 @@ hd_unmount_row:
     je .out
     mov al, [bx+HDV_VOL]
     call OSAPI_VOL_DEL
-    mov dx, [bx+HDV_LSEG]
-    or dx, dx
-    jz .noseg
-    call OSAPI_MEM_FREE
-.noseg:
     mov byte [bx+HDV_USED], 0
-    mov word [bx+HDV_LSEG], 0
 .out:
     pop dx
     pop ax

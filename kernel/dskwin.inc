@@ -68,12 +68,10 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; and 0xFF in the index is the "no icon" the generic-icon sentinel already
 ; meant.
 ;
-; `kern_big` KEEPS ONE BODY PER ENTRY and is byte-identical. That is not
-; timidity: a `DVK_DRV` volume gets DSK_VENT = 64 entries out of a claim its
-; driver funds, and a pool sized for a floppy would degrade the 17th icon on a
-; hard disk. `kern_small` can have no such volume at all - SPEC.md 51.0 took
-; the driver mechanism out - so there the pool only ever serves these arrays,
-; which is what makes the simpler code correct rather than merely smaller.
+; That was the shape for one cycle. SPEC.md 25.9 then took the bodies out of
+; the listing ALTOGETHER, on both kernels: there is one machine-wide store and
+; a listing owns a reference byte per entry and nothing else. DSK_ICO_SIZE is
+; still the width of one body, in the store.
 %ifdef KERN_SMALL
 DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN, AND IT STAYED ZERO
                                  ; THROUGH THE CUT.** This was 768 while a
@@ -104,28 +102,26 @@ DSK_OVLPAD   equ 0               ; **AND IT IS ZERO AGAIN, AND IT STAYED ZERO
 ; reference byte per entry and no bodies at all; ICO_NROW in disk.inc is the
 ; machine-wide store's size and is the only body count left. DSK_ICO_SIZE is
 ; still the width of one.
-%ifdef KERN_SMALL
-DSK_ICOIX_N  equ DSK_NENT        ; one REFERENCE byte per entry. DSK_NENT and
-                                 ; not DSK_VENT because SPEC.md 51.0 leaves
-                                 ; this kernel no driver-backed volume to list
-                                 ; sixty-four entries from - 32 bytes it would
-                                 ; never address
-%else
-DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the references
-                                 ; stay in `.lowbss` even when the LISTING is
-                                 ; in a driver's claim: dsk_ico_at reads them
-                                 ; through SS whatever [dsk_dseg] says, so the
-                                 ; array has to be wide enough for the biggest
-                                 ; listing there is. 64 bytes, against the
-                                 ; 4,096 of bodies it replaces
-%endif
+DSK_ICOIX_N  equ DSK_NENT        ; one REFERENCE byte per entry, and DSK_NENT
+                                 ; on BOTH kernels because there is one
+                                 ; listing size now: SPEC.md 22.6 retired the
+                                 ; donated claim, so a volume lists into the
+                                 ; `.lowbss` floor whatever mounted it. It was
+                                 ; DSK_VENT here while a hard disk could list
+                                 ; more than a floppy. 64 bytes on kern_big,
+                                 ; against the 4,096 of bodies it replaces
 
-; How many entries a listing holds. DSK_NENT is the FLOOR - the .lowbss pair
-; every floppy uses, and the fallback for a driver-backed volume whose driver
-; could not fund a bigger one. DSK_VENT is what a hard disk gets: 96 bytes an
-; entry (32 of directory + 64 of icon), so 64 entries is a 6KB claim, made by
-; the driver at mount and mirrored per open Disk window by the file manager
-; (SPEC.md 22.6). Both numbers are here so nothing can disagree about them.
+; How many entries a listing holds - ONE NUMBER, for every volume on the
+; machine. There was a second, DSK_VENT, for a volume whose driver donated a
+; 6KB claim to list out of; SPEC.md 22.6 retired it, and the retirement is
+; worth one paragraph because the mechanism looked live right up to the end.
+; It could only ever buy DSK_VENT > DSK_NENT - a hard disk listing more than a
+; floppy out of heap the driver owns, charging a floppy-only machine nothing -
+; and the 64-entry pass (SPEC.md 25.9.1) raised the floor to the same 64,
+; after which the claim funded a listing the floor already gave for free. What
+; settled it is that the two move TOGETHER: a hard disk's directories and a
+; floppy's are busy for the same reason - a DOS install is busy wherever it
+; sits - so the next raise raises this number and there is nothing to split.
 ;
 ; **AND IT IS PER-BUILD SINCE SPEC.md 22.6.2**: 64 on kern_big, 32 on
 ; kern_small. Sixty-four was taken for the DOS box - "DOS directories are
@@ -153,23 +149,6 @@ DSK_ICOIX_N  equ DSK_VENT        ; ...and DSK_VENT here because the references
 DSK_NENT     equ 64
 %else
 DSK_NENT     equ 32
-%endif
-DSK_VENT     equ 64
-DSK_VBYTES   equ DSK_VENT * DSK_DE_STRIDE + DSK_ICOIX_N   ; 1,600
-DSK_VKB      equ 2              ; ...and the WINDOW CACHE for one is 2KB where
-                                ; it was 6: SPEC.md 25.9 took the icon bodies
-                                ; out, so a driver-backed listing is its
-                                ; entries and a reference byte apiece.
-                                ;
-                                ; **THE DRIVER'S OWN DONATION IS A DIFFERENT
-                                ; NUMBER AND DOES NOT MOVE HERE**
-                                ; (drivers/os88drv.inc's HDD_LISTKB): this is
-                                ; what fmv_fit CLAIMS for a window, and the
-                                ; driver funds the GLOBAL listing separately.
-                                ; Lowering it costs no .DRV rebuild and gives
-                                ; 4KB of heap back per driver-backed window
-%if DSK_VBYTES > DSK_VKB * 1024
-  %error "the driver-backed listing no longer fits the claim its driver funds: DSK_VKB is what is asked for and DSK_VBYTES is what disk_mount then writes into it, so the overflow lands on whatever the heap handed out next"
 %endif
 %if DSK_DE_SIZE != 32
   %error "DSK_DE_SIZE is the ON-DISK FAT directory stride, 32 by FAT12, and it is PUBLISHED to packages (apps/os88api.inc's OSAPI_FS_ENT). It is not free to change: a staged entry that wants a different width needs a stride of its own, leaving this one at 32"

@@ -2728,15 +2728,9 @@ mem_rr_tab:
     MEM_RR_ROW drv_fseg,           5,       4   ; the five published class fast
 %endif                                          ; paths, contiguous BY DESIGN
                                                 ; (driver.inc:841)
-    ; A DONATED listing claim (SPEC.md 66.5.10.2): the driver owns it, so the
-    ; owner's own proc reaches one of its three naming words and these are the
-    ; other two. BY VALUE and over free rows too - a compaction can fire while
-    ; a different volume is current, and a free row's DV_SEG is stale rather
-    ; than meaningless (SPEC.md 6.1's clear leaves it alone).
-    MEM_RR_ROW dsk_vtab + DV_SEG, DVOL_MAX, DV_SIZE
-    MEM_RR_ONE dsk_dseg         ; ...and where the listing is READ FROM, which
-                                ; equals the row only while that volume is the
-                                ; one mounted
+    ; A DONATED listing claim had two rows here - dsk_vtab's DV_SEG and the
+    ; live [dsk_dseg] - and SPEC.md 22.6 retired the donation, so a listing is
+    ; never in a claim and neither word can name one.
     ; TWO ADJACENT WORDS ARE ONE ROW, and each pair carries a %error beside its
     ; own declaration to keep it that way: a row is four bytes whether it names
     ; one word or twelve, so a neighbour rides free - and an edit that puts
@@ -2830,18 +2824,19 @@ mem_reloc_call:
                                 ; COLD_SEG and would be quietly wrong
 
     ; THE KERNEL IS A HOLDER OF CLAIMS IT DOES NOT OWN (SPEC.md 66.5.10.2).
-    ; osapi_vol_add's DX is a DONATED listing claim: the driver owns it, so the
-    ; dispatch below reaches the driver - and dsk_vtab's DV_SEG and [dsk_dseg]
-    ; name the same block on this side of the ABI, where that proc cannot go.
-    ; So the kernel's half runs FIRST, unconditionally, for every move: a
-    ; record that is not a donation matches no row and the walk costs eight
-    ; compares against a rep movsb of up to 64KB. Unconditional is the design -
-    ; the next driver to donate one is movable the day it declares a proc, with
-    ; no kernel change and nothing to remember. BX and DX are the parameters
-    ; for the owner's call below and mem_region_reloc preserves both. It is
-    ; ONE call and not two: dsk_dseg_reloc was a walk of dsk_vtab's DV_SEG and
-    ; the live [dsk_dseg], which are two rows of mem_rr_tab like every other
-    ; kernel word that can name a claim.
+    ; A package's region, a driver's image and an overlay are all named by
+    ; KERNEL words on this side of the ABI, where the owner's own proc cannot
+    ; go. So the kernel's half runs FIRST, unconditionally, for every move: a
+    ; record that no row names costs a handful of compares against a rep movsb
+    ; of up to 64KB. Unconditional is the design - the next holder is covered
+    ; the day it gets a row, with nothing to remember at the call site. BX and
+    ; DX are the parameters for the owner's call below and mem_region_reloc
+    ; preserves both.
+    ;
+    ; **A DONATED LISTING CLAIM WAS THE WORKED EXAMPLE HERE AND IS GONE**
+    ; (SPEC.md 22.6): osapi_vol_add's DX took one, dsk_vtab's DV_SEG and
+    ; [dsk_dseg] were its two rows, and no volume donates now. The argument is
+    ; unchanged and the rows it was made about are not the only ones.
     mov word [ss:mem_fptr], cw_mem_disp
     mov [ss:mem_fptr+2], ax     ; AX is KERNEL_SEG from the ES load above
     mov ds, ax                  ; DS = KERNEL_SEG: a kernel proc's own
