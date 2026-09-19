@@ -838,23 +838,34 @@ section .text                   ; DATA, so back to the kernel segment
 ; bigger cap - one code path, two configurations - and these three words are
 ; what made that one code path possible.
 ;
-; **NOTHING WRITES THEM NOW.** dsk_list_pick and dsk_list_floor are deleted and
-; mem_rr_tab's two rows with them, so the initialisers here ARE the
-; configuration, for the life of the machine. They are kept as words rather
-; than folded into immediates because every reader is smaller this way: `mov
-; es, [dsk_dseg]` is four bytes where `mov ax, LOW_SEG` + `mov es, ax` is five
-; and wants a scratch register. They are in .text and not .bss for the reason
-; the paragraph below gives, and it now binds harder: with no writer at all, a
-; .bss home would mean whatever the RAM held.
-dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in
+; **THEY ARE THE DESTINATION, AND THE DESTINATION IS AN ARGUMENT**
+; (docs/plans/LISTING-HOME-PLAN.md 13). `dsk_list_pick` and `dsk_list_floor`
+; were deleted with the donation and for a while nothing wrote these at all;
+; what writes them now is `dsk_dest_x`, and the caller of a LOUD mount is who
+; calls it. A Disk window hands over its own `FS_VSEG` claim, the Standard
+; File dialog its own, and a caller with nowhere to put a listing hands over
+; nothing - at which point the mount is quiet, which is a state the whole
+; kernel already handles.
+;
+; They are kept as words rather than folded into immediates because every
+; reader is smaller this way: `mov es, [dsk_dseg]` is four bytes where
+; `mov ax, LOW_SEG` + `mov es, ax` is five and wants a scratch register. They
+; are in .text and not .bss for the reason the paragraph below gives.
+dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in, 0 = there
+                                ; is nowhere and a loud mount is quiet
 dsk_doff:    dw disk_dir         ; entry 0's offset in it
-
-                                ; **THERE IS NO `dsk_ioff` ANY MORE** (SPEC.md
-                                ; 25.9): a listing owns no bodies, only one
-                                ; reference byte per entry, and the bodies are
-                                ; in the machine-wide store. It was the base
-                                ; of a per-listing icon array and the thing
-                                ; every window's cache had to mirror
+dsk_ioff:    dw dsk_icoix        ; **AND `dsk_ioff` IS BACK**, for a different
+                                ; job than the one SPEC.md 25.9 retired. That
+                                ; one was the base of a per-listing ARRAY OF
+                                ; BODIES; this is the base of the one
+                                ; REFERENCE BYTE an entry keeps, and it exists
+                                ; because the index is no longer at a fixed
+                                ; `.lowbss` address - it follows the entries
+                                ; into whatever store the caller supplied.
+                                ; DERIVED by dsk_dest_x rather than passed, so
+                                ; a store has one shape and not two, and the
+                                ; initialiser is that shape for `.lowbss`:
+                                ; dsk_icoix IS disk_dir + DSK_NENT*STRIDE
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
 
 ; The current directory (SPEC.md 19.2) - the one disk_dir lists and the one
@@ -3017,20 +3028,24 @@ disk_mount_x:
                                 ; nothing to harvest into it. The LISTING
                                 ; above stays - 96.47's live resume finds
                                 ; HIBERNAT.IMG through it
-    push es                     ; SPEC.md 25.8: blanking the INDEX is what
-    push ss                     ; retires a listing, and the bodies below it
-    pop es                      ; are simply re-reserved. 64 bytes of stosb
-    mov di, dsk_icoix           ; where this was 2,048 of stosw.
-    mov cx, [dsk_nmax]          ;
-    mov al, 0xFF                ; **ES IS FORCED TO SS AND NOT LEFT AS
-    cld                         ; [dsk_dseg]**: the index is `.lowbss` even
-    rep stosb                   ; when the LISTING is in a driver's claim, and
-    pop es                      ; on kern_small the two happened to be the
-                                ; same segment, so the old code could leave ES
-                                ; alone. On kern_big they differ the moment a
-                                ; hard disk is mounted (SPEC.md 51.0 leaves
-                                ; kern_small no such volume), and 64 bytes of
-                                ; 0xFF would land in the driver's claim
+                                ; SPEC.md 25.8: blanking the INDEX is what
+                                ; retires a listing, and the bodies below it
+                                ; are simply re-reserved. 64 bytes of stosb
+                                ; where this was 2,048 of stosw.
+                                ;
+                                ; **ES IS LEFT AS [dsk_dseg]**, which the sort
+                                ; above has just loaded, and that is the
+                                ; change rather than a saving: the index used
+                                ; to be at a fixed `.lowbss` address while the
+                                ; LISTING could be in a driver's claim, so it
+                                ; had to be forced to SS. The two are one
+                                ; block in one store now (13.1), so forcing it
+                                ; would blank the wrong segment
+    mov di, [dsk_ioff]
+    mov cx, [dsk_nmax]
+    mov al, 0xFF
+    cld
+    rep stosb
 
     cmp byte [dsk_vkind], DVK_FILE  ; ...and a REDIRECTED volume takes the
     jne .harvest0                   ; CACHE-ONLY pass below: it has no sectors
@@ -6163,6 +6178,39 @@ dsk_media_ok:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_dest - say WHERE the next loud mount writes its listing (SPEC.md 22.6,
+;            docs/plans/LISTING-HOME-PLAN.md 13)
+; in:  DX = the store's segment, 0 = there is nowhere; BX = entry 0's offset
+;      in it (ignored when DX is 0)
+; out: nothing (all registers preserved)
+;
+; A listing has no home of its own: it is written where its CALLER keeps one,
+; which for a Disk window is the FS_VSEG claim it already holds and for the
+; Standard File dialog is one claimed for as long as the dialog is up. A
+; caller with nowhere for a listing passes DX = 0 and gets a QUIET mount -
+; the volume, the geometry, the FAT window and the current directory, and no
+; scan, sort or icon harvest.
+;
+; **[dsk_ioff] IS DERIVED HERE AND NOWHERE ELSE**, so a store has ONE shape:
+; DSK_NENT entries of DSK_DE_STRIDE, then one reference byte each. Passing it
+; would let two callers disagree about a layout `fmv_iofs` and the harvest
+; both have to read the same way.
+; -----------------------------------------------------------------------------
+dsk_dest_x:
+    push ax
+    push dx
+    mov [dsk_dseg], dx
+    mov [dsk_doff], bx
+    mov ax, [dsk_nmax]          ; the index sits just past the entries
+    mov dx, DSK_DE_STRIDE
+    mul dx                      ; DX:AX, and DX comes back 0: nmax caps at
+    add ax, bx                  ; DSK_NENT and the product is 1,536
+    mov [dsk_ioff], ax
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_relist - make the global snapshot a real mount again (SPEC.md 18.9)
 ; in:  nothing
 ; out: nothing (all registers preserved); CF is NOT propagated, for
@@ -7501,10 +7549,14 @@ ico_key_stem:
 ; -----------------------------------------------------------------------------
 ico_ref_set:
     push si
+    push es
     mov si, ax
-    mov [ss:si+dsk_icoix], bl   ; SS: dsk_icoix is `.lowbss` (SPEC.md 2.1) and
-    pop si                      ; stays there even when the LISTING is in a
-    ret                         ; driver's claim
+    add si, [dsk_ioff]          ; THE INDEX FOLLOWS THE LISTING into whatever
+    mov es, [dsk_dseg]          ; store the caller supplied (13.1). It was
+    mov [es:si], bl             ; `[ss:si+dsk_icoix]` while every listing was
+    pop es                      ; in `.lowbss`; the entries and their
+    pop si                      ; reference bytes are one block now, so the
+    ret                         ; two halves cannot name different segments
 
 ; -----------------------------------------------------------------------------
 ; ico_put - store this entry's body and record the reference
@@ -7673,8 +7725,12 @@ dsk_ico_stage:
 ; -----------------------------------------------------------------------------
 dsk_get_icon_x:
     push ax
+    push es
     mov si, ax
-    mov al, [ss:si+dsk_icoix]   ; SS: dsk_icoix is `.lowbss` (SPEC.md 2.1)
+    add si, [dsk_ioff]          ; ...and reads it back out of the same store
+    mov es, [dsk_dseg]          ; (ico_ref_set above)
+    mov al, [es:si]
+    pop es
     call dsk_ico_stage
     pop ax
     ret

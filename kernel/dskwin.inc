@@ -241,6 +241,9 @@ dsk_ovlpad: resb DSK_OVLPAD     ; ...AND THE BOOT OVERLAY'S LANDING GROUND,
 %endif
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base
+%if dsk_icoix - disk_dir != DSK_NENT*DSK_DE_STRIDE
+  %error "the reference index must sit immediately past the entries: disk.inc's dsk_ioff initialiser IS that layout, and dsk_dest_x derives the same offset for every other store. A byte between them and the floor listing's index is at one offset while a window's is at another (docs/plans/LISTING-HOME-PLAN.md 13.2)"
+%endif
 %if (dsk_secbuf - $$) % 512     ; against the RUNG base, not dsk_win_base: a
   %error "dsk_secbuf is not 512-byte aligned inside LOW_SEG: an int 13h read from an unaligned base can straddle a 64KB DMA page and fail with error 09h. Keep it FIRST in the window (SPEC.md 2.1.1/2.1.2, guard 6)"
 %endif                          ; block sorted above this file would slide it

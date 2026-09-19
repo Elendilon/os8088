@@ -774,10 +774,27 @@ fmv_get_dir:
 ; -----------------------------------------------------------------------------
 fmv_ld_ent:
     cmp ax, [di+FS_N]           ; the window's OWN count, which fmv_load and
-    jb .in                      ; fmv_take both write whether or not the
+    jb fmv_dient                ; fmv_take both write whether or not the
     stc                         ; claim stood (SPEC.md 22.6.1)
     ret
-.in:
+
+; -----------------------------------------------------------------------------
+; fmv_dient - stage entry AX out of the view A STATE BLOCK names
+; in:  AX = entry index, DI = the state block
+; out: SI -> dsk_ent; CF = 0 always
+; clobbers: SI (the output), CF
+;
+; The borrow, without the bound - `fmv_ld_ent` above is this with `FS_N` in
+; front of it, and `fm_measure` is the other caller, walking its own `FS_N`
+; for a window that need not be the acting one (`fmv_reload_all` calls
+; `fmv_load` for every window there is).
+;
+; It defers to `fmv_get_dir`, so a state block whose `FS_VSEG` is 0 reads the
+; FLOOR listing exactly as that routine does - which is right for as long as
+; there is one, because `fmv_load` retires the destination only for a window
+; that HAD a claim (docs/plans/LISTING-HOME-PLAN.md 13.5 commit 1).
+; -----------------------------------------------------------------------------
+fmv_dient:
     push bx
     push dx
     mov bx, [fm_vp]             ; the acting view, banked...
@@ -946,29 +963,39 @@ fmv_store:
                                 ; back with (SPEC.md 22.6.1)
     push di
     call fmv_iofs               ; BX = where the icons start in a slot
+
+    ; **THE COPY IS SKIPPED WHEN THE MOUNT ALREADY WROTE HERE**
+    ; (docs/plans/LISTING-HOME-PLAN.md 13). fmv_load hands this window's own
+    ; claim to dsk_dest_x, so the entries and the reference index below were
+    ; written straight into it and the two block copies would be 1,600 bytes
+    ; of a block onto itself.
+    ;
+    ; IT IS A TEST AND NOT A SECOND ENTRY POINT, because fmv_store has the
+    ; other caller too: fmv_take, which fm_focus and fmv_bcast reach with the
+    ; FLOOR listing live and a different window's claim to fill. One routine,
+    ; and the condition is the thing that is actually true.
+    cmp ax, [dsk_dseg]
+    je .shape
     mov si, [dsk_doff]
     xor di, di
     mov cx, bx
     call fmv_copy_out
-    ; SPEC.md 25.8.5: the cache MIRRORS the global - the bodies and one index
-    ; byte per entry - so both halves are block copies and the window holds
-    ; what the global holds instead of expanding it back to one body per
-    ; entry. The first version of this DID expand, to keep fmv_get_icon's
-    ; contract; carrying the pool through instead deletes that loop AND a
-    ; whole KB of every window's claim.
-    ;
-    mov si, dsk_icoix           ; ...AND THE INDEX, WHICH IS ALL THERE IS NOW
+    ; SPEC.md 25.8.5: the cache MIRRORS the listing - one index byte per entry
+    ; - so both halves are block copies and the window holds what the listing
+    ; holds instead of expanding it back to one body per entry. The first
+    ; version of this DID expand, to keep fmv_get_icon's contract; carrying
+    ; the pool through instead deletes that loop AND a whole KB of every
+    ; window's claim.
+    mov si, [dsk_ioff]          ; ...AND THE INDEX, WHICH IS ALL THERE IS NOW
     mov di, bx                  ; (SPEC.md 25.9). The bodies used to follow it
     add di, FV_ICOIX            ; and are in the machine-wide store instead, so
     mov cx, DSK_ICOIX_N         ; a window carries one byte an entry rather
-    push dx                     ; than 64.
-    mov dx, LOW_SEG             ;
-    call dsk_copy_seg_x         ; NOT fmv_copy_out, whose source segment is
-    pop dx                      ; [dsk_dseg]: the index lives in `.lowbss` and
-                                ; the entries are read through that word, so
-                                ; the two halves name their segments apart
-    pop di
-    mov [di+FS_IOFH], bh        ; ...AND THE SHAPE IT WAS FILLED WITH, which
+    call fmv_copy_out           ; than 64. IT IS fmv_copy_out NOW and not a
+.shape:                         ; hand-rolled LOW_SEG copy: the index follows
+    pop di                      ; the entries into whatever store the mount
+    mov [di+FS_IOFH], bh        ; was given, so the two halves can no longer
+                                ; name different segments
+                                ; ...AND THE SHAPE IT WAS FILLED WITH, which
                                 ; is this mount's and not whichever one paints
                                 ; it next (SPEC.md 22.6.1). BL is 0 by the
                                 ; assertion at fmv_viofs
@@ -1154,6 +1181,31 @@ fmv_load:
     mov bl, al                  ; dsk_chdir wants the drive in DL and the
     mov ax, dx                  ; cluster in AX
     mov dl, bl
+
+    ; --- WHERE THE LISTING GOES (docs/plans/LISTING-HOME-PLAN.md 13) --------
+    ; This window's own claim, which it has held since fm_kinit. The mount
+    ; writes the entries and their reference index straight into it, so what
+    ; used to follow - two block copies out of a `.lowbss` buffer, 1,600
+    ; bytes a navigation - is not a faster copy, it is no copy.
+    ;
+    ; A window whose claim was refused passes the floor listing instead and
+    ; is exactly as it was. That arm is what 13.5's third commit removes,
+    ; along with the floor.
+    push ax
+    push dx
+    push bx
+    mov dx, [di+FS_VSEG]
+    xor bx, bx                  ; entry 0 at the base of the claim
+    or dx, dx
+    jnz .dest
+    mov dx, LOW_SEG             ; no claim: the floor, as before
+    mov bx, disk_dir
+.dest:
+    call dsk_dest_x
+    pop bx
+    pop dx
+    pop ax
+
     call dsk_chdir_x              ; a remount with [dsk_keepcwd] raised
 
     mov al, [disk_drive]        ; ...and now record what really happened
@@ -1173,14 +1225,48 @@ fmv_load:
     je .listed                  ; unlike CF it survives the stores above
     mov byte [di+FS_MOK], 1
 .listed:
-    mov ax, [disk_nfiles]
-    mov [di+FS_N], ax
+    mov ax, [disk_nfiles]       ; the count FIRST: the destination is retired
+    mov [di+FS_N], ax           ; two lines down and takes it with it
+
+    ; --- AND THE DESTINATION IS RETIRED WITH THE MOUNT (13.1) --------------
+    ; The listing is this window's now, read through [fm_vseg], and the
+    ; floor buffer holds whichever folder was listed there LAST. So the
+    ; global is left saying what it honestly holds - nothing - which is the
+    ; state a quiet mount already leaves and which every consumer in the
+    ; kernel is already gated on (`disk_nfiles != 0`, disk.inc).
+    ;
+    ; **[dsk_lstale] IS NOT RAISED.** The debt means somebody is OWED a
+    ; listing, and after this nobody is: the window that wanted one has it.
+    ; Raising it would put dsk_relist's loud remount in front of the next
+    ; file operation, for a buffer with no reader.
+    cmp word [di+FS_VSEG], 0    ; ...and ONLY for a window that had one: with
+    je .kept                    ; no claim the listing IS the floor buffer and
+    mov word [disk_nfiles], 0   ; the global honestly describes it, which is
+    mov byte [dsk_lstale], 0    ; what commit 3 removes along with the floor
+.kept:
+
     mov word [di+FS_SEL], 0xFFFF    ; every index into the old listing is
     mov word [di+FS_SCRL], 0        ; meaningless now
     call fmv_store
     call fm_measure             ; the free/size line is about the listing we
                                 ; just took, so it is read here and nowhere
                                 ; else (SPEC.md 22.7)
+
+    ; --- AND THE DESTINATION GOES BACK TO THE FLOOR ------------------------
+    ; A `.bss` word may not name a heap claim across arbitrary time: this one
+    ; is MOVABLE on kern_big and PURGEABLE on kern_small, and nothing would
+    ; fix it. It names a claim for exactly the length of this routine, which
+    ; is one mount plus two memory passes, and tools/dsegaudit.py is the
+    ; standing proof that nothing in that span can reach a claim - fmv_fit
+    ; above being the one exception, and it claims only for a window that had
+    ; none, where this word is naming the floor.
+    push bx
+    push dx
+    mov dx, LOW_SEG
+    mov bx, disk_dir
+    call dsk_dest_x
+    pop dx
+    pop bx
 
     jmp kretc_di
 
@@ -1234,7 +1320,14 @@ fm_measure:
     xor ax, ax                  ; AX = entry index
 .sum:
     push ax
-    call dsk_get_dir_x ; SI -> the staged entry, in our own segment
+    call fmv_dient              ; SI -> the staged entry, out of THIS window's
+                                ; cache (22.6.1) and not the global: fmv_load
+                                ; has just retired the destination, so the
+                                ; floor buffer holds another folder and
+                                ; `disk_nfiles` says 0 about it. THE BORROW
+                                ; AND NOT fmv_get_dir, because fmv_reload_all
+                                ; calls fmv_load for every window and [fm_vp]
+                                ; names whichever one acted last
     mov ax, [si+20]             ; size lo...
     add cx, ax
     mov ax, [si+22]             ; ...and hi, with the carry out of the low
@@ -1287,19 +1380,23 @@ fmv_sync_x:
     mov dx, [di+FS_CWD]
     cmp dx, [dsk_cwd]
     jne .load
-    cmp byte [dsk_lstale], 0    ; RIGHT FOLDER, NO LISTING. A quiet mount and
-    je .out                     ; a deferred write both leave the globals
-                                ; naming this very folder with disk_nfiles = 0
-                                ; and the rebuild owed (SPEC.md 18.9/18.4), so
-                                ; the (drive, cwd) compare above says "already
-                                ; synced" about an EMPTY snapshot. The caller
-                                ; is about to resolve a directory INDEX
-                                ; against it - that is what a sync is for -
-                                ; and index-against-nothing is the silent
-                                ; half of docs/FIELD-NOTES.md 4: measured, a
-                                ; double-click after a Control Panel close
-                                ; launched nothing at all and cost no I/O
-                                ; doing it. Fall through and re-list.
+    ; **AND NOT [dsk_lstale]** (docs/plans/LISTING-HOME-PLAN.md 13.4). That
+    ; test was here because a caller was about to resolve a directory INDEX
+    ; against the global snapshot, so an EMPTY one - which a quiet mount and
+    ; a deferred write both leave - had to be rebuilt first; index-against-
+    ; nothing is the silent half of docs/FIELD-NOTES.md 4, measured as a
+    ; double-click that launched nothing and cost no I/O doing it.
+    ;
+    ; **NO CALLER RESOLVES AN INDEX HERE ANY MORE.** All six were read: five
+    ; of them act BY NAME in the folder they are standing in - format,
+    ; compress, uncompress, mkdir/rename, rmtree - `fm_c_up` reads the
+    ; WINDOW'S OWN cache through fmv_get_dir, and loader_run_x stages out of
+    ; the poster's claim. So what this routine is for is STANDING, and a
+    ; listing nobody reads is a mount nobody needs: keeping the test put a
+    ; loud remount - the scan, the sort and one int 13h per type-1 file - in
+    ; front of every delete, rename, New Folder, compress and format whenever
+    ; the debt happened to be raised.
+    jmp short .out
 .load:
     mov al, [di+FS_DRV]
     mov dx, [di+FS_CWD]
@@ -1496,6 +1593,14 @@ fm_focus_x:
     jne .load                   ; owed (SPEC.md 18.9) - not a listing to take
     cmp byte [dsk_mntok], 0     ; and they have to have come from a mount
     je .load                    ; that actually worked
+    cmp word [disk_nfiles], 0   ; ...AND THEY HAVE TO HOLD SOMETHING. A Disk
+    je .load                    ; window's own mount goes into its CLAIM now
+                                ; (13.1) and leaves the floor honestly empty,
+                                ; which the three tests above cannot tell from
+                                ; a good listing: same volume, same folder, no
+                                ; debt owed and the mount worked. Without this
+                                ; line a window coming to the front adopts an
+                                ; empty listing and redraws as '0 files'
     call fmv_take               ; the globals ARE this folder: pure memory
     jmp short .drawn
 .load:

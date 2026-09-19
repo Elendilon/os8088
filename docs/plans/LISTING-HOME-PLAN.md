@@ -305,7 +305,7 @@ and returns without mounting, so the listing it walks is the LOUD mount's.
 Nothing in either comment says the two are coupled.
 
 
-## 11. WAVE 2 OPENED, AND IT IS NOT A WAVE
+## 11. WAVE 2 OPENED, AND IT IS NOT A WAVE — **§13 IS THE ANSWER**
 
 Nothing is built here. What follows is what looking at it found, in the order
 the facts arrived, because three of the four change the plan.
@@ -374,7 +374,7 @@ And the benefit of wave 2 by itself is small in any case: what it removes is
 has just spent hundreds of milliseconds in `int 13h`. The reason to do it is
 the 1,600 bytes at the end, not the copy.
 
-## 12. THE OBJECTION TO THE DELETION, which this plan has not weighed
+## 12. THE OBJECTION TO THE DELETION — **WITHDRAWN BY §13**
 
 **The global listing is what makes a missing view cache SLOW rather than
 FATAL.** `fm_kinit` claims `VIEW_KB` and `jc .nocache`; `fmv_fit` retries at
@@ -414,3 +414,106 @@ also means `DSK_OVLPAD` is not needed and §6's `kern_small` row is moot.
 2. `fdlg` has no store. Does it get a claim, or does it borrow the acting Disk
    window's — and what does a modal dialog do when the claim is refused?
 3. `dsk_relist_x`'s debt with nobody standing: is it simply not owed?
+
+
+## 13. THE SETTLED DESIGN — REPLACE the global, do not MOVE it
+
+§11 and §12 are both answered by one correction from the owner, and it is
+that this study had the wrong verb. Everything above was written as *move the
+global listing somewhere cheaper*, and the answer is that **there is no global
+listing**: a mount writes where its CALLER told it to, and a caller that has
+nowhere for it gets none.
+
+That dissolves §12 outright. `MEM_P_VIEW`'s purgeability was only ever
+insurance for a shared buffer that had to survive being moved; a store that
+belongs to one consumer for as long as that consumer needs it does not need
+insurance, it needs an owner. And it dissolves §11.3's circularity, because
+the destination is not a standing kernel variable that has to name something
+at all times — it is an argument, set for a mount and meaning nothing outside
+one.
+
+### 13.1 The end state
+
+* `disk_dir` and `dsk_icoix` **do not exist**. −1,600 bytes of `kern_big`'s
+  `.lowbss` and −800 of `kern_small`'s, which is heap AND DOS arena.
+* `[dsk_dseg]` / `[dsk_doff]` / `[dsk_nmax]` are the **destination**, an
+  input. `[dsk_dseg]` = 0 is *no destination*, and a loud mount with none
+  behaves as a quiet one — which is already a state the whole kernel handles.
+* **A Disk window** supplies `FS_VSEG`, which it already claims at
+  `fm_kinit` and frees at teardown. Per instance, transient with the window.
+* **The Standard File dialog** claims one at open and frees it at close.
+  Transient with the dialog, and it is the module that today *"needs NO cache
+  of its own"* precisely because there was a global to read.
+* **Any later consumer** passes its own. The mechanism is the argument, not a
+  list of blessed callers.
+* Nothing else wants a listing, so nothing else supplies one: `inst_vol_enter`,
+  `drv_vol_back`, `assoc_back` and `osapi_vol_mount_x` are already quiet, the
+  boot mount has no window, and `dsk_relist_x` with no destination owes
+  nothing.
+
+### 13.2 The size, and why it is already minimal
+
+A store is `DSK_NENT * DSK_DE_STRIDE` entries then `DSK_ICOIX_N` reference
+bytes — **1,600 bytes on `kern_big`, 800 on `kern_small`** — which is the
+view cache's existing layout, so `fmv_iofs`'s arithmetic is shared rather than
+duplicated. `DSK_DE_STRIDE` is 24 and `dskwin.inc` refuses below it (name
+0..15, type 16, handle 18, size 20..23); the bodies left for the machine-wide
+store at SPEC.md 25.9. `VIEW_KB` is **2**, and `mem_claim` rounds to whole KB,
+so 1,600 costs 2KB and there is nothing to shave without moving `DSK_NENT` —
+a user-visible cap on how many entries a folder shows, and not this plan's to
+take.
+
+**What actually shrinks is not the store, it is how often one exists.** Today
+the kernel pays 1,600 bytes for ever, on every machine, whether or not
+anything is listing. After: nothing, plus 2KB per OPEN Disk window and 2KB
+while a dialog is up. A machine sitting on the desktop, or inside a
+fullscreen game, pays zero.
+
+### 13.3 What makes it safe, measured
+
+§11.2's audit is the licence: `dsk_synth_x`, `dsk_put_dir`, `dsk_sortdir`,
+`dsk_ent_ofs` and `dsk_rd1_x` reach **no claim**, so nothing in the window
+where the mount is writing can compact or shed. The one claimer in the mount
+is `asc_use_x`, in the icon harvest, after the listing is written, with `ES`
+already forced to `LOW_SEG` across it. `tools/dsegaudit.py` is the standing
+gate on that and `dsegaudit` is a registered row.
+
+### 13.4 `fmv_sync_x` becomes a QUIET STAND, and that is a speed win of its own
+
+Its six callers were read, and **every one of them wants standing, not a
+listing**:
+
+| caller | what it does next |
+|---|---|
+| `fm_fmt_go` | formats the medium — *"stand on THIS window's volume"* |
+| `fm_c_compress` / `fm_c_uncomp` | *"act in OUR folder"* |
+| `fm_c_up` | reads `fmv_get_dir` — **the window's cache, already** |
+| `fm_edit_commit` | `dskw_mkdir` / rename, by name |
+| `.del` | `dskw_rmtree`, by name |
+| `loader_run_x`'s `.loud` arm | the `FS_VSEG` = 0 fallback, which §13.1 deletes |
+
+So its `[dsk_lstale]` test goes with the fallback: that test exists because
+its free path leaves the caller resolving an INDEX against the global, and
+after this nobody does. What that removes is a **loud mount in front of every
+delete, rename, New Folder, compress and format** whenever the listing debt
+happened to be raised.
+
+### 13.5 The commits
+
+1. **The destination is an input, and the Disk window supplies it.** The
+   mount writes entries and the icon index into `[dsk_dseg]`; `fmv_load`
+   points it at `FS_VSEG`; `fmv_store` loses both block copies; `fm_measure`
+   reads the window's cache; `fmv_sync_x` becomes a quiet stand.
+2. **`fdlg` gets its own store**, claimed at open and freed at close.
+3. **The store becomes mandatory and the global goes.** `FS_VSEG` = 0 paints
+   a refusal in the row area rather than falling back — PERFORMANCE.md rule
+   6, and it is what `fmv_fit`'s retry already heals. `MEM_P_VIEW` stops being
+   purgeable on `kern_small`. `disk_dir` and `dsk_icoix` are deleted, with
+   `DSK_OVLPAD` 512 holding `kern_small`'s overlay ceiling.
+4. **`.ovlw` → `.ovl` on `kern_small`**, retiring that pad and taking its 800
+   bytes in full.
+
+`KD_INIT` cannot refuse — it *"preserves all"* and the window exists before it
+runs — so *mandatory* is a refusal ON THE GLASS and not a window that fails
+to open. That is the better answer anyway: the caption, the buttons and the
+drive menu all still work, and the window heals the moment memory frees.
