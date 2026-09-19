@@ -75,7 +75,7 @@ IDE_C_INITP  equ 0x91
 %include "hdcom.inc"
 %include "cfg.inc"
 %include "hdtool.inc"
-%include "page.inc"
+%include "mount.inc"
 
 ; =============================================================================
 ; The entry proc: attach, detach, and the service table they publish
@@ -197,9 +197,8 @@ hd_state_init:
     mov cx, HD_MAXVOL * HDV_SIZE
     rep stosb
     mov byte [hd_ndev], 0
-    mov byte [hd_sel], 0
-    mov byte [hd_field], 0
-    mov byte [hd_wantmnt], 0
+    mov byte [hd_sel], 0        ; hd_field is the PAGE's and initialises in
+    mov byte [hd_wantmnt], 0    ; the image that owns it (cppage.inc)
     mov byte [hd_msgc], HDM_PICK
     pop es
     pop di
@@ -1261,15 +1260,15 @@ hd_services:
     dw 0                        ; DSV_TIERS
     dw hd_blk                   ; DSV_BLK
     dw hd_s_page                ; DSV_CPNAME  - and so the page exists
-    dw hd_page_paint            ; DSV_CPPAINT
-    dw hd_page_click            ; DSV_CPCLICK
+    dw hd_cp_paint              ; DSV_CPPAINT - a THUNK now (SPEC.md 52.13):
+    dw hd_cp_click              ; DSV_CPCLICK   the page is in HDDTOOL.DRV
     dw hd_tool_reap             ; DSV_CPCLOSE - the panel has gone, so the disk
                                 ; tool's 11KB goes with it (SPEC.md 52.11.7)
     dw 0                        ; DSV_FS      - a file redirector's, not ours
     dw 0                        ; DSV_CPKEY   - this page takes no keys: its
                                 ; geometry is typed with - and + (SPEC.md 52.4)
-    dw hd_page_up               ; DSV_CPUP    - the page acts on the RELEASE
-    dw hd_page_drag             ; DSV_CPDRAG  - ...and follows the pointer
+    dw hd_cp_up                 ; DSV_CPUP    - the page acts on the RELEASE
+    dw hd_cp_drag               ; DSV_CPDRAG  - ...and follows the pointer
                                 ;               between the edges (13.8.4)
     dw 0                        ; DSV_PKGCALL - no package reaches a raw sector
     times DSV_SIZE - ($ - hd_services) db 0
@@ -1288,12 +1287,10 @@ hd_s_page:   db 'Hard Drive', 0
 ; (SPEC.md 51.1), which is what lets the kernel make exactly one claim, at
 ; the size the directory entry already reported, before a byte is read.
 ; =============================================================================
-hd_field:    db 0               ; the C/H/S field the page has selected
-hd_msgc:     db HDM_PICK        ; the page's caption, as an HDM_* CODE and
-                                ; never a pointer (hddabi.inc). The resident
-                                ; sets it from a mount, a config load or a
-                                ; failed tool open and owns no string for it;
-                                ; the page resolves it against its own
+                                ; hd_field, hd_rowdev, hd_fldi, hd_fldx,
+                                ; hd_clx and hd_cly all MOVED to cppage.inc
+                                ; with the page that is the only thing that
+                                ; ever reads them (SPEC.md 52.13)
 
 hd_vols:     times HD_MAXVOL * HDV_SIZE db 0
 
@@ -1319,9 +1316,9 @@ hd_bn_cal:   dw 0               ; ...in how many commands
 hd_bn_rst:   dw 0               ; ...and controller resets, which are retries
 %endif
 
-hd_idbuf:    times 512 db 0     ; IDENTIFY's 256 words (PIO, never DMA)
+                                ; hd_idbuf is hdsec.inc's now, and it is the
+                                ; SAME 512 BYTES as hd_mbr (SPEC.md 52.13.3)
 
-hd_rowdev:   db 0
 hd_pslot:    db 0               ; the partition hd_mount is working on
 hd_wantmnt:  db 0               ; bit n = mount device n at DRVV_READY: it
                                 ; was mounted last session, or the probe
@@ -1332,19 +1329,18 @@ hd_cdrv:     db 0               ; ...and must put back
 hd_cfgi:     db 0               ; hd_cfg_build's loop index and record count
 hd_cfgn:     db 0
 hd_cfgbuf:   times HDC_FBUF db 0     ; the blob, staged for OSAPI_DRV_CFG
-hd_nmnt:     db 0               ; ...and how many it has mounted this click
                                 ; hd_cap MOVED to page.inc, beside the strings
                                 ; it is composed from: a built caption belongs
                                 ; to the image that letters it, exactly as a
                                 ; constant one does (hddabi.inc's HDM_*)
-hd_fldi:     db 0               ; the C/H/S editor's loop index
-hd_fldx:     dw 0
-hd_clx:      dw 0               ; the click being dispatched
-hd_cly:      dw 0
 
 %include "hdsec.inc"
 
-; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
-%include "os88ui.inc"
+; **NO os88ui.inc.** It was here for the PAGE and the page is in HDDTOOL.DRV
+; now (SPEC.md 52.13), which was already carrying its own copy for the two
+; tool windows - so those bytes are DELETED rather than moved, and they are
+; the largest single item this driver gave back. Nothing else in the resident
+; draws a control: what is left of its drawing is one line of refusal text in
+; hd_cp_paint, lettered with OSAPI_FONT_RUN.
 
     OS88_DRV_END

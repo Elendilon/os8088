@@ -36,6 +36,23 @@ hd_ndev:     db 0
 hd_sel:      db 0               ; the device row the page (or the tool) shows
 hd_devs:     times HD_MAXDEV * HDD_SIZE db 0
 
+; --- THE THREE THE PAGE READS AND THE RESIDENT OWNS (SPEC.md 52.13) --------
+; They are here for hd_ndev's and hd_sel's reason: the page is in the tool's
+; image and hd_sync copies the resident's values into this image's copies, so
+; a word that BOTH sides name has to exist in both. The page never writes
+; them back by hand - a caption goes out through HSV_MSG and a mount through
+; HSV_MOUNTDEV, because the resident's are the real ones.
+hd_msgc:     db HDM_PICK        ; the page's caption, as an HDM_* code and
+                                ; never a pointer (hddabi.inc): font_str reads
+                                ; through DS, so a string only means anything
+                                ; in the image that letters it
+hd_nmnt:     db 0               ; ...how many volumes the last mount click
+                                ; mounted, which is what HDM_MOUNTED counts
+hd_mntmask:  db 0               ; ...and bit n = device n has a mounted volume.
+                                ; It replaces a walk of hd_vols, which is the
+                                ; resident's table and stays there: the page
+                                ; asked it ONE question and a byte answers it
+
 hd_rowslot:  db 0               ; a row painter's loop index
 ; The pair every label on this driver's two surfaces is lettered in (SPEC.md
 ; 52.12): AL = ink, AH = the ground under it. A driver cannot read [gfx_color]

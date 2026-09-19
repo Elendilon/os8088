@@ -30,7 +30,7 @@
 ; to a private interface, for the same reason and not by analogy.
 ; =============================================================================
 
-HD_ABI_VER   equ 2              ; bumped whenever a verb changes meaning
+HD_ABI_VER   equ 3              ; bumped whenever a verb changes meaning
 HD_TOOLFILE  equ 0              ; (the name itself is in the resident: a
                                 ; string is not an ABI number)
 
@@ -132,6 +132,16 @@ HDT_SHUT     equ 3              ; close every window, free every claim. Must
                                 ; returns, and a window whose W_SEG names
                                 ; freed memory is a paint into whatever
                                 ; claims it next
+; --- and the four the PAGE is reached through (SPEC.md 52.13) ---------------
+; The page lives in this image now, so DSV_CPPAINT and its three companions
+; arrive as verbs. The kernel's own register contract is carried through
+; UNCHANGED - DI = pane left, DX = pane top, CX/BX = the pane-relative point -
+; because hd_tool_call touches none of them, so a thunk is a verb in AL and
+; nothing else.
+HDT_PAINT    equ 5              ; DSV_CPPAINT
+HDT_CLICK    equ 6              ; DSV_CPCLICK, the press
+HDT_UP       equ 7              ; DSV_CPUP, the release
+HDT_DRAG     equ 8              ; DSV_CPDRAG
 HDT_BUSY     equ 4              ; out: CF = 1 = a window of mine is still
                                 ; VISIBLE, so do not unload me. Visible and not
                                 ; merely allocated: closing one of these is a
@@ -170,6 +180,26 @@ HSV_MSG      equ 5              ; in: AH = an HDM_* -> the page's caption.
                                 ; the RESIDENT, so a string in the tool's
                                 ; segment would render that image's own bytes
 HSV_PAGE     equ 6              ; the Control Panel owes its page a repaint
+; --- what the PAGE pushes back (SPEC.md 52.13) ------------------------------
+; The page edits ITS copy of the device table and the resident owns the real
+; one, so every change it makes crosses as a verb. None of them is a
+; convenience: hd_devs over there is what the transport addresses, hd_vols is
+; the volume table the kernel registered against, and neither may be written
+; from this side.
+HSV_SEL      equ 8              ; in: HRQ_DEV -> the panel's highlight, which
+                                ; hd_mount and hd_cfg_automount read
+HSV_GEOM     equ 9              ; in: HRQ_DEV + HRQ_CYL/HEADS/SPT/FLAGS -> the
+                                ; typed geometry, stored and pushed to the
+                                ; drive with SET PARAMETERS where the rung
+                                ; has one
+HSV_MOUNTDEV equ 10             ; in: HRQ_DEV -> mount every FAT partition on
+                                ; it, which is the page's Mount button
+HSV_UNMOUNTDEV equ 11           ; in: HRQ_DEV -> ...and its Unmount
+HSV_STATE    equ 12             ; out: HRQ_RES = [hd_msgc], HRQ_VOL = a MASK
+                                ; of which devices have a mounted volume.
+                                ; Separate from HSV_SYNC because hd_svc banks
+                                ; BX..ES and AX is spent on that verb's two
+                                ; counts - so a second answer needs the block
 HSV_CTRS     equ 7              ; SPEC.md 52.10.9's DEVICE counters into
                                 ; HRQ_C0..C2. Implemented only in an INSTBENCH
                                 ; build - the number is allocated here
@@ -227,4 +257,10 @@ HRQ_PAD      equ 15
 HRQ_C0       equ 16             ; dw: HSV_CTRS: device commands issued,
 HRQ_C1       equ 18             ; dw: ...sectors they carried,
 HRQ_C2       equ 20             ; dw: ...and controller resets
-HRQ_SIZE     equ 22
+HRQ_CYL      equ 22             ; dw: HSV_GEOM: the typed geometry, and it
+HRQ_HEADS    equ 24             ; dw: gets THREE fields of its own rather than
+HRQ_SPT      equ 26             ; dw: borrowing HRQ_C0..C2 - those are an
+HRQ_FLAGS    equ 28             ; db: INSTBENCH build's, so sharing the bytes
+                                ; would make this verb's meaning depend on a
+                                ; knob nobody building it would think to check
+HRQ_SIZE     equ 30

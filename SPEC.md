@@ -52256,7 +52256,7 @@ function*:
 | row | KB | = image + what it holds to work |
 |---|---|---|
 | Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
-| Hard Drive | ~8 | 8 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims |
+| Hard Drive | ~6 | 6 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
 | os88net | ~6 | 6 image, and no heap claim at all |
@@ -78199,6 +78199,109 @@ says so: the pen comes from `OSAPI_GFX_PEN`, so a disabled button carries
 instead of coming out solid black next to a dotted frame. That is exactly what
 §46.10.1 found ArtfulType *not* doing, and §6.1.12 now carries it through the
 run's own mask at no cost.
+
+### 52.13 The Control Panel page is in `HDDTOOL.DRV`, not in the driver
+
+**`HDD.DRV`'s image was 8,152 bytes and 2,893 of them were a page nobody was
+looking at.** A hard-disk machine carries this driver from boot to power-off;
+what it does between the Control Panel being closed and the next time it is
+opened is serve sectors, and the page is not part of that. So the page moved
+into the image that already existed for the two windows it opens.
+
+**IT IS `rdpage.inc`'s SPLIT, arrived at from the other side.** The RAM disk's
+own header says *"it is `hdtool.inc` with two differences"*, the first being
+that its trigger is a **paint** rather than a click. That difference is now
+gone: the hard disk used to keep its page resident and load a second image
+when the user pressed Format, so the load happened on a button; the page IS
+that second image now, so it loads at `DSV_CPPAINT`, and the two windows that
+used to be the only reason to load are already in memory when it is up.
+
+**What the resident keeps** is `DSV_CPNAME`'s string — `cp_list` letters it and
+the kernel stages it at attach, so it cannot move — four thunks, the load, and
+**one line of drawing**: `hd_cp_paint` letters `Need the system disk` when the
+image will not come in. The other three cells may do nothing on that path; a
+paint may not, because the kernel has white-filled the pane and will not come
+back, and a blank rectangle with no explanation in it is §47 rule 5's failure.
+
+**What crosses, and each because it must:**
+
+| | how |
+|---|---|
+| the device table, `[hd_ndev]`, `[hd_sel]` | `hd_sync`, which the tool has always done before it ACTS |
+| the caption | an `HDM_*` **code**, never a pointer — `font_str` reads through DS |
+| *has this device a volume?* | `HSV_STATE`'s one-bit-per-device mask |
+| a selection, a typed geometry, a mount, an unmount | `HSV_SEL` / `HSV_GEOM` / `HSV_MOUNTDEV` / `HSV_UNMOUNTDEV` |
+
+`hd_vols` and the real `hd_devs` never cross. The page edits its **copy** and
+the resident owns the original, which is why every change is a verb: the table
+over there is what the transport addresses and the volume indices were
+registered to the kernel out of `hd_vols`.
+
+#### 52.13.1 `HSV_STATE` is a verb of its own, and `hd_svc`'s prologue is why
+
+`hd_svc` does `push bx`…`push es` on entry and `hd_svc_out` pops them, so **AX
+is the only register that can carry an answer out** — and `HSV_SYNC` already
+spends both halves of it on the count and the selection. Returning the caption
+and the mount mask in `BX` assembles, runs, and loses them at the epilogue.
+
+Writing them past the device table instead is what `HSV_SYNC`'s own comment
+refuses: it would make `hdcom.inc`'s declaration order an unwritten part of the
+ABI. So they go in the request block, under a verb of their own, and `hd_sync`
+makes two far calls where it made one — 46.7 µs on a click, against a class of
+bug that does not announce itself.
+
+#### 52.13.2 What it cost, measured
+
+| | before | after |
+|---|---|---|
+| `HDD.DRV` image | 8,152 | **5,633** |
+| …of which `os88ui.inc` | 983 | **deleted, not moved** |
+
+**−2,519 bytes, 31%,** and the single largest item is the one that was never
+copied anywhere: `HDDTOOL.DRV` already included `os88ui.inc` for its two
+windows, so the page's controls found their library waiting. `HDTOOL_KB` is
+derived from the tool's built size by the Makefile, so the claim follows it
+without a constant to remember.
+
+The page's heap cost changes from **nothing** to `HDTOOL_KB` **while the panel
+is open**, freed at `DSV_CPCLOSE` by `hd_tool_reap`, which already existed.
+That is the trade §2.8 asks for stated plainly: a resident byte for a
+transient one. The system disk is no new requirement — the Control Panel is
+`CTRL.DRV`, an on-demand module, so it is already needed to reach this page.
+
+#### 52.13.3 `hd_idbuf` and `hd_mbr` are the same 512 bytes
+
+Two 512-byte scratch buffers, 1,024 resident bytes, and **their lifetimes
+cannot overlap**:
+
+| buffer | filled by | when |
+|---|---|---|
+| `hd_idbuf` | `hd_ide_ident`, inside `hd_probe` | `DRVV_ATTACH` |
+| `hd_mbr` | `hd_part_load`, whose only resident caller is `hd_mount` | `DRVV_READY`'s automount, or a page click — a verb later at the earliest |
+
+`hd_probe` has exactly one caller and the IDE rung spends `hd_idbuf` before it
+returns; nothing re-probes while the driver is loaded, because unticking it is
+an unload and the next tick reads a fresh image.
+
+**What makes it safe rather than clever is that the resident never WRITES a
+partition table.** `hd_part_write` is `partw.inc`'s and that file is in the
+tool image alone, so the worst a crossed lifetime could do is fail a mount —
+it cannot commit IDENTIFY's 256 words to sector 0. The tool has no `hd_idbuf`
+at all, never probing, so the union is `%ifndef HD_TOOL` and the two images
+disagree about nothing.
+
+**A heap claim was the other way and it is REFUSED**, which is worth recording
+because it is the obvious one. `hd_mbr` is reached as a near offset by
+`hdcom.inc` — one source compiled into both images — and by the partition
+editor, the formatter and the installer, which index it as a structure. Moving
+it into a claim means routing all of those through `ES`, and the code it would
+touch is the code that writes partition tables. 512 bytes is not worth
+reaching into that, and the union gets the same 512 for a lifetime argument
+and no instruction.
+
+**`HDD.DRV`'s image: 5,633 → 5,121**, and 8,152 → 5,121 across §52.13 entire —
+**−3,031 bytes, 37%**, for a machine that carries this driver from boot to
+power-off.
 
 ## 53. fsx.inc — fullscreen exclusive
 
