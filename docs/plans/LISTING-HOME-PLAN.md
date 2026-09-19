@@ -261,22 +261,23 @@ flag to pass.
    deliberately does NOT keep its `[dsk_lstale]` test: that one exists
    because its free path leaves the caller resolving an index against the
    global snapshot, and this one does not.
-2. **`files.inc` Disk-window navigation** — point the mount at `FS_VSEG`,
-   which already holds exactly this.
-3. **`fdlg.inc`** — the heaviest reader and the only one with no store. Modal
-   and temporal, so it can afford a claim for its lifetime. **Open: where
-   does that claim come from, and what does the dialog do when refused?** It
-   is modal, so *"paint from nothing"* is not the graceful answer a Disk
-   window has.
-4. **`dskw_remount_x` / `dsk_relist_x`** — whoever is standing. **Open: is
-   the debt collectable with nobody standing, or does the flag simply stay
-   raised until someone loud arrives?**
-5. **THE DELETION** — `disk_dir` and `dsk_icoix` out of `.lowbss`, with
-   `DSK_OVLPAD` 512 on `kern_small`. 1,600 bytes on `kern_big`, 288 on
-   `kern_small`. §6 says this needs no overlay work.
-6. **`.ovlw` → `.ovl`**, and `BOOT2_SECS` 9 → 10 if the bodies do not fit
+2. **§11 — waves 2 to 5 ARE ONE CHANGE**, and §12 is the objection to the
+   end of it. What follows is what they were before that was established,
+   kept because the destinations are still right:
+   * `files.inc` Disk-window navigation — point the mount at `FS_VSEG`.
+   * `fdlg.inc` — the heaviest reader and the only one with no store. Modal
+     and temporal, so it can afford a claim for its lifetime. **Open: where
+     does that claim come from, and what does the dialog do when refused?**
+   * `dskw_remount_x` / `dsk_relist_x` — whoever is standing. **Open: is the
+     debt collectable with nobody standing, or does the flag simply stay
+     raised until someone loud arrives?**
+   * THE DELETION — `disk_dir` and `dsk_icoix` out of `.lowbss`, with
+     `DSK_OVLPAD` 512 on `kern_small`. 1,600 bytes on `kern_big`, 288 on
+     `kern_small`.
+3. **`.ovlw` → `.ovl`**, and `BOOT2_SECS` 9 → 10 if the bodies do not fit
    473 bytes with a margin. Retires `kern_small`'s pad — its remaining 512 —
-   and gives `kern_big` back a rung of spare. §6.
+   and gives `kern_big` back a rung of spare. §6. **This one IS separable**
+   and is the only remaining row that is.
 
 ## 10. A FOLLOW-ON THIS PLAN DOES NOT COVER: `kern_dos`
 
@@ -302,3 +303,114 @@ which is quiet, and a quiet chdir leaves `[disk_nfiles]` = 0. The find that
 follows works only because `dsk_here_ok` sees it is already standing there
 and returns without mounting, so the listing it walks is the LOUD mount's.
 Nothing in either comment says the two are coupled.
+
+
+## 11. WAVE 2 OPENED, AND IT IS NOT A WAVE
+
+Nothing is built here. What follows is what looking at it found, in the order
+the facts arrived, because three of the four change the plan.
+
+### 11.1 `files.inc` is ALREADY converted
+
+The only reads of the global left in it are these, and none is the work:
+
+| site | what it is |
+|---|---|
+| `fmv_load:1176`, `fmv_take:1599` | `mov ax, [disk_nfiles]` → `FS_N`, reading the count the mount it just made produced |
+| `fm_measure:1237` | sums `FS_N` entries through `dsk_get_dir_x`, immediately after that same mount |
+| `fmv_copy_in`, `fmv_get_icon` | **the `FS_VSEG` = 0 FALLBACK**, which §12 is about |
+
+So "wave 2" is one thing: **where the mount WRITES**.
+
+### 11.2 The mount can write into a claim, and that is MEASURED
+
+`disk_mount` was built for this — `[dsk_dseg]`/`[dsk_doff]` named a
+`DVK_DRV` driver's DONATED claim until SPEC.md 22.6 retired it — so
+`dsk_put_dir`, `dsk_sortdir`'s `mov es, [dsk_dseg]` and `tools/dsegaudit.py`
+are all still there. The question that decides whether it is safe is the
+audit's own: *can anything holding this block reach a `mem_claim`, which
+COMPACTS on its refusal path?* Asked of every routine in the write window:
+
+```
+dsk_synth_x      NO CLAIM REACHABLE      asc_use_x -> asc_seed -> asc_row_take
+dsk_put_dir      NO CLAIM REACHABLE                -> ico_add -> ico_scan
+dsk_sortdir      NO CLAIM REACHABLE                -> ico_need -> mem_claim_x
+dsk_ent_ofs      NO CLAIM REACHABLE
+dsk_rd1_x        NO CLAIM REACHABLE
+```
+
+**The write window is clean.** The one claimer in the whole mount is
+`asc_use_x`, and it is in the icon HARVEST — after the listing is written and
+sorted, writing `dsk_icoix` and not the entries — with `ES` already forced to
+`LOW_SEG` across it for this exact reason (`disk.inc`, SPEC.md 66.5.10.2).
+
+### 11.3 But `[dsk_dseg]` cannot be put back afterwards, and that is what
+makes waves 2 to 5 ONE change
+
+Point it at the window's claim for the mount and there are two endings and no
+third:
+
+* **Restore it to `disk_dir` after** — then the global holds the PREVIOUS
+  folder while every reader that still goes through it (`dsk_get_dir_x`,
+  `dsk_find_name_x`, `dsk_ent_ofs`, `fdlg`'s six sites) believes it holds this
+  one. Silently wrong, which is worse than slow.
+* **Leave it naming the claim** — then a word in `.bss` names a heap block
+  across arbitrary time, and that block is **movable on `kern_big`**
+  (`fm_reloc`, files.inc:8516, which fixes `FS_VSEG` and nothing else) and
+  **purgeable on `kern_small`** (`MEM_P_VIEW` at `MEM_PG_LOW`, the first rank
+  shed). `dsk_dseg_reloc` was the kernel's half of exactly this and SPEC.md
+  22.6 deleted it with the donation; its `mem_rr_tab` row went out in this
+  same cycle.
+
+So the destination can only move once the global has no readers left — which
+is waves 3 and 4 — and the readers can only go once there is a destination.
+**They land together or not at all.** A wave 2 taken alone is either a
+correctness bug or ~30 bytes of relocation machinery bought back for a benefit
+that is not yet there.
+
+And the benefit of wave 2 by itself is small in any case: what it removes is
+`fmv_store`'s 1,536-byte `dsk_copy_seg_x`, which at PERFORMANCE.md Set 117.2's
+13.3 cycles a byte is **~4.3 ms** on a 4.77 MHz 8088 — against a mount that
+has just spent hundreds of milliseconds in `int 13h`. The reason to do it is
+the 1,600 bytes at the end, not the copy.
+
+## 12. THE OBJECTION TO THE DELETION, which this plan has not weighed
+
+**The global listing is what makes a missing view cache SLOW rather than
+FATAL.** `fm_kinit` claims `VIEW_KB` and `jc .nocache`; `fmv_fit` retries at
+every store; `fmv_copy_in` and `fmv_get_icon` both fall back to
+`[dsk_dseg]`/`[dsk_doff]`. files.inc says so in as many words: *"A refused
+claim leaves FS_VSEG 0, which is the documented fallback and not an error: the
+window then paints from the global snapshot and costs floppy I/O it would
+otherwise have avoided."* Delete the global and there is nowhere to fall back
+to.
+
+The two builds differ, and they differ the wrong way round:
+
+* **`kern_big`** — the claim is MOVABLE and not purgeable (it is not in
+  `mem_pg_tab` at all). Once a window has it, it keeps it, so the fallback
+  fires only on a claim refused at open, which `fmv_fit` already retries at
+  every store. Making the claim MANDATORY there is a small change and an
+  honest one: PERFORMANCE.md rule 6 says refusal is a normal path, and a Disk
+  window that cannot find 4KB refusing to open with a reason is better than
+  one that opens and pays floppy I/O for ever.
+* **`kern_small`** — the claim is PURGEABLE, at `MEM_PG_LOW`, the FIRST rank
+  shed. That is deliberate: `mem_pg_forget`'s `.view` arm hands the owner to
+  `fmv_demote`, and memory.inc argues the rank explicitly. Deleting the global
+  there turns a purge from *"this window costs floppy I/O now"* into *"this
+  window cannot list at all"*, and it would have to become a re-claim that can
+  fail at PAINT time.
+
+And `kern_small` is the build where §6 already found the deletion buys **288
+bytes and not 800**. So two independent findings now say the same thing:
+**this is a `kern_big` plan.** The honest scope is 1,600 bytes on `kern_big`
+with the view claim made mandatory there, and `kern_small` left alone — which
+also means `DSK_OVLPAD` is not needed and §6's `kern_small` row is moot.
+
+**What to settle before any of it is built**, in order:
+
+1. Is a mandatory view claim acceptable on `kern_big`? It is the whole
+   premise, and it is a user-visible refusal.
+2. `fdlg` has no store. Does it get a claim, or does it borrow the acting Disk
+   window's — and what does a modal dialog do when the claim is refused?
+3. `dsk_relist_x`'s debt with nobody standing: is it simply not owed?
