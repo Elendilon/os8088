@@ -52256,7 +52256,7 @@ function*:
 | row | KB | = image + what it holds to work |
 |---|---|---|
 | Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
-| Hard Drive | ~6 | 6 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
+| Hard Drive | ~5 | 5 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
 | os88net | ~6 | 6 image, and no heap claim at all |
@@ -78302,6 +78302,29 @@ and no instruction.
 **`HDD.DRV`'s image: 5,633 → 5,121**, and 8,152 → 5,121 across §52.13 entire —
 **−3,031 bytes, 37%**, for a machine that carries this driver from boot to
 power-off.
+
+#### 52.13.4 One byte was worth a kilobyte, and `drv_load` is why
+
+`hd_mbrok` is **one byte**, and it sat after a 512-aligned 512-byte buffer at
+the end of the image. That put the resident at **5,121** — one byte past 5KB —
+and `drv_load` rounds an image UP to whole KB and claims that, so a
+hard-disk machine held **six**.
+
+Moved in front of `hdsec.inc`'s `align 512` it is absorbed by padding that was
+already there. The image is **5,120**, `DRVM_IMG_HDD` is **5**, and
+`DRVM_CEIL_DISK` — the `Hard drives (Up to NNK)` caption §51.12.1 quotes — is
+5 as well. **No code changed and no byte was saved**: 5,121 bytes of content
+became 5,120 bytes of content, and what moved is which side of a rounding
+boundary the total fell on.
+
+**This does not licence designing against the rounding** — §1's banner is
+unchanged and a byte is still worth a byte. It is the narrower case that
+banner names as the real one: the allocator's granularity here is not a
+reporting step but **the actual claim**, so the KB a driver crosses is memory
+the machine genuinely holds. The next kilobyte therefore needs the image under
+**4,096**, which no amount of data shuffling reaches — it wants the mount-only
+code out — the probe, the IDE rung, the partition-table read and the
+config load are ~1.7KB between them, and 1,025 of that is the threshold.
 
 ## 53. fsx.inc — fullscreen exclusive
 

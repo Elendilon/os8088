@@ -17,6 +17,13 @@
 ; long and already aligned - which is how the pair sat in hdd.asm before the
 ; split, and why keeping them adjacent gives those bytes back.
 ; =============================================================================
+; **hd_mbrok COMES FIRST, AND IT IS WORTH A KILOBYTE.** It is one byte, and
+; after a 512-aligned 512-byte buffer it put the resident's image at 5,121 -
+; one byte past 5KB - so `drv_load`, which rounds an image UP to whole KB and
+; claims that, took SIX. In front of the `align` it is absorbed by padding
+; that was already there and the image is exactly 5,120. Nothing else moved.
+hd_mbrok:    db 0               ; HMB_*: whether hd_mbr is the DISK's table
+
     align 512
 %ifndef HD_TOOL
 hd_idbuf:                       ; **THE SAME 512 BYTES AS hd_mbr**, on the
@@ -42,4 +49,3 @@ hd_mbr:      times 512 db 0     ; the partition table being read or edited
 %ifdef HD_TOOL
 hd_sec0:     times 512 db 0     ; the formatter's sector under construction
 %endif
-hd_mbrok:    db 0               ; HMB_*: whether hd_mbr is the DISK's table
