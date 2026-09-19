@@ -200,7 +200,7 @@ hd_state_init:
     mov byte [hd_sel], 0
     mov byte [hd_field], 0
     mov byte [hd_wantmnt], 0
-    mov word [hd_msg], hd_s_pick
+    mov byte [hd_msgc], HDM_PICK
     pop es
     pop di
     pop cx
@@ -508,79 +508,11 @@ hd_geom_store:
 .out:
     ret
 
-; -----------------------------------------------------------------------------
-; hd_geom_ok - is a row's geometry usable? (module internal)
-; in:  DI = the row
-; out: CF = 0 usable
-; clobbers: flags
-; -----------------------------------------------------------------------------
-hd_geom_ok:
-    push ax
-    mov ax, [di+HDD_CYL]
-    test ax, ax
-    jz .no
-    cmp ax, 1024
-    ja .no
-    mov ax, [di+HDD_HEADS]
-    test ax, ax
-    jz .no
-    cmp ax, 255
-    ja .no
-    cmp byte [di+HDD_KIND], HDK_IDE
-    jne .spt
-    cmp ax, 16                  ; the task file has four bits of head, so an
-    ja .no                      ; IDE row carrying more is not a drive we can
-.spt:                           ; address at all - refuse the GEOMETRY rather
-                                ; than truncate it at the port (SPEC.md 52.1)
-    mov ax, [di+HDD_SPT]
-    test ax, ax
-    jz .no
-    cmp ax, 63
-    ja .no
-    pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_dev_mb - a device's size in whole MB
-; in:  DI = the row
-; out: AX = megabytes (0 if the geometry is unknown)
-; clobbers: AX (the output), flags
-;
-; cyl * heads * spt sectors, and 2,048 sectors is a megabyte - so the answer
-; is (cyl*heads*spt) >> 11, computed as a 32-bit product because 1024 x 16 x
-; 63 is 1,032,192 and does not fit a word.
-; -----------------------------------------------------------------------------
-hd_dev_mb:
-    push bx
-    push cx
-    push dx
-    call hd_geom_ok
-    jc .none
-    mov ax, [di+HDD_HEADS]
-    mul word [di+HDD_SPT]       ; DX:AX = heads*spt (<= 16,065)
-    mul word [di+HDD_CYL]       ; ...times cylinders: a true 32-bit product
-                                ; only because the first fits a word
-    mov bx, ax                  ; DX:BX = total sectors
-    mov cl, 11
-.shift:                         ; >> 11, a bit at a time: the 8086 has no
-    shr dx, 1                   ; 32-bit shift and this runs once a repaint
-    rcr bx, 1
-    dec cl
-    jnz .shift
-    mov ax, bx
-    jmp short .out
-.none:
-    xor ax, ax
-.out:
-    pop dx
-    pop cx
-    pop bx
-    ret
+                                ; hd_geom_ok and hd_dev_mb MOVED to
+                                ; hdcom.inc - both are pure functions
+                                ; of a device row and the PAGE needs
+                                ; them, so they belong in the file
+                                ; both images compile (SPEC.md 52.11)
 
 ; =============================================================================
 ; The block transport (SPEC.md 51.8) - what the kernel calls for every sector
@@ -1357,7 +1289,11 @@ hd_s_page:   db 'Hard Drive', 0
 ; the size the directory entry already reported, before a byte is read.
 ; =============================================================================
 hd_field:    db 0               ; the C/H/S field the page has selected
-hd_msg:      dw 0               ; -> the page's caption, always something
+hd_msgc:     db HDM_PICK        ; the page's caption, as an HDM_* CODE and
+                                ; never a pointer (hddabi.inc). The resident
+                                ; sets it from a mount, a config load or a
+                                ; failed tool open and owns no string for it;
+                                ; the page resolves it against its own
 
 hd_vols:     times HD_MAXVOL * HDV_SIZE db 0
 
@@ -1397,11 +1333,10 @@ hd_cfgi:     db 0               ; hd_cfg_build's loop index and record count
 hd_cfgn:     db 0
 hd_cfgbuf:   times HDC_FBUF db 0     ; the blob, staged for OSAPI_DRV_CFG
 hd_nmnt:     db 0               ; ...and how many it has mounted this click
-hd_cap:      times 32 db 0      ; the page's caption, when it is BUILT rather
-                                ; than pointed at a literal. Its own buffer:
-                                ; hd_line is rewritten by every device row on
-                                ; the way past, and a caption outlives the
-                                ; paint that put it up
+                                ; hd_cap MOVED to page.inc, beside the strings
+                                ; it is composed from: a built caption belongs
+                                ; to the image that letters it, exactly as a
+                                ; constant one does (hddabi.inc's HDM_*)
 hd_fldi:     db 0               ; the C/H/S editor's loop index
 hd_fldx:     dw 0
 hd_clx:      dw 0               ; the click being dispatched

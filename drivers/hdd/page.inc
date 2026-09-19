@@ -276,8 +276,8 @@ hd_page_paint:
     call hd_page_button
 
     ; --- and the caption, which is where the truth goes ----------------------
-    mov si, [hd_msg]
-    mov cx, di
+    call hd_msg_str             ; SI = the string for [hd_msgc], resolved
+    mov cx, di                  ; against THIS image's own (hddabi.inc)
     add cx, HDP_LX
     mov dx, bp
     add dx, HDP_CAPY
@@ -874,7 +874,7 @@ hd_page_adjust:
     call hd_geom_ok                 ; whole point of the editor. Bit 1 says
     jc .mark                        ; the USER set it, which is what makes it
     or byte [di+HDD_FLAGS], 1       ; worth a record in the blob (SPEC.md 52.6)
-    mov word [hd_msg], hd_s_typed
+    mov byte [hd_msgc], HDM_TYPED
     call hd_geom_push               ; ...and the DRIVE is told, or it keeps
                                     ; translating with the one the probe left
 .mark:
@@ -995,7 +995,7 @@ hd_page_ladder:
     cmp al, [hd_ndev]
     jae .done
     mov [hd_sel], al
-    mov word [hd_msg], hd_s_pick
+    mov byte [hd_msgc], HDM_PICK
     jmp .repaint
 
 .editor:
@@ -1116,10 +1116,10 @@ hd_page_ladder:
 .refused:
     ; A greyed control explains itself (SPEC.md 47 rule 5), so the refusal
     ; says nothing new - it just makes sure the reason is on screen.
-    mov word [hd_msg], hd_s_nogeom
+    mov byte [hd_msgc], HDM_NOGEOM
     cmp byte [hd_ndev], 0
     jne .repaint
-    mov word [hd_msg], hd_s_nodev
+    mov byte [hd_msgc], HDM_NODEV
 .repaint:
     call hd_page_repaint
 .done:
@@ -1185,13 +1185,13 @@ hd_mount:
     push di
 
     mov byte [hd_nmnt], 0
-    mov word [hd_msg], hd_s_mnotab
+    mov byte [hd_msgc], HDM_MNOTAB
     mov al, [hd_sel]
     call hd_dev_row
     call hd_part_load
     jc .out                     ; no readable table: nothing to mount
 
-    mov word [hd_msg], hd_s_mnofat
+    mov byte [hd_msgc], HDM_MNOFAT
     mov byte [hd_pslot], 0
 .slot:
     mov al, [hd_pslot]
@@ -1216,14 +1216,14 @@ hd_mount:
     call hd_mount_one
     jmp short .next
 .have:
-    mov word [hd_msg], hd_s_mhave   ; and SAY so: the caption was still
+    mov byte [hd_msgc], HDM_MHAVE   ; and SAY so: the caption was still
                                     ; 'No FAT partition on it' from the top of
                                     ; the loop, which about a partition that is
                                     ; mounted and on the desktop is the one
                                     ; answer that is not true
     jmp short .next
 .big:
-    mov word [hd_msg], hd_s_mbig    ; the tool calls this slot Unmountable and
+    mov byte [hd_msgc], HDM_MBIG    ; the tool calls this slot Unmountable and
                                     ; so does the page, rather than reporting
                                     ; 'no FAT partition' about a partition that
                                     ; plainly is one (SPEC.md 52.2.2)
@@ -1298,7 +1298,7 @@ hd_mount_one:
 .novol:
     mov byte [bx+HDV_USED], 0
 .full:
-    mov word [hd_msg], hd_s_mfull
+    mov byte [hd_msgc], HDM_MFULL
 .out:
     pop si
     pop dx
@@ -1349,35 +1349,19 @@ hd_already:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_mount_says - 'Mounted n volume(s)', into the caption buffer (internal)
+; hd_mount_says - say 'Mounted n volume(s)' (module internal)
 ; in:  [hd_nmnt]
-; out: [hd_msg] points at it
+; out: [hd_msgc] = HDM_MOUNTED
 ; clobbers: flags
 ;
-; Its OWN buffer and not hd_line, which every device row rewrites on the way
-; past: a caption outlives the paint that put it up.
+; IT BUILT THE STRING and now it sets a code. The count is already in
+; [hd_nmnt] and the renderer has it, so what crossed as 32 bytes of built
+; caption crosses as one byte and a number the page was reading anyway -
+; which is the whole of hddabi.inc's rule about a caption being a pointer
+; only in the image that letters it.
 ; -----------------------------------------------------------------------------
 hd_mount_says:
-    push ax
-    push si
-    push di
-    mov di, hd_cap
-    mov si, hd_s_mounted
-    call hd_scat
-    mov al, [hd_nmnt]
-    xor ah, ah
-    call hd_utoa
-    mov si, hd_s_vols
-    cmp byte [hd_nmnt], 1
-    jne .plural
-    mov si, hd_s_vol1
-.plural:
-    call hd_scat
-    mov byte [di], 0
-    mov word [hd_msg], hd_cap
-    pop di
-    pop si
-    pop ax
+    mov byte [hd_msgc], HDM_MOUNTED
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1432,7 +1416,7 @@ hd_unmount:
 .next:                          ; Mount put up one icon per FAT partition and
     add bx, HDV_SIZE            ; Unmount is the other half of that
     loop .scan
-    mov word [hd_msg], hd_s_unmounted
+    mov byte [hd_msgc], HDM_UNMOUNTED
     pop cx
     pop bx
     pop ax
@@ -1594,6 +1578,79 @@ hd_raw_op:
 .out:
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; hd_msg_str - [hd_msgc] as a string in THIS image (module internal)
+; in:  [hd_msgc], and [hd_nmnt] for the one that is built
+; out: SI -> a NUL string in the rendering image's own segment
+; clobbers: SI (the output), flags
+;
+; HDM_MOUNTED is composed rather than looked up, which is why the table has a
+; 0 in that slot and not a pointer: a caption carrying a NUMBER cannot be a
+; constant, and building it HERE is what lets the resident forget it entirely
+; (hddabi.inc). Its buffer is its own and not hd_line, which every device row
+; rewrites on the way past - a caption outlives the paint that put it up.
+;
+; An out-of-range code answers HDM_PICK rather than reading past the table:
+; the byte crosses an image boundary, so it is INPUT and is treated as such.
+; -----------------------------------------------------------------------------
+hd_msg_str:
+    push ax
+    push bx
+    push di
+    mov al, [hd_msgc]
+    cmp al, HDM_N
+    jb .known
+    xor al, al                  ; HDM_PICK: a code we do not have a string for
+.known:
+    cmp al, HDM_MOUNTED
+    je .built
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov si, [hd_msg_tab+bx]
+    jmp short .out
+.built:
+    mov di, hd_cap
+    mov si, hd_s_mounted
+    call hd_scat
+    mov al, [hd_nmnt]
+    xor ah, ah
+    call hd_utoa
+    mov si, hd_s_vols
+    cmp byte [hd_nmnt], 1
+    jne .plural
+    mov si, hd_s_vol1
+.plural:
+    call hd_scat
+    mov byte [di], 0
+    mov si, hd_cap
+.out:
+    pop di
+    pop bx
+    pop ax
+    ret
+
+hd_msg_tab:
+    dw hd_s_pick                ; HDM_PICK
+    dw hd_s_nosys               ; HDM_NOSYS
+    dw hd_s_notool              ; HDM_NOTOOL
+    dw hd_s_typed               ; HDM_TYPED
+    dw hd_s_nogeom              ; HDM_NOGEOM
+    dw hd_s_nodev               ; HDM_NODEV
+    dw hd_s_mnotab              ; HDM_MNOTAB
+    dw hd_s_mnofat              ; HDM_MNOFAT
+    dw hd_s_mhave               ; HDM_MHAVE
+    dw hd_s_mbig                ; HDM_MBIG
+    dw hd_s_mfull               ; HDM_MFULL
+    dw hd_s_unmounted           ; HDM_UNMOUNTED
+    dw 0                        ; HDM_MOUNTED is BUILT, never looked up
+%if ($ - hd_msg_tab) / 2 != HDM_N
+  %error "hd_msg_tab has drifted from hddabi.inc's HDM_* - one word per code, in order"
+%endif
+
+hd_cap:      times 32 db 0      ; ...and HDM_MOUNTED's buffer, which belongs
+                                ; with the strings it is composed from
 
 hd_s_install: db 'Install', 0
 hd_s_bios:    db 'BIOS', 0

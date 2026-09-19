@@ -178,8 +178,31 @@ HSV_CTRS     equ 7              ; SPEC.md 52.10.9's DEVICE counters into
                                 ; existed in one build and not another is
                                 ; exactly the ABI drift this file forbids
 
-; --- HDM_*: the captions the tool may ask the page to show -------------------
-HDM_PICK     equ 0              ; 'Pick a drive, then a button'
+; --- HDM_*: THE PAGE'S CAPTION, AS A CODE ------------------------------------
+; `[hd_msgc]` is one of these and never a pointer, and the reason is the one
+; HSV_MSG already gives one image out: `font_str` reads through DS, so a
+; caption is only ever a pointer in the image that RENDERS it. The resident
+; sets a code from a mount, a config load or a failed tool open; the page - in
+; whichever image it lives - owns the strings and resolves the code against
+; its own. Getting that wrong does not fault: it letters whatever the other
+; image happens to hold at that offset.
+;
+; HDM_MOUNTED is the one that is BUILT rather than looked up ('Mounted 3
+; volumes'), off `[hd_nmnt]`, which the resident keeps for it.
+HDM_PICK      equ 0             ; 'Pick a drive, then a button'
+HDM_NOSYS     equ 1             ; 'Need the system disk'
+HDM_NOTOOL    equ 2             ; 'Tool would not open'
+HDM_TYPED     equ 3             ; 'Geometry set by hand'
+HDM_NOGEOM    equ 4             ; 'Geometry unknown: type it'
+HDM_NODEV     equ 5             ; 'No hard disk found'
+HDM_MNOTAB    equ 6             ; 'No partition table yet'
+HDM_MNOFAT    equ 7             ; 'No FAT partition on it'
+HDM_MHAVE     equ 8             ; 'Already mounted'
+HDM_MBIG      equ 9             ; 'Partition is over 32MB'
+HDM_MFULL     equ 10            ; 'No free volume'
+HDM_UNMOUNTED equ 11            ; 'Unmounted'
+HDM_MOUNTED   equ 12            ; ...and 'Mounted N volume(s)', BUILT
+HDM_N         equ 13            ; the table's length, asserted where it is
 
 ; --- the request block, in the TOOL's segment --------------------------------
 HRQ_DEV      equ 0              ; db: a device index (not a row pointer - the

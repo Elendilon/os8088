@@ -333,11 +333,11 @@ hd_tool_open:
     clc
     jmp short .out
 .nofile:
-    mov word [hd_msg], hd_s_nosys
+    mov byte [hd_msgc], HDM_NOSYS
     stc
     jmp short .out
 .norun:
-    mov word [hd_msg], hd_s_notool
+    mov byte [hd_msgc], HDM_NOTOOL
     stc
 .out:
     pop bp
@@ -542,7 +542,7 @@ hd_svc_cfgmark:
     jmp short hd_svc_out
 
 hd_svc_msg:
-    mov word [hd_msg], hd_s_pick    ; HDM_PICK is the only one so far, and a
+    mov byte [hd_msgc], HDM_PICK    ; HDM_PICK is the only one so far, and a
     clc                             ; CODE is still the right shape: a string
                                     ; in the tool's segment would render this
                                     ; image's own bytes (SPEC.md 31.9)
