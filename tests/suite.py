@@ -7179,6 +7179,20 @@ SOAK = [
         "only thing keeping mcbench.inc assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/mcbench360.img",)),
+    Row("titheband", "soak", py("tests/titheband.py"), 70.0,
+        "WAVE 0 of docs/plans/TITHE-PLAN.md (its 3.7): what a sprite band"
+        "COSTS, on all three adapters. It is a measurement first - the report"
+        "is docs/reports/TITHE-BAND-2026-09-21.md - but the row is here for"
+        "the three assertions no other test in the tree makes, and all three"
+        "are about the SHAPE across adapters rather than any one number:"
+        "gfx_blit1_pen's four paths must LAND ON EACH OTHER on Hercules and"
+        "CGA (SPEC.md 5.4.2.2 does not read a pen on one plane) and separate"
+        "on VGA; gfx_blitp must REFUSE on 1bpp, which is checked in WORDS"
+        "because a refusal and a fast blit are the same number; and the"
+        "128x128 bar must agree with PERFORMANCE.md Set 77, without which"
+        "nothing else in the report is quotable. Needs `make titheband`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/titheband360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

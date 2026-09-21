@@ -2005,6 +2005,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
+        titheband tithequick \
         xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
@@ -9350,6 +9351,77 @@ $(BUILD)/bandbnch.bin: tests/bandbench/bandbench.asm tests/benchlib.inc apps/os8
 
 $(BUILD)/bandbnch.o88: $(BUILD)/bandbnch.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/bandbnch.bin -o $@
+
+# ...and the fourth, which is not about text at all: TITHEBAND is WAVE 0 of
+# docs/plans/TITHE-PLAN.md (its 3.7), and it is the first thing that plan
+# builds because it decides the ART FORMAT - art drawn before it is art that
+# may have to be redrawn.
+#
+# The plan's whole frame budget rests on ONE derived constant, 6.15 us a band
+# byte, taken from PERFORMANCE.md Set 77's measurement of a 128x128 band. That
+# band is sixteen bytes a ROW and a 56x56 sprite is seven, so a per-byte
+# reading is the mixture most favourable to the plan. This measures the same
+# 392 bytes at 56, 28 and 14 rows, which is the only way the per-row term and
+# the per-byte term come apart - Set 108's own method for gfx_blitp, applied
+# to the primitive TITHE draws with.
+#
+# It also prices all FOUR of gfx_blit1_pen's paths (SPEC.md 5.4.2.2 - the
+# short circuit, the rep, the complementing loop and 5.4.2.2.1's Map Mask
+# split), the four-plane arm at our sizes, the RAM composition and the
+# projectile, and then the only row that answers the brief: 23 features, one
+# update each, against 54.925 ms.
+#
+# RUN IT ON ALL THREE ADAPTERS - they are not one renderer at three sizes.
+# The pen is NOT READ on 1bpp, so its four rows must land on each other there;
+# gfx_blitp REFUSES there, so those rows must report a refusal rather than a
+# fast time. Both are printed in words at the end of the report, because a
+# refusal and a fast row look identical in the microsecond column.
+#
+#   make titheband
+#   python3 tests/titheband.py                             # all three, MartyPC
+#
+# build/titheband360.img is the XT geometry: that is where these numbers are
+# worth taking, because on a 4.77MHz 8088 the PIT is a wall clock and the
+# microsecond column means microseconds.
+$(BUILD)/tithebnd.bin: tests/titheband/titheband.asm tests/benchlib.inc \
+                       apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/titheband/titheband.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/titheband/titheband.asm
+	@echo "tithebnd: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithebnd.o88: $(BUILD)/tithebnd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithebnd.bin -o $@
+
+$(BUILD)/titheband.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/tithebnd.o88
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/titheband360.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tithebnd.o88
+	@python3 tools/os88disk.py --verify $@
+
+titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
+
+# ...and the SIGHTING arm. The counts in titheband.asm are sized against what
+# a band costs, which is the thing under test - so a first run whose counts
+# came from the plan's own figure takes as long as the plan is wrong. -DTBQUICK
+# is the same rows at a handful of iterations each: a couple of guest seconds,
+# numbers too coarse to quote, and exactly good enough to size the real run and
+# to prove the path works before anybody waits on it.
+$(BUILD)/tithebnq.bin: tests/titheband/titheband.asm tests/benchlib.inc \
+                       apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/titheband/titheband.asm
+	$(NASM) -f bin -w+error -DTBQUICK -I apps/ -I tests/ -o $@ tests/titheband/titheband.asm
+	@echo "tithebnq: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithebnq.o88: $(BUILD)/tithebnq.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithebnq.bin -o $@
+
+$(BUILD)/tithequick360.img: $(BUILD)/tithebnq.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tithebnq.o88
+	@python3 tools/os88disk.py --verify $@
+
+tithequick: $(BUILD)/tithequick360.img
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the

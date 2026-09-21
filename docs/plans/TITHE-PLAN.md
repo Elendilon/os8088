@@ -101,13 +101,37 @@ format, the sprite size and the animation rate.**
 | system tick | **18.2065 Hz** → **54.925 ms** a frame |
 | the target machine | IBM PC/XT, **8088 at 4.77 MHz** → ~262,000 cycles a frame |
 | any `gfx_*` arrival, small call | **~756 µs** *measured*, and ~20% less since §5.7 — see the warning |
-| `OSAPI_GFX_BLIT1`, 128×128 band | **12,588 µs** *measured* (PERFORMANCE.md Set 77) |
-| ...so a 1bpp band costs | **6.15 µs a byte**, **0.77 µs a pixel** *derived* |
+| `OSAPI_GFX_BLIT1`, 128×128 band | **12,588 µs** *measured* (PERFORMANCE.md Set 77); **13,483 µs** re-measured by §3.7, +7.1% |
+| ...so a 1bpp band costs | **`arrival + rows × 52.05 + bytes × 2.98` on VGA** — see the box below |
 | `OSAPI_GFX_BLIT4`, VGA planar decoder | **106.9 cycles a pixel** = **22.4 µs a pixel** *measured* |
-| `OSAPI_GFX_BLITP`, four planes | *"the bytes and nothing else"* — **estimate ~3.1 µs a pixel**. **NOT MEASURED anywhere in this tree. §3.7 measures it.** |
+| `OSAPI_GFX_BLITP`, four planes | **~122.6 µs a ROW-PLANE + ~3.76 µs a byte** *measured* (§3.7; PERFORMANCE.md Set 108 agrees within 7%) |
 | RAM `rep stosw` | **1.76 µs a byte** *measured* |
-| RAM byte read-modify-write (a 5-instruction loop) | **15.3 µs a byte** *measured* |
+| RAM masked read-modify-write | **21.6 µs a byte** interleaved, **25.2 µs** naive *measured* (§3.7) |
 | a full task switch | 693 µs *measured* |
+| `OSAPI_SND_TONE` note-on | **396 µs** *measured* (§3.7) |
+
+> ### THE BAND COST HAS A PER-ROW TERM, AND IT IS MOST OF A SPRITE
+>
+> **`gfx_blit1` = arrival + rows × PER_ROW + bytes × PER_BYTE**, measured on a
+> 4.77 MHz 8088 by §3.7 and fitting every shape in that bench to within 3.4%:
+>
+> | adapter | arrival | per row | per byte |
+> |---|---:|---:|---:|
+> | **VGA** | 709 µs | **52.05 µs** | **2.98 µs** |
+> | Hercules | 727 µs | 52.52 µs | 4.34 µs |
+> | CGA | 712 µs | 55.35 µs | 3.97 µs |
+>
+> A 56×56 sprite spends **2,915 µs of its 4,793 on arrival and rows** and only
+> 1,168 on its own pixels. **Shortening a sprite is worth about three times as
+> much as narrowing it**: 56×56 → 56×40 saves 833 µs, → 40×56 saves 477.
+>
+> This is what the first twelve revisions of this document did not have. They
+> carried **6.15 µs a byte**, which is 12,588 ÷ 2,048 — a *single* measurement
+> of a **128×128** band, sixteen bytes to a row. Divided per byte it hides the
+> arrival and the rows inside the widest shape in the system, which is the
+> shape most favourable to the reading. At 56×56 it is **half** the truth.
+> `docs/reports/TITHE-BAND-2026-09-21.md` is the measurement and §19.2 records
+> what it moved.
 
 > **Do not quote 756 µs as a floor a design must beat.** PERFORMANCE.md Part 2
 > says so in as many words: it is the fixed part of a *small* call, `gfx_hline`
@@ -119,11 +143,18 @@ format, the sprite size and the animation rate.**
 
 Three ways to put one 56×56 character sprite on a VGA:
 
-| route | bytes moved | cost *(est.)* | 23 features, one update each |
+| route | bytes moved | cost | 23 features, one update each |
 |---|---|---|---|
-| `GFX_BLIT4` — packed 4bpp, kernel decodes | — | 3,136 px × 22.4 µs = **70.2 ms** | **1.6 seconds.** Unusable. |
-| `GFX_BLITP` — 4 planes, pre-composed | 1,568 | **~9.6 ms** | **222 ms** → 4.5 rounds a second |
-| `GFX_BLIT1` + pen — 1bpp band, two colours | **392** | **~2.41 ms** | **55 ms** → 18 rounds a second |
+| `GFX_BLIT4` — packed 4bpp, kernel decodes | — | 3,136 px × 22.4 µs = **70.2 ms** *(est.)* | **1.6 seconds.** Unusable. |
+| `GFX_BLITP` — 4 planes, pre-composed | 1,568 | **33.57 ms** *measured, §3.7* | **772 ms** → **14 frames for one update** |
+| `GFX_BLIT1` + pen — 1bpp band, two colours | **392** | **4.79 ms** *measured, §3.7* | **111 ms** → **two frames** |
+
+**Both of the last two were estimated low in the first twelve revisions** — the
+band at 2.41 ms and the planes at 9.6. The band is **2× worse** and the planes
+**3.5×**, for the same reason in both cases: a *per-byte* model of a primitive
+whose cost is dominated by what it does **per row**. 56 rows of four planes is
+**224 row-plane operations before a byte moves**, which is why four planes is
+**7.0× one bit** and not the 4× the byte count says.
 
 **`gfx_blit4` is out for anything that moves.** One character would be two
 whole frames. It is the right slot for a picture drawn once and the wrong one
@@ -143,28 +174,54 @@ Take **40% of the frame** for idle animation (22 ms), leaving 60% for the HUD,
 the card panel, input, the AI's background thinking and slack. With 23
 features:
 
+**EVERY FIGURE IN THIS TABLE IS MEASURED** (§3.7,
+`docs/reports/TITHE-BAND-2026-09-21.md`), on the adapter it describes:
+
 | surface | cell | sprite band | bytes | per commit | commits/frame at 40% | **fps a feature** |
 |---|---|---|---|---|---|---|
-| VGA fullscreen 640×480 | 104×72 | **56×56** | **392** | 2.41 ms | 9.1 | **7.2** |
-| VGA windowed | 80×56 | 48×44 | 264 | 1.62 ms | 13.6 | **10.8** |
-| Hercules 720×348 | 120×52 | 64×40 | 320 | 1.97 ms | 11.2 | **8.8** |
-| CGA 640×200 | 80×30 | 48×24 | 144 | 0.89 ms | 24.7 | **19.5** |
-| *(VGA fullscreen, four planes)* | 104×72 | 56×56 | 1,568 | 9.64 ms | 2.3 | **1.8** |
+| VGA fullscreen 640×480 | 104×72 | **56×56** | **392** | **4.79 ms** | 4.6 | **3.6** |
+| VGA windowed | 80×56 | 48×44 | 264 | **3.92 ms** | 5.6 | **4.4** |
+| Hercules 720×348 | 120×52 | 64×40 | 320 | **4.34 ms** | 5.1 | **4.0** |
+| CGA 640×200 | 80×30 | 48×24 | 144 | **2.65 ms** | 8.3 | **6.6** |
+| *(VGA fullscreen, four planes)* | 104×72 | 56×56 | 1,568 | **33.57 ms** | 0.65 | **0.5** |
 
 **The band is the FIGURE only.** The HP bar, the shield pips and the status
 glyphs live beside it in the cell and are redrawn only when a number changes
-(§3.8.1, §8) — which is what takes the band from the cell's 936 bytes to 392,
-and the fullscreen VGA rate from 4.5 fps a feature to **7.2**.
+(§3.8.1, §8) — which is what takes the band from the cell's 936 bytes to 392.
+**Measured, that is worth 34%** and not the 58% §3.4 claimed from the byte
+count alone: the bytes fall by 58% but the arrival does not move and the rows
+fall only 72 → 56. It remains the cheapest decision in the renderer.
 
-**A 4-frame ping-pong idle (A B C B) at 7.2 fps is a 0.55-second cycle**, and
-the reference's own measures at ~1.0 s (§3.8) — so there is room to slow it,
-to spend the frames on more poses, or to bank them. **Which of those three is
-wave 1a's to decide by eye** (§16.1).
+**AND THE WHOLE TABLE HALVED WHEN IT WAS MEASURED.** It read 7.2 / 10.8 / 8.8 /
+19.5 fps for twelve revisions, off §1.1's per-byte constant. §3.7 is what it
+cost to find that out and §19.2 records the correction.
+
+**Is 3.6 fps enough? Nobody can answer that on paper, and the arithmetic is
+less alarming than the halving sounds.** §3.8 measured the reference game's
+idle cycle at **~1.0 s**; a 4-pose ping-pong (A B C B) at 3.6 fps is a **1.1 s**
+cycle — the rate halved and the *cycle length* landed on the reference's. What
+is lost is the headroom revision 1 thought it had: there is no longer room to
+spend frames on more poses without taking them from somewhere.
+
+**Where to find rate back, in the order the measurement ranks it**, if §16.1's
+eye asks for it:
+
+1. **A SHORTER sprite.** The per-row term is 52 µs and the per-byte 3 µs, so
+   height is worth ~3× width: 56×56 → **56×40 is 24% off the band**, where
+   40×56 is 10%.
+2. **A larger share than 40%.** The idle phase has little else to do — the AI
+   thinks on a worker (§10.6) and input is cheap — so 60% is **5.4 fps** on
+   fullscreen VGA for no art change at all.
+3. **Fewer features moving at once.** §3.6's wheel already does this; the
+   question is only where the credit goes.
 
 **A 386 is a different machine and gets a different answer.**
 `OSAPI_CPU_INFO` answers `CPU_8086 / CPU_286 / CPU_386` — *a fact the code can
 test* rather than a guess about speed (PERFORMANCE.md rule 7) — and §6.10 turns
-that into a **Detail** setting with a measured default.
+that into a **Detail** setting with a measured default. **The four-plane row
+above is now the whole of why that setting exists**: 0.5 fps a feature is not a
+degraded mode on an 8088, it is a refusal, so `Rich` is a 386 arm and nothing
+else (§3.5).
 
 ### 1.4 The three adapters
 
@@ -393,9 +450,13 @@ exactly as if it had been drawn that way.
 **THE BAND IS THE FIGURE'S OWN BOX, NOT THE CELL.** The cell is 104×72 — **936
 bytes** at 1bpp — and the sprite band is 56×56, **392**. The rest of the cell is
 static: the ground, drawn once with the board, and the character's numbers,
-redrawn only when one changes (§3.8.1, §8). **That is 58% off every animation
-commit** for one line of layout arithmetic, and it is the single cheapest
-decision in the renderer.
+redrawn only when one changes (§3.8.1, §8). **Measured, that is 34% off every
+animation commit** — 7,252 µs against 4,793 (§3.7) — for one line of layout
+arithmetic, and it is still the single cheapest decision in the renderer.
+
+**It was written here as 58%, which is the BYTE saving**, and the bytes are the
+smaller half of what a band costs: 936 → 392 saves 1,621 µs of traffic, 72 → 56
+rows saves 833, and the 709 µs arrival does not move at all. §1.1's box is why.
 
 **And a band is cut on the CELL grid, not the byte grid.** `gfx_blit1` only asks
 for a multiple of 8, and a band cut there reaches part-way into the next cell —
@@ -407,9 +468,33 @@ the cell grid costs nothing.
 ### 3.5 Colour — the pen, and the strip trick
 
 `OSAPI_GFX_BLIT1_PEN` (slot 0x04A8) says what a set bit and a clear bit become:
-**two colours a band, in one pass, for free** — measured at +0.62% on a 128×128
-band, a fixed ~78 µs (§5.4.2.2). On a 1bpp adapter the pen is *ignored rather
-than refused*, so one body runs everywhere.
+**two colours a band, in one pass** (§5.4.2.2). On a 1bpp adapter the pen is
+*ignored rather than refused*, so one body runs everywhere — and §3.7 confirms
+that on the glass: the four rows below collapse to within 1% of each other on
+both Hercules and CGA, and separate only on VGA.
+
+**IT IS NOT ONE PRICE. SPEC.md §5.4.2.2 GIVES IT FOUR PATHS AND THEY DIFFER BY
+115%**, measured on the 392-byte band (§3.7):
+
+| path | VGA | over a plain band |
+|---|---:|---:|
+| the default pair, short-circuited | 4,861 µs | **+68 µs** |
+| **ink over BLACK paper** — `rep movsw`, unchanged | 5,021 | **+227 (+4.7%)** |
+| black on white — the complementing hand loop | 6,174 | +1,381 (**+28.8%**) |
+| **both — §5.4.2.2.1's MAP MASK SPLIT, two passes** | **10,317** | **+5,523 (+115%)** |
+
+> **THE RULE THAT FALLS OUT: a figure's pen is ITS COLOUR OVER BLACK, or it
+> costs up to twice the band.** A faction colour over a *coloured* ground is
+> the split path — two whole passes over the band — and every arm below is
+> priced against the cheap one. The ground is baked into the band already
+> (§3.4), so this is a constraint on the PALETTE and not on the picture: the
+> paper a figure's band declares is black, and what the player sees behind it
+> is whatever was baked there.
+
+The default pair's +68 µs sits on Set 77's *"fixed ~78 µs"* and the
+complementing loop's +28.8% on its *"34 clocks a word against the rep's 25"* —
+so both of SPEC.md's claims are confirmed at our band size rather than
+inherited.
 
 Three arms, in increasing cost:
 
@@ -417,11 +502,15 @@ Three arms, in increasing cost:
   figures in up to twenty colour pairs. Cheapest.
 - **(b) `Banded` — horizontal strips, one pen each.** The sprite is blitted as
   2–3 stacked bands — head, body, base — each with its own pen. **The bytes are
-  identical**; what is added is one arrival per extra strip. Buys 4–6 colours a
-  character at close to 1bpp cost. **The likely default on VGA**, and §3.7 must
-  price it rather than this paragraph.
-- **(c) `Rich` — four planes** via `gfx_blitp`, 16 colours, 4× the bytes. §1.3
-  says ~1.2 fps a feature on an 8088 and perfectly affordable on a 386.
+  identical**; what is added is one arrival per extra strip, and §3.7 prices it
+  at a dead-flat **+920 µs a strip**: 5,021 / 5,941 / 6,860 for one, two and
+  three. **Three strips buys 4–6 colours a character for +37%.** That is a
+  trade worth making on a machine with the frame to spare and it is **not** the
+  free lunch this line used to call it.
+- **(c) `Rich` — four planes** via `gfx_blitp`, 16 colours, 4× the bytes and
+  **7.0× the cost** — 33.57 ms a sprite, measured (§3.7). **REFUSED on an
+  8088**: 23 features is 772 ms, fourteen frames for one update of the board.
+  It survives as a **386 arm** and §6.10's Detail setting is where it lives.
 
 The art pipeline emits all three from one master (§4), so the setting costs disk
 and not drawing time.
@@ -429,13 +518,30 @@ and not drawing time.
 ### 3.6 The pacing wheel — 23 features at a fixed rate
 
 **A fixed budget, not a hope.** The renderer holds the 23 animated features and
-a **credit in bytes per frame**, set at layout time from the measured per-byte
-cost and the frame share. Each frame:
+a **credit in microseconds per frame**, set at layout time from §1.1's model and
+the frame share. Each frame:
 
 1. Walk the wheel from where it stopped last frame.
 2. For each feature whose animation clock says it is due, commit its band and
-   subtract its byte cost from the frame's credit.
+   subtract **that band's own cost** from the frame's credit.
 3. Stop when the credit is spent. **Remember the position.**
+
+> **THE CREDIT IS TIME, NOT BYTES, AND WAVE 0 IS WHY.** This said *"a credit in
+> bytes per frame … subtract its byte cost"* for twelve revisions, which is
+> exact only if cost is proportional to bytes — and §1.1's measurement says it
+> is not: a band's cost is `arrival + rows × 52 + bytes × 3`, so a wide short
+> band and a narrow tall one of the same size differ by 2×. A byte credit would
+> over-spend on the tall ones and under-spend on the wide, which is precisely
+> the *"some characters animating smoothly while others visibly hitch"* failure
+> this wheel exists to remove.
+>
+> The fix costs nothing at run time: `tilay.inc` computes each feature's cost
+> **once**, at layout, from the three constants and that feature's own rows and
+> stride, and stores it beside the band. The wheel subtracts a stored word.
+
+**§3.7 measured the wheel itself at exactly 23 bands and no more** — 110,996 µs
+against 23 × 4,793 = 110,250, 0.7% — so the wheel carries no overhead of its
+own and every lever is on the band.
 
 - **A consistent animation speed**, because a feature's clock advances on the
   system tick and not on how many neighbours drew. A feature that misses its
@@ -498,9 +604,10 @@ Three things make it cheap and safe:
   overdrawn that has to come back.
 - **The gap cell's ground is the same baked diamond** as every other combat cell
   (§3.2), so the vacated band and the occupied band are both ordinary.
-- **Only the acting lane idles** during a lane's resolution (§3.6.1), so ~5 ms
-  for a stepping attacker comes out of a frame that has most of itself free. At
-  most two attackers a side can be stepping in one lane.
+- **Only the acting lane idles** during a lane's resolution (§3.6.1), so
+  **~9.6 ms** for a stepping attacker (two bands, measured §3.7) comes out of a
+  frame that has most of itself free. At most two attackers a side can be
+  stepping in one lane, which is **35% of a frame** at the worst.
 
 **A stepped attacker is still drawn in its own rectangle**, so §3.2's
 non-overlap holds throughout — it is standing in a different cell, not between
@@ -508,26 +615,59 @@ two of them.
 
 ### 3.7 WAVE 0 — the bench that decides all of the above
 
-**Nothing in §3.2–§3.6 is settled until this has run**, and it is the first
-thing built: a `tests/` package (never shipped, §19.10's rule) that puts up 23
-bands of a configurable size and format and reports guest cycles a frame off
-MartyPC's own counter.
+> **BUILT, RUN, AND IT MOVED NINE NUMBERS.** `tests/titheband/titheband.asm`
+> and `tests/titheband.py`; `make titheband` builds the disks in both
+> geometries and `python3 tests/titheband.py` drives all three adapters.
+> **`docs/reports/TITHE-BAND-2026-09-21.md` is the measurement** and §1.1's box
+> the headline: the band cost has a **per-row term** the first twelve revisions
+> did not have, and every animation figure in this document doubled. What the
+> rows say is folded into §1.1–§1.3, §3.4, §3.5, §3.9.1, §4.2.1 and §13.5
+> rather than repeated here; §19.2 records the correction.
+
+Nothing in §3.2–§3.6 was settled until this had run, and it is the first thing
+built: a `tests/` package (never shipped, §19.10's rule) that puts up bands of
+every size and format the plan names and reports what each costs, off the PIT,
+through `tests/benchlib.inc`.
 
 | row | question |
 |---|---|
-| `blit1` at each of §3.2.1's four sprite sizes | the per-byte band cost on **this** build — §1.1's 6.15 µs is derived from a measurement of a *128×128* band and must be confirmed at ours |
-| `blit1` + pen, same sizes | what the pen's fixed ~78 µs really is at a small band |
+| `blit1` at each of §3.2.1's four sprite sizes | the band cost on **this** build — §1.1's 6.15 µs is derived from a measurement of a *128×128* band and had to be confirmed at ours. **It did not survive** |
+| **the same 392 bytes at 56, 28 and 14 rows** | **the per-ROW term, which one measurement cannot see** — and the row that moved everything |
+| `blit1` + pen, all four paths | what the pen's fixed ~78 µs really is at a small band, and what §5.4.2.2.1's split costs |
 | `blit1` × 2 and × 3 strips | §3.5(b)'s extra arrivals, priced rather than estimated |
-| `blitp` at two sizes | the four-plane floor — **this number does not exist anywhere in the tree** |
+| `blitp` at three sizes | the four-plane floor at OUR sizes. *(The plan said this number existed nowhere in the tree. It was wrong: PERFORMANCE.md Set 108 has it, and the two agree within 7%.)* |
 | every row on Hercules and CGA | the 1bpp adapters are not a scaled VGA |
 | the full 23-feature wheel | the whole-frame figure, which is the only one that answers the brief |
 | a part load + expand | §4.3's load path, where PAINT-1BPP-PLAN found its real regression |
 | a **note-on** on each sound arm | §13.5's per-frame sequencer cost, which is an *estimate* there and must be a measurement before it enters the frame budget |
 
+**The experiment that carries the whole thing is the third row**, and it is the
+one nothing in the tree had done: the SAME 392 bytes at 56, 28 and 14 rows.
+Identical traffic, a quarter of the rows. **The difference between those rows
+IS the per-row cost**, and what is left is the per-byte cost — Set 108's own
+method for `gfx_blitp`, applied to the primitive TITHE draws with. A single
+measurement cannot separate the two terms and reports whichever mixture its own
+shape happens to be; Set 77's was taken at the widest band in the system, which
+is the mixture most favourable to a per-byte reading.
+
 Measured on **MartyPC** — a cycle-accurate 4.77 MHz 8088, the default
 instrument — into a dated `docs/reports/` file, because a measurement is true of
 the tree it was taken on and of no other. It also settles a question nothing
-else can: **whether §3.2.1's cell sizes survive, or have to come down.**
+else can: **whether §3.2.1's cell sizes survive, or have to come down.** *(They
+survive; what did not survive is the rate they were costed at.)*
+
+**A cross-adapter run is the point, not the VGA one**, and two of the rows are
+only meaningful as a set of three. The four **pen** rows must land on each
+other on Hercules and CGA — the pen is not read on one plane (§5.4.2.2) — and
+`gfx_blitp` must **refuse** there. Both hold, and the bench prints the refusal
+**in words**, because a refusal and a very fast blit are the same number.
+
+**Two things this cost are written up in the report's §9 and are worth the
+detour**: a bench whose iteration counts came from the plan's own figure ran
+for seven minutes instead of thirty seconds and read exactly like the finding
+it was built to look for (it was a hang on the last row — every measurement row
+completes in under four guest seconds); and **`OSAPI_SND_FM` with no sound
+driver does not answer `CF = 1`, it wedges the machine.**
 
 ---
 
@@ -563,14 +703,16 @@ more than noise:
 a character. *(An earlier measurement here said otherwise and was wrong; §19.2
 records how, because the method is worth not repeating.)*
 
-**So §3.6.1 IS a concession, and it is recorded as one.** At 7.2 fps a feature
-the 23 idles already cost 40% of an 8088 (§1.3), and a lane's attack plus its
-projectiles (§3.9) needs most of what is left. The reference is a Flash VM on a
+**So §3.6.1 IS a concession, and it is recorded as one.** At §1.3's measured
+3.6 fps a feature the 23 idles already cost 40% of an 8088, and a lane's attack
+plus its projectiles (§3.9) needs most of what is left — more of it than this
+was written against. The reference is a Flash VM on a
 machine three decades newer and does not have to choose.
 
 **But the concession can be much smaller than "freeze everything".** During
-combat **the lane being resolved keeps idling** — at most four characters, ~10 ms
-a frame at §3.8.1's band — and the other four lanes hold. The eye is on the
+combat **the lane being resolved keeps idling** — at most four characters,
+**~19 ms a frame** at §3.8.1's band (measured, §3.7) — and the other four lanes
+hold. The eye is on the
 acting lane; nobody watches row 4 while row 1 is swinging. That costs almost
 nothing and removes most of what freezing would have looked like.
 
@@ -583,7 +725,8 @@ sampled at 30. What it has that we do not is *smoothness within a cycle* —
 animate more". Whether four poses in a second reads as breathing is
 exactly wave 1a's question (§16.1), and it is now a sharper one: we know the
 target cycle is a second, so what wave 1a is choosing is **how many poses go in
-it**, at 4.9 fps a feature today and more if §3.8.1 lands.
+it** — and §3.7's measurement makes the answer **four**, at 3.6 fps a feature,
+with no headroom for more.
 
 **3. An attack is 4–6 steps.** Our 4 attack frames (§4.2.2) are the right order
 of magnitude, and one every 0.3–0.5 s over 7 s is a *slower* cadence than our
@@ -607,12 +750,16 @@ the band pays for them tens of times over for nothing.
 | | inside the band (§8 as written) | beside it (§3.8.1) |
 |---|---|---|
 | band | 72 × 64 = **576 B** | **56 × 56 = 392 B** |
-| a commit | 3.54 ms | **2.41 ms** |
-| **fps a feature**, 23 features at 40% of frame | **4.9** | **7.2** |
+| a commit *(measured, §3.7)* | 5.79 ms | **4.79 ms** |
+| **fps a feature**, 23 features at 40% of frame | **3.0** | **3.6** |
 | body art on disk (~90 sets × 4) | 207KB | **141KB** |
 | composed sprites in heap (20 on board, both poses, plus attack) | 138KB | **94KB** |
 
-**A 47% better animation rate and ~66KB off the disk, for a layout change.**
+**A 21% better animation rate and ~66KB off the disk, for a layout change.**
+*(It read 47% while both figures came off §1.1's per-byte constant — 576 B to
+392 is a 32% byte cut, but the two bands differ by only 8 rows and share an
+arrival, so most of the byte saving is not a time saving. The disk and heap
+halves of the trade are unaffected and are the larger part of it.)*
 
 What it costs is a blit when a number changes — at most once a round a
 character, in a phase that is already an animation — and one rule: **a number is
@@ -665,23 +812,36 @@ So it is composed, every frame, the way `dotdel` composes its actors (§93.5.1):
 
 ```
   band = union(old position, new position)      ~48 x 32 = 192 B
-  1. copy the BOARD PICTURE for that region          RAM->RAM  ~0.4 ms
-  2. copy in any CHARACTER sprite the band overlaps  RAM->RAM  ~0.4 ms
-  3. mask-OR the projectile itself                   RMW       ~2.9 ms
-  4. commit with one gfx_blit1                       to VRAM   ~1.2 ms
-                                                               ~5 ms a frame
+                                                  PLANNED    MEASURED (3.7)
+  1. copy the BOARD PICTURE for that region       ~0.4 ms  \
+  2. copy in any CHARACTER sprite the band laps   ~0.4 ms  /  1.78 ms for both
+  3. mask-OR the projectile itself                ~2.9 ms     4.15 ms
+  4. commit with one gfx_blit1 48x32              ~1.2 ms     2.95 ms
+                                                  ~5 ms       8.88 ms a frame
 ```
 
-| | |
-|---|---|
-| one projectile | **~5 ms a frame** |
-| four in one lane — two a side | **~20 ms a frame**, over a third of the frame |
-| travel, two cells at ~20 px a frame | **10 frames ≈ 0.55 s**, inside the ≤1 s lane |
+**MEASURED AT 8.88 ms, 1.78× what this section planned** (§3.7). The two RAM
+copies came in on budget; the mask-OR is 43% over (§4.2.1); and the **commit is
+2.5× over**, which is §1.1's per-row term again — a 48×32 band is 32 rows of
+six bytes, so 1,666 µs of it is rows and 709 is arrival, against 572 of pixels.
 
-**It works, and it is the most expensive thing in the game.** Which is why the
-other four lanes stop idling while it happens (§3.8) — 20 ms of projectiles plus
-10 ms of the acting lane's idles is 55% of the frame, and that is the budget
-spent.
+| | planned | **measured** |
+|---|---:|---:|
+| one projectile | ~5 ms | **8.88 ms** |
+| four in one lane — two a side | ~20 ms (36% of a frame) | **35.5 ms (64.7%)** |
+| the whole combat frame, 4 projectiles + 4 idles | ~30 ms (55%) | **56.07 ms (102.1%)** |
+| travel, two cells at ~20 px a frame | 10 frames ≈ 0.55 s | unchanged, inside the ≤1 s lane |
+
+**THE BUSIEST FRAME IN THE GAME IS 102% OF A FRAME.** It is still the most
+expensive thing here and the other four lanes already stop idling to pay for it
+(§3.8) — that concession now buys back less than it was thought to, and
+something has to give at wave 3: **the projectile count, the projectile band,
+or the travel rate.** Two a side is the worst case and not the common one; one
+a side is 51% of a frame and comfortable.
+
+**The cheapest lever is the band, for §1.1's reason.** 48×32 → 48×24 is 416 µs
+off the commit and 1,038 off the mask-OR, which is 16% of the whole frame's
+projectile cost, for eight rows of a sprite that is *moving*.
 
 **AND IT NEEDS A BOARD PICTURE IN RAM**, which nothing in this plan has claimed
 yet: the board as drawn, without characters, so step 1 has something to copy.
@@ -707,9 +867,9 @@ freely:
 
 | | |
 |---|---|
-| band | 2 cells wide, 208 × 56 = **1,456 B**, ~9 ms to commit |
-| composing two figures into it | 2 × 392 B of masked RMW ≈ **12 ms a frame** |
-| so, live | **~21 ms a frame** — affordable for **one** clash, not for five |
+| band | 2 cells wide, 208 × 56 = **1,456 B**, **~8.0 ms** to commit (§1.1's model) |
+| composing two figures into it | 2 × 392 B of masked RMW at §3.7's 21.6 µs ≈ **17 ms a frame** |
+| so, live | **~25 ms a frame** — affordable for **one** clash, not for five |
 | **pre-composed in the REVEAL phase** | the pairings are known the moment both plans are applied (§6.4), so all five lanes' clash frames can be built there: 5 × 6 frames × 1,456 B = **44 KB** of heap, ~0.4 s inside a phase that is already an animation |
 
 **Tier A is what wave 3 builds.** Tier B is a wave-1a mock and a wave-3
@@ -727,7 +887,7 @@ its own.
 **So the card's portrait IS the character's sprite.** The frame, the name, the
 numbers and the text are drawn **once** when the hover begins and never again;
 what animates inside them is the same 56 × 56 band the board is already using,
-at **392 B and 2.41 ms** like every other feature.
+at **392 B and 4.79 ms** like every other feature (§3.7).
 
 That also removes a whole class of art — there is no separate animated card
 portrait to draw, 90 times over — which is the same trade §4.2.1 makes one layer
@@ -796,6 +956,23 @@ shield-and-sword tank in the front column and a pitchfork farmer in the rear.
 The arm belongs to the item layer and not the body, which is the decision that
 makes the whole thing work: a swing moves an arm, so an arm that is part of the
 weapon is an arm that can swing against any torso.
+
+**THE ITEM BANK IS STORED `data,mask,data,mask` AND NOT AS TWO PLANES.** An
+item is composited into a body with a masked read-modify-write, and §3.7
+measured that loop both ways on the machine: **25.2 µs a byte** reading the
+data and the mask from two buffers, **21.6 µs** with them interleaved so that
+one `lodsw` fetches both. **14% off every composition, for the same bytes on
+disk and no new mechanism** — `tools/os88tithe.py` emits the interleaved form
+and `tirend.inc` reads it.
+
+*(PERFORMANCE.md's own 15.3 µs a byte for a read-modify-write is a
+FIVE-instruction loop that does no masking; it is not this loop and must not be
+quoted against it. The pair of rows in the bench exists so that the naive form
+cannot silently over-price these layers by a sixth.)*
+
+**What one composed character costs, measured**: 7.03 ms — 1.81 of strided body
+copy plus 5.19 of masked item. §4.2.3 is where that lands in the budget, and it
+lands in the match load and at a round boundary, never inside a frame.
 
 **A card names a body set, a FRONT item and a REAR item.** Where the two poses
 share a body — the commonest case, since *"the same man with a different tool"*
@@ -2062,8 +2239,8 @@ reference keeps a character's numbers beside the figure rather than on it, and
 measuring why is decisive: the numbers change **at most once a round** while the
 sprite redraws **every few frames**, so carrying them inside the band pays for
 them tens of times over for nothing. Taking them out shrinks the band from
-the cell's 936 bytes to **392** and the animation rate to **7.2 fps a
-feature**.
+the cell's 936 bytes to **392**, which §3.7 measures as **34% off every
+animation commit** (§3.4).
 
 **Each number is a fixed-width opaque run** (`font_run`, §6.1), so a figure
 going from two digits to one repaints its own ground; nothing has to be erased
@@ -2806,8 +2983,8 @@ does the composer a favour.
 
 | | |
 |---|---|
-| **speaker**, a note event | one `OSAPI_SND_TONE` — a far call at **46.7 µs** *measured*. The PIT then plays it with no further CPU at all |
-| at 4 ticks a row, ~1 lead change a row | **~4.6 calls a second ≈ 0.2 ms/s** |
+| **speaker**, a note event | one `OSAPI_SND_TONE` — **396 µs** *measured* (§3.7), on all three adapters. The PIT then plays it with no further CPU at all |
+| at 4 ticks a row, ~1 lead change a row | **~4.6 calls a second ≈ 1.8 ms/s**, **0.18% of the machine** |
 | **FM**, a note event | ~6 OPL2 register writes, each needing the chip's address/data settling (~3.3 µs and ~23 µs on an 8088) ≈ **160 µs** *estimated* |
 | 4 channels × 4.6 rows a second | **~3 ms/s** |
 | the sequencer itself | read a row, compare four channels, dispatch — a few hundred cycles a frame |
@@ -2815,11 +2992,23 @@ does the composer a favour.
 **So music is on the order of 0.5% of the machine**, and that is worth stating
 plainly because the instinct on a 4.77 MHz 8088 is that it must be expensive. It
 is not: the speaker is a hardware oscillator the CPU pokes once a note, and the
-OPL2 is a chip that plays on its own.
+OPL2 is a chip that plays on its own. **The speaker arm is now measured and it
+holds** — a note-on is 0.72% of one frame and they do not come every frame.
 
-**§3.7's bench gets one more row for it** — a note-on on each arm, timed — so
-the sequencer's per-frame cost enters the frame budget as a measured number
-rather than as this paragraph.
+**THE FM ARM IS STILL AN ESTIMATE AND NO MACHINE IN THIS TREE CAN MEASURE IT.**
+`SND_CAP_FM` appears only while a sound driver is loaded (§34.2, §51.4), and
+none of §3.7's three machines boots with one — so the bench **skips** that row
+and says so in words rather than printing a zero. It wants a run with an AdLib
+or an SB attached, and §16's wave 1b is where that happens.
+
+> **AND ASK `OSAPI_SND_CAPS` BEFORE TOUCHING THE FM SLOT.** Its documented
+> contract is `CF = 1` with no driver; what §3.7 found is that calling it
+> anyway, with interrupts disabled, **wedges the machine** — it leaves the
+> kernel, spins with `CS = 0`, and lands in the BIOS's unexpected-interrupt
+> handler. That is an observation rather than a diagnosis and the report's §9.2
+> has what was seen; for `timus.inc` the rule is simply that the sequencer asks
+> the caps at match load and picks its renderer from the answer, which §13.2
+> already has it doing.
 
 **On disk**: twelve pieces as arranged in §13.4 come to roughly **22KB
 uncompressed, ~11KB packed** — against §1.5's 123 spare clusters. Music is the
@@ -3056,6 +3245,13 @@ tools/os88tithe.py    layers -> the shipped banks; --sheet previews composed
                       off the sprite box at any surface size (§4.2.4)
 tools/os88tithemus.py scores -> the packed tracks; --wav previews on the host
 tools/duelsim.py      the reference implementation and the balance harness
+tests/titheband/      WAVE 0's bench (3.7) - every band size, both formats, all
+  titheband.asm       four pen paths, the RAM composite and the 23-feature
+                      wheel, on whichever adapter it boots on. benchlib's, so
+                      the method and the lap detector are every other bench's
+tests/titheband.py    ...and its driver: all three adapters in turn, the
+                      reports off the floppy with os88flush, and the
+                      cross-adapter checks the numbers alone cannot make
 ```
 
 **`tirule.inc` is used by the game, by the AI and by the network checksum, and it
@@ -3064,6 +3260,9 @@ in the whole package.
 
 ### 15.2 The build
 
+- **`make titheband`** builds wave 0's bench disks (1.44MB and 360KB) and
+  **`make tithequick`** the `-DTBQUICK` sighting arm; neither is in `all` and
+  neither ships. `python3 tests/titheband.py` drives all three adapters.
 - `make tithe` builds the package; `make tithedisk` builds the floppy **in all
   four geometries** (§19's rule reaches the on-demand application disks too —
   1.44MB, 1.2MB, 720KB and the binding 360KB).
@@ -3099,7 +3298,7 @@ breaking the thing on purpose first and watching it go red —
 
 | wave | what | gate |
 |---|---|---|
-| **0** | **§3.7's blit bench.** 23 bands, three formats, three adapters, plus a note-on on each sound arm. A dated `docs/reports/` file | the numbers exist |
+| **0** | **DONE.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. It moved nine numbers and halved the animation rate (§19.2) | the numbers exist |
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it** | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
@@ -3149,13 +3348,21 @@ built on top of it.
 | the HUD | with real numbers in it |
 | **the music, on both arms** | one faction theme in all three states, plus the resolution piece, with keys to switch state and to play a fake resolution so the **hand-back** (§13.4.1) can be heard |
 
-**The idle rate is the question only eyes can answer.** §1.3 says 4.9 fps a
-feature on a fullscreen VGA, and that figure is arithmetic. Whether twenty
-figures breathing at 4.9 fps reads as *a crowd idling* or as *a slideshow* is not
-derivable, and every number in this document downstream of it — the cell size,
-the frame share, the sprite budget, whether `Rich` is worth building — moves if
-the answer is no. **Getting that wrong at wave 5 costs the art; getting it wrong
-at wave 1 costs an afternoon.**
+**The idle rate is the question only eyes can answer, and wave 0 has made it
+the sharpest question in the document.** §1.3 now says **3.6 fps** a feature on
+a fullscreen VGA, and that figure is *measured* rather than arithmetic — it is
+what the machine does. Whether twenty figures breathing at 3.6 fps reads as *a
+crowd idling* or as *a slideshow* is not derivable, and everything downstream of
+it — the cell size, the frame share, the sprite budget, whether `Rich` is worth
+building — moves if the answer is no.
+
+**What changed is that there is no longer slack to absorb a "no".** At the
+7.2 fps this was written against, an unconvincing idle could be fixed by
+spending frames. It cannot now: §1.3's three levers are a **shorter sprite**,
+a **larger share than 40%**, and **fewer features moving at once**, and wave 1a
+should put the sprite-height option on the glass beside the others rather than
+discover it afterwards. **Getting this wrong at wave 5 costs the art; getting
+it wrong at wave 1 costs an afternoon.**
 
 **Driven by keys, not by a game**: cycle the music state, fire a fake resolution,
 toggle fullscreen, step the detail arms (§3.5), swap a character's pose. No
@@ -3364,6 +3571,10 @@ can answer.
 
 ### 18.1 Things that will be found as we go
 
+*(Wave 0 closed the one that used to be first — whether §1.1's band constant
+survived at our sizes. It did not; §1.3 carries the measurement and §19.2 the
+correction. What is left is three.)*
+
 **1. CGA** (§1.4, §3.3, §4.2). The card panel on the right plus a per-axis cut
 makes 640×200 fit **on paper**. The owner looks at it on a real screen once wave
 1a has concept art, and §4.2.4 names the fallback — hand-tuned small **body**
@@ -3372,19 +3583,32 @@ sets at ~65KB, the items cutting cleanly because they are small already.
 the layer model narrows what would have to be redrawn if it does: bodies, not
 bodies-and-weapons.
 
-**2. Does the art budget hold?** (§1.5.) The disk is **~299KB of 354** and the
-worst-case heap **~341KB of ~400KB** — both fitting, neither with slack, and
-both scaling with two numbers nobody has yet: the **sprite size**, which wave 0's
-bench and wave 1a's eye decide together, and the **body-set count**, which is
-the art effort as much as the art budget. §1.5 names the levers in order, and
+**2. Does the art budget hold?** (§1.5.) The disk is **~236KB of 354 clusters**
+and the worst-case heap **~327KB of ~400KB** — both fitting, with 118 clusters
+and ~73KB of margin, and both scaling with two numbers nobody has yet: the
+**sprite size**, which wave 1a's eye decides, and the **body-set count**, which
+is the art effort as much as the art budget. §1.5 names the levers in order, and
 §4.2.4 makes the tool print both counts on every build so it is watched rather
 than discovered.
 
-**Two findings since have already moved it, both downward.** §3.8.1's band —
-numbers beside the figure rather than on it — takes ~66KB off the disk and ~44KB
-off the heap on its own. And **the reference's character is about a fifth of its
-cell's width where ours is half** (§3.8): if wave 1a finds that a smaller figure
-reads fine at 1bpp, the whole budget scales with the square of that decision.
+**Two findings have already moved it, both downward.** §3.8.1's band — numbers
+beside the figure rather than on it — takes ~66KB off the disk and ~44KB off the
+heap on its own. And **the reference's character is about a fifth of its cell's
+width where ours is half** (§3.8): if wave 1a finds that a smaller figure reads
+fine at 1bpp, the whole budget scales with the square of that decision.
+
+**Wave 0 did not touch this risk**, which is worth saying because it moved so
+much else: §3.7 measured *time*, and the art budget is *bytes*. The two meet at
+one point only — a smaller sprite is cheaper in both — and that is now an
+argument with evidence on both sides of it rather than one.
+
+**3. IS 3.6 fps A CROWD OR A SLIDESHOW? (§1.3, §3.8, §16.1.)** New at wave 0,
+and now the one that gates the most. The rate is **measured** rather than
+estimated, so it will not improve on its own; what wave 1a decides is whether it
+is enough, and if it is not, which of §1.3's three levers pays for it — a
+shorter sprite, a larger frame share, or fewer features moving at once. **The
+first of those is an ART decision**, which is why it has to be on the glass at
+wave 1a and not discovered at wave 5.
 
 ### 18.2 The balance, which needs a game to balance against
 
@@ -3442,8 +3666,39 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Six decisions that were made one way and then made another. Each is here because
-the *reason* it changed is worth more than the change.
+Seven decisions that were made one way and then made another. Each is here
+because the *reason* it changed is worth more than the change.
+
+**THE ANIMATION RATE: 7.2 fps a feature → 3.6, and the model with it.** Twelve
+revisions of this document costed every moving thing on one constant —
+**6.15 µs a band byte** — and §3.7's bench found it is not a constant at all.
+`gfx_blit1` costs `arrival + rows × 52 + bytes × 3` (§1.1), and 6.15 is what
+those three terms come to *at 128×128 and nowhere else*: it is 12,588 ÷ 2,048,
+one measurement of the **widest** band in the system, sixteen bytes to a row.
+A 56×56 sprite is seven. **Divided per byte, the arrival and the rows hide
+inside a shape that has the most bytes to hide them in — so the error is
+largest exactly where this design lives.** The band came out 2× the plan, the
+four-plane arm 3.5×, the projectile 1.8×, and §3.4's "58% off every commit" was
+the *byte* saving where the real one is 34%.
+
+Three things about how it was found are worth as much as the number:
+
+- **The shape that separates the terms is three blits of the SAME 392 bytes** at
+  56, 28 and 14 rows. One measurement cannot see two terms and will report
+  whichever mixture its own shape happens to be, confidently.
+- **The first run took seven minutes instead of thirty seconds and that looked
+  like the finding.** It was a hang on the last row — `OSAPI_SND_FM` with no
+  sound driver, called inside a `cli` window, never returns — and every
+  measurement row completes in under four guest seconds. *A bench whose
+  iteration counts are derived from the hypothesis it is testing runs long
+  exactly when the hypothesis is wrong, which is when it looks most like
+  evidence.* `-DTBQUICK` exists so that never costs more than a minute again.
+- **The instinct that "the primitive must be slower than PERFORMANCE.md says"
+  was wrong, and the instinct that it was our own bug was right.** The
+  primitive is exactly what Set 77 says it is; what was wrong was a model of
+  it. The same hour also priced a naive masked composite 16% over a lean one
+  (§4.2.1), which would have corrected §4.2 in the wrong direction had the
+  bench not measured both.
 
 **Turn order: fixed → alternating → NONE.** The first structure had a fixed
 first player with a resource boost for the second, as the brief describes. That
