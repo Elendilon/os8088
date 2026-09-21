@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 11. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 12. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,7 +8,7 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**TITHE is a game of pure placement, and revision 11 is where that sentence
+**TITHE is a game of pure placement, and revision 12 is where that sentence
 becomes precise.** **THE ROUND IS SIMULTANEOUS** (§6.0): both players plan
 against the same frozen board, neither sees the other's plan, and everything
 resolves together — so there is no turn order at all, and nothing left for a
@@ -29,11 +29,15 @@ is ever destroyed, and **no action is permanent until the commit** (§5.0.3).
 and its own swing, at most eight items a faction (§4.2.1) — which is what makes
 attack animation affordable at all and leaves somewhere to put the next layer.
 **§3.8 is the reference game measured frame by frame**, and it says the plan was
-not optimistic: its content updates at ~15 fps against our 18.2, its attack is
-4–6 steps against our 4, and **it does not idle during its own resolution phase
-either**. What it does better is keep a character's numbers *beside* the figure
-rather than on it — which shrinks our band by a third and buys 47% more
-animation (§3.8.1). **§13 is music**, which on a game that is mostly thinking
+not optimistic about the things it priced: content at ~15 fps against our 18.2,
+an attack of 4–6 steps against our 4. What it does that we cannot is **idle
+every figure continuously, including through its own combat** — so ours idles
+the acting lane and holds the other four. What it does that we should copy is
+keeping a character's numbers *beside* the figure rather than on it, which
+shrinks our band by a third and buys 47% more animation (§3.8.1). **§3.9 is the
+combat phase priced properly** — a projectile is the one thing in the renderer
+that cannot be a self-erasing band, and it is the most expensive thing in the
+game. **§13 is music**, which on a game that is mostly thinking
 is a requirement rather than a polish item — one score per renderer, a faction theme
 in three states, a **resolution piece** that covers everything which is not
 planning and hides the state change behind itself, and about half a percent of
@@ -218,10 +222,12 @@ hand is **layers**, not a sprite; only what can be *seen* is composed.
 | **composed idle sprites**, both poses, for the ≤20 characters on the board | 20 × 2 × 4 × 576 = **92KB** |
 | **composed attack sprites** for those 20, 4 frames each (§4.2.3) | **46KB** |
 | the hovered card | ~5KB |
-| board, HUD, card panel, music, scratch | ~70KB |
-| **total** | **~341KB against ~400KB free** |
+| **the BOARD PICTURE** — the board without characters, for §3.9.1 to compose projectiles against | **22KB** |
+| the composed clash frames, if §3.9.2 tier B is taken | *(+23KB)* |
+| board chrome, HUD, card panel, music, scratch | ~70KB |
+| **total** | **~363KB against ~400KB free** |
 
-It fits, with ~60KB of headroom and no slack, and the **typical** case is well
+It fits, with ~37KB of headroom and no slack, and the **typical** case is well
 under it — a pair of ordinary decks carries far fewer distinct characters than
 two fifty-card ones. **Both poses of an on-board character stay resident**,
 because a swap flips a pose instantly and cannot wait for a composite, let alone
@@ -514,24 +520,54 @@ something for.
 | content update rate | **~15 fps** — at a 30 fps capture, roughly every *other* frame differs, with runs of 2–3 held frames | **18.2 fps**, held |
 | idle cycle length | **~1.0 s** (self-similarity minimum at lag 30–33 frames) | **0.8 s** |
 | distinct poses in an idle cycle | a smooth tween, ~15 rendered steps | **4** |
-| **idle during the RESOLUTION phase** | **none. The board is STATIC between events** | none — the wheel is suspended (§3.6.1) |
+| **idle during the RESOLUTION phase** | **yes, continuously — 13–22 changes/s a character** | **the acting lane only**; the other four hold (§3.8, finding 1) |
 | one attack event | **~0.2–0.3 s**, so ≈4–6 animation steps | **4 frames** |
 | events during a resolution | one every **~0.3–0.5 s**, over 7+ s | 5 lanes × ≤1 s |
 | a character | **~22 × 37 px** in a ~125 × 54 cell — **about a fifth of its cell's width** | 72 × 64 in a 104 × 72 cell — **about two thirds** |
 
-**1. It does not idle during its attack phase either.** A single non-acting
-character measured across three quiet gaps mid-resolution gives a median
-frame-to-frame change of **0.02** against **0.56** during planning — which on
-that scale is *nothing moved*. §3.6.1 suspends the idle wheel during combat and
-gives the whole budget to the acting lane; the reference does the same thing,
-and that was assumed to be a concession we were making for an 8088. **It is
-not. It is what the original does.**
+**1. IT IDLES THROUGHOUT — including its whole attack phase.** Five character
+crops, two-second windows, counting frames that differ from their predecessor by
+more than noise:
+
+| crop | planning | resolution |
+|---|---|---|
+| (240, 55) | 19.0 changes/s | **13.5** |
+| (240, 100) | 22.0 | **16.5** |
+| (330, 120) | 19.0 | **18.0** |
+
+**That is continuous idling in both phases**, at 13–22 distinct changes a second
+a character, and it is what the owner said he could see happening.
+
+**The first version of this section claimed the opposite, and the error is worth
+keeping.** It rested on two bad measurements. The board-wide activity trace ran
+on a **140×65 downscale of a 560×260 region** — averaging 4×4 blocks, which
+destroys exactly the one- and two-pixel motion an idle is made of, so it read
+long stretches of 0.01 and I called them stillness. And the single-character
+check used **0.4-second windows** picked out of that same trace, which at 30 fps
+is twelve samples: enough to land in a lull between beats of a ~15 fps animation
+and conclude the figure was frozen. **One crop, cherry-picked windows, at a
+resolution that could not see the thing being looked for.** PERFORMANCE.md's own
+rule — *a counter is not a timer, and measure the thing you mean* — one document
+along.
+
+**So §3.6.1 IS a concession, and it should be recorded as one.** At 7.2 fps a
+feature the 23 idles already cost 40% of an 8088 (§1.3), and a lane's attack
+plus its projectiles (§3.9) needs most of what is left. The reference is a Flash
+VM on a machine three decades newer and does not have to choose.
+
+**But the concession can be much smaller than "freeze everything".** During
+combat **the lane being resolved keeps idling** — at most four characters, ~10 ms
+a frame at §3.8.1's band — and the other four lanes hold. The eye is on the
+acting lane; nobody watches row 4 while row 1 is swinging. That costs almost
+nothing and removes most of what freezing would have looked like.
 
 **2. Its animation runs slower than our frame rate, not faster.** ~15 fps of
-content against our 18.2. What it has that we do not is *smoothness within a
-cycle* — ~15 tweened steps against our 4 poses — so the honest statement of the
-gap is **the same cycle length with a quarter of the poses in it**, and not
-"they animate more". Whether four poses in a second reads as breathing is
+content against our 18.2 — which the per-character counts above confirm from the
+other direction, 13–22 changes a second being exactly a ~15 fps animation
+sampled at 30. What it has that we do not is *smoothness within a cycle* —
+~15 tweened steps against our 4 poses — so the honest statement of the gap is
+**the same cycle length with a quarter of the poses in it**, and not "they
+animate more". Whether four poses in a second reads as breathing is
 exactly wave 1a's question (§16.1), and it is now a sharper one: we know the
 target cycle is a second, so what wave 1a is choosing is **how many poses go in
 it**, at 4.9 fps a feature today and more if §3.8.1 lands.
@@ -596,6 +632,94 @@ healing does.
 
 *(Its scoring — whoever deals more damage in a round wins it and takes 1 off the
 loser's base — is not our model at all and is not proposed.)*
+
+---
+
+
+### 3.9 THE COMBAT PHASE'S REAL COST — projectiles, and the clash
+
+Revision 11 priced the idle board and left the combat phase as *"≤1 s a lane,
+the whole budget goes to it"*. That is a budget, not a design, and two things
+inside it are the actual work.
+
+#### 3.9.1 A projectile is the one thing that is NOT a self-erasing band
+
+Every other moving thing in TITHE is an **opaque band with its ground baked in**
+(§3.4), so drawing it where it was *is* the erase. **A projectile cannot be**:
+an arrow or a fireball crosses cells whose ground it does not own — board, a
+lane marking, another character — so there is nothing to bake.
+
+So it is composed, every frame, the way `dotdel` composes its actors (§93.5.1):
+
+```
+  band = union(old position, new position)      ~48 x 32 = 192 B
+  1. copy the BOARD PICTURE for that region          RAM->RAM  ~0.4 ms
+  2. copy in any CHARACTER sprite the band overlaps  RAM->RAM  ~0.4 ms
+  3. mask-OR the projectile itself                   RMW       ~2.9 ms
+  4. commit with one gfx_blit1                       to VRAM   ~1.2 ms
+                                                               ~5 ms a frame
+```
+
+| | |
+|---|---|
+| one projectile | **~5 ms a frame** |
+| four in one lane — two a side | **~20 ms a frame**, over a third of the frame |
+| travel, two cells at ~20 px a frame | **10 frames ≈ 0.55 s**, inside the ≤1 s lane |
+
+**It works, and it is the most expensive thing in the game.** Which is why the
+other four lanes stop idling while it happens (§3.8) — 20 ms of projectiles plus
+10 ms of the acting lane's idles is 55% of the frame, and that is the budget
+spent.
+
+**AND IT NEEDS A BOARD PICTURE IN RAM**, which nothing in this plan has claimed
+yet: the board as drawn, without characters, so step 1 has something to copy.
+At 416 × 420 and 1bpp that is **21.8 KB** — `dotdel`'s `dd_walls` one game along,
+and it is added to §1.5's heap. It pays for itself twice over, because it is
+also what a damage number, a floating soul award and any future overlay compose
+against.
+
+#### 3.9.2 The melee clash — two tiers, and the cheap one always works
+
+The reference lets its melee figures **overlap** when they trade. §3.2's sheared
+grid gives every cell a rectangle of its own and §3.4 blits one opaque band an
+actor, so overlapping is not something the default path can do.
+
+**Tier A — step forward and swing** *(the default, and it always works)*. §3.6.2
+already walks an attacker into an empty front cell as two ordinary bands. The
+same motion serves a clash: both fighters lean toward the line, swing, and lean
+back, each in its own rectangle. **Two bands a frame, ~5 ms, no composition.**
+
+**Tier B — the composed clash** *(an option, if the prototype wants it)*. One
+band spanning both cells, with both figures drawn into it, so they may overlap
+freely:
+
+| | |
+|---|---|
+| band | 2 cells ≈ **784 B**, ~4.8 ms to commit |
+| composing two figures into it | 2 × ~392 B of masked RMW ≈ **12 ms a frame** |
+| so, live | ~17 ms a frame — affordable for **one** clash, not for five |
+| **pre-composed in the REVEAL phase** | the pairings are known the moment both plans are applied (§6.4), so all five lanes' clash frames can be built there: 5 × 6 frames × 784 B = **23 KB**, ~0.4 s inside a phase that is already an animation |
+
+**Tier A is what wave 3 builds.** Tier B is a wave-1a mock and a wave-3
+decision, and it is written down now so that the choice is a choice rather than
+a rediscovery. *(The owner's framing exactly: if we cannot overlap, stepping
+forward and swinging is fine; if we can, we may.)*
+
+#### 3.9.3 …and the hovered card costs ONE feature, not six
+
+A card in the panel is ~160 × 110, which at 1bpp is **2,200 B** — **5.6 times a
+character sprite**, and §1.3 has been counting it as one of the 23 all along.
+Animated at the same rate as everything else it would be 11% of the machine on
+its own.
+
+**So the card's portrait IS the character's sprite.** The frame, the name, the
+numbers and the text are drawn **once** when the hover begins and never again;
+what animates inside them is the same 56 × 56 band the board is already using,
+at **392 B and 2.41 ms** like every other feature.
+
+That also removes a whole class of art — there is no separate animated card
+portrait to draw, 90 times over — which is the same trade §4.2.1 makes one layer
+down.
 
 ---
 
@@ -2035,12 +2159,20 @@ second of thinking**, or the game feels broken.
 
 | action | count |
 |---|---|
-| play a card | hand (≤7) × 2 columns = **≤14** |
+| play a character | hand (≤7) × 2 columns = **≤14** |
+| **play an ORDER** onto a character (§5.9) | hand (≤7) × up to 20 live characters = **≤140** |
 | swap | 10 cells choose 2 = **45**, twice |
 | set a stance | ≤10 |
 
-**≤114 candidate actions a ply**, and a turn is a handful of plies — affordable
-because the evaluation is integer arithmetic over a 20-cell board.
+**≤254 candidate actions a ply** — orders roughly doubled it, which is worth
+noticing rather than absorbing. A turn is still a handful of plies and still
+affordable, because the evaluation is integer arithmetic over a 20-cell board
+and an order changes exactly one character's action.
+
+**So the AI considers orders LAST**, after plays and swaps, for the same reason
+`Archon` considers stances last (§10.4): an order's value depends entirely on
+who is standing where, so evaluating one before the board is settled is
+evaluating it against a board that will not exist.
 
 **A stance is the cheapest candidate to evaluate of the three**, because
 flipping one changes exactly one attack's target and nothing else on the board
@@ -3005,7 +3137,11 @@ built on top of it.
 | **an attack swing** | the item's frames over a held body (§4.2.2), which is where the composed model earns its place — and where it would most obviously fail |
 | **base candidates**, one or more per faction | §18 turned this into something to pick from rather than something to specify |
 | **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
-| **two sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is two thirds (§3.8). Somewhere between is probably right, and it is the single largest lever on the art budget (§18.1) |
+| **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is two thirds (§3.8). Somewhere between is probably right, and it is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
+| **a PROJECTILE crossing the board** | §3.9.1 is the most expensive thing in the game and the only thing in the renderer that is not a self-erasing band. It has to be seen moving, at the real cost, over a real board |
+| **a melee clash, both tiers** | stepping forward (§3.9.2 A) beside a composed overlap (tier B), so the choice is made by looking rather than by arithmetic |
+| **the acting lane idling while four lanes hold** | §3.8's concession. Whether it reads as *focus* or as *the board froze* is the whole question, and it is one nobody can answer on paper |
+| **the reveal** | §16.2 item 7: how a played card reaches its cell has never been specified, and the reveal is the phase where a sequence may beat a flurry |
 | the **idle animation at its computed rate** | see below — this is the single most important thing the prototype answers |
 | the card panel | with real card faces at their real size, and the hover expansion |
 | the HUD | with real numbers in it |
@@ -3038,7 +3174,9 @@ three states and the resolution piece. 1a's gate is the owner's eye and a real
 CGA; 1b's is the owner's ear and the frame still holding.
 
 **The frame budget is checked in both**, separately and then together: 23
-features at §1.3's rate in 1a, and the same with the sequencer running in 1b.
+features at §1.3's rate in 1a — **and the combat frame too**, four projectiles
+plus an acting lane's idles at §3.9's ~30 ms, which is the busiest the machine
+ever gets — and the same with the sequencer running in 1b.
 Music is ~0.5% of the machine (§13.5) and so it should disappear into the
 measurement — but *should* is what a bench is for.
 
@@ -3059,6 +3197,68 @@ whole multiplayer story and the most load-bearing — it is the save, the networ
 resume, the posted-play unit and the bug report (§12.6) — and its first rung
 needs no network at all. Building it *before* Ethernet means wave 10 inherits a
 resume mechanism and a replay harness instead of inventing them.
+
+
+### 16.2 The small things this plan had not said — the "what are we missing" pass
+
+Asked directly, before prototyping, what else is missing. Seven things, none
+large, all cheaper to write down now than to meet later.
+
+**1. The package must REFUSE a second instance.** §1.5's worst case is ~363KB of
+a ~400KB arena, so two copies of TITHE cannot both run. os8088 packages are
+multi-instance by default (§29), so this is a decision to make rather than a
+limit to inherit: the entry proc checks and refuses **in its own words** with a
+toast, rather than failing a heap claim halfway through a load and leaving half
+a game up. §47 rule 3 — it is a fact, not a guess.
+
+**2. Closing mid-match needs a negotiator.** `OSAPI_WM_ONCLOSE` (§75) is the
+slot: a match in progress offers **save and leave** — which is free, since
+§12.6's match file *is* the game — against **abandon**. A posted match must be
+leavable without forfeiting; that is most of what posted play is for.
+
+**3. A `.TIT` match file should be double-clickable.** `OSAPI_ASSOC_SET` (§54)
+costs a few bytes and makes a posted match resume from the Disk window, which is
+how anybody actually moves one on a floppy (§12.7's rung 1).
+
+**4. Card text is 22 characters a line and that is a card-design constraint.**
+The panel is 176 px and the kernel's face is 8×8 (§6), so a line of card text is
+22 cells. `apps/os88type.inc` buys a proportional face and perhaps 30, at the
+cost of composing a band per line. **Either way the text is short**, so a
+keyword's *name* has to carry its meaning and a card cannot explain itself —
+which is an argument for few keywords used often rather than many used once, and
+it should shape §7's card writing rather than surprise it.
+
+**5. A window resize mid-match re-cuts AND re-composes.** §4.2's per-axis cut
+re-derives the layers, and §4.2.3's composites have to run again on top — about
+**0.6 s** for a full board. That is fine as a one-off and unacceptable as a drag
+response, so the window's size is committed on release rather than tracked
+(`OSAPI_WM_ONRESIZE`, §3.1), and the game shows it is rebuilding.
+
+**6. Floating numbers are bands too.** Damage, healing and the soul award all
+drift upward over ~0.5 s, and each is a small composed band against the board
+picture (§3.9.1) — a few hundred bytes, ~2 ms a frame, several at once in a busy
+lane. Cheap, and it is the same machinery as a projectile, so it is listed here
+rather than designed separately.
+
+**7. The reveal phase has no animation specified.** §6.4 says both plans are
+applied and animated, and never says how a played card reaches its cell. It
+wants deciding in wave 1a with everything else visual — a card sliding from the
+panel, a figure fading up, a banner drop — and it is the one phase where a
+**sequence** rather than a simultaneous flurry may read better, since the whole
+point of the reveal is that the player is finding out what happened.
+
+### 16.3 …and four things deliberately NOT specified yet
+
+Recorded so their absence is a decision rather than an oversight:
+
+- **The sound-effect list.** §13.8 says effects are scarce on the speaker arm
+  and that is the constraint; which sounds exist is wave 1b's, with the music.
+- **The menu's screen flow.** Title, campaign, duel, deck builder, settings — the
+  shape is obvious and the animation is wave 6's.
+- **Exact keyboard shortcuts** beyond §3.1's F and Esc, which §11.2.1 binds.
+- **The victory screen's statistics**, beyond §6.8's list.
+
+---
 
 
 ## 17. The refusals, recorded now
@@ -3119,6 +3319,15 @@ resume mechanism and a replay harness instead of inventing them.
 - **More than 8 held items a faction.** §4.2.4, and it is a gate rather than a
   guideline — the pool being small is what makes a faction's kit read as a
   faction's kit.
+- **A second animated portrait for a card.** §3.9.3: the card's portrait is the
+  character's own sprite, which costs one feature instead of six and removes 90
+  pieces of art.
+- **Numbers inside the sprite band.** §3.8.1: they change once a round and the
+  band redraws every few frames.
+- **A second instance of TITHE.** §16.2: two copies cannot fit in the arena, so
+  the package refuses in its own words rather than failing a claim mid-load.
+- **Tracking a window resize during the drag.** §16.2: a re-cut and re-compose
+  is ~0.6 s, so the size is committed on release.
 - **Random card packs.** §11.3.
 - **A turn timer.** §5.8.
 - **State replication over the wire.** §12.3.
