@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 6. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 7. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -22,7 +22,9 @@ the combat phase, on the healer's own lane, after that lane's attacks**, which
 makes a healer's lane a third placement dimension, lets it pull a character back
 from zero, and — by *simultaneous, then sequential* (§5.5.3) — means a healer
 killed in its own lane heals nobody, itself included, with no special case
-written anywhere. **Front and rear may be entirely different roles** — a tank in
+written anywhere. **§13 is music**, which on a game that is mostly thinking is a
+requirement rather than a polish item — one score per renderer, a faction theme
+in three states, and about half a percent of the machine. **Front and rear may be entirely different roles** — a tank in
 front, a farmer in the rear, the same person holding a different tool — which
 doubles the character art and is worth it. And **a pure specialist is a card,
 not a defect** (§7.1.1): the freeholder who makes 4 gold and does nothing else
@@ -166,9 +168,10 @@ Every package and data file on a shipped disk is **lz4-compressed** by default
 | board art — 3 terrains, isometric, static | 60KB | ~25KB |
 | menu art, buttons, title | ~40KB | ~20KB |
 | campaign map | ~30KB | ~15KB |
-| **total** | | **~231KB of 354** |
+| **music — twelve pieces, layered per §13.4** | **~22KB** | **~11KB** |
+| **total** | | **~242KB of 354** |
 
-**123 clusters spare**, and §4.2.2 names a pipeline change that buys ~60KB more
+**112 clusters spare**, and §4.2.2 names a pipeline change that buys ~60KB more
 if it is ever needed. **The disk is not the binding constraint. The frame is.**
 
 **Heap**: at most two factions are live, and **both poses of every card must be
@@ -434,6 +437,7 @@ MartyPC's own counter.
 | every row on Hercules and CGA | the 1bpp adapters are not a scaled VGA |
 | the full 23-feature wheel | the whole-frame figure, which is the only one that answers the brief |
 | a part load + expand | §4.3's load path, where PAINT-1BPP-PLAN found its real regression |
+| a **note-on** on each sound arm | §13.5's per-frame sequencer cost, which is an *estimate* there and must be a measurement before it enters the frame budget |
 
 Measured on **MartyPC** — a cycle-accurate 4.77 MHz 8088, the default
 instrument — into a dated `docs/reports/` file, because a measurement is true of
@@ -525,10 +529,14 @@ and loaded on demand, compressed on disk (`OP_COMP`) and optionally lazy
 
 | part | flags | when |
 |---|---|---|
-| `MENU` | `OP_COMP`, `OP_LAZY` | at the front menu; dropped when a match starts |
+| `MENU` | `OP_COMP`, `OP_LAZY` | at the front menu; dropped when a match starts. **Carries the title and builder themes** (§13.6) |
 | `BOARD` | `OP_COMP` | at match start |
-| `FACTION` ×3 | `OP_COMP`, `OP_LAZY` | **only the two in play** — the line that makes 400KB work |
-| `MAP` | `OP_COMP`, `OP_LAZY` | campaign only |
+| `FACTION` ×3 | `OP_COMP`, `OP_LAZY` | **only the two in play** — the line that makes 400KB work. **Each carries its own four pieces of music** |
+| `MAP` | `OP_COMP`, `OP_LAZY` | campaign only. **Carries the map theme** |
+
+**Music rides in the part that needs it** rather than in one of its own, so it
+is claimed and dropped with the art it belongs to and costs no new mechanism
+(§13.6).
 
 **Why parts and not sidecar files**: `apps/c64`'s ROMs were a sidecar until
 §20.12 wave 6, and *"a copy that took the program and left it behind was a
@@ -589,7 +597,7 @@ Four things fall straight out of it, and all four are wins:
   it has to guess at (§10.3).
 - **The network protocol is five message types** (§12.3), and a board checksum
   either matches or does not.
-- **`duelsim.py` can play millions of matches** (§13.1), because a match is a
+- **`duelsim.py` can play millions of matches** (§14.1), because a match is a
   pure function of two decks and their draw order — **nobody even has to be
   picked to go first** (§6.0).
 
@@ -625,7 +633,7 @@ observation:
 - **Card numbers need wider spacing than a game with variance.** Without a
   distribution to blur them, a 3-attack and a 4-attack are *categorically*
   different: one kills a 3-HP body through no shield and the other does not, in
-  every single instance, for ever. §13.2 carries that as a standing note,
+  every single instance, for ever. §14.2 carries that as a standing note,
   because the usual instinct — nudge a card by one — is a much bigger change
   here than it looks.
 
@@ -656,7 +664,7 @@ the kind a dice game has instead of it.
 **It never touches a network match** — the AI plays only in solo and campaign,
 so no AI random number ever has to agree between two machines (§12.3). And it
 stays reproducible for the harness, because the AI's seed is a parameter like
-any other (§13.1).
+any other (§14.1).
 
 ### 5.1 Resources
 
@@ -732,7 +740,7 @@ combat; a generator played into the rear pays this round's spoils.
 
 That is a **large tempo statement** and it shapes the whole cost curve:
 resources convert to effect with no delay, so a round is dense, HP totals need
-to be higher, and a big turn really swings. §13.2 makes it dial #1, because if
+to be higher, and a big turn really swings. §14.2 makes it dial #1, because if
 matches come out too short this is the lever — not the card numbers.
 
 ### 5.4 Targeting — determined by the board, and the board includes a stance
@@ -887,7 +895,7 @@ switches that healing off for the round, and reaching it is positional — a rea
 healer is only reachable by a SNIPE down an unwalled lane or by a melee gap
 punish (§5.4). Focusing the healer becomes a plan rather than a side effect.
 
-**§17 question 3 keeps this open**, because it is the likeliest thing here to be
+**§18 question 3 keeps this open**, because it is the likeliest thing here to be
 revisited. Two alternatives, recorded with what each would change:
 
 | | what changes |
@@ -898,12 +906,12 @@ revisited. Two alternatives, recorded with what each would change:
 **Healing is what makes HP damage matter.** Shields refill every round for free,
 so shield damage is already temporary; HP damage is the permanent kind, and a
 faction that repairs it can grind where no other can. That is THE COVENANT's
-identity and its most sensitive balance number (§13.2).
+identity and its most sensitive balance number (§14.2).
 
 **Healing is what makes HP damage matter.** Shields refill every round for free,
 so shield damage is already temporary; HP damage is the permanent kind, and a
 faction that repairs it can grind where no other can. That is THE COVENANT's
-identity and its most sensitive balance number (§13.2).
+identity and its most sensitive balance number (§14.2).
 
 ### 5.6 Placement
 
@@ -934,7 +942,7 @@ two is the cost, and a swap-back costs the second one.
 - Damage is applied to **SHIELD first**, then HP. Shield refills to max at the
   **start of every round**, so chip damage into a shield is wasted and a burst
   that exceeds it is not. **This is the single most important balance dial in the
-  game** (§13.2), and it is what makes `PIERCE` and big single hits matter.
+  game** (§14.2), and it is what makes `PIERCE` and big single hits matter.
 - A character at **0 HP is marked**, and dies in the casualty phase **after the
   whole combat phase has resolved** — so it still deals its own damage this
   round, and a healer that fires later in the phase can still save it (§5.5.3).
@@ -977,10 +985,23 @@ plan, and everything resolves together.** There is no first player, no second
 player, no alternation and nothing to compensate.
 
 What each player sees while planning is **the board as it stood at the end of
-last round** — the opponent's characters, their HP, their shields, their
-stances, their gold, their soul pool and their hand size, all frozen. The only
-thing that moves under a planner's hands is **their own half**, updating live as
-they build their plan.
+UPKEEP** — after shields refilled, keywords fired, cards were drawn and income
+was paid, and before anybody has planned anything. The opponent's characters,
+HP, shields, stances, **gold, souls** and hand size are all shown, and **none of
+it moves while they plan**. The only thing that moves under a planner's hands is
+**their own half**, updating live as they build their plan.
+
+**Showing the opponent's resource pools is not a leak, and it is the right
+call**: every one of those numbers is derivable from what both players just
+watched. The spoils animation counted every coin into the pool (§6.7), the
+casualty animation floated every soul (§6.6), and upkeep's income is a public
+constant paid to both. **A planner could compute the figure with a pencil**, so
+withholding it would not hide information — it would only make the player do
+arithmetic the machine can do for them.
+
+**What must not move is the figure going DOWN as the opponent spends.** That is
+the actual secret, and the rule above covers it in every mode without a special
+case: the readout is the post-upkeep value, full stop.
 
 > **A PLAN is an ordered list of your own actions.** It applies in the order you
 > performed them, which is why what you saw while building it is what you get:
@@ -998,7 +1019,7 @@ before the idea arrived:
   first or theirs first produces the identical board. The round's result does
   not depend on an order, which means there is no order to agree on — over a
   wire, across a server, or between two people in a room. `duelsim.py` asserts
-  it by applying every recorded round both ways (§13.3).
+  it by applying every recorded round both ways (§14.3).
 - **There are no on-play effects**, so nothing reads the wider board at the
   moment a card lands. **That is a constraint to preserve**: if a card is ever
   written whose effect fires on being played, it may only read and write its own
@@ -1020,7 +1041,7 @@ reading an opponent and it rewards **robust** plays over **sharp** ones — a
 placement that is good against three of their likely four answers beats one that
 is perfect against a guess.
 
-Two balance consequences follow and §13.2 carries them: **shields and healing
+Two balance consequences follow and §14.2 carries them: **shields and healing
 are worth more** (resilience beats precision when you cannot counter exactly),
 and **the SNIPE/FRONT trade gets sharper**, since a snipe is now a bet on the
 lane still being open.
@@ -1123,9 +1144,11 @@ put a match at the mercy of whoever is slowest to stop fiddling.
 
 #### 6.3.1 How the three modes plan without leaking
 
-The rule is one sentence: **everything a planner can see about their opponent is
-frozen at the end of last round.** Board, HP, shields, stances, gold, souls,
-hand size — all of it.
+The rule is one sentence: **what a planner sees of their opponent is the
+position as it stood at the end of UPKEEP, and none of it moves until the
+reveal.** Board, HP, shields, stances, gold, souls, hand size — all of it, and
+all of it public, because both players watched every figure in it being computed
+(§6.0).
 
 | mode | how |
 |---|---|
@@ -1133,11 +1156,13 @@ hand size — all of it.
 | **hot-seat** | sequential in wall-clock, **simultaneous in information**: a pass-the-machine screen, then the second planner gets the **same frozen board**, not the first planner's result |
 | **vs AI** | the AI plans against the identical frozen board (§10.5), so it has **exactly the information the player has** — which is a fairness claim the old structure could not make |
 
-**Hot-seat has one leak to close and it is not the board.** If the first
-planner spends 3 gold and the second sees a reduced pool, that reveals a play
-was made and roughly what it cost. So in hot-seat the opponent's **resource
-figures are frozen too** — the general rule above, applied to the one place it
-is easy to forget.
+**And the rule needs no hot-seat special case**, which is how you can tell it is
+the right rule. The leak to worry about there is the resource pool: if the first
+planner spends 3 gold and the second sees a reduced pool, that announces a play
+was made and roughly what it cost. But the readout is the **post-upkeep** value
+in every mode, so it never moved in the first place — the second planner sees
+the same number the first one started from, and the same number they could have
+worked out themselves.
 
 ### 6.4 PHASE 3 — REVEAL (animated, ~1–2 s)
 
@@ -1167,7 +1192,7 @@ to 4, in order. For each lane:
    healed off 0 has its mark cleared and is visibly pulled back. **A healer that
    step 3 just marked does not fire at all** (§5.5.3).
 
-**Attacks first, then healing** — and §13.2 keeps the order as a dial, because
+**Attacks first, then healing** — and §14.2 keeps the order as a dial, because
 the alternative reading (heal first, so a lane's healer pre-loads it against the
 damage about to land) is a different and defensible game.
 
@@ -1241,6 +1266,7 @@ Per-machine, in `SYSTEM/APPDATA/TITHE.CFG`:
 | **Animations** | Full / Reduced / Off | Full |
 | **Confirm Commit** | On / Off | On |
 | **Sound** | On / Off | On |
+| **Music** | On / Off | On — **no volume arm, and §13.9 is why** |
 | **AI Difficulty** | Novice / Adept / Archon | Adept |
 
 **Animations: Off** is not cosmetic — it is the honest answer for a machine that
@@ -1294,7 +1320,7 @@ So the rule is a **distribution, not a per-card gate**:
 | a **pure specialist** | has exactly one of `MELEE`, `RANGED`, `SHIELD`, `GOLD`, `HEAL` non-zero **across both stat blocks together**. `HP` never counts — every character has a body |
 | and it should be **better at its one thing** | a pure 4-gold generator against a mixed 2-gold one. If a pure card is not the best in the game at what it does, it is just a weak card |
 
-`t_tithecards` (§14.3) checks the count per faction, **not** each card, which is
+`t_tithecards` (§15.3) checks the count per faction, **not** each card, which is
 the change: revision 4 had this as a gate every card had to pass and it would
 have refused exactly the cards this section is about.
 
@@ -1395,7 +1421,7 @@ ability would have been a second resource system bolted on the side.
 | **The Intercessor** | 5g 3s | 8 | 2/0/7/2/0/**3** **INTERCEDE** | 0/0/7/1/1/**6** **INTERCEDE, ABSOLVE** | finisher |
 
 **Every number in §7.2–§7.4 is a first draft** and will be rewritten in wave 10
-against §13's harness. They fix the *ranges* and show each faction's shape; the
+against §14's harness. They fix the *ranges* and show each faction's shape; the
 remaining ten slots a faction are deliberately not invented yet (§7.6).
 
 ### 7.5 Why the three interlock
@@ -1418,14 +1444,14 @@ choice, which is the thing the whole design now excludes.
 
 - **ORDERS** — one-shot effects from hand. They would give a losing board an
   out, and they would reintroduce exactly the mid-resolution decision §5.0
-  removed. **Recommend against**, and §17 question 2 is whether the owner agrees.
+  removed. **Recommend against**, and §18 question 2 is whether the owner agrees.
 - **RELICS** — a permanent attached to one of your characters. Compatible with
   §5.0, since attaching is a placement decision. But a relic is a second object
   on a cell already carrying a sprite, an HP bar, a shield ring, a heal badge and
   a keyword badge on a 104×72 tile. **Recommend against** on §8's budget.
 
 **The remaining thirty cards are wave 10's work.** A card list written before the
-balance harness exists is a list of guesses; §13.1 is what has to be standing
+balance harness exists is a list of guesses; §14.1 is what has to be standing
 first.
 
 ---
@@ -1587,7 +1613,7 @@ constant.
 (§10.2) would be **5.3 ms of arrivals per ply** spent on nothing but random
 numbers. So the AI seeds a 16-bit xorshift in its own image once per match from
 `OSAPI_RAND` and steps it in a few instructions per candidate. That also makes
-the AI's whole run reproducible from one word, which is what §13.1 needs.
+the AI's whole run reproducible from one word, which is what §14.1 needs.
 
 **The enumeration start point is rotated too.** Even at zero jitter the order in
 which candidates are visited decides which of two exactly-equal actions wins, so
@@ -1862,7 +1888,7 @@ player actually sees.
 
 ### 12.6 The MATCH FILE — and it is under a kilobyte
 
-Because a match is a pure function of its parameters (§13.1) and a round is two
+Because a match is a pure function of its parameters (§14.1) and a round is two
 plans, **the entire history of a game is the seeds plus the list of plans**.
 
 ```
@@ -1879,7 +1905,7 @@ four useful things at once rather than one:
 | the **suspended match** save | replay the plans and you are exactly where you left off |
 | the **network resume** point (§12.4) | a reconnect asks for the rounds it is missing |
 | the **posted-play** unit (§12.7) | the thing a server holds and a player appends to |
-| the **bug report** | *"send me your `.TIT` and I will replay it"* — and it replays **byte-identically** (§13.3) |
+| the **bug report** | *"send me your `.TIT` and I will replay it"* — and it replays **byte-identically** (§14.3) |
 
 **That last row is worth the format on its own.** This runs on machines where
 there is no debugger to attach, the reporter is a person with a 5150 in another
@@ -1944,9 +1970,240 @@ three a fast host and a slow guest would each have hidden from the other, and th
 
 ---
 
-## 13. Balance — how it gets iterated
+## 13. Sound and music
 
-### 13.1 The harness comes before the card list
+### 13.0 Why this game needs MUSIC and not just noises
+
+**TITHE is mostly thinking.** A planning phase is untimed (§6.3) and a player
+may sit in one for a minute; a match is twenty rounds of that. A machine that is
+silent except for a click when you place a card and a clatter when the lane
+resolves is a machine that sounds **switched off** for most of the time you are
+looking at it.
+
+So music is a requirement rather than a polish item, and it is scoped that way:
+
+| where | what plays |
+|---|---|
+| the front menu | **the title theme** |
+| the campaign map | **the map theme** |
+| the deck builder | **the builder theme** |
+| a match | **the player's own faction theme**, in one of three states — **NORMAL**, **PRESSED** (they are behind) and **ASCENDANT** (they are ahead) |
+
+Twelve pieces nominally; §13.4 is the arrangement that makes nine of them cost
+about four.
+
+### 13.1 What the machine has — two arms and one refusal
+
+| arm | slot | what it is | when |
+|---|---|---|---|
+| **the speaker** | `OSAPI_SND_TONE` | **one** square-wave voice, on PIT channel 2 | always. Every machine has it |
+| **FM** | `OSAPI_SND_FM` | an OPL2 — **9 channels** of real instruments | only while a sound **driver** is mounted (§34, §51.4); the slot answers `CF=1` when none is |
+| PCM streaming | `OSAPI_SND_STREAM` | sampled music | **refused** — see below |
+
+**Streamed music is refused, on the disk rather than on the CPU.** §1.5 has
+about 123 clusters spare; a minute of 8-bit PCM at the low end of the slot's
+range is over 280KB. One track would take the disk. `apps/audio` (§86) and
+`apps/modplug` (§56) both exist and both are the right answer for a program
+whose *subject* is playing music; this is a game with a 354-cluster floppy and
+a frame budget.
+
+**The arm is chosen once, at start-up, from `OSAPI_SND_CAPS`**, and a machine
+with no sound driver gets the speaker rather than silence. The game does **not**
+try to mount `SOUND.DRV` itself — mounting a driver is the Control Panel's job
+(§51.3) — but the settings page says in one line what a mounted one would add,
+which is §47's rule applied to a fact rather than a guess.
+
+### 13.2 ONE SCORE, TWO RENDERERS — and channel 0 is the lead
+
+A piece is written **once**, for **4 channels**, and **channel 0 is the LEAD**.
+
+- The **FM** renderer plays all four — lead, bass, chords, percussion — on four
+  of the OPL2's nine voices, leaving the rest for sound effects (§13.8).
+- The **speaker** renderer plays **channel 0 and nothing else**. One voice is
+  all it has, and the lead is the part a listener would hum.
+
+**That is the whole compatibility story**, and it is why the composer is not
+writing two pieces: the speaker arm is the same score with three channels
+ignored. It also sets a composition rule — **the lead has to carry the tune on
+its own**, because on the target machine it is the tune.
+
+### 13.3 The format — rows, patterns and an order list
+
+Tracker-shaped, because that shape is small and every composer already knows it:
+
+```
+  a ROW      4 channels x 2 bytes = 8 bytes     (note, and instrument | volume)
+  a PATTERN  64 rows                            = 512 bytes
+  an ORDER   a list of pattern indices, with a loop point
+  a TRACK    a header (tempo, order length, loop), the order, the patterns
+```
+
+**Tempo is in TICKS PER ROW, and only integers are legal.** The sequencer runs
+on the 18.2065 Hz system tick (§13.6), so a row boundary is a tick boundary;
+2, 3, 4 and 6 ticks a row give 9.1, 6.1, 4.6 and 3.0 rows a second. A tempo that
+did not divide would drift, audibly, over a two-minute loop. **This is a real
+constraint on the composer and it is better stated than discovered.**
+
+**Instruments are a shared bank** — roughly 16 OPL2 patches at ~11 bytes each,
+about 180 bytes for the lot, carried once rather than per track. A faction
+should sound like itself because of *what it plays*, not because it owns a
+private oscillator; and a shared bank is what lets §13.4's layering work at all.
+A track may override a patch if it must.
+
+**Sparse rows are why this is small enough**: most rows change nothing on most
+channels, so a track is mostly zeros and lz4 (§20.13) eats it. If measurement
+says otherwise, the fallback is a delta encoding — *(row skip, channel, note,
+volume)* events instead of packed rows — and it is recorded here so it is not
+re-derived under pressure.
+
+### 13.4 The nine battle tracks are really three, layered
+
+**The three states of a faction's theme are ONE piece with three leads.**
+NORMAL, PRESSED and ASCENDANT share their bass, chord and percussion patterns —
+same key, same tempo, same order length — and differ only in channel 0 and in
+the instrument the lead is played on.
+
+Three things fall out and every one of them is a win:
+
+- **The switch is seamless.** Changing state swaps the lead at a pattern
+  boundary while the accompaniment keeps going, so it reads as the music
+  *responding* rather than as one track stopping and another starting. A
+  crossfade is not available on a square wave, so a clean switch is the only
+  kind there is.
+- **It costs about a third.** Three accompaniments at ~2KB plus nine leads at
+  ~0.8KB is **~13KB**, against ~28KB for nine independent tracks.
+- **It keeps a faction coherent.** All three states are recognisably the
+  Bulwark, which is the point of having faction music at all.
+
+### 13.5 What it costs — and the instinct is wrong
+
+| | |
+|---|---|
+| **speaker**, a note event | one `OSAPI_SND_TONE` — a far call at **46.7 µs** *measured*. The PIT then plays it with no further CPU at all |
+| at 4 ticks a row, ~1 lead change a row | **~4.6 calls a second ≈ 0.2 ms/s** |
+| **FM**, a note event | ~6 OPL2 register writes, each needing the chip's address/data settling (~3.3 µs and ~23 µs on an 8088) ≈ **160 µs** *estimated* |
+| 4 channels × 4.6 rows a second | **~3 ms/s** |
+| the sequencer itself | read a row, compare four channels, dispatch — a few hundred cycles a frame |
+
+**So music is on the order of 0.5% of the machine**, and that is worth stating
+plainly because the instinct on a 4.77 MHz 8088 is that it must be expensive. It
+is not: the speaker is a hardware oscillator the CPU pokes once a note, and the
+OPL2 is a chip that plays on its own.
+
+**§3.7's bench gets one more row for it** — a note-on on each arm, timed — so
+the sequencer's per-frame cost enters the frame budget as a measured number
+rather than as this paragraph.
+
+**On disk**: twelve pieces as arranged in §13.4 come to roughly **22KB
+uncompressed, ~11KB packed** — against §1.5's 123 spare clusters. Music is the
+cheapest thing in this document per unit of effect.
+
+### 13.6 Where the sequencer runs — in the frame, beside the wheel
+
+**The music sequencer is a step in the same per-frame pass as the pacing wheel**
+(§3.6), not a task of its own.
+
+- **No second worker.** The package's one worker is the AI (§10.6), and an AI
+  think of ~1 second would starve a sequencer sharing it.
+- **No `OSAPI_WM_TIMER` callback**, which would serialise the music behind
+  whatever holds the gfx lock.
+- **The frame is already paced and already cannot overrun** — that is what
+  §3.6's credit budget guarantees — so a sequencer riding it inherits the one
+  property music actually needs, which is an even clock.
+
+**Music keeps playing while the AI thinks**, because the AI is on the worker and
+the wheel is on the UI task (§10.6) — the same arrangement that stops an AI turn
+looking like a hang now stops it sounding like one.
+
+**Music stops for a disk load, and it should do so deliberately.** An `int 13h`
+blocks the UI task for ~400 ms a call (§1.1), so a load between screens would
+chop the music rather than pause it. The sequencer is **silenced before** a part
+load and restarted after — one call each side, and the alternative is a stutter
+the player reads as a crash.
+
+**The score lives in the part that needs it** (§4.3) — the title and builder
+themes in `MENU`, the map theme in `MAP`, and each faction's four pieces in its
+own `FACTION` part — so music is loaded and dropped with the art it belongs to
+and costs no new mechanism. The sequencer holds **an offset into that claim, not
+a segment**, which is §4.4's rule and keeps the relocation proc a `ret`.
+
+### 13.7 Choosing the battle state — the AI's own evaluation
+
+**The three states are driven by §10.3's board evaluation**, run from the local
+player's point of view, once a round in the spoils phase.
+
+That reuse is the whole design: the evaluator already weighs player HP, board
+power, next-combat damage, income and unopposed lanes, which is a far better
+reading of *"am I winning"* than a proxy like a HP difference. A player hears
+the music turn when the position turns, not when a number crosses a line.
+
+Three rules keep it from being annoying:
+
+- **Hysteresis.** Entering a state needs a wider margin than staying in it, or
+  the theme flaps every round on a close board.
+- **A minimum dwell** of a few rounds, so a single swingy round cannot bounce it.
+- **The switch waits for the end of the current pattern.** Music that changes
+  mid-phrase sounds broken; §13.4's shared accompaniment is what makes the wait
+  cost nothing.
+
+**In a networked match each machine reads its own player's position and plays
+its own faction**, so the two players hear different music — which is correct,
+needs no synchronisation, and puts not one byte on the wire.
+
+### 13.8 Sound effects, and the one-voice problem
+
+| arm | what happens |
+|---|---|
+| **FM** | effects get **their own OPL2 voices** — four are the score's (§13.2), five are spare. Music and effects coexist |
+| **speaker** | there is **one voice**. An effect **interrupts** the music: the note is lost and the sequencer resumes at the next row |
+
+`OSAPI_SND_TONE`'s `DL` priority is exactly the mechanism — **music is emitted
+at a low priority and effects at a high one**, so the arbitration is the sound
+layer's and not ours.
+
+**That makes effects a scarcer resource on the speaker arm than on the FM one**,
+and the design answer is to have fewer of them there rather than to mute the
+music: a placement confirm, an impact, a death, a coin. Every 1980s PC game made
+this trade; stating it stops it being discovered as a bug.
+
+**Silence is a usable effect.** Cutting the music for the length of a lane's
+resolution, so the impacts land in a gap, is a real technique and it is free.
+Whether TITHE does it is a listening question, not a design one, and it belongs
+with §18's music question rather than being mandated here.
+
+### 13.9 Settings — and what cannot honestly be offered
+
+**Music** joins **Sound** as a separate arm in §6.10, because a player who wants
+the effects and not the theme is a real person and the two are independent
+systems.
+
+**There is no volume control, and there cannot honestly be one.** The PC speaker
+has no amplitude — a square wave is on or off — so a "quieter" setting would be
+a slider that does nothing on the machine this game is calibrated for. The FM
+arm *does* have per-operator attenuation, so an FM-only volume is possible; it
+is deliberately not proposed, because a setting that works on one machine in
+three and is greyed on the others is worse than not offering it (§47 rule 3:
+grey a fact, never a guess — and *"you have no sound driver"* is a fact, but
+*"this slider is meaningless on your hardware"* is not something a grey conveys).
+
+### 13.10 The tool, and hearing it without a machine
+
+`tools/os88tithemus.py`, in `os88logo.py`'s and `cp437font.py`'s shape:
+a plain-text tracker notation in, the packed score out, `--selfcheck` in the
+build.
+
+**And `--wav`, which renders an approximation on the host.** Composing for a
+machine you have to boot to hear is how a project ends up with one piece of
+music; a composer who can hear a change in a second will write twelve. It is an
+*approximation* and the document should say so — the guest's OPL2 and the host's
+render will not match exactly, and the guest is the truth — but it is the
+difference between iterating and not.
+
+---
+
+## 14. Balance — how it gets iterated
+
+### 14.1 The harness comes before the card list
 
 `tools/duelsim.py` — a **host-side Python reference implementation of the
 rules**, in `tools/weavesim.py`'s and `tools/htmsim.py`'s shape. It:
@@ -1990,7 +2247,7 @@ repeatable**, and the six-parameter tuple is what keeps those two apart.
 agree, and a `soak` row that plays one scripted match on the machine and diffs
 the log against the simulator's is what keeps them agreeing.
 
-### 13.2 The dials, in the order to reach for them
+### 14.2 The dials, in the order to reach for them
 
 1. **Whether a character acts the round it is played** (§5.3). The brief says it
    does, and it is the largest single tempo lever in the game — if matches come
@@ -2019,7 +2276,7 @@ the log against the simulator's is what keeps them agreeing.
    body, in every instance, for ever. Move a number only with a harness run
    behind it.
 
-### 13.3 What good looks like
+### 14.3 What good looks like
 
 | | target |
 |---|---|
@@ -2030,15 +2287,15 @@ the log against the simulator's is what keeps them agreeing.
 | cards never played in a winning deck | **zero** |
 | every role represented in some winning deck | all five, for every faction |
 | **both poses of a card used across winning decks** | **no card whose rear block is never chosen** — §5.2's whole point is that both sides of a card are real |
-| stance mix among rear-column shooters | **neither FRONT nor SNIPE above 80%** — if one dominates, §13.2 #6 has the wrong number in it |
-| determinism | two replays at the same six parameters (§13.1) produce byte-identical logs |
+| stance mix among rear-column shooters | **neither FRONT nor SNIPE above 80%** — if one dominates, §14.2 #6 has the wrong number in it |
+| determinism | two replays at the same six parameters (§14.1) produce byte-identical logs |
 | AI variety | over 64 replays of one position at one difficulty, **the AI's first action differs at least 8 ways** — §5.0.2's whole point, and the row that catches a jitter accidentally set to zero |
 
 ---
 
-## 14. Where it lives, and what the build owes
+## 15. Where it lives, and what the build owes
 
-### 14.1 Files
+### 15.1 Files
 
 ```
 apps/tithe/
@@ -2054,16 +2311,19 @@ apps/tithe/
   ticamp.inc      the map, the nodes, the save
   timenu.inc      the animated front menu and its buttons
   tideck.inc      the deck builder
+  timus.inc       the sequencer and its two renderers (speaker, FM)
   art/            the PNG masters, two poses a character
-tools/os88tithe.py   art -> the shipped banks
-tools/duelsim.py     the reference implementation and the balance harness
+  mus/            the scores, in the tool's text notation
+tools/os88tithe.py    art -> the shipped banks
+tools/os88tithemus.py scores -> the packed tracks; --wav previews on the host
+tools/duelsim.py      the reference implementation and the balance harness
 ```
 
 **`tirule.inc` is used by the game, by the AI and by the network checksum, and it
 is the only place the rules exist.** That is the load-bearing structural decision
 in the whole package.
 
-### 14.2 The build
+### 15.2 The build
 
 - `make tithe` builds the package; `make tithedisk` builds the floppy **in all
   four geometries** (§19's rule reaches the on-demand application disks too —
@@ -2082,21 +2342,21 @@ in the whole package.
 - SPEC.md gains its own section (the next free number is **97**), written
   **before** the change and not after (§1's rule).
 
-### 14.3 The tests, by tier
+### 15.3 The tests, by tier
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, **§7.1.1's pure-specialist count (at most 5 of 16, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, **§7.1.1's pure-specialist count (at most 5 of 16, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
-| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §13.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithesave` (a campaign save round-trips) |
+| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§14.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §14.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithemus` (the sequencer holds tempo across 60 s on both arms — **guest ticks between row boundaries, not host seconds** — and a state change lands on a pattern boundary, §13.7); `tithesave` (a campaign save round-trips) |
 
 **Every row gets a `secs` somebody measured**, and every row is written by
 breaking the thing on purpose first and watching it go red —
-`docs/WRITING-TESTS.md` §1, whose §13 is sixty incidents' worth of why.
+`docs/WRITING-TESTS.md` §1, whose §14 is sixty incidents' worth of why.
 
 ---
 
-## 15. The waves
+## 16. The waves
 
 | wave | what | gate |
 |---|---|---|
@@ -2107,11 +2367,13 @@ breaking the thing on purpose first and watching it go red —
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it now plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |
 | **5** | art: the pipeline, **two poses a character**, three factions, bases, board, cards | the disk fits in 354 clusters; the CGA cut is looked at on a CGA; both poses read as the same person |
 | **6** | the front menu, the animated buttons, settings | it looks like a game |
+| **6b** | **sound and music** (§13): the sequencer in the frame pass, both arms, the tool with `--wav`, the title/map/builder themes and one faction's four pieces | it holds 18 fps with the sequencer running on both arms; a speaker-only machine gets music, not silence |
 | **7** | deck builder + collection + save | a deck survives a reboot |
 | **8** | the campaign: map, nodes, modifiers, rewards | a campaign can be finished |
 | **9** | **the match file** (§12.6), and **posted play rung 1** — a `.TIT` carried on a floppy between two machines | a match suspends, moves, resumes and finishes with no link of any kind |
 | **10** | **Ethernet multiplayer** — one `PLAN` a side a round | two QEMU guests play a match; a desync is reported and not hidden; a reconnect resumes from the match file |
-| **11** | **balance**, and where the other thirty cards are actually written | §13.3's nine targets |
+| **11** | **balance**, and where the other thirty cards are actually written | §14.3's nine targets |
+| **11b** | the **remaining eight faction pieces** (§13.4), written once the factions are balanced and their identities have stopped moving | all three factions have three states each, and a state change lands on a pattern boundary |
 | **12** | **`LINK.DRV`** — the direct cable, parallel first, serial second | the simulator, then the field |
 | **13** | **posted play rungs 2 and 3** (§12.7) — a shared volume, then a real server on `os8088.com`, plus the match browser | two people finish a match without ever being at their machines at the same time |
 
@@ -2128,7 +2390,7 @@ testable.
 
 ---
 
-## 16. The refusals, recorded now
+## 17. The refusals, recorded now
 
 - **Any choice taken while a round resolves.** §5.0: no activated abilities, no
   targeting prompts, no reactions. A **stance** is not one of these — it is set
@@ -2171,11 +2433,23 @@ testable.
 - **A turn timer.** §5.8.
 - **State replication over the wire.** §12.3.
 - **Putting the cable transport in the package, or in `NET.DRV`.** §12.5.
-- **Writing the other thirty cards before the harness exists.** §7.6, §13.1.
+- **Writing the other thirty cards before the harness exists.** §7.6, §14.1.
+- **Streamed PCM music.** §13.1: a minute of it is over 280KB against a
+  354-cluster floppy. `apps/audio` and `apps/modplug` are the right programs for
+  that and this is not one of them.
+- **A music volume slider.** §13.9: the PC speaker has no amplitude, so on the
+  machine this game is calibrated for the control would do nothing.
+- **A second worker for the sequencer.** §13.6: the one worker is the AI, and a
+  one-second think would starve anything sharing it. The frame pass is already
+  paced and already cannot overrun.
+- **Hiding the opponent's resource pools.** §6.0: every figure is derivable from
+  the animation both players just watched, so withholding it hides nothing and
+  only makes the player do arithmetic. What is hidden is the pool *moving* as
+  they spend.
 
 ---
 
-## 17. Open questions — the owner's to answer
+## 18. Open questions — the owner's to answer
 
 1. **ORDERS and RELICS** (§7.6): revision 6 recommends against both — ORDERS
    because they are a resolution-time choice, RELICS on the cell budget (§8).
@@ -2191,25 +2465,29 @@ testable.
    needs a rule saying so — and **(c)** it heals others but not itself, which is
    a real special case in the chain. §5.5.3 has the table.
    *(The separate question of whether **attacks or healing go first** within a
-   lane is settled on your call — attacks first — and stays a dial at §13.2 #3.)*
+   lane is settled on your call — attacks first — and stays a dial at §14.2 #3.)*
 4. **Deck size 20, hand limit 7, player HP 20, two swaps** — starting values only.
    Two swaps carries more weight than it did, because moving a healer down a lane
    (§5.5.2) competes for the same budget as flipping a character's pose.
 5. **Sound**: PC speaker tones for the UI and combat, and FM stingers when
    `SOUND.DRV` is present? Not in the brief, and it is real work.
-6. **How much of the opponent is frozen** (§6.3.1). This plan freezes
-   *everything* — board, HP, shields, stances, gold, souls, hand size — which is
-   the simple rule and closes the hot-seat resource leak by construction. The
-   alternative is to keep the **resource pools live** so a planner can see what
-   their opponent could afford this round; it is more information and a better
-   read, and it reopens the leak in hot-seat unless that one mode freezes them.
-7. **A commit clock for posted play** (§12.7). The package refuses to encode a
+6. **Does the music cut for a lane's resolution?** (§13.8.) Dropping out so the
+   impacts land in a gap is a real technique and it is free. It is a listening
+   question and nobody can answer it from a document — but it wants deciding
+   before §13.4's accompaniments are written, since a piece meant to be
+   interrupted is arranged differently from one that is not.
+7. **Who composes, and in what** (§13.10). The tool's notation is a design
+   decision that lands on a person: tracker-style rows are what the format is,
+   but a composer may want something closer to notation. And twelve pieces is a
+   real commission — is that you, or somebody else, or is the first pass
+   placeholder music that ships and gets replaced?
+8. **A commit clock for posted play** (§12.7). The package refuses to encode a
    policy it cannot enforce, which means an abandoned posted match is the
    server's problem. Is that the right line, or should a match file carry a
    stated deadline that both clients simply display?
-8. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
+9. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
    paper. It needs looking at on a real CGA in wave 5, and §4.2 names the 70KB
    fallback if the cut is not good enough.
-9. **Two poses a character doubles the character art** (§4.2.1) — ~110KB
+10. **Two poses a character doubles the character art** (§4.2.1) — ~110KB
    uncompressed, ~55KB packed, +74KB resident. It fits with 123 clusters spare.
    Confirming you want the art bill before wave 5 draws it twice.
