@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 3. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 4. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,13 +8,13 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**Revision 3 settles the five decisions that make TITHE a game of pure
+**Revision 4 settles the five decisions that make TITHE a game of pure
 placement.** Turn order **alternates each round**, which removes the
 information advantage structurally and with it every resource compensation.
-**Nothing is chosen while a round resolves**: no activated abilities, no
-targeting prompts, no reactions and no randomness — every choice is made on
-your own turn and becomes part of the board, which is what a **STANCE** is
-(§5.4). **Healing fires inside the combat phase, on the healer's own lane,
+**Nothing is chosen while a round resolves and nothing is rolled**: no
+activated abilities, no targeting prompts, no reactions, and **no stat is ever
+a range** — a 4 attack deals 4 (§5.0.1). Every choice is made on your own turn
+and becomes part of the board, which is what a **STANCE** is (§5.4). **Healing fires inside the combat phase, on the healer's own lane,
 after that lane's attacks**, which makes a healer's lane a third placement
 dimension and lets it pull a character back from zero. And **front and rear may
 be entirely different roles** — a tank in front and a farmer in the rear, the
@@ -376,6 +376,41 @@ for a lane is computed from the state at the *start of that lane*, then applied
 together — so two characters that would kill each other both die. The animation
 plays them together; the arithmetic never interleaves.
 
+#### 3.6.2 The step forward — and it is two bands, not one
+
+A melee attacker whose lane has an empty front cell reaches past it (§5.4), and
+**the animation walks it into the gap** rather than asking the player to work
+out what just happened: it steps into the empty front cell, swings at whatever
+it reached — the rear character, or the enemy base if the lane is clear — and
+steps back when the lane is done.
+
+**It is drawn as two bands a frame, not one wide one**, and that is worth
+pinning because the obvious spelling is the expensive one. The union of the
+attacker's own cell and the cell it stepped into is `2·CW` wide and `CH + RISE`
+tall — 208 × 92 on a VGA, **2,392 bytes**, most of them ground nobody touched.
+Two ordinary sprite bands — one restoring the cell it left, one drawing it where
+it now stands — are **2 × 576 = 1,152 bytes**, less than half, and they are the
+bands the renderer already knows how to build.
+
+That is §93.5.1.1's rule arriving here unchanged: *"a move too big for one band
+is a teleport, drawn as two operations instead — one band over the tiles the
+actor was on, without it, then its own band where it is now."* The step is a
+teleport by that definition, because the two cells are a whole cell apart.
+
+Three things make it cheap and safe:
+
+- **The gap cell is empty**, by the definition of the step, so nothing is
+  overdrawn that has to come back.
+- **The gap cell's ground is the same baked diamond** as every other combat cell
+  (§3.2), so the vacated band and the occupied band are both ordinary.
+- **The idle wheel is suspended** during the lane (§3.6.1), so ~7 ms for a
+  stepping attacker comes out of a whole frame rather than out of the idle
+  budget. At most two attackers a side can be stepping in one lane.
+
+**A stepped attacker is still drawn in its own rectangle**, so §3.2's
+non-overlap holds throughout — it is standing in a different cell, not between
+two of them.
+
 ### 3.7 WAVE 0 — the bench that decides all of the above
 
 **Nothing in §3.2–§3.6 is settled until this has run**, and it is the first
@@ -468,7 +503,7 @@ tell**, because colour is gone there and the silhouette is all the player has.
 
 #### 4.2.2 The pipeline change that buys 60KB, if it is ever needed
 
-**Not proposed for revision 3** — §1.5 has 123 clusters spare — and recorded so
+**Not proposed for revision 4** — §1.5 has 123 clusters spare — and recorded so
 it is not re-derived under pressure: store each character once as a **body**
 frame set plus two small **prop/stance overlays**, and composite the two
 complete opaque poses at *load* time. Disk falls by roughly 60KB; heap does not
@@ -543,15 +578,42 @@ That is the entire game, and everything below is written to keep it that way.
 Four things fall straight out of it, and all four are wins:
 
 - **A turn is fast**, which matters on a machine where a click costs a repaint.
-- **The AI cannot be wrong about the rules**, because the rules have no
-  branches it has to guess at (§10.3).
-- **The network protocol is four message types** (§12.3), and a board checksum
+- **The AI cannot be wrong about the rules**, because the rules have no branches
+  it has to guess at (§10.3).
+- **The network protocol is five message types** (§12.3), and a board checksum
   either matches or does not.
 - **`duelsim.py` can play millions of matches** (§13.1), because a match is a
-  pure function of two decks and their draw order.
+  pure function of two decks, their draw order and who started.
 
-**The one place randomness remains is the shuffle** (§6.1). §17 question 1 asks
-whether even that should go.
+#### 5.0.1 No stat is ever a range, and nothing is rolled
+
+**A number on a card is exactly what happens.** A 4 attack deals **4**, never
+"up to 4". A 2 gold earns **2**. A 3 heal restores **3**. There is no to-hit
+roll, no critical, no variance band and no percentage anywhere in resolution.
+
+**Randomness exists in TITHE in exactly two places, and both are INITIAL
+CONDITIONS rather than outcomes**: the **deck shuffle** (§6.1) and **who takes
+the first turn of round 1** (§6.1, §6.3). Both are settled before a card is
+played, both are agreed between two machines by one exchanged seed (§12.3), and
+neither can change what a character *does* once it is on the board.
+
+Three consequences, and the third is a balance instruction rather than an
+observation:
+
+- **A player can compute the whole round.** Hovering a card shows exactly what
+  it will do, and the preview is not an estimate. That is the ceiling of the
+  skill this game rewards, and it is why the interface can afford to *tell* the
+  player things a dice game would have to leave vague.
+- **The AI's lookahead is exact**, not expected (§10.3). It cannot know a future
+  draw, but given the board it knows the combat to the point. A bad AI move is
+  therefore always a mis-*valuation*, never a mis-prediction — a far easier
+  thing to tune.
+- **Card numbers need wider spacing than a game with variance.** Without a
+  distribution to blur them, a 3-attack and a 4-attack are *categorically*
+  different: one kills a 3-HP body through no shield and the other does not, in
+  every single instance, for ever. §13.2 carries that as a standing note,
+  because the usual instinct — nudge a card by one — is a much bigger change
+  here than it looks.
 
 ### 5.1 Resources
 
@@ -641,6 +703,11 @@ matches come out too short this is the lever — not the card numbers.
 
 A melee character in your **rear** column cannot attack at all — which is why
 its rear block is usually a different job.
+
+**An attacker that reaches past an empty front cell STEPS INTO IT** for the
+length of its swing and steps back (§3.6.2). That is animation and nothing else
+— it does not occupy the cell, cannot be hit there, and the board is unchanged
+— but it is what makes the gap punish legible without a line of text.
 
 **RANGED** — an attacker in **either** of your columns, lane R, shooting
 according to **the stance you set on your turn**:
@@ -816,7 +883,7 @@ cable. The clock is the **empty lane**: a board that deadlocks in every lane
 generates no damage and no souls, base income keeps both players playing, and a
 stalled board is broken by whoever builds the better economy. If playtesting
 finds real deadlocks the valve is a **round counter that raises base income** —
-a one-line change, deliberately not in revision 3.
+a one-line change, deliberately not in revision 4.
 
 ---
 
@@ -827,10 +894,13 @@ A **MATCH** is rounds until somebody is at zero.
 
 ### 6.1 MATCH SETUP (once)
 
-1. Both decks are validated (§9.3) and shuffled.
+1. Both decks are validated (§9.3) and **shuffled**.
 2. **Who takes the first turn of round 1 is chosen at random.** In a network
    match the seed is exchanged once (§12.3) so both machines agree; otherwise
    `OSAPI_RAND` seeded from `OSAPI_GET_TICKS`.
+
+*(Steps 1 and 2 are the **only** two random numbers in a match — §5.0.1. From
+here on nothing is rolled.)*
 3. Both players draw an opening hand of **4**.
 4. Both players start at **20 HP**, **4 gold**, **0 souls**.
 
@@ -1171,7 +1241,7 @@ deck-building a reason beyond *play the good cards*.
 
 ### 7.6 Card types — and the fork
 
-Revision 3 proposes **characters only**, and §5.0 has made that decision much
+Revision 4 proposes **characters only**, and §5.0 has made that decision much
 firmer than it was: an ORDER played from hand is by definition a resolution-time
 choice, which is the thing the whole design now excludes.
 
@@ -1248,7 +1318,7 @@ any of those axes and the player should be able to see which one they have built
 | | |
 |---|---|
 | deck size | **exactly 20** |
-| faction | **one faction per deck**; no neutral cards in revision 3 |
+| faction | **one faction per deck**; no neutral cards in revision 4 |
 | copies | **at most 2** of any card |
 | decks saved | up to **8**, named |
 
@@ -1431,7 +1501,7 @@ staging buffer must be in the package's own segment** — §77.10's lesson:
 read out of the package image instead, and it presents as memory corruption
 rather than as a wrong segment register.
 
-### 12.3 The protocol — four message types, because §5.0 left four
+### 12.3 The protocol — five message types, because §5.0 left five
 
 **Action replication, not state replication**: each side owns its own deck, hand
 and draw order, and sends only what the other side must know.
@@ -1464,6 +1534,13 @@ dumps both boards to a file.
 both ways and combined, so neither side can pick. Every round after that
 alternates (§6.3) and needs no message at all.
 
+**That seed and each side's own shuffle are the only random inputs in the whole
+protocol** (§5.0.1), and neither crosses the wire as an outcome: a side shuffles
+its own deck privately and tells the other only which card it played. So a
+desync can never come from two machines disagreeing about a die — there is no
+die — which is what makes `ENDTURN`'s checksum a *rules* check rather than a
+luck check.
+
 ### 12.4 Who does what, and when
 
 Only the player whose turn it is sends actions. The other side **applies them as
@@ -1473,7 +1550,7 @@ of what makes a networked turn-based game feel live. `ENDTURN` hands over.
 A link that drops mid-match: the receiving side shows **Link lost** with the
 round, and offers **reconnect** (the protocol resumes from the last agreed
 `ENDTURN`, because both sides hold a consistent board at that point) and
-**concede**. Reconnect is revision 4; revision 3 reports and ends the match.
+**concede**. Reconnect is revision 5; revision 4 reports and ends the match.
 
 ### 12.5 The direct cable — what it actually costs
 
@@ -1551,11 +1628,19 @@ rules**, in `tools/weavesim.py`'s and `tools/htmsim.py`'s shape. It:
   mix** of winning decks (§7.1's rule needs a number attached to it);
 - is `--selfcheck`ed in the build the way `weavesim.py` is.
 
-**§5.0 makes it far stronger than it would otherwise be.** With no randomness in
-resolution, a match is a pure function of *two decks and their draw order*, so
-the simulator can sweep every draw order of interest rather than sampling, and a
-reported win rate is a count rather than an estimate. A determinism gate falls
-out for free: replay the same match twice and the logs must be byte-identical.
+**§5.0.1 makes it far stronger than it would otherwise be.** The only random
+inputs are the two shuffles and who starts round 1, and all three are
+*parameters* — so a match is a pure function of (deck A, deck B, draw order A,
+draw order B, who started), and the simulator can **sweep** that space rather
+than sample it. A reported win rate over a swept range is a count, not an
+estimate, and the confidence interval that usually has to be argued about does
+not arise.
+
+A determinism gate falls out for free: replay a match with the same five
+parameters and the logs must be **byte-identical**. That gate is worth more than
+it looks — it is the cheapest possible detector for an accidental read of
+uninitialised memory in the rules engine, which on an 8088 is otherwise a
+Heisenbug that only shows up on one machine.
 
 **And it is the second reader of the rules**: the assembly and the Python must
 agree, and a `soak` row that plays one scripted match on the machine and diffs
@@ -1569,7 +1654,7 @@ the log against the simulator's is what keeps them agreeing.
 2. **Shield regeneration.** Full regen every round is a big number. If burst
    dominates, make it partial; if attrition dominates, leave it.
 3. **The heal chain** (§5.5) — the pool sizes, and **whether attacks or healing
-   go first within a lane** (§6.4). Attacks-first is revision 3's choice and the
+   go first within a lane** (§6.4). Attacks-first is revision 4's choice and the
    owner's; heal-first is a defensible different game and the dial is one branch.
 4. **`PYRE`'s rate.** THE EMBER CHOIR's economy is one keyword, which makes it
    the most fragile number in the design.
@@ -1581,7 +1666,11 @@ the log against the simulator's is what keeps them agreeing.
 7. **Round-1 parity** (§6.3.1). Only if the harness says the round-1 first player
    wins outside 50% ± 2. Alternating should have removed it.
 8. **Base income** (+2). Raises the whole curve; reach for it late.
-9. **Individual card numbers.** Last, always.
+9. **Individual card numbers.** Last, always — and **a nudge of one is a bigger
+   change here than in a game with variance** (§5.0.1). With no distribution to
+   blur them, 3 attack and 4 attack are categorically different against a 3-HP
+   body, in every instance, for ever. Move a number only with a harness run
+   behind it.
 
 ### 13.3 What good looks like
 
@@ -1648,7 +1737,7 @@ in the whole package.
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, §7.1's no-single-number rule, starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, §7.1's no-single-number rule, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
 | `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `tithesave` (a campaign save round-trips) |
 
@@ -1685,8 +1774,13 @@ testable.
 ## 16. The refusals, recorded now
 
 - **Any choice taken while a round resolves.** §5.0: no activated abilities, no
-  targeting prompts, no reactions, no randomness. A **stance** is not one of
-  these — it is set on your turn and is part of the board (§5.4).
+  targeting prompts, no reactions. A **stance** is not one of these — it is set
+  on your turn and is part of the board (§5.4).
+- **A stat that is a range, or anything rolled during resolution.** §5.0.1: a 4
+  attack deals 4. The shuffle and who starts round 1 are initial conditions and
+  are the only random numbers in the game.
+- **One wide band for the melee step forward.** §3.6.2: the union rect is 2,392
+  bytes of mostly untouched ground against two ordinary bands' 1,152.
 - **`gfx_blit4` for anything that animates.** §1.2: 103 ms for one character.
 - **A projected isometric with overlapping cells.** §3.2: the shear buys the look
   for nothing, and a band that is not a rectangle is not something `gfx_blit1`
@@ -1710,32 +1804,22 @@ testable.
 
 ## 17. Open questions — the owner's to answer
 
-1. **The shuffle is the last randomness in the game** (§5.0, §6.1). Resolution is
-   fully deterministic now, but you still draw from a shuffled 20-card deck.
-   Should that go too — you build the deck **and its order**, and draw from the
-   top? It would make a match a pure function of two decks, which is remarkable
-   for a card game. **My recommendation is to keep the shuffle**: it is the only
-   variance left, and without it every rematch against the same campaign opponent
-   plays out identically.
-2. **ORDERS and RELICS** (§7.6): revision 3 recommends against both, ORDERS
-   because they are a resolution-time choice and RELICS on the cell budget (§8).
+1. **ORDERS and RELICS** (§7.6): revision 4 recommends against both — ORDERS
+   because they are a resolution-time choice, RELICS on the cell budget (§8).
    Agreed?
-3. **Mulligan** (§6.1): one free redraw of the opening hand? One line of code, a
-   large balance lever — and if question 1 goes the other way it becomes
-   meaningless.
-4. **Attacks first, then healing within a lane** (§6.4) is adopted on your call
+2. **Mulligan** (§6.1): one free redraw of the opening hand? One line of code and
+   a large balance lever, and it is now the main dial on how much the shuffle is
+   allowed to decide (§5.0.1).
+3. **Attacks first, then healing within a lane** (§6.4) is adopted on your call
    and kept as a dial (§13.2 #3). The alternative — heal first, so a lane's
    healer pre-loads it against the damage about to land — is worth one sentence
    of opinion now, because the AI's `Wh` term is written differently for each.
-5. **Melee into an empty front cell** (§5.4): reaches the rear cell behind it, or
-   hits the player? The first makes rear placement dangerous; the second makes an
-   empty lane a bigger emergency.
-6. **Deck size 20, hand limit 7, player HP 20, two swaps** — starting values only.
-   Two swaps now carries more weight than it did, because moving a healer down a
-   lane (§5.5.2) is competing for the same budget as flipping a character's pose.
-7. **Sound**: PC speaker tones for the UI and combat, and FM stingers when
+4. **Deck size 20, hand limit 7, player HP 20, two swaps** — starting values only.
+   Two swaps carries more weight than it did, because moving a healer down a lane
+   (§5.5.2) competes for the same budget as flipping a character's pose.
+5. **Sound**: PC speaker tones for the UI and combat, and FM stingers when
    `SOUND.DRV` is present? Not in the brief, and it is real work.
-8. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
+6. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
    paper. It needs looking at on a real CGA in wave 5, and §4.2 names the 70KB
    fallback if the cut is not good enough.
 9. **Two poses a character doubles the character art** (§4.2.1) — ~110KB
