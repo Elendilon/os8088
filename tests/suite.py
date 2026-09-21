@@ -2370,7 +2370,7 @@ SOAK = [
         "every frame instead. The pointer is parked before every capture, "
         "because the arrow is drawn over the picture and comparing it is how "
         "this row first read eleven differing rows for a pixel-perfect move" 
-        "Leg D runs TWICE - once on the Hercules and once on a VGA, where the two aspect tables agree at 100 (93.3.3.1) so the tile is the only thing separating Thin from Full, and a 1.2 tolerance refused the wide one by one part in fifty: Full came out as Thin's own 8x9 with a bigger window round it, and the leg that tests exactly that had never run on the adapter that failed it. ",
+        "Leg D runs TWICE - once on the Hercules and once on a VGA, where the two aspect tables agree at 100 (93.3.3.1) so the tile is the only thing separating Thin from Full, and a 1.2 tolerance refused the wide one by one part in fifty: Full came out as Thin's own 8x9 with a bigger window round it, and the leg that tests exactly that had never run on the adapter that failed it. EVERY WAIT IN THIS ROW IS ON THE GUEST'S CLOCK and that is not decoration: it was seven `time.sleep(N)` calls, and in the 2026-09-21 full soak leg D read the tile the Thin re-cut had not replaced yet - 16x9 in the soak and 16x13 in the next run, and a wrong CONSTANT does not vary. Stillness alone is not the fix either, because a tile the re-cut has not reached yet is perfectly stable: each wait is TWO edges, the words leaving what they were and then settling. It also re-measured what a switch COSTS, because the old bound of 3 and the figure of 2 beside it were both read through the truncated sleep - complete, it is Full 1 then 2 (deterministic) and Thin 3 or 4 on both adapters over 24 switches, with [dd_fulls] confirmed not to move on its own (1 -> 1 over 30 guest seconds untouched). The bound is 5 and the row no longer claims the 2 ",
         needs=("marty", "nasm"), serial=True),
     Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
@@ -5251,7 +5251,18 @@ SOAK = [
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"
         " stick left it, where the trainer clamps both axes and returns to"
-        " level - and wears its own scattered panel (88.9.3)",
+        " level - and wears its own scattered panel (88.9.3). THE HOLD IS"
+        " TWO EDGES AND THAT IS THE WHOLE ROW'S HONESTY: confirming the"
+        " guest SAW the key is not confirming the model INTEGRATED it, and"
+        " in the 2026-09-21 full soak this read `c172: MAXROLL 10923, roll"
+        " reached 0` - a trainer that never rolled. The damage is the SHAPE"
+        " rather than the red: with peak 0 the LIMIT check (stops at its"
+        " roll limit, 0 of 10923) passes VACUOUSLY off the same zero that"
+        " fails the return-to-level one, so a row whose input never landed"
+        " reports the flight model for it. It waits, in FRAMES, for the"
+        " angle to leave where airborne() put it, and exits naming the"
+        " SETUP if it never does - green it now reads `roll reached 10923,"
+        " released 10923 -> 6981` where it could before read 0 -> 0",
         needs=("marty",), serial=True),
     Row("skiespanel", "soak", py("tests/skiespanel.py"), 32.0,
         "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
