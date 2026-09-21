@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 5. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 6. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,9 +8,11 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**TITHE is a game of pure placement, and revision 5 is where that sentence
-becomes precise.** Turn order **alternates each round**, which removes the
-information advantage structurally and with it every resource compensation.
+**TITHE is a game of pure placement, and revision 6 is where that sentence
+becomes precise.** **THE ROUND IS SIMULTANEOUS** (§6.0): both players plan
+against the same frozen board, neither sees the other's plan, and everything
+resolves together — so there is no turn order at all, and nothing left for a
+resource compensation to compensate.
 **Nothing is chosen while a round resolves and no stat is ever a range** — a 4
 attack deals 4 (§5.0.1); every choice is made on your own turn and becomes part
 of the board, which is what a **STANCE** is (§5.4). But *the game never rolls
@@ -291,7 +293,7 @@ get, and on a 640×200 CGA that is the difference between a board and a refusal.
 
 The panel holds the hand (up to 7 cards as a vertical list, the moused-over one
 expanded and animated — the 23rd feature), the resource readouts, the **swaps
-remaining** counter and the **End Turn** button. Same shape on all three
+remaining** counter and the **COMMIT** button. Same shape on all three
 adapters, so one layout body rather than three.
 
 ### 3.4 One blit a feature, and the ground is baked into it
@@ -508,7 +510,7 @@ tell**, because colour is gone there and the silhouette is all the player has.
 
 #### 4.2.2 The pipeline change that buys 60KB, if it is ever needed
 
-**Not proposed for revision 5** — §1.5 has 123 clusters spare — and recorded so
+**Not proposed for revision 6** — §1.5 has 123 clusters spare — and recorded so
 it is not re-derived under pressure: store each character once as a **body**
 frame set plus two small **prop/stance overlays**, and composite the two
 complete opaque poses at *load* time. Disk falls by roughly 60KB; heap does not
@@ -588,7 +590,8 @@ Four things fall straight out of it, and all four are wins:
 - **The network protocol is five message types** (§12.3), and a board checksum
   either matches or does not.
 - **`duelsim.py` can play millions of matches** (§13.1), because a match is a
-  pure function of two decks, their draw order and who started.
+  pure function of two decks and their draw order — **nobody even has to be
+  picked to go first** (§6.0).
 
 #### 5.0.1 No stat is ever a range, and nothing is rolled
 
@@ -596,12 +599,13 @@ Four things fall straight out of it, and all four are wins:
 "up to 4". A 2 gold earns **2**. A 3 heal restores **3**. There is no to-hit
 roll, no critical, no variance band and no percentage anywhere in resolution.
 
-**Randomness exists in TITHE in exactly three places, and none of them is an
-outcome**: the **deck shuffle** (§6.1), **who takes the first turn of round 1**
-(§6.1, §6.3), and **the AI's own choices** (§5.0.2). The first two are initial
-conditions, settled before a card is played and agreed between two machines by
-one exchanged seed (§12.3). The third is an opponent making up its mind. None of
-the three can change what a character *does* once it is on the board.
+**Randomness exists in TITHE in exactly two places, and neither is an
+outcome**: the **deck shuffle** (§6.1) and **the AI's own choices** (§5.0.2).
+The first is an initial condition, settled before a card is played. The second
+is an opponent making up its mind. Neither can change what a character *does*
+once it is on the board.
+
+*(There used to be a third — who goes first. §6.0 deleted the question.)*
 
 **THE RULE BINDS RESOLUTION, NOT THE OPPONENT.** *The game never rolls; the AI
 does.* Keeping those two apart is what lets both be true at once, and §5.0.2 is
@@ -957,36 +961,101 @@ cable. The clock is the **empty lane**: a board that deadlocks in every lane
 generates no damage and no souls, base income keeps both players playing, and a
 stalled board is broken by whoever builds the better economy. If playtesting
 finds real deadlocks the valve is a **round counter that raises base income** —
-a one-line change, deliberately not in revision 5.
+a one-line change, deliberately not in revision 6.
 
 ---
 
 ## 6. The phases — and every option, at every point
 
-A **ROUND** is: upkeep, the two turns, combat, casualties, spoils, victory check.
-A **MATCH** is rounds until somebody is at zero.
+A **ROUND** is: upkeep, **planning**, reveal, combat, casualties, spoils,
+victory check. A **MATCH** is rounds until somebody is at zero.
+
+### 6.0 THE ROUND IS SIMULTANEOUS — there is no turn order at all
+
+**Both players plan against the same frozen board, neither sees the other's
+plan, and everything resolves together.** There is no first player, no second
+player, no alternation and nothing to compensate.
+
+What each player sees while planning is **the board as it stood at the end of
+last round** — the opponent's characters, their HP, their shields, their
+stances, their gold, their soul pool and their hand size, all frozen. The only
+thing that moves under a planner's hands is **their own half**, updating live as
+they build their plan.
+
+> **A PLAN is an ordered list of your own actions.** It applies in the order you
+> performed them, which is why what you saw while building it is what you get:
+> swap a character out of the top cell and the next card you play lands in the
+> hole it left.
+
+Three properties make this work, and all three were already true of the design
+before the idea arrived:
+
+- **No two plans can conflict.** Every action a player may take — play, swap,
+  stance — touches **only their own half of the board** (§6.3). There is no
+  action that reads or writes an opponent's cell, so two plans built against one
+  board cannot disagree about anything.
+- **The two plans are CONFLUENT.** Because they are disjoint, applying yours
+  first or theirs first produces the identical board. The round's result does
+  not depend on an order, which means there is no order to agree on — over a
+  wire, across a server, or between two people in a room. `duelsim.py` asserts
+  it by applying every recorded round both ways (§13.3).
+- **There are no on-play effects**, so nothing reads the wider board at the
+  moment a card lands. **That is a constraint to preserve**: if a card is ever
+  written whose effect fires on being played, it may only read and write its own
+  owner's side, or confluence is gone and with it everything below.
+
+**The one thing that CAN change under a plan is a stance's target**, and §5.4
+rule 3 was already written for it: you set SNIPE because the lane is open, your
+opponent walls it in the same round, and at resolution the shot falls back to
+FRONT and hits the wall. What was an edge case in revision 5 is load-bearing
+now — and it is exactly the kind of read-the-opponent guess this structure is
+supposed to reward.
+
+#### 6.0.1 What it changes about the game
+
+**You no longer react; you predict.** A play answers what they did *last*
+round, not what they just did, so the game stops being a sequence of responses
+and becomes a series of simultaneous commitments. That raises the ceiling on
+reading an opponent and it rewards **robust** plays over **sharp** ones — a
+placement that is good against three of their likely four answers beats one that
+is perfect against a guess.
+
+Two balance consequences follow and §13.2 carries them: **shields and healing
+are worth more** (resilience beats precision when you cannot counter exactly),
+and **the SNIPE/FRONT trade gets sharper**, since a snipe is now a bet on the
+lane still being open.
+
+#### 6.0.2 …and what it makes possible
+
+**Neither player is ever blocked on the other in order to THINK.** That is the
+structural gift, and three things fall out of it:
+
+- **A network match is about half the wall clock**, because both sides plan
+  concurrently instead of taking turns waiting.
+- **The protocol halves too** — one `PLAN` a side a round instead of a stream of
+  actions and a turn-swap handshake (§12.3).
+- **POSTED PLAY becomes natural** (§12.7): a third party that only has to collect
+  two plans a round and hand each side the other's. No connection between the
+  two machines, no synchronisation, no liveness requirement — a server, a shared
+  volume, or a floppy carried across a room.
 
 ### 6.1 MATCH SETUP (once)
 
 1. Both decks are validated (§9.3) and **shuffled**.
-2. **Who takes the first turn of round 1 is chosen at random.** In a network
-   match the seed is exchanged once (§12.3) so both machines agree; otherwise
-   `OSAPI_RAND` seeded from `OSAPI_GET_TICKS`.
+2. Both players draw an opening hand of **4**.
+3. Both players start at **20 HP**, **4 gold**, **0 souls**.
 
-3. Both players draw an opening hand of **4**.
-4. Both players start at **20 HP**, **4 gold**, **0 souls**.
+**Step 1 is the only random number the GAME ever generates** (§5.0.1) — and
+there is no longer a second one, because **nobody has to be picked to go first**
+(§6.0). An AI opponent seeds its own generator here too (§5.0.2), and that one
+is the opponent's mind rather than the game's dice.
 
-**Steps 1 and 2 are the only random numbers the GAME ever generates** (§5.0.1);
-from here on nothing about a character is rolled. An AI opponent seeds its own
-generator here too (§5.0.2), and that one is the opponent's mind rather than the
-game's dice.
-
-**There is no resource compensation, and §6.3.1 is why there does not need to
-be.**
+**There is no resource compensation**, and after §6.0 there is nothing left for
+it to compensate.
 
 ### 6.2 PHASE 1 — UPKEEP (automatic, ~0.5 s, animated)
 
-No input. In order:
+No input. In order, for both players at once:
 
 1. Every character's **SHIELD refills to its maximum** — animated as a brief
    ring, which is cheap and makes the mechanic visible.
@@ -996,53 +1065,46 @@ No input. In order:
    (§5.8).
 4. **Base income is paid**: +2 gold each.
 
-### 6.3 PHASES 2 and 3 — THE TURNS (interactive, untimed)
+### 6.3 PHASE 2 — PLANNING (interactive, untimed, simultaneous)
 
-**The turn order ALTERNATES every round.** Round 1 is decided at setup; from
-round 2 on, whoever went second last round goes first.
-
-The non-active player's board is fully visible and their hand is not.
-**Everything below is available at every moment of your turn, in any order, any
-number of times unless a limit is stated.**
+**Everything below is available at every moment of your planning, in any order,
+any number of times unless a limit is stated.**
 
 | action | cost | limit |
 |---|---|---|
 | **Play a character** to FRONT or REAR | the card's gold and/or souls | while resources and cells last |
-| **Swap** two of your cells | free | **2 a turn** |
+| **Swap** two of your cells | free | **2 a round** |
 | **Set a ranged character's STANCE** (Front / Snipe) | free | unlimited |
+| **Undo** the last action in your plan | free | while uncommitted |
 | **Inspect** any card or character | free | unlimited |
 | **Read the log** | free | unlimited |
 | **Concede** | — | ends the match |
-| **End Turn** | — | once, and it is the only way out |
-
-**That is the whole list**, and it is short because §5.0 made it short. There is
-no ability to fire and nothing to target mid-combat; the stance is a standing
-order you set now and both players can see.
+| **COMMIT** | — | once, and it is final |
 
 **Playing a character.** Pick the card in the right-hand panel, then pick
 **FRONT** or **REAR**. The destination cell — the topmost empty one in that
-column — highlights before you commit, and **the stat block and the pose art
-that will be live there are both shown**, so the decision is made against the
-character you will actually get. **Refusals are stated, not silent** (§47):
-
-- *not enough gold* / *not enough souls* — the card greys in the panel with the
-  shortfall in its corner;
-- *that column is full* — the column button greys;
-- *both columns full* — the card greys.
+column, **counting your own plan so far** — highlights before you commit, and
+**the stat block and the pose art that will be live there are both shown**, so
+the decision is made against the character you will actually get. **Refusals are
+stated, not silent** (§47): the card greys with the shortfall in its corner, or
+the column button greys when that column is full.
 
 **The character acts this round** (§5.3), and the preview says which action it
-will take and, for a healer, which cells its chain will reach — because that is
-the information the decision needs, and it is knowable, being deterministic.
+will take and, for a healer, which cells its chain will reach.
 
-**Swapping.** Click a cell, then a second cell of yours. Either may be empty. The
-counter reads **SWAPS 2/2** and counts down; at 0 the cells stop responding to
-the swap gesture and the counter greys. **A swap commits immediately and cannot
-be undone.**
+**Swapping.** Click a cell, then a second cell of yours. Either may be empty.
+The counter reads **SWAPS 2/2** and counts down. **A swap enters your plan
+immediately** and your own half of the board shows it.
 
 **Stance.** A ranged character wears a small arrow badge — forward for FRONT,
-angled for SNIPE. Clicking it toggles, free and as often as you like. It is
-greyed while the lane is walled (§5.4), and the preview shows which cell the
-shot will land in, because that is knowable.
+angled for SNIPE. Clicking it toggles. It is greyed while the lane is walled
+**as the frozen board shows it** (§5.4) — and that greying is advice rather than
+a guarantee, because your opponent is planning too.
+
+**Undo** takes the last action off your plan and puts the resource back. It
+exists because a plan is built blind: without it, a mis-click is a lost round
+rather than a lost second. It walks the plan backwards only — there is no
+editing in the middle — which keeps the ordered-list rule (§6.0) exact.
 
 **Inspect.** Hovering a card in the panel expands it, plays its idle animation
 (the 23rd animated feature) and shows both stat blocks with both poses.
@@ -1050,41 +1112,47 @@ Right-clicking anything on the board opens its full card —
 `OSAPI_WM_ONRCLICK` is the slot, and it never competes with the left-click
 actions.
 
-**End Turn** is a button in the panel, and it **confirms when you still have
-resources you could have spent** — one alert, and a setting to stop asking.
+**COMMIT** is the button in the panel, and it **confirms when you still have
+resources you could have spent**. After it, the plan is sealed and the panel
+reads **waiting for your opponent** — with, in a network match, a badge saying
+whether they have committed yet.
 
-#### 6.3.1 Why alternating removes the advantage — and the compensation with it
+**Committing is final**, and that is deliberate rather than strict: a revocable
+commit buys nothing, since you cannot see their plan either way, and it would
+put a match at the mercy of whoever is slowest to stop fiddling.
 
-Revision 2 found that in this structure the **second** player has the advantage:
-both players' characters act in the same combat phase, so acting first costs no
-tempo and only gives information away. The second player sees the first player's
-placement before committing and pays nothing for it.
+#### 6.3.1 How the three modes plan without leaking
 
-**Alternating the order each round cancels it exactly**, and the "you would move
-twice in a row" objection does not apply here — which it would in a game that
-resolved a turn when it was taken. Over a round pair:
+The rule is one sentence: **everything a planner can see about their opponent is
+frozen at the end of last round.** Board, HP, shields, stances, gold, souls,
+hand size — all of it.
 
-| | round N | round N+1 |
-|---|---|---|
-| player A | first — **gives** information | second — **takes** information |
-| player B | second — **takes** information | first — **gives** information |
+| mode | how |
+|---|---|
+| **network** / **posted** | genuinely concurrent. Each machine shows its own player their own plan and the frozen opponent |
+| **hot-seat** | sequential in wall-clock, **simultaneous in information**: a pass-the-machine screen, then the second planner gets the **same frozen board**, not the first planner's result |
+| **vs AI** | the AI plans against the identical frozen board (§10.5), so it has **exactly the information the player has** — which is a fairness claim the old structure could not make |
 
-Player B does take two consecutive *turns* across the round boundary, but the
-**combat, casualty and spoils phases run between them**, both players watched
-them, and the outcome was fully determined before either turn (§5.0). So the
-pair is a straight swap of the same advantage, and player A gets the identical
-pair at the next boundary.
+**Hot-seat has one leak to close and it is not the board.** If the first
+planner spends 3 gold and the second sees a reduced pool, that reveals a play
+was made and roughly what it cost. So in hot-seat the opponent's **resource
+figures are frozen too** — the general rule above, applied to the one place it
+is easy to forget.
 
-**So there is no resource compensation at all**, which is one fewer number to
-tune and one fewer thing for a card to be balanced against.
+### 6.4 PHASE 3 — REVEAL (animated, ~1–2 s)
 
-**What is left is parity**, and it is small: whoever takes the *last* turn before
-the killing combat has an edge, and which player that is depends on the round the
-match ends on. `duelsim.py` reports win rate by *who took round 1's first turn*
-(§13.1); if it is not 50% ± 2, the valve is a small one-off sweetener in round 1,
-and §13.2 keeps it as a dial rather than building it now.
+**Both plans are applied and animated together.** Swaps first on both sides,
+then plays on both sides, each side's actions in its own recorded order — so
+what a player saw while building their plan is what they see land.
 
-### 6.4 PHASE 4 — COMBAT (animated, ≤1 s a lane)
+This is the moment the round pays off: you find out what they did while you were
+deciding what you did. It is worth animating properly, and §3.6's wheel hands
+its whole credit to it for the duration.
+
+**Applying the two plans in the other order produces the identical board**
+(§6.0), so the order above is a presentation choice and nothing else.
+
+### 6.5 PHASE 4 — COMBAT (animated, ≤1 s a lane)
 
 No input except **skip** (any key or click, when `Fast Combat` is off). Lanes 0
 to 4, in order. For each lane:
@@ -1103,7 +1171,7 @@ to 4, in order. For each lane:
 the alternative reading (heal first, so a lane's healer pre-loads it against the
 damage about to land) is a different and defensible game.
 
-### 6.5 PHASE 5 — CASUALTIES (animated, ~1 s)
+### 6.6 PHASE 5 — CASUALTIES (animated, ~1 s)
 
 Every character still marked at 0 HP dies together. Each plays a death
 animation, its cell empties, and **the soul award floats to the killer's HUD** —
@@ -1113,50 +1181,56 @@ the moment the economy is legible, so it is worth the second.
 death creates arrives *after* all deaths are resolved, so no chain can run inside
 one casualty phase.
 
-### 6.6 PHASE 6 — SPOILS (animated, in sequence)
+### 6.7 PHASE 6 — SPOILS (animated, in sequence)
 
 The brief: *"at the end of round, when characters are taking their end of round
 action, they can play in sequence."* So they do — one at a time, top-left to
 bottom-right, each with a small animation, and the wheel's whole credit goes to
 whichever is acting.
 
-Per player, the round's first player first:
+Per player:
 
 1. **Gold generation** — each surviving character's `GOLD`, with a coin
    animation and a running total in the HUD.
 2. **End-of-round keywords** — `LEVY`, `PYRE` and the rest.
 3. The **income figure** for the next round is banked and shown.
 
+**Which player's spoils animate first is cosmetic**, because the two do not
+interact at all: each pays only into their own pool.
+
 **A generator must survive combat to pay.** Spoils are after casualties,
 deliberately — it puts economy pieces under real pressure and makes killing them
-a plan rather than a side effect. A generator that was pulled back from 0 by a
-healer (§5.5.3) pays in full, which is exactly the sort of thing a Covenant
-player should be building toward.
+a plan rather than a side effect. A generator pulled back from 0 by a healer
+(§5.5.3) pays in full, which is exactly the sort of thing a Covenant player
+should be building toward.
 
-### 6.7 PHASE 7 — VICTORY CHECK
+### 6.8 PHASE 7 — VICTORY CHECK
 
-A player at 0 HP has lost; both at 0 is a draw. Otherwise the round counter
-advances, **the turn order flips**, and §6.2 runs again.
+A player at 0 HP has lost; both at 0 is a draw — and after §6.0 a double loss is
+no longer an oddity to explain, it is the ordinary consequence of a simultaneous
+game.
+
+Otherwise the round counter advances and §6.2 runs again.
 
 **Victory screen**: result, round count, damage dealt, souls earned, characters
 killed, lost and *saved* — and in campaign, the **reward** (§11.3).
 
-### 6.8 OUT-OF-TURN, and THE LOG
+### 6.9 WHILE YOU WAIT, and THE LOG
 
-The waiting player may do **nothing that changes state** and everything that does
-not: inspect anything on the board, read their own hand, read the log, concede,
-and in a network match see a **turn indicator** and a **link state** badge.
+Once you have committed, and while the opponent has not, you may do **nothing
+that changes state** and everything that does not: inspect anything on the
+board, re-read your own plan, read the log, concede, and in a network or posted
+match see whether the opponent has committed.
 
-There are no instants, interrupts or reactions — §5.0, and it is also what keeps
-the network protocol a turn-swap rather than a synchronisation problem on a
-3,741 byte/second cable.
+There are no instants, interrupts or reactions — §5.0, and after §6.0 there is
+not even a moment at which one could be offered.
 
 **The log** is a scrollable list, one line an event, cleared per match.
 `os88ui.inc`'s scroll bar is the control. It is cheap, it is what a turn-based
-game is debugged with, and in a network match it is what tells a player why
-something they did not see happened.
+game is debugged with, and in a networked or posted match it is what tells a
+player why something they did not watch happen happened.
 
-### 6.9 SETTINGS
+### 6.10 SETTINGS
 
 Per-machine, in `SYSTEM/APPDATA/TITHE.CFG`:
 
@@ -1165,7 +1239,7 @@ Per-machine, in `SYSTEM/APPDATA/TITHE.CFG`:
 | **Detail** | Flat / Banded / Rich | from `OSAPI_CPU_INFO` and the adapter |
 | **Fast Combat** | Off / On | Off |
 | **Animations** | Full / Reduced / Off | Full |
-| **Confirm End Turn** | On / Off | On |
+| **Confirm Commit** | On / Off | On |
 | **Sound** | On / Off | On |
 | **AI Difficulty** | Novice / Adept / Archon | Adept |
 
@@ -1338,7 +1412,7 @@ deck-building a reason beyond *play the good cards*.
 
 ### 7.6 Card types — and the fork
 
-Revision 5 proposes **characters only**, and §5.0 has made that decision much
+Revision 6 proposes **characters only**, and §5.0 has made that decision much
 firmer than it was: an ORDER played from hand is by definition a resolution-time
 choice, which is the thing the whole design now excludes.
 
@@ -1415,7 +1489,7 @@ any of those axes and the player should be able to see which one they have built
 | | |
 |---|---|
 | deck size | **exactly 20** |
-| faction | **one faction per deck**; no neutral cards in revision 5 |
+| faction | **one faction per deck**; no neutral cards in revision 6 |
 | copies | **at most 2** of any card |
 | decks saved | up to **8**, named |
 
@@ -1434,7 +1508,7 @@ pre-match screen load exactly two faction parts.
 ### 10.1 What it has to be
 
 Enumerate the legal actions, score each, take the best, repeat until nothing is
-worth doing, end turn. **On a 4.77 MHz 8088 the whole turn must fit in about a
+worth doing, commit. **On a 4.77 MHz 8088 the whole plan must fit in about a
 second of thinking**, or the game feels broken.
 
 ### 10.2 The branching, counted
@@ -1535,7 +1609,41 @@ opponent in the game must still be the one you cannot replay from memory.
 deck, all in the same table — so *"the Choir cantor who over-commits"* is data,
 and so is *"the Bulwark castellan who is slow but never wrong twice."*
 
-### 10.5 Where it runs
+### 10.5 It plans BLIND, exactly as the player does
+
+After §6.0 the AI builds a plan against **the same frozen board the player is
+looking at**, and it cannot see what the player is about to do. Two things
+follow, and the first is worth more than it costs:
+
+- **The AI has exactly the information the player has.** That is a fairness
+  claim the old alternating structure could not make, and it retires the
+  suspicion every game AI otherwise attracts. It is also *checkable*: the
+  evaluator is handed the frozen board and nothing else, so an accidental peek
+  is a compile error rather than a judgement call.
+- **Its lookahead is now a PREDICTION, where §5.0.1 made it exact.** Combat is
+  still exact given a board — but the board it will resolve against is not the
+  one it planned on, because the opponent is adding to it at the same moment.
+
+So one term joins §10.3's evaluation:
+
+```
+        + Wu * (how well this plan holds up if the opponent reinforces)
+```
+
+`Wu` prefers **robust** placements over **sharp** ones — the same thing the
+structure asks of a human (§6.0.1). Wave 4 computes it the cheap way: re-score
+the plan against the frozen board plus *one* hypothetical enemy body in the lane
+the plan most depends on, and take the worse of the two scores. That is one
+extra evaluation per candidate, it needs no knowledge of the opponent's hand,
+and it is the difference between an AI that over-commits to an open lane and one
+that does not.
+
+**A better `Wu` is a wave-10 question, not a wave-4 one.** The honest version
+would weight by what the opponent can afford and has drawn, and neither is
+knowable; `duelsim.py` is where any such model gets tried against the cheap one
+before it earns its bytes.
+
+### 10.6 Where it runs
 
 **On the worker task**, never in a click handler. A one-second think inside a
 `W_ONCLICK` is one second with the gfx lock held, and §7 is unambiguous about
@@ -1603,13 +1711,19 @@ silently reset. §18.94's discipline: carry the evidence out.
 
 ## 12. Multiplayer
 
-### 12.1 The three transports, and their honest status
+### 12.1 The four transports, and their honest status
 
 | transport | status | what it needs |
 |---|---|---|
-| **hot-seat** — two players, one machine | **free** | a "pass the machine" screen that hides the hand |
+| **hot-seat** — two players, one machine | **free** | a pass-the-machine screen, and the frozen-opponent rule of §6.3.1 |
 | **Ethernet** — two os8088 machines, each with a NIC | **buildable today** | `apps/os88sock.inc` + `drivers/net/netpkg.inc`; `ETHER.DRV` publishes `NETV_LISTEN` and `NETV_ACCEPT` |
+| **posted** — a server, a shared volume, or a floppy | **mostly free, and its lowest rung needs nothing** | §12.6's match file; §12.7 |
 | **direct cable** — null modem, serial or parallel | **needs new work, and it is a driver** | §12.5 |
+
+**Posted play arrived with §6.0 rather than being designed in**, which is the
+clearest evidence the simultaneous round was the right call: a structure where
+neither player is blocked on the other in order to think is, without any further
+work, a structure that plays by post.
 
 **Hot-seat is not a consolation prize.** It always works, it is how the game gets
 playtested, and it is what the balance work is done on. It ships in wave 3.
@@ -1639,56 +1753,65 @@ staging buffer must be in the package's own segment** — §77.10's lesson:
 read out of the package image instead, and it presents as memory corruption
 rather than as a wrong segment register.
 
-### 12.3 The protocol — five message types, because §5.0 left five
+### 12.3 The protocol — ONE message a side a round
 
-**Action replication, not state replication**: each side owns its own deck, hand
-and draw order, and sends only what the other side must know.
+After §6.0 there is no turn to hand over, so there is no handshake. Each side
+sends its whole plan, once, and resolves as soon as it holds both.
 
 ```
-  HELLO    version, faction, deck hash, a 16-bit seed, player name
-  READY    both sides have loaded their faction parts
-  PLAY     card id, column           <- 4 bytes
-  SWAP     cell a, cell b            <- 3 bytes
-  STANCE   cell, stance              <- 3 bytes
-  ENDTURN  + a 16-bit CHECKSUM of the whole board state
+  HELLO     version, faction, deck hash, a 16-bit seed, player name
+  READY     both sides have loaded their faction parts
+  PLAN      round number
+            the board CHECKSUM it was planned against
+            an ordered list of actions:  PLAY (card, column) | SWAP (a, b)
+                                       | STANCE (cell, stance)
+  RESOLVED  round number, the board checksum AFTER resolution
   CONCEDE
-  PING     every ~3 seconds of idle, so a dropped link is noticed
+  PING      every ~3 seconds of idle, so a dropped link is noticed
 ```
 
-**A stance is sent because it is board state**, exactly like a placement — and
-it is covered by `ENDTURN`'s checksum for the same reason. There is no `ABILITY`
-message and no targeting message, because **the resolution is a pure function of
-the board** (§5.0). That is not a small saving: it is the reason a desync can
-only come from a genuine rules disagreement, never from two machines making
-different choices.
+**A `PLAN` is about 40 bytes at its largest** — at most seven plays, two swaps
+and ten stances, two bytes each — so a round costs two of them. On the
+3,741 byte/second cable (§12.5) that is **~21 ms of wire a round**, against a
+stream of individual actions plus a turn-swap in revision 5. The bandwidth was
+never the problem; what this removes is the *round trips*, and `lp_turn`'s
+reversal is the expensive thing on that cable.
 
-**The checksum on `ENDTURN` is the whole safety net.** Two machines running the
-same rules on the same actions must reach the same board; if the checksums differ
-the match stops and says **desync** with the round number, rather than quietly
-diverging into two different games. In development the mismatching side also
-dumps both boards to a file.
+**Each plan carries the checksum of the board it was planned against**, which is
+the important word in the whole message. It means a desync is caught **before**
+resolution rather than after, and it names which side was looking at the wrong
+board. `RESOLVED` then checks the other end: same inputs, same rules, same
+result. If either check fails the match stops and says **desync** with the round
+number, rather than quietly diverging into two different games; in development
+the mismatching side dumps both boards to a file.
 
-**Who takes round 1's first turn is decided by the seeds in `HELLO`**, exchanged
-both ways and combined, so neither side can pick. Every round after that
-alternates (§6.3) and needs no message at all.
+**There is no turn-order message and no first-player seed**, because §6.0
+deleted the question. `HELLO`'s seed now only salts each side's own shuffle,
+which never has to agree — a side shuffles privately and tells the other only
+which card it played.
 
-**That seed and each side's own shuffle are the only random inputs in the whole
-protocol** (§5.0.1), and neither crosses the wire as an outcome: a side shuffles
-its own deck privately and tells the other only which card it played. So a
-desync can never come from two machines disagreeing about a die — there is no
-die — which is what makes `ENDTURN`'s checksum a *rules* check rather than a
-luck check.
+**And no message can disagree about a die**, because resolution has none
+(§5.0.1) and the AI never plays over a wire (§5.0.2). So a checksum mismatch
+always means a genuine rules disagreement — a real bug — and never bad luck.
+That is what makes the gate worth having.
 
 ### 12.4 Who does what, and when
 
-Only the player whose turn it is sends actions. The other side **applies them as
-they arrive and animates them** — so you watch your opponent play, which is most
-of what makes a networked turn-based game feel live. `ENDTURN` hands over.
+Both sides plan at once. A side that has committed sends its `PLAN` and waits,
+showing **waiting for your opponent** and a badge for whether theirs has
+arrived. When a side holds both plans it applies them (§6.4, and the order does
+not matter — §6.0), runs the round, and sends `RESOLVED`.
+
+**Nobody watches anybody play**, and that is a gain rather than a loss.
+Revision 5 sold "you watch your opponent take their turn" as what makes a
+networked turn-based game feel live; what it actually meant was *you sit there
+while they think*. The reveal (§6.4) is a better moment than the commentary was,
+and it arrives in half the wall clock.
 
 A link that drops mid-match: the receiving side shows **Link lost** with the
-round, and offers **reconnect** (the protocol resumes from the last agreed
-`ENDTURN`, because both sides hold a consistent board at that point) and
-**concede**. Reconnect is revision 6; revision 5 reports and ends the match.
+round, and offers **reconnect** and **concede**. Reconnect is nearly free here —
+§12.6's match file already *is* the resume point, so a reconnect is a request
+for the rounds the other side has and this one does not.
 
 ### 12.5 The direct cable — what it actually costs
 
@@ -1737,7 +1860,78 @@ Building the cable first would put the hardest and least-testable component — 
 emulator here has a null modem between two guests — in front of everything the
 player actually sees.
 
-### 12.6 What can and cannot be tested
+### 12.6 The MATCH FILE — and it is under a kilobyte
+
+Because a match is a pure function of its parameters (§13.1) and a round is two
+plans, **the entire history of a game is the seeds plus the list of plans**.
+
+```
+  header    version, the two deck lists (or hashes, plus the decks), the two
+            shuffle seeds, the two AI seeds if either side is an AI
+  rounds    for each round: plan A, plan B
+```
+
+**At ~40 bytes a plan that is under 1KB for a twenty-round match**, and it is
+four useful things at once rather than one:
+
+| it is | because |
+|---|---|
+| the **suspended match** save | replay the plans and you are exactly where you left off |
+| the **network resume** point (§12.4) | a reconnect asks for the rounds it is missing |
+| the **posted-play** unit (§12.7) | the thing a server holds and a player appends to |
+| the **bug report** | *"send me your `.TIT` and I will replay it"* — and it replays **byte-identically** (§13.3) |
+
+**That last row is worth the format on its own.** This runs on machines where
+there is no debugger to attach, the reporter is a person with a 5150 in another
+country (docs/FIELD-MACHINES.md), and the usual evidence is a photograph of a
+screen. A kilobyte that reproduces the fault exactly is a different class of bug
+report, and §5.0.1's determinism is what makes it possible.
+
+It also means a match can be **carried on a floppy** between two machines that
+have no link at all — which is §12.7's lowest rung and needs nothing built.
+
+### 12.7 POSTED PLAY — the wave §6.0 made cheap
+
+**A third party that collects two plans a round and hands each side the other's.**
+No connection between the two machines, no synchronisation, no liveness
+requirement, and — the point — **neither player is ever blocked on the other in
+order to think** (§6.0.2).
+
+The exchange is two verbs:
+
+```
+  POST  match id, round number, my PLAN
+  GET   match id, round number  ->  the opponent's PLAN, or "not yet"
+```
+
+Over `ETHER.DRV` that is an ordinary socket fetch, and `apps/os88sock.inc` +
+`apps/os88line.inc` are already the two includes for it — the browser (§71) and
+FTPD (§77) are the worked examples of both halves. `tools/os88proxy.py` is the
+host-side shape a server would take, and **The Wire** (§92) is the precedent for
+an os8088 package that talks to a service on `os8088.com` at all.
+
+**Three rungs, and the first two need no server:**
+
+| rung | the "server" is | needs |
+|---|---|---|
+| **sneakernet** | a floppy carried across a room | nothing — §12.6's file, and a `.TIT` on any volume |
+| **shared volume** | a mounted drive both machines can reach — a network volume over the cable (§62), a RAM disk, a hard disk on one machine | nothing new either |
+| **a real server** | an endpoint on `os8088.com` | the two verbs above, and a host-side service |
+
+**Start at rung 1**, because it is entirely the match-file format and proves the
+model with no network at all; rung 3 is where the wave's real work is, and it is
+mostly host-side.
+
+Two things the game has to add and neither is large: a **match browser** (your
+open matches, whose move it is, when each last moved) and **resumption** — which
+§12.6 already answers, since loading a match *is* replaying its plans.
+
+**What belongs to the server and not to the game**: how long a player may sit on
+a round, what an abandoned match becomes, and who may join whose. The package
+should refuse to encode a policy it cannot enforce.
+
+
+### 12.8 What can and cannot be tested
 
 `docs/TESTING.md`'s list is binding and networking is on it: **MartyPC has no NIC
 of any kind**, so every Ethernet row boots QEMU, as `tests/ethernet.py` already
@@ -1761,19 +1955,20 @@ rules**, in `tools/weavesim.py`'s and `tools/htmsim.py`'s shape. It:
 - reads the **same card table** the package compiles in — the table is a
   generated include and the simulator and the build read one file, so they cannot
   drift;
-- reports win rate by faction, by deck, by **who took round 1's first turn**,
-  match length distribution, per-card presence in winning decks, and the **role
-  mix** of winning decks (§7.1's rule needs a number attached to it);
+- reports win rate by faction, by deck, match length distribution, per-card
+  presence in winning decks, and the **role mix** of winning decks (§7.1's rule
+  needs a number attached to it) — **and no longer needs a first-player row at
+  all**, because §6.0 removed the asymmetry it was watching;
 - is `--selfcheck`ed in the build the way `weavesim.py` is.
 
 **§5.0.1 makes it far stronger than it would otherwise be.** Every random input
-is a *parameter*, so a match is a pure function of **seven** of them — deck A,
-deck B, draw order A, draw order B, who started, and **one AI seed a side**
-(§5.0.2). Nothing else varies.
+is a *parameter*, so a match is a pure function of **six** of them — deck A,
+deck B, draw order A, draw order B, and **one AI seed a side** (§5.0.2). Nothing
+else varies, and §6.0 retired the seventh.
 
 Two things follow, and they want different treatment:
 
-- **The five game parameters can be SWEPT.** A win rate over a swept range of
+- **The four game parameters can be SWEPT.** A win rate over a swept range of
   draw orders is a count rather than an estimate, and the confidence interval
   that usually has to be argued about does not arise.
 - **The two AI seeds are SAMPLED**, because the AI is deliberately stochastic
@@ -1783,12 +1978,13 @@ Two things follow, and they want different treatment:
   percentage.
 
 **And the run is exactly reproducible either way**, which is the part that
-matters: replay a match with the same seven parameters and the logs must be
-**byte-identical**. That gate is worth more than it looks — it is the cheapest
+matters: replay a match with the same six parameters and the logs must be
+**byte-identical** — which is also what makes §12.6's match file a bug report
+somebody can act on. That gate is worth more than it looks — it is the cheapest
 possible detector for an accidental read of uninitialised memory in the rules
 engine, which on an 8088 is otherwise a Heisenbug that only shows up on one
 machine. **The AI being random is not an excuse for a run not being
-repeatable**, and the seven-parameter tuple is what keeps those two apart.
+repeatable**, and the six-parameter tuple is what keeps those two apart.
 
 **And it is the second reader of the rules**: the assembly and the Python must
 agree, and a `soak` row that plays one scripted match on the machine and diffs
@@ -1802,7 +1998,7 @@ the log against the simulator's is what keeps them agreeing.
 2. **Shield regeneration.** Full regen every round is a big number. If burst
    dominates, make it partial; if attrition dominates, leave it.
 3. **The heal chain** (§5.5) — the pool sizes, and **whether attacks or healing
-   go first within a lane** (§6.4). Attacks-first is revision 5's choice and the
+   go first within a lane** (§6.4). Attacks-first is revision 6's choice and the
    owner's; heal-first is a defensible different game and the dial is one branch.
 4. **`PYRE`'s rate.** THE EMBER CHOIR's economy is one keyword, which makes it
    the most fragile number in the design.
@@ -1811,8 +2007,11 @@ the log against the simulator's is what keeps them agreeing.
    whole FRONT-vs-SNIPE trade (§5.4): raise it and every rear archer shoots the
    wall, lower it and every rear archer snipes. It is the stance's balance, not
    just a number.
-7. **Round-1 parity** (§6.3.1). Only if the harness says the round-1 first player
-   wins outside 50% ± 2. Alternating should have removed it.
+7. **The pressure a blind round puts on resilience** (§6.0.1). Simultaneous
+   planning makes shields and healing worth more and sharp counters worth less,
+   so dials 2 and 4 above may both want to come DOWN from where a
+   react-to-them structure would have set them. Watch it as a pair rather than
+   tuning either alone.
 8. **Base income** (+2). Raises the whole curve; reach for it late.
 9. **Individual card numbers.** Last, always — and **a nudge of one is a bigger
    change here than in a game with variance** (§5.0.1). With no distribution to
@@ -1824,14 +2023,15 @@ the log against the simulator's is what keeps them agreeing.
 
 | | target |
 |---|---|
-| win rate by who took round 1's first turn | 50% ± 2 |
+| win rate by seat (which side is "player 1") | 50% ± 2 — and after §6.0 there is no structural reason for it not to be, so a miss means a real bug |
+| **plan confluence** | applying the two plans in either order gives an identical board, **on every round of every harness match** (§6.0) |
 | faction win rates, mirror-excluded | 33% ± 4 each |
 | match length | median 9–14 rounds; under 6 or over 25 is a bug |
 | cards never played in a winning deck | **zero** |
 | every role represented in some winning deck | all five, for every faction |
 | **both poses of a card used across winning decks** | **no card whose rear block is never chosen** — §5.2's whole point is that both sides of a card are real |
 | stance mix among rear-column shooters | **neither FRONT nor SNIPE above 80%** — if one dominates, §13.2 #6 has the wrong number in it |
-| determinism | two replays at the same seven parameters (§13.1) produce byte-identical logs |
+| determinism | two replays at the same six parameters (§13.1) produce byte-identical logs |
 | AI variety | over 64 replays of one position at one difficulty, **the AI's first action differs at least 8 ways** — §5.0.2's whole point, and the row that catches a jitter accidentally set to zero |
 
 ---
@@ -1888,7 +2088,7 @@ in the whole package.
 |---|---|
 | `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, **§7.1.1's pure-specialist count (at most 5 of 16, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
-| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §13.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `tithesave` (a campaign save round-trips) |
+| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §13.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithesave` (a campaign save round-trips) |
 
 **Every row gets a `secs` somebody measured**, and every row is written by
 breaking the thing on purpose first and watching it go red —
@@ -1903,15 +2103,23 @@ breaking the thing on purpose first and watching it go red —
 | **0** | **§3.7's blit bench.** 23 bands, three formats, three adapters, on MartyPC. A dated `docs/reports/` file | the numbers exist |
 | **1** | the rules engine + `duelsim.py`, together, from one card table. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical |
 | **2** | the window, the isometric layout, the band composer, the pacing wheel, placeholder sprites | 18 fps with 23 features, asserted on all three adapters, windowed and fullscreen |
-| **3** | the real turn loop: card panel, play, swap, combat animation with healing, spoils, HUD, log. **Hot-seat** | two humans play a whole match |
-| **4** | the AI on the worker; the three difficulty arms | an AI match completes; the wheel keeps turning while it thinks |
+| **3** | the real round loop: card panel, plan, commit, **reveal**, combat animation with healing, spoils, HUD, log. **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match, and neither can learn anything about the other's plan before the reveal |
+| **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it now plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |
 | **5** | art: the pipeline, **two poses a character**, three factions, bases, board, cards | the disk fits in 354 clusters; the CGA cut is looked at on a CGA; both poses read as the same person |
 | **6** | the front menu, the animated buttons, settings | it looks like a game |
 | **7** | deck builder + collection + save | a deck survives a reboot |
 | **8** | the campaign: map, nodes, modifiers, rewards | a campaign can be finished |
-| **9** | **Ethernet multiplayer** | two QEMU guests play a match; a desync is reported and not hidden |
-| **10** | **balance**, and where the other thirty cards are actually written | §13.3's seven targets |
-| **11** | **`LINK.DRV`** — the direct cable, parallel first, serial second | the simulator, then the field |
+| **9** | **the match file** (§12.6), and **posted play rung 1** — a `.TIT` carried on a floppy between two machines | a match suspends, moves, resumes and finishes with no link of any kind |
+| **10** | **Ethernet multiplayer** — one `PLAN` a side a round | two QEMU guests play a match; a desync is reported and not hidden; a reconnect resumes from the match file |
+| **11** | **balance**, and where the other thirty cards are actually written | §13.3's nine targets |
+| **12** | **`LINK.DRV`** — the direct cable, parallel first, serial second | the simulator, then the field |
+| **13** | **posted play rungs 2 and 3** (§12.7) — a shared volume, then a real server on `os8088.com`, plus the match browser | two people finish a match without ever being at their machines at the same time |
+
+**Wave 9 moved forward on purpose.** The match file is the cheapest thing in the
+whole multiplayer story and the most load-bearing — it is the save, the network
+resume, the posted-play unit and the bug report (§12.6) — and its first rung
+needs no network at all. Building it *before* Ethernet means wave 10 inherits a
+resume mechanism and a replay harness instead of inventing them.
 
 **Waves 0 and 1 must not be skipped.** Wave 0 decides the art format, and art
 drawn before it is art that may have to be redrawn. Wave 1 makes the rules exist
@@ -1947,8 +2155,15 @@ testable.
 - **Erase-then-draw.** §3.4: the screen saver shipped it, the field called it a
   strobe, and one opaque band is both cheaper and correct.
 - **A badge outside the sprite band.** §8.
-- **Resource compensation for turn order.** §6.3.1: alternating removed the
-  advantage, so there is nothing to compensate.
+- **A turn order of any kind.** §6.0: the round is simultaneous, so there is no
+  advantage to compensate and nothing to alternate. Alternating was revision 5's
+  answer and it was a fix for a problem this removes.
+- **An on-play effect that reads the wider board.** §6.0: it would break
+  confluence, and confluence is what lets two plans be applied in any order —
+  which is what network play, posted play and hot-seat all rest on.
+- **A revocable commit.** §6.3: it buys nothing, since neither player can see
+  the other's plan either way, and it hands the match's pace to whoever is
+  slowest to stop fiddling.
 - **A healer that can reach an enemy cell.** §5.5.1: the chain points at your own
   other column, which makes it structurally impossible rather than checked.
 - **ORDERS played from hand.** §7.6: a resolution-time choice by definition.
@@ -1962,14 +2177,14 @@ testable.
 
 ## 17. Open questions — the owner's to answer
 
-1. **ORDERS and RELICS** (§7.6): revision 5 recommends against both — ORDERS
+1. **ORDERS and RELICS** (§7.6): revision 6 recommends against both — ORDERS
    because they are a resolution-time choice, RELICS on the cell budget (§8).
    Agreed?
 2. **Mulligan** (§6.1): one free redraw of the opening hand? One line of code and
    a large balance lever, and it is now the main dial on how much the shuffle is
    allowed to decide (§5.0.1).
 3. **What a MARKED healer does** (§5.5.3) — flagged by you as the likeliest
-   thing here to be revisited, and I agree. Revision 5 takes **(a)**: a marked
+   thing here to be revisited, and I agree. Revision 6 takes **(a)**: a marked
    character takes no part in anything sequential, so a healer killed in its own
    lane heals nobody and the self-revive question never arises. The alternatives
    are **(b)** it still heals, itself included — much stronger healers, and it
@@ -1982,7 +2197,17 @@ testable.
    (§5.5.2) competes for the same budget as flipping a character's pose.
 5. **Sound**: PC speaker tones for the UI and combat, and FM stingers when
    `SOUND.DRV` is present? Not in the brief, and it is real work.
-6. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
+6. **How much of the opponent is frozen** (§6.3.1). This plan freezes
+   *everything* — board, HP, shields, stances, gold, souls, hand size — which is
+   the simple rule and closes the hot-seat resource leak by construction. The
+   alternative is to keep the **resource pools live** so a planner can see what
+   their opponent could afford this round; it is more information and a better
+   read, and it reopens the leak in hot-seat unless that one mode freezes them.
+7. **A commit clock for posted play** (§12.7). The package refuses to encode a
+   policy it cannot enforce, which means an abandoned posted match is the
+   server's problem. Is that the right line, or should a match file carry a
+   stated deadline that both clients simply display?
+8. **CGA** (§1.4, §3.3, §4.2): the card panel plus a per-axis cut makes it fit on
    paper. It needs looking at on a real CGA in wave 5, and §4.2 names the 70KB
    fallback if the cut is not good enough.
 9. **Two poses a character doubles the character art** (§4.2.1) — ~110KB
