@@ -6702,20 +6702,30 @@ SOAK = [
     Row("minesrc", "soak", py("tests/minesrc.py"), 80.0,
         "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
         "does nothing on the strip, on an open cell or on a window that was "
-        "not already frontmost.",
-        # ALONE: every click here is paced by a fixed `time.sleep(0.4)` in the
-        # row's own Mouse helper, with nothing confirming guest state - so it
-        # is the shape alone=True is for ("one whose clicks are paced by a
-        # host-timed settle"). MEASURED: it FAILS at --marty-jobs 4 and PASSES
-        # at 1, and the check that goes is G's second press, the one that
-        # follows the only full-window RAISE in the sequence. Under load the
-        # guest does ~37% less work per host wait
-        # (docs/plans/SOAK-PARALLEL.md 1), so the read landed before the flag.
-        # Converting the helper to a guest-confirmed wait (os88marty.quiesce
-        # over [mn_flags], SOAK-PARALLEL 11's pattern) would let it rejoin the
-        # shared lane; until somebody does that this is the honest answer, and
-        # it costs the run nothing - an alone row goes in the same run's
-        # one-at-a-time lane.
+        "not already frontmost. EVERY PRESS IS NOW READ BACK ON THE GUEST'S "
+        "OWN CLOCK - the kernel's [ticks] - and not on the next line: a "
+        "positive case waits for the word it is about to assert on to move, a "
+        "NEGATIVE one burns ~20 ticks first, and case G waits for the RAISE "
+        "off wm_zord. That is the difference between an assertion and a coin "
+        "toss, and case G is why: its first check is that flags did NOT "
+        "change, which is true for free while the press is still in flight, "
+        "so it passed VACUOUSLY and the second press then landed on a window "
+        "the first had only just raised - which is how the 2026-09-21 full "
+        "soak read `G raise does not flag` PASS beside `G the NEXT press "
+        "flags` FAIL. Two traps found writing it: win_list()[-1] is the "
+        "highest USED SLOT and not the z-order, so the raise has to be read "
+        "off wm_zord; and `sys.exit` inside main skipped the teardown, which "
+        "with a DAEMONISED `make test` left a qemu holding the floppy image "
+        "and made every later QEMU row die at once - three of which "
+        "os88bisect read as this row failing.",
+        # ALONE, STILL, and now for a reason that is the HARNESS's rather than
+        # the row's: every QEMU row in the tree opens the same fixed
+        # build/qmp.sock (tests/ethernet.py), so two of them can never run
+        # together whatever the lane says. The suite never puts a qemu row in
+        # the shared lane anyway - that lane is built from `marty` in needs -
+        # so this flag costs the run nothing and says the true thing. The
+        # row's own Mouse helper still carries a fixed time.sleep(0.4) per
+        # press; the reads no longer trust it.
         needs=("qemu", "nasm"), serial=True, alone=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
     Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
@@ -7640,7 +7650,18 @@ SOAK = [
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "
         "cache and so gets to keep one - and still sees everybody else's, "
         "which is what makes the cut the self-reference and not the range. "
-        "Also the row that would notice tm_quiet's key going unrecorded again",
+        "Also the row that would notice tm_quiet's key going unrecorded "
+        "again. THE QUIET LEG TAKES SIX DROPS AND NOT THREE: the dragged "
+        "window's own drag cache is somebody else's claim appearing, which "
+        "28.8.1 deliberately still repaints for, so an attempt whose "
+        "unlocked sample lands inside the drop's lock hold loses - a race "
+        "the row has always known about and retried. Three was enough on an "
+        "idle box and was not in the 2026-09-21 full soak, where all three "
+        "lost and classify then put the row at 0/3 alone, which is the "
+        "signature of a race whose odds move with the box. Each attempt is a "
+        "COMPLETE test of the assertion, so six only lowers the chance that "
+        "every sample lands badly - and CELLS below is deliberately NOT "
+        "retried, being the half that would hide a real regression",
         needs=("marty",), serial=True),
     Row("tmowner", "soak", py("tests/tmowner.py"), 300.0,
         "SPEC.md 28.4.5: a raise cache is listed under the PACKAGE that owns "
