@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 12. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 13. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,46 +8,53 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**TITHE is a game of pure placement, and revision 12 is where that sentence
-becomes precise.** **THE ROUND IS SIMULTANEOUS** (§6.0): both players plan
-against the same frozen board, neither sees the other's plan, and everything
-resolves together — so there is no turn order at all, and nothing left for a
-resource compensation to compensate.
-**Nothing is chosen while a round resolves and no stat is ever a range** — a 4
-attack deals 4 (§5.0.1); every choice is made on your own turn and becomes part
-of the board, which is what a **STANCE** is (§5.4). But *the game never rolls
-and the AI always does* (§5.0.2), because a deterministic opponent is one the
-player memorises — and the sharper the rules, the faster. **Healing fires inside
-the combat phase, on the healer's own lane, after that lane's attacks**, which
-makes a healer's lane a third placement dimension, lets it pull a character back
-from zero, and — by *simultaneous, then sequential* (§5.5.3) — means a healer
-killed in its own lane heals nobody, itself included, with no special case
-written anywhere. **Commanders, orders and a recycling discard** (§7.1.2, §5.9,
-§5.10): a faction is ~30 cards with three of each, a deck is 14 to 50, nothing
-is ever destroyed, and **no action is permanent until the commit** (§5.0.3).
-**And a character is COMPOSED** — a body plus a held item carrying its own arm
-and its own swing, at most eight items a faction (§4.2.1) — which is what makes
-attack animation affordable at all and leaves somewhere to put the next layer.
-**§3.8 is the reference game measured frame by frame**, and it says the plan was
-not optimistic about the things it priced: content at ~15 fps against our 18.2,
-an attack of 4–6 steps against our 4. What it does that we cannot is **idle
-every figure continuously, including through its own combat** — so ours idles
-the acting lane and holds the other four. What it does that we should copy is
-keeping a character's numbers *beside* the figure rather than on it, which
-shrinks our band by a third and buys 47% more animation (§3.8.1). **§3.9 is the
-combat phase priced properly** — a projectile is the one thing in the renderer
-that cannot be a self-erasing band, and it is the most expensive thing in the
-game. **§13 is music**, which on a game that is mostly thinking
-is a requirement rather than a polish item — one score per renderer, a faction theme
-in three states, a **resolution piece** that covers everything which is not
-planning and hides the state change behind itself, and about half a percent of
-the machine. **§16.1 is the prototype**, and it comes before the rules engine:
-the look, the layout, the card faces and the music, judged by eye and ear
-before anything is built on top of them. **Front and rear may be entirely different roles** — a tank in
-front, a farmer in the rear, the same person holding a different tool — which
-doubles the character art and is worth it. And **a pure specialist is a card,
-not a defect** (§7.1.1): the freeholder who makes 4 gold and does nothing else
-is taken *because* 4 is more than any mixed generator pays.
+**§19 is the history.** Everything before it states what the design *is*; where
+a decision was taken one way and then another, the reversal and its reason live
+in §19 rather than in the middle of the thing being described.
+
+## What TITHE is
+
+**A two-player card duel on a 4 × 5 isometric board, where the only thing a
+player chooses is placement.** Characters are played to a front or a rear
+column, and the same card is a different character in each — a shielded
+swordsman in front, the same man with a pitchfork behind (§5.2).
+
+**The round is simultaneous** (§6.0). Both players plan against the same frozen
+board, neither sees the other's plan, and everything resolves together — so
+there is no turn order, no first-player advantage and nothing to compensate.
+Every action touches only its own half of the board, so two plans can never
+conflict and can be applied in either order.
+
+**Nothing is chosen while a round resolves, and no stat is ever a range** — a 4
+attack deals 4 (§5.0.1). The shuffles are the only random numbers the game
+generates. *The game never rolls; the AI always does* (§5.0.3), because a
+deterministic opponent is one the player memorises.
+
+**Nothing is permanent until the commit** (§5.0.2). Any card, swap or stance may
+be taken back, not just the last — a plan is a list and the board is
+`apply(plan, frozen)`.
+
+**Two resources**: GOLD, generated by characters mostly in the rear, and SOULS,
+earned when an enemy dies, by its power rating (§5.1).
+
+**Healing fires inside the combat phase, on the healer's own lane** (§5.5),
+which makes a healer's row a third placement dimension and lets it pull a
+character back from zero — while a healer killed in its own lane heals nobody,
+itself included, with no special case written anywhere.
+
+**Three factions of ~30 cards**, each with three **orders** and three
+**commanders** (§7). A deck is 14 to 50 cards, one faction, at most one
+commander; nothing is ever destroyed, because the discard recycles (§5.10).
+
+**And the whole thing has to hold 18 fps on a 4.77 MHz 8088 with 23 things
+animating** (§1), which is why a character is **composed** from a body and a
+held item (§4.2.1), why its numbers sit beside it rather than on it (§3.8.1),
+and why a projectile — the one thing in the renderer that cannot be a
+self-erasing band — is the most expensive thing in the game (§3.9.1).
+
+**§16.1 is the prototype and it comes first**, before the rules engine: the
+look, the layout, the card faces and the music, judged by eye and ear before
+anything is built on top of them.
 
 ---
 
@@ -76,7 +83,7 @@ is taken *because* 4 is more than any mixed generator pays.
 
 **Every faction carries a full set of roles** — melee, ranged, shielding and
 generation specialists, and combinations — plus **three ORDERS** (§5.9) and
-**three COMMANDERS** (§7.1.2). Its focus is where its *best* cards and its
+**three COMMANDERS** (§7.1.1). Its focus is where its *best* cards and its
 keywords live, never the only thing it can do (§7.1).
 
 ---
@@ -110,13 +117,13 @@ format, the sprite size and the animation rate.**
 
 ### 1.2 The finding that decides the art format
 
-Three ways to put one 72×64 character on a VGA:
+Three ways to put one 56×56 character sprite on a VGA:
 
 | route | bytes moved | cost *(est.)* | 23 features, one update each |
 |---|---|---|---|
-| `GFX_BLIT4` — packed 4bpp, kernel decodes | — | 4,608 px × 22.4 µs = **103.2 ms** | **2.4 seconds.** Unusable. |
-| `GFX_BLITP` — 4 planes, pre-composed | 2,304 | **~14.2 ms** | **326 ms** → 3.1 rounds a second |
-| `GFX_BLIT1` + pen — 1bpp band, two colours | 576 | **~3.54 ms** | **81.4 ms** → 12.3 rounds a second |
+| `GFX_BLIT4` — packed 4bpp, kernel decodes | — | 3,136 px × 22.4 µs = **70.2 ms** | **1.6 seconds.** Unusable. |
+| `GFX_BLITP` — 4 planes, pre-composed | 1,568 | **~9.6 ms** | **222 ms** → 4.5 rounds a second |
+| `GFX_BLIT1` + pen — 1bpp band, two colours | **392** | **~2.41 ms** | **55 ms** → 18 rounds a second |
 
 **`gfx_blit4` is out for anything that moves.** One character would be two
 whole frames. It is the right slot for a picture drawn once and the wrong one
@@ -136,27 +143,27 @@ Take **40% of the frame** for idle animation (22 ms), leaving 60% for the HUD,
 the card panel, input, the AI's background thinking and slack. With 23
 features:
 
-| surface | sprite band | bytes | per commit | commits/frame at 40% | **fps a feature** |
-|---|---|---|---|---|---|
-| VGA fullscreen 640×480 | 72×64 | 576 | 3.54 ms | 6.2 | **4.9** |
-| VGA windowed | 56×48 | 336 | 2.07 ms | 10.6 | **8.4** |
-| Hercules 720×348 | 80×46 | 460 | 2.83 ms | 7.8 | **6.2** |
-| CGA 640×200 | 56×26 | 182 | 1.12 ms | 19.6 | **15.6** |
-| *(VGA fullscreen, four planes)* | 72×64 | 2,304 | 14.2 ms | 1.5 | **1.2** |
+| surface | cell | sprite band | bytes | per commit | commits/frame at 40% | **fps a feature** |
+|---|---|---|---|---|---|---|
+| VGA fullscreen 640×480 | 104×72 | **56×56** | **392** | 2.41 ms | 9.1 | **7.2** |
+| VGA windowed | 80×56 | 48×44 | 264 | 1.62 ms | 13.6 | **10.8** |
+| Hercules 720×348 | 120×52 | 64×40 | 320 | 1.97 ms | 11.2 | **8.8** |
+| CGA 640×200 | 80×30 | 48×24 | 144 | 0.89 ms | 24.7 | **19.5** |
+| *(VGA fullscreen, four planes)* | 104×72 | 56×56 | 1,568 | 9.64 ms | 2.3 | **1.8** |
 
-**A 4-frame ping-pong idle (A B C B) at 4.9 fps is a 0.8-second cycle** — a
-slow breath, which is what a crowd of twenty figures should do, and which
-measures within 20% of the reference's own one-second cycle (§3.8).
+**The band is the FIGURE only.** The HP bar, the shield pips and the status
+glyphs live beside it in the cell and are redrawn only when a number changes
+(§3.8.1, §8) — which is what takes the band from the cell's 936 bytes to 392,
+and the fullscreen VGA rate from 4.5 fps a feature to **7.2**.
 
-**These figures are the CONSERVATIVE ones.** §3.8.1 takes the HP bar, the shield
-pips and the badges out of the band, which shrinks it to 56×56 = 392 B and takes
-the fullscreen VGA row to **7.2 fps a feature**. The table above is left at the
-larger band on purpose: a plan should quote the number it is sure of, and wave
-1a is what confirms the layout.
+**A 4-frame ping-pong idle (A B C B) at 7.2 fps is a 0.55-second cycle**, and
+the reference's own measures at ~1.0 s (§3.8) — so there is room to slow it,
+to spend the frames on more poses, or to bank them. **Which of those three is
+wave 1a's to decide by eye** (§16.1).
 
 **A 386 is a different machine and gets a different answer.**
 `OSAPI_CPU_INFO` answers `CPU_8086 / CPU_286 / CPU_386` — *a fact the code can
-test* rather than a guess about speed (PERFORMANCE.md rule 7) — and §6.9 turns
+test* rather than a guess about speed (PERFORMANCE.md rule 7) — and §6.10 turns
 that into a **Detail** setting with a measured default.
 
 ### 1.4 The three adapters
@@ -191,20 +198,27 @@ faction, including 3 commanders) and 9 are orders:
 | | uncompressed | on disk (est. ×0.6) |
 |---|---|---|
 | the package primary (`.O88`) | ~52KB | ~32KB |
-| **character BODIES — ~90 body sets × 4 frames × 576 B** | **207KB** | **~124KB** |
-| **held ITEMS — 24 × (4 idle + 4 attack) × 240 B** | **46KB** | **~28KB** |
-| card faces — 90 × art + frame | ~56KB | ~28KB |
+| **character BODIES — ~90 body sets × 4 frames × 392 B** | **138KB** | **~83KB** |
+| **held ITEMS — 24 × (4 idle + 4 attack) × 240 B** | **45KB** | **~27KB** |
+| card furniture — 3 faction frames, 9 order illustrations (§3.9.3: a character card's portrait is its own sprite, so there is none to draw) | ~20KB | ~12KB |
 | player bases — 3 factions × 6 frames | 27KB | ~14KB |
-| board art — 3 terrains, isometric, static | 60KB | ~25KB |
+| board art — 3 terrains as TILE SETS, not pictures (§3.2) | ~34KB | ~20KB |
 | menu art, buttons, title | ~40KB | ~20KB |
 | campaign map | ~30KB | ~15KB |
 | music — twelve pieces layered per §13.4, plus the resolution piece | ~25KB | ~13KB |
-| **total** | | **~299KB of 354, 55 clusters spare** |
+| **total** | | **~236KB of 354, 118 clusters spare** |
 
-**And that total INCLUDES attack animation, which revision 9's did not.** Drawn
-per character rather than composed, the same content is **550KB uncompressed and
-~330KB packed — it does not fit at all** (§4.2.2). The layer model is not an
-optimisation here; it is the reason the feature exists.
+**That total INCLUDES attack animation.** Drawn per character rather than
+composed, the character art alone is **372KB uncompressed and ~223KB packed**
+against ~183KB composed (§4.2.2) — and with everything else beside it, the
+drawn version does not fit. The layer model is not an optimisation here; it is
+the reason attack animation exists at all.
+
+**The board is a TILE SET rather than a picture**, which is both why its line is
+small and how §3.9.1's 22KB board picture in RAM gets built: the tiles are laid
+out once at match load, the way `dd_board_render` does it (§93.2). A single
+416×420 picture per terrain would be 22KB at 1bpp and four times that if it were
+ever drawn in colour.
 
 **The dial is the body-set count**, and it is also the art *effort*, so for once
 the two move together: every body set reused rather than drawn is ~2.3KB off the
@@ -218,17 +232,18 @@ hand is **layers**, not a sprite; only what can be *seen* is composed.
 
 | | worst case |
 |---|---|
-| **layers** for the two decks — bodies and items for every distinct card in them | ~**128KB** |
-| **composed idle sprites**, both poses, for the ≤20 characters on the board | 20 × 2 × 4 × 576 = **92KB** |
-| **composed attack sprites** for those 20, 4 frames each (§4.2.3) | **46KB** |
-| the hovered card | ~5KB |
+| **layers** for the two decks — ~70 body sets at 4 × 392 B, plus 16 item sets at 8 × 240 B | **140KB** |
+| **composed idle sprites**, both poses, for the ≤20 characters on the board | 20 × 2 × 4 × 392 = **61KB** |
+| **composed attack sprites** for those 20, 4 frames each (§4.2.3) | **31KB** |
+| the hovered card (§3.9.3: its portrait is the character's own sprite) | ~3KB |
 | **the BOARD PICTURE** — the board without characters, for §3.9.1 to compose projectiles against | **22KB** |
-| the composed clash frames, if §3.9.2 tier B is taken | *(+23KB)* |
 | board chrome, HUD, card panel, music, scratch | ~70KB |
-| **total** | **~363KB against ~400KB free** |
+| **total** | **~327KB against ~400KB free** |
+| *(plus the composed clash frames, if §3.9.2 tier B is taken)* | *(+44KB → 371KB)* |
 
-It fits, with ~37KB of headroom and no slack, and the **typical** case is well
-under it — a pair of ordinary decks carries far fewer distinct characters than
+It fits, with ~73KB of headroom — or ~29KB if tier B is taken, which is the one
+thing in the table that would make it tight. The **typical** case is well under
+it — a pair of ordinary decks carries far fewer distinct characters than
 two fifty-card ones. **Both poses of an on-board character stay resident**,
 because a swap flips a pose instantly and cannot wait for a composite, let alone
 a disk.
@@ -239,7 +254,7 @@ four times every figure above, which is more than the whole arena.
 
 ### 1.6 What TITHE is not
 
-- **Not a `kern_small` package.** It wants ~220KB of heap and a 128KB machine
+- **Not a `kern_small` package.** It wants ~330KB of heap and a 128KB machine
   has ~50KB. It goes in `$(SMALLOMIT)` with a stated reason, and
   `soak -k 'smallreq'` is the gate that keeps it there (§24.5).
 - **Not an `fsx` bracket with a foreign mode.** It is turn-based and wants the
@@ -339,10 +354,13 @@ not constants to hard-code.
 
 | surface | HUD | card panel | `CW` × `CH` | `RISE` | board box | sprite band |
 |---|---|---|---|---|---|---|
-| VGA 640×480 full | 36 | 176 | **104 × 72** | 20 | 416 × 420 | **72 × 64** |
-| VGA windowed | 28 | 144 | 80 × 56 | 16 | 320 × 328 | 56 × 48 |
-| Hercules 720×348 | 32 | 168 | 120 × 52 | 16 | 480 × 308 | 80 × 46 |
-| CGA 640×200 | 24 | 160 | 80 × 30 | 8 | 320 × 174 | 56 × 26 |
+| VGA 640×480 full | 36 | 176 | **104 × 72** | 20 | 416 × 420 | **56 × 56** |
+| VGA windowed | 28 | 144 | 80 × 56 | 16 | 320 × 328 | 48 × 44 |
+| Hercules 720×348 | 32 | 168 | 120 × 52 | 16 | 480 × 308 | 64 × 40 |
+| CGA 640×200 | 24 | 160 | 80 × 30 | 8 | 320 × 174 | 48 × 24 |
+
+**The band is smaller than the cell on purpose** (§3.4): the figure animates and
+the rest of the cell — its ground, and the numbers beside it — does not.
 
 ### 3.3 The card panel is on the right, and that is what rescues CGA
 
@@ -372,11 +390,12 @@ character out of a body and a held item, but that happens at match load and at a
 round boundary (§4.2.3) — what the renderer blits is one finished opaque sprite,
 exactly as if it had been drawn that way.
 
-**THE BAND IS THE SPRITE'S OWN BOX, NOT THE CELL.** The cell is 104×72 and the
-sprite band is 72×64 — the rest of the cell is static ground, drawn once with
-the board and never touched again. That is 576 bytes a commit instead of 936,
-and it is worth **38% of the animation budget** for one line of layout
-arithmetic.
+**THE BAND IS THE FIGURE'S OWN BOX, NOT THE CELL.** The cell is 104×72 — **936
+bytes** at 1bpp — and the sprite band is 56×56, **392**. The rest of the cell is
+static: the ground, drawn once with the board, and the character's numbers,
+redrawn only when one changes (§3.8.1, §8). **That is 58% off every animation
+commit** for one line of layout arithmetic, and it is the single cheapest
+decision in the renderer.
 
 **And a band is cut on the CELL grid, not the byte grid.** `gfx_blit1` only asks
 for a multiple of 8, and a band cut there reaches part-way into the next cell —
@@ -436,11 +455,16 @@ a crowd.
 #### 3.6.1 The combat phase
 
 Attacks resolve **simultaneously from both sides**, **≤1 second a lane**, and
-the animation may focus solely on the lane being resolved. The idle wheel is
-suspended and the whole frame budget goes to that lane: at most four attacking
-characters, their projectiles, the impacts, the healing that follows them and
-the floating numbers. Five lanes × ≤18 frames = **≤5 seconds**, and **Fast
-Combat** (§6.9) halves it.
+the animation belongs to the lane being resolved: at most four attacking
+characters, their projectiles (§3.9.1), the impacts, the healing that follows
+them and the floating numbers. Five lanes × ≤18 frames = **≤5 seconds**, and
+**Fast Combat** (§6.10) halves it.
+
+**The acting lane keeps idling; the other four hold.** The wheel is not
+suspended, it is narrowed — four features instead of twenty-three, ~10 ms a
+frame — which leaves the rest of the frame for the projectiles that are the
+expensive part. The eye is on the lane that is resolving, and nobody watches row
+4 while row 1 is swinging.
 
 **Simultaneity is a resolution rule, not an animation one.** Both sides' damage
 for a lane is computed from the state at the *start of that lane*, then applied
@@ -460,7 +484,7 @@ pinning because the obvious spelling is the expensive one. The union of the
 attacker's own cell and the cell it stepped into is `2·CW` wide and `CH + RISE`
 tall — 208 × 92 on a VGA, **2,392 bytes**, most of them ground nobody touched.
 Two ordinary sprite bands — one restoring the cell it left, one drawing it where
-it now stands — are **2 × 576 = 1,152 bytes**, less than half, and they are the
+it now stands — are **2 × 392 = 784 bytes**, a third of that, and they are the
 bands the renderer already knows how to build.
 
 That is §93.5.1.1's rule arriving here unchanged: *"a move too big for one band
@@ -474,9 +498,9 @@ Three things make it cheap and safe:
   overdrawn that has to come back.
 - **The gap cell's ground is the same baked diamond** as every other combat cell
   (§3.2), so the vacated band and the occupied band are both ordinary.
-- **The idle wheel is suspended** during the lane (§3.6.1), so ~7 ms for a
-  stepping attacker comes out of a whole frame rather than out of the idle
-  budget. At most two attackers a side can be stepping in one lane.
+- **Only the acting lane idles** during a lane's resolution (§3.6.1), so ~5 ms
+  for a stepping attacker comes out of a frame that has most of itself free. At
+  most two attackers a side can be stepping in one lane.
 
 **A stepped attacker is still drawn in its own rectangle**, so §3.2's
 non-overlap holds throughout — it is standing in a different cell, not between
@@ -523,7 +547,7 @@ something for.
 | **idle during the RESOLUTION phase** | **yes, continuously — 13–22 changes/s a character** | **the acting lane only**; the other four hold (§3.8, finding 1) |
 | one attack event | **~0.2–0.3 s**, so ≈4–6 animation steps | **4 frames** |
 | events during a resolution | one every **~0.3–0.5 s**, over 7+ s | 5 lanes × ≤1 s |
-| a character | **~22 × 37 px** in a ~125 × 54 cell — **about a fifth of its cell's width** | 72 × 64 in a 104 × 72 cell — **about two thirds** |
+| a character | **~22 × 37 px** in a ~125 × 54 cell — **about a fifth of its cell's width** | 56 × 56 in a 104 × 72 cell — **about half** |
 
 **1. IT IDLES THROUGHOUT — including its whole attack phase.** Five character
 crops, two-second windows, counting frames that differ from their predecessor by
@@ -536,24 +560,13 @@ more than noise:
 | (330, 120) | 19.0 | **18.0** |
 
 **That is continuous idling in both phases**, at 13–22 distinct changes a second
-a character, and it is what the owner said he could see happening.
+a character. *(An earlier measurement here said otherwise and was wrong; §19.2
+records how, because the method is worth not repeating.)*
 
-**The first version of this section claimed the opposite, and the error is worth
-keeping.** It rested on two bad measurements. The board-wide activity trace ran
-on a **140×65 downscale of a 560×260 region** — averaging 4×4 blocks, which
-destroys exactly the one- and two-pixel motion an idle is made of, so it read
-long stretches of 0.01 and I called them stillness. And the single-character
-check used **0.4-second windows** picked out of that same trace, which at 30 fps
-is twelve samples: enough to land in a lull between beats of a ~15 fps animation
-and conclude the figure was frozen. **One crop, cherry-picked windows, at a
-resolution that could not see the thing being looked for.** PERFORMANCE.md's own
-rule — *a counter is not a timer, and measure the thing you mean* — one document
-along.
-
-**So §3.6.1 IS a concession, and it should be recorded as one.** At 7.2 fps a
-feature the 23 idles already cost 40% of an 8088 (§1.3), and a lane's attack
-plus its projectiles (§3.9) needs most of what is left. The reference is a Flash
-VM on a machine three decades newer and does not have to choose.
+**So §3.6.1 IS a concession, and it is recorded as one.** At 7.2 fps a feature
+the 23 idles already cost 40% of an 8088 (§1.3), and a lane's attack plus its
+projectiles (§3.9) needs most of what is left. The reference is a Flash VM on a
+machine three decades newer and does not have to choose.
 
 **But the concession can be much smaller than "freeze everything".** During
 combat **the lane being resolved keeps idling** — at most four characters, ~10 ms
@@ -612,9 +625,9 @@ It also reads better. Two-tone pixel art at 1bpp has no room to spare (§1.4),
 and a figure that is not also carrying a bar, pips and three badges is a figure
 with more pixels to be a figure with.
 
-**Every budget in this document should be re-derived from 392 B rather than
-576 B once wave 1a has confirmed the layout**; §1.3, §1.5 and §4.2.2 still
-quote the conservative figure, which is the right way round for a plan.
+**Every budget in this document is derived from the 392 B band** — §1.3, §1.5
+and §4.2.2 all — and wave 1a is what confirms the layout reads at all four
+surface sizes before any art is drawn against it.
 
 #### 3.8.2 One thing it does that we should NOT copy
 
@@ -638,9 +651,8 @@ loser's base — is not our model at all and is not proposed.)*
 
 ### 3.9 THE COMBAT PHASE'S REAL COST — projectiles, and the clash
 
-Revision 11 priced the idle board and left the combat phase as *"≤1 s a lane,
-the whole budget goes to it"*. That is a budget, not a design, and two things
-inside it are the actual work.
+*"≤1 s a lane"* (§3.6.1) is a budget, not a design. Two things inside it are the
+actual work, and one of them is the most expensive thing in the game.
 
 #### 3.9.1 A projectile is the one thing that is NOT a self-erasing band
 
@@ -695,10 +707,10 @@ freely:
 
 | | |
 |---|---|
-| band | 2 cells ≈ **784 B**, ~4.8 ms to commit |
-| composing two figures into it | 2 × ~392 B of masked RMW ≈ **12 ms a frame** |
-| so, live | ~17 ms a frame — affordable for **one** clash, not for five |
-| **pre-composed in the REVEAL phase** | the pairings are known the moment both plans are applied (§6.4), so all five lanes' clash frames can be built there: 5 × 6 frames × 784 B = **23 KB**, ~0.4 s inside a phase that is already an animation |
+| band | 2 cells wide, 208 × 56 = **1,456 B**, ~9 ms to commit |
+| composing two figures into it | 2 × 392 B of masked RMW ≈ **12 ms a frame** |
+| so, live | **~21 ms a frame** — affordable for **one** clash, not for five |
+| **pre-composed in the REVEAL phase** | the pairings are known the moment both plans are applied (§6.4), so all five lanes' clash frames can be built there: 5 × 6 frames × 1,456 B = **44 KB** of heap, ~0.4 s inside a phase that is already an animation |
 
 **Tier A is what wave 3 builds.** Tier B is a wave-1a mock and a wave-3
 decision, and it is written down now so that the choice is a choice rather than
@@ -747,14 +759,14 @@ and — if `Rich` survives §3.7 — the **four-plane block**.
 
 ### 4.2 The cut is PER AXIS, and that is why one master works
 
-Masters are authored at the **VGA-fullscreen** sprite size (72×64 for a
-character) and **cut down to the live size at layout time by nearest
+Masters are authored at the **VGA-fullscreen** sprite size (56×56 for a
+character body) and **cut down to the live size at layout time by nearest
 neighbour** — §93.5's approach, where a rebuild is "thirty-five images of at
 most 32 bytes and happens when the window changes size, which is not a thing
 that happens in a frame."
 
 **x and y are cut by different factors**, driven by the adapter's pixel aspect
-(§1.4). That is what lets one 72×64 master serve a 56×26 CGA sprite and still
+(§1.4). That is what lets one 56×56 master serve a 48×24 CGA sprite and still
 produce a figure with correct proportions on the glass.
 
 §93.5's lesson comes with the technique:
@@ -766,23 +778,19 @@ produce a figure with correct proportions on the glass.
 
 **The CGA fallback, named and costed now**: if the CGA cut of a detailed
 character is unacceptable on a real screen, a hand-tuned small master set for
-**characters only** is 48 × 2 poses × 4 × 182 B = **70KB uncompressed**
-(~42KB on disk). A decision taken in wave 5 after somebody looks at a CGA, not
-before.
+**body sets only** is ~90 × 4 × 144 B = **52KB uncompressed** (~31KB on disk),
+the items cutting cleanly because they are small already. A decision taken after
+somebody looks at a CGA (§16.1), not before.
 
 #### 4.2.1 CHARACTERS ARE COMPOSED — a body and a held item, in layers
 
 **Front and rear may be entirely different roles** (§5.2): the same person is a
 shield-and-sword tank in the front column and a pitchfork farmer in the rear.
-Revision 9 paid for that by drawing every character twice. **Revision 10 draws
-what actually differs**, and the change pays for something revision 9 had not
-budgeted at all.
-
-A character's sprite is **two layers**:
+**What is drawn is what differs**, so a character's sprite is **two layers**:
 
 | layer | what it is | scope | box |
 |---|---|---|---|
-| **BODY** | head, torso, legs, the off arm — the person | a **body set**, named by a card. Two cards may share one | the whole sprite box, 72×64 = **576 B** a frame |
+| **BODY** | head, torso, legs, the off arm — the person | a **body set**, named by a card. Two cards may share one | the whole sprite box, 56×56 = **392 B** a frame |
 | **ITEM** | **the holding arm and what is in it** — sword, shield, bow, staff, pitchfork, scythe | a faction pool of **at most 8**, shared freely across that faction's cards | small and anchored, ~40×48 = **240 B** a frame |
 
 The arm belongs to the item layer and not the body, which is the decision that
@@ -795,27 +803,28 @@ is what §5.2 describes — the rear pose costs **nothing but an item reference*
 Where a card wants a genuinely different stance behind the line, it names a
 second body set and pays for it.
 
-#### 4.2.2 What it buys, and the first one is a cost revision 9 never counted
+#### 4.2.2 What it buys, and ATTACK ANIMATION is most of it
 
-**ATTACK ANIMATION.** §3.6.1 has the combat phase animating attacks and
-§1.5 never had a byte for the frames. Drawn per character that is 81 × 4 ×
-576 B = **186KB** on top of everything else, and there is no room for it.
-Composed, an attack is **the item's frames** over a body holding an idle pose,
-with the whole sprite offset a few pixels toward its target — so it costs
-**24 items × 4 frames × 240 B = 23KB** and nothing per character.
+**An attack is the ITEM's frames** over a body holding an idle pose, with the
+whole sprite offset a few pixels toward its target. So it costs **24 items × 4
+frames × 240 B = 23KB** for the whole game, and **nothing per character**.
 
 | | drawn per character | composed |
 |---|---|---|
-| idle, both poses | 364KB | ~207KB *(see below)* |
-| **attack** | **186KB** | **23KB** |
-| **total** | **550KB** | **~230KB** |
+| idle, both poses | 248KB | **138KB** |
+| **attack** | **124KB** | **23KB** |
+| **total** | **372KB** | **~183KB** |
+
+Drawn per character, attack animation alone is 124KB on top of an idle set that
+is already 248KB, and §1.5's disk does not hold both. **Composed, the attack is
+23KB.**
 
 **The body-set count is the art budget's main dial**, and it is also the art
 *effort's* main dial, so the two move together for once. At 81 characters:
 **~90 body sets** — most cards sharing a body between their two poses, a few
-sharing one with another card — is 90 × 4 × 576 = **207KB**. Every body set that
-is reused rather than drawn is 2.3KB off the disk and a day off the art. The
-tool reports the count (§4.2.4).
+sharing one with another card — is 90 × 4 × 392 B = **138KB**. Every body set
+that is reused rather than drawn is 1.5KB off the disk and a day off the art.
+The tool reports the count (§4.2.4).
 
 **Three more things it buys**, and the third is the owner's reason for asking:
 
@@ -874,7 +883,7 @@ emits the layer banks. Three things it must do beyond converting pixels:
 
 **The CGA fallback, named and costed now**: if the CGA cut of a composed
 character is unacceptable on a real screen, hand-tuned small **body** sets are
-~90 × 4 × 182 B = **65KB uncompressed** (~39KB packed) — and the items, being
+~90 × 4 × 144 B = **52KB uncompressed** (~31KB packed) — and the items, being
 small already, cut cleanly. A decision taken once somebody has looked at a CGA,
 not before.
 
@@ -941,7 +950,7 @@ What the player chooses, all of it on their own turn:
 3. **which two of their own cells to swap** (twice a round), and
 4. **each ranged character's STANCE** — FRONT or SNIPE (§5.4).
 
-**And none of it is permanent until they commit** (§5.0.3). Up to that moment
+**And none of it is permanent until they commit** (§5.0.2). Up to that moment
 the program is an interface for playing with a position, not a record of
 decisions taken.
 
@@ -971,7 +980,7 @@ Four things fall straight out of it, and all four are wins:
 roll, no critical, no variance band and no percentage anywhere in resolution.
 
 **Randomness exists in TITHE in exactly two places, and neither is an
-outcome**: **the shuffles** (§5.10) and **the AI's own choices** (§5.0.2).
+outcome**: **the shuffles** (§5.10) and **the AI's own choices** (§5.0.3).
 Neither can change what a character *does* once it is on the board.
 
 **"The shuffles" is plural now**, because the discard pile recycles (§5.10), so
@@ -981,10 +990,10 @@ the opening shuffle and every reshuffle after it come off that one stream. So a
 match is still reproducible from the same small tuple (§14.1), and §12.6's match
 file still needs nothing but seeds and plans.
 
-*(There used to be a third — who goes first. §6.0 deleted the question.)*
+*(§6.0 leaves no third: nobody is picked to go first.)*
 
 **THE RULE BINDS RESOLUTION, NOT THE OPPONENT.** *The game never rolls; the AI
-does.* Keeping those two apart is what lets both be true at once, and §5.0.2 is
+does.* Keeping those two apart is what lets both be true at once, and §5.0.3 is
 why the second half is necessary rather than a concession.
 
 Three consequences, and the third is a balance instruction rather than an
@@ -1005,7 +1014,7 @@ observation:
   because the usual instinct — nudge a card by one — is a much bigger change
   here than it looks.
 
-#### 5.0.3 NOTHING IS PERMANENT UNTIL THE COMMIT
+#### 5.0.2 NOTHING IS PERMANENT UNTIL THE COMMIT
 
 **While a player is deciding, no action is final.** Any card played, any swap,
 any stance may be taken back — **not only the last one** — and the resources go
@@ -1038,7 +1047,7 @@ than fiddly:
 property of the interface, and the engine never sees a plan that was not the
 final one.
 
-#### 5.0.2 …and the AI must NOT be deterministic
+#### 5.0.3 …and the AI must NOT be deterministic
 
 **A deterministic evaluator takes the same action from the same state every
 time, and that is a thing the player learns.** Once they have, the campaign
@@ -1376,7 +1385,7 @@ all** — a killed character comes back round — so board and life are the only
 things that can run out.
 
 If playtesting finds real deadlocks the valve is a **round counter that raises
-base income**: a one-line change, deliberately not in revision 10, and the first
+base income**: a one-line change, deliberately not built now, and the first
 thing to reach for before anything structural.
 
 ---
@@ -1419,8 +1428,8 @@ there at the reveal, and the reference always resolves.
 So a live character carries a small **instance id**, and a plan refers to it.
 That is a byte a cell, and it buys enemy-targeting orders for nothing.
 
-**Revision 10 writes friendly-target orders first** — *enhance* before *alter* —
-while the mechanism supports both, because a debuff aimed at an opponent in a
+**The first card set writes friendly-target orders** — *enhance* before
+*alter* — while the mechanism supports both, because a debuff aimed at an opponent in a
 simultaneous game is a **prediction**, and predictions are what this structure is
 for. Two orders on one character stack and are independent, which is confluent
 for the same reason.
@@ -1452,8 +1461,8 @@ balance**, because its value compounds with how long its host lives and that is
 exactly the quantity the rest of the game is fighting over.
 
 None are planned. What is deliberately left open is the *shape*: §5.9.1's
-instance id is what a relic would attach to as well, so nothing in revision 10
-has to be undone to try one later.
+instance id is what a relic would attach to as well, so nothing here has to be
+undone to try one later.
 
 ### 5.10 THE DISCARD PILE — and why a 14-card deck is competitive
 
@@ -1461,8 +1470,7 @@ has to be undone to try one later.
 pile. When the draw pile is empty, the discard pile is shuffled and becomes the
 draw pile.**
 
-That one paragraph settles what revision 8 had as an open question, and it is a
-better answer than either arm of it:
+Three things follow, and together they are why the discard exists at all:
 
 - **There is no decking out.** A deck cannot run out, so running out cannot be a
   loss condition and §5.8's clock stays the empty lane.
@@ -1541,8 +1549,8 @@ before the idea arrived:
 **The one thing that CAN change under a plan is a stance's target**, and §5.4
 rule 3 was already written for it: you set SNIPE because the lane is open, your
 opponent walls it in the same round, and at resolution the shot falls back to
-FRONT and hits the wall. What was an edge case in revision 5 is load-bearing
-now — and it is exactly the kind of read-the-opponent guess this structure is
+FRONT and hits the wall. That rule is load-bearing rather than an edge case, and
+it is exactly the kind of read-the-opponent guess this structure is
 supposed to reward.
 
 #### 6.0.1 What it changes about the game
@@ -1590,7 +1598,7 @@ the difference. §14.2 keeps it as a dial, and §18 records that special first-d
 rules are the fallback if one redraw turns out not to be enough.
 
 **The shuffles are the only random numbers the GAME ever generates** (§5.0.1),
-and **nobody has to be picked to go first** (§6.0). An AI opponent seeds its own generator here too (§5.0.2), and that one
+and **nobody has to be picked to go first** (§6.0). An AI opponent seeds its own generator here too (§5.0.3), and that one
 is the opponent's mind rather than the game's dice.
 
 **There is no resource compensation**, and after §6.0 there is nothing left for
@@ -1620,7 +1628,7 @@ any number of times unless a limit is stated.**
 | **Play an ORDER** onto a character (§5.9) | the card's gold and/or souls | while resources last |
 | **Swap** two of your cells | free | **2 a round** |
 | **Set a ranged character's STANCE** (Front / Snipe) | free | unlimited |
-| **Undo ANY action in your plan** | free | while uncommitted (§5.0.3) |
+| **Undo ANY action in your plan** | free | while uncommitted (§5.0.2) |
 | **RESET** the whole plan | free | while uncommitted |
 | **Inspect** any card or character | free | unlimited |
 | **Read the log** | free | unlimited |
@@ -1653,7 +1661,7 @@ says what its action becomes. The order is spent in the round you commit it,
 which the card says in as many words, because *"this round"* and *"next round"*
 are the one thing a card of this kind can be misread about.
 
-**THE PLAN IS FULLY EDITABLE** (§5.0.3). It is shown as a numbered list in the
+**THE PLAN IS FULLY EDITABLE** (§5.0.2). It is shown as a numbered list in the
 card panel and **any entry may be removed, not just the last** — the resources
 come back, the rest of the plan re-applies from the frozen board, and anything a
 removal orphaned goes with it. **RESET** clears it entirely.
@@ -1835,7 +1843,7 @@ live, never the only thing it can do.
 | 5 | **generation** | 1, 1, 2, 3, 4 |
 | 4 | **identity** — hybrids, and where the keywords cluster | 3, 4, 5, 6 |
 | 3 | **ORDERS** (§5.9) | 1, 2, 3 |
-| **3** | **COMMANDERS** (§7.1.2) | mostly late, and at least one early |
+| **3** | **COMMANDERS** (§7.1.1) | mostly late, and at least one early |
 | **30** | | |
 
 A faction weak in a role gets *worse numbers* there, not fewer cards — THE EMBER
@@ -1848,7 +1856,7 @@ role present, the cost tiers spread, exactly three commanders, the
 pure-specialist count — and not the total, because a faction that comes out at
 28 or 33 in wave 11 is a balance outcome rather than a build failure.
 
-#### 7.1.2 COMMANDERS — three a faction, one a deck
+#### 7.1.1 COMMANDERS — three a faction, one a deck
 
 A **commander is an ordinary character in every way that touches the board**: two
 stat blocks, two poses, an HP bar, a death, a soul award. Its only differences
@@ -1872,7 +1880,7 @@ commander still look alike and two decks with different commanders do not.
 badge in §8's strip, so it reads as a commander from across the board without
 competing for the three badge slots a crowded cell already has.
 
-#### 7.1.1 Most cards are mixed — and a pure specialist is a card, not a defect
+#### 7.1.2 Most cards are mixed — and a pure specialist is a card, not a defect
 
 **Most of a faction is mixed**: a melee specialist with a point of shield, an
 archer that farms in the rear, a generator that can hold a lane for a round.
@@ -1894,9 +1902,9 @@ So the rule is a **distribution, not a per-card gate**:
 | and it should be **better at its one thing** | a pure 4-gold generator against a mixed 2-gold one. If a pure card is not the best in the game at what it does, it is just a weak card |
 
 `t_tithecards` (§15.3) checks the count per faction, **not** each card, which is
-the change: revision 4 had this as a gate every card had to pass and it would
-have refused exactly the cards this section is about. **An ORDER is not a
-character and is not counted** — it has no stat blocks to be pure or mixed.
+not each card — a per-card gate would refuse exactly the cards this section is
+about. **An ORDER is not a character and is not counted**; it has no stat blocks
+to be pure or mixed.
 
 ### 7.2 THE BULWARK — shields, gold, melee
 
@@ -1915,7 +1923,7 @@ it cannot walk to.
 every round while it blocks a lane is a Bulwark idea, not a Covenant one — the
 Covenant's healers point forward and repair other people.
 
-First-draft cards — six of sixteen:
+First-draft cards — six of ~thirty:
 
 | card | cost | POWER | FRONT (M/R/HP/S/G/H) | REAR (M/R/HP/S/G/H) | |
 |---|---|---|---|---|---|
@@ -1924,7 +1932,7 @@ First-draft cards — six of sixteen:
 | **Hammerhand** | 3g | 3 | 4/0/4/1/0/0 | 0/0/4/0/1/0 | melee |
 | **Bowline Sergeant** | 3g | 3 | 2/2/4/1/0/0 | 0/3/4/0/1/0 | ranged |
 | **The Steading** | 3g | 3 | 3/0/5/2/0/0 | 0/1/5/0/2/0 | the role flip of §5.2 |
-| **Freeholder** | 4g | 4 | 0/0/7/0/0/0 | 0/0/7/0/**4**/0 | §7.1.1's pure specialist — 7 HP of body, and the best gold in the game, and nothing else at all |
+| **Freeholder** | 4g | 4 | 0/0/7/0/0/0 | 0/0/7/0/**4**/0 | §7.1.2's pure specialist — 7 HP of body, and the best gold in the game, and nothing else at all |
 | **Warden of the Gate** | 5g 1s | 6 | 2/0/7/3/0/**2** **GUARD, BULWARK 1** | 0/0/7/2/1/0 **RAMPART** | the front healer |
 
 ### 7.3 THE EMBER CHOIR — ranged damage, paid for in souls
@@ -2010,24 +2018,18 @@ remaining ten slots a faction are deliberately not invented yet (§7.6).
 gates nodes behind opponents that punish your current faction) and gives
 deck-building a reason beyond *play the good cards*.
 
-### 7.6 Card types — settled, and one argument of mine that was wrong
+### 7.6 Card types
 
-**Three kinds: CHARACTERS, ORDERS (§5.9) and COMMANDERS (§7.1.2)** — the last
+**Three kinds: CHARACTERS, ORDERS (§5.9) and COMMANDERS (§7.1.1)** — the last
 being characters with a unique ability and a deck limitation rather than a
 separate kind of object. **RELICS are not planned and not boxed out** (§5.9.3).
 
-**Revision 8 recommended against orders and the argument was wrong**, which is
-worth recording rather than quietly dropping. It ran: *"an ORDER played from hand
-is by definition a resolution-time choice, which is the thing §5.0 excludes."*
-It is not. An order is played **during planning**, against the frozen board,
-with its target named at plan time — it is a placement decision pointed at a
-character instead of at a column, and it sits inside §5.0's first principle
-exactly as a placement does.
-
-What the objection *should* have been is the real constraint, and §5.9.1 is it:
-an order must name a **character** and not a **cell**, or it breaks §6.0's
-confluence the moment the opponent swaps that cell in the same round. That is a
-rule about how a plan references things, not a reason to refuse the card type.
+**An order does not violate §5.0's first principle.** It is played *during
+planning*, against the frozen board, with its target named at plan time — a
+placement decision pointed at a character instead of at a column. The real
+constraint on it is §5.9.1's: an order names a **character** and not a **cell**,
+or §6.0's confluence breaks the moment the opponent swaps that cell in the same
+round.
 
 **And the remaining cards are wave 11's work.** A card list written before the
 balance harness exists is a list of guesses; §14.1 is what has to be standing
@@ -2043,10 +2045,10 @@ stated here rather than discovered during wave 3:
 
 | element | where | when it redraws |
 |---|---|---|
-| the **sprite**, in its live pose | the 72×64 band | on its animation clock (§3.6) |
+| the **sprite**, in its live pose | the 56×56 band | on its animation clock (§3.6) |
 | **HP** | a bar under the sprite, inside the band | with the sprite |
 | **SHIELD** | pips along the bar, inside the band | with the sprite |
-| the **commander mark**, where it is one | part of the art and the frame, **not** a badge (§7.1.2) | with the sprite |
+| the **commander mark**, where it is one | part of the art and the frame, **not** a badge (§7.1.1) | with the sprite |
 | **HP**, **SHIELD**, and a **STATUS STRIP** — stance, heal, keyword, order | **beside the figure, in the cell's empty space — OUTSIDE the band** (§3.8.1) | **only when a number changes**, at most once a round |
 | the **cell ground** | the rest of the 104×72 cell | once, with the board |
 
@@ -2060,7 +2062,8 @@ reference keeps a character's numbers beside the figure rather than on it, and
 measuring why is decisive: the numbers change **at most once a round** while the
 sprite redraws **every few frames**, so carrying them inside the band pays for
 them tens of times over for nothing. Taking them out shrinks the band from
-72×64 to **56×56** and the animation rate goes 4.9 → **7.2 fps a feature**.
+the cell's 936 bytes to **392** and the animation rate to **7.2 fps a
+feature**.
 
 **Each number is a fixed-width opaque run** (`font_run`, §6.1), so a figure
 going from two digits to one repaints its own ground; nothing has to be erased
@@ -2107,7 +2110,7 @@ built along any of those axes and the player should be able to see which one the
 have built.
 
 **The commander is its own slot at the top of the deck pane**, not a row in the
-list: a deck has at most one (§7.1.2), it is the thing the deck is built around,
+list: a deck has at most one (§7.1.1), it is the thing the deck is built around,
 and putting it where the eye lands first is what makes the builder teach that.
 
 ### 9.3 The rules
@@ -2115,9 +2118,9 @@ and putting it where the eye lands first is what makes the builder teach that.
 | | |
 |---|---|
 | deck size | **at least 14, at most 50** |
-| faction | **one faction per deck**; no neutral cards in revision 10 |
+| faction | **one faction per deck**; there are no neutral cards |
 | copies | **at most 2** of any card |
-| commanders | **at most 1**, of your own faction (§7.1.2) |
+| commanders | **at most 1**, of your own faction (§7.1.1) |
 | decks saved | up to **8**, named |
 
 A deck that does not satisfy these cannot be selected, and the reason is on
@@ -2212,7 +2215,7 @@ mis-*valuing*, never mis-predicting, which is a far easier thing to tune.
 ### 10.4 The jitter — how the AI is unpredictable without being bad
 
 **Every candidate's score gets a random amount added before the maximum is
-taken** (§5.0.2):
+taken** (§5.0.3):
 
 ```
     pick = argmax over candidates of ( score(c) + (ai_rand() & JMASK) )
@@ -2320,7 +2323,7 @@ content and not code.
 **One campaign per faction, and you pick a faction to play it with.** Three
 campaigns, roughly 8–10 nodes each, plus a final node. You play the whole of one
 with that faction's cards, you earn that faction's cards along the way, and
-**finishing it earns a COMMANDER** (§7.1.2).
+**finishing it earns a COMMANDER** (§7.1.1).
 
 **It is the tutorial, and it is currently the only way to earn a card at all.**
 That makes its job specific: a fresh player who picks THE BULWARK should come out
@@ -2448,10 +2451,10 @@ sends its whole plan, once, and resolves as soon as it holds both.
 
 **A `PLAN` is about 40 bytes at its largest** — at most seven plays, two swaps
 and ten stances, two bytes each — so a round costs two of them. On the
-3,741 byte/second cable (§12.5) that is **~21 ms of wire a round**, against a
-stream of individual actions plus a turn-swap in revision 5. The bandwidth was
-never the problem; what this removes is the *round trips*, and `lp_turn`'s
-reversal is the expensive thing on that cable.
+3,741 byte/second cable (§12.5) that is **~21 ms of wire a round**. The
+bandwidth was never the problem; what the one-message-a-side shape removes is
+the *round trips*, and `lp_turn`'s reversal is the expensive thing on that
+cable.
 
 **Each plan carries the checksum of the board it was planned against**, which is
 the important word in the whole message. It means a desync is caught **before**
@@ -2467,7 +2470,7 @@ which never has to agree — a side shuffles privately and tells the other only
 which card it played.
 
 **And no message can disagree about a die**, because resolution has none
-(§5.0.1) and the AI never plays over a wire (§5.0.2). So a checksum mismatch
+(§5.0.1) and the AI never plays over a wire (§5.0.3). So a checksum mismatch
 always means a genuine rules disagreement — a real bug — and never bad luck.
 That is what makes the gate worth having.
 
@@ -2478,11 +2481,10 @@ showing **waiting for your opponent** and a badge for whether theirs has
 arrived. When a side holds both plans it applies them (§6.4, and the order does
 not matter — §6.0), runs the round, and sends `RESOLVED`.
 
-**Nobody watches anybody play**, and that is a gain rather than a loss.
-Revision 5 sold "you watch your opponent take their turn" as what makes a
-networked turn-based game feel live; what it actually meant was *you sit there
-while they think*. The reveal (§6.4) is a better moment than the commentary was,
-and it arrives in half the wall clock.
+**Nobody watches anybody play**, and that is a gain rather than a loss. Watching
+an opponent take a turn sounds like what makes a networked turn-based game feel
+live; what it actually means is *sitting there while they think*. The reveal
+(§6.4) is a better moment, and it arrives in half the wall clock.
 
 A link that drops mid-match: the receiving side shows **Link lost** with the
 round, and offers **reconnect** and **concede**. Reconnect is nearly free here —
@@ -2555,7 +2557,7 @@ four useful things at once rather than one:
 | the **suspended match** save | replay the plans and you are exactly where you left off |
 | the **network resume** point (§12.4) | a reconnect asks for the rounds it is missing |
 | the **posted-play** unit (§12.7) | the thing a server holds and a player appends to |
-| the **bug report** | *"send me your `.TIT` and I will replay it"* — and it replays **byte-identically** (§14.3) |
+| the **bug report** | *"send me your match file and I will replay it"* — and it replays **byte-identically** (§14.3) |
 
 **That last row is worth the format on its own.** This runs on machines where
 there is no debugger to attach, the reporter is a person with a 5150 in another
@@ -2590,7 +2592,7 @@ an os8088 package that talks to a service on `os8088.com` at all.
 
 | rung | the "server" is | needs |
 |---|---|---|
-| **sneakernet** | a floppy carried across a room | nothing — §12.6's file, and a `.TIT` on any volume |
+| **sneakernet** | a floppy carried across a room | nothing — §12.6's file on any volume |
 | **shared volume** | a mounted drive both machines can reach — a network volume over the cable (§62), a RAM disk, a hard disk on one machine | nothing new either |
 | **a real server** | an endpoint on `os8088.com` | the two verbs above, and a host-side service |
 
@@ -2946,7 +2948,7 @@ rules**, in `tools/weavesim.py`'s and `tools/htmsim.py`'s shape. It:
 
 **§5.0.1 makes it far stronger than it would otherwise be.** Every random input
 is a *parameter*, so a match is a pure function of **six** of them — deck A,
-deck B, draw order A, draw order B, and **one AI seed a side** (§5.0.2). Nothing
+deck B, draw order A, draw order B, and **one AI seed a side** (§5.0.3). Nothing
 else varies, and §6.0 retired the seventh.
 
 Two things follow, and they want different treatment:
@@ -2955,7 +2957,7 @@ Two things follow, and they want different treatment:
   draw orders is a count rather than an estimate, and the confidence interval
   that usually has to be argued about does not arise.
 - **The two AI seeds are SAMPLED**, because the AI is deliberately stochastic
-  (§5.0.2) and its space is large. That is honest sampling with a fixed seed
+  (§5.0.3) and its space is large. That is honest sampling with a fixed seed
   set, though, not a shrug: a run names its seeds, reruns identically, and a
   balance claim is quoted as *"over 512 seeds"* rather than as a bare
   percentage.
@@ -2981,8 +2983,8 @@ the log against the simulator's is what keeps them agreeing.
 2. **Shield regeneration.** Full regen every round is a big number. If burst
    dominates, make it partial; if attrition dominates, leave it.
 3. **The heal chain** (§5.5) — the pool sizes, and **whether attacks or healing
-   go first within a lane** (§6.4). Attacks-first is revision 8's choice and the
-   owner's; heal-first is a defensible different game and the dial is one branch.
+   go first within a lane** (§6.5). Attacks-first is what the rules say;
+   heal-first is a defensible different game and the dial is one branch.
 4. **`PYRE`'s rate.** THE EMBER CHOIR's economy is one keyword, which makes it
    the most fragile number in the design.
 5. **The soul award rate** (currently POWER × 1). Halving it slows the whole game.
@@ -3021,7 +3023,7 @@ the log against the simulator's is what keeps them agreeing.
 | **both poses of a card used across winning decks** | **no card whose rear block is never chosen** — §5.2's whole point is that both sides of a card are real |
 | stance mix among rear-column shooters | **neither FRONT nor SNIPE above 80%** — if one dominates, §14.2 #6 has the wrong number in it |
 | determinism | two replays at the same six parameters (§14.1) produce byte-identical logs |
-| AI variety | over 64 replays of one position at one difficulty, **the AI's first action differs at least 8 ways** — §5.0.2's whole point, and the row that catches a jitter accidentally set to zero |
+| AI variety | over 64 replays of one position at one difficulty, **the AI's first action differs at least 8 ways** — §5.0.3's whole point, and the row that catches a jitter accidentally set to zero |
 
 ---
 
@@ -3083,7 +3085,7 @@ in the whole package.
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, **§7.1.1's pure-specialist count (at most 5 of 16, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, and the body-set and item counts REPORTED so the art budget is watched rather than discovered); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's slots filled and exactly three commanders a faction, **§7.1.2's pure-specialist count (at most 8 of ~30, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, and the body-set and item counts REPORTED so the art budget is watched rather than discovered); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
 | `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `tithecompose` (§4.2.3: a full board of idle sprites composes inside the match load, and a round's attack sprites inside the spoils phase — **guest cycles, not host seconds**); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§14.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §14.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithemus` (the sequencer holds tempo across 60 s on both arms — **guest ticks between row boundaries, not host seconds** — and a state change lands on a pattern boundary, §13.7); `tithesave` (a campaign save round-trips) |
 
@@ -3101,13 +3103,13 @@ breaking the thing on purpose first and watching it go red —
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it** | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
-| **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.3). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
+| **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |
 | **5** | **the rest of the art and music** — three factions of ~30 cards: ~90 body sets, 24 item sets, 90 card faces, the bases, the remaining themes | the disk fits in 354 clusters; the worst-case heap fits; the body-set count is at or under budget (§4.2.4); every item reads as its faction's |
 | **6** | the front menu, the animated buttons, settings | it looks like a game, and the package joins the live media (§15.2) |
 | **7** | deck builder + collection + save | a deck survives a reboot |
 | **8** | the campaign: three maps, one a faction; nodes, modifiers, rewards, and a **commander at the end** | a campaign can be finished, and it teaches — a new player comes out understanding the faction they picked |
-| **9** | **the match file** (§12.6), and **posted play rung 1** — a `.TIT` carried on a floppy between two machines | a match suspends, moves, resumes and finishes with no link of any kind |
+| **9** | **the match file** (§12.6), and **posted play rung 1** — a match file carried on a floppy between two machines | a match suspends, moves, resumes and finishes with no link of any kind |
 | **10** | **Ethernet multiplayer** — one `PLAN` a side a round | two QEMU guests play a match; a desync is reported and not hidden; a reconnect resumes from the match file |
 | **11** | **balance**, and where the other thirty cards are actually written | §14.3's nine targets |
 | **12** | **`LINK.DRV`** — the direct cable, parallel first, serial second | the simulator, then the field |
@@ -3137,7 +3139,7 @@ built on top of it.
 | **an attack swing** | the item's frames over a held body (§4.2.2), which is where the composed model earns its place — and where it would most obviously fail |
 | **base candidates**, one or more per faction | §18 turned this into something to pick from rather than something to specify |
 | **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
-| **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is two thirds (§3.8). Somewhere between is probably right, and it is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
+| **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is half (§3.8). Which reads best at 1bpp is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
 | **a PROJECTILE crossing the board** | §3.9.1 is the most expensive thing in the game and the only thing in the renderer that is not a self-erasing band. It has to be seen moving, at the real cost, over a real board |
 | **a melee clash, both tiers** | stepping forward (§3.9.2 A) beside a composed overlap (tier B), so the choice is made by looking rather than by arithmetic |
 | **the acting lane idling while four lanes hold** | §3.8's concession. Whether it reads as *focus* or as *the board froze* is the whole question, and it is one nobody can answer on paper |
@@ -3204,7 +3206,7 @@ resume mechanism and a replay harness instead of inventing them.
 Asked directly, before prototyping, what else is missing. Seven things, none
 large, all cheaper to write down now than to meet later.
 
-**1. The package must REFUSE a second instance.** §1.5's worst case is ~363KB of
+**1. The package must REFUSE a second instance.** §1.5's worst case is ~327KB of
 a ~400KB arena, so two copies of TITHE cannot both run. os8088 packages are
 multi-instance by default (§29), so this is a decision to make rather than a
 limit to inherit: the entry proc checks and refuses **in its own words** with a
@@ -3216,9 +3218,14 @@ slot: a match in progress offers **save and leave** — which is free, since
 §12.6's match file *is* the game — against **abandon**. A posted match must be
 leavable without forfeiting; that is most of what posted play is for.
 
-**3. A `.TIT` match file should be double-clickable.** `OSAPI_ASSOC_SET` (§54)
-costs a few bytes and makes a posted match resume from the Disk window, which is
-how anybody actually moves one on a floppy (§12.7's rung 1).
+**3. A match file is NOT given a file association.** `OSAPI_ASSOC_SET` (§54)
+would make one double-clickable from the Disk window, and it is refused: **the
+association table is a scarce, system-wide resource**, and an editor or a viewer
+— something that opens a kind of file many programs produce — earns a row in it
+where a game's own save does not. A posted match is opened from **inside the
+game**, off its match list (§12.7.1), which is where a player is looking anyway.
+
+*(The extension is the game's own business either way, and is not chosen here.)*
 
 **4. Card text is 22 characters a line and that is a card-design constraint.**
 The panel is 176 px and the kernel's face is 8×8 (§6), so a line of card text is
@@ -3268,7 +3275,7 @@ Recorded so their absence is a decision rather than an oversight:
   on your turn and is part of the board (§5.4).
 - **A stat that is a range, or anything rolled during resolution.** §5.0.1: a 4
   attack deals 4. *The game never rolls; the AI does.*
-- **A deterministic AI, at any difficulty.** §5.0.2: it would be memorisable,
+- **A deterministic AI, at any difficulty.** §5.0.3: it would be memorisable,
   and the exactness of the rules is what would make it memorisable fast.
   Archon's jitter is narrow and is not zero.
 - **A softmax over candidate scores.** §10.4: exponentials mean software
@@ -3288,9 +3295,9 @@ Recorded so their absence is a decision rather than an oversight:
 - **Erase-then-draw.** §3.4: the screen saver shipped it, the field called it a
   strobe, and one opaque band is both cheaper and correct.
 - **A badge outside the sprite band.** §8.
-- **A turn order of any kind.** §6.0: the round is simultaneous, so there is no
-  advantage to compensate and nothing to alternate. Alternating was revision 5's
-  answer and it was a fix for a problem this removes.
+- **A turn order of any kind**, fixed or alternating. §6.0: the round is
+  simultaneous, so there is no advantage to compensate and nothing to
+  alternate.
 - **An on-play effect that reads the wider board.** §6.0: it would break
   confluence, and confluence is what lets two plans be applied in any order —
   which is what network play, posted play and hot-seat all rest on.
@@ -3309,7 +3316,7 @@ Recorded so their absence is a decision rather than an oversight:
   and comes back round, which is what makes a 14-card deck competitive and what
   makes the empty lane the only clock there is.
 - **A decking-out loss condition.** §5.10: there is nothing to deck out of.
-- **An undo stack, or an inverse operation per action.** §5.0.3: a plan is a
+- **An undo stack, or an inverse operation per action.** §5.0.2: a plan is a
   list and the board is `apply(plan, frozen)`, so removing an entry is a replay
   and not an undo.
 - **Drawing an attack animation per character.** §4.2.2: 186KB against a disk
@@ -3351,7 +3358,7 @@ Recorded so their absence is a decision rather than an oversight:
 ## 18. Open questions, and the risks that replaced them
 
 **Nothing in this document is blocking wave 0 or wave 1a.** Every fork that
-would have changed the shape of the work is settled (§18.3); what is left is two
+would have changed the shape of the work is settled (§19.1); what is left is two
 things that can only be found on a machine, and one that only a balance harness
 can answer.
 
@@ -3376,10 +3383,8 @@ than discovered.
 **Two findings since have already moved it, both downward.** §3.8.1's band —
 numbers beside the figure rather than on it — takes ~66KB off the disk and ~44KB
 off the heap on its own. And **the reference's character is about a fifth of its
-cell's width where ours is two thirds** (§3.8): if wave 1a finds that a smaller
-figure reads fine at 1bpp, the whole budget scales with the square of that
-decision. Neither is banked in §1.5's tables yet, deliberately — a plan quotes
-what it is sure of.
+cell's width where ours is half** (§3.8): if wave 1a finds that a smaller figure
+reads fine at 1bpp, the whole budget scales with the square of that decision.
 
 ### 18.2 The balance, which needs a game to balance against
 
@@ -3394,7 +3399,16 @@ structural rather than numerical: **swaps**, which now compete three ways (a
 healer's lane, a character's pose, and positioning for an order), and the **rear
 bonus**, which alone prices the FRONT-versus-SNIPE trade.
 
-### 18.3 Settled, and kept here so they are not reopened
+---
+
+## 19. The record — how the design got here
+
+**Nothing in this chapter is needed to build TITHE.** It is here so that §1–§18
+can state what is true without also explaining what used to be, and so that a
+decision already taken is not re-proposed by somebody reading the same evidence
+a second time.
+
+### 19.1 Settled, and not to be reopened
 
 | | settled as |
 |---|---|
@@ -3403,9 +3417,9 @@ bonus**, which alone prices the FRONT-versus-SNIPE trade.
 | melee into an empty front cell | reaches the **rear** cell, then the player, and it **steps forward** to show it (§5.4, §3.6.2) |
 | does a character act the round it is played | **yes** (§5.3) |
 | turn order | **there is none** — the round is simultaneous (§6.0) |
-| the shuffle | **stays**, and recurs; the game never rolls, the AI always does (§5.0.1, §5.0.2) |
+| the shuffle | **stays**, and recurs; the game never rolls, the AI always does (§5.0.1, §5.0.3) |
 | stance | **kept** — a standing order, not a resolution-time choice (§5.4) |
-| pure specialists | **legal**, at most 8 of a faction's ~30 (§7.1.1) |
+| pure specialists | **legal**, at most 8 of a faction's ~30 (§7.1.2) |
 | the opponent's resource pools | **shown**, at their post-upkeep value (§6.0) |
 | does the music cut for the impacts | **no** — the resolution piece is arranged around them (§13.4.1) |
 | ORDERS | **in**, played onto a character and spent on the round you commit them; support stays even if few cards ship (§5.9) |
@@ -3415,7 +3429,7 @@ bonus**, which alone prices the FRONT-versus-SNIPE trade.
 | running out of deck | **cannot happen** — the discard reshuffles (§5.10) |
 | deck size | **14 to 50** (§9.3.1) |
 | faction size | **~30 cards**, a target rather than a gate (§7.1) |
-| commanders | 3 a faction, **at most 1 a deck**, ordinary characters with a unique ability and a deck limitation (§7.1.2) |
+| commanders | 3 a faction, **at most 1 a deck**, ordinary characters with a unique ability and a deck limitation (§7.1.1) |
 | campaign and factions | **one campaign a faction**, played with that faction, earning its cards; it is the tutorial and the only card source today (§11.1) |
 | **which commander a campaign gives** | **the campaign BRANCHES and the path decides**, in place of a random one at the end (§11.1) |
 | the OS theme | the board owns its palette, the chrome is the OS's (§3.1) |
@@ -3423,5 +3437,79 @@ bonus**, which alone prices the FRONT-versus-SNIPE trade.
 | **the base** | a **place**, and **wave 1a shows candidates for the owner to pick from** (§16.1). The player is the faction, not a person |
 | who composes | wave **1b**, a session of its own, with wave 1a's concept art as its input (§16.1.1) |
 | a commit clock for posted play | **none** — play by mail, and the same adaptive poll serves a live match with no mode switch (§12.7.1) |
-| undo | **any action, not just the last**, until the commit (§5.0.3) |
+| undo | **any action, not just the last**, until the commit (§5.0.2) |
 | **how characters are drawn** | **composed from a BODY and a held ITEM** (§4.2.1), the item carrying the arm and the swing, at most 8 items a faction — which is what makes attack animation affordable at all (§4.2.2) |
+
+### 19.2 Reversed, and why
+
+Six decisions that were made one way and then made another. Each is here because
+the *reason* it changed is worth more than the change.
+
+**Turn order: fixed → alternating → NONE.** The first structure had a fixed
+first player with a resource boost for the second, as the brief describes. That
+is right for a game that resolves a turn when it is taken, and wrong here: both
+players' characters act in the same combat phase, so acting first costs no tempo
+and only gives information away — the *second* player had the free advantage.
+Alternating each round cancelled that exactly. Then the simultaneous round
+(§6.0) removed the question: nobody goes first, so there is nothing to
+compensate and nothing to alternate. **The lesson is that the compensation was a
+patch on a structure, and the structure was what wanted changing.**
+
+**ORDERS: refused, then taken — on an argument that was wrong.** They were
+refused on the ground that *"an order played from hand is by definition a
+resolution-time choice, which is the thing §5.0 excludes."* It is not: an order
+is played during *planning*, against the frozen board, with its target named at
+plan time. The real constraint was somewhere else entirely — §5.9.1's, that an
+order must name a **character** and not a **cell** — and finding it required
+asking *what could two simultaneous plans disagree about* rather than *does this
+feel like a mid-resolution decision*.
+
+**"No card is a single number": a per-card gate → a distribution.** It was
+written as a rule every card had to pass, and it would have refused the
+freeholder who makes 4 gold and does nothing else — a card that is taken
+*because* 4 is more than any mixed generator pays. §7.1.2 counts pure
+specialists per faction instead. **A rule that refuses a good example is the
+wrong rule, however good its motivation.**
+
+**The healer's chain: toward the enemy → toward your own other column.** The
+first reading of *"in front of"* pointed at the enemy, which needed a rule
+saying a healer may not heal one. Pointing it at your own other column makes
+that impossible by construction and, unlooked for, gives the two placements
+genuinely different jobs: a rear healer is a medic and a front healer is a
+sustain tank (§5.5.1).
+
+**Characters: drawn twice → composed from a body and an item.** Two poses a
+character was paid for by drawing each character twice, which fits on the disk
+only while a faction is sixteen cards. At thirty it does not — and it never had
+a byte for **attack** animation at all, which §3.6.1 had been promising since
+the beginning. Composing (§4.2.1) is what makes the attack affordable; the
+saving on the idle is the smaller half.
+
+**The reference "does not idle during combat" — a measurement that was wrong.**
+The first pass at §3.8 concluded the reference freezes its board between
+events. It does not; it idles continuously in both phases (§3.8, finding 1).
+Two errors, and both are the same error:
+
+- the board-wide activity trace ran on a **140×65 downscale of a 560×260
+  region** — averaging 4×4 blocks, which destroys exactly the one- and two-pixel
+  motion an idle is made of — so it read long stretches of 0.01 and those were
+  called stillness;
+- the single-character check then used **0.4-second windows picked out of that
+  same bad trace**, which at 30 fps is twelve samples: enough to land in a lull
+  between beats of a ~15 fps animation and conclude the figure was frozen.
+
+**One crop, cherry-picked windows, at a resolution that could not see the thing
+being looked for** — and the conclusion happened to flatter the plan, which is
+when a measurement most needs a second look. PERFORMANCE.md's own rule, one
+document along: *measure the thing you mean.*
+
+### 19.3 Superseded, and where it went
+
+| what it was | what replaced it | why |
+|---|---|---|
+| the numbers inside the sprite band (§8) | beside the figure, in the cell | they change once a round; the band redraws every few frames (§3.8.1) |
+| a separate animated card portrait | the character's own sprite (§3.9.3) | 2,200 B a frame against 392, and 90 pieces of art nobody now draws |
+| an undo stack | a plan re-applied from the frozen board (§5.0.2) | no inverse operation per action, and removing a middle entry becomes free |
+| a single board picture per terrain | a tile set laid out at match load (§1.5, §3.2) | 22KB a terrain at 1bpp and four times that in colour; tiles are a tenth of it |
+| a file association for the match file | the game's own match list (§12.7.1, §16.2) | the association table is scarce and system-wide; an editor or a viewer earns a row in it, a game's own save does not |
+| "the idle wheel is suspended during combat" | the acting lane keeps idling, the other four hold (§3.6.1) | four features is ~10 ms and the eye is on that lane anyway |
