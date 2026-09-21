@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 4. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 5. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,18 +8,23 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**Revision 4 settles the five decisions that make TITHE a game of pure
-placement.** Turn order **alternates each round**, which removes the
+**TITHE is a game of pure placement, and revision 5 is where that sentence
+becomes precise.** Turn order **alternates each round**, which removes the
 information advantage structurally and with it every resource compensation.
-**Nothing is chosen while a round resolves and nothing is rolled**: no
-activated abilities, no targeting prompts, no reactions, and **no stat is ever
-a range** — a 4 attack deals 4 (§5.0.1). Every choice is made on your own turn
-and becomes part of the board, which is what a **STANCE** is (§5.4). **Healing fires inside the combat phase, on the healer's own lane,
-after that lane's attacks**, which makes a healer's lane a third placement
-dimension and lets it pull a character back from zero. And **front and rear may
-be entirely different roles** — a tank in front and a farmer in the rear, the
-same person holding a different tool — which doubles the character art and is
-worth it.
+**Nothing is chosen while a round resolves and no stat is ever a range** — a 4
+attack deals 4 (§5.0.1); every choice is made on your own turn and becomes part
+of the board, which is what a **STANCE** is (§5.4). But *the game never rolls
+and the AI always does* (§5.0.2), because a deterministic opponent is one the
+player memorises — and the sharper the rules, the faster. **Healing fires inside
+the combat phase, on the healer's own lane, after that lane's attacks**, which
+makes a healer's lane a third placement dimension, lets it pull a character back
+from zero, and — by *simultaneous, then sequential* (§5.5.3) — means a healer
+killed in its own lane heals nobody, itself included, with no special case
+written anywhere. **Front and rear may be entirely different roles** — a tank in
+front, a farmer in the rear, the same person holding a different tool — which
+doubles the character art and is worth it. And **a pure specialist is a card,
+not a defect** (§7.1.1): the freeholder who makes 4 gold and does nothing else
+is taken *because* 4 is more than any mixed generator pays.
 
 ---
 
@@ -503,7 +508,7 @@ tell**, because colour is gone there and the silhouette is all the player has.
 
 #### 4.2.2 The pipeline change that buys 60KB, if it is ever needed
 
-**Not proposed for revision 4** — §1.5 has 123 clusters spare — and recorded so
+**Not proposed for revision 5** — §1.5 has 123 clusters spare — and recorded so
 it is not re-derived under pressure: store each character once as a **body**
 frame set plus two small **prop/stance overlays**, and composite the two
 complete opaque poses at *load* time. Disk falls by roughly 60KB; heap does not
@@ -591,11 +596,16 @@ Four things fall straight out of it, and all four are wins:
 "up to 4". A 2 gold earns **2**. A 3 heal restores **3**. There is no to-hit
 roll, no critical, no variance band and no percentage anywhere in resolution.
 
-**Randomness exists in TITHE in exactly two places, and both are INITIAL
-CONDITIONS rather than outcomes**: the **deck shuffle** (§6.1) and **who takes
-the first turn of round 1** (§6.1, §6.3). Both are settled before a card is
-played, both are agreed between two machines by one exchanged seed (§12.3), and
-neither can change what a character *does* once it is on the board.
+**Randomness exists in TITHE in exactly three places, and none of them is an
+outcome**: the **deck shuffle** (§6.1), **who takes the first turn of round 1**
+(§6.1, §6.3), and **the AI's own choices** (§5.0.2). The first two are initial
+conditions, settled before a card is played and agreed between two machines by
+one exchanged seed (§12.3). The third is an opponent making up its mind. None of
+the three can change what a character *does* once it is on the board.
+
+**THE RULE BINDS RESOLUTION, NOT THE OPPONENT.** *The game never rolls; the AI
+does.* Keeping those two apart is what lets both be true at once, and §5.0.2 is
+why the second half is necessary rather than a concession.
 
 Three consequences, and the third is a balance instruction rather than an
 observation:
@@ -614,6 +624,35 @@ observation:
   every single instance, for ever. §13.2 carries that as a standing note,
   because the usual instinct — nudge a card by one — is a much bigger change
   here than it looks.
+
+#### 5.0.2 …and the AI must NOT be deterministic
+
+**A deterministic evaluator takes the same action from the same state every
+time, and that is a thing the player learns.** Once they have, the campaign
+stops being a series of opponents and becomes a series of remembered openings —
+and the more exactly the rules are defined (§5.0.1), the faster that happens,
+because the player can replay a position precisely and watch the same reply
+come back.
+
+So **the AI chooses with randomness**, at every difficulty including the
+hardest. §10.4 is the mechanism — a jitter added to each candidate's *score*,
+never to the rules — and the distinction is the whole of what keeps §5.0.1
+intact:
+
+| | rolls? | |
+|---|---|---|
+| what a character **does** | **never** | a 4 attack deals 4 |
+| what the AI **decides to play** | **always** | and the harder the arm, the narrower the spread |
+
+An AI roll therefore cannot produce a surprising *outcome*; it can only produce
+a different *position*, which the player then reads and answers exactly as they
+would a human's. That is the kind of unpredictability a strategy game wants and
+the kind a dice game has instead of it.
+
+**It never touches a network match** — the AI plays only in solo and campaign,
+so no AI random number ever has to agree between two machines (§12.3). And it
+stays reproducible for the harness, because the AI's seed is a parameter like
+any other (§13.1).
 
 ### 5.1 Resources
 
@@ -813,17 +852,49 @@ arrives **high**, where it is worth least. **Moving it down costs a swap.** That
 is a real, recurring, entirely deterministic decision, and it is the best
 argument in the design for why two swaps a turn is the right number.
 
-#### 5.5.3 Healing can pull a character back from zero
+#### 5.5.3 Healing can pull a character back from zero — but not the healer
 
 A character at 0 HP is **marked** dead but is not removed until the casualty
 phase (§5.7). **Healing it above 0 clears the mark and it lives** — and it still
-dealt its own damage this round, because simultaneity is total.
+dealt its own damage this round.
 
-That is not a special case; it is what falls out of healing firing inside the
-combat phase. What decides whether a healer *can* save somebody is **position**:
-it must be in the same lane or the lane below, and within the chain. A healer in
-lane 4 can save a character in lane 3 or 4; a healer in lane 0 can save only its
-own lane. **Nothing about it is chance.**
+What decides whether a healer *can* save somebody is **position**: it must be in
+the same lane or the lane below, and within the chain. A healer in lane 4 can
+save a character in lane 3 or 4; a healer in lane 0 can save only its own lane.
+**Nothing about it is chance.**
+
+**A healer killed in its own lane heals nobody, itself included**, and that
+follows from one principle rather than from a special case:
+
+> **SIMULTANEOUS, THEN SEQUENTIAL.** Within a lane, every attack is computed
+> from the state at the lane's start and applied together — so a character that
+> is killed still swings. Everything after that point in the round is
+> **sequential**, and **a marked character takes no part in it**: it does not
+> heal, it pays no spoils, and it does nothing at its death but die.
+
+So the self-revive loop never arises. It is not forbidden; it is unreachable,
+because the thing that would do the reviving is already dead by the time healing
+runs. Nothing has to say "a healer may not heal itself", which matters — a rule
+of that shape invites the next question (*may it heal itself when not marked?
+what about at 1 HP?*) and this one does not.
+
+**What it buys is real counter-play**: killing a healer **in its own lane**
+switches that healing off for the round, and reaching it is positional — a rear
+healer is only reachable by a SNIPE down an unwalled lane or by a melee gap
+punish (§5.4). Focusing the healer becomes a plan rather than a side effect.
+
+**§17 question 3 keeps this open**, because it is the likeliest thing here to be
+revisited. Two alternatives, recorded with what each would change:
+
+| | what changes |
+|---|---|
+| **(b)** a marked character still heals, itself included | healers become very hard to kill — any healer with `HEAL ≥ 1` that reaches 0 in its own lane comes straight back. Simplest to describe, strongest by far, and it is the version that needs a rule saying so |
+| **(c)** a marked character heals others but not itself | a dying breath spent on somebody else: good flavour, but it is a genuine special case in the chain (skip step 1 when marked) and it blunts the counter-play above |
+
+**Healing is what makes HP damage matter.** Shields refill every round for free,
+so shield damage is already temporary; HP damage is the permanent kind, and a
+faction that repairs it can grind where no other can. That is THE COVENANT's
+identity and its most sensitive balance number (§13.2).
 
 **Healing is what makes HP damage matter.** Shields refill every round for free,
 so shield damage is already temporary; HP damage is the permanent kind, and a
@@ -863,6 +934,9 @@ two is the cost, and a swap-back costs the second one.
 - A character at **0 HP is marked**, and dies in the casualty phase **after the
   whole combat phase has resolved** — so it still deals its own damage this
   round, and a healer that fires later in the phase can still save it (§5.5.3).
+  **From the moment it is marked it does nothing else**: §5.5.3's *simultaneous,
+  then sequential* — it does not heal, it pays no spoils, and its death is the
+  whole of what it has left.
 - **The killer's owner gains souls = the victim's POWER.** Where two attacks from
   different sources kill one character, the award goes to whichever resolved
   first in lane order; a simultaneous kill inside one lane splits down, remainder
@@ -883,7 +957,7 @@ cable. The clock is the **empty lane**: a board that deadlocks in every lane
 generates no damage and no souls, base income keeps both players playing, and a
 stalled board is broken by whoever builds the better economy. If playtesting
 finds real deadlocks the valve is a **round counter that raises base income** —
-a one-line change, deliberately not in revision 4.
+a one-line change, deliberately not in revision 5.
 
 ---
 
@@ -899,10 +973,13 @@ A **MATCH** is rounds until somebody is at zero.
    match the seed is exchanged once (§12.3) so both machines agree; otherwise
    `OSAPI_RAND` seeded from `OSAPI_GET_TICKS`.
 
-*(Steps 1 and 2 are the **only** two random numbers in a match — §5.0.1. From
-here on nothing is rolled.)*
 3. Both players draw an opening hand of **4**.
 4. Both players start at **20 HP**, **4 gold**, **0 souls**.
+
+**Steps 1 and 2 are the only random numbers the GAME ever generates** (§5.0.1);
+from here on nothing about a character is rolled. An AI opponent seeds its own
+generator here too (§5.0.2), and that one is the opponent's mind rather than the
+game's dice.
 
 **There is no resource compensation, and §6.3.1 is why there does not need to
 be.**
@@ -1017,9 +1094,10 @@ to 4, in order. For each lane:
    numbers rise.
 3. Apply all of that lane's damage **together**. Shield first, then HP; a
    character at 0 is **marked**, not removed.
-4. **Then every healer in this lane fires** (§5.5.2), in column order, each
-   spending its pool down the chain. Healed characters flash; a character healed
-   off 0 has its mark cleared and is visibly pulled back.
+4. **Then every UNMARKED healer in this lane fires** (§5.5.2), in column order,
+   each spending its pool down the chain. Healed characters flash; a character
+   healed off 0 has its mark cleared and is visibly pulled back. **A healer that
+   step 3 just marked does not fire at all** (§5.5.3).
 
 **Attacks first, then healing** — and §13.2 keeps the order as a dial, because
 the alternative reading (heal first, so a lane's healer pre-loads it against the
@@ -1121,12 +1199,30 @@ CHOIR still has three melee specialists, and they are the worst three in the
 game. That is what *"they still need a set of opening moves"* means in practice,
 and it is why no faction can be locked out of a line of play.
 
-**And no card is a single number.** Every card carries at least one meaningful
-stat outside its role, in at least one of its two blocks — a melee specialist
-with a point of shield, an archer that farms in the rear, a generator that can
-hold a lane for a round. `t_tithecards` (§14.3) checks it, because a board of
-pure specialists resolves the same way every time and the deterministic
-resolution (§5.0) makes that flatness worse, not better.
+#### 7.1.1 Most cards are mixed — and a pure specialist is a card, not a defect
+
+**Most of a faction is mixed**: a melee specialist with a point of shield, an
+archer that farms in the rear, a generator that can hold a lane for a round.
+That is what keeps a board from resolving the same way every time, and with no
+variance in resolution (§5.0.1) the flatness of an all-specialist board would
+show more here than in a game with dice.
+
+**But a pure specialist is a legitimate card and sometimes the better one.** A
+freeholder who makes **4 gold** in the rear and does nothing else is specialised
+in its own right — you take it because 4 is more than any mixed generator pays,
+and you accept that it contributes nothing else. The trade *is* the design.
+
+So the rule is a **distribution, not a per-card gate**:
+
+| | |
+|---|---|
+| **at most 5 of a faction's 16 cards** may be pure specialists | so at least 11 are mixed |
+| a **pure specialist** | has exactly one of `MELEE`, `RANGED`, `SHIELD`, `GOLD`, `HEAL` non-zero **across both stat blocks together**. `HP` never counts — every character has a body |
+| and it should be **better at its one thing** | a pure 4-gold generator against a mixed 2-gold one. If a pure card is not the best in the game at what it does, it is just a weak card |
+
+`t_tithecards` (§14.3) checks the count per faction, **not** each card, which is
+the change: revision 4 had this as a gate every card had to pass and it would
+have refused exactly the cards this section is about.
 
 ### 7.2 THE BULWARK — shields, gold, melee
 
@@ -1154,6 +1250,7 @@ First-draft cards — six of sixteen:
 | **Hammerhand** | 3g | 3 | 4/0/4/1/0/0 | 0/0/4/0/1/0 | melee |
 | **Bowline Sergeant** | 3g | 3 | 2/2/4/1/0/0 | 0/3/4/0/1/0 | ranged |
 | **The Steading** | 3g | 3 | 3/0/5/2/0/0 | 0/1/5/0/2/0 | the role flip of §5.2 |
+| **Freeholder** | 4g | 4 | 0/0/7/0/0/0 | 0/0/7/0/**4**/0 | §7.1.1's pure specialist — 7 HP of body, and the best gold in the game, and nothing else at all |
 | **Warden of the Gate** | 5g 1s | 6 | 2/0/7/3/0/**2** **GUARD, BULWARK 1** | 0/0/7/2/1/0 **RAMPART** | the front healer |
 
 ### 7.3 THE EMBER CHOIR — ranged damage, paid for in souls
@@ -1241,7 +1338,7 @@ deck-building a reason beyond *play the good cards*.
 
 ### 7.6 Card types — and the fork
 
-Revision 4 proposes **characters only**, and §5.0 has made that decision much
+Revision 5 proposes **characters only**, and §5.0 has made that decision much
 firmer than it was: an ORDER played from hand is by definition a resolution-time
 choice, which is the thing the whole design now excludes.
 
@@ -1318,7 +1415,7 @@ any of those axes and the player should be able to see which one they have built
 | | |
 |---|---|
 | deck size | **exactly 20** |
-| faction | **one faction per deck**; no neutral cards in revision 4 |
+| faction | **one faction per deck**; no neutral cards in revision 5 |
 | copies | **at most 2** of any card |
 | decks saved | up to **8**, named |
 
@@ -1386,16 +1483,57 @@ and no opponent choices inside resolution, "damage I deal next combat" is not an
 estimate — it is the answer, computable to the point. An AI that mis-plays is
 mis-*valuing*, never mis-predicting, which is a far easier thing to tune.
 
-### 10.4 Difficulty — three honest arms, no cheating
+### 10.4 The jitter — how the AI is unpredictable without being bad
 
-| arm | how |
-|---|---|
-| **Novice** | `Wt`, `Wk` and `Wl` zeroed — plays for board presence and ignores the fight; and takes the *second* best action 1 time in 3 |
-| **Adept** | the full evaluation, one ply |
-| **Archon** | the full evaluation, plus it considers its **swaps before its plays** (the stronger ordering, and the one humans miss) and looks one further round ahead on the resource curve |
+**Every candidate's score gets a random amount added before the maximum is
+taken** (§5.0.2):
 
-**A campaign opponent also has a personality** — a weight set and a deck, both in
-the same table — so *"the Choir cantor who over-commits"* is data.
+```
+    pick = argmax over candidates of ( score(c) + (ai_rand() & JMASK) )
+```
+
+That is the whole mechanism, and it is chosen for what it does at each end.
+**Narrow jitter only reorders things that were already close**, so the AI stays
+strong and merely stops being memorisable; **wide jitter reaches further down
+the list** and starts making real mistakes. One number moves smoothly between
+those, which is a far better difficulty dial than *"take the second best 1 time
+in 3"* — that version can pick a catastrophically bad second place when the best
+move was forced.
+
+**A softmax is the textbook answer and is refused here**: it wants exponentials,
+which on an 8088 means `apps/os88fp.inc` and software floating point, for a
+distribution a masked integer approximates well enough. The evaluation scale is
+chosen so that jitter is meaningful against it — one point of player HP is worth
+a large round number of score units, and `JMASK` is a small power of two below
+it — so the jitter's *meaning* is set by the card numbers rather than by a magic
+constant.
+
+**The AI carries its own generator, and that is a performance decision.**
+`OSAPI_RAND` is a far call at **46.7 µs measured**, and ~114 candidates a ply
+(§10.2) would be **5.3 ms of arrivals per ply** spent on nothing but random
+numbers. So the AI seeds a 16-bit xorshift in its own image once per match from
+`OSAPI_RAND` and steps it in a few instructions per candidate. That also makes
+the AI's whole run reproducible from one word, which is what §13.1 needs.
+
+**The enumeration start point is rotated too.** Even at zero jitter the order in
+which candidates are visited decides which of two exactly-equal actions wins, so
+the walk starts at a random index each turn — one random number a turn, and it
+removes the last deterministic tell.
+
+#### 10.4.1 The three arms
+
+| arm | jitter | and |
+|---|---|---|
+| **Novice** | **wide** | `Wt`, `Wk` and `Wl` zeroed — plays for board presence and ignores the fight |
+| **Adept** | **moderate** | the full evaluation, one ply |
+| **Archon** | **narrow, never zero** | the full evaluation, plus it considers its **swaps before its plays** (the stronger ordering, and the one humans miss) and looks one further round ahead on the resource curve |
+
+**Archon's jitter is narrow and is not zero**, deliberately: the strongest
+opponent in the game must still be the one you cannot replay from memory.
+
+**A campaign opponent also has a personality** — a weight set, a jitter and a
+deck, all in the same table — so *"the Choir cantor who over-commits"* is data,
+and so is *"the Bulwark castellan who is slow but never wrong twice."*
 
 ### 10.5 Where it runs
 
@@ -1550,7 +1688,7 @@ of what makes a networked turn-based game feel live. `ENDTURN` hands over.
 A link that drops mid-match: the receiving side shows **Link lost** with the
 round, and offers **reconnect** (the protocol resumes from the last agreed
 `ENDTURN`, because both sides hold a consistent board at that point) and
-**concede**. Reconnect is revision 5; revision 4 reports and ends the match.
+**concede**. Reconnect is revision 6; revision 5 reports and ends the match.
 
 ### 12.5 The direct cable — what it actually costs
 
@@ -1628,19 +1766,29 @@ rules**, in `tools/weavesim.py`'s and `tools/htmsim.py`'s shape. It:
   mix** of winning decks (§7.1's rule needs a number attached to it);
 - is `--selfcheck`ed in the build the way `weavesim.py` is.
 
-**§5.0.1 makes it far stronger than it would otherwise be.** The only random
-inputs are the two shuffles and who starts round 1, and all three are
-*parameters* — so a match is a pure function of (deck A, deck B, draw order A,
-draw order B, who started), and the simulator can **sweep** that space rather
-than sample it. A reported win rate over a swept range is a count, not an
-estimate, and the confidence interval that usually has to be argued about does
-not arise.
+**§5.0.1 makes it far stronger than it would otherwise be.** Every random input
+is a *parameter*, so a match is a pure function of **seven** of them — deck A,
+deck B, draw order A, draw order B, who started, and **one AI seed a side**
+(§5.0.2). Nothing else varies.
 
-A determinism gate falls out for free: replay a match with the same five
-parameters and the logs must be **byte-identical**. That gate is worth more than
-it looks — it is the cheapest possible detector for an accidental read of
-uninitialised memory in the rules engine, which on an 8088 is otherwise a
-Heisenbug that only shows up on one machine.
+Two things follow, and they want different treatment:
+
+- **The five game parameters can be SWEPT.** A win rate over a swept range of
+  draw orders is a count rather than an estimate, and the confidence interval
+  that usually has to be argued about does not arise.
+- **The two AI seeds are SAMPLED**, because the AI is deliberately stochastic
+  (§5.0.2) and its space is large. That is honest sampling with a fixed seed
+  set, though, not a shrug: a run names its seeds, reruns identically, and a
+  balance claim is quoted as *"over 512 seeds"* rather than as a bare
+  percentage.
+
+**And the run is exactly reproducible either way**, which is the part that
+matters: replay a match with the same seven parameters and the logs must be
+**byte-identical**. That gate is worth more than it looks — it is the cheapest
+possible detector for an accidental read of uninitialised memory in the rules
+engine, which on an 8088 is otherwise a Heisenbug that only shows up on one
+machine. **The AI being random is not an excuse for a run not being
+repeatable**, and the seven-parameter tuple is what keeps those two apart.
 
 **And it is the second reader of the rules**: the assembly and the Python must
 agree, and a `soak` row that plays one scripted match on the machine and diffs
@@ -1654,7 +1802,7 @@ the log against the simulator's is what keeps them agreeing.
 2. **Shield regeneration.** Full regen every round is a big number. If burst
    dominates, make it partial; if attrition dominates, leave it.
 3. **The heal chain** (§5.5) — the pool sizes, and **whether attacks or healing
-   go first within a lane** (§6.4). Attacks-first is revision 4's choice and the
+   go first within a lane** (§6.4). Attacks-first is revision 5's choice and the
    owner's; heal-first is a defensible different game and the dial is one branch.
 4. **`PYRE`'s rate.** THE EMBER CHOIR's economy is one keyword, which makes it
    the most fragile number in the design.
@@ -1683,7 +1831,8 @@ the log against the simulator's is what keeps them agreeing.
 | every role represented in some winning deck | all five, for every faction |
 | **both poses of a card used across winning decks** | **no card whose rear block is never chosen** — §5.2's whole point is that both sides of a card are real |
 | stance mix among rear-column shooters | **neither FRONT nor SNIPE above 80%** — if one dominates, §13.2 #6 has the wrong number in it |
-| determinism | two replays of one match produce byte-identical logs |
+| determinism | two replays at the same seven parameters (§13.1) produce byte-identical logs |
+| AI variety | over 64 replays of one position at one difficulty, **the AI's first action differs at least 8 ways** — §5.0.2's whole point, and the row that catches a jitter accidentally set to zero |
 
 ---
 
@@ -1737,9 +1886,9 @@ in the whole package.
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, §7.1's no-single-number rule, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's sixteen slots filled, **§7.1.1's pure-specialist count (at most 5 of 16, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck` |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
-| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `tithesave` (a campaign save round-trips) |
+| `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§13.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §13.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `tithesave` (a campaign save round-trips) |
 
 **Every row gets a `secs` somebody measured**, and every row is written by
 breaking the thing on purpose first and watching it go red —
@@ -1777,8 +1926,17 @@ testable.
   targeting prompts, no reactions. A **stance** is not one of these — it is set
   on your turn and is part of the board (§5.4).
 - **A stat that is a range, or anything rolled during resolution.** §5.0.1: a 4
-  attack deals 4. The shuffle and who starts round 1 are initial conditions and
-  are the only random numbers in the game.
+  attack deals 4. *The game never rolls; the AI does.*
+- **A deterministic AI, at any difficulty.** §5.0.2: it would be memorisable,
+  and the exactness of the rules is what would make it memorisable fast.
+  Archon's jitter is narrow and is not zero.
+- **A softmax over candidate scores.** §10.4: exponentials mean software
+  floating point on an 8088, for a distribution a masked integer approximates
+  well enough.
+- **`OSAPI_RAND` per candidate.** §10.4: 46.7 µs a call × ~114 candidates is
+  5.3 ms a ply spent entirely on arriving. The AI carries its own xorshift.
+- **A rule saying a healer may not heal itself.** §5.5.3: it is unreachable
+  rather than forbidden, and a rule of that shape invites the next question.
 - **One wide band for the melee step forward.** §3.6.2: the union rect is 2,392
   bytes of mostly untouched ground against two ordinary bands' 1,152.
 - **`gfx_blit4` for anything that animates.** §1.2: 103 ms for one character.
@@ -1804,16 +1962,21 @@ testable.
 
 ## 17. Open questions — the owner's to answer
 
-1. **ORDERS and RELICS** (§7.6): revision 4 recommends against both — ORDERS
+1. **ORDERS and RELICS** (§7.6): revision 5 recommends against both — ORDERS
    because they are a resolution-time choice, RELICS on the cell budget (§8).
    Agreed?
 2. **Mulligan** (§6.1): one free redraw of the opening hand? One line of code and
    a large balance lever, and it is now the main dial on how much the shuffle is
    allowed to decide (§5.0.1).
-3. **Attacks first, then healing within a lane** (§6.4) is adopted on your call
-   and kept as a dial (§13.2 #3). The alternative — heal first, so a lane's
-   healer pre-loads it against the damage about to land — is worth one sentence
-   of opinion now, because the AI's `Wh` term is written differently for each.
+3. **What a MARKED healer does** (§5.5.3) — flagged by you as the likeliest
+   thing here to be revisited, and I agree. Revision 5 takes **(a)**: a marked
+   character takes no part in anything sequential, so a healer killed in its own
+   lane heals nobody and the self-revive question never arises. The alternatives
+   are **(b)** it still heals, itself included — much stronger healers, and it
+   needs a rule saying so — and **(c)** it heals others but not itself, which is
+   a real special case in the chain. §5.5.3 has the table.
+   *(The separate question of whether **attacks or healing go first** within a
+   lane is settled on your call — attacks first — and stays a dial at §13.2 #3.)*
 4. **Deck size 20, hand limit 7, player HP 20, two swaps** — starting values only.
    Two swaps carries more weight than it did, because moving a healer down a lane
    (§5.5.2) competes for the same budget as flipping a character's pose.
