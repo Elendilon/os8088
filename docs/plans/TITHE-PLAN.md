@@ -1,6 +1,6 @@
 # TITHE-PLAN.md — a two-player turn-based card duel for os8088
 
-**STATUS: PLAN, REVISION 10. Nothing is built.** Every number below that is not
+**STATUS: PLAN, REVISION 11. Nothing is built.** Every number below that is not
 marked *measured* is an **estimate**, and §3.7 is the bench that has to run
 before the renderer's shape is fixed or a pixel of art is drawn.
 
@@ -8,7 +8,7 @@ This file is the design record. When work lands, SPEC.md gains a section of its
 own — the next free number is **97** — which becomes the binding contract, and
 this file moves to `docs/plans/completed/`.
 
-**TITHE is a game of pure placement, and revision 10 is where that sentence
+**TITHE is a game of pure placement, and revision 11 is where that sentence
 becomes precise.** **THE ROUND IS SIMULTANEOUS** (§6.0): both players plan
 against the same frozen board, neither sees the other's plan, and everything
 resolves together — so there is no turn order at all, and nothing left for a
@@ -27,7 +27,13 @@ written anywhere. **Commanders, orders and a recycling discard** (§7.1.2, §5.9
 is ever destroyed, and **no action is permanent until the commit** (§5.0.3).
 **And a character is COMPOSED** — a body plus a held item carrying its own arm
 and its own swing, at most eight items a faction (§4.2.1) — which is what makes
-attack animation affordable at all and leaves somewhere to put the next layer. **§13 is music**, which on a game that is mostly thinking
+attack animation affordable at all and leaves somewhere to put the next layer.
+**§3.8 is the reference game measured frame by frame**, and it says the plan was
+not optimistic: its content updates at ~15 fps against our 18.2, its attack is
+4–6 steps against our 4, and **it does not idle during its own resolution phase
+either**. What it does better is keep a character's numbers *beside* the figure
+rather than on it — which shrinks our band by a third and buys 47% more
+animation (§3.8.1). **§13 is music**, which on a game that is mostly thinking
 is a requirement rather than a polish item — one score per renderer, a faction theme
 in three states, a **resolution piece** that covers everything which is not
 planning and hides the state change behind itself, and about half a percent of
@@ -135,7 +141,14 @@ features:
 | *(VGA fullscreen, four planes)* | 72×64 | 2,304 | 14.2 ms | 1.5 | **1.2** |
 
 **A 4-frame ping-pong idle (A B C B) at 4.9 fps is a 0.8-second cycle** — a
-slow breath, which is what a crowd of twenty figures should do.
+slow breath, which is what a crowd of twenty figures should do, and which
+measures within 20% of the reference's own one-second cycle (§3.8).
+
+**These figures are the CONSERVATIVE ones.** §3.8.1 takes the HP bar, the shield
+pips and the badges out of the band, which shrinks it to 56×56 = 392 B and takes
+the fullscreen VGA row to **7.2 fps a feature**. The table above is left at the
+larger band on purpose: a plan should quote the number it is sure of, and wave
+1a is what confirms the layout.
 
 **A 386 is a different machine and gets a different answer.**
 `OSAPI_CPU_INFO` answers `CPU_8086 / CPU_286 / CPU_386` — *a fact the code can
@@ -487,6 +500,105 @@ the tree it was taken on and of no other. It also settles a question nothing
 else can: **whether §3.2.1's cell sizes survive, or have to come down.**
 
 ---
+
+### 3.8 The reference, MEASURED — and it moves three numbers our way
+
+The Flash game this is patterned after was measured frame by frame over its
+resolution phase (a 600×480 capture at 30 fps, seconds 33.5–41.5, `ffmpeg` plus
+per-pixel differencing). **It is not a description of what it looks like; it is
+what the pixels do.** Four findings, and three of them are worth changing
+something for.
+
+| | the reference, measured | TITHE as planned |
+|---|---|---|
+| content update rate | **~15 fps** — at a 30 fps capture, roughly every *other* frame differs, with runs of 2–3 held frames | **18.2 fps**, held |
+| idle cycle length | **~1.0 s** (self-similarity minimum at lag 30–33 frames) | **0.8 s** |
+| distinct poses in an idle cycle | a smooth tween, ~15 rendered steps | **4** |
+| **idle during the RESOLUTION phase** | **none. The board is STATIC between events** | none — the wheel is suspended (§3.6.1) |
+| one attack event | **~0.2–0.3 s**, so ≈4–6 animation steps | **4 frames** |
+| events during a resolution | one every **~0.3–0.5 s**, over 7+ s | 5 lanes × ≤1 s |
+| a character | **~22 × 37 px** in a ~125 × 54 cell — **about a fifth of its cell's width** | 72 × 64 in a 104 × 72 cell — **about two thirds** |
+
+**1. It does not idle during its attack phase either.** A single non-acting
+character measured across three quiet gaps mid-resolution gives a median
+frame-to-frame change of **0.02** against **0.56** during planning — which on
+that scale is *nothing moved*. §3.6.1 suspends the idle wheel during combat and
+gives the whole budget to the acting lane; the reference does the same thing,
+and that was assumed to be a concession we were making for an 8088. **It is
+not. It is what the original does.**
+
+**2. Its animation runs slower than our frame rate, not faster.** ~15 fps of
+content against our 18.2. What it has that we do not is *smoothness within a
+cycle* — ~15 tweened steps against our 4 poses — so the honest statement of the
+gap is **the same cycle length with a quarter of the poses in it**, and not
+"they animate more". Whether four poses in a second reads as breathing is
+exactly wave 1a's question (§16.1), and it is now a sharper one: we know the
+target cycle is a second, so what wave 1a is choosing is **how many poses go in
+it**, at 4.9 fps a feature today and more if §3.8.1 lands.
+
+**3. An attack is 4–6 steps.** Our 4 attack frames (§4.2.2) are the right order
+of magnitude, and one every 0.3–0.5 s over 7 s is a *slower* cadence than our
+5 lanes in ≤5 s. The budget was not optimistic.
+
+#### 3.8.1 …and the fourth finding SHRINKS THE BAND
+
+**The reference keeps a character's numbers OUTSIDE the character.** Attack,
+shield and gold ride as small floating pips beside the figure, in the cell's
+empty space, and the damage number floats above the board — none of it is part
+of the sprite.
+
+§8 put all of that *inside* the band so it would redraw with the sprite and keep
+the cell at one blit. **That is the wrong trade, and the reference makes it
+obvious**: the numbers change at most **once a round**, while the sprite
+redraws on its animation clock **every few frames** — so carrying them inside
+the band pays for them tens of times over for nothing.
+
+**So the band is the FIGURE, and the numbers live beside it in the cell:**
+
+| | inside the band (§8 as written) | beside it (§3.8.1) |
+|---|---|---|
+| band | 72 × 64 = **576 B** | **56 × 56 = 392 B** |
+| a commit | 3.54 ms | **2.41 ms** |
+| **fps a feature**, 23 features at 40% of frame | **4.9** | **7.2** |
+| body art on disk (~90 sets × 4) | 207KB | **141KB** |
+| composed sprites in heap (20 on board, both poses, plus attack) | 138KB | **94KB** |
+
+**A 47% better animation rate and ~66KB off the disk, for a layout change.**
+
+What it costs is a blit when a number changes — at most once a round a
+character, in a phase that is already an animation — and one rule: **a number is
+drawn as a fixed-width opaque run** (`font_run`, §6.1), so a figure shrinking
+from two digits to one repaints its own ground and needs no erase. That is what
+`font_run` exists for and it is the cheapest way to draw a number on this
+machine.
+
+It also reads better. Two-tone pixel art at 1bpp has no room to spare (§1.4),
+and a figure that is not also carrying a bar, pips and three badges is a figure
+with more pixels to be a figure with.
+
+**Every budget in this document should be re-derived from 392 B rather than
+576 B once wave 1a has confirmed the layout**; §1.3, §1.5 and §4.2.2 still
+quote the conservative figure, which is the right way round for a plan.
+
+#### 3.8.2 One thing it does that we should NOT copy
+
+Its resolution order is **by COLUMN — the front line trades first, then the
+back** — where §6.5 resolves **by LANE**, row 0 to row 4. Recorded as a real
+alternative rather than dismissed, because it is a live option if per-lane
+animation or balance turns out badly (§14.2).
+
+**But it is not free to switch**, and the reason is §5.5.2: a healer fires *on
+its own lane*, after that lane's attacks, which is what makes a healer's **row**
+a third placement dimension and what lets it save a character from zero. Resolve
+by column and that mechanic has to be redesigned, not re-ordered. So it is an
+alternative with a price tag on it, and the price is the most interesting thing
+healing does.
+
+*(Its scoring — whoever deals more damage in a round wins it and takes 1 off the
+loser's base — is not our model at all and is not proposed.)*
+
+---
+
 
 ## 4. Assets — one master, three outputs
 
@@ -1811,7 +1923,7 @@ stated here rather than discovered during wave 3:
 | **HP** | a bar under the sprite, inside the band | with the sprite |
 | **SHIELD** | pips along the bar, inside the band | with the sprite |
 | the **commander mark**, where it is one | part of the art and the frame, **not** a badge (§7.1.2) | with the sprite |
-| a **STATUS STRIP** — up to three tiny glyphs: stance, heal, keyword, **order** | a row along the bottom of the band beside the bar | with the sprite |
+| **HP**, **SHIELD**, and a **STATUS STRIP** — stance, heal, keyword, order | **beside the figure, in the cell's empty space — OUTSIDE the band** (§3.8.1) | **only when a number changes**, at most once a round |
 | the **cell ground** | the rest of the 104×72 cell | once, with the board |
 
 **Everything that changes is inside the one band**, which is what keeps a cell at
@@ -1819,10 +1931,21 @@ one blit. A badge outside the band would be a second arrival a feature — 23 mo
 calls a frame, and §1.1's warning about what a call costs applies in the
 direction that hurts.
 
-**A STRIP rather than corners, and that is a revision-9 change.** Corners
-topped out at three and §5.9 added a fourth thing to say; a row of small glyphs
-along one edge scales to whatever the card set needs and degrades by showing
-fewer of them rather than by running out of corners.
+**And they are OUTSIDE the band, which is a revision-11 change** (§3.8.1). The
+reference keeps a character's numbers beside the figure rather than on it, and
+measuring why is decisive: the numbers change **at most once a round** while the
+sprite redraws **every few frames**, so carrying them inside the band pays for
+them tens of times over for nothing. Taking them out shrinks the band from
+72×64 to **56×56** and the animation rate goes 4.9 → **7.2 fps a feature**.
+
+**Each number is a fixed-width opaque run** (`font_run`, §6.1), so a figure
+going from two digits to one repaints its own ground; nothing has to be erased
+and nothing can be left behind.
+
+**A STRIP rather than corners, and that is a revision-9 change.** Corners topped
+out at three and §5.9 added a fourth thing to say; a row of small glyphs scales
+to whatever the card set needs and degrades by showing fewer of them rather than
+by running out of corners.
 
 **Three glyphs is the worst case and it is rare** — a character is a shooter or a
 healer, seldom both, a keyword glyph is only drawn where a keyword changes what
@@ -2741,7 +2864,13 @@ the log against the simulator's is what keeps them agreeing.
    react-to-them structure would have set them. Watch it as a pair rather than
    tuning either alone.
 8. **Base income** (+2). Raises the whole curve; reach for it late.
-9. **Individual card numbers.** Last, always — and **a nudge of one is a bigger
+9. **The resolution ORDER — by lane, or by column** (§3.8.2). The reference
+   trades its front lines first and its back second; TITHE resolves row 0 to
+   row 4. It is a real alternative if per-lane animation or balance goes badly,
+   and it is **not free**: a healer fires on its own lane (§5.5.2), so switching
+   to columns redesigns healing rather than re-ordering it. Priced here so the
+   cost is known before anybody reaches for it.
+10. **Individual card numbers.** Last, always — and **a nudge of one is a bigger
    change here than in a game with variance** (§5.0.1). With no distribution to
    blur them, 3 attack and 4 attack are categorically different against a 3-HP
    body, in every instance, for ever. Move a number only with a harness run
@@ -2875,6 +3004,8 @@ built on top of it.
 | **one item set across several characters** | the other half of §4.2.1: a shared sword has to look right on three different builds, and that is an art question nobody can answer on paper |
 | **an attack swing** | the item's frames over a held body (§4.2.2), which is where the composed model earns its place — and where it would most obviously fail |
 | **base candidates**, one or more per faction | §18 turned this into something to pick from rather than something to specify |
+| **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
+| **two sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is two thirds (§3.8). Somewhere between is probably right, and it is the single largest lever on the art budget (§18.1) |
 | the **idle animation at its computed rate** | see below — this is the single most important thing the prototype answers |
 | the card panel | with real card faces at their real size, and the hover expansion |
 | the HUD | with real numbers in it |
@@ -3029,9 +3160,17 @@ bodies-and-weapons.
 worst-case heap **~341KB of ~400KB** — both fitting, neither with slack, and
 both scaling with two numbers nobody has yet: the **sprite size**, which wave 0's
 bench and wave 1a's eye decide together, and the **body-set count**, which is
-the art effort as much as the art budget. §1.5 names the levers in order. This
-is not answerable in advance and does not need to be; it needs watching, which
-is why §4.2.4 makes the tool print both counts on every build.
+the art effort as much as the art budget. §1.5 names the levers in order, and
+§4.2.4 makes the tool print both counts on every build so it is watched rather
+than discovered.
+
+**Two findings since have already moved it, both downward.** §3.8.1's band —
+numbers beside the figure rather than on it — takes ~66KB off the disk and ~44KB
+off the heap on its own. And **the reference's character is about a fifth of its
+cell's width where ours is two thirds** (§3.8): if wave 1a finds that a smaller
+figure reads fine at 1bpp, the whole budget scales with the square of that
+decision. Neither is banked in §1.5's tables yet, deliberately — a plan quotes
+what it is sure of.
 
 ### 18.2 The balance, which needs a game to balance against
 
