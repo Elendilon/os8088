@@ -37082,64 +37082,82 @@ decide whether any band moved — so per record it would be `MEM_MAX` far
 calls, twice.
 
 **`sys_kb`'s footprint terms sum to `SK_KERN` exactly, and every one of them
-is now a MEASURED span rather than a residual.** Four of the five are the
+is a MEASURED span rather than a residual.** Three of the four are the
 ladder's own quantities, named where they are declared and not restated here:
-`SKB_FAT` is `FAT_PARA`·16, `SKB_DSK` is `DSK_WIN_BYTES` (§2.1.2 — the three
-mount-owned buffers, and nothing else), `SKB_STK` is the `MAX_TASKS-1`
-background slices and `SKB_STK0` is task 0's. `SKB_IMG` is the whole span
-less those four, and it is the honest name for what is left: the image,
-`.bss`, the **cold segment** (§2.6), the planar decoder's rung (§39.22) and
-the kernel's own TABLES in `.lowbss` — the glyph table, the row table, the
-pair tables, the claim map, the event ring, the menu bar and the built-in
-state pools. Every one of those is `.bss`-class data that lives in `LOW_SEG`
-to buy back `KERN_CODE_MAX` and for no other reason, so `Code+data` is
-already its label.
+`SKB_FAT` is `FAT_PARA`·16, `SKB_STK` is the `MAX_TASKS-1` background slices
+and `SKB_STK0` is task 0's. `SKB_IMG` is the whole span less those three, and
+it is the honest name for what is left: the image, `.bss`, the **cold
+segment** (§2.6), the planar decoder's rung (§39.22) and the kernel's own
+TABLES in `.lowbss` — the glyph table, the row table, the pair tables, the
+claim map, the event ring, the menu bar, the built-in state pools and, since
+this section's own `SKB_DSK` was retired, the 512 bytes of `dsk_secbuf`.
+Every one of those is `.bss`-class data that lives in `LOW_SEG` to buy back
+`KERN_CODE_MAX` and for no other reason, so `Code+data` is already its label.
 
-**`SK_DSK` used to be the whole of that leftover and read 6 KB for 3,584
-bytes of buffer.** It was defined as "the buffers less the FAT window and the
-stacks", which is what "whatever else is in `.lowbss`" meant when `.lowbss`
-held nothing else; by the time it held 2,824 bytes of table and a 120-byte
-rung pad, the row was silently counting 2,944 bytes that are not disk buffers
-and naming the smaller half of what it held. The tables did not move — they
-are billed to the row whose label was always true of them.
+**`SKB_DSK` IS GONE, AND THE ROW WITH IT, BECAUSE THE MOUNT'S SCRATCH IS
+DOWN TO ONE SECTOR.** It was the three mount-owned buffers of §2.1.2 —
+`dsk_secbuf`, `disk_dir` and `disk_icons` — and §25.9 took the icon bodies to
+one machine-wide store while docs/plans/LISTING-HOME-PLAN.md §13 took the
+entries and their reference index into the store the *caller* supplies. What
+was left is `dsk_secbuf` alone: **512 bytes**, one sector of int 13h scratch,
+which under this section's own cumulative rounding reads **`-` on `kern_big`
+and 1 KB on `kern_small`** — the same buffer, the same 512 bytes, two
+different figures, because a half-kilobyte row is decided by where the
+running boundary happens to fall and not by anything about the buffer. A row
+that reports the machine's arithmetic rather than the machine is not a row,
+so it is retired: the 512 bytes are accumulated into `SKB_IMG` with the rest
+of `.lowbss`, which is the class they were always in, and the memory view
+gets back the row of window height VGA can least spare (§28).
+
+**`SK_DSK` used to be the whole of the `SKB_IMG` leftover and read 6 KB for
+3,584 bytes of buffer.** It was defined as "the buffers less the FAT window
+and the stacks", which is what "whatever else is in `.lowbss`" meant when
+`.lowbss` held nothing else; by the time it held 2,824 bytes of table and a
+120-byte rung pad, the row was silently counting 2,944 bytes that are not
+disk buffers and naming the smaller half of what it held. The tables did not
+move — they are billed to the row whose label was always true of them, and
+the buffers have now followed them into it.
 
 **The parts are rounded CUMULATIVELY, which is what keeps them summing
 without a dumping ground.** Every rung of the ladder is a whole number of
-512-byte sectors (§2), so half of them are an odd half-kilobyte and five
-parts rounded up one at a time gain two kilobytes against a total that rounds
-once — 113 against 111 on the shipped kernel. So the KB figures are not rounded per part at all: each running
-BOUNDARY is rounded to the nearest kilobyte and each part is the difference
-of two rounded boundaries. The last boundary is `KERN_SIZE`, a multiple of
-512, where round-to-nearest and round-up agree — so the parts sum to
-`SK_KERN` by construction, and **no part is a full kilobyte from its true
-size**, which is guard 7. That bound is the half of this a residual never
-had: `SK_DSK` totalled correctly while being 2,560 bytes wrong.
+512-byte sectors (§2), so half of them are an odd half-kilobyte and parts
+rounded up one at a time gain kilobytes against a total that rounds once. So
+the KB figures are not rounded per part at all: each running BOUNDARY is
+rounded to the nearest kilobyte and each part is the difference of two
+rounded boundaries. The last boundary is `KERN_SIZE`, a multiple of 512,
+where round-to-nearest and round-up agree — so the parts sum to `SK_KERN` by
+construction, and **no part is a full kilobyte from its true size**, which is
+guard 7. That bound is the half of this a residual never had: `SK_DSK`
+totalled correctly while being 2,560 bytes wrong. Both halves of guard 7 are
+proofs rather than hopes — each boundary is at most 512 bytes from the truth,
+so a part, being a difference of two of them, is at most 1,023.
 
 **`SKB_IMG` is accumulated LAST, and that is the whole of the ordering rule.**
-The other four are fixed facts about the design — seven stacks of 384, one of
-1,024, nine FAT sectors, three disk buffers — and none of them has any
-business reading differently on `kern_small` than on the shipped kernel. Put
-the image first and they do: its half-kilobyte lands in the running total, so
-every boundary after it moves with the build, and a 3,584-byte buffer that
-never changed size rounds to 4 KB on one configuration and 3 on the next.
-Last, the image takes the build's own remainder — the one row it belongs to,
-being the only term here that moves at all. The four buffer terms are 3, 1,
-4 and 4 KB on every configuration this tree builds — `Stacks` 4, `Disk bufs`
-4, `FAT snap` 4 as three rows — `KBUF_KB` is 12 on all of them, and
-`Code+data` is the only figure a knob can shift.
+The other three are fixed facts about the design — the background slices,
+task 0's stack, `DSK_FAT_SECS` sectors — and none of them has any business
+reading differently on `kern_small` than on the shipped kernel. Put the image
+first and they do: its half-kilobyte lands in the running total, so every
+boundary after it moves with the build, and a buffer that never changed size
+rounds one way on one configuration and the other way on the next. **That is
+not hypothetical and it is exactly what retired `SKB_DSK`** — 512 bytes
+reading `-` on one shipped kernel and 1 KB on the other. Last, the image
+takes the build's own remainder — the one row it belongs to, being the only
+term here that moves at all. The three rows read 100, 3 and 5 KB on a VGA
+`kern_big` (99, 3 and 5 on a machine with no VGA, §39.22 coming off
+`Code+data` because that is the row the rung is in) and 71, 1 and 1 on
+`kern_small`; `Code+data` is the only figure a knob can shift.
 
-What is left is a tie the ladder cannot break: the FAT window is 4.5 KB and
-the disk buffers 3.5, both round either way, and 12 KB will not stretch to
-cover both rounding up. The disk buffers take it, so `FAT snap` reads 4 KB
-for 4,608 bytes where it once read 5 — no further from the truth than 5 was,
-and the column totals. `Disk bufs` is the row somebody reads as a *size*
-(docs/KERNEL-MEMORY.md heads a section "Disk buffers — 3,584 B"), where the
-FAT window's own section names sectors rather than kilobytes.
+What is left is a tie the ladder cannot break: on `kern_big` the FAT window
+is 4.5 KB and the stacks 3.25, and the boundaries decide which way each
+falls rather than a rule about buffers. `FAT snap` reads 5 KB for 4,608
+bytes, no further from the truth than 4 would be, and the column totals.
 
-`SK_BUF` is the three buffer rows together — the part of the kernel that is
+`SK_BUF` is the two buffer rows together — the part of the kernel that is
 scratch rather than program, and the band §28's map draws over the kernel's
-own. It follows the rows rather than the `.lowbss` rung, or the band would
-claim territory the list bills to `Code+data`.
+own. **It follows the ROWS and not the `FAT`+`LOW` rungs**, or the band would
+claim territory the list bills to `Code+data`: `dsk_secbuf` is inside the
+`LOW` rung and is billed to `Code+data`, so the band stops at the top of the
+FAT window. 8 KB on `kern_big`, 2 on `kern_small`.
 
 The fourth cell, 0x02B0 `gfx_fill_pat`, is not a snapshot — it is the one
 drawing primitive (§5) that had no slot, because its eight pattern bytes
@@ -48849,10 +48867,12 @@ own above the second map and read as *its* label.
   `"RAM uuu/tttK"`, the claim square and `"HEAP uuu/tttK"` land exactly on
   `TM_RW` = 223, which puts the template at 232 wide. `TM_GW` = `TM_RW` − 7
   follows it, so both map interiors always fill their frames edge to edge.
-- Rows at y = 74 + 11·r, `TMM_ROWS = INST_MAX + 7` of them — System, its
-  four buffer rows, the two group headings, and one per instance. **Free
-  slots are not drawn**: 19 rows at the 11px pitch is 279 of the 281-pixel
-  content, which is what decides both that and the template's height.
+- Rows at y = 74 + 11·r, `TMM_ROWS = INST_MAX + 6` of them — System, its
+  three buffer rows, the two group headings, and one per instance. **Free
+  slots are not drawn**: 18 rows at the 11px pitch is what decides both that
+  and the template's height. It was `INST_MAX + 7` while `Disk bufs` was a
+  row (§20.9), and `TM_PREF_H` is cut from this constant — so the window is
+  a row *shorter* for losing that row rather than a row emptier.
   `tm_mrow_open` clamps to the **live** frame on top of that constant
   (`tm_view_begin`), for the screens where §39.7 shrinks the window — nothing
   in the kernel clips a draw to a window, and on a 200-row CGA this one is
@@ -48868,7 +48888,7 @@ own above the second map and read as *its* label.
   and it has been wrong: row 0 carried a solid black square from before the
   maps were reworked, by which time solid black had become the *package
   pool's* band, so the legend was pointing at the wrong region entirely.
-- The three buffer squares sit at `[tm_sqox]` = 22 rather than the 6 every
+- The two buffer squares sit at `[tm_sqox]` = 22 rather than the 6 every
   other row uses, so they land **beside** their two-space-indented names
   instead of out at the margin. `tm_mrow_open` resets the offset per row.
 - **The claim texture is keyed beside the `HEAP` figures, not in the list**,
@@ -48884,20 +48904,31 @@ own above the second map and read as *its* label.
 - Row 0 (System): legend square 50% gray, the kernel's band; ADDR `0600`
   (where the kernel starts — `KERNEL_SEG`); SIZE = `TM_KERN_KB`; CLM = the
   kernel's own heap claims.
-- **Four indented buffer rows under it** — `Code+data`, `Stacks`,
-  `Disk bufs`, `FAT snap` — each with its size in the SIZE column and a dash
+- **Three indented buffer rows under it** — `Code+data`, `Stacks`,
+  `FAT snap` — each with its size in the SIZE column and a dash
   in CLM, because a buffer is part of the kernel and not a claim. Between
   them they account for every byte of the System figure above, so it is not
-  a lump. Every one of the four is an **assembly-time constant** — the
-  `SK_*_KB` terms of §20.9's block (`SK_IMG`, `SK_STK` + `SK_STK0`, `SK_DSK`,
+  a lump. Every one of the three is an **assembly-time constant** — the
+  `SK_*_KB` terms of §20.9's block (`SK_IMG`, `SK_STK` + `SK_STK0`,
   `SK_FAT`), fetched once a sample rather than assembled in, because the
   window is a package and the footprint moves with every kernel build — so
-  the once-a-second refresh spends four string copies and no arithmetic on
+  the once-a-second refresh spends three string copies and no arithmetic on
   them; the kernel's footprint is fixed at build time down to the paragraph
   (§2), so there is nothing to check at run time. They give up the ADDR
   column to have twelve characters of name, and land SIZE and CLM exactly
   where row 0 puts them.
-- **Each of the four names a span the ladder actually declares**, and the
+- **There was a fourth, `Disk bufs`, and §20.9 retired it.** It named the
+  mount's own buffers, and §25.9 plus docs/plans/LISTING-HOME-PLAN.md §13
+  emptied those down to `dsk_secbuf` alone — 512 bytes, which the cumulative
+  rounding drew as **`-` on `kern_big` and 1 KB on `kern_small`**, the same
+  buffer reported two ways because a half-kilobyte part is decided by where
+  the running boundary falls. Those bytes are billed to `Code+data` with the
+  rest of `.lowbss` now. **Deleting the row was not enough on its own**: the
+  four rows exist to total, so the 512 bytes had to move into a term rather
+  than out of the ladder, or the column would have stopped summing on
+  `kern_small` and on every knob kernel — the two builds where the row was
+  not showing `-`.
+- **Each of the three names a span the ladder actually declares**, and the
   column still totals, which are two properties rather than one. `Disk bufs`
   read **6 KB for 3,584 bytes of buffer** for as long as it was the residual
   the other rows' rounding fell into — correct in the total and wrong on the
@@ -48905,7 +48936,7 @@ own above the second map and read as *its* label.
   kernel's own tables in `.lowbss` are billed to `Code+data`, whose label was
   always true of them, and the KB figures are rounded cumulatively rather
   than per row. `Code+data` wears the **gray** square and the other
-  three the **`tm_pat_buf`** one — `Code+data` has no square, because that
+  two the **`tm_pat_buf`** one — `Code+data` has no square, because that
   is the same gray System already wears.
 - `Builtins` heading — **no square, and that is the information**: a
   built-in owns no band on either map. Its code is already inside

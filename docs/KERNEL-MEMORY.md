@@ -366,17 +366,16 @@ sized from the rect actually dropped (`menu_save_kb`, §12.4; `MENU_SAVE_KB`
 ### What the Task Manager shows
 
 The memory view's `System` row is `KERN_KB` = `(KERN_SIZE + 1023) / 1024`,
-**111** on `kern_big`, with one indented row per span the ladder declares,
+**108** on `kern_big`, with one indented row per span the ladder declares,
 every figure from `OSAPI_SYS_KB` (SPEC.md §20.9) so that a package never
 carries a copy of the ladder:
 
 | row | constant | bytes | shown |
 |---|---|---:|---:|
-| `Code+data` | `SKB_IMG` = the rest | 101,888 | 100 |
+| `Code+data` | `SKB_IMG` = the rest | 102,144 | 100 |
 | `Stacks` | `SKB_STK` + `SKB_STK0` | 2,816 + 512 | 3 |
-| `Disk bufs` | `SKB_DSK` = `DSK_WIN_BYTES` | 3,328 | 3 |
 | `FAT snap` | `SKB_FAT` = `FAT_PARA`·16 | 4,608 | 5 |
-| **`System`** | **`KERN_SIZE`** | **112,640** | **110** |
+| **`System`** | **`KERN_SIZE`** | **110,080** | **108** |
 
 The KB column is rounded **cumulatively** — each running boundary to the
 nearest kilobyte, each row the difference of two boundaries — so the rows
@@ -386,6 +385,17 @@ takes the build's own remainder; it covers the cold segment, the decoder's
 rung and the kernel's own tables in `.lowbss`, all of which are code or
 `.bss`-class data and not buffers. Guard 7 in `kernel.asm` proves that the
 parts sum to `KERN_KB` and that none is a kilobyte from what it measures.
+
+**There was a fourth row, `Disk bufs`, and it is gone (SPEC.md §20.9).** It
+was `SKB_DSK` = `DSK_WIN_BYTES`, the mount's own buffers — and the two
+changes below emptied them down to `dsk_secbuf` alone, 512 bytes. Half a
+kilobyte is not a row under cumulative rounding: it drew as `-` on
+`kern_big` and **1 KB on `kern_small`**, the same buffer reported two ways,
+because a part that small is decided by where the running boundary happens
+to fall. It is accumulated into `Code+data` with the rest of `.lowbss` now.
+Deleting the row alone would not have done — the rows exist to total, so the
+bytes had to move into a term, or the column would have stopped summing on
+exactly the two builds where the row was *not* reading `-`.
 The `HEAP` column beside `System` is the kernel's own claims, drawn in the
 conventional map at their real addresses; package regions are claims too
 (§20.1), at the far right because they are taken from the top of the heap
@@ -529,28 +539,37 @@ mirrored in `apps/os88api.inc` at the larger of the two kernels' values (14),
 because a package sizes its snapshot buffer from it and over-allocating is
 the safe direction; `SS_TSTATE` is `MAX_TASKS` bytes.
 
-### Disk buffers
+### Disk buffers — one sector
 
-Three buffers, `DSK_WIN_BYTES` = **3,328** bytes, the FIRST thing in
-`.lowbss` (`kernel/dskwin.inc`, SPEC.md §2.1.2), written by int 13h through
-ES:BX and read only through `dsk_get_dir` / `dsk_get_icon`, which stage one
-entry at a time back into the kernel segment:
+`DSK_WIN_BYTES` = **512** bytes on every shipped kernel, the FIRST thing in
+`.lowbss` (`kernel/dskwin.inc`, SPEC.md §2.1.2):
 
-- `dsk_secbuf`, 512 B — one sector of scratch. First, because it is the int
-  13h target and takes the rung's 512-aligned base.
-- `disk_dir`, 768 B — the mount-time listing, `DSK_NENT` = 32 synthesized
-  entries at `DSK_DE_STRIDE` = 24 bytes. The 32-entry cap is what sizes it.
-- `disk_icons`, 2,048 B — one harvested 64-byte icon per listed entry (on
-  `kern_small` a POOL of `DSK_ICO_N` bodies plus a one-byte index per entry,
-  §25.8).
+- `dsk_secbuf`, 512 B — one sector of scratch, written by int 13h through
+  ES:BX. First, because it is the int 13h target and takes the rung's
+  512-aligned base.
+- `dsk_ovlpad` — **0 on `kern_big`, `kern_small` and `kern_emu` alike**, and
+  non-zero only under `KERN_KNOB`, where a diagnostic joins `.ovlw` and
+  needs a rung to spill into. It is the boot overlay's landing ground and
+  was never about the mount at all.
 
-They sit immediately above the FAT window because both come alive at the
-same instant — the first mount — and are untouched before it, which makes the
-two together one 7,936-byte region (7,680 readable) that is dead for the
-whole of `kmain`. That is what `.ovlw` is loaded into (below). Since SPEC.md
-§20.9 this is exactly what the Task Manager's `Disk bufs` row reports, and
-guard 7 recomputes it from the three buffers independently rather than from
-`DSK_WIN_BYTES`, so a fourth buffer or a resized one fails the build.
+**It was three buffers and 3,328 bytes.** `disk_dir` (the mount-time
+listing) and `disk_icons` (one harvested body per entry) were here too:
+SPEC.md §25.9 took the icon bodies to one machine-wide purgeable store, and
+docs/plans/LISTING-HOME-PLAN.md §13 took the entries and their reference
+index into the store the mount's *caller* supplies — a Disk window's
+`FS_VSEG` claim, or one the Standard File dialog holds while it is up. Both
+are transient, so a machine sitting on the desktop or inside a fullscreen
+game now pays nothing for either.
+
+What sits immediately above the FAT window is therefore much smaller, and
+the dead-for-the-whole-of-`kmain` region that `.ovlw` is loaded into (below)
+is the FAT window plus this one sector. **The Task Manager no longer has a
+row for it** (SPEC.md §20.9): 512 bytes is below what its KB column can
+report honestly, so the bytes are billed to `Code+data` like every other
+`.lowbss` table. Guard 7 in `kernel.asm` still recomputes the window
+independently of `DSK_WIN_BYTES`, so a fourth buffer or a resized one fails
+the build — and it matters *more* now than it did, because with the row gone
+nothing on the screen would show a mount buffer growing again.
 
 ### FAT window — `DSK_FAT_SECS` × 512
 

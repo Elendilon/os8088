@@ -366,23 +366,31 @@ CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 ; The parts sum to SK_KERN exactly - see the routine at the foot of this file
 ; for how the rounding is arranged so that they do, and why none of them is a
 ; residual any more.
+; THERE IS NO `SK_DSK` AND THE BLOCK IS 20 BYTES, NOT 22 (SPEC.md 20.9). It
+; was the mount-owned window of 2.1.2 - and 25.9 took the icon bodies to one
+; machine-wide store while docs/plans/LISTING-HOME-PLAN.md 13 took the
+; entries and their reference index into the store the CALLER supplies, which
+; left `dsk_secbuf` alone: 512 bytes, reading `-` on kern_big and 1 KB on
+; kern_small off the same ladder. Those bytes are `.lowbss` like every other
+; table here, so they accumulate into SK_IMG, whose label already covers
+; them. Removing the word rather than storing a permanent 0 in it is the
+; point: a published field that always reads zero is read as a fact about the
+; machine, and this one would be a false one.
 SK_KERN    equ 0                ; word: the whole span (SPEC.md 2)
 SK_IMG     equ 2                ; word: image + .bss + the cold segment + the
-                                ; planar rung + the kernel's tables in .lowbss
+                                ; planar rung + the kernel's tables in
+                                ; .lowbss, dsk_secbuf among them
 SK_FAT     equ 4                ; word: the mount-time FAT window (18.8)
 SK_STK     equ 6                ; word: the MAX_TASKS-1 background stacks
 SK_STK0    equ 8                ; word: task 0's - the UI task's
-SK_DSK     equ 10               ; word: the mount-owned window (2.1.2) - the
-                                ; three disk buffers and nothing else
-SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together,
-                                ; the part of the kernel that is scratch
-                                ; rather than program
-SK_HEAP    equ 14               ; word: the claim heap's size
-SK_CLAIM   equ 16               ; word: claimed out of it, every owner, and
+SK_BUF     equ 10               ; word: FAT + stacks together, the part of the
+                                ; kernel that is scratch rather than program
+SK_HEAP    equ 12               ; word: the claim heap's size
+SK_CLAIM   equ 14               ; word: claimed out of it, every owner, and
                                 ; never a purgeable claim (SPEC.md 50.6.3)
-SK_KCLAIM  equ 18               ; word: ...of which the kernel's own tags
-SK_XMS     equ 20               ; word: the pool above 1MB, 0 on tier 0 (41)
-SYSKB_SIZE equ 22
+SK_KCLAIM  equ 16               ; word: ...of which the kernel's own tags
+SK_XMS     equ 18               ; word: the pool above 1MB, 0 on tier 0 (41)
+SYSKB_SIZE equ 20
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -4510,22 +4518,30 @@ osapi_claim_snapshot_x:
 ; not known until the foot of that file, and a constant belongs with what
 ; declares it. What is worth knowing HERE is which row holds what.
 ;
-; SK_DSK is the mount-owned window and nothing else - 3,584 bytes of
-; disk_dir + disk_icons + dsk_secbuf (SPEC.md 2.1.2). It used to be "the
-; buffers less the FAT window and the stacks", which is what "whatever else is
-; in .lowbss" meant when .lowbss held nothing else; by the time it held 2,824
-; bytes of table it read 6 KB for 3.5 KB of buffer, and nothing bounded the
-; error because a residual has no size of its own.
+; SK_DSK IS GONE AND SO IS ITS ROW (SPEC.md 20.9). It was the mount-owned
+; window - 3,584 bytes of disk_dir + disk_icons + dsk_secbuf (SPEC.md 2.1.2)
+; - and before that it was "the buffers less the FAT window and the stacks",
+; which is what "whatever else is in .lowbss" meant when .lowbss held nothing
+; else; by the time it held 2,824 bytes of table it read 6 KB for 3.5 KB of
+; buffer, with nothing bounding the error because a residual has no size of
+; its own. Then SPEC.md 25.9 took the icon bodies to one machine-wide store
+; and docs/plans/LISTING-HOME-PLAN.md 13 took the entries and their reference
+; index into the caller's own store, leaving `dsk_secbuf`: one sector. Half a
+; kilobyte cannot be a row under the cumulative rounding - it read `-` on
+; kern_big and 1 KB on kern_small, the same buffer twice - so it accumulates
+; into SK_IMG, whose label already covered every other `.lowbss` table.
 ;
 ; SK_IMG is what is left, and it is the honest name for it: image, .bss, the
 ; COLD SEGMENT (cold code is code, it is resident for the whole session and it
 ; is inside the span SK_KERN measures), SPEC.md 39.22's `.vgabuf` rung, and
 ; the kernel's own tables in .lowbss - glyph table, row table, pair tables,
-; claim map, event ring, menu bar, built-in state pools. Those are .bss-class
-; data living in LOW_SEG to buy back KERN_CODE_MAX and for no other reason, so
-; `Code+data` was always their label. Adding a row of their own would change a
-; published block that a package reads (SPEC.md 28) and cost the memory view
-; the one row of window height VGA has left, for a figure nobody can act on.
+; claim map, event ring, menu bar, built-in state pools, and now the mount's
+; sector buffer. Those are .bss-class data living in LOW_SEG to buy back
+; KERN_CODE_MAX and for no other reason, so `Code+data` was always their
+; label. Adding a row of their own would change a published block that a
+; package reads (SPEC.md 28) and cost the memory view the one row of window
+; height VGA has left, for a figure nobody can act on - which is the same
+; arithmetic that retired SK_DSK, run the other way.
 ;
 ; The KB figures are rounded CUMULATIVELY - each part is the difference of two
 ; rounded running boundaries - so they sum to SK_KERN by construction and no
@@ -4561,11 +4577,11 @@ osapi_sys_kb_x:
 %endif
     mov [es:di+SK_KERN], ax
     mov [es:di+SK_IMG],  bx
-%if SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_DSK != 10 || SK_BUF != 12
-%error "osapi_sys_kb stores five CONSECUTIVE words; these are not consecutive"
+%if SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_BUF != 10
+%error "osapi_sys_kb stores four CONSECUTIVE words; these are not consecutive"
 %endif
-    push di                     ; five build constants into five adjacent
-    add di, SK_FAT              ; words: one walking pointer beats five
+    push di                     ; four build constants into four adjacent
+    add di, SK_FAT              ; words: one walking pointer beats four
     cld                         ; displaced immediate stores. AX is free -
     mov ax, SK_FAT_KB           ; SK_KERN and SK_IMG are already written
     stosw
@@ -4573,11 +4589,9 @@ osapi_sys_kb_x:
     stosw
     mov ax, SK_STK0_KB
     stosw
-    mov ax, SK_DSK_KB
-    stosw
     mov ax, KBUF_KB             ; SK_BUF LAST, because it is the highest of
-    stosw                       ; the five - it is FAT + stacks + disk
-    pop di                      ; buffers together, and reads like a header
+    stosw                       ; the four - it is FAT + stacks together,
+    pop di                      ; and reads like a header
     push di
     call mem_total_kb           ; AX = claimed KB, BX = heap size KB
     pop di

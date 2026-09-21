@@ -1872,6 +1872,12 @@ MEM_P_VIEW_N equ 4              ; RANGE, 0x10..0x13 with the window's fm_pool
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window (18.95)
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
+; THERE IS NO `SK_DSK` (SPEC.md 20.9). It was the mount's own buffers, and
+; there is one sector of them left - the listing and its icon references
+; moved into the store the caller of a mount supplies, and the icon bodies
+; into one machine-wide store. 512 bytes is below what a KB column can
+; report, so they are billed to SK_IMG like every other kernel table in
+; LOW_SEG. The block is 20 bytes; it was 22 with the word in it.
 SK_KERN    equ 0                ; word: the whole kernel span
 SK_IMG     equ 2                ; word: image + scratch + cold code + the
                                 ; kernel's own tables, which are .bss in every
@@ -1879,18 +1885,16 @@ SK_IMG     equ 2                ; word: image + scratch + cold code + the
 SK_FAT     equ 4                ; word: the mount-time FAT window
 SK_STK     equ 6                ; word: the background task stacks
 SK_STK0    equ 8                ; word: task 0's - the UI task's
-SK_DSK     equ 10               ; word: the three disk buffers, and no longer
-                                ; whatever else shared their segment
-SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together
-SK_HEAP    equ 14               ; word: the claim heap's size
-SK_CLAIM   equ 16               ; word: claimed out of it, every owner - and
+SK_BUF     equ 10               ; word: FAT + stacks together
+SK_HEAP    equ 12               ; word: the claim heap's size
+SK_CLAIM   equ 14               ; word: claimed out of it, every owner - and
                                 ; no purgeable claim, which is in nobody's
                                 ; total because the next claim can have it
                                 ; (SPEC.md 50.6.3). OSAPI_MEM_AVAIL is the
                                 ; other side of the same statement
-SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
-SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
-SYSKB_SIZE equ 22
+SK_KCLAIM  equ 16               ; word: ...of which the kernel's own
+SK_XMS     equ 18               ; word: the pool above 1MB, 0 with no store
+SYSKB_SIZE equ 20
 
 SCH_STACK  equ 384              ; THE LARGEST SLOT CLASS (SPEC.md 8.7), which
                                 ; is the only slice size a package may assume

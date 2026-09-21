@@ -7754,24 +7754,32 @@ KERN_KB    equ (KERN_SIZE + 1023) / 1024
 ; (docs/KERNEL-MEMORY.md, "Moving data out of the segment"), so `Code+data`
 ; was always its label - it just used to be billed to `Disk bufs`, which read
 ; 6 KB for 3.5 KB of buffer.
+;
+; ...AND THE MOUNT'S OWN WINDOW IS INSIDE IT NOW, WHICH IS WHY THERE ARE FOUR
+; TERMS AND NOT FIVE. SKB_DSK was DSK_WIN_BYTES - the three mount-owned
+; buffers of SPEC.md 2.1.2 - and two changes emptied it: 25.9 took the icon
+; bodies to one machine-wide store, and docs/plans/LISTING-HOME-PLAN.md 13
+; took the entries and their reference index into the store the CALLER
+; supplies. What is left is `dsk_secbuf`, 512 bytes of int 13h scratch, and
+; half a kilobyte cannot be a row here: under the cumulative rounding below
+; it read `-` on kern_big and 1 KB on kern_small - THE SAME BUFFER, reported
+; as two different sizes, because a half-kilobyte part is decided by where
+; the running boundary happens to fall. A row that reports the arithmetic
+; rather than the machine is not a row, so the 512 bytes accumulate into
+; SKB_IMG with the rest of `.lowbss`, which is the class they were always in.
+; The guard below still checks the window is only that sector buffer - what
+; went away is the ROW, not the fact.
 SKB_FAT    equ FAT_PARA * 16              ; the mount-time FAT snapshot (18.8)
-SKB_DSK    equ DSK_WIN_BYTES              ; dsk_secbuf, and NOTHING else
-                                          ; (SPEC.md 2.1.2) - plus dsk_ovlpad
-                                          ; where a build needs the boot
-                                          ; overlay a floor. `disk_dir` and
-                                          ; `disk_icons` were here and are
-                                          ; gone: a listing lives in the store
-                                          ; its caller supplied (22.6.3)
 SKB_STK    equ SCH_STK_TOTAL              ; the background slices
 SKB_STK0   equ STK0_SIZE                  ; ...and task 0's
-SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
+SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_STK - SKB_STK0
 
 ; --- ...and in KB, rounded CUMULATIVELY so that they still sum --------------
 ; Every rung is a whole number of 512-byte sectors, so half of them are an odd
-; half-kilobyte: SKB_FAT is 4.5 KB and SKB_DSK is 3.5, and five parts rounded
-; one at a time gain two kilobytes against a total that rounds once. The old
-; answer was a residual to dump the error in, which is how a row came to be
-; 2,944 bytes out with nothing bounding it.
+; half-kilobyte: SKB_FAT is 4.5 KB on kern_big and SKB_STK 2.75, and parts
+; rounded one at a time gain kilobytes against a total that rounds once. The
+; old answer was a residual to dump the error in, which is how a row came to
+; be 2,944 bytes out with nothing bounding it.
 ;
 ; So nothing is rounded per part. Each running BOUNDARY is rounded to the
 ; nearest kilobyte and each part is the DIFFERENCE of two rounded boundaries,
@@ -7782,45 +7790,47 @@ SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
 ; one. Guard 7 proves both.
 ;
 ; SKB_IMG IS ACCUMULATED LAST, AND THAT IS THE WHOLE OF THE ORDERING RULE.
-; The other four are fixed facts about the build - SCH_PARTITION's slices,
-; STK0_SIZE, DSK_FAT_SECS sectors, three disk buffers - each a constant of its
-; own configuration and none of them a remainder of anything. Put the image
-; first and they become one: its half-kilobyte lands in the running total,
-; so every boundary after it moves with the build and a 3,584-byte buffer
-; rounds to 4 KB on one configuration and 3 on the next. Last, the image takes
-; the build's own remainder, which is the one row it belongs to - SKB_IMG is
-; the only term here that moves at all.
+; The other three are fixed facts about the build - SCH_PARTITION's slices,
+; STK0_SIZE, DSK_FAT_SECS sectors - each a constant of its own configuration
+; and none of them a remainder of anything. Put the image first and they
+; become one: its half-kilobyte lands in the running total, so every boundary
+; after it moves with the build and a buffer that never changed size rounds
+; one way on one configuration and the other way on the next. Last, the image
+; takes the build's own remainder, which is the one row it belongs to -
+; SKB_IMG is the only term here that moves at all.
 ;
-; What is left is the tie the ladder genuinely cannot break: the FAT window is
-; 4.5 KB and the disk buffers 3.5, both round either way, and 12 KB of buffer
-; will not stretch to cover both rounding up. The disk buffers take it. They
-; are the row somebody reads as a size (docs/KERNEL-MEMORY.md heads a section
-; "Disk buffers" with the byte count), and the FAT window's own section names
-; the sectors rather than the kilobytes.
+; THAT LAST SENTENCE IS NOT HYPOTHETICAL AND IT IS WHAT RETIRED SKB_DSK: 512
+; bytes of sector buffer read `-` on kern_big and 1 KB on kern_small, from
+; the same ladder and the same buffer. A part this small is the rounding's
+; answer and not the machine's, which is the whole argument for folding it
+; into the term that is a remainder anyway.
+;
+; What is left is the tie the ladder genuinely cannot break: on kern_big the
+; FAT window is 4.5 KB and the stacks 3.25, and which way each falls is
+; decided by the running boundary rather than by a rule about buffers.
 %define SK_R(b)  (((b) + 512) / 1024)     ; bytes -> KB, nearest, ties up
 SK_CUM1    equ SKB_STK
 SK_CUM2    equ SK_CUM1 + SKB_STK0
 SK_CUM3    equ SK_CUM2 + SKB_FAT
-SK_CUM4    equ SK_CUM3 + SKB_DSK
-SK_CUM5    equ SK_CUM4 + SKB_IMG          ; == KERN_SIZE, by construction
+SK_CUM4    equ SK_CUM3 + SKB_IMG          ; == KERN_SIZE, by construction
 SK_STK_KB  equ SK_R(SK_CUM1)
 SK_STK0_KB equ SK_R(SK_CUM2) - SK_R(SK_CUM1)
 SK_FAT_KB  equ SK_R(SK_CUM3) - SK_R(SK_CUM2)
-SK_DSK_KB  equ SK_R(SK_CUM4) - SK_R(SK_CUM3)
-SK_IMG_KB  equ SK_R(SK_CUM5) - SK_R(SK_CUM4)
+SK_IMG_KB  equ SK_R(SK_CUM4) - SK_R(SK_CUM3)
 
 ; SK_BUF, the part of the kernel that is scratch rather than program - and the
-; BAND SPEC.md 28's map draws over the kernel's own gray. It is the four terms
-; above telescoping to their own last boundary, so it is the three buffer ROWS
-; added up and cannot disagree with them; it is 12 KB on every configuration
-; this tree builds, because not one of the four moves with a knob.
+; BAND SPEC.md 28's map draws over the kernel's own gray. It is the three
+; terms above telescoping to their own last boundary, so it is the two buffer
+; ROWS added up and cannot disagree with them: 8 KB on kern_big and 2 on
+; kern_small, and no knob moves either.
 ;
 ; It follows the ROWS and not the FAT+LOW rungs, which is a change: the rungs
-; are three kilobytes bigger, and those three are the tables the list now
-; bills to Code+data. Drawn the old way the band would claim territory no row
-; under it admits to, and a legend square keying a row to a band it is not in
-; is worse than no square at all (SPEC.md 28).
-KBUF_KB    equ SK_R(SK_CUM4)
+; are bigger, and what is in them and not in a row is the tables the list
+; bills to Code+data - and, since SKB_DSK was retired, `dsk_secbuf` with
+; them. Drawn the old way the band would claim territory no row under it
+; admits to, and a legend square keying a row to a band it is not in is worse
+; than no square at all (SPEC.md 28).
+KBUF_KB    equ SK_R(SK_CUM3)
 ; ...and what a machine with NO VGA gives back, taken off SK_KERN and SK_IMG
 ; together so the parts go on summing (SPEC.md 39.22). Derived from the same
 ; rounding as the rows rather than written out as a KB constant of its own:
@@ -7828,7 +7838,7 @@ KBUF_KB    equ SK_R(SK_CUM4)
 ; of 1.5 KB would move the boundary by one kilobyte and a hand-rounded 2 would
 ; make the column stop totalling on mono alone. It comes off the LAST boundary
 ; because that is the one the rung is inside - it is part of SKB_IMG.
-SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
+SK_VGAB_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - VGABUF_PARA * 16)
 
 ; --- the size report, for tools/kernsize.py (docs/KERNEL-MEMORY.md) ----------
 ; Every figure in the ladder, published in one line, so that measuring the
@@ -7988,9 +7998,13 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    is more than a kilobyte from what it really measures. Those are two
 ;    different properties and a residual only ever had the first: the row
 ;    labelled `Disk bufs` totalled correctly at 6 KB while the buffers it
-;    named were 3,584 bytes, because everything the other four rows did not
-;    claim was landing in it. The bound is the half of this that could not
-;    have been asserted before.
+;    named were 3,584 bytes, because everything the other rows did not claim
+;    was landing in it. The bound is the half of this that could not have
+;    been asserted before. That same row is what proved the bound is not the
+;    whole story either: 512 bytes is WITHIN a kilobyte of what it measures
+;    on both shipped kernels and still reads `-` on one and 1 KB on the
+;    other, which is why it was folded into SKB_IMG rather than left here
+;    reporting the rounding (SPEC.md 20.9).
 ;
 ;    The sum is telescoping and holds by construction, so what this really
 ;    checks is that KERN_SIZE is still a whole number of kilobytes' worth of
@@ -7998,7 +8012,7 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    still agree on the last boundary. Break the ladder's 512-alignment and
 ;    the column stops totalling; guard 6 would catch it first, and this says
 ;    what the second symptom would have been.
-%if SK_IMG_KB + SK_STK_KB + SK_STK0_KB + SK_DSK_KB + SK_FAT_KB != KERN_KB
+%if SK_IMG_KB + SK_STK_KB + SK_STK0_KB + SK_FAT_KB != KERN_KB
 %error "osapi_sys_kb's parts no longer sum to KERN_KB - the memory view's column will not total (SPEC.md 20.9)"
 %endif
 %if SK_IMG_KB*1024 - SKB_IMG >= 1024 || SKB_IMG - SK_IMG_KB*1024 >= 1024
@@ -8009,9 +8023,6 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 %endif
 %if SK_STK0_KB*1024 - SKB_STK0 >= 1024 || SKB_STK0 - SK_STK0_KB*1024 >= 1024
 %error "sys_kb: task 0's stack term is a kilobyte or more from what it measures (SPEC.md 20.9)"
-%endif
-%if SK_DSK_KB*1024 - SKB_DSK >= 1024 || SKB_DSK - SK_DSK_KB*1024 >= 1024
-%error "sys_kb: the Disk bufs row is a kilobyte or more from what it measures (SPEC.md 20.9)"
 %endif
 %if SK_FAT_KB*1024 - SKB_FAT >= 1024 || SKB_FAT - SK_FAT_KB*1024 >= 1024
 %error "sys_kb: the FAT snap row is a kilobyte or more from what it measures (SPEC.md 20.9)"
@@ -8024,54 +8035,56 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 %if VGABUF_PARA && (SK_VGAB_KB*1024 - VGABUF_PARA*16 >= 1024 || VGABUF_PARA*16 - SK_VGAB_KB*1024 >= 1024)
 %error "sys_kb: SK_VGAB_KB is a kilobyte or more from the planar rung it gives back (SPEC.md 39.22)"
 %endif
-;    The mount-owned window is the one term that is a LABEL as much as a size:
-;    it is `Disk bufs` on the screen, so it has to stay the three buffers of
-;    SPEC.md 2.1.2 and not drift back into meaning "the rest of .lowbss".
+;    THE MOUNT-OWNED WINDOW HAS NO ROW OF ITS OWN ANY MORE, WHICH MAKES THIS
+;    GUARD MATTER MORE RATHER THAN LESS. SKB_DSK was a term and `Disk bufs`
+;    was a row, and the row's job was to name the window so that it could not
+;    drift back into meaning "the rest of .lowbss". Both are gone: what is
+;    left of the window is `dsk_secbuf` alone, 512 bytes, and it accumulates
+;    into SKB_IMG with the rest of `.lowbss` (see the SKB_ block above).
+;    Folding is honest for 512 bytes and dishonest for 3,584, and the ONLY
+;    thing standing between the two is this line - with the row gone there is
+;    nothing on the screen that would show a fourth buffer arriving, so a
+;    window that grew would be billed to `Code+data` in silence.
 ;
-;    IT IS COMPARED AGAINST AN INDEPENDENT RECOMPUTATION OF THOSE THREE, and
-;    not against DSK_WIN_BYTES. This read `%if SKB_DSK != DSK_WIN_BYTES` for
-;    the life of the tree, and the SKB_ block above defines SKB_DSK as `equ
-;    DSK_WIN_BYTES` - so it was `X != X` and no edit could make it true. The
-;    exact drift it was written for went straight through it: a fourth `resb`
-;    between dsk_win_base and dsk_win_end grows DSK_WIN_BYTES, SKB_DSK
-;    follows it, and both sides move together. A guard that cannot fail is
-;    not a weak guard, it is an absent one that reads as present.
+;    IT IS COMPARED AGAINST AN INDEPENDENT RECOMPUTATION, and not against a
+;    symbol derived from the same declaration. This read `%if SKB_DSK !=
+;    DSK_WIN_BYTES` for the life of the tree while the SKB_ block defined
+;    SKB_DSK as `equ DSK_WIN_BYTES` - so it was `X != X` and no edit could
+;    make it true. The exact drift it was written for went straight through
+;    it: a fourth `resb` between dsk_win_base and dsk_win_end grows
+;    DSK_WIN_BYTES, SKB_DSK followed it, and both sides moved together. A
+;    guard that cannot fail is not a weak guard, it is an absent one that
+;    reads as present. DSK_WIN_BYTES is the DECLARED span (dsk_win_end -
+;    dsk_win_base) and `DSK_OVLPAD + 512` is what the window is supposed to
+;    hold, written out from the other end.
 ;    THE 512 IS A LITERAL ON PURPOSE: spelling it as a symbol that also sizes
 ;    dsk_secbuf puts the same tautology back one level down.
 ;    WHAT IT CATCHES (each broken on purpose): a fourth buffer inside the
 ;    window, a resized dsk_secbuf, a buffer moved out of it, and padding
 ;    inserted between two of them.
 ;    WHAT IT STILL MISSES, said rather than assumed: a SAME-SIZE substitution
-;    - one buffer swapped for another of the same length, which leaves the
-;    row's arithmetic right and its LABEL wrong - and a change to DSK_NENT,
-;    DSK_DE_STRIDE or DSK_ICO_SIZE themselves, since both sides are written
-;    in terms of those three and move together. Elsewhere: dskwin.inc bounds
-;    DSK_DE_STRIDE at both ends and files.inc's FS_IOFH `%if` requires
-;    nmax*DSK_DE_STRIDE to be a multiple of 256, which constrains DSK_NENT
-;    too - but DSK_ICO_SIZE has NOTHING, and halving it to 32 assembles this
-;    whole kernel without a word from any guard in the tree.
-; ...and SPEC.md 25.8 gave it a fourth term on ONE arm: kern_small holds a
-; POOL of DSK_ICO_N bodies plus a one-byte index per entry, where kern_big
-; still holds one body per entry. Written per arm rather than in terms of
-; DSK_ICO_N alone, because the point of this guard is that both sides are
-; spelled out independently and have to agree.
-; ...and docs/plans/LISTING-HOME-PLAN.md 13 took the ENTRIES and their
-; reference index out of it altogether: a listing is written into the store
-; its caller keeps - a Disk window's own claim, or the Standard File dialog's
-; - so the only thing left in `.lowbss` that belongs to the mount is the
-; SECTOR BUFFER. The row is 512 bytes on kern_big, and on kern_small it is
-; that plus dsk_ovlpad, the boot overlay's landing ground, which is the one
-; term here that was never about listing anything.
-; ...and the pad is no longer kern_small's alone, so the two arms collapsed
-; into ONE line.  `DSK_OVLPAD` is 0 on every SHIPPED kernel - kern_big,
-; kern_small and kern_emu alike - and 512 only under `KERN_KNOB`, where a
-; diagnostic has joined `.ovlw` and kern_big's region, which the abolished
-; floor listing left fitting to the byte, needs a rung to spill into
-; (kernel/dskwin.inc).  Spelling kern_big's arm as a bare 512 made THIS guard
-; fire on a build whose overlay guard had just been satisfied, which reads as
-; the fix not working rather than as a second place holding the same number.
-%if SKB_DSK != DSK_OVLPAD + 512
-%error "sys_kb: the Disk bufs row is no longer the mount's own scratch (SPEC.md 2.1.2, docs/plans/LISTING-HOME-PLAN.md 13): the SECTOR BUFFER, plus dsk_ovlpad where the boot overlay needs a floor. The entries and their reference index went into the caller's store, and there are no icon bodies - those are the machine-wide store's"
+;    - one buffer swapped for another of the same length - which used to
+;    leave the row's arithmetic right and its LABEL wrong, and now leaves
+;    `Code+data` right and this comment wrong.
+;
+;    HOW IT GOT TO ONE SECTOR, because the history is what makes the fold
+;    defensible: SPEC.md 25.8 pooled the icon bodies on kern_small, 25.9 took
+;    them out of the listing on BOTH kernels into one machine-wide store, and
+;    docs/plans/LISTING-HOME-PLAN.md 13 took the ENTRIES and their reference
+;    index out too - a listing is written into the store its CALLER keeps, a
+;    Disk window's own claim or the Standard File dialog's. So the only thing
+;    left in `.lowbss` that belongs to the mount is the SECTOR BUFFER.
+;    `DSK_OVLPAD` is the one term here that was never about listing anything:
+;    it is the boot overlay's landing ground, 0 on every SHIPPED kernel -
+;    kern_big, kern_small and kern_emu alike - and non-zero only under
+;    `KERN_KNOB`, where a diagnostic has joined `.ovlw` and kern_big's
+;    region, which the abolished floor listing left fitting to the byte,
+;    needs a rung to spill into (kernel/dskwin.inc). Spelling kern_big's arm
+;    as a bare 512 made THIS guard fire on a build whose overlay guard had
+;    just been satisfied, which reads as the fix not working rather than as a
+;    second place holding the same number.
+%if DSK_WIN_BYTES != DSK_OVLPAD + 512
+%error "sys_kb: the mount's own scratch is no longer one sector (SPEC.md 2.1.2, 20.9, docs/plans/LISTING-HOME-PLAN.md 13). It is dsk_secbuf, plus dsk_ovlpad where the boot overlay needs a floor - the entries and their reference index live in the caller's store and the icon bodies in the machine-wide one. There is no `Disk bufs` row any more: these bytes are billed to `Code+data`, which is honest for one sector and not for a window that has grown, so give it a term and a row again rather than raising this number"
 %endif
 ;
 ; 6b. ...and so is every claim in it, which is what a package region rides
