@@ -203,17 +203,38 @@ cycle — the rate halved and the *cycle length* landed on the reference's. What
 is lost is the headroom revision 1 thought it had: there is no longer room to
 spend frames on more poses without taking them from somewhere.
 
-**Where to find rate back, in the order the measurement ranks it**, if §16.1's
-eye asks for it:
+**Where to find the rate back — and §3.7's second pass went and MEASURED all
+of it** (`docs/reports/TITHE-BAND-2026-09-21.md` section 11):
 
-1. **A SHORTER sprite.** The per-row term is 52 µs and the per-byte 3 µs, so
-   height is worth ~3× width: 56×56 → **56×40 is 24% off the band**, where
-   40×56 is 10%.
-2. **A larger share than 40%.** The idle phase has little else to do — the AI
-   thinks on a worker (§10.6) and input is cheap — so 60% is **5.4 fps** on
-   fullscreen VGA for no art change at all.
-3. **Fewer features moving at once.** §3.6's wheel already does this; the
+| | VGA, one band | 23-feature wheel | **fps a feature** |
+|---|---:|---:|---:|
+| **windowed, whole band** — today | 4,702 µs | 111.0 ms, **202% of a frame** | **3.7** |
+| windowed + a 50% **dirty rect** | 2,666 | ~62 ms, 113% | **6.5** |
+| **fullscreen**, our own row loop | 2,380 | 56.1 ms, 102% | **7.3** |
+| **both together** | **1,218** | **29.8 ms, 54%** | **14.3** |
+
+1. **THE DIRTY RECT (§3.4.1) is the cheapest thing in this document**: an idle
+   pose differs from its neighbour in *part* of the figure, so blit only those
+   rows. **−43% at 50% coverage**, it works in **both** arms, it is the same
+   opaque self-erasing band one rectangle shorter, and the TOOL computes it.
+2. **FULLSCREEN, OWNING THE FRAMEBUFFER (§3.1.1)**: **−49%**, which is §1.3's
+   original 7.2 fps back to the decimal. The price is that after
+   `OSAPI_FSX_MODE` no kernel drawing slot is legal, so the fullscreen arm
+   letters its own HUD and draws its own panel.
+3. **A SHORTER sprite.** The per-row term is 52 µs and the per-byte 3 µs, so
+   height is worth ~3× width: 56×56 → **56×40 is 25% off the band**, measured,
+   where 40×56 would be 10%.
+4. **A larger share than 40%.** The idle phase has little else to do — the AI
+   thinks on a worker (§10.6) and input is cheap.
+5. **Fewer features moving at once.** §3.6's wheel already does this; the
    question is only where the credit goes.
+
+**PAIRING TWO FIGURES INTO ONE BLIT IS REFUSED**, and it was measured rather
+than argued: the saving is one 690 µs arrival and the cost is the empty area
+inside the union, which scales with the cell pitch. It is **−3.1% on VGA**
+(inside the harness's own 2% repeatability), **+4.5% on Hercules** and −13% on
+CGA — and it costs §3.6's wheel its granularity, because a pair must be drawn
+together. §19.2 records it.
 
 **A 386 is a different machine and gets a different answer.**
 `OSAPI_CPU_INFO` answers `CPU_8086 / CPU_286 / CPU_386` — *a fact the code can
@@ -365,6 +386,50 @@ and nothing else**, and it **re-measures the surface** rather than assuming one.
 **Layout is a table computed once per size change**, never per frame. A resize
 is not a thing that happens inside a frame — §93.5's own words.
 
+#### 3.1.1 FULLSCREEN IS A DIFFERENT RENDERER, and it is worth 49%
+
+**`OSAPI_FULLSCREEN` (§11.2) is a fullscreen WINDOW** — the WM is still there,
+the clip region is still there, `gfx_blit1` still does every check it does in a
+100-pixel window. §3.7 measured what those checks cost and they are **half the
+band**: a 690 µs arrival, and then a row loop that reads five SS-relative
+operands out of a stack frame because all nine of `gfx_blit1`'s registers carry
+geometry it needs.
+
+**§53's bracket is the other door.** Inside `OSAPI_FSX_RUN` after a call to
+`OSAPI_FSX_MODE`, the app owns every pixel, `FSI_SEG` names the framebuffer,
+and none of that work exists — there is nothing to clip against, one display,
+no cursor and no other program. The same band by hand, every per-row value in a
+register:
+
+| | windowed | **own loop** | |
+|---|---:|---:|---:|
+| VGA, 56×56 | 4,702 µs | **2,380** | **−49%** |
+| Hercules, 64×40 | 4,248 | **2,243** | −47% |
+| CGA, 48×24 | 2,561 | **1,178** | −54% |
+
+**That is §1.3's original 7.2 fps a feature back, to the decimal** — 7.3 on
+fullscreen VGA, 7.8 on Hercules, 14.8 on CGA. And it composes with §3.4.1: the
+two together are **14.3 fps**.
+
+**WHAT IT COSTS IS EVERY OTHER PIXEL.** After the first `OSAPI_FSX_MODE` no
+kernel drawing slot is legal (§53.7): the fullscreen arm letters its own HUD,
+composes its own card panel, draws its own menus and its own dialogs. That is
+real work, and it is work this design mostly wanted anyway — §16's wave 6 has
+custom graphical buttons, the panel and the board are our own art, and the text
+is numbers and card names. `apps/os88gfx.inc`'s `GFXE_BAND` is the library,
+`tests/bandbench` the worked example of setting text into a band, and TANK,
+Skies and Missile are three packages that already live this way.
+
+**So the two arms are not the same program with a different window size.**
+Windowed keeps `gfx_blit1` and its own rate; fullscreen owns the screen and
+runs at twice it. §6.10's **Detail** setting and the **F** key are where that
+choice lives, and **wave 1a has to show both**, because the difference is
+visible: 3.7 fps against 7.3 is the difference the eye is being asked about.
+
+*(A same-mode bracket — §53.7's, one that never calls `OSAPI_FSX_MODE` — keeps
+the drawing slots and buys none of this: no `FSX_MODE` call means no `FSI` and
+no framebuffer. It is all or nothing.)*
+
 ### 3.2 ISOMETRIC — the shear that costs nothing
 
 The requirement is an isometric board where each character is fully inside its
@@ -464,6 +529,46 @@ so whatever is drawn there is composed partly, which on the glass is a thing
 that changes shape when a neighbour animates and changes back. §93.5.1 paid for
 that one; cells are a multiple of 8 wide by construction (§3.2), so cutting on
 the cell grid costs nothing.
+
+#### 3.4.1 THE DIRTY RECT — the cheapest thing in this document
+
+**An idle pose differs from its neighbour in PART of the figure, not all of
+it.** A breathing character moves its chest and head; a waiting one shifts its
+weapon. The feet do not move at all. So the band that goes down is not the
+figure's box — it is the box of **what changed**, and everything §3.4 says
+still holds: it is one opaque self-erasing rectangle, with its own ground baked
+in, exactly one rectangle shorter.
+
+| rows of 56 that differ | VGA | vs the whole band |
+|---|---:|---:|
+| 100% | 4,702 µs | — |
+| 70% | 3,459 | **−26%** |
+| **50%** | **2,666** | **−43%** |
+| 35% | 2,079 | −56% |
+
+*Measured, §3.7.* **No new mechanism and no new state** — the renderer already
+commits a band a feature; this changes the rectangle it is cut to. It works in
+the windowed arm and the fullscreen one alike, and it multiplies with §3.1.1
+rather than overlapping it.
+
+**THE RECT IS THE TOOL'S, NOT THE ARTIST'S**, and that is what makes it safe.
+It is a property of a **transition** (pose A → pose B) and not of a frame, so a
+4-pose ping-pong `A B C B` has four of them; and **a row outside the rect that
+is not byte-identical between the two poses is a stale row on the glass** — a
+figure with a torn edge that never repairs. `tools/os88tithe.py` diffs each
+consecutive pair and emits the minimal covering band, so the constraint is
+checked rather than remembered, and `--selfcheck` prints the **mean coverage**
+(§4.2.4) because that number *is* the animation rate.
+
+**What the art owes is that each TRANSITION's motion is local** — not that the
+figure barely moves. A cycle can travel the whole body by moving a different
+region each step, which is what the reference's idles do anyway (§3.8): small
+local motion, continuously. A pose that moves everything at once simply costs
+the whole band, which is today's number and not a regression.
+
+**Two cases always take the full band and neither is hot**: a character's first
+draw (placement, §5.6) and a redraw after its numbers changed beside it
+(§3.8.1) — at most once a round each, in a phase that is already an animation.
 
 ### 3.5 Colour — the pen, and the strip trick
 
@@ -3284,7 +3389,7 @@ in the whole package.
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's slots filled and exactly three commanders a faction, **§7.1.2's pure-specialist count (at most 8 of ~30, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, and the body-set and item counts REPORTED so the art budget is watched rather than discovered); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's slots filled and exactly three commanders a faction, **§7.1.2's pure-specialist count (at most 8 of ~30, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, the body-set and item counts REPORTED so the art budget is watched rather than discovered, and **§3.4.1's dirty rect computed per transition with its MEAN COVERAGE reported** — that number is the animation rate); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
 | `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `tithecompose` (§4.2.3: a full board of idle sprites composes inside the match load, and a round's attack sprites inside the spoils phase — **guest cycles, not host seconds**); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§14.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §14.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithemus` (the sequencer holds tempo across 60 s on both arms — **guest ticks between row boundaries, not host seconds** — and a state change lands on a pattern boundary, §13.7); `tithesave` (a campaign save round-trips) |
 
@@ -3332,6 +3437,8 @@ built on top of it.
 | | |
 |---|---|
 | the board | at §3.2.1's exact geometry, on **VGA windowed, VGA fullscreen, Hercules and CGA** |
+| **the two RENDERERS side by side** (§3.1.1) | windowed through `gfx_blit1` at 3.7 fps a feature, and fullscreen through our own row loop at 7.3 — measured, §3.7. **The difference is what the eye is being asked about**, and it is also the difference between drawing the chrome ourselves and not |
+| **an idle built as DIRTY RECTS** (§3.4.1) | the same figures animating at 6.5 fps windowed / 14.3 fullscreen, because each transition moves part of the figure. Whether that reads as alive — or as a figure assembled from twitching pieces — is the one question this lever raises and only eyes can answer |
 | **all twenty cells filled** | the only way to judge crowding, and the only way §1.3's 23-feature budget gets tested against something real |
 | **both poses**, side by side, **composed from one body and two items** | so *"the same person with a different tool"* (§4.2.1) either reads or does not — and so the **layer model itself** is judged before 90 body sets are drawn against it |
 | **one item set across several characters** | the other half of §4.2.1: a shared sword has to look right on three different builds, and that is an art question nobody can answer on paper |
@@ -3666,8 +3773,32 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Seven decisions that were made one way and then made another. Each is here
+Eight decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
+
+**PAIRING TWO FIGURES INTO ONE BLIT: proposed, measured, REFUSED.** If a band's
+arrival is 690 µs and a lane holds two characters, drawing both in one blit
+saves an arrival — twenty characters as ten pairs is ten arrivals, 6.9 ms of a
+111 ms wheel. The arithmetic looked like 6% before it was measured and it is
+not, because **the saving is one FIXED arrival and the cost is the EMPTY AREA
+inside the union, which scales with the cell pitch**. The two only meet per
+adapter: **−3.1% on VGA, +4.5% on Hercules, −13% on CGA.**
+
+It is refused on three grounds and the third is the one that would have decided
+it anyway. The VGA win is **inside the harness's own 2% repeatability** (§3.7
+measures the same band twice, sixty rows apart, and they differ by 2%), so it
+is not distinguishable from nothing. It is *negative* on Hercules, where the
+cell is loose around the sprite. And it **costs §3.6's pacing wheel its
+granularity** — a pair must be drawn together, so the credit quantum doubles
+and a character can no longer animate while its neighbour holds, which is the
+one failure the wheel exists to remove.
+
+**The lesson is the shape of the arithmetic, not the answer**: a saving that is
+constant and a cost that scales will change sign somewhere, and *where* is not
+guessable from the adapter this design was drawn on. The first cut of the
+measurement drew the VGA union on all three adapters and made Hercules look 31%
+worse than it is — a lever has to be measured against the thing it is a lever
+on.
 
 **THE ANIMATION RATE: 7.2 fps a feature → 3.6, and the model with it.** Twelve
 revisions of this document costed every moving thing on one constant —

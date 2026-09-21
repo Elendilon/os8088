@@ -49,6 +49,7 @@ import os88marty, os88flush, os88ui                            # noqa: E402
 # guessed: a label runs to column 24, the iteration count to 29, the counts to
 # 38, the microseconds to 51, and column 55 is the flag.
 C_N, C_CNT, C_US, C_FLAG = 24, 30, 39, 55
+FRAME_US = 54925.0
 
 ADAPTERS = [
     # name     machine                  the file the guest writes
@@ -227,12 +228,22 @@ def main():
             check(cf is not None and cf.startswith("REFUSED"),
                   "%s: GFX_BLITP refused (%s)" % (n, cf))
 
-        # 4. and the row that answers the brief at all: did the wheel run?
-        wh = p.get("WHEEL 23x adapter")
-        if wh:
-            pct = 100.0 * wh[2] / 54925.0
-            print("   %-4s wheel of 23 at this surface's own band: "
-                  "%.2f ms = %.1f%% of a 54.925 ms frame" % (n, wh[2] / 1000.0, pct))
+        # 4. THE FULLSCREEN ARM must have run AND drawn the right pixels. A
+        # hand-rolled row loop that is fast and wrong is the easy mistake, and
+        # its time would look like the win it is there to measure.
+        rb = words(t, "FSX read-back says")
+        check(rb is not None and rb.startswith("MATCH"),
+              "%s: the fullscreen own-loop drew the right pixels (%s)" % (n, rb))
+
+        # 5. and the row that answers the brief at all: did the wheel run?
+        for lbl, what in (("WHEEL 23x adapter", "23 bands, one each"),
+                          ("WHEEL 13x paired", "as 13 lane-pairs"),
+                          ("FSX own loop 23x", "fullscreen, our own loop"),
+                          ("FSX own 23x dirty", "...and dirty rects too")):
+            wh = p.get(lbl)
+            if wh and wh[2] > 0:
+                print("   %-4s %-26s %8.2f ms = %6.1f%% of a frame"
+                      % (n, what, wh[2] / 1000.0, 100.0 * wh[2] / FRAME_US))
 
     print("\n%s" % ("=" * 72))
     if FAIL:

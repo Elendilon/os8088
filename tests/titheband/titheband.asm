@@ -155,6 +155,31 @@ TB_FEATURES equ 23                ; the brief's own number: 20 characters, 2
 TB_LANES    equ 4                 ; projectiles in one lane at 3.9.1's worst
                                   ; case - two a side
 
+; --- the LEVERS (blocks 9 and 10), which is what a second wave 0 asked ------
+TB_SHW      equ 56                ; a SHORTER sprite: 1.3's first lever, where
+TB_SHH      equ 40                ; height is worth ~3x width
+TB_SHS      equ TB_SHW / 8
+
+TB_D7H      equ 39                ; the DIRTY-RECT arm: a pose that differs
+TB_D5H      equ 28                ; from its neighbour in 70% / 50% / 35% of
+TB_D3H      equ 20                ; its rows blits only those rows
+
+TB_PVW      equ 56                ; the user's PAIR-V: two 56x56 figures
+TB_PVH      equ 56 * 2 + 6        ; stacked with a 6 px gap, in ONE blit
+TB_PVS      equ TB_PVW / 8
+
+TB_PIW      equ 160               ; ...and the PAIR-ISO, which is what the
+TB_PIH      equ 76                ; SHEARED grid actually puts side by side:
+TB_PIS      equ TB_PIW / 8        ; two cells of one lane, x apart by CW=104
+                                  ; and y by RISE=20, so the union is
+                                  ; 104+56 wide by 56+20 tall
+
+TB_OWNSTEP  equ 0                 ; block 10's band step: stride - row width
+                                  ; (see tb_b_own). 7 - 7 on this band
+
+TB_PAIRS    equ 10                ; 20 characters as 10 pairs...
+TB_SINGLES  equ 3                 ; ...plus the two bases and the hovered card
+
 TB_FRAMEUS  equ 54925             ; one system tick in MICROSECONDS. Every
                                   ; "% of a frame" line below is against this
 
@@ -519,6 +544,77 @@ tb_b_wide:                          ; 224x14
     mov cx, TB_NW
     mov dx, TB_NH
     mov bp, TB_NS
+    jmp tb_blit
+
+; --- block 9: THE LEVERS ----------------------------------------------------
+; Every one of these is an ordinary `gfx_blit1` at a different rectangle, which
+; is the point: they are not new mechanisms, they are the SAME primitive asked
+; a different question, so the answers are comparable to the rows above without
+; any modelling in between.
+
+tb_b_min:                           ; 8x1 - the smallest legal band. This IS
+    mov cx, 8                       ; the arrival, measured rather than fitted
+    mov dx, 1                       ; out of the three-shape fit above
+    mov bp, 1
+    jmp tb_blit
+
+tb_b_short:                         ; 56x40 - 1.3's lever 1, and the cheapest
+    mov cx, TB_SHW                  ; 16 rows off a 56-row figure
+    mov dx, TB_SHH
+    mov bp, TB_SHS
+    jmp tb_blit
+
+tb_b_d7:                            ; ...and the DIRTY RECT: the rows that
+    mov cx, TB_FW                   ; actually differ between two idle poses
+    mov dx, TB_D7H
+    mov bp, TB_FS
+    jmp tb_blit
+
+tb_b_d5:
+    mov cx, TB_FW
+    mov dx, TB_D5H
+    mov bp, TB_FS
+    jmp tb_blit
+
+tb_b_d3:
+    mov cx, TB_FW
+    mov dx, TB_D3H
+    mov bp, TB_FS
+    jmp tb_blit
+
+; --- the PAIR: two figures in one blit, two ways, against the control -------
+tb_b_two56:                         ; THE CONTROL: the same two figures as two
+    call tb_b_wadapt1               ; separate bands, at this adapter's size
+    jmp tb_b_wadapt1
+
+tb_b_wadapt1:                       ; one band, this adapter's own geometry
+    mov cx, [tb_aw]
+    mov dx, [tb_ah]
+    mov bp, [tb_as]
+    jmp tb_blit
+
+tb_b_pairv:                         ; stacked, 6 px apart - and in the SHEARED
+    mov cx, TB_PVW                  ; grid this is NOT where two characters
+    mov dx, TB_PVH                  ; are: two cells of one column are CH=72
+    mov bp, TB_PVS                  ; apart, not 6. It is measured anyway
+    jmp tb_blit                     ; because it is the shape that was asked
+                                    ; about, and because it is the cheapest
+                                    ; possible version of the idea - if the
+                                    ; BEST case does not pay, the real one
+                                    ; cannot
+
+; ...and the pair the geometry really has: one lane's two cells, CW apart in x
+; and RISE in y, so the union is (CW + w) x (h + RISE).
+;
+; **CUT FROM THIS ADAPTER'S OWN CELL PITCH** (3.2.1), which the first run of
+; this row did not do - it used the VGA union on all three and so compared a
+; 160x76 band against Hercules' 64x40 native one, which is not a comparison. A
+; pair's saving is ONE arrival, fixed; its cost is the EMPTY area inside the
+; union, which scales with the cell pitch. Those two only meet per adapter.
+tb_b_pairi:
+    mov cx, [tb_pw]
+    mov dx, [tb_ph]
+    mov bp, [tb_ps]
     jmp tb_blit
 
 ; =============================================================================
@@ -966,6 +1062,29 @@ tb_b_wadapt:                        ; 23 x THIS surface's own band (3.2.1)
     mov bp, [tb_as]
     jmp tb_wheel
 
+; THE PAIRED WHEEL: the same 23 animated features as 13 blits - ten lane-pairs
+; and three singles. This is the end-to-end form of the question, and it is the
+; only form that answers it, because the saving (ten arrivals) and the cost
+; (the gap rows and columns inside each union) only meet at the whole frame.
+tb_b_wpair:
+    mov word [tb_left], TB_PAIRS
+.p:
+    mov cx, [tb_pw]
+    mov dx, [tb_ph]
+    mov bp, [tb_ps]
+    call tb_blit
+    dec word [tb_left]
+    jnz .p
+    mov word [tb_left], TB_SINGLES
+.s:
+    mov cx, [tb_aw]                 ; the three singles are this adapter's own
+    mov dx, [tb_ah]                 ; band, like the unpaired wheel's
+    mov bp, [tb_as]
+    call tb_blit
+    dec word [tb_left]
+    jnz .s
+    ret
+
 tb_b_wpen:                          ; ...and with a pen set per feature, which
     mov word [tb_left], TB_FEATURES ; is what a board of coloured figures on
 .f:                                 ; VGA actually costs
@@ -1054,6 +1173,380 @@ tb_b_fm:
     mov cl, 0                       ; channel 0
     mov bx, 440
     call OSAPI_SND_FM
+    ret
+
+; =============================================================================
+; BLOCK 10 - FULLSCREEN, AND OUR OWN ROW LOOP
+;
+; THE QUESTION: how much of a band's cost is the KERNEL'S, and would owning the
+; framebuffer get it back?
+;
+; The rows above say a 56x56 band is 4,793 us on VGA and that **2,915 us of it
+; is arrival and rows** - 709 of far call, nine refusals, the deferred cursor
+; hide, the second-display span, the clip region, nine pushes, the display
+; enter, the screen-extent clip, the pen and a rowbase multiply; then ~248
+; clocks a row of which the payload is ~100. `gfx_blit1` is out of registers -
+; all nine carry geometry - so its row loop reads FIVE SS-relative operands out
+; of a stack frame, and on an 8088 each of those is ~22 clocks it would not
+; spend if they were registers.
+;
+; **None of that work is wrong.** Every one of those tests is something a
+; windowed program genuinely needs: it may be clipped, it may straddle two
+; displays, the cursor may be over it, the pen may be set. A program that owns
+; the whole screen needs none of them, and SPEC.md 53 is the door: inside an
+; OSAPI_FSX_RUN bracket that has SET A MODE, the app owns every pixel,
+; OSAPI_FSX_MODE hands back FSI_SEG, and no kernel drawing slot is legal
+; anyway (53.7).
+;
+; So this block runs the SAME 56x56 band, into the SAME kind of framebuffer, by
+; hand - and the difference between it and the row above is what a fullscreen
+; TITHE would be buying.
+;
+; --- WHAT THE LOOP DELIBERATELY DOES AND DOES NOT DO ------------------------
+;
+; It does exactly what `gfx_blit1` does for a band that needs nothing: move the
+; bytes, step the band by its stride, step the framebuffer by a row, and handle
+; the BANK WRAP that both 1bpp adapters have (Hercules interleaves four banks,
+; CGA two). It keeps all five of those in REGISTERS, which is the whole of the
+; difference.
+;
+; It does NOT clip, resolve a display, hide a cursor, read a pen or validate an
+; argument - because in a bracket there is nothing to clip against, one
+; display, no cursor, and the caller is the only program running. Leaving those
+; out is not cheating; it is the measurement.
+;
+; **WHITE ON BLACK NEEDS NO PORT WRITES ON ANY OF THE THREE.** On VGA 12h the
+; resting state SPEC.md 5.4.2 pins - Map Mask 0Fh, Set/Reset disabled - puts a
+; CPU write into all four planes, which is exactly a white-on-black band. So
+; this loop is comparable to the DEFAULT-pen row above and not to a coloured
+; one; a coloured band would add the two `out`s the kernel already measures at
+; a fixed ~68 us.
+;
+; --- AND IT IS READ BACK, BECAUSE A FAST WRONG LOOP IS THE EASY MISTAKE -----
+;
+; The bracket restores the desktop whole on return, so nothing drawn here
+; survives to be looked at. `tb_fs_check` reads the framebuffer back through
+; the same geometry and compares it with the band; the report says MATCH or
+; DIFFER in words. A read returns plane 0 on VGA (Read Map Select rests at 0)
+; and the plain byte on both 1bpp adapters, and a white-on-black band is
+; identical in every plane - so one compare covers all three.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; tb_own - the hand-rolled band emit. DX = rows; everything else from the
+;          adapter's own geometry (3.2.1) and the FSI block.
+;
+; **THIS ADAPTER'S BAND, NOT A FIXED 56x56**, which the first cut of this block
+; got wrong in the same way the pair row did: it drew the VGA sprite on all
+; three, so CGA's "fullscreen" row was 56x56 against a windowed 48x24 and read
+; as fullscreen being SLOWER. A lever has to be measured against the thing it
+; is a lever on.
+;
+; EVERY PER-ROW VALUE IS IN A REGISTER, and that is the whole experiment:
+; BX = the framebuffer row step, AX = the bank-wrap bit, BP = whole words a
+; row, DX = rows left, SI/DI the two pointers. `gfx_blit1` reads five of those
+; out of an SS-relative stack frame because all nine of its registers carry
+; geometry it needs and this loop does not - ~22 clocks each on an 8088, every
+; row. Only the wrap FIX stays in memory, and it is read on one row in four at
+; the worst.
+;
+; Two bodies rather than a test in the loop: a stride is odd or even for the
+; whole band, so the `movsb` tail is decided ONCE. That is what the kernel's
+; `jnc .even` costs per row and what this does not.
+; -----------------------------------------------------------------------------
+tb_own:
+    push es
+    mov es, [tb_fseg]
+    mov di, [tb_fsoff]
+    mov si, tb_band
+    mov bx, [tb_fsrowadd]
+    mov ax, [tb_fswrapbit]          ; 0 on a linear surface, so the test below
+    mov bp, [tb_as]                 ; can never fire there
+    shr bp, 1                       ; BP = whole words a row
+    cld
+    test byte [tb_as], 1
+    jnz .rodd
+.reven:
+    push di
+    mov cx, bp
+    rep movsw
+    pop di
+    add di, bx
+    test di, ax
+    jz .enw
+    add di, [tb_fswrapfix]
+.enw:
+    dec dx
+    jnz .reven
+    pop es
+    ret
+.rodd:
+    push di
+    mov cx, bp
+    rep movsw
+    movsb                           ; the odd byte of an odd stride - 56 px is
+    pop di                          ; seven bytes, which is VGA's
+    add di, bx
+    test di, ax
+    jz .onw
+    add di, [tb_fswrapfix]
+.onw:
+    dec dx
+    jnz .rodd
+    pop es
+    ret
+
+tb_b_own:                           ; one whole band
+    mov dx, [tb_ah]
+    jmp tb_own
+
+tb_b_owndirty:                      ; ...and the two levers TOGETHER: our own
+    mov dx, [tb_adirty]             ; loop AND only the rows that changed
+    jmp tb_own
+
+tb_b_ownwheel:                      ; 23 whole bands: the frame
+    mov word [tb_left], TB_FEATURES
+.f:
+    call tb_b_own
+    dec word [tb_left]
+    jnz .f
+    ret
+
+tb_b_ownwdirty:                     ; THE COMBINED FRAME, which is the only
+    mov word [tb_left], TB_FEATURES ; row that answers "can both levers
+.f:                                 ; together put the rate back?"
+    call tb_b_owndirty
+    dec word [tb_left]
+    jnz .f
+    ret
+
+; -----------------------------------------------------------------------------
+; tb_fs_check - read the framebuffer back and compare it with the band
+; out: [tb_fsok] = 1 match / 0 differ
+; -----------------------------------------------------------------------------
+tb_fs_check:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    push ds
+    pop es                          ; ES = ours, explicitly: this routine is
+                                    ; reached after a bracket call and an
+                                    ; inherited ES is a thing to assume
+    mov byte [tb_fsok], 1
+    mov si, [tb_fsoff]
+    mov bx, [tb_fsrowadd]
+    mov dx, [tb_ah]
+    mov di, tb_band                 ; ES:DI = the band (ES is ours on entry)
+.row:
+    push si
+    mov cx, [cs:tb_as]
+    push ds
+    mov ds, [cs:tb_fseg]            ; DS:SI = the framebuffer
+.b:
+    mov al, [si]
+    inc si
+    cmp al, [es:di]
+    je .same
+    mov byte [es:tb_fsok], 0
+.same:
+    inc di
+    loop .b
+    pop ds
+    pop si
+    add si, bx
+    test si, [tb_fswrapbit]
+    jz .nowrap
+    add si, [tb_fswrapfix]
+.nowrap:
+    dec dx
+    jnz .row
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tb_fs_proc - the bracket's body (SPEC.md 53.1)
+; in:  SI = our window, ES = KERNEL_SEG, DS = CS = our segment. NEAR ret.
+;
+; Inside here every other task is frozen and the desktop is gone. benchlib's
+; PIT reads are still legal - 53.1's "never touch PIT channel 0" forbids
+; REPROGRAMMING it, and `bl_pit` issues control word 00h, which is a LATCH: it
+; freezes a copy for reading and changes neither the mode nor the reload value
+; (tests/benchlib.inc says so at the routine). The tick keeps time throughout.
+; -----------------------------------------------------------------------------
+tb_fs_proc:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    push ds
+    pop es                          ; ES:DI = our own FSI block
+    mov di, tb_fsi
+    mov al, [tb_fsmode]
+    call OSAPI_FSX_MODE
+    jc .nomode
+
+    mov ax, [tb_fsi + FSI_SEG]      ; ...and the framebuffer it answers with
+    mov [tb_fseg], ax
+    mov word [tb_fsoff], 0          ; the top-left: nothing else is on screen
+    mov word [tb_fswrapbit], 0      ; a LINEAR surface has no wrap, and a zero
+    mov word [tb_fswrapfix], 0      ; mask makes the test above never fire
+    mov ax, [tb_fsi + FSI_STRIDE]
+    mov [tb_fsrowadd], ax
+    mov al, [tb_fsi + FSI_BANKS]
+    cmp al, 2                       ; INTERLEAVED BANKS (SPEC.md 39.3): row y
+    jb .linear                      ; lives at (y mod banks) * bstep +
+    xor ah, ah                      ; (y / banks) * stride, so a row step is
+    mov bx, [tb_fsi + FSI_BSTEP]    ; one bstep and every `banks`-th row steps
+    mov [tb_fsrowadd], bx           ; back down and along
+    mul bx                          ; AX = banks * bstep, a power of two on
+    mov [tb_fswrapbit], ax          ; both adapters that have banks - so it is
+    mov bx, [tb_fsi + FSI_STRIDE]   ; the bit a row step sets on the wrap, and
+    sub bx, ax                      ; the fix is stride - banks * bstep. This
+    mov [tb_fswrapfix], bx          ; is `gfx_blit1`'s own wrapbit/wrapfix
+.linear:                            ; trick, which is why it is spelled the
+                                    ; same way
+    mov si, tb_s_fs1
+    call bl_sline
+    call bl_head
+
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_own
+    mov si, tb_r_own
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_town], ax
+    mov [tb_town+2], dx
+
+    call tb_fs_check                ; ...and is it the RIGHT picture?
+
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_owndirty
+    mov si, tb_r_owndirty
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_townd], ax
+    mov [tb_townd+2], dx
+
+    mov word [bl_n], TB_NWHEEL
+    mov word [bl_body], tb_b_ownwheel
+    mov si, tb_r_ownwheel
+    mov al, 1
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_townw], ax
+    mov [tb_townw+2], dx
+
+    mov word [bl_body], tb_b_ownwdirty
+    mov si, tb_r_ownwdirty
+    mov al, 1
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_townwd], ax
+    mov [tb_townwd+2], dx
+
+    mov byte [tb_fsran], 1
+    jmp short .out
+.nomode:
+    mov byte [tb_fsran], 0
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tb_fs - enter the bracket. UI-task window callback only, lock held.
+; -----------------------------------------------------------------------------
+tb_fs:
+    push ax
+    push bx
+    push cx
+    push si
+    call OSAPI_VIDEO                ; which mode is THIS adapter's own?
+    mov byte [tb_fsmode], FSXM_VGA12
+    cmp dh, 1
+    ja .have
+    mov byte [tb_fsmode], FSXM_HERC
+    cmp dl, VID_CGA
+    jne .have
+    mov byte [tb_fsmode], FSXM_CGA640
+.have:
+    call bl_blank
+    mov si, tb_s_h10
+    call bl_sline
+    mov ax, tb_fs_proc
+    mov bx, [tb_win]
+    xor cx, cx
+    call OSAPI_FSX_RUN
+    jnc .ok
+    mov byte [tb_fsran], 0
+.ok:
+    call tb_fs_report
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tb_fs_report - what the bracket found, including whether it ran at all
+tb_fs_report:
+    push si
+    push di
+    cmp byte [tb_fsran], 0
+    jne .ran
+    mov si, tb_r_own
+    mov di, tb_s_nofs
+    call bl_kvs
+    jmp short .out
+.ran:
+    mov si, tb_r_fschk              ; the read-back, in WORDS - a loop that is
+    mov di, tb_s_match              ; fast and wrong is the easy mistake here
+    cmp byte [tb_fsok], 0
+    jne .say
+    mov di, tb_s_differ
+.say:
+    call bl_kvs
+    mov si, tb_d_own                ; ...and what it bought, x100 percent,
+    mov bx, tb_town                 ; against THIS adapter's own windowed band
+    mov di, tb_tadapt
+    call tb_pct
+    mov si, tb_d_ownw
+    mov bx, tb_townw
+    mov di, tb_twad
+    call tb_pct
+    mov si, tb_d_ownwd              ; ...and BOTH levers, against this
+    mov bx, tb_townwd               ; adapter's own unpaired wheel
+    mov di, tb_twad
+    call tb_pct
+.out:
+    pop di
+    pop si
     ret
 
 ; =============================================================================
@@ -1270,6 +1763,16 @@ tb_run:
     mov si, tb_s_h7
     call bl_sline
 
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_wadapt1
+    mov si, tb_r_adapt1
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]             ; THE CONTROL block 10 is measured against
+    mov dx, [bl_lastus+2]
+    mov [tb_tadapt], ax
+    mov [tb_tadapt+2], dx
+
     mov word [bl_n], TB_NWHEEL
     mov word [bl_body], tb_b_wfull
     mov si, tb_r_wfull
@@ -1307,6 +1810,106 @@ tb_run:
     mov [tb_tcomb], ax
     mov [tb_tcomb+2], dx
 
+    ; --- 9. the levers ----------------------------------------------------
+    mov si, tb_s_h9
+    call bl_sline
+
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_min
+    mov si, tb_r_min
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]             ; THE ARRIVAL, measured. Everything above
+    mov dx, [bl_lastus+2]           ; is priced against a fitted one
+    mov [tb_tmin], ax
+    mov [tb_tmin+2], dx
+
+    mov word [bl_body], tb_b_short
+    mov si, tb_r_short
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_tshort], ax
+    mov [tb_tshort+2], dx
+
+    mov word [bl_body], tb_b_d7
+    mov si, tb_r_d7
+    xor al, al
+    call bl_run
+
+    mov word [bl_body], tb_b_d5
+    mov si, tb_r_d5
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_td5], ax
+    mov [tb_td5+2], dx
+
+    mov word [bl_body], tb_b_d3
+    mov si, tb_r_d3
+    xor al, al
+    call bl_run
+
+    mov word [bl_n], TB_N / 2       ; the pair rows are two figures' worth
+    mov word [bl_body], tb_b_two56
+    mov si, tb_r_two56
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_ttwo], ax
+    mov [tb_ttwo+2], dx
+
+    mov word [bl_body], tb_b_pairv
+    mov si, tb_r_pairv
+    xor al, al
+    call bl_run
+
+    mov word [bl_body], tb_b_pairi
+    mov si, tb_r_pairi
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_tpairi], ax
+    mov [tb_tpairi+2], dx
+
+    mov word [bl_n], TB_NWHEEL
+    mov word [bl_body], tb_b_wpair
+    mov si, tb_r_wpair
+    mov al, 1
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_twpair], ax
+    mov [tb_twpair+2], dx
+    ; --- THE REPEAT, and it is not a filler row ---------------------------
+    ; Every headline this bench produces is a RATIO between two rows, so what
+    ; two identical rows far apart in the run disagree by is the bar under all
+    ; of them. This is `BLIT1 56x56 vgafull` again, sixty rows later.
+    ;
+    ; It exists because `BLIT1 adapter band` - the same geometry as the VGA
+    ; sprite row, reached through three memory loads instead of three
+    ; immediates, so if anything SLOWER - measured 2% FASTER on all three
+    ; adapters. That is systematic rather than noise, it is not explained, and
+    ; a 2% floor under every ratio here is worth stating rather than arguing
+    ; about. Nothing in section 9 or 10 turns on 2%.
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_full
+    mov si, tb_r_rpt
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_trpt], ax
+    mov [tb_trpt+2], dx
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_twpair], ax
+    mov [tb_twpair+2], dx
+
     ; --- 8. sound ---------------------------------------------------------
     mov si, tb_s_h8
     call bl_sline
@@ -1339,6 +1942,10 @@ tb_run:
     call bl_lcommit
 .sndone:
 
+    call tb_fs                      ; ...and the FULLSCREEN arm, last, because
+                                    ; it takes the screen away and gives it
+                                    ; back: every windowed row above must be
+                                    ; measured before the desktop goes
     call tb_derive
     call tb_refusals
     call tb_save                    ; ...and onto the floppy, because 60 rows
@@ -1377,17 +1984,38 @@ tb_pct:
     push cx
     push dx
     push di
+    mov [tb_pnum], bx               ; bl_div32's remainder comes back in BX, so
+                                    ; the numerator's pointer cannot live there
+    mov byte [tb_pscale], 0
     mov ax, [di]                    ; the DENOMINATOR, in whole microseconds
     mov dx, [di+2]
     mov cx, 100
-    push bx                         ; bl_div32 clobbers BX - it is the
-    call bl_div32                   ; remainder - and BX is the numerator here
-    pop bx
-    mov [tb_den], ax
-    mov ax, [bx]                    ; ...and the numerator, likewise
-    mov dx, [bx+2]
-    mov cx, 100
     call bl_div32
+.fit:
+    or dx, dx                       ; **AND KEEP DIVIDING UNTIL IT FITS A
+    jz .have                        ; WORD.** Dividing by 100 once is enough
+    inc byte [tb_pscale]            ; for a band (4,793 us) and is NOT enough
+    mov cx, 10                      ; for a wheel (111,000), which is the
+    call bl_div32                   ; second time this bench has been bitten
+    jmp short .fit                  ; by bl_ratio's 16-bit CX. The first time
+.have:                              ; three derived lines printed 111x too big
+    mov [tb_den], ax                ; and the host table is what caught it;
+    mov bx, [tb_pnum]               ; this time it was a ratio of 152% for
+    mov ax, [bx]                    ; something the same table said was 53%.
+    mov dx, [bx+2]                  ; A percentage loses nothing to the
+    mov cx, 100                     ; rounding, so the scaling is free
+    call bl_div32
+    mov cl, [tb_pscale]
+.sc:
+    or cl, cl                       ; ...and the NUMERATOR is scaled by exactly
+    jz .done                        ; the same amount, or the ratio is wrong by
+    push cx                         ; a power of ten - which is the failure
+    mov cx, 10                      ; this whole routine exists to stop
+    call bl_div32
+    pop cx
+    dec cl
+    jmp short .sc
+.done:
     mov cx, [tb_den]
     or cx, cx
     jnz .ok
@@ -1471,6 +2099,12 @@ tb_derive:
     ; busiest frame in the game.
     mov si, tb_d_proj
     mov bx, tb_tproj
+    mov di, tb_tfull
+    call tb_pct
+
+    ; ...and the harness's own repeatability, which bounds every line above
+    mov si, tb_d_rpt
+    mov bx, tb_trpt
     mov di, tb_tfull
     call tb_pct
 
@@ -1652,23 +2286,35 @@ tb_adapter:
     push cx
     push dx
     call OSAPI_VIDEO                ; AX = w, BX = h, DL = adapter, DH = bpp
-    mov word [tb_aw], TB_FW
+    mov word [tb_aw], TB_FW         ; VGA fullscreen: cell 104x72, RISE 20
     mov word [tb_ah], TB_FH
     mov word [tb_as], TB_FS
+    mov word [tb_pw], 104 + TB_FW
+    mov word [tb_ph], TB_FH + 20
+    mov word [tb_ps], (104 + TB_FW) / 8
+    mov word [tb_adirty], TB_FH / 2
     mov word [tb_sname], tb_s_vga
     cmp dh, 1                       ; SPEC.md's own rule: branch on DEPTH, and
     ja .out                         ; on the adapter only to tell the two 1bpp
     cmp dl, VID_CGA                 ; ones apart
     je .cga
-    mov word [tb_aw], TB_HW
+    mov word [tb_aw], TB_HW         ; Hercules: cell 120x52, RISE 16
     mov word [tb_ah], TB_HH
     mov word [tb_as], TB_HS
+    mov word [tb_pw], 120 + TB_HW
+    mov word [tb_ph], TB_HH + 16
+    mov word [tb_ps], (120 + TB_HW) / 8
+    mov word [tb_adirty], TB_HH / 2
     mov word [tb_sname], tb_s_herc
     jmp short .out
 .cga:
-    mov word [tb_aw], TB_CW
+    mov word [tb_aw], TB_CW         ; CGA: cell 80x30, RISE 8
     mov word [tb_ah], TB_CH
     mov word [tb_as], TB_CS
+    mov word [tb_pw], 80 + TB_CW
+    mov word [tb_ph], TB_CH + 8
+    mov word [tb_ps], (80 + TB_CW) / 8
+    mov word [tb_adirty], TB_CH / 2
     mov word [tb_sname], tb_s_cga
 .out:
     pop dx
@@ -1710,6 +2356,8 @@ tb_s_h5:    db '-- 5. FOUR PLANES: the Rich arm (3.5c). 1bpp REFUSES --', 0
 tb_s_h6:    db '-- 6. RAM: composition (4.2.1) and the projectile (3.9.1) --', 0
 tb_s_h7:    db '-- 7. THE WHEEL: 23 features, one update each --', 0
 tb_s_h8:    db '-- 8. a note-on on each sound arm (13.5) --', 0
+tb_s_h9:    db '-- 9. THE LEVERS: what would buy the rate back --', 0
+tb_s_h10:   db '-- 10. FULLSCREEN: our own row loop, no kernel call --', 0
 tb_s_d:     db '-- derived: x100, so 250 means 2.50 --', 0
 tb_s_d2:    db '-- and these four are x100 PERCENT OF ONE 54.925ms FRAME --', 0
 tb_s_cf:    db '-- what REFUSED, in words rather than in a small number --', 0
@@ -1743,6 +2391,30 @@ tb_r_wfull: db 'WHEEL 23x 56x56', 0
 tb_r_wadapt: db 'WHEEL 23x adapter', 0
 tb_r_wpen:  db 'WHEEL 23x pen+adapt', 0
 tb_r_combat: db 'COMBAT 4proj+4idle', 0
+tb_r_min:   db 'BLIT1 8x1 THE ARRIVAL', 0
+tb_r_short: db 'BLIT1 56x40 shorter', 0
+tb_r_d7:    db 'BLIT1 56x39 dirty 70%', 0
+tb_r_d5:    db 'BLIT1 56x28 dirty 50%', 0
+tb_r_d3:    db 'BLIT1 56x20 dirty 35%', 0
+tb_r_two56: db 'PAIR 2 x 56x56 apart', 0
+tb_r_pairv: db 'PAIR 56x118 stacked', 0
+tb_r_pairi: db 'PAIR 160x76 one lane', 0
+tb_r_wpair: db 'WHEEL 13x paired', 0
+tb_r_rpt:   db 'BLIT1 56x56 REPEAT', 0
+tb_r_adapt1: db 'BLIT1 adapter band', 0
+tb_r_own:   db 'FSX own loop 1 band', 0
+tb_r_ownwheel: db 'FSX own loop 23x', 0
+tb_r_owndirty: db 'FSX own 1 band dirty', 0
+tb_r_ownwdirty: db 'FSX own 23x dirty', 0
+tb_r_fschk: db 'FSX read-back says', 0
+tb_s_fs1:   db 'the framebuffer is ours; no clip, no cursor, no pen', 0
+tb_s_match: db 'MATCH - the right pixels', 0
+tb_s_differ: db 'DIFFER - the loop is WRONG, ignore its time', 0
+tb_s_nofs:  db 'NOT RUN - the bracket or the mode was refused', 0
+tb_d_own:   db 'own loop vs BLIT1', 0
+tb_d_dirty: db 'dirty rect vs whole', 0
+tb_d_ownw:  db 'own wheel vs BLIT1', 0
+tb_d_ownwd: db 'own+dirty vs BLIT1', 0
 tb_r_tone:  db 'SND_TONE note-on', 0
 tb_r_fm:    db 'SND_FM note-on', 0
 
@@ -1752,6 +2424,7 @@ tb_d_cell:  db 'band vs whole cell', 0
 tb_d_split: db 'split pen vs cheap', 0
 tb_d_plane: db '4 planes vs 1 bit', 0
 tb_d_proj:  db 'projectile vs a band', 0
+tb_d_rpt:   db 'repeat vs first x100', 0
 tb_d_wfull: db 'wheel 56x56', 0
 tb_d_wadapt: db 'wheel adapter band', 0
 tb_d_wpen:  db 'wheel with pen', 0
@@ -1775,10 +2448,16 @@ tb_by:      dw 0
 tb_aw:      dw TB_FW
 tb_ah:      dw TB_FH
 tb_as:      dw TB_FS
+tb_pw:      dw 104 + TB_FW
+tb_ph:      dw TB_FH + 20
+tb_ps:      dw (104 + TB_FW) / 8
+tb_adirty:  dw TB_FH / 2
 tb_sname:   dw tb_s_vga
 tb_caps:    dw 0
 tb_lean:    db 0
 tb_den:     dw 0
+tb_pnum:    dw 0
+tb_pscale:  db 0
 tb_left:    dw 0
 tb_left2:   dw 0
 tb_ww:      dw 0
@@ -1797,6 +2476,27 @@ tb_twfull:  dw 0, 0
 tb_twad:    dw 0, 0
 tb_twpen:   dw 0, 0
 tb_tcomb:   dw 0, 0
+tb_tmin:    dw 0, 0
+tb_tshort:  dw 0, 0
+tb_td5:     dw 0, 0
+tb_ttwo:    dw 0, 0
+tb_tpairi:  dw 0, 0
+tb_twpair:  dw 0, 0
+tb_town:    dw 0, 0
+tb_townw:   dw 0, 0
+tb_townd:   dw 0, 0
+tb_townwd:  dw 0, 0
+tb_tadapt:  dw 0, 0
+tb_trpt:    dw 0, 0
+tb_fseg:    dw 0
+tb_fsoff:   dw 0
+tb_fsrowadd: dw 0
+tb_fswrapbit: dw 0
+tb_fswrapfix: dw 0
+tb_fsmode:  db 0
+tb_fsran:   db 0
+tb_fsok:    db 0
+tb_fsi:     times FSI_SIZE db 0
 
 ; ROUNDED TO 512, AND `align 512` BELOW, AND NEITHER IS TIDINESS. `bl_save`
 ; hands OSAPI_FILE_WRITE a pointer into `bl_out`, and dsk_xfer issues int 13h
