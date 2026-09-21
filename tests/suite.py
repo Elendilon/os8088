@@ -4370,7 +4370,20 @@ SOAK = [
         "(96.19.5), measured BEFORE anything moves, because a move or a close "
         "repaints the damage and erases the evidence: an earlier version of "
         "that check moved the window first and stayed green with the bug "
-        "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%.",
+        "deliberately put back. VERIFIED TO FAIL at 0% ink against 50%."
+        " THE READ WAITS FOR THE PROGRAM TO HAVE ENDED, and neither of"
+        " the two obvious edges is good enough - both were measured wrong"
+        " on this row. A new READY line is not this run's answer: field()"
+        " takes the LAST ARGS line and with the run only just started that"
+        " is still the PREVIOUS run's, which correctly says (none). And a"
+        " new ARGS line is worse to debug than it looks, because the line"
+        " APPEARING is not the line being FINISHED - a half-drawn"
+        " `ARGS /M P:220` reads as `/M`, a plausible wrong answer about"
+        " argument PARSING. Both spellings were measured here against an"
+        " ARGUMENTS box that held the whole tail throughout, which is why"
+        " the row now reads [dos_args] at the point of typing and again"
+        " at the commit and says so in the failure: the box being right"
+        " is what turns `the tail is wrong` into `the read was early`. 96.34's `ended, exit code NNN` is the honest edge",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
     Row("dosmedia", "soak", py("tests/dosmedia.py"), 90.0,
@@ -5147,7 +5160,17 @@ SOAK = [
         " passes whatever the pass believes, which is how the first version's"
         " --clobber-occ run came back green with twenty-two verdicts"
         " 'confirmed invisible'. Nine viewpoints, three of them off the"
-        " centreline, because the rule is exact for an object dead ahead",
+        " centreline, because the rule is exact for an object dead ahead"
+        " SETTLED() NEVER HANDS BACK A MOVING FRAME NOW. It gave up after"
+        " 12 rounds and returned the last capture anyway, and every"
+        " verdict here is an XOR between two captures - so an unsettled"
+        " one measures the SCENE still moving and reports it as the"
+        " object being visible. The 2026-09-21 full soak read `the pass"
+        " hid object 9 ... 3389 pixels` and `object 8 ... 3389 pixels`:"
+        " the SAME count for two different objects, which no pair of"
+        " objects produces and one moving frame produces every time. 30"
+        " rounds, and then it RAISES naming the scene rather than"
+        " answering with a number that looks like a finding",
         needs=("marty",), serial=True),
     Row("skieslod", "soak", py("tests/skieslod.py"), 40.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"

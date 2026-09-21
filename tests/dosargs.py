@@ -110,6 +110,38 @@ def field(text, name):
     return got[-1] if got else None
 
 
+def zbuf(m, pseg, dm, name, n=128):
+    """A NUL-terminated buffer out of the package's own segment."""
+    b = m.read((pseg << 4) + dm[name], n)
+    return b.split(b"\x00")[0].decode("latin-1")
+
+
+def took(m, cond, what, budget=20.0):
+    """Wait for the GUEST to have taken it, budgeted in guest seconds.
+
+    WHY THE TYPED TEXT IS CHECKED WHERE IT IS TYPED, and not sixty seconds
+    later in the program's own output: this row went red in the 2026-09-21
+    full soak with `the program read its tail as '(none)' and '/M P:220' was
+    typed` - four clicks, two fields and a run after the point where anything
+    could still be diagnosed. It had already PROVED the keystrokes arrived
+    (`8 keystrokes redrew 8 glyph cells`), so what it could not tell was
+    whether they had gone into the ARGUMENTS box or into whatever else had
+    focus, and a screen `settle` after the click cannot tell either - it says
+    the screen stopped moving, not that a field took focus.
+
+    [dos_args] is that box's own buffer (96.19), so the question has a direct
+    answer in guest memory. Reading it turns a late, ambiguous failure into
+    an immediate and precise one - and waiting on it, on the guest's clock,
+    fixes the case where the click and the keys were merely slow.
+    """
+    c0 = m.status()["cycles"]
+    while not cond():
+        if (m.status()["cycles"] - c0) / os88marty.GUEST_HZ > budget:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 def readys(m):
     """How many READY lines are on the screen NOW.
 
@@ -122,16 +154,52 @@ def readys(m):
     return sum(1 for r in (m.screen() or []) if "READY" in r)
 
 
-def run_and_read(m, limit=120.0, after=0):
-    """Wait until the screen carries `after`+1 READY lines; hand it all back."""
+def nlines(m, name):
+    """How many lines named `name` are on the screen - a COUNT, for readys'
+    reason: 96.34.4 seeds the console onto the program's screen, so the
+    previous run's are still there and a boolean answers about them."""
+    return len(re.findall(r"^%s " % name,
+                          "\n".join(r.rstrip() for r in (m.screen() or [])),
+                          re.M))
+
+
+ENDED = re.compile(r"ended, exit code", re.M)
+
+
+def run_and_read(m, limit=120.0, after=0, ended=None):
+    """Wait until this run has FINISHED PRINTING; hand the whole screen back.
+
+    NEITHER `READY` NOR THE LINE ITSELF IS THE EDGE, and getting that wrong
+    is what took this row red in the 2026-09-21 full soak. The old wait was
+    a new READY line, and `field()` then took the LAST `ARGS` line on the
+    screen - which, with the next run only just started, was still the
+    PREVIOUS run's `(none)`. Waiting for a new `ARGS` line instead is no
+    better and is worse to debug: the line APPEARING is not the line being
+    FINISHED, and a half-drawn `ARGS /M P:220` reads as `/M`, which is a
+    plausible wrong answer about argument parsing rather than an obvious
+    timing failure. Both spellings were measured on this row, `(none)` and
+    `/M`, against an ARGUMENTS box that held the whole tail throughout.
+
+    The honest edge is the program having ENDED: 96.34 puts
+    `... ended, exit code NNN` in the console when it does, so one more of
+    those than there were before means every line this run will ever print
+    is on the screen. Count and not boolean, for readys' reason - the
+    console is seeded onto the program's screen (96.34.4), so the previous
+    run's line is still there."""
     end = time.time() + limit
+    if ended is None:
+        ended = -1                      # no end-of-run gate: READY only
     while time.time() < end:
         rows = m.screen() or []
+        text = "\n".join(r.rstrip() for r in rows)
         if sum(1 for r in rows if "READY" in r) > after:
-            return "\n".join(r.rstrip() for r in rows)
+            if ended < 0 or len(ENDED.findall(text)) > ended:
+                return text
         time.sleep(0.3)
-    fail("no %dth READY line inside %.0fs; the last screen was %r"
-         % (after + 1, limit,
+    fail("no %dth READY line%s inside %.0fs; the last screen was %r"
+         % (after + 1,
+            "" if ended < 0 else " with a %dth `ended, exit code`" % (ended + 1),
+            limit,
             [r.rstrip() for r in (m.screen() or []) if r.strip()][:10]))
 
 
@@ -259,6 +327,13 @@ def main():
         for ch in TYPED:
             m.type_text(ch)
         os88marty.settle(m)
+        if not took(m, lambda: zbuf(m, pseg, dm, "dos_args") == TYPED,
+                    "the arguments box"):
+            fail("%r was typed and the ARGUMENTS box holds %r. The keystrokes "
+                 "reached the guest - the cell count below says so - so this "
+                 "is the click on dos_ln not having taken focus, and every "
+                 "assertion after it would be about a field nobody filled"
+                 % (TYPED, zbuf(m, pseg, dm, "dos_args")))
         wd, ht, data = m.fbuf()
         os88marty.write_png_rgb("build/dosargs.png", wd, ht, data)
 
@@ -295,11 +370,23 @@ def main():
         os88marty.settle(m)
         mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
         os88marty.settle(m)
+        # ...AND THE BOX STILL HOLDS IT. Leaving the setup area is what
+        # commits the fields, and the environment row was typed in between -
+        # so this is the last moment the tail can be checked before the run
+        # that is about to read it.
+        if not took(m, lambda: zbuf(m, pseg, dm, "dos_args") == TYPED,
+                    "the arguments box, after the commit"):
+            fail("the ARGUMENTS box held %r after leaving the setup area, "
+                 "where %r was typed into it - the commit or the environment "
+                 "row took it away"
+                 % (zbuf(m, pseg, dm, "dos_args"), TYPED))
 
         # --- 4: Enter runs it again ------------------------------------------
         was = readys(m)
+        hadend = len(ENDED.findall("\n".join(r.rstrip()
+                                             for r in (m.screen() or []))))
         m.key("Enter")
-        second = run_and_read(m, after=was)
+        second = run_and_read(m, after=was, ended=hadend)
         print("dosargs: ...and again, after typing %r:" % TYPED)
         for r in second.splitlines()[-8:]:      # the TAIL: 96.34.4 seeds the
                                                 # console onto the program's
@@ -311,10 +398,14 @@ def main():
         # --- 5: both framings ------------------------------------------------
         args = field(second, "ARGS")
         if args != TYPED:
-            fail("the program read its tail as %r and %r was typed. If it is "
-                 "empty the field never reached PSP:0080; if it is short the "
-                 "count is wrong; if it has rubbish on the end the 0Dh is"
-                 % (args, TYPED))
+            fail("the program read its tail as %r and %r was typed, with the "
+                 "ARGUMENTS box holding %r at the moment it was read and %r "
+                 "when the run was committed. If the box is EMPTY now, "
+                 "something cleared it between the commit and the run; if it "
+                 "still holds the tail, the tail never reached PSP:0080. If "
+                 "it is short the count is wrong; if it has rubbish on the "
+                 "end the 0Dh is"
+                 % (args, TYPED, zbuf(m, pseg, dm, "dos_args"), TYPED))
         if field(second, "COUNT") != str(len(TYPED)):
             fail("PSP:0080's LENGTH BYTE says %s for a %d-character tail. A "
                  "program that treats the tail as a counted string reads that "
