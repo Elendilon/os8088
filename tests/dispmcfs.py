@@ -65,7 +65,23 @@ def shot(m, card, name):
 
 
 def state(m, mo, label, win, cards):
-    # PAUSE FIRST. vid_ctx_act writes [vid_ox] and [vid_oy] with two stores,
+    # SETTLE EVERY CARD THIS IS ABOUT TO CAPTURE, and not just one of them.
+    # Each of the four call sites settled `sec` and then took a framebuffer
+    # off BOTH, so the VGA was compared having never been asked to stand
+    # still - invisible on an idle box, where it has finished anyway, and
+    # exactly the shape that shows up once in a while under a four-wide soak.
+    # The 2026-09-22 run read `VGA is stale after the round trip, 672
+    # pixel(s) in (228,115)..(283,126)` with the Hercules at 0, which is that
+    # region of the DESKTOP and of the Disk window rather than anything the
+    # fullscreen trip touches.
+    #
+    # NOT REPRODUCED ON DEMAND - ten runs, six idle and four beside three
+    # other guests, all 0/0 - so this is fixed on the code rather than on a
+    # capture. What is certain either way is that a comparison is only
+    # entitled to a framebuffer it settled, and this one was not.
+    for c in cards:
+        os88marty.settle(m, card=c)
+    # PAUSE NEXT. vid_ctx_act writes [vid_ox] and [vid_oy] with two stores,
     # and Missile's worker draws continuously - read on a running guest they
     # disagree with each other and with [vid_cur] about which display is
     # live, which reads exactly like a kernel bug and is not one.
@@ -141,7 +157,6 @@ def main():
                  "right" if wx + ww // 2 >= seam else "left"))
         park = (300, 300)                       # the pointer OFF the Hercules,
         mo.to(*park)                            # so the arrow is in neither
-        os88marty.settle(m, card=sec)           # capture
         before = state(m, mo, "windowed", g, both)
         shot(m, sec, "1-windowed-herc")
 
@@ -149,7 +164,6 @@ def main():
         mo.to(wx + ww // 2, wy + wh // 2)       # the pointer on the game
         m.key("KeyF")
         time.sleep(4)
-        os88marty.settle(m, card=sec)
         full = state(m, mo, "fullscreen", g, both)
         shot(m, sec, "2-fullscreen-herc")
         shot(m, pri, "2-fullscreen-vga")
@@ -169,7 +183,6 @@ def main():
         time.sleep(4)
         os88marty.settle(m, card=sec)
         mo.to(*park)
-        os88marty.settle(m, card=sec)
         after = state(m, mo, "back to windowed", g, both)
         shot(m, sec, "3-after-herc")
         shot(m, pri, "3-after-vga")
@@ -181,7 +194,6 @@ def main():
         dispcp.open_panel(m, mo, S, os88marty.settle)
         dispcp.close_panel(m, mo, S, os88marty.settle)
         mo.to(*park)
-        os88marty.settle(m, card=sec)
         forced = state(m, mo, "after a forced repaint", g, both)
         shot(m, sec, "4-forced-herc")
         shot(m, pri, "4-forced-vga")    # ...AND THE VGA'S, which is the card

@@ -5046,7 +5046,21 @@ SOAK = [
         " (os88geom's own, which is what wm_su_rect answers) and"
         " everything else stays: chrome, borders, desktop, dock. It"
         " reads 0 differing pixels on BOTH cards now, not a few, so the"
-        " assertion kept its force",
+        " assertion kept its force"
+        " AND A CAPTURE SETTLES EVERY CARD IT READS. All four call sites"
+        " settled the SECONDARY and then took a framebuffer off BOTH, so"
+        " the VGA was compared having never been asked to stand still -"
+        " invisible on an idle box, where it has finished anyway, and"
+        " exactly the shape that surfaces once in a while under a"
+        " four-wide soak. The 2026-09-22 run read `VGA is stale after the"
+        " round trip, 672 pixel(s) in (228,115)..(283,126)` with the"
+        " Hercules at 0 - a region of the DESKTOP and the Disk window,"
+        " which the fullscreen trip does not touch. NOT REPRODUCED ON"
+        " DEMAND: ten runs, six idle and four beside three other guests,"
+        " every one 0/0 - so that half is fixed on the CODE and not on a"
+        " capture, and this note says so rather than implying a"
+        " measurement nobody took. What holds either way is that a"
+        " comparison is only entitled to a framebuffer it settled",
         needs=("marty",), serial=True),
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
