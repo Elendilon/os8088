@@ -2661,6 +2661,71 @@ still has to read there, since it changes where the arrow goes — so on CGA the
 dot is *shaped* by the stance rather than accompanied by it. All of that is a
 layout-table decision, not a second code path.
 
+### 8.1 WHAT THE COMPOSER BUILT — and the stat set it had to hold
+
+**The stat set, enumerated by the owner and binding from here**: a **gold cost**
+and a **soul cost** that exist only while it is a card, and **HP**, **stat1**,
+**stat2** and **POWER** — the souls a kill of it pays — that follow it onto the
+board. Six, of which four are board state. stat1 and stat2 are each drawn from
+one list (shield, gold generation, soul generation, melee, ranged, special
+ability), so the ICON is per character and not per slot.
+
+**The system 8×8 could not hold them**, which is what put a face in the package
+(SPEC.md §97.4.1.1): a CGA cell's stat column takes two of the four and a CGA
+card row takes a name *or* the numbers. The 6×6 face is the one that fits, and
+the measured outcome is one line —
+
+| adapter | card | at 8×8 | at 6×6 |
+|---|---|---|---|
+| VGA windowed | 112 × 32 | name, 2 costs, 2 stats | name, 2 costs, **all four stats** |
+| Hercules | 136 × 24 | name, 2 costs | name, 2 costs, **all four stats** |
+| CGA | 136 × 11 | **nothing** — a row will not fit | the four board stats, or name + costs hovered |
+
+— and the CGA row is why the key exists rather than a preference: an 8×8 card
+there has no text at all.
+
+**HERCULES' THIRD ROW COST TWO PIXELS AND THEY CAME OUT OF THE COMMIT ROW'S
+GAP.** `CARDH` went 22 → 24, which needs `7·(CARDH+2) + gap + (CARDH+2)` to
+still fit a 216-row board; the gap was `CARDH/2` and is `CARDH/3`, which buys
+exactly the two rows. Worth writing down because the binding quantity was not
+the panel's width or the face's height — it was a *decoration* nobody had
+priced.
+
+### 8.2 CARD ART — what is scoped, and the room the composer leaves
+
+The owner's question was whether card art was sized in this plan. **The
+PIPELINE row is there** (§4.1, `art/card/<faction>/<card>.png` → `FACES.DAT`)
+and **the size is not**, so here it is, against the built card.
+
+**The model is the owner's**: there are 90 card arts, they are **static**, and
+what ANIMATES on a card is the character added to it — which is already built
+(the mini unit, §3.3). So the art is a *ground* and not a frame sequence, and
+it costs one master per card rather than one per pose.
+
+What the composer leaves, per card, is the box between the flow's right margin
+and the figure's column — and the honest reading is that **at 6×6 there is
+almost none**: four rows of six is 24 of a VGA card's 28 usable rows. So card
+art is a trade against the face and not a space beside it:
+
+| | text rows | art box (VGA windowed) |
+|---|---|---|
+| 6×6, all six stats | 4 | none worth having |
+| 6×6, costs on the name's line | 3 | 112 × 6 |
+| 8×8, four stats | 3 | none |
+| 6×6, board stats only (hover shows the rest) | 2 | 112 × 14 |
+
+**Which is why the face key ships before the art does.** The decision is a look
+one and it is the owner's; what this section fixes is that it is a decision
+about **how many stats are on the card at rest**, not about how big a picture
+is. The art itself, once that is settled, is authored at the largest card box
+in the table (136 × 36) and cut per axis exactly as a sprite is (§4.2) — 90
+cards × 612 B is **55KB uncompressed**, a part of the package (§4.3) and not
+resident.
+
+**A picture BEHIND the text is refused.** The band is composed by OR at 1bpp,
+so text over art is text with the art showing through it; the art has to own
+rows the text does not.
+
 ---
 
 ## 9. Deck building

@@ -9421,10 +9421,19 @@ titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
 apps/tithe/tibases.inc: tools/os88tithebase.py
 	python3 tools/os88tithebase.py emit
 
+# ...and so are its FACES (SPEC.md 97.4.1): the package draws its own text, so
+# tools/os88titheface.py packs fonts/*.f* into 48 consecutive glyphs a face.
+# THE .bin DEPENDS ON BOTH. It did not, and an edited face then assembled into
+# an up-to-date package that was never rebuilt - which reads exactly like a
+# glyph change that did nothing, and cost a screenshot round to find.
+apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
+	python3 tools/os88titheface.py emit
+
 $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
-                    apps/tithe/tibases.inc \
+                    apps/tithe/tibases.inc apps/tithe/tifaces.inc \
+                    apps/tithe/titxt.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"

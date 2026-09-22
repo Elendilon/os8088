@@ -210,6 +210,8 @@ ti_relayout:
     push ax
     call ti_layout
     jc .no
+    mov ax, [ti_face]               ; ...the face's shape, which the card
+    call ti_face_set                ; composer reads on every row
     call ti_art_build
     call ti_phase_seed              ; ...and spread the clocks, so neighbours
                                     ; do not breathe together
@@ -375,6 +377,10 @@ ti_onkey:
     jne .n_bart
     jmp .bart
 .n_bart:
+    cmp bl, 't'
+    jne .n_face
+    jmp .face
+.n_face:
     cmp al, '+'
     jne .n_up
     jmp .up
@@ -451,6 +457,16 @@ ti_onkey:
     mov [ti_arm], ax
     mov byte [ti_laid], 0
     call ti_relayout_ck
+    call ti_paint_now
+    jmp .out
+.face:                              ; SPEC.md 97.4.1's `T`: the next TYPEFACE.
+    mov ax, [ti_face]               ; The card is composed rather than drawn
+    inc ax                          ; through the kernel's runs, so the face is
+    cmp ax, TI_FACES                ; a choice the package gets to make - and
+    jb .faceset                     ; which one is a LOOK question, so it is a
+    xor ax, ax                      ; key until somebody has looked
+.faceset:
+    call ti_face_set
     call ti_paint_now
     jmp .out
 .bart:                              ; SPEC.md 97.2.1's `B`: the next base
@@ -1264,6 +1280,8 @@ ti_pit:
     pop dx
     ret
 
+%include "tifaces.inc"
+%include "titxt.inc"
 %include "tibases.inc"
 %include "tilay.inc"
 %include "tirend.inc"
@@ -1415,6 +1433,20 @@ ti_cardp:   dw 0
 ti_cardl2:  dw 0
 ti_cgap:    dw 0                    ; the button row's offset from the hand
 ti_unith:   dw 0                    ; the mini unit on a card
+TI_CARDBANDMAX equ 20 * 40      ; the widest card (a hovered 152) by the
+                                ; tallest (36), plus ti_glyph's pad byte
+ti_cardband: times TI_CARDBANDMAX db 0
+ti_cbs:     dw 0                    ; the band's stride, pad included
+ti_crows:   dw 0                    ; rows of the chosen face that fit
+ti_tw:      dw 0                    ; the flow's right margin - the card's
+                                    ; width LESS the figure's own column
+ti_tx:      dw 0                    ; the flow's pen
+ti_ty:      dw 0
+ti_tfull:   dw 0                    ; set when it has run out of rows
+ti_face:    dw 0                    ; SPEC.md 97.4.1's `T`: which face
+ti_fdata:   dw 0                    ; ...and its glyphs, width and height
+ti_fw:      dw 8
+ti_fh:      dw 8
 ti_cpad:    dw 0                    ; 1 where a card has a row to spare at each
                                     ; end for the hovered card's inner frame
 ti_unitb:   dw TI_UNITW / 8
@@ -1548,7 +1580,7 @@ ti_insy:    dw 0
 ; which one is the button's.
 ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
 ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
-ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
+ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 24, 24
 ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 2, 11, 24
 
 ti_s_bsep:  db '   BASE ', 0

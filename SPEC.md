@@ -140097,6 +140097,62 @@ the strip never flashes, the ground and the glyph being one decision per cell.
 It is drawn with the **board** and not with a frame, for the same reason the
 numbers are: nothing in it changes more than once a round.
 
+#### 97.4.1.1 TITHE DRAWS ITS OWN TEXT, in its own face
+
+**A character has SIX stats and four of them have to be on the board**
+(TITHE-PLAN §5.2): a gold cost and a soul cost that matter only while it is a
+card, and HP, two variable stats and POWER that follow it onto the board. At
+the system 8×8 a CGA cell's stat column holds **two** of the four and a CGA
+card row holds a name *or* the numbers — and `OSAPI_FONT_RUN` draws the system
+face and no other (§6.1). So the choice was a smaller face or fewer numbers,
+and the package carries its own faces: `tools/os88titheface.py` packs
+`fonts/*.f*` into `apps/tithe/tifaces.inc` and `apps/tithe/titxt.inc` renders
+them into a band.
+
+**IT IS ALSO FASTER, AND THAT IS NOT WHY IT EXISTS.** A card was two fills, a
+frame, a second frame, two font runs, three icon blits and the unit — a dozen
+arrivals at ~800 µs each (§97.5's own calibration) — and composed it is one
+`OSAPI_GFX_BLIT1`. The saving is real, and nothing here is on the animation
+clock: a card is drawn when the hover changes and a cell's numbers at most once
+a round (TITHE-PLAN §8). The face is the reason; the arrivals are a dividend.
+
+**THE ICONS ARE GLYPHS, not a second mechanism.** Codes 1..7 of every face are
+the heart, coin, soul, sword, shield, bow and star, so `heart 12` is ONE run
+with no second call and no second alignment — where the 8×8 icons were separate
+bands, one arrival each, that had to be placed against text drawn by somebody
+else. The tall face's are `ti_ic_*`'s own bytes: a second drawing of the same
+coin would be a second coin.
+
+**AN ICON MUST BE FOUR PIXELS FROM EVERY OTHER GLYPH IN ITS FACE.** Identical
+is the failure that reads as a typo; *nearly* identical is the one that ships.
+At five pixels the coin was a ring with a pip and the digit `0` a ring with a
+stroke — two pixels apart — and the shield was the heart with its top row
+filled in, also two; both sit in a column of numbers where the reader has no
+context to recover from. `tools/os88titheface.py --selfcheck` is that gate and
+it is a **distance** rather than an inequality. What clears it is mass and not
+detail: the coin is SOLID where `0` is outlined, the shield OUTLINED where the
+heart is solid, and the sword's guard is low because a centred one is the `+`.
+
+**A GLYPH NEEDS NO ALIGNMENT.** It is at most 8 bits wide, so it lands in at
+most two destination bytes: the row goes into `AH`, the pair is shifted right
+by `x & 7` and the two halves are ORed. That is the whole of why a card can be
+composed at any pitch the layout hands it, where `OSAPI_GFX_BLIT1` refuses the
+*band* at an unaligned x (§5.4.2). **The band is one byte wider than the card**
+so the last glyph on a row has somewhere to put its second byte, and the blit
+is told the real width.
+
+**THE FACE IS A KEY (`T`) AND NOT A SETTING**, because which one is right is a
+look question and the two answer different ones: the 8×8 is more legible and
+the 6×6 fits **four rows where 8×8 fits three**, which is the difference
+between a card that shows all six stats and one that shows four — and room for
+card art rather than a card that is entirely text.
+
+**A GENERATED TABLE NEEDS A MAKEFILE DEPENDENCY.** `apps/tithe/tifaces.inc` is
+emitted by a tool and `$(BUILD)/tithe.bin` did not depend on it, so an edited
+face assembled into a package that was never rebuilt — which reads exactly like
+a glyph change that did nothing, and cost a screenshot round to find. The same
+applies to `tibases.inc`.
+
 #### 97.4.2 The card panel, and the hovered card is the 23rd feature
 
 **A vertical strip down the right-hand edge, not a row along the bottom.**
@@ -140106,9 +140162,27 @@ and on a 640×200 CGA that is the difference between a board and a refusal.
 **The hand is always SEVEN and the row HEIGHT is what moves.** A panel showing
 six cards on one adapter would be a different *game* there, not a smaller one —
 so `CARDH` is a layout-table field cut so that seven rows and the COMMIT row
-fit the board's own height, and it is 36 / 32 / 22 / 12 down §97.2's table. A
-row under 20 pixels carries the name line alone; the stat line is the first
-thing to go, exactly as the cell's second number row is.
+fit the board's own height, and it is 36 / 32 / 24 / 11 down §97.2's table.
+
+**WHAT A CARD SAYS IS A FLOW, NOT A SET OF ROWS.** There are six stats to place
+(§97.4.1.1) and four geometries times two faces to place them in, so the layout
+is not decided per case at all: each `icon value` pair is MEASURED, put on the
+current line if it fits and on the next if it does not, and the flow simply
+STOPS when the card runs out of rows. What a geometry shows is then a
+consequence of its own size — VGA at 6×6 shows all six, Hercules shows all six
+in three rows, CGA shows the four board stats in one — rather than eight
+hand-cut cases. It also makes the face key a *demonstration*: the same card
+gains two stats when the face gets smaller.
+
+**THE FIGURE OWNS A COLUMN.** The mini unit is ORed into the band's top-right
+corner over the text's own rows, so the flow's right margin is the card's width
+LESS that column. Without it the stat row ran under the figure and off the
+card — and **neither that nor a row too many is visible as a broken frame
+line**, because the band is composed by OR and the frame is drawn first, so a
+glyph landing on it changes no pixel at all. `tests/tithecard.py` asserts the
+two things they *do* leave: a blank row above the foot, and a clear gutter
+between the flow's margin and the figure's column. Both defects were put back
+in and a frame-line check passed them.
 
 **A card is white and the board is black**, which is the whole of how it reads
 at 1bpp — so the hovered card needs no second colour and no dither: ink and
@@ -140150,11 +140224,11 @@ refused** (§97.4.1): the cells tile edge to edge, so a number to the left of
 one figure sits against its *neighbour's* rather than against its own.
 
 **A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and the pointer
-picks which.** At rest it shows the three **numbers** — cost, attack, defence —
-because that is what a hand is read for; hovered, it shows the **name** with
-its cost in front. It used to show cost-and-name always, which is the one field
-a player can also get from the sprite, and left attack and defence on no
-surface at all. Only the CGA row is short enough for this to fire.
+picks which.** At rest it shows the four **board** numbers — HP, both stats and
+power — because that is what a hand is read for; hovered, it shows the **name**
+and the two costs, **on the same line**, the hovered card being wider. It used
+to show cost-and-name always, which is the one field a player can also get from
+the sprite. Only the CGA row is short enough for this to fire.
 
 **`CARDH` is 11 on CGA and not 10**, and the one row is what stops the name
 eating the card's own bottom edge: a glyph is 8 tall and sits at +2, so it
@@ -140163,9 +140237,10 @@ overwritten across the text's width. The hand is still seven: the board is 112
 rows, the pitch 13 and the button row's offset 5, and 12 would drop it to six.
 
 **Every number carries an icon** (§97.4.1): a bare digit on a card said nothing
-about whether it was cost, attack or gold. The icons are 8×8 1bpp bands rather
-than characters, the system font having no coin, sword, shield or heart in it —
-one glyph cell each, so an icon costs exactly the room of the digit it labels.
+about whether it was cost, attack or gold. They were 8×8 1bpp bands, one
+arrival each, because the system font has no coin, sword, shield or heart in
+it; they are **glyphs of the package's own face** now (§97.4.1.1), so an icon
+costs exactly the room of the digit it labels and rides the same run.
 
 **A card carries the UNIT IT PLAYS, and that is what animates.** A mini
 figure — the board figure's own shape at a quarter of the size, so it is the
@@ -140175,19 +140250,21 @@ change dressed as movement. Redrawing the whole card would be a fill, a frame,
 three icons and two runs for one moving band, so the wheel banks the hovered
 card's box and puts down the unit alone.
 
-**LINE 1 IS THE NAME AND NOTHING ELSE.** A card is fourteen glyph cells wide on
-a VGA and the unit takes three, so a line carrying an icon, a cost, a space and
-a name lost the name's last letters — PIKEMA, ACOLYT, BULWAR. The cost went
-down to the stat line, where cost, attack and defence are the three numbers a
-player compares between cards. A row too short for a second line (CGA's ten
-pixels) puts the cost back in front of the name, that being the number that
-decides whether a card is playable at all.
+**LINE 1 IS THE NAME AND NOTHING ELSE**, wherever there is more than one line.
+A card is fourteen glyph cells wide on a VGA and the unit takes three, so a
+line carrying an icon, a cost, a space and a name lost the name's last
+letters — PIKEMA, ACOLYT, BULWAR. The name is CUT to the flow's own column
+rather than being allowed to run, and the costs take the line under it, where
+the two of them are what a player compares between cards.
 
 **UNDO is a BUTTON, not a card**, so it is cut to the width of its own word and
 shares the COMMIT row; making it card-sized would say it was one of the seven.
 A plan is editable (TITHE-PLAN §5.0.2), so there has to be a way to take an
-entry back. The row sits **half a card lower** than the hand: flush against the
-last card it reads as an eighth card.
+entry back. The row sits **a third of a card lower** than the hand: flush
+against the last card it reads as an eighth card. It was half a card, and that
+half was what stopped Hercules fitting the row its stats need — the gap buys
+nothing the third does not, and it was costing `CARDH` two pixels where two
+pixels are a whole line of text.
 
 #### 97.4.4 The HUD is the ROUND, and everything else is on the board
 

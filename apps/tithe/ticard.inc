@@ -24,6 +24,15 @@ TI_C_DEF    equ 2
 TI_C_NAME   equ 3
 TI_C_SIZE   equ 5
 
+; the seven icons, which are glyphs 1..7 of every face (tools/os88titheface.py)
+TI_IC_HP    equ 1
+TI_IC_GOLD  equ 2
+TI_IC_SOUL  equ 3
+TI_IC_MELEE equ 4
+TI_IC_SHIELD equ 5
+TI_IC_BOW   equ 6
+TI_IC_STAR  equ 7
+
 ; ti_stat - one icon-and-number pair on a card's second line
 ; in:  BX = the pair's x offset from [ti_cbx]+8, SI = the icon, AL = the
 ;      field's offset in the card record
@@ -118,8 +127,10 @@ ti_panel_lay:
     add ax, TI_CARDGAP              ; the button row included
     mov [ti_cardpitch], ax
     mov ax, [ti_cardh]              ; THE BUTTON ROW SITS LOWER, off the hand
-    shr ax, 1                       ; by half a card: a COMMIT flush against
-    mov [ti_cgap], ax               ; the last card reads as an eighth card
+    xor dx, dx                      ; by a THIRD of a card: a COMMIT flush
+    mov cx, 3                       ; against the last card reads as an eighth
+    div cx                          ; card, and half of one cost Hercules the
+    mov [ti_cgap], ax               ; row that holds its stats
     xor dx, dx
     mov ax, [ti_boardh]
     sub ax, [ti_cgap]
@@ -178,13 +189,23 @@ ti_card_y:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_card_draw - one hand row, at AX = its index
+; ti_card_draw - one hand row, at AX = its index: COMPOSED, then ONE blit
 ; Preserves every register.
 ;
-; A CARD IS WHITE AND THE BOARD IS BLACK, which is the whole of how it reads at
-; 1bpp: paper and ink swap for the hovered one, so the expansion needs no
-; second colour and no dither. Every run is font_run - the frame, the ground
-; and the glyphs are never drawn twice over each other (PERFORMANCE.md rule 2).
+; IT WAS A DOZEN ARRIVALS. Two fills, a frame, a second frame, two font runs,
+; three icon blits and the unit band - and at SPEC.md 97.5's measured ~800 us a
+; call that is most of a frame for one card, seven of them for a repaint. The
+; card is built in a band here and put down with ONE `OSAPI_GFX_BLIT1`.
+;
+; THE REASON IS THE FACE AND NOT THE SPEED (SPEC.md 97.4.1). `OSAPI_FONT_RUN`
+; draws the system 8x8 and no other, so a smaller face means drawing the text
+; ourselves - and once the text is being composed, composing the frame and the
+; icons with it is less code than not.
+;
+; THE BAND IS ONE BYTE WIDER THAN THE CARD. `ti_glyph` places a glyph at any x
+; by shifting it across a byte PAIR, so the last glyph on a row writes one byte
+; past the card's own width; the pad is where that byte goes, and the blit is
+; told the real width.
 ; -----------------------------------------------------------------------------
 ti_card_draw:
     push ax
@@ -193,6 +214,7 @@ ti_card_draw:
     push dx
     push si
     push di
+    push bp
     push es
     push ds
     pop es
@@ -209,236 +231,490 @@ ti_card_draw:
     add si, ax
     mov [ti_cardp], si
 
-    ; --- HOVERED: inverted, WIDER, and pulsing ------------------------------
-    ; TITHE-PLAN 3.3's "the moused-over one expanded and animated - the 23rd
-    ; feature". It grows sideways into the panel's own 8-pixel margins and not
-    ; downward, which is what keeps it off its neighbours: an expansion that
-    ; overlapped them would need two cards repainted on every un-hover, where
-    ; this needs the margin blacked and nothing else. Both edges stay on the
-    ; byte grid, the panel's x being a multiple of 8.
-    mov al, CWHITE
-    mov ah, CBLACK
-    mov word [ti_cx], 0             ; 0 = the inset card, 1 = the expanded one
-    mov word [ti_c1off], 0          ; ...and whether line 1 carries a coin,
-    cmp word [ti_cardh], 20         ; which on a short card is only the HOVERED
-    jae .h0                         ; one - at rest it shows the three numbers
-    cmp word [ti_hover], -1         ; and has no name to put a cost in front of
-    je .h0
-    mov cx, [ti_hover]
-    cmp cx, [ti_cardi]
-    jne .h0
-    mov word [ti_c1off], 8
-.h0:
+    ; --- hovered? then it is WIDER, and inverted at the blit ---------------
+    mov word [ti_cx], 0
     cmp word [ti_hover], -1
-    je .pen
+    je .box
     mov cx, [ti_hover]
     cmp cx, [ti_cardi]
-    jne .pen
-    mov al, CBLACK
-    mov ah, CWHITE
+    jne .box
     mov word [ti_cx], 1
-.pen:
-    mov [ti_cink], al
-    mov [ti_cpap], ah
-
-    mov al, CBLACK                  ; the panel's own row, so the margins an
-    call OSAPI_SET_COLOR            ; expansion may have covered come back
-    mov ax, [ti_panx]
-    mov bx, [ti_cardy]
-    mov cx, ax
-    add cx, [ti_pan]
-    dec cx
-    mov dx, bx
-    add dx, [ti_cardh]
-    dec dx
-    call OSAPI_GFX_FILL
-
-    mov ax, [ti_cardx]              ; ...then the card, inset or full-width
+.box:
+    mov ax, [ti_cardx]
     mov cx, [ti_cardw]
     cmp word [ti_cx], 0
-    je .box
+    je .have
     mov ax, [ti_panx]
     mov cx, [ti_pan]
-.box:
+.have:
     mov [ti_cbx], ax
     mov [ti_cbw], cx
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    inc cx                          ; ...the pad byte ti_glyph writes into
+    mov [ti_cbs], cx
 
-    mov al, [ti_cpap]
-    call OSAPI_SET_COLOR
-    mov ax, [ti_cbx]
-    mov bx, [ti_cardy]
+    mov di, ti_cardband             ; a clean band
+    mov ax, [ti_cbs]
+    mul word [ti_cardh]
     mov cx, ax
-    add cx, [ti_cbw]
-    dec cx
-    mov dx, bx
-    add dx, [ti_cardh]
-    dec dx
-    call OSAPI_GFX_FILL
-    mov al, [ti_cink]
-    call OSAPI_SET_COLOR
+    push di
+    xor al, al
+    rep stosb
+    pop di
+
+    ; --- the frame, and the pulse-free second one --------------------------
+    call ti_cb_frame
+    cmp word [ti_cx], 0
+    je .text
+    cmp word [ti_cpad], 0
+    je .text
+    call ti_cb_frame2
+.text:
+    call ti_cb_text
+    call ti_cb_unit
+
+    ; --- ONE ARRIVAL ------------------------------------------------------
+    ; A hovered card is INK ON PAPER the other way round, which the PEN does
+    ; rather than a second composition: the band is the same bits either way.
+    mov ax, (CWHITE << 8) | CBLACK
+    cmp word [ti_cx], 0
+    je .pen
+    mov ax, (CBLACK << 8) | CWHITE
+.pen:
+    call OSAPI_GFX_BLIT1_PEN
+    mov si, ti_cardband
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
-    mov cx, ax
-    add cx, [ti_cbw]
-    dec cx
-    mov dx, bx
-    add dx, [ti_cardh]
-    dec dx
-    call OSAPI_GFX_FRAME
+    mov cx, [ti_cbw]
+    mov dx, [ti_cardh]
+    mov bp, [ti_cbs]
+    call OSAPI_GFX_BLIT1
+    mov ax, (CBLACK << 8) | CWHITE  ; the pen is valid for this lock hold
+    call OSAPI_GFX_BLIT1_PEN        ; (SPEC.md 5.4.2.2), so it is put back
 
-    ; THE HOVERED CARD IS A DOUBLE FRAME AND IT DOES NOT PULSE. It used to be
-    ; drawn on alternate values of this card's phase counter, so the hover read
-    ; as an OUTLINE half the time and as a solid inverted BLOCK the other half
-    ; - the field saw both and asked for the outline. The animation a hovered
-    ; card owes is the UNIT on it moving (TITHE-PLAN 3.3), which is what the
-    ; wheel's last feature commits; a frame that comes and goes is a state
-    ; change dressed as movement, and it was competing with the real one.
-    cmp word [ti_cx], 0
-    je .body
-    cmp word [ti_cpad], 0           ; ...where there is a row to spare for it
-    je .body
+    cmp word [ti_cx], 0             ; the hovered card's box is banked, so the
+    je .out                         ; wheel can redraw the UNIT alone
     mov ax, [ti_cbx]
-    add ax, 2
-    mov bx, [ti_cardy]
-    add bx, 2
-    mov cx, [ti_cbx]
-    add cx, [ti_cbw]
-    sub cx, 3
-    mov dx, [ti_cardy]
-    add dx, [ti_cardh]
-    sub dx, 3
-    call OSAPI_GFX_FRAME
-.body:
-
-    ; --- LINE 1 IS THE NAME, AND NOTHING ELSE -------------------------------
-    ; A card is fourteen glyph cells wide on a VGA and the unit takes three of
-    ; them, so a line carrying an icon, a cost, a space and a name lost the
-    ; name's last letters - PIKEMA, ACOLYT, BULWAR. The cost went down to the
-    ; stat line, where it belongs anyway: cost, attack and defence are the
-    ; three numbers a player compares between cards.
-    mov al, [ti_cink]
-    mov ah, [ti_cpap]
-    call OSAPI_GFX_BLIT1_PEN        ; the icons are INK on PAPER like the text,
-                                    ; so a hovered card inverts whole
-    ; A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and which
-    ; one is what the pointer decides: the NUMBERS at rest, because cost,
-    ; attack and defence are what a hand is read for, and the NAME when the
-    ; pointer is on it, because that is the one card being considered. It used
-    ; to show cost-and-name always, which is the only field a player can get
-    ; from the sprite anyway and left attack and defence on no surface at all.
-    cmp word [ti_cardh], 20
-    jae .full
-    cmp word [ti_cx], 0
-    jne .full                       ; ...hovered: fall through to the name
-    mov ax, [ti_cardy]              ; AT REST: the three numbers, on line 1,
-    add ax, 2                       ; where ti_stat already knows how to put
-    add ax, [ti_cpad]               ; them
-    mov [ti_cardl2], ax
-    mov bx, 0
-    mov si, ti_ic_cost
-    mov al, TI_C_COST
-    call ti_stat
-    mov bx, 24
-    mov si, ti_ic_atk
-    mov al, TI_C_ATK
-    call ti_stat
-    mov bx, 48
-    mov si, ti_ic_def
-    mov al, TI_C_DEF
-    call ti_stat
-    jmp .pen0
-.full:
-    mov di, ti_cardbuf
-    mov si, [ti_cardp]
-    cmp word [ti_cardh], 20         ; a card too short for a second line puts
-    jae .name                       ; its COST in front of the name, that being
-    mov al, [si + TI_C_COST]        ; the number that decides whether a card is
-    call ti_u8                      ; playable at all
-    mov al, ' '
-    stosb
-    mov si, [ti_cardp]
-.name:
-    mov si, [si + TI_C_NAME]
-    call ti_poke
-    mov byte [di], 0
-    push bx
-    mov bx, [ti_cbw]                ; ...cut to what is left once the unit has
-    sub bx, 8 + TI_UNITW + 8        ; its corner and the icon its cell
-    sub bx, [ti_c1off]
-    shr bx, 1
-    shr bx, 1
-    shr bx, 1
-    call ti_clip
-    pop bx
-
-    cmp word [ti_c1off], 0          ; the coin FIRST, so the name's run does
-    je .run1                        ; not have to land on top of it - drawn
-    mov ax, [ti_cbx]                ; after, it ate the name's first letter
-    add ax, 8
-    mov bx, [ti_cardy]
-    add bx, 1
-    add bx, [ti_cpad]
-    mov si, ti_ic_cost
-    call ti_icon
-.run1:
-    mov cx, [ti_cbx]
-    add cx, 8
-    add cx, [ti_c1off]              ; past the coin, where there is one
-    mov dx, [ti_cardy]
-    add dx, 2
-    add dx, [ti_cpad]               ; ...clear of the inner frame's top row
-    mov si, ti_cardbuf
-    mov al, [ti_cink]
-    mov ah, [ti_cpap]
-    call OSAPI_FONT_RUN
-
-    ; --- LINE 2: cost, attack, defence, each with its icon ------------------
-    cmp word [ti_cardh], 20
-    jb .short
-    mov dx, [ti_cardy]
-    add dx, [ti_cardh]
-    sub dx, 10
-    sub dx, [ti_cpad]               ; ...and of its bottom one
-    mov [ti_cardl2], dx
-    mov bx, 0                       ; the three pairs, at 24 pixels each
-    mov si, ti_ic_cost
-    mov al, TI_C_COST
-    call ti_stat
-    mov bx, 24
-    mov si, ti_ic_atk
-    mov al, TI_C_ATK
-    call ti_stat
-    mov bx, 48
-    mov si, ti_ic_def
-    mov al, TI_C_DEF
-    call ti_stat
-    jmp short .pen0
-.short:
-.pen0:
-    push word [ti_pi]               ; the unit itself, at this card's own pose
-    mov bx, [ti_cardi]
-    add bx, ti_clock
-    mov bl, [bx]
-    xor bh, bh
-    mov [ti_pi], bx
-    call ti_unit_draw
-    pop word [ti_pi]
-
-    cmp word [ti_cx], 0             ; ...and the hovered card's box is banked,
-    je .pen1                        ; so the wheel can redraw the UNIT alone
-    mov ax, [ti_cbx]                ; rather than the whole card
     mov [ti_hovbx], ax
     mov ax, [ti_cbw]
     mov [ti_hovbw], ax
     mov ax, [ti_cardy]
     mov [ti_hovy], ax
-.pen1:
-    mov ax, (CBLACK << 8) | CWHITE  ; the pen is valid for this lock hold
-    call OSAPI_GFX_BLIT1_PEN        ; (SPEC.md 5.4.2.2), so it is put back
 .out:
     pop es
+    pop bp
     pop di
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_set / ti_cb_frame - the band's own primitives ---------------------
+; A pixel and a frame, in the band rather than on the screen. They are here and
+; not in os88gfx.inc because a band this small wants no clipping and no stride
+; arithmetic beyond one multiply (SPEC.md 5.12's own test: a shim would be
+; longer than the body).
+ti_cb_set:                          ; BX = x, DX = y
+    push ax
+    push bx
+    push cx
+    push dx                         ; ...DX, WHICH IS THE ROW. `mul` lands its
+                                    ; high half there, so a body that resolves
+                                    ; the row and then forgets it hands its
+                                    ; CALLER a destroyed y - and every caller
+                                    ; here loops on one. ti_cb_hline still
+                                    ; terminates (it counts BX) and writes the
+                                    ; rest of its run at an offset of tens of
+                                    ; thousands, which is not a wrong line, it
+                                    ; is the package's own memory. ti_glyph
+                                    ; carries the same warning for the same
+                                    ; reason; this is the site it was not
+                                    ; applied to.
+    push di
+    cmp dx, [ti_cardh]              ; a band write is unclipped, so the band's
+    jae .out                        ; own height is the fence
+    cmp bx, [ti_cbw]
+    jae .out
+    mov ax, dx
+    mul word [ti_cbs]
+    mov di, ti_cardband
+    add di, ax
+    mov ax, bx
+    mov cl, 3
+    shr ax, cl
+    add di, ax
+    mov cx, bx
+    and cx, 7
+    mov al, 080h
+    shr al, cl
+    or [di], al
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+ti_cb_hline:                        ; BX = x0, CX = x1, DX = y
+    push bx
+.x:
+    cmp bx, cx
+    ja .out
+    call ti_cb_set
+    inc bx
+    jmp short .x
+.out:
+    pop bx
+    ret
+
+ti_cb_frame:
+    push bx
+    push cx
+    push dx
+    push si
+    xor bx, bx
+    mov cx, [ti_cbw]
+    dec cx
+    xor dx, dx
+    call ti_cb_hline                ; the top...
+    mov dx, [ti_cardh]
+    dec dx
+    call ti_cb_hline                ; ...the foot...
+    xor dx, dx
+.side:                              ; ...and the two uprights
+    cmp dx, [ti_cardh]
+    jae .out
+    xor bx, bx
+    call ti_cb_set
+    mov bx, [ti_cbw]
+    dec bx
+    call ti_cb_set
+    inc dx
+    jmp short .side
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; --- ti_cb_text - everything the card SAYS, into the band -------------------
+; A FLOW, NOT A SET OF ROWS (SPEC.md 97.4.2). The card has six stats to place
+; (TITHE-PLAN 5.2) and four geometries times two faces to place them in, so the
+; layout is not decided here at all: each pair is measured, put on the current
+; line if it fits and on the next if it does not, and the flow simply STOPS
+; when the card runs out of rows. What a geometry shows is then a consequence
+; of its own size rather than eight hand-cut cases - and the face key becomes
+; a demonstration instead of a preference, because a 6x6 face fits FOUR rows
+; where 8x8 fits three and the two stats an 8x8 VGA card drops come back.
+;
+; THE FIGURE OWNS A COLUMN. The mini unit is ORed into the top-right corner
+; over the text's own rows, so the flow's right margin is the card's width
+; LESS that column: without it row three ran under the figure and off the
+; card, which is what the first composed build put on the glass.
+ti_cb_text:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov di, ti_cardband
+    mov bp, [ti_cbs]
+    mov ax, [ti_cardh]              ; rows the face gets, inside the frame
+    sub ax, 4
+    xor dx, dx
+    div word [ti_fh]
+    mov [ti_crows], ax
+    or ax, ax
+    jz .out
+
+    mov ax, [ti_cbw]                ; ...and the column the figure leaves
+    sub ax, TI_UNITW + 11
+    jnc .w
+    mov ax, [ti_fw]
+.w:
+    mov [ti_tw], ax
+    mov word [ti_tx], 3
+    mov ax, 2
+    add ax, [ti_cpad]
+    mov [ti_ty], ax
+    mov word [ti_tfull], 0
+
+    cmp word [ti_crows], 2          ; ONE ROW: the pointer picks which (97.4.2)
+    jae .name
+    cmp word [ti_cx], 0
+    je .stats
+.name:
+    call ti_cb_name
+    cmp word [ti_crows], 2          ; ON ONE ROW the name and the costs SHARE
+    jb .space                       ; it - a hovered CGA card that spent its
+    call ti_cb_nl                   ; only row on the name would answer the
+    jmp short .costs                ; one question the hover is asked with
+.space:                             ; the one thing already on the card
+    mov ax, [ti_tx]
+    add ax, [ti_fw]
+    mov [ti_tx], ax
+.costs:
+    mov si, [ti_cardp]              ; what it costs to play...
+    mov ah, [si + TI_C_COST]
+    mov al, TI_IC_GOLD
+    call ti_cb_pair
+    mov ax, [ti_cardi]
+    and al, 1
+    mov ah, al
+    mov al, TI_IC_SOUL
+    call ti_cb_pair
+    cmp word [ti_crows], 2          ; ...on a line of their own, because the
+    jb .out                         ; costs stop mattering the moment it is
+    call ti_cb_nl                   ; played and the four below never do
+.stats:
+    call ti_cb_stats
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_nl - the flow's next line, or the end of it ----------------------
+ti_cb_nl:
+    push ax
+    mov word [ti_tx], 3
+    push bx
+    mov ax, [ti_ty]
+    add ax, [ti_fh]
+    mov [ti_ty], ax
+    add ax, [ti_fh]                 ; the row AFTER this one ends here...
+    mov bx, [ti_cardh]              ; ...and the frame's inside ends here
+    sub bx, 2
+    sub bx, [ti_cpad]
+    cmp ax, bx
+    jbe .ok
+    mov word [ti_tfull], 1
+.ok:
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_name - the card's name, cut to the column ------------------------
+ti_cb_name:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push di
+    mov si, [ti_cardp]
+    mov si, [si + TI_C_NAME]
+    mov ax, [ti_tw]                 ; how many glyphs the column holds
+    sub ax, 3
+    xor dx, dx
+    div word [ti_fw]
+    mov cx, ax
+    mov di, ti_numbuf
+.c:
+    or cx, cx
+    jz .end
+    lodsb
+    or al, al
+    jz .end
+    stosb
+    dec cx
+    jmp short .c
+.end:
+    mov byte [di], 0
+    pop di
+    mov bx, [ti_tx]
+    mov dx, [ti_ty]
+    mov si, ti_numbuf
+    call ti_text
+    mov [ti_tx], bx
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_pair - one `icon value` pair, flowed. AL = icon, AH = value ------
+; It measures before it draws, so a pair that would cross the figure's column
+; starts the next line instead - and a pair with no line left is DROPPED
+; rather than clipped, which is the difference between a card that shows less
+; and one that shows nonsense.
+ti_cb_pair:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp word [ti_tfull], 0
+    jne .out
+    push di                         ; ...THE BAND POINTER, BANKED TWICE. DI is
+                                    ; both what ti_text draws into and what
+                                    ; stosb builds the string with.
+    mov di, ti_numbuf
+    stosb                           ; the icon IS a glyph (tifaces.inc)
+    mov al, ah
+    call ti_u8
+    mov byte [di], 0
+    pop di
+    mov si, ti_numbuf
+    call ti_textw                   ; MEASURED FIRST
+    mov cx, ax
+    mov bx, [ti_tx]
+    add bx, cx
+    cmp bx, [ti_tw]
+    jbe .fits
+    cmp word [ti_tx], 3             ; a pair too wide for a WHOLE line would
+    je .fits                        ; loop for ever, so it is drawn and cut
+    call ti_cb_nl
+    cmp word [ti_tfull], 0
+    jne .out
+.fits:
+    mov bx, [ti_tx]
+    mov dx, [ti_ty]
+    mov si, ti_numbuf
+    call ti_text
+    add bx, [ti_fw]                 ; ...and a space after it
+    mov [ti_tx], bx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_stats - the four that follow it onto the board -------------------
+; Wave 1a has no rules behind them, so they are derived from the index exactly
+; as ti_cellnum derives its HP - a table would only be a second fiction.
+ti_cb_stats:
+    push ax
+    push si
+    mov ax, [ti_cardi]              ; HP, the cell's own fiction
+    and al, 7
+    add al, 5
+    mov ah, al
+    mov al, TI_IC_HP
+    call ti_cb_pair
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_ATK]
+    mov al, TI_IC_MELEE             ; stat1
+    call ti_cb_pair
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_DEF]
+    mov al, TI_IC_SHIELD            ; stat2
+    call ti_cb_pair
+    mov ax, [ti_cardi]              ; POWER, what a kill of it pays
+    and al, 3
+    inc al
+    mov ah, al
+    mov al, TI_IC_STAR
+    call ti_cb_pair
+    pop si
+    pop ax
+    ret
+
+; --- ti_cb_unit - the mini figure, ORed into the band's right corner --------
+; Byte-aligned by construction: a card's width is a multiple of 8 and so is
+; TI_UNITW, so this is a byte copy and needs none of ti_glyph's shifter.
+ti_cb_unit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push word [ti_pi]
+    mov bx, [ti_cardi]
+    add bx, ti_clock
+    mov bl, [bx]
+    xor bh, bh
+    mov [ti_pi], bx
+    call ti_unit_build
+    call ti_unit_addr
+    mov si, di
+    mov ax, [ti_cbw]                ; its corner
+    sub ax, TI_UNITW
+    sub ax, 8
+    mov cl, 3
+    shr ax, cl
+    mov di, ti_cardband
+    add di, ax
+    mov dx, 2
+    add dx, [ti_cpad]
+    mov ax, dx
+    mul word [ti_cbs]
+    add di, ax
+    mov dx, [ti_unith]
+.row:
+    or dx, dx
+    jz .done
+    push di
+    push si
+    mov cx, [ti_unitb]
+.b:
+    lodsb
+    or [di], al
+    inc di
+    loop .b
+    pop si
+    pop di
+    add si, [ti_unitb]
+    add di, [ti_cbs]
+    dec dx
+    jmp short .row
+.done:
+    pop word [ti_pi]
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+ti_cb_frame2:                       ; the hovered card's inner outline
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, 2
+    mov cx, [ti_cbw]
+    sub cx, 3
+    mov dx, 2
+    call ti_cb_hline
+    mov dx, [ti_cardh]
+    sub dx, 3
+    call ti_cb_hline
+    mov dx, 2
+.side:
+    mov ax, [ti_cardh]
+    sub ax, 3
+    cmp dx, ax
+    ja .out
+    mov bx, 2
+    call ti_cb_set
+    mov bx, [ti_cbw]
+    sub bx, 3
+    call ti_cb_set
+    inc dx
+    jmp short .side
+.out:
     pop dx
     pop cx
     pop bx

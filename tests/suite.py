@@ -7213,6 +7213,25 @@ SOAK = [
         "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithecard", "soak", py("tests/tithecard.py"), 60.0,
+        "SPEC.md 97.4.1: TITHE's card composer, on all three adapters and in"
+        "both faces. A card is ONE `OSAPI_GFX_BLIT1` of a band the package"
+        "composed in its own face, and the flow that fills it answers"
+        "differently on every geometry - so what is asserted is the two"
+        "boundaries it must not cross. A ROW THAT DOES NOT FIT IS NOT DRAWN"
+        "(the bottom test was off by one row and a VGA card cut a fourth line"
+        "of text in half), and THE FIGURE OWNS A COLUMN (before the flow had a"
+        "right margin the stat row ran under the mini unit and off the card's"
+        "edge). NEITHER IS VISIBLE AS A BROKEN FRAME LINE, which is the whole"
+        "lesson of the row: the band is composed by OR and the frame is drawn"
+        "first, so a glyph landing on it changes no pixel - both breaks were"
+        "put back in and PASSED a frame-line check. What catches them is the"
+        "row above the foot being blank and the three-column gutter to the"
+        "figure being clear. It also asserts the face key works at all, which"
+        "the Makefile's missing dependency on tifaces.inc had silently broken."
+        "Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
         "SPEC.md 97.4.1: TITHE's small faces, which exist because a character"
         "has FOUR stats that must be on the board and the system 8x8 fits TWO"
@@ -7221,7 +7240,13 @@ SOAK = [
         "pixels of width a run that touches is a word nobody can read); no two"
         "glyphs may be the SAME picture (a ring is the letter O, and a"
         "three-pixel bow is the letter D); and every glyph the renderer asks"
-        "for must exist. Host-side and 0.2s",
+        "for must exist. A FOURTH rule was added when identical turned out to"
+        "be the wrong bar: an ICON must be at least four pixels from every"
+        "other glyph in its face, because at five pixels the coin was the"
+        "digit 0 with a stroke (two apart) and the shield was the heart with"
+        "its top row filled in (also two) - and both sat in a column of"
+        "numbers where a reader has no context to recover from. Host-side"
+        "and 0.2s",
         needs=()),
     Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
         "SPEC.md 97.5.1: TITHE's base candidates, at every band size every"

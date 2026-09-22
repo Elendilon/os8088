@@ -11,6 +11,13 @@
 # Codes 1..7 are the stat ICONS: one glyph set and one renderer, so a
 # number and the thing it is a number OF are drawn the same way.
 #
+# AN ICON IS UP AGAINST THE DIGITS IT SITS BESIDE. At five pixels the
+# coin was the digit 0 and the shield was the heart with one row
+# changed, so the coin is SOLID where 0 is outlined and the shield is
+# OUTLINED where the heart is solid - mass, not detail, is what reads
+# at this size. The sword's guard is low for the same reason: a centred
+# one is the '+'.
+#
 # '#' IS BOTH THE INK AND THE COMMENT MARKER, so a reader must test
 # for a PIXEL ROW before it tests for a comment - tools/os88font.py
 # carries the same warning and this file's reader walked into it.
@@ -24,9 +31,9 @@ char 1   icon
 ......
 char 2   icon
 .###..
-#...#.
+#####.
 #.#.#.
-#...#.
+#####.
 .###..
 ......
 char 3   icon
@@ -37,17 +44,17 @@ char 3   icon
 .#.#..
 ......
 char 4   icon
-....#.
-...##.
-..##..
-.##...
-##....
+..#...
+..#...
+..#...
+.###..
+..#...
 ......
 char 5   icon
 #####.
+#.#.#.
 #####.
-#####.
-.###..
+.#.#..
 ..#...
 ......
 char 6   icon
