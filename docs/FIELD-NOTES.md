@@ -2541,7 +2541,7 @@ the same program in front of a real DOS and diffing; this is the first time
 that method has said *stop, there is nothing here* — which is worth as much,
 and cost about fifteen minutes against the day a "fix" would have taken.
 
-## 56. Battle Chess: it runs, and its own cursor never moves (FIXED — we ignored the 320x200 window the game asked INT 33h for: SPEC.md §96.10.7)
+## 56. Battle Chess: it runs, and its own cursor never moves (FIXED, TWICE — the 320x200 window it asks INT 33h for, §96.10.7, and the IRQ4 it takes off us and we never took back, §96.45.4)
 
 Reported off the fork owner's machine, with the game on a fixed disk: *"Battle
 chess launches and runs, but the cursor (which looks like a program special
@@ -2734,15 +2734,42 @@ hand sits wherever that is. §96.10.7 moved it from the corner to the middle
 of the board; it still does not track, and now it is clear that nothing a
 driver does can make it, because there are no packets left to deliver.
 
-**So the reporter's working machine must differ in WHERE THE MOUSE IS**, and
-that is the one thing left to check rather than reason about:
-`os8088_xt_vga_144_com2` is the same XT with MartyPC's
-`microsoft_serial_mouse` overlay (port 1) instead of `_com1` (port 0), and it
-is the only profile in this tree with the pointer off COM1.
+**IT WAS COM1, AND THAT EXPLANATION WAS WRONG** — which is the shape this
+entry keeps making. The guess was that the reporter's mouse must be
+somewhere else; their own 86Box config settles it in two lines:
 
-**IF THE REPORTER'S MOUSE IS ALSO ON COM1, THIS EXPLANATION IS WRONG** and
-the next step is tracing the game's installer under DOS rather than moving
-the pointer. Said here so the next reader checks it instead of inheriting it.
+```
+mouse_type = msserial
+serial2_enabled = 0          <- ONE serial port, and the mouse is on it
+```
+
+and CuteMouse's banner there reads `COM1 (03F8h/IRQ4)`. So the game takes the
+port on their machine too, and the mouse works anyway.
+
+**WHAT A REAL DRIVER DOES IS TAKE IT BACK** (SPEC.md §96.45.4). Same disk,
+same game, IBM DOS 3.30 with CuteMouse 1.9.1 on COM1, read off the machine:
+
+| sampled | `int 0Ch` |
+|---|---|
+| CuteMouse loaded, before the game | `0C52:023C` — the driver |
+| the game's title screen | `1DFC:006D` — **the game** |
+| in game, after the mode change | `0C52:023C` — **the driver, back** |
+
+CuteMouse hooks `INT 10h` in its own `AX=0` reset, and the game's switch into
+its graphics mode is when it re-initialises — vector, `LCR`, divisor,
+`IER = 1`, and a 16-bit `out` to `base+3` leaving **`MCR = 0Fh`**: `DTR` and
+`RTS` back on, after the game wrote `08h` and left a Microsoft mouse with no
+power. `kern_dos` hooked once at boot and never looked again.
+
+`kd_mou_rearm` is the fix and it lives in `kd_mou_read`, which IS
+`DHK_MOUSE` — asked on every `AX=3` and every key poll — so recovery costs no
+hook, no core byte and two compares when nothing has been stolen.
+
+**THE COM2 MACHINE IS STILL WORTH HAVING**, and it is what proved the rest of
+the chain: with the pointer on a port the game does not want, the hand
+tracked — 492 pixels of it, bbox `(320,192)-(639,221)` — where the identical
+sweep on COM1 moved **0**. That separated *our INT 33h is wrong* from *our
+ISR is not being called*, which is why this entry could be closed at all.
 
 ### The reset position, which IS ours and is fixed
 
