@@ -145,6 +145,7 @@ kd_nothing_far:
 ; The NEAR group.
 fpg_step:
 desk_zmark_x:
+desk_learn_x:                   ; ...and which diskette to draw (SPEC.md 26.4.1)
 fmv_gneed:
 fmv_mark:
 kd_nothing:
