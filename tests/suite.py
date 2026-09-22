@@ -5030,7 +5030,23 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 180.0,
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
-        "display",
+        "display"
+        " THE GAME'S OWN CONTENT IS OUT OF THE COMPARISON, and that is"
+        " what made this row intermittent at 1/5 and 1/3 for as long as"
+        " anyone had looked at it. `state` says it one screen up -"
+        " Missile's worker draws CONTINUOUSLY - and after/forced are"
+        " taken seconds apart with a Control Panel opened and closed"
+        " between them, so comparing its content asks whether the game"
+        " drew the same frame twice, which it has no reason to do, and"
+        " answers STALE. MEASURED on the run that caught it: the whole"
+        " difference was ONE solid 80px horizontal line at the FIRST ROW"
+        " of the window's content (card y=20, x=336..415), with the"
+        " title bar above it identical to the pixel - caption, stripes"
+        " and bottom border all matching. The content rect comes out"
+        " (os88geom's own, which is what wm_su_rect answers) and"
+        " everything else stays: chrome, borders, desktop, dock. It"
+        " reads 0 differing pixels on BOTH cards now, not a few, so the"
+        " assertion kept its force",
         needs=("marty",), serial=True),
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
@@ -6027,7 +6043,18 @@ SOAK = [
         "looks exactly like a dead feature), and ONE cycle proves less than "
         "it looks - apps/paint passes the first and refuses the second, "
         "which is why Paint is not in this row and why the bracket leg "
-        "round-trips twice",
+        "round-trips twice"
+        " EVERY WAIT IS ON THE GUEST'S CLOCK, and State.wait's docstring"
+        " said so while the code did not: the budget was time.time() +"
+        " limit, so 10 host seconds are ~6.3 guest seconds under a"
+        " four-wide soak and fewer on a busier box. The 2026-09-21 run"
+        " read `a SECOND Alt+Enter did not enter` for a row that"
+        " classifies 0/3 alone - a wait that gave up, reported as the"
+        " feature refusing, on the one check the block exists for. HOLD"
+        " stays in HOST seconds and that is correct: it is the harness"
+        " holding a key down, which m.alt takes in wall-clock, and the"
+        " leaving direction is a LEVEL read that needs the key still"
+        " down when the app's loop next looks",
         needs=("marty",), serial=True),
     Row("dosaltenter", "soak", py("tests/dosaltenter.py"), 20.0,
         "SPEC.md 96.33.5.1: does Alt+Enter take the DOS box into full screen "

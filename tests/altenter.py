@@ -59,7 +59,13 @@ import os88ui                                               # noqa: E402
 
 MACHINE = "os8088_xt_vga"
 NO_BRACKET = 0xFFFF             # [fsx_task] when no SPEC.md 53 bracket is up
-HOLD = 0.5                      # a human keystroke, in host seconds
+HOLD = 0.5                      # a human keystroke, in host seconds - and
+                                # host is right HERE, because the hold is the
+                                # harness holding a key down and not the row
+                                # waiting for the guest: m.alt's own argument
+                                # is wall-clock. What has to be guest time is
+                                # every WAIT below (see State.wait)
+GUEST_HZ = getattr(os88marty, "GUEST_HZ", 4772727.0)
 
 
 def _fail(msg):
@@ -87,13 +93,32 @@ class State:
         A latch repaints the whole window and a bracket restore repaints the
         desktop, so neither transition is instant - and a host sleep sized on
         an idle box hands a loaded one 37% less work (SOAK-PARALLEL 1).
+
+        THAT SENTENCE WAS HERE AND THE CODE DID NOT DO IT: the budget was
+        `time.time() + limit`, which is host seconds, so 10 of them are ~6.3
+        guest seconds under a four-wide soak and fewer still on a busier box.
+        The 2026-09-21 run read `a SECOND Alt+Enter did not enter` for a row
+        that classifies 0/3 alone - a wait that gave up, reported as the
+        feature refusing. It is guest cycles now, which a loaded box cannot
+        shorten.
         """
-        end = time.time() + limit
-        while time.time() < end:
+        c0 = self.m.status()["cycles"]
+        while (self.m.status()["cycles"] - c0) / GUEST_HZ < limit:
             if want(read()):
                 return read()
             time.sleep(0.15)
         return read()
+
+    def rest(self, secs):
+        """Let `secs` of the GUEST's clock go by - `time.sleep`'s replacement.
+
+        The two places this row pauses without polling are a splash that
+        animates and the bounce check after a restore, and both are about
+        giving the MACHINE time to do something wrong. Host seconds are the
+        wrong unit for that for the reason above."""
+        c0 = self.m.status()["cycles"]
+        while (self.m.status()["cycles"] - c0) / GUEST_HZ < secs:
+            time.sleep(0.05)
 
 
 def leg_latch(ui, st):
@@ -129,7 +154,7 @@ def leg_bracket(ui, st):
     """Tracker: SPEC.md 53's bracket, where leaving is os88alt.inc's poll."""
     ok = True
     ui.path("B:/APPS/TRACKER.O88")
-    time.sleep(2.0)                     # its splash animates, so `settle`
+    st.rest(2.0)                        # its splash animates, so `settle`
                                         # cannot return - see SOAK-PARALLEL 11
     if st.bracket() != NO_BRACKET:
         return _fail("bracket: one was already up before any key")
@@ -152,7 +177,7 @@ def leg_bracket(ui, st):
                    "so this direction is apps/os88alt.inc's poll of the "
                    "key-state map and nothing else can carry it" % got)
     else:
-        time.sleep(1.5)                 # a bounce takes one ui_task pass,
+        st.rest(1.5)                    # a bounce takes one ui_task pass,
         again = st.bracket()            # so look after one
         if again != NO_BRACKET:
             ok = _fail("bracket: it left and went STRAIGHT BACK IN "

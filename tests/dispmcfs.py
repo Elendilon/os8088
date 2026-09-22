@@ -88,6 +88,12 @@ def state(m, mo, label, win, cards):
     print("   %-22s lit: %s  win y %d..%d"
           % ("", {c: lit(m, c) for c in cards}, r[1], r[1] + r[3] - 1))
     out = {"x": x, "y": y, "nd": nd, "ox": v["vid_ox"], "rect": r,
+           "org": {0: (u16(m.read(S("vid_ctx"), 2 * VID_CTX_SZ), VID_CTX_VX),
+                       u16(m.read(S("vid_ctx"), 2 * VID_CTX_SZ), VID_CTX_VY)),
+                   1: (u16(m.read(S("vid_ctx"), 2 * VID_CTX_SZ),
+                           VID_CTX_SZ + VID_CTX_VX),
+                       u16(m.read(S("vid_ctx"), 2 * VID_CTX_SZ),
+                           VID_CTX_SZ + VID_CTX_VY))},
            "fb": {c: m.fbuf(card=c)[2] for c in cards},
            "lit": {c: lit(m, c) for c in cards}}
     m.run()
@@ -226,12 +232,39 @@ def main():
         # the game keeps playing inside the bracket and its window can move,
         # so that comparison measures content, which is what the first two
         # versions of this test got wrong.
+        # ...AND THE GAME'S OWN CONTENT IS NOT PART OF THE CLAIM. `state`
+        # says it one screen up - *Missile's worker draws continuously* - and
+        # `after` and `forced` are taken seconds apart with a Control Panel
+        # opened and closed between them, so the game goes on drawing across
+        # the gap. Comparing its content asks whether it drew the same frame
+        # twice, which it has no reason to do, and answers "STALE".
+        #
+        # MEASURED, on the run that caught it: the whole difference was ONE
+        # solid 80px horizontal line at the first row of the window's
+        # CONTENT (card y=20, x=336..415), present in `forced` and absent in
+        # `after`, with the title bar above it identical to the pixel - its
+        # caption, its stripes and its bottom border all matching. That is
+        # the game drawing, not the desktop failing to come back, and it is
+        # why this row has been intermittent at 1/5 and 1/3 for as long as
+        # anyone has looked at it.
+        #
+        # So the content rect comes out and EVERYTHING ELSE STAYS - the
+        # window's chrome, the borders, the desktop, the dock. That is what
+        # "did the display come back" actually means, and a stale frame or a
+        # stale desktop is still caught. The rect is the kernel's own
+        # (os88geom's `content`, which is what wm_su_rect answers), put into
+        # each card's coordinates by that card's virtual origin.
+        wx, wy, ww, wh = forced["rect"]
+        cx1, cy1, cx2, cy2 = wx + 1, wy + TITLE_H, wx + ww - 2, wy + wh - 2
         for c, name, skip in ((pri, "VGA", MBAR_H), (sec, "Hercules", 0)):
             # The menu bar is the PRIMARY's and carries a clock, which moves
             # between two captures seconds apart - so the comparison starts
             # below it. The Hercules has no bar and is compared whole.
             w0 = m.fbuf(card=c)[0]
             base = skip * w0 * 3
+            ox, oy = forced["org"][c]
+            skipx1, skipy1 = cx1 - ox, cy1 - oy
+            skipx2, skipy2 = cx2 - ox, cy2 - oy
             # **THE BOUNDING BOX AND NOT ONLY THE COUNT.** A bare "240
             # differing pixel(s)" names no suspect: this row was
             # INTERMITTENT at 1/5 and the count alone could not say whether
@@ -245,6 +278,8 @@ def main():
                     continue
                 px = i // 3
                 x, y = px % w0, px // w0
+                if (skipx1 <= x <= skipx2) and (skipy1 <= y <= skipy2):
+                    continue            # the GAME's content - see above
                 n += 1
                 x1, y1 = min(x1, x), min(y1, y)
                 x2, y2 = max(x2, x), max(y2, y)
