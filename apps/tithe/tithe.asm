@@ -649,7 +649,7 @@ ti_pit:
 ; =============================================================================
 
 ti_tpl:
-    dw 24, 30, 474, 383
+    dw 24, 30, 602, 355
     dw ti_ttl, ti_paint, ti_onkey, ti_onclick
 
 ; --- the preferred frame, PER ADAPTER, CUT FROM THE GEOMETRY TABLE ----------
@@ -665,7 +665,7 @@ ti_tpl:
 ; still does its job on the two short screens, where the ask is more than the
 ; adapter has and comes back as what it has.
 ti_pref:                            ; VGA / Hercules / CGA (SPEC.md 11.100.1)
-    dw 474, 383                     ; 464x356 of content
+    dw 602, 355                     ; 592x328 of content
     dw 658, 303                     ; 648x276
     dw 490, 163                     ; 480x128 - clamps to 155 on a 200-row CGA
 
@@ -718,6 +718,15 @@ ti_insx:    dw 0
 ti_insy:    dw 0
 
 ; --- SPEC.md 97.2's table: CW, CH, RISE, BW, BH, HUD, PAN ------------------
+; THE PROPORTION IS THE CELL'S APPARENT ONE AND NOT ITS PIXEL ONE. A CGA pixel
+; is about 2.4 times as tall as it is wide and a Hercules one 1.5, so 120x40 on
+; a Hercules and 112x56 on a VGA are the same tile to look at. The first cut of
+; the VGA rows was 80x56 - very nearly SQUARE on the one adapter with square
+; pixels - and a diamond inscribed in a square cell is a tall lozenge that
+; meets its neighbours at four points, which is the opposite of an isometric
+; read. Every row is ~2:1 apparent now bar CGA's, whose height has 8 pixels of
+; slack in the whole window.
+;
 ; CUT AGAINST THE CONTENT BOXES THIS MACHINE ACTUALLY HANDS OUT, and the first
 ; three rows of it were not: the boxes are VGA 640x416, Hercules 680x284 and
 ; CGA 504x136, so the Hercules and CGA rows asked for a board 56 and 62 pixels
@@ -725,8 +734,8 @@ ti_insy:    dw 0
 ; every machine. The short screens are short in HEIGHT and not in width - a
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
-ti_geo_vgaf: dw 104, 72, 20, 56, 56, 36, 176
-ti_geo_vgaw: dw  80, 56, 16, 48, 44, 28, 144
+ti_geo_vgaf: dw 112, 56, 24, 64, 52, 36, 176
+ti_geo_vgaw: dw 112, 48, 20, 64, 44, 28, 144
 ti_geo_herc: dw 120, 40, 16, 64, 36, 28, 168
 ti_geo_cga:  dw  80, 20,  4, 48, 16, 16, 160
 

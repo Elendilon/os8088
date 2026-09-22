@@ -119,6 +119,46 @@ ti_art_build:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_row_dither - knock a composed ground row down to a 50% MID-TONE
+; in:  DI = the row, AX = the CELL row it is, CX = bytes in it
+; clobbers: nothing
+;
+; A 1bpp adapter has two colours, so a SOLID ground and a SOLID figure are the
+; same colour and the figure disappears into the diamond it stands on - which
+; is what a correct ground looked like the first time it was drawn. SPEC.md
+; 39.4's dither is the mid-tone, and it is applied to the GROUND ONLY: the
+; figure goes down solid afterwards and reads against it.
+;
+; THE PARITY IS THE CELL'S AND NOT THE BAND'S, so the cell's ground and the
+; band's baked copy of it agree where they meet. Two facts from ti_layout make
+; that free: [ti_insx] is rounded to a multiple of 8, so a band's byte columns
+; line up with its cell's and one mask byte serves both, and every CH, RISE
+; and HUD in the table is even, so no cell's origin flips the phase against
+; another's.
+; -----------------------------------------------------------------------------
+ti_row_dither:
+    push ax
+    push bx
+    push cx
+    push di
+    mov bl, 0AAh                    ; bit 7 is the LEFTMOST pixel (SPEC.md
+    test al, 1                      ; 5.4.2), so an even row lights the even
+    jz .have                        ; columns
+    mov bl, 55h
+.have:
+    jcxz .out
+.b:
+    and [di], bl
+    inc di
+    loop .b
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_cell_span - set CX pixels either side of the cell's centre on row [ti_ry]
 ; in:  CX = half-width, [ti_ry]
 ; clobbers: AX, BX, DX, SI, DI
@@ -158,6 +198,12 @@ ti_cell_span:
     dec cx
     jmp short .px
 .out:
+    mov cx, [ti_cw]                 ; ...and the ground is a MID-TONE, so the
+    shr cx, 1                       ; figure that stands on it has something
+    shr cx, 1                       ; to read against
+    shr cx, 1
+    mov ax, [ti_ry]
+    call ti_row_dither
     pop cx
     ret
 
@@ -214,6 +260,16 @@ ti_pose_row:
     mul dx                          ; AX = row * stride
     pop dx
     add di, ax                      ; DI = this row of this pose
+
+    ; --- THE CELL'S OWN GROUND, FIRST -----------------------------------
+    ; SPEC.md 97.4: the band is ONE OPAQUE rectangle that INCLUDES ITS OWN
+    ; GROUND, because drawing it back where it was is the erase. Without
+    ; this the band is dark everywhere the figure is not, so every feature
+    ; punches a BW x BH hole in the diamond it stands on - 64 of a
+    ; Hercules cell's 120 columns, which reads as the diamond's top tip
+    ; stopping dead three rows in and its two side tips floating either
+    ; side of a black box.
+    call ti_pose_ground
 
     ; --- the figure's half-width at this row --------------------------------
     ; head for the top fifth, shoulders, then a body that tapers, and a LEAN
@@ -279,6 +335,60 @@ ti_pose_row:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; ti_pose_ground - the CELL's diamond, for band row [ti_ry], into the band
+; in:  DI = the band row, [ti_ry] = the BAND row
+; clobbers: nothing
+;
+; The band sits at ([ti_insx], [ti_insy]) inside its cell, so band row r is
+; CELL row r + insy and the diamond's span has to shift LEFT by insx to land
+; in band coordinates. Both of those are invisible in the middle of a figure
+; and obvious at its edges, which is where this was read off the glass.
+; -----------------------------------------------------------------------------
+ti_pose_ground:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [ti_ry]
+    add ax, [ti_insy]               ; the CELL row this band row covers
+    cmp ax, [ti_ch]
+    jae .out
+    mov bx, [ti_ch]
+    shr bx, 1                       ; BX = ch/2
+    sub ax, bx
+    jns .pos
+    neg ax
+.pos:                               ; AX = |row - ch/2|
+    mov dx, [ti_cw]
+    shr dx, 1
+    mul dx                          ; DX:AX = |dy| * (cw/2)
+    or bx, bx
+    jnz .div
+    inc bx
+.div:
+    div bx                          ; ...over ch/2
+    mov cx, [ti_cw]
+    shr cx, 1
+    sub cx, ax                      ; CX = the half width, in CELL pixels
+    jbe .out
+    mov ax, [ti_cw]
+    shr ax, 1
+    sub ax, [ti_insx]               ; ...about the cell's centre expressed in
+                                    ; BAND coordinates, which is the whole of
+                                    ; what makes the two grounds line up
+    call ti_pose_span
+    mov cx, [ti_bs]                 ; the same mid-tone, at the same phase
+    mov ax, [ti_ry]
+    add ax, [ti_insy]
+    call ti_row_dither
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; ti_pose_span - DI = the row, AX = centre, CX = half width
 ti_pose_span:
     push ax
@@ -286,11 +396,16 @@ ti_pose_span:
     push cx
     push dx
     mov dx, ax
-    sub dx, cx
+    sub dx, cx                      ; DX = the first pixel, SIGNED
+    add cx, cx                      ; CX = how many
+    or dx, dx
     jns .ok
-    xor dx, dx
+    add cx, dx                      ; A SPAN CLIPPED AT THE LEFT LOSES THOSE
+    jle .out                        ; PIXELS: the count used to stay put while
+    xor dx, dx                      ; the start was clamped to 0, so they were
+                                    ; drawn back on at the right. The figure
+                                    ; never clipped and the ground always does
 .ok:
-    add cx, cx
 .px:
     or cx, cx
     jz .out

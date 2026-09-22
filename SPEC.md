@@ -139862,12 +139862,22 @@ than claiming its way into a refusal nobody can read.
 computed at layout time from the live content box and the adapter's pixel
 aspect — `ddlay.inc`'s rule one game along (§93.3), and for its reason.
 
-| surface | HUD | card panel | cell | `RISE` | board box | sprite band | content it needs |
-|---|---|---|---|---|---|---|---|
-| VGA 640×480 fullscreen | 36 | 176 | 104 × 72 | 20 | 416 × 420 | 56 × 56 | 592 × 456 |
-| VGA windowed | 28 | 144 | 80 × 56 | 16 | 320 × 328 | 48 × 44 | 464 × 356 |
-| Hercules 720×348 | 28 | 168 | 120 × 40 | 16 | 480 × 248 | 64 × 36 | 648 × 276 |
-| CGA 640×200 | 16 | 160 | 80 × 20 | 4 | 320 × 112 | 48 × 16 | 480 × 128 |
+| surface | HUD | card panel | cell | `RISE` | board box | sprite band | content it needs | apparent |
+|---|---|---|---|---|---|---|---|---|
+| VGA 640×480 fullscreen | 36 | 176 | 112 × 56 | 24 | 448 × 352 | 64 × 52 | 624 × 388 | 2.00 : 1 |
+| VGA windowed | 28 | 144 | 112 × 48 | 20 | 448 × 300 | 64 × 44 | 592 × 328 | 2.33 : 1 |
+| Hercules 720×348 | 28 | 168 | 120 × 40 | 16 | 480 × 248 | 64 × 36 | 648 × 276 | 2.00 : 1 |
+| CGA 640×200 | 16 | 160 | 80 × 20 | 4 | 320 × 112 | 48 × 16 | 480 × 128 | 1.67 : 1 |
+
+**THE LAST COLUMN IS THE ONE THE EYE READS, and it is not the cell's pixel
+ratio.** A CGA pixel is about 2.4 times as tall as it is wide and a Hercules
+one about 1.5, so 120 × 40 on a Hercules and 112 × 56 on a VGA are *the same
+tile to look at*. The VGA rows were first cut at 80 × 56 and 104 × 72 — very
+nearly SQUARE on the one adapter whose pixels are square — and a diamond
+inscribed in a square cell is a tall lozenge that meets its neighbours at four
+points, which is the opposite of an isometric read. Everything bar CGA is
+~2 : 1 apparent, and CGA is not because its height has 8 spare pixels in the
+whole window.
 
 **THE LAST COLUMN IS THE ONE THAT BINDS, and the first cut of this table did
 not have it.** A row is only a row if the adapter can hand out a content box
@@ -139942,8 +139952,26 @@ That is §79.5.1's finding and §93.5.1's, and this package does not get to
 relearn it: the screen saver's first draft blanked the box and then drew into
 it, and the field called it *"the fish flicker"*.
 
-**The band is the FIGURE's box, not the cell's.** A cell is 936 bytes at 1bpp
-and the band is 392; the rest of the cell is the ground, drawn once with the
+**"Its own ground" is the CELL's ground, cut at the band's rows and columns**,
+and leaving it out is not a missing decoration — it is a `BW` × `BH` hole
+punched in the diamond the figure stands on, which on a Hercules is 64 of the
+cell's 120 columns. What it looks like is the diamond's top tip appearing for
+three rows and stopping dead, with its two side tips floating either side of a
+black box; it does NOT look like a missing ground, which is why it was read off
+the glass as a defect in the *figure*. Three things have to line up and each is
+invisible in the middle of a figure and obvious at its edges: band row *r* is
+CELL row *r* + `INSY`, the span shifts LEFT by `INSX`, and the dither's phase
+is the CELL's row. `INSX` is rounded to a multiple of 8 by the layout, so the
+band's byte columns line up with its cell's and one mask byte serves both.
+
+**The ground is a 50% DITHER and the figure is SOLID** (§39.4). A 1bpp adapter
+has two colours, so a solid ground and a solid figure are the same colour and
+the figure disappears into the tile — which is exactly what a *correct* ground
+looked like the first time it was drawn. The ground goes down solid, the row is
+knocked to the mid-tone, then the figure goes down over it.
+
+**The band is the FIGURE's box, not the cell's.** A cell is 784 bytes at 1bpp
+and the band is 416; the rest of the cell is the ground, drawn once with the
 board, and the character's numbers, redrawn only when one changes. §5.4.2.6's
 fast path applies to every band this package draws, by construction: the stride
 is the row width, the width is a multiple of 8, and the pen is the default or
