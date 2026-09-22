@@ -128857,6 +128857,84 @@ a defect and the probe judges nothing — **the finding is the diff between the
 two columns**, and the column for a real IBM DOS 3.30 is what says which of the
 forty-five answer in `AX` and which are supposed to hand it back.
 
+#### 96.7.2 The gate runs on the BOX'S stack, and building its frame on the program's corrupted the arena
+
+`dos_int21` was entered on the program's stack and built its whole frame
+there — `push bp`, `push ds`, `push si`, `push di`, `push es`, `push dx`, then
+every handler's own pushes and every call under them. **A real DOS switches to
+an internal stack at its own first instruction**, so what a DOS program's
+stack ever carries is the three words the `int` itself pushed.
+
+That difference is not a nicety, and §96.4.1 had already found half of it: a
+*back-end* call on the program's stack breaks the scheduler and reads
+`.lowbss` out of the program's own memory, so `dos_be_go` swaps. What it did
+not cover is the frame itself, and the frame is what does the damage.
+
+**The Playroom is the report, and it is an ARENA corruption.** `PLAYROOM.EXE`
+is a launcher: it shrinks its own block with `AH=4Ah` and then `AH=4B00`s
+`PLAYEGA.EXE`. Under this box the EXEC answered **`AX=0008`, "not enough
+memory"**, with 445 KB of arena and 434 KB of it free. The MCB chain, read off
+a stopped machine while the launcher's own menu was up, says why in three
+rows:
+
+| | |
+|---|---|
+| `MCB 23C0` | `sig=M own=23E2 size=0020` — the environment |
+| `MCB 23E1` | `sig=M own=23E2 size=0090` — the program, shrunk. **Correct** |
+| `MCB 2472` | `sig=00 own=6C8D size=F323` — should be `Z / 0000 / 6C8D` |
+
+The launcher's `SS` is `2470` and its `SP` is `0030`. **So that third MCB is at
+`SS:0020..002F` — the sixteen bytes immediately below the program's own stack
+pointer**, and `own=6C8D` is the free size that belongs two bytes further up:
+what is in those fields is this gate's own frame. `dos_mcb_split` wrote the
+free block correctly and the next `INT 21h` scribbled on it, so by the time
+`AH=4Bh` walked the chain there was no free block to find.
+
+**Why a real DOS survives the same program.** `AH=4Ah` with `BX = SS + 2 - PSP`
+is the standard shrink idiom and Playroom's `SP` is `0030`, three paragraphs,
+where it keeps two — so the program's first pushes land in the new MCB's
+*reserved* bytes at `+0A..+0F`, which no DOS reads. DOS puts nothing else
+there. This box put six more words there and then a handler on top of them.
+
+So the swap moves up to the gate:
+
+- The program's `SS:SP` and the three words the `int` pushed are read **before
+  `SS` moves**, through `BP` and CS-relative scratch, with **`IF` still 0 from
+  the gate** — which is what makes single-cell scratch safe, because nothing
+  can nest while interrupts are off.
+- The three words are **replicated** on the box's stack, so `[bp+4]`, `[bp+6]`
+  and `[bp+8]` mean what they have always meant and **not one handler
+  changes**.
+- On the way out the FLAGS word — which is the one thing a handler edits, and
+  §96.7's refusal path edits it rather than executing `stc` — is written back
+  into the program's frame, and the `iret` is taken there.
+- **`[dos_onprog]` reads 0 for the duration**, so `dos_be_go` does not swap a
+  second time. It would swap *upwards*, to `[dos_sv_sp]`, straight through the
+  frame this gate has just built there. That byte's only consumer is
+  `dos_be_go`, which is what makes borrowing it honest rather than a trick.
+
+**The stack is `[dos_sv_ss]`, the one `dos_be_go` already borrows** — the UI
+task's on the windowed box (§96.4.1) and `kern_dos`'s own where there is no
+kernel — so no new buffer is claimed and nothing resident is spent. What is
+new is **`[dos_dstk]`, the offset the next gate entry starts at**, and it is
+exact rather than a reservation: `dos_prog_enter` sets it to its own `SP`
+immediately before it jumps into the program, which is by construction below
+everything the caller still holds. A child's `INT 21h` therefore nests below
+its parent's live `AH=4Bh` frame with no slice constant to size and no
+arithmetic to get wrong, and the gate banks and restores the word so a child's
+exit gives the parent its depth back.
+
+##### 96.7.2.1 What it costs is DEPTH, and the number that bounds it is 510
+
+§96.4.1 measured the deepest `SP` on task 0's stack while a DOS program wrote
+20,480 bytes: **258 of 510 bytes used**. That measurement was of the file work
+alone, because the gate's frame was somewhere else entirely. It is now on the
+same stack, above it — so the figure to watch is that one plus a gate frame
+and its handler's own locals, and it is checked rather than assumed: the
+kernel's canary is live throughout, precisely because it fires on the ticks
+where `SS` is `LOW_SEG`, which is now every tick of an `INT 21h` instead of
+only the ones inside a door.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
@@ -132950,6 +133028,52 @@ on a name that is not a file.
 **A path that does not fit the buffer is still refused with 3**, by the copy
 loop that always did: `dos_fh_split` leaves a name it cannot shorten alone, so
 the failure is the old one rather than a half-walked path.
+
+#### 96.12.5 DOS TRUNCATES a name that is not 8.3, and refusing one is a file the program cannot reach
+
+The parse buffer is thirteen bytes — eight, a dot, three and a NUL — and
+`dos_fh_core`'s copy loop counted them: a name that reached the thirteenth
+character without a NUL was refused with **3, "path not found"**. That reads
+like a sensible bound and it is a defect, because **DOS does not have that
+bound**. Its parser fills an eleven-byte FCB-shaped field and *discards* what
+does not fit, so a program that asks for a name longer than 8.3 is given the
+file whose name is the first eight and three characters of it.
+
+The Playroom (1989) is the report. `PLAYEGA.EXE` opens its sample bank as
+**`B:plysample.bin`** — a NINE-character stem — and the file on the disk is
+`PLYSAMPL.BIN`. Refused, the program prints `B:plysample.bin FILE ERROR`
+followed by `Abnormal program termination`, which from outside looks like a
+program that could not start rather than one that could not open a file it
+plainly knew was there.
+
+**IBM DOS 3.30's own answers are the specification**, taken with
+`tests/dostrap/longname.asm` on a machine running the real DOS rather than
+reasoned about. Every row is `AH=3Dh` on a disk holding one file,
+`PLYSAMPL.BIN`:
+
+| asked for | DOS 3.30 | ours, before | ours, now |
+|---|---|---|---|
+| `PLYSAMPL.BIN` | `OK h=0005` | `OK h=0005` | `OK h=0005` |
+| `plysample.bin` — a 9-char stem | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `plysamplelong.bin` — 13 | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `PLYSAMPL.BINARY` — a 6-char extension | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `B:plysample.bin` — and drive-qualified | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+
+So the loop is two fields with a ceiling each rather than one buffer with a
+length: up to eight characters of stem, then **everything up to the dot is
+eaten**; then up to three of extension, then everything up to the NUL is
+eaten. A separator that survived `dos_fh_split` is still refused with 3 — that
+is the old failure and it means the *folder* part did not fit, which is a
+different thing from a long file name.
+
+**THE FOLDER COMPONENTS ARE DELIBERATELY NOT TRUNCATED.** DOS truncates every
+component of a path the same way, and doing it here would make
+`B:\PLAYROOMLONG\X` resolve inside `PLAYROOM` — a *different directory* that
+happens to share eight characters, where a long FILE name can only ever
+resolve to the one entry the disk holds. An on-disk name is 8.3 already, so a
+long component cannot match anything and fails as it always did; silently
+walking into a neighbour is the worse answer, and no program in the reports
+asks for one.
 
 #### 96.13.1 A 5150's ROM does not set CF for a function it never heard of
 

@@ -332,6 +332,9 @@ kd_entry:
     mov ax, ss
     mov [dos_sv_ss], ax
     mov [dos_sv_sp], sp
+    mov [dos_dstk], sp              ; ...and the INT 21h gate's own mark, which
+                                    ; is an offset into that same stack
+                                    ; (SPEC.md 96.7.2)
     call dos_prog_enter
 .back:
     mov al, [dos_exit]

@@ -1999,6 +1999,12 @@ dos_fsx_main:
     mov ax, ss
     mov [dos_sv_ss], ax
     mov [dos_sv_sp], sp
+    mov [dos_dstk], sp              ; ...and the gate's own mark beside it
+                                    ; (SPEC.md 96.7.2). dos_prog_enter sets it
+                                    ; exactly a moment later, so this is the
+                                    ; INVARIANT rather than the value: the
+                                    ; swap is unconditional, and a zero here
+                                    ; would put SP at the top of the segment
 
     call dos_prog_enter             ; ...and away (SPEC.md 96.14): the same
                                     ; door AH=4Bh's child goes through
@@ -2737,11 +2743,15 @@ dos_psp_make:
 ; INT 20h / INT 21h (SPEC.md 96.7)
 ; =============================================================================
 ; Entered on the PROGRAM's stack with the program's segment registers, so the
-; first thing either does is reach its own data through CS.
+; first thing either does is reach its own data through CS - and INT 21h's
+; first thing is to GET OFF that stack (SPEC.md 96.7.2), because a program may
+; have shrunk its block to within a word or two of its own SP and what is
+; directly below it is then the free block's MCB.
 ;
 ; The carry flag a DOS call returns is the one in the FLAGS image the `int`
 ; pushed, not the live one, so the refusal path edits [bp+8] rather than
-; executing `stc` - which the `iret` would discard.
+; executing `stc` - which the `iret` would discard. Since the swap that image
+; is a REPLICA on our stack and the epilogue writes it back.
 ; -----------------------------------------------------------------------------
 dos_int20:
     xor al, al                      ; INT 20h is AH=4Ch with a zero code, and
@@ -2756,11 +2766,65 @@ dos_int22:                          ; the terminate ADDRESS: a child process
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 dos_int21:
+    ; --- ONTO OUR OWN STACK BEFORE A SINGLE WORD IS PUSHED (SPEC.md 96.7.2) --
+    ; This used to `sti` and then build its whole frame on the PROGRAM's
+    ; stack, and a real DOS switches to an internal stack at its own first
+    ; instruction - so what a DOS program's stack ever carries is the three
+    ; words the `int` pushed and nothing else.
+    ;
+    ; THE DIFFERENCE CORRUPTS THE ARENA. `AH=4Ah` with `BX = SS + 2 - PSP` is
+    ; the standard shrink idiom, and the free MCB `dos_mcb_split` then cuts
+    ; sits at the paragraph past the block - which for a program whose SP is
+    ; only a paragraph or two above SS is the sixteen bytes DIRECTLY BELOW its
+    ; own stack pointer. DOS puts its own three words in that block's
+    ; RESERVED bytes, which nothing reads; six more words and a handler on top
+    ; of them land on the signature, the owner and the size. The Playroom's
+    ; launcher is the report: `AH=4B00` of PLAYEGA.EXE answered `AX=0008`,
+    ; "not enough memory", with 434 KB free and a chain whose last MCB read
+    ; `sig=00 own=6C8D size=F323` - this gate's own frame.
+    ;
+    ; IF IS 0 FROM THE GATE AND STAYS 0 UNTIL THE SWAP IS DONE, which is what
+    ; makes one cell per value enough: nothing can nest while interrupts are
+    ; off, and every cell is spent before the `sti`.
+    mov [cs:dos_gax], ax
+    mov [cs:dos_gbp], bp
+    mov bp, sp                      ; the three words the `int` pushed, read
+    mov ax, [bp]                    ; while the program's stack is still the
+    mov [cs:dos_gip], ax            ; one BP addresses - there is no way to
+    mov ax, [bp+2]                  ; index off SP on an 8086
+    mov [cs:dos_gcs], ax
+    mov ax, [bp+4]
+    mov [cs:dos_gfl], ax
+    mov ax, ss
+    mov [cs:dos_gss], ax
+    mov ax, [cs:dos_sv_ss]          ; THE STACK dos_be_go ALREADY BORROWS: the
+    mov ss, ax                      ; UI task's on the box (SPEC.md 96.4.1)
+    mov sp, [cs:dos_dstk]           ; and kern_dos's own where there is no
+                                    ; kernel, so nothing new is claimed
+    push word [cs:dos_gss]          ; the program's stack, banked on OURS, so
+    push bp                         ; a child's INT 21h nests - and its SP is
+                                    ; in BP already, which is a cell and two
+                                    ; stores not spent
+    push word [cs:dos_dstk]
+    mov al, [cs:dos_onprog]
+    xor ah, ah
+    push ax
+    mov byte [cs:dos_onprog], 0     ; **dos_be_go MUST NOT SWAP AGAIN**: it
+                                    ; would swap UPWARDS, to [dos_sv_sp],
+                                    ; straight through the frame below. That
+                                    ; byte's only consumer is dos_be_go, which
+                                    ; is what makes borrowing it honest
+    push word [cs:dos_gfl]          ; ...and the `int`'s three words
+    push word [cs:dos_gcs]          ; REPLICATED, so [bp+4], [bp+6] and [bp+8]
+    push word [cs:dos_gip]          ; mean what they always meant and not one
+    mov ax, [cs:dos_gax]            ; handler changes
+    mov bp, [cs:dos_gbp]
+
     sti                             ; DOS runs its calls with interrupts on
     push bp
     push ds
     mov bp, sp                      ; [bp]=DS [bp+2]=BP [bp+4]=IP [bp+6]=CS
-    push si                         ; [bp+8]=FLAGS, all on the PROGRAM's stack
+    push si                         ; [bp+8]=FLAGS, all on OUR stack now
     push di                         ; ...and [bp-2]=SI [bp-4]=DI [bp-6]=ES
     push es                         ; [bp-8]=DX, banked here rather than per
     push dx                         ; handler (SPEC.md 96.7.1)
@@ -4334,14 +4398,57 @@ dos_int21:
     mov sp, bp                      ; ...and whatever depth a handler left at,
     pop ds                          ; so the gate's promise does not rest on
     pop bp                          ; every one of them being balanced
-    iret
+
+    ; --- AND BACK ONTO THE PROGRAM'S STACK TO `iret` (SPEC.md 96.7.2) -------
+    ; Our stack now holds the three replicas, then the four words the
+    ; prologue banked. Only the FLAGS word travels: the handlers edit it
+    ; rather than executing `stc`, which an `iret` would discard, so it is
+    ; written into the frame the program's own `int` left and the return is
+    ; taken there.
+    cli                             ; **BEFORE THE FIRST SCRATCH STORE**, not
+                                    ; merely around the SS:SP pair: the cells
+                                    ; below are one deep, exactly as in the
+                                    ; prologue, and the prologue is safe only
+                                    ; because the gate is entered with IF
+                                    ; already 0. Here it is 1, and DOS is no
+                                    ; more re-entrant than a real one - but
+                                    ; this is fifteen instructions and closing
+                                    ; the window costs nothing
+    mov [cs:dos_gax], ax
+    pop ax                          ; the replica IP and CS are ours and go
+    pop ax                          ; nowhere: the program's own pair is still
+    pop ax                          ; on its stack, untouched
+    mov [cs:dos_gfl], ax            ; ...but the ANSWER's flags do travel
+    pop ax
+    mov [cs:dos_onprog], al
+    pop ax
+    mov [cs:dos_dstk], ax           ; the depth a child's exit gives back
+    mov [cs:dos_gbp], bp            ; BP is the program's again by now, and it
+    pop bp                          ; is where the program's SP comes back to
+    pop ax
+    mov ss, ax                      ; SS and SP as a pair, as everywhere else
+                                    ; in this file - and IF has been 0 since
+                                    ; the top of this block
+    mov sp, bp                      ; ...and BP is the frame the store below
+                                    ; wants anyway, so nothing is re-derived
+    mov ax, [cs:dos_gfl]
+    mov [bp+4], ax                  ; the FLAGS the `iret` is about to pop
+    mov bp, [cs:dos_gbp]
+    mov ax, [cs:dos_gax]
+    iret                            ; ...which puts IF back with them
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
 ; dos_terminate - back to the bracket, on our own stack
-; in:  AL = the exit code; running on the PROGRAM's stack
+; in:  AL = the exit code
 ; out: never returns
+;
+; **WHICH STACK IT ARRIVES ON DEPENDS ON THE DOOR AND IT DOES NOT MATTER**:
+; AH=4Ch comes through dos_int21, which since SPEC.md 96.7.2 has already
+; swapped to ours, while INT 20h and INT 22h jump straight here on the
+; program's. Nothing below reads the stack it is standing on - both arms load
+; SS:SP from a banked pair before they push anything.
 ; -----------------------------------------------------------------------------
 dos_terminate:
     cli
@@ -5062,6 +5169,13 @@ dos_be_xcopy:
 ; OUTSIDE the bracket it must NOT swap: dos_run's own load is already on that
 ; stack and [dos_sv_sp] is not yet a number. [dos_onprog] is the test, set at
 ; the jump into the program and cleared by dos_terminate with SS:SP.
+;
+; **AND INSIDE AN INT 21h IT MUST NOT SWAP EITHER, WHICH IS THE SAME TEST.**
+; Since SPEC.md 96.7.2 the gate has already brought us here, at a DEEPER
+; offset than [dos_sv_sp] - so a swap would be upwards, through the frame the
+; gate has just built. The gate reads 0 into [dos_onprog] for its whole
+; duration and puts it back on the way out, which needs no second flag
+; because this is that byte's only consumer.
 ; -----------------------------------------------------------------------------
 dos_be_go:
     ; --- THE ORDINAL BECOMES AN ADDRESS HERE (SPEC.md 96.44.1) -------------
@@ -13507,6 +13621,15 @@ dos_prog_enter:
 .go:
     mov byte [dos_onprog], 1        ; from here until dos_terminate, a kernel
                                     ; call has to borrow a stack (SPEC.md 96.4.1)
+    mov [dos_dstk], sp              ; ...AND WHERE THE GATE'S FRAME GOES
+                                    ; (SPEC.md 96.7.2). EXACT rather than a
+                                    ; reservation: this is the SP of whoever
+                                    ; is jumping into the program, so it is by
+                                    ; construction below everything they still
+                                    ; hold - the top-level case is
+                                    ; dos_fsx_main's own depth and the AH=4Bh
+                                    ; case is the parent's live handler frame,
+                                    ; with no slice constant to size
     cli                             ; SS and SP are loaded as a pair, always:
     mov ss, cx                      ; an interrupt between them lands on a
     mov sp, bx                      ; stack that is half of each
@@ -16472,35 +16595,79 @@ dos_fh_core:
     mov byte [es:dos_fabs], 1
 .copy:
     call dos_fh_split               ; ...AND THE FOLDER PART COMES OFF HERE
-    mov cx, 13                      ; ...AND CX IS RE-ARMED, because the split
-                                    ; spends it scanning: it is the 8.3 bound
-                                    ; the loop below counts on, and leaving the
-                                    ; scan's leftover there truncated or ran
-                                    ; past every name in the box
                                     ; (SPEC.md 96.12.3). It used to be refused
                                     ; with code 3, which is what stopped a
                                     ; program opening `B:\PRINCE\PRINCE.DAT` -
                                     ; a path it built itself out of AH=47h's
                                     ; own answer, and the shape every Microsoft
                                     ; C program uses
+    ;
+    ; --- TWO FIELDS WITH A CEILING EACH, NOT ONE BUFFER WITH A LENGTH -------
+    ; This counted the 13 bytes of the buffer and refused a name that filled
+    ; it. **DOS DOES NOT HAVE THAT BOUND** (SPEC.md 96.12.5): its parser fills
+    ; an eleven-byte FCB-shaped field and DISCARDS what will not fit, so
+    ; `plysample.bin` is `PLYSAMPL.BIN` and not an error. Measured on IBM DOS
+    ; 3.30 with tests/dostrap/longname.asm, which opens the same file by five
+    ; spellings and is handed a handle for every one of them.
+    ;
+    ; The Playroom is the report: PLAYEGA.EXE opens `B:plysample.bin`, gets
+    ; code 3, prints `FILE ERROR` and terminates abnormally - which reads as a
+    ; program that could not start rather than one file it could not reach.
+    ;
+    ; CX IS RE-ARMED HERE BECAUSE THE SPLIT SPENDS IT SCANNING, and it is
+    ; armed twice now: once for each field.
+    mov cx, 8                       ; ...the STEM
 .copy2:
     lodsb
-    cmp al, '\'                     ; ...so anything left here is a separator
+    cmp al, '\'                     ; anything left here is a separator
     je .path                        ; dos_fh_split could not remove, which
-    cmp al, '/'                     ; means the folder part did not fit
-    je .path
-    cmp al, 'a'
-    jb .store
-    cmp al, 'z'
-    ja .store
-    sub al, 32                      ; 8.3 names are upper case on the disk
-.store:
+    cmp al, '/'                     ; means the FOLDER part did not fit - a
+    je .path                        ; different failure from a long file name,
+    or al, al                       ; and still a refusal
+    jz .term
+    cmp al, '.'
+    je .dot
+    call dos_fh_up
     stosb
-    or al, al
-    jz .done
     loop .copy2
-    mov al, 3                       ; longer than 8.3 can be: "path not found"
-    jmp short .bad
+.eat8:
+    ; --- eight already: EAT to the dot, which is what DOS discards ----------
+    lodsb
+    cmp al, '\'
+    je .path
+    cmp al, '/'
+    je .path
+    or al, al
+    jz .term
+    cmp al, '.'
+    jne .eat8
+.dot:
+    mov al, '.'
+    stosb
+    mov cx, 3                       ; ...and the EXTENSION, the same way
+.copy3:
+    lodsb
+    cmp al, '\'
+    je .path
+    cmp al, '/'
+    je .path
+    or al, al
+    jz .term
+    call dos_fh_up
+    stosb
+    loop .copy3
+.eat3:
+    lodsb                           ; a fourth extension character goes the
+    cmp al, '\'                     ; same way a ninth stem one does
+    je .path
+    cmp al, '/'
+    je .path
+    or al, al
+    jnz .eat3
+.term:
+    xor al, al                      ; 8 + '.' + 3 + NUL is exactly the 13 bytes
+    stosb                           ; the buffer holds, so the worst case fits
+    jmp short .done
 .path:
     mov al, 3
 .bad:
@@ -16518,6 +16685,25 @@ dos_fh_core:
     pop si
     pop cx
     pop bx
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_fh_up - AL to upper case, because an 8.3 name on the disk is upper case
+; out: AL; every other register and the flags' meaning to the caller untouched
+;
+; A CALL AND NOT A MACRO, for once, because the two field loops above are the
+; only callers and a name is parsed once per INT 21h - where an inlined copy
+; would be six bytes in each of two places for no measurable call at all.
+; -----------------------------------------------------------------------------
+dos_fh_up:
+    cmp al, 'a'
+    jb .out
+    cmp al, 'z'
+    ja .out
+    sub al, 32
+.out:
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -17202,6 +17388,14 @@ dos_fh_fill:
     DBSS DOS_B_FENT,  OSAPI_FIND_SZ
     DBSS DOS_B_BKSS,  2
     DBSS DOS_B_BKSP,  2
+    DBSS DOS_B_DSTK,  2        ; ...and the GATE's own swap (SPEC.md 96.7.2):
+    DBSS DOS_B_GAX,   2        ; the offset the next entry starts at, and the
+    DBSS DOS_B_GBP,   2        ; cells the swap itself runs out of. Seven
+    DBSS DOS_B_GIP,   2        ; words, read and written with IF=0, which is
+    DBSS DOS_B_GCS,   2        ; what makes ONE copy of each of them enough -
+    DBSS DOS_B_GFL,   2        ; nothing can nest while interrupts are off,
+    DBSS DOS_B_GSS,   2        ; and by the time they are they are spent
+    DBSS DOS_B_GSP,   2
     DBSS DOS_B_BETGT, 2        ; the back end's own three words
     DBSS DOS_B_BEFLG, 2
     DBSS DOS_B_ONPRG, 1
@@ -17873,6 +18067,13 @@ dos_fname   equ DOS_CBASE + DOS_B_FNAME
 dos_fent    equ DOS_CBASE + DOS_B_FENT
 dos_bk_ss   equ DOS_CBASE + DOS_B_BKSS
 dos_bk_sp   equ DOS_CBASE + DOS_B_BKSP
+dos_dstk    equ DOS_CBASE + DOS_B_DSTK
+dos_gax     equ DOS_CBASE + DOS_B_GAX
+dos_gbp     equ DOS_CBASE + DOS_B_GBP
+dos_gip     equ DOS_CBASE + DOS_B_GIP
+dos_gcs     equ DOS_CBASE + DOS_B_GCS
+dos_gfl     equ DOS_CBASE + DOS_B_GFL
+dos_gss     equ DOS_CBASE + DOS_B_GSS
 dos_betgt   equ DOS_CBASE + DOS_B_BETGT
 dos_beflg   equ DOS_CBASE + DOS_B_BEFLG
 dos_onprog  equ DOS_CBASE + DOS_B_ONPRG
