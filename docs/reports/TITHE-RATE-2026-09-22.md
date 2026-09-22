@@ -75,3 +75,32 @@ path's reason above.
 The third is the one worth keeping: a credit model that does not price what it
 is measuring will report every optimisation as worthless, and it will do it
 without failing anything.
+
+## The combat frame
+
+`A` sustains projectile fire down a lane, so the number is the frame's rather
+than one bolt's.
+
+| | commits/s | commits/frame | frames/s | bolts/s |
+|---|---:|---:|---:|---:|
+| arm 2, dirty rect | 210.6 | 11.2 | 18.7 | — |
+| …+ one projectile | 169.4 | 9.7 | 17.5 | 17.5 |
+| arm 2, whole band | 145.6 | 7.8 | 18.6 | — |
+| …+ one projectile | 115.5 | 6.2 | 18.6 | 18.7 |
+
+**One bolt costs about 1.6 feature commits and the frame still holds.**
+TITHE-PLAN §3.9.1 predicts 8.88 ms for a projectile frame — 16% of a 54.9 ms
+tick — against the ~20% measured here, so the model and the machine agree and
+its *"one a side is 51% of a frame and comfortable"* reading is confirmed. Four
+a side, which that section measures at 102% of a frame, is not tested here.
+
+## The row that keeps it
+
+`tests/titheframe.py`, `soak -k titheframe`, 150 s. It asserts the frame holds
+a pass a tick, that the calibration ran and its two heights are ordered, that
+the dirty rect buys at least 20%, that the three sprite arms differ, and that a
+projectile costs the idle something without stalling the frame.
+
+**Broken on purpose first** (`docs/WRITING-TESTS.md` §1): charging the flat
+`[ti_bandus]` again fails exactly one check — the dirty rect's, at +0.3% —
+which is the defect it exists to catch.

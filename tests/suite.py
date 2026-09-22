@@ -7197,6 +7197,20 @@ SOAK = [
         "`make titheband`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/titheband360.img",)),
+    Row("titheframe", "soak", py("tests/titheframe.py"), 150.0,
+        "SPEC.md 97.5: does TITHE's pacing wheel hold its frame, and do its"
+        "two levers still work? The rate was measured once"
+        "(docs/reports/TITHE-RATE-2026-09-22.md) and the three defects that"
+        "made it unmeasurable are exactly the kind that come back: a"
+        "calibration nothing calls, a PIT span that wraps and reads 0 us a"
+        "band, and a credit charged FLAT - which makes the dirty rect and the"
+        "sprite arms both measure at zero while failing nothing at all. It"
+        "asserts the frame holds one pass a tick, that the calibration ran and"
+        "its two heights are ordered, that the dirty rect buys at least 20%,"
+        "that the three sprite arms differ, and that a projectile costs the"
+        "idle something without stalling the frame. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

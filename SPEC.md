@@ -140156,6 +140156,35 @@ figure, which is a rect covering the whole band and a lever worth exactly
 nothing; confining the lean to the top half made it 22 rows of 44. A cycle may
 travel the whole body by moving a different region each step.
 
+#### 97.4.5 A PROJECTILE is the one thing that is not a self-erasing band
+
+Every other mover here is an opaque band with its ground baked in (§97.4), so
+drawing it where it was *is* the erase. **A projectile cannot be**: a bolt
+crosses cells whose ground it does not own, so there is nothing to bake. It is
+**composed every frame** instead — ground in, projectile OR'd over it, one
+commit — which is `dotdel`'s shape one game along (§93.5.1) and the most
+expensive thing in the renderer.
+
+**The ground is the CELL band read modulo the cell.** The cells tile exactly
+(§97.3) and every cell's ground is the same diamond, so the ground under any
+point of the board is that one band wrapped — which is why this is a byte copy
+and not a second picture in RAM. What it does *not* carry is a **figure** the
+band laps; that is wave 3's board picture, and until it exists a bolt scrubs
+the figures it crosses until the wheel redraws them.
+
+**The step is a multiple of 8, and the bolt rides the band's LEADING EDGE.**
+The first keeps the ground copy a byte copy rather than a shifted
+read-modify-write, which TITHE-PLAN §3.9.1 prices at 43% of the whole cost. The
+second is what makes `union(old, new)` fall out of the geometry: centred, a
+24-pixel step leaves the last frame's bolt 8 pixels *left* of the new band and
+the thing draws a track behind it.
+
+**Measured** (`docs/reports/TITHE-RATE-2026-09-22.md`): one bolt in flight
+takes the idle from 11.2 feature commits a frame to 9.7 and **the frame still
+holds at 17.5–18.6 passes a second**. TITHE-PLAN §3.9.1 predicts 8.88 ms, which
+is 16% of a frame against the ~20% measured — the two agree, and its "one a
+side is comfortable" reading is confirmed.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a
@@ -140224,6 +140253,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `D` | step the detail arm — `Flat`, `Banded`, and on a VGA `Quad` |
 | `S` | step the sprite size, so three can be compared on the glass |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
+| `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `R` | re-calibrate the wheel's credit and show it |
 | `+` / `-` | move the animation share off its default 40% |
 | `P` | pause the wheel, for looking at one frame |

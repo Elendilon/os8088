@@ -291,6 +291,8 @@ ti_onkey:
     je .fs
     cmp bl, 'x'
     je .drect
+    cmp bl, 'a'
+    je .fire
     cmp bl, 's'
     je .size
     cmp al, '+'
@@ -313,6 +315,12 @@ ti_onkey:
 .drect:
     xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
     jmp short .out
+.fire:
+    xor byte [ti_pjrep], 1          ; SPEC.md 97.7's `A`: bolts across a lane,
+    cmp byte [ti_pjrep], 0          ; at the real cost, over a real board. It
+    je .out                         ; SUSTAINS rather than firing one, because
+    call ti_pj_fire                 ; the number wave 1a wants is the COMBAT
+    jmp short .out                  ; FRAME's - one bolt is a photograph
 .size:
     mov ax, [ti_arm]                ; SPEC.md 97.7's `S`: three sprite sizes,
     inc ax                          ; so which reads best at 1bpp is looked at
@@ -469,9 +477,33 @@ ti_frame:
     mov ax, [ti_hovold]
     call ti_card_draw
 .credit:
+    cmp byte [ti_pjon], 0           ; ...and it re-fires while the arm is on
+    jne .pj
+    cmp byte [ti_pjrep], 0
+    je .nopj
+    call ti_pj_fire
+.pj:
+    cmp byte [ti_pjon], 0           ; A PROJECTILE IS PAID FIRST, out of the
+    je .nopj                        ; same credit: it is the most expensive
+    call ti_pj_step                 ; thing in the renderer and the four lanes
+    inc word [ti_npj]               ; that stop idling to pay for it is
+.nopj:                              ; TITHE-PLAN 3.8's concession
     inc word [ti_nframe]            ; commits ALONE cannot say whether the wheel
     mov ax, [ti_creditus]           ; is credit-limited or work-limited, and
     mov [ti_left], ax               ; the two want opposite fixes
+    cmp byte [ti_pjon], 0
+    je .cr
+    push ax                         ; the bolt's own share, at the model's own
+    mov ax, [ti_pjh]                ; terms: it is one arrival and its rows
+    mul word [ti_rowus]             ; like any other band, plus the compose
+    add ax, [ti_arrus]
+    shl ax, 1                       ; ...which TITHE-PLAN 3.9.1 measures at
+    cmp [ti_left], ax               ; about as much again as the commit
+    jbe .nocr
+    sub [ti_left], ax
+.nocr:
+    pop ax
+.cr:
     mov cx, TI_FEATURES
 .walk:
     or cx, cx
@@ -850,6 +882,7 @@ ti_pit:
 %include "tilay.inc"
 %include "tirend.inc"
 %include "ticard.inc"
+%include "tipj.inc"
 
 ; =============================================================================
 ; data
@@ -1006,6 +1039,19 @@ ti_ry2:     dw 0
 ti_rg:      db 0
 ti_rs:      db 0
 ti_rsw:     db 0
+ti_pjon:    db 0                    ; is a projectile in flight?
+ti_pjlane:  db 2
+ti_pjrep:   db 0                    ; keep firing, so the frame can be read
+ti_pjx:     dw 0
+ti_pjy:     dw 0
+ti_pjh:     dw 0
+ti_pjb:     dw TI_PJB
+ti_pjcx:    dw 0
+ti_pjcy:    dw 0
+ti_pjcs:    dw 0
+ti_pjr:     dw 0
+ti_npj:     dw 0                    ; projectile frames committed
+ti_pj_art:  db 000h, 018h, 03Ch, 07Eh, 0FFh, 07Eh, 03Ch, 018h   ; a bolt
 ti_roff:    dw 0                    ; a shallow corner lays out sideways
 ti_c1off:   dw 0                    ; does a card's line 1 carry a coin?
 ti_statx:   dw 0
@@ -1082,6 +1128,7 @@ ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
 ti_unit:    times TI_UNITMAX * TI_POSES db 0
+ti_pjband:  times TI_PJMAX db 0
 
 TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 
