@@ -1458,6 +1458,29 @@ the same consequence three times:
 does not (§1.5), and the expansion happens into the carve at load, so it costs
 disk and not heap.
 
+#### 4.3.3 The codec is LZ4 and the differencing is OURS — measured
+
+`docs/reports/TITHE-ART-CODEC-2026-09-22.md` is the measurement, over the real
+base art. The short form:
+
+| | on the corpus | verdict |
+|---|---|---|
+| **GIF** | **6.5× worse** — 71,723 against LZ4's 10,971 | **no.** A GIF is one byte a *pixel*, so it throws away the 8:1 of packing 1bpp before its LZW runs; and §42.25's precedent prices that decoder at ~200 cycles a pixel, which is **0.34 s for one band** |
+| **LZB** | **22% smaller** — more than the tree's standing "ten points", because that was measured on code | **not by default.** Decode scales with the *uncompressed* size and the saving with a fraction of the *compressed* one, so it loses by ~0.9 s here and ~1.5 s on a 60KB part, and the gap only widens |
+| **a delta of our own, at the bitstream** | **11% WORSE** — 12,171 against 10,971 | **no.** LZ4 already finds the inter-frame redundancy as one long match; XOR replaces the long runs with sparse noise, which is what a match finder cannot use |
+| **a delta in the ART MODEL** | **4.7× before any compression** — 40,966 against 192,192 | **yes, and it is what we already do.** §97.5.1's ground-plus-overlay, and §4.2.1's body-plus-item one level up |
+
+**The model's delta is a KEYFRAME scheme and not a chain, and that is
+load-bearing**: each pose is the ground plus *its own* overlay, so any pose is
+built without decoding the ones before it. GIF chains frame to frame; the
+pacing wheel jumps to whatever pose the clock says (§3.6), so a chain would
+decode from the last keyframe on every jump.
+
+**And the trap**: compression decides disk and **not** heap. `OP_COMP` expands
+into the carve at load, so every heap figure in §1.5 and every part sizing above
+is an *uncompressed* number that no codec can move. Only the art model can,
+which is the third reason the work belongs there.
+
 **Why parts and not sidecar files**: `apps/c64`'s ROMs were a sidecar until
 §20.12 wave 6, and *"a copy that took the program and left it behind was a
 machine that could not start."* One file is one file.

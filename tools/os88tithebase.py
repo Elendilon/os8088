@@ -920,6 +920,134 @@ def geocheck(bad):
                        % (name, w, h, basew, ch * 3, key))
 
 
+# =============================================================================
+# `sizes` - what the art actually costs, and in which format
+#
+# The question this answers is whether the tree's default (LZ4, SPEC.md 20.13)
+# is the right codec for ART, or whether something frame-aware - GIF's LZW with
+# its differenced frames, or a delta of our own - would be smaller. It is a
+# MEASUREMENT and not an argument: the corpus is the real base art, which is
+# the only real art this game has, and every figure below is bytes.
+#
+# DECODE COST IS THE OTHER HALF AND IT IS NOT MEASURED HERE - it is quoted from
+# where this tree already measured it. A ratio that costs seconds at load is a
+# ratio this machine cannot spend (docs/plans/completed/PAINT-1BPP-PLAN.md).
+# =============================================================================
+
+def lzw_size(data, min_code_size):
+    """GIF's LZW, as bytes. The encoder only - we are counting, not writing."""
+    clear, eoi = 1 << min_code_size, (1 << min_code_size) + 1
+    width = min_code_size + 1
+    table = {bytes([i]): i for i in range(1 << min_code_size)}
+    nxt = eoi + 1
+    bits = width                                    # the leading clear
+    cur = b""
+    for ch in data:
+        nc = cur + bytes([ch])
+        if nc in table:
+            cur = nc
+            continue
+        bits += width
+        if nxt < 4096:
+            table[nc] = nxt
+            nxt += 1
+            if nxt > (1 << width) and width < 12:
+                width += 1
+        else:
+            bits += width                           # a clear, and start again
+            table = {bytes([i]): i for i in range(1 << min_code_size)}
+            nxt = eoi + 1
+            width = min_code_size + 1
+        cur = bytes([ch])
+    if cur:
+        bits += width
+    bits += width                                   # EOI
+    return (bits + 7) // 8
+
+
+def unpack1(b):
+    """A band as ONE BYTE A PIXEL, which is what a GIF of it would hold."""
+    return bytes(b.px[y][x] for y in range(b.h) for x in range(b.w))
+
+
+def sizes():
+    import os88lz
+    rows = []
+    for cand in CANDIDATES:
+        naive = ours = xor = 0
+        naive_u = 0
+        for gname, w, h, _ in SURFACES:
+            frames = [build(cand, w, h, p)[0] for p in range(POSES)]
+            ground = build(cand, w, h, 0)[1]
+            for f in frames:
+                naive += len(pack(f, 0, 0, w, h))
+                naive_u += len(unpack1(f))
+            ours += len(pack(ground, 0, 0, w, h))
+            for p, f in enumerate(frames):
+                bx = bbox(f, ground)
+                if bx:
+                    ours += 4 + len(pack(f, bx[0], bx[1], bx[2], bx[3]))
+                else:
+                    ours += 4
+            prev = None
+            for f in frames:
+                cur = pack(f, 0, 0, w, h)
+                xor += len(cur) if prev is None else len(cur)
+                prev = cur
+        rows.append((cand[0], naive, ours, naive_u))
+    return rows
+
+
+def sizes_report():
+    import os88lz
+    print("%-9s %8s %8s %8s %8s %8s %8s %8s %8s" %
+          ("cand", "naive", "n+lz4", "n+lzb", "n+lzw", "OURS", "o+lz4",
+           "o+lzb", "xor+lz4"))
+    tot = [0] * 8
+    for cand in CANDIDATES:
+        naive = bytearray()
+        naive_u = bytearray()
+        ours = bytearray()
+        delta = bytearray()
+        for gname, w, h, _ in SURFACES:
+            frames = [build(cand, w, h, p)[0] for p in range(POSES)]
+            ground = build(cand, w, h, 0)[1]
+            prev = None
+            for f in frames:
+                blob = pack(f, 0, 0, w, h)
+                naive += blob
+                naive_u += unpack1(f)
+                if prev is None:
+                    delta += blob
+                else:
+                    delta += bytes(a ^ b for a, b in zip(blob, prev))
+                prev = blob
+            ours += pack(ground, 0, 0, w, h)
+            for f in frames:
+                bx = bbox(f, ground)
+                ours += bytes(bx or (0, 0, 0, 0))
+                if bx:
+                    ours += pack(f, bx[0], bx[1], bx[2], bx[3])
+        n = len(naive)
+        nl4 = len(os88lz.compress(bytes(naive), os88lz.LZ4))
+        nlb = len(os88lz.compress(bytes(naive), os88lz.LZB))
+        nlw = lzw_size(bytes(naive_u), 2)
+        o = len(ours)
+        ol4 = len(os88lz.compress(bytes(ours), os88lz.LZ4))
+        dl4 = len(os88lz.compress(bytes(delta), os88lz.LZ4))
+        olb = len(os88lz.compress(bytes(ours), os88lz.LZB))
+        print("%-9s %8d %8d %8d %8d %8d %8d %8d %8d"
+              % (cand[0], n, nl4, nlb, nlw, o, ol4, olb, dl4))
+        for i, v in enumerate((n, nl4, nlb, nlw, o, ol4, olb, dl4)):
+            tot[i] += v
+    print("%-9s %8d %8d %8d %8d %8d %8d %8d %8d" % ("TOTAL", *tot))
+    print()
+    print("naive    = eight whole bands a pose set, packed 1bpp")
+    print("n+lzw    = GIF's LZW over ONE BYTE A PIXEL, which is what a GIF holds")
+    print("OURS     = one ground band + a bbox sub-band a pose (SPEC.md 97.5.1)")
+    print("xor+lz4  = whole bands, each XORed with the one before, then lz4")
+
+
 def selfcheck():
     bad = []
     geocheck(bad)
@@ -967,13 +1095,16 @@ def selfcheck():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[2])
     ap.add_argument("cmd", nargs="?", default="sheet",
-                    choices=["sheet", "insitu", "emit"])
+                    choices=["sheet", "insitu", "emit", "sizes"])
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("-o", "--outdir", default="build")
     a = ap.parse_args()
     if a.selfcheck:
         return selfcheck()
     os.makedirs(a.outdir, exist_ok=True)
+    if a.cmd == "sizes":
+        sizes_report()
+        return 0
     if a.cmd == "emit":
         return 0 if emit("apps/tithe/tibases.inc") else 1
     if a.cmd == "insitu":
