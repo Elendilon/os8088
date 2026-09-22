@@ -140084,6 +140084,33 @@ about whether it was cost, attack or gold. The icons are 8×8 1bpp bands rather
 than characters, the system font having no coin, sword, shield or heart in it —
 one glyph cell each, so an icon costs exactly the room of the digit it labels.
 
+#### 97.4.3 The DIRTY RECT, and the rect is the tool's
+
+**An idle pose differs from its neighbour in PART of the figure, not all of
+it.** A breathing character moves its chest and head; its feet do not move at
+all. So the band that goes down is not the figure's box — it is the box of
+**what changed**, and everything §97.4 says still holds: one opaque
+self-erasing rectangle with its own ground baked in, exactly one rectangle
+shorter. **Measured here at +43.8%** more feature commits a second at a 50%
+rect, against wave 0's predicted −43% cost
+(`docs/reports/TITHE-RATE-2026-09-22.md`).
+
+**The rect is DIFFED out of the two poses, not declared.** It is a property of
+a *transition* (pose A → pose B), so a four-pose idle has four of them — and a
+row outside the rect that is not byte-identical between the two poses would be
+a stale row on the glass, a figure with a torn edge that never repairs.
+Computing it from the bands makes that a fact rather than something somebody
+has to remember.
+
+**Only the WHEEL may use it.** A board repaint has no transition behind it and
+owes the whole band; `ti_all` clears the flag and the wheel sets it.
+
+**What the ART owes is that each transition's motion is LOCAL** — not that the
+figure barely moves. The first placeholder idle here leaned every row of the
+figure, which is a rect covering the whole band and a lever worth exactly
+nothing; confining the lean to the top half made it 22 rows of 44. A cycle may
+travel the whole body by moving a different region each step.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a
@@ -140104,12 +140131,31 @@ on the tall ones and under-spends on the wide — which is exactly the *"some
 characters animate smoothly while others visibly hitch"* failure the wheel
 exists to remove.
 
-**And the credit is CALIBRATED, not modelled.** At match load the renderer
-blits a band N times and times it off the PIT — 21.7 µs a read — so the number
-belongs to this machine, this adapter and this kernel. Per frame one
-`OSAPI_GET_TICKS` (46.7 µs, 0.085% of a frame) says whether the frame overran,
-and the credit is trimmed a notch if it did. There is no CPU-tier table to be
+**And the credit is CALIBRATED, not modelled.** The renderer blits a band and
+times it off the PIT — 21.7 µs a read — so the number belongs to this machine,
+this adapter and this kernel. Per frame one `OSAPI_GET_TICKS` (46.7 µs, 0.085%
+of a frame) says whether the frame overran. There is no CPU-tier table to be
 wrong about.
+
+**TWO HEIGHTS, and the charge is PER COMMIT.** The model is
+`arrival + rows × R`, and calibrating one height collapses it to a constant —
+which makes every optimisation downstream measure as worthless without failing
+anything. Charged flat, a half-height commit cost what a full one did, so the
+wheel drew the same twenty-three features and finished its frame earlier: the
+dirty rect read **+0.6%** and the three sprite arms all read the same rate.
+Timing one row and `BH` rows separates the terms (measured here: arrival
+**809 µs**, **43 µs** a row), and charging what a commit actually put down is
+what makes §97.4.3 and §97.7's `S` visible at all.
+
+**It is re-taken wherever the LAYOUT is**, because the cost moves with the
+sprite arm — and it is taken at all, which it was not: it began as the `R`
+key's alone, so the wheel ran on the initial guess for ever and a frame that
+believed it was inside its tick and was not overran in silence.
+
+**ONE BLIT PER PIT SPAN.** Counter 0 counts down and reloads every 54.9 ms, so
+a span holding sixteen 4 ms blits wraps and its subtraction means nothing — it
+read **0 µs a band**, which is a credit the wheel cannot divide by. Eight
+samples of one blit each accumulate to well under 65,535 counts.
 
 ### 97.6 Two renderers, and the windowed one is the default
 
@@ -140132,6 +140178,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `F` | fullscreen on/off |
 | `D` | step the detail arm — `Flat`, `Banded`, and on a VGA `Quad` |
 | `S` | step the sprite size, so three can be compared on the glass |
+| `X` | the dirty-rect arm on/off (§97.4.3) |
 | `R` | re-calibrate the wheel's credit and show it |
 | `+` / `-` | move the animation share off its default 40% |
 | `P` | pause the wheel, for looking at one frame |

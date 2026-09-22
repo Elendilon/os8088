@@ -119,6 +119,8 @@ ti_art_build:
     jmp short .pose
 .pdone:
 
+    call ti_dirty_build             ; ...and what each TRANSITION moves
+
     ; --- and the two players' bases, which are ONE band drawn twice ---------
     mov word [ti_pi], 0
 .base:
@@ -232,6 +234,127 @@ ti_cell_span:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_dirty_build - the minimal covering band of every transition
+; out: ti_dy[p], ti_dh[p] - the rows that differ between pose p-1 and pose p
+; clobbers: AX, BX, CX, DX, SI, DI
+;
+; TITHE-PLAN 3.4.1, and it is the cheapest lever in the document: an idle pose
+; differs from its neighbour in PART of the figure, not all of it, so the band
+; that goes down is the box of WHAT CHANGED - one opaque self-erasing rectangle
+; with its own ground baked in, exactly one rectangle shorter. 50% of the rows
+; is -43% off every commit, measured.
+;
+; THE RECT IS THE TOOL'S AND NOT THE ARTIST'S, which is what makes it safe: it
+; is diffed out of the two poses here, so a row outside it is byte-identical by
+; construction rather than by somebody remembering. A row outside that was NOT
+; identical would be a stale row on the glass - a figure with a torn edge that
+; never repairs.
+; -----------------------------------------------------------------------------
+ti_dirty_build:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov word [ti_pi], 0
+.pose:
+    mov ax, [ti_pi]
+    cmp ax, TI_POSES
+    jae .done
+    call ti_pose_addr               ; DI = the pose ARRIVED AT
+    mov bx, di
+    mov ax, [ti_pi]                 ; ...and the one before it
+    dec ax
+    and ax, TI_POSES - 1
+    push word [ti_pi]
+    mov [ti_pi], ax
+    call ti_pose_addr
+    pop word [ti_pi]
+    mov si, di
+    mov di, bx                      ; SI = from, DI = to
+
+    xor cx, cx                      ; walk the rows, first differing to last
+    mov word [ti_d0], 0FFFFh
+    mov word [ti_d1], 0
+.row:
+    cmp cx, [ti_bh]
+    jae .have
+    push cx
+    call ti_row_differs             ; CF=1 this row moved
+    pop cx
+    jnc .next
+    cmp word [ti_d0], 0FFFFh
+    jne .lo
+    mov [ti_d0], cx
+.lo:
+    mov [ti_d1], cx
+.next:
+    inc cx
+    jmp short .row
+.have:
+    mov di, [ti_pi]
+    shl di, 1
+    cmp word [ti_d0], 0FFFFh
+    je .none
+    mov ax, [ti_d0]
+    mov [ti_dy + di], ax
+    mov ax, [ti_d1]
+    sub ax, [ti_d0]
+    inc ax
+    mov [ti_dh + di], ax
+    jmp short .step
+.none:
+    mov word [ti_dy + di], 0        ; nothing moved: nothing to commit
+    mov word [ti_dh + di], 0
+.step:
+    inc word [ti_pi]
+    jmp .pose                       ; NEAR: the row walk sits between here and
+                                    ; the top and a short jump will not reach
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_row_differs - CF=1 if row CX of the bands at SI and DI is not identical
+; clobbers: AX, BX, DX, flags
+ti_row_differs:
+    push cx
+    push si
+    push di
+    mov ax, cx
+    mul word [ti_bs]
+    add si, ax
+    add di, ax
+    mov cx, [ti_bs]
+.b:
+    or cx, cx
+    jz .same
+    mov al, [si]
+    cmp al, [di]
+    jne .diff
+    inc si
+    inc di
+    dec cx
+    jmp short .b
+.diff:
+    pop di
+    pop si
+    pop cx
+    stc
+    ret
+.same:
+    pop di
+    pop si
+    pop cx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_pose_build - one idle pose into ti_pose[ti_pi]
 ; in:  [ti_pi] = 0..3, the layout is current
 ; clobbers: AX, BX, CX, DX, SI, DI
@@ -334,8 +457,19 @@ ti_pose_row:
     mov cx, dx                      ; CX = the half width
 
     ; --- the lean: the pose moves the figure's centre by a pixel or two -----
+    ; AND ONLY THE TOP HALF OF IT MOVES. TITHE-PLAN 3.4.1 asks the art for
+    ; transitions whose motion is LOCAL, and the first cut of this idle leaned
+    ; every row - which is a dirty rect covering the whole band and a lever
+    ; worth exactly nothing. A breathing figure moves its chest and head; its
+    ; feet do not move at all.
     mov ax, [ti_bw]
     shr ax, 1                       ; AX = the band's centre
+    push cx
+    mov cx, [ti_bh]
+    shr cx, 1
+    cmp [ti_ry], cx
+    pop cx                          ; `pop` writes no flags, so the compare
+    jae .emit                       ; above still decides
     mov bx, [ti_pi]
     cmp bx, 1
     jne .l2

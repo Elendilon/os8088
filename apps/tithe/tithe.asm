@@ -93,7 +93,8 @@ TI_FEATURES equ 23                ; the brief's own number: 20 characters, 2
                                   ; player bases, 1 moused-over card
 TI_SHARE    equ 40                ; per cent of a frame the idle may take
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
-TI_CALN     equ 16                ; blits the calibration times (SPEC.md 97.5)
+TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
+                                  ; EACH (SPEC.md 97.5)
 
 ; =============================================================================
 ; ti_entry - package entry (SPEC.md 20.2)
@@ -161,6 +162,16 @@ ti_relayout:
     jc .no
     call ti_art_build
     mov byte [ti_ok], 1
+    call ti_calibrate               ; ...AND WHAT A BAND COSTS AT THIS SIZE.
+                                    ; It was the `R` key's alone, so the wheel
+                                    ; ran on the GUESS for ever - 3,340 us
+                                    ; against a real 4,000-plus - and a frame
+                                    ; that believes it is inside its tick and
+                                    ; is not overruns silently. The cost moves
+                                    ; with the sprite arm, so it is re-taken
+                                    ; wherever the layout is. Its scribble
+                                    ; lands on the board, which W_PAINT draws
+                                    ; immediately after
     jmp short .out
 .no:
     mov byte [ti_ok], 0             ; a refusal is a normal path
@@ -276,6 +287,10 @@ ti_onkey:
     je .pause
     cmp bl, 'r'
     je .recal
+    cmp bl, 'f'
+    je .fs
+    cmp bl, 'x'
+    je .drect
     cmp bl, 's'
     je .size
     cmp al, '+'
@@ -289,10 +304,25 @@ ti_onkey:
 .recal:
     call ti_calibrate
     jmp short .out
+.fs:
+    xor byte [ti_full], 1           ; SPEC.md 97.7's `F`. Until the fullscreen
+    mov byte [ti_laid], 0           ; renderer exists this steps the SURFACE
+    call ti_relayout_ck             ; row, which is the fullscreen geometry in
+    call ti_paint_now               ; a window - and refuses where it will not
+    jmp short .out                  ; fit, which is the honest answer
+.drect:
+    xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
+    jmp short .out
 .size:
-    xor byte [ti_full], 1           ; wave 1a's cheapest "three sizes side by
-    mov byte [ti_laid], 0           ; side" is to step the surface's own band
-    call ti_relayout_ck             ; and look at each in turn
+    mov ax, [ti_arm]                ; SPEC.md 97.7's `S`: three sprite sizes,
+    inc ax                          ; so which reads best at 1bpp is looked at
+    cmp ax, 3                       ; rather than argued about (TITHE-PLAN 18.1)
+    jb .armset
+    xor ax, ax
+.armset:
+    mov [ti_arm], ax
+    mov byte [ti_laid], 0
+    call ti_relayout_ck
     call ti_paint_now
     jmp short .out
 .up:
@@ -439,8 +469,9 @@ ti_frame:
     mov ax, [ti_hovold]
     call ti_card_draw
 .credit:
-    mov ax, [ti_creditus]
-    mov [ti_left], ax
+    inc word [ti_nframe]            ; commits ALONE cannot say whether the wheel
+    mov ax, [ti_creditus]           ; is credit-limited or work-limited, and
+    mov [ti_left], ax               ; the two want opposite fixes
     mov cx, TI_FEATURES
 .walk:
     or cx, cx
@@ -452,8 +483,9 @@ ti_frame:
     xor ax, ax
 .keep:
     mov [ti_wpos], ax
-    mov bx, ax
-    add bx, ti_clock
+    mov byte [ti_dok], 1            ; ...and a wheel pass is exactly a
+    mov bx, ax                      ; transition, which is what the rect is a
+    add bx, ti_clock                ; property of
     mov al, [bx]                    ; this feature's own phase counter
     inc al
     cmp al, TI_POSES
@@ -463,7 +495,8 @@ ti_frame:
     mov [bx], al
     mov ax, [ti_wpos]
     call ti_feature                 ; ...and the commit
-    mov ax, [ti_bandus]
+    call ti_cost                    ; ...charged at what THAT commit cost, not
+                                    ; at a whole band's price (SPEC.md 97.5)
     cmp [ti_left], ax
     jbe .out                        ; the credit is the contract: overrun is
     sub [ti_left], ax               ; impossible by construction
@@ -482,7 +515,8 @@ ti_frame:
 ti_all:
     push ax
     push cx
-    xor ax, ax
+    mov byte [ti_dok], 0            ; a full board owes WHOLE bands: there is
+    xor ax, ax                      ; no transition behind a repaint
 .f:
     cmp ax, TI_FEATURES
     jae .out
@@ -545,14 +579,36 @@ ti_feature:
     mov si, di
     mov ax, [ti_ci]
     call ti_cell_xy                 ; AX = the cell's x, BX = its y
-    add ax, [ti_insx]               ; ...and the figure's own inset inside it,
-    add bx, [ti_insy]               ; rounded to the byte grid by ti_layout
+    add ax, [ti_insx]               ; ...and the figure's own inset inside it
+    add bx, [ti_insy]
     push ds
     pop es
-    mov cx, [ti_bw]
     mov dx, [ti_bh]
+    cmp byte [ti_drect], 0          ; THE DIRTY RECT (SPEC.md 97.4.3): commit
+    je .rows                        ; the rows this TRANSITION moved and not
+    cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
+    je .rows                        ; it - a board repaint has no transition
+    mov di, [ti_pi]                 ; behind it and owes the whole band
+    shl di, 1
+    mov dx, [ti_dh + di]
+    or dx, dx
+    jz .out                         ; this transition moved nothing at all
+    push ax
+    push dx
+    mov ax, [ti_dy + di]
+    add bx, ax
+    mul word [ti_bs]
+    add si, ax
+    pop dx
+    pop ax
+.rows:
+    mov cx, [ti_bw]
     mov bp, [ti_bs]
     call OSAPI_GFX_BLIT1
+    inc word [ti_ncommit]           ; WHAT THE WHEEL ACTUALLY ACHIEVES, counted
+                                    ; rather than modelled: commits a guest
+                                    ; second is the number TITHE-PLAN 1.3 is in
+                                    ; and the number wave 1a's gate is against
 .out:
     pop es
     pop bp
@@ -567,15 +623,27 @@ ti_feature:
 ; =============================================================================
 ; ti_calibrate - what a band costs ON THIS MACHINE (SPEC.md 97.5)
 ;
-; Blit one band TI_CALN times off the wall clock and divide. The credit is
-; then this adapter's, this CPU's and this kernel's - with or without SPEC.md
-; 5.4.2.6's fast path - rather than a number derived from a model of some
-; other machine. It costs a few milliseconds, once, and there is no CPU-tier
-; table to be wrong about.
+; TWO HEIGHTS, because a band's cost is NOT flat in its height. The model is
+; `arrival + rows x R`, and calibrating only the full band collapses it to a
+; constant - which is exactly what made the dirty rect and the sprite arms
+; measure as worth NOTHING: the wheel charged a whole band's price for a
+; half-height commit, drew the same twenty-three features and finished its
+; frame earlier. Timing ONE row and BH rows separates the two terms, and the
+; wheel then charges what a commit actually cost.
+;
+; ONE BLIT PER PIT SPAN. Counter 0 counts down and reloads every 54.9 ms, so a
+; span holding sixteen 4 ms blits wraps and its subtraction means nothing - the
+; first version of this read 0 us a band, the credit became a number the wheel
+; could not divide by, and the frame overran its tick in silence. Eight
+; single-blit samples accumulate to well under 65,535 counts.
 ;
 ; THE PIT IS LATCHED AND NOT REPROGRAMMED. Control word 00h freezes a copy for
 ; reading and changes neither the mode nor the reload value, so the system
 ; tick is undisturbed; tests/benchlib.inc's bl_pit is the same read.
+;
+; It is re-taken wherever the LAYOUT is, because the cost moves with the
+; sprite arm. Its scribble lands on the board, which W_PAINT draws immediately
+; after.
 ; =============================================================================
 ti_calibrate:
     push ax
@@ -589,40 +657,41 @@ ti_calibrate:
     cmp byte [ti_ok], 0
     je .out
 
-    pushf
-    cli                             ; the span must not have a tick ISR in it
-    call ti_pit
-    mov [ti_t0], ax
-    mov cx, TI_CALN
-.b:
-    push cx
-    mov word [ti_pi], 0
-    call ti_pose_addr
-    mov si, di
-    push ds
-    pop es
-    mov ax, [ti_bx]
-    mov bx, [ti_by]
-    mov cx, [ti_bw]
-    mov dx, [ti_bh]
-    mov bp, [ti_bs]
-    call OSAPI_GFX_BLIT1
-    pop cx
-    loop .b
-    call ti_pit
-    mov bx, [ti_t0]
-    sub bx, ax                      ; counter 0 counts DOWN: start - end, and
-    popf                            ; modular, because it reloads every 55 ms
+    mov ax, [ti_bh]
+    call ti_cal_one                 ; AX = us for a whole band
+    mov [ti_calfull], ax
+    mov ax, 1
+    call ti_cal_one                 ; ...and for a single row of it
+    mov [ti_calone], ax
 
-    mov ax, bx                      ; counts -> microseconds: one count is
-    mov dx, 0                       ; 0.8381 us, so us = counts * 8381 / 10000
-    mov cx, 8381
-    mul cx
-    mov cx, 10000
-    div cx
+    mov ax, [ti_calfull]            ; the per-ROW term
+    sub ax, [ti_calone]
+    jnc .pos
+    xor ax, ax
+.pos:
+    mov bx, [ti_bh]
+    dec bx
+    or bx, bx
+    jnz .div
+    inc bx
+.div:
     xor dx, dx
-    mov cx, TI_CALN
-    div cx                          ; AX = microseconds a band
+    div bx
+    or ax, ax
+    jnz .rok
+    inc ax
+.rok:
+    mov [ti_rowus], ax
+
+    mov bx, ax                      ; ...and what is left of one row is the
+    mov ax, [ti_calone]             ; ARRIVAL
+    sub ax, bx
+    jnc .arr
+    xor ax, ax
+.arr:
+    mov [ti_arrus], ax
+
+    mov ax, [ti_calfull]
     or ax, ax
     jnz .have
     inc ax                          ; a machine too fast to measure this way
@@ -640,6 +709,64 @@ ti_calibrate:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; ti_cal_one - microseconds for ONE blit of AX rows of the pose band
+; out: AX = us; every other register preserved
+; -----------------------------------------------------------------------------
+ti_cal_one:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov [ti_calrows], ax
+    mov word [ti_calacc], 0
+    mov cx, TI_CALN
+.b:
+    push cx
+    pushf
+    cli                             ; the span must not have a tick ISR in it
+    call ti_pit
+    mov [ti_t0], ax
+    mov word [ti_pi], 0
+    call ti_pose_addr
+    mov si, di
+    push ds
+    pop es
+    mov ax, [ti_bx]
+    mov bx, [ti_by]
+    mov cx, [ti_bw]
+    mov dx, [ti_calrows]
+    mov bp, [ti_bs]
+    call OSAPI_GFX_BLIT1
+    call ti_pit
+    mov bx, [ti_t0]
+    sub bx, ax                      ; counter 0 counts DOWN: start - end, and
+    popf                            ; modular, over ONE blit which cannot wrap
+    add [ti_calacc], bx
+    pop cx
+    loop .b
+
+    mov ax, [ti_calacc]             ; counts -> microseconds: one count is
+    xor dx, dx                      ; 0.8381 us, so us = counts * 8381 / 10000
+    mov cx, 8381
+    mul cx
+    mov cx, 10000
+    div cx
+    xor dx, dx
+    mov cx, TI_CALN
+    div cx
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 ; ti_credit - the frame's credit, from the share and the measured band
 ti_credit:
     push ax
@@ -655,6 +782,36 @@ ti_credit:
     pop cx
     pop dx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cost - what the commit just made cost, in microseconds
+; out: AX; preserves every other register
+;
+; SPEC.md 97.5: `arrival + rows x R`, and the ROWS are the ones actually put
+; down - which is the whole of why the dirty rect and the sprite arms show up
+; in the rate at all. Charging a constant made a half-height commit cost what a
+; full one did, so the wheel drew the same twenty-three features and finished
+; its frame earlier, and both levers measured at ZERO.
+; -----------------------------------------------------------------------------
+ti_cost:
+    push bx
+    push dx
+    mov ax, [ti_bh]
+    cmp byte [ti_drect], 0
+    je .rows
+    mov bx, [ti_pi]
+    shl bx, 1
+    mov ax, [ti_dh + bx]
+.rows:
+    mul word [ti_rowus]
+    add ax, [ti_arrus]
+    or ax, ax
+    jnz .out
+    inc ax                          ; never zero: a credit it cannot divide by
+.out:                               ; is a wheel that never stops
+    pop dx
+    pop bx
     ret
 
 ; ti_pit - latch and read counter 0 of the 8253 (a READ, not a reprogram)
@@ -819,6 +976,23 @@ ti_cpap:    db 0
 ti_hover:   dw -1                   ; the card under the pointer, -1 for none
 ti_hovold:  dw -1                   ; ...and the one it just left
 ti_swaps:   db 2
+ti_arm:     dw 2                    ; the sprite-size arm: 0 half, 1 three
+                                    ; quarters, 2 the table's own
+ti_bwfull:  dw 0
+ti_drect:   db 0                    ; is the dirty-rect arm on?
+ti_dok:     db 0                    ; ...and is this draw a TRANSITION?
+ti_calfull: dw 0                    ; us for a whole band...
+ti_calone:  dw 0                    ; ...and for one row of it
+ti_calrows: dw 0
+ti_calacc:  dw 0
+ti_arrus:   dw 700                  ; SPEC.md 97.5's two terms, replaced by the
+ti_rowus:   dw 60                   ; first ti_calibrate - a guess until then
+ti_ncommit: dw 0                    ; feature commits since launch, wrapping
+ti_nframe:  dw 0                    ; ...and wheel passes
+ti_d0:      dw 0
+ti_d1:      dw 0
+ti_dy:      times TI_POSES dw 0
+ti_dh:      times TI_POSES dw 0
 ti_nums:    dw 0                    ; rows of numbers a cell carries
 ti_nx:      dw 0                    ; the cell whose numbers are being drawn
 ti_ny:      dw 0
