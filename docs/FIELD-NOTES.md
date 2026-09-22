@@ -2540,3 +2540,112 @@ true of the reference too. Four earlier Works defects were found by putting
 the same program in front of a real DOS and diffing; this is the first time
 that method has said *stop, there is nothing here* — which is worth as much,
 and cost about fifteen minutes against the day a "fix" would have taken.
+
+## 56. Battle Chess: it runs, and its own cursor never moves (NOT OURS — the game takes COM1 and IRQ4 for its modem link at startup: SPEC.md §96.45)
+
+Reported off the fork owner's machine, with the game on a fixed disk: *"Battle
+chess launches and runs, but the cursor (which looks like a program special
+one) does not move."* It is exactly that — the board comes up, the hand
+cursor is drawn in the top-left corner, and **0 of 256,000 pixels change**
+across forty mouse moves.
+
+**Everything on our side measures correct**, which is why this took the
+debugger rather than the source:
+
+| asked | answered |
+|---|---|
+| `tests/kdmouse.py` on the **same machine** (`os8088_xt_vga_144`) | green — `(0,0)` → `(120,40)`, press and release both seen |
+| `kdm_base` / `kdm_line`, read out of `kern_dos` while the board is up | `0x3F8` / `0x10` — COM1, IRQ4, exactly what `mouse_init` settled on |
+| `kdm_phase`, `kdm_x`, `kdm_y`, `kdm_b0` across 40 moves | `0`, `0`, `0`, `0` — the ISR's body never runs |
+| INT 33h traffic, off `tools/os88intmon.py` | **3,894 calls in 12 guest seconds, every one `AX=0003`, all from one call site** |
+
+So the game asks where the mouse is 325 times a second and is told `(0,0)`
+every time, because nothing is accumulating. The IVT says why in one line:
+
+```
+IVT int 0Ch -> 1BF7:006D   (kd_mou_isr is 0060:513C)
+```
+
+**`int 0Ch` is IRQ4, and it is not ours any more.** Reading the handler off
+the running machine gives code that is byte-for-byte the routine at image
+offset `0x10CBD` of `CHESS.EXE`:
+
+```
+sti / push ds / push ax / push bx / push dx
+mov ax,[cs:0xb4] / mov ds,ax
+mov bx,[0x88d2]                  ; the game's own receive ring
+mov dx,[0x23f2] / mov dl,0xfd    ; LSR
+in al,dx / and al,0x0e / or [0xa854],al
+mov dl,0xf8 / in al,dx           ; ...AND THE DATA REGISTER
+mov [bx],al / inc bx             ; the byte goes in the game's ring
+...
+mov al,0x20                      ; EOI
+```
+
+**It does not chain and it does not ask whether the interrupt was its own** —
+it reads the byte and keeps it. So every mouse packet is eaten before
+`kd_mou_isr` could have seen one, and `kd_mou_isr` is not called at all.
+
+The installer is at image `0x10C73` and it is the game's **modem link**:
+
+```
+mov si,[0x23f0] / shl si,1 / shl si,1 / add si,0x20   ; IRQ n -> vector 8+n
+sub ax,ax / mov ds,ax
+mov word [si],0x6d / mov [si+2],cs   ; the IVT, written DIRECTLY
+mov dl,0xfb / in al,dx / and al,0x7f / out dx,al      ; LCR: clear DLAB
+mov dl,0xf9 / mov al,1  / out dx,al                   ; IER = 1
+mov dl,0xfc / mov al,8  / out dx,al                   ; MCR = 08h
+in al,0x21 / and al,~(1<<irq) / out 0x21,al           ; unmask
+```
+
+With `[0x23f0]` = 4 that is `si = 0x30`, vector `0Ch`, and `CS:006D` — the
+address we read, to the byte. **`MCR = 08h` is the second kill on its own**:
+that is OUT2 with **DTR and RTS off**, and a Microsoft serial mouse is
+*powered* by DTR and RTS, so the mouse would fall silent even if the vector
+were still ours.
+
+It has exactly **one caller**, at image `0x1D3`, in early start-up between two
+`inc word [0x48]` — a stage counter the exit path unwinds (`cmp word [0x48],5
+/ jl ... call uninstall`). So the link is armed at launch, unconditionally,
+and not from a menu.
+
+### The reference, which is what makes this NOT OURS
+
+Entry 55's method, and the same answer. `CHESS.EXE` was put in front of a real
+**IBM DOS 3.30 with the reporter's own CuteMouse** on COM1
+(`os88dosdbg.py ref --pre "B:CTMOUSE"`, machine `os8088_xt_vga_mix` — 360KB
+A:, 1.44MB B:, VGA, serial mouse). The game's INT 33h sequence there is
+**identical to ours**:
+
+```
+00 07 08 03 03 03 03 ...        00h reset x1; 07h set x range 0000..013F x1;
+                                08h set y range 0000..00C7 x1; 03h x255
+```
+
+and after ten `+16,+10` moves the board is up and **no cursor follows the hand
+there either**. Diffed against our own board frame: **476 differing pixels in
+the whole 640x400, of which 468 are that one cursor in the corner.** The two
+machines draw the same board and neither tracks the mouse.
+
+So there is nothing here to fix. A serial mouse on **COM1** cannot survive
+Battle Chess on any DOS: the game takes the port, the vector and the power
+line. What would work on real hardware is the mouse on **COM2** — the game
+takes only the port its own `[0x23f2]`/`[0x23f0]` name — and os8088 follows
+whichever port `mouse_init` found one on (§9.5), so that machine needs nothing
+from us.
+
+**The one real difference the comparison turned up is where the stuck cursor
+sits**, and it is ours: `kern_dos` leaves `kdm_x`/`kdm_y` at the zero their
+`.bss` was born with, so INT 33h answers `(0,0)` until the first packet and
+the game draws its hand in the corner; CuteMouse leaves the pointer somewhere
+the game draws nothing, which is what those 468 pixels are. A real driver's
+`AX=0` puts the pointer at the CENTRE of the virtual screen and `kd_mou_start`
+puts it at the origin.
+
+**That is a divergence and not this bug**, and it is deliberately left
+unfixed here rather than fixed on a guess: what CuteMouse actually answers
+after a reset has not been measured yet, and §96.10's whole surface is
+measured against a real driver rather than reasoned from the interface. It
+costs about eight bytes of `kern_dos` when somebody has that number - the
+probe is `build/DOSMOUSE.COM`, which runs under a real DOS unchanged, and its
+`POS1` line is the answer.
