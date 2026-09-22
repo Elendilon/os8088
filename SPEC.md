@@ -14500,6 +14500,70 @@ release; plug a flash drive and expect the worker to leave it alone; and the
 same in poll mode with `INT#` dead.
 
 
+### 9.13 A program may TAKE the mouse's IRQ, and a driver takes it back
+
+A DOS program inside an fsx bracket owns the machine (§53.7), and that
+includes the interrupt vector table: it may hook `IRQ3` or `IRQ4` for its own
+serial code, writing the IVT directly and chaining to nobody. When it does,
+`mou_isr` stops being called and `[mouse_x]`/`[mouse_y]` freeze at whatever
+they last held — so `INT 33h` answers that same position for ever and the
+program's own cursor never moves.
+
+**BATTLE CHESS IS THE PROGRAM** (§96.45.4, docs/FIELD-NOTES.md 56). Its
+serial link installs unconditionally in early start-up and its handler reads
+the LSR, reads the data register, keeps the byte, EOIs the master and
+`iret`s. `kern_dos` grew `kd_mou_rearm` for it; the windowed box has the same
+hole with a different owner — there the displaced ISR is the KERNEL's.
+
+**MEASURED, with `tests/dostrap/irqgrab.asm`**, which takes `int 0Ch` the same
+way and then blocks on `AH=08h` so the pointer can be moved while it holds it:
+
+| | `int 0Ch` while it is held | `[mouse_x]`/`[mouse_y]` across a sweep |
+|---|---|---|
+| before | `2422:0156` — the program's own segment | **`(0,0)` — frozen** |
+| after | `0060:….` — taken back | **`(400,120)`** |
+
+**WHERE THE CHECK GOES IS `osapi_mouse`, AND THAT IS WHY THERE IS NO NEW
+SLOT.** The box's `dos_hk_mouse` — its `DHK_MOUSE` (§96.44.3) — calls
+`OSAPI_MOUSE` on every `INT 33h` position read and on every key poll, which
+is the same choke point `kd_mou_read` is for `kern_dos`. So the recovery sits
+inside a cell that already exists: no table entry, no SDK line, no ABI. The
+alternative was an `OSAPI_MOUSE_REARM` of its own, and the cell is the
+expensive half — the table is asserted at exactly 179 eight-byte slots ending
+at `0x05A8` and §20.3.1's free list is empty, so a new one is 8 bytes **plus
+a published offset kept for ever**.
+
+**THE COST IS 94 RESIDENT BYTES ON `kern_big` AND NOTHING ON `kern_small`.**
+The gate is a fact about the disk rather than a judgement: the only programs
+that can do this are DOS programs, and `DOS.O88` is on no `kern_small` floppy
+— `build/small360.img` is 27 files and none of them is the box — so that
+machine has nothing to defend against and pays nothing. Every other caller of
+`osapi_mouse` pays `cmp byte [fsx_task], 0xFF` and a `je`, beside the
+`[mou_ptr]` compare that slot already carried.
+
+Three things keep it small, and each was 15 bytes or better:
+
+- **The segment is the whole test.** A DOS program's `CS` is never
+  `KERNEL_SEG`, so the segment word alone identifies a theft; comparing the
+  offset too spends 15 bytes to distinguish a vector pointing *into the
+  kernel*, which is neither a theft nor survivable.
+- **`[mou_port]` is already the tables' byte offset** — 0 or 2, with
+  `MOU_P2ROW` = 4 above them — so it indexes `mou_ivecs`/`mou_isrs` with no
+  shift. Shifting it is the bug this routine was first written with, and a
+  machine whose mouse is on COM1 never notices: row 0 shifts to 0.
+- **One critical section**, over the vector write and the 8259 mask together,
+  rather than one around each.
+
+**The hardware goes back with the vector**, because a program that took one
+took the other: `MCR` to `DTR|RTS|OUT2` (Battle Chess leaves `08h`, which is
+a Microsoft mouse with its power removed), `IER = 1` — which §96.45.2 records
+as the one thing only `mouse_init` ever wrote, and `mouse_init` is in the
+boot overlay and gone — and the line unmasked at the 8259.
+
+**What this does NOT defend** is the PS/2 mouse's `IRQ12` and the driver row:
+`[mou_port] >= MOU_PEND` returns, because neither is a UART and neither
+indexes the serial tables. No reported program takes `int 74h`.
+
 ## 10. events.inc
 
 Event record, 8 bytes: `EV_TYPE` dw, `EV_A` dw, `EV_B` dw, `EV_C` dw.

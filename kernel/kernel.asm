@@ -5709,6 +5709,16 @@ osapi_set_color:
 ; keyboard latched can never be released and the UI task never comes back
 ; (SPEC.md 9.6.1). One compare on every machine that has a mouse.
 osapi_mouse:
+%ifdef KERN_BIG
+    cmp byte [fsx_task], 0xFF       ; A BRACKET IS UP, so a program owns the
+    je .nofsx                       ; machine and may have taken the mouse's
+    call mouse_rearm                ; IRQ out from under us (SPEC.md 9.13).
+.nofsx:                             ; Here because this is the call the DOS
+                                    ; box's own DHK_MOUSE makes on every INT
+                                    ; 33h read and every key poll - the same
+                                    ; choke point kd_mou_read is for kern_dos,
+                                    ; so the recovery needs no new slot at all
+%endif
     cmp byte [mou_ptr], 0
     jne .live
     call kbm_poll

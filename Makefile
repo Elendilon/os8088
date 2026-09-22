@@ -5360,6 +5360,17 @@ $(BUILD)/MOURANGE.COM: tests/dostrap/mourange.asm | $(BUILD)
 $(BUILD)/dosrange360.img: $(BUILD)/MOURANGE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MOURANGE.COM
 
+# ...and the IRQ-THEFT gate's (SPEC.md 9.13). A DOS program inside an fsx
+# bracket owns the IVT and may take `int 0Ch` for its own serial code, which
+# is what Battle Chess does - and which stops `mou_isr` dead. IRQGRAB.COM is
+# that theft with nothing else in it, blocking on `AH=08h` so the harness has
+# a window to move the pointer in.
+$(BUILD)/IRQGRAB.COM: tests/dostrap/irqgrab.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/irqgrab.asm
+
+$(BUILD)/irqgrab360.img: $(BUILD)/IRQGRAB.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/IRQGRAB.COM
+
 # ...and the file-handle gate's, which WRITES - so the disk it runs from is
 # the one it creates DOSTEST.DAT on, and os88marty's per-instance clone is
 # what keeps that out of build/ (SPEC.md 96.11).
@@ -5647,7 +5658,7 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
         $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
         $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
-        $(BUILD)/dosrange360.img
+        $(BUILD)/dosrange360.img $(BUILD)/irqgrab360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

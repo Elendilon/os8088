@@ -3315,6 +3315,27 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/dosrange360.img",)),
 
+    Row("irqgrab", "soak", py("tests/irqgrab.py"), 35.0,
+        "A DOS PROGRAM TAKES THE MOUSE'S IRQ, AND THE KERNEL TAKES IT BACK "
+        "(SPEC.md 9.13). A program inside an fsx bracket owns the machine and "
+        "that includes the IVT: Battle Chess writes `int 0Ch`'s vector "
+        "directly, unconditionally, in start-up, and chains to nobody - so "
+        "`mou_isr` is never called again, `[mouse_x]` freezes and the game's "
+        "cursor never moves (docs/FIELD-NOTES.md 56). IRQGRAB.COM is that "
+        "theft with nothing else in it and then BLOCKS on `AH=08h`, which is "
+        "the window: the box's key poll is what samples the mouse, so a "
+        "re-arm that lives on `osapi_mouse` gets its chance there. IT READS "
+        "THE VECTOR AS WELL AS THE POSITION, and needs to: an earlier "
+        "spelling shifted `[mou_port]` into the word tables when that cell is "
+        "ALREADY the byte offset, which indexes off the end of a two-port "
+        "table and which a machine whose mouse is on COM1 never notices. The "
+        "reverse sweep is the third assertion - a re-arm that merely nailed "
+        "the pointer to a corner would pass the first two. KERN_BIG ONLY, "
+        "which is a fact about the disk: `DOS.O88` is on no kern_small "
+        "floppy, so 9.13 is compiled out of that kernel entirely.",
+        needs=("marty",), serial=True,
+        wants=("build/irqgrab360.img",)),
+
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "
