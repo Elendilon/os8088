@@ -44741,9 +44741,9 @@ icon_draw_ix   in CX = x, DX = y, SI -> an indexed record; caller holds the
 plain kind is what `icon_draw` and `icon_draw_x` take and **their refusals do
 not change**: `icon_draw_x` still refuses every width but `ICO_STAGE_WW` and
 every height above `ICO_STAGE_H`, in the same compares (§25.6.1). The indexed
-kind is named by `desk.inc` and by nothing else — `desk_pdisk` / `desk_phdd`
-(§26) are its only two pointers, `cw_icon_draw_ix` its only thunk — **and no
-package can name one at all**, since an `OSAPI_*` caller hands over a record in
+kind is named by `desk.inc` and by nothing else — `desk_pdisk`, `desk_phdd`
+and `desk_p525` (§26, §26.4.1) are its only three pointers, `cw_icon_draw_ix`
+its only thunk — **and no package can name one at all**, since an `OSAPI_*` caller hands over a record in
 its own segment and there is no slot that takes this kind.
 
 The expansion is **once per icon draw**, not per row and not per pass, and the
@@ -44790,6 +44790,50 @@ A decoder that mis-sizes its buffer writes past it into `ico_ww`, `ico_h`,
 claim "I write my own buffer and nothing else" measured. The assembler holds
 the other end: every indexed record's height is checked against the buffer's
 at assembly time, and its two halves are counted.
+
+#### 25.7.3 A SECOND pool, and the width byte says which
+
+§26.4.1's 5.25" diskette is a fifth and sixth picture, and **`ico_pool` has no
+room for them**: its sixteen rows are the run byte's whole high nibble, so the
+bound is the encoding and not a table size. The 5.25" pair needs nine rows the
+pool does not have (the label bar is the only feature it shares with the
+3.5" art), and widening the index would re-encode the four records that work.
+
+So there is a second pool, `ico_pool2`, **immediately after the first**, and a
+record names it in **bit 6 of its width byte**:
+
+```
+db wwords | pool      ; pool = 0 (ico_pool) or ICO_POOL2 = 0x40 (ico_pool2)
+db height
+; then the run bytes, exactly as §25.7 - the index is into THAT record's pool
+```
+
+The bit's VALUE is `ico_pool2`'s byte offset from `ico_pool` — 16 rows of 4
+bytes — which is the whole trick: `icon_draw_ix` masks it off the width byte
+(`and ax, 0x403F`), banks it in `ico_psel`, and adds it to the row's byte
+offset in the walk. `BL` then tops out at `0x7C`, so `BH` stays zero and the
+`[bx+ico_pool]` operand is unchanged. The assembler holds the layout
+(`ico_pool2 - ico_pool` must equal `ICO_POOL2`) and `IREC`'s third argument
+checks every run's index against **that record's** pool, which is 13 rows long
+rather than 16: nothing past its last row is defined, so an index there would
+read the next record's bytes as art.
+
+**Four rows are duplicated**: the outline, the hollow side, and the label's two
+rows are in both pools, 16 bytes. Any way of letting one record reach across
+two pools costs more than that in the decoder, and the decoder is paid on
+every drive-zone draw.
+
+The width byte of a **plain** record is untouched — `icon_draw` and
+`icon_draw_x` still read it whole and still refuse on it (§25.6.1), and no
+plain record has bit 6 set, since that would be a 64-word icon. It is the
+indexed kind's byte only, and `tests/icoclip.py` reads it masked.
+
+**What it costs the four records already there**: one `add bl, [ico_psel]` a
+run, which is 9 + 6 cycles of EA plus the fetch — on the order of 20 cycles a
+run against §25.7.1's measured 148, so ~220 cycles on `ico_disk32`'s 11 runs
+and ~540 on `ico_hdd32`'s 27, both under a tenth of a millisecond on a
+4.77 MHz 8088 and paid only when a drive zone is drawn. Estimated, not
+measured.
 
 ### 25.8 `kern_small`'s harvested icons are a POOL, because a listing repeats itself
 
@@ -45211,6 +45255,95 @@ zone's inclusive bottom, `icon + gap + DESK_LBLH - 1` — so `desk_rowcalc`
 builds `[desk_zh1]` per arm as a constant and the label band is derived back
 off it (`y1 = zy + zh1 - (DESK_LBLH-1)`). The identity holds on both arms and
 at the resting initialiser: 32+2+11 = 45 and 14+1+11 = 26.
+
+#### 26.4.1 A 5.25" drive is drawn as a 5.25" diskette
+
+The diskette on the desktop was a 3.5" one on every machine, including the one
+most of this project's reports come off — a 5150 with nothing but 5.25" drives.
+So a floppy volume is drawn as the kind of diskette **its drive takes**:
+`ico_f525_32` / `ico_f525_14` for a 5.25" drive, and the 3.5" pair it always
+had for everything else. The 5.25" picture is told apart by where its
+features are rather than by detail a 14-row CGA icon cannot carry: the label
+across the TOP (the 3.5" one's is at the bottom), a hub ring in the middle with
+the index hole beside it, the head slot below that, and the write-protect notch
+cut out of the right-hand edge — cut out of the MASK as well, or the notch
+would draw as a white block on the desktop.
+
+**The fact is a bit in the volume row**, `DVF_525` = `DV_FLAGS` bit 1. Bit 0
+is still the zone flag and every reader of it tests `& 1`, so nothing that
+reads the byte moved; bit 2 is `DVF_GUESS`, below. `desk_init` sets it in the boot overlay, once, for every
+row that is a BIOS floppy (`DVK_BIOS`, unit below 80h) — the two internal
+drives and §18.98's external pair alike, and whether or not that row has a zone
+yet. `desk_draw_zone` reads it only on the floppy arm, after `dsk_vol_fixed_x`
+has said the medium is removable, and picks `[desk_p525]` instead of
+`[desk_pdisk]`; `desk_rowcalc` sets that pointer per adapter beside the other
+two, so `vid_switch` (§39.11.2) moves it between heights with them.
+
+**It is asked of the DRIVE, never of the medium**: int 13h AH=08h, the same
+question `dskw_fmt_probe_x` (§18.96) and DOS's own FORMAT ask. The medium is not
+there at boot, and it would not settle it if it were — a 720KB disk goes in a
+1.2MB drive. The decision:
+
+| AH=08h answers | the drive is | picture |
+|---|---|---|
+| CF = 1 (no answer) | a pre-AT ROM's drive, *probably* | **5.25"**, marked `DVF_GUESS` |
+| 15 sectors a track | 1.2MB | **5.25"** |
+| 9 sectors, last cylinder below 40 | 360KB | **5.25"** |
+| 9 over 80, 18, 36, or zeros | 720KB, 1.44MB, 2.88MB, unknown | 3.5" |
+
+**A ROM that will not answer is probably a 5.25" machine**, and that inference
+is `dskw_fmt_probe_x`'s and for its reason: AH=08h for floppies arrived with
+the AT, and so did most drives that are not a 5.25". Neither GLaBIOS nor the
+1982 IBM ROM answers it, so MartyPC and the field 5150 both draw the 5.25"
+diskette, and QEMU's 1.44MB drive keeps the 3.5" one. The geometry and not
+`BL`'s CMOS drive type decides, because an XT-class ROM that does answer may
+leave `BL` as anything, and the geometry is what `dskw_fmt_probe_x` already
+trusts. A 720KB 5.25" quad-density drive reads as 3.5" — it answers exactly
+what a 3.5" 720KB drive answers, and it is the rarer of the two by a long way.
+
+**Probably, and so the guess is marked** — `DVF_GUESS`, `DV_FLAGS` bit 2 —
+because an XT can be fitted with a 3.5" drive and its ROM can still refuse.
+MEASURED: `os8088_xt_vga_144` is GLaBIOS with two 1.44MB drives, and it answers
+AH=08h for units 0 and 1 with `CF = 1, AH = 01h`, exactly as it does with
+360KB ones. Several of this tree's own 86Box XTs (`xt-z`, `xt-word`,
+`xt-paccman`, `xt-sound-1.44`) boot a 3.5" drive 0 on an XT ROM. So on a
+marked row the **first mount corrects it from the medium**: `disk_mount_x`
+calls `desk_learn_x` right after `dsk_bpb_check`, and the medium settles the
+drive where the medium CAN —
+
+| mounted medium | the drive must take |
+|---|---|
+| 15 sectors a track (1.2MB) | 5.25" |
+| 720 sectors or fewer (160–360KB, all 40-track) | 5.25" |
+| anything larger (720KB, 1.44MB, 2.88MB) | 3.5" |
+
+— and a changed bit posts the zone repaint through `desk_zmark_x` (§26.3),
+the same mark a mount or an unmount of a volume already uses. An unmarked row
+is **never** touched: a drive whose ROM answered is not second-guessed by what
+happens to be in it. The boot drive's first mount is `drv_boot`'s, which runs
+after `desk_init` and before the first paint, so a 3.5" boot drive on such a
+ROM is drawn right from the first frame; a second drive is drawn as a 5.25"
+until a disk is first read in it. The one medium that fits both — an 80-track
+9-sector disk in a 5.25" drive — reads as 3.5", which on a ROM this old is by
+far the rarer drive.
+
+**What it costs**: the two records and the second pool are `.text`, because
+`icon_draw_ix` reads both through DS (§25.7.3); the choice in
+`desk_draw_zone`, the pointer store in `desk_rowcalc` and `desk_learn_x` are
+`.cold`; the AH=08h pass is `.ovlw` and is gone after the first mount.
+MEASURED against the tree it landed on, at one commit:
+
+| | `.text` | `.bss` | `.cold` | resident | `.ovlw` |
+|---|---:|---:|---:|---:|---:|
+| `kern_big` | +112 | +1 | +87 | **+200** | +70 |
+| `kern_small` | +113 | +1 | +87 | **+201** | +70 |
+
+Of the `.text`, 97 bytes are art — the 13-row pool (52) and the two records
+(29 and 16) — and the rest is `icon_draw_ix`'s pool bit and `desk_p525`. On
+`kern_big` the 200 bytes crossed the image rung (44 bytes were left in it) and
+the cold rung (**two** were left), so `KERN_SIZE` went 110,080 → 111,104; on
+`kern_small` neither rung moved. Per §1's banner, the rungs are whoever was
+standing there — the bytes are the cost.
 
 ### 26.5 The caption sits a gap below the icon
 

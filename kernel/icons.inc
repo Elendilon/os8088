@@ -239,9 +239,12 @@ icon_draw_ix:
     push bp
     push es
     mov al, [si]                ; the same two bytes stand at the top of every
-    mov ah, 0                   ; record, plain or indexed - which is what lets
-    mov [ico_ww], ax            ; a reader (and tests/icoclip.py) see one shape
-    mov al, [si+1]
+    mov ah, al                  ; record, plain or indexed - which is what lets
+    and ax, (ICO_POOL2 << 8) | 0x3F ; a reader (and tests/icoclip.py) see one
+    mov [ico_psel], ah          ; shape. An indexed record's width byte also
+    mov ah, 0                   ; carries WHICH POOL (SPEC.md 25.7.3): bit 6,
+    mov [ico_ww], ax            ; whose value IS pool 2's byte offset from
+    mov al, [si+1]              ; ico_pool, so it is banked as-is
     mov [ico_h], ax
     inc si                      ; SI -> the run bytes
     inc si
@@ -278,6 +281,12 @@ icon_draw_ix:
     shr bl, 1                   ; 0x3C` is `(b >> 4) * 4` in two shifts and a
     and bl, 0x3C                ; mask rather than six shifts, and the mask is
                                 ; what drops the count nibble on the way past
+    add bl, [ico_psel]          ; ...and into the record's pool: 0 or 0x40, so
+                                ; BL tops out at 0x7C and BH stays 0. It is a
+                                ; memory operand because every register is
+                                ; spoken for; `add` writes flags, but this is
+                                ; above `sub bp, cx`, whose ZF is the one the
+                                ; `jnz .run` below reads
     mov ax, [bx+ico_pool]       ; the row, once, however many times it repeats
     mov dx, [bx+ico_pool+2]
     and cl, 0x0F
@@ -692,14 +701,22 @@ ico_bbop_byte:
 ; unreadable data and a wrong one draws a scrambled picture rather than
 ; failing to build.
 ; =============================================================================
-%macro IREC 2                   ; wwords, height: opens a record
+%macro IREC 2-3 0               ; wwords, height[, pool]: opens a record
   %if (%1) != ICO_IBUF_WW
     %error "an indexed record is 32 px wide (ww = 2) and only that - it is what makes a pool row four bytes"
   %endif
   %if (%2) > ICO_IBUF_H
     %error "an indexed record taller than ico_ibuf holds: grow ICO_IBUF_H, which is the .bss cell as well as this test"
   %endif
+  %if (%3) == 0
     db %1, %2
+    %assign ICO_IXPN 16         ; ico_pool: all sixteen rows are defined
+  %elif (%3) == 1
+    db (%1) | ICO_POOL2, %2     ; SPEC.md 25.7.3: bit 6 of the width byte
+    %assign ICO_IXPN ICO_POOL2_N
+  %else
+    %error "an indexed record draws from pool 0 (ico_pool) or pool 1 (ico_pool2)"
+  %endif
   %assign ICO_IXH   (%2)
   %assign ICO_IXROW 0
 %endmacro
@@ -707,6 +724,9 @@ ico_bbop_byte:
 %macro IRUN 2                   ; pool row, repeat count
   %if (%1) > 15
     %error "a pool row index is 0..15 - it is the run byte's HIGH nibble"
+  %endif
+  %if (%1) >= ICO_IXPN
+    %error "this pool row index is past the end of the record's pool"
   %endif
   %if (%2) < 1 || (%2) > 16
     %error "a run is 1..16 rows - it is the run byte's LOW nibble, plus one"
@@ -763,6 +783,56 @@ IR_HUB      equ 14
 IR_BAYSID   equ 15
 %if ($ - ico_pool) != 16 * 4
   %error "ico_pool is sixteen rows of two words - the run byte's high nibble indexes it and cannot reach a seventeenth"
+%endif
+
+; -----------------------------------------------------------------------------
+; ico_pool2 - the SECOND pool (SPEC.md 25.7.3): the rows the 5.25" diskette is
+;             made of. The first pool is full - the nibble IS its bound - so a
+;             fifth picture could not be added to it at all, and widening the
+;             index would re-encode the four records that already work. A
+;             record says which pool it runs over in bit 6 of its width byte,
+;             and that bit's VALUE is this table's byte offset from ico_pool,
+;             which is why it must follow ico_pool with nothing between.
+;
+;             Rows 0..3 repeat ico_pool's outline and label rows: a pool is
+;             whole on its own, and four duplicated rows (16 bytes) are cheaper
+;             than any way of letting a record reach across two.
+; -----------------------------------------------------------------------------
+ICO_POOL2   equ 0x40            ; the width byte's pool bit, and pool 2's offset
+ico_pool2:
+    dw 0x3FFF, 0xFFFC           ;  0 IR5_SOLID  ..############################..
+    dw 0x2000, 0x0004           ;  1 IR5_HOLLOW ..#..........................#..
+    dw 0x27FF, 0xFFE4           ;  2 IR5_LTOP   ..#..######################..#..
+    dw 0x2400, 0x0024           ;  3 IR5_LSIDE  ..#..#....................#..#..
+    dw 0x2000, 0x001C           ;  4 IR5_NOTCHE ..#........................###..
+    dw 0x2000, 0x0010           ;  5 IR5_NOTCHS ..#........................#....
+    dw 0x3FFF, 0xFFF0           ;  6 IR5_NOTCHM ..##########################....
+    dw 0x2007, 0xE004           ;  7 IR5_HUBA   ..#..........######..........#..
+    dw 0x200F, 0xF004           ;  8 IR5_HUBB   ..#.........########.........#..
+    dw 0x201C, 0x3804           ;  9 IR5_HUBC   ..#........###....###........#..
+    dw 0x2018, 0x18C4           ; 10 IR5_HUBD   ..#........##......##...##...#..
+    dw 0x2001, 0x8004           ; 11 IR5_SLOTE  ..#............##............#..
+    dw 0x2003, 0xC004           ; 12 IR5_SLOTM  ..#...........####...........#..
+ICO_POOL2_N equ ($ - ico_pool2) / 4
+
+IR5_SOLID   equ  0
+IR5_HOLLOW  equ  1
+IR5_LTOP    equ  2
+IR5_LSIDE   equ  3
+IR5_NOTCHE  equ  4
+IR5_NOTCHS  equ  5
+IR5_NOTCHM  equ  6
+IR5_HUBA    equ  7
+IR5_HUBB    equ  8
+IR5_HUBC    equ  9
+IR5_HUBD    equ 10
+IR5_SLOTE   equ 11
+IR5_SLOTM   equ 12
+%if (ico_pool2 - ico_pool) != ICO_POOL2
+  %error "ico_pool2 must sit exactly ICO_POOL2 bytes past ico_pool - the width byte's pool bit IS that offset (SPEC.md 25.7.3)"
+%endif
+%if ICO_POOL2_N > 16
+  %error "ico_pool2 is indexed by a nibble too - sixteen rows at most"
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -835,6 +905,118 @@ ico_disk14:
     IRUN IR_DLTOP,   1      ;  7      ..#..######################..#..
     IRUN IR_DLSIDE,  5      ;  8..12  ..#..#....................#..#..
     IRUN IR_SOLID,   1      ; 13      ..############################..
+    IHALF
+
+; -----------------------------------------------------------------------------
+; ico_f525_32 - a 5.25" diskette, for a drive that takes one (SPEC.md 26.4.1).
+;               Pool 2. What tells it from the 3.5" one at a glance is where
+;               things are: the LABEL across the top, the hub ring in the
+;               middle with the index hole beside it, the head slot below, and
+;               the write-protect notch cut out of the right-hand edge - so the
+;               mask is notched too, or the notch would be a white block.
+;
+; data (black pixels), # = set:            rows
+;   ..############################..        0      top edge
+;   ..#..........................#..        1
+;   ..#..######################..#..        2      label top
+;   ..#..#....................#..#..        3..5   label sides
+;   ..#..######################..#..        6      label bottom
+;   ..#..........................#..        7
+;   ..#........................###..        8      notch top
+;   ..#........................#....        9..10  notch
+;   ..#........................###..       11      notch bottom
+;   ..#..........................#..       12
+;   ..#..........######..........#..       13      hub ring
+;   ..#.........########.........#..       14
+;   ..#........###....###........#..       15
+;   ..#........##......##...##...#..       16..17  + index hole
+;   ..#........###....###........#..       18
+;   ..#.........########.........#..       19
+;   ..#..........######..........#..       20
+;   ..#..........................#..       21
+;   ..#............##............#..       22      head slot
+;   ..#...........####...........#..       23..28
+;   ..#............##............#..       29
+;   ..#..........................#..       30
+;   ..############################..       31      bottom edge
+; -----------------------------------------------------------------------------
+ico_f525_32:
+    IREC 2, 32, 1               ; wwords, height, pool 2
+
+    ; --- mask: 32 rows, the white underlay, notched ---------------------------
+    IRUN IR5_SOLID,   9     ;  0.. 8  ..############################..
+    IRUN IR5_NOTCHM,  2     ;  9..10  ..##########################....
+    IRUN IR5_SOLID,  16     ; 11..26  ..############################..
+    IRUN IR5_SOLID,   5     ; 27..31  ..############################..
+    IHALF
+
+    ; --- data: 32 rows, the picture -------------------------------------------
+    IRUN IR5_SOLID,   1     ;  0
+    IRUN IR5_HOLLOW,  1     ;  1
+    IRUN IR5_LTOP,    1     ;  2
+    IRUN IR5_LSIDE,   3     ;  3.. 5
+    IRUN IR5_LTOP,    1     ;  6
+    IRUN IR5_HOLLOW,  1     ;  7
+    IRUN IR5_NOTCHE,  1     ;  8
+    IRUN IR5_NOTCHS,  2     ;  9..10
+    IRUN IR5_NOTCHE,  1     ; 11
+    IRUN IR5_HOLLOW,  1     ; 12
+    IRUN IR5_HUBA,    1     ; 13
+    IRUN IR5_HUBB,    1     ; 14
+    IRUN IR5_HUBC,    1     ; 15
+    IRUN IR5_HUBD,    2     ; 16..17
+    IRUN IR5_HUBC,    1     ; 18
+    IRUN IR5_HUBB,    1     ; 19
+    IRUN IR5_HUBA,    1     ; 20
+    IRUN IR5_HOLLOW,  1     ; 21
+    IRUN IR5_SLOTE,   1     ; 22
+    IRUN IR5_SLOTM,   6     ; 23..28
+    IRUN IR5_SLOTE,   1     ; 29
+    IRUN IR5_HOLLOW,  1     ; 30
+    IRUN IR5_SOLID,   1     ; 31
+    IHALF
+
+; -----------------------------------------------------------------------------
+; ico_f525_14 - the 5.25" diskette at 32 x 14, for the CGA (SPEC.md 26.4)
+;
+; Drawn, for ico_disk14's reason. Fourteen rows cannot hold a boxed label
+; AND a hub ring AND a slot, so the label is a solid bar - 2 rows, which is
+; nearly five units tall on a 2.4:1 pixel - the notch is one row, the ring is
+; 10 wide by 4 rows, round on that aspect, and the slot is 4 by 2.
+;
+;   ..############################..        0
+;   ..#..........................#..        1
+;   ..#..######################..#..        2.. 3  label
+;   ..#........................#....        4      notch
+;   ..#.........########.........#..        5      hub ring
+;   ..#........##......##...##...#..        6.. 7  + index hole
+;   ..#.........########.........#..        8
+;   ..#..........................#..        9
+;   ..#...........####...........#..       10..11  head slot
+;   ..#..........................#..       12      ...clear of the edge,
+;   ..############################..       13      or the two read as a T
+; -----------------------------------------------------------------------------
+ico_f525_14:
+    IREC 2, 14, 1               ; wwords, height, pool 2
+
+    ; --- mask: 14 rows, the white underlay, notched ---------------------------
+    IRUN IR5_SOLID,   4     ;  0.. 3
+    IRUN IR5_NOTCHM,  1     ;  4
+    IRUN IR5_SOLID,   9     ;  5..13
+    IHALF
+
+    ; --- data: 14 rows, the picture -------------------------------------------
+    IRUN IR5_SOLID,   1     ;  0
+    IRUN IR5_HOLLOW,  1     ;  1
+    IRUN IR5_LTOP,    2     ;  2.. 3
+    IRUN IR5_NOTCHS,  1     ;  4
+    IRUN IR5_HUBB,    1     ;  5
+    IRUN IR5_HUBD,    2     ;  6.. 7
+    IRUN IR5_HUBB,    1     ;  8
+    IRUN IR5_HOLLOW,  1     ;  9
+    IRUN IR5_SLOTM,   2     ; 10..11
+    IRUN IR5_HOLLOW,  1     ; 12
+    IRUN IR5_SOLID,   1     ; 13
     IHALF
 
 ; -----------------------------------------------------------------------------
@@ -1057,4 +1239,6 @@ ico_wleft   resw 1              ; words left in the current row
 ico_x       resw 1              ; requested x
 ico_y       resw 1              ; requested y, clamped to 0 after top clip
 ico_bbop    resb 1              ; bb pass: 0 = or (white), 1 = and-not (black)
+ico_psel    resb 1              ; icon_draw_ix: the record's pool, as a byte
+                                ; offset from ico_pool (0 or ICO_POOL2)
 section .text

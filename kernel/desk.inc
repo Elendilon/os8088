@@ -327,6 +327,73 @@ desk_init:
     jb .eloop
 .edone:
 
+    ; --- which KIND of diskette each floppy drive takes (SPEC.md 26.4.1) ----
+    ; A 5.25" drive gets the 5.25" picture and a 3.5" one keeps the one it has
+    ; always had. Asked of the DRIVE through int 13h AH=08h - the question
+    ; dskw_fmt_probe_x and DOS's own FORMAT ask - and never of the medium,
+    ; which is not there at boot and would not settle it if it were: a 720KB
+    ; disk goes in a 1.2MB drive. Every row, not just the zones shown, so a
+    ; drive the probe kept stays right if a zone is given to it later.
+    xor cl, cl
+.kloop:
+    mov bl, cl
+    call KERNEL_SEG:dsk_vol_slot      ; FAR: overlay -> resident; BX = the row
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .knext                  ; a driver's volume, or a free row
+    mov dl, [bx+DV_UNIT]
+    test dl, 0x80
+    jnz .knext                  ; a BIOS HARD disk (a boot partition)
+    push bx
+    push cx
+    push di
+    push bp                     ; AH=08h spends BX, CX, DX, DI and ES, and
+    push es                     ; some BIOSes BP as well
+    mov ah, 0x08
+    int 0x13
+    mov al, DVF_525 | DVF_GUESS ; **A ROM THAT WILL NOT ANSWER IS PROBABLY A
+    jc .kset                    ; 5.25" MACHINE** - dskw_fmt_probe_x's
+                                ; inference and for its reason: AH=08h for
+                                ; floppies came with the AT, and so did most
+                                ; drives that are not a 5.25". Neither GLaBIOS
+                                ; nor the 1982 IBM ROM answers it, and a 5150
+                                ; is exactly the machine that should draw this
+                                ; picture. PROBABLY, because an XT can be
+                                ; fitted with a 3.5" drive and GLaBIOS still
+                                ; refuses (measured, os8088_xt_vga_144) - so
+                                ; the guess is MARKED and the first mount of
+                                ; the drive corrects it from the medium
+                                ; (desk_learn_x). The boot drive's first mount
+                                ; is drv_boot's, before the first paint.
+                                ;
+                                ; Otherwise decided on the drive's own
+                                ; GEOMETRY and not on BL's CMOS type, which an
+                                ; XT-class ROM that answers at all may leave
+                                ; as anything: 15 sectors is the 1.2MB drive,
+                                ; 9 over 40 cylinders the 360KB one, and every
+                                ; other answer - 9/80, 18/80, 36/80, or a zero
+                                ; from a ROM with nothing to say - keeps the
+                                ; 3.5" picture it had before this existed
+    and cl, 0x3F                ; CL = sectors per track
+    cmp cl, 15
+    je .kset
+    cmp cl, 9
+    jne .k35
+    cmp ch, 40                  ; CH = the last cylinder, low 8 bits
+    jb .kset
+.k35:
+    xor al, al
+.kset:
+    pop es
+    pop bp
+    pop di
+    pop cx
+    pop bx
+    or [bx+DV_FLAGS], al
+.knext:
+    inc cl
+    cmp cl, DVOL_MAX
+    jb .kloop
+
     call KERNEL_SEG:ovw_desk_rowcalc  ; FAR: overlay -> resident. The row
                                 ; count is geometry, and geometry can change
                                 ; after boot now (SPEC.md 39.11.2), so the
@@ -406,17 +473,20 @@ desk_rowcalc_x:
     mov bx, DESK_ZSTEP
     mov si, ico_disk32
     mov di, ico_hdd32
+    mov cx, ico_f525_32         ; CX is free until the `mov cx, bx` below
     cmp byte [vid_kind], VID_CGA
     jne .set
     mov ax, 14 + DESK_ZGAP_S + DESK_LBLH - 1
     mov bx, DESK_ZSTEP_S
     mov si, ico_disk14
     mov di, ico_hdd14
+    mov cx, ico_f525_14
 .set:
     mov [desk_zh1], ax
     mov [desk_zstep], bx
     mov [desk_pdisk], si
     mov [desk_phdd], di
+    mov [desk_p525], cx
 
     mov ax, [vid_dock_y0]
     sub ax, DESK_ZY0
@@ -705,6 +775,50 @@ desk_zmark_x:
     mov [desk_zdirty], al       ; a register-to-memory store is two bytes less
     mov [ui_post], al           ; ...and SAY SO once (SPEC.md 13.13)
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_learn_x - a floppy just mounted: settle its drive's KIND off the medium,
+;                if the ROM would not say (SPEC.md 26.4.1)
+; in:  [disk_drive], and [disk_spt]/[dsk_totsec]/[dsk_vflop] as dsk_bpb_check
+;      has just filled them
+; out: nothing (all registers preserved); a changed picture posts the repaint
+;
+; Only a row desk_init marked DVF_GUESS is touched, so a drive whose ROM
+; answered AH=08h is never second-guessed by what happens to be in it. The
+; medium settles the drive only where the medium CAN: 15 sectors a track is
+; the 1.2MB format and 720 sectors or fewer a 40-track one, and both exist
+; only on 5.25" media; 720KB and up is 3.5". A 5.25" drive fed an 80-track
+; 9-sector disk would read as 3.5" here - it is the one medium that fits
+; both, and on a ROM this old it is by far the rarer drive.
+; -----------------------------------------------------------------------------
+desk_learn_x:
+    cmp byte [dsk_vflop], 0
+    je .ret                     ; a partition or a driver's volume
+    push ax
+    push bx
+    mov bl, [disk_drive]
+    call dsk_vol_row_x
+    jc .out
+    mov al, [bx+DV_FLAGS]
+    test al, DVF_GUESS
+    jz .out                     ; the drive said what it is
+    mov ah, al
+    or al, DVF_525
+    cmp word [disk_spt], 15
+    je .set
+    cmp word [dsk_totsec], 720
+    jbe .set
+    and al, ~DVF_525 & 0xFF
+.set:
+    cmp al, ah
+    je .out                     ; the guess was right - nothing to repaint
+    mov [bx+DV_FLAGS], al
+    call desk_zmark_x           ; the grid owes a repaint (SPEC.md 26.3)
+.out:
+    pop bx
+    pop ax
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1157,9 +1271,15 @@ desk_draw_zone:
     call dsk_vol_fixed_x          ; the MEDIUM, not the transport (SPEC.md
     jc .icon                    ; 18.7.2). This was `cmp DV_KIND, DVK_DRV`,
     or al, al                   ; which is the TRANSPORT - so a hard disk
-    jz .icon                    ; booted through the BIOS (DVK_BIOS, unit
+    jz .flop                    ; booted through the BIOS (DVK_BIOS, unit
     mov si, [desk_phdd]         ; 80h+) drew the FLOPPY icon, which is what a
-.icon:                          ; machine booting off its own disk always saw
+    jmp short .icon             ; machine booting off its own disk always saw
+.flop:
+    call dsk_vol_slot_x         ; ...and a floppy is drawn as the KIND of
+    test byte [bx+DV_FLAGS], DVF_525    ; diskette its drive takes (SPEC.md
+    jz .icon                    ; 26.4.1). BX is the row now and nothing
+    mov si, [desk_p525]         ; below reads it before .label reloads BL
+.icon:
     call KERNEL_SEG:cw_icon_draw_ix   ; the four are the INDEXED kind
                                 ; (SPEC.md 25.7) and this is their only site
 .label:
@@ -1400,6 +1520,7 @@ desk_zh1    dw 32 + DESK_ZGAP + DESK_LBLH - 1   ; ...the zone's, MINUS ONE:
 desk_zstep  dw DESK_ZSTEP       ; zone-to-zone pitch
 desk_pdisk  dw ico_disk32       ; the diskette at that height...
 desk_phdd   dw ico_hdd32        ; ...and the hard disk
+desk_p525   dw ico_f525_32      ; ...and the 5.25" diskette (SPEC.md 26.4.1)
 
 section .cold                   ; ...and back to cold code for the far entries
 

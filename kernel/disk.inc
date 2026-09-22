@@ -164,6 +164,12 @@ above the end would keep a claim mem_shed_one has already given away"
 DV_KIND      equ 0               ; db: 0 = BIOS int 13h, 1 = driver, 0xFF free
 DV_UNIT      equ 1               ; db: the int 13h DL, or the driver's handle
 DV_FLAGS     equ 2               ; db: bit 0 = show a desktop zone (SPEC 26)
+                                 ;     bit 1 = DVF_525, a BIOS floppy whose
+                                 ;     DRIVE takes 5.25" media (SPEC 26.4.1)
+                                 ;     bit 2 = DVF_GUESS, the ROM would not
+                                 ;     say, so the first mount decides bit 1
+DVF_525      equ 2
+DVF_GUESS    equ 4
 DV_CLASS     equ 3               ; db: the DRVC_* whose published DSV_BLK owns
                                  ; this row's transport; 0 on a BIOS volume.
                                  ;
@@ -2909,6 +2915,8 @@ disk_mount_x:
 .bpb_staged:
     call dsk_bpb_check          ; fills the 18.1 vars + disk_spt/disk_heads
     jc .jfail
+    call desk_learn_x           ; ...which is what settles a floppy drive's
+                                ; KIND when its ROM would not (SPEC.md 26.4.1)
     call dsk_bpb_bank_put       ; ...and remember it, if this volume is fixed
 
     ; --- 2. the FAT WINDOW's first load (SPEC.md 18.8; ES only, never DS) ---

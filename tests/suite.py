@@ -6012,6 +6012,20 @@ SOAK = [
         "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
         "background so two draws are comparable.",
         needs=("marty",), serial=True),
+    Row("deskfdd", "soak", py("tests/deskfdd.py"), 35.0,
+        "Is a floppy drawn as the diskette its DRIVE takes? (SPEC.md 26.4.1) "
+        "Boots a CGA and a Hercules 5150 with 360KB drives - the ROM refuses "
+        "int 13h AH=08h, so both are guessed 5.25\" - and a GLaBIOS machine "
+        "with 1.44MB drives, whose A: must be corrected to 3.5\" by "
+        "desk_learn_x at drv_boot's mount, before the first paint, and whose "
+        "B: must be REPAINTED 3.5\" by its own first mount. Asserts each "
+        "row's DVF_525/DVF_GUESS bits and every pixel inside the icon's mask "
+        "against an INDEPENDENT host-side decode of the record those bits "
+        "select, pool bit and all (SPEC.md 25.7.3) - the half icoclip cannot "
+        "see, since a clip is just as consistent off the wrong pool. Red when "
+        "icon_draw_ix's `add bl, [ico_psel]` goes and when desk_learn_x does "
+        "nothing; both measured.",
+        needs=("marty",), serial=True),
     Row("uilayer", "soak", py("tests/uilayer.py"), 50.0,
         "Does tools/os88ui.py do what it says, and is confirming cheaper "
         "than settling? Every verb - open_drive, open, drag_window, "
