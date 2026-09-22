@@ -1227,11 +1227,21 @@ ti_res_draw:
     mov [ti_rs], ch
     mov [ti_rsw], dl
 
-    mov word [ti_roff], 0           ; A SHALLOW CORNER GETS ONE ROW. A CGA's
-    cmp word [ti_lift], 24          ; lift is twelve pixels, which holds a
-    jae .rows                       ; single glyph row - stacked, the gold ran
-    mov word [ti_roff], 24          ; off the bottom of the board entirely
-.rows:
+    ; A SHALLOW CORNER GOES SIDEWAYS. A CGA's lift is TWELVE pixels, which
+    ; holds one glyph row - so stacking three fields there showed the first and
+    ; refused the other two, and the board read as if a player had no souls and
+    ; no swaps at all. Laid out across, that same row is 96 pixels wide (the
+    ; strip above column 0, and the strip below column 3, are a cell wide where
+    ; the shear leaves them), and the three fields need 80.
+    ;
+    ; THE LABEL IS WHAT PAYS FOR IT. "P1" and "P2" exist so two blocks on one
+    ; board cannot be confused, and on a shallow corner they are three cells of
+    ; the twelve there are - which is the difference between showing everything
+    ; and showing a third of it. They are diagonally opposite and each sits
+    ; beside its own base, so position says it.
+    cmp word [ti_lift], 24
+    jb .sideways
+
     mov di, ti_numbuf               ; the side's own label, so two blocks on
     call ti_poke                    ; one board cannot be confused
     mov byte [di], 0
@@ -1241,13 +1251,9 @@ ti_res_draw:
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
 
-    mov ax, [ti_rx]                 ; GOLD, with its coin - beside the label on
-    add ax, [ti_roff]               ; a shallow corner, under it on a deep one
+    mov ax, [ti_rx]                 ; GOLD, under the label
     mov bx, [ti_ry2]
-    cmp word [ti_roff], 0
-    jne .g
     add bx, 8
-.g:
     mov si, ti_ic_cost
     call ti_icon
     mov di, ti_numbuf
@@ -1256,19 +1262,13 @@ ti_res_draw:
     mov byte [di], 0
     mov cx, [ti_rx]
     add cx, 8
-    add cx, [ti_roff]
     mov dx, [ti_ry2]
-    cmp word [ti_roff], 0
-    jne .g2
     add dx, 8
-.g2:
     mov si, ti_numbuf
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
 
-    cmp word [ti_lift], 24          ; SOULS only where the corner is deep
-    jb .out                         ; enough to hold a third row - a CGA's
-    mov ax, [ti_rx]                 ; lift is twelve pixels and holds one
+    mov ax, [ti_rx]                 ; ...SOULS under that
     mov bx, [ti_ry2]
     add bx, 16
     mov si, ti_ic_soul
@@ -1284,7 +1284,58 @@ ti_res_draw:
     mov si, ti_numbuf
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
+    jmp .swaps
 
+.sideways:                          ; --- ONE ROW, THREE FIELDS, NO LABEL ----
+    mov ax, [ti_rx]                 ; the coin at +0, its digits at +8
+    mov bx, [ti_ry2]
+    mov si, ti_ic_cost
+    call ti_icon
+    mov di, ti_numbuf
+    mov al, [ti_rg]
+    call ti_u8
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 8
+    mov dx, [ti_ry2]
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    mov ax, [ti_rx]                 ; the skull at +32, its digits at +40
+    add ax, 32
+    mov bx, [ti_ry2]
+    mov si, ti_ic_soul
+    call ti_icon
+    mov di, ti_numbuf
+    mov al, [ti_rs]
+    call ti_u8
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 40
+    mov dx, [ti_ry2]
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    cmp byte [ti_rsw], 0FFh         ; ...and the swaps at +64, as "S n" - the
+    je .out                         ; word does not fit and the number is what
+    mov di, ti_numbuf               ; is read
+    mov al, 'S'
+    stosb
+    mov al, [ti_rsw]
+    add al, '0'
+    stosb
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 64
+    mov dx, [ti_ry2]
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+    jmp .out
+
+.swaps:
     cmp byte [ti_rsw], 0FFh         ; ...and the SWAPS, which is this player's
     je .out                         ; and not the panel's: it came off the
     cmp word [ti_lift], 32          ; COMMIT row when UNDO took the space

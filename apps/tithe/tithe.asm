@@ -1531,10 +1531,17 @@ ti_insy:    dw 0
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
 ;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  NUMS  CARDH  INSX
+; CARDH ON CGA IS 11 AND NOT 10, and the one row is what stops the name
+; eating the card's own bottom edge: a glyph is 8 tall and sat at +2, so it
+; ended on row 9 - which at CARDH 10 IS the bottom frame, drawn first and
+; overwritten across the text's width. Eleven puts the frame on row 10 with a
+; clear row between. The hand is still SEVEN (SPEC.md 97.4.2): the board is 112
+; rows, the pitch 13 and the button row's offset 5, which leaves 8 rows of
+; which one is the button's.
 ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
 ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
 ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 10, 24
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 11, 24
 
 ti_s_bsep:  db '   BASE ', 0
 ti_clock:   times TI_FEATURES db 0

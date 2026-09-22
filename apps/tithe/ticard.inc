@@ -219,9 +219,14 @@ ti_card_draw:
     mov al, CWHITE
     mov ah, CBLACK
     mov word [ti_cx], 0             ; 0 = the inset card, 1 = the expanded one
-    mov word [ti_c1off], 0          ; ...and whether line 1 carries a coin
-    cmp word [ti_cardh], 20
-    jae .h0
+    mov word [ti_c1off], 0          ; ...and whether line 1 carries a coin,
+    cmp word [ti_cardh], 20         ; which on a short card is only the HOVERED
+    jae .h0                         ; one - at rest it shows the three numbers
+    cmp word [ti_hover], -1         ; and has no name to put a cost in front of
+    je .h0
+    mov cx, [ti_hover]
+    cmp cx, [ti_cardi]
+    jne .h0
     mov word [ti_c1off], 8
 .h0:
     cmp word [ti_hover], -1
@@ -315,6 +320,34 @@ ti_card_draw:
     mov ah, [ti_cpap]
     call OSAPI_GFX_BLIT1_PEN        ; the icons are INK on PAPER like the text,
                                     ; so a hovered card inverts whole
+    ; A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and which
+    ; one is what the pointer decides: the NUMBERS at rest, because cost,
+    ; attack and defence are what a hand is read for, and the NAME when the
+    ; pointer is on it, because that is the one card being considered. It used
+    ; to show cost-and-name always, which is the only field a player can get
+    ; from the sprite anyway and left attack and defence on no surface at all.
+    cmp word [ti_cardh], 20
+    jae .full
+    cmp word [ti_cx], 0
+    jne .full                       ; ...hovered: fall through to the name
+    mov ax, [ti_cardy]              ; AT REST: the three numbers, on line 1,
+    add ax, 2                       ; where ti_stat already knows how to put
+    add ax, [ti_cpad]               ; them
+    mov [ti_cardl2], ax
+    mov bx, 0
+    mov si, ti_ic_cost
+    mov al, TI_C_COST
+    call ti_stat
+    mov bx, 24
+    mov si, ti_ic_atk
+    mov al, TI_C_ATK
+    call ti_stat
+    mov bx, 48
+    mov si, ti_ic_def
+    mov al, TI_C_DEF
+    call ti_stat
+    jmp .pen0
+.full:
     mov di, ti_cardbuf
     mov si, [ti_cardp]
     cmp word [ti_cardh], 20         ; a card too short for a second line puts

@@ -139895,6 +139895,17 @@ the refusal was correct and the table was not. What came down is `CH` and
 
 #### 97.2.1 The BASES are part of the width, and the window goes FLUSH
 
+**A SHALLOW RESOURCE CORNER GOES SIDEWAYS.** The shear's empty strips carry each
+player's gold, souls and swaps (§97.3), and a CGA's lift is **twelve pixels** —
+one glyph row. Stacked, that showed the first field and refused the other two,
+so the board read as if a player had no souls and no swaps at all. Laid out
+*across*, the same row is **96 pixels** — the strip is a cell wide where the
+shear leaves it — and the three fields need 80. **The label is what pays for
+it**: `P1` and `P2` are three of the twelve cells there, which is the difference
+between showing everything and showing a third of it, and the two blocks are
+diagonally opposite with each beside its own base, so position says which is
+which. A deep corner keeps the label and the stack.
+
 **Each player's base sits outside the grid, behind their rear column** — column
 0 is P1's rear and column 3 is P2's — so the grid does **not** start at the
 content's left edge. `baseh` is **three lanes** (3 × `CH`) and `basew` is a
@@ -140123,6 +140134,19 @@ geometry keeps the single frame rather than losing a text row to a decoration.
 callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
 frame already makes. A change repaints the row that *lost* the hover; the row
 that gained it is feature 22 and is drawn by the walk anyway.
+
+**A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and the pointer
+picks which.** At rest it shows the three **numbers** — cost, attack, defence —
+because that is what a hand is read for; hovered, it shows the **name** with
+its cost in front. It used to show cost-and-name always, which is the one field
+a player can also get from the sprite, and left attack and defence on no
+surface at all. Only the CGA row is short enough for this to fire.
+
+**`CARDH` is 11 on CGA and not 10**, and the one row is what stops the name
+eating the card's own bottom edge: a glyph is 8 tall and sits at +2, so it
+ended on row 9 — which at `CARDH` 10 *is* the bottom frame, drawn first and
+overwritten across the text's width. The hand is still seven: the board is 112
+rows, the pitch 13 and the button row's offset 5, and 12 would drop it to six.
 
 **Every number carries an icon** (§97.4.1): a bare digit on a card said nothing
 about whether it was cost, attack or gold. The icons are 8×8 1bpp bands rather
