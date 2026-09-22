@@ -498,10 +498,25 @@ ti_feature:
     push bp
     push es
     cmp ax, TI_CELLS
-    jae .out                        ; wave 1a draws the twenty characters; the
-                                    ; two bases and the hovered card are the
-                                    ; card panel's and are SPEC.md 97.9's next
-                                    ; increment, not a gap in this one
+    jb .cell
+    cmp ax, TI_CELLS + 2            ; ...and 20 and 21 are the two BASES, which
+    jae .out                        ; sit outside the grid behind each player's
+    sub ax, TI_CELLS                ; rear column (SPEC.md 97.2.1). 22 is the
+    mov bx, ax                      ; moused-over card and belongs to the card
+    add bx, TI_CELLS                ; panel, which is the next increment
+    add bx, ti_clock
+    mov bl, [bx]
+    xor bh, bh
+    mov [ti_pi], bx
+    mov bx, [ti_b1x]
+    or ax, ax
+    jz .bx
+    mov bx, [ti_b2x]
+.bx:
+    mov ax, bx
+    call ti_base_draw
+    jmp short .out
+.cell:
     mov [ti_ci], ax
     mov bx, ax
     add bx, ti_clock
@@ -649,25 +664,36 @@ ti_pit:
 ; =============================================================================
 
 ti_tpl:
-    dw 24, 30, 602, 355
+    dw 0, 30, 640, 355
     dw ti_ttl, ti_paint, ti_onkey, ti_onclick
 
-; --- the preferred frame, PER ADAPTER, CUT FROM THE GEOMETRY TABLE ----------
-; content = (4*CW + PAN) x (5*CH + 3*RISE + HUD), plus 2 columns and 19 rows of
-; frame as measured on all three, plus 8 of margin each way.
+; --- the preferred frame, PER ADAPTER ---------------------------------------
+; THE WIDTH IS THE WHOLE DISPLAY, ON PURPOSE (SPEC.md 11.95.2). A window whose
+; x is its display's first column and whose width spans it loses BOTH side
+; borders - `wm_flush_ck` - so its content starts at W_X, which is 0, and is
+; 8-ALIGNED BY CONSTRUCTION. That matters here far more than it does for text:
+; OSAPI_FONT_RUN on an unaligned origin is merely slower, while
+; OSAPI_GFX_BLIT1 REFUSES an x off the byte grid outright, so an unaligned
+; content origin is not a slow board, it is NO BOARD AT ALL.
 ;
-; THE GENEROUS-HEIGHT ADVICE IS FOR THE OTHER KIND OF PROGRAM. SPEC.md
-; 11.100.1 says to ask for a real width and a generous height and let the
-; screen clamp it, which is right for a window whose content grows to fill
-; whatever it is given - and this one's does not: the board's size is fixed by
-; the table above, so a generous ask bought 176 dead columns and 60 dead rows
-; of black on a VGA. What is asked for here is what the board NEEDS. Clamping
-; still does its job on the two short screens, where the ask is more than the
-; adapter has and comes back as what it has.
+; ASKING FOR *NEARLY* THE SCREEN IS THE WORST OF BOTH and is what this asked
+; for first: 634 of 640 is not flush, so the window keeps its borders AND the
+; snap that would align them is refused, because wm_snap_ax may only move a
+; window LEFT except from x = 0..6, where moving right to 7 would push a
+; 634-wide window off the edge. The content came out at x = 7 and every blit
+; on the board refused in silence. Anything at or under 633 would have snapped;
+; the whole display is better still, because it also hands back the two columns
+; the borders were eating.
+;
+; The height is what the board NEEDS and no more. SPEC.md 11.100.1's advice to
+; ask for a real width and a GENEROUS height is for a window whose content
+; grows into whatever it is given, and this one's does not - the board's size
+; is fixed by the table above, so a generous ask buys dead pixels. It bought
+; 176 dead columns and 60 dead rows on a VGA.
 ti_pref:                            ; VGA / Hercules / CGA (SPEC.md 11.100.1)
-    dw 602, 355                     ; 592x328 of content
-    dw 658, 303                     ; 648x276
-    dw 490, 163                     ; 480x128 - clamps to 155 on a 200-row CGA
+    dw 640, 355                     ; 624x328 of content needed
+    dw 720, 271                     ; 712x244
+    dw 640, 155                     ; 632x128
 
 ti_ttl:     db 'Tithe', 0
 ti_about:   db 'TITHE - wave 1a, the renderer. SPEC.md 97.', 0
@@ -705,6 +731,15 @@ ti_bs:      dw 0
 ti_hud:     dw 0
 ti_pan:     dw 0
 ti_panx:    dw 0
+ti_basew:   dw 0                    ; a base zone's columns, each side
+ti_baseh:   dw 0                    ; ...and its rows: three lanes
+ti_bas:     dw 0                    ; ...and its band's stride in bytes
+ti_b1x:     dw 0                    ; P1's base x, behind column 0
+ti_b2x:     dw 0                    ; P2's, behind column 3
+ti_basey:   dw 0
+ti_ktop:    dw 0                    ; the keep's top row, banked because two
+                                    ; `mul`s stand between it and its reader
+ti_spanw:   dw 0                    ; what ti_pose_span clips against
 ti_bx:      dw 0
 ti_by:      dw 0
 ti_ox:      dw 0
@@ -734,17 +769,19 @@ ti_insy:    dw 0
 ; every machine. The short screens are short in HEIGHT and not in width - a
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
-ti_geo_vgaf: dw 112, 56, 24, 64, 52, 36, 176
-ti_geo_vgaw: dw 112, 48, 20, 64, 44, 28, 144
-ti_geo_herc: dw 120, 40, 16, 64, 36, 28, 168
-ti_geo_cga:  dw  80, 20,  4, 48, 16, 16, 160
+;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW
+ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56
+ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56
+ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48
 
 ti_clock:   times TI_FEATURES db 0
 
-TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES
+TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 
     OS88_BSS TI_BSS
     OS88_IMAGE_END
 
 ti_cell     equ os88_image_end + 0
 ti_pose     equ os88_image_end + TI_CELLMAX
+ti_base     equ os88_image_end + TI_CELLMAX + TI_BANDMAX * TI_POSES

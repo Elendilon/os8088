@@ -25,7 +25,8 @@ TI_G_BW     equ 6                 ; the sprite band - also a multiple of 8
 TI_G_BH     equ 8
 TI_G_HUD    equ 10               ; rows of HUD above the board
 TI_G_PAN    equ 12               ; columns of card panel down the right
-TI_G_SIZE   equ 14
+TI_G_BASEW  equ 14               ; columns of BASE either side of the grid
+TI_G_SIZE   equ 16
 
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
@@ -85,12 +86,23 @@ ti_layout:
     mov [ti_hud], ax
     mov ax, [si + TI_G_PAN]
     mov [ti_pan], ax
+    mov ax, [si + TI_G_BASEW]
+    mov [ti_basew], ax
 
     mov ax, [ti_bw]                 ; the band's stride in BYTES, which is the
     shr ax, 1                       ; one number the renderer hands gfx_blit1
     shr ax, 1                       ; three single-bit shifts: an 8088 charges
     shr ax, 1                       ; 8 + 4/bit for the CL form
     mov [ti_bs], ax
+    mov ax, [ti_basew]              ; ...and the base band's
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_bas], ax
+    mov ax, [ti_ch]                 ; a base is THREE LANES tall, centred on
+    mov cx, 3                       ; the grid it sits behind
+    mul cx
+    mov [ti_baseh], ax
 
     ; --- the board's own box: 4 cells across, and 5 cells plus 3 rises down
     mov ax, [ti_cw]
@@ -120,14 +132,45 @@ ti_layout:
     mov [ti_ox], ax
     mov [ti_oy], dx
 
-    mov ax, [ti_ox]                 ; the board's origin. The content left is
-    mov [ti_bx], ax                 ; already a multiple of 8 (SPEC.md 11.94's
-    mov ax, [ti_oy]                 ; snap, which ti_entry asks for), and CW
-    add ax, [ti_hud]                ; is too - so every cell's x is aligned
-    mov [ti_by], ax                 ; and no band has to round its own
+    ; --- P1's BASE, THE GRID, P2's BASE, THE CARD PANEL -------------------
+    ; The bases sit OUTSIDE the grid, behind each player's rear column
+    ; (SPEC.md 97.2.1) - column 0 is P1's rear and column 3 is P2's - so the
+    ; grid does NOT start at the content's left edge. The content origin is
+    ; already a multiple of 8 (SPEC.md 11.94's snap, which ti_entry asks for)
+    ; and so are BASEW and CW, so every cell's x and both bases' satisfy
+    ; gfx_blit1's one alignment rule without rounding anything.
+    mov ax, [ti_ox]
+    add ax, 7                       ; THE CONTENT ORIGIN IS NOT NECESSARILY
+    and ax, 0FFF8h                  ; ALIGNED, and assuming it is cost this
+                                    ; board every pixel it had. WF_SNAP is
+                                    ; BEST-EFFORT: wm_snap_ax proposes an x
+                                    ; with the content on a multiple of 8 and
+                                    ; then REFUSES it when that would push the
+                                    ; window off its display's right edge -
+                                    ; which a window 634 of 640 wide does. So
+                                    ; the first aligned column is derived here,
+                                    ; and the <=7 pixels of lead-in are charged
+                                    ; to the fit check below
+    mov [ti_b1x], ax                ; P1's base, hard against the left
+    add ax, [ti_basew]
+    mov [ti_bx], ax                 ; ...then the four combat columns
+    add ax, [ti_boardw]
+    mov [ti_b2x], ax                ; ...then P2's, behind their rear column
+    mov ax, [ti_oy]
+    add ax, [ti_hud]
+    mov [ti_by], ax
+    mov ax, [ti_boardh]             ; a base is centred on the lanes it is
+    sub ax, [ti_baseh]              ; behind
+    shr ax, 1
+    add ax, [ti_by]
+    mov [ti_basey], ax
 
     ; --- and does it FIT? A refusal is a normal path (PERFORMANCE.md rule 6)
-    mov ax, [ti_boardw]
+    mov ax, [ti_b1x]
+    sub ax, [ti_ox]                 ; the lead-in the snap could not give us
+    add ax, [ti_boardw]
+    add ax, [ti_basew]
+    add ax, [ti_basew]
     add ax, [ti_pan]
     cmp ax, [ti_cw_box]
     ja .no

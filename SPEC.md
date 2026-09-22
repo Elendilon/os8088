@@ -139862,12 +139862,16 @@ than claiming its way into a refusal nobody can read.
 computed at layout time from the live content box and the adapter's pixel
 aspect — `ddlay.inc`'s rule one game along (§93.3), and for its reason.
 
-| surface | HUD | card panel | cell | `RISE` | board box | sprite band | content it needs | apparent |
-|---|---|---|---|---|---|---|---|---|
-| VGA 640×480 fullscreen | 36 | 176 | 112 × 56 | 24 | 448 × 352 | 64 × 52 | 624 × 388 | 2.00 : 1 |
-| VGA windowed | 28 | 144 | 112 × 48 | 20 | 448 × 300 | 64 × 44 | 592 × 328 | 2.33 : 1 |
-| Hercules 720×348 | 28 | 168 | 120 × 40 | 16 | 480 × 248 | 64 × 36 | 648 × 276 | 2.00 : 1 |
-| CGA 640×200 | 16 | 160 | 80 × 20 | 4 | 320 × 112 | 48 × 16 | 480 × 128 | 1.67 : 1 |
+| surface | HUD | panel | **base** | cell | `RISE` | board box | sprite band | content it needs | apparent |
+|---|---|---|---|---|---|---|---|---|---|
+| VGA 640×480 fullscreen | 36 | 136 | 56 × 156 | 96 × 52 | 22 | 384 × 326 | 64 × 48 | 632 × 362 | 1.85 : 1 |
+| VGA windowed | 28 | 128 | 56 × 144 | 96 × 48 | 20 | 384 × 300 | 64 × 44 | 624 × 328 | 2.00 : 1 |
+| Hercules 720×348 | 28 | 152 | 72 × 108 | 104 × 36 | 12 | 416 × 216 | 64 × 32 | 712 × 244 | 1.93 : 1 |
+| CGA 640×200 | 16 | 152 | 48 × 60 | 96 × 20 | 4 | 384 × 112 | 64 × 18 | 632 × 128 | 2.00 : 1 |
+
+The content a row needs is `BASE + 4·CW + BASE + PAN` across by
+`5·CH + 3·RISE + HUD` down, and the width reads left to right as the board
+does: **P1's base, the four combat columns, P2's base, the card panel.**
 
 **THE LAST COLUMN IS THE ONE THE EYE READS, and it is not the cell's pixel
 ratio.** A CGA pixel is about 2.4 times as tall as it is wide and a Hercules
@@ -139889,14 +139893,42 @@ the refusal was correct and the table was not. What came down is `CH` and
 `RISE` and never `CW`: the two short screens are short in HEIGHT, a CGA having
 504 columns of content and 136 rows.
 
-**The window ASKS for what the table needs** (`OSAPI_WM_PREFER`, §11.100.1) —
-the content above plus 2 columns and 19 rows of frame, plus 8 of margin each
-way. §11.100.1's advice to ask for a real width and a *generous* height is for
-a window whose content grows into whatever it is given, and this one's does
-not: the board's size is fixed by this table, so a generous ask buys dead
-pixels rather than rows. It bought 176 dead columns and 60 dead rows on a VGA.
-Clamping still does its job on the two short screens, where the ask is more
-than the adapter has.
+#### 97.2.1 The BASES are part of the width, and the window goes FLUSH
+
+**Each player's base sits outside the grid, behind their rear column** — column
+0 is P1's rear and column 3 is P2's — so the grid does **not** start at the
+content's left edge. The first cut of this table had no column for them at all
+and neither did TITHE-PLAN §3.2.1, which is how a board with nowhere to put a
+base got as far as the glass. A base is one animated feature a side, three
+lanes tall, centred on the lanes it stands behind.
+
+**The window asks for the WHOLE DISPLAY's width, and that is a correctness
+requirement rather than a look** (§11.95.2). A window whose x is its display's
+first column and whose width spans it loses **both side borders**
+(`wm_flush_ck`), so `wm_content` answers `W_X` itself — 0, and **8-aligned by
+construction**. That matters far more here than it does for text:
+`OSAPI_FONT_RUN` on an unaligned origin is merely slower, while
+`OSAPI_GFX_BLIT1` **refuses** an x off the byte grid outright, so an unaligned
+content origin is not a slow board, it is **no board at all** — twenty cells,
+twenty figures and two bases every one of which refuses, in silence, leaving a
+black rectangle.
+
+**Asking for *nearly* the screen is the worst of both**, and it is what this
+asked for first. 634 of 640 is not flush, so the window keeps its borders AND
+the snap that would align them is refused: `wm_snap_ax` may only move a window
+LEFT, except from x = 0..6 where it must move right to 7 — which would push a
+634-wide window off the edge, so it gives up and leaves the content at x = 7.
+**`WF_SNAP` is best-effort**, and a package that needs an aligned x must derive
+one rather than assume it; the layout still rounds its own board x up inside
+the content, which costs ≤ 7 pixels, is a no-op on every row above, and turns
+the catastrophic failure into an invisible one.
+
+**The height is what the board needs and no more.** §11.100.1's advice to ask
+for a real width and a *generous* height is for a window whose content grows
+into whatever it is given, and this one's does not: the board's size is fixed
+by this table, so a generous ask buys dead pixels rather than rows. It bought
+176 dead columns and 60 dead rows on a VGA. Clamping still does its job on the
+two short screens, where the ask is more than the adapter has.
 
 **Layout is a table computed once per size change, never per frame.** A resize
 is not a thing that happens inside a frame.

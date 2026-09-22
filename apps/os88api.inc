@@ -3390,10 +3390,28 @@ OS88_BSS_SIZE equ 0
                                                 ; user drags it, and it cannot
                                                 ; sit flush against the left
                                                 ; edge (x = 7 is as far as it
-                                                ; goes). MONO ONLY - a no-op
-                                                ; on VGA, so set it
-                                                ; unconditionally rather than
-                                                ; asking OSAPI_VIDEO first.
+                                                ; goes).
+                                                ;
+                                                ; IT IS BEST-EFFORT, AND A
+                                                ; PACKAGE THAT NEEDS AN ALIGNED
+                                                ; X MUST DERIVE ONE. The snap
+                                                ; proposes x = 7 (mod 8) and
+                                                ; then REFUSES it if that would
+                                                ; push the window off its
+                                                ; display's right edge, which a
+                                                ; window nearly as wide as the
+                                                ; screen does - so it simply
+                                                ; misses the fast path and your
+                                                ; content origin is whatever it
+                                                ; was. That is free for text,
+                                                ; which is slower and still
+                                                ; correct; it is NOT free for
+                                                ; OSAPI_GFX_BLIT1, which
+                                                ; REFUSES an x off the byte
+                                                ; grid outright. Round your own
+                                                ; band x up inside the content
+                                                ; and charge the <= 7 pixels to
+                                                ; your layout.
                                                 ;
                                                 ; Call it from your entry proc,
                                                 ; before the window is shown.

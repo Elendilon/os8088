@@ -26,6 +26,13 @@
 ; =============================================================================
 
 TI_POSES    equ 4                 ; a ping-pong idle: A B C B (SPEC.md 97.5)
+TI_BASEPOSES equ 2                ; a base breathes slowly beside the figures'
+                                  ; four-frame idle - two frames is enough to
+                                  ; read as alive and halves what the band
+                                  ; store costs
+TI_BASEMAX  equ 8 * 144           ; the largest BASE band: 64 x 144 on a
+                                  ; fullscreen VGA, which is the tallest cell
+                                  ; times three lanes
 TI_BANDMAX  equ 8 * 56            ; the largest band any surface asks for -
                                   ; 64x40 is 320 and 56x56 is 392, so eight
                                   ; bytes a row by fifty-six rows covers every
@@ -60,6 +67,8 @@ ti_art_build:
     ; cells by construction (SPEC.md 97.3), so every cell's ground is the
     ; IDENTICAL diamond - if it varied per cell a sprite frame would need one
     ; baked variant per cell and the art would multiply by twenty.
+    mov ax, [ti_bw]
+    mov [ti_spanw], ax              ; every span below is cut to the band
     mov di, ti_cell
     mov cx, TI_CELLMAX
     xor ax, ax
@@ -109,6 +118,17 @@ ti_art_build:
     inc word [ti_pi]
     jmp short .pose
 .pdone:
+
+    ; --- and the two players' bases, which are ONE band drawn twice ---------
+    mov word [ti_pi], 0
+.base:
+    mov ax, [ti_pi]
+    cmp ax, TI_BASEPOSES
+    jae .bdone
+    call ti_base_build
+    inc word [ti_pi]
+    jmp short .base
+.bdone:
     pop es
     pop di
     pop si
@@ -165,6 +185,10 @@ ti_row_dither:
 ; -----------------------------------------------------------------------------
 ti_cell_span:
     push cx
+    push ax
+    mov ax, [ti_cw]                 ; the cell's own ground is cut to the CELL
+    mov [ti_spanw], ax
+    pop ax
     mov ax, [ti_cw]                 ; the row's first byte in the band
     shr ax, 1
     shr ax, 1
@@ -222,6 +246,8 @@ ti_pose_build:
     push ds
     pop es
     cld
+    mov ax, [ti_bw]                 ; ti_cell_span left [ti_spanw] at the CELL
+    mov [ti_spanw], ax              ; width; every span here is the BAND's
     call ti_pose_addr               ; DI = this pose's band
     push di
     mov cx, TI_BANDMAX
@@ -390,6 +416,9 @@ ti_pose_ground:
     ret
 
 ; ti_pose_span - DI = the row, AX = centre, CX = half width
+; Clips against [ti_spanw], which the CALLER sets once per composition: the
+; figure and the cell ground are cut to [ti_bw] and a base to [ti_basew], and
+; passing it in a register would need one this routine does not have spare.
 ti_pose_span:
     push ax
     push bx
@@ -409,7 +438,7 @@ ti_pose_span:
 .px:
     or cx, cx
     jz .out
-    cmp dx, [ti_bw]
+    cmp dx, [ti_spanw]
     jae .out
     mov ax, dx
     mov bx, ax
@@ -456,6 +485,141 @@ ti_pose_addr:
 ; whole reason the ground can be baked into a sprite's band at all.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+; ti_base_build - one frame of a player's base into ti_base[ti_pi]
+; in:  [ti_pi] = 0..TI_BASEPOSES-1, the layout is current
+; clobbers: AX, BX, CX, DX, SI, DI
+;
+; A PLACE AND NOT A PIECE (SPEC.md 97.2.1): a dithered mound that widens to the
+; foot, with a solid keep standing on it. One band, drawn at both sides, and
+; opaque like every other band so that drawing it back where it was is the
+; erase. What it is NOT yet is the owner's chosen base - TITHE-PLAN 16.1 wants
+; CANDIDATES to pick from and that is the art increment; this is the shape the
+; layout reserves room for.
+; -----------------------------------------------------------------------------
+ti_base_build:
+    push es
+    push ds
+    pop es
+    cld
+    mov ax, [ti_basew]
+    mov [ti_spanw], ax
+    call ti_base_addr               ; DI = this frame's band
+    push di
+    mov cx, TI_BASEMAX
+    xor ax, ax
+    rep stosb
+    pop di
+
+    mov word [ti_ry], 0
+.row:
+    mov ax, [ti_ry]
+    cmp ax, [ti_baseh]
+    jae .done
+    call ti_base_row
+    inc word [ti_ry]
+    jmp short .row
+.done:
+    pop es
+    ret
+
+; ti_base_row - one row of the base. [ti_ry] = the row, [ti_pi] = the frame.
+ti_base_row:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+
+    call ti_base_addr
+    mov ax, [ti_ry]
+    mul word [ti_bas]
+    add di, ax                      ; DI = this row
+
+    ; --- the MOUND: a dithered ramp, w/4 at the crest and w/2 at the foot ---
+    mov ax, [ti_ry]
+    mov dx, [ti_basew]
+    shr dx, 1
+    shr dx, 1                       ; DX = w/4
+    mul dx                          ; DX:AX = row * (w/4)
+    mov bx, [ti_baseh]
+    or bx, bx
+    jnz .mdiv
+    inc bx
+.mdiv:
+    div bx
+    mov cx, [ti_basew]
+    shr cx, 1
+    shr cx, 1
+    add cx, ax                      ; CX = w/4 + row*(w/4)/h
+    mov ax, [ti_basew]
+    shr ax, 1                       ; AX = the band's centre
+    call ti_pose_span
+    mov cx, [ti_bas]
+    mov ax, [ti_ry]
+    call ti_row_dither              ; the ground is a mid-tone, as a cell's is
+
+    ; --- the KEEP: solid, standing on the mound's middle half --------------
+    mov ax, [ti_baseh]
+    shr ax, 1
+    shr ax, 1                       ; AX = h/4, the keep's top
+    mov [ti_ktop], ax
+    cmp [ti_ry], ax
+    jb .out
+    mov bx, [ti_baseh]
+    sub bx, ax                      ; BX = h - h/4, its foot
+    cmp [ti_ry], bx
+    jae .out
+
+    mov ax, [ti_ry]                 ; how far down the keep we are
+    sub ax, [ti_ktop]
+    mov dx, [ti_basew]
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1                       ; DX = w/8
+    mul dx
+    mov bx, [ti_baseh]
+    shr bx, 1
+    or bx, bx
+    jnz .kdiv
+    inc bx
+.kdiv:
+    div bx
+    mov cx, [ti_basew]
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1                       ; CX = w/16 at the top...
+    add cx, ax                      ; ...growing to w/8 + that at the foot
+    mov ax, [ti_basew]
+    shr ax, 1
+    cmp word [ti_pi], 0             ; the frame: the keep leans by a pixel, so
+    je .emit                        ; a base READS as alive beside the figures
+    inc ax
+.emit:
+    call ti_pose_span
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_base_addr - DI = the band of base frame [ti_pi]
+ti_base_addr:
+    push ax
+    push dx
+    mov ax, [ti_pi]
+    and ax, TI_BASEPOSES - 1
+    mul word [ti_bas]
+    mul word [ti_baseh]             ; frame * stride * rows, and both halves
+    mov di, ti_base                 ; of a base band fit 16 bits by TI_BASEMAX
+    add di, ax
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_ground - the content OUTSIDE the board: the HUD strip, the card panel and
 ; the bottom margin
 ; Preserves every register.
@@ -487,8 +651,20 @@ ti_ground:
     jb .right
     call OSAPI_GFX_FILL
 
+.left:
+    mov ax, [ti_ox]                 ; 2. P1's base zone, left of the grid - a
+    mov bx, [ti_by]                 ;    strip that did not exist while the
+    mov cx, [ti_bx]                 ;    grid started at the content's edge
+    dec cx
+    mov dx, bx
+    add dx, [ti_boardh]
+    dec dx
+    cmp cx, ax
+    jb .right
+    call OSAPI_GFX_FILL
+
 .right:
-    mov ax, [ti_bx]                 ; 2. the card panel, beside the board
+    mov ax, [ti_bx]                 ; 3. P2's base zone and the card panel
     add ax, [ti_boardw]
     mov bx, [ti_by]
     mov cx, [ti_ox]
@@ -502,7 +678,7 @@ ti_ground:
     call OSAPI_GFX_FILL
 
 .bot:
-    mov ax, [ti_ox]                 ; 3. what is left under the board
+    mov ax, [ti_ox]                 ; 4. what is left under the board
     mov bx, [ti_by]
     add bx, [ti_boardh]
     mov cx, ax
@@ -515,6 +691,39 @@ ti_ground:
     jb .out
     call OSAPI_GFX_FILL
 .out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_base_draw - one player's base, at AX = its x
+; in:  AX = x (a multiple of 8), [ti_pi] = the frame
+; clobbers: nothing
+; -----------------------------------------------------------------------------
+ti_base_draw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    push ds
+    pop es
+    call ti_base_addr
+    mov si, di
+    mov bx, [ti_basey]
+    mov cx, [ti_basew]
+    mov dx, [ti_baseh]
+    mov bp, [ti_bas]
+    call OSAPI_GFX_BLIT1
+    pop es
+    pop bp
+    pop di
+    pop si
     pop dx
     pop cx
     pop bx

@@ -508,6 +508,17 @@ not constants to hard-code.
 | Hercules 720×348 | 32 | 168 | 120 × 52 | 16 | 480 × 308 | 64 × 40 |
 | CGA 640×200 | 24 | 160 | 80 × 30 | 8 | 320 × 174 | 48 × 24 |
 
+> **THIS TABLE IS SUPERSEDED AND IT HAD A HOLE IN IT — SPEC.md §97.2 is the
+> built one.** §2 says the players' bases sit outside the grid, behind each
+> player's rear column, and this table budgets **no width for them at all**:
+> `PAN + 4·CW` is the whole of it, so a board cut from these numbers has
+> nowhere to put a base. The width is `BASE + 4·CW + BASE + PAN`. Two other
+> things it gets wrong, both found on the glass: the cell proportions are the
+> *pixel* ratio and not the apparent one, so the VGA rows are very nearly
+> square on the one adapter with square pixels; and the board needs the window
+> to go **flush** with its display so its content origin is 8-aligned, which
+> `gfx_blit1` requires and these widths do not deliver.
+
 **The band is smaller than the cell on purpose** (§3.4): the figure animates and
 the rest of the cell — its ground, and the numbers beside it — does not.
 
