@@ -639,6 +639,11 @@ Three arms, in increasing cost:
   three. **Three strips buys 4–6 colours a character for +37%.** That is a
   trade worth making on a machine with the frame to spare and it is **not** the
   free lunch this line used to call it.
+> **AND THE PASS COUNT IS SET BY THE PALETTE, NOT BY THE COLOUR COUNT**
+> (§4.2.1.1): four colours chosen as a sub-cube are two passes and four
+> colours chosen as one bit each are FOUR, for art that looks identical. The
+> arms below assume the good case, and `os88tithe.py` is what keeps it true.
+
 - **(c) `Quad` — FOUR COLOURS, two planes, FULLSCREEN ONLY.** New, and it
   exists because §3.1.1 owns the card: the Map Mask is set once per **plane**
   and the pass is a whole band, where `gfx_blitp` sets it per plane **per
@@ -1149,6 +1154,79 @@ share a body — the commonest case, since *"the same man with a different tool"
 is what §5.2 describes — the rear pose costs **nothing but an item reference**.
 Where a card wants a genuinely different stance behind the line, it names a
 second body set and pays for it.
+
+#### 4.2.1.1 AUTHOR IN COLOUR, REDUCE AT BUILD TIME — and the palette is the part that cannot be retrofitted
+
+**The masters are 16-colour PNGs and always were, because a master does not
+ship.** `art/body/` and `art/item/` are the pipeline's input (§4.1);
+`os88tithe.py` emits the shipped banks. Colour costs nothing there and cannot
+be added later — you can reduce a master, you can never un-reduce one — so
+this half is free and is simply the rule.
+
+**What is NOT free, and what a later 286+/VGA colour arm actually turns on, is
+the PALETTE.** §3.5's `Quad` and `Rich` cost one pass per *plane that varies*,
+and that is not the same as one pass per colour:
+
+> Lay a sprite's colour indices out as a matrix — one row a colour, one column
+> a plane. A column that is all-0 or all-1 is CONSTANT and Set/Reset supplies
+> it free (§5.4.2.2's `C`). **The pass count is the number of DISTINCT columns
+> that are neither**, and duplicated columns ride together under one Map Mask.
+
+So **four colours cost two passes or four, depending on which four**:
+
+| a sprite's four colours | varying columns | passes | VGA, 56×56 |
+|---|---:|---:|---:|
+| `{0, 1, 2, 3}` — a sub-cube | 2 | **2** | **4,832 µs** |
+| `{0, 4, 8, 12}` — a different sub-cube | 2 | **2** | 4,832 |
+| `{0, 5, 10, 15}` — columns pair up | 2 | **2** | 4,832 |
+| `{0, 1, 2, 4}` | 3 | 3 | ~7,234 *(interpolated)* |
+| `{1, 2, 4, 8}` — one bit each | 4 | **4** | **9,636** |
+
+**Identical-looking art, twice the draw cost.** §3.7 measured 2 and 4 passes
+at 4,832 and 9,636 — exactly linear in passes from the 2,380 one-pass band —
+so the middle row is interpolation and the two ends are not.
+
+**Therefore `os88tithe.py --selfcheck` reports the varying-column count per
+sprite and FAILS one over its faction's declared budget** (§4.2.4, and §15.3
+puts it in the `fast` tier with the rest). Without that gate the art drifts to
+four passes one sprite at a time, nobody notices because it looks the same,
+and there is no cheap arm left to reduce *to*. **That is the decision that has
+to be taken now**; everything else about colour can wait.
+
+**And the mono reduction is AUTHORED, not thresholded.** §1.4 requires the art
+to read as *silhouette plus interior line* on the 1bpp adapters, and no runtime
+threshold can make that judgement — it is the same call §93.2.1 records one
+game along. The tool emits a proposed 1bpp band and the artist overrides it per
+sprite; a preview sheet (`--sheet`) is how that gets looked at.
+
+#### 4.2.1.2 …and what a colour arm would COST the disk, which is why it is optional
+
+Per-pixel colour is **two planes**, and the 1bpp band is neither of them — a
+band's bit means *ink or paper*, where a plane's means *bit 1 of the index*.
+
+| | uncompressed | on disk |
+|---|---|---|
+| bodies at 1bpp, as §1.5 has them | 138KB | ~83KB |
+| bodies as **2 planes** (`Quad`) | 276KB | ~166KB |
+
+- **Replacing** the 1bpp bodies with the two planes: §1.5's total goes 236 →
+  **319 of 354 clusters**. It fits, with 35 spare — but the 8088 then reads
+  twice the art off a floppy and ORs the two planes at load to get its own
+  band (~1.6 s on the worst-case deck pair). **The floor machine pays for a
+  feature it cannot use**, which is the wrong way round.
+- **Carrying both**: **402 of 354.** It does not fit.
+
+**So the colour planes are an OPTIONAL PART** (§4.3, `OP_OPT`), on the
+geometries with room: the 360KB disk ships the 1bpp bank and nothing else, and
+720KB and up carry the second plane beside it. That is the mechanism already in
+the plan, used for what it is for, and it costs the floor machine exactly zero.
+
+**Check `Banded` before spending any of that.** §3.5(b) gives **4 colours for
+4,341 µs windowed and NO extra art at all** — cheaper than `Quad`'s 4,832 and
+with no second bank to ship. What it cannot do is put two colours side by side
+in one horizontal strip. **The question a colour arm has to answer first is
+whether per-pixel freedom is worth 83KB and a second format**, and that is
+wave 1a's to answer with a picture rather than this section's with arithmetic.
 
 #### 4.2.2 What it buys, and ATTACK ANIMATION is most of it
 
@@ -3454,7 +3532,7 @@ in the whole package.
 
 | tier | rows |
 |---|---|
-| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's slots filled and exactly three commanders a faction, **§7.1.2's pure-specialist count (at most 8 of ~30, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, the body-set and item counts REPORTED so the art budget is watched rather than discovered, and **§3.4.1's dirty rect computed per transition with its MEAN COVERAGE reported** — that number is the animation rate); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
+| `fast` | `t_tithecards` — costs, POWER, both stat blocks present and **different**, §7.1's slots filled and exactly three commanders a faction, **§7.1.2's pure-specialist count (at most 8 of ~30, per faction)**, **every stat a single integer and no card text containing a range or a percentage** (§5.0.1), starter decks legal under §9.3; `t_livefull`; `duelsim --selfcheck`; `os88tithe --selfcheck` (§4.2.4: every card's body set and item exist, no faction over 8 items, every anchor inside the box at all four surface sizes, the body-set and item counts REPORTED so the art budget is watched rather than discovered, **§3.4.1's dirty rect computed per transition with its MEAN COVERAGE reported** — that number is the animation rate — and **§4.2.1.1's VARYING-COLUMN COUNT per sprite, which FAILS one over its faction's budget**: four colours chosen badly are twice the draw cost of four chosen well, and the art looks identical either way); `os88tithemus --selfcheck` (every score's tempo is an integer number of ticks a row, §13.3, and every faction's three states share an order length) |
 | `full` | nothing — this is one package, and `full` asks only *did you obviously break the OS* |
 | `soak` | `titherules` (a scripted match on the machine, diffed against `duelsim.py`); `titheframe` (§1.3's table, asserted under MartyPC on all three adapters, windowed and fullscreen); `tithecompose` (§4.2.3: a full board of idle sprites composes inside the match load, and a round's attack sprites inside the spoils phase — **guest cycles, not host seconds**); `titheheal` (the §5.5 chain at every board shape — both columns, every lane, the revive-from-zero case, and that an enemy is never healed); `tithestance` (§5.4's four targeting outcomes on both stances, the `PIERCE` permission, the rear bonus applying on FRONT and not on a successful SNIPE, and the walled-lane fallback); `tithedet` (§14.3's determinism: one match replayed twice, byte-identical logs); `titheai` (an AI match completes inside a time bound, **and §14.3's AI-variety row — the same position replayed 64 times produces at least 8 distinct first actions**, which is what catches a jitter left at zero); `tithenet` (two QEMU guests over Ethernet, `tests/ethernet.py`'s shape); `titheconf` (**§6.0's confluence** — every round of a recorded match applied in both plan orders, boards identical); `tithefile` (a match file suspends, reloads and finishes; and replays byte-identically, §12.6); `tithemus` (the sequencer holds tempo across 60 s on both arms — **guest ticks between row boundaries, not host seconds** — and a state change lands on a pattern boundary, §13.7); `tithesave` (a campaign save round-trips) |
 
