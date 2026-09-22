@@ -135,8 +135,18 @@ ti_panel_lay:
     mov ax, TI_HAND
 .have:
     mov [ti_cardn], ax
+    mov word [ti_cpad], 1           ; THE HOVERED CARD'S SECOND FRAME NEEDS A
+    cmp word [ti_cardh], 20         ; ROW AT EACH END and a card too short for
+    jae .pad                        ; a stat line has not got one to give, so
+    mov word [ti_cpad], 0           ; that geometry keeps the single frame
+.pad:
     mov ax, [ti_cardh]              ; the unit that rides each card
     sub ax, 4
+    sub ax, [ti_cpad]               ; ...INSIDE the inner frame rather than ON
+    sub ax, [ti_cpad]               ; it: the band is OPAQUE, so a unit that
+                                    ; reached the frame's own rows erased them
+                                    ; across its width and the outline came
+                                    ; back BROKEN
     cmp ax, TI_UNITHMAX
     jbe .uok
     mov ax, TI_UNITHMAX
@@ -271,12 +281,17 @@ ti_card_draw:
     dec dx
     call OSAPI_GFX_FRAME
 
-    cmp word [ti_cx], 0             ; the PULSE: a second frame that comes and
-    je .body                        ; goes on the same clock the figures idle
-    mov bx, [ti_cardi]              ; on, so the hovered card is animated and
-    add bx, ti_clock                ; not merely different
-    test byte [bx], 1
-    jz .body
+    ; THE HOVERED CARD IS A DOUBLE FRAME AND IT DOES NOT PULSE. It used to be
+    ; drawn on alternate values of this card's phase counter, so the hover read
+    ; as an OUTLINE half the time and as a solid inverted BLOCK the other half
+    ; - the field saw both and asked for the outline. The animation a hovered
+    ; card owes is the UNIT on it moving (TITHE-PLAN 3.3), which is what the
+    ; wheel's last feature commits; a frame that comes and goes is a state
+    ; change dressed as movement, and it was competing with the real one.
+    cmp word [ti_cx], 0
+    je .body
+    cmp word [ti_cpad], 0           ; ...where there is a row to spare for it
+    je .body
     mov ax, [ti_cbx]
     add ax, 2
     mov bx, [ti_cardy]
@@ -329,6 +344,7 @@ ti_card_draw:
     add ax, 8
     mov bx, [ti_cardy]
     add bx, 1
+    add bx, [ti_cpad]
     mov si, ti_ic_cost
     call ti_icon
 .run1:
@@ -337,6 +353,7 @@ ti_card_draw:
     add cx, [ti_c1off]              ; past the coin, where there is one
     mov dx, [ti_cardy]
     add dx, 2
+    add dx, [ti_cpad]               ; ...clear of the inner frame's top row
     mov si, ti_cardbuf
     mov al, [ti_cink]
     mov ah, [ti_cpap]
@@ -348,6 +365,7 @@ ti_card_draw:
     mov dx, [ti_cardy]
     add dx, [ti_cardh]
     sub dx, 10
+    sub dx, [ti_cpad]               ; ...and of its bottom one
     mov [ti_cardl2], dx
     mov bx, 0                       ; the three pairs, at 24 pixels each
     mov si, ti_ic_cost
@@ -533,6 +551,7 @@ ti_unit_draw:
     sub ax, 8                       ; a margin inside the frame; every term is
     mov bx, [ti_cardy]              ; a multiple of 8, so the band's x is
     add bx, 2
+    add bx, [ti_cpad]
     mov cx, TI_UNITW
     mov dx, [ti_unith]
     mov bp, [ti_unitb]

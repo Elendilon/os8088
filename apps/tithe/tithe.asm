@@ -89,8 +89,11 @@ TI_HUDMAX   equ 92                ; the widest HUD row any surface asks for -
                                   ; the NUL and one to spare
 TI_HUDRIGHT equ 18                ; cells the right-hand field occupies
 TI_HUDMID   equ 8                 ; ...and half the middle one's
-TI_FEATURES equ 23                ; the brief's own number: 20 characters, 2
-                                  ; player bases, 1 moused-over card
+TI_FEATURES equ 21                ; WHAT THE IDLE WHEEL WALKS: 20 characters and
+                                  ; the moused-over card. The brief's own
+                                  ; number is 23 and the two BASES have come
+                                  ; out of it - they are a lane of their own
+                                  ; below, on their own clock
 TI_SHARE    equ 20                ; per cent of a frame the IDLE may take.
                                   ; TITHE-PLAN 16.1 asks whether twenty figures
                                   ; breathing at 3.6 fps reads as a crowd or as
@@ -105,15 +108,34 @@ TI_SHARE    equ 20                ; per cent of a frame the IDLE may take.
                                   ; nothing and spends the surplus below
 TI_TRIMMIN  equ 30                ; the credit's floor, as a per cent of what
                                   ; the share asks for (SPEC.md 97.5)
-TI_COMBAT   equ 25                ; ...and per cent MORE the frame may take
-                                  ; while something is in flight. TITHE-PLAN
-                                  ; 3.8's concession - the other four lanes
-                                  ; stop idling to pay for an attack - was
+
+; THREE LANES AND THREE CLOCKS (SPEC.md 97.5.1). The share above is the IDLE's
+; and nothing else draws on it. A bolt and a base each have a budget of their
+; own, accrued every frame and spent when a commit fits, so each runs at a rate
+; the other two cannot move.
+;
+; IT WAS ONE CREDIT AND THE FIELD FOUND IT. The combat allowance used to be
+; ADDED to the share, which meant the wheel let more IDLE commits through while
+; a bolt was flying - press A and all twenty figures speed up, measured at 3.5
+; to 5.4 fps a feature. The bolt's own speed was never the thing that changed.
+TI_COMBAT   equ 25                ; per cent of a frame the COMBAT lane may
+                                  ; take - a bolt's step, a clash's tier B.
+                                  ; TITHE-PLAN 3.8's concession (the other
+                                  ; lanes stop idling to pay for an attack) was
                                   ; written against a frame that was full, and
-                                  ; it is not: an idle at 20% leaves the room
-                                  ; for an attack BESIDE it rather than instead
-                                  ; of it
+                                  ; it is not: an idle at 20% leaves room for
+                                  ; an attack BESIDE it rather than instead
+TI_BASESHARE equ 12               ; ...and per cent the BASE lane may take.
+                                  ; There are only ever THREE bases in the
+                                  ; game against twenty characters, so frames
+                                  ; for one are art nobody has to draw twenty
+                                  ; times: TI_BASEPOSES is four times
+                                  ; TI_POSES and this lane plays them at two
+                                  ; and a half times the wheel's rate, which
+                                  ; is what "smoother" costs
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
+TI_COMBATUS equ TI_FRAMEUS * TI_COMBAT / 100
+TI_BASEUS   equ TI_FRAMEUS * TI_BASESHARE / 100
 TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
                                   ; EACH (SPEC.md 97.5)
 
@@ -543,45 +565,57 @@ ti_frame:
     mov ax, [ti_hover]              ; is "it worked for one frame"
     call ti_card_draw
 .credit:
-    cmp byte [ti_clash], 0          ; A CLASH RUNS ON THE WHEEL like everything
-    je .nocl                        ; else: tier A is two of the twenty-three
-    cmp byte [ti_cltier], 0         ; features leaning, tier B one composed
-    je .cla                         ; band over both cells
+    call OSAPI_GET_TICKS            ; THE FRAME IS TIMED, because the model
+    mov [ti_ft0], ax                ; under-prices what a commit really costs -
+    inc word [ti_nframe]            ; commits ALONE cannot say whether the
+                                    ; wheel is credit-limited or work-limited,
+                                    ; and the two want opposite fixes
+    mov bx, ti_cacc                 ; every lane accrues ONCE a frame, before
+    mov dx, TI_COMBATUS             ; any of them spends (SPEC.md 97.5.1)
+    call ti_lane_fill
+    mov bx, ti_bacc
+    mov dx, TI_BASEUS
+    call ti_lane_fill
+
+    ; --- THE COMBAT LANE ----------------------------------------------------
+    cmp byte [ti_clash], 0          ; tier A is two features LEANING and rides
+    je .nocl                        ; the wheel; tier B is one composed band
+    cmp byte [ti_cltier], 0         ; over both cells and is this lane's
+    je .cla
+    mov ax, [ti_ch]                 ; its band is a cell plus the shear
+    add ax, [ti_rise]
+    mul word [ti_rowus]
+    add ax, [ti_arrus]
+    mov bx, ti_cacc
+    call ti_lane
+    jc .cla
     call ti_cl_tierb
 .cla:
-    dec byte [ti_clash]
-.nocl:
-    cmp byte [ti_pjon], 0           ; ...and it re-fires while the arm is on
+    dec byte [ti_clash]             ; ...the TIMER runs whether or not the band
+.nocl:                              ; fitted, so a starved clash drops frames
+    cmp byte [ti_pjon], 0           ; rather than outstaying its animation
     jne .pj
-    cmp byte [ti_pjrep], 0
+    cmp byte [ti_pjrep], 0          ; ...and it re-fires while the arm is on
     je .nopj
     call ti_pj_fire
 .pj:
-    cmp byte [ti_pjon], 0           ; A PROJECTILE IS PAID FIRST, out of the
-    je .nopj                        ; same credit: it is the most expensive
-    call ti_pj_step                 ; thing in the renderer and the four lanes
-    inc word [ti_npj]               ; that stop idling to pay for it is
-.nopj:                              ; TITHE-PLAN 3.8's concession
-    call ti_credit                  ; PER FRAME, because the allowance depends
-                                    ; on what is in flight this one
-    call OSAPI_GET_TICKS            ; ...and the frame is TIMED, because the
-    mov [ti_ft0], ax                ; model under-prices what a commit really
-    inc word [ti_nframe]            ; commits ALONE cannot say whether the wheel
-    mov ax, [ti_creditus]           ; is credit-limited or work-limited, and
-    mov [ti_left], ax               ; the two want opposite fixes
     cmp byte [ti_pjon], 0
-    je .cr
-    push ax                         ; the bolt's own share, at the model's own
-    mov ax, [ti_pjh]                ; terms: it is one arrival and its rows
-    mul word [ti_rowus]             ; like any other band, plus the compose
-    add ax, [ti_arrus]
-    shl ax, 1                       ; ...which TITHE-PLAN 3.9.1 measures at
-    cmp [ti_left], ax               ; about as much again as the commit
-    jbe .nocr
-    sub [ti_left], ax
-.nocr:
-    pop ax
-.cr:
+    je .nopj
+    mov ax, [ti_pjh]                ; the bolt at the model's own terms: one
+    mul word [ti_rowus]             ; arrival and its rows like any other band,
+    add ax, [ti_arrus]              ; plus the compose, which TITHE-PLAN 3.9.1
+    shl ax, 1                       ; measures at about as much again
+    mov bx, ti_cacc
+    call ti_lane
+    jc .nopj
+    call ti_pj_step
+    inc word [ti_npj]
+.nopj:
+    call ti_base_frame              ; --- THE BASE LANE, on its own clock -----
+
+    call ti_credit                  ; --- THE IDLE WHEEL ----------------------
+    mov ax, [ti_creditus]
+    mov [ti_left], ax
     mov cx, TI_FEATURES
 .walk:
     or cx, cx
@@ -690,7 +724,8 @@ ti_all:
     inc ax
     jmp short .f
 .out:
-    pop cx
+    call ti_base_all                ; the bases are off the wheel, so a full
+    pop cx                          ; board has to ask for them
     pop ax
     ret
 
@@ -707,26 +742,9 @@ ti_feature:
     push di
     push bp
     push es
-    cmp ax, TI_CELLS
-    jb .cell
-    cmp ax, TI_CELLS + 2            ; ...and 20 and 21 are the two BASES, which
-    jae .hand                       ; sit outside the grid behind each player's
-    sub ax, TI_CELLS                ; rear column (SPEC.md 97.2.1). 22 is the
-    mov bx, ax                      ; moused-over card and belongs to the card
-    add bx, TI_CELLS                ; panel, which is the next increment
-    add bx, ti_clock
-    mov bl, [bx]
-    xor bh, bh
-    mov [ti_pi], bx
-    mov bx, [ti_b1x]
-    or ax, ax
-    jz .bx
-    mov bx, [ti_b2x]
-.bx:
-    mov ax, bx
-    call ti_base_draw
-    jmp .out                        ; NEAR: the hovered card's arm sits between
-.hand:                              ; here and the epilogue
+    cmp ax, TI_CELLS                ; 0..19 are the characters and 20 is the
+    jb .cell                        ; moused-over card. THE TWO BASES ARE NOT
+.hand:                              ; HERE: they are a lane of their own
     cmp word [ti_hover], -1         ; 22 is the MOUSED-OVER CARD, the one
     jne .hov
     jmp .out
@@ -958,7 +976,17 @@ ti_cal_one:
     pop bx
     ret
 
-; ti_credit - the frame's credit, from the share and the measured band
+; -----------------------------------------------------------------------------
+; ti_credit - the IDLE WHEEL's credit, from its share and the measured band
+; Preserves every register.
+;
+; THE SHARE IS THE IDLE'S AND NOTHING ELSE DRAWS ON IT (SPEC.md 97.5.1). The
+; combat allowance used to be added here while a bolt or a clash was in
+; flight, which is what made pressing A speed the whole BOARD up: the wheel
+; had more credit, so it reached more figures, so twenty idles that were never
+; part of the attack ran half as fast again. What an attack needs is a budget
+; beside this one, not a bigger one of this.
+; -----------------------------------------------------------------------------
 ti_credit:
     push ax
     push dx
@@ -968,13 +996,6 @@ ti_credit:
     mov cx, 100
     div cx
     mov cx, [ti_share]
-    cmp byte [ti_pjon], 0           ; ...plus the combat allowance, while
-    jne .hot                        ; something is actually in flight: the
-    cmp byte [ti_clash], 0          ; idle's own share is never what an attack
-    je .cold                        ; is taken out of
-.hot:
-    add cx, TI_COMBAT
-.cold:
     mul cx                          ; AX = the share of one frame, in us
     mov cx, [ti_trim]               ; ...less what the last overrun taught us
     mul cx
@@ -988,6 +1009,55 @@ ti_credit:
     pop cx
     pop dx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_lane_fill - accrue DX into the lane at BX, once a frame
+; in:  BX -> the lane's accumulator word, DX = what it accrues each frame
+; Preserves every register.
+;
+; A LANE'S OWN CLOCK, IN ONE PROC (SPEC.md 97.5.1). A lane accrues its
+; allowance every frame and spends it when a commit fits, so its rate is
+; `allowance / cost` commits a frame and nothing outside the lane can move it -
+; which is the whole of what the field asked for twice over: the bolt keeps
+; its speed while the board idles at its own, and a base plays four times the
+; frames at two and a half times the rate.
+;
+; IT BANKS AT MOST TWO FRAMES. A lane that has been quiet for a second would
+; otherwise wake with a second's allowance in hand and burst through it, which
+; on the glass is the thing it exists to prevent.
+; -----------------------------------------------------------------------------
+ti_lane_fill:
+    push ax
+    push cx
+    mov ax, [bx]
+    add ax, dx
+    mov cx, dx
+    add cx, dx
+    cmp ax, cx
+    jbe .keep
+    mov ax, cx
+.keep:
+    mov [bx], ax
+    pop cx
+    pop ax
+    ret
+
+; ti_lane - spend AX from the lane at BX. CF=1 it does not fit this frame.
+; Preserves every register bar the flags.
+ti_lane:
+    push cx
+    mov cx, [bx]
+    cmp cx, ax
+    jb .no
+    sub cx, ax
+    mov [bx], cx
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop cx                          ; `pop` writes no flag
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1295,6 +1365,8 @@ ti_cardp:   dw 0
 ti_cardl2:  dw 0
 ti_cgap:    dw 0                    ; the button row's offset from the hand
 ti_unith:   dw 0                    ; the mini unit on a card
+ti_cpad:    dw 0                    ; 1 where a card has a row to spare at each
+                                    ; end for the hovered card's inner frame
 ti_unitb:   dw TI_UNITW / 8
 ti_ury:     dw 0
 ti_undow:   dw 48                   ; UNDO is cut to its own label
@@ -1361,6 +1433,8 @@ ti_ft0:     dw 0                    ; the tick this frame started on
 ti_trim:    dw 100                  ; per cent of the share the wheel dares
                                     ; spend, taught by the frames that overran
 ti_ncommit: dw 0                    ; feature commits since launch, wrapping
+ti_bslot:   dw 0                    ; the base band's slot pitch, bas x rows
+ti_nbase:   dw 0                    ; ...and BASE LANE commits (SPEC.md 97.5.1)
 ti_nframe:  dw 0                    ; ...and wheel passes
 ti_d0:      dw 0
 ti_d1:      dw 0
@@ -1408,6 +1482,10 @@ ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
 ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 10, 24
 
 ti_clock:   times TI_FEATURES db 0
+ti_cacc:    dw 0                    ; the COMBAT lane's accumulator, in us...
+ti_bacc:    dw 0                    ; ...and the BASE lane's (SPEC.md 97.5.1)
+ti_bclock:  times 2 db 0            ; each base's own phase counter
+ti_bturn:   db 0                    ; ...and which of the two this frame commits
 ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0

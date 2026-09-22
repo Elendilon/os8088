@@ -26,10 +26,18 @@
 ; =============================================================================
 
 TI_POSES    equ 4                 ; a ping-pong idle: A B C B (SPEC.md 97.5)
-TI_BASEPOSES equ 2                ; a base breathes slowly beside the figures'
-                                  ; four-frame idle - two frames is enough to
-                                  ; read as alive and halves what the band
-                                  ; store costs
+TI_BASEPOSES equ 8                ; A BASE GETS FOUR TIMES THE FRAMES, and the
+                                  ; reason is the ART BUDGET rather than the
+                                  ; renderer: the game has three bases against
+                                  ; twenty characters, so a frame of base is
+                                  ; drawn once where a frame of character is
+                                  ; drawn twenty times. It was 2 - enough to
+                                  ; read as alive - and the field asked for
+                                  ; smoother once the rate question was
+                                  ; settled. Eight frames at the base lane's
+                                  ; 9.1 Hz is a cycle under a second where the
+                                  ; figures' four at 3.5 is over one.
+                                  ; POWER OF TWO: ti_base_addr masks
 TI_BASEMAX  equ 8 * 144           ; the largest BASE band: 64 x 144 on a
                                   ; fullscreen VGA, which is the tallest cell
                                   ; times three lanes
@@ -132,15 +140,11 @@ ti_art_build:
 .udone:
 
     ; --- and the two players' bases, which are ONE band drawn twice ---------
-    mov word [ti_pi], 0
-.base:
-    mov ax, [ti_pi]
-    cmp ax, TI_BASEPOSES
-    jae .bdone
+    ; ONE CALL AND NOT A LOOP: the base builder does every pose itself, the
+    ; mound once and a keep each, and it owns [ti_pi] while it does. Driving
+    ; it from here the way the poses above are driven made it reset the
+    ; caller's own counter, which is a hang with the gfx lock held.
     call ti_base_build
-    inc word [ti_pi]
-    jmp short .base
-.bdone:
     pop es
     pop di
     pop si
@@ -647,27 +651,78 @@ ti_base_build:
     cld
     mov ax, [ti_basew]
     mov [ti_spanw], ax
-    call ti_base_addr               ; DI = this frame's band
+    mov ax, [ti_bas]                ; the slot pitch, which is NOT TI_BASEMAX -
+    mul word [ti_baseh]             ; that is the largest slot any geometry
+    mov [ti_bslot], ax              ; asks for and this is the one in use
+
+    ; --- THE MOUND ONCE, INTO SLOT 0 ---------------------------------------
+    ; It is the same in every pose by construction - a base is a PLACE and the
+    ; thing that moves on it is the keep - so composing it eight times was
+    ; eight times the work for one picture. At TI_BASEPOSES = 8 that was a
+    ; TWO-SECOND freeze on every layout, measured, with the gfx lock held: a
+    ; window resize stopped the machine dead. Building it once and replicating
+    ; the slot is ~14 ms a pose after the first.
+    mov word [ti_pi], 0
+    call ti_base_addr
     push di
-    mov cx, TI_BASEMAX
+    mov cx, [ti_bslot]
     xor ax, ax
     rep stosb
     pop di
-
     mov word [ti_ry], 0
 .row:
     mov ax, [ti_ry]
     cmp ax, [ti_baseh]
-    jae .done
-    call ti_base_row
+    jae .copy
+    call ti_base_mound
     inc word [ti_ry]
     jmp short .row
+
+    ; --- ...REPLICATED INTO THE REST ---------------------------------------
+    ; SI trails DI by exactly one slot, so slot 1 is copied from 0, slot 2
+    ; from the 1 just written, and so on: one `rep movsw` fills them all.
+.copy:
+    mov word [ti_pi], 0
+    call ti_base_addr
+    mov si, di
+    add di, [ti_bslot]
+    mov cx, [ti_bslot]
+    shr cx, 1
+    mov ax, TI_BASEPOSES - 1
+    mul cx
+    mov cx, ax
+    rep movsw
+    test word [ti_bslot], 1         ; an odd slot leaves one byte a pose
+    jz .keeps
+    mov cx, TI_BASEPOSES - 1
+    rep movsb
+
+    ; --- ...AND EACH POSE'S KEEP ON TOP ------------------------------------
+.keeps:
+    mov word [ti_pi], 0
+.kp:
+    mov ax, [ti_pi]
+    cmp ax, TI_BASEPOSES
+    jae .done
+    mov word [ti_ry], 0
+.kr:
+    mov ax, [ti_ry]
+    cmp ax, [ti_baseh]
+    jae .kn
+    call ti_base_keep
+    inc word [ti_ry]
+    jmp short .kr
+.kn:
+    inc word [ti_pi]
+    jmp short .kp
 .done:
+    mov word [ti_pi], 0
     pop es
     ret
 
-; ti_base_row - one row of the base. [ti_ry] = the row, [ti_pi] = the frame.
-ti_base_row:
+; ti_base_mound - one row of the base's GROUND, which every pose shares
+; [ti_ry] = the row; the slot is [ti_pi]'s
+ti_base_mound:
     push ax
     push bx
     push cx
@@ -701,6 +756,26 @@ ti_base_row:
     mov cx, [ti_bas]
     mov ax, [ti_ry]
     call ti_row_dither              ; the ground is a mid-tone, as a cell's is
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_base_keep - one row of the base's FIGURE, which is what moves
+; [ti_ry] = the row, [ti_pi] = the pose. Rows outside the keep cost a compare.
+ti_base_keep:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+
+    call ti_base_addr
+    mov ax, [ti_ry]
+    mul word [ti_bas]
+    add di, ax
 
     ; --- the KEEP: solid, standing on the mound's middle half --------------
     mov ax, [ti_baseh]
@@ -734,12 +809,22 @@ ti_base_row:
     shr cx, 1
     shr cx, 1                       ; CX = w/16 at the top...
     add cx, ax                      ; ...growing to w/8 + that at the foot
-    mov ax, [ti_basew]
-    shr ax, 1
-    cmp word [ti_pi], 0             ; the frame: the keep leans by a pixel, so
-    je .emit                        ; a base READS as alive beside the figures
-    inc ax
-.emit:
+    ; THE SWAY, and it is a PING-PONG rather than a flick. It was `pose 0 is
+    ; centred, every other pose is one pixel right`, which is two pictures
+    ; however many poses are asked for - so raising TI_BASEPOSES to eight paid
+    ; eight times the build for a base that still had two frames in it. A
+    ; triangle over the pose count gives -2,-1,0,1,2,1,0,-1 at eight and the
+    ; original 0,1 at two, so the old behaviour is this one's N=2 case.
+    mov ax, [ti_pi]
+    cmp ax, TI_BASEPOSES / 2
+    jb .tri
+    mov ax, TI_BASEPOSES
+    sub ax, [ti_pi]
+.tri:
+    sub ax, TI_BASEPOSES / 4
+    mov bx, [ti_basew]
+    shr bx, 1
+    add ax, bx                      ; AX = the keep's centre, swayed
     call ti_pose_span
 .out:
     pop di
@@ -837,6 +922,91 @@ ti_ground:
 .out:
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_base_frame - THE BASE LANE: one base a frame, on a clock of its own
+; Preserves every register.
+;
+; THREE BASES AND TWENTY CHARACTERS (SPEC.md 97.5.1). A frame of base art is
+; drawn once for the whole game where a frame of character art is drawn twenty
+; times, so frames for a base are the cheapest animation on this board - which
+; is what pays for TI_BASEPOSES being four times TI_POSES and for this lane
+; existing at all. The bases came OFF the idle wheel to get here: on it they
+; were 2 of 23 features and moved at the same 3.5 fps as everything else, and
+; giving them a better rate there would have been taken out of the figures'.
+;
+; ONE OF THE TWO A FRAME, ALTERNATING, so each plays at half the tick rate -
+; 9.1 Hz - for one band's work a frame rather than two. The lane accrues
+; TI_BASESHARE of a frame and spends it when a band fits, so a geometry whose
+; base is tall enough not to fit drops to every other frame on its own
+; arithmetic rather than stealing the idle's credit.
+; -----------------------------------------------------------------------------
+ti_base_frame:
+    push ax
+    push bx
+    push dx
+    mov ax, [ti_baseh]              ; one band, at the model's own terms
+    mul word [ti_rowus]
+    add ax, [ti_arrus]
+    mov bx, ti_bacc
+    call ti_lane
+    jc .out
+    mov bl, [ti_bturn]              ; whose base this frame is
+    xor bh, bh
+    mov al, bl
+    xor al, 1
+    mov [ti_bturn], al              ; ...and the other one's next frame
+    push bx
+    add bx, ti_bclock               ; its own phase counter, which nothing
+    mov al, [bx]                    ; outside this lane advances
+    inc al
+    cmp al, TI_BASEPOSES
+    jb .store
+    xor al, al
+.store:
+    mov [bx], al
+    xor ah, ah
+    mov [ti_pi], ax
+    pop bx
+    mov ax, [ti_b1x]
+    or bx, bx
+    jz .draw
+    mov ax, [ti_b2x]
+.draw:
+    call ti_base_draw
+    inc word [ti_nbase]             ; the lane's own rate, counted rather than
+.out:                               ; modelled - it is the one number that says
+    pop dx                          ; the base runs on a clock the idle's
+    pop bx                          ; share cannot move
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_base_all - both bases at their current poses, for a full repaint
+; Preserves every register.
+; -----------------------------------------------------------------------------
+ti_base_all:
+    push ax
+    push bx
+    xor bx, bx
+.b:
+    push bx
+    mov al, [bx + ti_bclock]
+    xor ah, ah
+    mov [ti_pi], ax
+    mov ax, [ti_b1x]
+    or bx, bx
+    jz .draw
+    mov ax, [ti_b2x]
+.draw:
+    call ti_base_draw
+    pop bx
+    inc bx
+    cmp bx, 2
+    jb .b
     pop bx
     pop ax
     ret

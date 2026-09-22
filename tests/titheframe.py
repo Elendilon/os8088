@@ -41,8 +41,9 @@ import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_bw", "ti_bh",
-        "ti_calfull", "ti_calone", "ti_drect")
+SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_bw", "ti_bh",
+        "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
+        "TI_BASEPOSES")
 SPAN = 5.0
 
 fails = []
@@ -89,7 +90,12 @@ def main():
         seg = struct.unpack(
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
-        os88marty.guest_sleep(m, 2.0)
+        # FIVE GUEST SECONDS AND NOT TWO. The art build composes every pose of
+        # every surface at launch and TI_BASEPOSES is eight now, so two seconds
+        # read the calibration as zero AND took the baseline window at 9.6
+        # frames a second - which then made a bolt look like it had sped the
+        # idle up by 92% when it had not moved it at all.
+        os88marty.guest_sleep(m, 5.0)
 
         full = rw(m, seg, "ti_calfull")
         one = rw(m, seg, "ti_calone")
@@ -113,7 +119,7 @@ def main():
               "%.1f" % base_f)
 
         m.key("KeyX")                                  # the dirty-rect arm
-        os88marty.guest_sleep(m, 1.5)
+        os88marty.guest_sleep(m, 2.5)
         d_c, d_f, _ = rate()
         gain = 100.0 * (d_c - base_c) / base_c
         print("  dirty rect: %.1f commits/s (%+.1f%%)" % (d_c, gain))
@@ -121,44 +127,52 @@ def main():
               "%+.1f%%" % gain)
 
         m.key("KeyA")                                  # dirty rect + projectile
-        os88marty.guest_sleep(m, 1.5)
+        os88marty.guest_sleep(m, 2.5)
         pd_c, pd_f, pd_p = rate()
         m.key("KeyX")                                  # ...then the rect off,
-        os88marty.guest_sleep(m, 1.5)                  # the bolt still flying
+        os88marty.guest_sleep(m, 2.5)                  # the bolt still flying
         p_c, p_f, p_p = rate()
         print("  + projectile: %.1f commits/s, %.1f frames/s, %.1f bolts/s"
               % (p_c, p_f, p_p))
         check(p_p > 1.0, "a projectile commits frames of its own",
               "%.1f/s" % p_p)
-        # AND IT DOES NOT COST THE IDLE. This asserted the opposite until the
-        # field found the idle's share was twice what it needed: combat has an
-        # allowance of its own now (SPEC.md 97.5), so TITHE-PLAN 3.8's "the
-        # other four lanes stop idling to pay for it" is a concession the
-        # machine no longer has to make.
-        check(p_c >= base_c, "...and the idle does NOT pay for it",
-              "%.1f vs %.1f" % (p_c, base_c))
+        # AND IT DOES NOT MOVE THE IDLE - IN EITHER DIRECTION. This asserted
+        # `p_c >= base_c` and passed at +55%, which is the defect the field
+        # reported as "pressing A speeds all the idle animations back up": the
+        # combat allowance was ADDED to the wheel's credit, so a bolt bought
+        # the twenty figures a faster idle. The lanes are separate now
+        # (SPEC.md 97.5.1) and the assertion is a BAND - the one thing a
+        # one-sided check could not say.
+        drift = 100.0 * (p_c - base_c) / base_c
+        print("  idle with a bolt in flight: %.1f/s (%+.1f%%)" % (p_c, drift))
+        check(abs(drift) <= 15.0, "...and a bolt does not move the idle's rate",
+              "%+.1f%%" % drift)
         check(p_f >= 15.0, "...and the frame still holds", "%.1f" % p_f)
-        # THE ONE COMBINATION THAT DOES NOT HOLD, as a ratchet rather than a
-        # silence. Dirty rect AND a projectile together runs at ~13 passes a
-        # second against the wheel's 18.2, and trimming the credit to 79% does
-        # not recover it - so that frame's cost is NOT in the commits the
-        # credit gates. It is an open defect (docs/reports/
-        # TITHE-RATE-2026-09-22.md), and this floor is where it stands: raising
-        # it to 15 is the fix's own gate, and a drop below 12 is a regression
-        # on top of it.
-        print("  + projectile AND dirty rect: %.1f frames/s   (OPEN: should be"
-              " >= 15, see the report)" % pd_f)
-        check(pd_f >= 12.0, "the known-slow arm has not got worse",
+        # THE COMBINATION THAT DID NOT HOLD, AND NOW DOES. Dirty rect AND a
+        # projectile together ran at ~13 passes a second against the wheel's
+        # 18.2, and trimming the credit did not recover it - which said the
+        # cost was not in the commits the credit gates. It was not: it was the
+        # combat allowance being ADDED to the idle's share, so the busiest
+        # frame on the machine was also the one the wheel was told it could
+        # spend most in. Separate lanes (SPEC.md 97.5.1) took it to 18.7 and
+        # the floor is the 15 this row carried as the fix's own gate.
+        print("  + projectile AND dirty rect: %.1f frames/s" % pd_f)
+        check(pd_f >= 15.0, "...and the busiest frame holds its rate too",
               "%.1f" % pd_f)
         m.key("KeyA")
-        os88marty.guest_sleep(m, 1.5)
+        os88marty.guest_sleep(m, 2.5)
 
+        # TWO AND A HALF GUEST SECONDS AFTER A KEY, and it used to be one and
+        # a half. `S` relayouts, a relayout rebuilds the art, and the base's
+        # eight poses made that long enough to eat the front of the window: it
+        # read three arms as three DECAYING frame rates and hid the fact that
+        # every one of them holds 19 fps.
         m.key("KeyS")                                  # the sprite arms
-        os88marty.guest_sleep(m, 1.5)
+        os88marty.guest_sleep(m, 2.5)
         a0_c, _, _ = rate()
         w0 = rw(m, seg, "ti_bw")
         m.key("KeyS")
-        os88marty.guest_sleep(m, 1.5)
+        os88marty.guest_sleep(m, 2.5)
         a1_c, _, _ = rate()
         w1 = rw(m, seg, "ti_bw")
         print("  arms: %d px %.1f/s, %d px %.1f/s, 64 px %.1f/s"
@@ -168,6 +182,53 @@ def main():
         check(a0_c > a1_c > base_c * 1.05,
               "...and a smaller sprite commits more often",
               "%.1f %.1f %.1f" % (a0_c, a1_c, base_c))
+
+        # THE BASE LANE (SPEC.md 97.5.1). One of the two bases a frame, so
+        # its own commits are one a frame and each base plays at half the tick
+        # rate. What makes it a LANE rather than a priority is that the idle's
+        # share cannot reach it, which is what the second half measures - and
+        # it is measured against readings taken in THIS sprite arm, not
+        # against the opening ones.
+        def lane():
+            b0 = rw(m, seg, "ti_nbase")
+            c0 = rw(m, seg, "ti_ncommit")
+            f0 = rw(m, seg, "ti_nframe")
+            spent = os88marty.guest_sleep(m, SPAN)
+            return tuple(((rw(m, seg, n) - v) & 0xFFFF) / spent for n, v in
+                         (("ti_nbase", b0), ("ti_ncommit", c0),
+                          ("ti_nframe", f0)))
+
+        # AND EIGHT POSES MUST BE EIGHT PICTURES. This is the check the work
+        # needed and did not have: the placeholder's keep moved only between
+        # "centred" and "one pixel right", so raising TI_BASEPOSES from 2 to 8
+        # bought four times the build cost and TWO distinct frames - an
+        # animation that reads as a flick however many poses are paid for.
+        # Read out of the band store, so it tests the ART and not the lane.
+        n = off["TI_BASEPOSES"]
+        slot = rw(m, seg, "ti_bslot")
+        bands = {bytes(m.readseg(seg, off["ti_base"] + i * slot, slot))
+                 for i in range(n)}
+        print("  base art: %d distinct of %d poses (%d bytes each)"
+              % (len(bands), n, slot))
+        check(len(bands) >= (n + 1) // 2,
+              "the base's poses are distinct pictures",
+              "%d of %d" % (len(bands), n))
+
+        b_hi, c_hi, f_hi = lane()
+        print("  base lane: %.1f commits/s of %.1f frames/s (idle %.1f/s)"
+              % (b_hi, f_hi, c_hi))
+        check(b_hi >= 0.85 * f_hi, "the base lane commits once a frame",
+              "%.1f of %.1f" % (b_hi, f_hi))
+        for _ in range(4):                             # the idle's share right
+            m.key("Minus")                             # down - 20% to the 5%
+        os88marty.guest_sleep(m, 2.5)                  # floor
+        b_lo, c_lo, _ = lane()
+        print("  ...share cut: idle %.1f/s (was %.1f), base %.1f/s (was %.1f)"
+              % (c_lo, c_hi, b_lo, b_hi))
+        check(c_lo < c_hi * 0.75, "cutting the share slows the IDLE",
+              "%.1f vs %.1f" % (c_lo, c_hi))
+        check(b_lo >= 0.85 * b_hi, "...and leaves the BASE LANE where it was",
+              "%.1f vs %.1f" % (b_lo, b_hi))
 
     print("titheframe: %d check(s) FAILED" % len(fails) if fails
           else "titheframe: ok")

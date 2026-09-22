@@ -140069,10 +140069,22 @@ paper swap and it inverts whole, icons included (`OSAPI_GFX_BLIT1_PEN`).
 sideways rather than downward for a reason: an expansion that overlapped its
 neighbours would need two cards repainted on every un-hover, where this needs
 the margin blacked and nothing else. Both edges stay on the byte grid, the
-panel's x being a multiple of 8. And it **pulses** — a second frame on the same
-clock the figures idle on — because it is the 23rd animated feature and the
-only one that is not a character; different is a state, and animated is what
-the budget is counted in.
+panel's x being a multiple of 8.
+
+**AND IT CARRIES A SECOND FRAME, WHICH DOES NOT PULSE.** The second frame was
+drawn on alternate values of the card's own phase counter, so the hover read as
+an *outline* half the time and as a solid inverted *block* the other half, and
+the field asked for the outline in as many words. The animation a hovered card
+owes is the unit on it moving (below); a frame that comes and goes is a state
+change dressed as movement, and it was competing with the real one.
+
+**A card's content clears the inner frame by ONE ROW at each end**, which the
+pulsing version did not: the name ran along the inner frame's top row, the stat
+line along its bottom, and the unit's band — opaque, like every band here —
+*erased* both across its own width, so the outline came back broken wherever
+there was something to see. The row is a layout field (`ti_cpad`), 1 where
+`CARDH` has it to spare and 0 on a card too short for a stat line, so the CGA
+geometry keeps the single frame rather than losing a text row to a decoration.
 
 **The hover is POLLED, from the worker.** §12.8's event set has no hover
 callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
@@ -140266,9 +140278,15 @@ TITHE-PLAN §3.8 concession — *the other four lanes stop idling to pay for an
 attack* —
 is one the machine no longer has to make. It was written against a frame that
 was full and the frame is not: an idle at 20% leaves the room for an attack
-**beside** it. Measured, a projectile in flight leaves the idle at 5.4 fps a
-feature against 3.5 with no projectile at all, and the frame holds 18.5 passes
-a second.
+**beside** it.
+
+**"Beside" is a SECOND BUDGET and it was first built as a BIGGER ONE**, which
+is §97.5.1. The allowance was added to the share while something was in flight,
+so the wheel had more credit, reached more features, and twenty figures that
+were no part of the attack idled half as fast again — measured at 3.5 fps a
+feature rising to 5.4 the moment a bolt was fired, and reported off a VGA as
+*pressing A speeds all the idle animations back up*. The bolt's own speed was
+never the thing that moved.
 
 **And the frame is WATCHED, which §97.5 promised and did not have.** One
 `OSAPI_GET_TICKS` a frame: the worker only runs when the tick has already
@@ -140297,6 +140315,65 @@ believed it was inside its tick and was not overran in silence.
 a span holding sixteen 4 ms blits wraps and its subtraction means nothing — it
 read **0 µs a band**, which is a credit the wheel cannot divide by. Eight
 samples of one blit each accumulate to well under 65,535 counts.
+
+#### 97.5.1 THREE LANES AND THREE CLOCKS
+
+The wheel's credit is the **idle's** and nothing else draws on it. A bolt and a
+base each have a budget of their own — `TI_COMBAT` and `TI_BASESHARE`, per cent
+of a frame — accrued every frame and spent when a commit fits, so **each lane's
+rate is `allowance / cost` commits a frame and nothing outside the lane can
+move it.**
+
+| lane | budget | clock | what it commits |
+|---|---|---|---|
+| idle wheel | `TI_SHARE`, trimmed | one phase step a feature REACHED | 20 characters, the moused-over card |
+| combat | `TI_COMBAT` | one step a frame | a bolt's step, a clash's tier B |
+| base | `TI_BASESHARE` | one of the two a frame, alternating | both players' bases |
+
+**A lane banks at most two frames of its allowance.** One that has been quiet
+for a second would otherwise wake with a second's credit in hand and burst
+through it, which on the glass is the thing the wheel exists to prevent.
+
+**The trim (§97.5) is the IDLE's alone.** An overrun is a frame that did more
+work than the model priced, and the lane whose rate the field signed off is not
+the one to pay for it — so a combat frame that overruns slows the board's
+breathing and leaves the bolt where it was.
+
+**THE TWO BASES CAME OFF THE WHEEL TO GET A LANE**, and the reason is the art
+budget rather than the renderer. The game has **three bases against twenty
+characters**, so a frame of base art is drawn once for the whole game where a
+frame of character art is drawn twenty times: frames for a base are the
+cheapest animation on the board, and `TI_BASEPOSES` is **four times**
+`TI_POSES` because of it. On the wheel they were 2 of 23 features moving at the
+same 3.5 fps as everything else, and any better rate there would have come out
+of the figures'. In a lane they play **9.1 Hz** — one of the two a frame,
+alternating, for one band's work a frame rather than two — so a base's whole
+cycle is under a second where a figure's four frames take over one.
+
+**It costs the claim** (§97.8): a base band is `TI_BASEMAX` = 1,152 bytes, so
+eight poses is 9,216 where two was 2,304. That is the one place in this design
+where smoother is paid for in RAM rather than in time, and it is affordable
+exactly because there are three bases and not twenty.
+
+**THE MOUND IS BUILT ONCE AND REPLICATED.** A base is a *place* and the thing
+that moves on it is the keep, so the mound is the same in every pose by
+construction — and composing it per pose was eight times the work for one
+picture. Measured, that was a **two-second freeze on every layout** with the
+gfx lock held: a window resize stopped the machine dead. Slot 0 gets the mound,
+one `rep movsw` whose source trails its destination by exactly one slot fills
+the rest, and each pose's keep goes on top — under a second for the whole art
+build, and the per-pose part is ~14 ms.
+
+**EIGHT POSES MUST BE EIGHT PICTURES, and the first cut was two.** The
+placeholder's keep moved only between *centred* and *one pixel right*, so every
+pose past the first was identical: raising the count bought four times the
+build cost and no more animation at all. It is a triangle over the pose count
+now — `-2,-1,0,1,2,1,0,-1` at eight, and the original `0,1` at two, so the old
+behaviour is this one's N=2 case. `tests/titheframe.py` reads the band store
+back and counts the distinct poses, because *this* is the failure that is
+silent: the lane still commits, the rate still measures, and the picture does
+not move.
+
 
 ### 97.6 Two renderers, and the windowed one is the default
 
