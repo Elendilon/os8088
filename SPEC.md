@@ -139251,6 +139251,57 @@ hand at the `(0,0)` we answered, where CuteMouse's centre is under a piece and
 draws nothing. The defect was in the eight pixels of margin around a
 measurement taken for something else.
 
+#### 96.45.4 A DOS program may TAKE the port, and a driver takes it back
+
+**THE DEFECT, and it is the field's oldest open one** (docs/FIELD-NOTES.md
+56): a DOS program is entitled to hook `IRQ4` itself, and when it does,
+`kd_mou_isr` stops being called and `[kdm_x]`/`[kdm_y]` freeze at whatever
+they last held. `INT 33h` then answers that same position for ever, which
+from the glass is a cursor that never moves.
+
+**Battle Chess is the program.** Its serial link is installed
+unconditionally in early start-up (`0x1D3` → `0xD132`, three far calls:
+uninstall, `INT 14h AH=00h` with `AL=43h`, then the installer at image
+`0x10C73`), and the installer writes the vector **directly** —
+`mov si,[23F0h] / shl si,1 / shl si,1 / add si,20h`, then `mov word [si],6Dh`
+and `mov [si+2],cs`. Its handler does not chain: it reads the LSR, reads the
+data register, keeps the byte, EOIs the master and `iret`s. Measured in game
+on this machine, `[23F0h] = 4` and `[23F2h] = 03F8` — **COM1 and IRQ4, which
+is where this project's pointer lives.**
+
+**AND A REAL DRIVER GETS IT BACK, which is the part that decides this.** The
+same disk, the same game, under IBM DOS 3.30 with CuteMouse 1.9.1 on COM1:
+
+| sampled | `int 0Ch` |
+|---|---|
+| CuteMouse loaded, before the game | `0C52:023C` — the driver |
+| the game's title screen | `1DFC:006D` — **the game**, exactly as here |
+| in game, after the mode change | `0C52:023C` — **the driver, back** |
+
+CuteMouse hooks `INT 10h` in its own `AX=0` reset, and the game's switch into
+its graphics mode is the moment it re-initialises: vector, `LCR`, divisor,
+`IER = 1` and a 16-bit `out` to `base+3` that leaves **`MCR = 0Fh`** — `DTR`
+and `RTS` back on, which the game had turned off by writing `MCR = 08h`.
+
+So the rule this section is about is not "do not let a program take the
+port". It is **a mouse driver expects to be displaced and re-arms**, and
+`kern_dos` hooked once at start-up and never looked again.
+
+**WHERE THE CHECK GOES IS `kd_mou_read` AND THAT IS WHY IT COSTS NOTHING
+ELSEWHERE.** That routine is `DHK_MOUSE` (§96.44.3) — the core asks it for
+the position on every `AX=3` and on every key poll, which for the reporting
+program is 325 times a second — so the re-arm needs no new hook, no core
+byte and no `CORE_MAX`. It compares the two words at the vector against
+`kd_mou_isr` and this image's `CS`; equal is the whole cost in the normal
+case, and different re-runs the hardware arm `kd_mou_start` already carries.
+
+**The windowed box has the same hole with a different owner** and is NOT
+fixed here: there the ISR is the KERNEL's `mou_isr`, the box does not own it,
+and a program that hooks `IRQ4` inside the bracket displaces it until
+`dos_restore_machine` puts the whole IVT back at exit. It is confined to the
+bracket, where `kern_dos`'s was for the whole session, and closing it wants a
+kernel slot rather than a package one.
+
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 
 `kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
