@@ -139295,6 +139295,24 @@ byte and no `CORE_MAX`. It compares the two words at the vector against
 `kd_mou_isr` and this image's `CS`; equal is the whole cost in the normal
 case, and different re-runs the hardware arm `kd_mou_start` already carries.
 
+**MEASURED ON THE REPORTER'S OWN CONFIGURATION** — COM1, the port the game
+takes, the same disk:
+
+```
+in game        int 0Ch -> 0060:5153 = kern_dos!kd_mou_isr   <- taken back
+               kdm phase 1  x 320  b0 77                     <- packets arriving
+after a sweep  kdm x 639                                     <- and moving
+DIFF after moving right      492 px, bbox (320,192)-(639,221)
+DIFF after moving left+down   48 px, bbox (238,192)-(639,399)
+```
+
+Pixel for pixel what a machine with the mouse on COM2 gives — the arm is
+what makes the stolen port behave like a port nobody wanted. At the TITLE
+the vector is still the game's, and that is correct rather than a partial
+fix: the recovery rides on the core being asked for a position, the title
+loop polls the ROM's keyboard and never asks, and nothing on that screen
+wants a pointer.
+
 **The windowed box has the same hole with a different owner** and is NOT
 fixed here: there the ISR is the KERNEL's `mou_isr`, the box does not own it,
 and a program that hooks `IRQ4` inside the bracket displaces it until
