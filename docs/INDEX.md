@@ -351,6 +351,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | TANK | `apps/tank/tank.asm` | §85 | yes |
 | TELNET | `apps/telnet/telnet.asm` | §70 | yes |
 | TEXPAD | `apps/texpad/texpad.asm` | §69 | yes |
+| TITHE | `apps/tithe/tithe.asm` | §97 | no |
 | TRACKER | `apps/tracker/tracker.asm` | §45 | yes |
 | TaskMgr | `apps/taskmgr/taskmgr.asm` | §28 | yes |
 | The Wire | `apps/thewire/thewire.asm` | §92 | no |
@@ -459,6 +460,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 94 | Picture decoders (`apps/os88img.inc`) |
 | 95 | SCRIBE (`apps/scribe/`) — the fork of WORD |
 | 96 | DOS — running `.COM` and `.EXE` programs (`apps/dos/`) |
+| 97 | TITHE (`apps/tithe/`) — the two-player card duel |
 
 ## docs/
 

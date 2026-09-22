@@ -18,7 +18,8 @@ the same edit went wrong once before - the comment records that taking the
 package off the disk lists took it out of every BUILD too, because APPS_GAMES
 was the only thing that had ever named it.
 
-TWO KINDS, AND `retired` IS CHECKED HARDER THAN `instrument` (SPEC.md 20.16):
+THREE KINDS, AND `retired` IS CHECKED HARDER THAN THE OTHER TWO
+(SPEC.md 20.16):
 
   * `retired`    a failure. It may not be on any shipped image, may not be in
                  the live payload, and `all` may not even build it. Its source
@@ -27,6 +28,12 @@ TWO KINDS, AND `retired` IS CHECKED HARDER THAN `instrument` (SPEC.md 20.16):
   * `instrument` a bench or a gate that happens to be a package. `all` MAY
                  build it, because keeping it assembling is usually the point,
                  but no shipped image may carry it.
+  * `construction` a package mid-build that a user could not start yet.
+                 Checked exactly as `instrument` is - and it is a kind of its
+                 own because it is the one line here MEANT to come out. Filing
+                 an unfinished package as an instrument is how it would sit
+                 unshipped for ever with nothing watching; filed this way, the
+                 day it reaches a disk this line is what fails.
 
 THE LIVE PAYLOAD IS READ FROM build/livepayload.txt, which `all` emits from
 $(LIVEARGS) itself - the same file tests/unit/t_livefull.py reads, and for the
@@ -62,7 +69,7 @@ BUILD = os.path.join(ROOT, "build")
 MAKEFILE = os.path.join(ROOT, "Makefile")
 LIVEPAYLOAD = os.path.join(BUILD, "livepayload.txt")
 
-KINDS = ("retired", "instrument")
+KINDS = ("retired", "instrument", "construction")
 
 # The SHIPPED images, and nothing else: an on-demand disk (zdisk, worddisk,
 # wiredisk, regapp360) is not a product, so an instrument riding one is
@@ -193,9 +200,9 @@ def main():
                   "apps/%s ships on no image and has no apps/RETIRED.txt line"
                   % pkg,
                   why="CLAUDE.md says everything in apps/ ships, so a package "
-                      "that does not needs a `retired` or `instrument` line "
-                      "saying so (SPEC.md 20.16). If it is meant to ship, a "
-                      "disk list has lost it")
+                      "that does not needs a `retired`, `instrument` or "
+                      "`construction` line saying so (SPEC.md 20.16). If it "
+                      "is meant to ship, a disk list has lost it")
         else:
             check(not in_live,
                   "%s is %s and is in the live payload" % (pkg, kind),

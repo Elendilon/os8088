@@ -1,0 +1,217 @@
+; =============================================================================
+; os8088 - apps/tithe/tilay.inc
+;
+; THE LAYOUT TABLE (SPEC.md 97.2, 97.3). Computed once per size change and
+; never inside a frame - a resize is not a thing that happens during a frame,
+; which is `ddlay.inc`'s rule one game along (SPEC.md 93.3) and for its reason.
+;
+; SCREEN_W AND SCREEN_H ARE NOT READ HERE. They are VGA reference values and
+; are wrong on two adapters of three (SPEC.md 39); what is read is OSAPI_VIDEO
+; for the adapter and OSAPI_WM_GEOM / OSAPI_WM_CONTENT for the box we actually
+; got. A window can be dragged across a display seam and come back a different
+; depth without changing size at all, so the geometry is re-derived and not
+; remembered.
+; =============================================================================
+
+TI_COLS     equ 4                 ; the grid is 4 x 5 on EVERY adapter
+TI_ROWS     equ 5                 ; (SPEC.md 97.2); what changes is the CELL
+TI_CELLS    equ TI_COLS * TI_ROWS
+
+; --- one row of the geometry table, in the order the fields are copied -------
+TI_G_CW     equ 0                 ; cell width  - A MULTIPLE OF 8, which is
+TI_G_CH     equ 2                 ; what makes every cell's x satisfy
+TI_G_RISE   equ 4                 ; gfx_blit1's one alignment rule for free
+TI_G_BW     equ 6                 ; the sprite band - also a multiple of 8
+TI_G_BH     equ 8
+TI_G_HUD    equ 10               ; rows of HUD above the board
+TI_G_PAN    equ 12               ; columns of card panel down the right
+TI_G_SIZE   equ 14
+
+; -----------------------------------------------------------------------------
+; ti_layout - fill the layout state from the live content box
+; in:  [ti_win]; ti_full says which VGA row to take
+; out: every ti_* below set; CF=1 the box cannot hold a board
+; clobbers: flags (every register preserved)
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; ti_georow - which row of the geometry table this machine wants right now
+; out: SI = the row
+; clobbers: AX, BX, CX, DX, flags
+;
+; Its own proc because ti_relayout_ck asks the same question every paint, to
+; decide whether anything has to be cut at all - an adapter change moves the
+; row without moving the content box by one pixel (SPEC.md 39.11.2), so the
+; box alone is not the cache key.
+; -----------------------------------------------------------------------------
+ti_georow:
+    call OSAPI_VIDEO                ; AX=w BX=h CX=dock row DL=adapter DH=bpp
+    mov si, ti_geo_vgaw
+    cmp dh, 1                       ; SPEC.md's own rule: branch on DEPTH, and
+    jbe .mono                       ; on the adapter only to tell the two 1bpp
+    cmp byte [ti_full], 0           ; ones apart
+    je .have
+    mov si, ti_geo_vgaf
+    ret
+.mono:
+    mov si, ti_geo_herc
+    cmp dl, VID_CGA
+    jne .have
+    mov si, ti_geo_cga
+.have:
+    ret
+
+ti_layout:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    call ti_georow
+    mov [ti_geo], si                ; ...banked, for a reader that wants to
+                                    ; know which row this layout came from
+    mov ax, [si + TI_G_CW]
+    mov [ti_cw], ax
+    mov ax, [si + TI_G_CH]
+    mov [ti_ch], ax
+    mov ax, [si + TI_G_RISE]
+    mov [ti_rise], ax
+    mov ax, [si + TI_G_BW]
+    mov [ti_bw], ax
+    mov ax, [si + TI_G_BH]
+    mov [ti_bh], ax
+    mov ax, [si + TI_G_HUD]
+    mov [ti_hud], ax
+    mov ax, [si + TI_G_PAN]
+    mov [ti_pan], ax
+
+    mov ax, [ti_bw]                 ; the band's stride in BYTES, which is the
+    shr ax, 1                       ; one number the renderer hands gfx_blit1
+    shr ax, 1                       ; three single-bit shifts: an 8088 charges
+    shr ax, 1                       ; 8 + 4/bit for the CL form
+    mov [ti_bs], ax
+
+    ; --- the board's own box: 4 cells across, and 5 cells plus 3 rises down
+    mov ax, [ti_cw]
+    mov cx, TI_COLS
+    mul cx
+    mov [ti_boardw], ax
+    mov ax, [ti_ch]
+    mov cx, TI_ROWS
+    mul cx
+    push ax                         ; 5 * CH
+    mov ax, [ti_rise]               ; the shear lifts the far column by one
+    mov cx, TI_COLS - 1             ; RISE per column, so the box is taller
+    mul cx                          ; than the cells by (cols-1) of them...
+    mov [ti_lift], ax               ; ...and THAT is what row 0 is pushed DOWN
+    pop cx                          ; by, so the highest cell of all - column
+    add ax, cx                      ; 3, row 0 - lands exactly on the board's
+    mov [ti_boardh], ax             ; top edge
+
+    ; --- where it goes, inside the content box we actually got
+    mov bx, [ti_win]
+    call OSAPI_WM_GEOM              ; CX = content w, DX = content h
+    jc .no
+    mov [ti_cw_box], cx
+    mov [ti_ch_box], dx
+    mov bx, [ti_win]
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = top
+    mov [ti_ox], ax
+    mov [ti_oy], dx
+
+    mov ax, [ti_ox]                 ; the board's origin. The content left is
+    mov [ti_bx], ax                 ; already a multiple of 8 (SPEC.md 11.94's
+    mov ax, [ti_oy]                 ; snap, which ti_entry asks for), and CW
+    add ax, [ti_hud]                ; is too - so every cell's x is aligned
+    mov [ti_by], ax                 ; and no band has to round its own
+
+    ; --- and does it FIT? A refusal is a normal path (PERFORMANCE.md rule 6)
+    mov ax, [ti_boardw]
+    add ax, [ti_pan]
+    cmp ax, [ti_cw_box]
+    ja .no
+    mov ax, [ti_boardh]
+    add ax, [ti_hud]
+    cmp ax, [ti_ch_box]
+    ja .no
+
+    mov ax, [ti_ox]                 ; the card panel is hard against the right
+    add ax, [ti_cw_box]             ; edge, which is what rescues CGA: every
+    sub ax, [ti_pan]                ; row the hand does not take is a row the
+    and ax, 0FFF8h                  ; five lanes get (SPEC.md 97.2)
+    mov [ti_panx], ax
+
+    ; --- the band's inset inside its cell, ROUNDED TO THE BYTE GRID ----------
+    ; The cell's x is a multiple of 8 and gfx_blit1 wants the band's to be, so
+    ; a centred inset has to be rounded DOWN rather than centred exactly -
+    ; (120-64)/2 is 28 on a Hercules and 28 is not a multiple of 8.
+    mov ax, [ti_cw]
+    sub ax, [ti_bw]
+    shr ax, 1
+    and ax, 0FFF8h
+    mov [ti_insx], ax
+    mov ax, [ti_ch]                 ; ...and vertically the figure stands ON
+    sub ax, [ti_bh]                 ; the cell's floor, which needs no rounding
+    mov [ti_insy], ax
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cellpos - the top-left of cell (c, r), in screen coordinates
+; in:  AL = column 0..3, AH = row 0..4
+; out: AX = x, BX = y
+; clobbers: AX, BX, flags
+;
+; SPEC.md 97.3's shear, and the whole of it:
+;     x = BX + c * CW
+;     y = BY + LIFT + r * CH - c * RISE
+; Two cells in one column are CH apart and two in adjacent columns are CW
+; apart, so THE RECTANGLES TILE EXACTLY - non-overlap is a property of the
+; layout and not a promise the art has to keep.
+; -----------------------------------------------------------------------------
+ti_cellpos:
+    push cx
+    push dx
+    mov cx, ax                      ; CL = column, CH = row, both banked before
+                                    ; the first `mul` eats AX
+    mov al, cl
+    xor ah, ah
+    mul word [ti_cw]
+    add ax, [ti_bx]
+    push ax                         ; THE X GOES ON THE STACK AND NOT IN DX.
+                                    ; Both `mul`s below write DX as their high
+                                    ; half, and row 0 multiplies by ZERO - so
+                                    ; a banked x came back as 0 and every cell
+                                    ; of every column was drawn in column 0,
+                                    ; twenty bands piled in one place. Column 0
+                                    ; is the one column whose x IS 0, which is
+                                    ; why the board looked half-right
+
+    mov al, ch
+    xor ah, ah
+    mul word [ti_ch]
+    add ax, [ti_by]
+    add ax, [ti_lift]
+    push ax
+    mov al, cl                      ; ...less this column's own lift: the far
+    xor ah, ah                      ; column sits HIGHER, which is the
+    mul word [ti_rise]              ; up-and-to-the-right lane an attack
+    mov bx, ax                      ; travels along
+    pop ax
+    sub ax, bx
+    mov bx, ax                      ; BX = y
+    pop ax                          ; AX = x
+    pop dx
+    pop cx
+    ret

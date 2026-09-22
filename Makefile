@@ -2005,7 +2005,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
-        titheband tithequick \
+        titheband tithequick tithe tithedisk \
         xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
@@ -9401,6 +9401,49 @@ $(BUILD)/titheband360.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
 	@python3 tools/os88disk.py --verify $@
 
 titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
+
+# --- TITHE (SPEC.md 97), the two-player card duel ----------------------------
+# **WAVE 1a: the renderer with no game behind it** - the layout table, the
+# board, the band composer and the pacing wheel, driven by a fixed board and a
+# few keys. SPEC.md 97.9 is the wave table, and the package is on
+# tests/unit/t_livefull.py's exemption list until wave 6 puts a menu on it.
+#
+# NOT IN `all`, and on no shipped floppy: `make tithe` builds the package and
+# `make tithedisk` a disk of its own in all four geometries (SPEC.md 19's rule
+# reaches the on-demand application disks too). The 360KB one is the geometry
+# that binds - 354 clusters is what the art budget is written against
+# (docs/plans/TITHE-PLAN.md 1.5) - and the 1.44MB one is where a colour bank
+# would go (its 4.2.1.2).
+$(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
+                    apps/tithe/tirend.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
+	@echo "tithe: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithe.o88: $(BUILD)/tithe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@
+
+tithe: $(BUILD)/tithe.o88
+
+TITHEFILES := $(BUILD)/tithe.o88
+
+$(BUILD)/tithe.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe120.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe720.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe360.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+tithedisk: $(BUILD)/tithe.img $(BUILD)/tithe120.img \
+           $(BUILD)/tithe720.img $(BUILD)/tithe360.img
 
 # ...and the SIGHTING arm. The counts in titheband.asm are sized against what
 # a band costs, which is the thing under test - so a first run whose counts

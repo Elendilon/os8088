@@ -39318,12 +39318,22 @@ the case that matters is the one no diff shows.
 
 `apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
 package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
-gate, a `fast` row. **Two kinds, and they are checked differently:**
+gate, a `fast` row. **Three kinds, and they are checked differently:**
 
 | kind | what it means | what the gate demands |
 |---|---|---|
 | `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
 | `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
+| `construction` | **not finished yet** — a package mid-build that a user could not start | the same as `instrument`, and the line is DELETED when it ships |
+
+**`construction` is the one line in this file that is meant to come out**, and
+it is the reason it is a kind of its own rather than an `instrument` row with a
+sympathetic comment. The other two are permanent; this one is a claim with a
+date on it, and filing an unfinished package as an instrument is how it would
+sit there unshipped for ever with nothing watching. What makes it safe is that
+the gate still turns one way: the day the package reaches a disk, the line is
+what FAILS, so shipping forces the removal rather than relying on somebody
+remembering.
 
 **A `retired` package keeps its source and its SPEC.md section.** Deleting
 them would leave no account of what was tried, and this tree already keeps
@@ -139810,3 +139820,224 @@ at, so the key that dismisses it must not also take the machine full screen.
 It repaints by calling `dos_paint` rather than repairing the card's rect,
 because what the card covered is a console band or a setup page and
 `dos_paint` is the only thing that knows how to put either back.
+
+## 97. TITHE (`apps/tithe/`) — the two-player card duel
+
+`docs/plans/TITHE-PLAN.md` is the design record and this is the contract. The
+plan is where the *reasons* live — this section is what the code has to be true
+to, and it grows one wave at a time rather than describing a game that is not
+written yet.
+
+**What exists today is WAVE 1a: the renderer with no game behind it.** The
+layout table, the board, the band composer and the pacing wheel, driven by a
+fixed board and a few keys. There are no rules, no cards, no AI and no network,
+and §97.9 lists what each later wave adds so that a reader can tell a gap from
+a defect.
+
+### 97.1 The package
+
+`TITHE.O88`, prefix `ti_`, one segment (§20.1), an embedded 16×16 icon, one
+worker, and **no kernel change** — the one it wanted is §5.4.2.6's fast path,
+which is a shared primitive's and not this package's.
+
+- `OSAPI_WM_OWNBG` — every pixel of the content is ours, so the kernel's white
+  fill in front of `W_PAINT` is skipped. Without it every repaint flashes white
+  first, which is PERFORMANCE.md rule 2's canonical violation.
+- `OSAPI_WM_NOANIM` — a zoom-open on a 450-pixel window is a second of nothing.
+- `OSAPI_WM_PREFER` — three (w, h) pairs, VGA / Hercules / CGA, §97.2's table.
+- `OSAPI_WM_ONRESIZE` re-runs the layout when the content box changed and we
+  did not ask; `OSAPI_WM_ONWAKE` is where a resize is *serviced*, because it is
+  the one callback without the gfx lock.
+- `OS88_REGION_MOVABLE` at the window, and `OS88_WORKER_RESTARTABLE` at the
+  spawn — §66.6.2's frame pins the region however it is declared, so a package
+  with a worker owes both.
+
+**It REFUSES a second instance.** The plan's worst case is ~327KB of a ~400KB
+arena, so two copies cannot both run; the second says so and returns rather
+than claiming its way into a refusal nobody can read.
+
+### 97.2 The surfaces, and the layout is a TABLE computed once
+
+**The grid is 4 columns × 5 rows on every adapter**; what changes is the cell,
+computed at layout time from the live content box and the adapter's pixel
+aspect — `ddlay.inc`'s rule one game along (§93.3), and for its reason.
+
+| surface | HUD | card panel | cell | `RISE` | board box | sprite band | content it needs |
+|---|---|---|---|---|---|---|---|
+| VGA 640×480 fullscreen | 36 | 176 | 104 × 72 | 20 | 416 × 420 | 56 × 56 | 592 × 456 |
+| VGA windowed | 28 | 144 | 80 × 56 | 16 | 320 × 328 | 48 × 44 | 464 × 356 |
+| Hercules 720×348 | 28 | 168 | 120 × 40 | 16 | 480 × 248 | 64 × 36 | 648 × 276 |
+| CGA 640×200 | 16 | 160 | 80 × 20 | 4 | 320 × 112 | 48 × 16 | 480 × 128 |
+
+**THE LAST COLUMN IS THE ONE THAT BINDS, and the first cut of this table did
+not have it.** A row is only a row if the adapter can hand out a content box
+that holds it, and the boxes are **VGA 640 × 416, Hercules 680 × 284 and CGA
+504 × 136** — measured, on the machine, off `OSAPI_WM_GEOM`. The Hercules and
+CGA rows as first written asked for a board 56 and 62 pixels taller than the
+window they had to live in, so both **refused themselves on every machine**;
+the refusal was correct and the table was not. What came down is `CH` and
+`RISE` and never `CW`: the two short screens are short in HEIGHT, a CGA having
+504 columns of content and 136 rows.
+
+**The window ASKS for what the table needs** (`OSAPI_WM_PREFER`, §11.100.1) —
+the content above plus 2 columns and 19 rows of frame, plus 8 of margin each
+way. §11.100.1's advice to ask for a real width and a *generous* height is for
+a window whose content grows into whatever it is given, and this one's does
+not: the board's size is fixed by this table, so a generous ask buys dead
+pixels rather than rows. It bought 176 dead columns and 60 dead rows on a VGA.
+Clamping still does its job on the two short screens, where the ask is more
+than the adapter has.
+
+**Layout is a table computed once per size change, never per frame.** A resize
+is not a thing that happens inside a frame.
+
+**IT IS COMPUTED IN THE FIRST W_PAINT AND NEVER IN THE ENTRY PROC.** A window
+exists the instant `OSAPI_WM_CREATE` returns and is not VISIBLE until the
+LOADER shows it, which is after the entry proc has returned — so
+`OSAPI_WM_GEOM` answers CF=1 there, and `OSAPI_TASK_SPAWN` refuses outright
+because the loader has not published the instance yet. `apps/dotdel/`'s entry
+proc says the same three sentences one game along. The symptom of ignoring
+them is a window that opens as a sliver saying it is too small for a board.
+
+**`SCREEN_W`/`SCREEN_H` are not read.** `OSAPI_VIDEO` is (§39), and the card
+panel's x, the board's origin and every cell's position are derived from the
+content box that `OSAPI_WM_GEOM` answers with.
+
+### 97.3 ISOMETRIC is a SHEAR, and non-overlap is a property of the layout
+
+```
+  LIFT             = (COLS - 1) * RISE
+  x of cell (c, r) = BX + c * CW
+  y of cell (c, r) = BY + LIFT + r * CH - c * RISE
+```
+
+`LIFT` is what row 0 is pushed DOWN by, so that the highest cell of all —
+column 3, row 0 — lands exactly on the board's top edge rather than above it,
+and the board box is `(COLS * CW) × (ROWS * CH + LIFT)`.
+
+**The x is banked on the STACK and not in `DX`.** Both multiplies above write
+`DX` as their high half and row 0 multiplies by zero, so an x banked in `DX`
+comes back as 0 — which draws every cell of every column in column 0, twenty
+bands piled in one place. Column 0 is the one column whose x really is 0,
+which is why a board with that defect in it looks half-right.
+
+Two cells in one column are `CH` apart; two in adjacent columns are `CW` apart.
+**The rectangles tile exactly**, so no character can overlap another and no
+painter's order is needed. `CW` is a multiple of 8, so every cell's x satisfies
+`gfx_blit1`'s one alignment rule (§5.4.2) for free, and `BX` inherits §11.94's
+content-origin snap.
+
+The isometric READ comes from the art — a baked ground diamond per cell, a
+three-quarter figure, a drop shadow — and not from the geometry. A projected
+isometric would mean overlapping boxes, a draw order and non-rectangular bands,
+and a band that is not a rectangle is not something `gfx_blit1` takes.
+
+### 97.4 ONE BLIT A FEATURE, and the ground is baked into the band
+
+**The renderer is one rule**: a character is put down as **one opaque band that
+includes its own ground**, so drawing it where it was *is* the erase. There is
+no instant at which a sprite is off the glass and there is no erase pass.
+
+That is §79.5.1's finding and §93.5.1's, and this package does not get to
+relearn it: the screen saver's first draft blanked the box and then drew into
+it, and the field called it *"the fish flicker"*.
+
+**The band is the FIGURE's box, not the cell's.** A cell is 936 bytes at 1bpp
+and the band is 392; the rest of the cell is the ground, drawn once with the
+board, and the character's numbers, redrawn only when one changes. §5.4.2.6's
+fast path applies to every band this package draws, by construction: the stride
+is the row width, the width is a multiple of 8, and the pen is the default or
+an ink over black.
+
+**A band is cut on the CELL grid, not the byte grid.** Cutting on the byte grid
+reaches part-way into the next cell, so what is drawn there is composed partly —
+which on the glass is a thing that changes shape when a neighbour animates.
+§93.5.1 paid for that one.
+
+### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
+
+The renderer holds the animated features and **a credit in microseconds a
+frame**, and each frame it walks the wheel from where it stopped, commits every
+feature whose clock is due, subtracts that band's own cost, and stops when the
+credit is spent — **remembering the position**.
+
+- **A consistent animation speed**, because a feature's clock advances on the
+  system tick and not on how many neighbours drew. A feature that misses its
+  slot is *late by one frame*, never slowed.
+- **Overrun is impossible by construction.** The credit is the contract.
+- **No starvation**, because the wheel resumes rather than restarts.
+
+**The credit is MICROSECONDS and not bytes**, and that is load-bearing: a
+band's cost is `arrival + rows × R + bytes × B` (§5.4.2.6), so a wide short band
+and a narrow tall one of the same size differ by 2×. A byte credit over-spends
+on the tall ones and under-spends on the wide — which is exactly the *"some
+characters animate smoothly while others visibly hitch"* failure the wheel
+exists to remove.
+
+**And the credit is CALIBRATED, not modelled.** At match load the renderer
+blits a band N times and times it off the PIT — 21.7 µs a read — so the number
+belongs to this machine, this adapter and this kernel. Per frame one
+`OSAPI_GET_TICKS` (46.7 µs, 0.085% of a frame) says whether the frame overran,
+and the credit is trimmed a notch if it did. There is no CPU-tier table to be
+wrong about.
+
+### 97.6 Two renderers, and the windowed one is the default
+
+- **Windowed** draws through `OSAPI_GFX_BLIT1` and is what wave 1a builds.
+- **Fullscreen** is §53's bracket with a mode set: the app owns every pixel,
+  `FSI_SEG` names the framebuffer, and the band goes down by hand. It is
+  ~1.27× the windowed arm per band and it costs every other pixel — after the
+  first `OSAPI_FSX_MODE` no kernel drawing slot is legal (§53.7), so that arm
+  letters its own HUD and draws its own panel.
+
+**`F` toggles and `Esc` leaves.** The layout recomputes and the sprite masters
+are re-cut; neither arm is a different program.
+
+### 97.7 The prototype's keys
+
+Wave 1a is driven by keys rather than by rules, and these are they:
+
+| key | |
+|---|---|
+| `F` | fullscreen on/off |
+| `D` | step the detail arm — `Flat`, `Banded`, and on a VGA `Quad` |
+| `S` | step the sprite size, so three can be compared on the glass |
+| `R` | re-calibrate the wheel's credit and show it |
+| `+` / `-` | move the animation share off its default 40% |
+| `P` | pause the wheel, for looking at one frame |
+| `Esc` | leave fullscreen, else close |
+
+### 97.8 What it claims, and when
+
+Every claim is sized from the layout and made **at entry**, not at the first
+paint: a package that discovers it cannot have its memory owes the user a
+refusal rather than a window that never draws.
+
+| claim | | |
+|---|---|---|
+| the sprite bank | the cut bands for this surface | `MC_RLOC`, a `ret` proc — the index stores OFFSETS from the base, never segments |
+| the board picture | 416×420 at 1bpp, ~22KB | the ground without characters, for a projectile to compose against |
+
+**The index stores offsets and not segments**, which is what makes the
+relocation proc a `ret` (§66). A segment derived from a base is reached by no
+poke at all, and getting that wrong is silent until the next compaction.
+
+### 97.9 What each later wave adds
+
+So that a reader can tell a gap from a defect. `docs/plans/TITHE-PLAN.md` §16
+is the full table and this is the part that binds the code:
+
+| wave | what appears |
+|---|---|
+| **1a** | **this section** — layout, board, bands, the wheel, the two renderers |
+| 1b | the sequencer and the music (`timus.inc`) |
+| 2 | the rules engine and `tools/duelsim.py`, from one card table, no graphics |
+| 3 | the round loop, hot-seat |
+| 4 | the AI on the worker |
+| 5 | the rest of the art and music |
+| 6 | the front menu — and the package joins the live media here, not before |
+| 7–13 | deck builder, campaign, the match file, Ethernet, balance, the cable, posted play |
+
+**It is on `tests/unit/t_livefull.py`'s exemption list until wave 6**, with
+"under construction" as the reason, because a package that cannot be launched
+from a menu is not something to put on the live media.
