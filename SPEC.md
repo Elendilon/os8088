@@ -139895,6 +139895,11 @@ the refusal was correct and the table was not. What came down is `CH` and
 
 #### 97.2.1 The BASES are part of the width, and the window goes FLUSH
 
+**P2's BLOCK SITS DOWN IN ITS STRIP.** P1's hangs from the top of a strip that
+is empty *below* it; P2's began at the exact row its rear column's last cell
+ends, so it read as wedged against the board. Half the slack is the nudge — 14
+pixels on a VGA, 2 on the two 1bpp rows, which is all those have.
+
 **A SHALLOW RESOURCE CORNER GOES SIDEWAYS.** The shear's empty strips carry each
 player's gold, souls and swaps (§97.3), and a CGA's lift is **twelve pixels** —
 one glyph row. Stacked, that showed the first field and refused the other two,
@@ -140134,6 +140139,15 @@ geometry keeps the single frame rather than losing a text row to a decoration.
 callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
 frame already makes. A change repaints the row that *lost* the hover; the row
 that gained it is feature 22 and is drawn by the walk anyway.
+
+**CGA CARRIES BOTH NUMBER ROWS.** `NUMS` was 1 there, so a character showed its
+HP and nothing else and its other stats were on no surface at all. They fit:
+`insy` is `CH − BH` = 2 on that row, so the two rows occupy 2..17 of a 20-row
+cell and the stat column is the 24 pixels left of the figure either way. The
+board is busier and it is legible, which is the trade §97.2 makes on that
+adapter throughout. **Splitting them either side of the figure is still
+refused** (§97.4.1): the cells tile edge to edge, so a number to the left of
+one figure sits against its *neighbour's* rather than against its own.
 
 **A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and the pointer
 picks which.** At rest it shows the three **numbers** — cost, attack, defence —
@@ -140402,13 +140416,24 @@ of the design, not of how long the program has been running.
 
 **The two bases have two CADENCES and not just two phases.** A phase offset
 alone leaves a pair in lockstep a fixed distance apart, which on two bases
-facing each other reads as a mirror rather than as two places. Each carries a
-numerator over `TI_BDEN`, so one advances on every visit of its lane and the
-other on four visits in five — 0.86 s a cycle against 1.07 — and the gap
-between them moves instead of holding. The band is still committed on the visit
-the pose does not advance: it costs one redraw in five, and a base is opaque and
-self-erasing (§97.4), so that commit is also what repairs it if anything ever
-draws over it.
+facing each other reads as a mirror rather than as two places.
+
+**AND THE CADENCE IS IN THE LANE'S TURN, NOT IN A SKIPPED STEP.** It was a
+numerator per base — one advanced on every visit and the other on four visits
+in five — which is a different rate and is also a **pause**: the fifth visit
+redrew the pose it had just drawn, so the picture held for four frames. That
+reads as a beat on a flag or a bell and reads as *broken* on a flame, which is
+the one thing that should never stop. The split moved into **which** base the
+lane's one commit is for — a Bresenham of 7 in 15 — so each base advances one
+pose on **every** visit it gets and only the spacing of those visits varies:
+base 0 every 1 to 2 frames, base 1 every 2 to 3. The longest hold falls from
+four frames to three, both rates are constant, and they differ by 1.14× —
+0.80 s a cycle against 0.92.
+
+**An advance is unconditional, and that is the property**: no commit ever
+redraws the pose it just drew. `tests/titheframe.py` counts advances against
+commits and asserts they are equal, because a cadence built out of skipped
+steps is exactly what this replaced.
 
 **A lane banks at most two frames of its allowance.** One that has been quiet
 for a second would otherwise wake with a second's credit in hand and burst

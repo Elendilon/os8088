@@ -133,7 +133,13 @@ TI_BASESHARE equ 12               ; ...and per cent the BASE lane may take.
                                   ; TI_POSES and this lane plays them at two
                                   ; and a half times the wheel's rate, which
                                   ; is what "smoother" costs
-TI_BDEN     equ 5                 ; the base cadence's denominator
+TI_BTN      equ 7                 ; base 1's share of the base lane's commits
+TI_BTD      equ 15                ; ...out of this many. 7/15 gives the two
+                                  ; bases constant rates 1.14x apart with
+                                  ; NEITHER ever repeating a pose (SPEC.md
+                                  ; 97.5.1) - the whole cadence difference is
+                                  ; in how often each is visited, never in a
+                                  ; visit that draws the same picture again
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
 TI_COMBATUS equ TI_FRAMEUS * TI_COMBAT / 100
 TI_BASEUS   equ TI_FRAMEUS * TI_BASESHARE / 100
@@ -1490,6 +1496,8 @@ ti_mw:      dw 0
 ti_mb:      dw 0
 ti_mh:      dw 0
 ti_nbase:   dw 0                    ; ...and BASE LANE commits (SPEC.md 97.5.1)
+ti_nbadv:   dw 0                    ; ...of which this many ADVANCED a pose -
+                                    ; equal, by construction and by gate
 ti_nframe:  dw 0                    ; ...and wheel passes
 ti_d0:      dw 0
 ti_d1:      dw 0
@@ -1541,19 +1549,15 @@ ti_insy:    dw 0
 ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
 ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
 ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 11, 24
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 2, 11, 24
 
 ti_s_bsep:  db '   BASE ', 0
 ti_clock:   times TI_FEATURES db 0
 ti_cacc:    dw 0                    ; the COMBAT lane's accumulator, in us...
 ti_bacc:    dw 0                    ; ...and the BASE lane's (SPEC.md 97.5.1)
 ti_bclock:  times 2 db 0            ; each base's own phase counter...
-ti_bstep:   times 2 db 0            ; ...its cadence accumulator, over TI_BDEN
-ti_bnum:    db 5, 4                 ; ...and how much it accrues a visit: one
-                                    ; base advances on every visit of the lane
-                                    ; and the other on four in five, so the
-                                    ; pair drifts instead of mirroring
-ti_bturn:   db 0                    ; ...and which of the two this frame commits
+ti_bturnacc: db 0                   ; the lane's Bresenham: which base this
+                                    ; frame's one commit is for
 ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0

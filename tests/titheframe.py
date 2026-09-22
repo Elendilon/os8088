@@ -41,7 +41,7 @@ import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_bw", "ti_bh",
+SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_nbadv", "ti_bw", "ti_bh",
         "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
         "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS")
 SPAN = 5.0
@@ -259,6 +259,21 @@ def main():
         # which is SCHED-IDLE-PLAN 2's warning one package along.
         m.key("KeyP")                                  # ...and running again
         os88marty.guest_sleep(m, 0.5)
+        # AND NO COMMIT EVER REDRAWS THE POSE IT JUST DREW. The cadences were
+        # built out of SKIPPED steps - one base advanced on four visits in
+        # five - which is a different rate and is also a PAUSE: the fifth
+        # visit redrew the same picture, so it held for four frames. That
+        # reads as a beat on a bell and as broken on a flame. The split is in
+        # the lane's TURN now, so an advance is unconditional and these two
+        # counters are equal.
+        adv0, com0 = rw(m, seg, "ti_nbadv"), rw(m, seg, "ti_nbase")
+        os88marty.guest_sleep(m, 2.0)
+        adv = (rw(m, seg, "ti_nbadv") - adv0) & 0xFFFF
+        com = (rw(m, seg, "ti_nbase") - com0) & 0xFFFF
+        print("  base lane: %d commits, %d of them advanced a pose" % (com, adv))
+        check(adv == com, "every base commit advances a pose",
+              "%d of %d" % (adv, com))
+
         gaps = set()
         for _ in range(12):
             bc = bytes(m.readseg(seg, off["ti_bclock"], 2))

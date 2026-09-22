@@ -258,6 +258,26 @@ ti_layout:
     mov [ti_p2x], ax
     pop ax                          ; 5 * CH again
     add ax, [ti_by]
+    ; ...AND P2'S BLOCK SITS DOWN IN ITS STRIP RATHER THAN ON THE BOARD'S
+    ; EDGE. P1's hangs from the top of a strip that is empty BELOW it; P2's
+    ; starts at the exact row its rear column's last cell ends, so it reads as
+    ; wedged against the board. Half the slack is the nudge - 14 pixels on a
+    ; VGA, 2 on the two 1bpp rows, which is all those have.
+    push bx
+    push dx
+    mov bx, [ti_lift]
+    mov dx, 32                      ; the stacked block: label, gold, souls,
+    cmp bx, 24                      ; swaps
+    jae .p2slack
+    mov dx, 8                       ; ...or the sideways one, which is one row
+.p2slack:
+    sub bx, dx
+    jbe .p2y                        ; no slack at all: leave it where it is
+    shr bx, 1
+    add ax, bx
+.p2y:
+    pop dx
+    pop bx
     mov [ti_p2y], ax
     pop cx
 

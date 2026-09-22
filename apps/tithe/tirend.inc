@@ -937,8 +937,7 @@ ti_phase_seed:
     ; moving in lockstep, which is what the cadence below is for.
     mov byte [ti_bclock], 0
     mov byte [ti_bclock + 1], TI_BASEPOSES / 2
-    mov byte [ti_bstep], 0
-    mov byte [ti_bstep + 1], 0
+    mov byte [ti_bturnacc], 0
     pop dx
     pop cx
     pop bx
@@ -955,30 +954,30 @@ ti_base_frame:
     mov bx, ti_bacc
     call ti_lane
     jc .out
-    mov bl, [ti_bturn]              ; whose base this frame is
-    xor bh, bh
-    mov al, bl
-    xor al, 1
-    mov [ti_bturn], al              ; ...and the other one's next frame
-    push bx
-
-    ; TWO CADENCES, NOT ONE. A phase offset alone leaves the pair moving in
-    ; lockstep a fixed distance apart, which on two bases facing each other
-    ; reads as a mirror rather than as two places. Each base carries a
-    ; numerator over TI_BDEN, so one advances on every visit of the lane and
-    ; the other on four visits in five: 0.86 s a cycle against 1.07, drifting
-    ; for a minute at a time rather than re-synchronising.
+    ; TWO CONSTANT RATES, AND NEITHER BASE EVER REPEATS A POSE. It was a
+    ; per-base step accumulator - one advanced on every visit of the lane and
+    ; the other on four visits in five - which is a different rate and is also
+    ; a PAUSE: the fifth visit redrew the pose it had just drawn, so the
+    ; picture held for four frames. That reads as a beat on a flag or a bell
+    ; and reads as broken on a FLAME, which is the thing that should never
+    ; stop.
     ;
-    ; The BAND IS STILL COMMITTED on the visit the pose does not advance. It
-    ; costs one redraw in five and it is not waste to be shaved: a base is
-    ; opaque and self-erasing (SPEC.md 97.4), so it is also what repairs it if
-    ; anything else ever draws over it, and skipping the commit would make
-    ; that repair depend on whether the pose happened to change.
-    mov al, [bx + ti_bnum]          ; BYTES, so BX indexes them directly - a
-    add [bx + ti_bstep], al         ; word array wants BX*2 and the bug is
-    cmp byte [bx + ti_bstep], TI_BDEN   ; silent, base 1 reading base 0's
-    jb .drawn                       ; ...not this visit
-    sub byte [bx + ti_bstep], TI_BDEN
+    ; The split moved into the LANE instead. One base is committed a frame as
+    ; before, but WHICH is a Bresenham of 7 in 15, so each base advances one
+    ; pose on every visit it gets and only the spacing of those visits varies -
+    ; base 0 every 1 to 2 frames, base 1 every 2 to 3. The longest hold falls
+    ; from four frames to three, both rates are constant, and they differ by
+    ; 1.14x: 0.80 s a cycle against 0.92.
+    mov al, [ti_bturnacc]
+    add al, TI_BTN
+    xor bx, bx                      ; ...base 0 unless the accumulator fires
+    cmp al, TI_BTD
+    jb .turn
+    sub al, TI_BTD
+    inc bx
+.turn:
+    mov [ti_bturnacc], al
+    push bx
 
     add bx, ti_bclock               ; its own phase counter, which nothing
     mov al, [bx]                    ; outside this lane advances
@@ -988,7 +987,13 @@ ti_base_frame:
     xor al, al
 .store:
     mov [bx], al
-    sub bx, ti_bclock
+    inc word [ti_nbadv]             ; ...and it is UNCONDITIONAL, which is the
+    sub bx, ti_bclock               ; property: every visit advances, so no
+                                    ; commit ever redraws the pose it just
+                                    ; drew. tests/titheframe.py asserts this
+                                    ; against ti_nbase, because a cadence
+                                    ; built out of SKIPPED steps is exactly
+                                    ; what this replaced
 .drawn:
     mov al, [bx + ti_bclock]
     xor ah, ah
