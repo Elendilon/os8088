@@ -7208,9 +7208,23 @@ SOAK = [
         "asserts the frame holds one pass a tick, that the calibration ran and"
         "its two heights are ordered, that the dirty rect buys at least 20%,"
         "that the three sprite arms differ, and that a projectile costs the"
-        "idle something without stalling the frame. Needs `make tithedisk`",
+        "idle something without stalling the frame, and that the BASE LANE"
+        "runs on a clock the idle's share cannot reach (SPEC.md 97.5.1)."
+        "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.5.1: TITHE's base candidates, at every band size every"
+        "adapter asks for. It is here because of ONE assertion - eight poses"
+        "must be eight PICTURES. A pose count is paid for in build time and in"
+        "the claim, and art that does not vary with it is SILENT: the lane"
+        "still commits, the rate still measures, and nothing moves. It caught"
+        "the cathedral's window sweep at 3 distinct poses of 8 the first time"
+        "it ran, and the ziggurat drawing its smoke above row 0 where it was"
+        "clipped away entirely. It also fails an empty pose, a candidate with"
+        "no static ground, and a band that is not the size it was handed."
+        "Host-side and 0.2s, so it costs the fast tier nothing",
+        needs=()),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

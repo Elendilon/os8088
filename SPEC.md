@@ -139897,7 +139897,14 @@ the refusal was correct and the table was not. What came down is `CH` and
 
 **Each player's base sits outside the grid, behind their rear column** — column
 0 is P1's rear and column 3 is P2's — so the grid does **not** start at the
-content's left edge. The first cut of this table had no column for them at all
+content's left edge. `baseh` is **three lanes** (3 × `CH`) and `basew` is a
+table field, so every surface reserves a **tall narrow slab** — 56×156, 56×144,
+72×108 and 48×60 down the table, which once each adapter's pixel aspect is
+applied is about **1 : 2.5 apparent on all four**. That is a tower's proportion
+and not a fortress's, and it is the strongest single constraint on the art: a
+broad low keep cannot be drawn in this box on any surface.
+`tools/os88tithebase.py` is where the candidates live and is the generator the
+`BASES.DAT` path starts from. The first cut of this table had no column for them at all
 and neither did TITHE-PLAN §3.2.1, which is how a board with nowhere to put a
 base got as far as the glass. A base is one animated feature a side, three
 lanes tall, centred on the lanes it stands behind.
