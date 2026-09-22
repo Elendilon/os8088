@@ -811,13 +811,14 @@ def pack(b, x0, y0, w, h):
     return bytes(out)
 
 
-# WHICH CANDIDATES THE BUILD CARRIES. The sheets show every one; the machine
-# cannot, because a package's image and bss cap at APP_MAX_SIZE (60KB) and all
-# seven across four surfaces is 40KB of art on top of a 10KB program and 12KB
-# of band store. These are the five still in play - the control, the two the
-# field has chosen, and the two arms of the one it is still deciding - and the
-# shrine and the ziggurat stay on the contact sheets where they cost nothing.
-BUILD_SET = ("mound", "rampart", "pyre", "skull", "cathed")
+# WHICH CANDIDATES THE BUILD CARRIES - AND THE CHOICE IS MADE. The field has
+# picked one per faction: the rampart for THE BULWARK, the pyre with its skull
+# for THE EMBER CHOIR, the cathedral for THE COVENANT. The other four stay in
+# CANDIDATES because the contact sheets are the record of what was compared,
+# and they cost nothing there; they are not built, so they cost no image
+# either. `B` cycles the three that ship, and names the FACTION rather than the
+# silhouette, because that is what they are now.
+BUILD_SET = ("rampart", "skull", "cathed")
 
 
 def emit(path):
@@ -865,9 +866,11 @@ def emit(path):
     # longer one it replaced on the glass, and a name of a different length
     # re-centres the whole line so the ROUND field smears too. It showed up as
     # "RROUND 03 ... RAMPART GATEND" the first time `B` was pressed.
-    wide = max(len(c[1]) for c in cands)
-    for c in cands:
-        lines.append(".n_%s: db '%-*s', 0" % (c[0], wide, c[1][:wide]))
+    names = [c[2] if c[2] not in ("any", "-- control --") else c[1]
+             for c in cands]
+    wide = max(len(n) for n in names)
+    for c, n in zip(cands, names):
+        lines.append(".n_%s: db '%-*s', 0" % (c[0], wide, n[:wide]))
     lines.append("")
     lines.append("ti_bart_tab:")
     for i in range(0, len(tab), 4):

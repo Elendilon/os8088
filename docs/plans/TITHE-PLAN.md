@@ -3698,7 +3698,7 @@ breaking the thing on purpose first and watching it go red —
 | wave | what | gate |
 |---|---|---|
 | **0** | **DONE, in two passes.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. The first pass halved the animation rate (§19.2); the second priced three levers, took two, refused one, and **changed the kernel** (SPEC.md §5.4.2.6) | the numbers exist |
-| **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it** | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features |
+| **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it.** The fullscreen RENDERER was in this wave and is refused — §19.2, and fullscreen is `wm_fullscreen` | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features **in both the windowed and the fullscreen geometry** |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
@@ -4074,6 +4074,36 @@ a second time.
 
 Eight decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
+
+**THE FULLSCREEN RENDERER: planned, costed, and REFUSED on measurement**
+(`docs/reports/TITHE-FULLSCREEN-2026-09-22.md`). §3.1.1 planned a second
+renderer inside §53's bracket, owning the framebuffer, because the windowed arm
+was not believed to have a drawing budget. Three things took that ground away,
+and only the third is new:
+
+1. **§5.4.2.6's kernel fast path** cut fullscreen's lead from 1.97× to 1.27×,
+   and §3.7's own table already found that *windowed with a dirty rect beats
+   fullscreen without one*.
+2. **The field found the windowed arm too FAST**, not too slow — `TI_SHARE` was
+   halved because 6.4 fps a feature read as hurried.
+3. **`wm_fullscreen` (§11.2) is a real WINDOW**, which nobody had priced. It is
+   the whole 640×480 with no chrome and **every kernel drawing slot still
+   working**: the pixels of fullscreen for one API call rather than a second
+   renderer. Measured at the fullscreen geometry, the one renderer we have runs
+   at **5.04 fps a feature and 18.6 frames a second with a bolt in flight** —
+   better than the plain windowed arm the field signed off, and above §1.3's
+   3.6 bar. The frame holds a pass a tick in every arm and the trim never fires.
+
+**The benefit it would have bought is a rate this game rejected.** 1.27× is
+~6.4 fps a feature, which is the number the share was halved to get away from.
+The price was a second renderer for every surface — its own HUD, its own card
+panel, its own text — because after `OSAPI_FSX_MODE` no kernel drawing slot is
+legal (§53.7).
+
+**What re-opens it**, each a measurement rather than an opinion: a board that
+grows, since the cost is entirely per-row; the `Quad` detail arm (§3.5), which
+is fullscreen-only; or tear-free animation, which wants `fsx_page` and is
+unreachable through the WM.
 
 **PAIRING TWO FIGURES INTO ONE BLIT: proposed, measured, REFUSED.** If a band's
 arrival is 690 µs and a lane holds two characters, drawing both in one blit

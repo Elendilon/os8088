@@ -140431,17 +140431,39 @@ silent: the lane still commits, the rate still measures, and the picture does
 not move.
 
 
-### 97.6 Two renderers, and the windowed one is the default
+### 97.6 ONE renderer, and fullscreen is a WINDOW
 
-- **Windowed** draws through `OSAPI_GFX_BLIT1` and is what wave 1a builds.
-- **Fullscreen** is §53's bracket with a mode set: the app owns every pixel,
-  `FSI_SEG` names the framebuffer, and the band goes down by hand. It is
-  ~1.27× the windowed arm per band and it costs every other pixel — after the
-  first `OSAPI_FSX_MODE` no kernel drawing slot is legal (§53.7), so that arm
-  letters its own HUD and draws its own panel.
+**There is one renderer and it draws through `OSAPI_GFX_BLIT1`.** `F` takes
+`wm_fullscreen` (§11.2) and the layout steps to the fullscreen geometry row;
+`Esc` gives it back. The layout recomputes and the sprite masters are re-cut,
+and that is the whole of the difference.
 
-**`F` toggles and `Esc` leaves.** The layout recomputes and the sprite masters
-are re-cut; neither arm is a different program.
+**A SECOND, FRAMEBUFFER-OWNING RENDERER WAS PLANNED AND IS REFUSED** — on
+measurement, `docs/reports/TITHE-FULLSCREEN-2026-09-22.md`. It was to be §53's
+bracket with a mode set, ~1.27× the windowed arm per band. Three things took
+its ground away:
+
+- **§5.4.2.6's fast path** cut its lead from 1.97× to 1.27×, and TITHE-PLAN §3.7's
+  own table already found that *windowed with a dirty rect beats fullscreen
+  without one*;
+- **`wm_fullscreen` is a real window**, so it is the whole 640×480 with no
+  chrome and **every kernel drawing slot still working** — the pixels of
+  fullscreen for one API call instead of a second renderer;
+- **measured at the fullscreen geometry, the one renderer holds.** 5.04 fps a
+  feature and 18.6 frames a second with a bolt in flight, against the plain
+  windowed arm's 4.24 that the field signed off. The frame holds a pass a tick
+  in every arm and the trim never fires.
+
+**And its headline benefit is a rate this game rejected.** 1.27× on the
+fullscreen row is ~6.4 fps a feature, which is the number `TI_SHARE` was halved
+to get *away* from (§97.5). The cost was a second renderer for every surface —
+its own HUD, its own card panel, its own text — because after
+`OSAPI_FSX_MODE` no kernel drawing slot is legal (§53.7).
+
+**What re-opens it**: a board that grows (the cost here is entirely per-row),
+the `Quad` detail arm (§97.4.6, fullscreen-only), or tear-free animation, which
+wants `fsx_page` (§53.10) and is unreachable through the WM. Each is a
+measurement, not an opinion.
 
 ### 97.7 The prototype's keys
 
@@ -140449,14 +140471,14 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 
 | key | |
 |---|---|
-| `F` | fullscreen on/off |
+| `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window at the fullscreen geometry row |
 | `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | step the clash's TIER, so stepping forward and a composed overlap are seen side by side |
 | `S` | step the sprite size, so three can be compared on the glass |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
 | `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
-| `B` | step the BASE CANDIDATE (§97.2.1), naming it in the HUD — the art is not chosen yet, and a picture nobody can name is a picture nobody can choose |
+| `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `R` | re-calibrate the wheel's credit and show it |
 | `+` / `-` | move the animation share off its default 20% |
 | `P` | pause the wheel, for looking at one frame |

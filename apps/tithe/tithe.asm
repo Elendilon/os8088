@@ -385,11 +385,35 @@ ti_onkey:
     call ti_calibrate
     jmp .out
 .fs:
-    xor byte [ti_full], 1           ; SPEC.md 97.7's `F`. Until the fullscreen
-    mov byte [ti_laid], 0           ; renderer exists this steps the SURFACE
-    call ti_relayout_ck             ; row, which is the fullscreen geometry in
-    call ti_paint_now               ; a window - and refuses where it will not
-    jmp .out                  ; fit, which is the honest answer
+    ; SPEC.md 97.7's `F`, and it is a REAL FULLSCREEN WINDOW (SPEC.md 11.2)
+    ; rather than a geometry step inside an ordinary one. It used to be the
+    ; latter because the fullscreen RENDERER (97.6) did not exist, and stepping
+    ; the surface row inside a 640x355 content box mostly REFUSED - the
+    ; vga-full board is 326 rows and its HUD another 36.
+    ;
+    ; WM_FULLSCREEN IS THE THIRD OPTION AND NOBODY HAD PRICED IT. A fullscreen
+    ; surface IS a window (SPEC.md 11.2), so this keeps every kernel drawing
+    ; slot: the whole 640x480 with no chrome and no 53.7 bracket, which is the
+    ; PIXELS of fullscreen without the second renderer.
+    mov al, [ti_full]
+    xor al, 1
+    mov bx, [ti_win]
+    or al, al
+    jz .fsoff
+    mov al, 1
+    call OSAPI_FULLSCREEN
+    jc .out                         ; ...somebody else owns the screen
+    mov byte [ti_full], 1
+    jmp short .fsdone
+.fsoff:
+    mov byte [ti_full], 0           ; ...cleared BEFORE the call, so the repaint
+    xor al, al                      ; the exit triggers sizes the windowed row
+    call OSAPI_FULLSCREEN
+.fsdone:
+    mov byte [ti_laid], 0
+    call ti_relayout_ck
+    call ti_paint_now
+    jmp .out
 .drect:
     xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
     jmp .out
