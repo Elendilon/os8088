@@ -214,22 +214,61 @@ def g_pyre(b):
 
 
 def m_pyre(b, p):
+    """...and the flame is JAGGED, which is the shape that came first.
+
+    It was smoothed to a teardrop on the argument that per-row jitter at 56
+    pixels is noise rather than fire. On the STILL that is true; on the STRIP
+    it is not, and the strip is what a flame is judged on - a smooth tip
+    leaning two pixels reads as a leaf blowing, where a stepped edge reads as
+    burning. The lean is kept so the whole flame still moves as one thing; the
+    jitter is put back on top of it.
+    """
     w, h, cx = b.w, b.h, b.w / 2
     bowl = int(h * 0.34) - 1
     tall = int(h * 0.22)
     lean = sway(p, 1)
-    # A TEARDROP AND NOT A SCRIBBLE. The first cut wobbled each ROW
-    # independently, which at this size is not a flame licking, it is noise -
-    # a 56-pixel band has no room for detail that is not a silhouette. One
-    # smooth lean of the whole tip reads as fire; per-row jitter reads as dirt.
     for i in range(tall):
         t = i / max(1.0, tall - 1)
-        half = (w / 7) * circ(t) * (1.0 - 0.35 * t)
-        b.span(cx + lean * t * 2.2, max(0.0, half), bowl - i)
+        half = (w / 7) * circ(t) * (1.0 - 0.3 * t)
+        jag = (1 if (i + p) % 3 < 2 else -1) * t * 1.6          # the tongue
+        b.span(cx + lean * t * 2.0 + jag, max(0.0, half), bowl - i)
     tip = bowl - tall
-    for i in range(2):                                   # ...and two embers
+    for i in range(2):                                          # ...and embers
         b.set(int(cx + lean * 2 + sway((p + i * 3) % POSES, 1)),
               tip - 2 - ((p + i * 4) % 5))
+
+
+def skull(b, cx, cy, sw, sh):
+    """A skull, solid with its sockets punched out. Returns False if the box is
+    too small for one to read - which CGA's 48x60 band is, and a smear there is
+    worse than nothing."""
+    if sw < 9 or sh < 8:
+        return False
+    for y in range(sh):
+        t = y / (sh - 1.0)
+        if t < 0.62:                                            # the cranium
+            half = (sw / 2) * circ(t * 0.95)
+        else:                                                   # ...and a jaw
+            half = (sw / 2) * 0.62 * (1.0 - (t - 0.62) * 0.9)
+        b.span(cx, max(0.5, half), cy + y)
+    ey = int(sh * 0.28)
+    for dy in range(max(2, sh // 4)):                           # two sockets
+        b.span(cx - sw * 0.23, max(0.5, sw * 0.13), cy + ey + dy, 0)
+        b.span(cx + sw * 0.23, max(0.5, sw * 0.13), cy + ey + dy, 0)
+    b.set(int(cx), cy + int(sh * 0.56), 0)                      # the nose
+    b.span(cx, sw * 0.22, cy + int(sh * 0.72), 0)               # the teeth
+    return True
+
+
+def g_pyre_skull(b):
+    """3b THE EMBER CHOIR again, with a SKULL cut into the shaft. The faction
+    is the undead one - souls, necromancy - so the shaft carries the mark
+    rather than leaving the flame to say it alone."""
+    g_pyre(b)
+    w, h, cx = b.w, b.h, b.w / 2
+    sw = int(w / 3.2)
+    sh = int(sw * 1.15)
+    skull(b, cx, int(h * 0.50), sw, sh)
 
 
 def g_shrine(b):
@@ -278,8 +317,93 @@ def m_shrine(b, p):
         b.span(x, r * circ(2 * t - 1), y)
 
 
+def g_cathedral(b):
+    """5 THE COVENANT - a cathedral, and the PENDULUM is a bell.
+
+    The swing was the thing worth keeping out of the shrine arch, and a
+    belfry is where a swinging thing belongs: the opening is cut black out of
+    the tower, so the bell moves inside a frame rather than over a silhouette.
+    The faction is nuns - holy healing, with trickery for damage - so the front
+    is devout and the one thing that is not is the SIDE DOOR, low and off
+    centre, which is the only asymmetry on the board.
+    """
+    w, h, cx = b.w, b.h, b.w / 2
+    ground = int(h * 0.95)
+    for y in range(ground, h):                               # the steps
+        b.span(cx, w / 2 - 1, y)
+    nave_top = int(h * 0.46)
+    for y in range(nave_top, ground):                        # the nave
+        b.dither(cx, w / 2.7, y)
+        b.set(int(cx - w / 2.7), y)
+        b.set(int(cx + w / 2.7), y)
+    gab = max(3, int(h * 0.07))
+    for i in range(gab):                                     # its gable
+        t = i / max(1.0, gab - 1.0)
+        b.span(cx, (w / 2.7) * t, nave_top - gab + i)
+    rr = max(2.0, w / 8)                                     # the rose window
+    ry = nave_top + int(h * 0.10) + rr
+    for y in range(int(ry - rr), int(ry + rr) + 1):
+        hw = rr * circ((y - ry) / rr)
+        b.span(cx, hw, y)
+    for y in range(int(ry - rr * 0.6), int(ry + rr * 0.6) + 1):
+        hw = rr * 0.6 * circ((y - ry) / (rr * 0.6))
+        b.span(cx, hw, y, 0)
+    b.span(cx, rr * 0.7, int(ry))                            # ...and its bars
+    for y in range(int(ry - rr * 0.7), int(ry + rr * 0.7) + 1):
+        b.set(int(cx), y)
+    dh = int(h * 0.20)                                       # the great door
+    for y in range(ground - dh, ground):
+        t = (y - (ground - dh)) / max(1.0, dh)
+        hw = (w / 7) if t > 0.35 else (w / 7) * circ(1.0 - t / 0.35)
+        b.span(cx, hw, y, 0)
+    sd = max(3, int(h * 0.07))                               # ...and the side
+    b.box(cx + w / 3.6, ground - sd, cx + w / 3.6 + max(1, w // 16),
+          ground - 1, 0)
+    bt_bot = nave_top - gab
+    bt_top = int(h * 0.14)
+    for y in range(bt_top, bt_bot):                          # the belfry
+        b.dither(cx, w / 5.5, y)
+        b.set(int(cx - w / 5.5), y)
+        b.set(int(cx + w / 5.5), y)
+    cap = max(3, int(h * 0.09))
+    for i in range(cap):                                     # its spire cap
+        t = i / max(1.0, cap - 1.0)
+        b.span(cx, (w / 5.5) * t, bt_top - cap + i)
+    for y in range(bt_top - cap - max(3, int(h * 0.035)), bt_top - cap):
+        b.set(int(cx), y)                                    # ...and a cross
+    b.span(cx, max(1.0, w / 18), bt_top - cap - max(2, int(h * 0.024)))
+    b.op_top = bt_top + max(2, int(h * 0.02))                # the OPENING the
+    b.op_bot = bt_bot - max(2, int(h * 0.02))                # bell hangs in
+    for y in range(b.op_top, b.op_bot):
+        t = (y - b.op_top) / max(1.0, (b.op_bot - b.op_top) * 0.5)
+        hw = (w / 9) if t > 1.0 else (w / 9) * circ(1.0 - t)
+        b.span(cx, hw, y, 0)
+
+
+def m_cathedral(b, p):
+    """...and the BELL swings in it, which is the pendulum kept from the arch:
+    a true ping-pong, and the one motion here that an eye reads as a rhythm
+    rather than as a flicker."""
+    w, h, cx = b.w, b.h, b.w / 2
+    top = getattr(b, "op_top", int(h * 0.16)) + 1
+    bot = getattr(b, "op_bot", int(h * 0.38))
+    bw2 = max(1.5, w / 11)
+    bh2 = max(3, int((bot - top) * 0.52))
+    b.span(cx, w / 10, top)                                  # the headstock
+    lean = sway(p, 1)
+    hang = top + 2
+    for y in range(hang, hang + bh2):
+        t = (y - hang) / max(1.0, bh2 - 1.0)
+        x = cx + lean * t * 1.3
+        half = bw2 * (0.42 + 0.58 * t)
+        b.span(x, half, y)
+    y = hang + bh2                                           # ...and its lip
+    b.span(cx + lean * 1.3, bw2 * 1.18, y)
+    b.set(int(cx + lean * 1.5), y + 1)                       # the clapper
+
+
 def g_zigg(b):
-    """5 A STEPPED ZIGGURAT - tiers narrowing upward. The one candidate whose
+    """6 A STEPPED ZIGGURAT - tiers narrowing upward. The one candidate whose
     silhouette is read by its STEPS rather than its outline, which is what
     survives a 60-row CGA band best."""
     w, h, cx = b.w, b.h, b.w / 2
@@ -316,47 +440,11 @@ def m_zigg(b, p):
             b.set(x + 1, y)
 
 
-def g_spire(b):
-    """6 A CATHEDRAL SPIRE - the tallest silhouette, and the one that uses the
-    box's own proportion rather than fighting it. Solid, with dithered
-    buttresses, and a row of windows that is the animation."""
-    w, h, cx = b.w, b.h, b.w / 2
-    body_top = int(h * 0.34)
-    for y in range(body_top, h):                         # the nave
-        b.span(cx, w / 4, y)
-    for y in range(int(h * 0.55), h):                    # the buttresses
-        t = (y - h * 0.55) / max(1.0, h - h * 0.55)
-        b.dither(cx - w / 4 - t * (w / 5), max(1.0, w / 14), y)
-        b.dither(cx + w / 4 + t * (w / 5), max(1.0, w / 14), y)
-    for y in range(int(h * 0.06), body_top):             # the spire itself
-        t = (y - h * 0.06) / max(1.0, body_top - h * 0.06)
-        b.span(cx, (w / 4) * t, y)
-    for y in range(int(h * 0.02), int(h * 0.06)):        # ...and its cross
-        b.set(int(cx), y)
-    b.span(cx, max(1.0, w / 12), int(h * 0.035))
-
-
-def m_spire(b, p):
-    """...WINDOWS lighting in sequence, which is the one animation here that is
-    not motion at all - it is a sweep, and it costs the same.
-
-    THREE WINDOWS ON A PERIOD OF THREE gives three pictures however many poses
-    are asked for, which is the placeholder's own defect wearing a hat - the
-    selfcheck caught it. The BEACON on the cross blinks on a period of two, and
-    3 against 2 over 8 poses is six distinct frames rather than three.
-    """
-    w, h, cx = b.w, b.h, b.w / 2
-    n = 3
-    for i in range(n):
-        y = int(h * 0.46) + i * int(h * 0.15)
-        on = (p % n) == i                                # a light RISING
-        for dy in range(max(2, h // 26)):
-            b.span(cx, w / 10, y + dy, 0 if on else 1)
-        if on:
-            b.span(cx, w / 10, y + max(2, h // 26) // 2, 1)
-    if p & 1:                                            # ...and the beacon
-        b.span(cx, max(1.0, w / 12), int(h * 0.035) - 1)
-        b.span(cx, max(1.0, w / 20), int(h * 0.035) - 2)
+# THE CATHEDRAL SPIRE WAS HERE AND IS WITHDRAWN. It read as a rocket - a
+# tapering solid cone with fins is a rocket whatever is on top of it, and at
+# 1:2.5 with no room for tracery there is nothing to say otherwise. The thing
+# worth keeping out of it, a church for THE COVENANT, is g_cathedral above,
+# where the mass is a nave and the height is a belfry rather than one cone.
 
 
 CANDIDATES = [
@@ -367,17 +455,20 @@ CANDIDATES = [
      "a wall that reads first and a tower second; a banner is what moves",
      g_rampart, m_rampart),
     ("pyre",    "PYRE TOWER",      "THE EMBER CHOIR",
-     "a tapering shaft with a brazier on it; the flame is the eight frames",
+     "a brazier on a slender shaft, and the JAGGED flame is the eight frames",
      g_pyre, m_pyre),
+    ("skull",   "PYRE TOWER + SKULL", "THE EMBER CHOIR",
+     "the same, with the undead faction's mark cut into the shaft",
+     g_pyre_skull, m_pyre),
+    ("cathed",  "CATHEDRAL BELL",  "THE COVENANT",
+     "the arch's pendulum put where one belongs - a belfry, and a side door",
+     g_cathedral, m_cathedral),
     ("shrine",  "SHRINE ARCH",     "THE COVENANT",
-     "open rather than solid - the lane shows through it; a lamp swings",
+     "the swing it came from, kept for comparison; open rather than solid",
      g_shrine, m_shrine),
     ("zigg",    "STEPPED ZIGGURAT", "any",
      "read by its steps rather than its outline, which survives CGA's 60 rows",
      g_zigg, m_zigg),
-    ("spire",   "CATHEDRAL SPIRE", "any",
-     "uses the box's own 1:2.5 rather than fighting it; windows light in turn",
-     g_spire, m_spire),
 ]
 
 
@@ -562,30 +653,47 @@ def insitu(machine, out, label, herc=False):
         os88marty.guest_sleep(m, 7.0)
         v = {k: struct.unpack("<H", bytes(m.readseg(seg, off[k], 2)))[0]
              for k in syms}
-        # A FLUSH WINDOW'S CONTENT X IS ITS OWN W_X (SPEC.md 11.95.2), which is
-        # why the board's coordinates drop straight onto the screen here.
-        ox, oy = win.x, win.y + os88geom.TITLE_H
+        # THE LAYOUT IS ALREADY IN SCREEN COORDINATES. OSAPI_WM_GEOM answers
+        # the content rect absolutely, so ti_basey IS a screen row - adding the
+        # window's content origin on top put every band 48 rows BELOW the board
+        # it was pasted into, and the real placeholder showed through above it.
+        # Asserted rather than assumed, below.
+        ox, oy = 0, 0
         if herc:
             w, h, rows = m.vram()
             px = [[(255 if c else 0) for c in row] for row in rows]
         else:
             w, h, d = m.fbuf()
             px = [[d[(y * w + x) * 3] for x in range(w)] for y in range(h)]
-    print("  %s: base %dx%d at (%d,%d)/(%d,%d), content origin (%d,%d)"
-          % (label, v["ti_basew"], v["ti_baseh"], v["ti_b1x"], v["ti_basey"],
-             v["ti_b2x"], v["ti_basey2"], ox, oy))
-
     bw, bh = v["ti_basew"], v["ti_baseh"]
+    print("  %s: base %dx%d at (%d,%d) and (%d,%d)"
+          % (label, v["ti_basew"], v["ti_baseh"], v["ti_b1x"], v["ti_basey"],
+             v["ti_b2x"], v["ti_basey2"]))
+    # THE PLACEMENT IS CHECKED AND NOT TRUSTED: the band's own top row must
+    # have something in it and the row above it must be empty, which is true of
+    # every base here (the HP block sits 10 rows higher) and false of any
+    # off-by-a-content-origin.
+    def litrow(y, x0, x1):
+        return sum(1 for x in range(x0, x1) if 0 <= y < h and px[y][x] > 127)
+    for who, bx, by in (("p1", v["ti_b1x"], v["ti_basey"]),
+                        ("p2", v["ti_b2x"], v["ti_basey2"])):
+        inside = litrow(by + 2, bx, bx + bw)
+        above = litrow(by - 2, bx, bx + bw)
+        print("     %s band top row %d lit, the row above it %d"
+              % (who, inside, above))
+        if inside == 0 or above != 0:
+            print("     ** the band is NOT where this thinks it is **")
+
     pads = 6
     cw = min(w - ox, bw + 2 * v["ti_cw"] + 16)
-    cy0 = max(0, oy + v["ti_basey"] - 12)
-    ch = min(h - cy0, bh + 30)
+    cy0 = max(0, oy + v["ti_basey"] - 22)
+    ch = min(h - cy0, bh + 40)
     aspect = 1.55 if herc else 1.0
     zx = 2
     zy = max(1, round(2 * aspect))
     s = Sheet(24 + cw * zx + 24, 76 + len(CANDIDATES) * (ch * zy + 34))
     s.text(24, 22, "TITHE BASES IN SITU - %s" % label.upper(), WHITE, 2)
-    s.text(24, 48, "P1'S BASE WHERE THE MACHINE PUTS IT, BESIDE THE REAL BOARD."
+    s.text(24, 48, "P1'S BASE WHERE THE MACHINE PUTS IT, WITH ITS HP BLOCK ABOVE IT."
            "  BAND %dx%d." % (bw, bh), GREY, 1)
     for i, cand in enumerate(CANDIDATES):
         b0, _ = build(cand, bw, bh, 0)
