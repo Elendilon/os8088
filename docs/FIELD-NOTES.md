@@ -2711,6 +2711,41 @@ the game draws nothing, which is what those 468 pixels are. A real driver's
 `AX=0` puts the pointer at the CENTRE of the virtual screen and `kd_mou_start`
 puts it at the origin.
 
+### THE TWO WORDS, READ AT LAST — and they say the game takes OUR PORT
+
+The withdrawn conclusion below ends by naming `[0x23f2]`/`[0x23f0]` as the
+thread to pull, *"a measurement nobody has taken yet"*. Taken now, **in the
+game** rather than before it — Space at the title, the board up, then the
+guest read:
+
+```
+the game's [23F0h] = 0004 (IRQ)   [23F2h] = 03F8 (port base)
+int 0Ch -> 1BF7:006D              (the game's own handler, not kd_mou_isr)
+kdm base/line 03F8/10  phase 0  x 320 y 96 b0 0    ...unchanged across a
+                                                      full sweep of the mouse
+8259 mask AC                      (IRQ4 unmasked)
+BDA COM table: 03F8 02F8          (two ports; it picked the first)
+```
+
+**Battle Chess takes COM1 and IRQ4, which is the port the pointer is on.** It
+writes `int 0Ch` directly, does not chain, and `kdm_phase`/`kdm_x`/`kdm_y`
+never move again — so INT 33h answers the reset position for ever and the
+hand sits wherever that is. §96.10.7 moved it from the corner to the middle
+of the board; it still does not track, and now it is clear that nothing a
+driver does can make it, because there are no packets left to deliver.
+
+**So the reporter's working machine must differ in WHERE THE MOUSE IS**, and
+that is the one thing left to check rather than reason about:
+`os8088_xt_vga_144_com2` is the same XT with MartyPC's
+`microsoft_serial_mouse` overlay (port 1) instead of `_com1` (port 0), and it
+is the only profile in this tree with the pointer off COM1.
+
+**IF THE REPORTER'S MOUSE IS ALSO ON COM1, THIS EXPLANATION IS WRONG** and
+the next step is tracing the game's installer under DOS rather than moving
+the pointer. Said here so the next reader checks it instead of inheriting it.
+
+### The reset position, which IS ours and is fixed
+
 **That one IS ours and is now measured and fixed** (SPEC.md §96.45.3).
 `build/DOSMOUSE.COM` runs under a real DOS unchanged, so it was simply asked:
 
