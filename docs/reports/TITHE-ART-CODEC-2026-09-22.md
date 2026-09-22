@@ -44,7 +44,7 @@ we already do it** — see §3.
 `o+lzb` is **6,561 against LZ4's 8,419**. That is a bigger win than the tree's
 standing figure — SPEC.md §20.13 has LZB at "ten points" of ratio, measured on
 the tree's own binaries, which are mostly *code*; on 1bpp art it is **22%**.
-Pixel art and code do not compress alike, and the plan's §1.5 already says so
+Pixel art and code do not compress alike, and the plan's TITHE-PLAN §1.5 already says so
 in the other direction.
 
 It still loses, and the arithmetic is general rather than particular:
@@ -56,7 +56,7 @@ It still loses, and the arithmetic is general rather than particular:
 
 So the gap widens with every kilobyte. For this corpus (U = 40,966): LZ4 decodes
 in **0.43 s**, LZB in **1.73 s**, and LZB saves 1,858 bytes — under four
-sectors, which §1.1's rule (*cost disk work in CALLS, not sectors*) prices at
+sectors, which TITHE-PLAN §1.1's rule (*cost disk work in CALLS, not sectors*) prices at
 zero to one `int 13h`. **LZB loses by about 0.9 s.** Scaled to a 60KB faction
 part it loses by about **1.5 s**, and it never comes back.
 
@@ -87,7 +87,7 @@ pacing wheel jumps to whatever pose the clock says (§97.5), so a chain would
 have to decode from the last keyframe on every jump. The independence is not a
 detail of the format, it is what makes the format usable by this renderer.
 
-The same idea one level up is §4.2.1's layer model — a character is a body plus
+The same idea one level up is TITHE-PLAN §4.2.1's layer model — a character is a body plus
 a held item rather than a drawn frame — which is the same 4.7×-class win on the
 same argument.
 
@@ -107,6 +107,6 @@ same argument.
 **Compression decides DISK. It does not decide RAM.** `OP_COMP` expands a part
 into its carve at load (SPEC.md §20.12.7), so what the heap holds is the
 *uncompressed* figure — 40,966 here, not 8,419. Every heap number in
-TITHE-PLAN §1.5 and every part sizing in §4.3 is an uncompressed number, and the
+TITHE-PLAN §1.5 and every part sizing in TITHE-PLAN §4.3 is an uncompressed number, and the
 codec cannot move any of them. Only the art model can, which is the third reason
 it is where the work belongs.
