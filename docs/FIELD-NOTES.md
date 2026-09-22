@@ -2541,7 +2541,7 @@ the same program in front of a real DOS and diffing; this is the first time
 that method has said *stop, there is nothing here* — which is worth as much,
 and cost about fifteen minutes against the day a "fix" would have taken.
 
-## 56. Battle Chess: it runs, and its own cursor never moves (NOT OURS — the game takes COM1 and IRQ4 for its modem link at startup: SPEC.md §96.45)
+## 56. Battle Chess: it runs, and its own cursor never moves (OPEN — called NOT OURS on a reference run that never reached the game, and it IS ours)
 
 Reported off the fork owner's machine, with the game on a fixed disk: *"Battle
 chess launches and runs, but the cursor (which looks like a program special
@@ -2609,7 +2609,41 @@ It has exactly **one caller**, at image `0x1D3`, in early start-up between two
 / jl ... call uninstall`). So the link is armed at launch, unconditionally,
 and not from a menu.
 
-### The reference, which is what makes this NOT OURS
+### THE VERDICT BELOW IS WITHDRAWN — read this first
+
+**It works under IBM DOS 3.30 with CuteMouse.** The reporter sent two
+screenshots of the game in play with the hand cursor at two different board
+squares, and the operating instruction that goes with them: *"the mouse
+doesn't activate until you are in game — you have to press space at the title
+screen then wait for it to load into the game."*
+
+So the measurement below is not wrong, it is **about the wrong moment**. The
+`ref` run drove a blind key script — `Enter`, a click, `Space`, a fixed
+wait — and the shot it ended on has a board on it, which was taken as *the
+game is up*. It has **no cursor on it at all**, and that was the tell:
+CuteMouse was installed and the game was polling function 3 two hundred and
+fifty-five times, so if the game had been in play it would have been drawing
+a hand somewhere. A program that is still loading draws none. The
+os8088 side DID draw one — at the `(0,0)` of §96.45.3 — so the two boards
+differed by exactly the cursor, and *that* was read as "neither tracks".
+
+**The rule that was broken is the one entry 55 exists to teach**: a reference
+run has to be checked for *whether it reached the state under test* before
+its answer counts. A board on the screen was taken for it, and the missing
+cursor — the one piece of evidence that said otherwise — was written up as
+the finding.
+
+What still stands is everything mechanical: the game's IRQ4 handler at
+`1BF7:006D` is real and is byte-for-byte its own `0x10CBD`, the installer at
+`0x10C73` is real, and `MCR = 08h` is real. What does **not** follow is the
+conclusion, because CuteMouse plainly survives all three. So the question is
+now **why the game's serial code collides with our mouse and not with
+CuteMouse's** — the leading candidate being which port it picks, since
+`[0x23f2]`/`[0x23f0]` are read from memory rather than hard-coded, and a
+machine whose BIOS data area advertises its COM ports differently would send
+that code at a different UART. That is a measurement nobody has taken yet.
+
+### The reference, which is what makes this NOT OURS — WITHDRAWN, see above
 
 Entry 55's method, and the same answer. `CHESS.EXE` was put in front of a real
 **IBM DOS 3.30 with the reporter's own CuteMouse** on COM1
@@ -2627,12 +2661,12 @@ there either**. Diffed against our own board frame: **476 differing pixels in
 the whole 640x400, of which 468 are that one cursor in the corner.** The two
 machines draw the same board and neither tracks the mouse.
 
-So there is nothing here to fix. A serial mouse on **COM1** cannot survive
-Battle Chess on any DOS: the game takes the port, the vector and the power
-line. What would work on real hardware is the mouse on **COM2** — the game
-takes only the port its own `[0x23f2]`/`[0x23f0]` name — and os8088 follows
-whichever port `mouse_init` found one on (§9.5), so that machine needs nothing
-from us.
+~~So there is nothing here to fix.~~ **This paragraph is the withdrawn
+conclusion and is kept only so the mistake is legible.** It reasoned from a
+run that never reached the game, and its own last clause is the thread to
+pull: *"the game takes only the port its own `[0x23f2]`/`[0x23f0]` name"* —
+which is a fact about what those two words hold on THIS machine, and nobody
+read them.
 
 **The one real difference the comparison turned up is where the stuck cursor
 sits**, and it is ours: `kern_dos` leaves `kdm_x`/`kdm_y` at the zero their

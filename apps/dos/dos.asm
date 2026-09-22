@@ -1659,7 +1659,26 @@ dos_load:
     clc
     ret
 .rerr:
+    ; --- "TOO BIG" IS NOT "COULD NOT BE READ" (SPEC.md 96.8.1) -------------
+    ; `OSAPI_FILE_READ` answers `FERR_BIG` for a file larger than the buffer
+    ; it was handed, and decides it FROM THE DIRECTORY ENTRY before any data
+    ; I/O - so it is not a read that went wrong, it is a program that does not
+    ; fit in the arena this arm gives. Reported from the field about Battle
+    ; Chess: a 494KB `.EXE` double-clicked on a 445KB arena said *"It could
+    ; not be read."*, which names the disk for a fact about memory and tells
+    ; the user nothing they can act on.
+    ;
+    ; `dos_exe_setup` already has the OTHER half of this - `.nofit` answers
+    ; DER_FIT when image + MINALLOC + PSP overflows the block - and that arm
+    ; is only ever reached by a file small enough to have been READ first. A
+    ; program bigger than the whole arena never gets that far, which is why
+    ; the two look like different failures and are one.
+    cmp ax, FERR_BIG
+    je .nofit
     mov al, DER_READ
+    jmp short .out
+.nofit:
+    mov al, DER_FIT
 .out:
     pop es
     pop si
@@ -10809,10 +10828,21 @@ dos_e_exe:   db '.EXE is not supported yet.', 0
 dos_e_badexe: db 'Its .EXE header is malformed.', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
-dos_e_fit:   db 'Program too big to fit in memory.', 0  ; DOS 3.30's own words,
+dos_e_fit:   db 'Not enough RAM - try Setup, "Shut down the OS".', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
-                                    ; measured at COMMAND.COM offset 2436
+                                    ; **IT SAID DOS 3.30'S OWN WORDS**,
+                                    ; `Program too big to fit in memory.`,
+                                    ; measured at COMMAND.COM offset 2436 -
+                                    ; and matching COMMAND.COM was a nicety
+                                    ; this sentence cannot afford (SPEC.md
+                                    ; 96.8.1). It is not a DOS program's
+                                    ; output, it is THE BOX refusing to start
+                                    ; one, and the box knows something DOS
+                                    ; never did: there is another arm with
+                                    ; ~600KB in it, one page away. A user told
+                                    ; `too big to fit` closes the window; one
+                                    ; told where the room is opens Setup
 dos_dotdot:  db '..', 0
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)

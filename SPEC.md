@@ -131777,6 +131777,43 @@ because overlays arrive with `AH=4B03h` and there is no `AH=4Bh` yet.
 the honest answer when the command tail is empty, which it always is until a
 shell exists (§96.1).
 
+#### 96.8.1 "Too big" is not "could not be read", and the sentence has to name the way out
+
+A program larger than the arena never reaches the `.EXE` loader at all.
+`dos_load` hands `OSAPI_FILE_READ` the block it just allocated as the
+capacity, and that slot answers **`FERR_BIG`** for a file bigger than the
+buffer — **decided from the directory entry before any data I/O**, so nothing
+is read and nothing is written. `dos_load` mapped every refusal to
+`DER_READ`, so a 494KB `CHESS.EXE` double-clicked on a 445KB arena said:
+
+```
+B:\BCHESS\CHESS.EXE: It could not be read.
+```
+
+which names the **disk** for a fact about **memory**, and tells the user
+nothing they can do. `FERR_BIG` now answers `DER_FIT`.
+
+**The other half of this was already right, which is why it looked like two
+failures.** `dos_exe_setup`'s `.nofit` answers `DER_FIT` when image +
+`MINALLOC` + PSP overflows the block — but that arm can only be reached by a
+file small enough to have been *read* first. A program bigger than the whole
+arena is refused one layer below it, and the two are one condition.
+
+**And the sentence changed with it.** It said `Program too big to fit in
+memory.` — DOS 3.30's own words, measured at COMMAND.COM offset 2436 — and
+matching COMMAND.COM is a nicety this particular sentence cannot afford. It
+is not a DOS program's output, it is **the box refusing to start one**, and
+the box knows something DOS never did: there is another arm with ~600KB in
+it, one page away (§96.36). So it reads:
+
+```
+Not enough RAM - try Setup, "Shut down the OS".
+```
+
+A user told *too big to fit* closes the window. A user told where the room is
+opens Setup. Reported from the field as *"This doesn't tell us there was not
+enough ram"*.
+
 ### 96.9 The MCB chain is a real allocator, not a stub
 
 `AH=48h/49h/4Ah` walk the blocks §96.3 lays out, first fit, with splitting.
