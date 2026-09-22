@@ -194,10 +194,13 @@ def run(machine, tag, fbseg, fbsize, verbose, dump=None,
         for recname in records:
             rec = os88sym.linear(recname) - KB
             hdr = m.read(os88sym.linear(recname), 2)
-            # An INDEXED record carries its pool in bit 6 of the width byte
-            # (SPEC.md 25.7.3), and a plain one never sets it - that would be
-            # a 64-word icon - so masking it is right for both kinds.
-            ww, ih = hdr[0] & 0x3F, hdr[1]
+            # An INDEXED record is its height and then its runs (SPEC.md
+            # 25.7.3): the width is the kind's constant and is not stored, so
+            # the header is one byte there and two on a plain record.
+            if entry == "icon_draw_ix":
+                ww, ih = 2, hdr[0]
+            else:
+                ww, ih = hdr[0], hdr[1]
             if not (1 <= ww <= 4 and 1 <= ih <= 64):
                 raise SystemExit("icoclip: %s reads as %dx%d words/rows, "
                                  "which is not an icon record - the symbol "

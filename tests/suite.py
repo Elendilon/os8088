@@ -6021,10 +6021,10 @@ SOAK = [
         "B: must be REPAINTED 3.5\" by its own first mount. Asserts each "
         "row's DVF_525/DVF_GUESS bits and every pixel inside the icon's mask "
         "against an INDEPENDENT host-side decode of the record those bits "
-        "select, pool bit and all (SPEC.md 25.7.3) - the half icoclip cannot "
-        "see, since a clip is just as consistent off the wrong pool. Red when "
-        "icon_draw_ix's `add bl, [ico_psel]` goes and when desk_learn_x does "
-        "nothing; both measured.",
+        "select, run format and all (SPEC.md 25.7.3) - the half icoclip "
+        "cannot see, since a clip is just as consistent off the wrong row. "
+        "Red when icon_draw_ix's pool arithmetic is broken and when "
+        "desk_learn_x does nothing; both measured.",
         needs=("marty",), serial=True),
     Row("uilayer", "soak", py("tests/uilayer.py"), 50.0,
         "Does tools/os88ui.py do what it says, and is confirming cheaper "

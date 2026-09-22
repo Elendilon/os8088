@@ -7,8 +7,8 @@ half of the design:
 
   cga5150   GLaBIOS 5150, CGA, two 360KB drives. The ROM refuses int 13h
             AH=08h, so both drives are GUESSED 5.25" - and the picture is the
-            14-row one, off SPEC.md 25.7.3's SECOND pool.
-  herc5150  the same on Hercules: the 32-row 5.25" picture, second pool.
+            14-row one.
+  herc5150  the same on Hercules: the 32-row 5.25" picture.
   herc144   GLaBIOS with two 1.44MB drives. It refuses AH=08h too (measured:
             CF=1, AH=01h), so both are guessed 5.25" at desk_init - and then
             drv_boot's mount of A: reads an 18-sector BPB and desk_learn_x
@@ -19,12 +19,12 @@ half of the design:
 
 For every zone it asserts the row's DV_FLAGS bits (guest state, exact) AND the
 pixels under the icon, against an INDEPENDENT decode of the record the flags
-select - SPEC.md 25.7's run format and 25.7.3's pool bit read out of the
-guest's own ico_pool/ico_pool2 and the record bytes, in Python. That is the
+select - SPEC.md 25.7's run format and 25.7.3's five-bit index, read out of the
+guest's own ico_pool and the record bytes, in Python. That is the
 half tests/icoclip.py cannot see: it proves a clipped icon equals the
-unclipped one, which is exactly as true when the decoder reads the WRONG POOL.
-Break `add bl, [ico_psel]` in icon_draw_ix and this row goes red on every
-5.25" zone; break desk_learn_x and herc144 goes red on A:.
+unclipped one, which is exactly as true when the decoder reads the WRONG ROW.
+Break the index arithmetic in icon_draw_ix and this row goes red; break
+desk_learn_x and herc144 goes red on A:.
 
 Only pixels INSIDE the icon's mask are compared: outside it is desktop dither.
 A selected zone is XOR-highlighted (desk_zone_hilite), so [desk_sel] is read
@@ -55,22 +55,24 @@ def word(m, name):
 
 
 def decode(m, recname):
-    """SPEC.md 25.7/25.7.3, independently: (mask rows, data rows) as ints."""
-    hdr = m.read(os88sym.linear(recname), 2)
-    ww, h, pool = hdr[0] & 0x3F, hdr[1], hdr[0] & 0x40
-    if ww != 2:
-        raise SystemExit("deskfdd: %s reads as ww=%d - not an indexed record"
-                         % (recname, ww))
-    pools = m.read(os88sym.linear("ico_pool"), 128)
-    runs = m.read(os88sym.linear(recname) + 2, 2 * h)   # never more than that
+    """SPEC.md 25.7/25.7.3, independently: (mask rows, data rows) as ints.
+
+    A record is its height and then one byte a run, `pool row << 3 | count
+    - 1`, over ico_pool's four-byte rows."""
+    h = m.read(os88sym.linear(recname), 1)[0]
+    if not 1 <= h <= 32:
+        raise SystemExit("deskfdd: %s reads as %d rows - not an indexed record"
+                         % (recname, h))
+    pools = m.read(os88sym.linear("ico_pool"), 32 * 4)
+    runs = m.read(os88sym.linear(recname) + 1, 2 * h)   # never more than that
     rows, i = [], 0
     while len(rows) < 2 * h:
         b = runs[i]
         i += 1
-        off = pool + (b >> 4) * 4
+        off = (b >> 3) * 4
         w0 = pools[off] | pools[off + 1] << 8
         w1 = pools[off + 2] | pools[off + 3] << 8
-        rows += [(w0 << 16) | w1] * ((b & 15) + 1)
+        rows += [(w0 << 16) | w1] * ((b & 7) + 1)
     if len(rows) != 2 * h:
         raise SystemExit("deskfdd: %s's runs overshoot its height" % recname)
     return rows[:h], rows[h:]
