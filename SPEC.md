@@ -133356,6 +133356,23 @@ long as the defect existed. `tests/dosexec/kid.asm` clobbers `BP` before its
 `AH=4Ch` now, which is a one-line change that turns a green row into the one
 that would have found this.
 
+**And it DOES find it, measured both ways rather than argued.** The row is
+green on the fixed kernel in 24.8 s; run against the kernel one commit
+earlier with the same clobbering child, it stops exactly where the epilogue
+does:
+
+```
+CHILD speaking
+TAIL: HELLO
+PARENT yes
+                     <- and nothing, ever
+dosexec: FAIL: the program never finished
+```
+
+`PARENT yes` is the child's last line. `BACK in the parent` is the parent's
+first one after the `4Bh` returns, and it never comes, because by then `SP`
+is whatever `0BAD1h` made of it.
+
 #### 96.14.2 What is not built
 
 - **`AL=1`** (load but do not run) and **`AL=3`** (load an overlay) are
