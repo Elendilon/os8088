@@ -291,7 +291,7 @@ faction, including 3 commanders) and 9 are orders:
 
 | | uncompressed | on disk (est. ×0.6) |
 |---|---|---|
-| the package primary (`.O88`) | ~52KB | ~32KB |
+| the package primary (`.O88`) — **the FILE, not the image**: parts ride inside it (§4.3) and only the program itself is bound by `APP_MAX_SIZE` | ~52KB | ~32KB |
 | **character BODIES — ~90 body sets × 4 frames × 392 B** | **138KB** | **~83KB** |
 | **held ITEMS — 24 × (4 idle + 4 attack) × 240 B** | **45KB** | **~27KB** |
 | card furniture — 3 faction frames, 9 order illustrations (§3.9.3: a character card's portrait is its own sprite, so there is none to draw) | ~20KB | ~12KB |
@@ -1366,11 +1366,35 @@ small already, cut cleanly. A decision taken once somebody has looked at a CGA,
 not before.
 
 
-### 4.3 Where the bytes live at run time
+### 4.3 Where the bytes live at run time — and PARTS ARE NOT OPTIONAL
 
 `apps/os88parts.inc` (§20.12): named, sized parts inside the one `.O88`, claimed
 and loaded on demand, compressed on disk (`OP_COMP`) and optionally lazy
 (`OP_LAZY`).
+
+**A package's image and bss cap at `APP_MAX_SIZE` = 60KB together**, because a
+package is near-model: one 64KB segment holds its code, its literals and its
+bss, and an offset is sixteen bits. §1.5's art table is **236KB**. The art
+therefore cannot live in the image *at all* — not most of it, not the smallest
+faction's worth of it. That is not a size to be careful about, it is a wall, and
+everything in this section follows from it.
+
+**MEASURED, on wave 1a, before a single character was drawn.** The base
+candidates are five silhouettes at four band sizes — the *least* art this game
+will ever carry, for one feature of twenty-three — and baked into the image they
+are **30,253 bytes**, taking the package to 41,717 of image and 12,088 of bss:
+**53,805 of 61,440**, with the program itself under eleven kilobytes of it.
+**All seven candidates would have been 40,070 and over the cap.** So the wall was
+reached by the throwaway art of the prototype, and a faction's ~30 characters
+through §4.2.1's layers is an order of magnitude past it.
+
+**Wave 1a's `apps/tithe/tibases.inc` is a deliberate, temporary exception** and
+the only one this document grants: it is a *selection* build whose whole job is
+to be looked at and discarded. It is in the image because five candidates that
+must be switched between by a keypress are simpler resident than as five parts,
+and because it dies the day a base is picked. **It does not survive wave 5.**
+Nothing else goes in the image, and the rule to apply is the one that broke it:
+if the bytes are pictures, they are a part.
 
 | part | flags | when |
 |---|---|---|
@@ -1382,6 +1406,57 @@ and loaded on demand, compressed on disk (`OP_COMP`) and optionally lazy
 **Music rides in the part that needs it** rather than in one of its own, so it
 is claimed and dropped with the art it belongs to and costs no new mechanism
 (§13.6).
+
+#### 4.3.1 The swap schedule, and the peak is what has to fit
+
+**Parts are swapped per SCREEN, not per frame.** Each of these is a place the
+user has arrived at and will stay in for seconds at least, so a disk read is
+affordable there and nowhere else; §1.1's ~400 ms an `int 13h` is the reason the
+list is this short rather than this long.
+
+| where | fetched | dropped | why it is a boundary |
+|---|---|---|---|
+| front menu | `MENU` | on *start match* | the title, the buttons and their theme |
+| deck builder | `MENU` stays | on leaving | it draws card faces out of `FACTION`, so that one is fetched too |
+| match load | `BOARD`, `FACTION`×2 | at match end | **only the two factions in play, and within those only the cards the two decks contain** (§1.5) |
+| campaign map | `MAP` | on entering a match | its own theme rides with it |
+
+**The peak is the match, and it is the only figure that matters**: `BOARD` plus
+two `FACTION`s plus the composed sprites §1.5 already budgets. The front menu
+and the map are cheap *because* they are never resident with a match. A part
+that were resident across two of those rows would have to be counted in both,
+which is exactly the accounting error `OP_LAZY` exists to prevent — a lazy row
+is **in no total** (§20.12.4), so it is not part of what the machine is asked to
+grant at launch.
+
+**The one number to hold on to**: the carve — every non-lazy part — is claimed
+at load and must be granted *before the window exists*. Everything that is not
+needed to draw the front menu is therefore `OP_LAZY`, or a machine that could
+have played refuses at launch.
+
+#### 4.3.2 What breaks when a part is dropped, and it is all one mistake
+
+A part is a **claim**, so `op_drop` is a free. Three consequences, and they are
+the same consequence three times:
+
+- **Nothing may hold a pointer into a dropped part.** The sprite bank index is
+  the one that matters here, and §4.4 already says what to do about it —
+  **store offsets from a base, never segments**. The index survives both a drop
+  and a compaction for the same reason.
+- **A part's segment is not stable across a fetch.** `op_seg` answers 0 for a
+  lazy part until `op_fetch` has run and answers a *new* segment after a drop
+  and a re-fetch, so the segment is read at the point of use rather than
+  cached at match start. A cached one is wrong exactly once — after the first
+  swap — which is a defect that survives every test that only ever loads.
+- **A drop during a match is a bug, not an optimisation.** The swap points
+  above are all *between* screens. The renderer may not fetch: §20.6 rule 7
+  says a worker may not touch a file, and the pacing wheel is on the worker.
+  If a match ever needs art it has not got, the answer is that the deck decides
+  what is claimed (§1.5), not that the wheel learns to load.
+
+**`OP_COMP` is the default for every art part** — pixel art compresses and code
+does not (§1.5), and the expansion happens into the carve at load, so it costs
+disk and not heap.
 
 **Why parts and not sidecar files**: `apps/c64`'s ROMs were a sidecar until
 §20.12 wave 6, and *"a copy that took the program and left it behind was a
@@ -3605,7 +3680,7 @@ breaking the thing on purpose first and watching it go red —
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |
-| **5** | **the rest of the art and music** — three factions of ~30 cards: ~90 body sets, 24 item sets, 90 card faces, the bases, the remaining themes | the disk fits in 354 clusters; the worst-case heap fits; the body-set count is at or under budget (§4.2.4); every item reads as its faction's |
+| **5** | **the rest of the art and music** — three factions of ~30 cards: ~90 body sets, 24 item sets, 90 card faces, the bases, the remaining themes. **This is the wave that builds §4.3's PARTS**, and the wave 1a base art comes out of the image with it | the disk fits in 354 clusters; the worst-case heap fits; **nothing but the program is in the image, and the CARVE is granted on the floor machine**; the body-set count is at or under budget (§4.2.4); every item reads as its faction's |
 | **6** | the front menu, the animated buttons, settings | it looks like a game, and the package joins the live media (§15.2) |
 | **7** | deck builder + collection + save | a deck survives a reboot |
 | **8** | the campaign: three maps, one a faction; nodes, modifiers, rewards, and a **commander at the end** | a campaign can be finished, and it teaches — a new player comes out understanding the faction they picked |
