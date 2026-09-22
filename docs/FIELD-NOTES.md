@@ -2642,10 +2642,31 @@ the game draws nothing, which is what those 468 pixels are. A real driver's
 `AX=0` puts the pointer at the CENTRE of the virtual screen and `kd_mou_start`
 puts it at the origin.
 
-**That is a divergence and not this bug**, and it is deliberately left
-unfixed here rather than fixed on a guess: what CuteMouse actually answers
-after a reset has not been measured yet, and §96.10's whole surface is
-measured against a real driver rather than reasoned from the interface. It
-costs about eight bytes of `kern_dos` when somebody has that number - the
-probe is `build/DOSMOUSE.COM`, which runs under a real DOS unchanged, and its
-`POS1` line is the answer.
+**That one IS ours and is now measured and fixed** (SPEC.md §96.45.3).
+`build/DOSMOUSE.COM` runs under a real DOS unchanged, so it was simply asked:
+
+```
+CuteMouse v1.9.1 alpha 1 [FreeDOS]
+Installed at COM1 (03F8h/IRQ4) in Microsoft mode
+RESET ax=FFFF bx=2
+POS1 x=320 y=96 b=0
+```
+
+320 is the middle of `0..639`; **96 is not the middle of `0..199`**, it is 100
+snapped down to the 8-pixel text cell. `kd_mou_start` sets that pair now, at a
+cost of six bytes of `kern_dos`'s image.
+
+**The defect was in the margin of a measurement taken for something else**,
+which is the part worth keeping: nothing asked about the reset position. It
+fell out of diffing two boards to prove the two machines behaved the SAME.
+
+### ...and the probe's own `1Fh` check is wrong, which the reference also said
+
+The same run printed `FN1F CHANGED AX - the gate has FAILED` against
+CuteMouse. `tests/dosmouse/mouse.asm` picks `AX=001Fh` as its "a function
+with no documented return value leaves AX alone" case (SPEC.md §96.10.6) —
+but **`1Fh` is *Disable Mouse Driver*, which documents `AX = 001Fh` and the
+previous handler in `ES:BX`**, and CuteMouse implements it. So the probe
+tests the rule with a function that has an answer, and passes here only
+because this box falls through to `.none`. It is a gate that would go red the
+day `1Fh` were implemented properly, and it is not testing what it says.

@@ -57,6 +57,24 @@ KDM_V3      equ 0x2C            ; int 0Ch and int 0Bh (mouse.inc's mou_ivecs)
 KDM_XMAX    equ 639             ; INT 33h's virtual screen (SPEC.md 96.10), and
 KDM_YMAX    equ 199             ; kdentry.inc sets [dos_vw]/[dos_vh] to match
 
+; --- ...AND WHERE THE POINTER STARTS (SPEC.md 96.45.3) -----------------------
+; MEASURED, not halved: CuteMouse 1.9.1 on COM1 in Microsoft mode answers
+; `x=320 y=96` to the first `AX=3` after a reset, and this file used to answer
+; (0,0) because `kdm_x`/`kdm_y` are the zero their `.bss` was born with.
+;
+; 320 is the middle of 0..639 and 96 is NOT the middle of 0..199 - it is 100
+; snapped DOWN to the 8-pixel text cell, which is what a driver that has a
+; character cursor to draw does with it. Copying the measurement rather than
+; the arithmetic is the rule the rest of SPEC.md 96.10 is written to.
+;
+; **THE FIELD FOUND IT AS A CURSOR IN THE CORNER** (docs/FIELD-NOTES.md 56):
+; Battle Chess takes IRQ4 for its own modem link, so its cursor never moves on
+; any DOS - but ours sat at (0,0) where CuteMouse's sat where the game draws
+; nothing, and 468 of the 476 pixels between the two machines' boards were
+; that one difference.
+KDM_X0      equ 320
+KDM_Y0      equ 96
+
 ; -----------------------------------------------------------------------------
 ; kd_mou_start - take the port the kernel settled on (SPEC.md 96.45)
 ; in:  SI -> the launch block; DS = ES = KD_SEG
@@ -84,6 +102,8 @@ kd_mou_start:
     mov [kdm_base], ax
     mov al, [si+KDL_MOULINE]
     mov [kdm_line], al
+    mov word [kdm_x], KDM_X0    ; ...and the pointer starts where a real
+    mov word [kdm_y], KDM_Y0    ; driver's does (SPEC.md 96.45.3)
 
     ; --- the vector, which the line and not the base decides -----------------
     ; A card at 2F8 jumpered to IRQ4 is a machine this project has met

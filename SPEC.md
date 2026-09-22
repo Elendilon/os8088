@@ -139007,6 +139007,51 @@ resume, this half rests on being the exact inverse of `mou_p2_off` and on
 `mou_p2_init` still arming a PS/2 mouse correctly after the change — which is
 measured, and is not the same claim.
 
+#### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
+
+`AX=0` centres the pointer — every driver does it, and a program that resets
+and then reads `AX=3` before touching the mouse is answered the centre of the
+virtual screen. In `kern_dos` it was answered `(0,0)`, because `kdm_x` and
+`kdm_y` are the zero their `.bss` was born with and nothing ever wrote them
+until the first packet arrived.
+
+**The value is MEASURED and not halved.** `build/DOSMOUSE.COM` runs under a
+real DOS unchanged, and under IBM DOS 3.30 with CuteMouse 1.9.1 on COM1 in
+Microsoft mode it prints:
+
+```
+CuteMouse v1.9.1 alpha 1 [FreeDOS]
+Installed at COM1 (03F8h/IRQ4) in Microsoft mode
+RESET ax=FFFF bx=2
+POS1 x=320 y=96 b=0
+```
+
+320 is the middle of `0..639`. **96 is not the middle of `0..199`** — it is
+100 snapped down to the 8-pixel text cell, which is what a driver with a
+character cursor to draw does with it. `KDM_X0`/`KDM_Y0` copy the measurement
+rather than the arithmetic, which is the rule the rest of §96.10 is written
+to.
+
+**It is set at `kd_mou_start` and not on every reset, and that is a smaller
+claim than the one above.** Centring belongs to whoever owns the pointer, and
+in the windowed box that is the kernel: §96.10's `AX=4` is already a no-op
+there because *"a program that borrowed the screen has not borrowed the
+arrow"*, and an `AX=0` that teleported the user's arrow would be the same
+mistake. So the core's `.reset` is left alone and only the host that owns its
+own pointer sets one. What that leaves diverging is a program which resets a
+SECOND time, after moving the mouse, and expects to be re-centred; every
+program in the reports resets once at start-up, where the two are identical.
+Closing it properly is a `DHK_*` hook of its own.
+
+**How it was found, which is the part worth keeping.** Nothing asked for it.
+Battle Chess's cursor does not move on any DOS — it takes IRQ4 for its own
+modem link (docs/FIELD-NOTES.md 56) — but when our board and a real DOS's were
+diffed to prove the two machines behaved the same, **476 pixels of 640x400
+differed and 468 of them were one cursor in the corner**: the game drawing its
+hand at the `(0,0)` we answered, where CuteMouse's centre is under a piece and
+draws nothing. The defect was in the eight pixels of margin around a
+measurement taken for something else.
+
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 
 `kern_dos` includes `kernel/disk.inc` whole, and that file's `dsk_vtab` is a
