@@ -7213,6 +7213,16 @@ SOAK = [
         "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.4.1: TITHE's small faces, which exist because a character"
+        "has FOUR stats that must be on the board and the system 8x8 fits TWO"
+        "in a CGA cell. Three rules, and each caught a real defect the first"
+        "time it ran: no glyph may ink its ADVANCE column or row (at three"
+        "pixels of width a run that touches is a word nobody can read); no two"
+        "glyphs may be the SAME picture (a ring is the letter O, and a"
+        "three-pixel bow is the letter D); and every glyph the renderer asks"
+        "for must exist. Host-side and 0.2s",
+        needs=()),
     Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
         "SPEC.md 97.5.1: TITHE's base candidates, at every band size every"
         "adapter asks for. It is here because of ONE assertion - eight poses"

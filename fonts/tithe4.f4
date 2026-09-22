@@ -1,0 +1,354 @@
+# tithe4 - the DENSE face
+#
+# Three pixels wide is what puts FOUR stats in a CGA cell: the stat column
+# is 24 pixels and the cell 20 rows, which at a 4x6 advance is six columns
+# by three rows - HP on one, POWER on the next, and the two variable stats
+# sharing the third. At 5x7 it is four by two and the fourth has nowhere to
+# go. What three pixels CANNOT carry is an alphabet: M, N and W have one
+# form each here and they are the only ones there are.
+#
+# 4x6 cell, 3x5 ink - the last column and the last row are the
+# ADVANCE, so a run of glyphs never needs a gap put between them.
+# Codes 1..7 are the stat ICONS: one glyph set and one renderer, so a
+# number and the thing it is a number OF are drawn the same way.
+#
+# '#' IS BOTH THE INK AND THE COMMENT MARKER, so a reader must test
+# for a PIXEL ROW before it tests for a comment - tools/os88font.py
+# carries the same warning and this file's reader walked into it.
+
+char 1   icon
+#.#.
+###.
+###.
+.#..
+....
+....
+char 2   icon
+.#..
+###.
+###.
+###.
+.#..
+....
+char 3   icon
+###.
+#.#.
+###.
+.#..
+....
+....
+char 4   icon
+..#.
+..#.
+.#..
+#...
+##..
+....
+char 5   icon
+###.
+###.
+###.
+.#..
+....
+....
+char 6   icon
+..#.
+.##.
+###.
+.##.
+..#.
+....
+char 7   icon
+.#..
+###.
+#.#.
+#.#.
+....
+....
+char 32  ' '
+....
+....
+....
+....
+....
+....
+char 43  '+'
+....
+.#..
+###.
+.#..
+....
+....
+char 45  '-'
+....
+....
+###.
+....
+....
+....
+char 46  '.'
+....
+....
+....
+....
+.#..
+....
+char 47  '/'
+..#.
+..#.
+.#..
+#...
+#...
+....
+char 48  '0'
+###.
+#.#.
+#.#.
+#.#.
+###.
+....
+char 49  '1'
+.#..
+##..
+.#..
+.#..
+###.
+....
+char 50  '2'
+##..
+..#.
+.#..
+#...
+###.
+....
+char 51  '3'
+##..
+..#.
+.#..
+..#.
+##..
+....
+char 52  '4'
+#.#.
+#.#.
+###.
+..#.
+..#.
+....
+char 53  '5'
+###.
+#...
+##..
+..#.
+##..
+....
+char 54  '6'
+.##.
+#...
+###.
+#.#.
+###.
+....
+char 55  '7'
+###.
+..#.
+.#..
+.#..
+.#..
+....
+char 56  '8'
+###.
+#.#.
+###.
+#.#.
+###.
+....
+char 57  '9'
+###.
+#.#.
+###.
+..#.
+##..
+....
+char 65  'A'
+.#..
+#.#.
+###.
+#.#.
+#.#.
+....
+char 66  'B'
+##..
+#.#.
+##..
+#.#.
+##..
+....
+char 67  'C'
+.##.
+#...
+#...
+#...
+.##.
+....
+char 68  'D'
+##..
+#.#.
+#.#.
+#.#.
+##..
+....
+char 69  'E'
+###.
+#...
+##..
+#...
+###.
+....
+char 70  'F'
+###.
+#...
+##..
+#...
+#...
+....
+char 71  'G'
+.##.
+#...
+#.#.
+#.#.
+.##.
+....
+char 72  'H'
+#.#.
+#.#.
+###.
+#.#.
+#.#.
+....
+char 73  'I'
+###.
+.#..
+.#..
+.#..
+###.
+....
+char 74  'J'
+..#.
+..#.
+..#.
+#.#.
+.#..
+....
+char 75  'K'
+#.#.
+#.#.
+##..
+#.#.
+#.#.
+....
+char 76  'L'
+#...
+#...
+#...
+#...
+###.
+....
+char 77  'M'
+#.#.
+###.
+###.
+#.#.
+#.#.
+....
+char 78  'N'
+#.#.
+##..
+###.
+.##.
+#.#.
+....
+char 79  'O'
+.#..
+#.#.
+#.#.
+#.#.
+.#..
+....
+char 80  'P'
+##..
+#.#.
+##..
+#...
+#...
+....
+char 81  'Q'
+.#..
+#.#.
+#.#.
+##..
+.##.
+....
+char 82  'R'
+##..
+#.#.
+##..
+#.#.
+#.#.
+....
+char 83  'S'
+.##.
+#...
+.#..
+..#.
+##..
+....
+char 84  'T'
+###.
+.#..
+.#..
+.#..
+.#..
+....
+char 85  'U'
+#.#.
+#.#.
+#.#.
+#.#.
+###.
+....
+char 86  'V'
+#.#.
+#.#.
+#.#.
+.#..
+.#..
+....
+char 87  'W'
+#.#.
+#.#.
+###.
+###.
+#.#.
+....
+char 88  'X'
+#.#.
+#.#.
+.#..
+#.#.
+#.#.
+....
+char 89  'Y'
+#.#.
+#.#.
+.#..
+.#..
+.#..
+....
+char 90  'Z'
+###.
+..#.
+.#..
+#...
+###.
+....
