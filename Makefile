@@ -5465,6 +5465,35 @@ $(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
 	    $(BUILD)/DOSKID.COM
 
+# ...and the SHRINK gate's PAIR (SPEC.md 96.7.2). SHRINK.COM gives its own
+# block back and then watches the free MCB the split leaves DIRECTLY BELOW its
+# stack pointer, which is where a gate frame built on the program's stack used
+# to land. SHRKID.COM is what its AH=4Bh then has to be able to run.
+$(BUILD)/SHRINK.COM: tests/dostrap/shrink.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/shrink.asm
+
+$(BUILD)/SHRKID.COM: tests/dostrap/shrkid.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/shrkid.asm
+
+$(BUILD)/dosshrink360.img: $(BUILD)/SHRINK.COM $(BUILD)/SHRKID.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SHRINK.COM \
+	    $(BUILD)/SHRKID.COM
+
+# ...and the LONG NAME gate's (SPEC.md 96.12.5). LONGNAME.COM opens one file by
+# five spellings, four of which are not 8.3 at all, and the same binary runs
+# under a real IBM DOS 3.30 off a floppy of its own - which is where the
+# expectation comes from. PLYSAMPL.BIN is generated rather than shipped: the
+# probe never reads its CONTENT, only whether a handle comes back.
+$(BUILD)/LONGNAME.COM: tests/dostrap/longname.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/longname.asm
+
+$(BUILD)/PLYSAMPL.BIN: | $(BUILD)
+	printf 'os8088 long-name gate fixture\n' > $@
+
+$(BUILD)/doslong360.img: $(BUILD)/LONGNAME.COM $(BUILD)/PLYSAMPL.BIN tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/LONGNAME.COM \
+	    $(BUILD)/PLYSAMPL.BIN
+
 # ...and the REGISTER gate's (SPEC.md 96.7.1.2). REGS.COM opens ITSELF, so the
 # disk carries nothing but the probe - no fixture to get wrong, and the same
 # binary runs under a real IBM DOS 3.30 off a floppy of its own. It CREATES
@@ -5606,7 +5635,8 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
-        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img
+        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
+        $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

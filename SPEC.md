@@ -128924,7 +128924,37 @@ its parent's live `AH=4Bh` frame with no slice constant to size and no
 arithmetic to get wrong, and the gate banks and restores the word so a child's
 exit gives the parent its depth back.
 
-##### 96.7.2.1 What it costs is DEPTH, and the number that bounds it is 510
+##### 96.7.2.1 The gate's own row, and one byte of one word
+
+`tests/dostrap/shrink.asm` is the Playroom's geometry with every number
+printed: it keeps `KEEP` paragraphs, puts `SP` one paragraph above the header
+the split then cuts, snapshots that header before any other call and again
+after five `AH=30h`, and only then moves its stack somewhere safe. Run against
+the commit before this section it prints the whole causal chain on one screen:
+
+```
+A 5A 0000 6C1D        the header as dos_mcb_split left it
+B 5A 0000 001D        the SIZE's high byte zeroed by a push
+MCB SMASHED
+48h FFFF -> 0008 001D 464 bytes is now all the allocator can see
+exec: REFUSED ax=0008 ...which is what the field reported
+```
+
+**One byte of one word takes 434 KB of free memory below `dos_exec_load`'s
+own `cmp bx, 64` floor**, and the program is told "not enough memory". That is
+worth stating because the symptom is as far from the cause as it could be:
+nothing about the refusal names a stack, and the arena the box reports beside
+it is correct.
+
+**The probe's own stack is part of the fixture and that is the trap in writing
+this row.** A stack grows down, so with `SP` one paragraph above the header
+anything the program pushes lands on it too - the first draft used `putc`,
+which pushes eight registers, and reported `MCB SMASHED` against a box that
+was behaving. Playroom pushes at most three words of its own before its calls,
+which is what fits in the header's reserved bytes; the row matches that by
+spending no push at all in the window it measures.
+
+##### 96.7.2.2 What it costs is DEPTH, and the number that bounds it is 510
 
 §96.4.1 measured the deepest `SP` on task 0's stack while a DOS program wrote
 20,480 bytes: **258 of 510 bytes used**. That measurement was of the file work
