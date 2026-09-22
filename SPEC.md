@@ -133301,6 +133301,61 @@ that says "the child is the running program" is written *before* the load can
 fail, and a refusal that left it standing would hand the parent's next
 `INT 21h` call the child's PSP.
 
+#### 96.14.4 …and `BP` is the child's to destroy
+
+The child is entered with `call dos_prog_enter` and comes back through
+§96.14.1's `ret`, and **nothing between those two restores `BP`** —
+`dos_prog_enter` does not even set it, so the program is entered with
+whatever the parent's handler happened to be holding.
+
+**The gate's whole epilogue is `BP`-relative** (§96.7.2):
+
+```
+    mov si, [bp-2]
+    mov di, [bp-4]
+    mov es, [bp-6]
+    mov sp, bp          ; ...and THIS is the one that ends the machine
+    pop ds
+    pop bp
+```
+
+So a child that never touches `BP` hands the parent's own back by accident
+and everything works, and a child that uses it — which is every compiled
+program there is — loads the parent's `SP` out of rubble. What follows is
+not a wrong answer: the `ret`s after it go to addresses taken from wherever
+that `SP` points, and the CPU walks out of the program and off the end of
+memory.
+
+**THE PLAYROOM IS THE REPORT, and it is the second defect in one launcher.**
+`PLAYROOM.EXE` is 2,520 bytes whose whole job is to `4Bh` a 114 KB game;
+§96.7.2 is what made that work at all, and this is what happens when the game
+**exits**. Measured, driving Ctrl-Q and Y on the machine:
+
+| sampled | what the CPU was doing |
+|---|---|
+| in the game | the game's own segments, mode 0Dh |
+| Ctrl-Q, the question | ditto, plus the ROM's keyboard wait |
+| just after Y | text mode 3, 16 lit pixels, CPU in the ROM at `F000:FF2x` |
+| 30 s later | `CS=CFCF`, `IP` marching `018Dh → 196Dh` across samples |
+
+That last row is the whole finding: `CFCF:xxxx` is above the adapters, there
+is nothing there, and the address advances every time it is read. The machine
+is executing blank memory for ever, which from the outside is *"exiting
+leaves us at a blinking cursor instead of the desktop"* — the blinking cursor
+is the text mode the game set on its way out, and nothing of ours ever runs
+again: `fsx_task` never goes back to 0xFF, so the bracket is still up and the
+desktop cannot be repainted by anybody.
+
+**The fix is `push bp` / `pop bp` around the child**, with the `SS:SP` bank
+taken *after* the push so §96.14.1's `ret` lands on the `pop`. Two bytes.
+
+**Why the gate never caught it**: `tests/dosexec.py`'s child is a probe that
+prints, reads its PSP and exits, and it never touches `BP`. So it inherited
+the parent's, the epilogue read the right frame, and the row was green for as
+long as the defect existed. `tests/dosexec/kid.asm` clobbers `BP` before its
+`AH=4Ch` now, which is a one-line change that turns a green row into the one
+that would have found this.
+
 #### 96.14.2 What is not built
 
 - **`AL=1`** (load but do not run) and **`AL=3`** (load an overlay) are

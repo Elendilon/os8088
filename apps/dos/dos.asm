@@ -4128,11 +4128,23 @@ dos_int21:
     ; label in here - a global one would re-scope every local label after it -
     ; so the child's exit puts SP back one word BELOW what is banked here and
     ; `ret`s, landing on the word this call is about to push.
-    mov ax, ss
-    mov [dos_psv_ss], ax
+    ;
+    ; **AND BP IS THE CHILD'S TO DESTROY** (SPEC.md 96.14.4). The gate's whole
+    ; epilogue is BP-relative - `mov si,[bp-2]`, `mov es,[bp-6]`, `mov sp,bp`
+    ; - and `dos_prog_enter` never sets BP, so a child that leaves it alone
+    ; hands the PARENT'S OWN BP back by accident and a child that uses it
+    ; loads the parent's SP out of rubble. The machine then walks off the end
+    ; of memory: measured on the Playroom, whose launcher EXECs a 114KB game
+    ; and whose exit left the CPU marching through CFCFh with the screen
+    ; blank. It is why `tests/dosexec.py` passed for a year - its child is a
+    ; probe that never touches BP.
+    push bp                         ; ...so the bank below is taken AFTER this
+    mov ax, ss                      ; push, and the child's `ret` lands on the
+    mov [dos_psv_ss], ax            ; `pop` rather than on the call site
     mov [dos_psv_sp], sp
     mov byte [dos_inchild], 1
     call dos_prog_enter             ; ...and comes back HERE when it exits
+    pop bp
     call dos_exec_unload            ; the child's block, back to the chain
     xor ax, ax
     jmp .fhok
