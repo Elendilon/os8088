@@ -5350,6 +5350,16 @@ $(BUILD)/DOSMOUSE.COM: tests/dosmouse/mouse.asm | $(BUILD)
 $(BUILD)/dosmou360.img: $(BUILD)/DOSMOUSE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSMOUSE.COM
 
+# ...and the WINDOW gate's (SPEC.md 96.10.7), which is in tests/dostrap/
+# rather than beside the one above because it runs under a real IBM DOS with
+# CuteMouse loaded UNCHANGED - that is where the answers it is checked
+# against were measured (docs/DOS-DEBUGGING.md).
+$(BUILD)/MOURANGE.COM: tests/dostrap/mourange.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/mourange.asm
+
+$(BUILD)/dosrange360.img: $(BUILD)/MOURANGE.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MOURANGE.COM
+
 # ...and the file-handle gate's, which WRITES - so the disk it runs from is
 # the one it creates DOSTEST.DAT on, and os88marty's per-instance clone is
 # what keeps that out of build/ (SPEC.md 96.11).
@@ -5636,7 +5646,8 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
         $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
-        $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img
+        $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
+        $(BUILD)/dosrange360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \

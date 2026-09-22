@@ -282,6 +282,9 @@ kd_entry:
     mov word [dos_vh], 200      ; asks OSAPI_VIDEO; there is no kernel here to
                                 ; ask, and a text-mode machine's is the 80x25
                                 ; cell grid's
+    call dos_m33_wall           ; ...and the INT 33h window opens onto all of
+                                ; it (96.10.7), for a program that polls 03h
+                                ; without resetting first
     ; --- THE MOUSE, AND IT GOES IN BEFORE THE BANK (SPEC.md 96.45) ----------
     ; `dos_restore_machine` puts the WHOLE IVT back out of `dos_save_machine`'s
     ; copy, so a vector taken after the bank is one the program's own exit

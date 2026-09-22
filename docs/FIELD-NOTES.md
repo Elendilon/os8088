@@ -2541,7 +2541,7 @@ the same program in front of a real DOS and diffing; this is the first time
 that method has said *stop, there is nothing here* — which is worth as much,
 and cost about fifteen minutes against the day a "fix" would have taken.
 
-## 56. Battle Chess: it runs, and its own cursor never moves (OPEN — called NOT OURS on a reference run that never reached the game, and it IS ours)
+## 56. Battle Chess: it runs, and its own cursor never moves (FIXED — we ignored the 320x200 window the game asked INT 33h for: SPEC.md §96.10.7)
 
 Reported off the fork owner's machine, with the game on a fixed disk: *"Battle
 chess launches and runs, but the cursor (which looks like a program special
@@ -2608,6 +2608,41 @@ It has exactly **one caller**, at image `0x1D3`, in early start-up between two
 `inc word [0x48]` — a stage counter the exit path unwinds (`cmp word [0x48],5
 / jl ... call uninstall`). So the link is armed at launch, unconditionally,
 and not from a menu.
+
+### ...AND NONE OF THAT IS THE DEFECT. Read this section and §96.10.7
+
+**The serial code above is the game's MODEM LINK and not its mouse.** The
+same `CHESS.EXE`, at file offset `11BEEh`, probes for an INT 33h driver and
+prefers it — the vector's segment, then `AX=0` and a non-zero answer, then
+`07h`/`08h` for a **0..319 x 0..199** window, then `03h` for ever. The
+reference trace says the same thing from outside: `00 07 08 03 03 03…`, 255
+position reads.
+
+**We answered `07h` and `08h` as no-ops**, so the first `03h` after them was
+answered `x=320` — one past the window the program had set two instructions
+earlier. A mode 13h game that indexes anything with that is gone, and this
+one is: `cs:ip` walks into low memory (`0000:F2xx`, `SP` odd) and the screen
+goes black and stays black.
+
+**Which is why §96.45.3's six bytes looked like the cause and were not.**
+With `kdm_x`/`kdm_y` starting at `(0,0)` that first read was accidentally
+inside the window, so the game survived it and drew its hand in the corner —
+the stuck cursor this entry opened with. Centring the pointer, which is
+correct and measured, put the first read OUTSIDE the window and turned a
+stuck cursor into a black screen. The A/B is exact:
+
+| build | after Space at the title |
+|---|---|
+| before §96.45.3 | the board, hand stuck in the top-left corner |
+| §96.45.3 | **0 non-black pixels, permanently** |
+| §96.10.7 | the board, hand in the MIDDLE — `(320,96)` mapped into the game's own window |
+
+**The rule this cost, and it is entry 55's again one turn further on**: the
+withdrawn conclusion below ends by naming `[0x23f2]`/`[0x23f0]` as the thread
+to pull. That was a reasonable guess and it was the wrong thread, and what
+found the right one was not a better guess — it was disassembling the program
+until it was clear which of its two serial paths the reporter's symptom was
+even about.
 
 ### THE VERDICT BELOW IS WITHDRAWN — read this first
 

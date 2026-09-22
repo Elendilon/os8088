@@ -132391,9 +132391,94 @@ in our own trace looks wrong, because nothing we *said* was wrong — the defect
 is a register we wrote to when we should have left it.
 
 `07h` and `08h` are named in the dispatcher now rather than falling off the
-end. They clamp nothing — the host's pointer is already inside the screen —
-but they are no-ops that preserve `AX`, and `tests/dostrap/mcursor.asm`'s
-check F is the ratchet.
+end, and they preserve `AX`; `tests/dostrap/mcursor.asm`'s check F is the
+ratchet. **They used to clamp nothing either** — *"the host's pointer is
+already inside the screen"* — and that half was wrong, which is §96.10.7.
+
+### 96.10.7 …and the WINDOW `07h`/`08h` set is REAL
+
+The sentence above this one used to end *"they clamp nothing — the host's
+pointer is already inside the screen"*, and the pointer being inside **the
+screen** is not the claim a program that called `07h` is making. It has told
+the driver what its own coordinate system is, and every read after that is an
+answer in it.
+
+**BATTLE CHESS IS THE REPORT** (docs/FIELD-NOTES.md 56). Its input-device
+probe, disassembled out of `CHESS.EXE` at file offset `11BEEh`, is
+
+```
+    mov bx, 0CCh / mov ax, 0 / mov es, ax   ; INT 33h's own vector
+    mov ax, [es:bx+2] / or ax, ax / jz .joystick
+    sub ax, ax / int 33h / or ax, ax / jz .joystick
+    mov ax, 7 / mov cx, 0 / mov dx, 013Fh / int 33h    ; x: 0..319
+    mov ax, 8 / mov cx, 0 / mov dx, 00C7h / int 33h    ; y: 0..199
+    mov ax, 1 / retf                                   ; "the device is a mouse"
+```
+
+and it then polls `03h` for ever — 255 reads in one reference run. It is a
+mode 13h game, so 0..319 is its screen; this box answered **320** to the first
+read, one past the window the program had set two instructions earlier.
+
+**MEASURED, on IBM DOS 3.30 with CuteMouse 1.9.1** (`tests/dostrap/
+mourange.asm`, which runs there and here unchanged):
+
+```
+    RESET ax=FFFF bx=2
+    POS1 (reset)         x=320 y=96
+    POS2 (range 319x199) x=312 y=96      <- NOTHING moved between these two
+    POS3 (moved right)   x=312 y=192     <- 720 mickeys right, 288 down
+    POS4 (warp 600,190)  x=312 y=184     <- 04h, to a point outside the window
+    POS5 (range 639x199) x=312 y=184     <- ...and the window opened again
+```
+
+So a real driver **holds the window and forces its own position into it at the
+moment it is set**: 320 is outside 0..319, and what comes back is 319 clamped
+and then snapped down to the 8-pixel text cell — the same rule that makes the
+reset `y` 96 rather than 100 (§96.45.3). Three more things fall out of the
+same run: the clamp is **sticky** (POS3 — the hand moved 720 mickeys right and
+`x` did not leave 312, while `y`, which was inside its window, tracked), it
+applies to `04h` as well (POS4), and **widening the window afterwards does not
+put the pointer back** (POS5), because what was clamped was the driver's own
+stored position and the overshoot is gone.
+
+**WHAT THIS BOX DOES IS MAP AND NOT CLAMP, and the reason is the pointer.** A
+real driver integrates mickeys: it has a position of its own and no idea where
+the arrow "really" is, so clamping is the only thing it *can* do. Ours is
+handed an ABSOLUTE position over the very glass the program is drawing on
+(`DHK_MOUSE`, §96.44.3), so the useful answer is the same physical point
+expressed in the program's units —
+
+```
+    x' = x0 + hx * (x1 - x0 + 1) / [dos_vw]        ...and the same for y
+```
+
+— which puts the program's own cursor under the user's hand across the whole
+screen. Clamping is what POS3 measures and it is the right answer **there**,
+where the hand has moved 720 mickeys and the driver's only choice is to
+discard the overshoot. Here it would pin Battle Chess's cursor at its right
+edge for the whole right half of the desk, while the kernel's own arrow — the
+thing the user is actually moving — carried on; and a text-mode program asking
+for 0..79 would get the leftmost eighth of the screen and nothing else. The
+divergence is deliberate and it is the one place this section does not copy
+the measurement, because the measured driver and this one are not holding the
+same thing: **a window this box maps into cannot be sticky, so POS5's
+"widening does not put it back" cannot arise either.**
+
+**It is the IDENTITY for the full window**, which is why nothing that works
+today moves: `x0 = 0`, `x1 = [dos_vw] - 1` gives `x' = hx`, and the read takes
+one compare rather than a `mul`/`div` pair to find that out.
+
+The window is four words of the CORE's `.bss` (§96.44.2), because
+`dos_int33` is core and both hosts answer these functions. `00h` puts it back
+to the whole virtual screen, exactly as it puts the cursor away and drops the
+event handler, and both hosts set it beside `[dos_vw]`/`[dos_vh]` so that a
+program which never resets still reads a sane window. `07h` and `08h` take the
+pair in either order — a driver swaps `min > max` rather than refusing — and
+clamp it to the virtual screen, so no program can make the map divide by
+anything but `[dos_vw]`.
+
+`04h` (set position) stays refused for §96.10.2's reason, which the window
+does not change: the host's arrow is the kernel's.
 
 ### 96.11 File handles, built on an API that has none
 

@@ -3296,6 +3296,25 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/doslong360.img",)),
 
+    Row("dosrange", "soak", py("tests/dosrange.py"), 45.0,
+        "INT 33h's COORDINATE WINDOW (SPEC.md 96.10.7). `07h` and `08h` are a "
+        "program saying what its own screen is, and every `03h` after that is "
+        "an answer in those units - and this box answered both as NO-OPS, on "
+        "the ground that the host's pointer is already inside THE SCREEN, "
+        "which is not the claim the program made. Battle Chess is the report "
+        "(docs/FIELD-NOTES.md 56): a mode 13h game that sets 0..319 x 0..199, "
+        "polls `03h` for ever, was handed 320 on the first read and ran off "
+        "into low memory - a black screen, permanently, on the key that "
+        "starts the game. THE EXPECTATION IS MEASURED: `MOURANGE.COM` runs "
+        "under a real IBM DOS 3.30 with CuteMouse unchanged, and 96.10.7 "
+        "carries what it answered. BOTH ARMS ARE THE ROW for dosmouse's "
+        "reason - a CGA desktop IS 640x200, so a window cut from "
+        "[dos_vw]/[dos_vh] instead of INT 33h's virtual screen reads "
+        "perfectly there and scales y TWICE on a Hercules, which is a defect "
+        "this row caught while it was being written.",
+        needs=("marty",), serial=True,
+        wants=("build/dosrange360.img",)),
+
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

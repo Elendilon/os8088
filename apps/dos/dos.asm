@@ -714,6 +714,21 @@ DST_CPWAIT  equ 4                   ; ...and it is waiting for the heap to be
                                     ; a lifecycle, which is why a stale wake
                                     ; still finds the state advanced
 
+; --- INT 33h's VIRTUAL SCREEN (SPEC.md 96.10), which is not the machine's ----
+; A mouse driver's coordinates are a 640x200 grid whatever the adapter is
+; doing, and BOTH hosts hand `dos_mou_read` that grid: the windowed box scales
+; the kernel's pointer into it in `dos_hk_mouse` (dividing by the REAL screen,
+; which is what `[dos_vw]`/`[dos_vh]` hold there - 640x480 on a VGA), and
+; `kern_dos` accumulates into it directly. So the window SPEC.md 96.10.7 maps
+; into is cut from these and never from `[dos_vw]`/`[dos_vh]`.
+;
+; **THAT IS A DEFECT THIS FILE ALREADY HAD ONCE, MEASURED**: cutting the map
+; from `[dos_vw]`/`[dos_vh]` reads correctly on `kern_dos`, where they are 640
+; and 200, and scales y a second time in the box - `MOURANGE.COM` asked for
+; 0..199, stood the pointer at y=60 and was answered 25.
+M33_VW      equ 640
+M33_VH      equ 200
+
 ; --- why it did not ----------------------------------------------------------
 DER_GOTO    equ 0
 DER_MEM     equ 1
@@ -1985,6 +2000,9 @@ dos_fsx_main:
     mov [dos_vw], ax                ; (SPEC.md 96.10). Asked ONCE, here, and
     mov [dos_vh], bx                ; not per call - it cannot change inside a
                                     ; bracket and a divide is 80+ clocks
+    call dos_m33_wall               ; ...and the INT 33h window opens onto all
+                                    ; of it (96.10.7), for a program that polls
+                                    ; 03h without resetting first
 
                                     ; (the drivers are already out: dos_run
                                     ; took them before the arena, on every arm
@@ -10978,12 +10996,15 @@ dos_int33:
     cmp ax, 6
     je .release
     cmp ax, 7
-    je .none                       ; set the X / Y RANGE. We clamp nothing -
-    cmp ax, 8                      ; the host's pointer is already inside the
-    je .none                       ; screen - so these are no-ops, but they
-                                   ; must be no-ops that LEAVE AX ALONE, which
-                                   ; is the whole of SPEC.md 96.10.6 and is
-                                   ; what Microsoft Works reads as "is there a
+    je .xwin                       ; set the X / Y WINDOW (SPEC.md 96.10.7).
+    cmp ax, 8                      ; These WERE no-ops - "we clamp nothing,
+    je .ywin                       ; the host's pointer is already inside the
+                                   ; screen" - and the pointer being inside
+                                   ; THE SCREEN is not the claim the program
+                                   ; is making: it has just said what its own
+                                   ; coordinate system is. They still LEAVE AX
+                                   ; ALONE, which is 96.10.6 and is what
+                                   ; Microsoft Works reads as "is there a
                                    ; mouse"
     cmp ax, 0x0A
     je .tcur
@@ -11044,7 +11065,30 @@ dos_int33:
     popf
     jmp .none
 
+.xwin:
+    ; AX=0007h: CX and DX are the lowest and highest x the program will use.
+    ; **BANKED AND PUT BACK**, because 96.10.6's rule outlives this: a
+    ; function with no documented return value comes back with AX as it went
+    ; in, and Microsoft Works reads AL as its "mouse present" flag.
+    push ax
+    mov ax, M33_VW
+    call dos_m33_win
+    mov [dos_m33x0], cx
+    mov [dos_m33x1], dx
+    pop ax
+    jmp .none
+.ywin:
+    push ax                        ; AX=0008h, the same on the other axis
+    mov ax, M33_VH
+    call dos_m33_win
+    mov [dos_m33y0], cx
+    mov [dos_m33y1], dx
+    pop ax
+    jmp .none
 .reset:
+    call dos_m33_wall              ; a reset opens the window to the whole
+                                   ; virtual screen (96.10.7), which is the
+                                   ; state a driver powers up in
     call dos_m33_hidden            ; a reset puts the cursor away and takes the
                                    ; masks back to the pair a driver powers up
                                    ; with (SPEC.md 96.10.5)
@@ -11584,6 +11628,104 @@ dos_m33_where:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
+; dos_m33_wall - open the window to the whole virtual screen (SPEC.md 96.10.7)
+; clobbers: nothing, not even the flags
+;
+; The state a driver powers up in, and what `00h` puts back. Both hosts call it
+; beside their `[dos_vw]`/`[dos_vh]` stores as well, because a program that
+; never resets and goes straight to `03h` would otherwise read a window of
+; `0..0` - which is not a smaller answer, it is zero for ever.
+; -----------------------------------------------------------------------------
+dos_m33_wall:
+    mov word [dos_m33x0], 0
+    mov word [dos_m33x1], M33_VW - 1
+    mov word [dos_m33y0], 0
+    mov word [dos_m33y1], M33_VH - 1
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_win - order one axis's pair and clamp it to the virtual screen
+; in:  CX, DX = the two ends as the program gave them; AX = that axis's SIZE
+;      on INT 33h's VIRTUAL screen (M33_VW / M33_VH, never [dos_vw]/[dos_vh])
+; out: CX <= DX, both inside 0..AX-1
+; clobbers: AX, flags
+;
+; A DRIVER SWAPS A REVERSED PAIR rather than refusing it, and the clamp is
+; what lets `dos_m33_fit` divide by a constant without checking anything: a
+; window inside the virtual screen can never be wider than it.
+; -----------------------------------------------------------------------------
+dos_m33_win:
+    cmp cx, dx
+    jbe .ord
+    xchg cx, dx
+.ord:
+    dec ax                          ; the highest legal coordinate
+    cmp cx, ax
+    jbe .lo
+    mov cx, ax
+.lo:
+    cmp dx, ax
+    jbe .hi
+    mov dx, ax
+.hi:
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_m33_fit - the host's pointer, in the PROGRAM's units (SPEC.md 96.10.7)
+; in:  CX = x, DX = y, in the host's 640x200 virtual units
+; out: CX, DX inside the window 07h and 08h set
+; clobbers: AX, BX, flags
+;
+; **MAP, NOT CLAMP, AND THE REASON IS THE POINTER.** A real driver integrates
+; mickeys and has no idea where the arrow really is, so clamping is the only
+; thing it can do; this box is handed an ABSOLUTE position over the very glass
+; the program is drawing on, so the useful answer is that same physical point
+; in the program's own units. Clamping would pin Battle Chess's cursor at its
+; right edge for the whole right half of the desk.
+;
+; THE FULL WINDOW IS THE IDENTITY and costs one compare per axis, which is
+; every program that never calls 07h and every one that asks for the whole
+; screen - so nothing that works today pays for a `mul`/`div` pair.
+;
+; The y is banked across the x map because `mul` writes DX, which is the y this
+; routine has to answer - the same clobber the header above this one names.
+; -----------------------------------------------------------------------------
+dos_m33_fit:
+    push bx
+    push dx
+    mov ax, [dos_m33x1]
+    sub ax, [dos_m33x0]
+    inc ax                          ; AX = the window's width
+    cmp ax, M33_VW
+    je .xdone
+    mul cx                          ; DX:AX = the host's x times that width...
+    mov bx, M33_VW
+    div bx                          ; ...over the virtual screen's, so the
+    add ax, [dos_m33x0]             ; quotient is under the width and fits AX
+    mov cx, ax
+.xdone:
+    pop dx
+    mov ax, [dos_m33y1]
+    sub ax, [dos_m33y0]
+    inc ax
+    cmp ax, M33_VH
+    je .ydone
+    mul dx
+    mov bx, M33_VH
+    div bx
+    add ax, [dos_m33y0]
+    mov dx, ax
+.ydone:
+    pop bx
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
 ; dos_mou_zero - forget the edge state (function 0)
 ; clobbers: nothing
 ; -----------------------------------------------------------------------------
@@ -11617,6 +11759,12 @@ dos_mou_read:
     push ax
     call dos_m33_where              ; the host read, which `dos_m33_tick` and
                                     ; the cursor share (96.10.4.1)
+    call dos_m33_fit                ; ...AND INTO THE PROGRAM'S OWN WINDOW
+                                    ; (SPEC.md 96.10.7). It is here and not in
+                                    ; `dos_m33_where` because the TEXT CURSOR
+                                    ; is drawn from that one and is ours: its
+                                    ; cell arithmetic is in the host's units
+                                    ; whatever the program's are
     call dos_mou_edge               ; every state read feeds functions 5 and 6
     call dos_m33_paint              ; ...AND MOVES THE CURSOR. This is the fine
                                     ; update point and the tick is the coarse
@@ -12482,6 +12630,13 @@ DOS_BTREC_SZ equ 16              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                 ; than 0: `01h` releases one nesting level and
                                 ; `02h` takes one, so a program that hid twice
                                 ; must show twice. Visible is exactly 0
+    DBSS DOS_B_M33X0,  2        ; --- THE PROGRAM'S OWN WINDOW (SPEC.md
+    DBSS DOS_B_M33X1,  2        ; 96.10.7): the range 07h and 08h set, which
+    DBSS DOS_B_M33Y0,  2        ; every 03h answer is expressed in. Four words
+    DBSS DOS_B_M33Y1,  2        ; and not a flag: a program is entitled to ask
+                                ; for any window inside the virtual screen,
+                                ; and Battle Chess asks for 0..319 x 0..199
+                                ; because that is its mode 13h screen
     DBSS DOS_B_M33SM,  2        ; the SCREEN mask, ANDed into the cell...
     DBSS DOS_B_M33CM,  2        ; ...and the CURSOR mask, XORed after it. Both
                                 ; are STATE and not constants: Microsoft Works
@@ -18051,6 +18206,10 @@ dos_m33lb   equ DOS_CBASE + DOS_B_M33LB
 dos_m33hk   equ DOS_CBASE + DOS_B_M33HK
 dos_m33bsy  equ DOS_CBASE + DOS_B_M33BSY
 dos_m33shw  equ DOS_CBASE + DOS_B_M33SHW  ; --- the text cursor (96.10.5) ---
+dos_m33x0   equ DOS_CBASE + DOS_B_M33X0  ; --- the window (96.10.7) -------
+dos_m33x1   equ DOS_CBASE + DOS_B_M33X1
+dos_m33y0   equ DOS_CBASE + DOS_B_M33Y0
+dos_m33y1   equ DOS_CBASE + DOS_B_M33Y1
 dos_m33sm   equ DOS_CBASE + DOS_B_M33SM
 dos_m33cm   equ DOS_CBASE + DOS_B_M33CM
 dos_m33dv   equ DOS_CBASE + DOS_B_M33DV
