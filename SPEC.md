@@ -128857,6 +128857,114 @@ a defect and the probe judges nothing — **the finding is the diff between the
 two columns**, and the column for a real IBM DOS 3.30 is what says which of the
 forty-five answer in `AX` and which are supposed to hand it back.
 
+#### 96.7.2 The gate runs on the BOX'S stack, and building its frame on the program's corrupted the arena
+
+`dos_int21` was entered on the program's stack and built its whole frame
+there — `push bp`, `push ds`, `push si`, `push di`, `push es`, `push dx`, then
+every handler's own pushes and every call under them. **A real DOS switches to
+an internal stack at its own first instruction**, so what a DOS program's
+stack ever carries is the three words the `int` itself pushed.
+
+That difference is not a nicety, and §96.4.1 had already found half of it: a
+*back-end* call on the program's stack breaks the scheduler and reads
+`.lowbss` out of the program's own memory, so `dos_be_go` swaps. What it did
+not cover is the frame itself, and the frame is what does the damage.
+
+**The Playroom is the report, and it is an ARENA corruption.** `PLAYROOM.EXE`
+is a launcher: it shrinks its own block with `AH=4Ah` and then `AH=4B00`s
+`PLAYEGA.EXE`. Under this box the EXEC answered **`AX=0008`, "not enough
+memory"**, with 445 KB of arena and 434 KB of it free. The MCB chain, read off
+a stopped machine while the launcher's own menu was up, says why in three
+rows:
+
+| | |
+|---|---|
+| `MCB 23C0` | `sig=M own=23E2 size=0020` — the environment |
+| `MCB 23E1` | `sig=M own=23E2 size=0090` — the program, shrunk. **Correct** |
+| `MCB 2472` | `sig=00 own=6C8D size=F323` — should be `Z / 0000 / 6C8D` |
+
+The launcher's `SS` is `2470` and its `SP` is `0030`. **So that third MCB is at
+`SS:0020..002F` — the sixteen bytes immediately below the program's own stack
+pointer**, and `own=6C8D` is the free size that belongs two bytes further up:
+what is in those fields is this gate's own frame. `dos_mcb_split` wrote the
+free block correctly and the next `INT 21h` scribbled on it, so by the time
+`AH=4Bh` walked the chain there was no free block to find.
+
+**Why a real DOS survives the same program.** `AH=4Ah` with `BX = SS + 2 - PSP`
+is the standard shrink idiom and Playroom's `SP` is `0030`, three paragraphs,
+where it keeps two — so the program's first pushes land in the new MCB's
+*reserved* bytes at `+0A..+0F`, which no DOS reads. DOS puts nothing else
+there. This box put six more words there and then a handler on top of them.
+
+So the swap moves up to the gate:
+
+- The program's `SS:SP` and the three words the `int` pushed are read **before
+  `SS` moves**, through `BP` and CS-relative scratch, with **`IF` still 0 from
+  the gate** — which is what makes single-cell scratch safe, because nothing
+  can nest while interrupts are off.
+- The three words are **replicated** on the box's stack, so `[bp+4]`, `[bp+6]`
+  and `[bp+8]` mean what they have always meant and **not one handler
+  changes**.
+- On the way out the FLAGS word — which is the one thing a handler edits, and
+  §96.7's refusal path edits it rather than executing `stc` — is written back
+  into the program's frame, and the `iret` is taken there.
+- **`[dos_onprog]` reads 0 for the duration**, so `dos_be_go` does not swap a
+  second time. It would swap *upwards*, to `[dos_sv_sp]`, straight through the
+  frame this gate has just built there. That byte's only consumer is
+  `dos_be_go`, which is what makes borrowing it honest rather than a trick.
+
+**The stack is `[dos_sv_ss]`, the one `dos_be_go` already borrows** — the UI
+task's on the windowed box (§96.4.1) and `kern_dos`'s own where there is no
+kernel — so no new buffer is claimed and nothing resident is spent. What is
+new is **`[dos_dstk]`, the offset the next gate entry starts at**, and it is
+exact rather than a reservation: `dos_prog_enter` sets it to its own `SP`
+immediately before it jumps into the program, which is by construction below
+everything the caller still holds. A child's `INT 21h` therefore nests below
+its parent's live `AH=4Bh` frame with no slice constant to size and no
+arithmetic to get wrong, and the gate banks and restores the word so a child's
+exit gives the parent its depth back.
+
+##### 96.7.2.1 The gate's own row, and one byte of one word
+
+`tests/dostrap/shrink.asm` is the Playroom's geometry with every number
+printed: it keeps `KEEP` paragraphs, puts `SP` one paragraph above the header
+the split then cuts, snapshots that header before any other call and again
+after five `AH=30h`, and only then moves its stack somewhere safe. Run against
+the commit before this section it prints the whole causal chain on one screen:
+
+```
+A 5A 0000 6C1D        the header as dos_mcb_split left it
+B 5A 0000 001D        the SIZE's high byte zeroed by a push
+MCB SMASHED
+48h FFFF -> 0008 001D 464 bytes is now all the allocator can see
+exec: REFUSED ax=0008 ...which is what the field reported
+```
+
+**One byte of one word takes 434 KB of free memory below `dos_exec_load`'s
+own `cmp bx, 64` floor**, and the program is told "not enough memory". That is
+worth stating because the symptom is as far from the cause as it could be:
+nothing about the refusal names a stack, and the arena the box reports beside
+it is correct.
+
+**The probe's own stack is part of the fixture and that is the trap in writing
+this row.** A stack grows down, so with `SP` one paragraph above the header
+anything the program pushes lands on it too - the first draft used `putc`,
+which pushes eight registers, and reported `MCB SMASHED` against a box that
+was behaving. Playroom pushes at most three words of its own before its calls,
+which is what fits in the header's reserved bytes; the row matches that by
+spending no push at all in the window it measures.
+
+##### 96.7.2.2 What it costs is DEPTH, and the number that bounds it is 510
+
+§96.4.1 measured the deepest `SP` on task 0's stack while a DOS program wrote
+20,480 bytes: **258 of 510 bytes used**. That measurement was of the file work
+alone, because the gate's frame was somewhere else entirely. It is now on the
+same stack, above it — so the figure to watch is that one plus a gate frame
+and its handler's own locals, and it is checked rather than assumed: the
+kernel's canary is live throughout, precisely because it fires on the ticks
+where `SS` is `LOW_SEG`, which is now every tick of an `INT 21h` instead of
+only the ones inside a door.
+
 #### 96.12.1.1 `AH=4Eh`'s CX is a MASK, and ignoring it answers the wrong question
 
 `AH=4Eh` takes an attribute mask in `CX`, and this box ignored it. That is not
@@ -131669,6 +131777,43 @@ because overlays arrive with `AH=4B03h` and there is no `AH=4Bh` yet.
 the honest answer when the command tail is empty, which it always is until a
 shell exists (§96.1).
 
+#### 96.8.1 "Too big" is not "could not be read", and the sentence has to name the way out
+
+A program larger than the arena never reaches the `.EXE` loader at all.
+`dos_load` hands `OSAPI_FILE_READ` the block it just allocated as the
+capacity, and that slot answers **`FERR_BIG`** for a file bigger than the
+buffer — **decided from the directory entry before any data I/O**, so nothing
+is read and nothing is written. `dos_load` mapped every refusal to
+`DER_READ`, so a 494KB `CHESS.EXE` double-clicked on a 445KB arena said:
+
+```
+B:\BCHESS\CHESS.EXE: It could not be read.
+```
+
+which names the **disk** for a fact about **memory**, and tells the user
+nothing they can do. `FERR_BIG` now answers `DER_FIT`.
+
+**The other half of this was already right, which is why it looked like two
+failures.** `dos_exe_setup`'s `.nofit` answers `DER_FIT` when image +
+`MINALLOC` + PSP overflows the block — but that arm can only be reached by a
+file small enough to have been *read* first. A program bigger than the whole
+arena is refused one layer below it, and the two are one condition.
+
+**And the sentence changed with it.** It said `Program too big to fit in
+memory.` — DOS 3.30's own words, measured at COMMAND.COM offset 2436 — and
+matching COMMAND.COM is a nicety this particular sentence cannot afford. It
+is not a DOS program's output, it is **the box refusing to start one**, and
+the box knows something DOS never did: there is another arm with ~600KB in
+it, one page away (§96.36). So it reads:
+
+```
+Not enough RAM - try Setup, "Shut down the OS".
+```
+
+A user told *too big to fit* closes the window. A user told where the room is
+opens Setup. Reported from the field as *"This doesn't tell us there was not
+enough ram"*.
+
 ### 96.9 The MCB chain is a real allocator, not a stub
 
 `AH=48h/49h/4Ah` walk the blocks §96.3 lays out, first fit, with splitting.
@@ -132246,9 +132391,94 @@ in our own trace looks wrong, because nothing we *said* was wrong — the defect
 is a register we wrote to when we should have left it.
 
 `07h` and `08h` are named in the dispatcher now rather than falling off the
-end. They clamp nothing — the host's pointer is already inside the screen —
-but they are no-ops that preserve `AX`, and `tests/dostrap/mcursor.asm`'s
-check F is the ratchet.
+end, and they preserve `AX`; `tests/dostrap/mcursor.asm`'s check F is the
+ratchet. **They used to clamp nothing either** — *"the host's pointer is
+already inside the screen"* — and that half was wrong, which is §96.10.7.
+
+### 96.10.7 …and the WINDOW `07h`/`08h` set is REAL
+
+The sentence above this one used to end *"they clamp nothing — the host's
+pointer is already inside the screen"*, and the pointer being inside **the
+screen** is not the claim a program that called `07h` is making. It has told
+the driver what its own coordinate system is, and every read after that is an
+answer in it.
+
+**BATTLE CHESS IS THE REPORT** (docs/FIELD-NOTES.md 56). Its input-device
+probe, disassembled out of `CHESS.EXE` at file offset `11BEEh`, is
+
+```
+    mov bx, 0CCh / mov ax, 0 / mov es, ax   ; INT 33h's own vector
+    mov ax, [es:bx+2] / or ax, ax / jz .joystick
+    sub ax, ax / int 33h / or ax, ax / jz .joystick
+    mov ax, 7 / mov cx, 0 / mov dx, 013Fh / int 33h    ; x: 0..319
+    mov ax, 8 / mov cx, 0 / mov dx, 00C7h / int 33h    ; y: 0..199
+    mov ax, 1 / retf                                   ; "the device is a mouse"
+```
+
+and it then polls `03h` for ever — 255 reads in one reference run. It is a
+mode 13h game, so 0..319 is its screen; this box answered **320** to the first
+read, one past the window the program had set two instructions earlier.
+
+**MEASURED, on IBM DOS 3.30 with CuteMouse 1.9.1** (`tests/dostrap/
+mourange.asm`, which runs there and here unchanged):
+
+```
+    RESET ax=FFFF bx=2
+    POS1 (reset)         x=320 y=96
+    POS2 (range 319x199) x=312 y=96      <- NOTHING moved between these two
+    POS3 (moved right)   x=312 y=192     <- 720 mickeys right, 288 down
+    POS4 (warp 600,190)  x=312 y=184     <- 04h, to a point outside the window
+    POS5 (range 639x199) x=312 y=184     <- ...and the window opened again
+```
+
+So a real driver **holds the window and forces its own position into it at the
+moment it is set**: 320 is outside 0..319, and what comes back is 319 clamped
+and then snapped down to the 8-pixel text cell — the same rule that makes the
+reset `y` 96 rather than 100 (§96.45.3). Three more things fall out of the
+same run: the clamp is **sticky** (POS3 — the hand moved 720 mickeys right and
+`x` did not leave 312, while `y`, which was inside its window, tracked), it
+applies to `04h` as well (POS4), and **widening the window afterwards does not
+put the pointer back** (POS5), because what was clamped was the driver's own
+stored position and the overshoot is gone.
+
+**WHAT THIS BOX DOES IS MAP AND NOT CLAMP, and the reason is the pointer.** A
+real driver integrates mickeys: it has a position of its own and no idea where
+the arrow "really" is, so clamping is the only thing it *can* do. Ours is
+handed an ABSOLUTE position over the very glass the program is drawing on
+(`DHK_MOUSE`, §96.44.3), so the useful answer is the same physical point
+expressed in the program's units —
+
+```
+    x' = x0 + hx * (x1 - x0 + 1) / [dos_vw]        ...and the same for y
+```
+
+— which puts the program's own cursor under the user's hand across the whole
+screen. Clamping is what POS3 measures and it is the right answer **there**,
+where the hand has moved 720 mickeys and the driver's only choice is to
+discard the overshoot. Here it would pin Battle Chess's cursor at its right
+edge for the whole right half of the desk, while the kernel's own arrow — the
+thing the user is actually moving — carried on; and a text-mode program asking
+for 0..79 would get the leftmost eighth of the screen and nothing else. The
+divergence is deliberate and it is the one place this section does not copy
+the measurement, because the measured driver and this one are not holding the
+same thing: **a window this box maps into cannot be sticky, so POS5's
+"widening does not put it back" cannot arise either.**
+
+**It is the IDENTITY for the full window**, which is why nothing that works
+today moves: `x0 = 0`, `x1 = [dos_vw] - 1` gives `x' = hx`, and the read takes
+one compare rather than a `mul`/`div` pair to find that out.
+
+The window is four words of the CORE's `.bss` (§96.44.2), because
+`dos_int33` is core and both hosts answer these functions. `00h` puts it back
+to the whole virtual screen, exactly as it puts the cursor away and drops the
+event handler, and both hosts set it beside `[dos_vw]`/`[dos_vh]` so that a
+program which never resets still reads a sane window. `07h` and `08h` take the
+pair in either order — a driver swaps `min > max` rather than refusing — and
+clamp it to the virtual screen, so no program can make the map divide by
+anything but `[dos_vw]`.
+
+`04h` (set position) stays refused for §96.10.2's reason, which the window
+does not change: the host's arrow is the kernel's.
 
 ### 96.11 File handles, built on an API that has none
 
@@ -132951,6 +133181,52 @@ on a name that is not a file.
 loop that always did: `dos_fh_split` leaves a name it cannot shorten alone, so
 the failure is the old one rather than a half-walked path.
 
+#### 96.12.5 DOS TRUNCATES a name that is not 8.3, and refusing one is a file the program cannot reach
+
+The parse buffer is thirteen bytes — eight, a dot, three and a NUL — and
+`dos_fh_core`'s copy loop counted them: a name that reached the thirteenth
+character without a NUL was refused with **3, "path not found"**. That reads
+like a sensible bound and it is a defect, because **DOS does not have that
+bound**. Its parser fills an eleven-byte FCB-shaped field and *discards* what
+does not fit, so a program that asks for a name longer than 8.3 is given the
+file whose name is the first eight and three characters of it.
+
+The Playroom (1989) is the report. `PLAYEGA.EXE` opens its sample bank as
+**`B:plysample.bin`** — a NINE-character stem — and the file on the disk is
+`PLYSAMPL.BIN`. Refused, the program prints `B:plysample.bin FILE ERROR`
+followed by `Abnormal program termination`, which from outside looks like a
+program that could not start rather than one that could not open a file it
+plainly knew was there.
+
+**IBM DOS 3.30's own answers are the specification**, taken with
+`tests/dostrap/longname.asm` on a machine running the real DOS rather than
+reasoned about. Every row is `AH=3Dh` on a disk holding one file,
+`PLYSAMPL.BIN`:
+
+| asked for | DOS 3.30 | ours, before | ours, now |
+|---|---|---|---|
+| `PLYSAMPL.BIN` | `OK h=0005` | `OK h=0005` | `OK h=0005` |
+| `plysample.bin` — a 9-char stem | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `plysamplelong.bin` — 13 | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `PLYSAMPL.BINARY` — a 6-char extension | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+| `B:plysample.bin` — and drive-qualified | `OK h=0005` | `CF, AX=0003` | `OK h=0005` |
+
+So the loop is two fields with a ceiling each rather than one buffer with a
+length: up to eight characters of stem, then **everything up to the dot is
+eaten**; then up to three of extension, then everything up to the NUL is
+eaten. A separator that survived `dos_fh_split` is still refused with 3 — that
+is the old failure and it means the *folder* part did not fit, which is a
+different thing from a long file name.
+
+**THE FOLDER COMPONENTS ARE DELIBERATELY NOT TRUNCATED.** DOS truncates every
+component of a path the same way, and doing it here would make
+`B:\PLAYROOMLONG\X` resolve inside `PLAYROOM` — a *different directory* that
+happens to share eight characters, where a long FILE name can only ever
+resolve to the one entry the disk holds. An on-disk name is 8.3 already, so a
+long component cannot match anything and fails as it always did; silently
+walking into a neighbour is the worse answer, and no program in the reports
+asks for one.
+
 #### 96.13.1 A 5150's ROM does not set CF for a function it never heard of
 
 `int 1Ah AH=04h` is the AT's, and the 1981 BIOS has `AH=00h` and `AH=01h`.
@@ -133024,6 +133300,78 @@ failure path calls `dos_exec_back` before it answers, because the bookkeeping
 that says "the child is the running program" is written *before* the load can
 fail, and a refusal that left it standing would hand the parent's next
 `INT 21h` call the child's PSP.
+
+#### 96.14.4 …and `BP` is the child's to destroy
+
+The child is entered with `call dos_prog_enter` and comes back through
+§96.14.1's `ret`, and **nothing between those two restores `BP`** —
+`dos_prog_enter` does not even set it, so the program is entered with
+whatever the parent's handler happened to be holding.
+
+**The gate's whole epilogue is `BP`-relative** (§96.7.2):
+
+```
+    mov si, [bp-2]
+    mov di, [bp-4]
+    mov es, [bp-6]
+    mov sp, bp          ; ...and THIS is the one that ends the machine
+    pop ds
+    pop bp
+```
+
+So a child that never touches `BP` hands the parent's own back by accident
+and everything works, and a child that uses it — which is every compiled
+program there is — loads the parent's `SP` out of rubble. What follows is
+not a wrong answer: the `ret`s after it go to addresses taken from wherever
+that `SP` points, and the CPU walks out of the program and off the end of
+memory.
+
+**THE PLAYROOM IS THE REPORT, and it is the second defect in one launcher.**
+`PLAYROOM.EXE` is 2,520 bytes whose whole job is to `4Bh` a 114 KB game;
+§96.7.2 is what made that work at all, and this is what happens when the game
+**exits**. Measured, driving Ctrl-Q and Y on the machine:
+
+| sampled | what the CPU was doing |
+|---|---|
+| in the game | the game's own segments, mode 0Dh |
+| Ctrl-Q, the question | ditto, plus the ROM's keyboard wait |
+| just after Y | text mode 3, 16 lit pixels, CPU in the ROM at `F000:FF2x` |
+| 30 s later | `CS=CFCF`, `IP` marching `018Dh → 196Dh` across samples |
+
+That last row is the whole finding: `CFCF:xxxx` is above the adapters, there
+is nothing there, and the address advances every time it is read. The machine
+is executing blank memory for ever, which from the outside is *"exiting
+leaves us at a blinking cursor instead of the desktop"* — the blinking cursor
+is the text mode the game set on its way out, and nothing of ours ever runs
+again: `fsx_task` never goes back to 0xFF, so the bracket is still up and the
+desktop cannot be repainted by anybody.
+
+**The fix is `push bp` / `pop bp` around the child**, with the `SS:SP` bank
+taken *after* the push so §96.14.1's `ret` lands on the `pop`. Two bytes.
+
+**Why the gate never caught it**: `tests/dosexec.py`'s child is a probe that
+prints, reads its PSP and exits, and it never touches `BP`. So it inherited
+the parent's, the epilogue read the right frame, and the row was green for as
+long as the defect existed. `tests/dosexec/kid.asm` clobbers `BP` before its
+`AH=4Ch` now, which is a one-line change that turns a green row into the one
+that would have found this.
+
+**And it DOES find it, measured both ways rather than argued.** The row is
+green on the fixed kernel in 24.8 s; run against the kernel one commit
+earlier with the same clobbering child, it stops exactly where the epilogue
+does:
+
+```
+CHILD speaking
+TAIL: HELLO
+PARENT yes
+                     <- and nothing, ever
+dosexec: FAIL: the program never finished
+```
+
+`PARENT yes` is the child's last line. `BACK in the parent` is the parent's
+first one after the `4Bh` returns, and it never comes, because by then `SP`
+is whatever `0BAD1h` made of it.
 
 #### 96.14.2 What is not built
 
@@ -138852,6 +139200,125 @@ is entry 4 on docs/TESTING.md's QEMU list. Until a QEMU row drives the same
 resume, this half rests on being the exact inverse of `mou_p2_off` and on
 `mou_p2_init` still arming a PS/2 mouse correctly after the change — which is
 measured, and is not the same claim.
+
+#### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
+
+`AX=0` centres the pointer — every driver does it, and a program that resets
+and then reads `AX=3` before touching the mouse is answered the centre of the
+virtual screen. In `kern_dos` it was answered `(0,0)`, because `kdm_x` and
+`kdm_y` are the zero their `.bss` was born with and nothing ever wrote them
+until the first packet arrived.
+
+**The value is MEASURED and not halved.** `build/DOSMOUSE.COM` runs under a
+real DOS unchanged, and under IBM DOS 3.30 with CuteMouse 1.9.1 on COM1 in
+Microsoft mode it prints:
+
+```
+CuteMouse v1.9.1 alpha 1 [FreeDOS]
+Installed at COM1 (03F8h/IRQ4) in Microsoft mode
+RESET ax=FFFF bx=2
+POS1 x=320 y=96 b=0
+```
+
+320 is the middle of `0..639`. **96 is not the middle of `0..199`** — it is
+100 snapped down to the 8-pixel text cell, which is what a driver with a
+character cursor to draw does with it. `KDM_X0`/`KDM_Y0` copy the measurement
+rather than the arithmetic, which is the rule the rest of §96.10 is written
+to.
+
+**It is set at `kd_mou_start` and not on every reset, and that is a smaller
+claim than the one above.** Centring belongs to whoever owns the pointer, and
+in the windowed box that is the kernel: §96.10's `AX=4` is already a no-op
+there because *"a program that borrowed the screen has not borrowed the
+arrow"*, and an `AX=0` that teleported the user's arrow would be the same
+mistake. So the core's `.reset` is left alone and only the host that owns its
+own pointer sets one. What that leaves diverging is a program which resets a
+SECOND time, after moving the mouse, and expects to be re-centred; every
+program in the reports resets once at start-up, where the two are identical.
+Closing it properly is a `DHK_*` hook of its own.
+
+`tests/kdmouse.py` re-reads it on the machine — `POS1 (320, 96)`,
+`POS2 (440, 136)` after `+120,+40` — and the row never asserted the absolute
+value, only that the pointer moves down-right by unequal amounts, so the
+change is visible in its output without being what it tests.
+
+**How it was found, which is the part worth keeping.** Nothing asked for it.
+Battle Chess's cursor does not move on any DOS — it takes IRQ4 for its own
+modem link (docs/FIELD-NOTES.md 56) — but when our board and a real DOS's were
+diffed to prove the two machines behaved the same, **476 pixels of 640x400
+differed and 468 of them were one cursor in the corner**: the game drawing its
+hand at the `(0,0)` we answered, where CuteMouse's centre is under a piece and
+draws nothing. The defect was in the eight pixels of margin around a
+measurement taken for something else.
+
+#### 96.45.4 A DOS program may TAKE the port, and a driver takes it back
+
+**THE DEFECT, and it is the field's oldest open one** (docs/FIELD-NOTES.md
+56): a DOS program is entitled to hook `IRQ4` itself, and when it does,
+`kd_mou_isr` stops being called and `[kdm_x]`/`[kdm_y]` freeze at whatever
+they last held. `INT 33h` then answers that same position for ever, which
+from the glass is a cursor that never moves.
+
+**Battle Chess is the program.** Its serial link is installed
+unconditionally in early start-up (`0x1D3` → `0xD132`, three far calls:
+uninstall, `INT 14h AH=00h` with `AL=43h`, then the installer at image
+`0x10C73`), and the installer writes the vector **directly** —
+`mov si,[23F0h] / shl si,1 / shl si,1 / add si,20h`, then `mov word [si],6Dh`
+and `mov [si+2],cs`. Its handler does not chain: it reads the LSR, reads the
+data register, keeps the byte, EOIs the master and `iret`s. Measured in game
+on this machine, `[23F0h] = 4` and `[23F2h] = 03F8` — **COM1 and IRQ4, which
+is where this project's pointer lives.**
+
+**AND A REAL DRIVER GETS IT BACK, which is the part that decides this.** The
+same disk, the same game, under IBM DOS 3.30 with CuteMouse 1.9.1 on COM1:
+
+| sampled | `int 0Ch` |
+|---|---|
+| CuteMouse loaded, before the game | `0C52:023C` — the driver |
+| the game's title screen | `1DFC:006D` — **the game**, exactly as here |
+| in game, after the mode change | `0C52:023C` — **the driver, back** |
+
+CuteMouse hooks `INT 10h` in its own `AX=0` reset, and the game's switch into
+its graphics mode is the moment it re-initialises: vector, `LCR`, divisor,
+`IER = 1` and a 16-bit `out` to `base+3` that leaves **`MCR = 0Fh`** — `DTR`
+and `RTS` back on, which the game had turned off by writing `MCR = 08h`.
+
+So the rule this section is about is not "do not let a program take the
+port". It is **a mouse driver expects to be displaced and re-arms**, and
+`kern_dos` hooked once at start-up and never looked again.
+
+**WHERE THE CHECK GOES IS `kd_mou_read` AND THAT IS WHY IT COSTS NOTHING
+ELSEWHERE.** That routine is `DHK_MOUSE` (§96.44.3) — the core asks it for
+the position on every `AX=3` and on every key poll, which for the reporting
+program is 325 times a second — so the re-arm needs no new hook, no core
+byte and no `CORE_MAX`. It compares the two words at the vector against
+`kd_mou_isr` and this image's `CS`; equal is the whole cost in the normal
+case, and different re-runs the hardware arm `kd_mou_start` already carries.
+
+**MEASURED ON THE REPORTER'S OWN CONFIGURATION** — COM1, the port the game
+takes, the same disk:
+
+```
+in game        int 0Ch -> 0060:5153 = kern_dos!kd_mou_isr   <- taken back
+               kdm phase 1  x 320  b0 77                     <- packets arriving
+after a sweep  kdm x 639                                     <- and moving
+DIFF after moving right      492 px, bbox (320,192)-(639,221)
+DIFF after moving left+down   48 px, bbox (238,192)-(639,399)
+```
+
+Pixel for pixel what a machine with the mouse on COM2 gives — the arm is
+what makes the stolen port behave like a port nobody wanted. At the TITLE
+the vector is still the game's, and that is correct rather than a partial
+fix: the recovery rides on the core being asked for a position, the title
+loop polls the ROM's keyboard and never asks, and nothing on that screen
+wants a pointer.
+
+**The windowed box has the same hole with a different owner** and is NOT
+fixed here: there the ISR is the KERNEL's `mou_isr`, the box does not own it,
+and a program that hooks `IRQ4` inside the bracket displaces it until
+`dos_restore_machine` puts the whole IVT back at exit. It is confined to the
+bracket, where `kern_dos`'s was for the whole session, and closing it wants a
+kernel slot rather than a package one.
 
 ### 96.46 The volume table is the KERNEL's, and it was hard-coded
 

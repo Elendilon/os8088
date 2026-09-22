@@ -3248,6 +3248,73 @@ SOAK = [
         "gate image and on the one the guest left.",
         needs=("marty",), serial=True,
         wants=("build/dossh360.img",)),
+    Row("dosshrink", "soak", py("tests/dosshrink.py"), 30.0,
+        "A DOS CALL MUST NOT SCRIBBLE ON THE BLOCK THE PROGRAM GAVE BACK "
+        "(SPEC.md 96.7.2). `AH=4Ah` with `BX = SS + 2 - PSP` is the shrink "
+        "idiom every launcher and every C runtime start-up uses, and the free "
+        "MCB the split cuts then sits at the paragraph PAST the block - which "
+        "for a program whose SP is a paragraph or two above SS is the sixteen "
+        "bytes DIRECTLY BELOW its own stack pointer. A real DOS switches to "
+        "an internal stack at its first instruction, so all that lands there "
+        "is the three words the `int` pushed, at +0A..+0F, where nothing "
+        "reads them; this box built its whole gate frame there instead, six "
+        "words deeper, onto the signature, the owner and the size. THE "
+        "ASSERTION IS THE HEADER AND NOT THE EXEC: SHRINK.COM snapshots it "
+        "before any other call and again after five AH=30h, so a regression "
+        "names the bytes rather than reporting a refusal two steps away. The "
+        "AH=4Bh is checked after it, because that is what the field saw - The "
+        "Playroom's launcher answered AX=0008 with 434 KB free. VERIFIED RED "
+        "at the commit before the fix, with the whole chain on one screen: "
+        "`A 5A 0000 6C1D` against `B 5A 0000 001D` - ONE BYTE, the size's "
+        "high half, zeroed by a push - and then `48h FFFF -> 0008 001D`, so "
+        "434 KB of free memory reads as 464 bytes and falls under "
+        "dos_exec_load's own `cmp bx, 64` floor. **THE PROBE'S OWN STACK IS "
+        "PART OF THE FIXTURE**: SP sits one paragraph above the header, so "
+        "the window it measures spends NO push of its own - the counter is a "
+        "memory cell - and the stack moves somewhere safe before the first "
+        "`putc`, whose eight pushes would otherwise smash the header this row "
+        "is watching and go red on a box that is behaving. SHRINK.COM runs "
+        "under a real IBM DOS 3.30 unchanged, which is where `MCB INTACT` "
+        "comes from.",
+        needs=("marty",), serial=True,
+        wants=("build/dosshrink360.img",)),
+
+    Row("doslong", "soak", py("tests/doslong.py"), 30.0,
+        "DOS TRUNCATES A NAME THAT IS NOT 8.3 (SPEC.md 96.12.5). "
+        "`dos_fh_core` counted the thirteen bytes of its parse buffer and "
+        "answered 3 for anything longer; DOS fills an eleven-byte FCB-shaped "
+        "field and DISCARDS the rest, so `plysample.bin` IS `PLYSAMPL.BIN`. "
+        "The Playroom is the report - PLAYEGA.EXE opens `B:plysample.bin` and "
+        "prints `FILE ERROR` / `Abnormal program termination` when refused, "
+        "which from outside looks like a program that could not start. THE "
+        "EXPECTATION IS MEASURED: LONGNAME.COM runs under a real IBM DOS 3.30 "
+        "unchanged and all five spellings come back with the SAME HANDLE, "
+        "which is the table in 96.12.5. Its four long rows fail INDEPENDENTLY "
+        "- the stem ceiling, the extension ceiling and the drive prefix each "
+        "have a row of their own - so an off-by-one is not hidden by the "
+        "bound coming back whole.",
+        needs=("marty",), serial=True,
+        wants=("build/doslong360.img",)),
+
+    Row("dosrange", "soak", py("tests/dosrange.py"), 45.0,
+        "INT 33h's COORDINATE WINDOW (SPEC.md 96.10.7). `07h` and `08h` are a "
+        "program saying what its own screen is, and every `03h` after that is "
+        "an answer in those units - and this box answered both as NO-OPS, on "
+        "the ground that the host's pointer is already inside THE SCREEN, "
+        "which is not the claim the program made. Battle Chess is the report "
+        "(docs/FIELD-NOTES.md 56): a mode 13h game that sets 0..319 x 0..199, "
+        "polls `03h` for ever, was handed 320 on the first read and ran off "
+        "into low memory - a black screen, permanently, on the key that "
+        "starts the game. THE EXPECTATION IS MEASURED: `MOURANGE.COM` runs "
+        "under a real IBM DOS 3.30 with CuteMouse unchanged, and 96.10.7 "
+        "carries what it answered. BOTH ARMS ARE THE ROW for dosmouse's "
+        "reason - a CGA desktop IS 640x200, so a window cut from "
+        "[dos_vw]/[dos_vh] instead of INT 33h's virtual screen reads "
+        "perfectly there and scales y TWICE on a Hercules, which is a defect "
+        "this row caught while it was being written.",
+        needs=("marty",), serial=True,
+        wants=("build/dosrange360.img",)),
+
     Row("dosexec", "soak", py("tests/dosexec.py"), 30.0,
         "THE DOS EXEC GATE (SPEC.md 96.14): AH=4Bh loads another program and "
         "runs it, and control comes back to the PARENT inside the INT 21h "

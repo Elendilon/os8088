@@ -2540,3 +2540,280 @@ true of the reference too. Four earlier Works defects were found by putting
 the same program in front of a real DOS and diffing; this is the first time
 that method has said *stop, there is nothing here* — which is worth as much,
 and cost about fifteen minutes against the day a "fix" would have taken.
+
+## 56. Battle Chess: it runs, and its own cursor never moves (FIXED, TWICE — the 320x200 window it asks INT 33h for, §96.10.7, and the IRQ4 it takes off us and we never took back, §96.45.4)
+
+Reported off the fork owner's machine, with the game on a fixed disk: *"Battle
+chess launches and runs, but the cursor (which looks like a program special
+one) does not move."* It is exactly that — the board comes up, the hand
+cursor is drawn in the top-left corner, and **0 of 256,000 pixels change**
+across forty mouse moves.
+
+**Everything on our side measures correct**, which is why this took the
+debugger rather than the source:
+
+| asked | answered |
+|---|---|
+| `tests/kdmouse.py` on the **same machine** (`os8088_xt_vga_144`) | green — `(0,0)` → `(120,40)`, press and release both seen |
+| `kdm_base` / `kdm_line`, read out of `kern_dos` while the board is up | `0x3F8` / `0x10` — COM1, IRQ4, exactly what `mouse_init` settled on |
+| `kdm_phase`, `kdm_x`, `kdm_y`, `kdm_b0` across 40 moves | `0`, `0`, `0`, `0` — the ISR's body never runs |
+| INT 33h traffic, off `tools/os88intmon.py` | **3,894 calls in 12 guest seconds, every one `AX=0003`, all from one call site** |
+
+So the game asks where the mouse is 325 times a second and is told `(0,0)`
+every time, because nothing is accumulating. The IVT says why in one line:
+
+```
+IVT int 0Ch -> 1BF7:006D   (kd_mou_isr is 0060:513C)
+```
+
+**`int 0Ch` is IRQ4, and it is not ours any more.** Reading the handler off
+the running machine gives code that is byte-for-byte the routine at image
+offset `0x10CBD` of `CHESS.EXE`:
+
+```
+sti / push ds / push ax / push bx / push dx
+mov ax,[cs:0xb4] / mov ds,ax
+mov bx,[0x88d2]                  ; the game's own receive ring
+mov dx,[0x23f2] / mov dl,0xfd    ; LSR
+in al,dx / and al,0x0e / or [0xa854],al
+mov dl,0xf8 / in al,dx           ; ...AND THE DATA REGISTER
+mov [bx],al / inc bx             ; the byte goes in the game's ring
+...
+mov al,0x20                      ; EOI
+```
+
+**It does not chain and it does not ask whether the interrupt was its own** —
+it reads the byte and keeps it. So every mouse packet is eaten before
+`kd_mou_isr` could have seen one, and `kd_mou_isr` is not called at all.
+
+The installer is at image `0x10C73` and it is the game's **modem link**:
+
+```
+mov si,[0x23f0] / shl si,1 / shl si,1 / add si,0x20   ; IRQ n -> vector 8+n
+sub ax,ax / mov ds,ax
+mov word [si],0x6d / mov [si+2],cs   ; the IVT, written DIRECTLY
+mov dl,0xfb / in al,dx / and al,0x7f / out dx,al      ; LCR: clear DLAB
+mov dl,0xf9 / mov al,1  / out dx,al                   ; IER = 1
+mov dl,0xfc / mov al,8  / out dx,al                   ; MCR = 08h
+in al,0x21 / and al,~(1<<irq) / out 0x21,al           ; unmask
+```
+
+With `[0x23f0]` = 4 that is `si = 0x30`, vector `0Ch`, and `CS:006D` — the
+address we read, to the byte. **`MCR = 08h` is the second kill on its own**:
+that is OUT2 with **DTR and RTS off**, and a Microsoft serial mouse is
+*powered* by DTR and RTS, so the mouse would fall silent even if the vector
+were still ours.
+
+It has exactly **one caller**, at image `0x1D3`, in early start-up between two
+`inc word [0x48]` — a stage counter the exit path unwinds (`cmp word [0x48],5
+/ jl ... call uninstall`). So the link is armed at launch, unconditionally,
+and not from a menu.
+
+### ...AND NONE OF THAT IS THE DEFECT. Read this section and §96.10.7
+
+**The serial code above is the game's MODEM LINK and not its mouse.** The
+same `CHESS.EXE`, at file offset `11BEEh`, probes for an INT 33h driver and
+prefers it — the vector's segment, then `AX=0` and a non-zero answer, then
+`07h`/`08h` for a **0..319 x 0..199** window, then `03h` for ever. The
+reference trace says the same thing from outside: `00 07 08 03 03 03…`, 255
+position reads.
+
+**We answered `07h` and `08h` as no-ops**, so the first `03h` after them was
+answered `x=320` — one past the window the program had set two instructions
+earlier. A mode 13h game that indexes anything with that is gone, and this
+one is: `cs:ip` walks into low memory (`0000:F2xx`, `SP` odd) and the screen
+goes black and stays black.
+
+**Which is why §96.45.3's six bytes looked like the cause and were not.**
+With `kdm_x`/`kdm_y` starting at `(0,0)` that first read was accidentally
+inside the window, so the game survived it and drew its hand in the corner —
+the stuck cursor this entry opened with. Centring the pointer, which is
+correct and measured, put the first read OUTSIDE the window and turned a
+stuck cursor into a black screen. The A/B is exact:
+
+| build | after Space at the title |
+|---|---|
+| before §96.45.3 | the board, hand stuck in the top-left corner |
+| §96.45.3 | **0 non-black pixels, permanently** |
+| §96.10.7 | the board, hand in the MIDDLE — `(320,96)` mapped into the game's own window |
+
+**The rule this cost, and it is entry 55's again one turn further on**: the
+withdrawn conclusion below ends by naming `[0x23f2]`/`[0x23f0]` as the thread
+to pull. That was a reasonable guess and it was the wrong thread, and what
+found the right one was not a better guess — it was disassembling the program
+until it was clear which of its two serial paths the reporter's symptom was
+even about.
+
+### THE VERDICT BELOW IS WITHDRAWN — read this first
+
+**It works under IBM DOS 3.30 with CuteMouse.** The reporter sent two
+screenshots of the game in play with the hand cursor at two different board
+squares, and the operating instruction that goes with them: *"the mouse
+doesn't activate until you are in game — you have to press space at the title
+screen then wait for it to load into the game."*
+
+So the measurement below is not wrong, it is **about the wrong moment**. The
+`ref` run drove a blind key script — `Enter`, a click, `Space`, a fixed
+wait — and the shot it ended on has a board on it, which was taken as *the
+game is up*. It has **no cursor on it at all**, and that was the tell:
+CuteMouse was installed and the game was polling function 3 two hundred and
+fifty-five times, so if the game had been in play it would have been drawing
+a hand somewhere. A program that is still loading draws none. The
+os8088 side DID draw one — at the `(0,0)` of §96.45.3 — so the two boards
+differed by exactly the cursor, and *that* was read as "neither tracks".
+
+**The rule that was broken is the one entry 55 exists to teach**: a reference
+run has to be checked for *whether it reached the state under test* before
+its answer counts. A board on the screen was taken for it, and the missing
+cursor — the one piece of evidence that said otherwise — was written up as
+the finding.
+
+What still stands is everything mechanical: the game's IRQ4 handler at
+`1BF7:006D` is real and is byte-for-byte its own `0x10CBD`, the installer at
+`0x10C73` is real, and `MCR = 08h` is real. What does **not** follow is the
+conclusion, because CuteMouse plainly survives all three. So the question is
+now **why the game's serial code collides with our mouse and not with
+CuteMouse's** — the leading candidate being which port it picks, since
+`[0x23f2]`/`[0x23f0]` are read from memory rather than hard-coded, and a
+machine whose BIOS data area advertises its COM ports differently would send
+that code at a different UART. That is a measurement nobody has taken yet.
+
+### The reference, which is what makes this NOT OURS — WITHDRAWN, see above
+
+Entry 55's method, and the same answer. `CHESS.EXE` was put in front of a real
+**IBM DOS 3.30 with the reporter's own CuteMouse** on COM1
+(`os88dosdbg.py ref --pre "B:CTMOUSE"`, machine `os8088_xt_vga_mix` — 360KB
+A:, 1.44MB B:, VGA, serial mouse). The game's INT 33h sequence there is
+**identical to ours**:
+
+```
+00 07 08 03 03 03 03 ...        00h reset x1; 07h set x range 0000..013F x1;
+                                08h set y range 0000..00C7 x1; 03h x255
+```
+
+and after ten `+16,+10` moves the board is up and **no cursor follows the hand
+there either**. Diffed against our own board frame: **476 differing pixels in
+the whole 640x400, of which 468 are that one cursor in the corner.** The two
+machines draw the same board and neither tracks the mouse.
+
+~~So there is nothing here to fix.~~ **This paragraph is the withdrawn
+conclusion and is kept only so the mistake is legible.** It reasoned from a
+run that never reached the game, and its own last clause is the thread to
+pull: *"the game takes only the port its own `[0x23f2]`/`[0x23f0]` name"* —
+which is a fact about what those two words hold on THIS machine, and nobody
+read them.
+
+**The one real difference the comparison turned up is where the stuck cursor
+sits**, and it is ours: `kern_dos` leaves `kdm_x`/`kdm_y` at the zero their
+`.bss` was born with, so INT 33h answers `(0,0)` until the first packet and
+the game draws its hand in the corner; CuteMouse leaves the pointer somewhere
+the game draws nothing, which is what those 468 pixels are. A real driver's
+`AX=0` puts the pointer at the CENTRE of the virtual screen and `kd_mou_start`
+puts it at the origin.
+
+### THE TWO WORDS, READ AT LAST — and they say the game takes OUR PORT
+
+The withdrawn conclusion below ends by naming `[0x23f2]`/`[0x23f0]` as the
+thread to pull, *"a measurement nobody has taken yet"*. Taken now, **in the
+game** rather than before it — Space at the title, the board up, then the
+guest read:
+
+```
+the game's [23F0h] = 0004 (IRQ)   [23F2h] = 03F8 (port base)
+int 0Ch -> 1BF7:006D              (the game's own handler, not kd_mou_isr)
+kdm base/line 03F8/10  phase 0  x 320 y 96 b0 0    ...unchanged across a
+                                                      full sweep of the mouse
+8259 mask AC                      (IRQ4 unmasked)
+BDA COM table: 03F8 02F8          (two ports; it picked the first)
+```
+
+**Battle Chess takes COM1 and IRQ4, which is the port the pointer is on.** It
+writes `int 0Ch` directly, does not chain, and `kdm_phase`/`kdm_x`/`kdm_y`
+never move again — so INT 33h answers the reset position for ever and the
+hand sits wherever that is. §96.10.7 moved it from the corner to the middle
+of the board; it still does not track, and now it is clear that nothing a
+driver does can make it, because there are no packets left to deliver.
+
+**IT WAS COM1, AND THAT EXPLANATION WAS WRONG** — which is the shape this
+entry keeps making. The guess was that the reporter's mouse must be
+somewhere else; their own 86Box config settles it in two lines:
+
+```
+mouse_type = msserial
+serial2_enabled = 0          <- ONE serial port, and the mouse is on it
+```
+
+and CuteMouse's banner there reads `COM1 (03F8h/IRQ4)`. So the game takes the
+port on their machine too, and the mouse works anyway.
+
+**WHAT A REAL DRIVER DOES IS TAKE IT BACK** (SPEC.md §96.45.4). Same disk,
+same game, IBM DOS 3.30 with CuteMouse 1.9.1 on COM1, read off the machine:
+
+| sampled | `int 0Ch` |
+|---|---|
+| CuteMouse loaded, before the game | `0C52:023C` — the driver |
+| the game's title screen | `1DFC:006D` — **the game** |
+| in game, after the mode change | `0C52:023C` — **the driver, back** |
+
+CuteMouse hooks `INT 10h` in its own `AX=0` reset, and the game's switch into
+its graphics mode is when it re-initialises — vector, `LCR`, divisor,
+`IER = 1`, and a 16-bit `out` to `base+3` leaving **`MCR = 0Fh`**: `DTR` and
+`RTS` back on, after the game wrote `08h` and left a Microsoft mouse with no
+power. `kern_dos` hooked once at boot and never looked again.
+
+`kd_mou_rearm` is the fix and it lives in `kd_mou_read`, which IS
+`DHK_MOUSE` — asked on every `AX=3` and every key poll — so recovery costs no
+hook, no core byte and two compares when nothing has been stolen.
+
+**THE COM2 MACHINE IS STILL WORTH HAVING**, and it is what proved the rest of
+the chain: with the pointer on a port the game does not want, the hand
+tracked — 492 pixels of it, bbox `(320,192)-(639,221)` — where the identical
+sweep on COM1 moved **0**. That separated *our INT 33h is wrong* from *our
+ISR is not being called*, which is why this entry could be closed at all.
+
+### The reset position, which IS ours and is fixed
+
+**That one IS ours and is now measured and fixed** (SPEC.md §96.45.3).
+`build/DOSMOUSE.COM` runs under a real DOS unchanged, so it was simply asked:
+
+```
+CuteMouse v1.9.1 alpha 1 [FreeDOS]
+Installed at COM1 (03F8h/IRQ4) in Microsoft mode
+RESET ax=FFFF bx=2
+POS1 x=320 y=96 b=0
+```
+
+320 is the middle of `0..639`; **96 is not the middle of `0..199`**, it is 100
+snapped down to the 8-pixel text cell. `kd_mou_start` sets that pair now, at a
+cost of six bytes of `kern_dos`'s image.
+
+**The defect was in the margin of a measurement taken for something else**,
+which is the part worth keeping: nothing asked about the reset position. It
+fell out of diffing two boards to prove the two machines behaved the SAME.
+
+### ...and the probe's own `1Fh` check is wrong, which the reference also said
+
+The same run printed `FN1F CHANGED AX - the gate has FAILED` against
+CuteMouse. `tests/dosmouse/mouse.asm` picks `AX=001Fh` as its "a function
+with no documented return value leaves AX alone" case (SPEC.md §96.10.6) —
+but **`1Fh` is *Disable Mouse Driver*, which documents `AX = 001Fh` and the
+previous handler in `ES:BX`**, and CuteMouse implements it. So the probe
+tests the rule with a function that has an answer, and passes here only
+because this box falls through to `.none`. It is a gate that would go red the
+day `1Fh` were implemented properly, and it is not testing what it says.
+
+It asks `AX=0090h` now — above every function this family of drivers defines,
+the classic set ending at `33h` and the Logitech and Genius extensions in the
+40s — and the reference was re-run to check that the rule actually holds
+there rather than to assume it:
+
+```
+POS1 x=320 y=96 b=0
+FN90 left AX alone, as it should be
+```
+
+So §96.10.6's rule is tested with a question that has no answer on **either**
+machine, which is what it was always about. The histogram prints that call as
+`1Fh disable driver`, which is not a second bug: `DOS_TR33_N` is 32 and
+anything above lands in the top bucket, so bucket 31 is a catch-all and the
+`IN ORDER` line (`00 03 03 05 06 90`) is the one that names the function.
