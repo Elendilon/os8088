@@ -882,6 +882,69 @@ ti_ground:
 ; base is tall enough not to fit drops to every other frame on its own
 ; arithmetic rather than stealing the idle's credit.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; ti_phase_seed - spread the features' clocks so NEIGHBOURS ARE NEVER IN STEP
+; Preserves every register.
+;
+; Every clock started at zero and advanced when the wheel reached its feature,
+; which sounds like it spreads them and does not: the wheel walks in INDEX
+; order, so a pass gives a run of adjacent features one step each and the
+; board breathes as a block. Twenty figures moving together read as one
+; animation with twenty copies rather than as a crowd.
+;
+; THE SEED IS 2D AND NOT 1D, because adjacency on this board is not adjacency
+; in the index: a cell's index is column x 5 + row (SPEC.md 97.3's shear), so
+; the cells a player sees stacked are i and i+1 and the ones side by side are i
+; and i+5. `(col + 2*row) mod TI_POSES` puts vertical neighbours HALF A CYCLE
+; apart - the strongest separation there is - horizontal ones a quarter, and
+; diagonals three quarters, so no pair of touching cells shares a phase at all.
+;
+; It is re-seeded at every layout, which is deliberate: the spread is a
+; property of the design rather than of how long the program has been running,
+; and a relayout that left the old phases would keep whatever drift the last
+; arm produced.
+; -----------------------------------------------------------------------------
+ti_phase_seed:
+    push ax
+    push bx
+    push cx
+    push dx
+    xor bx, bx
+.cell:
+    cmp bx, TI_CELLS
+    jae .bases
+    mov ax, bx
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx                          ; AX = column, DX = row
+    add ax, dx
+    add ax, dx                      ; col + 2*row
+    and al, TI_POSES - 1
+    mov [bx + ti_clock], al
+    inc bx
+    jmp short .cell
+.bases:
+    cmp bx, TI_FEATURES             ; the card's own slot, and any feature a
+    jae .done                       ; later wave adds: spread rather than left
+    mov ax, bx                      ; at zero
+    and al, TI_POSES - 1
+    mov [bx + ti_clock], al
+    inc bx
+    jmp short .bases
+.done:
+    ; THE TWO BASES START HALF A CYCLE APART, which is the only phase
+    ; separation available to a pair - and a phase alone would still have them
+    ; moving in lockstep, which is what the cadence below is for.
+    mov byte [ti_bclock], 0
+    mov byte [ti_bclock + 1], TI_BASEPOSES / 2
+    mov byte [ti_bstep], 0
+    mov byte [ti_bstep + 1], 0
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ti_base_frame:
     push ax
     push bx
@@ -898,6 +961,25 @@ ti_base_frame:
     xor al, 1
     mov [ti_bturn], al              ; ...and the other one's next frame
     push bx
+
+    ; TWO CADENCES, NOT ONE. A phase offset alone leaves the pair moving in
+    ; lockstep a fixed distance apart, which on two bases facing each other
+    ; reads as a mirror rather than as two places. Each base carries a
+    ; numerator over TI_BDEN, so one advances on every visit of the lane and
+    ; the other on four visits in five: 0.86 s a cycle against 1.07, drifting
+    ; for a minute at a time rather than re-synchronising.
+    ;
+    ; The BAND IS STILL COMMITTED on the visit the pose does not advance. It
+    ; costs one redraw in five and it is not waste to be shaved: a base is
+    ; opaque and self-erasing (SPEC.md 97.4), so it is also what repairs it if
+    ; anything else ever draws over it, and skipping the commit would make
+    ; that repair depend on whether the pose happened to change.
+    mov al, [bx + ti_bnum]          ; BYTES, so BX indexes them directly - a
+    add [bx + ti_bstep], al         ; word array wants BX*2 and the bug is
+    cmp byte [bx + ti_bstep], TI_BDEN   ; silent, base 1 reading base 0's
+    jb .drawn                       ; ...not this visit
+    sub byte [bx + ti_bstep], TI_BDEN
+
     add bx, ti_bclock               ; its own phase counter, which nothing
     mov al, [bx]                    ; outside this lane advances
     inc al
@@ -906,6 +988,9 @@ ti_base_frame:
     xor al, al
 .store:
     mov [bx], al
+    sub bx, ti_bclock
+.drawn:
+    mov al, [bx + ti_bclock]
     xor ah, ah
     mov [ti_pi], ax
     pop bx

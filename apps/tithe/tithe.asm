@@ -133,6 +133,7 @@ TI_BASESHARE equ 12               ; ...and per cent the BASE lane may take.
                                   ; TI_POSES and this lane plays them at two
                                   ; and a half times the wheel's rate, which
                                   ; is what "smoother" costs
+TI_BDEN     equ 5                 ; the base cadence's denominator
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
 TI_COMBATUS equ TI_FRAMEUS * TI_COMBAT / 100
 TI_BASEUS   equ TI_FRAMEUS * TI_BASESHARE / 100
@@ -204,6 +205,8 @@ ti_relayout:
     call ti_layout
     jc .no
     call ti_art_build
+    call ti_phase_seed              ; ...and spread the clocks, so neighbours
+                                    ; do not breathe together
     mov byte [ti_ok], 1
     call ti_calibrate               ; ...AND WHAT A BAND COSTS AT THIS SIZE.
                                     ; It was the `R` key's alone, so the wheel
@@ -1513,7 +1516,12 @@ ti_s_bsep:  db '   BASE ', 0
 ti_clock:   times TI_FEATURES db 0
 ti_cacc:    dw 0                    ; the COMBAT lane's accumulator, in us...
 ti_bacc:    dw 0                    ; ...and the BASE lane's (SPEC.md 97.5.1)
-ti_bclock:  times 2 db 0            ; each base's own phase counter
+ti_bclock:  times 2 db 0            ; each base's own phase counter...
+ti_bstep:   times 2 db 0            ; ...its cadence accumulator, over TI_BDEN
+ti_bnum:    db 5, 4                 ; ...and how much it accrues a visit: one
+                                    ; base advances on every visit of the lane
+                                    ; and the other on four in five, so the
+                                    ; pair drifts instead of mirroring
 ti_bturn:   db 0                    ; ...and which of the two this frame commits
 ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0

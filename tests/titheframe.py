@@ -43,7 +43,7 @@ import os88geom                                           # noqa: E402
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_bw", "ti_bh",
         "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
-        "TI_BASEPOSES")
+        "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS")
 SPAN = 5.0
 
 fails = []
@@ -213,6 +213,60 @@ def main():
         check(len(bands) >= (n + 1) // 2,
               "the base's poses are distinct pictures",
               "%d of %d" % (len(bands), n))
+
+        # NEIGHBOURS ARE NEVER IN STEP. Every clock started at zero and the
+        # wheel walks in INDEX order, so a pass gave a run of adjacent
+        # features one step each and the board breathed as a block - twenty
+        # figures moving together read as one animation with twenty copies.
+        # The seed is 2D because adjacency here is not adjacency in the index:
+        # a cell is column x 5 + row, so what a player sees stacked is i and
+        # i+1 and what is side by side is i and i+5. Read straight after a
+        # relayout, which is what re-seeds.
+        # PAUSE FIRST. The wheel advances a feature's clock when it reaches it
+        # and reaches only some of them a frame, so even half a second of
+        # running has skewed the pattern - this read 5 collisions off a seed
+        # that has none. `P` stops the wheel, so what is read back is the seed
+        # and not the drift.
+        m.key("KeyP")
+        os88marty.guest_sleep(m, 0.6)
+        m.key("KeyB")                                  # ...which re-seeds
+        os88marty.guest_sleep(m, 0.8)
+        rows, cols = off["TI_ROWS"], off["TI_COLS"]
+        cl = bytes(m.readseg(seg, off["ti_clock"], rows * cols))
+        grid = [[cl[c * rows + r] for c in range(cols)] for r in range(rows)]
+        pairs = 0
+        for c in range(cols):
+            for r in range(rows):
+                if r + 1 < rows and grid[r][c] == grid[r + 1][c]:
+                    pairs += 1
+                if c + 1 < cols and grid[r][c] == grid[r][c + 1]:
+                    pairs += 1
+        for r in grid:
+            print("      ", r)
+        print("  phase seed: %d touching pairs in step of %d"
+              % (pairs, cols * (rows - 1) + rows * (cols - 1)))
+        check(pairs == 0, "no two touching cells share a phase at the seed",
+              "%d pairs" % pairs)
+
+        # ...AND THE TWO BASES DO NOT MIRROR EACH OTHER. A phase offset alone
+        # leaves them in lockstep a fixed distance apart, so what is asserted
+        # is that the DISTANCE moves: identical cadences hold it constant
+        # whatever the phases are.
+        #
+        # SAMPLE FAST. At one second apart this read base 1's clock as frozen
+        # at 4 four times running and nearly had a defect filed against
+        # working code: 7.5 poses a second against a 1 Hz sample is an ALIAS,
+        # which is SCHED-IDLE-PLAN 2's warning one package along.
+        m.key("KeyP")                                  # ...and running again
+        os88marty.guest_sleep(m, 0.5)
+        gaps = set()
+        for _ in range(12):
+            bc = bytes(m.readseg(seg, off["ti_bclock"], 2))
+            gaps.add((bc[0] - bc[1]) % off["TI_BASEPOSES"])
+            os88marty.guest_sleep(m, 0.2)
+        print("  base cadences: %d distinct gaps in 12 samples" % len(gaps))
+        check(len(gaps) >= 3, "the two bases drift rather than mirroring",
+              "%d distinct gaps" % len(gaps))
 
         b_hi, c_hi, f_hi = lane()
         print("  base lane: %.1f commits/s of %.1f frames/s (idle %.1f/s)"

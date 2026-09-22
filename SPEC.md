@@ -140363,6 +140363,29 @@ move it.**
 | combat | `TI_COMBAT` | one step a frame | a bolt's step, a clash's tier B |
 | base | `TI_BASESHARE` | one of the two a frame, alternating | both players' bases |
 
+**EVERY CLOCK IS SEEDED, AND NEIGHBOURS ARE NEVER IN STEP.** A clock starts at
+zero and advances when the wheel reaches its feature, which sounds like it
+spreads them and does not: the wheel walks in *index* order, so a pass gives a
+run of adjacent features one step each and the board breathes as a block —
+twenty figures moving together read as one animation with twenty copies rather
+than as a crowd. The seed is **2D**, because adjacency on this board is not
+adjacency in the index: a cell is `column × 5 + row` (§97.3), so what a player
+sees stacked is *i* and *i+1* and what is side by side is *i* and *i+5*.
+`(col + 2·row) mod TI_POSES` puts vertical neighbours **half a cycle** apart,
+horizontal ones a quarter and diagonals three quarters, so no pair of touching
+cells shares a phase. It is re-seeded at every layout: the spread is a property
+of the design, not of how long the program has been running.
+
+**The two bases have two CADENCES and not just two phases.** A phase offset
+alone leaves a pair in lockstep a fixed distance apart, which on two bases
+facing each other reads as a mirror rather than as two places. Each carries a
+numerator over `TI_BDEN`, so one advances on every visit of its lane and the
+other on four visits in five — 0.86 s a cycle against 1.07 — and the gap
+between them moves instead of holding. The band is still committed on the visit
+the pose does not advance: it costs one redraw in five, and a base is opaque and
+self-erasing (§97.4), so that commit is also what repairs it if anything ever
+draws over it.
+
 **A lane banks at most two frames of its allowance.** One that has been quiet
 for a second would otherwise wake with a second's credit in hand and burst
 through it, which on the glass is the thing the wheel exists to prevent.
