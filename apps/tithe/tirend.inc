@@ -121,6 +121,16 @@ ti_art_build:
 
     call ti_dirty_build             ; ...and what each TRANSITION moves
 
+    mov word [ti_pi], 0             ; ...and the mini unit that rides a card
+.unit:
+    mov ax, [ti_pi]
+    cmp ax, TI_POSES
+    jae .udone
+    call ti_unit_build
+    inc word [ti_pi]
+    jmp short .unit
+.udone:
+
     ; --- and the two players' bases, which are ONE band drawn twice ---------
     mov word [ti_pi], 0
 .base:
@@ -850,6 +860,10 @@ ti_base_draw:
     call ti_base_addr
     mov si, di
     mov bx, [ti_basey]
+    cmp ax, [ti_b1x]                ; P2's base follows its own column's shear
+    je .y
+    mov bx, [ti_basey2]
+.y:
     mov cx, [ti_basew]
     mov dx, [ti_baseh]
     mov bp, [ti_bas]
@@ -958,63 +972,185 @@ ti_hud_draw:
     pop es
     cld
 
-    mov cx, [ti_cw_box]             ; the row is as many cells as the content
-    shr cx, 1                       ; is wide, and never more than the buffer
-    shr cx, 1
-    shr cx, 1
-    cmp cx, TI_HUDMAX - 1
-    jbe .fit
-    mov cx, TI_HUDMAX - 1
-.fit:
-    mov [ti_hudn], cx
-    mov di, ti_hudbuf
-    mov al, ' '
-    push cx
-    rep stosb
-    pop cx
+    mov di, ti_hudbuf               ; THE ROUND AND THE PHASE, AND NOTHING
+    mov si, ti_s_round              ; ELSE. Each player's own numbers went here
+    call ti_poke                    ; first and read as a scoreboard bolted
+    mov al, [ti_round]              ; over the top of the board; they are on
+    call ti_u8                      ; the board now, in the shear's own empty
+    mov si, ti_s_phase              ; corners and above each base, where they
+    call ti_poke                    ; sit beside the thing they are about
     mov byte [di], 0
 
-    mov di, ti_hudbuf               ; the left field: this player
-    mov si, ti_s_p1
-    call ti_poke
-    mov al, [ti_p1hp]
-    call ti_u8
-    mov si, ti_s_gold
-    call ti_poke
-    mov al, [ti_p1gold]
-    call ti_u8
-
-    mov di, ti_hudbuf               ; ...the right field, right-aligned
-    add di, cx
-    sub di, TI_HUDRIGHT
-    mov si, ti_s_p2
-    call ti_poke
-    mov al, [ti_p2hp]
-    call ti_u8
-    mov si, ti_s_gold
-    call ti_poke
-    mov al, [ti_p2gold]
-    call ti_u8
-
-    mov di, ti_hudbuf               ; ...and the round and phase in the middle
-    mov ax, cx
-    shr ax, 1
-    add di, ax
-    sub di, TI_HUDMID
-    mov si, ti_s_round
-    call ti_poke
-    mov al, [ti_round]
-    call ti_u8
-    mov si, ti_s_phase
-    call ti_poke
-
-    mov cx, [ti_ox]                 ; x: the content's own left, which the
-    mov dx, [ti_oy]                 ; flush window makes a multiple of 8
-    mov ax, [ti_hud]                ; ...and vertically centred in the strip
+    mov si, ti_hudbuf               ; centred on the content
+    call OSAPI_FONT_WIDTH
+    mov cx, [ti_cw_box]
+    sub cx, ax
+    shr cx, 1
+    and cx, 0FFF8h                  ; ...and on the byte grid, so the row takes
+    add cx, [ti_ox]                 ; SPEC.md 6.1's single-store path
+    mov dx, [ti_oy]
+    mov ax, [ti_hud]
     sub ax, 8
     shr ax, 1
     add dx, ax
     mov si, ti_hudbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_res_draw - one player's resource block, in the shear's empty corner
+; in:  AX = x, BX = y, CL = gold, CH = souls, SI = the side's label
+; Preserves every register.
+; -----------------------------------------------------------------------------
+ti_res_draw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov [ti_rx], ax
+    mov [ti_ry2], bx
+    mov [ti_rg], cl
+    mov [ti_rs], ch
+    mov [ti_rsw], dl
+
+    mov word [ti_roff], 0           ; A SHALLOW CORNER GETS ONE ROW. A CGA's
+    cmp word [ti_lift], 24          ; lift is twelve pixels, which holds a
+    jae .rows                       ; single glyph row - stacked, the gold ran
+    mov word [ti_roff], 24          ; off the bottom of the board entirely
+.rows:
+    mov di, ti_numbuf               ; the side's own label, so two blocks on
+    call ti_poke                    ; one board cannot be confused
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    mov dx, [ti_ry2]
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    mov ax, [ti_rx]                 ; GOLD, with its coin - beside the label on
+    add ax, [ti_roff]               ; a shallow corner, under it on a deep one
+    mov bx, [ti_ry2]
+    cmp word [ti_roff], 0
+    jne .g
+    add bx, 8
+.g:
+    mov si, ti_ic_cost
+    call ti_icon
+    mov di, ti_numbuf
+    mov al, [ti_rg]
+    call ti_u8
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 8
+    add cx, [ti_roff]
+    mov dx, [ti_ry2]
+    cmp word [ti_roff], 0
+    jne .g2
+    add dx, 8
+.g2:
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    cmp word [ti_lift], 24          ; SOULS only where the corner is deep
+    jb .out                         ; enough to hold a third row - a CGA's
+    mov ax, [ti_rx]                 ; lift is twelve pixels and holds one
+    mov bx, [ti_ry2]
+    add bx, 16
+    mov si, ti_ic_soul
+    call ti_icon
+    mov di, ti_numbuf
+    mov al, [ti_rs]
+    call ti_u8
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 8
+    mov dx, [ti_ry2]
+    add dx, 16
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    cmp byte [ti_rsw], 0FFh         ; ...and the SWAPS, which is this player's
+    je .out                         ; and not the panel's: it came off the
+    cmp word [ti_lift], 32          ; COMMIT row when UNDO took the space
+    jb .out
+    mov di, ti_numbuf
+    mov si, ti_s_swap
+    call ti_poke
+    mov al, [ti_rsw]
+    add al, '0'
+    stosb
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    mov dx, [ti_ry2]
+    add dx, 24
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_hp_draw - a player's HP, ABOVE their base
+; in:  AX = the base's x, BX = the base's y, CL = hp
+; Preserves every register.
+; -----------------------------------------------------------------------------
+ti_hp_draw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    sub bx, 10                      ; clear of the base's own crest...
+    push cx                         ; ...and CENTRED over it rather than hard
+    mov cx, [ti_basew]              ; against its left edge: the block is an
+    sub cx, 24                      ; icon and two digits, 24 pixels, and a
+    shr cx, 1                       ; base is 48 to 72 wide
+    and cx, 0FFF8h                  ; ...on the byte grid, so the run keeps
+    add ax, cx                      ; SPEC.md 6.1's single-store path
+    pop cx
+    mov [ti_rx], ax
+    mov [ti_ry2], bx
+    mov [ti_rg], cl
+
+    mov si, ti_ic_hp
+    call ti_icon
+    mov di, ti_numbuf
+    mov al, [ti_rg]
+    call ti_u8
+    mov byte [di], 0
+    mov cx, [ti_rx]
+    add cx, 8
+    mov dx, [ti_ry2]
+    mov si, ti_numbuf
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
 
@@ -1176,6 +1312,28 @@ ti_board:
     jmp short .cell
 .done:
     call ti_hud_draw
+    mov ax, [ti_p1x]                ; each player's gold and souls, in the
+    mov bx, [ti_p1y]                ; corner the shear left them
+    mov cl, [ti_p1gold]
+    mov ch, [ti_p1soul]
+    mov dl, [ti_swaps]
+    mov si, ti_s_p1
+    call ti_res_draw
+    mov ax, [ti_p2x]
+    mov bx, [ti_p2y]
+    mov cl, [ti_p2gold]
+    mov ch, [ti_p2soul]
+    mov dl, 0FFh                    ; the opponent's swaps are not ours to see
+    mov si, ti_s_p2
+    call ti_res_draw
+    mov ax, [ti_b1x]                ; ...and their HP above their own base
+    mov bx, [ti_basey]
+    mov cl, [ti_p1hp]
+    call ti_hp_draw
+    mov ax, [ti_b2x]
+    mov bx, [ti_basey2]
+    mov cl, [ti_p2hp]
+    call ti_hp_draw
     call ti_panel                   ; ...and the hand, which redraws with the
                                     ; board for the numbers' reason: nothing in
                                     ; it changes more than once a round bar the

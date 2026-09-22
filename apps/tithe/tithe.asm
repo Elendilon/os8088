@@ -561,13 +561,29 @@ ti_feature:
 .bx:
     mov ax, bx
     call ti_base_draw
-    jmp short .out
-.hand:
+    jmp .out                        ; NEAR: the hovered card's arm sits between
+.hand:                              ; here and the epilogue
     cmp word [ti_hover], -1         ; 22 is the MOUSED-OVER CARD, the one
-    je .out                         ; feature that is not a character: it is
-    mov ax, [ti_hover]              ; inverted, so redrawing it is what makes
-    call ti_card_draw               ; the hover read as a state and not a flash
-    jmp short .out
+    jne .hov
+    jmp .out
+.hov:                               ; feature that is not a character - and
+    mov bx, [ti_hover]              ; what animates on it is the UNIT, not the
+    add bx, ti_clock                ; card. Redrawing the whole card would be a
+    mov bl, [bx]                    ; fill, a frame, three icons and two runs
+    xor bh, bh                      ; for one moving band
+    mov [ti_pi], bx
+    mov ax, [ti_hovbx]
+    mov [ti_cbx], ax
+    mov ax, [ti_hovbw]
+    mov [ti_cbw], ax
+    mov ax, [ti_hovy]
+    mov [ti_cardy], ax
+    mov ax, (CWHITE << 8) | CBLACK  ; a hovered card is INVERTED: ink black on
+    call OSAPI_GFX_BLIT1_PEN        ; white paper
+    call ti_unit_draw
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_GFX_BLIT1_PEN
+    jmp .out
 .cell:
     mov [ti_ci], ax
     mov bx, ax
@@ -878,8 +894,9 @@ ti_ic_cost: db 03Ch, 066h, 0DBh, 0DBh, 0DBh, 0DBh, 066h, 03Ch   ; a coin
 ti_ic_atk:  db 018h, 018h, 018h, 018h, 07Eh, 018h, 018h, 03Ch   ; a sword
 ti_ic_def:  db 0FFh, 0C3h, 0C3h, 066h, 066h, 03Ch, 018h, 000h   ; a shield
 ti_ic_hp:   db 066h, 0FFh, 0FFh, 0FFh, 07Eh, 03Ch, 018h, 000h   ; a heart
+ti_ic_soul: db 03Ch, 07Eh, 0DBh, 0FFh, 0E7h, 07Eh, 03Ch, 018h   ; a soul
 
-ti_s_commit: db 'COMMIT  SWAP ', 0
+ti_s_commit: db 'COMMIT', 0
 ti_n_1:     db 'PIKEMAN', 0
 ti_n_2:     db 'ARCHER', 0
 ti_n_3:     db 'WARDEN', 0
@@ -905,17 +922,20 @@ ti_cards:                           ; what is being judged is the LOOK
     db 6, 5, 8
     dw ti_n_7
 
-ti_s_p1:    db 'P1  HP ', 0
-ti_s_p2:    db 'P2  HP ', 0
-ti_s_gold:  db '  GOLD ', 0
+ti_s_p1:    db 'P1', 0
+ti_s_p2:    db 'P2', 0
 ti_s_round: db 'ROUND ', 0
-ti_s_phase: db '  PLAN', 0
+ti_s_phase: db '   PLAN', 0
+ti_s_undo:  db 'UNDO', 0
+ti_s_swap:  db 'SWAP ', 0
 
-ti_p1hp:    db 20                  ; wave 1a has no rules behind it, so the
-ti_p1gold:  db 7                   ; HUD's numbers are a fixed position rather
-ti_p2hp:    db 18                  ; than a running game. What is being judged
-ti_p2gold:  db 5                   ; is whether the STRIP reads at all four
-ti_round:   db 3                   ; surface sizes (TITHE-PLAN 16.1)
+ti_p1hp:    db 20                  ; wave 1a has no rules behind it, so these
+ti_p1gold:  db 7                   ; are a fixed position rather than a running
+ti_p1soul:  db 4                   ; game. What is being judged is whether the
+ti_p2hp:    db 18                  ; LAYOUT reads at all four surface sizes
+ti_p2gold:  db 5                   ; (TITHE-PLAN 16.1)
+ti_p2soul:  db 2
+ti_round:   db 3
 
 ti_ttl:     db 'Tithe', 0
 ti_about:   db 'TITHE - wave 1a, the renderer. SPEC.md 97.', 0
@@ -958,7 +978,12 @@ ti_baseh:   dw 0                    ; ...and its rows: three lanes
 ti_bas:     dw 0                    ; ...and its band's stride in bytes
 ti_b1x:     dw 0                    ; P1's base x, behind column 0
 ti_b2x:     dw 0                    ; P2's, behind column 3
-ti_basey:   dw 0
+ti_basey:   dw 0                    ; P1's base, a whole LIFT lower...
+ti_basey2:  dw 0                    ; ...and P2's, at the board's top edge
+ti_p1x:     dw 0                    ; the shear's empty corners, where each
+ti_p1y:     dw 0                    ; player's gold and souls live
+ti_p2x:     dw 0
+ti_p2y:     dw 0
 ti_cardh:   dw 0                    ; a hand row's height
 ti_cardx:   dw 0
 ti_cardw:   dw 0
@@ -968,6 +993,23 @@ ti_cardi:   dw 0
 ti_cardy:   dw 0
 ti_cardp:   dw 0
 ti_cardl2:  dw 0
+ti_cgap:    dw 0                    ; the button row's offset from the hand
+ti_unith:   dw 0                    ; the mini unit on a card
+ti_unitb:   dw TI_UNITW / 8
+ti_ury:     dw 0
+ti_undow:   dw 48                   ; UNDO is cut to its own label
+ti_hovbx:   dw 0                    ; the hovered card's box, banked so the
+ti_hovbw:   dw 0                    ; wheel can redraw the UNIT alone
+ti_hovy:    dw 0
+ti_rx:      dw 0                    ; a resource block's own corner
+ti_ry2:     dw 0
+ti_rg:      db 0
+ti_rs:      db 0
+ti_rsw:     db 0
+ti_roff:    dw 0                    ; a shallow corner lays out sideways
+ti_c1off:   dw 0                    ; does a card's line 1 carry a coin?
+ti_statx:   dw 0
+ti_statv:   db 0
 ti_cx:      dw 0                    ; is this card the hovered one?
 ti_cbx:     dw 0                    ; ...and the box it is actually drawn in
 ti_cbw:     dw 0
@@ -1032,13 +1074,14 @@ ti_insy:    dw 0
 ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
 ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
 ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 12, 24
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 10, 24
 
 ti_clock:   times TI_FEATURES db 0
 ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
+ti_unit:    times TI_UNITMAX * TI_POSES db 0
 
 TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 

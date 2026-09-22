@@ -221,11 +221,41 @@ ti_layout:
     mov ax, [ti_oy]
     add ax, [ti_hud]
     mov [ti_by], ax
-    mov ax, [ti_boardh]             ; a base is centred on the lanes it is
-    sub ax, [ti_baseh]              ; behind
+    ; --- A BASE FOLLOWS THE SHEAR, like the column it stands behind --------
+    ; Column 0 is pushed DOWN by the whole LIFT and column 3 is not pushed at
+    ; all (SPEC.md 97.3), so a base centred on the BOARD sits between the two
+    ; heights it is meant to belong to. Each is centred on ITS OWN column's
+    ; span instead: P1's drops by the lift, P2's rises by it, and the two read
+    ; as standing on the same ground as the lanes in front of them.
+    push cx
+    mov ax, [ti_ch]
+    mov cx, TI_ROWS
+    mul cx                          ; AX = one column's own height
+    push ax
+    sub ax, [ti_baseh]
     shr ax, 1
     add ax, [ti_by]
-    mov [ti_basey], ax
+    mov [ti_basey2], ax             ; column 3 stands at the board's top edge
+    add ax, [ti_lift]
+    mov [ti_basey], ax              ; ...and column 0 a whole lift below it
+
+    ; --- and the SHEAR's own empty corners carry the resource counters -----
+    ; The strip above column 0 and the strip below column 3 are empty by
+    ; construction - the lift is exactly what one is pushed down by and the
+    ; other is not - so each player's gold and souls go in their own, beside
+    ; the lanes they belong to rather than in a bar across the top.
+    mov ax, [ti_bx]
+    mov [ti_p1x], ax
+    mov ax, [ti_by]
+    mov [ti_p1y], ax
+    mov ax, [ti_bx]
+    add ax, [ti_boardw]
+    sub ax, [ti_cw]
+    mov [ti_p2x], ax
+    pop ax                          ; 5 * CH again
+    add ax, [ti_by]
+    mov [ti_p2y], ax
+    pop cx
 
     ; --- and does it FIT? A refusal is a normal path (PERFORMANCE.md rule 6)
     mov ax, [ti_b1x]
@@ -260,6 +290,11 @@ ti_layout:
     mov ax, [ti_ch]                 ; the figure stands ON
     sub ax, [ti_bh]                 ; the cell's floor, which needs no rounding
     mov [ti_insy], ax
+    call ti_panel_lay               ; ...AND THE PANEL, HERE. It used to be
+                                    ; ti_board's, which runs AFTER the art is
+                                    ; composed - so the mini unit that rides a
+                                    ; card was built at a height of ZERO and
+                                    ; every card drew a blank corner
     clc
     jmp short .out
 .no:

@@ -13,7 +13,7 @@ a new file, not an edit.
 
 TITHE-PLAN §1.3 predicts **3.6 fps a feature** on a fullscreen VGA, from wave
 0's model `arrival + rows × R + bytes × B` (VGA 709 / 52.05 / 2.98 µs). Wave
-1a's gate is that the wheel **holds 18 fps with 23 features**, and §16.1 says
+1a's gate is that the wheel **holds 18 fps with 23 features**, and TITHE-PLAN §16.1 says
 the idle rate is the question only eyes can answer — everything downstream of
 it moves if the answer is no.
 
@@ -34,7 +34,7 @@ commit inside that frame.
 rect — the two agree to within the measurement. The rect is 22 of 44 rows,
 diffed out of the poses rather than declared.
 
-**The rate is better than §1.3 predicts** — 6.4 fps a feature where the model
+**The rate is better than TITHE-PLAN §1.3 predicts** — 6.4 fps a feature where the model
 says 3.6. The calibration explains it: a 64 × 44 band measures **2,707 µs**
 here where the model gives 709 + 44 × 52.05 + 352 × 2.98 = 4,048. SPEC.md
 §5.4.2.6's fast path, which wave 0 put in the kernel, is most of the

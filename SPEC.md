@@ -140084,6 +140084,51 @@ about whether it was cost, attack or gold. The icons are 8×8 1bpp bands rather
 than characters, the system font having no coin, sword, shield or heart in it —
 one glyph cell each, so an icon costs exactly the room of the digit it labels.
 
+**A card carries the UNIT IT PLAYS, and that is what animates.** A mini
+figure — the board figure's own shape at a quarter of the size, so it is the
+same character and not a second one — rides the card's right-hand corner, and
+the hovered card cycles *it* rather than pulsing its frame: a pulse is a state
+change dressed as movement. Redrawing the whole card would be a fill, a frame,
+three icons and two runs for one moving band, so the wheel banks the hovered
+card's box and puts down the unit alone.
+
+**LINE 1 IS THE NAME AND NOTHING ELSE.** A card is fourteen glyph cells wide on
+a VGA and the unit takes three, so a line carrying an icon, a cost, a space and
+a name lost the name's last letters — PIKEMA, ACOLYT, BULWAR. The cost went
+down to the stat line, where cost, attack and defence are the three numbers a
+player compares between cards. A row too short for a second line (CGA's ten
+pixels) puts the cost back in front of the name, that being the number that
+decides whether a card is playable at all.
+
+**UNDO is a BUTTON, not a card**, so it is cut to the width of its own word and
+shares the COMMIT row; making it card-sized would say it was one of the seven.
+A plan is editable (TITHE-PLAN §5.0.2), so there has to be a way to take an
+entry back. The row sits **half a card lower** than the hand: flush against the
+last card it reads as an eighth card.
+
+#### 97.4.4 The HUD is the ROUND, and everything else is on the board
+
+**Each player's own numbers do not belong in a bar across the top.** They read
+as a scoreboard bolted over the board; on the board they sit beside the thing
+they are about, and the shear has the room for free.
+
+| | where |
+|---|---|
+| round, phase | the HUD strip, centred, and that is all it carries |
+| gold, souls, swaps | the SHEAR's own empty corner — above column 0 for P1, below column 3 for P2 |
+| HP | **centred above that player's own base** |
+
+**The corners are empty by construction.** Column 0 is pushed down by the whole
+`LIFT` and column 3 is not pushed at all (§97.3), so the strip above one and
+below the other is exactly `LIFT` tall and `CW` wide, and nothing has to be
+moved to make room. A corner too shallow for stacked rows — a CGA's `LIFT` is
+12 pixels — lays the block out sideways instead and drops the souls; that is a
+layout decision, not a second code path.
+
+**And a BASE follows the shear too**, centred on its own column's span rather
+than on the board: P1's drops by the lift and P2's rises by it, so each reads as
+standing on the same ground as the lanes in front of it.
+
 #### 97.4.3 The DIRTY RECT, and the rect is the tool's
 
 **An idle pose differs from its neighbour in PART of the figure, not all of
