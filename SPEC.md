@@ -140251,6 +140251,33 @@ this adapter and this kernel. Per frame one `OSAPI_GET_TICKS` (46.7 µs, 0.085%
 of a frame) says whether the frame overran. There is no CPU-tier table to be
 wrong about.
 
+**THE IDLE'S SHARE IS 20%, AND THE FIELD SET IT.** TITHE-PLAN §16.1 asks
+whether twenty figures breathing at 3.6 fps reads as a crowd idling or as a
+slideshow, and calls it the sharpest question in the document. **Reported off a
+Hercules, the answer is the other way round**: at 40% the built renderer runs
+the pose cycle at 6.4 fps a feature and the motion is *too fast* — the share
+had to be pressed down repeatedly before it looked right. Keeping 40% would
+mean doubling the pose count so each step is smaller, which is art nobody has
+room for; halving the share costs nothing and lands on 3.6, the rate TITHE-PLAN §1.3
+predicted all along.
+
+**So combat has an allowance of its own** (`TI_COMBAT`, 25%), and the plan's
+TITHE-PLAN §3.8 concession — *the other four lanes stop idling to pay for an
+attack* —
+is one the machine no longer has to make. It was written against a frame that
+was full and the frame is not: an idle at 20% leaves the room for an attack
+**beside** it. Measured, a projectile in flight leaves the idle at 5.4 fps a
+feature against 3.5 with no projectile at all, and the frame holds 18.5 passes
+a second.
+
+**And the frame is WATCHED, which §97.5 promised and did not have.** One
+`OSAPI_GET_TICKS` a frame: the worker only runs when the tick has already
+turned over, so a frame starts at the top of one and **a frame still going when
+the next arrives has spent its whole tick**, whatever the model thought. The
+credit carries a trim that falls on an overrun and creeps back on a fit — a
+multiplier rather than a second model, because the *shape* of the cost is right
+and only its scale is wrong.
+
 **TWO HEIGHTS, and the charge is PER COMMIT.** The model is
 `arrival + rows × R`, and calibrating one height collapses it to a constant —
 which makes every optimisation downstream measure as worthless without failing

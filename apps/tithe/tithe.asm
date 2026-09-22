@@ -91,7 +91,28 @@ TI_HUDRIGHT equ 18                ; cells the right-hand field occupies
 TI_HUDMID   equ 8                 ; ...and half the middle one's
 TI_FEATURES equ 23                ; the brief's own number: 20 characters, 2
                                   ; player bases, 1 moused-over card
-TI_SHARE    equ 40                ; per cent of a frame the idle may take
+TI_SHARE    equ 20                ; per cent of a frame the IDLE may take.
+                                  ; TITHE-PLAN 16.1 asks whether twenty figures
+                                  ; breathing at 3.6 fps reads as a crowd or as
+                                  ; a slideshow, and the field answered it the
+                                  ; OTHER WAY: at 40% the built renderer runs
+                                  ; the pose cycle at 6.4 fps a feature and the
+                                  ; motion is TOO FAST - `-` had to be pressed
+                                  ; repeatedly before it looked right. Keeping
+                                  ; 40% would mean doubling the pose count to
+                                  ; make each step smaller, which is art nobody
+                                  ; has room for; halving the share costs
+                                  ; nothing and spends the surplus below
+TI_TRIMMIN  equ 30                ; the credit's floor, as a per cent of what
+                                  ; the share asks for (SPEC.md 97.5)
+TI_COMBAT   equ 25                ; ...and per cent MORE the frame may take
+                                  ; while something is in flight. TITHE-PLAN
+                                  ; 3.8's concession - the other four lanes
+                                  ; stop idling to pay for an attack - was
+                                  ; written against a frame that was full, and
+                                  ; it is not: an idle at 20% leaves the room
+                                  ; for an attack BESIDE it rather than instead
+                                  ; of it
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
 TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
                                   ; EACH (SPEC.md 97.5)
@@ -374,15 +395,15 @@ ti_onkey:
     call ti_paint_now
     jmp short .out
 .up:
-    add word [ti_share], 10
+    add word [ti_share], 5
     cmp word [ti_share], 90
     jbe .credit
     mov word [ti_share], 90
     jmp short .credit
 .down:
-    cmp word [ti_share], 20
-    jbe .credit
-    sub word [ti_share], 10
+    cmp word [ti_share], 5          ; THE FLOOR WAS 20 and the field hit it
+    jbe .credit                     ; still looking for something slower, so
+    sub word [ti_share], 5          ; the step is 5 below 20 as well
 .credit:
     call ti_credit
 .out:
@@ -510,11 +531,16 @@ ti_frame:
     push bx
     push cx
     push dx
-    call ti_hover_ck                ; the pointer moved between cards: put the
-    jnc .credit                     ; one it LEFT back, before the credit is
-    cmp word [ti_hovold], -1        ; spent. The one it arrived on is feature
-    je .credit                      ; 22 and is drawn by the walk below
-    mov ax, [ti_hovold]
+    call ti_hover_ck                ; the pointer moved between cards, so BOTH
+    jnc .credit                     ; of them are redrawn - the one it left
+    cmp word [ti_hovold], -1        ; and the one it arrived on. Only the first
+    je .gain                        ; was, and the second was left to feature
+    mov ax, [ti_hovold]             ; 22 - which draws the UNIT ALONE, at a box
+    call ti_card_draw               ; ti_card_draw banks and nothing had banked
+.gain:                              ; for the new card. So a hover animated
+    cmp word [ti_hover], -1         ; only while a full repaint happened to
+    je .credit                      ; have set the box up, which on the glass
+    mov ax, [ti_hover]              ; is "it worked for one frame"
     call ti_card_draw
 .credit:
     cmp byte [ti_clash], 0          ; A CLASH RUNS ON THE WHEEL like everything
@@ -536,6 +562,10 @@ ti_frame:
     call ti_pj_step                 ; thing in the renderer and the four lanes
     inc word [ti_npj]               ; that stop idling to pay for it is
 .nopj:                              ; TITHE-PLAN 3.8's concession
+    call ti_credit                  ; PER FRAME, because the allowance depends
+                                    ; on what is in flight this one
+    call OSAPI_GET_TICKS            ; ...and the frame is TIMED, because the
+    mov [ti_ft0], ax                ; model under-prices what a commit really
     inc word [ti_nframe]            ; commits ALONE cannot say whether the wheel
     mov ax, [ti_creditus]           ; is credit-limited or work-limited, and
     mov [ti_left], ax               ; the two want opposite fixes
@@ -583,8 +613,62 @@ ti_frame:
     dec cx
     jmp short .walk
 .out:
-    pop dx
-    pop cx
+    call ti_overran                 ; SPEC.md 97.5's own promise, and it was
+    pop dx                          ; never built: the credit is trimmed when
+    pop cx                          ; the frame missed its tick
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_overran - did this frame miss its tick, and trim the credit if it did
+; Preserves every register.
+;
+; SPEC.md 97.5 says the credit is CALIBRATED and then WATCHED - one
+; OSAPI_GET_TICKS a frame, 46.7 us, saying whether the frame overran. The
+; watching half was never built, and it is what the model needs: `arrival +
+; rows x R` prices the BLIT and not the commit around it, so a frame that
+; fits on paper can take two ticks on the glass. It showed up the moment the
+; idle's share came down and left room for a projectile beside it - the wheel
+; let through ten cheap commits and a bolt, and the frame rate fell to 12.9
+; from 18.6 while every number in the model said it fitted.
+;
+; A MULTIPLIER AND NOT A NEW MODEL. The shape of the cost is right - a shorter
+; band really is cheaper, and both levers measure - so what is wrong is a
+; scale, and one number carries it. It falls fast and recovers slowly, which
+; is the way round that does not oscillate.
+; -----------------------------------------------------------------------------
+ti_overran:
+    push ax
+    push bx
+    call OSAPI_GET_TICKS
+    sub ax, [ti_ft0]                ; A CHANGED TICK IS AN OVERRUN, not one
+    or ax, ax                       ; tick of slack. The worker only runs when
+    jz .fit                         ; the tick has ALREADY turned over, so a
+                                    ; frame starts at the top of one - and a
+                                    ; frame still going when the next arrives
+                                    ; has spent the whole tick, whatever the
+                                    ; model thought it was spending. Read as
+                                    ; `<= 1 is fine` the trim never fired at
+                                    ; all and the frame sat at 12.8 passes a
+                                    ; second against 18.6
+    mov ax, [ti_trim]               ; missed: come down hard
+    cmp ax, TI_TRIMMIN + 12
+    jb .floor
+    sub ax, 12
+    jmp short .set
+.floor:
+    mov ax, TI_TRIMMIN
+    jmp short .set
+.fit:
+    mov ax, [ti_trim]               ; fitted: creep back up, so a frame that
+    cmp ax, 100                     ; overran once does not cost the rest of
+    jae .out                        ; the session
+    inc ax
+.set:
+    mov [ti_trim], ax
+    call ti_credit
+.out:
     pop bx
     pop ax
     ret
@@ -884,7 +968,22 @@ ti_credit:
     mov cx, 100
     div cx
     mov cx, [ti_share]
+    cmp byte [ti_pjon], 0           ; ...plus the combat allowance, while
+    jne .hot                        ; something is actually in flight: the
+    cmp byte [ti_clash], 0          ; idle's own share is never what an attack
+    je .cold                        ; is taken out of
+.hot:
+    add cx, TI_COMBAT
+.cold:
     mul cx                          ; AX = the share of one frame, in us
+    mov cx, [ti_trim]               ; ...less what the last overrun taught us
+    mul cx
+    mov cx, 100
+    div cx
+    or ax, ax
+    jnz .have
+    inc ax
+.have:
     mov [ti_creditus], ax
     pop cx
     pop dx
@@ -1258,6 +1357,9 @@ ti_calrows: dw 0
 ti_calacc:  dw 0
 ti_arrus:   dw 700                  ; SPEC.md 97.5's two terms, replaced by the
 ti_rowus:   dw 60                   ; first ti_calibrate - a guess until then
+ti_ft0:     dw 0                    ; the tick this frame started on
+ti_trim:    dw 100                  ; per cent of the share the wheel dares
+                                    ; spend, taught by the frames that overran
 ti_ncommit: dw 0                    ; feature commits since launch, wrapping
 ti_nframe:  dw 0                    ; ...and wheel passes
 ti_d0:      dw 0

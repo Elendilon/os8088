@@ -129,3 +129,50 @@ legal (§53.7), so that arm letters its own HUD and draws its own panel. `F`
 steps the fullscreen *geometry row* in a window today, which is the surface
 table's other row and not the other renderer, and it refuses where the row will
 not fit — which is the honest answer rather than a silent half-measure.
+
+## The field answered the rate question — the other way round
+
+**Reported off a Hercules**: at the 40% share the idle is **too fast**. The
+share had to be stepped down repeatedly before the pose cycle looked right.
+TITHE-PLAN §16.1 calls this the sharpest question in the document and frames it
+as *"does 3.6 fps read as a crowd idling or as a slideshow"* — and the built
+renderer runs at 6.4, which reads as neither: it reads as hurried.
+
+Keeping 40% would mean **doubling the pose count** so each step is smaller,
+which is art nobody has room for. Halving the share costs nothing and lands the
+cycle on 3.6 fps a feature, which is the rate TITHE-PLAN §1.3 predicted all
+along.
+
+| | commits/s | fps a feature | frames/s |
+|---|---:|---:|---:|
+| idle, 20% share | 81.6 | **3.5** | 18.6 |
+| …+ dirty rect | 113.5 | 4.9 | 18.6 |
+| …+ a projectile (no rect) | 124.9 | 5.4 | 18.5 |
+| …+ both | 133.3 | 5.8 | **13.3** |
+
+**The surplus pays for combat beside the idle rather than instead of it.**
+`TI_COMBAT` is 25% more of a frame while something is in flight, so a
+projectile no longer takes lanes out of the idle — the idle *rises* to 5.4 fps
+with a bolt flying, because the allowance is larger than the bolt. The plan's
+TITHE-PLAN §3.8 concession is one the machine does not have to make.
+
+### The one combination that does not hold — OPEN
+
+**Dirty rect AND a projectile together runs at ~13.3 passes a second** against
+the wheel's 18.2. §97.5's overrun watch is built now and it *fires* — the trim
+falls to 79% — and **trimming the credit does not recover the rate**, so that
+frame's cost is not in the commits the credit gates. The projectile's own path
+is the suspect: `ti_pj_step` runs before the credit walk and is bounded by
+nothing.
+
+`tests/titheframe.py` carries it as a **ratchet at 12 frames/s** rather than a
+silence: raising that floor to 15 is the fix's own gate, and a drop below 12 is
+a regression on top of it.
+
+## A hover bug the field caught
+
+*"The mouse over only worked for one frame."* On a hover change only the card
+that **lost** it was redrawn; the one that gained it was left to feature 22,
+which draws the **unit alone** at a box `ti_card_draw` banks — and nothing had
+banked one for the new card. So the hover animated only while a full repaint
+happened to have set the box up. Both cards are redrawn on a change now.
