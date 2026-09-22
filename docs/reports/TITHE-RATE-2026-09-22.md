@@ -104,3 +104,28 @@ projectile costs the idle something without stalling the frame.
 **Broken on purpose first** (`docs/WRITING-TESTS.md` §1): charging the flat
 `[ti_bandus]` again fails exactly one check — the dirty rect's, at +0.3% —
 which is the defect it exists to catch.
+
+## The clash, and what tier B taught
+
+`C` fires a clash in one lane's front line; `V` steps its tier.
+
+**Tier A is two ordinary bands** — each fighter steps 8 pixels toward the line
+and back, in its own rectangle — so it costs exactly what two idle commits
+cost and works on every adapter at every sprite size.
+
+**Tier B's band is a cell tall PLUS A RISE.** Columns 1 and 2 are one `RISE`
+apart vertically, so a two-cell band is not a rectangle in board space: cut to
+one cell's height it composes both figures at the same y and puts one of them
+a whole rise out of place. Built correctly it is 24 × 68 = 1,632 bytes on a
+windowed VGA against TITHE-PLAN §3.9.2's estimate of 1,456 for a
+non-sheared 208 × 56 — the rise is the difference, and it is 12% the plan did
+not have.
+
+## What is NOT built
+
+**The fullscreen renderer (§97.6, TITHE-PLAN §3.1.1).** It is a second
+renderer rather than an arm: after `OSAPI_FSX_MODE` no kernel drawing slot is
+legal (§53.7), so that arm letters its own HUD and draws its own panel. `F`
+steps the fullscreen *geometry row* in a window today, which is the surface
+table's other row and not the other renderer, and it refuses where the row will
+not fit — which is the honest answer rather than a silent half-measure.

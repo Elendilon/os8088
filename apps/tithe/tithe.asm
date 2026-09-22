@@ -284,28 +284,56 @@ ti_onkey:
     mov bl, al
     or bl, 0x20
     cmp bl, 'p'
-    je .pause
+    jne .n_pause
+    jmp .pause
+.n_pause:
     cmp bl, 'r'
-    je .recal
+    jne .n_recal
+    jmp .recal
+.n_recal:
     cmp bl, 'f'
-    je .fs
+    jne .n_fs
+    jmp .fs
+.n_fs:
     cmp bl, 'x'
-    je .drect
+    jne .n_drect
+    jmp .drect
+.n_drect:
     cmp bl, 'a'
-    je .fire
+    jne .n_fire
+    jmp .fire
+.n_fire:
+    cmp bl, 'd'
+    jne .n_detail
+    jmp .detail
+.n_detail:
+    cmp bl, 'c'
+    jne .n_clash
+    jmp .clash
+.n_clash:
+    cmp bl, 'v'
+    jne .n_cltier
+    jmp .cltier
+.n_cltier:
     cmp bl, 's'
-    je .size
+    jne .n_size
+    jmp .size
+.n_size:
     cmp al, '+'
-    je .up
+    jne .n_up
+    jmp .up
+.n_up:
     cmp al, '-'
-    je .down
-    jmp short .out
+    jne .n_down
+    jmp .down
+.n_down:
+    jmp .out
 .pause:
     xor byte [ti_paused], 1
-    jmp short .out
+    jmp .out
 .recal:
     call ti_calibrate
-    jmp short .out
+    jmp .out
 .fs:
     xor byte [ti_full], 1           ; SPEC.md 97.7's `F`. Until the fullscreen
     mov byte [ti_laid], 0           ; renderer exists this steps the SURFACE
@@ -315,6 +343,18 @@ ti_onkey:
 .drect:
     xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
     jmp short .out
+.detail:
+    xor byte [ti_detail], 1         ; SPEC.md 97.7's `D`: Flat, then Banded.
+    call ti_paint_now               ; `Quad` is fullscreen-only (TITHE-PLAN
+    jmp short .out                  ; 3.5c) and is not an arm until that
+                                    ; renderer is
+.clash:
+    call ti_cl_fire                 ; SPEC.md 97.7's `C`: a melee clash in the
+    jmp .out                        ; front line of one lane
+.cltier:
+    xor byte [ti_cltier], 1         ; ...and `V` steps its TIER, so stepping
+    call ti_cl_fire                 ; forward and a composed overlap are seen
+    jmp short .out                  ; side by side rather than costed on paper
 .fire:
     xor byte [ti_pjrep], 1          ; SPEC.md 97.7's `A`: bolts across a lane,
     cmp byte [ti_pjrep], 0          ; at the real cost, over a real board. It
@@ -477,6 +517,14 @@ ti_frame:
     mov ax, [ti_hovold]
     call ti_card_draw
 .credit:
+    cmp byte [ti_clash], 0          ; A CLASH RUNS ON THE WHEEL like everything
+    je .nocl                        ; else: tier A is two of the twenty-three
+    cmp byte [ti_cltier], 0         ; features leaning, tier B one composed
+    je .cla                         ; band over both cells
+    call ti_cl_tierb
+.cla:
+    dec byte [ti_clash]
+.nocl:
     cmp byte [ti_pjon], 0           ; ...and it re-fires while the arm is on
     jne .pj
     cmp byte [ti_pjrep], 0
@@ -629,6 +677,11 @@ ti_feature:
     call ti_cell_xy                 ; AX = the cell's x, BX = its y
     add ax, [ti_insx]               ; ...and the figure's own inset inside it
     add bx, [ti_insy]
+    push ax                         ; TIER A's step toward the line, where this
+    call ti_cl_lean                 ; cell is one of a clashing pair - two
+    mov cx, ax                      ; ORDINARY bands and no composition, which
+    pop ax                          ; is why it always works
+    add ax, cx
     push ds
     pop es
     mov dx, [ti_bh]
@@ -652,7 +705,13 @@ ti_feature:
 .rows:
     mov cx, [ti_bw]
     mov bp, [ti_bs]
-    call OSAPI_GFX_BLIT1
+    cmp byte [ti_detail], 0         ; THE DETAIL ARM (SPEC.md 97.4.6). `Flat`
+    je .flat                        ; is one pen a character and one blit;
+    call ti_banded                  ; `Banded` is the SAME BYTES in stacked
+    jmp short .done1                ; strips, each with its own pen - one
+.flat:                              ; arrival an extra strip, and on a 1bpp
+    call OSAPI_GFX_BLIT1            ; adapter the pen is ignored rather than
+.done1:                             ; refused, so one body runs everywhere
     inc word [ti_ncommit]           ; WHAT THE WHEEL ACTUALLY ACHIEVES, counted
                                     ; rather than modelled: commits a guest
                                     ; second is the number TITHE-PLAN 1.3 is in
@@ -833,6 +892,106 @@ ti_credit:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_banded - the same band in TI_STRIPS stacked strips, a pen each
+; in:  ES:SI = the band, AX/BX = where, CX = width, DX = rows, BP = stride
+; Preserves every register.
+;
+; TITHE-PLAN 3.5(b). The bytes are identical to `Flat`'s; what is added is one
+; ARRIVAL an extra strip, which SPEC.md 97.5's own model prices and ti_cost
+; charges. The pens are its colour over BLACK paper, which is the cheap path -
+; a faction colour over a coloured ground is SPEC.md 5.4.2.2.1's Map Mask
+; split, two whole passes over the band, and 3.5 measures that at +115%.
+; -----------------------------------------------------------------------------
+TI_STRIPS   equ 3
+
+ti_banded:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov [ti_stw], cx
+    mov [ti_stbp], bp
+    mov ax, dx                      ; rows a strip, the last one taking the
+    xor dx, dx                      ; remainder
+    mov cx, TI_STRIPS
+    div cx
+    or ax, ax
+    jnz .h
+    inc ax
+.h:
+    mov [ti_sth], ax
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov di, 0                       ; DI = the strip index
+.strip:
+    cmp di, TI_STRIPS
+    jae .out
+    push ax
+    mov al, [ti_stpen + di]         ; ink...
+    mov ah, CBLACK                  ; ...over black, always
+    call OSAPI_GFX_BLIT1_PEN
+    pop ax
+    push dx
+    mov dx, [ti_sth]
+    cmp di, TI_STRIPS - 1
+    jne .rows2
+    pop dx                          ; the last strip takes what is left, so a
+    push dx                         ; height that does not divide by three
+    push ax                         ; loses no row
+    mov ax, [ti_sth]
+    mov cx, TI_STRIPS - 1
+    mul cx
+    mov cx, dx
+    pop ax
+    pop dx
+    push dx
+    sub dx, cx
+    jnz .rows2
+    inc dx
+.rows2:
+    mov cx, [ti_stw]
+    mov bp, [ti_stbp]
+    call OSAPI_GFX_BLIT1
+    pop dx
+    add bx, [ti_sth]                ; ...down the band, and along its bytes
+    push ax
+    mov ax, [ti_sth]
+    mul word [ti_stbp]
+    add si, ax
+    pop ax
+    inc di
+    jmp short .strip
+.out:
+    push ax
+    mov ax, (CBLACK << 8) | CWHITE  ; the pen is valid for this lock hold
+    call OSAPI_GFX_BLIT1_PEN        ; (SPEC.md 5.4.2.2), so it is put back
+    pop ax
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_cost - what the commit just made cost, in microseconds
 ; out: AX; preserves every other register
 ;
@@ -854,6 +1013,14 @@ ti_cost:
 .rows:
     mul word [ti_rowus]
     add ax, [ti_arrus]
+    cmp byte [ti_detail], 0         ; ...and Banded's extra ARRIVALS, which are
+    je .one                         ; the whole of what it costs: the bytes do
+    push bx                         ; not change
+    mov bx, [ti_arrus]
+    add ax, bx
+    add ax, bx
+    pop bx
+.one:
     or ax, ax
     jnz .out
     inc ax                          ; never zero: a credit it cannot divide by
@@ -883,6 +1050,7 @@ ti_pit:
 %include "tirend.inc"
 %include "ticard.inc"
 %include "tipj.inc"
+%include "ticl.inc"
 
 ; =============================================================================
 ; data
@@ -1042,6 +1210,21 @@ ti_rsw:     db 0
 ti_pjon:    db 0                    ; is a projectile in flight?
 ti_pjlane:  db 2
 ti_pjrep:   db 0                    ; keep firing, so the frame can be read
+ti_detail:  db 0                    ; 0 = Flat, 1 = Banded (TITHE-PLAN 3.5)
+ti_clash:   db 0                    ; frames left in a clash
+ti_cltier:  db 0                    ; 0 = tier A, 1 = the composed band
+ti_clbs:    dw 0
+ti_clcs:    dw 0
+ti_clh:     dw 0
+ti_cly:     dw 0
+ti_clr:     dw 0
+ti_clx:     dw 0
+ti_ncl:     dw 0                    ; tier B bands committed
+ti_stw:     dw 0
+ti_stbp:    dw 0
+ti_sth:     dw 0
+ti_stpen:   db CWHITE, CLGRAY, CDGRAY   ; head, body, base - each over BLACK
+                                    ; paper, which is the cheap pen path
 ti_pjx:     dw 0
 ti_pjy:     dw 0
 ti_pjh:     dw 0
@@ -1129,6 +1312,7 @@ ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
 ti_unit:    times TI_UNITMAX * TI_POSES db 0
 ti_pjband:  times TI_PJMAX db 0
+ti_clband:  times TI_CLMAX db 0
 
 TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 

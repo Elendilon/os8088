@@ -140185,6 +140185,46 @@ holds at 17.5–18.6 passes a second**. TITHE-PLAN §3.9.1 predicts 8.88 ms, whi
 is 16% of a frame against the ~20% measured — the two agree, and its "one a
 side is comfortable" reading is confirmed.
 
+#### 97.4.6 The DETAIL arm — `Flat` and `Banded`
+
+`OSAPI_GFX_BLIT1_PEN` says what a set bit and a clear bit become, **two colours
+a band in one pass** (§5.4.2.2) — and on a 1bpp adapter the pen is *ignored
+rather than refused*, so one body runs everywhere.
+
+- **`Flat`** — one pen a character, one blit. Cheapest, and the default.
+- **`Banded`** — the SAME BYTES in stacked strips, a pen each: head, body,
+  base. What is added is one **arrival** an extra strip and nothing else, which
+  is what `ti_cost` charges; TITHE-PLAN §3.5 prices it at a dead-flat +920 µs a
+  strip, so three strips buys 4–6 colours a character for +37%.
+
+**Every strip's pen is its colour over BLACK paper.** A colour over a
+*coloured* ground is §5.4.2.2.1's Map Mask split — two whole passes over the
+band, +115% — so this is a constraint on the PALETTE and not on the picture:
+the ground is baked into the band already, and what the player sees behind a
+figure is whatever was baked there.
+
+**`Quad` is not an arm until the fullscreen renderer is.** It is two planes and
+fullscreen-only (TITHE-PLAN §3.5c), so offering it in the windowed arm would be
+a key that refuses.
+
+#### 97.4.7 The melee clash — two tiers, and the cheap one always works
+
+- **Tier A** *(the default, and it always works)*: both fighters step toward
+  the line, swing, and lean back, **each in its own rectangle**. Two ordinary
+  bands a frame and no composition — so it works on every adapter and at every
+  sprite size. The step is a multiple of 8, which is what keeps it two ordinary
+  bands.
+- **Tier B** *(an option, and a wave-3 decision)*: one band spanning both
+  cells with both figures composed into it, so they may overlap freely.
+
+**THE SHEAR MAKES A TWO-CELL BAND TALLER THAN ONE CELL, and that is the thing
+tier B teaches.** Columns 1 and 2 are one `RISE` apart vertically (§97.3), so a
+band spanning both is a cell tall **plus a rise**, with each cell's ground and
+each figure at its own offset inside it. A band cut to one cell's height
+composes the two figures at the same y and puts one of them a whole rise out of
+place — on the glass, two fighters trading past each other. It is committed at
+the **higher** cell's top.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a
@@ -140250,7 +140290,9 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | key | |
 |---|---|
 | `F` | fullscreen on/off |
-| `D` | step the detail arm — `Flat`, `Banded`, and on a VGA `Quad` |
+| `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
+| `C` | a melee clash in one lane's front line (§97.4.7) |
+| `V` | step the clash's TIER, so stepping forward and a composed overlap are seen side by side |
 | `S` | step the sprite size, so three can be compared on the glass |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
 | `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |

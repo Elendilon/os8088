@@ -9416,7 +9416,8 @@ titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
 # would go (its 4.2.1.2).
 $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
-                    apps/tithe/tipj.inc apps/os88api.inc | $(BUILD)
+                    apps/tithe/tipj.inc apps/tithe/ticl.inc \
+                    apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"
 
