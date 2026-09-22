@@ -4,7 +4,7 @@
 |---|---|
 | machine | **MartyPC**, cycle-accurate 4.77 MHz 8088 — `os8088_xt_vga`, `os8088_5150_herc_gla`, `os8088_5150_cga_gla` |
 | harness | `tests/titheband/titheband.asm` (benchlib), driven by `tests/titheband.py` |
-| tree | `7c2517b8` + this branch |
+| tree | this branch, rebased onto `elendilon` at `4f65bb6f` — every figure **re-taken there and identical to the microsecond**, so the upstream recut moved none of them |
 | date | 2026-09-21 |
 | reproduce | `make titheband && python3 tests/titheband.py` |
 
@@ -470,6 +470,107 @@ part of why that verdict is *no*.
 
 ---
 
+## 12. THE KERNEL'S OWN ROW LOOP, TAKEN — and what that does to everything above
+
+Section 11.4 recorded ~30 µs a row available inside `gfx_blit1` as *"a measured
+opportunity rather than a proposal"*. It was taken: **SPEC.md §5.4.2.6**, +87
+bytes of `gfx_blit1_x`'s span on `kern_big` (730 → 817) and +85 on
+`kern_small`.
+
+| band | before | **with the fast path** | |
+|---|---:|---:|---:|
+| `GFX_BLIT1 128x128` *(Set 77's own row)* | 13,483 µs | **9,169** | **−32%** |
+| 104×72 | 7,252 | **4,991** | −31% |
+| 56×56 | 4,794 | **3,133** | −35% |
+| 48×24 | 2,471 | **1,715** | −31% |
+| 64×40, Hercules | 4,340 | **3,000** | −31% |
+| 8×1 *(the arrival)* | 690 | **721** | **+4.5%** |
+
+Not section 11.1's 1.7×, and the difference is the arrival: the app-side loop
+pays none, this one pays all of it. What the fast path removes is the five
+SS-relative frame reads and the per-row tail test — **setup ~31 µs, saving ~30
+µs a row**, so a one-row band is a wash and everything taller wins. The last
+row is the honest cost to a caller that is eligible and one row tall.
+
+**The correctness signal is in the numbers, not in an assertion.** The two pen
+paths that must *not* take the fast path read byte-identical to before: black
+on white 6,174 µs (the complementing loop, dispatched before the test) and
+§5.4.2.2.1's split 10,323 (it re-enters the emit through the frame, so the
+frame has to still be there). A fast path that had swallowed either would have
+shown up as a number that moved.
+
+### 12.1 …and it changes the two-renderer answer
+
+| VGA | one band | 23-feature wheel | **fps a feature** |
+|---|---:|---:|---:|
+| windowed, before any of this | 4,702 µs | 111.0 ms, 202% | **3.7** |
+| **windowed + the fast path** | **3,028** | **72.1 ms, 131%** | **5.7** |
+| windowed + fast path + 50% dirty | **1,866** | ~43 ms | **9.3** |
+| fullscreen, our own loop | 2,380 | 57.2 ms, 104% | **7.3** |
+| fullscreen + 50% dirty | **1,218** | **29.8 ms, 54%** | **14.3** |
+
+**Fullscreen's advantage over windowed fell from 1.97× to 1.27×** on a whole
+band (1.53× on a half band, where the arrival is a larger share of what is
+left). And **windowed-with-a-dirty-rect at 9.3 fps now BEATS fullscreen without
+one at 7.3.**
+
+That is a wave-ordering finding rather than a renderer finding. The fullscreen
+arm still wins and still costs every other pixel (TITHE-PLAN §3.1.1); what has
+changed is that it is no longer the difference between a design that works and
+one that does not. **The windowed renderer plus TITHE-PLAN §3.4.1's dirty rect clears the
+plan's original 7.2 fps on its own.**
+
+### 12.2 Native format, which only buys anything for COLOUR
+
+*"Being FSX means we fully know the adapter, so we can compose in native format
+— no translations."* Measured, and the answer splits:
+
+**For a two-colour band there is no translation left to remove.** Mode 12h's
+resting state — Map Mask 0Fh, Set/Reset disabled (SPEC.md §5.4.2) — puts a CPU
+write into all four planes, so a 1bpp band is *already* `rep movsw` straight in.
+Section 11.1's own loop is the native-format case.
+
+**For colour it is worth 3.5×.** `gfx_blitp` costs ~122 µs a *row-plane*
+because it sets the Map Mask and runs a `rep movsb` per plane **per row**: 56
+rows of four planes is 224 of those before a byte moves. Owning the card, the
+mask is set once per **plane** and the pass is a whole band:
+
+| VGA, 56×56 | | vs the 1bpp band | vs `gfx_blitp` |
+|---|---:|---:|---:|
+| 1 pass — **2 colours** | 2,380 µs | — | — |
+| 2 passes — **4 colours** | **4,832** | 2.03× | — |
+| 4 passes — **16 colours** | **9,636** | 4.05× | **3.48× better than 33,566** |
+
+**And the pass count is log2(colours), not four.** Set/Reset supplies every
+plane the sprite's palette agrees on, so a four-colour figure varies two planes
+and takes two passes — SPEC.md §5.4.2.2's plane arithmetic one level up from a
+pen. The costs are exactly linear in passes, which is what confirms the model.
+
+**That gives TITHE-PLAN §3.5 an arm it did not have.** `Rich` at 16 colours is 1.8 fps a
+feature and still refused on an 8088; but **four colours is 3.6 fps, and four
+colours with a 50% dirty rect is ~7.2 — the plan's original rate, in colour.**
+
+### 12.3 Self-tuning is free
+
+| | | of one frame |
+|---|---:|---:|
+| PIT counter 0, latch + read | **21.72 µs** | 0.04% |
+| `OSAPI_GET_TICKS` | **46.73 µs** | 0.085% |
+
+Identical on all three adapters, as they must be — neither is an adapter cost,
+and that is one more control passing.
+
+**So a renderer can afford to measure itself**, and the cheap design is not the
+obvious one. Bracketing every commit with a PIT read is affordable (43 µs a
+frame, 0.08%) but unnecessary: **calibrate once at match load** — blit a band
+N times, time it, derive the credit — and the wheel then owns a number for
+*this* machine rather than a number derived from a model of some other one.
+Per frame, one `OSAPI_GET_TICKS` says whether the frame overran, which is
+enough to trim the credit by a notch. A 386, a fast 286 and an 8088 all get the
+right answer without a tier table.
+
+---
+
 ## 10. What the plan has to change
 
 Facts, not decisions — TITHE-PLAN §16.1's prototype is where the look question gets
@@ -511,3 +612,8 @@ priced three of them:
 Together, fullscreen and a 50% dirty rect are **14.3 fps a feature on VGA** —
 four times what the plan measures today and twice what it was ever written
 with.
+
+14. **And section 11.4's kernel opportunity was taken** — SPEC.md §5.4.2.6, +87
+    bytes for −31% to −36% on every eligible band. Section 12 is what that does
+    to all of the above: windowed goes to 5.7 fps, windowed-plus-dirty to 9.3,
+    and **fullscreen's lead falls from 1.97× to 1.27×**.

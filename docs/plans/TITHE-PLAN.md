@@ -121,6 +121,15 @@ format, the sprite size and the animation rate.**
 > | Hercules | 727 µs | 52.52 µs | 4.34 µs |
 > | CGA | 712 µs | 55.35 µs | 3.97 µs |
 >
+> **AND THE PER-ROW TERM HAS SINCE BEEN CUT BY A THIRD** — SPEC.md §5.4.2.6's
+> fast path, which §3.7's own measurement is what argued for. A band whose
+> stride is its own row width, with no tail mask and no expensive pen, skips
+> the five SS-relative frame reads and the per-row tail test: **a 56×56 band
+> is 4,794 → 3,133 µs, −35%**, and Set 77's 128×128 row 13,483 → 9,169. The
+> arrival is unchanged at ~721 µs, so the shape of the model is the same and
+> only the middle term moved. TITHE's bands are all eligible by construction;
+> §3.1.1's own loop, which pays no arrival at all, is still better again.
+>
 > A 56×56 sprite spends **2,915 µs of its 4,793 on arrival and rows** and only
 > 1,168 on its own pixels. **Shortening a sprite is worth about three times as
 > much as narrowing it**: 56×56 → 56×40 saves 833 µs, → 40×56 saves 477.
@@ -208,10 +217,17 @@ of it** (`docs/reports/TITHE-BAND-2026-09-21.md` section 11):
 
 | | VGA, one band | 23-feature wheel | **fps a feature** |
 |---|---:|---:|---:|
-| **windowed, whole band** — today | 4,702 µs | 111.0 ms, **202% of a frame** | **3.7** |
-| windowed + a 50% **dirty rect** | 2,666 | ~62 ms, 113% | **6.5** |
-| **fullscreen**, our own row loop | 2,380 | 56.1 ms, 102% | **7.3** |
+| windowed, before any of this | 4,702 µs | 111.0 ms, 202% of a frame | 3.7 |
+| **windowed** — with SPEC.md §5.4.2.6's fast path | **3,028** | **72.1 ms, 131%** | **5.7** |
+| windowed + a 50% **dirty rect** (§3.4.1) | **1,866** | ~43 ms | **9.3** |
+| **fullscreen**, our own row loop (§3.1.1) | 2,380 | 57.2 ms, 104% | **7.3** |
 | **both together** | **1,218** | **29.8 ms, 54%** | **14.3** |
+
+**THE THIRD ROW IS THE ONE TO NOTICE: windowed with a dirty rect BEATS
+fullscreen without one.** The kernel fast path took fullscreen's lead from
+1.97× to **1.27×** on a whole band, so owning the framebuffer is no longer the
+difference between a design that works and one that does not — it is a later
+wave's optimisation rather than wave 1's architecture (§3.1.1).
 
 1. **THE DIRTY RECT (§3.4.1) is the cheapest thing in this document**: an idle
    pose differs from its neighbour in *part* of the figure, so blit only those
@@ -408,8 +424,19 @@ register:
 | CGA, 48×24 | 2,561 | **1,178** | −54% |
 
 **That is §1.3's original 7.2 fps a feature back, to the decimal** — 7.3 on
-fullscreen VGA, 7.8 on Hercules, 14.8 on CGA. And it composes with §3.4.1: the
-two together are **14.3 fps**.
+fullscreen VGA. And it composes with §3.4.1: the two together are **14.3 fps**.
+
+> **AND THE CASE NARROWED AFTER IT WAS MEASURED.** Those figures are against a
+> windowed band of 4,702 µs. SPEC.md §5.4.2.6's fast path — which §3.7 is what
+> argued for — took the windowed band to **3,028**, so owning the framebuffer
+> is worth **1.27×** and not 1.97× (1.53× on a half band, where the arrival is
+> a larger share of what is left). **Windowed plus §3.4.1 is 9.3 fps and beats
+> fullscreen without it at 7.3.**
+>
+> So this is a **wave-ordering** decision rather than an architectural one:
+> wave 1a shows both, wave 3 builds the windowed renderer, and the fullscreen
+> arm is worth its own wave when the rest of the game exists — not a second
+> renderer carried from the start.
 
 **WHAT IT COSTS IS EVERY OTHER PIXEL.** After the first `OSAPI_FSX_MODE` no
 kernel drawing slot is legal (§53.7): the fullscreen arm letters its own HUD,
@@ -612,10 +639,20 @@ Three arms, in increasing cost:
   three. **Three strips buys 4–6 colours a character for +37%.** That is a
   trade worth making on a machine with the frame to spare and it is **not** the
   free lunch this line used to call it.
-- **(c) `Rich` — four planes** via `gfx_blitp`, 16 colours, 4× the bytes and
-  **7.0× the cost** — 33.57 ms a sprite, measured (§3.7). **REFUSED on an
-  8088**: 23 features is 772 ms, fourteen frames for one update of the board.
-  It survives as a **386 arm** and §6.10's Detail setting is where it lives.
+- **(c) `Quad` — FOUR COLOURS, two planes, FULLSCREEN ONLY.** New, and it
+  exists because §3.1.1 owns the card: the Map Mask is set once per **plane**
+  and the pass is a whole band, where `gfx_blitp` sets it per plane **per
+  row**. **4,832 µs a sprite** — 2.03× the one-bit band, exactly two passes —
+  and **the pass count is log2(colours), not four**, because Set/Reset supplies
+  every plane the palette agrees on (§5.4.2.2's arithmetic one level up). With
+  §3.4.1's dirty rect that is **~7.2 fps a feature: the plan's original rate,
+  in four colours.** It needs the bank stored as planes, which is the same
+  pixels in a different order and costs no disk.
+- **(d) `Rich` — sixteen colours, four planes.** Through `gfx_blitp` it is
+  33.57 ms a sprite and **REFUSED on an 8088** — 23 features is 772 ms,
+  fourteen frames for one board update. Through §3.1.1's own four passes it is
+  **9,636 µs, 3.48× better** and still only 1.8 fps a feature. It survives as a
+  **386 arm**, and §6.10's Detail setting is where both it and `Quad` live.
 
 The art pipeline emits all three from one master (§4), so the setting costs disk
 and not drawing time.
@@ -643,6 +680,26 @@ the frame share. Each frame:
 > The fix costs nothing at run time: `tilay.inc` computes each feature's cost
 > **once**, at layout, from the three constants and that feature's own rows and
 > stride, and stores it beside the band. The wheel subtracts a stored word.
+
+**AND THE CREDIT IS CALIBRATED ON THE MACHINE, NOT DERIVED FROM A TABLE.**
+§3.7 priced the clock: a PIT counter-0 latch and read is **21.72 µs** and
+`OSAPI_GET_TICKS` is **46.73** — 0.04% and 0.085% of a frame, identical on all
+three adapters because neither is an adapter cost. So self-measurement is
+affordable and the cheap design is not the obvious one:
+
+- **At match load, blit a band N times and time it.** That yields the credit
+  for *this* machine — this adapter, this CPU, this kernel, with or without
+  §5.4.2.6's fast path — rather than a number derived from a model of some
+  other one. It costs a few milliseconds, once, in a phase that is already
+  loading art.
+- **Per frame, one `OSAPI_GET_TICKS`** says whether the frame overran. If it
+  did, trim the credit a notch; if it has not for a while, give one back. That
+  is 0.085% of a frame and it needs no tier table: a 386, a fast 286 and a
+  4.77 MHz 8088 all end up with the right number.
+- **Bracketing every commit is affordable too** (two PIT reads, 43 µs, 0.08%)
+  and is not needed. The load-time calibration is more accurate — it averages
+  N blits instead of timing one — and the per-frame check is what catches a
+  machine that turns out to be slower than its own calibration.
 
 **§3.7 measured the wheel itself at exactly 23 bands and no more** — 110,996 µs
 against 23 × 4,793 = 110,250, 0.7% — so the wheel carries no overhead of its
@@ -720,6 +777,14 @@ two of them.
 
 ### 3.7 WAVE 0 — the bench that decides all of the above
 
+> **AND IT CHANGED THE KERNEL.** §3.7's own measurement of `gfx_blit1`'s
+> per-row cost is what argued for **SPEC.md §5.4.2.6**, a fast path for a band
+> that needs none of the row loop's bookkeeping: **+87 bytes** of
+> `gfx_blit1_x`'s span for **−31% to −36% on every eligible band in the
+> system**, TITHE's among them. That is a change to a shared primitive with
+> fourteen callers and it is the owner's decision, taken; the report's section
+> 12 is what it does to every figure in this document.
+>
 > **BUILT, RUN, AND IT MOVED NINE NUMBERS.** `tests/titheband/titheband.asm`
 > and `tests/titheband.py`; `make titheband` builds the disks in both
 > geometries and `python3 tests/titheband.py` drives all three adapters.
@@ -3403,7 +3468,7 @@ breaking the thing on purpose first and watching it go red —
 
 | wave | what | gate |
 |---|---|---|
-| **0** | **DONE.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. It moved nine numbers and halved the animation rate (§19.2) | the numbers exist |
+| **0** | **DONE, in two passes.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. The first pass halved the animation rate (§19.2); the second priced three levers, took two, refused one, and **changed the kernel** (SPEC.md §5.4.2.6) | the numbers exist |
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it** | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
@@ -3709,13 +3774,18 @@ much else: §3.7 measured *time*, and the art budget is *bytes*. The two meet at
 one point only — a smaller sprite is cheaper in both — and that is now an
 argument with evidence on both sides of it rather than one.
 
-**3. IS 3.6 fps A CROWD OR A SLIDESHOW? (§1.3, §3.8, §16.1.)** New at wave 0,
-and now the one that gates the most. The rate is **measured** rather than
-estimated, so it will not improve on its own; what wave 1a decides is whether it
-is enough, and if it is not, which of §1.3's three levers pays for it — a
-shorter sprite, a larger frame share, or fewer features moving at once. **The
-first of those is an ART decision**, which is why it has to be on the glass at
-wave 1a and not discovered at wave 5.
+**3. IS THE IDLE A CROWD OR A SLIDESHOW? (§1.3, §3.8, §16.1.)** New at wave 0
+and still the one that gates the most — but the number it is asked about moved
+twice inside wave 0 itself. It was 7.2 fps a feature on paper, **3.7
+measured**, and **5.7 with SPEC.md §5.4.2.6's fast path**; §3.4.1's dirty rect
+takes the windowed arm to **9.3** and §3.1.1's fullscreen loop to **14.3**.
+
+So the risk is no longer *"is there enough machine"* — there is, twice over.
+It is **which combination the art is drawn for**, and that is wave 1a's to
+settle by eye: a dirty-rect idle is a figure that moves a region at a time
+(§3.4.1), and whether that reads as alive or as twitching pieces is not
+derivable. **Getting it wrong at wave 5 costs the art; getting it wrong at
+wave 1 costs an afternoon.**
 
 ### 18.2 The balance, which needs a game to balance against
 
