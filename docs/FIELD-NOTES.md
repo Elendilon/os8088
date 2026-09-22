@@ -2670,3 +2670,19 @@ previous handler in `ES:BX`**, and CuteMouse implements it. So the probe
 tests the rule with a function that has an answer, and passes here only
 because this box falls through to `.none`. It is a gate that would go red the
 day `1Fh` were implemented properly, and it is not testing what it says.
+
+It asks `AX=0090h` now — above every function this family of drivers defines,
+the classic set ending at `33h` and the Logitech and Genius extensions in the
+40s — and the reference was re-run to check that the rule actually holds
+there rather than to assume it:
+
+```
+POS1 x=320 y=96 b=0
+FN90 left AX alone, as it should be
+```
+
+So §96.10.6's rule is tested with a question that has no answer on **either**
+machine, which is what it was always about. The histogram prints that call as
+`1Fh disable driver`, which is not a second bug: `DOS_TR33_N` is 32 and
+anything above lands in the top bucket, so bucket 31 is a catch-all and the
+`IN ORDER` line (`00 03 03 05 06 90`) is the one that names the function.

@@ -139043,6 +139043,11 @@ SECOND time, after moving the mouse, and expects to be re-centred; every
 program in the reports resets once at start-up, where the two are identical.
 Closing it properly is a `DHK_*` hook of its own.
 
+`tests/kdmouse.py` re-reads it on the machine — `POS1 (320, 96)`,
+`POS2 (440, 136)` after `+120,+40` — and the row never asserted the absolute
+value, only that the pointer moves down-right by unequal amounts, so the
+change is visible in its output without being what it tests.
+
 **How it was found, which is the part worth keeping.** Nothing asked for it.
 Battle Chess's cursor does not move on any DOS — it takes IRQ4 for its own
 modem link (docs/FIELD-NOTES.md 56) — but when our board and a real DOS's were
