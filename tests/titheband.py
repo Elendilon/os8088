@@ -58,7 +58,14 @@ ADAPTERS = [
     ("cga",   "os8088_5150_cga_gla",    "TITHCGA.TXT"),
 ]
 
-SET77_BAR_US = 12588.15     # PERFORMANCE.md Set 77, GFX_BLIT1 128x128
+# THE BAR, and there are TWO of them because the primitive changed under this
+# bench. PERFORMANCE.md Set 77 measured `GFX_BLIT1 128x128` at 12,588 us; SPEC.md
+# 5.4.2.6's fast path takes the same band to ~9,169. A run must land on ONE of
+# them and the row says WHICH - that is the whole value of a bar row, and a
+# single constant would have turned "the kernel you are measuring is not the
+# one this number came from" into a flat failure with no information in it.
+BARS = ((12588.15, "Set 77, before SPEC.md 5.4.2.6's fast path"),
+        (9169.44,  "with SPEC.md 5.4.2.6's fast path"))
 FAIL = []
 
 
@@ -200,10 +207,12 @@ def main():
         # believed until this agrees. bandbench's own discipline.
         bar = p.get("BLIT1 128x128 bar")
         if bar and n == "vga":
-            d = abs(bar[2] - SET77_BAR_US) / SET77_BAR_US
-            check(d < 0.15, "%s: the 128x128 bar is within 15%% of Set 77's "
-                            "%.0f us (got %.0f, %+.1f%%)"
-                            % (n, SET77_BAR_US, bar[2], 100 * (bar[2] / SET77_BAR_US - 1)))
+            near = [(abs(bar[2] - v) / v, v, why) for v, why in BARS]
+            near.sort()
+            d, v, why = near[0]
+            check(d < 0.15, "%s: the 128x128 bar is %.0f us - within 15%% of "
+                            "%.0f (%s), %+.1f%%"
+                            % (n, bar[2], v, why, 100 * (bar[2] / v - 1)))
 
         # 2. THE PEN, on a 1bpp adapter, is NOT READ - so the four rows must
         # land on each other. This is the check nothing else in the tree makes.

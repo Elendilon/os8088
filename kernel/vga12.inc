@@ -5403,6 +5403,41 @@ gfx_blit1_x:
     cld
     or dl, dl
     jnz .rowi
+
+    ; --- THE FAST PATH: a band that needs none of the row loop's bookkeeping
+    ; The loop below is general and reads FIVE SS-relative operands out of the
+    ; frame every row, because DS is spent on the CALLER'S BAND and every
+    ; register carries geometry. On an 8088 a `[bp+disp]` word read is ~22
+    ; clocks, so those five are ~110 of a ~300-clock row whose PAYLOAD is ~100.
+    ;
+    ; A band with no tail mask, no split and a stride equal to its own row
+    ; width needs none of it: the framebuffer step, the wrap bit and the row
+    ; counter all fit the registers the tail and the split are not using, the
+    ; band pointer advances by the move itself, and the wrap FIX rides on the
+    ; stack because it is read on one row in four at the worst and never on a
+    ; linear surface. The `jnc`/`movsb` pair goes too - a stride is odd or even
+    ; for the whole band, so the tail byte is decided ONCE.
+    ;
+    ; SPEC.md 5.4.2.6 IS THE CONTRACT and carries the whole account. Measured
+    ; on a 4.77 MHz 8088 (docs/reports/TITHE-BAND-2026-09-21.md): a 56x56 band
+    ; goes 4,794 -> 3,133 us and Set 77's own 128x128 row 13,483 -> 9,169. The
+    ; setup is ~31 us and it saves ~30 a row, so one row is a wash and
+    ; everything taller wins.
+    ;
+    ; IT IS A SPRITE'S PATH AND NOT TEXT'S. A composed text line carries a
+    ; spare byte column for the last glyph's spill (SPEC.md 5.4.2), so its
+    ; stride is its width plus one and it takes the general loop - which is
+    ; why the band step's test is the LAST of the four: it is the one that
+    ; fails.
+    or bh, bh                   ; a tail mask: the general loop merges it
+    jnz .row
+    or bl, bl                   ; SPEC.md 5.4.2.2.1's split: two passes, and
+    jnz .row                    ; the second one re-enters through the frame
+    cmp word [bp+8], 0          ; a stride wider than the row: the band has to
+    jne .row                    ; be stepped, and there is no register left
+    jmp .fast                   ; NEAR - the two bodies sit below `.none`, so
+                                ; that no jump the general path already had
+                                ; has to grow to make room for them
 .row:
     mov cx, [bp+10]
     push di
@@ -5478,6 +5513,7 @@ gfx_blit1_x:
 .inowrap:
     dec word [bp+12]
     jnz .rowi
+
 .emitted:
     ; --- SPEC.md 5.4.2.2.1's SECOND PASS, and it changes ONE port -------------
     ; The band is emitted again, complemented, with the Map Mask moved from
@@ -5546,6 +5582,71 @@ gfx_blit1_x:
     ret
 .none:                          ; clipped away entirely: drawn, and nothing
     jmp .done                   ; drawn, which is CF = 0 either way
+
+    ; --- ...and the fast path's two bodies (see the note above) -------------
+    ; BP stops being the frame pointer here, so it is banked FIRST and the
+    ; wrap fix pushed on top of it - `.noswap` unwinds through BP and an 8086
+    ; has no SP-relative addressing, so the only way to reach a stack word
+    ; without a register is a pop/push pair, and the only place that is
+    ; affordable is a branch taken one row in four.
+.fast:
+    mov bx, [bp+4]              ; BX = the framebuffer's row step
+    mov ax, [bp+2]              ; AX = the bank-wrap bit - ZERO on a linear
+                                ; surface, so the test below can never fire
+                                ; there and costs three clocks
+    mov dx, [bp+12]             ; DX = rows, counted down in a register
+    mov cx, [bp+10]             ; CX = whole bytes a row
+    push bp                     ; the frame pointer, for `.noswap`'s unwind...
+    push word [bp+0]            ; ...and the wrap fix on top of it, at [SP]
+    mov bp, cx
+    shr bp, 1                   ; BP = WORDS, and CF = an odd bytes-per-row
+    jc .fodd
+.feven:
+    mov cx, bp
+    push di
+    rep movsw
+    pop di
+    add di, bx
+    test di, ax
+    jz .fe1
+    pop cx                      ; the wrap fix, and CX is free here: `rep`
+    add di, cx                  ; left it zero
+    push cx
+.fe1:
+    dec dx
+    jnz .feven
+    jmp short .fend
+.fodd:
+    mov cx, bp
+    push di
+    rep movsw
+    movsb                       ; ...decided once, outside the loop
+    pop di
+    add di, bx
+    test di, ax
+    jz .fo1
+    pop cx
+    add di, cx
+    push cx
+.fo1:
+    dec dx
+    jnz .fodd
+.fend:
+    pop cx                      ; drop the wrap fix...
+    pop bp                      ; ...and the frame pointer is BP again
+    xor bx, bx                  ; **AND BL SAYS `NO SECOND PASS`.** BX carried
+                                ; the row step through the loop above, and
+                                ; `.emitted` reads BL as SPEC.md 5.4.2.2.1's
+                                ; split flag: a row step of 80 left BL = 80,
+                                ; which re-entered the complemented loop with
+                                ; `mov [bp+12], dh` setting the row count from
+                                ; the step's high byte - zero, which `dec word`
+                                ; turns into 65,535 rows. The machine does not
+                                ; come back. BH is this band's tail mask and is
+                                ; zero by the test that got us here, so the
+                                ; whole register goes in one instruction
+    jmp .emitted
+
 
     ; --- per 8-pixel band column, untranslated (SPEC.md 5.4.2 step 4) -------
     ; Each column re-enters this routine and resolves its own display and its

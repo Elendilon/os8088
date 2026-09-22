@@ -180,6 +180,10 @@ TB_OWNSTEP  equ 0                 ; block 10's band step: stride - row width
 TB_PAIRS    equ 10                ; 20 characters as 10 pairs...
 TB_SINGLES  equ 3                 ; ...plus the two bases and the hovered card
 
+; --- the VGA's own two index ports, for the multi-plane arm (SPEC.md 5.4.2.2)
+TB_VGA_SEQ  equ 0x3C4
+TB_VGA_GC   equ 0x3CE
+
 TB_FRAMEUS  equ 54925             ; one system tick in MICROSECONDS. Every
                                   ; "% of a frame" line below is against this
 
@@ -1304,6 +1308,115 @@ tb_b_owndirty:                      ; ...and the two levers TOGETHER: our own
     mov dx, [tb_adirty]             ; loop AND only the rows that changed
     jmp tb_own
 
+; -----------------------------------------------------------------------------
+; tb_own_pl - the same band in N PLANES, our own loop, inside the bracket
+; in:  CL = planes to write (2 = four colours, 4 = sixteen)
+;
+; **THIS IS WHAT "WE KNOW THE ADAPTER, SO COMPOSE IN NATIVE FORMAT" IS WORTH
+; FOR COLOUR**, and it is the one place that phrase buys anything: a two-colour
+; band is ALREADY native - `rep movsw` straight into mode 12h with the resting
+; Map Mask puts the byte in all four planes - so there is no translation left
+; to remove. Colour is different.
+;
+; `gfx_blitp` (SPEC.md 5.4.3) costs ~122 us a ROW-PLANE, because it sets the
+; Map Mask and runs a `rep movsb` per plane PER ROW: 56 rows of four planes is
+; 224 of those before a byte moves. Owning the card, the mask is set once per
+; PLANE and the pass is a whole band - **four passes, not 224 row-plane
+; operations.**
+;
+; AND THE PLANE COUNT IS log2(COLOURS), NOT FOUR. Set/Reset supplies every
+; plane the sprite's palette agrees on, so a FOUR-colour figure varies two
+; planes and takes two passes; sixteen colours takes four. That is SPEC.md
+; 5.4.2.2's own plane arithmetic, one level up from a pen.
+; -----------------------------------------------------------------------------
+tb_own_pl:
+    push es
+    mov ch, cl                      ; CH = passes left
+    mov byte [tb_plmask], 1         ; ...and the Map Mask walks the planes
+.pass:
+    push cx
+    mov dx, TB_VGA_SEQ              ; SEQ index 2 = the Map Mask: which planes
+    mov al, 2                       ; a CPU write lands in
+    mov ah, [tb_plmask]
+    out dx, ax
+    mov es, [tb_fseg]
+    mov di, [tb_fsoff]
+    mov si, tb_planar               ; this plane's own image
+    mov bx, [tb_fsrowadd]
+    mov ax, [tb_fswrapbit]
+    mov bp, [tb_as]
+    shr bp, 1
+    mov dx, [tb_ah]
+    cld
+    test byte [tb_as], 1
+    jnz .rodd
+.reven:
+    push di
+    mov cx, bp
+    rep movsw
+    pop di
+    add di, bx
+    test di, ax
+    jz .e1
+    add di, [tb_fswrapfix]
+.e1:
+    dec dx
+    jnz .reven
+    jmp short .next
+.rodd:
+    push di
+    mov cx, bp
+    rep movsw
+    movsb
+    pop di
+    add di, bx
+    test di, ax
+    jz .o1
+    add di, [tb_fswrapfix]
+.o1:
+    dec dx
+    jnz .rodd
+.next:
+    shl byte [tb_plmask], 1         ; the next plane
+    pop cx
+    dec ch
+    jnz .pass
+    mov dx, TB_VGA_SEQ              ; ...and the Map Mask back to all four,
+    mov ax, 0x0F02                  ; which is SPEC.md 5.4.2's resting state
+    out dx, ax
+    pop es
+    ret
+
+tb_b_own2pl:                        ; FOUR colours: two varying planes
+    mov cl, 2
+    jmp tb_own_pl
+
+tb_b_own4pl:                        ; SIXTEEN colours: all four
+    mov cl, 4
+    jmp tb_own_pl
+
+; -----------------------------------------------------------------------------
+; tb_b_pit - what READING THE CLOCK costs, which is what a self-tuning wheel
+;            would pay to know how it is doing
+;
+; Counter 0 of the 8253, latched and read - benchlib's own `bl_pit`, timed
+; rather than used. A latch is a READ command and disturbs nothing; the
+; question is only whether a renderer can afford to ask.
+; -----------------------------------------------------------------------------
+tb_b_pit:
+    mov al, 0
+    out 0x43, al
+    jmp short $+2
+    in al, 0x40
+    mov ah, al
+    jmp short $+2
+    in al, 0x40
+    ret
+
+tb_b_ticks:                         ; ...and the API's own answer, for a
+    call OSAPI_GET_TICKS            ; renderer that only needs whole frames
+    ret
+
 tb_b_ownwheel:                      ; 23 whole bands: the frame
     mov word [tb_left], TB_FEATURES
 .f:
@@ -1436,6 +1549,28 @@ tb_fs_proc:
     mov [tb_town+2], dx
 
     call tb_fs_check                ; ...and is it the RIGHT picture?
+
+    cmp byte [tb_planes], 0         ; the multi-plane arm is a VGA question:
+    je .noplanes                    ; a 1bpp adapter has one plane and this
+    mov word [bl_n], TB_N           ; whole block is meaningless there
+    mov word [bl_body], tb_b_own2pl
+    mov si, tb_r_own2pl
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_town2], ax
+    mov [tb_town2+2], dx
+
+    mov word [bl_body], tb_b_own4pl
+    mov si, tb_r_own4pl
+    xor al, al
+    call bl_run
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus+2]
+    mov [tb_town4], ax
+    mov [tb_town4+2], dx
+.noplanes:
 
     mov word [bl_n], TB_N
     mov word [bl_body], tb_b_owndirty
@@ -1914,6 +2049,17 @@ tb_run:
     mov si, tb_s_h8
     call bl_sline
 
+    mov word [bl_n], TB_N
+    mov word [bl_body], tb_b_pit
+    mov si, tb_r_pit
+    xor al, al
+    call bl_run
+
+    mov word [bl_body], tb_b_ticks
+    mov si, tb_r_ticks
+    xor al, al
+    call bl_run
+
     mov word [bl_n], TB_NSND
     mov word [bl_body], tb_b_tone
     mov si, tb_r_tone
@@ -2293,6 +2439,7 @@ tb_adapter:
     mov word [tb_ph], TB_FH + 20
     mov word [tb_ps], (104 + TB_FW) / 8
     mov word [tb_adirty], TB_FH / 2
+    mov byte [tb_planes], 1         ; ...and this surface HAS planes
     mov word [tb_sname], tb_s_vga
     cmp dh, 1                       ; SPEC.md's own rule: branch on DEPTH, and
     ja .out                         ; on the adapter only to tell the two 1bpp
@@ -2305,6 +2452,7 @@ tb_adapter:
     mov word [tb_ph], TB_HH + 16
     mov word [tb_ps], (120 + TB_HW) / 8
     mov word [tb_adirty], TB_HH / 2
+    mov byte [tb_planes], 0
     mov word [tb_sname], tb_s_herc
     jmp short .out
 .cga:
@@ -2315,6 +2463,7 @@ tb_adapter:
     mov word [tb_ph], TB_CH + 8
     mov word [tb_ps], (80 + TB_CW) / 8
     mov word [tb_adirty], TB_CH / 2
+    mov byte [tb_planes], 0
     mov word [tb_sname], tb_s_cga
 .out:
     pop dx
@@ -2405,6 +2554,10 @@ tb_r_adapt1: db 'BLIT1 adapter band', 0
 tb_r_own:   db 'FSX own loop 1 band', 0
 tb_r_ownwheel: db 'FSX own loop 23x', 0
 tb_r_owndirty: db 'FSX own 1 band dirty', 0
+tb_r_own2pl: db 'FSX own 2 planes 4col', 0
+tb_r_own4pl: db 'FSX own 4 planes 16c', 0
+tb_r_pit:   db 'PIT latch + read', 0
+tb_r_ticks: db 'OSAPI_GET_TICKS', 0
 tb_r_ownwdirty: db 'FSX own 23x dirty', 0
 tb_r_fschk: db 'FSX read-back says', 0
 tb_s_fs1:   db 'the framebuffer is ours; no clip, no cursor, no pen', 0
@@ -2452,6 +2605,8 @@ tb_pw:      dw 104 + TB_FW
 tb_ph:      dw TB_FH + 20
 tb_ps:      dw (104 + TB_FW) / 8
 tb_adirty:  dw TB_FH / 2
+tb_planes:  db 1
+tb_plmask:  db 1
 tb_sname:   dw tb_s_vga
 tb_caps:    dw 0
 tb_lean:    db 0
@@ -2488,6 +2643,8 @@ tb_townd:   dw 0, 0
 tb_townwd:  dw 0, 0
 tb_tadapt:  dw 0, 0
 tb_trpt:    dw 0, 0
+tb_town2:   dw 0, 0
+tb_town4:   dw 0, 0
 tb_fseg:    dw 0
 tb_fsoff:   dw 0
 tb_fsrowadd: dw 0

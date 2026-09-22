@@ -4055,6 +4055,85 @@ nothing and Paint has to be opened directly, on the canvas it makes itself.
 Verified to fail with `stc`/`ret` poked over the thunk, which is the state the
 kernel shipped in until this.
 
+##### 5.4.2.6 THE FAST PATH — a band that needs none of the row loop's bookkeeping
+
+**`gfx_blit1`'s row loop reads FIVE SS-relative operands out of a stack frame,
+every row, and most bands need none of them.** The frame exists for a structural
+reason and not a lazy one: the emit runs with `DS` spent on the CALLER'S BAND
+(§5.4.2's step 5), so no kernel variable is reachable, and all nine registers
+carry geometry — `SI` the band, `DI` the framebuffer, `CX` the count, `AX` the
+tail's scratch, `BH` the tail mask, `BL` §5.4.2.2.1's split mask, `DL` which
+emit loop, `DH` the split's row count, `BP` the frame. On a 4.77 MHz 8088 a
+`[bp+disp]` word read is ~22 clocks, so those five are **~110 of a ~300-clock
+row whose payload is ~100**.
+
+A band that has **no tail mask, no split, and a stride equal to its own row
+width** needs none of that bookkeeping, and the registers the tail and the split
+were holding are exactly enough to carry what is left:
+
+| | |
+|---|---|
+| `BX` | the framebuffer's row step |
+| `AX` | the bank-wrap bit — **zero on a linear surface**, so the test costs three clocks and can never fire on a VGA |
+| `DX` | rows, counted down in a register rather than `dec word [bp+12]` |
+| `BP` | whole **words** a row |
+| the wrap FIX | on the stack, reached by a `pop`/`push` pair — an 8086 has no SP-relative addressing, and this is affordable only because the branch is taken **one row in four at the worst** and never on a linear surface |
+
+The band pointer needs no step at all: `rep movsw` has already advanced it by a
+whole row, which is what "stride equals width" means. And the `jnc`/`movsb`
+pair goes too — **a stride is odd or even for the whole band**, so the tail
+byte is decided once, outside the loop, by branching to one of two bodies.
+
+#### Which bands take it, and which do not
+
+**It is a SPRITE's path.** A band cut to its own box, a multiple of 8 wide, with
+the default pen or any ink over black paper: a character, an actor, a capsule, a
+fish. Those are the bands that are drawn many times a second.
+
+**Composed text does not take it**, and that is not an oversight. A proportional
+line carries a spare byte column so the last glyph has somewhere to spill
+(§5.4.2, §6.3), so its stride is its width plus one and the band has to be
+stepped — and there is no register left to step it with. The step's test is
+therefore the **last** of the three, because it is the one that fails.
+
+**Neither does either of §5.4.2.2's two expensive pens.** Black on white is the
+complementing loop and is dispatched before this test; a pair that needs
+§5.4.2.2.1's Map Mask split re-enters the emit through the frame for its second
+pass, so the frame has to still be there. Both keep exactly the cost they had.
+
+#### What it costs and what it buys
+
+**+87 bytes** of `gfx_blit1_x`'s span on `kern_big` — 730 → 817 — and **+85** on
+`kern_small`, which has the same test because `bl` and `dl` are simply always
+zero there. It is `.cold`, which is RESIDENT (docs/KERNEL-MEMORY.md); at the
+commit it landed on it crossed a cold rung and moved `KERN_SIZE` by 512, which
+is an accident of where the ledger stood and not the price (CLAUDE.md's banner).
+
+Measured on a 4.77 MHz 8088, `docs/reports/TITHE-BAND-2026-09-21.md`:
+
+| band | before | after | |
+|---|---:|---:|---:|
+| `GFX_BLIT1 128x128` *(Set 77's own row)* | 13,483 µs | **9,169** | **−32%** |
+| 104×72 | 7,252 | **4,991** | −31% |
+| 56×56 | 4,794 | **3,133** | −35% |
+| 48×24 | 2,471 | **1,715** | −31% |
+| 64×40, Hercules | 4,340 | **3,000** | −31% |
+
+**The setup is ~31 µs and it saves ~30 µs a row**, so a one-row band is a wash
+and everything taller wins. The smallest legal band, 8×1, went 690 → 721 µs;
+that is the honest cost of the path to a caller who cannot use it, and it is
+paid only by a band that IS eligible and one row tall.
+
+#### The bug it had, which is the one to look for in any variant
+
+The fast path clobbers `BX` with the row step, and `.emitted` reads **`BL` as
+the split flag**. Leaving it there re-entered the complemented loop with
+`mov [bp+12], dh` taking the row count from the step's HIGH BYTE — zero, which
+`dec word` turns into **65,535 rows**. The machine does not come back. So the
+path ends in `xor bx, bx`, and the general lesson is that **a fast path's exit
+has to restore every register the SHARED epilogue reads**, not just the ones its
+own loop used.
+
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
 The other end of §5.4. `gfx_blit4` takes **pixels** and works out what the card
