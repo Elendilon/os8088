@@ -140014,6 +140014,40 @@ reaches part-way into the next cell, so what is drawn there is composed partly �
 which on the glass is a thing that changes shape when a neighbour animates.
 §93.5.1 paid for that one.
 
+#### 97.4.1 What a cell shows, and the HUD
+
+**The band is the FIGURE. Everything else in the cell is beside it**, which is
+TITHE-PLAN §3.8.1's finding and the reason the band is 416 bytes rather than
+the cell's 624: a character's numbers change **at most once a round** while its
+sprite redraws **every few frames**, so carrying them inside the band pays for
+them tens of times over for nothing.
+
+| element | where | when it redraws |
+|---|---|---|
+| the sprite, in its live pose | the `BW × BH` band | on its animation clock (§97.5) |
+| **HP**, then **SHIELD** under it | the cell's empty columns, `[0, INSX)` | only when a number changes |
+| the cell ground | the rest of the cell | once, with the board |
+
+**They are STACKED on one side and not split either side of the figure.** The
+cells tile exactly (§97.3), so the column to a figure's left is 16 pixels from
+the column to the last one's right — split, a cell's two numbers sit against
+its *neighbour's* rather than against their own, and the board reads as one
+interleaved row of digits. Stacked, each figure carries one block and the empty
+half of its cell is the gap. Both land on a multiple of 8 for free, the cell's
+x and `INSX` both being multiples of 8, so each is a single-store run (§6.1).
+
+**How many rows of numbers is a LAYOUT-TABLE field, not a second code path.**
+`NUMS` is 2 everywhere but CGA, where a 20-pixel cell will not carry a figure
+and two glyph rows and the shield is dropped. §97.2's table is where that kind
+of decision goes, every time.
+
+**The HUD is ONE `font_run` for the whole strip** and not one a field. A row of
+text is ~71 ms on the target machine whichever way it is cut, so cutting it
+into three runs buys three arrivals for nothing — and one opaque run also means
+the strip never flashes, the ground and the glyph being one decision per cell.
+It is drawn with the **board** and not with a frame, for the same reason the
+numbers are: nothing in it changes more than once a round.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a

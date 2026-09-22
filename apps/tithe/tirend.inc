@@ -730,6 +730,213 @@ ti_base_draw:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; ti_u8 - AL as two decimal digits at ES:DI (DI advanced by 2)
+; clobbers: AX, DI
+; -----------------------------------------------------------------------------
+ti_u8:
+    push bx
+    xor ah, ah
+    mov bl, 10
+    div bl                          ; AL = tens, AH = units
+    add al, '0'
+    stosb
+    mov al, ah
+    add al, '0'
+    stosb
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_poke - copy the NUL string at SI into the HUD buffer at DI
+; clobbers: AL, SI, DI
+; -----------------------------------------------------------------------------
+ti_poke:
+    lodsb
+    or al, al
+    jz .out
+    stosb
+    jmp short ti_poke
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_hud_draw - the strip above the board, with real numbers in it
+; Preserves every register.
+;
+; ONE font_run FOR THE WHOLE ROW and not one a field (SPEC.md 97.4.1). A row of
+; text is ~71 ms on the target machine whichever way it is cut, and cutting it
+; into three runs buys three arrivals for nothing - while cutting it into one
+; opaque run also means the strip never flashes, because the ground and the
+; glyphs are one decision per cell (SPEC.md 6.1).
+;
+; It is drawn with the BOARD and not with a frame: every number in it changes
+; at most once a round, which is TITHE-PLAN 3.8.1's whole argument one level up.
+; -----------------------------------------------------------------------------
+ti_hud_draw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+
+    mov cx, [ti_cw_box]             ; the row is as many cells as the content
+    shr cx, 1                       ; is wide, and never more than the buffer
+    shr cx, 1
+    shr cx, 1
+    cmp cx, TI_HUDMAX - 1
+    jbe .fit
+    mov cx, TI_HUDMAX - 1
+.fit:
+    mov [ti_hudn], cx
+    mov di, ti_hudbuf
+    mov al, ' '
+    push cx
+    rep stosb
+    pop cx
+    mov byte [di], 0
+
+    mov di, ti_hudbuf               ; the left field: this player
+    mov si, ti_s_p1
+    call ti_poke
+    mov al, [ti_p1hp]
+    call ti_u8
+    mov si, ti_s_gold
+    call ti_poke
+    mov al, [ti_p1gold]
+    call ti_u8
+
+    mov di, ti_hudbuf               ; ...the right field, right-aligned
+    add di, cx
+    sub di, TI_HUDRIGHT
+    mov si, ti_s_p2
+    call ti_poke
+    mov al, [ti_p2hp]
+    call ti_u8
+    mov si, ti_s_gold
+    call ti_poke
+    mov al, [ti_p2gold]
+    call ti_u8
+
+    mov di, ti_hudbuf               ; ...and the round and phase in the middle
+    mov ax, cx
+    shr ax, 1
+    add di, ax
+    sub di, TI_HUDMID
+    mov si, ti_s_round
+    call ti_poke
+    mov al, [ti_round]
+    call ti_u8
+    mov si, ti_s_phase
+    call ti_poke
+
+    mov cx, [ti_ox]                 ; x: the content's own left, which the
+    mov dx, [ti_oy]                 ; flush window makes a multiple of 8
+    mov ax, [ti_hud]                ; ...and vertically centred in the strip
+    sub ax, 8
+    shr ax, 1
+    add dx, ax
+    mov si, ti_hudbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cellnum - one cell's numbers, BESIDE the figure and outside the band
+; in:  [ti_ci]; AX = the cell's x, BX = its y
+; Preserves every register.
+;
+; TITHE-PLAN 3.8.1, and the whole reason the band is the FIGURE's box: these
+; change at most ONCE A ROUND while the sprite redraws every few frames, so
+; carrying them inside the band would pay for them tens of times over. They sit
+; in the cell's empty columns - [0, INSX) to the left of the band and
+; [INSX+BW, CW) to the right - both of which start on a multiple of 8 because
+; the cell's x and INSX are, so each is a single-store run (SPEC.md 6.1).
+; -----------------------------------------------------------------------------
+ti_cellnum:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    push ax
+    push bx
+
+    mov di, ti_numbuf               ; HP: derived rather than tabled, because
+    mov ax, [ti_ci]                 ; wave 1a has no rules behind it and a
+    and al, 15                      ; table would only be a second fiction
+    add al, 5                       ; 5..20
+    call ti_u8
+    mov byte [di], 0
+
+    pop bx
+    pop ax
+    push ax
+    push bx
+    mov [ti_nx], ax
+    mov [ti_ny], bx
+    mov cx, ax
+    mov dx, bx
+    add dx, [ti_insy]               ; level with the figure's head
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+
+    pop bx                          ; THE CELL'S x AND y COME BACK FIRST, both
+    pop ax                          ; arms: they were pushed above and the
+                                    ; short arm used to jump straight to the
+                                    ; epilogue past these two pops, which left
+                                    ; four bytes on the stack and returned into
+                                    ; nothing. Only the CGA row asks for one
+                                    ; number, so only CGA broke - and it broke
+                                    ; as a board that stops after one cell
+    cmp word [ti_nums], 2           ; a cell too short for two rows carries the
+    jb .out                         ; HP alone (SPEC.md 97.4.1)
+
+    mov di, ti_numbuf               ; SHIELD, STACKED UNDER THE HP AND NOT ON
+    mov ax, [ti_ci]                 ; THE OTHER SIDE. Split either side of the
+    and al, 3                       ; figure, a cell's two numbers sit against
+    call ti_u8                      ; its NEIGHBOUR's rather than against their
+    mov byte [di], 0                ; own - the cells tile edge to edge, so the
+                                    ; column left of a figure is 16 px from the
+                                    ; column right of the last one. Stacked,
+                                    ; each figure carries one block and the
+                                    ; empty half of the cell is the gap
+    mov cx, [ti_nx]
+    mov dx, [ti_ny]
+    add dx, [ti_insy]
+    add dx, 8
+    mov si, ti_numbuf
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ti_board:
     push ax
     push bx
@@ -760,6 +967,8 @@ ti_board:
     cmp ax, TI_CELLS
     jae .done
     call ti_cell_xy                 ; AX = x, BX = y for cell [ti_ci]
+    push ax
+    push bx
     mov si, ti_cell
     mov cx, [ti_cw]
     mov dx, [ti_ch]
@@ -771,9 +980,15 @@ ti_board:
                                     ; cell is a cell that is not drawn, and
                                     ; the board is redrawn whole on the next
                                     ; paint rather than patched
+    pop bx
+    pop ax
+    call ti_cellnum                 ; ...and its numbers AFTER the ground, which
+                                    ; is the whole cell and would otherwise
+                                    ; cover them
     inc word [ti_ci]
     jmp short .cell
 .done:
+    call ti_hud_draw
     pop es
     pop bp
     pop di

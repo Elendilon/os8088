@@ -26,7 +26,13 @@ TI_G_BH     equ 8
 TI_G_HUD    equ 10               ; rows of HUD above the board
 TI_G_PAN    equ 12               ; columns of card panel down the right
 TI_G_BASEW  equ 14               ; columns of BASE either side of the grid
-TI_G_SIZE   equ 16
+TI_G_NUMS   equ 16               ; ROWS of numbers a cell carries beside its
+                                 ; figure - 2 normally, 1 where the cell is too
+                                 ; short for a figure and a glyph row (SPEC.md
+                                 ; 97.4.1). A LAYOUT-TABLE DECISION and not a
+                                 ; second code path, which is the rule the
+                                 ; whole of 97.2 is built on
+TI_G_SIZE   equ 18
 
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
@@ -88,6 +94,8 @@ ti_layout:
     mov [ti_pan], ax
     mov ax, [si + TI_G_BASEW]
     mov [ti_basew], ax
+    mov ax, [si + TI_G_NUMS]
+    mov [ti_nums], ax
 
     mov ax, [ti_bw]                 ; the band's stride in BYTES, which is the
     shr ax, 1                       ; one number the renderer hands gfx_blit1

@@ -84,6 +84,11 @@
     dw 0x0000
     OS88_ICON16_END
 
+TI_HUDMAX   equ 92                ; the widest HUD row any surface asks for -
+                                  ; a Hercules' 720 columns is 90 cells - plus
+                                  ; the NUL and one to spare
+TI_HUDRIGHT equ 18                ; cells the right-hand field occupies
+TI_HUDMID   equ 8                 ; ...and half the middle one's
 TI_FEATURES equ 23                ; the brief's own number: 20 characters, 2
                                   ; player bases, 1 moused-over card
 TI_SHARE    equ 40                ; per cent of a frame the idle may take
@@ -695,6 +700,18 @@ ti_pref:                            ; VGA / Hercules / CGA (SPEC.md 11.100.1)
     dw 720, 271                     ; 712x244
     dw 640, 155                     ; 632x128
 
+ti_s_p1:    db 'P1  HP ', 0
+ti_s_p2:    db 'P2  HP ', 0
+ti_s_gold:  db '  GOLD ', 0
+ti_s_round: db 'ROUND ', 0
+ti_s_phase: db '  PLAN', 0
+
+ti_p1hp:    db 20                  ; wave 1a has no rules behind it, so the
+ti_p1gold:  db 7                   ; HUD's numbers are a fixed position rather
+ti_p2hp:    db 18                  ; than a running game. What is being judged
+ti_p2gold:  db 5                   ; is whether the STRIP reads at all four
+ti_round:   db 3                   ; surface sizes (TITHE-PLAN 16.1)
+
 ti_ttl:     db 'Tithe', 0
 ti_about:   db 'TITHE - wave 1a, the renderer. SPEC.md 97.', 0
 ti_s_small: db 'This window is too small for a board.', 0
@@ -737,6 +754,9 @@ ti_bas:     dw 0                    ; ...and its band's stride in bytes
 ti_b1x:     dw 0                    ; P1's base x, behind column 0
 ti_b2x:     dw 0                    ; P2's, behind column 3
 ti_basey:   dw 0
+ti_nums:    dw 0                    ; rows of numbers a cell carries
+ti_nx:      dw 0                    ; the cell whose numbers are being drawn
+ti_ny:      dw 0
 ti_ktop:    dw 0                    ; the keep's top row, banked because two
                                     ; `mul`s stand between it and its reader
 ti_spanw:   dw 0                    ; what ti_pose_span clips against
@@ -769,13 +789,16 @@ ti_insy:    dw 0
 ; every machine. The short screens are short in HEIGHT and not in width - a
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
-;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW
-ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56
-ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56
-ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48
+;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  NUMS
+ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2
+ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2
+ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1
 
 ti_clock:   times TI_FEATURES db 0
+ti_hudn:    dw 0
+ti_hudbuf:  times TI_HUDMAX db 0
+ti_numbuf:  times 4 db 0
 
 TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 
