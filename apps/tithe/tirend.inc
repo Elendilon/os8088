@@ -731,6 +731,45 @@ ti_base_draw:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_icon - one 8x8 stat icon, at AX = x (a multiple of 8), BX = y
+; in:  SI -> the 8 rows, AL/AH already set as the pen by the caller
+; Preserves every register.
+;
+; A NUMBER WITH NO ICON IS A NUMBER THE READER GUESSES THE MEANING OF, which is
+; what the panel's bare cost digit was and what the cell's two stacked numbers
+; were. Eight pixels square is what a glyph cell is, so an icon costs exactly
+; one cell of the row it labels - and it is a BAND rather than a character
+; because the system font has no coin, sword or shield in it.
+;
+; One blit each, and they are drawn only where the numbers are: with the board
+; and with a card, never in a frame (SPEC.md 97.4.1).
+; -----------------------------------------------------------------------------
+ti_icon:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    push ds
+    pop es
+    mov cx, 8
+    mov dx, 8
+    mov bp, 1
+    call OSAPI_GFX_BLIT1
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_u8 - AL as two decimal digits at ES:DI (DI advanced by 2)
 ; clobbers: AX, DI
 ; -----------------------------------------------------------------------------
@@ -896,6 +935,15 @@ ti_cellnum:
     mov cx, ax
     mov dx, bx
     add dx, [ti_insy]               ; level with the figure's head
+    push cx
+    push dx
+    mov ax, cx                      ; the icon takes the first cell of the
+    mov bx, dx                      ; three, and the digits the other two
+    mov si, ti_ic_hp
+    call ti_icon
+    pop dx
+    pop cx
+    add cx, 8
     mov si, ti_numbuf
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
@@ -924,6 +972,11 @@ ti_cellnum:
     mov dx, [ti_ny]
     add dx, [ti_insy]
     add dx, 8
+    mov ax, cx
+    mov bx, dx
+    mov si, ti_ic_def
+    call ti_icon
+    add cx, 8
     mov si, ti_numbuf
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
@@ -989,6 +1042,10 @@ ti_board:
     jmp short .cell
 .done:
     call ti_hud_draw
+    call ti_panel                   ; ...and the hand, which redraws with the
+                                    ; board for the numbers' reason: nothing in
+                                    ; it changes more than once a round bar the
+                                    ; hovered row, and that one is a FEATURE
     pop es
     pop bp
     pop di

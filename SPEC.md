@@ -140048,6 +140048,42 @@ the strip never flashes, the ground and the glyph being one decision per cell.
 It is drawn with the **board** and not with a frame, for the same reason the
 numbers are: nothing in it changes more than once a round.
 
+#### 97.4.2 The card panel, and the hovered card is the 23rd feature
+
+**A vertical strip down the right-hand edge, not a row along the bottom.**
+Every row of board height the hand does not take is a row the five lanes get,
+and on a 640×200 CGA that is the difference between a board and a refusal.
+
+**The hand is always SEVEN and the row HEIGHT is what moves.** A panel showing
+six cards on one adapter would be a different *game* there, not a smaller one —
+so `CARDH` is a layout-table field cut so that seven rows and the COMMIT row
+fit the board's own height, and it is 36 / 32 / 22 / 12 down §97.2's table. A
+row under 20 pixels carries the name line alone; the stat line is the first
+thing to go, exactly as the cell's second number row is.
+
+**A card is white and the board is black**, which is the whole of how it reads
+at 1bpp — so the hovered card needs no second colour and no dither: ink and
+paper swap and it inverts whole, icons included (`OSAPI_GFX_BLIT1_PEN`).
+
+**It also EXPANDS, sideways into the panel's own 8-pixel margins**, and
+sideways rather than downward for a reason: an expansion that overlapped its
+neighbours would need two cards repainted on every un-hover, where this needs
+the margin blacked and nothing else. Both edges stay on the byte grid, the
+panel's x being a multiple of 8. And it **pulses** — a second frame on the same
+clock the figures idle on — because it is the 23rd animated feature and the
+only one that is not a character; different is a state, and animated is what
+the budget is counted in.
+
+**The hover is POLLED, from the worker.** §12.8's event set has no hover
+callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
+frame already makes. A change repaints the row that *lost* the hover; the row
+that gained it is feature 22 and is drawn by the walk anyway.
+
+**Every number carries an icon** (§97.4.1): a bare digit on a card said nothing
+about whether it was cost, attack or gold. The icons are 8×8 1bpp bands rather
+than characters, the system font having no coin, sword, shield or heart in it —
+one glyph cell each, so an icon costs exactly the room of the digit it labels.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a

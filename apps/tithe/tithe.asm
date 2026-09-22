@@ -432,6 +432,13 @@ ti_frame:
     push bx
     push cx
     push dx
+    call ti_hover_ck                ; the pointer moved between cards: put the
+    jnc .credit                     ; one it LEFT back, before the credit is
+    cmp word [ti_hovold], -1        ; spent. The one it arrived on is feature
+    je .credit                      ; 22 and is drawn by the walk below
+    mov ax, [ti_hovold]
+    call ti_card_draw
+.credit:
     mov ax, [ti_creditus]
     mov [ti_left], ax
     mov cx, TI_FEATURES
@@ -505,7 +512,7 @@ ti_feature:
     cmp ax, TI_CELLS
     jb .cell
     cmp ax, TI_CELLS + 2            ; ...and 20 and 21 are the two BASES, which
-    jae .out                        ; sit outside the grid behind each player's
+    jae .hand                       ; sit outside the grid behind each player's
     sub ax, TI_CELLS                ; rear column (SPEC.md 97.2.1). 22 is the
     mov bx, ax                      ; moused-over card and belongs to the card
     add bx, TI_CELLS                ; panel, which is the next increment
@@ -520,6 +527,12 @@ ti_feature:
 .bx:
     mov ax, bx
     call ti_base_draw
+    jmp short .out
+.hand:
+    cmp word [ti_hover], -1         ; 22 is the MOUSED-OVER CARD, the one
+    je .out                         ; feature that is not a character: it is
+    mov ax, [ti_hover]              ; inverted, so redrawing it is what makes
+    call ti_card_draw               ; the hover read as a state and not a flash
     jmp short .out
 .cell:
     mov [ti_ci], ax
@@ -663,6 +676,7 @@ ti_pit:
 
 %include "tilay.inc"
 %include "tirend.inc"
+%include "ticard.inc"
 
 ; =============================================================================
 ; data
@@ -699,6 +713,40 @@ ti_pref:                            ; VGA / Hercules / CGA (SPEC.md 11.100.1)
     dw 640, 355                     ; 624x328 of content needed
     dw 720, 271                     ; 712x244
     dw 640, 155                     ; 632x128
+
+; --- the stat icons (SPEC.md 97.4.1) ----------------------------------------
+; 8x8 1bpp bands, bit 7 leftmost, a set bit LIT. One cell each, which is what
+; makes an icon cost exactly as much room as the digit it labels.
+ti_ic_cost: db 03Ch, 066h, 0DBh, 0DBh, 0DBh, 0DBh, 066h, 03Ch   ; a coin
+ti_ic_atk:  db 018h, 018h, 018h, 018h, 07Eh, 018h, 018h, 03Ch   ; a sword
+ti_ic_def:  db 0FFh, 0C3h, 0C3h, 066h, 066h, 03Ch, 018h, 000h   ; a shield
+ti_ic_hp:   db 066h, 0FFh, 0FFh, 0FFh, 07Eh, 03Ch, 018h, 000h   ; a heart
+
+ti_s_commit: db 'COMMIT  SWAP ', 0
+ti_n_1:     db 'PIKEMAN', 0
+ti_n_2:     db 'ARCHER', 0
+ti_n_3:     db 'WARDEN', 0
+ti_n_4:     db 'ACOLYTE', 0
+ti_n_5:     db 'RAM', 0
+ti_n_6:     db 'HERALD', 0
+ti_n_7:     db 'BULWARK', 0
+                                    ; cost, atk, def, name - a fixed hand,
+                                    ; because wave 1a has no deck behind it and
+ti_cards:                           ; what is being judged is the LOOK
+    db 2, 3, 2
+    dw ti_n_1
+    db 3, 4, 1
+    dw ti_n_2
+    db 4, 2, 6
+    dw ti_n_3
+    db 2, 1, 3
+    dw ti_n_4
+    db 5, 7, 2
+    dw ti_n_5
+    db 3, 2, 4
+    dw ti_n_6
+    db 6, 5, 8
+    dw ti_n_7
 
 ti_s_p1:    db 'P1  HP ', 0
 ti_s_p2:    db 'P2  HP ', 0
@@ -754,6 +802,23 @@ ti_bas:     dw 0                    ; ...and its band's stride in bytes
 ti_b1x:     dw 0                    ; P1's base x, behind column 0
 ti_b2x:     dw 0                    ; P2's, behind column 3
 ti_basey:   dw 0
+ti_cardh:   dw 0                    ; a hand row's height
+ti_cardx:   dw 0
+ti_cardw:   dw 0
+ti_cardn:   dw 0
+ti_cardpitch: dw 0
+ti_cardi:   dw 0
+ti_cardy:   dw 0
+ti_cardp:   dw 0
+ti_cardl2:  dw 0
+ti_cx:      dw 0                    ; is this card the hovered one?
+ti_cbx:     dw 0                    ; ...and the box it is actually drawn in
+ti_cbw:     dw 0
+ti_cink:    db 0
+ti_cpap:    db 0
+ti_hover:   dw -1                   ; the card under the pointer, -1 for none
+ti_hovold:  dw -1                   ; ...and the one it just left
+ti_swaps:   db 2
 ti_nums:    dw 0                    ; rows of numbers a cell carries
 ti_nx:      dw 0                    ; the cell whose numbers are being drawn
 ti_ny:      dw 0
@@ -789,16 +854,17 @@ ti_insy:    dw 0
 ; every machine. The short screens are short in HEIGHT and not in width - a
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
-;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  NUMS
-ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2
-ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2
-ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1
+;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  NUMS  CARDH  INSX
+ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
+ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
+ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
+ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 12, 24
 
 ti_clock:   times TI_FEATURES db 0
 ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
+ti_cardbuf: times 24 db 0
 
 TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
 

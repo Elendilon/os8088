@@ -32,7 +32,10 @@ TI_G_NUMS   equ 16               ; ROWS of numbers a cell carries beside its
                                  ; 97.4.1). A LAYOUT-TABLE DECISION and not a
                                  ; second code path, which is the rule the
                                  ; whole of 97.2 is built on
-TI_G_SIZE   equ 18
+TI_G_CARDH  equ 18               ; a hand row's height in the card panel
+TI_G_INSX   equ 20               ; the band's inset inside its cell, which is
+                                 ; ALSO the width of the stat column left of it
+TI_G_SIZE   equ 22
 
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
@@ -96,6 +99,10 @@ ti_layout:
     mov [ti_basew], ax
     mov ax, [si + TI_G_NUMS]
     mov [ti_nums], ax
+    mov ax, [si + TI_G_CARDH]
+    mov [ti_cardh], ax
+    mov ax, [si + TI_G_INSX]
+    mov [ti_insx], ax
 
     mov ax, [ti_bw]                 ; the band's stride in BYTES, which is the
     shr ax, 1                       ; one number the renderer hands gfx_blit1
@@ -193,16 +200,17 @@ ti_layout:
     and ax, 0FFF8h                  ; five lanes get (SPEC.md 97.2)
     mov [ti_panx], ax
 
-    ; --- the band's inset inside its cell, ROUNDED TO THE BYTE GRID ----------
-    ; The cell's x is a multiple of 8 and gfx_blit1 wants the band's to be, so
-    ; a centred inset has to be rounded DOWN rather than centred exactly -
-    ; (120-64)/2 is 28 on a Hercules and 28 is not a multiple of 8.
-    mov ax, [ti_cw]
-    sub ax, [ti_bw]
-    shr ax, 1
-    and ax, 0FFF8h
-    mov [ti_insx], ax
-    mov ax, [ti_ch]                 ; ...and vertically the figure stands ON
+    ; --- the band's inset, WHICH IS ALSO THE STAT COLUMN'S WIDTH ------------
+    ; It was CENTRED and derived, and that made the columns either side of a
+    ; figure 16 pixels - two glyph cells, which holds two digits and no way of
+    ; saying what they are (SPEC.md 97.4.1). A number with no icon beside it is
+    ; a number the reader has to guess the meaning of, so the inset is a table
+    ; field now at 24: three cells, an icon and two digits. What it costs is
+    ; that the figure no longer sits at its tile's exact centre - 8 pixels
+    ; toward the back of it, which on an isometric tile reads as standing
+    ; rather than as an error. INSX is read from the table above; only the
+    ; vertical inset is still derived.
+    mov ax, [ti_ch]                 ; the figure stands ON
     sub ax, [ti_bh]                 ; the cell's floor, which needs no rounding
     mov [ti_insy], ax
     clc
