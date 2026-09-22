@@ -550,6 +550,27 @@ pen. The costs are exactly linear in passes, which is what confirms the model.
 feature and still refused on an 8088; but **four colours is 3.6 fps, and four
 colours with a 50% dirty rect is ~7.2 — the plan's original rate, in colour.**
 
+### 12.2.1 `gfx_blitp` has 3.48× in it, and `gfx_blit4` is the wrong target
+
+The 16-colour pair above is a kernel measurement as much as a design one.
+**9,636 µs by hand against `gfx_blitp`'s 33,566** is the same gap
+`gfx_blit1` had before SPEC.md §5.4.2.6, and the cause is in the source
+rather than inferred: **`gfx_blitp` is row-outer, plane-inner.** Per ROW it
+calls `gfx_rowbase` behind three pushes, then `vga_prow_emit` behind five more
+and a `DS` swap, and that emitter handles all four planes. 56 rows is 224
+row-plane operations at ~122 µs each. Plane-outer — the Map Mask set once per
+plane, each pass a whole band — is four band passes and no per-row call.
+
+**It is a bigger change than §5.4.2.6 was**, because the emitter is built
+per-row: plane-outer restructures it rather than branching around it. Recorded
+here, priced, and left as the kernel's decision.
+
+**`gfx_blit4` is not the one to aim at.** It takes PACKED 4bpp and transposes
+— and PERFORMANCE.md Set 108's finding is that the win is to stop transposing,
+not to transpose faster: the same picture went 1,148 ms → **162** by keeping
+the planes. A caller that controls its own art format and ships packed pixels
+is paying the kernel to undo a choice it made.
+
 ### 12.3 Self-tuning is free
 
 | | | of one frame |

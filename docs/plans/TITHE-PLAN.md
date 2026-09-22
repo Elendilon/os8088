@@ -657,7 +657,38 @@ Three arms, in increasing cost:
   33.57 ms a sprite and **REFUSED on an 8088** — 23 features is 772 ms,
   fourteen frames for one board update. Through §3.1.1's own four passes it is
   **9,636 µs, 3.48× better** and still only 1.8 fps a feature. It survives as a
-  **386 arm**, and §6.10's Detail setting is where both it and `Quad` live.
+  **286+ arm**, and §6.10's Detail setting is where both it and `Quad` live.
+
+> **AND THE PRIMITIVE TO AIM AT IS `gfx_blitp`, NOT `gfx_blit4`.**
+>
+> `gfx_blit4` takes **packed** 4bpp and the kernel transposes it to planes —
+> ~8 shifts a pixel, 106.9 cycles a pixel after Set 107 already tuned it. But
+> PERFORMANCE.md Set 108's finding is that the win is to **stop transposing**:
+> the same picture went 1,148 ms → **162** by keeping the planes and using
+> `gfx_blitp`, 7.1× on top of the decoder's own 6.2×. **We choose the shipped
+> format** (§4.2.1.2), so shipping packed pixels and paying the kernel to
+> unpack them every frame is paying for a conversion we elected to need.
+> Tuning it is optimising our own bad input.
+>
+> **`gfx_blitp` is the one with room in it, and §3.7 measured how much: 3.48×.**
+> The reason is visible in `vga12.inc` — it is **row-outer, plane-inner**. Per
+> ROW it calls `gfx_rowbase` behind three pushes, then `vga_prow_emit` behind
+> five more and a `DS` swap, and that emitter does all four planes. 56 rows of
+> that is 224 row-plane operations at ~122 µs. §3.1.1's loop is plane-outer:
+> the Map Mask is set once per PLANE and each pass is a whole band, which is
+> four band passes and no per-row call at all.
+>
+> **It is the same shape as SPEC.md §5.4.2.6's fast path and a bigger change**
+> — the emitter is built per-row, so plane-outer restructures it rather than
+> branching around it. Worth pricing before it is worth taking, and it is the
+> kernel's decision and not this document's.
+>
+> **Even tuned it loses to `Banded` on an 8088**: two planes would be ~5 ms
+> against `Banded`'s 4,341 µs for four colours with no second bank at all.
+> **On a 286 it is a different machine** — a 16-bit bus and ~4–6× the
+> instruction rate on `rep movsw` work — and that is where per-pixel colour
+> stops being a refusal and starts being comfortable. The tuning is what makes
+> the 286 arm *pleasant*; it is not what makes it possible.
 
 The art pipeline emits all three from one master (§4), so the setting costs disk
 and not drawing time.
@@ -1217,9 +1248,20 @@ band's bit means *ink or paper*, where a plane's means *bit 1 of the index*.
 - **Carrying both**: **402 of 354.** It does not fit.
 
 **So the colour planes are an OPTIONAL PART** (§4.3, `OP_OPT`), on the
-geometries with room: the 360KB disk ships the 1bpp bank and nothing else, and
-720KB and up carry the second plane beside it. That is the mechanism already in
-the plan, used for what it is for, and it costs the floor machine exactly zero.
+geometries with room. `make tithedisk` already builds four (§15.2, and §19's
+rule reaches the on-demand application disks), so the split is a payload list
+and not a mechanism:
+
+| geometry | what it carries |
+|---|---|
+| **360KB** | the 1bpp bank alone. `Banded` (§3.5b) is this machine's colour, and it needs no art |
+| 720KB / 1.2MB | the 1bpp bank **plus the second plane** — `Quad`, four colours |
+| **1.44MB** | all of it, with room to spare: the full colour set, and where a `Rich` bank would go if a 286+ ever wants one |
+
+**The floor machine pays exactly zero** — it does not read the part, does not
+claim it and does not know it exists. That is what `OP_OPT` is for, and it is
+the same shape §24.4 already uses to give `BEVERLY.MOD` a disk of its own at
+360KB and not at the others.
 
 **Check `Banded` before spending any of that.** §3.5(b) gives **4 colours for
 4,341 µs windowed and NO extra art at all** — cheaper than `Quad`'s 4,832 and
