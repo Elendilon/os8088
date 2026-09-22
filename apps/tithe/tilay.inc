@@ -56,17 +56,21 @@ TI_G_SIZE   equ 22
 ti_georow:
     call OSAPI_VIDEO                ; AX=w BX=h CX=dock row DL=adapter DH=bpp
     mov si, ti_geo_vgaw
-    cmp dh, 1                       ; SPEC.md's own rule: branch on DEPTH, and
-    jbe .mono                       ; on the adapter only to tell the two 1bpp
-    cmp byte [ti_full], 0           ; ones apart
-    je .have
-    mov si, ti_geo_vgaf
+    mov word [ti_gidx], 1           ; THE INDEX IS SET WITH THE POINTER, and
+    cmp dh, 1                       ; not derived from it: TI_G_SIZE is 22, so
+    jbe .mono                       ; a pointer difference is a DIVIDE where
+    cmp byte [ti_full], 0           ; four stores are free. SPEC.md's own rule
+    je .have                        ; is to branch on DEPTH, and on the adapter
+    mov si, ti_geo_vgaf             ; only to tell the two 1bpp ones apart
+    mov word [ti_gidx], 0
     ret
 .mono:
     mov si, ti_geo_herc
+    mov word [ti_gidx], 2
     cmp dl, VID_CGA
     jne .have
     mov si, ti_geo_cga
+    mov word [ti_gidx], 3
 .have:
     ret
 

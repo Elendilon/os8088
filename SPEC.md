@@ -139903,8 +139903,34 @@ table field, so every surface reserves a **tall narrow slab** — 56×156, 56×1
 applied is about **1 : 2.5 apparent on all four**. That is a tower's proportion
 and not a fortress's, and it is the strongest single constraint on the art: a
 broad low keep cannot be drawn in this box on any surface.
-`tools/os88tithebase.py` is where the candidates live and is the generator the
-`BASES.DAT` path starts from. The first cut of this table had no column for them at all
+**The art is DATA and `tools/os88tithebase.py` emits it.** It was drawn by
+arithmetic inside the package — a dithered mound with a keep leaning on it —
+which was right while the only question was whether the *layout* worked, and is
+the wrong shape for choosing art: every candidate would be a procedural builder
+in 8086 that gets deleted the moment one is picked, and none of them could be
+looked at beside the others. The generator draws them on the host and emits
+`apps/tithe/tibases.inc`, in §97.5.1's own shape — **one ground band that every
+pose shares and a small sub-band per pose carrying only what moves**, since
+eight whole bands would be eight times the bytes for one picture plus a bell.
+It is the generator TITHE-PLAN §3's `art/base/… → BASES.DAT` path starts from.
+
+**A move is pure OR, and the emitter asserts it** rather than the renderer
+trusting it: a candidate whose motion *cleared* a ground pixel would lose it on
+the machine in silence. Each sub-band's x is forced down to a byte and its width
+padded up, so the machine ORs whole bytes and needs no shifter.
+
+**No candidate may light the outermost columns of its band.** The band's right
+edge is not empty space — the first cell's stat block begins **two pixels past
+it** — so a silhouette that fills its box is touching text it has nothing to do
+with. The placeholder mound never came near it and every candidate that reached
+for the full width did. Three columns each side, enforced by the generator's own
+check.
+
+**`B` cycles the candidates and the HUD names the one showing** (§97.7), which
+is a wave 1a affordance and goes when one is picked. The name is padded to a
+fixed width: the HUD is one centred `font_run` and a run draws only its own
+length, so a shorter name leaves the tail of the longer one it replaced *and*
+re-centres the line, smearing the ROUND field as well. The first cut of this table had no column for them at all
 and neither did TITHE-PLAN §3.2.1, which is how a board with nowhere to put a
 base got as far as the glass. A base is one animated feature a side, three
 lanes tall, centred on the lanes it stands behind.
@@ -140407,8 +140433,9 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `S` | step the sprite size, so three can be compared on the glass |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
 | `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
+| `B` | step the BASE CANDIDATE (§97.2.1), naming it in the HUD — the art is not chosen yet, and a picture nobody can name is a picture nobody can choose |
 | `R` | re-calibrate the wheel's credit and show it |
-| `+` / `-` | move the animation share off its default 40% |
+| `+` / `-` | move the animation share off its default 20% |
 | `P` | pause the wheel, for looking at one frame |
 | `Esc` | leave fullscreen, else close |
 

@@ -362,6 +362,10 @@ ti_onkey:
     jne .n_size
     jmp .size
 .n_size:
+    cmp bl, 'b'
+    jne .n_bart
+    jmp .bart
+.n_bart:
     cmp al, '+'
     jne .n_up
     jmp .up
@@ -382,14 +386,14 @@ ti_onkey:
     mov byte [ti_laid], 0           ; renderer exists this steps the SURFACE
     call ti_relayout_ck             ; row, which is the fullscreen geometry in
     call ti_paint_now               ; a window - and refuses where it will not
-    jmp short .out                  ; fit, which is the honest answer
+    jmp .out                  ; fit, which is the honest answer
 .drect:
     xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
-    jmp short .out
+    jmp .out
 .detail:
     xor byte [ti_detail], 1         ; SPEC.md 97.7's `D`: Flat, then Banded.
     call ti_paint_now               ; `Quad` is fullscreen-only (TITHE-PLAN
-    jmp short .out                  ; 3.5c) and is not an arm until that
+    jmp .out                  ; 3.5c) and is not an arm until that
                                     ; renderer is
 .clash:
     call ti_cl_fire                 ; SPEC.md 97.7's `C`: a melee clash in the
@@ -397,13 +401,13 @@ ti_onkey:
 .cltier:
     xor byte [ti_cltier], 1         ; ...and `V` steps its TIER, so stepping
     call ti_cl_fire                 ; forward and a composed overlap are seen
-    jmp short .out                  ; side by side rather than costed on paper
+    jmp .out                  ; side by side rather than costed on paper
 .fire:
     xor byte [ti_pjrep], 1          ; SPEC.md 97.7's `A`: bolts across a lane,
     cmp byte [ti_pjrep], 0          ; at the real cost, over a real board. It
     je .out                         ; SUSTAINS rather than firing one, because
     call ti_pj_fire                 ; the number wave 1a wants is the COMBAT
-    jmp short .out                  ; FRAME's - one bolt is a photograph
+    jmp .out                  ; FRAME's - one bolt is a photograph
 .size:
     mov ax, [ti_arm]                ; SPEC.md 97.7's `S`: three sprite sizes,
     inc ax                          ; so which reads best at 1bpp is looked at
@@ -415,7 +419,19 @@ ti_onkey:
     mov byte [ti_laid], 0
     call ti_relayout_ck
     call ti_paint_now
-    jmp short .out
+    jmp .out
+.bart:                              ; SPEC.md 97.2.1's `B`: the next base
+    mov ax, [ti_bart]               ; candidate. It relayouts because the art
+    inc ax                          ; is built at layout, and it forces the
+    cmp ax, TI_BART_N               ; layout because nothing it depends on has
+    jb .bartset                     ; moved - the box and the surface are the
+    xor ax, ax                      ; same, so ti_relayout_ck would skip
+.bartset:
+    mov [ti_bart], ax
+    mov byte [ti_laid], 0
+    call ti_relayout_ck
+    call ti_paint_now
+    jmp .out
 .up:
     add word [ti_share], 5
     cmp word [ti_share], 90
@@ -1215,6 +1231,7 @@ ti_pit:
     pop dx
     ret
 
+%include "tibases.inc"
 %include "tilay.inc"
 %include "tirend.inc"
 %include "ticard.inc"
@@ -1434,6 +1451,17 @@ ti_trim:    dw 100                  ; per cent of the share the wheel dares
                                     ; spend, taught by the frames that overran
 ti_ncommit: dw 0                    ; feature commits since launch, wrapping
 ti_bslot:   dw 0                    ; the base band's slot pitch, bas x rows
+ti_bart:    dw 0                    ; WHICH BASE CANDIDATE (SPEC.md 97.2.1) -
+                                    ; `B` cycles it, and it is a wave 1a knob:
+                                    ; the owner picks one and the rest go
+ti_gidx:    dw 1                    ; ...and which SURFACE's set of it, an
+                                    ; index into ti_bart_tab's rows
+ti_brec:    dw 0                    ; the record in play
+ti_mx:      dw 0                    ; a move sub-band, unpacked from its four
+ti_my:      dw 0                    ; header bytes
+ti_mw:      dw 0
+ti_mb:      dw 0
+ti_mh:      dw 0
 ti_nbase:   dw 0                    ; ...and BASE LANE commits (SPEC.md 97.5.1)
 ti_nframe:  dw 0                    ; ...and wheel passes
 ti_d0:      dw 0
@@ -1481,6 +1509,7 @@ ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
 ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 22, 24
 ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 1, 10, 24
 
+ti_s_bsep:  db '   BASE ', 0
 ti_clock:   times TI_FEATURES db 0
 ti_cacc:    dw 0                    ; the COMBAT lane's accumulator, in us...
 ti_bacc:    dw 0                    ; ...and the BASE lane's (SPEC.md 97.5.1)

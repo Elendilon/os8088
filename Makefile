@@ -9414,9 +9414,17 @@ titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
 # that binds - 354 clusters is what the art budget is written against
 # (docs/plans/TITHE-PLAN.md 1.5) - and the 1.44MB one is where a colour bank
 # would go (its 4.2.1.2).
+# TITHE's base art is GENERATED (SPEC.md 97.2.1): tools/os88tithebase.py draws
+# the candidates on the host and emits the bands this includes, so the art has
+# one source and the .inc is never hand-edited. It is committed like any other
+# generated file, so a tree with no Python change rebuilds nothing.
+apps/tithe/tibases.inc: tools/os88tithebase.py
+	python3 tools/os88tithebase.py emit
+
 $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
+                    apps/tithe/tibases.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"

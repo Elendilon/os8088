@@ -58,6 +58,14 @@ SURFACES = [
 
 POSES = 8
 
+# NO CANDIDATE MAY LIGHT THE OUTERMOST COLUMNS OF ITS BAND. The band's right
+# edge is not empty space - the first cell's stat block starts TWO pixels past
+# it (measured: band x 0..55 on a VGA, the numbers begin at 58), so a candidate
+# that fills its box is touching text it has nothing to do with. The mound
+# never came near it and every silhouette that reaches for the full width does.
+# It is enforced by the selfcheck rather than remembered.
+EDGE = 3
+
 
 class Band:
     """A 1bpp band: [y][x], 1 = lit. What gfx_blit1 takes, one bit a pixel."""
@@ -151,13 +159,14 @@ def g_rampart(b):
     wall reads first and the tower second."""
     w, h, cx = b.w, b.h, b.w / 2
     wall_top = int(h * 0.58)
+    half = w / 2 - 1 - EDGE                              # ...INSIDE the margin
     for y in range(wall_top, h):                         # the wall, dithered
-        b.dither(cx, w / 2 - 1, y)
+        b.dither(cx, half, y)
     for y in range(wall_top, wall_top + max(2, h // 40)):   # its coping, solid
-        b.span(cx, w / 2 - 1, y)
+        b.span(cx, half, y)
     step = max(4, w // 7)                                # crenellations
-    for x in range(0, w, step * 2):
-        b.box(x, wall_top - step // 2, x + step - 1, wall_top)
+    for x in range(int(cx - half), int(cx + half), step * 2):
+        b.box(x, wall_top - step // 2, min(x + step - 1, cx + half), wall_top)
     tw = w / 5
     tower_top = int(h * 0.20)
     for y in range(tower_top, wall_top):                 # the gate tower
@@ -238,68 +247,108 @@ def m_pyre(b, p):
               tip - 2 - ((p + i * 4) % 5))
 
 
-def skull(b, cx, cy, sw, sh):
-    """A skull, solid with its sockets punched out. Returns False if the box is
-    too small for one to read - which CGA's 48x60 band is, and a smear there is
-    worse than nothing."""
-    if sw < 9 or sh < 8:
-        return False
-    for y in range(sh):
-        t = y / (sh - 1.0)
-        if t < 0.62:                                            # the cranium
-            half = (sw / 2) * circ(t * 0.95)
-        else:                                                   # ...and a jaw
-            half = (sw / 2) * 0.62 * (1.0 - (t - 0.62) * 0.9)
-        b.span(cx, max(0.5, half), cy + y)
-    ey = int(sh * 0.28)
-    for dy in range(max(2, sh // 4)):                           # two sockets
-        b.span(cx - sw * 0.23, max(0.5, sw * 0.13), cy + ey + dy, 0)
-        b.span(cx + sw * 0.23, max(0.5, sw * 0.13), cy + ey + dy, 0)
-    b.set(int(cx), cy + int(sh * 0.56), 0)                      # the nose
-    b.span(cx, sw * 0.22, cy + int(sh * 0.72), 0)               # the teeth
-    return True
+# A SKULL IS PIXELS AND NOT ARITHMETIC. Two goes at it as ellipses failed the
+# same way: at thirteen pixels the two sockets are three pixels apart and any
+# rounding merges them, so what lands on the glass is a white blob with one
+# black bar through it. Drawn by hand there is no rounding to lose - '#' is
+# bone, 'o' is a socket cut black, and a space leaves the shaft's own stone
+# showing, so the mark is CUT INTO the tower rather than stuck on it.
+SKULL13 = (
+    "   #######   ",
+    "  #########  ",
+    " ########### ",
+    " ########### ",
+    " ##oo###oo## ",
+    " ##oo###oo## ",
+    " ########### ",
+    " ########### ",
+    "  ####o####  ",
+    "  #########  ",
+    "   #o#o#o#   ",
+    "   #######   ",
+    "    #####    ",
+)
+SKULL9 = (
+    "  #####  ",
+    " ####### ",
+    " ####### ",
+    " #o###o# ",
+    " #o###o# ",
+    " ####### ",
+    "  #####  ",
+    "  #o#o#  ",
+    "   ###   ",
+)
+
+
+def glyph(b, art, cx, cy):
+    """Paint a hand-drawn mark centred on cx, top at cy."""
+    x0 = int(cx - len(art[0]) / 2)
+    for gy, row in enumerate(art):
+        for gx, ch in enumerate(row):
+            if ch == "#":
+                b.set(x0 + gx, cy + gy, 1)
+            elif ch == "o":
+                b.set(x0 + gx, cy + gy, 0)
 
 
 def g_pyre_skull(b):
     """3b THE EMBER CHOIR again, with a SKULL cut into the shaft. The faction
     is the undead one - souls, necromancy - so the shaft carries the mark
-    rather than leaving the flame to say it alone."""
+    rather than leaving the flame to say it alone.
+
+    SIZED FROM THE SHAFT AT THE ROW IT SITS ON, not from the band, and the
+    largest mark that leaves THREE pixels of stone either side is the one
+    drawn - so CGA gets the nine-wide skull where it would have got a smear,
+    and nothing anywhere touches the shaft's edge.
+    """
     g_pyre(b)
     w, h, cx = b.w, b.h, b.w / 2
-    sw = int(w / 3.2)
-    sh = int(sw * 1.15)
-    skull(b, cx, int(h * 0.50), sw, sh)
+    base_top, foot = int(h * 0.34), int(h * 0.87)
+    cy = int(h * 0.56)                                          # ...and LOWER
+    t = (cy - base_top) / max(1.0, foot - base_top)
+    room = 2 * (w / 7 + t * (w / 14)) - 6
+    for art in (SKULL13, SKULL9):
+        if len(art[0]) <= room and len(art) <= (foot - cy):
+            glyph(b, art, cx, cy)
+            return
 
 
 def g_shrine(b):
-    """4 THE COVENANT - a shrine arch. Its keywords change what is about to
-    happen rather than dealing damage, so its base is the one that is OPEN:
-    two pillars carrying an arch, with the lane visible through it."""
+    """6 THE COVENANT, alternate - a shrine arch. Its keywords change what is
+    about to happen rather than dealing damage, so this is the one base that is
+    OPEN: two pillars carrying an arch, with the lane visible through it.
+
+    EVERY WIDTH HERE IS CUT FROM THE USABLE HALF rather than from the band, so
+    the arch stays inside the margin on a 48-pixel CGA band as well as a 72
+    pixel Hercules one. Written the other way it breached by two columns on CGA
+    alone, which is exactly the surface nobody looks at first.
+    """
     w, h, cx = b.w, b.h, b.w / 2
-    pil = w / 9                                          # THIN. At w/6 the two
-    top = int(h * 0.30)                                  # legs and the arch
-    spring = int(h * 0.52)                               # met and it read as a
-                                                         # blob with a hole
+    use = w / 2 - 1 - EDGE
+    pil = max(1.5, use / 4.5)                            # THIN. At w/6 the two
+    leg = use - pil                                      # legs and the arch
+    top = int(h * 0.30)                                  # met and it read as a
+    spring = int(h * 0.52)                               # blob with a hole
     for y in range(spring, h):                           # the two pillars
-        b.dither(cx - w / 3, pil, y)
-        b.dither(cx + w / 3, pil, y)
-        b.set(int(cx - w / 3 - pil), y)                  # ...outlined, so a
-        b.set(int(cx - w / 3 + pil), y)                  # 50% dither against
-        b.set(int(cx + w / 3 - pil), y)                  # black still has an
-        b.set(int(cx + w / 3 + pil), y)                  # edge
-    for y in range(int(h * 0.94), h):                    # a shared step
-        b.span(cx, w / 2 - 1, y)
+        b.dither(cx - leg, pil, y)
+        b.dither(cx + leg, pil, y)
+        for e in (-leg - pil, -leg + pil, leg - pil, leg + pil):
+            b.set(int(cx + e), y)                        # ...outlined, so a
+                                                         # 50% dither against
+    for y in range(int(h * 0.94), h):                    # black still has an
+        b.span(cx, use, y)                               # edge
     for y in range(top, spring):                         # the arch over them
-        t = (spring - y) / max(1, spring - top)
-        half = (w / 3 + pil) * circ(t)
-        if half >= w / 3 - pil:
+        t = (spring - y) / max(1.0, spring - top)
+        half = min(use, (leg + pil) * circ(t))
+        if half >= leg - pil:
             b.dither(cx, half, y)
             if y < top + max(2, h // 40):
                 b.span(cx, half, y)
     for y in range(spring - 1, spring + 1):              # the opening, kept
-        b.span(cx, w / 3 - pil - 1, y, 0)                # clear of both legs
+        b.span(cx, leg - pil - 1, y, 0)                  # clear of both legs
     for y in range(top - max(3, h // 22), top):          # a keystone finial
-        b.span(cx, w / 14, y)
+        b.span(cx, max(1.0, use / 7), y)
 
 
 def m_shrine(b, p):
@@ -330,7 +379,7 @@ def g_cathedral(b):
     w, h, cx = b.w, b.h, b.w / 2
     ground = int(h * 0.95)
     for y in range(ground, h):                               # the steps
-        b.span(cx, w / 2 - 1, y)
+        b.span(cx, w / 2 - 1 - EDGE, y)
     nave_top = int(h * 0.46)
     for y in range(nave_top, ground):                        # the nave
         b.dither(cx, w / 2.7, y)
@@ -416,7 +465,7 @@ def g_zigg(b):
     for i in range(tiers):                               # i = 0 is the TOP
         y0 = int(h - (h - tier_top) * (tiers - i) / tiers)
         y1 = int(h - (h - tier_top) * (tiers - i - 1) / tiers) - 1
-        half = (w / 5) + (w / 2 - 1 - w / 5) * i / (tiers - 1)
+        half = (w / 5) + (w / 2 - 1 - EDGE - w / 5) * i / (tiers - 1)
         for y in range(y0, y1 + 1):
             b.dither(cx, half, y)
         for y in range(y0, y0 + max(2, h // 50)):        # each tier's coping
@@ -716,8 +765,164 @@ def insitu(machine, out, label, herc=False):
     print("%s: %dx%d" % (out, s.w, s.h))
 
 
+# =============================================================================
+# the emitter - what the machine actually reads
+#
+# SPEC.md 97.5.1's shape, made into a file: a GROUND that every pose shares and
+# a small MOVING sub-band per pose. Storing eight whole bands instead would be
+# eight times the bytes for one picture plus a bell, which is the same argument
+# that made the renderer build the mound once.
+#
+# THE MOVING HALF IS PURE OR. Every candidate's move_fn only SETS pixels, so
+# `pose == ground | move` - asserted here rather than assumed, because a
+# candidate that cleared one would silently lose it on the machine. Its sub-band
+# is the bounding box of what it adds, with x forced down to a byte and the
+# width padded up, so the machine ORs whole bytes and needs no shifter.
+# =============================================================================
+
+def bbox(a, g):
+    """The box of what `a` adds to `g`, as (x, y, w, h) or None."""
+    xs, ys = [], []
+    for y in range(a.h):
+        for x in range(a.w):
+            if a.px[y][x] and not g.px[y][x]:
+                xs.append(x)
+                ys.append(y)
+            if g.px[y][x] and not a.px[y][x]:
+                raise SystemExit("a move CLEARS a ground pixel at %d,%d - the "
+                                 "OR-only assumption is broken" % (x, y))
+    if not xs:
+        return None
+    x0 = min(xs) & ~7
+    x1 = (max(xs) | 7) + 1
+    return x0, min(ys), x1 - x0, max(ys) - min(ys) + 1
+
+
+def pack(b, x0, y0, w, h):
+    """Rows of `b` as packed 1bpp, MSB first - what gfx_blit1 reads."""
+    out = bytearray()
+    for y in range(y0, y0 + h):
+        for xb in range(x0, x0 + w, 8):
+            v = 0
+            for i in range(8):
+                if b.px[y][xb + i] if (xb + i) < b.w and y < b.h else 0:
+                    v |= 0x80 >> i
+            out.append(v)
+    return bytes(out)
+
+
+# WHICH CANDIDATES THE BUILD CARRIES. The sheets show every one; the machine
+# cannot, because a package's image and bss cap at APP_MAX_SIZE (60KB) and all
+# seven across four surfaces is 40KB of art on top of a 10KB program and 12KB
+# of band store. These are the five still in play - the control, the two the
+# field has chosen, and the two arms of the one it is still deciding - and the
+# shrine and the ziggurat stay on the contact sheets where they cost nothing.
+BUILD_SET = ("mound", "rampart", "pyre", "skull", "cathed")
+
+
+def emit(path):
+    cands = [c for c in CANDIDATES if c[0] in BUILD_SET]
+    lines = ["; GENERATED by tools/os88tithebase.py - do not edit.",
+             "; TITHE's base art (SPEC.md 97.2.1, 97.5.1): a shared GROUND and",
+             "; a small moving sub-band per pose, one set per surface.",
+             "",
+             "TI_BART_N   equ %d" % len(cands),
+             "TI_BART_G   equ %d" % len(SURFACES),
+             ""]
+    total = 0
+    tab = []
+    body = []
+    for ci, cand in enumerate(cands):
+        for gi, (gname, w, h, _) in enumerate(SURFACES):
+            tag = "tib_%s_%s" % (cand[0], gname.replace("-", ""))
+            tab.append(tag)
+            _, ground = build(cand, w, h, 0)
+            gb = pack(ground, 0, 0, w, ground.h)
+            body.append("%s:" % tag)
+            body.append("    dw .g")
+            for p in range(POSES):
+                body.append("    dw .p%d" % p)
+            body.append(".g:")
+            body += _db(gb)
+            total += len(gb)
+            for p in range(POSES):
+                bp, g2 = build(cand, w, h, p)
+                bx = bbox(bp, g2)
+                body.append(".p%d:" % p)
+                if bx is None:
+                    body.append("    db 0, 0, 0, 0")
+                    continue
+                x0, y0, ww, hh = bx
+                body.append("    db %d, %d, %d, %d" % (x0, y0, ww, hh))
+                pb = pack(bp, x0, y0, ww, hh)
+                body += _db(pb)
+                total += len(pb)
+    lines.append("ti_bart_name:")
+    for c in cands:
+        lines.append("    dw .n_%s" % c[0])
+    # PADDED TO A FIXED WIDTH, because the HUD is one centred font_run and a
+    # run only draws its own length: a shorter name leaves the tail of the
+    # longer one it replaced on the glass, and a name of a different length
+    # re-centres the whole line so the ROUND field smears too. It showed up as
+    # "RROUND 03 ... RAMPART GATEND" the first time `B` was pressed.
+    wide = max(len(c[1]) for c in cands)
+    for c in cands:
+        lines.append(".n_%s: db '%-*s', 0" % (c[0], wide, c[1][:wide]))
+    lines.append("")
+    lines.append("ti_bart_tab:")
+    for i in range(0, len(tab), 4):
+        lines.append("    dw " + ", ".join(tab[i:i + 4]))
+    lines.append("")
+    lines += body
+    open(path, "w").write("\n".join(lines) + "\n")
+    lines.insert(6, "; in this build: " + ", ".join(c[0] for c in cands))
+    open(path, "w").write("\n".join(lines) + "\n")
+    print("%s: %d of %d candidates x %d surfaces, %d bytes of art"
+          % (path, len(cands), len(CANDIDATES), len(SURFACES), total))
+    return total
+
+
+def _db(data):
+    out = []
+    for i in range(0, len(data), 16):
+        out.append("    db " + ", ".join("0%02Xh" % b for b in data[i:i + 16]))
+    return out
+
+
+def geocheck(bad):
+    """SURFACES against the geometry table it MIRRORS.
+
+    The band's size is CH x 3 by BASEW, both out of ti_geo_* in tithe.asm, and
+    this file hard-codes the four results. A drift there is silent and total:
+    the machine copies `ti_bas * ti_baseh` bytes out of a record emitted for a
+    different size, so the art comes out skewed rather than missing. Read the
+    table instead of trusting the copy - tests/unit/t_mirror.py's own argument,
+    one package along.
+    """
+    import re
+    src = open("apps/tithe/tithe.asm", encoding="utf-8").read()
+    rows = {}
+    for m in re.finditer(r"^ti_geo_(\w+):\s*dw\s+(.+)$", src, re.M):
+        rows[m.group(1)] = [int(x) for x in m.group(2).split(",")]
+    want = {"vgaf": "vga-full", "vgaw": "vga", "herc": "herc", "cga": "cga"}
+    order = ["vgaf", "vgaw", "herc", "cga"]
+    if [want[k] for k in order] != [x[0] for x in SURFACES]:
+        bad.append("SURFACES is not in ti_geo_*'s own order")
+        return
+    for i, key in enumerate(order):
+        if key not in rows:
+            bad.append("ti_geo_%s is not in tithe.asm any more" % key)
+            continue
+        ch, basew = rows[key][1], rows[key][7]
+        name, w, h, _ = SURFACES[i]
+        if w != basew or h != ch * 3:
+            bad.append("%s is %dx%d here and %dx%d in ti_geo_%s"
+                       % (name, w, h, basew, ch * 3, key))
+
+
 def selfcheck():
     bad = []
+    geocheck(bad)
     for name, w, h, _ in SURFACES:
         for cand in CANDIDATES:
             seen = set()
@@ -733,6 +938,20 @@ def selfcheck():
             if len(seen) < (POSES + 1) // 2:
                 bad.append("%s/%s is %d distinct poses of %d"
                            % (name, cand[0], len(seen), POSES))
+            # ...it may not touch the band's outer columns, where the first
+            # cell's stat block is two pixels away.
+            for p in range(POSES):
+                b, _ = build(cand, w, h, p)
+                for y in range(h):
+                    for x in list(range(EDGE)) + list(range(w - EDGE, w)):
+                        if b.px[y][x]:
+                            bad.append("%s/%s pose %d lights column %d, inside "
+                                       "the %d-column margin"
+                                       % (name, cand[0], p, x, EDGE))
+                            break
+                    else:
+                        continue
+                    break
             # ...and it has to fit the box it was handed.
             b, _ = build(cand, w, h, 0)
             if len(b.px) != h or len(b.px[0]) != w:
@@ -748,13 +967,15 @@ def selfcheck():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[2])
     ap.add_argument("cmd", nargs="?", default="sheet",
-                    choices=["sheet", "insitu"])
+                    choices=["sheet", "insitu", "emit"])
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("-o", "--outdir", default="build")
     a = ap.parse_args()
     if a.selfcheck:
         return selfcheck()
     os.makedirs(a.outdir, exist_ok=True)
+    if a.cmd == "emit":
+        return 0 if emit("apps/tithe/tibases.inc") else 1
     if a.cmd == "insitu":
         insitu("os8088_xt_vga", os.path.join(a.outdir, "tithe-bases-situ-vga.png"),
                "vga")

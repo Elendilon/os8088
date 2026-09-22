@@ -624,66 +624,60 @@ ti_pose_addr:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_board - the board, once: twenty cell grounds on the sheared grid
-; in:  the gfx lock is held, the layout is current
-; Preserves every register.
-;
-; TWENTY BLITS OF ONE BAND. The grid's pitch is a whole number of cells, so
-; every cell's ground is the identical diamond (SPEC.md 97.3) - which is the
-; whole reason the ground can be baked into a sprite's band at all.
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; ti_base_build - one frame of a player's base into ti_base[ti_pi]
-; in:  [ti_pi] = 0..TI_BASEPOSES-1, the layout is current
+; ti_base_build - every pose of the CHOSEN base, out of tibases.inc
+; in:  the layout is current; [ti_bart] = the candidate, [ti_gidx] = the surface
 ; clobbers: AX, BX, CX, DX, SI, DI
 ;
-; A PLACE AND NOT A PIECE (SPEC.md 97.2.1): a dithered mound that widens to the
-; foot, with a solid keep standing on it. One band, drawn at both sides, and
-; opaque like every other band so that drawing it back where it was is the
-; erase. What it is NOT yet is the owner's chosen base - TITHE-PLAN 16.1 wants
-; CANDIDATES to pick from and that is the art increment; this is the shape the
-; layout reserves room for.
+; THE ART IS DATA NOW (SPEC.md 97.2.1). It was drawn by arithmetic here - a
+; dithered mound with a keep leaning on it - which was right while the only
+; question was whether the LAYOUT worked. It is the wrong shape for choosing
+; art: every candidate would be a procedural builder in 8086 that gets deleted
+; the moment one is picked, and none of them could be looked at beside the
+; others. tools/os88tithebase.py draws them on the host and emits this file,
+; and it is the generator TITHE-PLAN 3's `art/base/... -> BASES.DAT` path
+; starts from.
+;
+; A GROUND AND EIGHT MOVES, which is SPEC.md 97.5.1's own shape written down:
+; one full band that every pose shares, and a small sub-band per pose carrying
+; only what moves. Eight whole bands would be eight times the bytes for one
+; picture plus a bell.
+;
+; THE MOVES ARE PURE OR, and the emitter ASSERTS it rather than this trusting
+; it - a candidate whose motion cleared a ground pixel would lose it here in
+; silence. Each sub-band's x is forced down to a byte and its width padded up,
+; so this ORs whole bytes and needs no shifter.
 ; -----------------------------------------------------------------------------
 ti_base_build:
     push es
     push ds
     pop es
     cld
-    mov ax, [ti_basew]
-    mov [ti_spanw], ax
     mov ax, [ti_bas]                ; the slot pitch, which is NOT TI_BASEMAX -
     mul word [ti_baseh]             ; that is the largest slot any geometry
     mov [ti_bslot], ax              ; asks for and this is the one in use
 
-    ; --- THE MOUND ONCE, INTO SLOT 0 ---------------------------------------
-    ; It is the same in every pose by construction - a base is a PLACE and the
-    ; thing that moves on it is the keep - so composing it eight times was
-    ; eight times the work for one picture. At TI_BASEPOSES = 8 that was a
-    ; TWO-SECOND freeze on every layout, measured, with the gfx lock held: a
-    ; window resize stopped the machine dead. Building it once and replicating
-    ; the slot is ~14 ms a pose after the first.
-    mov word [ti_pi], 0
+    mov ax, [ti_bart]               ; the record: candidate x surface
+    mov bx, TI_BART_G
+    mul bx
+    add ax, [ti_gidx]
+    shl ax, 1
+    mov si, ti_bart_tab
+    add si, ax
+    mov si, [si]
+    mov [ti_brec], si
+
+    mov word [ti_pi], 0             ; --- THE GROUND, INTO SLOT 0 ------------
     call ti_base_addr
     push di
+    mov si, [ti_brec]
+    mov si, [si]
     mov cx, [ti_bslot]
-    xor ax, ax
-    rep stosb
+    rep movsb
     pop di
-    mov word [ti_ry], 0
-.row:
-    mov ax, [ti_ry]
-    cmp ax, [ti_baseh]
-    jae .copy
-    call ti_base_mound
-    inc word [ti_ry]
-    jmp short .row
 
     ; --- ...REPLICATED INTO THE REST ---------------------------------------
     ; SI trails DI by exactly one slot, so slot 1 is copied from 0, slot 2
     ; from the 1 just written, and so on: one `rep movsw` fills them all.
-.copy:
-    mov word [ti_pi], 0
-    call ti_base_addr
     mov si, di
     add di, [ti_bslot]
     mov cx, [ti_bslot]
@@ -693,145 +687,89 @@ ti_base_build:
     mov cx, ax
     rep movsw
     test word [ti_bslot], 1         ; an odd slot leaves one byte a pose
-    jz .keeps
+    jz .moves
     mov cx, TI_BASEPOSES - 1
     rep movsb
 
-    ; --- ...AND EACH POSE'S KEEP ON TOP ------------------------------------
-.keeps:
+.moves:                             ; --- ...AND EACH POSE'S MOVE ON TOP -----
     mov word [ti_pi], 0
-.kp:
+.mp:
     mov ax, [ti_pi]
     cmp ax, TI_BASEPOSES
     jae .done
-    mov word [ti_ry], 0
-.kr:
-    mov ax, [ti_ry]
-    cmp ax, [ti_baseh]
-    jae .kn
-    call ti_base_keep
-    inc word [ti_ry]
-    jmp short .kr
-.kn:
+    call ti_base_move
     inc word [ti_pi]
-    jmp short .kp
+    jmp short .mp
 .done:
     mov word [ti_pi], 0
     pop es
     ret
 
-; ti_base_mound - one row of the base's GROUND, which every pose shares
-; [ti_ry] = the row; the slot is [ti_pi]'s
-ti_base_mound:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
+; -----------------------------------------------------------------------------
+; ti_base_move - OR pose [ti_pi]'s sub-band into its own slot
+; clobbers: AX, BX, CX, DX, SI, DI
+;
+; The record is `db x, y, w, h` and then (w/8)*h packed bytes, with w = 0
+; meaning this pose adds nothing at all - which is legal and is what a
+; candidate whose motion is entirely inside its ground would emit.
+; -----------------------------------------------------------------------------
+ti_base_move:
+    push es
+    push ds
+    pop es
+    cld
+    mov si, [ti_brec]               ; the pose's record
+    mov ax, [ti_pi]
+    inc ax                          ; +0 is the ground's pointer
+    shl ax, 1
+    add si, ax
+    mov si, [si]
+    mov al, [si + 2]                ; w
+    xor ah, ah
+    or ax, ax
+    jz .out
+    mov [ti_mw], ax
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mb], ax                 ; ...in BYTES, w being a multiple of 8
+    mov al, [si + 3]                ; h
+    xor ah, ah
+    mov [ti_mh], ax
+    mov al, [si + 0]                ; x, likewise a multiple of 8
+    xor ah, ah
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mx], ax
+    mov al, [si + 1]                ; y
+    xor ah, ah
+    mov [ti_my], ax
+    add si, 4                       ; SI -> the bytes
 
-    call ti_base_addr
-    mov ax, [ti_ry]
-    mul word [ti_bas]
-    add di, ax                      ; DI = this row
-
-    ; --- the MOUND: a dithered ramp, w/4 at the crest and w/2 at the foot ---
-    mov ax, [ti_ry]
-    mov dx, [ti_basew]
-    shr dx, 1
-    shr dx, 1                       ; DX = w/4
-    mul dx                          ; DX:AX = row * (w/4)
-    mov bx, [ti_baseh]
-    or bx, bx
-    jnz .mdiv
-    inc bx
-.mdiv:
-    div bx
-    mov cx, [ti_basew]
-    shr cx, 1
-    shr cx, 1
-    add cx, ax                      ; CX = w/4 + row*(w/4)/h
-    mov ax, [ti_basew]
-    shr ax, 1                       ; AX = the band's centre
-    call ti_pose_span
-    mov cx, [ti_bas]
-    mov ax, [ti_ry]
-    call ti_row_dither              ; the ground is a mid-tone, as a cell's is
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; ti_base_keep - one row of the base's FIGURE, which is what moves
-; [ti_ry] = the row, [ti_pi] = the pose. Rows outside the keep cost a compare.
-ti_base_keep:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-
-    call ti_base_addr
-    mov ax, [ti_ry]
+    call ti_base_addr               ; DI = this pose's slot
+    mov ax, [ti_my]
     mul word [ti_bas]
     add di, ax
+    add di, [ti_mx]                 ; ...at the sub-band's own corner
 
-    ; --- the KEEP: solid, standing on the mound's middle half --------------
-    mov ax, [ti_baseh]
-    shr ax, 1
-    shr ax, 1                       ; AX = h/4, the keep's top
-    mov [ti_ktop], ax
-    cmp [ti_ry], ax
-    jb .out
-    mov bx, [ti_baseh]
-    sub bx, ax                      ; BX = h - h/4, its foot
-    cmp [ti_ry], bx
-    jae .out
-
-    mov ax, [ti_ry]                 ; how far down the keep we are
-    sub ax, [ti_ktop]
-    mov dx, [ti_basew]
-    shr dx, 1
-    shr dx, 1
-    shr dx, 1                       ; DX = w/8
-    mul dx
-    mov bx, [ti_baseh]
-    shr bx, 1
-    or bx, bx
-    jnz .kdiv
-    inc bx
-.kdiv:
-    div bx
-    mov cx, [ti_basew]
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1                       ; CX = w/16 at the top...
-    add cx, ax                      ; ...growing to w/8 + that at the foot
-    ; THE SWAY, and it is a PING-PONG rather than a flick. It was `pose 0 is
-    ; centred, every other pose is one pixel right`, which is two pictures
-    ; however many poses are asked for - so raising TI_BASEPOSES to eight paid
-    ; eight times the build for a base that still had two frames in it. A
-    ; triangle over the pose count gives -2,-1,0,1,2,1,0,-1 at eight and the
-    ; original 0,1 at two, so the old behaviour is this one's N=2 case.
-    mov ax, [ti_pi]
-    cmp ax, TI_BASEPOSES / 2
-    jb .tri
-    mov ax, TI_BASEPOSES
-    sub ax, [ti_pi]
-.tri:
-    sub ax, TI_BASEPOSES / 4
-    mov bx, [ti_basew]
-    shr bx, 1
-    add ax, bx                      ; AX = the keep's centre, swayed
-    call ti_pose_span
-.out:
+    mov dx, [ti_mh]
+.row:
+    or dx, dx
+    jz .out
+    push di
+    mov cx, [ti_mb]
+.byte:
+    lodsb
+    or [di], al                     ; PURE OR - the ground stays where the
+    inc di                          ; move does not reach
+    loop .byte
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    add di, [ti_bas]
+    dec dx
+    jmp short .row
+.out:
+    pop es
     ret
 
 ; ti_base_addr - DI = the band of base frame [ti_pi]
@@ -1149,6 +1087,12 @@ ti_hud_draw:
     call ti_u8                      ; the board now, in the shear's own empty
     mov si, ti_s_phase              ; corners and above each base, where they
     call ti_poke                    ; sit beside the thing they are about
+    mov si, ti_s_bsep               ; ...and, FOR WAVE 1a ONLY, which base
+    call ti_poke                    ; candidate `B` is showing, because a
+    mov bx, [ti_bart]               ; picture nobody can name is a picture
+    shl bx, 1                       ; nobody can choose (SPEC.md 97.2.1). It
+    mov si, [bx + ti_bart_name]     ; goes when one is picked, with the rest
+    call ti_poke                    ; of the candidates
     mov byte [di], 0
 
     mov si, ti_hudbuf               ; centred on the content
