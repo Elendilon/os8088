@@ -113,6 +113,11 @@
     OS88_ASSOC_EXT 'MOD'
     OS88_ASSOC16_END
 
+; --- the volume table's rows: (64 >> TRK_VSH) + 1 -----------------------------
+%ifndef TRK_VSH                     ; 0 ships (65 rows, 16,640 bytes); 1 and 2
+%define TRK_VSH 0                   ; are the 33- and 17-row listening builds
+%endif                              ; (`make trkvol`), titled to say which
+
 ; --- the package-wide bss macros (the Arkanoid %assign pattern) ----------------
 ; Pinned interface: defined HERE, at the top, before any %include of
 ; trkplay.inc / trkui.inc, so all three files declare bss through the same
@@ -3477,7 +3482,13 @@ trk_xrmsg:   dw trk_s_xm55, trk_s_xm11
 trk_s_xm55:  db 'Rate: 5.5 kHz - Enter plays', 0
 trk_s_xm11:  db 'Rate: 11 kHz - windowed only', 0
 
+%if TRK_VSH == 1
+trk_ttl:     db 'Tracker 33', 0     ; the listening builds say which they are
+%elif TRK_VSH == 2
+trk_ttl:     db 'Tracker 17', 0
+%else
 trk_ttl:     db 'Tracker', 0
+%endif
 
 ; --- status-line strings -------------------------------------------------------
 trk_s_stopd:  db 'Stopped  ENTER play  HOME top  L load', 0

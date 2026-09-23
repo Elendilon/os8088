@@ -41,6 +41,7 @@ MP_MAXSMP  equ 60000            ; per-sample play-length cap, bytes: keeps
                                 ; off + pos + step*chunk < 65536 in the mixer
                                 ; even at a 4000 Hz mix rate (step int <= 7)
 MP_CHUNK   equ 512              ; mix chunk cap, samples (mp_mixbuf = 2x)
+MP_VROWS   equ (64 >> TRK_VSH) + 1  ; volume-table rows (TRK_VSH: tracker.asm)
 
 ; --- the position stamps (SPEC.md 45.15): what the LISTENER is hearing ---------
 ; Every mp_* readout above is the position being MIXED, and the mixer runs a
@@ -146,6 +147,12 @@ mp_volsel:
     shr ax, cl                      ; AL = vol * master / 64
 .unity:
     xor ah, ah
+%if TRK_VSH                         ; the nearest ROW: vol' rounded to a
+    add al, 1 << (TRK_VSH - 1)      ; multiple of 1 << TRK_VSH, once per
+  %rep TRK_VSH                      ; channel per chunk and never per sample
+    shr al, 1
+  %endrep
+%endif
     or al, al
     jz .out                         ; ZF = 1: silence
     mov cl, 8
@@ -463,7 +470,11 @@ mp_vtbuild:
     inc di
     inc bl
     jnz .vt_b
+%if TRK_VSH
+    add byte [mp_tvol], 1 << TRK_VSH    ; one row per 1 << TRK_VSH volumes
+%else
     inc byte [mp_tvol]
+%endif
     cmp byte [mp_tvol], 65
     jb .vt_v
     ret
@@ -2570,4 +2581,4 @@ mpe_song:   db 'Bad song data', 0
     TRKBUF mp_smptab, MS_SZ * 31    ; the validated sample table
     TRKBUF mp_chans, MP_CHSZ * 4    ; the four channel records
     TRKBUF mp_mixbuf, MP_CHUNK * 2  ; 16-bit accumulator
-    TRKBUF mp_voltab, 65 * 256      ; vt[vol][byte] = (int8)byte * vol >> 6
+    TRKBUF mp_voltab, MP_VROWS * 256    ; vt[row][byte] = (int8)byte * vol >> 6
