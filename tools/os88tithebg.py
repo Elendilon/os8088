@@ -431,6 +431,9 @@ def mock(geo, terr, out, figures=True):
                 chr_ = tc.CHARACTERS[(c * ROWS + r) % 7 % 3]
                 band = tc.figure(chr_, surf, (c + 2 * r) % 4)
                 x0 = c * cw + INSX
+                if c >= COLS // 2:              # P2's cells are MIRRORED
+                    band = [row[::-1] for row in band]
+                    x0 = c * cw + cw - INSX - bw
                 y0 = lift - c * rise + r * ch + (ch - bh)
                 for by in range(bh):
                     for bx in range(bw):

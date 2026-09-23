@@ -491,10 +491,16 @@ ti_cells_build:
     add ax, [ti_insy]
     mul word [ti_sb]
     add ax, bx
-    mov bx, [ti_insx]
-    shr bx, 1
-    shr bx, 1
-    shr bx, 1
+    push ax
+    mov ax, [ti_ci]
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx
+    call ti_col_insx                ; this column's inset: P2's is mirrored
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    pop bx
     add ax, bx
     mov [ti_gsrc], ax               ; the band's first ground byte
     mov word [ti_pi], 0
@@ -648,7 +654,16 @@ ti_fig_board:
     mov ax, [ti_bh]
     mov [ti_fa_h], ax
     mov byte [ti_fa_or], 0
+    mov ax, [ti_ci]                 ; P2's cells face the other way
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx
+    call ti_col_insx
+    sbb al, al
+    and al, 1
+    mov [ti_fa_mir], al
     call ti_fig_apply
+    mov byte [ti_fa_mir], 0
     pop bp
     pop si
     pop dx
@@ -713,6 +728,12 @@ ti_fig_apply:
     mov [ti_fa_lo], cx
     mov ax, [ti_fa_x0]
     add ax, cx
+    cmp byte [ti_fa_mir], 0         ; MIRRORED, byte c lands at WB-1-c: the
+    je .unm                         ; same bytes clip, from the other end
+    neg ax
+    add ax, [ti_fa_wb]
+    dec ax
+.unm:
     add di, ax                      ; DI = the band's row 0, at the first byte
     mov dx, [ti_fa_dy]
     mov ax, dx
@@ -738,6 +759,8 @@ ti_fig_apply:
     mov bx, di                      ; BX keeps the row; DI walks it
     mov cx, [ti_fa_hi]
     sub cx, [ti_fa_lo]
+    cmp byte [ti_fa_mir], 0
+    jne .mir
     cmp byte [ti_fa_or], 0
     jne .orb
 .mb:                                ; ONE READ AND ONE WRITE a byte: the band
@@ -753,6 +776,22 @@ ti_fig_apply:
     or al, [es:di]
     stosb
     loop .orb
+    jmp short .rdone
+.mir:                               ; MIRRORED: each byte's bits reversed by
+    push bx                         ; table, written right to left
+    mov bx, ti_rev
+.mb2:
+    lodsw                           ; AL = ink, AH = mask
+    xlat
+    xchg al, ah
+    xlat                            ; AL = the mask, AH = the ink, reversed
+    not al
+    and al, [es:di]
+    or al, ah
+    mov [es:di], al
+    dec di
+    loop .mb2
+    pop bx
 .rdone:
     mov di, bx
     pop si
@@ -1053,6 +1092,11 @@ ti_stat_compose:
     add ax, [ti_insy]
     mul word [ti_sb]
     add si, ax                      ; SI = the strip, at the block's first row
+    mov ax, [ti_nstat]              ; ...and its first byte, which on P2's
+    shr ax, 1                       ; mirrored cells is past the band
+    shr ax, 1
+    shr ax, 1
+    add si, ax
     mov di, ti_cellout
     mov dx, [ti_sb]
     mov bx, [ti_nh]
@@ -1130,6 +1174,32 @@ ti_stat_compose:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; ti_col_insx - AX = the band's inset for column AX, and CF=1 if that column is
+; P2's, whose cells are MIRRORED: figure then numbers, the figure facing its
+; enemy (SPEC.md 97.4.9). Preserves every other register.
+; -----------------------------------------------------------------------------
+ti_col_insx:
+    cmp ax, TI_COLS / 2
+    jae .p2
+    mov ax, [ti_insx]
+    clc
+    ret
+.p2:
+    mov ax, [ti_insx2]
+    stc
+    ret
+
+; ti_rev - a byte with its bits the other way round, for `xlat`. A mirrored
+; figure is its bytes in reverse order AND each byte reversed, and a table is
+; one instruction where a shift loop is sixteen.
+ti_rev:
+%assign ti_rv 0
+%rep 256
+    db ((ti_rv & 1) << 7) | ((ti_rv & 2) << 5) | ((ti_rv & 4) << 3) | ((ti_rv & 8) << 1) | ((ti_rv & 16) >> 1) | ((ti_rv & 32) >> 3) | ((ti_rv & 64) >> 5) | ((ti_rv & 128) >> 7)
+%assign ti_rv ti_rv + 1
+%endrep
+
 ; --- the state ---------------------------------------------------------------
 ti_aseg:    dw 0                  ; the ARENA's segment - the one word the
                                   ; relocation proc updates
@@ -1168,6 +1238,9 @@ ti_fa_n:    dw 0
 ti_fa_lo:   dw 0
 ti_fa_hi:   dw 0
 ti_fa_or:   db 0
+ti_fa_mir:  db 0                  ; ...and 1 to put it down MIRRORED
+ti_nstat:   dw 0                  ; the stat column's x in its cell
+ti_insx2:   dw 0                  ; P2's band inset: CW - INSX - BW
 ti_gbn:     dw 0
 ti_nr:      dw 0
 ti_ushift:  dw 0                  ; rows a unit's art is cut above its band

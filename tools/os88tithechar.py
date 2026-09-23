@@ -639,8 +639,7 @@ def scales(w, h, aspect):
     return s, s / aspect
 
 
-def figure(ch, surf, pose):
-    """(the figure in BAND coordinates as rows of T/I/K) for one pose."""
+def _fig(ch, surf, pose):
     name, w, h, aspect = surf
     if name == "cga":                       # DRAWN for the surface, 1:1
         f = Fig(1, 1, CW_, CH_)
@@ -650,8 +649,38 @@ def figure(ch, surf, pose):
         f = Fig(sx, sy)
         ch[4](f, pose)
     f.halo()
+    return f
+
+
+_LEFT = {}
+
+
+def _left(ch, surf):
+    """The leftmost column ANY pose touches, so every pose moves together."""
+    k = (ch[0], surf[0])
+    if k not in _LEFT:
+        xs = []
+        for p in range(POSES):
+            f = _fig(ch, surf, p)
+            xs += [x for r in f.px for x, v in enumerate(r) if v != T]
+        _LEFT[k] = min(xs) if xs else 0
+    return _LEFT[k]
+
+
+def figure(ch, surf, pose):
+    """(the figure in BAND coordinates as rows of T/I/K) for one pose.
+
+    A BOARD FIGURE STANDS AGAINST ITS NUMBERS (SPEC.md 97.4.9): its left edge
+    is MARGIN pixels into the band, which starts where the cell's stat column
+    ends - so the numbers read as the figure's own and not as its neighbour's.
+    Centred, the column sat half-way between two figures and belonged to
+    neither. P2's cells mirror the band on the machine, which puts the figure
+    against its stat column on the other side. A card's mini unit is centred.
+    """
+    name, w, h, aspect = surf
+    f = _fig(ch, surf, pose)
     band = [[T] * w for _ in range(h)]
-    ox = (w - f.w) // 2
+    ox = (MARGIN - _left(ch, surf)) if w == 64 else (w - f.w) // 2
     oy = h - f.h                                # the feet on the band's floor
     for y in range(f.h):
         for x in range(f.w):

@@ -958,7 +958,15 @@ ti_feature:
     mov si, di                      ; composed over its own column's ground
     mov ax, [ti_ci]
     call ti_cell_xy                 ; AX = the cell's x, BX = its y
-    add ax, [ti_insx]               ; ...and the figure's own inset inside it
+    push ax                         ; ...and the figure's own inset inside it,
+    mov ax, [ti_ci]                 ; which is P2's MIRROR in columns 2 and 3
+    xor dx, dx                      ; (SPEC.md 97.4.9)
+    mov cx, TI_ROWS
+    div cx
+    call ti_col_insx
+    mov cx, ax
+    pop ax
+    add ax, cx
     add bx, [ti_insy]
     push ax                         ; TIER A's step toward the line, where this
     call ti_cl_lean                 ; cell is one of a clashing pair - two

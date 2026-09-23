@@ -2811,6 +2811,12 @@ minis, but **CGA is a second drawing** — 17 rows cannot keep a 42-row figure's
 detail rows — so the roster is *two drawings a character*, which is §4.2's
 "CGA fallback, named and costed now" taken on purpose.
 
+**Each figure stands against its own numbers, and P2 is the mirror** (SPEC.md
+§97.4.9): P1's cells read *numbers, figure* and P2's *figure, numbers*, with
+P2's figures flipped to face P1. Centred, a stat column sat half-way between
+two figures and belonged to neither. The flip is composed once per cell like
+everything else, so it costs a 256-byte table and no RAM.
+
 **The dirty rect's lever fell from +39.3% to +22.1%** (`tests/titheframe.py`,
 bar 20%): a detailed figure's head and shield are further apart in rows than a
 blob's, so a transition moves more of the band. And the rects were read by

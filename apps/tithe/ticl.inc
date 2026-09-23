@@ -176,8 +176,8 @@ ti_cl_tierb:
     call ti_ck_cell
     call ti_cl_put
 
-    mov ax, [ti_insx]               ; column 2: right half, at the top
-    shr ax, 1
+    mov ax, [ti_insx2]              ; column 2: right half, at the top, and
+    shr ax, 1                       ; P2's - so MIRRORED, facing its enemy
     shr ax, 1
     shr ax, 1
     add ax, [ti_clcs]
@@ -188,7 +188,9 @@ ti_cl_tierb:
     xor ah, ah
     add ax, 2 * TI_ROWS
     call ti_ck_cell
+    mov byte [ti_fa_mir], 1
     call ti_cl_put
+    mov byte [ti_fa_mir], 0
 
     ; --- and ONE commit, at the HIGHER cell's top --------------------------
     mov al, 1
@@ -226,15 +228,16 @@ ti_cl_put:
     add ax, [ti_cly]
     mov [ti_fa_dy], ax
     mov si, [si]
-    mov ax, [ti_clx]
-    mov [ti_fa_dx], ax
-    mov ax, [ti_clbs]
-    mov [ti_fa_stride], ax
+    mov word [ti_fa_dx], 0          ; the WINDOW is the cell's band inside the
+    mov ax, [ti_clbs]               ; two-cell one, so a mirrored figure turns
+    mov [ti_fa_stride], ax          ; about its own cell and not the pair
+    mov ax, [ti_bs]
     mov [ti_fa_wb], ax
     mov ax, [ti_clh]
     mov [ti_fa_h], ax
     mov byte [ti_fa_or], 0
     mov di, ti_clband
+    add di, [ti_clx]
     call ti_fig_apply
     pop si
     ret

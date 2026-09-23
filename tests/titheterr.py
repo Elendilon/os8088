@@ -19,7 +19,9 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      pixels in a busy picture and a failed compare here.
 
   2. EVERY CELL'S POSES ARE THE MODEL'S, TO THE BYTE: the strip's rows under
-     the band, and the figure masked over them. That is the whole of what the
+     the band, and the figure masked over them - MIRRORED in P2's two
+     columns, whose band sits CW - INSX - BW in so the figure stands against
+     the numbers on its right. That is the whole of what the
      pixel art is for - a black detail line kept black over a lit ground - and
      an ORed figure (the old composition) or a mask applied the wrong way
      round fails it at the first figure with a visor.
@@ -116,6 +118,9 @@ def model_pose(geo, terr, strip, g, ci, pi):
     rows = []
     fig = tc.figure(tc.CHARACTERS[CKIND[ci % 7]],
                     [s for s in tc.SURFACES if s[0] == geo[0]][0], pi)
+    if c >= g["TI_COLS"] // 2:          # P2: the band MIRRORED, at CW-INSX-BW
+        x0 = g["ti_cw"] - g["ti_insx"] - g["ti_bs"] * 8
+        fig = [row[::-1] for row in fig]
     for by in range(g["ti_bh"]):
         gr = strip[r * g["ti_ch"] + g["ti_insy"] + by][x0:x0 + g["ti_bs"] * 8]
         row = []

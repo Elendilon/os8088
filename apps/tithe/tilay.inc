@@ -152,6 +152,13 @@ ti_layout:
     add ax, bx
     pop bx
     mov [ti_insx], ax
+    ; ...AND P2's CELLS ARE ITS MIRROR (SPEC.md 97.4.9): figure then numbers,
+    ; so the band sits CW - INSX - BW in and the stat column is the cell's
+    ; right-hand INSX. Every term is a multiple of 8, so this is too.
+    mov ax, [ti_cw]
+    sub ax, [ti_insx]
+    sub ax, [ti_bw]
+    mov [ti_insx2], ax
 
     mov ax, [ti_bw]                 ; the band's stride in BYTES, which is the
     shr ax, 1                       ; one number the renderer hands gfx_blit1

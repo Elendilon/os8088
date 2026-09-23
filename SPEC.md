@@ -140445,6 +140445,20 @@ reader indexed `[ti_dh + pose*2]`, which is the first character's rows for all
 three, so a figure whose motion reached further than the Bulwark's could leave
 its edge on the glass. The reader takes the character now.
 
+**A FIGURE STANDS AGAINST ITS OWN NUMBERS, AND P2's CELLS ARE THE MIRROR.**
+Centred in its band, a figure left its stat column half-way between itself and
+the figure in the next column, so a block of numbers belonged to neither. The
+figure's left edge is now `MARGIN` pixels into the band, which starts where the
+stat column ends: P1's cells read *numbers, figure*. P2's two columns are the
+mirror image, *figure, numbers* — the band sits `CW − INSX − BW` in
+(`[ti_insx2]`, a multiple of 8 because every term is), the stat column is the
+cell's right-hand `INSX`, and the figure is put down **mirrored**, so P2's
+figures face the enemy they fight, as the reference's do. **The mirror costs
+no RAM and no second composition**: every cell's poses are composed once
+already (above), and a P2 cell's are simply composed the other way round — its
+bytes right to left, each through a 256-byte bit-reverse table with `xlat`.
+The tier-B clash mirrors column 2's figure about its own cell.
+
 **THE SPRITE-SIZE ARM IS A CROP, NOT A SCALE** (§97.7's `S`). The art is drawn
 for the table's band, so a shorter arm keeps the figure's floor and centre and
 loses what falls outside, and commits whole bands — the rows are cut for the

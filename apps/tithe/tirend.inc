@@ -1440,6 +1440,17 @@ ti_cellnum:
     cld
     mov [ti_nx], ax
     mov [ti_ny], bx
+    mov word [ti_nstat], 0          ; P2's NUMBERS ARE ON THE RIGHT, past the
+    mov ax, [ti_ci]                 ; band: the cell is mirrored so the figure
+    xor dx, dx                      ; stands against them (SPEC.md 97.4.9)
+    mov cx, TI_ROWS
+    div cx
+    call ti_col_insx
+    jnc .p1
+    add ax, [ti_bw]
+    mov [ti_nstat], ax
+    add [ti_nx], ax
+.p1:
 
     mov ax, [ti_insx]               ; the band is the column, plus ti_glyph's
     mov cl, 3                       ; own pad byte
