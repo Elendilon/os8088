@@ -475,10 +475,6 @@ ti_onkey:
     jne .n_pause
     jmp .pause
 .n_pause:
-    cmp bl, 'r'
-    jne .n_recal
-    jmp .recal
-.n_recal:
     cmp bl, 'f'
     jne .n_fs
     jmp .fs
@@ -487,10 +483,6 @@ ti_onkey:
     jne .n_fire
     jmp .fire
 .n_fire:
-    cmp bl, 'd'
-    jne .n_detail
-    jmp .detail
-.n_detail:
     cmp bl, 'c'
     jne .n_clash
     jmp .clash
@@ -499,43 +491,17 @@ ti_onkey:
     jne .n_reveal
     jmp .reveal
 .n_reveal:
-    cmp bl, 's'
-    jne .n_size
-    jmp .size
-.n_size:
     cmp bl, 'b'
     jne .n_bart
     jmp .bart
 .n_bart:
-    cmp bl, 't'
-    jne .n_face
-    jmp .face
-.n_face:
-    cmp bl, 'w'
-    jne .n_rowsel
-    jmp .rowsel
-.n_rowsel:
     cmp bl, 'g'
     jne .n_terr
     jmp .terr
 .n_terr:
-    cmp al, '+'
-    je .up_
-    cmp al, '='                     ; ...unshifted, the same key
-    jne .n_up
-.up_:
-    jmp .up
-.n_up:
-    cmp al, '-'
-    jne .n_down
-    jmp .down
-.n_down:
     jmp .out
 .pause:
     xor byte [ti_paused], 1
-    jmp .out
-.recal:
-    call ti_calibrate
     jmp .out
 .fs:
     ; SPEC.md 97.7's `F`, and it is a REAL FULLSCREEN WINDOW (SPEC.md 11.2)
@@ -567,11 +533,6 @@ ti_onkey:
     call ti_relayout_ck
     call ti_paint_now
     jmp .out
-.detail:
-    xor byte [ti_detail], 1         ; SPEC.md 97.7's `D`: Flat, then Banded.
-    call ti_paint_now               ; `Quad` is fullscreen-only (TITHE-PLAN
-    jmp .out                  ; 3.5c) and is not an arm until that
-                                    ; renderer is
 .clash:
     call ti_cl_fire                 ; SPEC.md 97.7's `C`: a melee clash in the
     jmp .out                        ; front line of one lane
@@ -584,18 +545,6 @@ ti_onkey:
     je .out                         ; SUSTAINS rather than firing one, because
     call ti_pj_fire                 ; the number wave 1a wants is the COMBAT
     jmp .out                  ; FRAME's - one bolt is a photograph
-.size:
-    mov ax, [ti_arm]                ; SPEC.md 97.7's `S`: three sprite sizes,
-    inc ax                          ; so which reads best at 1bpp is looked at
-    cmp ax, 3                       ; rather than argued about (TITHE-PLAN 18.1)
-    jb .armset
-    xor ax, ax
-.armset:
-    mov [ti_arm], ax
-    mov byte [ti_laid], 0
-    call ti_relayout_ck
-    call ti_paint_now
-    jmp .out
 .terr:                              ; SPEC.md 97.7's `G`: the next BOARD. The
     mov ax, [ti_terr]               ; terrain is composed at ROUND LOAD, which
     inc ax                          ; for wave 1a is the layout - so this forces
@@ -606,21 +555,6 @@ ti_onkey:
     mov [ti_terr], ax
     mov byte [ti_laid], 0
     call ti_relayout_ck
-    call ti_paint_now
-    jmp .out
-.rowsel:                            ; SPEC.md 97.7's `W`: the row a played card
-    xor word [ti_row], 1            ; is going into. It is a CONTROL first -
-    call ti_row_apply               ; the toggle in the HUD - and the key is
-    jmp .out                        ; here so a test can drive it without
-                                    ; resolving a hit box
-.face:                              ; SPEC.md 97.4.1's `T`: the next TYPEFACE.
-    mov ax, [ti_face]               ; The card is composed rather than drawn
-    inc ax                          ; through the kernel's runs, so the face is
-    cmp ax, TI_FACES                ; a choice the package gets to make - and
-    jb .faceset                     ; which one is a LOOK question, so it is a
-    xor ax, ax                      ; key until somebody has looked
-.faceset:
-    call ti_face_set
     call ti_paint_now
     jmp .out
 .bart:                              ; SPEC.md 97.2.1's `B`: the next base
@@ -635,18 +569,6 @@ ti_onkey:
     call ti_relayout_ck
     call ti_paint_now
     jmp .out
-.up:                                ; `+`/`-` MOVE THE TARGET RATE, which is
-    add word [ti_fps10], 4          ; the design's number, and not the share,
-    cmp word [ti_fps10], 200        ; which is only a ceiling on the frame
-    jbe .credit                     ; (SPEC.md 97.5.2). 0.4 fps a step, so a
-    mov word [ti_fps10], 200        ; look can be settled on the glass
-    jmp short .credit
-.down:
-    cmp word [ti_fps10], 4
-    jbe .credit
-    sub word [ti_fps10], 4
-.credit:
-    call ti_credit
 .out:
     pop si
     pop bx
@@ -733,6 +655,21 @@ ti_worker:
     mov bx, [ti_win]
     call OSAPI_TASK_ALIVE           ; the lock must NOT be held here; a clicked
                                     ; close box never returns
+    cmp byte [ti_rpq], 0            ; A WHOLE REPAINT, asked for from OUTSIDE:
+    je .norp                        ; the tests write this byte to compare the
+    cmp byte [ti_ok], 0             ; glass a frame left against the board
+    je .norp                        ; drawn from nothing. It was `D` pressed
+    call OSAPI_GFX_LOCK             ; twice, and `D` is gone with the detail
+    mov bx, [ti_win]                ; arm; a key is a player's, a byte is not
+    call OSAPI_WM_CLIP_SET
+    jc .rpun
+    call ti_board
+    call ti_all
+    call OSAPI_WM_CLIP_CLEAR
+.rpun:
+    mov byte [ti_rpq], 0
+    call OSAPI_GFX_UNLOCK
+.norp:
     cmp byte [ti_paused], 0
     jne .sleep
     cmp byte [ti_ok], 0
@@ -1077,9 +1014,8 @@ ti_feature:
                                     ; the rows this TRANSITION moved and not
     cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
     je .rows                        ; it - a board repaint has no transition
-    cmp word [ti_arm], 2            ; behind it and owes the whole band. The
-    jne .rows                       ; rows are the TOOL's, cut for the table's
-    push ax                         ; band: a cropped arm takes the whole one
+                                    ; behind it and owes the whole band
+    push ax
     call ti_dirty_rows              ; ...and they are THIS CHARACTER's. They
     mov cl, al                      ; were read at the pose alone, which was
     mov dl, ah                      ; the first character's rows for all three
@@ -1099,13 +1035,7 @@ ti_feature:
 .rows:
     mov cx, [ti_bw]
     mov bp, [ti_bs]
-    cmp byte [ti_detail], 0         ; THE DETAIL ARM (SPEC.md 97.4.6). `Flat`
-    je .flat                        ; is one pen a character and one blit;
-    call ti_banded                  ; `Banded` is the SAME BYTES in stacked
-    jmp short .done1                ; strips, each with its own pen - one
-.flat:                              ; arrival an extra strip, and on a 1bpp
-    call OSAPI_GFX_BLIT1            ; adapter the pen is ignored rather than
-.done1:                             ; refused, so one body runs everywhere
+    call OSAPI_GFX_BLIT1            ; one pen a character and one blit
     inc word [ti_ncommit]           ; WHAT THE WHEEL ACTUALLY ACHIEVES, counted
                                     ; rather than modelled: commits a guest
                                     ; second is the number TITHE-PLAN 1.3 is in
@@ -1361,106 +1291,6 @@ ti_lane:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_banded - the same band in TI_STRIPS stacked strips, a pen each
-; in:  ES:SI = the band, AX/BX = where, CX = width, DX = rows, BP = stride
-; Preserves every register.
-;
-; TITHE-PLAN 3.5(b). The bytes are identical to `Flat`'s; what is added is one
-; ARRIVAL an extra strip, which SPEC.md 97.5's own model prices and ti_cost
-; charges. The pens are its colour over BLACK paper, which is the cheap path -
-; a faction colour over a coloured ground is SPEC.md 5.4.2.2.1's Map Mask
-; split, two whole passes over the band, and 3.5 measures that at +115%.
-; -----------------------------------------------------------------------------
-TI_STRIPS   equ 3
-
-ti_banded:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov [ti_stw], cx
-    mov [ti_stbp], bp
-    mov ax, dx                      ; rows a strip, the last one taking the
-    xor dx, dx                      ; remainder
-    mov cx, TI_STRIPS
-    div cx
-    or ax, ax
-    jnz .h
-    inc ax
-.h:
-    mov [ti_sth], ax
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov di, 0                       ; DI = the strip index
-.strip:
-    cmp di, TI_STRIPS
-    jae .out
-    push ax
-    mov al, [ti_stpen + di]         ; ink...
-    mov ah, CBLACK                  ; ...over black, always
-    call OSAPI_GFX_BLIT1_PEN
-    pop ax
-    push dx
-    mov dx, [ti_sth]
-    cmp di, TI_STRIPS - 1
-    jne .rows2
-    pop dx                          ; the last strip takes what is left, so a
-    push dx                         ; height that does not divide by three
-    push ax                         ; loses no row
-    mov ax, [ti_sth]
-    mov cx, TI_STRIPS - 1
-    mul cx
-    mov cx, dx
-    pop ax
-    pop dx
-    push dx
-    sub dx, cx
-    jnz .rows2
-    inc dx
-.rows2:
-    mov cx, [ti_stw]
-    mov bp, [ti_stbp]
-    call OSAPI_GFX_BLIT1
-    pop dx
-    add bx, [ti_sth]                ; ...down the band, and along its bytes
-    push ax
-    mov ax, [ti_sth]
-    mul word [ti_stbp]
-    add si, ax
-    pop ax
-    inc di
-    jmp short .strip
-.out:
-    push ax
-    mov ax, (CBLACK << 8) | CWHITE  ; the pen is valid for this lock hold
-    call OSAPI_GFX_BLIT1_PEN        ; (SPEC.md 5.4.2.2), so it is put back
-    pop ax
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; ti_cost - what the commit just made cost, in microseconds
 ; out: AX; preserves every other register
 ;
@@ -1474,9 +1304,8 @@ ti_cost:
     push bx
     push dx
     mov ax, [ti_bh]                 ; WHAT THE COMMIT PUT DOWN, and the dirty
-    cmp word [ti_arm], 2            ; rect is always on (SPEC.md 97.4.3). A
-    jne .rows                       ; cropped arm commits the whole band...
-    push ax                         ; ...and so does a fighter's swing
+                                    ; rect is always on (SPEC.md 97.4.3) - bar
+    push ax                         ; a fighter's swing, which is the band
     mov ax, [ti_ci]
     call ti_cl_mine
     pop ax
@@ -1488,14 +1317,6 @@ ti_cost:
     mul word [ti_rowus]             ; room to reach the target, never a faster
                                     ; idle than it
     add ax, [ti_arrus]
-    cmp byte [ti_detail], 0         ; ...and Banded's extra ARRIVALS, which are
-    je .one                         ; the whole of what it costs: the bytes do
-    push bx                         ; not change
-    mov bx, [ti_arrus]
-    add ax, bx
-    add ax, bx
-    pop bx
-.one:
     or ax, ax
     jnz .out
     inc ax                          ; never zero: a credit it cannot divide by
@@ -1683,6 +1504,7 @@ ti_laid:    db 0                  ; ti_relayout_ck has cut against ti_geo +
                                   ; ti_cw_box/ti_ch_box as they stand
 ti_ok:      db 0
 ti_full:    db 0
+ti_rpq:     db 0                    ; a whole repaint, requested (ti_worker)
 ti_paused:  db 0
 ti_spawned: db 0
 ti_dirty:   db 0
@@ -1837,11 +1659,8 @@ ti_rsw:     db 0
 ti_pjon:    db 0, 0                 ; each bolt: 0 idle, 1 flying, 2 erasing
 ti_pjlane:  db 2
 ti_pjrep:   db 0                    ; keep firing, so the frame can be read
-ti_detail:  db 0                    ; 0 = Flat, 1 = Banded (TITHE-PLAN 3.5)
 ti_clash:   db 0                    ; frames left in a clash
 ti_stw:     dw 0
-ti_stbp:    dw 0
-ti_sth:     dw 0
 ti_stpen:   db CWHITE, CLGRAY, CDGRAY   ; head, body, base - each over BLACK
                                     ; paper, which is the cheap pen path
 ti_pjx:     dw 0, 0
@@ -1868,9 +1687,6 @@ ti_cpap:    db 0
 ti_hover:   dw -1                   ; the card under the pointer, -1 for none
 ti_hovold:  dw -1                   ; ...and the one it just left
 ti_swaps:   db 2
-ti_arm:     dw 2                    ; the sprite-size arm: 0 half, 1 three
-                                    ; quarters, 2 the table's own
-ti_bwfull:  dw 0
 ti_dok:     db 0                    ; ...and is this draw a TRANSITION?
 ti_calfull: dw 0                    ; us for a whole band...
 ti_calone:  dw 0                    ; ...and for one row of it

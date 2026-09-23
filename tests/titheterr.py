@@ -59,7 +59,7 @@ import os88tithechar as tc                                # noqa: E402
 # list and passed on `all([])`.
 SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_kseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
         "ti_rise", "ti_boardh", "ti_sb", "ti_sh", "ti_spitch", "ti_sbase",
-        "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy", "ti_arm",
+        "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy",
         "TI_COLS", "TI_ROWS")
 EQUS = ("TI_COLS", "TI_ROWS")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
@@ -186,31 +186,30 @@ def run(mach, off):
         bad, models = strips_ok(g["ti_terr"])
         check(not bad, "the four strips are the model's, to the byte", bad)
 
-        # 2. every cell, every pose (the sprite arm must be the table's)
-        if g["ti_arm"] == 2:
-            badc = []
-            for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
-                for pi in range(4):
-                    got = arena((ci * 4 + pi) * g["ti_cslot"], g["ti_cslot"])
-                    want = model_pose(geo, g["ti_terr"],
-                                      models[ci // g["TI_ROWS"]], g, ci, pi)
-                    if got != want:
-                        badc.append("cell %d pose %d" % (ci, pi))
-            check(not badc, "all eighty poses are ground + body + item, "
-                  "to the byte", badc[:6])
-            bada = []
-            for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
-                for pi in range(4):
-                    got = bytes(m.readseg(g["ti_kseg"],
-                                          (ci * 4 + pi) * g["ti_cslot"],
-                                          g["ti_cslot"]))
-                    want = model_pose(geo, g["ti_terr"],
-                                      models[ci // g["TI_ROWS"]], g, ci, pi,
-                                      attack=True)
-                    if got != want:
-                        bada.append("cell %d frame %d" % (ci, pi))
-            check(not bada, "...and all eighty ATTACK frames, the strike's "
-                  "lunge inside the band", bada[:6])
+        # 2. every cell, every pose
+        badc = []
+        for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
+            for pi in range(4):
+                got = arena((ci * 4 + pi) * g["ti_cslot"], g["ti_cslot"])
+                want = model_pose(geo, g["ti_terr"],
+                                  models[ci // g["TI_ROWS"]], g, ci, pi)
+                if got != want:
+                    badc.append("cell %d pose %d" % (ci, pi))
+        check(not badc, "all eighty poses are ground + body + item, "
+              "to the byte", badc[:6])
+        bada = []
+        for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
+            for pi in range(4):
+                got = bytes(m.readseg(g["ti_kseg"],
+                                      (ci * 4 + pi) * g["ti_cslot"],
+                                      g["ti_cslot"]))
+                want = model_pose(geo, g["ti_terr"],
+                                  models[ci // g["TI_ROWS"]], g, ci, pi,
+                                  attack=True)
+                if got != want:
+                    bada.append("cell %d frame %d" % (ci, pi))
+        check(not bada, "...and all eighty ATTACK frames, the strike's "
+              "lunge inside the band", bada[:6])
 
         # 3. the glass, under the front lane where nothing else is drawn
         w, h, px = mono(m)

@@ -91,40 +91,9 @@ ti_layout:
     mov [ti_ch], ax
     mov ax, [si + TI_G_RISE]
     mov [ti_rise], ax
-    ; --- THE SPRITE-SIZE ARM (SPEC.md 97.7's `S`, TITHE-PLAN 18.1) ----------
-    ; The reference's character is a fifth of its cell's width and ours is two
-    ; thirds, and which reads best at 1bpp is the single largest lever on the
-    ; art budget - so the three are cut from one table row and compared on the
-    ; glass rather than argued about. Arm 2 is the table's own size.
     mov ax, [si + TI_G_BW]
-    mov [ti_bwfull], ax
     mov bx, [si + TI_G_BH]
-    cmp word [ti_arm], 2
-    je .armed
-    cmp word [ti_arm], 1
-    je .arm1
-    shr ax, 1                       ; arm 0: half
-    shr bx, 1
-    jmp short .armed
-.arm1:
-    push dx                         ; arm 1: three quarters
-    push ax
-    mov dx, 3
-    mul dx
-    shr ax, 1
-    shr ax, 1
-    mov cx, ax
-    pop ax
-    mov ax, bx
-    mov dx, 3
-    mul dx
-    shr ax, 1
-    shr ax, 1
-    mov bx, ax
-    mov ax, cx
-    pop dx
-.armed:
-    and ax, 0FFF8h                  ; gfx_blit1's one rule, on every arm
+    and ax, 0FFF8h                  ; gfx_blit1's one rule
     or ax, ax
     jnz .bwok
     mov ax, 8
@@ -143,14 +112,7 @@ ti_layout:
     mov [ti_basew], ax
     mov ax, [si + TI_G_CARDH]
     mov [ti_cardh], ax
-    mov ax, [si + TI_G_INSX]         ; ...and a SHORTER sprite stays where the
-    push bx                         ; full one stood, so the three arms are
-    mov bx, [ti_bwfull]             ; compared in the same place rather than
-    sub bx, [ti_bw]                 ; sliding left as they shrink
-    shr bx, 1
-    and bx, 0FFF8h
-    add ax, bx
-    pop bx
+    mov ax, [si + TI_G_INSX]
     mov [ti_insx], ax
     ; ...AND P2's CELLS ARE ITS MIRROR (SPEC.md 97.4.9): figure then numbers,
     ; so the band sits CW - INSX - BW in and the stat column is the cell's

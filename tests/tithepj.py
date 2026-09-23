@@ -68,15 +68,12 @@ def run(mach, off):
                min(h, win.y + win.h))
 
         def repaint_diff():
-            """Pause, read the glass, repaint the whole board (`D` twice, each
-            one ti_paint_now) and read it again: what differs."""
+            """Pause, read the glass, repaint the whole board (`ti_rpq`) and
+            read it again: what differs."""
             m.key("KeyP")
             os88marty.guest_sleep(m, 0.3)
             _, _, a = te.mono(m)
-            m.key("KeyD")
-            os88marty.guest_sleep(m, 2.0)
-            m.key("KeyD")
-            os88marty.guest_sleep(m, 2.0)
+            tv.whole_repaint(m, seg, off)
             _, _, b = te.mono(m)
             m.key("KeyP")
             return [(x, y) for y in range(box[1], box[3])

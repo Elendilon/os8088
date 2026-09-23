@@ -140145,8 +140145,7 @@ a round (TITHE-PLAN §8). The face is the reason; the arrivals are a dividend.
 the heart, coin, soul, sword, shield, bow and star, so `heart 12` is ONE run
 with no second call and no second alignment — where the 8×8 icons were separate
 bands, one arrival each, that had to be placed against text drawn by somebody
-else. The tall face's are `ti_ic_*`'s own bytes: a second drawing of the same
-coin would be a second coin.
+else.
 
 **AN ICON MUST BE FOUR PIXELS FROM EVERY OTHER GLYPH IN ITS FACE.** Identical
 is the failure that reads as a typo; *nearly* identical is the one that ships.
@@ -140211,11 +140210,13 @@ multiply itself, which is one 16-bit multiply a GLYPH where a card is ~55 of
 them; `ti_text` does it once and hands the row down. With six fewer register
 saves a glyph that is ~1 ms of a card.
 
-**THE FACE IS A KEY (`T`) AND NOT A SETTING**, because which one is right is a
-look question and the two answer different ones: the 8×8 is more legible and
-the 6×6 fits **four rows where 8×8 fits three**, which is the difference
-between a card that shows all six stats and one that shows four — and room for
-card art rather than a card that is entirely text.
+**ONE FACE SHIPS, and it is the 6×6.** It was a key (`T`) against a tall 8×8
+while which one was right was a look question: the 8×8 is more legible and the
+6×6 fits **four rows where 8×8 fits three**, which is the difference between a
+card that shows all six stats and one that shows four — and on CGA the 8×8 fits
+none. The owner settled it on the glass and the key and the second face went at
+the demo cleanup (§97.7); `tools/os88titheface.py` still draws the candidates
+on its sheet and emits the one.
 
 **A GENERATED TABLE NEEDS A MAKEFILE DEPENDENCY.** `apps/tithe/tifaces.inc` is
 emitted by a tool and `$(BUILD)/tithe.bin` did not depend on it, so an edited
@@ -140504,10 +140505,10 @@ no RAM and no second composition**: every cell's poses are composed once
 already (above), and a P2 cell's are simply composed the other way round — its
 bytes right to left, each through a 256-byte bit-reverse table with `xlat`.
 
-**THE SPRITE-SIZE ARM IS A CROP, NOT A SCALE** (§97.7's `S`). The art is drawn
-for the table's band, so a shorter arm keeps the figure's floor and centre and
-loses what falls outside, and commits whole bands — the rows are cut for the
-table's band. It still answers *what does a shorter band cost*.
+**THE FIGURE IS THE TABLE'S BAND.** A sprite-size key (`S`) cropped it to a
+half and three quarters while the size was a look question; the table's own
+size was chosen, and the crop, its whole-band commits and the key went at the
+demo cleanup (§97.7).
 
 **Which character a card plays is a TABLE and a stable fiction.** Wave 1a has
 seven cards built out of three bodies and eight items, and a cell plays the
@@ -140555,7 +140556,7 @@ the missing RATE CAP (§97.5.2) showing itself on an XT, and it is what a 286
 would have shown as figures breathing at several times the speed. With the cap
 the saving is room to REACH the target rate on a machine whose credit falls
 short of it, and headroom in the frame on one that does not. A commit the rect
-cannot shorten (a cropped sprite arm, a fighter mid-swing, a board repaint) is
+cannot shorten (a fighter mid-swing, a board repaint) is
 the whole band anyway, so there is no case in which it is off.
 
 **What the ART owes is that each transition's motion is LOCAL** — not that the
@@ -140659,7 +140660,13 @@ the thing draws a track behind it.
 from 11.2 feature commits a frame to 9.7 and the frame held at 17.5–18.6 passes
 a second, against TITHE-PLAN §3.9.1's 8.88 ms.
 
-#### 97.4.6 The DETAIL arm — `Flat` and `Banded`
+#### 97.4.6 The DETAIL arm — `Flat`, and `Banded` retired
+
+**Flat is the renderer; `Banded` was built, looked at and removed** at the demo
+cleanup (§97.7). On the glass it read as the bottom half of every character
+erased — its strips' pens are colour over black paper, which on this art is
+most of the figure — and nothing it bought was asked for. What is below is the
+design record of the arm.
 
 `OSAPI_GFX_BLIT1_PEN` says what a set bit and a clear bit become, **two colours
 a band in one pass** (§5.4.2.2) — and on a 1bpp adapter the pen is *ignored
@@ -140863,7 +140870,7 @@ a faster idle.)
 frames and not the layers.** A cell composes eight frames where it composed four,
 two layers each, and the card panel's seven minis with them; the same-as table
 already takes the quarter of that which is a copy. It is paid at a round load,
-a size change and a `G` or `S` — the 1.4 s it was on the idle poses alone is
+a size change and a `G` — the 1.4 s it was on the idle poses alone is
 what a board with no melee would cost, and composing the attack frames lazily at
 the first clash is the lever if a round load ever has to be faster.
 
@@ -141076,11 +141083,11 @@ wheel drew the same twenty-three features and finished its frame earlier: the
 dirty rect read **+0.6%** and the three sprite arms all read the same rate.
 Timing one row and `BH` rows separates the terms (measured here: arrival
 **809 µs**, **43 µs** a row), and charging what a commit actually put down is
-what makes §97.4.3 and §97.7's `S` visible at all.
+what made §97.4.3 and the sprite arms (since retired) visible at all.
 
 **It is re-taken wherever the LAYOUT is**, because the cost moves with the
-sprite arm — and it is taken at all, which it was not: it began as the `R`
-key's alone, so the wheel ran on the initial guess for ever and a frame that
+surface — and it is taken at all, which it was not: it began as an `R` key's
+alone (a key since retired), so the wheel ran on the initial guess for ever and a frame that
 believed it was inside its tick and was not overran in silence.
 
 **ONE BLIT PER PIT SPAN.** Counter 0 counts down and reloads every 54.9 ms, so
@@ -141215,9 +141222,8 @@ passes a second, the busiest frame — two bolts over the whole board — at
 56.0. `tests/titheframe.py` holds both: the default does not run above its
 target, and a target the machine can beat is landed ON.
 
-`+` / `-` (and `=`) move the TARGET by 0.4, not the share: the rate is the
-design's number, and the share is only how much of a tick the idle may take
-reaching it.
+The share is only how much of a tick the idle may take reaching the target;
+the rate is the design's number, and the owner set it at 4.4 on the glass.
 
 ### 97.6 ONE renderer, and fullscreen is a WINDOW
 
@@ -141260,18 +141266,23 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | key | |
 |---|---|
 | `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window at the fullscreen geometry row |
-| `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys, clicks and the toggle are ignored for the half second a reveal runs |
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
-| `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
-| `R` | re-calibrate the wheel's credit and show it |
-| `+` / `-` | move the idle's TARGET RATE off its default 4.4 poses a second a feature, 0.4 a step (§97.5.2) |
 | `P` | pause the wheel, for looking at one frame |
 | `Esc` | leave fullscreen, else close |
+
+**THE DEMO WAS CUT TO WHAT THE GAME WILL DO** before wave 1b. The keys that
+were levers for decisions now made are gone: `D` (Flat is the renderer,
+§97.4.6), `S` (the table's figure size, §97.4.9), `T` (the 6×6 face,
+§97.4.1.1), `X` (the dirty rect is always on, §97.4.3), `R` (calibration runs
+at every layout), `W` (the FRONT/REAR toggle is a button in the HUD) and
+`+`/`-` (the idle's target rate is 4.4, §97.5.2). `B` and `G` stay until a
+front menu chooses the faction and the board. The tests' whole repaint is a
+byte, `ti_rpq`, that the worker services: a key is a player's.
 
 ### 97.8 What it claims, and when
 

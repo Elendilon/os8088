@@ -658,14 +658,7 @@ ti_cell_build:
     mov ax, [ti_bh]
     mov [ti_fa_h], ax
     mov [ti_cbh], ax
-    mov ax, [ti_bwfull]             ; a cropped arm keeps the figure where
-    sub ax, [ti_bw]                 ; the full band had it
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    neg ax
-    mov [ti_cdx], ax
+    mov word [ti_cdx], 0
     mov word [ti_cdy], 0
     mov ax, [ti_gidx]
     mov [ti_csurf], ax

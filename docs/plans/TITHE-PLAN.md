@@ -684,7 +684,8 @@ Three arms, in increasing cost:
 
 - **(a) `Flat` — one pen a character.** Twenty characters are twenty two-tone
   figures in up to twenty colour pairs. Cheapest.
-- **(b) `Banded` — horizontal strips, one pen each.** The sprite is blitted as
+- **(b) `Banded` — horizontal strips, one pen each.** *(Built, looked at and
+  REMOVED at the wave 1a cleanup — §19.2.)* The sprite is blitted as
   2–3 stacked bands — head, body, base — each with its own pen. **The bytes are
   identical**; what is added is one arrival per extra strip, and §3.7 prices it
   at a dead-flat **+920 µs a strip**: 5,021 / 5,941 / 6,860 for one, two and
@@ -4489,7 +4490,7 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Eleven decisions that were made one way and then made another. Each is here
+Twelve decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
 
 **THE BOARD WAS A BACKGROUND AND IS A PLACE; THE FIGURES WERE SILHOUETTES AND
@@ -4657,6 +4658,18 @@ Two errors, and both are the same error:
 being looked for** — and the conclusion happened to flatter the plan, which is
 when a measurement most needs a second look. PERFORMANCE.md's own rule, one
 document along: *measure the thing you mean.*
+
+**`BANDED` WAS A COLOUR PLAN AND CAME OUT OF THE DEMO** (§3.5b, 2026-09-23).
+Built as wave 1a's `D` arm and looked at: on the layered pixel art its strips'
+colour-over-black pens read as *the bottom half of every character erased*,
+and the owner kept Flat. The arm, its key and `ti_banded` are gone, and with
+them the demo's other settled levers — `S` (sprite size: the table's own), `T`
+(the 6×6 face), `X` (the dirty rect, now always on under a rate cap), `R`, `W`
+(the HUD toggle is the control) and `+`/`-` (the target rate is 4.4). `B` and
+`G` stay until a front menu chooses faction and board. If colour characters
+come back it is as art with its own palette, not as strips over the 1bpp bank —
+so §3.5(b), §6's *Detail* setting and the 360KB row above are the reasoning
+that was, not a plan that stands (SPEC.md §97.4.6, §97.7).
 
 ### 19.3 Superseded, and where it went
 

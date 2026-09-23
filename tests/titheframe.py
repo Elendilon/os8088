@@ -17,8 +17,10 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      Zero means the PIT span wrapped (TITHE-PLAN 3.9's own trap), and a
      credit of zero is one the wheel cannot divide by.
 
-  3. THE SPRITE ARMS DIFFER. Three sizes that commit at the same rate are
-     three sizes nobody can choose between (TITHE-PLAN 18.1).
+  3. THE IDLE HOLDS ITS TARGET RATE AND NO MORE (SPEC.md 97.5.2): at or
+     under it by default, above it uncapped - so the cap is what binds and
+     the credit is priced - and ON a lowered target this machine can beat,
+     which is the 286's question asked on an XT.
 
   4. A PROJECTILE DOES NOT MOVE THE IDLE, AND THE FRAME HOLDS. Two bolts
      crossing are the busiest frame on the machine (SPEC.md 97.4.5); they
@@ -156,54 +158,28 @@ def main():
         m.key("KeyA")
         os88marty.guest_sleep(m, 2.5)
 
-        # A RELAYOUT IS WAITED FOR, NOT SLEPT PAST. `S` relayouts, a relayout
-        # rebuilds the art, and a window that starts inside one reads three
-        # arms as three DECAYING frame rates. It was one and a half guest
-        # seconds, then two and a half when the bases grew eight poses, and
-        # then the characters became layers - a body and an item, idle and
-        # attack, eighty of each composed (SPEC.md 97.4.9) - and a relayout
-        # passed two and a half on its own. So the wait is the relayout
-        # counter moving, and half a second of the wheel settling after it.
-        def arm():
-            n0 = rw(m, seg, "ti_nlay")
-            m.key("KeyS")
-            os88marty.until(m, lambda _: rw(m, seg, "ti_nlay") != n0,
-                            "the relayout S asks for", poll=0.2, limit=60.0)
-            os88marty.guest_sleep(m, 0.5)
-        # THE ARMS ARE A PRICING QUESTION, so they are asked UNCAPPED: with
-        # the target at its default every arm that can beat it draws exactly
-        # it (SPEC.md 97.5.2), and three equal rates would say nothing about
-        # whether a smaller commit is priced as one.
+        # THE CAP IS WHAT BINDS, AND THE CREDIT IS PRICED. Uncapped, this XT's
+        # VGA buys MORE than the target - which is the headroom the dirty rect
+        # (SPEC.md 97.4.3) is worth - so the default above is the cap holding
+        # and not the credit running out. A rate that read the same both ways
+        # would mean the target is unreachable here, or that a cheaper commit
+        # stopped being priced as one.
         def target(v):
             m.write(seg * 16 + off["ti_fps10"], struct.pack("<H", v))
         target(200)
         os88marty.guest_sleep(m, 1.0)
         u_c, _, _ = rate()
-        arm()                                          # the sprite arms
-        a0_c, _, _ = rate()
-        w0 = rw(m, seg, "ti_bw")
-        arm()
-        a1_c, _, _ = rate()
-        w1 = rw(m, seg, "ti_bw")
-        print("  arms, uncapped: %d px %.1f/s, %d px %.1f/s, 64 px %.1f/s"
-              % (w0, a0_c, w1, a1_c, u_c))
-        check(w0 < w1 < 64, "the three arms are three sizes",
-              "%d %d 64" % (w0, w1))
-        # THE SMALLEST AGAINST THE FULL SIZE, and not the middle one: the
-        # middle arm is a CROP, which commits its whole band (SPEC.md 97.4.3),
-        # while the full size commits only its dirty rows - so 48 against 64
-        # is a crop against a dirty rect and orders either way.
-        check(a0_c > u_c * 1.05,
-              "...and a smaller sprite commits more often",
-              "%.1f vs %.1f" % (a0_c, u_c))
         target(TARGET)
+        print("  uncapped: %.1f commits/s against the target's %.1f"
+              % (u_c, TARGET * 2.0))
+        check(u_c > TARGET * 2.0 * 1.1,
+              "uncapped, the credit buys more than the target",
+              "%.1f vs %.1f" % (u_c, TARGET * 2.0))
 
         # THE BASE LANE (SPEC.md 97.5.1). One of the two bases a frame, so
         # its own commits are one a frame and each base plays at half the tick
         # rate. What makes it a LANE rather than a priority is that the idle's
-        # share cannot reach it, which is what the second half measures - and
-        # it is measured against readings taken in THIS sprite arm, not
-        # against the opening ones.
+        # rate cannot reach it, which is what the second half measures.
         def lane():
             b0 = rw(m, seg, "ti_nbase")
             c0 = rw(m, seg, "ti_ncommit")
@@ -375,16 +351,15 @@ def main():
               "%.1f of %.1f" % (b_hi, f_hi))
         # THE RATE CAP (SPEC.md 97.5.2) - the 286's question asked on an XT.
         # A faster machine is one whose credit buys MORE than the target, and
-        # so is a slower target on this one: four presses of `-` take the
-        # target from 4.4 to 2.8 poses a second a feature, well under what
+        # so is a slower target on this one: 2.8 poses a second a feature
+        # instead of the default 4.4 is well under what
         # the credit buys here, and the idle must land ON it - not above,
         # which is the hyperspeed a 286 would show, and not far below, which
         # would be a cap that also starves. The hand's feature takes a step
         # and commits nothing with no card hovered, so twenty commits are
         # twenty-one steps.
-        fps = rw(m, seg, "ti_fps10") / 10.0
-        for _ in range(4):
-            m.key("Minus")
+        fps = TARGET / 10.0
+        target(TARGET - 16)
         os88marty.guest_sleep(m, 2.5)
         want = (rw(m, seg, "ti_fps10") / 10.0) * 20
         b_lo, c_lo, _ = lane()
@@ -395,8 +370,7 @@ def main():
               "%.1f vs %.1f" % (c_lo, want))
         check(b_lo >= 0.85 * b_hi, "...and the BASE LANE stays where it was",
               "%.1f vs %.1f" % (b_lo, b_hi))
-        for _ in range(4):
-            m.key("Equal")
+        target(TARGET)
 
     print("titheframe: %d check(s) FAILED" % len(fails) if fails
           else "titheframe: ok")

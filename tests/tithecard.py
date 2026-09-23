@@ -29,10 +29,9 @@ defect it has had is a thing crossing a boundary or failing to come back:
      one frame later, which on the glass is a figure that goes black part of
      the way round its cycle.
 
-  5. THE FACE KEY WORKS AT ALL. `T` cycles the faces and the shorter one fits
-     more rows; a generated face table with no Makefile dependency behind it
-     reads exactly like a glyph change that did nothing, which is what
-     happened.
+  5. THE FACE FITS. One face ships (the 6x6, SPEC.md 97.4.1.1) and every card
+     carries at least a row of it; the `T` key that compared it with a tall
+     8x8 went at the demo cleanup, because on CGA the 8x8 fitted no row.
 
   6. THE TOGGLE AND THE STATUS LINE (97.4.8). Every card restates its stats
      when FRONT/REAR flips - a toggle that redrew one card would leave six
@@ -149,11 +148,8 @@ def run(mach, off):
         os88marty.guest_sleep(m, 4.0)
         rw = lambda n: struct.unpack("<H", bytes(m.readseg(seg, off[n], 2)))[0]
 
-        rows_seen, panels = [], []
+        rows_seen = []
         for face in range(off["TI_FACES"]):
-            if face:
-                m.key("KeyT")
-                os88marty.guest_sleep(m, 2.5)
             name = "face %d" % rw("ti_face")
             rows_seen.append((rw("ti_fh"), rw("ti_crows")))
             w, h, px = mono(m)
@@ -165,7 +161,6 @@ def run(mach, off):
             x, cw, ch = rw("ti_cardx"), rw("ti_cardw"), rw("ti_cardh")
             px0, pw = rw("ti_panx"), rw("ti_pan")
             pitch, n, by = rw("ti_cardpitch"), rw("ti_cardn"), rw("ti_by")
-            panels.append([r[px0:px0 + pw] for r in px])
 
             broke, leaked = [], []
             for i in range(n):
@@ -223,14 +218,12 @@ def run(mach, off):
             check(not leaked, "%s: nothing is drawn outside the flow's grid" % name,
                   "%d pixel(s), first %s" % (len(leaked), leaked[:3]))
 
-        # KEYED TO THE CELL HEIGHT AND NOT TO THE FACE INDEX, because the
-        # shipped default moved to the front of the table and an index-wise
-        # assertion then reads backwards while testing nothing.
-        tall = max(rows_seen)
-        short = min(rows_seen)
-        check(short[1] > tall[1],
-              "the shorter face fits more rows",
-              "%s vs %s" % (short, tall))
+        # ONE FACE SHIPS NOW (SPEC.md 97.4.1.1), so what was "the shorter face
+        # fits more rows" is the floor it stood on: a card carries text at
+        # all. On CGA the tall face fitted none, which is why it went.
+        check(all(r[1] >= 1 for r in rows_seen),
+              "every card carries at least one row of text",
+              "%s" % rows_seen)
 
         # AND MOVING OFF A CARD LEAVES NOTHING BEHIND. The hovered card
         # expands sideways into the panel's 8-pixel margins, so the row the
@@ -300,15 +293,6 @@ def run(mach, off):
               "%d margin pixel(s) left behind" % left)
 
         # --- the FRONT/REAR toggle, and the HUD's status line --------------
-        # THE FACE GOES BACK TO THE SHIPPED ONE FIRST. The loop above left it
-        # on the last of the table, and on CGA the tall face fits NO card text
-        # at all - (11 - 4) / 8 is zero rows - so a toggle check run there
-        # compares two cards that both say nothing and fails for the one
-        # reason that is not a defect. That is also the clearest statement of
-        # why tithe6 is the default (97.4.1.1).
-        while rw("ti_face") != 0:
-            m.key("KeyT")
-            os88marty.guest_sleep(m, 2.0)
         # ONE CONTROL FOR THE HAND AND NOT A SWITCH ON EVERY CARD (97.4.8).
         # What it changes is every card at once, so a toggle that redrew only
         # the hovered one would leave six cards stating the stats they would
@@ -319,8 +303,16 @@ def run(mach, off):
         pan = lambda p: [r[x0:x0 + rw("ti_pan")] for r in p[y0:y1]]
         was_row = rw("ti_row")
         p0 = pan(mono(m)[2])
-        m.key("KeyW")
-        os88marty.guest_sleep(m, 2.0)
+        # THE TOGGLE IS CLICKED, as a player does - the `W` key that drove it
+        # is gone. The left arm is FRONT and anything right of it REAR
+        # (ti_onclick), so the click goes into the arm that is NOT selected.
+        def toggle():
+            arm = rw("ti_tg1x") if rw("ti_row") == 0 else rw("ti_tg0x")
+            mo.click(rw("ti_hx") + arm + 4, rw("ti_oy") + rw("ti_hud") // 2,
+                     settle=0.2)
+            mo.to(x0 // 2, mid)                 # ...and off the panel
+            os88marty.guest_sleep(m, 2.0)
+        toggle()
         check(rw("ti_row") != was_row, "the row toggle moves", "%d" % rw("ti_row"))
         p1 = pan(mono(m)[2])
         moved = sum(1 for a, b in zip(p0, p1) for q, r_ in zip(a, b) if q != r_)
@@ -331,8 +323,7 @@ def run(mach, off):
         tg = lambda p: [r[rw("ti_hx") + rw("ti_tg0x") - 2:
                           rw("ti_hx") + rw("ti_tg1x") + 40]
                         for r in p[rw("ti_oy"):rw("ti_oy") + rw("ti_hud")]]
-        m.key("KeyW")
-        os88marty.guest_sleep(m, 2.0)
+        toggle()
         check(rw("ti_row") == was_row, "...and back", "%d" % rw("ti_row"))
 
         # THE HUD SAYS WHAT THE POINTER IS OVER, and puts it back afterwards.
@@ -433,10 +424,6 @@ def run(mach, off):
         back = sum(1 for a, b in zip(h0, h2) for q, r_ in zip(a, b) if q != r_)
         check(back == 0, "...and the strip comes back whole",
               "%d pixel(s) of the last line left behind" % back)
-        diff = sum(1 for a, b in zip(panels[0], panels[1])
-                   for p, q in zip(a, b) if p != q)
-        check(diff > 200, "...and the panel is actually redrawn in it",
-              "%d differing pixel(s)" % diff)
 
 
 def main():

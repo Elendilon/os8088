@@ -52,7 +52,7 @@ import titheterr as te                                    # noqa: E402
 SYMS = te.SYMS + ("ti_rv", "ti_rvcell", "ti_rvcard", "ti_played", "ti_cellcard",
                   "ti_hover", "ti_row", "ti_boardw", "ti_panx", "ti_b2x",
                   "ti_basew", "ti_cardx", "ti_cardw", "ti_cardh",
-                  "ti_cardpitch", "ti_nframe")
+                  "ti_cardpitch", "ti_nframe", "ti_rpq")
 EQUS = te.EQUS
 
 fails = []
@@ -186,10 +186,7 @@ def run(mach, off):
                   "%d lit" % lit)
 
             # 4. the board and the hand are what a whole repaint draws
-            m.key("KeyD")                        # D twice: Flat, Banded, Flat -
-            os88marty.guest_sleep(m, 2.0)        # each one ti_paint_now
-            m.key("KeyD")
-            os88marty.guest_sleep(m, 2.0)
+            whole_repaint(m, seg, off)           # the whole board, from nothing
             w, h, repaint = te.mono(m)
             y1 = min(h, win.y + win.h)
             diff = [(x, y) for y in range(g["ti_by"], y1) for x in range(x0, x1)
@@ -210,6 +207,16 @@ def run(mach, off):
                   "it was" % how, "%d px, first %s" % (len(gap), gap[:4]))
             m.key("KeyP")                        # ...and the wheel runs again
             os88marty.guest_sleep(m, 1.0)
+
+
+def whole_repaint(m, seg, off):
+    """A WHOLE REPAINT, asked for through `ti_rpq`: the worker draws the board
+    and every feature from nothing and clears the byte (ti_worker). It was `D`
+    pressed twice until the detail arm went, and a key is a player's."""
+    m.write(seg * 16 + off["ti_rpq"], b"\x01")
+    os88marty.until(m, lambda _: m.readseg(seg, off["ti_rpq"], 1)[0] == 0,
+                    "the requested repaint", poll=0.1)
+    os88marty.guest_sleep(m, 0.3)
 
 
 def w_of(m):
