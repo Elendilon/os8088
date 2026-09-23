@@ -138,6 +138,20 @@ SBL_POOLMAX  equ 0xD000         ; the biggest grant the offset arithmetic can
                                 ; express. The live bound is [sbl_poolsz],
                                 ; which is 0 until the pool is claimed
 SBL_GMAX     equ 8              ; staging-grant records
+; SBL_MOVS - the copy every pool/ring move uses: WORDS, then the odd byte.
+; `rep movsw` is 13.3 clocks a byte on an 8088 (PERFORMANCE.md Set 117.2)
+; against `rep movsb`'s 17,
+; and these copies are two passes over every byte a stream plays - 8.3% of a
+; 4.77 MHz machine at 11 kHz by sample, and each is inside a cli window that
+; gets shorter by the same factor. In: CX bytes, DS:SI -> ES:DI, DF = 0.
+; Out: CX = 0, SI/DI advanced as `rep movsb` would. Flags: CF, not preserved.
+%macro SBL_MOVS 0
+    shr cx, 1
+    rep movsw
+    adc cx, cx                  ; the odd byte: CX is 0 here, so it is CF
+    rep movsb
+%endmacro
+
 SBL_DCHUNK   equ 512            ; drain-copy chunk: one act+gen-guarded
                                 ; IF=0 write unit (SPEC.md 34.6, ~2ms of
                                 ; rep movsb on a 4.77MHz 8088)
@@ -1677,7 +1691,7 @@ sbl_v_read:
     mov cx, ax
     push ds
     mov ds, [sbl_poolseg]       ; DS:SI = the grant source, in the POOL claim
-    rep movsb                   ; pool:SI -> caller DI
+    SBL_MOVS                    ; pool:SI -> caller DI
     pop ds
     pop cx
     popf
@@ -1745,7 +1759,7 @@ sbl_v_stage:
     mov cx, ax
     push ds
     mov ds, bx                  ; the caller's segment (slot wrapper, BX):
-    rep movsb                   ; the source pointer lives THERE since v3
+    SBL_MOVS                    ; the source pointer lives THERE since v3
     pop ds                      ; callerseg:SI -> pool:DI
     pop cx
     popf
@@ -1908,7 +1922,7 @@ sbl_fill_half:
     mov cx, ax
     push ds
     mov ds, [sbl_poolseg]       ; DS = the POOL: the grant is there now, the
-    rep movsb                   ; destination half is in the DMA claim (ES)
+    SBL_MOVS                    ; destination half is in the DMA claim (ES)
     pop ds
     pop cx
     popf
@@ -2023,7 +2037,7 @@ sbl_fill_guard:
     mov cx, ax
     push ds
     mov ds, [sbl_poolseg]       ; DS = the POOL: the grant is there now, the
-    rep movsb                   ; destination half is in the DMA claim (ES)
+    SBL_MOVS                    ; destination half is in the DMA claim (ES)
     pop ds
     pop cx
     popf
@@ -2245,7 +2259,7 @@ sbl_drain_half:
     mov cx, bx
     push ds
     mov ds, [sbl_seg]           ; DS = the DMA claim, where the ring is
-    rep movsb                   ; one chunk, atomic vs. teardown (IF=0)
+    SBL_MOVS                    ; one chunk, atomic vs. teardown (IF=0)
     pop ds
     pop cx
     add [sbl_consumed], bx      ; landed bytes only (verb 3's contract)

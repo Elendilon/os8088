@@ -68801,6 +68801,73 @@ confirmation goes to 5150 #2 and its Picomem (docs/FIELD-MACHINES.md). And wheth
 not a thing any of this can measure — it is Set 20's 4,000 Hz question in the
 other direction, and it is settled the same way, on hardware and by ear.
 
+
+### 45.9.4 The XT mix at 11 kHz, profiled and tightened
+
+Reported off the 5150: at 11 kHz a busy passage puts the stream behind and it
+never catches up. Profiled on MartyPC (`os8088_5150_herc_sb_gla`,
+BEVERLY.MOD, windowed) by sampling the CPU's address from outside the guest
+and resolving it by routine - Tracker from its listing, the kernel by linear
+address, SOUND.DRV from its map at the segment its IRQ vector names - the
+machine was 97% busy, **116-117 underruns a minute**, and one routine was
+most of it:
+
+| | before | after |
+|---|---|---|
+| XT mix loop (`mp_mixch_xt`, `mp_stepi_set`) | 64.6% | 53.4% |
+| SOUND.DRV's two copies | 8.3% | 7.4% |
+| `mp_chupd` (the per-tick step) | 3.7% | 2.2% |
+| idle | 2.6% | 6.4% |
+| underruns in the window | 117 / 60 s | **0 / 90 s** |
+| ring lead, minimum | 0 | 10,240 of 16,384 |
+
+What freed that time went to the windowed face, which draws when the ring is
+deep (§45.16.7) - which is the design and is why the IDLE row understates it.
+A half's mix, `mp_gen` to `trk_stage`, went **130 -> 115 ms** median of the
+186 ms of music it carries (wall time, preemption included).
+
+Five changes, and the rule behind all of them is PERFORMANCE.md Set 20's: on
+an 8-bit bus the BYTES are the cost, instruction and data alike, 4 clocks
+each.
+
+1. **The step immediate is a byte.** `adc si, imm8` sign-extended, not
+   `imm16`: the step's integer part is at most 31,388 Hz / the mix rate - 5
+   at 5,500 - so a byte holds it for any rate over 247 Hz. One byte less on
+   every sample of every channel.
+2. **The store pass swaps its segments** (`MIXSTORE`). The first audible
+   channel WRITES, so with DS the sample and ES the package it is `lodsb`,
+   `es xlat`, `add al, 0x80`, `stosb`: 11 instruction bytes where the old body
+   was 14, ~56 clocks against ~68. The swap is two push/pop pairs a RUN (up to
+   512 samples). The add pass gains nothing from the same swap - `add [es:di],
+   al` pays back the byte - so it keeps DS.
+3. **The add pass loads with `es lodsb`** (`MIXADD`): the segment-overridden
+   `lodsb` is `mov al, [es:si]` plus the step of one, in 2 bytes rather than 3.
+   Both passes therefore patch the step LESS ONE; `mp_stepi_set` writes AL - 1
+   into all eighteen copies.
+4. **Eight samples a `loop`, not four.** A taken `loop` is 17 clocks and a
+   flushed prefetch queue; over eight it is half the tax. +114 bytes of
+   image, the one change here that costs space.
+5. **`mp_chupd` caches the step.** It is a function of the clamped period and
+   the mix rate alone, and `[mp_chper]` already holds last tick's period, so a
+   period that did not change costs no DIV (three were ~450 clocks a channel a
+   tick). A record `mp_start` zeroed has a step of 0, which no clamped period
+   has, and a new rate clears every slot - `[mp_chrate]` is what it was worked
+   out for.
+
+And in SOUND.DRV (§34.5), every pool and ring copy is `SBL_MOVS` - `rep
+movsw` and the odd byte, where it was `rep movsb` - 13.3 clocks a byte on an
+8088 (PERFORMANCE.md Set 117.2) against 17, and each copy's cli window
+shortens with it.
+
+**It is the same sound, to the sample.** The Sound Blaster's output was
+captured with `MARTYPC_WAV` for 24 seconds of BEVERLY.MOD at 5,500 Hz - the
+rate neither build underruns at, so no silence is inserted - from the tree
+before this section and after it: **1,083,451 samples compared, 0 differ.**
+The driver's copies were checked separately, because both captures went
+through the new driver: a breakpoint after every copy compared source with
+destination, 128 copies and 64 KB, all identical. The 286+ mixer is
+untouched.
+
 ### 45.10 The Rate menu — 11 / 22 / 44 kHz for the other end of the range
 
 The XT trades fidelity for cycles; a 286/386 has cycles to spend, and the
