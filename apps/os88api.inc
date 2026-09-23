@@ -475,6 +475,10 @@ SND_CAP_FM       equ 02h
 SND_CAP_PCM_BG   equ 04h
 SND_CAP_PCM_EXCL equ 08h
 SND_CAP_PCM_IN   equ 10h
+SND_CAP_PCM_HI   equ 20h         ; PCM_BG takes rates ABOVE 22,222 Hz - an SB
+                                 ; Pro or SB16 (DSP >= 3.00). Without it verb
+                                 ; 0 answers 2 for any such rate, so do not offer
+                                 ; the choice at all (SPEC.md 34.2.1)
 
 ; verb 9 is verb 3 with DX = the bytes PLAYED EXACTLY, the DMA's progress into
 ; the block now sounding added to the block-granular count (SPEC.md 34.5.1).

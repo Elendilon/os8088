@@ -54270,6 +54270,21 @@ Both are called directly by the router. There is no indirection to
 dispatch through, no presence flag to consult and no probe at boot: the
 speaker is not a device that can be absent.
 
+#### 34.2.1 `SND_CAP_PCM_HI` — the card takes rates above 22,222 Hz
+
+A driver adds its bits to that word (§51.4), and one more is defined:
+**`SND_CAP_PCM_HI` = 20h**, published by `SOUND.DRV` beside `PCM_BG` when
+the DSP is 3.00 or newer — an SB Pro (high-speed mode) or an SB16 (`41h`).
+It is the same test `sbl_v_open` refuses on (err 2, §34.5), read the other
+way round, so a package can leave out a rate the card cannot play instead of
+offering it and taking the refusal at Play. `snd_hicap` sets it at
+attach and when `DRVV_TIER` turns the DSP back on; the tier's off arm clears
+it with the other PCM bits.
+
+It exists because the absence was a defect with a field report: Tracker
+offered 44 kHz on every machine, an SB 2.0 (DSP 2.01) refused it, and the
+reason never reached the user (§45.10.1).
+
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =
@@ -68962,7 +68977,7 @@ through the new driver: a breakpoint after every copy compared source with
 destination, 128 copies and 64 KB, all identical. The 286+ mixer is
 untouched.
 
-### 45.10 The Rate menu — 11 / 22 / 44 kHz for the other end of the range
+### 45.10 The Rate menu — 11 / 22 / 33 / 44 kHz for the other end of the range
 
 The XT trades fidelity for cycles; a 286/386 has cycles to spend, and the
 **Rate** menu spends them: `11 kHz` (default, requested as 11,000),
@@ -68977,6 +68992,52 @@ toggle. **While XT mode is on this menu is §45.9.3's two rows instead** —
 pick they had, when it goes off. The mixer's cost is linear
 in the rate: 44 kHz is 4× the default's samples — chosen for machines
 where the default is loafing, refused honestly where it is not.
+
+#### 45.10.1 33 kHz, and the rows a card cannot play are greyed
+
+**The rows are 11 / 22 / 33 / 44 kHz now.** 33,075 Hz is ¾ of 44.1 — on an
+SB16 exact through `41h`, on an SB Pro's high-speed TC 226 = 33,333 Hz. It is
+the rate a 286 can **mix**, which is the question 44 kHz fails on: measured
+under QEMU with `-icount` pinning the guest's instruction rate, Tracker
+windowed on BEVERLY.MOD —
+
+| guest | rate | underruns | machine busy |
+|---|---|---|---|
+| ~2 MIPS | 22 kHz | 0 | 47% |
+| ~2 MIPS | 33 kHz | 0 | 91% |
+| ~2 MIPS | 44.1 kHz | constant, never recovers | over 100% |
+| ~3.9 MIPS | 44.1 kHz | 0 | 60% |
+
+So 44.1 kHz wants ~2.35 M instructions a second of Tracker alone: a 12 MHz
+286 is short of it and a 16 MHz one is not. The CPU tier cannot tell those
+apart, so nothing is gated on it — selecting 44 kHz says **`smooth at 16
+MHz+`** on the status line instead, and the user decides. (QEMU counts
+instructions, not 286 clocks, so the figures are the shape and not a
+reading off the machine.)
+
+**33 and 44 kHz are not offered at all on a card without `SND_CAP_PCM_HI`**
+(§34.2.1). Not greyed: §47 greys what is unavailable *now*, and a sound card
+is not swapped without a reboot, so a row that can never be picked is only
+noise. `trk_rcount` answers the USABLE count — 2 there, 4 with the bit — and
+it is the Rate menu's item count, **R**'s and the rate button's cycle, and
+`trk_rate_set`'s bound, from one predicate (§47 rule 5). The caps are asked
+whenever the menu is built rather than latched once. A DSP tier switched off
+in the Control Panel mid-session leaves a stale 33/44 pick to be refused at
+Play, which now says why.
+
+**And the refusal now says what it is.** `trk_play`'s failure arm called
+`mp_stop` before testing the driver's answer, `mp_stop` zeroes AX, and so
+every refusal read `Sound open failed` — including err 2, whose own message
+(`That rate needs an SB Pro or SB16` now) never once reached the screen. It
+was reported off an SB 2.0 in a 286, where 44 kHz was offered and refused.
+
+**And a rate message survives the stop it causes.** Changing the rate while
+playing stops playback first, and the renderer's transport watch (`[tui_lplay]`
+against `[mp_playing]`) saw that stop a frame later and repainted `Paused
+ENTER resumes` over `Rate: 22 kHz - Enter plays` — which had always been lost
+that way, and would have taken the 44 kHz note with it. `trk_rate_set` now
+runs `trk_transport` itself and marks the stop seen, except on a tier-0
+machine's fullscreen, where that transition also reshapes the pattern view.
 
 ### 45.11 Smooth — retired with §32's back buffer
 

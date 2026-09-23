@@ -216,6 +216,11 @@ TRK_RATE_XT2 equ 11000              ; ...and XT mode's HIGH rate (SPEC.md
                                     ; refuses rather than quietly reverting
 TRK_RATE22  equ 22050               ; Rate menu (SPEC.md 45.10): still the
                                     ; classic TC regime, any DSP
+TRK_RATE33  equ 33075               ; ...and the one between (SPEC.md 45.10.1):
+                                    ; 3/4 of 44.1, the rate a 286 can MIX -
+                                    ; 91% of a 2 MIPS machine where 44.1 kHz
+                                    ; cannot keep up at all. SB16: exact via
+                                    ; 41h; SB Pro: TC 226 = 33,333 Hz
 TRK_RATE44  equ 44100               ; the 34.5 wide-rate regime - DSP >= 4
                                     ; only; an older card refuses err 2
 ; The small ring's pre-roll is DERIVED by trk_ring_set - every half it has bar
@@ -925,7 +930,7 @@ trk_oncmd:
     call tpl_toggle
     jmp .out
 .rate:
-    mov al, bl                      ; Rate > 11/22/44 kHz (SPEC.md 45.10)
+    mov al, bl                      ; Rate > 11/22/33/44 kHz (SPEC.md 45.10)
     call trk_rate_set
 .out:
     call tw_refresh                 ; a menu command's effect on the face now
@@ -2217,11 +2222,13 @@ trk_play:
     call trk_transport              ; the one success path; every exit below
     jmp .out                        ; is a refusal with its own message
 .ofail:
-    call mp_stop
+    push ax                         ; mp_stop ZEROES AX, and the test below is
+    call mp_stop                    ; the driver's answer: every refusal read
+    pop ax                          ; 'Sound open failed', err 2 included
     mov si, trk_s_snderr
-    cmp ax, 2                       ; err 2 = rate refused: the 44 kHz pick
-    jne .ofmsg                      ; on a pre-3.x DSP (SPEC.md 45.10)
-    mov si, trk_s_norate
+    cmp ax, 2                       ; err 2 = rate refused: a 33/44 kHz pick
+    jne .ofmsg                      ; on a pre-3.x DSP (SPEC.md 45.10) - the
+    mov si, trk_s_norate            ; menu greys those now, so this is a belt
 .ofmsg:
     call tui_msg
     jmp .out
@@ -2701,11 +2708,12 @@ trk_transport:
 ;                       the caption alone (rule 2), and the suffix says why
 ;                       (rule 7)
 ;
-; 22 and 44 kHz stay LIVE on every machine, and that is rule 3 in the other
-; direction: OSAPI_SND_CAPS publishes no rate bit, so whether a card will take
-; 44.1 kHz cannot be known without asking it - and when the only test is doing
-; the thing, do it and report. trk_play already does, with `44 kHz needs a DSP
-; 4.x card` on err 2.
+;
+; 33 and 44 kHz are not rows at all on a card without SND_CAP_PCM_HI (DSP
+; < 3.00, SPEC.md 45.10.1): trk_rcount's usable count IS the item count. They
+; were live on every machine while no bit said so, and an SB 2.0 took the pick
+; and refused it at Play - which a clobbered AX then reported as 'Sound open
+; failed'.
 ; -----------------------------------------------------------------------------
 trk_menus_build:
     pushf                           ; FLAGS, not just registers: the entry proc
@@ -2765,12 +2773,15 @@ trk_menus_build:
 .tterm:
     mov byte [di], 0
 
-    ; --- Rate: XT mode's TWO, or the other mode's three ---------------------
-    mov cx, 3                       ; the counts differ, so AMENU_NITEM is
-    cmp byte [mp_xt], 0             ; written rather than assembled
-    je .n
-    mov cx, 2
-.n:
+    ; --- Rate: XT mode's TWO, or the other mode's FOUR - or TWO -----------
+    call trk_rcount                 ; CL = the rows this mode AND this card
+    xor ch, ch                      ; can play: a card without SND_CAP_PCM_HI
+                                    ; gets no 33/44 rows at all (SPEC.md
+                                    ; 45.10.1). Not greyed - a sound card is
+                                    ; not swapped without a reboot, so a row
+                                    ; that can never be picked is only noise.
+                                    ; The counts differ, so AMENU_NITEM is
+                                    ; written rather than assembled
     mov [trk_e_rate + AMENU_NITEM], cx
     xor bx, bx                      ; BX = the item index
 .item:
@@ -2931,14 +2942,40 @@ trk_rsel_put:
     ret
 
 ; -----------------------------------------------------------------------------
-; trk_rcount - how many rows the Rate menu has in this mode. out CL.
+; trk_rcount - how many Rate rows are USABLE in this mode. out CL.
+;
+; XT mode's two, or the other mode's four - but only the first TWO (11/22) on a
+; card without SND_CAP_PCM_HI, since 33 and 44 kHz need DSP >= 3.00 (SPEC.md
+; 45.10.1). The Rate menu's item count, R, the rate button and trk_rate_set's
+; bound are all this one answer (SPEC.md 47 rule 5).
 ; -----------------------------------------------------------------------------
 trk_rcount:
-    mov cl, 3
-    cmp byte [mp_xt], 0
-    je .out
     mov cl, 2
+    cmp byte [mp_xt], 0
+    jne .out
+    call trk_hirate
+    jnc .out
+    mov cl, 4
 .out:
+    ret
+
+; trk_hirate - CF = 1 the sound driver takes rates above 22,222 Hz (SND_CAP_
+; PCM_HI: an SB Pro or SB16). Asked LIVE, not latched: a driver can be mounted
+; or its DSP tier switched off mid-session. Preserves every register.
+trk_hirate:
+    push ax
+    push bx
+    push dx
+    call OSAPI_SND_CAPS             ; AX = caps (BL/DX: the route, unused)
+    test ax, SND_CAP_PCM_HI
+    pop dx
+    pop bx
+    pop ax
+    jz .no
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; DS:SI (asciiz, terminator dropped) -> [DI], DI left past it. AL, SI spent.
@@ -2987,7 +3024,14 @@ trk_rate_set:
     cmp byte [mp_playing], 0
     je .idle
     call trk_play_stop              ; drains the worker (SPEC.md 45.2)
-.idle:
+    call trk_transport              ; ...and the stop's legend and parked row
+    cmp byte [trk_fs], 0            ; NOW, with the renderer told it has been
+    je .seen                        ; seen - or its next frame notices the stop
+    cmp byte [trk_cpu0], 0          ; and repaints `Paused` over the rate
+    jne .idle                       ; message below, which is where 44 kHz's
+.seen:                              ; note lives (SPEC.md 45.10.1). A tier-0
+    mov byte [tui_lplay], 0         ; FULLSCREEN stop also reshapes the pattern
+.idle:                              ; view, so there the renderer keeps it
     cmp byte [trk_sopen], 0         ; a drained ring left open by F00/stop
     je .menu                        ; paths closes before the rate changes
     call trk_stream_close
@@ -3037,7 +3081,14 @@ trk_xt_toggle:
     cmp byte [mp_playing], 0
     je .idle
     call trk_play_stop              ; drains the worker (SPEC.md 45.2)
-.idle:
+    call trk_transport              ; ...and the stop's legend and parked row
+    cmp byte [trk_fs], 0            ; NOW, with the renderer told it has been
+    je .seen                        ; seen - or its next frame notices the stop
+    cmp byte [trk_cpu0], 0          ; and repaints `Paused` over the rate
+    jne .idle                       ; message below, which is where 44 kHz's
+.seen:                              ; note lives (SPEC.md 45.10.1). A tier-0
+    mov byte [tui_lplay], 0         ; FULLSCREEN stop also reshapes the pattern
+.idle:                              ; view, so there the renderer keeps it
     cmp byte [trk_sopen], 0         ; a drained ring left open by F00/stop
     je .flip                        ; paths closes now, before the rate flips
     call trk_stream_close
@@ -3426,9 +3477,9 @@ trk_e_view:
                                         ; rows exist in every mode and it is
                                         ; the GREYING that moves
 trk_e_rate:                             ; ...labelled because its AMENU_NITEM
-        OS88_MENU trk_m_rate, trk_mi_rate, 3    ; is written at RUN TIME: the
+        OS88_MENU trk_m_rate, trk_mi_rate, 4    ; is written at RUN TIME: the
                                         ; Rate menu is TWO items in XT mode
-                                        ; and three outside it (SPEC.md
+                                        ; and four outside it (SPEC.md
                                         ; 45.9.3). The set is the package's
                                         ; own image and the image is writable,
                                         ; which trk_xt_toggle's relabel has
@@ -3474,17 +3525,22 @@ trk_s_fswin: db ' (5.5 kHz)', 0         ; SPEC.md 47 rule 7: the greyed row
                                         ; says what would bring it back, which
                                         ; is the OTHER control's setting
 trk_m_rate:  db 'Rate', 0
-trk_mi_rate: dw trk_ritem0, trk_ritem1, trk_ritem2  ; COMPOSED, by
+trk_mi_rate: dw trk_ritem0, trk_ritem1, trk_ritem2, trk_ritem3  ; COMPOSED, by
                                         ; trk_rate_menu (SPEC.md 45.17.1)
 trk_s_r11:   db '11 kHz', 0
 trk_s_r22:   db '22 kHz', 0
+trk_s_r33:   db '33 kHz', 0
 trk_s_r44:   db '44 kHz', 0
-trk_rname:   dw trk_s_r11, trk_s_r22, trk_s_r44
-trk_rates:   dw TRK_RATE, TRK_RATE22, TRK_RATE44
-trk_rmsg:    dw trk_s_m11, trk_s_m22, trk_s_m44
+trk_rname:   dw trk_s_r11, trk_s_r22, trk_s_r33, trk_s_r44
+trk_rates:   dw TRK_RATE, TRK_RATE22, TRK_RATE33, TRK_RATE44
+trk_rmsg:    dw trk_s_m11, trk_s_m22, trk_s_m33, trk_s_m44
 trk_s_m11:   db 'Rate: 11 kHz - Enter plays', 0
 trk_s_m22:   db 'Rate: 22 kHz - Enter plays', 0
-trk_s_m44:   db 'Rate: 44 kHz - Enter plays', 0
+trk_s_m33:   db 'Rate: 33 kHz - Enter plays', 0
+trk_s_m44:   db 'Rate: 44 kHz - smooth at 16 MHz+  Enter plays', 0
+                                      ; SPEC.md 45.10.1: a 12 MHz 286 cannot
+                                      ; MIX it, a 16 MHz one can - a fact about
+                                      ; the CPU that the tier cannot tell apart
 ; ...and XT mode's own two, which REPLACE the three above while it is on
 ; rather than greying beside them (SPEC.md 45.9.3): 22 and 44 kHz are not
 ; choices a tier-0 machine can make, so a menu that lists them is a menu
@@ -3529,7 +3585,7 @@ trk_s_ioerr:  db 'Disk error', 0
 trk_s_snderr: db 'Sound open failed', 0
 trk_s_xtmon:  db 'XT mode on - Enter plays', 0
 trk_s_xtmoff: db 'XT mode off - Enter plays', 0
-trk_s_norate: db '44 kHz needs an SB Pro or SB16', 0
+trk_s_norate: db 'That rate needs an SB Pro or SB16', 0
 trk_s_buffer: db 'Buffering...', 0
 trk_s_txxt:   db 'Windowed only: Esc first', 0
                                         ; THREE keys share this and sharing it
@@ -3689,6 +3745,7 @@ trk_reloc:
     TRKBUF trk_ritem0, TRK_RITEM      ; the three composed Rate items
     TRKBUF trk_ritem1, TRK_RITEM      ; (SPEC.md 45.17.1) - in the PACKAGE's own
     TRKBUF trk_ritem2, TRK_RITEM      ; segment, which is where a menu string
+    TRKBUF trk_ritem3, TRK_RITEM      ; (33 kHz made it four, SPEC.md 45.10.1)
                                     ; has to live (SPEC.md 12.2's MB_SEG)
     TRKB trk_cpu0                   ; the MACHINE is a tier-0 8086/8088
                                     ; (SPEC.md 41.8), latched at entry. NOT
