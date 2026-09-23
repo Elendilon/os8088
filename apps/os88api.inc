@@ -1807,7 +1807,6 @@ CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 ; >= HEAP_SEG    a package's own segment: one of that package's data claims
 ; 0xFFxx         a kernel tag, unpurgeable
 ; 0xFBxx..0xFExx a kernel tag that is PURGEABLE, the HIGH BYTE being the tier
-MEM_K_SAVE  equ 0xFF01          ; the menu save-under (SPEC.md 12)
 MEM_K_DRV   equ 0xFF03          ; a loaded driver's image (SPEC.md 51.3)
 MEM_K_COPY  equ 0xFF04          ; the file manager's copy buffer (SPEC.md 22.5)
 MEM_K_ASC   equ 0xFF06          ; one volume's ASSOC.DAT cache (SPEC.md 54.7)
@@ -1848,6 +1847,7 @@ MEM_P_ICO   equ MEM_PG_TRIV<<8 | 0x01   ; THE MACHINE-WIDE ICON STORE (SPEC.md
                                  ; not a read: every reference then resolves to
                                  ; SPEC.md 25's generic icon and the next mount
                                  ; fills the rows back in one file read
+MEM_P_MSAVE equ MEM_PG_TRIV<<8 | 0x02   ; the menu save-under (SPEC.md 12.4.2)
 MEM_P_WSAVE equ MEM_PG_TRIV<<8 | 0x10   ; a window's raise cache - a RANGE,
 MEM_P_WSAVE_N equ 16            ; 0x10..0x1F, the window's slot added (11.96.3)
                                 ; - and OSAPI_WM_OWNSEG above turns that slot

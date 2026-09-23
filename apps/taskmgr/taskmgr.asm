@@ -1388,7 +1388,7 @@ tm_s_tfdlg: db 'FileDlg', 0     ; the Standard File dialog's listing (SPEC.md
 ; ends the capture early - which drops every row below it from the gate without
 ; failing anything.
 tm_ktab:
-    dw MEM_K_SAVE,  tm_s_tsave
+    dw MEM_P_MSAVE, tm_s_tsave
     dw MEM_K_DRV,   tm_s_tdrv
     dw MEM_K_COPY,  tm_s_tcopy
     dw MEM_K_ASC,   tm_s_tasc

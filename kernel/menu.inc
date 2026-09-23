@@ -1984,14 +1984,14 @@ menu_drop:
     mov word [menu_sseg], 0
     call menu_save_kb           ; AX = what THIS menu's rect needs, not the
                                 ; worst case any menu could
-    mov bx, MEM_K_SAVE
+    mov bx, MEM_P_MSAVE         ; TRIVIAL-purgeable (SPEC.md 12.4.2)
     call mem_claim
     jc .noclaim                 ; refused: the restore repaints instead
     mov [menu_sseg], dx
 %ifdef OS88_COMPACT
     push ax                     ; ...and MOVABLE (SPEC.md 66.5.6). It is only
     mov ax, menu_reloc          ; 20KB and only lives for one menu - but that
-    mov bx, MEM_K_SAVE          ; is 20KB sitting mid-arena at exactly the
+    mov bx, MEM_P_MSAVE         ; is 20KB sitting mid-arena at exactly the
     call COLD_SEG:mmf_mem_movable ; moment a MENU COMMAND claims, which is one of
     pop ax                      ; the commonest ways a claim happens at all
 %endif                          ; ...and on kern_small nothing moves (SPEC.md
@@ -2178,7 +2178,7 @@ menu_drop:
     mov dx, [menu_sseg]         ; the menu is off the screen: hand the buffer
     or dx, dx                   ; back rather than hold 20KB until the next
     jz .nofree                  ; one (SPEC.md 12.4/50.2)
-    mov bx, MEM_K_SAVE
+    mov bx, MEM_P_MSAVE
     call mem_free
     mov word [menu_sseg], 0
 .nofree:

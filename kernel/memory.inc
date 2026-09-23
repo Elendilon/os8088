@@ -122,12 +122,20 @@ MC_SIZE  equ 10
 MC_DMA_HI   equ 0x8000          ; MC_DMA bit 15: the top-down door
 MC_DMA_HEAD equ 0x7FFF          ; ...and the mask every reader of the head takes
 
-MEM_K_SAVE equ 0xFF01           ; kernel tags (SPEC.md 50.2): menu save-under
+                                ; kernel tags (SPEC.md 50.2). 0xFF01 was the
+                                ; menu save-under's until SPEC.md 12.4.2 made
+                                ; it MEM_P_MSAVE below, and is not reused
 MEM_K_DRV  equ 0xFF03           ; a loaded driver's image (SPEC.md 51.3)
 MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
                                 ; for exactly one Cut/Copy/Paste operation,
                                 ; including the part of it that is suspended
                                 ; on an overwrite question
+MEM_P_MSAVE equ MEM_PG_TRIV<<8 | 0x02   ; THE MENU SAVE-UNDER (SPEC.md 12.4.2):
+                                ; TRIVIAL for MEM_P_WSAVE's reason - losing it
+                                ; costs the repaint menu_drop already falls
+                                ; back to - and a SAVE-UNDER IS NEVER A WALL,
+                                ; the mem_avail plan and a compacting claim
+                                ; both dissolve it (mem_pg_cheap, mem_cp_drop)
 MEM_P_ICO  equ MEM_PG_TRIV<<8 | 0x01    ; THE MACHINE-WIDE ICON STORE (SPEC.md
 MEM_P_ICO_N equ 1               ; 25.9), and TRIV because losing it costs a
                                 ; REDRAW and not a read: every reference then
@@ -964,6 +972,7 @@ mem_pg_ftask: db 0              ; high byte: whose (sch_cur). Task 0 with the
 
 mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
+    dw MEM_P_MSAVE, menu_sseg,   1
     dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw MEM_P_FATW,  dsk_fatwc,   MEM_P_FATW_N
     dw MEM_P_ICO,   ico_seg,     MEM_P_ICO_N
@@ -1579,24 +1588,15 @@ mem_can_move:
     jne .pin
 .nodma:
 %endif
-    cmp bx, [mem_cp_self]       ; ...UNLESS THIS IS THE WHAT-IF asking about a
-    je .ok                      ; claim OF ITS OWN (SPEC.md 66.4.3.2), which is
-                                ; mem_frameless's .self argument one claim
-                                ; along and was missed there: mem_compact PARKS
-                                ; on its way past a refusal it is told about
-                                ; ([mem_wpin], SPEC.md 66.5), so a worker that
-                                ; is merely RUNNING now is not what it will be
-                                ; at the service point. Without it the what-if
-                                ; pinned every claim the ASKER holds - measured
-                                ; at 223KB against the 250KB the pass then
-                                ; produced - and the caller is the one package
-                                ; guaranteed to be running as it asks.
-                                ; PLAN-ONLY by the same discipline: mem_avail
-                                ; is the only setter and clears it before it
-                                ; returns, and no path that reaches mem_cp_run
-                                ; ever sets it
-    call mem_busy_seg           ; ...otherwise a package's or a driver's own
-    jc .pin                     ; segment, and somebody may be RUNNING in it
+                                ; THE WHAT-IF'S EXCUSE LIVES IN THE CALLEE NOW
+                                ; (SPEC.md 66.4.3.2): it was the asker's claims
+                                ; alone, tested here, and inst_seg_parked
+                                ; answers "will be parked" for EVERY package's
+                                ; worker while [mem_cp_self] stands - the
+                                ; posted pass parks them all - which covers the
+                                ; asker's as one case of many
+    call mem_busy_seg           ; ...a package's or a driver's own segment,
+    jc .pin                     ; and somebody may be RUNNING in it
     jmp short .ok
 %ifdef OS88_DRIVERS
 .drvimg:
@@ -1906,8 +1906,22 @@ mem_frameless:
                                 ; owns claims"
     cmp bx, [ld_base]
     je .nope                    ; the loader is standing in it
-    cmp bx, [mem_cp_self]       ; ...UNLESS THIS IS THE WHAT-IF ASKING ABOUT
-    je .self                    ; the asker's own region (SPEC.md 66.4.3)
+    cmp word [mem_cp_self], 0   ; ...UNLESS THIS IS THE WHAT-IF (SPEC.md
+    jne .self                   ; 66.4.3.2) - about ANY declared region, and
+                                ; not only the asker's own. It was the asker's
+                                ; alone, and that read LOW on exactly the heap
+                                ; the feature is for: every other package's
+                                ; worker is running or sleeping at the moment
+                                ; of asking, so every other region was planned
+                                ; as a wall - measured with seven idle Trackers
+                                ; stacked under the ceiling, 65 KB answered
+                                ; where the posted pass would have delivered
+                                ; 123. The pass runs at ui_task step 0a with
+                                ; the nest empty and parks every worker first,
+                                ; so both remaining tests are ones it will not
+                                ; ask; the restart declaration above still
+                                ; binds, and a region without one never gets
+                                ; here
     call mem_in_nest            ; ...or a callback is, and this claim is the
     jc .nope                    ; REGION, so a frame's return address points
                                 ; into it (SPEC.md 66.6.1). No [mem_wpin]: a
@@ -3785,6 +3799,10 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 %endif
     mov [mem_pg_rank], al       ; inside the window, with the other three
 %ifdef OS88_COMPACT
+    inc byte [mem_cp_pl]        ; PLANNING FOR A CLAIM, NOT MOVING (SPEC.md
+                                ; 66.4.3.5): inst_seg_parked answers "parked" for
+                                ; every package worker while it stands, because
+                                ; the claim this answers for parks them first
     call mem_cp_both            ; AX = the largest run compaction would leave,
                                 ; BX = the total, both in paragraphs -
                                 ; caches at or below AL dissolved with it - and
@@ -3803,6 +3821,7 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
                                 ; outranks already counts as free whether or
                                 ; not it could have moved - which is the whole
                                 ; of what the third walk mode was for
+    dec byte [mem_cp_pl]
 %else
     call mem_bigrun             ; ...and where nothing moves, the run a
                                 ; claimant can have is the biggest hole the
@@ -4694,23 +4713,30 @@ mem_cpq:     resw 1             ; OSAPI_MEM_COMPACT's post: the window to wake
 mem_cpq_lvl: resb 1             ; ...and the shed rank it asked the pass to
                                 ; respect, which mem_compact cannot derive with
                                 ; no claim pending
-mem_cp_self: resw 1             ; A SEGMENT mem_frameless PLANS AS FRAMELESS, or
-                                ; 0 (SPEC.md 66.4.3). It is the WHAT-IF and
-                                ; nothing else: a package asking "how much
-                                ; would I have if I moved too" is asking about
-                                ; a state the deferred compaction really does
-                                ; reach - at ui_task's step 0 its callback has
-                                ; returned and [wm_pkgd] is 0 - so this excuses
-                                ; the ONE test that is untrue only because the
-                                ; caller is standing in its own region, and
-                                ; leaves [ld_base] and the worker alone,
-                                ; because those are as true then as now.
+mem_cp_self: resw 1             ; THE WHAT-IF'S ASKER, or 0 (SPEC.md 66.4.3).
+                                ; A package asking "how much would I have if I
+                                ; moved too" is asking about a state the posted
+                                ; compaction really does reach - at ui_task's
+                                ; step 0 every callback has returned and
+                                ; [wm_pkgd] is 0 - so while it stands
+                                ; mem_frameless excuses the NEST for every
+                                ; declared region, not only the asker's
+                                ; (66.4.3.2). [ld_base] is still asked, being
+                                ; as true then as now; the worker question is
+                                ; [mem_cp_pl]'s, below, and every mem_avail
+                                ; plan asks it.
                                 ;
                                 ; PLAN-ONLY BY DISCIPLINE: the what-if sets it,
                                 ; clears it before returning, and no path that
                                 ; can reach mem_cp_run ever sets it. A
                                 ; compaction running with it set would move a
                                 ; region with a frame in it.
+mem_cp_pl:   resb 1             ; mem_avail is PLANNING (SPEC.md 66.4.3.5): the
+                                ; walk models the claim it answers for, which
+                                ; parks package workers before it moves - so
+                                ; inst_seg_parked excuses them. Set and cleared
+                                ; inside mem_avail_lvl_x's cli window, and never
+                                ; standing while mem_cp_run can be reached
 mem_cp_busy: resb 1             ; the compactor is running (SPEC.md 66.4): a
                                 ; relocation proc that claims - which 66.3
                                 ; rule 3 forbids - would otherwise re-enter

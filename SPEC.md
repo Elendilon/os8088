@@ -21926,6 +21926,36 @@ packet rate puts it right. Nothing is latched and nothing is run. `menu_hover`
 alone hands its answer to a release, which is why it alone pays the three
 bytes.
 
+#### 12.4.2 The save-under is TRIVIAL-purgeable, `MEM_P_MSAVE`
+
+A menu's save-under is claimed by `menu_drop` for exactly as long as the menu
+is on the glass, and until this section it carried an ordinary kernel tag,
+`MEM_K_SAVE` = `0xFF01`. It is `MEM_P_MSAVE` = `MEM_PG_TRIV << 8 | 0x02` now,
+with a `mem_pg_own` row naming `[menu_sseg]`, for the window raise cache's
+reason (§11.96): **losing it costs the repaint `menu_drop` already falls back
+to**, and a block whose loss costs a repaint is TRIVIAL on §50.6.4's ladder.
+So `mem_avail`'s plan counts it as free (`mem_pg_cheap`), a compacting claim
+dissolves it rather than packing round it (`mem_cp_drop`), and a shed zeroes
+`[menu_sseg]` so the restore takes `.repaint` — which the refused claim has
+always taken, so there is no new path.
+
+It is still declared movable (§66.5.6), so a pass that can move it rather
+than dissolve it does. In practice neither happens often: the save-under is
+only ever held **inside the gfx lock**, for the menu's own tracking loop, and
+almost nothing claims in that state — which is why it was never the wall.
+The window raise cache, which outlives any lock hold, was.
+
+**The claim's own rank moved with the tag**, and that is the one behaviour
+change: the tag IS the request (§50.6.4), so the save-under is now claimed at
+TRIVIAL rank and sheds nothing to get room. On a heap too tight for it the
+menu repaints on close instead of evicting the directory read-ahead or a FAT
+window to bank a few KB of pixels for a few seconds — the ladder's answer,
+where the old tag outranked every cache in the system.
+
+`0xFF01` is retired and not reused. `tm_ktab` names `MEM_P_MSAVE` as
+`MenuSav`, and tests/unit/t_ktags.py holds the kernel, the SDK and the Task
+Manager to one list.
+
 ### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
@@ -89403,9 +89433,11 @@ questions — and the difference between them, which is the whole signal this
 verb exists to give, would read non-zero every time and post a compaction the
 caller did not need. `[mem_cp_self]` names the segment — the X stub's `ES`, so
 the region to excuse costs no argument — and `mem_frameless` excuses **the
-nest test alone** — `[ld_base]` and the worker are as true at the service point
-as they are now, and only the nest is the thing that stops being true once the
-callback has returned.
+nest test** while it stands, for every declared region and not only the
+asker's (§66.4.3.5): the nest is the thing that stops being true once the
+callback has returned, for every package at once. `[ld_base]` is as true at the
+service point as it is now and stays asked; the worker is §66.4.3.5's, and is
+excused on every `mem_avail` plan rather than on this one alone.
 
 **Claiming this number refuses**, and that is correct rather than a wart: the
 caller really is standing in its region as it asks. The number becomes true by
@@ -89428,7 +89460,8 @@ KB** where the posted pass then produced **250 KB**, and `[mem_cp_self]` was
 correct and `.self` was taken five times — the missing 27 KB was three movable
 57 KB claims *owned by the asker*, pinned in the plan because its worker was
 running, and moved by the pass because the pass parked it. Six bytes at
-`.notslot` close it, and **the caller is the one package in the system
+`.notslot` closed it — since moved into `inst_seg_parked`, where §66.4.3.5
+applies it to every package's claims and not only the asker's, and **the caller is the one package in the system
 guaranteed to be running as it asks**, so this is the common case rather than
 an edge. The two arms stay two: `mem_busy_seg` must not ask the nest (a
 package's data claim may move while the package executes, §66.3 rule 2), so an
@@ -89536,6 +89569,69 @@ so `OS88_WORKER_RESTARTABLE` reaches a park point that is *not* the top of
 its loop — which is exactly the case the SDK note warns about and the one
 `tests/heapfrag`'s pump-shaped worker cannot exercise. What that cost was
 one line of `trk_worker`'s head, and §45.3.2 says which line and why.
+
+#### 66.4.3.5 Every plan assumes the park its claim will make
+
+**`mem_avail` answers what `mem_claim` would hand out, and `mem_claim` parks.**
+Its compaction plans, finds a claim pinned because a package worker might be
+running in it, raises `[mem_wpin]`, asks every package worker to stand at
+`OSAPI_TASK_ALIVE` (`inst_park_req`, `INST_PARKW` ticks) and plans again with
+them standing (§66.5). The plan `mem_avail` made did not: it asked
+`inst_seg_parked` about the worker **as it was at that instant**, so every
+package whose worker was merely running or sleeping had its region and its data
+claims planned as walls that the claim beside it would have moved.
+
+It was invisible for as long as the workers that mattered were **blocked in
+`OSAPI_GFX_LOCK`**, which a park-safe package's worker counts as parked
+(§66.5.4) — and Tracker's was, eighteen times a second, drawing frames of
+nothing. §45.21.1's idle frame stopped that, and two rows went red the same
+day, both on this defect and neither on Tracker:
+
+| row | what asked | answered | the claim would have had |
+|---|---|---:|---:|
+| `trkcompact` | Tracker's what-if, seven idle Trackers under the ceiling | **65 KB** | 123 KB |
+| `trackmove` | HEAPFRAG's plain `OSAPI_MEM_AVAIL`, an idle Tracker holding its module | **45 KB** | the room to build its comb |
+
+Fixed, on the same heaps: Tracker's what-if answers **123 KB**, it posts, its
+region moves **8300 → 9180** into the hole above it and the 114 KB module
+loads; HEAPFRAG passes **all 14** of its own checks and its claim moves
+Tracker's module **57c0 → 4ec0**.
+
+In the first, Tracker refused a load it could have posted for. In the second,
+HEAPFRAG read too little room to build its comb (its own check 2, `FAIL room`)
+and never claimed at all, so the compaction the row exists to watch never ran.
+
+**`[mem_cp_pl]` is the fix**: a byte `mem_avail_lvl_x` raises around
+`mem_cp_both`, inside its `cli` window, and `inst_seg_parked` answers "parked"
+for any **package** worker while it stands. A driver's task is not excused —
+it has no instance record and "I cannot tell" still means busy (§66.5.5). It is
+never standing inside `mem_compact`, whose own plan is followed by moves and so
+must ask about the machine as it is: `mem_cp_plan` and `mem_cp_run` share
+`mem_can_move`, and a plan that excused a running worker would be a run that
+moved a claim out from under it.
+
+**The what-if keeps the one excuse plain `mem_avail` must not make**: the nest.
+It models the POSTED pass, which runs at `ui_task` step 0a with every callback
+returned, so while `[mem_cp_self]` stands `mem_frameless` excuses `mem_in_nest`
+for **every** declared region, not only the asker's. Plain `mem_avail` is
+answering for a claim made *now*, from inside the caller's own callback, where
+the caller's region really is pinned by its frame — so it leaves the nest
+alone. The restart declaration binds on both, because without one no park
+helps (§66.6.2).
+
+The excuse that used to live at `mem_can_move`'s `.notslot` — the asker's
+own data claims, §66.4.3.2 — is subsumed and deleted: it is one case of the
+rule `inst_seg_parked` now applies to every package. **+17 bytes resident on
+`kern_big`** with §12.4.2 (`.text` +13, `.cold` +3, `.bss` +1), measured
+against the tree before them; **`kern_small` +6** (`.text`), which has no
+compactor and gains only §12.4.2's `mem_pg_own` row.
+
+**A PLAN MAY NOW READ HIGH** by exactly the workers that fail to park inside
+`INST_PARKW` — a worker is expected to reach `OSAPI_TASK_ALIVE` at least once a
+tick, and one that does not is already the case §66.5 names. That is the
+direction §66.4.3.2 chose for the what-if; for plain `mem_avail` it trades an
+under-report nobody sees for an over-report that costs a shed, on a worker that
+is already misbehaving.
 
 ### 66.5 The worker park
 
