@@ -113,15 +113,17 @@ def pack(rows):
     return bytes(out)
 
 
-def model_pose(geo, terr, strip, g, ci, pi, attack=False):
+def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None):
     """A cell's composed pose - or attack frame - as the machine should have
     it: the card's body, the item for its column (FRONT in 1 and 2, REAR in 0
-    and 3), over the column's own ground."""
+    and 3), over the column's own ground. `card` is who stands there - the
+    cell's index mod the hand until a reveal (tests/titherv.py) puts one
+    there."""
     c, r = divmod(ci, g["TI_ROWS"])
     x0 = g["ti_insx"]
     rows = []
     stance = tc.FRONT if c in (1, 2) else tc.REAR
-    fig = tc.compose(ci % HAND, stance,
+    fig = tc.compose(ci % HAND if card is None else card, stance,
                      [s for s in tc.SURFACES if s[0] == geo[0]][0], pi, attack)
     if c >= g["TI_COLS"] // 2:          # P2: the band MIRRORED, at CW-INSX-BW
         x0 = g["ti_cw"] - g["ti_insx"] - g["ti_bs"] * 8

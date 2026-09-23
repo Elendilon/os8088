@@ -1126,6 +1126,15 @@ decision, and it is written down now so that the choice is a choice rather than
 a rediscovery. *(The owner's framing exactly: if we cannot overlap, stepping
 forward and swinging is fine; if we can, we may.)*
 
+**DECIDED IN WAVE 1A, BY LOOKING: TIER A, AND TIER B IS DROPPED.** Both were
+built and put side by side (SPEC.md §97.4.7). Tier A with the layers' attack
+frames (§8.1.4) — each fighter's own four-frame swing and an 8-pixel lunge
+inside its band — *"looks great"*; tier B, measured at **~70 ms a frame** live
+against the ~25 this section priced, read as *"making things around it flash
+and run slower"* and nothing more. Its 1,456-byte band, its key and ~2 KB of
+the package went with it, and the 44 KB pre-composition row above is not
+wanted.
+
 #### 3.9.3 …and the hovered card costs ONE feature, not six
 
 A card in the panel is ~160 × 110, which at 1bpp is **2,200 B** — **5.6 times a
@@ -4038,9 +4047,9 @@ built on top of it.
 | **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
 | **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is half (§3.8). Which reads best at 1bpp is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
 | **a PROJECTILE crossing the board** | §3.9.1 is the most expensive thing in the game and the only thing in the renderer that is not a self-erasing band. It has to be seen moving, at the real cost, over a real board |
-| **a melee clash, both tiers** | stepping forward (§3.9.2 A) beside a composed overlap (tier B), so the choice is made by looking rather than by arithmetic |
+| **a melee clash, both tiers** | stepping forward (§3.9.2 A) beside a composed overlap (tier B), so the choice is made by looking rather than by arithmetic. **DECIDED: tier A** (§3.9.2) |
 | **the acting lane idling while four lanes hold** | §3.8's concession. Whether it reads as *focus* or as *the board froze* is the whole question, and it is one nobody can answer on paper |
-| **the reveal** | §16.2 item 7: how a played card reaches its cell has never been specified, and the reveal is the phase where a sequence may beat a flurry |
+| **the reveal** | §16.2 item 7: how a played card reaches its cell has never been specified, and the reveal is the phase where a sequence may beat a flurry. **BUILT** (§16.2 item 7) |
 | the **idle animation at its computed rate** | see below — this is the single most important thing the prototype answers |
 | the card panel | with real card faces at their real size, and the hover expansion |
 | the HUD | with real numbers in it |
@@ -4158,6 +4167,32 @@ wants deciding in wave 1a with everything else visual — a card sliding from th
 panel, a figure fading up, a banner drop — and it is the one phase where a
 **sequence** rather than a simultaneous flurry may read better, since the whole
 point of the reveal is that the player is finding out what happened.
+
+**BUILT IN WAVE 1A** (SPEC.md §97.4.11), to the owner's brief: *a trail of
+magical particles from the card slot to the board's slot, like an attack shot
+with a different origin and end, then the character fading in — quicker than an
+attack, and ending with the card fading out.* Six frames of a twelve-spark
+trail, then five of an ordered-dither dissolve with the card a step behind:
+**eleven frames, ~0.6 s, against a clash's sixteen**, and every frame of it fits
+inside the tick on a 4.77 MHz 8088 (the heaviest is 41.9 ms of 54.9). Two
+things it decided that §6.4 will inherit:
+
+- **The sparks are XOR and not a composed band.** The bolt composes over the
+  ground because a lane is ground and nothing else in its rows; a card-to-cell
+  trail crosses figures, numbers and the card panel, which no picture holds.
+  The save-under pair was the alternative and refuses a rect straddling two
+  displays. What XOR costs is ORDER — sparks off first in a frame, on last —
+  and a paint that lands between the two, which asks for a whole repaint.
+- **The card is composed once, at the play.** Re-composing it per fade step
+  was ~35 ms of every step and put the frame over its tick; banked at the key
+  press, it is latency before the first spark (112 ms, with the cell's own
+  composition) instead of a stutter in the middle.
+
+What §6.4 still owes: P2's plays arrive from a hand nobody can see, so their
+origin is a design question and not a coordinate; and *"both plans animated
+together"* is several reveals at once, where the one built here is a sequence
+of one. Sequence or flurry is the question the item above asked, and it is
+still the owner's.
 
 ### 16.3 …and four things deliberately NOT specified yet
 
@@ -4365,6 +4400,8 @@ a second time.
 | who composes | wave **1b**, a session of its own, with wave 1a's concept art as its input (§16.1.1) |
 | a commit clock for posted play | **none** — play by mail, and the same adaptive poll serves a live match with no mode switch (§12.7.1) |
 | undo | **any action, not just the last**, until the commit (§5.0.2) |
+| **the melee clash** | **tier A** — each fighter's own attack frames in its own band; the composed overlap (tier B) was built, looked at and dropped (§3.9.2) |
+| **the reveal** | **sparks from the card to the cell, then the character dissolving in and the card dissolving out**, shorter than a clash (§16.2 item 7, SPEC.md §97.4.11) |
 | **how characters are drawn** | **composed from a BODY and a held ITEM** (§4.2.1), the item carrying the arm and the swing, at most 8 items a faction — which is what makes attack animation affordable at all (§4.2.2) |
 
 ### 19.2 Reversed, and why

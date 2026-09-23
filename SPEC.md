@@ -140503,7 +140503,6 @@ figures face the enemy they fight, as the reference's do. **The mirror costs
 no RAM and no second composition**: every cell's poses are composed once
 already (above), and a P2 cell's are simply composed the other way round — its
 bytes right to left, each through a 256-byte bit-reverse table with `xlat`.
-The tier-B clash mirrors column 2's figure about its own cell.
 
 **THE SPRITE-SIZE ARM IS A CROP, NOT A SCALE** (§97.7's `S`). The art is drawn
 for the table's band, so a shorter arm keeps the figure's floor and centre and
@@ -140597,32 +140596,23 @@ figure is whatever was baked there.
 fullscreen-only (TITHE-PLAN §3.5c), so offering it in the windowed arm would be
 a key that refuses.
 
-#### 97.4.7 The melee clash — two tiers, and the cheap one always works
+#### 97.4.7 The melee clash — each fighter swings in its own band
 
-- **Tier A** *(the default, and it always works)*: both fighters play their
-  four ATTACK frames (§97.4.9) out of the attack claim — wind-up, strike with a
-  lunge toward the line, follow-through, recovery — **each in its own
-  rectangle**, one band apiece, every frame of the clash, and their idle band
-  again when it ends. Two ordinary bands a frame and no composition, so it works
-  on every adapter and at every sprite size; the wheel charges the clash two
-  bands a frame. The lunge is inside the band, a multiple of 8, and baked into
-  the frame at layout.
-- **Tier B** *(an option, and a wave-3 decision)*: one band spanning both
-  cells with both figures composed into it, so they may overlap freely. It
-  composes the same attack frames — body, item and lunge — live, over ground
-  read from the strips, with column 2's figure mirrored about its own cell.
-  **Measured at ~70 ms a frame** on a windowed VGA, of which the ground read is
-  28 (it was 112 before `ti_gnd_row` became column runs), so it overruns a tick
-  on the target machine and is what TITHE-PLAN §3.9.2's *"pre-compose in the
-  reveal"* is for, if it is taken at all.
+Both fighters play their four ATTACK frames (§97.4.9) out of the attack claim —
+wind-up, strike with a lunge toward the line, follow-through, recovery — **each
+in its own rectangle**, one band apiece, every frame of the clash, and their
+idle band again when it ends. Two ordinary bands a frame and no composition, so
+it works on every adapter and at every sprite size; the wheel charges the clash
+two bands a frame. The lunge is inside the band, a multiple of 8, and baked into
+the frame at layout.
 
-**THE SHEAR MAKES A TWO-CELL BAND TALLER THAN ONE CELL, and that is the thing
-tier B teaches.** Columns 1 and 2 are one `RISE` apart vertically (§97.3), so a
-band spanning both is a cell tall **plus a rise**, with each cell's ground and
-each figure at its own offset inside it. A band cut to one cell's height
-composes the two figures at the same y and puts one of them a whole rise out of
-place — on the glass, two fighters trading past each other. It is committed at
-the **higher** cell's top.
+**A COMPOSED OVERLAP WAS BUILT BESIDE IT AND DROPPED ON THE LOOK** (TITHE-PLAN §3.9.2).
+The reference lets its melee figures overlap, and a band spanning both
+cells can do that — composed live over ground read from the strips, with the
+shear making it a cell tall plus a `RISE`. It was **~70 ms a frame** on a
+windowed VGA, which overruns a tick on the target machine, and on the glass it
+read as the clash making things around it flash; the in-band swing read as
+right. Its 1,456-byte band, its key and ~2 KB of the package went with it.
 
 #### 97.4.8 The HUD is the STATUS LINE, and the FRONT/REAR toggle lives in it
 
@@ -140760,11 +140750,11 @@ the two corners the shear leaves above and below each column are filled.
 **EVERYTHING ELSE THAT NEEDS THE GROUND READS IT FROM THE STRIPS.** A cell's
 figure band is cut from its column's strip; its **numbers** are composed over
 the stat column's own ground with a one-pixel black halo, so a fence runs on
-behind them where the old stat column was a black box; and a **projectile** or
-a tier-B **clash**, which cross cells they do not own, read the ground through
-`ti_gnd_prep` / `ti_gnd_row`: a band's columns are resolved once, and a row is
-then one multiply and a load a byte — what the old read modulo one shared tile
-cost.
+behind them where the old stat column was a black box; a **projectile**, which
+crosses cells it does not own, reads it through `ti_gnd_prep` / `ti_gnd_row` —
+a band's columns resolved once, then each row copied as runs of whole columns;
+and a **reveal** (§97.4.11) dissolves a cell between its strip's own rows and
+the new character's pose, reading both straight out of the arena.
 
 **WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, breakpoints on the
 routines and the cycle counter between them, against the diamond board at the
@@ -140804,6 +140794,74 @@ frames on all three adapters and both
 terrains, the lip and cliff on the glass at four heights a RISE apart — the one
 region nothing else is ever drawn over — and `G` twice back to the first board
 to the bit. It went red on an ORed figure and on a fence gap one row long.
+
+#### 97.4.11 THE REVEAL — sparks from the card, then a dissolve
+
+How a played card reaches its cell (TITHE-PLAN §16.2 item 7), in three parts
+one after another, and **shorter than a clash** — eleven frames, ~0.6 s,
+against sixteen:
+
+| | frames | what |
+|---|---:|---|
+| **the trail** | 6 | twelve sparks from the card's centre to the cell's: a five-pixel head on the line and eleven behind it a quarter of a frame apart, off the line by more and smaller the older they are, so the trail spreads as it fades. ~70 pixels a frame on a windowed VGA, where a bolt goes 24 |
+| **the character** | 4 | the cell's band as a 4×4 ordered dither between its column's ground and the new character's pose 0 — a quarter, a half, three quarters, whole — then its numbers on the frame after |
+| **the card** | 4, a step behind | the same dither toward the panel's black, then an **empty slot**: a played card stays gone until the hand is dealt again |
+
+**THE SPARKS ARE XOR, NOT A COMPOSED BAND.** The bolt (§97.4.5) composes over
+the ground it crosses because a lane is ground and nothing else in its rows. A
+trail from the hand to a cell crosses the figures of every cell between them,
+their numbers and the card panel, which no picture in the package holds. An
+`OSAPI_GFX_XOR_FILL` is its own erase over anything, needs no buffer and is
+never refused; the save-under pair (§5.3) was the other way to leave the glass
+as it was, and it refuses a rect that straddles two displays, which a trail on
+an extended desktop (§39.14) would.
+
+**WHAT XOR COSTS IS ORDER.** The sparks come off FIRST in a frame, before the
+hover or the wheel draws anything, and go on LAST, after everything has — so
+every band in between lands on a clean glass and the next frame's erase
+restores exactly what this frame left. Three things draw outside that order and
+each is answered: a `W_PAINT` drops the record and asks the next frame for a
+whole-window repaint, since no erase can tell which sparks the paint landed on
+(`ti_rv_lost`); a relayout ends the reveal outright, its card already in the
+cell; and keys and the toggle are ignored while it runs.
+
+**THE CELL IS A TABLE NOW.** A cell showed the card at its index mod the hand;
+`ti_cellcard` holds who stands where, and the figure, the numbers and the
+status line all read it, so the three cannot disagree. A reveal writes it and
+composes that one cell's eight frames (`ti_cell_build`, ~81 ms), which is why
+one cell became a unit of work.
+
+**WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, windowed VGA,
+breakpoints and the cycle counter:
+
+| | |
+|---|---:|
+| the key: composing the cell, banking the card, vacating the cell | **112 ms**, before the first spark |
+| a trail frame: twelve sparks off and twelve on | **~24 ms** of a 34–38 ms frame |
+| a dissolve frame: the cell's band and the card's | **28 ms** of a 42 ms frame |
+| the heaviest frame of the reveal | **41.9 ms of a 54.9 ms tick** |
+
+**THE CARD IS COMPOSED ONCE, AT THE PLAY.** Composing a card is ~35 ms of the
+8088, and re-composing it for every step of its fade put two frames over the
+tick (54 and 56 ms). It is composed at the key press into a bank of its own,
+`ti_cfband`, and each step copies it back and thins it: latency before the first
+spark instead of a stutter in the middle. The reveal's work is charged to the
+wheel's credit in the wheel's own units — an arrival a call, rows at the
+calibrated rate, the card composition `ti_cal_card` measured — so the idle
+around it slows rather than the frame overrunning.
+
+**`tests/titherv.py` holds where it ENDS, on all three adapters**: the card in
+the cell the key names, that cell's eight frames the model's for the new card to
+the byte, the card's slot dark, the board and the hand with the wheel paused
+EXACTLY a whole repaint, and the gap between them — which no repaint of the
+package's redraws — the glass it was before the key. It went red on no erase,
+on no numbers, on a card that never empties and on a cell table left unwritten.
+
+**IT FOUND A RESTING CARD'S UNIT DRAWN AT A BOARD CELL'S POSE.** A card redraw
+read the unit's pose from `ti_clock[card]` — the clock of the BOARD CELL with
+the card's index — so a repainted hand froze each card's figure wherever that
+cell happened to be, and no repaint was the picture the last one left. A
+resting card's unit stands in pose 0 now; only the hovered card animates.
 
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
@@ -140895,7 +140953,7 @@ move it.**
 | lane | budget | clock | what it commits |
 |---|---|---|---|
 | idle wheel | `TI_SHARE`, trimmed | one phase step a feature REACHED | 20 characters, the moused-over card |
-| combat | `TI_COMBAT` | one step a frame | a bolt's step, a clash's tier B |
+| combat | `TI_COMBAT` | one step a frame | a bolt's step, a clash's two bands |
 | base | `TI_BASESHARE` | one of the two a frame, alternating | both players' bases |
 
 **EVERY CLOCK IS SEEDED, AND NEIGHBOURS ARE NEVER IN STEP.** A clock starts at
@@ -141020,7 +141078,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window at the fullscreen geometry row |
 | `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
-| `V` | step the clash's TIER, so stepping forward and a composed overlap are seen side by side |
+| `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys and the toggle are ignored for the half second a reveal runs |
 | `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `X` | the dirty-rect arm on/off (§97.4.3) |

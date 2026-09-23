@@ -7260,6 +7260,25 @@ SOAK = [
         "back to the card. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("titherv", "soak", py("tests/titherv.py"), 60.0,
+        "SPEC.md 97.4.11: TITHE's REVEAL - `V` plays a card: XOR sparks from"
+        "the card to its cell, the character dissolving in over its column's"
+        "ground, the card dissolving out. XOR is its own erase only while the"
+        "frame keeps its order (sparks off first, on last), so the row asserts"
+        "where the reveal ENDS, on all three adapters: the card is in the cell"
+        "the key names and the cell table says so; that cell's eight frames"
+        "are the model's for the new card to the byte; the card's slot is"
+        "dark; with the wheel paused the board and hand are EXACTLY a whole"
+        "repaint; and the gap between them, which no repaint of the package's"
+        "redraws, is the glass it was before the key. Broken on purpose four"
+        "ways before it was registered - no erase, no numbers, a card that"
+        "never empties, a cell table left unwritten - and each went red. It"
+        "waits on the FRAME COUNT and not the flags: the key handler sets the"
+        "played bit before ti_rv, a running guest can be read between the two,"
+        "and the next key then lands inside the reveal, which drops it. Needs"
+        "`make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titheterr", "soak", py("tests/titheterr.py"), 150.0,
         "SPEC.md 97.4.10 and 97.4.9: TITHE's BOARD is a PLACE - a sparse"
         "texture per column, a fence between the lanes on the shear's own"

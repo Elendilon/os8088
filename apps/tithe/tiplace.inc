@@ -469,28 +469,33 @@ ti_sp_set:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_cells_build - every cell's four poses: its ground, then its figure
+; ti_cells_build - every cell's eight frames: its ground, then its character
 ; Preserves every register.
 ; -----------------------------------------------------------------------------
 ti_cells_build:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    mov es, [ti_aseg]
-    cld
     push word [ti_ci]
-    push word [ti_pi]
     mov word [ti_ci], 0
 .cell:
     cmp word [ti_ci], TI_CELLS
     jae .done
+    call ti_cell_build
+    inc word [ti_ci]
+    jmp short .cell
+.done:
+    pop word [ti_ci]
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cell_gsrc - [ti_gsrc] = the arena offset of cell [ti_ci]'s first GROUND
+; byte: its column's strip, at the cell's row and figure inset. A row below it
+; is [ti_sb] further on. Preserves every register.
+; -----------------------------------------------------------------------------
+ti_cell_gsrc:
+    push ax
+    push bx
+    push cx
+    push dx
     mov ax, [ti_ci]
-    call ti_ck_cell                 ; [ti_ck] = who stands here
     xor dx, dx
     mov cx, TI_ROWS
     div cx                          ; AX = column, DX = row
@@ -514,7 +519,35 @@ ti_cells_build:
     shr ax, 1
     pop bx
     add ax, bx
-    mov [ti_gsrc], ax               ; the band's first ground byte
+    mov [ti_gsrc], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cell_build - cell [ti_ci]'s eight frames, for whoever stands there now.
+; Preserves every register.
+;
+; ONE CELL IS A UNIT OF WORK because a REVEAL changes one cell (tirv.inc):
+; the card played is composed into its cell and nothing else is touched.
+; -----------------------------------------------------------------------------
+ti_cell_build:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov es, [ti_aseg]
+    cld
+    push word [ti_pi]
+    mov ax, [ti_ci]
+    call ti_ck_cell                 ; [ti_ck] = who stands here
+    call ti_cell_gsrc               ; [ti_gsrc] = the band's first ground byte
     mov word [ti_pi], 0
     call ti_cellpose_addr           ; DI = pose 0's slot
     push di
@@ -661,14 +694,8 @@ ti_cells_build:
     inc word [ti_cfr]
     jmp .frame
 .fdone:
-    mov es, [ti_aseg]
     mov byte [ti_fa_mir], 0
-.cnext:
-    inc word [ti_ci]
-    jmp .cell
-.done:
     pop word [ti_pi]
-    pop word [ti_ci]
     pop es
     pop bp
     pop di
@@ -1456,10 +1483,10 @@ ti_col_insx:
 ; figure is its bytes in reverse order AND each byte reversed, and a table is
 ; one instruction where a shift loop is sixteen.
 ti_rev:
-%assign ti_rv 0
+%assign ti_rvb 0
 %rep 256
-    db ((ti_rv & 1) << 7) | ((ti_rv & 2) << 5) | ((ti_rv & 4) << 3) | ((ti_rv & 8) << 1) | ((ti_rv & 16) >> 1) | ((ti_rv & 32) >> 3) | ((ti_rv & 64) >> 5) | ((ti_rv & 128) >> 7)
-%assign ti_rv ti_rv + 1
+    db ((ti_rvb & 1) << 7) | ((ti_rvb & 2) << 5) | ((ti_rvb & 4) << 3) | ((ti_rvb & 8) << 1) | ((ti_rvb & 16) >> 1) | ((ti_rvb & 32) >> 3) | ((ti_rvb & 64) >> 5) | ((ti_rvb & 128) >> 7)
+%assign ti_rvb ti_rvb + 1
 %endrep
 
 ; --- the state ---------------------------------------------------------------

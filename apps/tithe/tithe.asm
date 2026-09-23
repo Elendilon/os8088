@@ -218,6 +218,10 @@ ti_entry:
 ; -----------------------------------------------------------------------------
 ti_relayout:
     push ax
+    mov byte [ti_rv], 0             ; a reveal's geometry is the layout's: it
+    mov word [ti_rvn], 0            ; ends here, its card already in the cell,
+    mov byte [ti_rvfull], 0         ; and the whole-window paint that follows
+                                    ; leaves no spark behind
     call ti_layout
     jc .no
     mov ax, [ti_face]               ; ...the face's shape, which the card
@@ -305,6 +309,8 @@ ti_paint:
     push bx
     push si
     mov [ti_win], si
+    call ti_rv_lost                 ; a paint outside the worker's frame lands
+                                    ; on the reveal's sparks (tirv.inc)
     call ti_relayout_ck             ; the box may have moved, or the adapter
     call ti_spawn_ck                ; changed under us - and on the FIRST paint
                                     ; this is where the layout happens at all
@@ -350,6 +356,8 @@ ti_onclick:
     push dx
     push si
     mov [ti_win], si
+    cmp byte [ti_rv], 0             ; the toggle redraws the hand, which a
+    jne .out                        ; reveal's sparks may be over
     cmp byte [ti_ok], 0
     je .step
     call OSAPI_MOUSE                ; CX = x, DX = y
@@ -419,6 +427,10 @@ ti_onkey:
     push bx
     push si
     mov [ti_win], si
+    cmp byte [ti_rv], 0             ; A REVEAL IS HALF A SECOND and every key
+    je .keys                        ; that draws would land between its sparks
+    jmp .out                        ; and their erase (tirv.inc)
+.keys:
     mov bl, al
     or bl, 0x20
     cmp bl, 'p'
@@ -450,9 +462,9 @@ ti_onkey:
     jmp .clash
 .n_clash:
     cmp bl, 'v'
-    jne .n_cltier
-    jmp .cltier
-.n_cltier:
+    jne .n_reveal
+    jmp .reveal
+.n_reveal:
     cmp bl, 's'
     jne .n_size
     jmp .size
@@ -529,10 +541,9 @@ ti_onkey:
 .clash:
     call ti_cl_fire                 ; SPEC.md 97.7's `C`: a melee clash in the
     jmp .out                        ; front line of one lane
-.cltier:
-    xor byte [ti_cltier], 1         ; ...and `V` steps its TIER, so stepping
-    call ti_cl_fire                 ; forward and a composed overlap are seen
-    jmp .out                  ; side by side rather than costed on paper
+.reveal:
+    call ti_rv_key                  ; SPEC.md 97.7's `V`: play a card into its
+    jmp .out                        ; cell (SPEC.md 97.4.11)
 .fire:
     xor byte [ti_pjrep], 1          ; SPEC.md 97.7's `A`: bolts across a lane,
     cmp byte [ti_pjrep], 0          ; at the real cost, over a real board. It
@@ -727,6 +738,9 @@ ti_frame:
     push bx
     push cx
     push dx
+    call ti_rv_erase                ; THE REVEAL'S SPARKS COME OFF FIRST and go
+                                    ; back on LAST, so every band between lands
+                                    ; on a clean glass (tirv.inc)
     call ti_hover_ck                ; the pointer moved between cards, so BOTH
     jnc .credit                     ; of them are redrawn - the one it left
     call ti_hud_status              ; ...and the STATUS LINE either way, the
@@ -760,21 +774,9 @@ ti_frame:
     call ti_lane_fill
 
     ; --- THE COMBAT LANE ----------------------------------------------------
-    cmp byte [ti_clash], 0          ; tier A is two features LEANING and rides
-    je .nocl                        ; the wheel; tier B is one composed band
-    cmp byte [ti_cltier], 0         ; over both cells and is this lane's
-    je .tiera
-    mov ax, [ti_ch]                 ; its band is a cell plus the shear
-    add ax, [ti_rise]
-    mul word [ti_rowus]
-    add ax, [ti_arrus]
-    mov bx, ti_cacc
-    call ti_lane
-    jc .cla
-    call ti_cl_tierb
-    jmp short .cla
-.tiera:
-    mov ax, [ti_bh]                 ; TIER A: both fighters' bands, every frame
+    cmp byte [ti_clash], 0          ; the clash is both fighters' bands, on
+    je .nocl                        ; the combat lane's credit
+    mov ax, [ti_bh]                 ; both fighters' bands, every frame
     mul word [ti_rowus]             ; of it, so the swing plays at the frame
     add ax, [ti_arrus]              ; rate and not the idle wheel's
     shl ax, 1
@@ -809,6 +811,7 @@ ti_frame:
 
     call ti_credit                  ; --- THE IDLE WHEEL ----------------------
     mov ax, [ti_creditus]
+    call ti_rv_cost_sub             ; ...less what the reveal owes this frame
     mov [ti_left], ax
     mov cx, TI_FEATURES
 .walk:
@@ -841,6 +844,7 @@ ti_frame:
     dec cx
     jmp short .walk
 .out:
+    call ti_rv_step                 ; ...and the reveal's frame, on top of it all
     call ti_overran                 ; SPEC.md 97.5's own promise, and it was
     pop dx                          ; never built: the credit is trimmed when
     pop cx                          ; the frame missed its tick
@@ -967,6 +971,12 @@ ti_feature:
     call OSAPI_GFX_BLIT1_PEN
     jmp .out
 .cell:
+    cmp byte [ti_rv], 0             ; THE REVEAL OWNS ITS TARGET CELL until the
+    je .cown                        ; character has dissolved in (tirv.inc),
+    cmp ax, [ti_rvcell]             ; and a paint in the meantime shows the
+    jne .cown                       ; ground the board strip already drew
+    jmp .out
+.cown:
     mov [ti_ci], ax
     mov bx, ax
     add bx, ti_clock
@@ -1461,6 +1471,7 @@ ti_pit:
 %include "ticard.inc"
 %include "tipj.inc"
 %include "ticl.inc"
+%include "tirv.inc"
 %include "tiplace.inc"
 %include "os88parts.inc"
 
@@ -1669,6 +1680,8 @@ TI_HUDBANDMAX equ 92 * 36
 ; most four rows of the tallest face.
 TI_CELLBANDMAX equ 6 * 40
 ti_cardband: times TI_CARDBANDMAX db 0
+ti_cfband:  times TI_CARDBANDMAX db 0 ; a card the reveal is fading, composed
+                                    ; once (tirv.inc)
 ti_hudband: times TI_HUDBANDMAX db 0
 ti_cellband: times TI_CELLBANDMAX db 0
 ti_cellout: times TI_CELLBANDMAX db 0 ; ...and the same rows over their ground
@@ -1757,14 +1770,6 @@ ti_pjlane:  db 2
 ti_pjrep:   db 0                    ; keep firing, so the frame can be read
 ti_detail:  db 0                    ; 0 = Flat, 1 = Banded (TITHE-PLAN 3.5)
 ti_clash:   db 0                    ; frames left in a clash
-ti_cltier:  db 0                    ; 0 = tier A, 1 = the composed band
-ti_clbs:    dw 0
-ti_clcs:    dw 0
-ti_clh:     dw 0
-ti_cly:     dw 0
-ti_clr:     dw 0
-ti_clx:     dw 0
-ti_ncl:     dw 0                    ; tier B bands committed
 ti_stw:     dw 0
 ti_stbp:    dw 0
 ti_sth:     dw 0
@@ -1878,7 +1883,6 @@ ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
 ti_unit:    times TI_UNITMAX * TI_POSES * TI_CARDS db 0
 ti_pjband:  times TI_PJMAX db 0
-ti_clband:  times TI_CLMAX db 0
 
 ; THE POSES AND THE BOARD'S GROUND ARE NOT HERE: they are per cell and per
 ; column now, and live in the ARENA, a heap claim (tiplace.inc). What stays in

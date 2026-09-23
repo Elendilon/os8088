@@ -91,8 +91,26 @@ ti_ck_card:
 
 ; ti_ck_cell - AX = a CELL index -> [ti_ck]. Preserves every register.
 ti_ck_cell:
-    call ti_ck_card                 ; a cell names a card by its index mod the
-    ret                             ; hand (ti_cell_rec), and so does this
+    push ax
+    call ti_cell_card
+    call ti_ck_card
+    pop ax
+    ret
+
+; ti_cell_card - AX = a CELL index -> AX = the CARD standing there. Preserves
+; every other register.
+;
+; A TABLE AND NOT ARITHMETIC, because a REVEAL (tirv.inc) puts a card in a
+; cell. It starts as wave 1a's stable fiction - a cell shows the card at its
+; index mod the hand - and the figure, the numbers and the status line all ask
+; this, so the three cannot disagree about who stands where.
+ti_cell_card:
+    push bx
+    mov bx, ax
+    mov al, [ti_cellcard + bx]
+    xor ah, ah
+    pop bx
+    ret
 
 
 
@@ -1093,11 +1111,10 @@ ti_status:
     mov bx, [ti_hovc]
     cmp bx, -1
     je .base
-    mov ax, bx                      ; a cell shows the card it would be, which
-    xor dx, dx                      ; is wave 1a's fiction and is at least a
-    mov bx, TI_HAND                 ; STABLE one - the same cell always names
-    div bx                          ; the same character
-    mov bx, dx
+    mov ax, bx                      ; a cell shows the card standing in it
+    call ti_cell_card
+    mov bx, ax
+    mov dx, ax
     jmp .cellline                   ; ...and the board's line NAMES it (97.4.8.1)
 .card:
     mov ax, bx
@@ -1605,10 +1622,7 @@ ti_cell_rec:
     div cx                          ; AL = the column, DL = the row in it
     push ax
     mov ax, [ti_ci]
-    xor dx, dx
-    mov cx, TI_HAND
-    div cx
-    mov ax, dx                      ; ...the card this cell shows
+    call ti_cell_card               ; ...the card this cell shows
     mov cl, TI_C_SIZE
     mul cl
     mov si, ti_cards

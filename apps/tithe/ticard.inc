@@ -324,6 +324,22 @@ ti_card_draw:
     rep stosb
     pop di
 
+    ; --- A PLAYED CARD is an EMPTY SLOT, and the band is already that -------
+    ; unless the reveal is dissolving it out (tirv.inc), which composes the
+    ; card as usual and thins it at the blit
+    mov ax, [ti_cardi]
+    call ti_rv_played
+    jnc .live
+    cmp byte [ti_cfade], 0
+    jne .fading
+    jmp .blit
+.fading:
+    cmp byte [ti_cfsave], 0         ; A FADING CARD IS COMPOSED ONCE: the rest
+    je .live                        ; of its steps take the composition back
+    call ti_rv_cardget              ; and thin it (tirv.inc) - composing a
+    jmp .blit                       ; card is ~35 ms of an 8088, every step
+.live:
+
     ; --- the frame, and the pulse-free second one --------------------------
 %ifdef TICARDPROF
 %macro TIPROF 1
@@ -363,6 +379,10 @@ ti_card_draw:
     jne .blit                       ; hovered: the picture IS the ink
     call ti_cb_invert
 .blit:
+    cmp byte [ti_cfade], 0          ; the reveal's dissolve: the card thinned
+    je .nofade                      ; to the panel's black a step at a time
+    call ti_rv_cardfade
+.nofade:
     TIPROF ti_pinv
 %ifdef TICARDPROF
     call ti_pit
@@ -906,10 +926,14 @@ ti_cb_unit:
     push si
     push di
     push word [ti_pi]
-    mov bx, [ti_cardi]
-    add bx, ti_clock
-    mov bl, [bx]
-    xor bh, bh
+    xor bx, bx                      ; A RESTING CARD'S UNIT STANDS IN POSE 0.
+    cmp word [ti_cx], 0             ; Only the hovered card animates, and the
+    je .pose                        ; clock it reads was a BOARD CELL's -
+    mov bx, [ti_cardi]              ; ti_clock[card] - so a redrawn resting
+    add bx, ti_clock                ; card froze at whatever pose that cell
+    mov bl, [bx]                    ; was on, and a repaint was never the
+    xor bh, bh                      ; picture the one before it left
+.pose:
     mov [ti_pi], bx
     mov ax, [ti_cardi]              ; ...and the character this card plays
     call ti_ck_card                 ; (SPEC.md 97.4.9)
@@ -1229,7 +1253,10 @@ ti_hover_ck:
     xor dx, dx
     div word [ti_cardpitch]
     cmp ax, [ti_cardn]
-    jb .have
+    jae .nocard
+    call ti_rv_played               ; a PLAYED card is an empty slot, and
+    jnc .have                       ; hovering one names nothing
+.nocard:
     mov ax, -1
 .have:
     ; ...AND THE BOARD IS ASKED THE SAME QUESTION (SPEC.md 97.4.8). A character
