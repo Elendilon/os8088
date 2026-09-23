@@ -628,6 +628,127 @@ mp_setpos:
     ret
 
 ; =============================================================================
+; mp_timeat - AL = an order position -> DX:AX = stream samples, at the current
+; [mp_mixrate], from the top of the song to that position's first row; and
+; [mp_speed]/[mp_bpm]/[mp_spt] left as they stand there, so a resume (mp_start
+; mode 2) plays at the tempo the clock was priced at. The ORDER LIST is walked
+; in sequence, every row priced speed * spt, an Fxx changing the tempo on its
+; own row and a Dxx (or a Bxx, as a break to row 0) ending the pattern. The
+; walk follows the order list and not the jump, and E6x/EEx are not modelled:
+; exact for a song that plays its orders in order, an estimate for one that
+; loops inside itself. Preserves all but AX, DX.
+; =============================================================================
+mp_timeat:
+    push bx
+    push cx
+    push di
+    push es
+    mov [mp_tpos], al
+    xor ax, ax
+    mov [mp_tacc], ax
+    mov [mp_tacc + 2], ax
+    mov byte [mp_speed], 6
+    mov byte [mp_bpm], 125
+    call mp_calc_spt
+    xor bx, bx                  ; BL = the order, BH = the row it starts on
+.ord:
+    cmp bl, [mp_tpos]
+    jae .done
+    push bx
+    xor bh, bh
+    mov al, [mp_orders + bx]
+    xor ah, ah
+    cmp ax, [mp_npat]           ; mp_readrow's guard, for the same reason
+    jb .pok
+    xor ax, ax
+.pok:
+    mov cl, 6
+    shl ax, cl
+    add ax, 67
+    add ax, [mp_blobseg]
+    mov es, ax
+    pop bx
+    mov al, bh
+    mov bh, 0FFh                ; no break seen in this pattern yet
+.row:
+    push ax
+    xor ah, ah
+    mov cl, 4
+    shl ax, cl
+    add ax, 12
+    mov di, ax                  ; ES:DI = the row's first cell
+    mov ch, 4
+.cell:
+    mov al, [es:di + 2]
+    and al, 0Fh
+    mov cl, [es:di + 3]
+    cmp al, 0Fh
+    jne .nf
+    or cl, cl
+    jz .next                    ; F00 is a stop, not a tempo
+    cmp cl, 20h
+    jae .bpm
+    mov [mp_speed], cl
+    jmp short .next
+.bpm:
+    mov [mp_bpm], cl
+    push bx
+    call mp_calc_spt
+    pop bx
+    jmp short .next
+.nf:
+    cmp al, 0Bh
+    jne .nd
+    cmp bh, 0FFh
+    jne .next
+    mov bh, 0
+    jmp short .next
+.nd:
+    cmp al, 0Dh
+    jne .next
+    mov al, cl                  ; BCD row, as mp_readrow's .fD
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    mov ah, 10
+    mul ah
+    and cl, 0Fh
+    add al, cl
+    cmp al, 63
+    jbe .dok
+    xor al, al
+.dok:
+    mov bh, al
+.next:
+    add di, 4
+    dec ch
+    jnz .cell
+    mov al, [mp_speed]          ; the row, at the tempo it set
+    xor ah, ah
+    mul word [mp_spt]
+    add [mp_tacc], ax
+    adc [mp_tacc + 2], dx
+    pop ax
+    cmp bh, 0FFh
+    jne .brk
+    inc al
+    cmp al, 64
+    jb .row
+    mov bh, 0
+.brk:
+    inc bl
+    jmp .ord
+.done:
+    mov ax, [mp_tacc]
+    mov dx, [mp_tacc + 2]
+    pop es
+    pop di
+    pop cx
+    pop bx
+    ret
+
+; =============================================================================
 ; mp_mutetog - AL = channel 0..3
 ; =============================================================================
 mp_mutetog:
@@ -2405,6 +2526,8 @@ mpe_song:   db 'Bad song data', 0
     TRKB mp_ploop                   ; 1 = pattern-loop mode (P key)
     TRKB mp_master                  ; master volume 0..64, 64 = unity (mp_volsel)
     TRKB mp_curpos                  ; the order position the current row is in
+    TRKB mp_tpos                    ; mp_timeat's target position
+    TRKBUF mp_tacc, 4               ; ...and its sum (32-bit)
     TRKB mp_songend                 ; mp_nextrow saw the order list go BACK
     TRKB mp_endstop                 ; ...and 1 = that stops the replayer (the
                                     ; app's Repeat setting, SPEC.md 45.21.3)

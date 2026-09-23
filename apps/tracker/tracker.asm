@@ -326,7 +326,8 @@ trk_entry:
     call OSAPI_WM_ONCLICK           ; rects are re-read where the window is NOW
                                     ; before the library hit-tests them (a
                                     ; drag calls none of our handlers)
-    mov byte [mp_endstop], 1        ; Repeat: Off - a song ENDS (45.21.3)
+    mov byte [trk_rep], 1           ; Repeat: Song - the module loops as it
+                                    ; always did ([mp_endstop] = 0, 45.21.3)
     mov byte [tpl_cur], 0FFh        ; no list entry playing
     cmp byte [trk_cpu0], 0          ; the visualiser: the spectrum where there
     jne .viz                        ; are cycles for it, the needles where
@@ -3237,6 +3238,10 @@ trk_wake:
 ;              redraw.
 ; -----------------------------------------------------------------------------
 trk_render:
+    call tw_want                    ; a frame that would draw nothing does not
+    jc .go                          ; take the lock either (tw_want)
+    ret
+.go:
     push ax
     push bx
     push cx

@@ -70504,9 +70504,10 @@ standard of this tree:
 | filled its grey body, then drew every control over it | a **table of body tiles** covers exactly the pixels no element owns (`tw_tiles_*`, generated with the layouts and checked for exact cover by `tools/trkface.py`), every text is one opaque run, a well's black is the strips *between* its lines, a slider is the groove either side of its thumb: **no pixel of the face is written twice**, including on a full `W_PAINT` |
 | buttons that acted on the press | the standard button (§13.7, §13.8): press draws it inverted, release on the same button fires, a slide off un-presses it and the release cancels — with pictures (`OS88UI_BIMG`, §13.8.9) |
 | LED strips under every button | **latches** (`OS88UI_LATCH`): one of Play, Pause and Stop is always down, a tape deck's row; an option that is on is drawn down |
-| a volume slider that jumped on a click | click **and drag**, live — heard as it moves |
-| a scrubber that seeked the mixer | the thumb follows the hand and the seek lands on the **release**, restarting the stream there so it is heard at once rather than a ring later (`tw_seek`) |
+| a volume slider that jumped on a click | click **and drag**, live — heard as it moves, and the thumb drawn from `[mp_master]` itself, so it cannot lag the value it shows |
+| a scrubber that seeked the mixer | the thumb follows the hand and the seek lands on the **release**, restarting the stream there so it is heard at once rather than a ring later (`tw_seek`) — and the **clock goes with it**: `mp_timeat` prices the order list up to the position the seek landed on (§45.21.3), so the LCD reads the song's time there rather than running on from where the hand left it |
 | a latching button (Shuffle, Play) redrawn upright on the release and inverted again by the state change a frame later | the action runs FIRST and the library's release draw is the button's final picture (`tw_prefire`): measured on the glass as a 1,080-pixel transient before, and nothing but the pointer's own sprite after |
+| a button that opens a window drawn over that window on its release | the clip is armed AGAIN after the action fires (`tw_onup`): the PlayList button opens the editor on top of the player, and the clip armed on the press predates it |
 | an About panel its own worker painted over | the **standard card** (§20.5.1): while it is up the worker drops its frames, every refresh from a handler refuses, and the button record has **no live buttons** — so not even a press can draw through it |
 | a layout banked at paint, broken by a drag | the origin, the layout and the **depth of the display the window is on** (§39.16.4) are asked at the top of every draw (`tw_track`), because a drag calls none of our handlers (§11.96.12, §93.3.4.2); the button rects are screen coordinates and are rebuilt there and before every press, and a move repaints nothing |
 
@@ -70518,6 +70519,15 @@ something calls `tw_refresh`, which arms the clip on our own window (the
 lesson §56.3 recorded: the kernel arms one for `W_PAINT` and for nothing
 else) — and does nothing inside the worker's frame, whose clip it would
 otherwise clear.
+
+**A frame that would draw nothing does not take the lock** (`tw_want`). The
+worker woke ~18 times a second and took the gfx lock each time, which lifts
+the pointer (§7.1.4) — so a PAUSED player, every element already right,
+flashed the pointer continuously. What the UI task changes it draws itself,
+so the worker's frame is owed only to what moves on its own: an open stream,
+a start or stop the transport has not seen, and a meter still falling. Once
+all three are still, `TW_IDLEF` = 2 more frames run and then none. Measured
+paused on MartyPC: **0 flash frames in 60**, with the pointer over the window.
 
 #### 45.21.1 Two layouts, and CGA's is the compact one
 
@@ -70541,8 +70551,9 @@ going back** — the wrap, or a Bxx to where the song already is or was — in
 `[mp_songend]`, and with `[mp_endstop]` set that is F00's exit: the replayer
 stops, the ring's tail plays out, the worker latches `[trk_ended]`. The
 **Repeat** option decides it: *Off* and *List* set `[mp_endstop]`, *Song*
-clears it and the module loops as it always did. Off is the default, so a
-module played on its own now stops at its end.
+clears it and the module loops as it always did. *Song* is the default, so
+the button comes up latched and a module played on its own loops as it did
+before the face; Off and List are one and two presses of it away.
 
 The **master volume** is `mp_volsel`: a channel's output volume scaled by
 `[mp_master]` before it picks a slice of the 65×256 table — ModPlug's design
@@ -70550,11 +70561,25 @@ The **master volume** is `mp_volsel`: a channel's output volume scaled by
 the multiply is skipped. `mp_setposn` is the absolute seek, sharing
 `mp_setpos`'s tail so the two cannot disagree about what a seek resets.
 
+**`mp_timeat` is the song's clock at an order position**: the order list
+walked in sequence up to it, every row priced `speed × spt` at the current
+`[mp_mixrate]`, an Fxx changing the tempo on its own row and a Dxx (or a Bxx,
+taken as a break to row 0) ending the pattern. It leaves `[mp_speed]`,
+`[mp_bpm]` and `[mp_spt]` as they stand there, so the resume (§45.17's
+`mp_start` mode 2) plays at the tempo the clock was priced at. The walk
+follows the ORDER LIST and not the jump, and E6x/EEx are not modelled: exact
+for a song that plays its orders in order, an estimate for one that loops
+inside itself. It reads four cells a row and multiplies once, so a seek into
+an 83-order module is a few hundred thousand cycles. Checked against an
+independent model of `BEVERLY.MOD` on MartyPC: a parked seek to orders 1, 3
+and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
+
 #### 45.21.5 The visualiser: XT, or 286+
 
 | mode | what | cost a frame |
 |---|---|---|
-| **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1) | the difference: nothing when steady, one fill per needle that moved |
+| **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
+| **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
 | **Spectrum** (286+) | sixteen bands, kicked as a note is **heard** | one fill per band that moved |
 | **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
 
@@ -70569,6 +70594,23 @@ is the mixed output, which leads the card by the ring — honest about that
 here, and noise-shaped enough that nobody can tell; its band borrows the text
 screen's pattern shadow (§45.13.2), which is then rebuilt at the next text
 bracket, because the 60KB package budget had no 1,858 bytes to spare.
+
+**The XT meter is thin because a fill is priced per ROW on a 1bpp adapter**
+(PERFORMANCE.md, `fill ns per row`): a needle a third of its slot tall costs
+roughly a third of the rows every time it moves. Measured on a Hercules 5150
+playing `BEVERLY.MOD` in XT mode, 20 guest seconds from the same point, off
+the scheduler's own per-task cycle counters: the machine's idle share went
+**24.7% → 26.6%**. That is small — the fixed part of each call dominates a
+narrow strip — and it is taken because it is free. **At XT mode's 11 kHz
+there is no meter at all**: the mixer leaves the XT no time to draw one, so
+what it had was needles frozen for seconds at a time; the pane says so
+instead, and the VU button greys with it.
+
+**The bench build carries no 286+ picture.** `-DTRKLOG` (tests/trklog.inc,
+the XT field log) replaces the spectrum and the scope with `tw_skick: ret`
+and forces the meter in `tw_vizfx`: on an XT they are forced off anyway, so
+they were ~700 bytes it could never run, of a package that has to fit
+`APP_MAX_SIZE` with the log inside it.
 
 #### 45.21.7 The keys the face added
 

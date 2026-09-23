@@ -106,7 +106,10 @@ TWO_ABOUT   equ 7
 TWV_VU      equ 0
 TWV_SPEC    equ 1
 TWV_SCOPE   equ 2
-TWV_N       equ 3
+TWV_N       equ 3                   ; ...the three a pick cycles through; the
+TWV_THIN    equ 3                   ; two below are only ever FORCED: the XT
+TWV_OFF     equ 4                   ; meter, and nothing at XT mode's 11 kHz
+TW_OFFLEN   equ 19                  ; tw_s_voff's length (asserted below)
 TW_NBAND    equ 16
 TW_BPITCH2  equ 14                  ; a band's pitch...
 TW_BANDW    equ 12                  ; ...and its bar's width
@@ -529,10 +532,14 @@ tw_olab:   dw 0, tw_s_shuf, tw_s_list, tw_s_xt, 0, 0, tw_s_full, tw_s_about
 ; says (45.9.1) - either is reason enough. Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 tw_vizfx:
+%ifdef TRKLOG
+    or sp, sp                       ; ZF = 0: always the meter (tw_skick above)
+%else
     cmp byte [mp_xt], 0
     jne .out
     cmp byte [trk_cpu0], 0
 .out:
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1152,13 +1159,8 @@ tw_sliders:
     mov al, [mp_master]
     xor ah, ah
     mov cx, 64
-    call tw_slx
-    cmp byte [tw_drag], 1
-    jne .v
-    mov ax, [tw_dx]                 ; dragging: the thumb follows the hand
-    call tw_slx
-.v:
-    mov di, tw_vthx
+    call tw_slx                     ; a volume drag moves [mp_master] itself,
+    mov di, tw_vthx                 ; so the thumb follows the hand from here
     call tw_slider
     mov si, TWL_SX1
     mov al, [tui_apos]              ; the position being HEARD (45.15)...
@@ -1249,17 +1251,26 @@ tw_vizdraw:
     mov byte [tw_scflat], 0
 .mode:
     mov al, [tw_vizm]
+    cmp al, TWV_OFF
+    je .off
+%ifndef TRKLOG
     cmp al, TWV_SPEC
     je .spec
     cmp al, TWV_SCOPE
     je .scope
+%endif
     call tw_vu
+    jmp short .out
+.off:
+    call tw_voff
+%ifndef TRKLOG
     jmp short .out
 .spec:
     call tw_spec
     jmp short .out
 .scope:
     call tw_scope
+%endif
 .out:
     mov byte [tw_vfull], 0
     pop bp
@@ -1278,34 +1289,43 @@ tw_vizdraw:
 ; -----------------------------------------------------------------------------
 tw_vu:
     call tw_vubh
-    mov bp, ax                      ; BP = a row's height
+    mov bp, ax                      ; BP = a row's SLOT (its pitch less one)
+    mov [tw_t4], ax                 ; ...and [tw_t4] the needle's height in
+    cmp byte [tw_vizm], TWV_THIN    ; it: the whole slot, or on the forced XT
+    jne .h                          ; meter a THIRD of it, centred. A fill is
+    inc ax                          ; priced per ROW on a 1bpp adapter
+    xor dx, dx                      ; (PERFORMANCE.md, `fill ns per row`), so
+    mov cx, 3                       ; every needle that moves costs a third
+    div cx                          ; of what it did - the XT's frame is
+    mov [tw_t4], ax                 ; where that is spent
+.h:
     call tw_zin
     mov si, CBLACK
     cmp byte [tw_vfull], 0
     je .rows
-    mov [tw_t1], dx                 ; the ground: the one-row strips between
-    xor di, di                      ; the bars, and what is under the last
-.g:
-    push dx
-    mov dx, bx
-    call tw_fills                   ; row BX, one high
+    mov [tw_t1], dx                 ; the ground: everything in each slot
+    xor di, di                      ; that is not its needle, the one-row
+.g:                                 ; strips between slots, and what is
+    push dx                         ; under the last
+    call tw_vuy                     ; DX = this needle's first row
+    dec dx
+    call tw_fills                   ; BX .. the row above it
+    add dx, [tw_t4]
+    inc dx
+    mov bx, dx                      ; BX = the row under it
     pop dx
-    add bx, bp
-    inc bx
     inc di
     cmp di, 4
     jb .g
     mov dx, [tw_t1]
-    call tw_fills                   ; BX = under the fourth bar, to the bottom
-    call tw_zin
+    call tw_fills                   ; ...to the bottom
 .rows:
-    inc bx                          ; BX = the first bar's top
     xor di, di                      ; DI = the channel
 .r:
-    push bx
-    mov dx, bx
-    add dx, bp
-    dec dx                          ; BX..DX = this row
+    call tw_vuy
+    mov bx, dx
+    add dx, [tw_t4]
+    dec dx                          ; BX..DX = this needle
     call tw_zin_x                   ; AX, CX = the interior's x span
     cmp byte [mp_mute + di], 0
     je .live
@@ -1340,12 +1360,77 @@ tw_vu:
     pop di
     call tw_bar                     ; AX..CX span, BX..DX rows, SI = length
 .next:
-    pop bx
-    add bx, bp
-    inc bx
     inc di
     cmp di, 4
     jb .r
+    ret
+
+; tw_vuy - DI = a channel, BP = the slot, [tw_t4] = the needle's height
+;          -> DX = the needle's first row. Preserves the rest.
+tw_vuy:
+    push ax
+    mov ax, bp
+    inc ax
+    mul di                          ; (DX = 0: four slots of a pane)
+    mov dx, ax
+    mov ax, [tw_lay + TWL_ZY1]
+    add ax, 2                       ; the interior's top, and the strip over
+    add dx, ax                      ; the first slot
+    mov ax, bp
+    sub ax, [tw_t4]
+    shr ax, 1
+    add dx, ax                      ; ...centred in its slot
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_voff - XT mode at 11 kHz: no meter, and the pane SAYS so rather than
+; showing needles that cannot keep up. Drawn once, on a full pane: the line
+; lettered in one pass and the black round it in four strips (rule 1).
+; -----------------------------------------------------------------------------
+tw_voff:
+    cmp byte [tw_vfull], 0
+    je .out
+    call tw_zin
+    mov [tw_t1], dx
+    mov [tw_t3], cx
+    push ax
+    add ax, cx
+    inc ax
+    shr ax, 1
+    sub ax, TW_OFFLEN * 4
+    mov bp, ax                      ; BP = the line's x
+    mov ax, bx
+    add ax, dx
+    shr ax, 1
+    sub ax, 3
+    mov [tw_t4], ax                 ; [tw_t4] = its top row
+    pop ax
+    mov si, CBLACK
+    mov dx, [tw_t4]
+    dec dx
+    call tw_fills                   ; above
+    mov bx, [tw_t4]
+    add bx, 8
+    mov dx, [tw_t1]
+    call tw_fills                   ; below
+    mov bx, [tw_t4]
+    mov dx, bx
+    add dx, 7
+    mov cx, bp
+    dec cx
+    call tw_fills                   ; left
+    mov ax, bp
+    add ax, TW_OFFLEN * 8
+    mov cx, [tw_t3]
+    call tw_fills                   ; right
+    mov cx, bp
+    mov dx, [tw_t4]
+    mov si, tw_s_voff
+    mov al, [tw_ink]
+    mov ah, CBLACK
+    call tw_run
+.out:
     ret
 
 ; tw_zin_x - AX, CX = the pane interior's x span; preserves the rest
@@ -1419,6 +1504,14 @@ tw_bar:
     pop ax
     ret
 
+%ifdef TRKLOG
+; THE BENCH BUILD CARRIES NO 286+ PICTURE. TRKLOG is an XT instrument (the
+; field log, docs/FIELD-NOTES.md 16), and on an XT tw_vizfx forces the meter
+; whatever is picked - so the spectrum and the scope are code it can never
+; run, ~700 bytes of a package that has to fit 60KB with the log in it.
+tw_skick:
+    ret
+%else
 ; -----------------------------------------------------------------------------
 ; tw_spec - sixteen bands, each a column that moves by its difference. The
 ; levels live in tw_band (0..64), kicked by tw_skick as a note is HEARD and
@@ -1613,39 +1706,6 @@ tw_kick1:
     ret
 
 ; -----------------------------------------------------------------------------
-; tw_vtick - the once-a-frame decay (the WORKER's frame only: a refresh from a
-; key must not make the needles fall faster). preserves all
-; -----------------------------------------------------------------------------
-tw_vtick:
-    push ax
-    push bx
-    cmp byte [tw_vizm], TWV_SPEC
-    je .spec
-    xor bx, bx
-.v:
-    call tui_vu_step                ; the FT2 screen's own needle rule
-    inc bx
-    cmp bx, 4
-    jb .v
-    jmp short .out
-.spec:
-    xor bx, bx
-.s:
-    mov al, [tw_band + bx]
-    sub al, TW_VUFALL
-    jnc .st
-    xor al, al
-.st:
-    mov [tw_band + bx], al
-    inc bx
-    cmp bx, TW_NBAND
-    jb .s
-.out:
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; tw_scope - the oscilloscope: the samples the mixer produced last, composed
 ; into a 1bpp band in our own segment and put up with ONE OSAPI_GFX_BLIT1.
 ;
@@ -1823,6 +1883,41 @@ tw_sccomp:
     jb .c
     ret
 
+%endif
+
+; -----------------------------------------------------------------------------
+; tw_vtick - the once-a-frame decay (the WORKER's frame only: a refresh from a
+; key must not make the needles fall faster). preserves all
+; -----------------------------------------------------------------------------
+tw_vtick:
+    push ax
+    push bx
+    cmp byte [tw_vizm], TWV_SPEC
+    je .spec
+    xor bx, bx
+.v:
+    call tui_vu_step                ; the FT2 screen's own needle rule
+    inc bx
+    cmp bx, 4
+    jb .v
+    jmp short .out
+.spec:
+    xor bx, bx
+.s:
+    mov al, [tw_band + bx]
+    sub al, TW_VUFALL
+    jnc .st
+    xor al, al
+.st:
+    mov [tw_band + bx], al
+    inc bx
+    cmp bx, TW_NBAND
+    jb .s
+.out:
+    pop bx
+    pop ax
+    ret
+
 ; =============================================================================
 ; Drawing: the one update, and the four ways in
 ; =============================================================================
@@ -1882,8 +1977,13 @@ tw_update:
     mov al, [tw_viz]                ; the visualiser this frame draws
     call tw_vizfx
     je .vm
-    mov al, TWV_VU
-.vm:
+    mov al, TWV_THIN                ; forced: the XT meter, thin (tw_vu)...
+    cmp byte [mp_xt], 0
+    je .vm
+    cmp byte [trk_xhi], 0
+    je .vm
+    mov al, TWV_OFF                 ; ...or none at XT mode's 11 kHz, where the
+.vm:                                ; mixer leaves no time to draw one
     cmp al, [tw_vizm]
     je .vs
     mov [tw_vizm], al
@@ -1973,6 +2073,59 @@ tw_frame:
 .up:
     call tw_update
     mov byte [tw_inframe], 0
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_want - CF = 1 when the worker's frame could draw something, CF = 0 when it
+; would take the gfx lock to draw NOTHING (preserves all but flags).
+;
+; The worker drew ~18 frames a second whatever was happening, and a frame
+; takes the lock, which lifts the pointer off the glass (SPEC.md 7.1.4) - so a
+; PAUSED player, whose every element was already right, flashed the pointer
+; eighteen times a second for nothing. Everything the UI task changes it draws
+; itself (tw_refresh), so the frame is owed only to what moves on its own: an
+; open stream, a start or stop the transport has not seen, and a visualiser
+; still falling. Once all three are still, TW_IDLEF more frames run - the one
+; that draws the last fall and the scope's flat line - and then none until
+; something moves again.
+; -----------------------------------------------------------------------------
+TW_IDLEF    equ 2
+tw_want:
+    push ax
+    push bx
+    push si
+    cmp byte [trk_sopen], 0
+    jne .busy
+    mov al, [mp_playing]
+    cmp al, [tui_lplay]
+    jne .busy
+    mov si, tui_vu                  ; the needles, or the bands: whichever
+    mov bx, 4                       ; the pane is showing is the one falling
+    cmp byte [tw_vizm], TWV_SPEC
+    jne .scan
+    mov si, tw_band
+    mov bx, TW_NBAND
+.scan:
+    cmp byte [si], 0                ; (no lodsb: a worker assumes no DF)
+    jne .busy
+    inc si
+    dec bx
+    jnz .scan
+    cmp byte [tw_idlef], TW_IDLEF
+    jae .skip
+    inc byte [tw_idlef]
+    jmp short .draw
+.busy:
+    mov byte [tw_idlef], 0
+.draw:
+    stc
+    jmp short .out
+.skip:
+    clc
+.out:
+    pop si
+    pop bx
     pop ax
     ret
 
@@ -2096,7 +2249,10 @@ tw_onclick:
     jmp short .ref
 .viz:
     cmp byte [tw_vizm], TWV_VU      ; a needle row mutes its channel, the
-    jne .out                        ; same gesture as its number key
+    je .vrow                        ; same gesture as its number key - on
+    cmp byte [tw_vizm], TWV_THIN    ; either meter and nothing else
+    jne .out
+.vrow:
     mov si, TWL_ZX1
     call tw_inrect
     jc .out
@@ -2185,6 +2341,10 @@ tw_onup:
 .btn:
     mov bx, tw_btns                 ; THE ACTION BEFORE THE RELEASE IS DRAWN.
     call tw_prefire                 ; The library redraws the armed button
+    push ax                         ; (...and the clip AGAIN after it: the
+    call tw_clip                    ; PlayList button opens a window over us,
+    pop ax                          ; and the clip armed before it existed
+                                    ; drew the release on top of it)
     call os88ui_btnup               ; upright on the release, and a latching
     call tw_synced                  ; one - Shuffle, Play - was then inverted
 .ref:                               ; again by the state change a frame later:
@@ -2280,13 +2440,30 @@ tw_seek:
     call trk_play_stop              ; drains the worker (SPEC.md 45.2)
     pop ax
     call mp_setposn
+    call tw_seekclk
     mov byte [mp_row], 0
     mov al, 2                       ; ...and RESUMES there
     call trk_play
     jmp short .out
 .park:
     call mp_setposn
+    call tw_seekclk
 .out:
+    pop ax
+    ret
+
+; tw_seekclk - the clock goes WITH the seek: the time the song reaches the
+; position it landed on (mp_timeat), which also leaves the tempo there for the
+; resume. A clock that ran on from where the hand left it read the old place
+; for the rest of the song. Preserves all
+tw_seekclk:
+    push ax
+    push dx
+    mov al, [mp_songpos]
+    call mp_timeat
+    mov [tw_el], ax
+    mov [tw_el + 2], dx
+    pop dx
     pop ax
     ret
 
@@ -2378,7 +2555,12 @@ tw_s_rep2:  db 'Rpt List', 0
 tw_s_shuf:  db 'Shuffle', 0
 tw_s_list:  db 'PlayList', 0
 tw_s_xt:    db 'XT Mode', 0
-tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope
+tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope, tw_s_vu, tw_s_vnone
+tw_s_vnone: db 'Meter Off', 0
+tw_s_voff:  db 'No meters at 11 kHz', 0
+%if $ - tw_s_voff - 1 != TW_OFFLEN
+%error "tw_s_voff: TW_OFFLEN is the string's length"
+%endif
 tw_s_vu:    db 'VU Meter', 0
 tw_s_spec:  db 'Spectrum', 0
 tw_s_scope: db 'Scope', 0
@@ -2702,6 +2884,7 @@ TW_NT_COMP equ 36
     TRKW tw_t1                      ; shared scratch (serial, under the lock)
     TRKW tw_t2
     TRKW tw_t3
+    TRKW tw_t4                      ; (the needle height, tw_vu; tw_voff)
     TRKBUF tw_rects_b, TW_NBTN * 8  ; the button record's rects, SCREEN
     TRKBUF tw_flags_b, TW_NBTN * 2  ; ...its flags, this frame
     TRKBUF tw_lastf, TW_NBTN * 2    ; what each button was LAST DRAWN with
@@ -2736,3 +2919,4 @@ tw_scb      equ ttx_shadow          ; the band itself: BORROWED from the text
     TRKW tw_el                      ; stream bytes HEARD this song (32-bit)
     TRKW tw_el_hi
     TRKW tw_lplay                   ; [tui_play] as the last frame saw it
+    TRKB tw_idlef                   ; still frames run since all went still
