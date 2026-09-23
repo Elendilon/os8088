@@ -163,6 +163,9 @@ TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
 ; =============================================================================
 ti_entry:
     push si
+    call ti_arena_claim             ; THE ARENA FIRST (tiplace.inc): a machine
+    jc .out                         ; that cannot hold the board is refused
+                                    ; before a window exists to be empty
     mov si, ti_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -270,6 +273,10 @@ ti_relayout_ck:
     je .out
 .cut:
     call ti_relayout                ; ti_layout banks the box it read, so a
+    inc word [ti_nlay]              ; (a test WAITS on this: a relayout is
+                                    ; over a second of an 8088 now, and a
+                                    ; fixed sleep after `B` read the clocks
+                                    ; before they were re-seeded)
     mov byte [ti_laid], 1           ; REFUSAL caches too - a box too small for
                                     ; a board is re-tested when it changes and
                                     ; not once a frame
@@ -947,8 +954,8 @@ ti_feature:
     mov [ti_pi], ax
     mov ax, [ti_ci]                 ; ...and WHICH CHARACTER stands here
     call ti_ck_cell                 ; (SPEC.md 97.4.9)
-    call ti_pose_addr               ; DI = the pose's band
-    mov si, di
+    call ti_cellpose_addr           ; DI = THIS CELL's pose, in the arena -
+    mov si, di                      ; composed over its own column's ground
     mov ax, [ti_ci]
     call ti_cell_xy                 ; AX = the cell's x, BX = its y
     add ax, [ti_insx]               ; ...and the figure's own inset inside it
@@ -958,21 +965,26 @@ ti_feature:
     mov cx, ax                      ; ORDINARY bands and no composition, which
     pop ax                          ; is why it always works
     add ax, cx
-    push ds
-    pop es
+    mov es, [ti_aseg]
     mov dx, [ti_bh]
     cmp byte [ti_drect], 0          ; THE DIRTY RECT (SPEC.md 97.4.3): commit
     je .rows                        ; the rows this TRANSITION moved and not
     cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
     je .rows                        ; it - a board repaint has no transition
-    mov di, [ti_pi]                 ; behind it and owes the whole band
-    shl di, 1
-    mov dx, [ti_dh + di]
+    cmp word [ti_arm], 2            ; behind it and owes the whole band. The
+    jne .rows                       ; rows are the TOOL's, cut for the table's
+    push ax                         ; band: a cropped arm takes the whole one
+    call ti_dirty_rows              ; ...and they are THIS CHARACTER's. They
+    mov cl, al                      ; were read at the pose alone, which was
+    mov dl, ah                      ; the first character's rows for all three
+    xor dh, dh                      ; - so a censer that swung wider than a
+    pop ax                          ; shield left its tip on the glass
     or dx, dx
     jz .out                         ; this transition moved nothing at all
     push ax
     push dx
-    mov ax, [ti_dy + di]
+    mov al, cl
+    xor ah, ah
     add bx, ax
     mul word [ti_bs]
     add si, ax
@@ -1114,10 +1126,10 @@ ti_cal_one:
     call ti_pit
     mov [ti_t0], ax
     mov word [ti_pi], 0
-    call ti_pose_addr
-    mov si, di
-    push ds
-    pop es
+    mov word [ti_ci], 0
+    call ti_cellpose_addr           ; any pose will do: it is the SHAPE that
+    mov si, di                      ; is being priced
+    mov es, [ti_aseg]
     mov ax, [ti_bx]
     mov bx, [ti_by]
     mov cx, [ti_bw]
@@ -1350,11 +1362,11 @@ ti_cost:
     mov ax, [ti_bh]
     cmp byte [ti_drect], 0
     je .rows
-    push di
-    call ti_drect_i
-    mov bx, di
-    pop di
-    mov ax, [ti_dh + bx]
+    cmp word [ti_arm], 2            ; a cropped arm commits the whole band
+    jne .rows
+    call ti_dirty_rows              ; AH = this character's rows for this move
+    mov al, ah
+    xor ah, ah
 .rows:
     mul word [ti_rowus]
     add ax, [ti_arrus]
@@ -1395,11 +1407,13 @@ ti_pit:
 %include "titxt.inc"
 %include "tibases.inc"
 %include "tichars.inc"
+%include "tiground.inc"
 %include "tilay.inc"
 %include "tirend.inc"
 %include "ticard.inc"
 %include "tipj.inc"
 %include "ticl.inc"
+%include "tiplace.inc"
 
 ; =============================================================================
 ; data
@@ -1433,9 +1447,10 @@ ti_tpl:
 ; is fixed by the table above, so a generous ask buys dead pixels. It bought
 ; 176 dead columns and 60 dead rows on a VGA.
 ti_pref:                            ; VGA / Hercules / CGA (SPEC.md 11.100.1)
-    dw 640, 355                     ; 624x328 of content needed
-    dw 720, 271                     ; 712x244
-    dw 640, 155                     ; 632x128
+    dw 640, 390                     ; 624x363 of content needed - the board,
+    dw 720, 293                     ; 712x266  and E rows of the front lane's
+    dw 640, 163                     ; 632x136  lip and cliff under it
+                                    ;          (SPEC.md 97.4.10)
 
 ; --- the stat icons (SPEC.md 97.4.1) ----------------------------------------
 ; 8x8 1bpp bands, bit 7 leftmost, a set bit LIT. One cell each, which is what
@@ -1505,32 +1520,6 @@ ti_cards:
 ; card's own faction is what this becomes (TITHE-PLAN 7.1).
 ti_ckind:   db 0, 1, 2, 0, 1, 2, 0
 
-; THE TERRAINS (SPEC.md 97.4.10). Four rows of pattern each, because a
-; terrain that is only a checker is only a shade - and the second one has to
-; read as a DIFFERENT PLACE and not as the same place turned down.
-TI_TERRAINS equ 2
-ti_terr_pat:
-    db 0AAh, 055h, 0AAh, 055h       ; OPEN GROUND: the fine 50% checker
-    db 0CCh, 0CCh, 033h, 033h       ; FLAGSTONE: 2x2 blocks, coarse
-ti_terr_rock:
-    db 1, 3                         ; the slab's stripe: `row AND this` zero is
-                                    ; a lit row, so 1 is every other and 3 is
-                                    ; one in four - loose earth against cut
-                                    ; block
-ti_terr_edge:
-    db 2, 1                         ; ...and the lane separator each one gets:
-                                    ; the MASK PLUS ONE, so FLAGSTONE is
-                                    ; MORTARED on every row of the diamond and
-                                    ; OPEN GROUND worn into a dotted track on
-                                    ; every other one. The cells tile exactly,
-                                    ; so either joins its neighbours' into the
-                                    ; separators for nothing; 0 is a terrain
-                                    ; with no lanes marked on it at all
-ti_terr_nm:
-    dw .t0, .t1
-.t0: db 'OPEN GROUND', 0
-.t1: db 'FLAGSTONE  ', 0
-
 ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
 ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
 ti_a_3:     db 'HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS', 0
@@ -1561,6 +1550,7 @@ ti_about:   db 'TITHE - wave 1a, the renderer. SPEC.md 97.', 0
 ti_s_small: db 'This window is too small for a board.', 0
 
 ti_win:     dw 0
+ti_nlay:    dw 0                  ; relayouts done, for tests/titheframe.py
 ti_laid:    db 0                  ; ti_relayout_ck has cut against ti_geo +
                                   ; ti_cw_box/ti_ch_box as they stand
 ti_ok:      db 0
@@ -1624,6 +1614,7 @@ TI_CELLBANDMAX equ 6 * 40
 ti_cardband: times TI_CARDBANDMAX db 0
 ti_hudband: times TI_HUDBANDMAX db 0
 ti_cellband: times TI_CELLBANDMAX db 0
+ti_cellout: times TI_CELLBANDMAX db 0 ; ...and the same rows over their ground
 ti_cbs:     dw 0                    ; the band's stride, pad included
 ti_crows:   dw 0                    ; rows of the chosen face that fit
 ti_tw:      dw 0                    ; the flow's right margin - the card's
@@ -1647,17 +1638,9 @@ ti_nh:      dw 0                    ; how tall that is,
 ti_nrec:    dw 0                    ; the card behind the cell,
 ti_nrow:    dw 0                    ; and which of its two stat pairs
 ti_ck:      dw 0                    ; the CHARACTER a band is being built
-ti_crec:    dw 0                    ; for, its art record, and its slot's
-ti_cslot:   dw 0                    ; own pitch (SPEC.md 97.4.9)
-ti_urec:    dw 0                    ; ...and the mini unit's two
-ti_uslot:   dw 0
+                                    ; for (SPEC.md 97.4.9)
+ti_uslot:   dw 0                    ; ...and the mini unit's slot pitch
 ti_terr:    dw 0                    ; which BOARD we are fighting on
-ti_slabh:   dw 0                    ; ...the rock under it, and the walk
-ti_sc:      dw 0
-ti_sx:      dw 0
-ti_sy:      dw 0
-ti_sr:      dw 0
-ti_sbot:    dw 0
                                     ; (SPEC.md 97.4.10)
 %ifdef TICARDPROF
 ; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us
@@ -1734,10 +1717,6 @@ ti_pjx:     dw 0
 ti_pjy:     dw 0
 ti_pjh:     dw 0
 ti_pjb:     dw TI_PJB
-ti_pjcx:    dw 0
-ti_pjcy:    dw 0
-ti_pjcs:    dw 0
-ti_pjr:     dw 0
 ti_npj:     dw 0                    ; projectile frames committed
 ti_pj_art:  db 000h, 018h, 03Ch, 07Eh, 0FFh, 07Eh, 03Ch, 018h   ; a bolt
 ti_roff:    dw 0                    ; a shallow corner lays out sideways
@@ -1783,15 +1762,10 @@ ti_nbase:   dw 0                    ; ...and BASE LANE commits (SPEC.md 97.5.1)
 ti_nbadv:   dw 0                    ; ...of which this many ADVANCED a pose -
                                     ; equal, by construction and by gate
 ti_nframe:  dw 0                    ; ...and wheel passes
-ti_d0:      dw 0
-ti_d1:      dw 0
-ti_dy:      times TI_POSES * TI_CHAR_N dw 0
-ti_dh:      times TI_POSES * TI_CHAR_N dw 0
 ti_nx:      dw 0                    ; the cell whose numbers are being drawn
 ti_ny:      dw 0
 ti_ktop:    dw 0                    ; the keep's top row, banked because two
                                     ; `mul`s stand between it and its reader
-ti_spanw:   dw 0                    ; what ti_pose_span clips against
 ti_bx:      dw 0
 ti_by:      dw 0
 ti_ox:      dw 0
@@ -1849,12 +1823,12 @@ ti_unit:    times TI_UNITMAX * TI_POSES * TI_CHAR_N db 0
 ti_pjband:  times TI_PJMAX db 0
 ti_clband:  times TI_CLMAX db 0
 
-TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES * TI_CHAR_N \
-                + TI_BASEMAX * TI_BASEPOSES
+; THE POSES AND THE BOARD'S GROUND ARE NOT HERE: they are per cell and per
+; column now, and live in the ARENA, a heap claim (tiplace.inc). What stays in
+; the segment is the bases' eight bands.
+TI_BSS      equ TI_BASEMAX * TI_BASEPOSES
 
     OS88_BSS TI_BSS
     OS88_IMAGE_END
 
-ti_cell     equ os88_image_end + 0
-ti_pose     equ os88_image_end + TI_CELLMAX
-ti_base     equ os88_image_end + TI_CELLMAX + TI_BANDMAX * TI_POSES * TI_CHAR_N
+ti_base     equ os88_image_end + 0

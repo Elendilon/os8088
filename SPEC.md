@@ -140019,8 +140019,9 @@ painter's order is needed. `CW` is a multiple of 8, so every cell's x satisfies
 `gfx_blit1`'s one alignment rule (§5.4.2) for free, and `BX` inherits §11.94's
 content-origin snap.
 
-The isometric READ comes from the art — a baked ground diamond per cell, a
-three-quarter figure, a drop shadow — and not from the geometry. A projected
+The isometric READ comes from the art — fences between the lanes on the
+shear's own slope, a wall along the back and a cliff under the front
+(§97.4.10), and a three-quarter figure — and not from the geometry. A projected
 isometric would mean overlapping boxes, a draw order and non-rectangular bands,
 and a band that is not a rectangle is not something `gfx_blit1` takes.
 
@@ -140034,23 +140035,20 @@ That is §79.5.1's finding and §93.5.1's, and this package does not get to
 relearn it: the screen saver's first draft blanked the box and then drew into
 it, and the field called it *"the fish flicker"*.
 
-**"Its own ground" is the CELL's ground, cut at the band's rows and columns**,
-and leaving it out is not a missing decoration — it is a `BW` × `BH` hole
-punched in the diamond the figure stands on, which on a Hercules is 64 of the
-cell's 120 columns. What it looks like is the diamond's top tip appearing for
-three rows and stopping dead, with its two side tips floating either side of a
-black box; it does NOT look like a missing ground, which is why it was read off
-the glass as a defect in the *figure*. Three things have to line up and each is
-invisible in the middle of a figure and obvious at its edges: band row *r* is
-CELL row *r* + `INSY`, the span shifts LEFT by `INSX`, and the dither's phase
-is the CELL's row. `INSX` is rounded to a multiple of 8 by the layout, so the
-band's byte columns line up with its cell's and one mask byte serves both.
+**"Its own ground" is the CELL's ground, cut at the band's rows and columns**
+out of its column's strip (§97.4.10), and leaving it out is not a missing
+decoration — it is a `BW` × `BH` hole punched in the place the figure stands
+in, which on a Hercules is 64 of the cell's 104 columns. It does NOT look like
+a missing ground, which is why the first one was read off the glass as a defect
+in the *figure*. Band row *r* is strip row `lane × CH + INSY + r`, and the
+band's first byte is the strip's `INSX / 8`; `INSX` is a multiple of 8, so the
+copy is whole bytes.
 
-**The ground is a 50% DITHER and the figure is SOLID** (§39.4). A 1bpp adapter
-has two colours, so a solid ground and a solid figure are the same colour and
-the figure disappears into the tile — which is exactly what a *correct* ground
-looked like the first time it was drawn. The ground goes down solid, the row is
-knocked to the mid-tone, then the figure goes down over it.
+**The ground is SPARSE and the figure has a HALO** (§97.4.9). A 1bpp adapter
+has two colours, so a figure only reads against a ground with a black pixel
+between them. It was a 50% dither under a solid figure; it is a texture that
+lights a tenth of its pixels under a figure outlined in black, so a figure's
+own dark detail survives and the ground still reads as ground.
 
 **The band is the FIGURE's box, not the cell's.** A cell is 784 bytes at 1bpp
 and the band is 416; the rest of the cell is the ground, drawn once with the
@@ -140369,50 +140367,88 @@ layout decision, not a second code path.
 than on the board: P1's drops by the lift and P2's rises by it, so each reads as
 standing on the same ground as the lanes in front of it.
 
-#### 97.4.9 THREE FACTIONS, THREE SILHOUETTES — the idles are ART
+#### 97.4.9 THREE FACTIONS, AS PIXEL ART — ink and mask, and composed per cell
 
-**The placeholder figure was a trapezoid with a lean**, drawn out of the band's
-own dimensions: it scaled to every surface for free and it said nothing about
-*who* was standing there. Three factions with three silhouettes and three
-motions is what the look owes, and it is what a music session has to write
-against — a rhythm has to be a rhythm of *something*.
+**The first idles were silhouettes** — a solid white shape per faction out of
+spans and ellipses, which scaled to every surface for free. The owner turned
+that down for the reason that decides a roster: with **~60 characters to
+make**, a silhouette is too little to tell sixty apart and says nothing inside
+its outline. So a figure is **pixel art**, authored one ASCII character a pixel
+in `tools/os88tithechar.py`, in **three** states:
 
-| | the silhouette | what moves |
+| | means |
+|---|---|
+| `#` | INK — lit |
+| `o` | BLACK — drawn dark, and **opaque**: the ground does not show through it |
+| `.` | nothing — the ground shows here |
+
+**THE BLACK PIXEL IS WHY A FIGURE IS INK AND MASK.** The silhouettes were ORed
+over their ground, which works only for a figure that is solid white: a dark
+visor slit ORed over a lit ground pixel stays lit. So every figure is emitted
+as interleaved `(ink, mask)` bytes and composed as
+`band = (band AND NOT mask) OR ink` — TITHE-PLAN §4.2.1's item layer, which was
+planned that way, arriving for the body too. **It costs nothing in a frame**:
+the composition is at layout, and what the frame commits is still one opaque
+1bpp band a feature, priced by its rows and bytes and never by what is drawn in
+them (TITHE-PLAN §1.1). A detailed figure costs exactly what a solid one of the
+same box does.
+
+**A FIGURE IS LAYERS, EACH OUTLINED WHERE IT IS PUT DOWN**, so a shield held in
+front of a torso or a head over a collar is separated by one black pixel that
+nobody draws; the whole figure then gets a one-pixel black **halo**, which is
+what keeps it legible over a textured ground on a one-bit screen.
+
+**THE SMALLER SURFACES ARE REDUCED PER LAYER, AND CGA IS DRAWN.** Each layer's
+art is cut to the surface on its own and the outlines re-drawn at the target
+size, so a Hercules figure keeps its parts apart where scaling the finished
+picture merges the shield into the chest. The cut is per axis — x near 1:1, y by
+the pixel aspect (TITHE-PLAN §4.2). **CGA is the exception**: a board figure
+there is 17 rows, and every detail row of a 42-row figure is among the 60% a cut
+has to drop, so helm, face and hood came out one dark blob. CGA is a second
+drawing at its own size, 1:1, with the same layers and the same motion in CGA
+pixels — **the one surface that costs an artist a second picture**, and the
+price of the roster is therefore *two drawings a character*.
+
+| | the figure | what moves |
 |---|---|---|
-| **THE BULWARK** | a shield-bearer, legs planted | the body rocks one pixel; the **shield** lifts and settles two |
-| **THE EMBER CHOIR** | a hooded caster | the robe's **hem never moves** — it is the shadow it hovers over — and everything above it rises and falls, with a **wisp** that flickers between two sizes |
-| **THE COVENANT** | a nun, hands together | the body is still; the **censer** swings on its chain through an arc — the cathedral base's pendulum one scale down |
+| **THE BULWARK** | a helmed shield-bearer in mail, sword down, heater shield with a cross | the head rocks a pixel; the **shield** lifts and settles two |
+| **THE EMBER CHOIR** | a hooded caster, a dark face with two lit eyes, one hand raised | the robe's **hem never moves** — it is the shadow it hovers over — and everything above it rises and falls, with a **wisp** at the hand flickering between sizes |
+| **THE COVENANT** | a nun, veiled, a cross at her breast | the body is still; the **censer** sways on its chain — **two pixels, not ten** |
 
-**THE MOTION IS SMALL AND THE HELD ITEM MOVES FURTHEST**, which is
-TITHE-PLAN §4.2.1's body/item split arriving as a *drawing rule* rather than as
-a data structure. It is what the reference does (TITHE-PLAN §0): the bodies
-shift a pixel or two and the weapons swing.
+**THE CENSER SWUNG TEN PIXELS EACH WAY AND READ AS A MACE BEING WIELDED.** An
+idle is a figure *waiting*; the field called the first one too active, where the
+Bulwark's pixel of head and two of shield were exactly right. Two is a sway.
 
-**IT IS EMITTED IN `tibases.inc`'s FORMAT** — a shared GROUND (the body, which
-every pose shares) and a packed sub-band per pose with its own bbox, one set
-per surface. Emitting each pose whole is **13,632 bytes** of a package that has
-60KB for everything; packed it is 7,482 for three characters across **eight**
-surfaces — four for the board's 64-wide band and four more for the **mini unit
-that rides a card**, which is 24 wide and is therefore a surface of its own
-rather than a resampling of the big one.
+**THE POSES ARE PER CELL NOW, AND THEY LIVE IN A HEAP CLAIM.** A band carries
+its own ground (§97.4), and the ground differs by COLUMN (§97.4.10) — so a
+figure composed over one column's ground stands in that column only, and the
+three shared compositions became **eighty**: every cell's four poses, cut from
+its column's strip with the figure masked over them. That is 30,720 bytes on a
+fullscreen VGA, which is not bss in a 64KB segment; it is the arena (§97.4.10),
+and it is where TITHE-PLAN §1.5 already put the final game's composed sprites.
+Each cell's ground is copied once and **replicated** into its other three slots
+by one overlapping `rep movsw`, and the mask loop is one read and one write a
+byte — `lodsw / not / and reg,[es:di] / or / stosb`.
 
-**THE BAND IS BUILT GROUND-FIRST.** A base stands on nothing, so its ground is
-its own art; a character stands on a CELL, and the band is one opaque rectangle
-that INCLUDES the diamond under it, because drawing the band back where it was
-is the erase (§97.4). So a slot is the cell's ground, then the body, then the
-pose's move — and only then replicated.
+**THE DATA IS SHARED WHERE THE PIXELS ARE.** A record is per character and
+surface, but a figure is emitted once for every record that uses it — the
+fullscreen and windowed VGA bands carry the same figure at different band rows,
+and a ping-pong repeats a pose — so three characters at eight surfaces are
+**70 figures and 11,214 bytes**. A record is `dw fig[4]`, `db y[4]`, then the
+four `(dy, dh)` dirty rows, then the band height the art was cut for.
 
-**THE DIRTY RECTS ARE PER CHARACTER** (§97.4.3), and the first build got that
-wrong in an instructive way. The rects say which rows a *transition* moves, and
-three characters move three different sets — so a rect cut from one leaves the
-other two's motion on the glass wherever it reaches further. The obvious fix is
-a **union**, which is correct and costs the lever its edge: it took the dirty
-rect's own measured win from 24% to **19.7%**, under the bar the gate holds it
-to. Keeping a set per character costs **eight more words of bss and nothing
-else**, and the character is already known wherever the rect is read — the
-feature has set it in order to draw the band at all. The lever measures
-**+39.3%** now, better than it ever did with the trapezoid, because these
-figures move less.
+**THE DIRTY ROWS ARE THE TOOL'S AND THEY ARE THIS CHARACTER'S** (§97.4.3). They
+are computed from the figures alone — rows where either ink or mask differs
+between one pose and the next — so they hold over any ground a cell composes
+under them. **They were per character in the table and read per POSE:** the
+reader indexed `[ti_dh + pose*2]`, which is the first character's rows for all
+three, so a figure whose motion reached further than the Bulwark's could leave
+its edge on the glass. The reader takes the character now.
+
+**THE SPRITE-SIZE ARM IS A CROP, NOT A SCALE** (§97.7's `S`). The art is drawn
+for the table's band, so a shorter arm keeps the figure's floor and centre and
+loses what falls outside, and commits whole bands — the rows are cut for the
+table's band. It still answers *what does a shorter band cost*.
 
 **Which character a card plays is a TABLE and a stable fiction.** Wave 1a has
 three idles and seven cards, so the three go round; the card's own **faction**
@@ -140455,10 +140491,11 @@ crosses cells whose ground it does not own, so there is nothing to bake. It is
 commit — which is `dotdel`'s shape one game along (§93.5.1) and the most
 expensive thing in the renderer.
 
-**The ground is the CELL band read modulo the cell.** The cells tile exactly
-(§97.3) and every cell's ground is the same diamond, so the ground under any
-point of the board is that one band wrapped — which is why this is a byte copy
-and not a second picture in RAM. What it does *not* carry is a **figure** the
+**The ground is read out of the column strips** (§97.4.10) — a bolt crosses
+from a yard into the contested middle, two textures and a fence, and every
+column's ground is its own. `ti_gnd_prep` resolves each of the band's bytes to
+its column once, and a row is then one multiply and a load a byte, which is
+what the old read modulo one shared tile cost too. What it does *not* carry is a **figure** the
 band laps; that is wave 3's board picture, and until it exists a bolt scrubs
 the figures it crosses until the wheel redraws them.
 
@@ -140596,67 +140633,95 @@ ABILITY, which is one of the things a variable stat can BE. The soul therefore
 appears on both lines — as a cost above and as a yield below — and the line it
 is on is what says which.
 
-#### 97.4.10 THE BOARD IS A PLACE — terrain, lane separators and the slab
+#### 97.4.10 THE BOARD IS A PLACE — column strips in a heap claim
 
-**The ground under the lanes is not a backdrop, it is a TERRAIN**, and there
-will be several of them (TITHE-PLAN §3.2). A background is three elements —
-the texture of the ground, the separators between the lanes, and the board's
-own isometric edge — and none of them belongs to a character: they are
-composed at **round load**, from one table row per place, and nothing on the
-frame clock ever touches them again. `G` cycles the terrain for the demo,
-which is a relayout and not a repaint.
+**The board is a location and not a chart.** The first cut was a 50% dithered
+diamond per cell and a stack of lit bars under the columns — which read as a
+grid with a shadow, and was the plan saying *background* where the owner meant
+*art of a place*. The brief, taken against the reference game's board: ground
+you could stand on, something built **between the lanes**, a texture **under
+each column** that is sparse enough not to hide a figure, and a border that says
+where the world stops. So a board is five things, all out of
+`tools/os88tithebg.py`:
 
-**`ti_terr_pat`, `ti_terr_rock` and `ti_terr_edge` are the row**, four bytes of
-dither and two masks:
+| | what it is |
+|---|---|
+| **TEXTURE** | one per **column**, 32 pixels square and **sparse** — cobbles, cracked earth, tufts of grass, paving joints; under a fifth of the pixels, so a figure stands *on* it. Cut to the pixel aspect by taking each target row's centre row: OR-ing the rows a CGA row covers piled a sparse ground into noise |
+| **FENCES** | between the **lanes**, at the top of lanes 1–4. A lane runs up-and-to-the-right (§97.3), so a fence is a **sloped** line, `yoff[lx] = RISE × (CW − lx) div CW` — the same slope in every column, so four columns' fences meet without anybody joining them. THE MARCH's is wooden, posts every 16 pixels with rails and a shadow under them; THE CLOISTER's is a row of stone bollards on a chain |
+| **THE WALL** | the fence's heavier sibling along the back of lane 0, with **nothing** above it — the board's far edge is a clean slope and not a staircase |
+| **THE CLIFF** | under lane 4: the front lane's ground runs on past its cells' floor to a lit **lip** on the same slope, and a face of rock hangs under that |
+| **THE SIDES** | a lit edge down the outside of columns 0 and 3 |
 
-- **THE TEXTURE IS A 4-ROW DITHER**, indexed by `row AND 3`, composed into the
-  cell tile with the diamond. `0AAh 055h 0AAh 055h` is OPEN GROUND's fine 50%
-  checker and `0CCh 0CCh 033h 033h` FLAGSTONE's coarse 2x2 blocks — the same
-  mid-tone by area, so the figure standing on either reads the same, and a
-  different grain at arm's length.
-- **THE SEPARATOR IS THE TILE'S OWN EDGE AND COSTS NOTHING.** The cells tile
-  exactly (§97.3), so a lit pixel at each end of a diamond row joins its
-  neighbours' into one continuous line running up-and-to-the-right — which is
-  the axis a lane runs on. There is no separator drawn over the board at all.
-  `ti_terr_edge` is the row mask **plus one**: 1 is every row, which is
-  FLAGSTONE's mortar, 2 is every other one, which is all a worn earth track
-  has a right to, and 0 is a place with no lanes marked on it.
-- **TWO PIXELS AT EACH END AND NOT ONE.** Against a dither that already lights
-  half of them, a single lit pixel a row is one extra pixel a row and is
-  nothing to look at.
+A **pattern** is 16 pixels wide, one `(ink, mask)` pair of words a row, so a
+rail can have a shadow and a post an outline while the ground between two posts
+is still the ground. A **terrain** is four texture names, a divide and a name
+(`G` cycles THE MARCH and THE CLOISTER for the demo).
 
-**THE SLAB IS THE ONE ELEMENT THAT IS DRAWN**, because it is the one that does
-not tile with anything: the board's outer edge is the bottom of four columns
-the shear leaves at four different heights. It is therefore **four horizontal
-runs at four heights and not a diagonal** — the staircase IS the isometric
-read here, the same one the cells make — so it is a handful of `gfx_fill`s
-rather than the one arrival a pixel a line walk over a shear of RISE over CW
-would be. Under each lit lip is a rock face in the terrain's own stripe, one
-lit row in two for loose earth and one in four for cut block, inset a pixel
-each side so the joint between two columns carries on down the face as the
-separators do above it.
+**THE BOARD GROWS BY `E` = `RISE + FH + 1 + D` under column 0**, for the ground
+beyond the front cells, the lip and the cliff — 40 rows on a fullscreen VGA,
+35 windowed, 22 on Hercules and **8 on CGA, which is every row its window has
+spare**. The window asks for it (`ti_pref`), the fit check counts it, and P2's
+resource block moves down past column 3's own cliff. It replaces §97.4.10's
+first slab, which took what the fit check left over.
 
-- **THE FACE IS THE SAME DEPTH UNDER EVERY COLUMN.** Running each one down to
-  a shared floor instead is the obvious reading of "one solid mass" and it
-  reads as a **cliff** — and it fills the shear's own empty corners, which is
-  where P2's resource block and the near cells' numbers live (§97.2.1).
-- **THE LIP IS COMPUTED FROM THE LIFT.** Column c's lip is
-  `BY + LIFT + TI_ROWS*CH - c*RISE`, one row below its last cell. Computed
-  without the lift it lands a whole cell up **inside** column 0's fourth row
-  and is then painted over by the cell blit that follows it — nothing on the
-  glass, nothing in any other gate, and no error anywhere. `tests/titheterr.py`
-  asserts a full-width lit run under each of the four columns at four heights
-  exactly one RISE apart, which a lip at the wrong height cannot satisfy.
-- **THE SLAB TAKES WHAT THE FIT CHECK LEFT OVER**, up to a lip and a
-  quarter-lane of rock. A board that refused itself over a decoration would be
-  the fit check answering a question nobody asked — the lanes are the game and
-  the slab is the frame round them, so **the slab is what gives way**. It is 8
-  rows of a wanted 13 on a windowed VGA, 8 of 10 on Hercules and the full 6 on
-  CGA; 0 means no slab at all and is drawn as nothing rather than as one row.
+**EVERY ELEMENT IS A FUNCTION OF (COLUMN, x, y) AND NOTHING ELSE**, so the
+package composes each column once, top to bottom, into a **strip** — and the
+board is **four blits** where it was twenty cell grounds and a slab. The
+strips and the eighty composed poses (§97.4.9) live in one **heap claim**, the
+ARENA, claimed at 45 KB in the entry proc so a machine that cannot hold a board
+refuses the launch rather than opening an empty window; it is declared movable,
+and the proc is one store because every reader loads ES from `[ti_aseg]`.
+Composition is `tiplace.inc`, the machine's copy of `os88tithebg.py`'s
+algorithm step for step:
 
-**AND THE IDLE STATUS LINE NAMES THE GROUND.** With nothing under the pointer
-the line says which place this is, beside the base art it already named — which
-is how a player learns there is more than one.
+1. every row of the strip is the column's texture row, four bytes, replicated
+   across the rest with one overlapping `rep movsb`;
+2. then **one pointer walks down each pixel column** through its stretches in
+   row order — black above the wall, the wall, gap, fence, gap, … the lip, the
+   cliff, black — and a stretch it does not touch is one ADD of rows × stride.
+
+**NO FILL UNDER A STRIP.** Filling the board's box and then blitting the strips
+is the ground drawn twice, the first time black (PERFORMANCE.md rule 2); only
+the two corners the shear leaves above and below each column are filled.
+
+**EVERYTHING ELSE THAT NEEDS THE GROUND READS IT FROM THE STRIPS.** A cell's
+figure band is cut from its column's strip; its **numbers** are composed over
+the stat column's own ground with a one-pixel black halo, so a fence runs on
+behind them where the old stat column was a black box; and a **projectile** or
+a tier-B **clash**, which cross cells they do not own, read the ground through
+`ti_gnd_prep` / `ti_gnd_row`: a band's columns are resolved once, and a row is
+then one multiply and a load a byte — what the old read modulo one shared tile
+cost.
+
+**WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, breakpoints on the
+routines and the cycle counter between them, against the diamond board at the
+commit before it:
+
+| | before | VGA windowed | CGA |
+|---|---:|---:|---:|
+| composing the board and its figures, at a relayout | 698 ms | **1,416 ms** (strips 773, poses 643) | 666 ms (376 + 291) |
+| a whole-board repaint: ground and twenty cells' numbers | 283 ms | **531 ms** (strips 91, 20 x 22 of numbers) | 388 ms |
+| a frame | one band a feature | one band a feature | one band a feature |
+
+A relayout is a round load and a size change, and a repaint is an expose;
+neither is inside the wheel, and `tests/titheframe.py` measures the wheel
+unchanged — 18.5 frames a second, and the dirty rect buying **+22.1%** against
+its 20% bar, where the silhouettes bought 39.3%: a pixel-art figure moves more
+of its rows between poses than a solid one does.
+
+**Where the repaint's time goes is the numbers**, 22 ms a cell, of which the
+halo is 5; the strips are four blits and 91 ms. The lever is to BAKE the
+numbers into the strips at layout, which would make a repaint four blits and
+~0.1 s — and it is not taken, because a strip with digits in it is no longer
+the pristine ground a changed number has to be re-composed over. It wants the
+strip's stat column regenerable on its own first, which is wave 3's problem
+when numbers start to change.
+
+**`tests/titheterr.py` holds the machine to the model TO THE BYTE**: every
+strip and every one of the eighty poses on all three adapters and both
+terrains, the lip and cliff on the glass at four heights a RISE apart — the one
+region nothing else is ever drawn over — and `G` twice back to the first board
+to the bit. It went red on an ORed figure and on a fence gap one row long.
 
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
@@ -140874,7 +140939,8 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | step the clash's TIER, so stepping forward and a composed overlap are seen side by side |
-| `S` | step the sprite size, so three can be compared on the glass |
+| `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
+| `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
 | `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |

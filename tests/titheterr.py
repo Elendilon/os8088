@@ -1,42 +1,36 @@
 #!/usr/bin/env python3
-"""TITHE's BOARDS: are there two of them, and do they read as two PLACES?
+"""TITHE's BOARD: is it the PLACE the model says, strip for strip and cell for cell?
 
-SPEC.md 97.4.10. The board is not a backdrop - the plan fights in several
-places (TITHE-PLAN 3.2) - so the ground under the lanes, the separators
-between them and the board's own edge are a TERRAIN, composed at round load
-and switched with `G` for the demo.
+SPEC.md 97.4.10 and 97.4.9. The board is a location - a sparse texture per
+COLUMN, a fence between the LANES on the shear's own slope, a wall along the
+back and a cliff under the front - composed at round load into four column
+strips in a heap claim, and every cell's four poses are cut from its column's
+strip with a pixel-art figure MASKED over them. tools/os88tithebg.py and
+tools/os88tithechar.py are the model of both, and this row holds the machine to
+the model EXACTLY. Nothing here is a tolerance.
 
 WHAT IT ASSERTS, and each one went red on purpose first:
 
-  1. THE TWO TERRAINS ARE TWO PICTURES. A terrain that differs only in a
-     constant nobody can see is a second board on paper and one board on the
-     glass. The diff is taken over the BOARD's own rectangle, so a HUD line
-     naming it cannot pass this check on its own.
+  1. EVERY STRIP IS THE MODEL'S, TO THE BYTE, on all three adapters and both
+     terrains. A strip is a function of (surface, terrain, column) and nothing
+     else, so the arena's bytes and the host's are the same bytes or one of
+     them is wrong. A fence walked one row off, a pattern read from the wrong
+     byte of its word, a gap between fences mis-sized - each is a handful of
+     pixels in a busy picture and a failed compare here.
 
-  2. THE SLAB IS THERE, AND IT IS A STAIRCASE. The board's edge is the one
-     background element that does not come out of the cell tile, so it is the
-     one that can silently draw nothing - which is exactly what it did: the
-     lip was computed WITHOUT the shear's lift, landed a whole cell up inside
-     column 0's fourth row, and was then painted over by the cell blit that
-     follows it. Nothing else here could see that. What catches it is that
-     there must be a full-width lit run under each of the four columns, at
-     four DIFFERENT heights, exactly one RISE apart - which is the shear, and
-     is the one thing a lip drawn at the wrong height cannot satisfy.
+  2. EVERY CELL'S POSES ARE THE MODEL'S, TO THE BYTE: the strip's rows under
+     the band, and the figure masked over them. That is the whole of what the
+     pixel art is for - a black detail line kept black over a lit ground - and
+     an ORed figure (the old composition) or a mask applied the wrong way
+     round fails it at the first figure with a visor.
 
-  3. THE SLAB TOOK SOMETHING. `ti_slabh` is what the fit check had left over
-     (a board that refused itself over a decoration would be the check
-     answering a question nobody asked), so it can legitimately be clamped -
-     but zero on a machine that drew a board at all means the growth was
-     never granted.
+  3. THE STRIPS REACHED THE GLASS: under the front lane, where no figure and
+     no number is ever drawn, each column's lip and cliff on screen are the
+     model's - at four heights one RISE apart, which is the shear. A strip
+     blitted at the wrong y, or not at all, fails here and nowhere else.
 
-  4. G CYCLES AND COMES BACK. Two presses is the same board again, to the
-     pixel: the terrain is composed at LOAD, so a terrain that leaked state
-     into the tile - or a relayout that half-ran - shows up here and nowhere
-     else.
-
-  5. THE LINE NAMES THE GROUND. With nothing under the pointer the status
-     line says which place this is, which is how a player learns there is
-     more than one.
+  4. G CYCLES AND COMES BACK: the second terrain is the model's second
+     terrain, and two presses are the first board again, to the bit.
 
     make && make tithedisk && python3 tests/titheterr.py
 """
@@ -52,17 +46,20 @@ sys.path.insert(0, HERE)
 import os88ui                                             # noqa: E402
 import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
+import os88tithebg as bg                                  # noqa: E402
+import os88tithechar as tc                                # noqa: E402
 
-# The words are READ from the guest; the three in EQUS are the assembler's own
+# The words are READ from the guest; the names in EQUS are the assembler's own
 # values and are used straight out of the table - `dw TI_COLS` emits 4, and
-# reading guest memory at offset 4 is how the lip check came back with an empty
+# reading guest memory at offset 4 is how a check once came back with an empty
 # list and passed on `all([])`.
-SYMS = ("ti_terr", "ti_slabh", "ti_bx", "ti_by", "ti_cw", "ti_ch",
-        "ti_rise", "ti_boardw", "ti_boardh", "ti_lift",
-        "TI_COLS", "TI_ROWS", "TI_CELLMAX", "ti_cell")
-EQUS = ("TI_COLS", "TI_ROWS", "TI_CELLMAX", "ti_cell")
+SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
+        "ti_rise", "ti_boardh", "ti_sb", "ti_sh", "ti_spitch", "ti_sbase",
+        "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy", "ti_arm",
+        "TI_COLS", "TI_ROWS")
+EQUS = ("TI_COLS", "TI_ROWS")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
-TERRAINS = ("OPEN GROUND", "FLAGSTONE")
+CKIND = (0, 1, 2, 0, 1, 2, 0)     # ti_ckind: a cell's card, mod the hand
 
 fails = []
 
@@ -100,24 +97,33 @@ def mono(m):
     return w, h, [[d[(y * w + x) * 3] > 127 for x in range(w)] for y in range(h)]
 
 
-def lips(px, g):
-    """The row under each column that carries a full-width lit run.
+def pack(rows):
+    out = bytearray()
+    for r in rows:
+        for b in range(0, len(r), 8):
+            v = 0
+            for i in range(8):
+                if b + i < len(r) and r[b + i]:
+                    v |= 0x80 >> i
+            out.append(v)
+    return bytes(out)
 
-    A LIP IS THE WHOLE COLUMN WIDTH AND NOTHING ELSE IS. A cell's own dither
-    lights half of every row and its diamond tapers, so no row inside the
-    board is solid across a 96-pixel span - which is what makes "solid" the
-    right test rather than "brightest".
-    """
-    out = []
-    for c in range(g["TI_COLS"]):
-        x0 = g["ti_bx"] + c * g["ti_cw"]
-        x1 = x0 + g["ti_cw"]
-        found = None
-        for y in range(g["ti_by"], g["ti_by"] + g["ti_boardh"]):
-            if all(px[y][x0:x1]):
-                found = y                       # the LAST such row: the lip is
-        out.append(found)                       # under the cells, not over them
-    return out
+
+def model_pose(geo, terr, strip, g, ci, pi):
+    """A cell's composed pose, as the machine should have it."""
+    c, r = divmod(ci, g["TI_ROWS"])
+    x0 = g["ti_insx"]
+    rows = []
+    fig = tc.figure(tc.CHARACTERS[CKIND[ci % 7]],
+                    [s for s in tc.SURFACES if s[0] == geo[0]][0], pi)
+    for by in range(g["ti_bh"]):
+        gr = strip[r * g["ti_ch"] + g["ti_insy"] + by][x0:x0 + g["ti_bs"] * 8]
+        row = []
+        for bx in range(g["ti_bs"] * 8):
+            v = fig[by][bx]
+            row.append(gr[bx] if v == tc.T else (1 if v == tc.I else 0))
+        rows.append(row)
+    return pack(rows)
 
 
 def run(mach, off):
@@ -130,64 +136,87 @@ def run(mach, off):
         seg = struct.unpack(
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
-        os88marty.guest_sleep(m, 5.0)
+        os88marty.guest_sleep(m, 8.0)
 
         def rw(name):
             return struct.unpack("<H", bytes(m.readseg(seg, off[name], 2)))[0]
 
-        g = {s: (off[s] if s in EQUS else rw(s)) for s in SYMS}
+        def state():
+            return {s: (off[s] if s in EQUS else rw(s)) for s in SYMS}
 
-        def tile():
-            """THE COMPOSED CELL TILE, which is the terrain itself.
-
-            The screen cannot answer "is this the same board" on its own: the
-            three faction idles are running on it, so two captures four guest
-            seconds apart differ by a couple of hundred pixels whatever the
-            ground is doing. The tile is composed once at load and never
-            touched again, so it is exact.
-            """
-            return bytes(m.readseg(seg, g["ti_cell"], g["TI_CELLMAX"]))
-        if g["ti_boardw"] == 0:
-            check(False, "%s: the window holds a board at all" % mach)
+        g = state()
+        if g["ti_sh"] == 0 or g["ti_aseg"] == 0:
+            check(False, "%s: the window holds a board at all" % mach, g)
             return
+        geo = bg.GEO[g["ti_gidx"]]
+        print("       %s, terrain %d, arena %04x, strip %dx%d, slot %d"
+              % (geo[0], g["ti_terr"], g["ti_aseg"], g["ti_sb"], g["ti_sh"],
+                 g["ti_cslot"]))
 
+        def arena(o, n):
+            return bytes(m.readseg(g["ti_aseg"], o, n))
+
+        def strips_ok(terr):
+            bad = []
+            models = []
+            for c in range(g["TI_COLS"]):
+                s = bg.strip(geo, terr, c)
+                models.append(s)
+                got = arena(g["ti_sbase"] + c * g["ti_spitch"], g["ti_spitch"])
+                want = pack(s)
+                if got != want:
+                    n = sum(bin(a ^ b).count("1") for a, b in zip(got, want))
+                    first = next(i for i in range(len(want)) if got[i] != want[i])
+                    bad.append("col %d: %d bits differ, first at row %d"
+                               % (c, n, first // g["ti_sb"]))
+            return bad, models
+
+        bad, models = strips_ok(g["ti_terr"])
+        check(not bad, "the four strips are the model's, to the byte", bad)
+
+        # 2. every cell, every pose (the sprite arm must be the table's)
+        if g["ti_arm"] == 2:
+            badc = []
+            for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
+                for pi in range(4):
+                    got = arena((ci * 4 + pi) * g["ti_cslot"], g["ti_cslot"])
+                    want = model_pose(geo, g["ti_terr"],
+                                      models[ci // g["TI_ROWS"]], g, ci, pi)
+                    if got != want:
+                        badc.append("cell %d pose %d" % (ci, pi))
+            check(not badc, "all eighty poses are ground + masked figure, "
+                  "to the byte", badc[:6])
+
+        # 3. the glass, under the front lane where nothing else is drawn
         w, h, px = mono(m)
-        c0 = tile()
-        l0 = lips(px, g)
-        t0 = rw("ti_terr")
+        badg = []
+        for c in range(g["TI_COLS"]):
+            x0 = g["ti_bx"] + c * g["ti_cw"]
+            y0 = g["ti_by"] + (g["TI_COLS"] - 1 - c) * g["ti_rise"]
+            for ly in range(g["TI_ROWS"] * g["ti_ch"], g["ti_sh"]):
+                row = [int(px[y0 + ly][x0 + x]) for x in range(g["ti_cw"])]
+                if row != models[c][ly]:
+                    badg.append("col %d row %d" % (c, ly))
+                    break
+        check(not badg, "every column's lip and cliff are on the glass, a "
+              "RISE apart", badg)
 
-        print("       terrain %d, slab %d, rise %d, lips %s"
-              % (t0, g["ti_slabh"], g["ti_rise"], l0))
-        check(g["ti_slabh"] > 0, "the slab got rows out of the fit check",
-              g["ti_slabh"])
-        check(all(v is not None for v in l0),
-              "every column stands on a lit lip", l0)
-        if all(v is not None for v in l0):
-            steps = [l0[c] - l0[c + 1] for c in range(len(l0) - 1)]
-            check(all(s == g["ti_rise"] for s in steps),
-                  "...and the four lips are a RISE apart, which is the shear",
-                  "%s want %d" % (steps, g["ti_rise"]))
-
-        m.key("KeyG")                           # ...the next place
-        os88marty.guest_sleep(m, 4.0)
-        w, h, px = mono(m)
-        c1 = tile()
-        t1 = rw("ti_terr")
-        check(t1 != t0, "G moves to the next terrain", "%d -> %d" % (t0, t1))
-        diff = sum(bin(a ^ b).count("1") for a, b in zip(c0, c1))
-        check(diff > 0.05 * 8 * len(c0),
-              "...and the two boards are two PICTURES",
-              "%d lit-bit differences of %d" % (diff, 8 * len(c0)))
-        check(all(v is not None for v in lips(px, g)),
-              "...and the second one stands on a lip too", lips(px, g))
-
-        m.key("KeyG")                           # ...and round again
-        os88marty.guest_sleep(m, 4.0)
-        check(rw("ti_terr") == t0 and tile() == c0,
-              "G comes back to the same board, to the bit",
-              "terr %d, %d differing bits"
-              % (rw("ti_terr"),
-                 sum(bin(a ^ b).count("1") for a, b in zip(c0, tile()))))
+        # 4. G, and G again
+        t0 = g["ti_terr"]
+        m.key("KeyG")
+        os88marty.guest_sleep(m, 8.0)
+        g = state()
+        check(g["ti_terr"] != t0, "G moves to the next terrain",
+              "%d -> %d" % (t0, g["ti_terr"]))
+        bad, _ = strips_ok(g["ti_terr"])
+        check(not bad, "...and its strips are THAT terrain's model", bad)
+        m.key("KeyG")
+        os88marty.guest_sleep(m, 8.0)
+        g = state()
+        bad, _ = strips_ok(t0)
+        check(g["ti_terr"] == t0 and not bad,
+              "G comes back to the first board, to the bit",
+              "terr %d, %s" % (g["ti_terr"], bad))
 
 
 def main():

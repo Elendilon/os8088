@@ -184,6 +184,12 @@ ti_layout:
     pop cx                          ; by, so the highest cell of all - column
     add ax, cx                      ; 3, row 0 - lands exactly on the board's
     mov [ti_boardh], ax             ; top edge
+    call ti_place_lay               ; ...AND THE FRONT EDGE UNDER IT: the lip
+    jnc .placed                     ; and the cliff grow the board by E rows,
+    jmp .no
+                                    ; and the arena has to hold this surface
+                                    ; (SPEC.md 97.4.10, tiplace.inc)
+.placed:
 
     ; --- where it goes, inside the content box we actually got
     mov bx, [ti_win]
@@ -256,6 +262,8 @@ ti_layout:
     mov [ti_p2x], ax
     pop ax                          ; 5 * CH again
     add ax, [ti_by]
+    add ax, [ti_ext]                ; ...past column 3's own lip and cliff,
+                                    ; which is where its strip ends now
     ; ...AND P2'S BLOCK SITS DOWN IN ITS STRIP RATHER THAN ON THE BOARD'S
     ; EDGE. P1's hangs from the top of a strip that is empty BELOW it; P2's
     ; starts at the exact row its rear column's last cell ends, so it reads as
@@ -292,32 +300,6 @@ ti_layout:
     add ax, [ti_hud]
     cmp ax, [ti_ch_box]
     ja .no
-
-    ; --- ...AND THE SLAB THE WHOLE THING STANDS ON (SPEC.md 97.4.10)
-    ; The board's front edge is the bottom of the FOUR columns, which the shear
-    ; leaves at four different heights - so the rock under it is deepest behind
-    ; column 3 and shallowest in front of column 0, and the only column the box
-    ; has to grow for at all is column 0. Every other one's face is deeper by
-    ; its own share of the lift for free, which is what makes the staircase
-    ; read as one solid mass rather than four slabs hanging in the air.
-    ;
-    ; IT TAKES WHAT THE FIT CHECK LEFT OVER, and takes nothing when that is
-    ; nothing. A board that refused itself over a decoration would be the fit
-    ; check answering a question nobody asked - the lanes are the game and the
-    ; slab is the frame round them, so the slab is what gives way.
-    mov ax, [ti_ch_box]
-    sub ax, [ti_hud]
-    sub ax, [ti_boardh]             ; the rows the check above has just proved
-    mov bx, [ti_ch]                 ; are going spare
-    mov cl, 2
-    shr bx, cl
-    inc bx                          ; ...against the lip and a quarter-lane of
-    cmp ax, bx                      ; rock, which is what it would like
-    jbe .slabtake
-    mov ax, bx
-.slabtake:
-    mov [ti_slabh], ax
-    add [ti_boardh], ax
 
     mov ax, [ti_ox]                 ; the card panel is hard against the right
     add ax, [ti_cw_box]             ; edge, which is what rescues CGA: every

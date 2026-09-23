@@ -84,65 +84,30 @@ ti_pj_step:
     je .stop
 
     ; --- 1 and 2: the GROUND the band lands on --------------------------
-    ; The cells tile exactly (SPEC.md 97.3) and every cell's ground is the
-    ; same diamond, so the ground under any point of the board is that one
-    ; band read modulo the cell - which is why this is a byte copy and not a
-    ; second picture in RAM. What it does not carry is a FIGURE the band laps;
-    ; wave 3's board picture is where that comes from.
+    ; Read out of the column strips (tiplace.inc), because the board is a
+    ; place and not one tile any more: a bolt crossing from a yard into the
+    ; contested middle crosses two textures and a fence, and the band has to
+    ; carry what is under it or it cuts a black trail. `prep` resolves each
+    ; byte's column once; a row is then one multiply and a load a byte, which
+    ; is what the old read modulo one shared tile cost too. What it does not
+    ; carry is a FIGURE the band laps; wave 3's board picture is where that
+    ; comes from.
     push ds
     pop es
     cld
-    mov ax, [ti_pjx]                ; the band's byte column inside a cell
-    sub ax, [ti_bx]
-    xor dx, dx
-    div word [ti_cw]
-    mov ax, dx                      ; DX = x mod CW
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    mov [ti_pjcx], ax
-
-    mov ax, [ti_pjy]                ; ...and its row inside one
-    sub ax, [ti_by]
-    sub ax, [ti_lift]
-    xor dx, dx
-    div word [ti_ch]
-    mov [ti_pjcy], dx
-
-    mov ax, [ti_cw]
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    mov [ti_pjcs], ax               ; the cell's stride
-
-    mov di, ti_pjband
-    mov word [ti_pjr], 0
-.row:
-    mov ax, [ti_pjr]
-    cmp ax, [ti_pjh]
-    jae .done
-    add ax, [ti_pjcy]
-    xor dx, dx
-    div word [ti_ch]
-    mov ax, dx                      ; the cell row this band row reads
-    mul word [ti_pjcs]
-    mov si, ti_cell
-    add si, ax
+    mov ax, [ti_pjx]
     mov cx, TI_PJB
-    mov bx, [ti_pjcx]
-.byte:
-    push si
-    add si, bx
-    movsb
-    pop si
+    call ti_gnd_prep
+    mov di, ti_pjband
+    mov bx, [ti_pjy]
+    mov dx, [ti_pjh]
+.row:
+    or dx, dx
+    jz .done
+    call ti_gnd_row
+    add di, TI_PJB
     inc bx
-    cmp bx, [ti_pjcs]
-    jb .nw
-    xor bx, bx                      ; ...wrapping at the cell, which is what
-.nw:                                ; makes a tiling ground one band
-    dec cx
-    jnz .byte
-    inc word [ti_pjr]
+    dec dx
     jmp short .row
 .done:
 

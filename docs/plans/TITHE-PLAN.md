@@ -522,57 +522,37 @@ not constants to hard-code.
 **The band is smaller than the cell on purpose** (§3.4): the figure animates and
 the rest of the cell — its ground, and the numbers beside it — does not.
 
-#### 3.2.2 THE BACKGROUND IS A TABLE ROW — BUILT (SPEC.md §97.4.10)
+#### 3.2.2 THE BOARD IS A PLACE — BUILT (SPEC.md §97.4.10)
 
-§3.2 says the four combat columns sit on **one shared ground texture** and that
-the isometric read comes from the art. Built, that came out as three elements
-and one table row per **place** — which is what "multiple places to fight" costs
-in this architecture, and the answer is: almost nothing.
+**This subsection was written against a brief that had been misheard**, and
+§19.2 records how. It built a *background* — a 50% dithered diamond per cell,
+the diamond's own edge as the lane separator, and a stack of lit runs under
+the columns as the board's edge — and the owner's word for the result was
+*"bars under the lanes"*. What was asked for was **art of a location**, in the
+reference game's sense: something built between the lanes, a texture under
+each column sparse enough not to hide the figures, and a border around the
+whole board.
 
-| element | where it lives | what a new place costs |
-|---|---|---|
-| ground texture | composed into the cell tile at load | **4 bytes** of dither |
-| lane separators | the tile's own edge, tiled | **1 byte** of row mask |
-| board edge + rock | four `gfx_fill` runs, drawn | **1 byte** of stripe mask |
+| element | what it is now |
+|---|---|
+| **texture** | one per COLUMN, 32 px square and SPARSE (under a fifth of its pixels): cobbles, cracked earth, grass, paving |
+| **fences** | between the LANES, on the shear's own slope (`RISE` over `CW`), so four columns' fences are one line — wooden posts and rails in THE MARCH, stone bollards on a chain in THE CLOISTER |
+| **the wall** | along the back of lane 0, with nothing above it |
+| **the cliff** | a lit lip under lane 4 on the same slope, and a face of rock under it |
+| **the sides** | a lit edge down the outside of columns 0 and 3 |
 
-**TWO OF THE THREE COST NO DRAWING AT ALL, and that is §3.2's tiling doing the
-work.** The cells tile exactly, so a lit pixel at each end of a diamond row
-joins its neighbours' into a continuous line up-and-to-the-right — the lane
-axis. There is no separator drawn over the board; the tile **is** the
-separator, which is what §3.2 meant by one shared ground texture and is why a
-separator is a byte rather than a pass.
+**§3.2's "one shared ground texture" had to go for it**, and that is the
+architectural half: a figure's band carries its ground (§3.4), so a column's
+texture is a different band per column, and the three compositions every cell
+shared became **eighty** — every cell's four poses. They live in a heap claim
+with the four COLUMN STRIPS the board is composed into, which makes the board
+four blits instead of twenty, and is where §1.5 had put the final game's
+composed sprites all along. `tools/os88tithebg.py` is the model and the
+mock-ups; `tests/titheterr.py` holds the machine to it to the byte.
 
-**THE EDGE IS THE ONE THING THAT HAD TO BE DRAWN**, because it is the one that
-tiles with nothing: it is the bottom of four columns the shear leaves at four
-different heights. §3.2's own sentence is what makes it cheap — the shear is a
-*shear* and not a projection, so the edge is **four horizontal runs at four
-heights**, ~20 `gfx_fill`s once per board repaint (≈15 ms at §1.1's 756 µs),
-and never a line walk over a slope of RISE over CW.
-
-**IT COST ONE DEFECT WORTH WRITING DOWN, and the shape of it is the reason this
-subsection exists.** The lip was computed as `BY + TI_ROWS*CH - c*RISE` —
-correct-looking, and missing the `LIFT` that §3.2's shear pushes column 0 down
-by. It therefore landed a whole cell **up inside** column 0's fourth row and was
-painted over by the cell blit that follows it. **Nothing on the glass, no
-error, and no existing gate could see it**: the board still drew, the wheel
-still held its frame, every card check still passed. Two whole-frame captures
-and a pixel probe said only "there is no lit row where I expected one". What
-finds it is an assertion about the SHEAR rather than about the slab — four
-full-width lit runs, exactly one RISE apart — which is `tests/titheterr.py`.
-
-**AND THE SLAB GIVES WAY TO THE FIT CHECK, not the other way round.** §3.1
-sizes the board from the content box and refuses when it does not fit; growing
-the box by a decoration made a windowed VGA refuse outright. The slab takes
-what the check left over, up to a lip and a quarter-lane of rock — 8 rows of a
-wanted 13 windowed, 8 of 10 on Hercules, the full 6 on CGA — and draws nothing
-when that is nothing. **The lanes are the game; the slab is the frame round
-them.**
-
-One shape that looked right and was not: running every column's rock down to a
-**shared floor**, so the four faces join into one mass. It reads as a *cliff*,
-and it fills the shear's own empty corners — which §2.1 spends on the two
-players' resource blocks. A constant depth under every column follows the
-staircase instead and leaves the corners alone.
+**What it costs, measured on the 8088** (SPEC.md §97.4.10 has the table): a
+relayout is 1.42 s against 0.70 and a repaint 0.53 s against 0.28, and a frame
+is what it was — one band a feature. Neither is inside the wheel.
 
 ### 3.3 The card panel is on the right, and that is what rescues CGA
 
@@ -2807,42 +2787,34 @@ precisely because it answers a question a player asks *while planning*, not one
 they read at a glance — which is the test that kept the other three
 always-visible.
 
-### 8.1.3 THE THREE FACTION IDLES — and what they are for
+### 8.1.3 THE THREE FACTION IDLES — pixel art, not silhouettes
 
-**The placeholder was a trapezoid with a lean.** It scaled to every surface for
-free and said nothing about who was standing there. Three silhouettes with
-three motions is what wave 1a owes the look — and it is what the **music**
-session needs, because a rhythm has to be a rhythm of *something*.
+**The placeholder was a trapezoid with a lean**, and the first art was three
+SILHOUETTES — solid shapes with three motions, which the field signed off for
+their MOVEMENT (the Bulwark's pixel of head and two of shield exactly right, the
+Ember very good) and turned down for their LOOK: with ~60 characters to make, a
+silhouette is too little to tell them apart and says nothing inside its
+outline. So they are **pixel art** now (SPEC.md §97.4.9):
 
-| | the silhouette | what moves |
+| | the figure | what moves |
 |---|---|---|
-| **THE BULWARK** | a shield-bearer, legs planted | the body rocks a pixel; the **shield** lifts and settles two |
-| **THE EMBER CHOIR** | a hooded caster | the hem never moves — it is the shadow it hovers over — everything above it rises and falls, and a **wisp** flickers at the hand |
-| **THE COVENANT** | a nun, hands together | the body is still; the **censer** swings on its chain, which is §4.2.1's pendulum one scale down |
+| **THE BULWARK** | helmed, in mail, sword down, heater shield with a cross | the head rocks a pixel; the **shield** lifts and settles two |
+| **THE EMBER CHOIR** | hooded, a dark face with two lit eyes, one hand raised | the hem never moves; everything above it rises and falls, and a **wisp** flickers at the hand |
+| **THE COVENANT** | a veiled nun, a cross at her breast | the body is still; the **censer** SWAYS two pixels — it swung ten and read as a mace being wielded, too active for an idle |
 
-**The motion is small and the HELD ITEM moves furthest**, which is §4.2.1's
-body/item split arriving as a drawing rule rather than as a data structure.
-That is what the reference does (§0): bodies shift a pixel or two and the
-weapons swing.
+**Detail is a black pixel, and a black pixel needs a MASK**: a figure is
+`(ink, mask)` and is composed `(band AND NOT mask) OR ink` at layout — §4.2.1's
+item-layer format arriving for the body — so a frame still commits one opaque
+band and **detail costs the frame nothing**. What it costs is the ART: the
+figure is drawn once at VGA size and reduced per layer to Hercules and the card
+minis, but **CGA is a second drawing** — 17 rows cannot keep a 42-row figure's
+detail rows — so the roster is *two drawings a character*, which is §4.2's
+"CGA fallback, named and costed now" taken on purpose.
 
-**They are ART, generated on the host** (`tools/os88tithechar.py`, sharing
-`os88tithebase.py`'s primitives and its packed ground-plus-move format) and
-they ride **eight** surfaces, not four: the mini unit on a card is 24 wide
-where the board's band is 64, so the same drawing code is asked for the small
-size rather than the big one being resampled. 7,482 bytes packed, against
-13,632 emitting each pose whole — which a package with 60KB for everything
-cannot spend.
-
-**The dirty rects become one set PER CHARACTER**, and the first build got that
-wrong in a way worth keeping. A rect says which rows a transition moves and
-three characters move three different sets, so one cut from a single character
-leaves the others' motion on the glass. The obvious fix is a **union** — which
-is correct, and cost the lever its edge: the dirty rect's measured win went
-from 24% to **19.7%**, under the bar its own gate holds it to. A set per
-character is eight more words of bss and nothing else, and the character is
-already known wherever the rect is read. It measures **+39.3%** now, better
-than it ever did with the trapezoid, because these figures move less than it
-did.
+**The dirty rect's lever fell from +39.3% to +22.1%** (`tests/titheframe.py`,
+bar 20%): a detailed figure's head and shield are further apart in rows than a
+blob's, so a transition moves more of the band. And the rects were read by
+POSE alone — the first character's for all three — which is fixed.
 
 ### 8.2 CARD ART — what is scoped, and the room the composer leaves
 
@@ -4341,8 +4313,23 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Eight decisions that were made one way and then made another. Each is here
+Ten decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
+
+**THE BOARD WAS A BACKGROUND AND IS A PLACE; THE FIGURES WERE SILHOUETTES AND
+ARE PIXEL ART** (§3.2.2, §8.1.3). Both are the same miscommunication at the
+plan level: §3.2 said *"the static board is painted in perspective (ground
+plane, water, fences, each player's territory and buildings)"* and then said
+the combat columns sit on *"one shared ground texture"* — and the build took the
+second sentence, because it is the one that is an ARCHITECTURE, and produced a
+dithered grid with bars under it. The owner's brief, restated against the
+reference game's own board, was the first sentence: fences between the lanes,
+a sparse texture per column, a border. The shared ground was the cheap half of
+§3.2 and it is what had to go, and with it the three shared compositions — the
+poses are per cell, in a heap claim, and a relayout costs twice what it did.
+The silhouettes went for the owner's reason: sixty characters. **What survived
+both reversals is the MOTION** — the owner signed it off and it was kept pixel
+for pixel, bar the censer.
 
 **THE FULLSCREEN RENDERER: planned, costed, and REFUSED on measurement**
 (`docs/reports/TITHE-FULLSCREEN-2026-09-22.md`). §3.1.1 planned a second

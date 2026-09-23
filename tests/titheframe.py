@@ -45,7 +45,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_nbadv", "ti_bw", "ti_bh",
         "ti_panx", "ti_by", "ti_cardpitch", "ti_cardh", "ti_ccardus",
         "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
-        "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS")
+        "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS",
+        "ti_nlay")
 SPAN = 5.0
 
 fails = []
@@ -229,10 +230,16 @@ def main():
         # running has skewed the pattern - this read 5 collisions off a seed
         # that has none. `P` stops the wheel, so what is read back is the seed
         # and not the drift.
+        # ...AND WAIT FOR THE RELAYOUT, NOT FOR A TIME. It composes four
+        # column strips and eighty poses (SPEC.md 97.4.10) and is over a
+        # second of an 8088; a fixed 0.8s read the clocks before the re-seed
+        # and failed three runs in five on a seed with nothing wrong with it.
         m.key("KeyP")
         os88marty.guest_sleep(m, 0.6)
+        n0 = rw(m, seg, "ti_nlay")
         m.key("KeyB")                                  # ...which re-seeds
-        os88marty.guest_sleep(m, 0.8)
+        os88marty.until(m, lambda _: rw(m, seg, "ti_nlay") != n0,
+                        "the relayout B asks for", poll=0.2, limit=60.0)
         rows, cols = off["TI_ROWS"], off["TI_COLS"]
         cl = bytes(m.readseg(seg, off["ti_clock"], rows * cols))
         grid = [[cl[c * rows + r] for c in range(cols)] for r in range(rows)]

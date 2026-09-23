@@ -971,12 +971,14 @@ ti_cb_unit:
 ; frame, which is a state change dressed as movement; what the panel wants is
 ; the unit ON the card moving, which is also what says which unit the card
 ; plays - and now says WHICH CHARACTER, the three factions being three
-; silhouettes rather than one trapezoid.
+; figures rather than one trapezoid.
 ;
 ; IT IS A SURFACE OF ITS OWN AND NOT A SCALE OF THE BOARD'S. The unit is 24
-; wide where the board's band is 64, so the same drawing code is asked for the
-; small size rather than the big one being resampled - `tools/os88tithechar.py`
-; emits four more surfaces for it, and `TI_CHAR_BG` is where they start.
+; wide where the board's band is 64, so `tools/os88tithechar.py` reduces the
+; figure's LAYERS to it - outlines re-drawn at the small size - rather than
+; the machine resampling the big band, and `TI_CHAR_BG` is where they start.
+; The card is black, so the figure is ORed in by its ink alone: a mask has
+; nothing to punch on a ground that is already dark.
 ; -----------------------------------------------------------------------------
 ti_unit_build:
     push ax
@@ -991,59 +993,46 @@ ti_unit_build:
     cld
     push word [ti_pi]
 
-    mov ax, [ti_ck]                 ; the record: character x unit surface
-    mov bx, TI_CHAR_G
-    mul bx
-    add ax, TI_CHAR_BG
-    add ax, [ti_gidx]
-    shl ax, 1
-    mov si, ti_char_tab
-    add si, ax
-    mov si, [si]
-    mov [ti_urec], si
-
     mov ax, [ti_unitb]              ; the slot's own pitch
     mul word [ti_unith]
     mov [ti_uslot], ax
-
-    mov word [ti_pi], 0             ; --- THE BODY, INTO SLOT 0 --------------
-    call ti_unit_addr
-    push di
-    mov cx, TI_UNITMAX
+    mov ax, TI_CHAR_BG              ; the record: character x unit surface
+    add ax, [ti_gidx]
+    call ti_crec_at
+    mov al, [si + TI_CR_H]          ; ...cut for a band this tall, so the
+    xor ah, ah                      ; figure's FLOOR is kept on a shorter one
+    sub ax, [ti_unith]
+    mov [ti_ushift], ax
+    mov ax, [ti_unitb]
+    mov [ti_fa_stride], ax
+    mov [ti_fa_wb], ax
+    mov ax, [ti_unith]
+    mov [ti_fa_h], ax
+    mov word [ti_fa_dx], 0
+    mov byte [ti_fa_or], 1          ; ON A BLACK CARD, where a mask has
+                                    ; nothing to punch: the ink alone
+    mov word [ti_pi], 0
+.pose:
+    cmp word [ti_pi], TI_POSES
+    jae .done
+    call ti_unit_addr               ; DI = this pose's slot: cleared to the
+    push di                         ; card's black, then the figure
+    mov cx, [ti_uslot]
     xor al, al
     rep stosb
     pop di
-    mov si, [ti_urec]
-    mov si, [si]
-    mov cx, [ti_uslot]
-    rep movsb
-
-    mov word [ti_pi], 0             ; ...REPLICATED INTO THE REST
-    call ti_unit_addr
-    mov si, di
-    add di, TI_UNITMAX
-    mov cx, TI_POSES - 1
-.rep:
-    push cx
     push si
-    push di
-    mov cx, [ti_uslot]
-    rep movsb
-    pop di
+    mov bx, [ti_pi]
+    mov al, [si + TI_CR_Y + bx]
+    xor ah, ah
+    sub ax, [ti_ushift]
+    mov [ti_fa_dy], ax
+    shl bx, 1
+    mov si, [si + bx]
+    call ti_fig_apply               ; ES = DS: the unit lives in the package
     pop si
-    add si, TI_UNITMAX
-    add di, TI_UNITMAX
-    pop cx
-    loop .rep
-
-    mov word [ti_pi], 0             ; ...AND EACH POSE'S MOVE ON TOP
-.mp:
-    mov ax, [ti_pi]
-    cmp ax, TI_POSES
-    jae .done
-    call ti_unit_move
     inc word [ti_pi]
-    jmp short .mp
+    jmp short .pose
 .done:
     pop word [ti_pi]
     pop es
@@ -1055,76 +1044,6 @@ ti_unit_build:
     pop ax
     ret
 
-ti_unit_move:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    cld
-    mov si, [ti_urec]
-    mov ax, [ti_pi]
-    inc ax
-    shl ax, 1
-    add si, ax
-    mov si, [si]
-    mov al, [si + 2]                ; w
-    xor ah, ah
-    or ax, ax
-    jz .out
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    mov [ti_mb], ax
-    mov al, [si + 3]                ; h
-    xor ah, ah
-    mov [ti_mh], ax
-    mov al, [si + 0]                ; x
-    xor ah, ah
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    mov [ti_mx], ax
-    mov al, [si + 1]                ; y
-    xor ah, ah
-    mov [ti_my], ax
-    add si, 4
-
-    call ti_unit_addr
-    mov ax, [ti_my]
-    mul word [ti_unitb]
-    add di, ax
-    add di, [ti_mx]
-    mov dx, [ti_mh]
-.row:
-    or dx, dx
-    jz .out
-    push di
-    mov cx, [ti_mb]
-.byte:
-    lodsb
-    or [di], al
-    inc di
-    loop .byte
-    pop di
-    add di, [ti_unitb]
-    dec dx
-    jmp short .row
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; ti_unit_addr - DI = the band of unit frame [ti_pi]
 ti_unit_addr:
     push ax
     push dx

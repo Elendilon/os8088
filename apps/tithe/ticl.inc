@@ -139,42 +139,25 @@ ti_cl_tierb:
     xor ax, ax
     rep stosb
 
-    ; --- the GROUND: the right cell from row 0, the left one a RISE down ----
-    mov word [ti_clr], 0
+    ; --- the GROUND, out of the two columns' strips (tiplace.inc) --------
+    ; The band's top is column 1's cell top less a RISE, which is column 2's
+    ; cell top - so a row of it is one screen row across both cells, and the
+    ; ground reader hands back each half's own column, fences and all.
+    mov al, 1
+    mov ah, [ti_pjlane]
+    call ti_cellpos                 ; AX = column 1's x, BX = its y
+    sub bx, [ti_rise]
+    mov cx, [ti_clbs]
+    call ti_gnd_prep
+    mov di, ti_clband
+    mov dx, [ti_clh]
 .grow:
-    mov ax, [ti_clr]
-    cmp ax, [ti_clh]
-    jae .gdone
-    mov ax, [ti_clr]                ; the RIGHT half - column 2, the higher
-    cmp ax, [ti_ch]
-    jae .left
-    mul word [ti_clcs]
-    mov si, ti_cell
-    add si, ax
-    mov ax, [ti_clr]
-    mul word [ti_clbs]
-    mov di, ti_clband
-    add di, ax
-    add di, [ti_clcs]
-    mov cx, [ti_clcs]
-    rep movsb
-.left:
-    mov ax, [ti_clr]                ; ...and the LEFT half - column 1, a rise
-    sub ax, [ti_rise]               ; lower
-    js .gnext
-    cmp ax, [ti_ch]
-    jae .gnext
-    mul word [ti_clcs]
-    mov si, ti_cell
-    add si, ax
-    mov ax, [ti_clr]
-    mul word [ti_clbs]
-    mov di, ti_clband
-    add di, ax
-    mov cx, [ti_clcs]
-    rep movsb
-.gnext:
-    inc word [ti_clr]
+    or dx, dx
+    jz .gdone
+    call ti_gnd_row
+    add di, [ti_clbs]
+    inc bx
+    dec dx
     jmp short .grow
 .gdone:
 
@@ -187,6 +170,10 @@ ti_cl_tierb:
     mov ax, [ti_insy]
     add ax, [ti_rise]
     mov [ti_cly], ax
+    mov al, [ti_pjlane]             ; ...WHO stands there: the figure is the
+    xor ah, ah                      ; character's own, cell (1, lane)
+    add ax, TI_ROWS
+    call ti_ck_cell
     call ti_cl_put
 
     mov ax, [ti_insx]               ; column 2: right half, at the top
@@ -197,6 +184,10 @@ ti_cl_tierb:
     mov [ti_clx], ax
     mov ax, [ti_insy]
     mov [ti_cly], ax
+    mov al, [ti_pjlane]             ; ...and cell (2, lane)
+    xor ah, ah
+    add ax, 2 * TI_ROWS
+    call ti_ck_cell
     call ti_cl_put
 
     ; --- and ONE commit, at the HIGHER cell's top --------------------------
@@ -222,40 +213,28 @@ ti_cl_tierb:
     pop ax
     ret
 
-; ti_cl_put - OR the idle pose into the tier B band at [ti_clx]/[ti_cly]
+; ti_cl_put - the idle pose's FIGURE, masked into the tier B band at
+; [ti_clx] bytes and [ti_cly] rows - the figure and not the pose's band, which
+; carries its own cell's ground and would lay a second ground over the first
 ; clobbers: AX, BX, CX, DX, SI, DI
 ti_cl_put:
     push si
-    mov word [ti_pi], 0
-    call ti_pose_addr
-    mov si, di
-    mov word [ti_clr], 0
-.row:
-    mov ax, [ti_clr]
-    cmp ax, [ti_bh]
-    jae .out
+    mov ax, [ti_gidx]
+    call ti_crec_at
+    mov al, [si + TI_CR_Y]          ; pose 0
+    xor ah, ah
     add ax, [ti_cly]
-    cmp ax, [ti_clh]
-    jae .out
-    mul word [ti_clbs]
+    mov [ti_fa_dy], ax
+    mov si, [si]
+    mov ax, [ti_clx]
+    mov [ti_fa_dx], ax
+    mov ax, [ti_clbs]
+    mov [ti_fa_stride], ax
+    mov [ti_fa_wb], ax
+    mov ax, [ti_clh]
+    mov [ti_fa_h], ax
+    mov byte [ti_fa_or], 0
     mov di, ti_clband
-    add di, ax
-    add di, [ti_clx]
-    mov ax, [ti_clr]
-    mul word [ti_bs]
-    push si
-    add si, ax
-    mov cx, [ti_bs]
-.b:
-    mov al, [si]
-    or [di], al
-    inc si
-    inc di
-    dec cx
-    jnz .b
-    pop si
-    inc word [ti_clr]
-    jmp short .row
-.out:
+    call ti_fig_apply
     pop si
     ret

@@ -9429,10 +9429,14 @@ apps/tithe/tibases.inc: tools/os88tithebase.py
 apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 	python3 tools/os88titheface.py emit
 
-# ...and the FACTION IDLES (SPEC.md 97.4.9), which share tibases' drawing
-# primitives and its packed ground-plus-move format.
+# ...and the FACTION IDLES (SPEC.md 97.4.9) - pixel art, as (ink, mask) figures
+# - and the BOARD's ground (SPEC.md 97.4.10): per-column textures and the
+# wall, fence and cliff patterns the package composes its column strips from.
 apps/tithe/tichars.inc: tools/os88tithechar.py tools/os88tithebase.py
 	python3 tools/os88tithechar.py emit
+
+apps/tithe/tiground.inc: tools/os88tithebg.py
+	python3 tools/os88tithebg.py emit
 
 # TICARDPROF=1 times each STAGE of one card's composition with the PIT and
 # banks the counts (SPEC.md 97.4.1.1). It is a knob rather than a counter
@@ -9446,8 +9450,8 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
-                    apps/tithe/tichars.inc \
-                    apps/tithe/titxt.inc \
+                    apps/tithe/tichars.inc apps/tithe/tiground.inc \
+                    apps/tithe/tiplace.inc apps/tithe/titxt.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"

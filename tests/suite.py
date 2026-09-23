@@ -7261,27 +7261,22 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheterr", "soak", py("tests/titheterr.py"), 150.0,
-        "SPEC.md 97.4.10: TITHE's BOARDS - the ground under the lanes, the"
-        "separators between them and the board's own isometric edge, composed"
-        "at round load from one table row per PLACE and cycled with `G`. Two"
-        "of the three cost no drawing at all (the cells tile exactly, so the"
-        "tile IS the separator), and the one that is drawn is the one this row"
-        "exists for. THE SLAB CAN DRAW NOTHING AND BREAK NOTHING: its lip was"
-        "computed without the shear's own LIFT, so it landed a whole cell up"
-        "INSIDE column 0's fourth row and the cell blit that follows painted"
-        "over it - the board still drew, the wheel still held its frame and"
-        "every card check still passed. What catches it is an assertion about"
-        "the SHEAR and not about the slab: a full-width lit run under each of"
-        "the four columns, at four heights exactly one RISE apart, which a lip"
-        "at the wrong height cannot satisfy. It also asserts the slab was"
-        "granted rows at all (it takes what the fit check left over, because a"
-        "board that refused itself over a decoration would be the check"
-        "answering a question nobody asked), that the two terrains are two"
-        "PICTURES, and that G comes back to the same board TO THE BIT. That"
-        "last pair compare the composed CELL TILE and not the screen: the"
-        "three faction idles are running, so two captures four guest seconds"
-        "apart differ by a couple of hundred pixels whatever the ground is"
-        "doing. Needs `make tithedisk`",
+        "SPEC.md 97.4.10 and 97.4.9: TITHE's BOARD is a PLACE - a sparse"
+        "texture per column, a fence between the lanes on the shear's own"
+        "slope, a wall along the back and a cliff under the front - composed"
+        "into four column strips in a heap claim, and every cell's four poses"
+        "are cut from its column's strip with a pixel-art figure MASKED over"
+        "them. tools/os88tithebg.py and tools/os88tithechar.py model both, and"
+        "this row holds the machine to the model EXACTLY, on all three"
+        "adapters and both terrains: every strip to the byte, all eighty"
+        "poses to the byte, and each column's lip and cliff on the GLASS at"
+        "four heights a RISE apart - the one region no figure or number is"
+        "ever drawn over, so a strip blitted at the wrong y fails there and"
+        "nowhere else. Then G twice, which must be the second terrain's model"
+        "and then the first board again to the bit. Broken on purpose both"
+        "ways before it was registered: a figure ORed instead of masked fails"
+        "every pose, and a fence gap one row long fails every strip and the"
+        "glass. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
@@ -7303,17 +7298,30 @@ SOAK = [
         "and 0.2s",
         needs=()),
     Row("tithechar", "fast", py("tools/os88tithechar.py", "--selfcheck"), 1.0,
-        "SPEC.md 97.4.9: TITHE's three FACTION IDLES, at every band size every"
-        "adapter asks for - four for the board and four for the mini unit that"
-        "rides a card, the unit being 24 wide where the board's band is 64."
-        "Three assertions and each is about a thing that is SILENT: four poses"
-        "must be at least three PICTURES (a pose count is paid for in build"
-        "time and in the claim, and art that does not vary with it still"
-        "commits and still measures); a pose must cover between 3% and 60% of"
-        "its band (an empty one and a filled one both draw something); and a"
-        "pose's moving sub-band must be under 192 BYTES - the bar is in bytes"
-        "and not a fraction, because the Ember's upper body IS most of a 24x18"
-        "mini unit and most of a 24x18 band is 54 bytes. Host-side and 0.2s",
+        "SPEC.md 97.4.9: TITHE's three FACTION IDLES as pixel art, at every"
+        "band size every adapter asks for - four for the board (CGA's DRAWN"
+        "for it, the rest reduced per layer) and four for the mini unit that"
+        "rides a card. Four assertions and each is about a thing that is"
+        "SILENT: four poses must be at least three PICTURES (a reduction can"
+        "round a one-pixel motion away, and the wheel still commits a pose"
+        "that moves nothing); a pose must light between 3% and 60% of its"
+        "band; a board figure must light nothing in the band's outer three"
+        "columns, because the stat column begins two past them; and a"
+        "transition may move at most three quarters of a board band's rows,"
+        "which is the dirty rect's whole lever (not on CGA, whose figure is"
+        "17 rows of 18). Host-side and 0.1s",
+        needs=()),
+    Row("tithebg", "fast", py("tools/os88tithebg.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.4.10: TITHE's board as a PLACE - the per-column textures"
+        "and the wall, fence and cliff patterns the package composes its"
+        "column strips from. Three rules: a fence (RISE plus its height) must"
+        "clear the cell's floor, or a figure stands behind the next lane's"
+        "fence; the ground in a lane's middle must light under a fifth of its"
+        "pixels, which is what SPARSE means and what lets a figure stand ON"
+        "it (it caught the first CGA texture, whose rows were ORed down to"
+        "the aspect and piled into a noise field); and the lip must be lit in"
+        "every pixel column, being the board's edge. tests/titheterr.py holds"
+        "the machine to this model to the byte. Host-side and 0.1s",
         needs=()),
     Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
         "SPEC.md 97.5.1: TITHE's base candidates, at every band size every"
