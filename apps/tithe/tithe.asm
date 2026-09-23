@@ -94,6 +94,12 @@ TI_FEATURES equ 21                ; WHAT THE IDLE WHEEL WALKS: 20 characters and
                                   ; number is 23 and the two BASES have come
                                   ; out of it - they are a lane of their own
                                   ; below, on their own clock
+TI_IDLEFPS10 equ 44               ; THE IDLE'S TARGET RATE, in tenths of a pose
+                                  ; a second a feature (SPEC.md 97.5.2): the
+                                  ; rate the XT's VGA and Hercules arms were
+                                  ; signed off at. A CAP and not a promise -
+                                  ; a machine with less room draws what its
+                                  ; credit buys, one with more draws this
 TI_SHARE    equ 20                ; per cent of a frame the IDLE may take.
                                   ; TITHE-PLAN 16.1 asks whether twenty figures
                                   ; breathing at 3.6 fps reads as a crowd or as
@@ -477,10 +483,6 @@ ti_onkey:
     jne .n_fs
     jmp .fs
 .n_fs:
-    cmp bl, 'x'
-    jne .n_drect
-    jmp .drect
-.n_drect:
     cmp bl, 'a'
     jne .n_fire
     jmp .fire
@@ -518,7 +520,10 @@ ti_onkey:
     jmp .terr
 .n_terr:
     cmp al, '+'
+    je .up_
+    cmp al, '='                     ; ...unshifted, the same key
     jne .n_up
+.up_:
     jmp .up
 .n_up:
     cmp al, '-'
@@ -561,9 +566,6 @@ ti_onkey:
     mov byte [ti_laid], 0
     call ti_relayout_ck
     call ti_paint_now
-    jmp .out
-.drect:
-    xor byte [ti_drect], 1          ; the dirty-rect arm (TITHE-PLAN 3.4.1)
     jmp .out
 .detail:
     xor byte [ti_detail], 1         ; SPEC.md 97.7's `D`: Flat, then Banded.
@@ -633,16 +635,16 @@ ti_onkey:
     call ti_relayout_ck
     call ti_paint_now
     jmp .out
-.up:
-    add word [ti_share], 5
-    cmp word [ti_share], 90
-    jbe .credit
-    mov word [ti_share], 90
+.up:                                ; `+`/`-` MOVE THE TARGET RATE, which is
+    add word [ti_fps10], 4          ; the design's number, and not the share,
+    cmp word [ti_fps10], 200        ; which is only a ceiling on the frame
+    jbe .credit                     ; (SPEC.md 97.5.2). 0.4 fps a step, so a
+    mov word [ti_fps10], 200        ; look can be settled on the glass
     jmp short .credit
 .down:
-    cmp word [ti_share], 5          ; THE FLOOR WAS 20 and the field hit it
-    jbe .credit                     ; still looking for something slower, so
-    sub word [ti_share], 5          ; the step is 5 below 20 as well
+    cmp word [ti_fps10], 4
+    jbe .credit
+    sub word [ti_fps10], 4
 .credit:
     call ti_credit
 .out:
@@ -842,10 +844,21 @@ ti_frame:
     mov ax, [ti_creditus]
     call ti_rv_cost_sub             ; ...less what the reveal owes this frame
     mov [ti_left], ax
+    mov ax, [ti_racc]               ; THE RATE CAP (SPEC.md 97.5.2): the wheel
+    add ax, [ti_rstep]              ; banks ti_rstep/256 steps a frame, so a
+    mov dx, [ti_rstep]              ; machine with time to spare - a 286, or an
+    shl dx, 1                       ; XT with a cheap adapter - draws the
+    cmp ax, dx                      ; target rate and not the rate its credit
+    jbe .rbank                      ; could buy. At most two frames banked, so
+    mov ax, dx                      ; a frame the credit cut short is made up
+.rbank:                             ; and a long stall is not burst through
+    mov [ti_racc], ax
     mov cx, TI_FEATURES
 .walk:
     or cx, cx
     jz .out
+    cmp word [ti_racc], 256         ; ...and a step not yet due is not taken,
+    jb .out                         ; whatever the credit says
     mov ax, [ti_wpos]
     inc ax
     cmp ax, TI_FEATURES
@@ -865,6 +878,7 @@ ti_frame:
     mov [bx], al
     mov ax, [ti_wpos]
     call ti_feature                 ; ...and the commit
+    sub word [ti_racc], 256         ; ...a step spent
     call ti_cost                    ; ...charged at what THAT commit cost, not
                                     ; at a whole band's price (SPEC.md 97.5)
     cmp [ti_left], ax
@@ -1059,8 +1073,8 @@ ti_feature:
 .idle:
     pop ax
     call ti_shown_set
-    cmp byte [ti_drect], 0          ; THE DIRTY RECT (SPEC.md 97.4.3): commit
-    je .rows                        ; the rows this TRANSITION moved and not
+                                    ; THE DIRTY RECT (SPEC.md 97.4.3): commit
+                                    ; the rows this TRANSITION moved and not
     cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
     je .rows                        ; it - a board repaint has no transition
     cmp word [ti_arm], 2            ; behind it and owes the whole band. The
@@ -1284,6 +1298,14 @@ ti_credit:
     inc ax
 .have:
     mov [ti_creditus], ax
+    mov ax, [ti_fps10]              ; ...and the RATE's allowance: steps a
+    mov dx, TI_FEATURES             ; frame x 256 = FEATURES x fps / 18.2065,
+    mul dx                          ; the fps in tenths, so x 25,600 / 18,207
+    mov cx, 25600
+    mul cx
+    mov cx, 18207
+    div cx
+    mov [ti_rstep], ax
     pop cx
     pop dx
     pop ax
@@ -1451,21 +1473,20 @@ ti_banded:
 ti_cost:
     push bx
     push dx
-    mov ax, [ti_bh]
-    cmp byte [ti_drect], 0
-    je .rows
-    cmp word [ti_arm], 2            ; a cropped arm commits the whole band
-    jne .rows
+    mov ax, [ti_bh]                 ; WHAT THE COMMIT PUT DOWN, and the dirty
+    cmp word [ti_arm], 2            ; rect is always on (SPEC.md 97.4.3). A
+    jne .rows                       ; cropped arm commits the whole band...
     push ax                         ; ...and so does a fighter's swing
     mov ax, [ti_ci]
     call ti_cl_mine
     pop ax
     jc .rows
     call ti_dirty_rows              ; AH = this character's rows for this move
-    mov al, ah
-    xor ah, ah
-.rows:
-    mul word [ti_rowus]
+    mov al, ah                      ; - charged honestly, because the RATE is
+    xor ah, ah                      ; capped by ti_fps10 and not by the credit
+.rows:                              ; (SPEC.md 97.5.2): a cheaper commit is
+    mul word [ti_rowus]             ; room to reach the target, never a faster
+                                    ; idle than it
     add ax, [ti_arrus]
     cmp byte [ti_detail], 0         ; ...and Banded's extra ARRIVALS, which are
     je .one                         ; the whole of what it costs: the bytes do
@@ -1674,6 +1695,9 @@ ti_bandus:  dw 4800                 ; a starting guess, replaced by the first
                                     ; ti_calibrate - and it is only ever a
                                     ; guess until then (SPEC.md 97.5)
 ti_share:   dw TI_SHARE
+ti_fps10:   dw TI_IDLEFPS10         ; the idle's TARGET rate, a feature, tenths
+ti_rstep:   dw 0                    ; ...as wheel steps a frame, x 256
+ti_racc:    dw 0                    ; ...and banked, x 256
 ti_geo:     dw 0
 ti_ci:      dw 0
 ti_pi:      dw 0
@@ -1847,7 +1871,6 @@ ti_swaps:   db 2
 ti_arm:     dw 2                    ; the sprite-size arm: 0 half, 1 three
                                     ; quarters, 2 the table's own
 ti_bwfull:  dw 0
-ti_drect:   db 0                    ; is the dirty-rect arm on?
 ti_dok:     db 0                    ; ...and is this draw a TRANSITION?
 ti_calfull: dw 0                    ; us for a whole band...
 ti_calone:  dw 0                    ; ...and for one row of it

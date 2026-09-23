@@ -140538,6 +140538,26 @@ has to remember.
 **Only the WHEEL may use it.** A board repaint has no transition behind it and
 owes the whole band; `ti_all` clears the flag and the wheel sets it.
 
+**It is ALWAYS ON.** It was an arm (`X`) while it was a lever being measured;
+the measurement that retired the arm is this one, on MartyPC with the full
+layered board, the wheel charging each commit its own rows:
+
+| adapter | a commit, whole band | a commit, dirty rect | commits a frame, whole / dirty | frame, whole / dirty |
+|---|---|---|---|---|
+| VGA | 3.49 ms | **3.00 ms** (−14%) | 5.0 / 6.3 | 27.7 / 30.9 ms |
+| Hercules | 3.36 ms | **2.84 ms** (−15%) | 5.0 / 6.7 | 26.5 / 30.6 ms |
+| CGA | 2.63 ms | **2.48 ms** (−6%) | 7.0 / 8.6 | 26.1 / 31.6 ms |
+
+**Every commit is cheaper, on every adapter — it is never a slowdown.** What
+read as one was the wheel spending the saving on ~26% MORE commits: a faster
+idle than the one signed off, and a frame 3–5 ms fuller to pay for it. That was
+the missing RATE CAP (§97.5.2) showing itself on an XT, and it is what a 286
+would have shown as figures breathing at several times the speed. With the cap
+the saving is room to REACH the target rate on a machine whose credit falls
+short of it, and headroom in the frame on one that does not. A commit the rect
+cannot shorten (a cropped sprite arm, a fighter mid-swing, a board repaint) is
+the whole band anyway, so there is no case in which it is off.
+
 **What the ART owes is that each transition's motion is LOCAL** — not that the
 figure barely moves. The first placeholder idle here leaned every row of the
 figure, which is a rect covering the whole band and a lever worth exactly
@@ -140615,12 +140635,12 @@ fps a figure):
 6 x 24 band charged at the model's price, had VGA's idle falling 12–20% and its
 frames to 16–17 a second. `tests/titheframe.py` holds it: the idle's rate with
 two bolts in flight moves under 0.5% against a ±15% bar, and the frame holds
-18.7 passes a second. **The busiest frame — two bolts AND the dirty-rect arm —
-holds 15.3–15.4 against the row's bar of 15**, which is thin: with one
-ground-only bolt it held 18.7. The dirty-rect arm lets the wheel make ~26% more
-commits on a model that prices a commit by its rows, and the ticks it loses
-fall outside the span `ti_overran` watches, so the trim never sees them. That
-arm is off by default and is wave 1a's lever to look at, not the game's.
+18.7 passes a second. **The busiest frame — two bolts over the whole board's
+idle — is that same frame**, since the dirty rect is always on (§97.4.3). It
+held only 15.3–15.4 while the rect was an arm with no rate cap: the wheel
+bought ~26% more commits with the saving, and the ticks it lost fell outside
+the span `ti_overran` watches, so the trim never saw them. Under §97.5.2's cap
+it holds **18.7**, the idle at its target and the bolts at the frame rate.
 
 **`tests/tithepj.py`** holds it on all three adapters: paused mid-flight, the
 glass against a whole repaint differs by at most two bolts' pixels; with the arm
@@ -140835,7 +140855,9 @@ A relayout is a round load and a size change, and a repaint is an expose;
 neither is inside the wheel, and `tests/titheframe.py` measures the wheel
 unchanged — 18.7 frames a second, and the dirty rect buying **+26.7%** against
 its 20% bar, where the silhouettes bought 39.3%: a pixel-art figure moves more
-of its rows between poses than a solid one does.
+of its rows between poses than a solid one does. (That bar is retired with the
+arm: §97.5.2 caps the rate, so the saving is room to reach the target and not
+a faster idle.)
 
 **The relayout nearly doubled with the layers (§97.4.9), and it is the attack
 frames and not the layers.** A cell composes eight frames where it composed four,
@@ -141159,6 +141181,44 @@ silent: the lane still commits, the rate still measures, and the picture does
 not move.
 
 
+#### 97.5.2 THE RATE CAP — the credit is a ceiling, the TARGET is the design
+
+**The credit alone makes the idle as fast as the machine is.** It is a share
+of the tick in microseconds, and every commit is charged what it costs, so a
+machine whose commits are cheaper buys more of them: an XT's CGA arm idled at
+6.2 poses a second a feature where its VGA and Hercules arms did 4.4, and a
+286 — a band in a fraction of the XT's time — would have run every figure at
+several times the rate the field signed off. The field had already said what
+too fast looks like (§97.5: 6.4 was too fast).
+
+**So the idle has a TARGET RATE, `TI_IDLEFPS10`, and the wheel may not beat
+it.** 4.4 poses a second a feature, the rate the XT's VGA and Hercules arms
+were signed off at. The wheel banks `FEATURES × fps / 18.2065` steps a frame
+(×256, so the fraction carries) and a step that is not yet due is not taken,
+whatever the credit says. Two frames at most are banked, the lanes' own rule
+(§97.5.1): a frame the credit cut short is made up by the next, and a stall is
+not burst through.
+
+**Nothing else needed one.** Every other animation is already on the CLOCK:
+a bolt, a clash and a reveal take one step a frame and a base lane one commit,
+and a frame is one a tick on any machine. The idle wheel was the one lane
+whose rate was set by how much fitted.
+
+**What the cap changes about the credit's meaning is the point of it**: the
+share is now a CEILING on the frame, and every optimisation below it — the
+dirty rect (§97.4.3), a cheaper blit, a faster adapter — is room to REACH the
+target on a machine that falls short, and headroom on one that does not. It
+is never a faster idle. Measured on the XT's VGA: **89.7 commits a second
+against a target of 88.0** (twenty characters at 4.4), the frame at 18.7
+passes a second, the busiest frame — two bolts over the whole board — at
+**18.7 where it was 15.3**, and a target lowered to 2.8 lands at 57.2 against
+56.0. `tests/titheframe.py` holds both: the default does not run above its
+target, and a target the machine can beat is landed ON.
+
+`+` / `-` (and `=`) move the TARGET by 0.4, not the share: the rate is the
+design's number, and the share is only how much of a tick the idle may take
+reaching it.
+
 ### 97.6 ONE renderer, and fullscreen is a WINDOW
 
 **There is one renderer and it draws through `OSAPI_GFX_BLIT1`.** `F` takes
@@ -141206,11 +141266,10 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
 | `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
-| `X` | the dirty-rect arm on/off (§97.4.3) |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `R` | re-calibrate the wheel's credit and show it |
-| `+` / `-` | move the animation share off its default 20% |
+| `+` / `-` | move the idle's TARGET RATE off its default 4.4 poses a second a feature, 0.4 a step (§97.5.2) |
 | `P` | pause the wheel, for looking at one frame |
 | `Esc` | leave fullscreen, else close |
 

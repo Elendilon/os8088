@@ -602,6 +602,15 @@ the cell grid costs nothing.
 
 #### 3.4.1 THE DIRTY RECT — the cheapest thing in this document
 
+> **DECIDED, wave 1a (2026-09-23): ALWAYS ON, UNDER A RATE CAP.** Measured on
+> the layered board, every commit is cheaper with the rect on every adapter —
+> VGA 3.49 → 3.00 ms, Hercules 3.36 → 2.84, CGA 2.63 → 2.48 — so it is never a
+> slowdown. What looked like one was the wheel spending the saving on ~26%
+> MORE commits, a faster idle than the one signed off: the credit had no rate
+> ceiling, which is the same defect a 286 would show as hyperspeed. The idle
+> now has a TARGET RATE the wheel may not beat (SPEC.md §97.5.2), so the rect
+> is room to reach it and headroom beyond it. The `X` arm is gone.
+
 **An idle pose differs from its neighbour in PART of the figure, not all of
 it.** A breathing character moves its chest and head; a waiting one shifts its
 weapon. The feet do not move at all. So the band that goes down is not the
@@ -4139,9 +4148,10 @@ bolts at once and every lane idling (SPEC.md §97.4.5), commits a second over
 Fullscreen VGA idles at **3.5 fps a figure**, against §1.3's measured 3.6, and
 **two bolts cost nothing measurable on any adapter** — the band being sized to
 the bolt's two places and the combat lane charged by the clock (SPEC.md
-§97.4.5). The busiest frame, two bolts and the dirty-rect arm, holds 15.3–15.4
-passes a second against the row's bar of 15 — thin, and the dirty-rect arm's
-doing: the default frame holds 18.7 with both bolts up.
+§97.4.5). The busiest frame is two bolts over the whole board's idle; it held
+15.3–15.4 passes a second while the dirty rect was an arm charged by its rows,
+and holds 18.7 now that it is always on under SPEC.md §97.5.2's rate cap
+(§3.4.1).
 Music is ~0.5% of the machine (§13.5) and so it should disappear into the
 measurement — but *should* is what a bench is for.
 

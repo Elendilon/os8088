@@ -17,18 +17,18 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      Zero means the PIT span wrapped (TITHE-PLAN 3.9's own trap), and a
      credit of zero is one the wheel cannot divide by.
 
-  3. THE DIRTY RECT BUYS SOMETHING. It is TITHE-PLAN 3.4.1's lever and it
-     measured +0.6% while the charge was flat. Anything under +20% here
-     means the wheel has stopped pricing what it draws, which is the defect
-     that makes every later optimisation look worthless.
-
-  4. THE SPRITE ARMS DIFFER. Three sizes that commit at the same rate are
+  3. THE SPRITE ARMS DIFFER. Three sizes that commit at the same rate are
      three sizes nobody can choose between (TITHE-PLAN 18.1).
 
-  5. A PROJECTILE COSTS AND DOES NOT STALL. It is the most expensive thing
-     in the renderer (3.9.1), so it must take commits away from the idle -
-     and the frame must still hold, because four lanes stopping to pay for
-     it is the concession 3.8 already made.
+  4. A PROJECTILE DOES NOT MOVE THE IDLE, AND THE FRAME HOLDS. Two bolts
+     crossing are the busiest frame on the machine (SPEC.md 97.4.5); they
+     are charged to the combat lane, so the idle's rate stays within a band
+     of its own, and the frame must still hold at 15 passes a second.
+
+  THE DIRTY RECT IS NOT AN ARM HERE ANY MORE. It is always on and the wheel
+  charges it the WHOLE band (SPEC.md 97.4.3): its 6-15% per commit is the
+  frame's headroom, not a faster idle, so the rate it would have been
+  asserted on is the rate item 4 already holds.
 """
 import os
 import struct
@@ -44,9 +44,9 @@ import os88mouse                                          # noqa: E402
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_nbadv", "ti_bw", "ti_bh",
         "ti_panx", "ti_by", "ti_cardpitch", "ti_cardh", "ti_ccardus",
-        "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
+        "ti_calfull", "ti_calone", "ti_base", "ti_bslot",
         "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS",
-        "ti_nlay")
+        "ti_nlay", "ti_fps10")
 SPAN = 5.0
 
 fails = []
@@ -116,24 +116,19 @@ def main():
                     ((rw(m, seg, "ti_npj") - p) & 0xFFFF) / spent)
 
         base_c, base_f, _ = rate()
-        print("  base: %.1f commits/s, %.1f frames/s" % (base_c, base_f))
+        TARGET = rw(m, seg, "ti_fps10")
+        print("  base: %.1f commits/s, %.1f frames/s (target %.1f a feature "
+              "= %.1f commits/s)" % (base_c, base_f, TARGET / 10.0,
+                                     TARGET * 2.0))
+        check(base_c <= TARGET * 2.0 * 1.08,
+              "the idle does not run above its target rate",
+              "%.1f vs %.1f" % (base_c, TARGET * 2.0))
         check(base_f >= 16.0,
               "the wheel holds one pass a tick (>= 16 frames/s of 18.2)",
               "%.1f" % base_f)
 
-        m.key("KeyX")                                  # the dirty-rect arm
+        m.key("KeyA")                                  # two bolts crossing
         os88marty.guest_sleep(m, 2.5)
-        d_c, d_f, _ = rate()
-        gain = 100.0 * (d_c - base_c) / base_c
-        print("  dirty rect: %.1f commits/s (%+.1f%%)" % (d_c, gain))
-        check(gain >= 20.0, "the dirty rect buys at least 20%",
-              "%+.1f%%" % gain)
-
-        m.key("KeyA")                                  # dirty rect + projectile
-        os88marty.guest_sleep(m, 2.5)
-        pd_c, pd_f, pd_p = rate()
-        m.key("KeyX")                                  # ...then the rect off,
-        os88marty.guest_sleep(m, 2.5)                  # the bolt still flying
         p_c, p_f, p_p = rate()
         print("  + projectile: %.1f commits/s, %.1f frames/s, %.1f bolts/s"
               % (p_c, p_f, p_p))
@@ -150,18 +145,14 @@ def main():
         print("  idle with a bolt in flight: %.1f/s (%+.1f%%)" % (p_c, drift))
         check(abs(drift) <= 15.0, "...and a bolt does not move the idle's rate",
               "%+.1f%%" % drift)
-        check(p_f >= 15.0, "...and the frame still holds", "%.1f" % p_f)
-        # THE COMBINATION THAT DID NOT HOLD, AND NOW DOES. Dirty rect AND a
-        # projectile together ran at ~13 passes a second against the wheel's
-        # 18.2, and trimming the credit did not recover it - which said the
-        # cost was not in the commits the credit gates. It was not: it was the
-        # combat allowance being ADDED to the idle's share, so the busiest
-        # frame on the machine was also the one the wheel was told it could
-        # spend most in. Separate lanes (SPEC.md 97.5.1) took it to 18.7 and
-        # the floor is the 15 this row carried as the fix's own gate.
-        print("  + projectile AND dirty rect: %.1f frames/s" % pd_f)
-        check(pd_f >= 15.0, "...and the busiest frame holds its rate too",
-              "%.1f" % pd_f)
+        # THE BUSIEST FRAME ON THE MACHINE: two bolts crossing over the whole
+        # board's idle, with the dirty rect committing every idle move (it is
+        # always on - SPEC.md 97.4.3). It once ran at ~13 passes a second
+        # against the wheel's 18.2, because the combat allowance was ADDED to
+        # the idle's share; separate lanes (SPEC.md 97.5.1) fixed that and 15
+        # is the floor that fix carried as its own gate.
+        check(p_f >= 15.0, "...and the busiest frame holds its rate",
+              "%.1f" % p_f)
         m.key("KeyA")
         os88marty.guest_sleep(m, 2.5)
 
@@ -179,19 +170,33 @@ def main():
             os88marty.until(m, lambda _: rw(m, seg, "ti_nlay") != n0,
                             "the relayout S asks for", poll=0.2, limit=60.0)
             os88marty.guest_sleep(m, 0.5)
+        # THE ARMS ARE A PRICING QUESTION, so they are asked UNCAPPED: with
+        # the target at its default every arm that can beat it draws exactly
+        # it (SPEC.md 97.5.2), and three equal rates would say nothing about
+        # whether a smaller commit is priced as one.
+        def target(v):
+            m.write(seg * 16 + off["ti_fps10"], struct.pack("<H", v))
+        target(200)
+        os88marty.guest_sleep(m, 1.0)
+        u_c, _, _ = rate()
         arm()                                          # the sprite arms
         a0_c, _, _ = rate()
         w0 = rw(m, seg, "ti_bw")
         arm()
         a1_c, _, _ = rate()
         w1 = rw(m, seg, "ti_bw")
-        print("  arms: %d px %.1f/s, %d px %.1f/s, 64 px %.1f/s"
-              % (w0, a0_c, w1, a1_c, base_c))
+        print("  arms, uncapped: %d px %.1f/s, %d px %.1f/s, 64 px %.1f/s"
+              % (w0, a0_c, w1, a1_c, u_c))
         check(w0 < w1 < 64, "the three arms are three sizes",
               "%d %d 64" % (w0, w1))
-        check(a0_c > a1_c > base_c * 1.05,
+        # THE SMALLEST AGAINST THE FULL SIZE, and not the middle one: the
+        # middle arm is a CROP, which commits its whole band (SPEC.md 97.4.3),
+        # while the full size commits only its dirty rows - so 48 against 64
+        # is a crop against a dirty rect and orders either way.
+        check(a0_c > u_c * 1.05,
               "...and a smaller sprite commits more often",
-              "%.1f %.1f %.1f" % (a0_c, a1_c, base_c))
+              "%.1f vs %.1f" % (a0_c, u_c))
+        target(TARGET)
 
         # THE BASE LANE (SPEC.md 97.5.1). One of the two bases a frame, so
         # its own commits are one a frame and each base plays at half the tick
@@ -368,16 +373,30 @@ def main():
               % (b_hi, f_hi, c_hi))
         check(b_hi >= 0.85 * f_hi, "the base lane commits once a frame",
               "%.1f of %.1f" % (b_hi, f_hi))
-        for _ in range(4):                             # the idle's share right
-            m.key("Minus")                             # down - 20% to the 5%
-        os88marty.guest_sleep(m, 2.5)                  # floor
+        # THE RATE CAP (SPEC.md 97.5.2) - the 286's question asked on an XT.
+        # A faster machine is one whose credit buys MORE than the target, and
+        # so is a slower target on this one: four presses of `-` take the
+        # target from 4.4 to 2.8 poses a second a feature, well under what
+        # the credit buys here, and the idle must land ON it - not above,
+        # which is the hyperspeed a 286 would show, and not far below, which
+        # would be a cap that also starves. The hand's feature takes a step
+        # and commits nothing with no card hovered, so twenty commits are
+        # twenty-one steps.
+        fps = rw(m, seg, "ti_fps10") / 10.0
+        for _ in range(4):
+            m.key("Minus")
+        os88marty.guest_sleep(m, 2.5)
+        want = (rw(m, seg, "ti_fps10") / 10.0) * 20
         b_lo, c_lo, _ = lane()
-        print("  ...share cut: idle %.1f/s (was %.1f), base %.1f/s (was %.1f)"
-              % (c_lo, c_hi, b_lo, b_hi))
-        check(c_lo < c_hi * 0.75, "cutting the share slows the IDLE",
-              "%.1f vs %.1f" % (c_lo, c_hi))
-        check(b_lo >= 0.85 * b_hi, "...and leaves the BASE LANE where it was",
+        print("  target %.1f -> %.1f: idle %.1f commits/s (want %.1f), "
+              "base %.1f/s (was %.1f)" % (fps, want / 20, c_lo, want, b_lo, b_hi))
+        check(abs(c_lo - want) <= 0.08 * want,
+              "the idle lands ON a target the machine can beat",
+              "%.1f vs %.1f" % (c_lo, want))
+        check(b_lo >= 0.85 * b_hi, "...and the BASE LANE stays where it was",
               "%.1f vs %.1f" % (b_lo, b_hi))
+        for _ in range(4):
+            m.key("Equal")
 
     print("titheframe: %d check(s) FAILED" % len(fails) if fails
           else "titheframe: ok")
