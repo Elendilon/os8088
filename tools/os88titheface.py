@@ -279,12 +279,27 @@ def sheet_out(faces, out):
 # consecutive glyphs and `ti_chidx` maps a byte to one. Emitting 32..90 instead
 # would be 91 glyphs of which 43 are never drawn - at 8 rows each that is 344
 # bytes of a package that has 60KB for everything.
+#
+# THE TALL FACE'S ICONS ARE THE ONES ALREADY ON SCREEN, byte for byte out of
+# ti_ic_* - a second drawing of the same coin would be a second coin.
 # =============================================================================
 
 ORDER = ([("icon", i) for i in range(1, 10)] + [("c", " ")] +
          [("c", c) for c in "0123456789"] +
          [("c", c) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"] +
          [("c", c) for c in "-.+/,:"])
+
+TALL_ICONS = {                      # 8x8, and the first five are ti_ic_*'s own
+    1: [0x66, 0xFF, 0xFF, 0xFF, 0x7E, 0x3C, 0x18, 0x00],   # heart   HP
+    2: [0x3C, 0x66, 0xDB, 0xDB, 0xDB, 0xDB, 0x66, 0x3C],   # coin    gold
+    3: [0x3C, 0x7E, 0xDB, 0xFF, 0xE7, 0x7E, 0x3C, 0x18],   # soul
+    4: [0x18, 0x18, 0x18, 0x18, 0x7E, 0x18, 0x18, 0x3C],   # sword   melee
+    5: [0xFF, 0xC3, 0xC3, 0x66, 0x66, 0x3C, 0x18, 0x00],   # shield
+    6: [0x60, 0x50, 0x48, 0x44, 0x48, 0x50, 0x60, 0x00],   # bow     ranged
+    7: [0x18, 0x18, 0x7E, 0x3C, 0x66, 0x42, 0x00, 0x00],   # star    special
+    8: [0x80, 0xC0, 0xE0, 0xF0, 0xE0, 0xC0, 0x80, 0x00],   # stance  FRONT
+    9: [0x80, 0xC0, 0xE0, 0xF0, 0x00, 0x00, 0xFE, 0x00],   # stance  SNIPE
+}
 
 
 def pack_face(f, icons=None):
@@ -313,11 +328,13 @@ def pack_face(f, icons=None):
 
 def shipped():
     """The faces the package carries - named once, for `emit` and the gate."""
-    # ONE FACE. tithe6 is the face the panel is cut for - the only one a CGA
-    # card can carry a line of at all - and the tall 8x8 the `T` key used to
-    # switch to was a look question the owner settled on it (SPEC.md 97.4.1).
-    # The sheet still draws the candidates; the package carries this one.
-    return [("t6", Face("fonts/tithe6.f6"), None)]
+    # TWO FACES, AND WHICH ONE IS THE SURFACE'S (SPEC.md 97.4.1.1). tithe6 is
+    # face 0: the board's numbers, the HUD and the vertical card strip, the
+    # only face a CGA card can carry a line of at all. The tall 8x8 is face 1
+    # and it is the FULLSCREEN HAND's (97.4.12) - more legible, and a portrait
+    # card along the bottom has the rows for it that a strip row never had.
+    return [("t6", Face("fonts/tithe6.f6"), None),
+            ("tall", Face("fonts/tallx.f8"), TALL_ICONS)]
 
 
 def emit(path):

@@ -7273,6 +7273,19 @@ SOAK = [
         "this was registered. All three adapters. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithefs", "soak", py("tests/tithefs.py"), 120.0,
+        "SPEC.md 97.4.12: TITHE's FULLSCREEN HAND - seven portrait cards along"
+        "the bottom under a centred board on VGA and Hercules fullscreen, the"
+        "strip kept on CGA and windowed. It asserts the geometry (seven"
+        "aligned bands a byte apart, COMMIT after them, under the board), that"
+        "every card is drawn, that a hovered card RISES and no other does,"
+        "that paused mid-animation the hand is exactly a whole repaint - which"
+        "failed on Hercules by 83 pixels while the hovered card read a board"
+        "cell's clock - and that a clicked card is played from the bottom row"
+        "with its band dark and the screen exactly a repaint. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titherv", "soak", py("tests/titherv.py"), 90.0,
         "SPEC.md 97.4.11: TITHE's REVEAL - a CLICK on a card plays it, and so"
         "does `V`, and the row makes one play each way (the click's card being"

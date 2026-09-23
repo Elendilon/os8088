@@ -9426,7 +9426,7 @@ apps/tithe/tibases.inc: tools/os88tithebase.py
 # THE .bin DEPENDS ON BOTH. It did not, and an edited face then assembled into
 # an up-to-date package that was never rebuilt - which reads exactly like a
 # glyph change that did nothing, and cost a screenshot round to find.
-apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tithe6.f6
+apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 	python3 tools/os88titheface.py emit
 
 # ...and the CHARACTERS (SPEC.md 97.4.9): bodies and items as pixel art, the

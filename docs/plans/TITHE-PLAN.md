@@ -2956,6 +2956,19 @@ rows the text does not.
 
 ### 8.3 THE FULLSCREEN PANEL — a different shape for the room fullscreen has
 
+> **BUILT in wave 1b (2026-09-23) — SPEC.md §97.4.12 is the contract.** Three
+> things came out differently from what is below. **The rooms were stale**: the
+> board has grown its lip and cliff since this table was taken, so the VGA
+> fullscreen board is 366 rows and leaves 78, not 118 — and fullscreen VGA
+> takes the WINDOWED board (335, leaving 117) for a 72 × 107 card. Hercules
+> leaves 82 for an 80 × 72 card, which its 1.55 : 1 pixels make a portrait on
+> the glass. **Seven across is a byte of ground apart and a hovered card
+> RISES**: every x and width is a multiple of 8 for `gfx_blit1` and the hover's
+> byte invert, so there is no room to widen into. **The picture is the
+> character at the board's own size**, not card art, in an 11KB claim of its
+> own — the art does not exist yet and the figure does. ~3.3KB of package, the
+> two 1.5KB card bands most of it, and none of the kernel.
+
 **This is the owner's, and the arithmetic says it works.** Windowed, vertical
 space is what binds and the panel is a vertical strip because every row of
 board height the hand does not take is a row the five lanes get (§8.1).
@@ -2999,8 +3012,8 @@ design where 90 card arts have somewhere to be seen at full size, which is why
 it is written down here at the point the question came up rather than
 discovered in wave 5 when the art exists.
 
-**NOT TAKEN YET**, and the thing that should decide it is the same thing that
-decided the face: somebody looks at it. It is listed in §16's wave table
+**IT WAS NOT TAKEN AT FIRST**, and the thing that decided it was the same thing
+that decided the face: somebody looked at it. It is listed in §16's wave table
 against wave 1b, because it is a layout change and wave 1a's business is
 whether the layout reads at all.
 
@@ -4043,7 +4056,7 @@ breaking the thing on purpose first and watching it go red —
 | **0** | **DONE, in two passes.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. The first pass halved the animation rate (§19.2); the second priced three levers, took two, refused one, and **changed the kernel** (SPEC.md §5.4.2.6) | the numbers exist |
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it.** The fullscreen RENDERER was in this wave and is refused — §19.2, and fullscreen is `wm_fullscreen` | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features **in both the windowed and the fullscreen geometry** |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
-| **1b** | **THE FULLSCREEN PANEL** (§8.3) — the hand along the bottom on VGA and Hercules fullscreen, portrait cards at 88 × 112 with room for art, the board centred above. A layout row and a horizontal `ti_card_y`, no second renderer | **the owner looks at it** beside the vertical strip |
+| **1b** | **THE FULLSCREEN PANEL** (§8.3) — the hand along the bottom on VGA and Hercules fullscreen, portrait cards with the character at board size, the board centred above. A layout and a horizontal `ti_card_pos`, no second renderer. **BUILT** (SPEC.md §97.4.12): 72 × 107 on VGA, 80 × 72 on Hercules | **the owner looks at it** beside the vertical strip |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |

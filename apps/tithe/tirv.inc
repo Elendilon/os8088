@@ -203,12 +203,17 @@ ti_rv_play:
     add bx, cx
     mov [ti_rvy1], bx
     pop word [ti_ci]
-    mov ax, [ti_cardw]              ; the card's centre
-    shr ax, 1
+    mov ax, [ti_rvcard]             ; the card's centre, down the strip or
+    call ti_card_pos                ; across the fullscreen hand (97.4.12)
+    mov cx, [ti_cardw]
+    cmp byte [ti_horiz], 0          ; a strip band has its margin before the
+    jne .across                     ; card, a portrait band none
     add ax, [ti_cardx]
+    sub ax, [ti_panx]
+.across:
+    shr cx, 1
+    add ax, cx
     mov [ti_rvx0], ax
-    mov ax, [ti_rvcard]
-    call ti_card_y                  ; BX = its top
     mov ax, [ti_cardh]
     shr ax, 1
     add bx, ax
@@ -392,7 +397,7 @@ ti_rv_cost:
     inc al
     cmp al, TI_RVCARD + 3
     ja .cell
-    mov ax, [ti_cardh]              ; the card's band - composed at the key,
+    mov ax, [ti_cbrows]             ; the card's band - composed at the key,
     mul word [ti_rowus]             ; so rows and an arrival
     add bx, ax
     add bx, [ti_arrus]
@@ -799,7 +804,7 @@ ti_rv_cardfade:
     mov di, ti_cfband
     xor dx, dx
 .row:
-    cmp dx, [ti_cardh]
+    cmp dx, [ti_cbrows]
     jae .out
     push bx
     mov ax, dx

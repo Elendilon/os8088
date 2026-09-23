@@ -140210,13 +140210,16 @@ multiply itself, which is one 16-bit multiply a GLYPH where a card is ~55 of
 them; `ti_text` does it once and hands the row down. With six fewer register
 saves a glyph that is ~1 ms of a card.
 
-**ONE FACE SHIPS, and it is the 6×6.** It was a key (`T`) against a tall 8×8
-while which one was right was a look question: the 8×8 is more legible and the
-6×6 fits **four rows where 8×8 fits three**, which is the difference between a
-card that shows all six stats and one that shows four — and on CGA the 8×8 fits
-none. The owner settled it on the glass and the key and the second face went at
-the demo cleanup (§97.7); `tools/os88titheface.py` still draws the candidates
-on its sheet and emits the one.
+**TWO FACES, AND THE SURFACE PICKS.** The 6×6 is face 0 and it is everything's
+but one: the board's numbers, the HUD and the vertical card strip, where it fits
+**four rows where 8×8 fits three** — the difference between a card that shows
+all six stats and one that shows four — and on CGA the 8×8 fits none. The tall
+8×8 is face 1 and it is the **fullscreen hand's** (§97.4.12): more legible, and
+a portrait card has the rows for it that a strip row never had. It was a key
+(`T`) while which face was right was one question; it went at the demo cleanup
+(§97.7) and came back the next wave as the answer to a different one.
+`ti_card_draw` sets face 1 for a portrait and puts the caller's face back, so
+nothing else ever sees it.
 
 **A GENERATED TABLE NEEDS A MAKEFILE DEPENDENCY.** `apps/tithe/tifaces.inc` is
 emitted by a tool and `$(BUILD)/tithe.bin` did not depend on it, so an edited
@@ -141016,6 +141019,91 @@ the card's index — so a repainted hand froze each card's figure wherever that
 cell happened to be, and no repaint was the picture the last one left. A
 resting card's unit stands in pose 0 now; only the hovered card animates.
 
+#### 97.4.12 THE FULLSCREEN HAND — seven portrait cards along the bottom
+
+**Windowed, the hand is a strip down the right because height is what binds**
+(§97.4.2): every row the hand does not take is a row the five lanes get.
+Fullscreen on VGA and Hercules that stops being true, so the hand becomes a
+row of **portrait** cards under a centred board — the first geometry in this
+design where a card's picture is the larger half of it (TITHE-PLAN §8.3).
+
+**It is a second LAYOUT and not a second renderer.** `ti_card_draw` still
+composes one band and blits it once; what changes is where the band goes
+(`ti_card_pos` steps ACROSS instead of down), what is composed into it
+(`ti_cb_portrait`: the name, the character at the BOARD's own size, then its
+costs and four stats in the flow the strip uses), and the face (the tall 8×8,
+§97.4.1.1). It is chosen in `ti_layout` when the room is there and not as a
+mode: fullscreen, not CGA, and at least `TI_HLIFT + TI_HCARDMIN + TI_HGAP` rows
+under the board. A surface without them keeps the strip.
+
+| | board | rows left | card | pitch | COMMIT column |
+|---|---|---|---|---|---|
+| VGA fullscreen | the WINDOWED row's, 335 + 28 HUD | 117 | **72 × 107** | 80 | 64 |
+| Hercules fullscreen | its own, 238 + 28 HUD | 82 | **80 × 72** (≈ 80 × 112 on the glass) | 88 | 88 |
+| CGA fullscreen | — | — | the strip: seven across 640 at 2.4 : 1 pixels would LOOK 91 × 30 | | |
+
+**VGA FULLSCREEN TAKES THE WINDOWED BOARD.** TITHE-PLAN §8.3 counted 118 rows
+under a 326-row board, and the board has since grown its lip and cliff
+(§97.4.10): the fullscreen row's is **366** and leaves 78, a card 70 tall and
+72 wide, which is not a portrait. The windowed row's is 335 and leaves 117. So
+`ti_georow` answers the windowed row on VGA whether or not the window is
+fullscreen — and what that cost is visible in §97.5.2's own table: the old
+fullscreen board could not reach the target rate (3.5 poses a second) and this
+one does (4.35-4.47). **`ti_geo_vgaf` and the art surface built for it are now
+reached by nothing**, and whether to delete them or to give them back to a
+fullscreen-without-a-hand arm is open.
+
+**EVERY TERM IS A MULTIPLE OF 8, and that is why a hovered card RISES.** A
+band is blitted with `gfx_blit1`, so its x must be, and the hover's invert is
+byte work over the card's columns — so the ground between two cards is a
+whole byte and is never inside a band at all. The strip's hover WIDENS into an
+8-pixel margin inside its band; across 640 that margin is a card's worth of
+the seven. So a portrait band is the card plus `TI_HLIFT` = 6 rows above it,
+a resting card sits at the band's foot, and the hovered one at its top. The
+band's rows are `ti_cbrows` and the card's row 0 is `ti_cbase`, which every
+band primitive reads instead of the band's own start.
+
+**The figure is the board's, on black, in a claim of its own.** `ti_fseg` is
+`TI_FIGKB` = 11KB claimed with the arena at entry: seven cards × four poses ×
+the board's band (384 bytes on VGA), composed by `ti_char_put` from the same
+records a cell is, with the item the FRONT/REAR toggle names — so it is rebuilt
+where the strip's units are, at a layout and at a toggle. Claimed at entry
+rather than at `F` because a key that could fail for memory is a refusal the
+player meets mid-game.
+
+**A 64-wide figure on a 72-wide card is a NIBBLE off a byte**, and a store
+composed at that offset would be a second copy of every pose. So the store is
+the figure as the board has it and `ti_cb_pic` shifts it as it ORs it in —
+`ti_picb` bytes and `ti_picsh` bits, nine bytes a row for eight. A shift of 8
+on the 8086 is zero rather than masked, so one body does both.
+
+**THE HOVERED PORTRAIT ANIMATES BY ITS FIGURE'S ROWS.** The strip redraws its
+mini unit alone because it sits in a corner; a portrait's figure crosses the
+card's four uprights, so `ti_pic_anim` clears exactly the figure's rows, puts
+the uprights back through them, ORs the next pose over and blits those rows —
+one band of the board's own size, not the ~22 ms of a card composition.
+
+**AND IT READS THE HAND FEATURE'S OWN CLOCK.** Both hovers — the strip's and
+this — read the clock of the board CELL whose index was the card's, which
+steps when that cell does and not when the hand feature is drawn. A paused
+frame could then hold a pose a repaint would not draw: `tests/tithefs.py`
+found it on Hercules at 83 pixels, and the strip had the same fault with no
+row to see it. Both read `ti_clock[TI_CELLS]` now, the feature the wheel
+actually stepped.
+
+**The COMMIT column** is UNDO above COMMIT, framed boxes level with the resting
+cards, after the seventh. **The reveal** starts its sparks at the card's centre
+across the row as it does down the strip, and dissolves the whole band out.
+
+**Measured on MartyPC**, every arm at the idle's target (§97.5.2): VGA
+fullscreen **4.35 poses a second a figure, 4.47 with two bolts**, 17.6-18.5
+frames a second; Hercules fullscreen **4.49 / 4.47** at 18.5-18.6.
+`tests/tithefs.py` is the row: the layout taken on VGA and Hercules and not on
+CGA or windowed, seven aligned bands a byte apart under the board, every card
+drawn, a hovered card risen and no other, the hand exactly a whole repaint
+paused mid-animation, and a clicked card played from the bottom row with its
+band dark and the screen exactly a repaint.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a
@@ -141265,7 +141353,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 
 | key | |
 |---|---|
-| `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window at the fullscreen geometry row |
+| `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window. On VGA and Hercules the hand goes along the bottom (§97.4.12); on CGA it stays a strip |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys, clicks and the toggle are ignored for the half second a reveal runs |
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |

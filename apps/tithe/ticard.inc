@@ -89,6 +89,13 @@ ti_clip:
 ti_panel_lay:
     push ax
     push dx
+    cmp byte [ti_horiz], 0
+    je .vert
+    call ti_hand_lay
+    jmp .out
+.vert:
+    mov ax, [ti_cardh]              ; a strip row's band is the card
+    mov [ti_cbrows], ax
     mov ax, [ti_panx]
     add ax, 8                       ; a margin each side, and the panel's x is
     mov [ti_cardx], ax              ; already a multiple of 8, so a card's is
@@ -149,14 +156,107 @@ ti_panel_lay:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_card_y - BX = the top of hand row AX
+; ti_hand_lay - the FULLSCREEN hand (SPEC.md 97.4.12): seven portrait cards
+; along the bottom and the COMMIT column after them
+; clobbers: AX, DX, flags
+;
+; EVERY TERM IS A MULTIPLE OF 8. A card's band is blitted with gfx_blit1, so
+; its x must be, and the hover INVERT is byte work over the card's columns -
+; so the gap between two cards is a whole byte and is never IN a band at all:
+; the band is the card, and what lies between two bands is the ground the
+; paint put there. That is also why a hovered card RISES rather than widening:
+; widening needs a margin inside the band to grow into, and a margin must be a
+; byte, which on a 640 screen is a card's worth of the seven.
+; -----------------------------------------------------------------------------
+ti_hand_lay:
+    push bx
+    push cx
+    mov ax, [ti_ox]
+    add ax, 7
+    and ax, 0FFF8h
+    mov bx, ax
+    sub bx, [ti_ox]                 ; the lead-in the snap could not give us
+    add ax, 8
+    mov [ti_panx], ax               ; card 0, a byte in from the edge
+    mov [ti_cardx], ax
+    mov ax, [ti_cw_box]             ; the pitch: seven cards and the COMMIT
+    sub ax, bx                      ; column in the width, a byte each side
+    sub ax, 16 + TI_HCOMMITW
+    xor dx, dx
+    mov cx, TI_HAND
+    div cx
+    and ax, 0FFF8h
+    cmp ax, TI_HCARDMAX - 8         ; a card no WIDER than it is tall
+    jbe .pok
+    mov ax, TI_HCARDMAX - 8
+.pok:
+    mov [ti_cardpitch], ax
+    sub ax, 8                       ; ...a byte of ground between two cards
+    mov [ti_cardw], ax
+    mov ax, [ti_cardpitch]          ; the COMMIT column, after the seventh
+    mov cx, TI_HAND
+    mul cx
+    add ax, [ti_panx]
+    mov [ti_cmx], ax
+    mov cx, [ti_ox]
+    add cx, [ti_cw_box]
+    sub cx, 8
+    sub cx, ax
+    and cx, 0FFF8h
+    mov [ti_cmw], cx
+    mov ax, [ti_by]                 ; the ROWS: under the board, as tall as
+    add ax, [ti_boardh]             ; what is left allows
+    add ax, TI_HGAP
+    mov [ti_hy], ax
+    mov cx, [ti_oy]
+    add cx, [ti_ch_box]
+    sub cx, ax
+    sub cx, TI_HLIFT + TI_HGAP
+    cmp cx, TI_HCARDMAX
+    jbe .hok
+    mov cx, TI_HCARDMAX
+.hok:
+    mov [ti_cardh], cx
+    add cx, TI_HLIFT
+    mov [ti_cbrows], cx             ; the band: the card and the room it rises
+    mov word [ti_cardn], TI_HAND    ; into
+    mov word [ti_cpad], 1
+    mov word [ti_cgap], 0
+    mov word [ti_unith], TI_UNITHMAX ; the strip's mini units are still built
+    mov ax, [ti_cardw]              ; THE PORTRAIT: the board's own figure,
+    sub ax, [ti_bw]                 ; centred - which on a 72-wide card is a
+    jnc .cen                        ; NIBBLE off a byte, so the offset is
+    xor ax, ax                      ; carried as a byte and a shift
+.cen:
+    shr ax, 1
+    mov dx, ax
+    and dx, 7
+    mov [ti_picsh], dx
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_picb], ax
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_card_pos - AX = hand card AX's band x, BX = its band y
 ; clobbers: AX, BX, flags
 ; -----------------------------------------------------------------------------
-ti_card_y:
+ti_card_pos:
     push dx
     mul word [ti_cardpitch]
-    add ax, [ti_by]
+    cmp byte [ti_horiz], 0
+    jne .h
+    add ax, [ti_by]                 ; the strip steps DOWN...
     mov bx, ax
+    mov ax, [ti_panx]
+    pop dx
+    ret
+.h:
+    add ax, [ti_panx]               ; ...and the fullscreen hand ACROSS
+    mov bx, [ti_hy]
     pop dx
     ret
 
@@ -250,8 +350,16 @@ ti_card_draw:
     cld
 
     mov [ti_cardi], ax
-    call ti_card_y                  ; BX = the row's top
+    push word [ti_face]             ; THE PORTRAIT'S FACE IS THE TALL ONE and
+    cmp byte [ti_horiz], 0          ; everything else's is not (SPEC.md
+    je .face                        ; 97.4.1.1), so it is put back at the end
+    mov ax, 1
+    call ti_face_set
+.face:
+    mov ax, [ti_cardi]
+    call ti_card_pos                ; AX = the band's x, BX = its top
     mov [ti_cardy], bx
+    mov [ti_cposx], ax
 
     mov si, ti_cards                ; SI -> this card's record
     mov ax, [ti_cardi]
@@ -269,6 +377,30 @@ ti_card_draw:
     jne .box
     mov word [ti_cx], 1
 .box:
+    cmp byte [ti_horiz], 0          ; A PORTRAIT'S BAND IS THE CARD, and the
+    je .vbox                        ; card sits at its FOOT unless it is
+    mov word [ti_cl], 0             ; hovered, when it has risen to the top
+    mov ax, [ti_cposx]
+    mov [ti_cbx], ax
+    mov cx, [ti_cardw]
+    mov [ti_cbw], cx
+    mov [ti_cwd], cx
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    inc cx                          ; ...and ti_glyph's pad byte
+    mov [ti_cbs], cx
+    mov ax, TI_HLIFT
+    cmp word [ti_cx], 0
+    je .rest
+    xor ax, ax
+.rest:
+    mul word [ti_cbs]
+    add ax, ti_cardband
+    mov [ti_cbase], ax
+    jmp short .sized
+.vbox:
+    mov word [ti_cbase], ti_cardband
     ; THE BAND IS THE PANEL'S OWN WIDTH AND THE CARD IS INSET IN IT, whether
     ; the card is expanded or not. A resting card blitted at its own width
     ; leaves the 8-pixel margins an expansion covered exactly as the
@@ -308,6 +440,7 @@ ti_card_draw:
     shr cx, 1
     inc cx                          ; ...the pad byte ti_glyph writes into
     mov [ti_cbs], cx
+.sized:
 
 %ifdef TICARDPROF
     pushf
@@ -317,7 +450,7 @@ ti_card_draw:
 %endif
     mov di, ti_cardband             ; a clean band
     mov ax, [ti_cbs]
-    mul word [ti_cardh]
+    mul word [ti_cbrows]
     mov cx, ax
     push di
     xor al, al
@@ -364,9 +497,15 @@ ti_card_draw:
     call ti_cb_frame2
 .text:
     TIPROF ti_pframe2
+    cmp byte [ti_horiz], 0
+    je .strip
+    call ti_cb_portrait             ; ...a portrait: name, figure, numbers
+    jmp short .composed
+.strip:
     call ti_cb_text
     TIPROF ti_ptext
     call ti_cb_unit
+.composed:
     TIPROF ti_punit
 
     ; --- AND THE HOVER INVERTS IN THE BAND, not in the pen -----------------
@@ -401,7 +540,7 @@ ti_card_draw:
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
     mov cx, [ti_cbw]
-    mov dx, [ti_cardh]
+    mov dx, [ti_cbrows]
     mov bp, [ti_cbs]
     call OSAPI_GFX_BLIT1
 .noblit:
@@ -425,6 +564,8 @@ ti_card_draw:
     mov ax, [ti_cardy]
     mov [ti_hovy], ax
 .out:
+    pop ax                          ; the face the caller had
+    call ti_face_set
     pop es
     pop bp
     pop di
@@ -472,7 +613,7 @@ ti_cb_span:
 
     mov ax, dx                      ; THE ROW, RESOLVED ONCE
     mul word [ti_cbs]
-    mov di, ti_cardband
+    mov di, [ti_cbase]
     add di, ax
     mov ax, [ti_spx0]
     mov cl, 3
@@ -536,7 +677,7 @@ ti_cb_vline:
     mov [ti_spy1], dx
     mov ax, cx                      ; ...the row resolved once here too, and
     mul word [ti_cbs]               ; the rest is a stride add
-    mov di, ti_cardband
+    mov di, [ti_cbase]
     add di, ax
     mov ax, bx
     push cx
@@ -643,7 +784,7 @@ ti_cb_invert:
     mov ax, [ti_cl]
     mov cl, 3
     shr ax, cl
-    mov di, ti_cardband
+    mov di, [ti_cbase]
     add di, ax
     mov bx, [ti_cwd]
     shr bx, cl
@@ -699,7 +840,7 @@ ti_cb_text:
     push si
     push di
     push bp
-    mov di, ti_cardband
+    mov di, [ti_cbase]
     mov bp, [ti_cbs]
     mov ax, [ti_cardh]              ; rows the face gets, inside the frame
     sub ax, 4
@@ -952,7 +1093,7 @@ ti_cb_unit:
     sub ax, 8
     mov cl, 3
     shr ax, cl
-    mov di, ti_cardband
+    mov di, [ti_cbase]
     add di, ax
     mov dx, 2
     add dx, [ti_cpad]
@@ -984,6 +1125,307 @@ ti_cb_unit:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+;
+; --- ti_cb_portrait - a FULLSCREEN card's contents (SPEC.md 97.4.12) --------
+; THE PICTURE IS THE LARGER HALF. The strip's card is a line of text with a
+; 24-pixel figure in its corner; a portrait has the rows for the character at
+; the BOARD's own size, so it is the name, then the figure, then what it costs
+; and the four stats in the flow the strip already uses - in the tall face.
+ti_cb_portrait:
+    push ax
+    push bx
+    push di
+    push bp
+    mov di, [ti_cbase]
+    mov bp, [ti_cbs]
+    mov ax, [ti_cwd]
+    sub ax, 3
+    mov [ti_tw], ax
+    mov word [ti_tx], 3
+    mov ax, 2
+    add ax, [ti_cpad]
+    mov [ti_ty], ax
+    mov word [ti_tfull], 0
+    call ti_cb_name
+    mov ax, [ti_ty]                 ; the figure, under the name - a ROW
+    add ax, [ti_fh]                 ; apart and not two, which is the row a
+    inc ax                          ; Hercules card needs for its last stats
+    mov [ti_picy], ax
+    push word [ti_pi]
+    xor bx, bx                      ; a resting card stands in pose 0 and the
+    cmp word [ti_cx], 0             ; hovered one on its own clock, as the
+    je .pose                        ; strip's unit does
+    mov bx, [ti_cardi]
+    add bx, ti_clock
+    mov bl, [bx]
+    xor bh, bh
+.pose:
+    mov [ti_pi], bx
+    call ti_cb_pic
+    pop word [ti_pi]
+    add ax, [ti_bh]                 ; ...and the numbers under the figure
+    inc ax
+    mov [ti_ty], ax
+    mov word [ti_tx], 3
+    add ax, [ti_fh]                 ; a card too short for even this line
+    mov bx, [ti_cardh]              ; says nothing rather than something cut
+    sub bx, 2
+    sub bx, [ti_cpad]
+    cmp ax, bx
+    jbe .costs
+    mov word [ti_tfull], 1
+.costs:
+    push si
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_COST]
+    mov al, TI_IC_GOLD
+    call ti_cb_pair
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_SOUL]
+    mov al, TI_IC_SOUL
+    call ti_cb_pair
+    pop si
+    cmp word [ti_tfull], 0
+    jne .out
+    call ti_cb_nl
+    call ti_cb_stats
+.out:
+    pop bp
+    pop di
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cb_pic - OR the portrait's figure into the band ---------------------
+; in:  [ti_cardi], [ti_pi] = the pose, [ti_picy] = its first card row
+; Preserves every register.
+;
+; THE FIGURE IS SHIFTED AS IT GOES IN. A 64-wide figure on a 72-wide card is
+; centred four pixels off a byte, and a store composed at that offset would be
+; a second copy of every pose - so the store is the figure as the board has
+; it and the half-byte is taken here, at a shift a byte: nine bytes a row for
+; eight, on a card composed when the hover changes and never inside the wheel
+; bar the one step below.
+ti_cb_pic:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    push ds
+    pop es                          ; the band is the package's...
+    mov ax, [ti_cardi]
+    call ti_ck_card
+    mov ax, [ti_ck]
+    mov dx, TI_POSES
+    mul dx
+    add ax, [ti_pi]
+    mov cx, ax
+    mov ax, [ti_bs]
+    mul word [ti_bh]
+    mul cx
+    mov si, ax                      ; ...the figure the claim's
+    mov ax, [ti_picy]
+    mul word [ti_cbs]
+    add ax, [ti_cbase]
+    add ax, [ti_picb]
+    mov di, ax
+    mov bx, [ti_bh]
+    mov bp, [ti_cbs]
+    mov dx, [ti_bs]
+    mov cl, [ti_picsh]
+    mov ch, 8
+    sub ch, cl
+    mov ds, [ti_fseg]
+.row:
+    or bx, bx
+    jz .out
+    push si
+    push di
+    push dx
+.b:
+    lodsb
+    mov ah, al
+    shr al, cl                      ; this byte's share...
+    or [es:di], al
+    xchg cl, ch
+    mov al, ah
+    shl al, cl                      ; ...and the next byte's, which a shift of
+    or [es:di + 1], al              ; 8 makes zero on an 8086: it does not
+    xchg cl, ch                     ; mask the count
+    inc di
+    dec dx
+    jnz .b
+    pop dx
+    pop di
+    pop si
+    add si, dx
+    add di, bp
+    dec bx
+    jmp short .row
+.out:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_pic_anim - the hovered portrait's next pose, and nothing else -------
+; in:  [ti_hover] a card, [ti_pi] = the pose
+; Preserves every register.
+;
+; THE WHEEL'S STEP FOR THE 21st FEATURE. The strip redraws the mini unit alone
+; because it sits in a corner of its own; a portrait's figure crosses the
+; card's two uprights on each side, so this recomposes EXACTLY those rows -
+; cleared, the four uprights put back, the figure ORed over - and puts down
+; the figure's rows and not the card: a composition of the whole card is ~22
+; ms of an 8088 and this is one band of the board's own size.
+ti_pic_anim:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    push ds
+    pop es
+    cld
+    mov ax, [ti_hover]
+    mov [ti_cardi], ax
+    call ti_card_pos                ; AX = x, BX = the band's top, which a
+    mov [ti_cbx], ax                ; hovered card has risen to
+    mov [ti_cardy], bx
+    mov word [ti_cl], 0
+    mov cx, [ti_cardw]
+    mov [ti_cbw], cx
+    mov [ti_cwd], cx
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    inc cx
+    mov [ti_cbs], cx
+    mov word [ti_cbase], ti_cardband
+    mov ax, [ti_picy]               ; the figure's rows, cleared
+    mul word [ti_cbs]
+    add ax, ti_cardband
+    mov di, ax
+    mov si, ax
+    mov ax, [ti_cbs]
+    mul word [ti_bh]
+    mov cx, ax
+    xor al, al
+    rep stosb
+    mov cx, [ti_picy]               ; ...the uprights through them
+    mov dx, cx
+    add dx, [ti_bh]
+    dec dx
+    xor bx, bx
+    call ti_cb_vline
+    mov bx, [ti_cwd]
+    dec bx
+    call ti_cb_vline
+    mov bx, 2
+    call ti_cb_vline
+    mov bx, [ti_cwd]
+    sub bx, 3
+    call ti_cb_vline
+    call ti_cb_pic                  ; ...and the figure over them
+    mov ax, [ti_cbx]
+    mov bx, [ti_cardy]
+    add bx, [ti_picy]
+    mov cx, [ti_cbw]
+    mov dx, [ti_bh]
+    mov bp, [ti_cbs]
+    call OSAPI_GFX_BLIT1
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_figs_build - every card's PORTRAIT figure, four poses each (97.4.12)
+; Preserves every register.
+;
+; The board's own surface on black, into ti_fseg: the same records ti_char_put
+; composes a cell from, with the card's item for the row the toggle names -
+; so it is rebuilt where the strip's units are, at a layout and at a toggle.
+; -----------------------------------------------------------------------------
+ti_figs_build:
+    cmp byte [ti_horiz], 0
+    jne .go
+    ret
+.go:
+    push ax
+    push cx
+    push di
+    push es
+    cld
+    push word [ti_pi]
+    push word [ti_ck]
+    mov ax, [ti_bs]
+    mov [ti_fa_stride], ax
+    mov [ti_fa_wb], ax
+    mul word [ti_bh]
+    mov [ti_uslot], ax
+    mov ax, [ti_bh]
+    mov [ti_fa_h], ax
+    mov [ti_cbh], ax
+    mov word [ti_cdx], 0
+    mov word [ti_cdy], 0
+    mov byte [ti_fa_mir], 0
+    mov ax, [ti_gidx]               ; the BOARD's surface, not the unit's
+    mov [ti_csurf], ax
+    mov ax, [ti_row]
+    mov [ti_cst], ax
+    mov es, [ti_fseg]
+    xor di, di
+    mov word [ti_ck], 0
+.card:
+    cmp word [ti_ck], TI_CARDS
+    jae .done
+    mov word [ti_pi], 0
+.pose:
+    cmp word [ti_pi], TI_POSES
+    jae .next
+    push di
+    mov cx, [ti_uslot]
+    xor al, al
+    rep stosb
+    pop di
+    mov ax, [ti_pi]
+    mov [ti_cfr], ax
+    call ti_char_put
+    add di, [ti_uslot]
+    inc word [ti_pi]
+    jmp short .pose
+.next:
+    inc word [ti_ck]
+    jmp short .card
+.done:
+    pop word [ti_ck]
+    pop word [ti_pi]
+    pop es
+    pop di
+    pop cx
     pop ax
     ret
 
@@ -1056,7 +1498,8 @@ ti_units_build:
     pop di
     pop cx
     pop ax
-    ret
+    jmp ti_figs_build               ; ...and the portraits, which follow the
+                                    ; same toggle (a no-op off the full hand)
 
 ti_unit_addr:
     push ax
@@ -1079,6 +1522,10 @@ ti_unit_addr:
 ; Preserves every register.
 ; -----------------------------------------------------------------------------
 ti_unit_draw:
+    cmp byte [ti_horiz], 0          ; a PORTRAIT's figure is not a corner unit
+    je .strip
+    jmp ti_pic_anim
+.strip:
     push ax
     push bx
     push cx
@@ -1128,8 +1575,13 @@ ti_commit_draw:
     pop es
     cld
 
+    cmp byte [ti_horiz], 0
+    je .vert
+    call ti_commit_col
+    jmp .out
+.vert:
     mov ax, [ti_cardn]
-    call ti_card_y
+    call ti_card_pos
     add bx, [ti_cgap]
     mov [ti_cardy], bx
 
@@ -1192,7 +1644,7 @@ ti_commit_draw:
     mov si, ti_s_undo
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
-
+.out:
     pop es
     pop di
     pop si
@@ -1200,6 +1652,62 @@ ti_commit_draw:
     pop cx
     pop bx
     pop ax
+    ret
+
+; ti_commit_col - the fullscreen hand's COMMIT column (SPEC.md 97.4.12): UNDO
+; above COMMIT, each a framed box, level with the cards and not risen
+; clobbers: AX, BX, CX, DX, SI
+ti_commit_col:
+    mov al, CBLACK                  ; the column's ground, risen rows and all
+    call OSAPI_SET_COLOR
+    mov ax, [ti_cmx]
+    mov bx, [ti_hy]
+    mov cx, ax
+    add cx, [ti_cmw]
+    dec cx
+    mov dx, bx
+    add dx, [ti_cbrows]
+    dec dx
+    call OSAPI_GFX_FILL
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov bx, [ti_hy]                 ; UNDO, a quarter of the card's height
+    add bx, TI_HLIFT
+    mov dx, [ti_cardh]
+    shr dx, 1
+    shr dx, 1
+    add dx, bx
+    mov [ti_cmsplit], dx
+    mov ax, [ti_cmx]
+    mov cx, ax
+    add cx, [ti_cmw]
+    dec cx
+    call OSAPI_GFX_FRAME
+    mov bx, [ti_cmsplit]            ; ...and COMMIT under it, to the foot
+    add bx, 4
+    mov dx, [ti_hy]
+    add dx, TI_HLIFT
+    add dx, [ti_cardh]
+    dec dx
+    call OSAPI_GFX_FRAME
+    mov cx, [ti_cmw]                ; the labels, centred: UNDO is four cells
+    sub cx, 32
+    shr cx, 1
+    add cx, [ti_cmx]
+    mov dx, [ti_hy]
+    add dx, TI_HLIFT + 4
+    mov si, ti_s_undo
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
+    mov cx, [ti_cmw]                ; ...and COMMIT six
+    sub cx, 48
+    shr cx, 1
+    add cx, [ti_cmx]
+    mov dx, [ti_cmsplit]
+    add dx, 8
+    mov si, ti_s_commit
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_FONT_RUN
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1239,6 +1747,15 @@ ti_hover_ck:
     push cx
     push dx
     call OSAPI_MOUSE                ; CX = x, DX = y
+    cmp byte [ti_horiz], 0          ; the fullscreen hand asks the click's own
+    je .strip                       ; box, which knows the risen card
+    call ti_card_hit
+    cmp ax, -1
+    je .have
+    call ti_rv_played
+    jnc .have
+    jmp short .nocard
+.strip:
     mov ax, -1
     cmp cx, [ti_cardx]
     jb .have
@@ -1314,6 +1831,34 @@ ti_card_hit:
     push bx
     push dx
     mov ax, -1
+    cmp byte [ti_horiz], 0
+    je .vert
+    push cx                         ; ACROSS: which pitch, then the gap, then
+    sub cx, [ti_panx]               ; the band's rows - the risen card's too,
+    jb .hno                         ; so the pointer that lifted it stays on it
+    mov ax, cx
+    xor dx, dx
+    div word [ti_cardpitch]
+    cmp ax, [ti_cardn]
+    jae .hmiss
+    cmp dx, [ti_cardw]
+    jae .hmiss
+    pop cx
+    pop dx
+    push dx
+    sub dx, [ti_hy]
+    jb .hmiss2
+    cmp dx, [ti_cbrows]
+    jb .out
+.hmiss2:
+    mov ax, -1
+    jmp short .out
+.hmiss:
+    mov ax, -1
+.hno:
+    pop cx
+    jmp short .out
+.vert:
     cmp cx, [ti_cardx]
     jb .out
     mov bx, [ti_cardx]

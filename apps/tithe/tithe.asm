@@ -531,6 +531,10 @@ ti_onkey:
 .fsdone:
     mov byte [ti_laid], 0
     call ti_relayout_ck
+    cmp byte [ti_ok], 0             ; THE LAYOUT MOVED, so the ground goes down
+    je .fsp                         ; first: the fullscreen hand centres the
+    call ti_ground                  ; board, and a strip's cards and a base
+.fsp:                               ; left where they were read as two boards
     call ti_paint_now
     jmp .out
 .clash:
@@ -935,10 +939,13 @@ ti_feature:
     jne .hov
     jmp .out
 .hov:                               ; feature that is not a character - and
-    mov bx, [ti_hover]              ; what animates on it is the UNIT, not the
-    add bx, ti_clock                ; card. Redrawing the whole card would be a
-    mov bl, [bx]                    ; fill, a frame, three icons and two runs
-    xor bh, bh                      ; for one moving band
+    mov bl, [ti_clock + TI_CELLS]   ; what animates on it is the UNIT, not the
+    xor bh, bh                      ; card, on THIS FEATURE's clock - the one
+                                    ; the wheel just stepped. It read the
+                                    ; clock of the board CELL with the card's
+                                    ; index, which steps when that cell does,
+                                    ; so a pause could hold a pose a repaint
+                                    ; of the same card would not draw
     mov [ti_pi], bx
     mov ax, [ti_hover]              ; ...and the character it plays (97.4.9)
     call ti_ck_card
@@ -1557,7 +1564,24 @@ ti_cardp:   dw 0
 ti_cardl2:  dw 0
 ti_cgap:    dw 0                    ; the button row's offset from the hand
 ti_unith:   dw 0                    ; the mini unit on a card
-TI_CARDBANDMAX equ 20 * 40
+; --- THE FULLSCREEN HAND (SPEC.md 97.4.12): seven portrait cards along the
+; bottom, the board centred above. ti_panx is card 0's x and ti_cardpitch the
+; step ACROSS; a hovered card RISES by TI_HLIFT rather than widening, so every
+; card's band is TI_HLIFT rows taller than the card and a resting card sits
+; at the bottom of it.
+ti_horiz:   db 0                    ; 1 = the hand is along the bottom
+ti_hy:      dw 0                    ; the hand's band top
+ti_cbrows:  dw 0                    ; rows of a card's BAND (card + lift)
+ti_cbase:   dw ti_cardband          ; where the CARD's row 0 is in the band
+ti_cmx:     dw 0                    ; the COMMIT column's box
+ti_cmw:     dw 0
+ti_picy:    dw 0                    ; the portrait's picture: its first card
+ti_picb:    dw 0                    ; row, its first band byte and the bit
+ti_cposx:   dw 0                    ; the card being drawn: its band's x
+ti_cmsplit: dw 0                    ; the COMMIT column's UNDO/COMMIT row
+ti_picsh:   dw 0                    ; shift that centres a figure the width
+                                    ; of the board's in a card that is not
+TI_CARDBANDMAX equ 12 * 128
 ; THE HUD IS A BAND TOO (97.4.8): the widest strip is Hercules' 712 pixels,
 ; which is 90 bytes and a pad, and the deepest is VGA fullscreen's 36 rows.
 TI_HUDBANDMAX equ 92 * 36

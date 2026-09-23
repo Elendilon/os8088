@@ -35,6 +35,9 @@ TI_STATBANK equ TI_CELLS * TI_POSES * TI_RVMAX ; the NUMBERS, after the
                                   ; attack frames in their claim: a cell's
 TI_STATREC  equ 2 * TI_CELLBANDMAX ; halo then its digits, for a bolt to go
                                   ; under (ti_pic_stat)
+TI_FIGKB    equ 11                ; the hand's portraits: 7 cards x 4 poses
+                                  ; x the biggest band, 384 bytes on a
+                                  ; fullscreen VGA - 10,752
 TI_ATTACKKB equ 40                ; 20 cells x 4 attack frames x the biggest
                                   ; band, 384 bytes on a fullscreen VGA - and
                                   ; then the twenty cells' numbers at 480
@@ -63,7 +66,13 @@ ti_arena_claim:
     mov [ti_kseg], dx
     mov ax, ti_attack_move
     call OSAPI_MEM_MOVABLE
-    clc
+    mov ax, TI_FIGKB                ; ...and THE HAND'S PORTRAITS: every card's
+    call OSAPI_MEM_CLAIM            ; figure at the BOARD's size on black, four
+    jc .out                         ; poses each, for the fullscreen hand
+    mov [ti_fseg], dx               ; (SPEC.md 97.4.12). Claimed with the rest
+    mov ax, ti_fig_move             ; rather than at the F key: a key that
+    call OSAPI_MEM_MOVABLE          ; could fail for memory is a refusal the
+    clc                             ; player meets mid-game
 .out:
     pop dx
     pop ax
@@ -76,6 +85,10 @@ ti_arena_move:
 
 ti_attack_move:
     mov [ti_kseg], dx
+    ret
+
+ti_fig_move:
+    mov [ti_fseg], dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1951,6 +1964,7 @@ ti_fa_n:    dw 0
 ti_fa_lo:   dw 0
 ti_fa_hi:   dw 0
 ti_kseg:    dw 0                  ; the ATTACK frames' claim
+ti_fseg:    dw 0                  ; the hand's portraits (SPEC.md 97.4.12)
 ti_pseg:    dw 0                  ; the art part, as op_seg last answered
 ti_cst:     dw 0                  ; the stance: TI_ROW_FRONT or TI_ROW_REAR
 ti_cfr:     dw 0                  ; the frame: 0-3 idle, 4-7 attack

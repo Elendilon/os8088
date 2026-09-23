@@ -37,6 +37,17 @@ TI_G_INSX   equ 18               ; the band's inset inside its cell, which is
                                  ; ALSO the width of the stat column left of it
 TI_G_SIZE   equ 20
 
+; THE FULLSCREEN HAND (SPEC.md 97.4.12) is derived rather than tabled: the
+; card is as tall as the rows under the board allow, up to a portrait's 112.
+TI_HLIFT    equ 6                 ; rows a hovered card RISES
+TI_HGAP     equ 2                 ; rows between the board and the hand
+TI_HCARDMIN equ 64                ; a card shorter than this is not a
+                                  ; portrait - and 64 is one on a Hercules,
+                                  ; whose pixels are ~1.55 times as tall as
+                                  ; they are wide
+TI_HCARDMAX equ 112
+TI_HCOMMITW equ 64                ; the COMMIT column's least width
+
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
 ; in:  [ti_win]; ti_full says which VGA row to take
@@ -59,11 +70,15 @@ ti_georow:
     mov word [ti_gidx], 1           ; THE INDEX IS SET WITH THE POINTER, and
     cmp dh, 1                       ; not derived from it: TI_G_SIZE is 22, so
     jbe .mono                       ; a pointer difference is a DIVIDE where
-    cmp byte [ti_full], 0           ; four stores are free. SPEC.md's own rule
-    je .have                        ; is to branch on DEPTH, and on the adapter
-    mov si, ti_geo_vgaf             ; only to tell the two 1bpp ones apart
-    mov word [ti_gidx], 0
-    ret
+    ret                             ; four stores are free. SPEC.md's own rule
+                                    ; is to branch on DEPTH, and on the adapter
+                                    ; only to tell the two 1bpp ones apart.
+                                    ; VGA FULLSCREEN TAKES THE WINDOWED BOARD
+                                    ; (SPEC.md 97.4.12): the fullscreen row's
+                                    ; board is 366 rows with its lip and cliff
+                                    ; and leaves 78 for a hand - a card 70
+                                    ; tall, which is not a portrait. The
+                                    ; windowed one leaves 117
 .mono:
     mov si, ti_geo_herc
     mov word [ti_gidx], 2
@@ -171,6 +186,38 @@ ti_layout:
     mov [ti_ox], ax
     mov [ti_oy], dx
 
+    ; --- THE HAND GOES ALONG THE BOTTOM IN FULLSCREEN (SPEC.md 97.4.12) -----
+    ; On VGA and Hercules fullscreen the board leaves a hundred rows below it
+    ; and the vertical strip would leave them empty, so the hand becomes a row
+    ; of portrait cards there and the board centres above. Not on CGA: its
+    ; spare rows are there, but seven cards across 640 at 2.4:1 pixels are
+    ; cards that LOOK 91 x 30, and the strip is the right shape for it. The
+    ; room is ASKED rather than assumed, and a surface without it keeps the
+    ; strip - so this is a layout that is taken when it fits and not a mode.
+    mov byte [ti_horiz], 0
+    cmp byte [ti_full], 0
+    je .strip
+    cmp word [ti_gidx], 3
+    je .strip
+    mov ax, [ti_ch_box]
+    sub ax, [ti_hud]
+    jb .strip
+    sub ax, [ti_boardh]
+    jb .strip
+    cmp ax, TI_HLIFT + TI_HCARDMIN + TI_HGAP
+    jb .strip
+    mov ax, [ti_bs]                 ; ...and the portraits fit their claim
+    mul word [ti_bh]
+    mov cx, TI_CARDS * TI_POSES
+    mul cx
+    or dx, dx
+    jnz .strip
+    cmp ax, TI_FIGKB * 1024
+    ja .strip
+    mov byte [ti_horiz], 1
+    mov word [ti_pan], 0            ; no strip down the right
+.strip:
+
     ; --- P1's BASE, THE GRID, P2's BASE, THE CARD PANEL -------------------
     ; The bases sit OUTSIDE the grid, behind each player's rear column
     ; (SPEC.md 97.2.1) - column 0 is P1's rear and column 3 is P2's - so the
@@ -190,6 +237,27 @@ ti_layout:
                                     ; the first aligned column is derived here,
                                     ; and the <=7 pixels of lead-in are charged
                                     ; to the fit check below
+    cmp byte [ti_horiz], 0          ; ...and with no strip down the right the
+    je .left                        ; board CENTRES, by a whole number of
+    push bx                         ; bytes so every x below stays aligned
+    push cx
+    mov bx, ax
+    sub bx, [ti_ox]                 ; the lead-in
+    mov cx, [ti_cw_box]
+    sub cx, bx
+    sub cx, [ti_boardw]
+    jb .nocen
+    sub cx, [ti_basew]
+    jb .nocen
+    sub cx, [ti_basew]
+    jb .nocen
+    shr cx, 1
+    and cx, 0FFF8h
+    add ax, cx
+.nocen:
+    pop cx
+    pop bx
+.left:
     mov [ti_b1x], ax                ; P1's base, hard against the left
     add ax, [ti_basew]
     mov [ti_bx], ax                 ; ...then the four combat columns
@@ -269,7 +337,6 @@ ti_layout:
     add ax, [ti_hud]
     cmp ax, [ti_ch_box]
     ja .no
-
     mov ax, [ti_ox]                 ; the card panel is hard against the right
     add ax, [ti_cw_box]             ; edge, which is what rescues CGA: every
     sub ax, [ti_pan]                ; row the hand does not take is a row the
