@@ -53022,7 +53022,7 @@ memory that driver holds while it is doing its job**, in KB, right of the name
 on the name's own line.
 
 ```
-[x] Sound                              (~34K)
+[x] Sound                              (~23K)
     Loaded
 [ ] Hard Drive                         (~32K)
     Not loaded
@@ -53046,7 +53046,7 @@ function*:
 
 | row | KB | = image + what it holds to work |
 |---|---|---|
-| Sound | ~35 | 7 image + 8 double buffer (`SBL_DMASZ`, per stream) + 20 staging pool (`SBL_POOLKB`, its ceiling) — the worst case; an idle card holds its image alone (§34.5.2) |
+| Sound | ~23 | 7 image + 16 (`SBL_PLAYKB`): a player's 16KB ring, which the card reads in place (§34.5.2). It was 35 — image + the 8KB double buffer + the pool's 20KB ceiling, a worst case no shipped program reaches. Recording holds 31 (a 16KB grant + the 8KB capture buffer); an idle card holds its image alone |
 | Hard Drive | ~5 | 5 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
@@ -53096,7 +53096,7 @@ lettered one (PERFORMANCE.md Part 2).
 **The brackets come off if a name grows into them.** `cp_drv_mempar` measures
 the longest title in the whole table against the widest figure once per paint
 and answers one bit: with `CP_DMGAP` (8px) of air to spare the column is
-`(~34K)`, and without it the two brackets are dropped and it is `~34K`. It is
+`(~23K)`, and without it the two brackets are dropped and it is `~23K`. It is
 decided over the WHOLE table rather than the four visible rows, so a scroll
 cannot change it — a column that gained brackets halfway down the list would
 read as two columns. Today every name fits: `'Hard Drive'` is ten cells and
@@ -68993,7 +68993,7 @@ pick they had, when it goes off. The mixer's cost is linear
 in the rate: 44 kHz is 4× the default's samples — chosen for machines
 where the default is loafing, refused honestly where it is not.
 
-#### 45.10.1 33 kHz, and the rows a card cannot play are greyed
+#### 45.10.1 33 kHz, and the rows a card cannot play are left out
 
 **The rows are 11 / 22 / 33 / 44 kHz now.** 33,075 Hz is ¾ of 44.1 — on an
 SB16 exact through `41h`, on an SB Pro's high-speed TC 226 = 33,333 Hz. It is
@@ -69038,6 +69038,15 @@ ENTER resumes` over `Rate: 22 kHz - Enter plays` — which had always been lost
 that way, and would have taken the 44 kHz note with it. `trk_rate_set` now
 runs `trk_transport` itself and marks the stop seen, except on a tier-0
 machine's fullscreen, where that transition also reshapes the pattern view.
+
+#### 45.10.2 A 286 or better opens at 22 kHz
+
+`[trk_rsel]` starts at 1 on any machine `OSAPI_CPU_INFO` does not call tier 0,
+so a 286 opens on the 22 kHz row where it used to open on 11. §45.10.1's
+measurement is the reason: 22 kHz is about half of a ~2 MIPS machine, and
+every Sound Blaster takes it (an SB 2.0's time constant lands it at 21,739 Hz).
+A tier-0 machine still opens in XT mode at 5.5 kHz, and its Rate pick stays 11
+for the day XT mode is switched off.
 
 ### 45.11 Smooth — retired with §32's back buffer
 
@@ -71074,7 +71083,7 @@ and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
 |---|---|---|
 | **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
 | **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
-| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard** | one fill per band that moved |
+| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard**, each with a peak marker (§45.24) | one fill per band that moved, two for a marker's step |
 | **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
 
 ModPlug's visualisers drew every column and bar every frame — its scope alone
@@ -71190,6 +71199,64 @@ that is the same file as `[tpl_loaded]` restarts the stream and touches no
 disk — a list that goes round to the song playing, `>>|` with one entry, the
 same file listed twice. Measured on MartyPC: `N` on a one-entry list, **zero**
 calls into the file-read path.
+
+### 45.23 The visualiser can be switched off, and SPACE says pause
+
+**Off is a fourth pick** — VU Meter → Spectrum → Scope → Off, on the same
+button. `TWV_OFF` was already a mode, but only XT mode at 11 kHz could force
+it, with `No meters at 11 kHz` in the pane; picked, the pane says `Meter off`
+(`tw_voff` takes its line and length from which of the two it is). Nothing
+is drawn in the pane while it is off; the levels behind the needles are
+still kept, being a handful of bytes a row.
+
+**The key legend says `SPACE pause`** where it said `SPACE stop` — in all four
+strings, windowed and fullscreen. Space has parked the replayer at the row
+the listener heard since §45.17, and `Paused  ENTER resumes` follows it, so
+the legend was the one place still calling it a stop.
+
+### 45.24 The spectrum's peak markers
+
+**Each band now shows two things: what is playing and what just played.** The
+bar falls **three times as fast** as before (`TW_SPFALL` = 3 × `TW_VUFALL`, six
+levels of 64 a frame), so it follows the notes as they are heard. A white
+**peak marker**, `TW_PKH` = 2 rows tall, stays at the highest level the bar
+reached. It holds there `TW_PKHOLD` = 9 frames (about half a second), then falls
+`TW_PKSTEP` = 4 levels once every `TW_PKEVERY` = 4 frames. That averages one
+level a frame, which is slower than the old bars fell, so the marker trails
+behind the bar. A marker that is level with or under the top of its bar is not
+drawn at all, because the bar covers it; a new peak sits there until the bar
+falls away from it.
+
+**Each column is drawn in one pass and no pixel is written twice.** The obvious
+order is the bar's own grow or shrink fill, then the marker over it. That order
+blackens the rows the marker is moving into and paints them white a moment
+later, which is the double-draw flash (PERFORMANCE.md rule 2). Instead,
+`tw_scol` describes the column as runs of three colours (bar, marker and
+ground), both as it is on the glass and as it is wanted. It cuts the column at
+every height where either changes colour and fills once each run whose colour
+moved, merging neighbours of the same colour. **The common frame skips all of
+that.** When the marker holds and the bar moves clear of the marker's foot, the
+change is one run of one colour, so the fast path fills it directly, with no
+cuts and no sort. Measured, that is about 11 of every 13 column updates.
+
+**The marker steps rather than sliding, and that is what it costs.** A
+marker's move is two fills whatever its size: the ground over the rows it
+leaves, and white over the rows it takes. So the count of moves is the price,
+not their distance. Measured under QEMU `-icount shift=9` (~2 MIPS, about a
+286/12), playing `BEVERLY.MOD` at 22 kHz for the same 20 host seconds, with
+the Tracker worker's share taken off the scheduler's own per-task counters and
+the fills counted in `tw_fills`:
+
+| spectrum | fills a frame | Tracker's share |
+|---|---|---|
+| before this section: one bar, slow fall | 11.0 | 57.4% |
+| markers falling a level a frame, every column cut and sorted | 20.9 | 68.2% |
+| markers stepping 4 levels every 4 frames | 11.7 | 60.9% |
+| ...and the fast path | 11.6 | 56.4% |
+
+So the markers cost what the old slow bars cost, within the noise. The faster
+bars drop to zero sooner, which pays for the marker steps. Spectrum is
+286+-only (§45.21.5), so an XT never runs any of this.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

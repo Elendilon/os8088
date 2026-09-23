@@ -131,6 +131,12 @@ SBL_POOLKB   equ 20             ; the staging pool's CEILING, in KB: a
                                 ; 34.6.3) and grows toward this - it used to
                                 ; take all 20KB whatever the ask, so a Tracker
                                 ; playing an 8KB ring held 12KB for nothing
+SBL_PLAYKB   equ 16             ; what the driver holds while it does its
+                                ; JOB, playing - the 16KB ring Tracker and
+                                ; Audio both ask for, played in place
+                                ; (SPEC.md 34.5.2), so it is the pool and
+                                ; nothing else. The Drivers page prices it
+                                ; (DRVM_SND); recording adds the 8KB buffer
 SBL_POOLMIN  equ 4              ; the smallest pool worth holding: a tiny
                                 ; first grant still leaves room for a scratch
                                 ; one beside it (sbtest's verb 5/6 round trip)
@@ -2889,7 +2895,7 @@ sbl_pool_grow:
     add ax, cx                  ; ...plus the pool
     cmp ax, SBL_POOLKB
     jbe .ask
-    mov ax, SBL_POOLKB          ; the ceiling (DRVM_SND prices it)
+    mov ax, SBL_POOLKB          ; the ceiling (a recording holds up to it)
     cmp ax, cx
     jbe .fail                   ; ...and the pool is already there
 .ask:

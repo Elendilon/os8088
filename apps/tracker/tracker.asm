@@ -298,8 +298,11 @@ trk_entry:
                                     ; (a typed name). The grant walk then
                                     ; corrects it downward if the heap says so
     call OSAPI_CPU_INFO             ; AL = tier (SPEC.md 41.8); a tier-0
-    or al, al                       ; machine gets XT mode pre-armed with
-    jnz .cpu                        ; its menu item already relabeled
+    mov byte [trk_rsel], 1          ; (a 286 or better opens at 22 kHz:
+    or al, al                       ; SPEC.md 45.10.2 - half the machine
+    jnz .cpu                        ; there, and every card takes it) - and
+    mov byte [trk_rsel], 0          ; a tier-0 machine gets XT mode pre-armed
+                                    ; with its menu item already relabeled
     mov byte [mp_xt], 1             ; (SPEC.md 45.9) - no table to rebuild,
     mov byte [trk_cpu0], 1          ; nothing is loaded yet - and the machine
     mov word [trk_mi_file + TRK_MI_XT], trk_s_xton  ; itself is remembered
@@ -3564,14 +3567,14 @@ trk_ttl:     db 'Tracker', 0
 
 ; --- status-line strings -------------------------------------------------------
 trk_s_stopd:  db 'Stopped  ENTER play  HOME top  L load', 0
-trk_s_playing: db 'Playing  SPACE stop  HOME top  L load', 0
+trk_s_playing: db 'Playing  SPACE pause  HOME top  L load', 0
 trk_s_paused: db 'Paused  ENTER resumes', 0 ; short enough for either surface
 ; The fullscreen twins are SHORTER because that field is: TL_STW is 284px on
 ; the compact (CGA) layout = 35 cells, against the windowed splash's 52. The
 ; first version was 45 and truncated to `... HOME top  L lo`, which is how a
 ; legend ends up advertising a key it was written to stop advertising.
 trk_s_stopdf: db 'Stopped  ENTER play  F/ESC exits', 0
-trk_s_playingf: db 'Playing  SPACE stop  F/ESC exits', 0
+trk_s_playingf: db 'Playing  SPACE pause  F/ESC exits', 0
 trk_s_fsload: db 'Load is windowed: F or Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
 trk_s_nofit:  db 'Too big for free memory', 0
