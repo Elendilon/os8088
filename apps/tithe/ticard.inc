@@ -963,84 +963,73 @@ ti_cb_unit:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_unit_build - the mini units that ride a card: character [ti_ck]'s four
-; poses, at the unit's own surface (SPEC.md 97.4.9)
+; ti_units_build - the mini unit on every card: its four idle poses, carrying
+; the item for the row the HUD's toggle names (SPEC.md 97.4.9)
 ; Preserves every register.
 ;
-; THE CARD'S OWN ANIMATION (TITHE-PLAN 3.3). A hovered card was a pulsing
-; frame, which is a state change dressed as movement; what the panel wants is
-; the unit ON the card moving, which is also what says which unit the card
-; plays - and now says WHICH CHARACTER, the three factions being three
-; figures rather than one trapezoid.
-;
-; IT IS A SURFACE OF ITS OWN AND NOT A SCALE OF THE BOARD'S. The unit is 24
-; wide where the board's band is 64, so `tools/os88tithechar.py` reduces the
-; figure's LAYERS to it - outlines re-drawn at the small size - rather than
-; the machine resampling the big band, and `TI_CHAR_BG` is where they start.
-; The card is black, so the figure is ORed in by its ink alone: a mask has
-; nothing to punch on a ground that is already dark.
+; THE CARD'S OWN ANIMATION (TITHE-PLAN 3.3), and now the LAYER MODEL's
+; clearest demonstration: FRONT/REAR decides which pair of stats a card shows
+; (97.4.8), and it decides which ITEM the unit holds too, so flipping the
+; toggle turns the pikeman's sword into a pitchfork on the card in the hand.
+; A unit is a surface of its own - 24 wide where the board's band is 64 - and
+; `TI_CHAR_BG` is where its records start. The card is black, so the slot is
+; cleared to black and the character masked over it like any other.
 ; -----------------------------------------------------------------------------
-ti_unit_build:
+ti_units_build:
     push ax
-    push bx
     push cx
-    push dx
-    push si
     push di
     push es
     push ds
     pop es
     cld
     push word [ti_pi]
-
-    mov ax, [ti_unitb]              ; the slot's own pitch
+    push word [ti_ck]
+    mov ax, [ti_unitb]              ; the slot's own pitch, and the window
     mul word [ti_unith]
     mov [ti_uslot], ax
-    mov ax, TI_CHAR_BG              ; the record: character x unit surface
-    add ax, [ti_gidx]
-    call ti_crec_at
-    mov al, [si + TI_CR_H]          ; ...cut for a band this tall, so the
-    xor ah, ah                      ; figure's FLOOR is kept on a shorter one
-    sub ax, [ti_unith]
-    mov [ti_ushift], ax
     mov ax, [ti_unitb]
     mov [ti_fa_stride], ax
     mov [ti_fa_wb], ax
     mov ax, [ti_unith]
     mov [ti_fa_h], ax
-    mov word [ti_fa_dx], 0
-    mov byte [ti_fa_or], 1          ; ON A BLACK CARD, where a mask has
-                                    ; nothing to punch: the ink alone
+    mov [ti_cbh], ax
+    mov word [ti_cdx], 0
+    mov word [ti_cdy], 0
+    mov byte [ti_fa_mir], 0
+    mov ax, TI_CHAR_BG
+    add ax, [ti_gidx]
+    mov [ti_csurf], ax
+    mov ax, [ti_row]
+    mov [ti_cst], ax
+    mov word [ti_ck], 0
+.card:
+    cmp word [ti_ck], TI_CARDS
+    jae .done
     mov word [ti_pi], 0
 .pose:
     cmp word [ti_pi], TI_POSES
-    jae .done
+    jae .next
     call ti_unit_addr               ; DI = this pose's slot: cleared to the
-    push di                         ; card's black, then the figure
+    push di                         ; card's black, then the character
     mov cx, [ti_uslot]
     xor al, al
     rep stosb
     pop di
-    push si
-    mov bx, [ti_pi]
-    mov al, [si + TI_CR_Y + bx]
-    xor ah, ah
-    sub ax, [ti_ushift]
-    mov [ti_fa_dy], ax
-    shl bx, 1
-    mov si, [si + bx]
-    call ti_fig_apply               ; ES = DS: the unit lives in the package
-    pop si
+    mov ax, [ti_pi]
+    mov [ti_cfr], ax
+    call ti_char_put                ; ES = DS: the unit lives in the package
     inc word [ti_pi]
     jmp short .pose
+.next:
+    inc word [ti_ck]
+    jmp short .card
 .done:
+    pop word [ti_ck]
     pop word [ti_pi]
     pop es
     pop di
-    pop si
-    pop dx
     pop cx
-    pop bx
     pop ax
     ret
 

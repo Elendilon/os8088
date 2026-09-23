@@ -165,17 +165,24 @@ def main():
         m.key("KeyA")
         os88marty.guest_sleep(m, 2.5)
 
-        # TWO AND A HALF GUEST SECONDS AFTER A KEY, and it used to be one and
-        # a half. `S` relayouts, a relayout rebuilds the art, and the base's
-        # eight poses made that long enough to eat the front of the window: it
-        # read three arms as three DECAYING frame rates and hid the fact that
-        # every one of them holds 19 fps.
-        m.key("KeyS")                                  # the sprite arms
-        os88marty.guest_sleep(m, 2.5)
+        # A RELAYOUT IS WAITED FOR, NOT SLEPT PAST. `S` relayouts, a relayout
+        # rebuilds the art, and a window that starts inside one reads three
+        # arms as three DECAYING frame rates. It was one and a half guest
+        # seconds, then two and a half when the bases grew eight poses, and
+        # then the characters became layers - a body and an item, idle and
+        # attack, eighty of each composed (SPEC.md 97.4.9) - and a relayout
+        # passed two and a half on its own. So the wait is the relayout
+        # counter moving, and half a second of the wheel settling after it.
+        def arm():
+            n0 = rw(m, seg, "ti_nlay")
+            m.key("KeyS")
+            os88marty.until(m, lambda _: rw(m, seg, "ti_nlay") != n0,
+                            "the relayout S asks for", poll=0.2, limit=60.0)
+            os88marty.guest_sleep(m, 0.5)
+        arm()                                          # the sprite arms
         a0_c, _, _ = rate()
         w0 = rw(m, seg, "ti_bw")
-        m.key("KeyS")
-        os88marty.guest_sleep(m, 2.5)
+        arm()
         a1_c, _, _ = rate()
         w1 = rw(m, seg, "ti_bw")
         print("  arms: %d px %.1f/s, %d px %.1f/s, 64 px %.1f/s"

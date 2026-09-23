@@ -139837,8 +139837,8 @@ a defect.
 
 ### 97.1 The package
 
-`TITHE.O88`, prefix `ti_`, one segment (§20.1), an embedded 16×16 icon, one
-worker, and **no kernel change** — the one it wanted is §5.4.2.6's fast path,
+`TITHE.O88`, prefix `ti_`, one segment (§20.1) and one embedded ART PART
+(§20.12, §97.4.9), an embedded 16×16 icon, one worker, and **no kernel change** — the one it wanted is §5.4.2.6's fast path,
 which is a shared primitive's and not this package's.
 
 - `OSAPI_WM_OWNBG` — every pixel of the content is ours, so the kernel's white
@@ -140367,7 +140367,7 @@ layout decision, not a second code path.
 than on the board: P1's drops by the lift and P2's rises by it, so each reads as
 standing on the same ground as the lanes in front of it.
 
-#### 97.4.9 THREE FACTIONS, AS PIXEL ART — ink and mask, and composed per cell
+#### 97.4.9 PIXEL ART, IN LAYERS — a body and an item, ink and mask, composed per cell
 
 **The first idles were silhouettes** — a solid white shape per faction out of
 spans and ellipses, which scaled to every surface for free. The owner turned
@@ -140409,41 +140409,87 @@ drawing at its own size, 1:1, with the same layers and the same motion in CGA
 pixels — **the one surface that costs an artist a second picture**, and the
 price of the roster is therefore *two drawings a character*.
 
-| | the figure | what moves |
+**A CHARACTER IS A BODY AND TWO ITEMS, and what it holds is the COLUMN's.**
+With sixty characters to draw, each of them standing in two rows and swinging
+at the front, a whole drawing per character, per row, per swing would be
+hundreds of pictures. The data is three layers instead (TITHE-PLAN §4.2.1):
+
+| layer | what it is | frames |
 |---|---|---|
-| **THE BULWARK** | a helmed shield-bearer in mail, sword down, heater shield with a cross | the head rocks a pixel; the **shield** lifts and settles two |
-| **THE EMBER CHOIR** | a hooded caster, a dark face with two lit eyes, one hand raised | the robe's **hem never moves** — it is the shadow it hovers over — and everything above it rises and falls, with a **wisp** at the hand flickering between sizes |
-| **THE COVENANT** | a nun, veiled, a cross at her breast | the body is still; the **censer** sways on its chain — **two pixels, not ten** |
+| **BODY** | the figure without its near hand's burden: head, torso, legs, the far arm | four idle poses; an attack is drawn over pose 0 |
+| **FRONT ITEM** | what the character holds in the **front row** (columns 1 and 2) — the thing it fights with | four idle, four ATTACK |
+| **REAR ITEM** | what it holds in the **rear row** (columns 0 and 3) — a ranged weapon, a focus, a shield carried | four idle, four ATTACK |
 
-**THE CENSER SWUNG TEN PIXELS EACH WAY AND READ AS A MACE BEING WIELDED.** An
-idle is a figure *waiting*; the field called the first one too active, where the
-Bulwark's pixel of head and two of shield were exactly right. Two is a sway.
+A card is a row of `cardtab`, **three bytes** — body, front item, rear item —
+so a new card that reuses parts costs 3 bytes of art and the 128 bytes of its
+dirty and same-as rows (below), and one that needs a new weapon costs that
+weapon. Wave 1a has **three bodies** (a helmed soldier, a hooded caster, a
+veiled nun), **eight items** (sword, shield, pitchfork, bow, staff, wisp,
+censer, book) and **seven cards** out of them; the three factions' first
+idles (the Bulwark's shield lifting two pixels, the Ember caster's upper body
+rising over a still hem, the Covenant's censer swaying **two pixels, not ten**
+— ten read as a mace being wielded) are item motion now, and survive as it.
 
-**THE POSES ARE PER CELL NOW, AND THEY LIVE IN A HEAP CLAIM.** A band carries
-its own ground (§97.4), and the ground differs by COLUMN (§97.4.10) — so a
-figure composed over one column's ground stands in that column only, and the
-three shared compositions became **eighty**: every cell's four poses, cut from
-its column's strip with the figure masked over them. That is 30,720 bytes on a
-fullscreen VGA, which is not bss in a 64KB segment; it is the arena (§97.4.10),
-and it is where TITHE-PLAN §1.5 already put the final game's composed sprites.
-Each cell's ground is copied once and **replicated** into its other three slots
-by one overlapping `rep movsw`, and the mask loop is one read and one write a
-byte — `lodsw / not / and reg,[es:di] / or / stosb`.
+**THE ITEM HANGS OFF AN ANCHOR, AND THE ANCHOR IS ON A BYTE.** Every body names
+its near SHOULDER per surface, and the body is placed in its band so that point
+falls on a multiple of 8 — so an item frame is placed at a WHOLE-BYTE offset
+`(dx, dy)` from the anchor and masked into the band at a byte boundary, with
+no shifting on the machine at all. An item is authored in its own grid with
+its own origin at the hand, and its frames carry their own motion, so a staff
+can bob while the body is still.
 
-**THE DATA IS SHARED WHERE THE PIXELS ARE.** A record is per character and
-surface, but a figure is emitted once for every record that uses it — the
-fullscreen and windowed VGA bands carry the same figure at different band rows,
-and a ping-pong repeats a pose — so three characters at eight surfaces are
-**70 figures and 11,214 bytes**. A record is `dw fig[4]`, `db y[4]`, then the
-four `(dy, dh)` dirty rows, then the band height the art was cut for.
+**THE ATTACK IS FOUR FRAMES: WIND-UP, STRIKE, FOLLOW-THROUGH, RECOVERY**, drawn
+per item — a sword raised and cut, a pitchfork jabbed, a bow drawn and loosed,
+a book lifted. The body holds pose 0 under it, and on the strike and the
+follow-through the whole figure **lunges** `LUNGE` = 8 pixels toward the enemy
+**inside its own band**, which is what keeps the band self-erasing: a band that
+moved left its trailing columns on the glass (§97.4.7). A mirrored cell mirrors
+the lunge with everything else. A rear-row attack is the ranged one — the bow
+drawn, the book raised — which is what §97.4.5's projectile will fire from.
 
-**THE DIRTY ROWS ARE THE TOOL'S AND THEY ARE THIS CHARACTER'S** (§97.4.3). They
-are computed from the figures alone — rows where either ink or mask differs
-between one pose and the next — so they hold over any ground a cell composes
-under them. **They were per character in the table and read per POSE:** the
-reader indexed `[ti_dh + pose*2]`, which is the first character's rows for all
-three, so a figure whose motion reached further than the Bulwark's could leave
-its edge on the glass. The reader takes the character now.
+**THE POSES ARE PER CELL AND LIVE IN TWO HEAP CLAIMS.** A band carries its own
+ground (§97.4), and the ground differs by COLUMN (§97.4.10), so every cell's
+frames are composed over its own column's strip at layout: the four idle poses
+into the ARENA beside the strips, and the four attack frames into a second
+claim, **30 KB**, beside it. **Every frame is committed as one opaque band**, so
+an attack costs a frame exactly what an idle does. Each cell's ground is copied
+once and replicated into its other slots by one overlapping `rep movsw`, then
+the body and the item are masked over it — `lodsw / not / and reg,[es:di] / or
+/ stosb` a byte.
+
+**A QUARTER OF THE FRAMES ARE COPIES, AND THE TOOL SAYS WHICH.** A ping-pong's
+pose 2 is its pose 0 wherever nothing moves on the off-beat, and every attack's
+recovery is the idle's first pose — so the tool emits a **same-as table**, eight
+bytes per card, stance and surface, naming for each frame the earlier frame it
+is identical to. The machine copies that slot instead of composing it: **114 of
+the 448** frames a board surface can need, which took a relayout's composition
+from 2,199 to **1,844 ms** on a windowed VGA. It is the tool's to know and the
+machine's to trust, and `tests/titheterr.py` holds every copied slot to the
+model.
+
+**THE ART IS A PART OF THE PACKAGE, NOT ITS IMAGE** (§20.12). Three bodies and
+eight items at eight surfaces are **251 figures and 19,038 bytes**, and with the
+tables **22,789** — which does not fit beside the code under the 60 KB a
+package's image and bss may be. So it is `OS88_PART OP_ASSET, OP_COMP`,
+lz4-packed to ~9.4 KB in the file, read into the parts carve by `op_load` as the
+entry proc's first act, and found with `op_seg` at the point of use — never
+cached, because the carve is movable. The part's layout is `build_part()`'s
+docstring and `tiart.inc` is the offsets the package reads it by. Items are
+**64%** of the figure bytes and CGA's second drawing **9%**.
+
+**THE DATA IS SHARED WHERE THE PIXELS ARE.** A figure is emitted once for every
+record that uses it — the fullscreen and windowed VGA bands carry the same
+figure at different band rows, and a ping-pong repeats a pose. A body record is
+`dw fig[4]`, then the body's `x` byte and `y` row per pose, the anchor's byte
+and row per pose, and the band height it was cut for; an item record is `dw
+fig[8]` and a signed `(dx, dy)` per frame from the anchor.
+
+**THE DIRTY ROWS ARE THE TOOL'S AND THEY ARE THIS CARD'S AND STANCE'S**
+(§97.4.3). They are computed from the composed figures alone — rows where
+either ink or mask differs between one pose and the next — so they hold over
+any ground a cell composes under them, and they are per card, stance and
+surface because a pitchfork's rows are not a book's. The reader takes the cell's
+card and its stance.
 
 **A FIGURE STANDS AGAINST ITS OWN NUMBERS, AND P2's CELLS ARE THE MIRROR.**
 Centred in its band, a figure left its stat column half-way between itself and
@@ -140465,9 +140511,12 @@ loses what falls outside, and commits whole bands — the rows are cut for the
 table's band. It still answers *what does a shorter band cost*.
 
 **Which character a card plays is a TABLE and a stable fiction.** Wave 1a has
-three idles and seven cards, so the three go round; the card's own **faction**
-is what that becomes (TITHE-PLAN §7.1). A cell names a card by its index the
-same way, so the board and the hand agree without either asking the other.
+seven cards built out of three bodies and eight items, and a cell plays the
+card at its index modulo the hand; the card's own **faction** is what that
+becomes (TITHE-PLAN §7.1). A cell names a card by its index the same way as the
+hand, so the board and the hand agree without either asking the other — and the
+card panel's minis are composed in the stance of the ROW the toggle names
+(§97.4.8), so the hand shows what a card will hold where it would be put.
 
 #### 97.4.3 The DIRTY RECT, and the rect is the tool's
 
@@ -140550,13 +140599,22 @@ a key that refuses.
 
 #### 97.4.7 The melee clash — two tiers, and the cheap one always works
 
-- **Tier A** *(the default, and it always works)*: both fighters step toward
-  the line, swing, and lean back, **each in its own rectangle**. Two ordinary
-  bands a frame and no composition — so it works on every adapter and at every
-  sprite size. The step is a multiple of 8, which is what keeps it two ordinary
-  bands.
+- **Tier A** *(the default, and it always works)*: both fighters play their
+  four ATTACK frames (§97.4.9) out of the attack claim — wind-up, strike with a
+  lunge toward the line, follow-through, recovery — **each in its own
+  rectangle**, one band apiece, every frame of the clash, and their idle band
+  again when it ends. Two ordinary bands a frame and no composition, so it works
+  on every adapter and at every sprite size; the wheel charges the clash two
+  bands a frame. The lunge is inside the band, a multiple of 8, and baked into
+  the frame at layout.
 - **Tier B** *(an option, and a wave-3 decision)*: one band spanning both
-  cells with both figures composed into it, so they may overlap freely.
+  cells with both figures composed into it, so they may overlap freely. It
+  composes the same attack frames — body, item and lunge — live, over ground
+  read from the strips, with column 2's figure mirrored about its own cell.
+  **Measured at ~70 ms a frame** on a windowed VGA, of which the ground read is
+  28 (it was 112 before `ti_gnd_row` became column runs), so it overruns a tick
+  on the target machine and is what TITHE-PLAN §3.9.2's *"pre-compose in the
+  reveal"* is for, if it is taken at all.
 
 **THE SHEAR MAKES A TWO-CELL BAND TALLER THAN ONE CELL, and that is the thing
 tier B teaches.** Columns 1 and 2 are one `RISE` apart vertically (§97.3), so a
@@ -140681,10 +140739,11 @@ first slab, which took what the fit check left over.
 **EVERY ELEMENT IS A FUNCTION OF (COLUMN, x, y) AND NOTHING ELSE**, so the
 package composes each column once, top to bottom, into a **strip** — and the
 board is **four blits** where it was twenty cell grounds and a slab. The
-strips and the eighty composed poses (§97.4.9) live in one **heap claim**, the
-ARENA, claimed at 45 KB in the entry proc so a machine that cannot hold a board
-refuses the launch rather than opening an empty window; it is declared movable,
-and the proc is one store because every reader loads ES from `[ti_aseg]`.
+strips and the eighty composed idle poses (§97.4.9) live in one **heap claim**,
+the ARENA, claimed at 45 KB in the entry proc — and the eighty attack frames in
+a second, 30 KB — so a machine that cannot hold a board refuses the launch
+rather than opening an empty window; both are declared movable, and each proc is
+one store because every reader loads ES from `[ti_aseg]` or `[ti_kseg]`.
 Composition is `tiplace.inc`, the machine's copy of `os88tithebg.py`'s
 algorithm step for step:
 
@@ -140713,15 +140772,23 @@ commit before it:
 
 | | before | VGA windowed | CGA |
 |---|---:|---:|---:|
-| composing the board and its figures, at a relayout | 698 ms | **1,416 ms** (strips 773, poses 643) | 666 ms (376 + 291) |
-| a whole-board repaint: ground and twenty cells' numbers | 283 ms | **531 ms** (strips 91, 20 x 22 of numbers) | 388 ms |
+| composing the board and its figures, at a relayout | 698 ms | **2,617 ms** (strips 773, 160 frames and the hand 1,844) | 1,226 ms (375 + 851) |
+| a whole-board repaint: ground and twenty cells' numbers | 283 ms | **533 ms** (strips 91, 20 x 22 of numbers) | 390 ms |
 | a frame | one band a feature | one band a feature | one band a feature |
 
 A relayout is a round load and a size change, and a repaint is an expose;
 neither is inside the wheel, and `tests/titheframe.py` measures the wheel
-unchanged — 18.5 frames a second, and the dirty rect buying **+22.1%** against
+unchanged — 18.7 frames a second, and the dirty rect buying **+26.7%** against
 its 20% bar, where the silhouettes bought 39.3%: a pixel-art figure moves more
 of its rows between poses than a solid one does.
+
+**The relayout nearly doubled with the layers (§97.4.9), and it is the attack
+frames and not the layers.** A cell composes eight frames where it composed four,
+two layers each, and the card panel's seven minis with them; the same-as table
+already takes the quarter of that which is a copy. It is paid at a round load,
+a size change and a `G` or `S` — the 1.4 s it was on the idle poses alone is
+what a board with no melee would cost, and composing the attack frames lazily at
+the first clash is the lever if a round load ever has to be faster.
 
 **Where the repaint's time goes is the numbers**, 22 ms a cell, of which the
 halo is 5; the strips are four blits and 91 ms. The lever is to BAKE the
@@ -140732,7 +140799,8 @@ strip's stat column regenerable on its own first, which is wave 3's problem
 when numbers start to change.
 
 **`tests/titheterr.py` holds the machine to the model TO THE BYTE**: every
-strip and every one of the eighty poses on all three adapters and both
+strip, every one of the eighty idle poses and every one of the eighty attack
+frames on all three adapters and both
 terrains, the lip and cliff on the glass at four heights a RISE apart — the one
 region nothing else is ever drawn over — and `G` twice back to the first board
 to the bit. It went red on an ORed figure and on a fence gap one row long.
@@ -140973,6 +141041,13 @@ refusal rather than a window that never draws.
 |---|---|---|
 | the sprite bank | the cut bands for this surface | `MC_RLOC`, a `ret` proc — the index stores OFFSETS from the base, never segments |
 | the board picture | 416×420 at 1bpp, ~22KB | the ground without characters, for a projectile to compose against |
+
+**What wave 1a actually claims** is three things, all at entry and all
+movable: the **parts carve**, 23 KB, the art part (§97.4.9) unpacked, whose
+segment is read with `op_seg` at the point of use; the **ARENA**, 45 KB, the four
+column strips and eighty idle poses (§97.4.10); and the **attack claim**,
+30 KB, the eighty attack frames. Each proc is one store. The table above is the
+plan's for the final game, and the arena is where its sprite bank already went.
 
 **The index stores offsets and not segments**, which is what makes the
 relocation proc a `ret` (§66). A segment derived from a base is reached by no

@@ -4,8 +4,9 @@
 SPEC.md 97.4.10 and 97.4.9. The board is a location - a sparse texture per
 COLUMN, a fence between the LANES on the shear's own slope, a wall along the
 back and a cliff under the front - composed at round load into four column
-strips in a heap claim, and every cell's four poses are cut from its column's
-strip with a pixel-art figure MASKED over them. tools/os88tithebg.py and
+strips in a heap claim, and every cell's four idle poses and four attack frames
+are cut from its column's strip with the card's BODY and its column's ITEM
+(front in columns 1 and 2, rear in 0 and 3) MASKED over them. tools/os88tithebg.py and
 tools/os88tithechar.py are the model of both, and this row holds the machine to
 the model EXACTLY. Nothing here is a tolerance.
 
@@ -21,8 +22,9 @@ WHAT IT ASSERTS, and each one went red on purpose first:
   2. EVERY CELL'S POSES ARE THE MODEL'S, TO THE BYTE: the strip's rows under
      the band, and the figure masked over them - MIRRORED in P2's two
      columns, whose band sits CW - INSX - BW in so the figure stands against
-     the numbers on its right. That is the whole of what the
-     pixel art is for - a black detail line kept black over a lit ground - and
+     the numbers on its right. The ATTACK frames are held the same
+     way, out of the second claim, with the strike's lunge inside the band.
+     That is the whole of what the pixel art is for - a black detail line kept black over a lit ground - and
      an ORed figure (the old composition) or a mask applied the wrong way
      round fails it at the first figure with a visor.
 
@@ -55,13 +57,13 @@ import os88tithechar as tc                                # noqa: E402
 # values and are used straight out of the table - `dw TI_COLS` emits 4, and
 # reading guest memory at offset 4 is how a check once came back with an empty
 # list and passed on `all([])`.
-SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
+SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_kseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
         "ti_rise", "ti_boardh", "ti_sb", "ti_sh", "ti_spitch", "ti_sbase",
         "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy", "ti_arm",
         "TI_COLS", "TI_ROWS")
 EQUS = ("TI_COLS", "TI_ROWS")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
-CKIND = (0, 1, 2, 0, 1, 2, 0)     # ti_ckind: a cell's card, mod the hand
+HAND = 7                          # a cell plays card (index mod the hand)
 
 fails = []
 
@@ -111,13 +113,16 @@ def pack(rows):
     return bytes(out)
 
 
-def model_pose(geo, terr, strip, g, ci, pi):
-    """A cell's composed pose, as the machine should have it."""
+def model_pose(geo, terr, strip, g, ci, pi, attack=False):
+    """A cell's composed pose - or attack frame - as the machine should have
+    it: the card's body, the item for its column (FRONT in 1 and 2, REAR in 0
+    and 3), over the column's own ground."""
     c, r = divmod(ci, g["TI_ROWS"])
     x0 = g["ti_insx"]
     rows = []
-    fig = tc.figure(tc.CHARACTERS[CKIND[ci % 7]],
-                    [s for s in tc.SURFACES if s[0] == geo[0]][0], pi)
+    stance = tc.FRONT if c in (1, 2) else tc.REAR
+    fig = tc.compose(ci % HAND, stance,
+                     [s for s in tc.SURFACES if s[0] == geo[0]][0], pi, attack)
     if c >= g["TI_COLS"] // 2:          # P2: the band MIRRORED, at CW-INSX-BW
         x0 = g["ti_cw"] - g["ti_insx"] - g["ti_bs"] * 8
         fig = [row[::-1] for row in fig]
@@ -189,8 +194,21 @@ def run(mach, off):
                                       models[ci // g["TI_ROWS"]], g, ci, pi)
                     if got != want:
                         badc.append("cell %d pose %d" % (ci, pi))
-            check(not badc, "all eighty poses are ground + masked figure, "
+            check(not badc, "all eighty poses are ground + body + item, "
                   "to the byte", badc[:6])
+            bada = []
+            for ci in range(g["TI_COLS"] * g["TI_ROWS"]):
+                for pi in range(4):
+                    got = bytes(m.readseg(g["ti_kseg"],
+                                          (ci * 4 + pi) * g["ti_cslot"],
+                                          g["ti_cslot"]))
+                    want = model_pose(geo, g["ti_terr"],
+                                      models[ci // g["TI_ROWS"]], g, ci, pi,
+                                      attack=True)
+                    if got != want:
+                        bada.append("cell %d frame %d" % (ci, pi))
+            check(not bada, "...and all eighty ATTACK frames, the strike's "
+                  "lunge inside the band", bada[:6])
 
         # 3. the glass, under the front lane where nothing else is drawn
         w, h, px = mono(m)

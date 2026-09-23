@@ -428,8 +428,9 @@ def mock(geo, terr, out, figures=True):
         surf = [s for s in tc.SURFACES if s[0] == name][0]
         for c in range(COLS):
             for r in range(ROWS):
-                chr_ = tc.CHARACTERS[(c * ROWS + r) % 7 % 3]
-                band = tc.figure(chr_, surf, (c + 2 * r) % 4)
+                band = tc.compose((c * ROWS + r) % len(tc.CARDS),
+                                  tc.FRONT if c in (1, 2) else tc.REAR,
+                                  surf, (c + 2 * r) % 4)
                 x0 = c * cw + INSX
                 if c >= COLS // 2:              # P2's cells are MIRRORED
                     band = [row[::-1] for row in band]

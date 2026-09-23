@@ -59,18 +59,10 @@ TI_CELLMAX  equ 15 * 72           ; ...and the largest CELL ground, 120x52 and
 ti_art_build:
     push ax
     call ti_strips_build            ; the PLACE: four column strips
-    call ti_cells_build             ; ...every cell's four poses over its own
-                                    ; column's ground (SPEC.md 97.4.9)
-    mov word [ti_ck], 0             ; ...and the mini units that ride a card,
-.unit:                              ; which are the same three characters at a
-    mov ax, [ti_ck]                 ; surface of their own (24 wide, not 64)
-    cmp ax, TI_CHAR_N
-    jae .udone
-    call ti_unit_build
-    inc word [ti_ck]
-    jmp short .unit
-.udone:
-    mov word [ti_ck], 0
+    call ti_cells_build             ; ...every cell's four idle poses and four
+                                    ; attack frames, body and item, over its
+                                    ; own column's ground (SPEC.md 97.4.9)
+    call ti_units_build             ; ...and the mini unit on every card
 
     ; --- and the two players' bases, which are ONE band drawn twice ---------
     ; ONE CALL AND NOT A LOOP: the base builder does every pose itself, the
@@ -81,8 +73,9 @@ ti_art_build:
     pop ax
     ret
 
-; ti_ck_card - AX = a CARD index -> [ti_ck], its character
-; Preserves every register.
+; ti_ck_card - AX = a CARD index -> [ti_ck], the card whose body and items
+; are drawn (SPEC.md 97.4.9). The hand IS the art's card list in wave 1a, so
+; this is the index mod the hand. Preserves every register.
 ti_ck_card:
     push ax
     push bx
@@ -90,11 +83,7 @@ ti_ck_card:
     xor dx, dx
     mov bx, TI_HAND
     div bx
-    mov bx, dx
-    add bx, ti_ckind
-    mov bl, [bx]
-    xor bh, bh
-    mov [ti_ck], bx
+    mov [ti_ck], dx
     pop dx
     pop bx
     pop ax

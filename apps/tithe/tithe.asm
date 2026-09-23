@@ -41,7 +41,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TITHE', ti_entry, 1, OS88_STACK_256
+    OS88_HEADER 'TITHE', ti_entry, 1 | OS88_F_PARTS, OS88_STACK_256
                                 ; the worker's stack class (SPEC.md 8.7):
                                 ; ti_worker's chain is 4 deep and its deepest
                                 ; leaf is the band blit, which pushes eight
@@ -162,8 +162,12 @@ TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
 ; sliver saying it is too small for a board.
 ; =============================================================================
 ti_entry:
+    call op_load                    ; THE ART PART, FIRST: SI is the kernel's
+    jc .refused                     ; name buffer and nothing later can read
+                                    ; it (SPEC.md 20.12, os88parts.inc rule 1).
+                                    ; A refusal has already said why
     push si
-    call ti_arena_claim             ; THE ARENA FIRST (tiplace.inc): a machine
+    call ti_arena_claim             ; THE ARENA NEXT (tiplace.inc): a machine
     jc .out                         ; that cannot hold the board is refused
                                     ; before a window exists to be empty
     mov si, ti_tpl
@@ -203,6 +207,9 @@ ti_entry:
     clc
 .out:
     pop si
+    ret
+.refused:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -388,6 +395,8 @@ ti_row_apply:
     push ax
     cmp byte [ti_ok], 0
     je .out
+    call ti_units_build             ; ...and which ITEM every card's unit
+                                    ; holds (SPEC.md 97.4.9)
     call ti_hud_draw
     xor ax, ax
 .card:
@@ -754,7 +763,7 @@ ti_frame:
     cmp byte [ti_clash], 0          ; tier A is two features LEANING and rides
     je .nocl                        ; the wheel; tier B is one composed band
     cmp byte [ti_cltier], 0         ; over both cells and is this lane's
-    je .cla
+    je .tiera
     mov ax, [ti_ch]                 ; its band is a cell plus the shear
     add ax, [ti_rise]
     mul word [ti_rowus]
@@ -763,8 +772,20 @@ ti_frame:
     call ti_lane
     jc .cla
     call ti_cl_tierb
+    jmp short .cla
+.tiera:
+    mov ax, [ti_bh]                 ; TIER A: both fighters' bands, every frame
+    mul word [ti_rowus]             ; of it, so the swing plays at the frame
+    add ax, [ti_arrus]              ; rate and not the idle wheel's
+    shl ax, 1
+    mov bx, ti_cacc
+    call ti_lane
+    jc .cla
+    call ti_cl_tiera
 .cla:
     dec byte [ti_clash]             ; ...the TIMER runs whether or not the band
+    jnz .nocl                       ; fitted, so a starved clash drops frames
+    call ti_cl_tiera                ; ...and at its END both fighters go back
 .nocl:                              ; fitted, so a starved clash drops frames
     cmp byte [ti_pjon], 0           ; rather than outstaying its animation
     jne .pj
@@ -956,6 +977,8 @@ ti_feature:
     call ti_ck_cell                 ; (SPEC.md 97.4.9)
     call ti_cellpose_addr           ; DI = THIS CELL's pose, in the arena -
     mov si, di                      ; composed over its own column's ground
+    mov ax, [ti_ci]                 ; ...which item it holds, for its rows
+    call ti_cell_stance
     mov ax, [ti_ci]
     call ti_cell_xy                 ; AX = the cell's x, BX = its y
     push ax                         ; ...and the figure's own inset inside it,
@@ -968,13 +991,25 @@ ti_feature:
     pop ax
     add ax, cx
     add bx, [ti_insy]
-    push ax                         ; TIER A's step toward the line, where this
-    call ti_cl_lean                 ; cell is one of a clashing pair - two
-    mov cx, ax                      ; ORDINARY bands and no composition, which
-    pop ax                          ; is why it always works
-    add ax, cx
     mov es, [ti_aseg]
     mov dx, [ti_bh]
+    push ax                         ; A FIGHTER IN A CLASH SWINGS: its band is
+    mov ax, [ti_ci]                 ; the ATTACK frame the clash is on, out of
+    call ti_cl_mine                 ; the attack claim, and it owes the whole
+    jnc .idle                       ; band - an attack is not a transition
+    push di                         ; the idle's rows describe
+    push word [ti_pi]
+    call ti_cl_frame
+    mov [ti_pi], ax
+    call ti_cellpose_addr
+    mov si, di
+    pop word [ti_pi]
+    pop di
+    mov es, [ti_kseg]
+    pop ax
+    jmp short .rows
+.idle:
+    pop ax
     cmp byte [ti_drect], 0          ; THE DIRTY RECT (SPEC.md 97.4.3): commit
     je .rows                        ; the rows this TRANSITION moved and not
     cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
@@ -1372,6 +1407,11 @@ ti_cost:
     je .rows
     cmp word [ti_arm], 2            ; a cropped arm commits the whole band
     jne .rows
+    push ax                         ; ...and so does a fighter's swing
+    mov ax, [ti_ci]
+    call ti_cl_mine
+    pop ax
+    jc .rows
     call ti_dirty_rows              ; AH = this character's rows for this move
     mov al, ah
     xor ah, ah
@@ -1414,7 +1454,7 @@ ti_pit:
 %include "tifaces.inc"
 %include "titxt.inc"
 %include "tibases.inc"
-%include "tichars.inc"
+%include "tiart.inc"
 %include "tiground.inc"
 %include "tilay.inc"
 %include "tirend.inc"
@@ -1422,6 +1462,16 @@ ti_pit:
 %include "tipj.inc"
 %include "ticl.inc"
 %include "tiplace.inc"
+%include "os88parts.inc"
+
+; THE ART IS A PART (SPEC.md 20.12, TITHE-PLAN 4.3): the bodies, the items, the
+; card manifest and the dirty rows, out of tools/os88tithechar.py. It left the
+; image the moment characters became layers - a package's image and bss cap at
+; 60KB together, and the program was 59KB of it with three figures. OP_COMP,
+; because pixel art packs 2.4 to 1 and it expands into the claim at load.
+    OS88_PARTS_BEGIN 1
+      OS88_PART OP_ASSET, OP_COMP     ; 0 the characters
+    OS88_PARTS_END
 
 ; =============================================================================
 ; data
@@ -1526,7 +1576,6 @@ ti_cards:
 ; cards, so the three go round - which is a fiction like every other number
 ; here and a STABLE one, so the same card always stands the same way. The
 ; card's own faction is what this becomes (TITHE-PLAN 7.1).
-ti_ckind:   db 0, 1, 2, 0, 1, 2, 0
 
 ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
 ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
@@ -1827,7 +1876,7 @@ ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
-ti_unit:    times TI_UNITMAX * TI_POSES * TI_CHAR_N db 0
+ti_unit:    times TI_UNITMAX * TI_POSES * TI_CARDS db 0
 ti_pjband:  times TI_PJMAX db 0
 ti_clband:  times TI_CLMAX db 0
 
@@ -1836,7 +1885,7 @@ ti_clband:  times TI_CLMAX db 0
 ; the segment is the bases' eight bands.
 TI_BSS      equ TI_BASEMAX * TI_BASEPOSES
 
-    OS88_BSS TI_BSS
+    OS88_BSS OP_BSS + TI_BSS
     OS88_IMAGE_END
 
-ti_base     equ os88_image_end + 0
+ti_base     equ os88_image_end + OP_BSS

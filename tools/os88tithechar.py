@@ -1,55 +1,39 @@
 #!/usr/bin/env python3
-"""TITHE's FACTION IDLES - one animated character a faction, as PIXEL ART.
+"""TITHE's CHARACTERS as LAYERS - a body, and an item in the near hand.
 
     python3 tools/os88tithechar.py sheet        # build/tithe-chars.png
-    python3 tools/os88tithechar.py emit         # apps/tithe/tichars.inc
+    python3 tools/os88tithechar.py emit         # apps/tithe/tiart.inc + build/tiart.bin
     python3 tools/os88tithechar.py --selfcheck
 
-PIXEL ART AND NOT A SILHOUETTE (SPEC.md 97.4.9). The first cut drew each
-faction as a solid white shape out of spans and ellipses, which scaled to every
-surface for free and could not be told apart once there are sixty of them. A
-figure is AUTHORED now, one character of ASCII a pixel, in THREE states:
+A CHARACTER IS COMPOSED, NOT DRAWN (TITHE-PLAN 4.2.1, SPEC.md 97.4.9). A card
+names a BODY - the person, less the near arm - and two ITEMS: the one it
+carries in the FRONT column and the one it carries at the REAR. "The same man
+with a different tool" is one body and two items, and an ATTACK is the item's
+own four frames over the body's first pose. So a pose is never drawn per
+character: sixty characters are ~60 bodies and a few dozen items, and every
+attack in the game is the items'.
 
-    '#'  INK - lit
-    'o'  BLACK - drawn dark, and OPAQUE: the ground does not show through it
-    '.'  nothing - the ground shows here
+PIXEL ART, in three states a pixel - '#' ink, 'o' black and opaque, '.'
+nothing - and so a figure is INK AND MASK, composed at layout as
+`(band AND NOT mask) OR ink`: the body's figure, with its halo, then the
+item's frame, with a one-pixel black RING that parts it from the torso it is
+held in front of. A frame still commits one opaque band a feature, and the
+detail costs it nothing.
 
-A black pixel is what 1bpp detail IS - the visor slit, the mail, the fold of a
-habit - and it is why a figure is INK AND MASK rather than ink alone: the old
-figures were ORed over the ground, which works only for a figure that is solid
-white, since a dark detail line ORed over a lit ground pixel stays lit. The
-mask is composed away at LOAD, never in a frame, and the frame still commits
-one opaque 1bpp band a feature - so a detailed figure costs exactly what a
-solid one of the same box does (TITHE-PLAN 1.1: the band is priced by rows and
-bytes, never by what is in them).
+THE ANCHOR IS THE NEAR SHOULDER, and a body answers it per pose: it may move
+UP AND DOWN with the body (the Ember rises and falls) and never sideways,
+because the body is placed so its anchor lands on a BYTE and the machine puts
+every item frame down in whole bytes from there. The selfcheck refuses an
+anchor that leaves the grid.
 
-A FIGURE IS LAYERS, and every layer is OUTLINED where it is put down, so a
-shield over a torso or a head over a collar is separated by one black pixel
-without anybody drawing that pixel. The whole figure then gets a black HALO,
-which is what keeps it reading over a textured ground on a one-bit screen.
+THE CUT, per surface: bodies and items are reduced per LAYER to Hercules and
+the card minis, the outlines re-drawn at the target size; CGA's bodies are
+DRAWN again at 17 rows and its items are cut.
 
-THE SMALLER SURFACES ARE REDUCED PER LAYER, NOT PER PICTURE. Each layer's art
-is cut down on its own and the outlines are re-drawn at the target size, so a
-Hercules or CGA figure keeps the separation between its parts - where scaling
-the finished picture merges a shield into the torso behind it. The cut is per
-AXIS (TITHE-PLAN 4.2): x stays near 1:1 and y takes the pixel aspect, so a
-CGA figure is short in rows and correctly proportioned on the glass.
-
-THE MOTION IS THE SAME AS THE SILHOUETTES' - which the field liked - bar one:
-
-  BULWARK    the head rocks a pixel; the SHIELD lifts and settles two
-  EMBER      the hem never moves - it is the shadow it hovers over - and the
-             rest rises and falls, with a WISP flickering at the open hand
-  COVENANT   the body is still; the CENSER sways on its chain. It swung ten
-             pixels each way and read as a mace being wielded - too active for
-             an idle - so it is TWO now, a sway and not a swing.
-
-WHAT IS EMITTED: per character and surface, FOUR POSE FIGURES (deduplicated -
-a ping-pong has three distinct pictures) as byte-aligned boxes of interleaved
-(ink, mask) bytes, and per pose the rows that the transition INTO it moves, in
-band coordinates. The rows are the TOOL's, computed from the figures alone and
-not from a composed band, so they hold whatever ground a cell composes under
-them (SPEC.md 97.4.3).
+WHAT IS EMITTED IS A PART (SPEC.md 20.12), build/tiart.bin, and the offsets the
+package reads it by in apps/tithe/tiart.inc. The art is not in the image any
+more: a package's image and bss cap at 60KB together, and layered art for even
+seven cards does not fit beside the program (TITHE-PLAN 4.3).
 """
 
 import argparse
@@ -211,8 +195,35 @@ class Fig:
         self.px = out
 
 
+
+def ring(g):
+    """`g` with a one-pixel BLACK ring round everything it draws - the item's
+    own outline, which separates it from the body it is held in front of and
+    haloes it over the ground in the same stroke."""
+    h, w = len(g), len(g[0])
+    out = [[T] * (w + 2) for _ in range(h + 2)]
+    for y in range(h):
+        for x in range(w):
+            if g[y][x] == T:
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if out[y + 1 + dy][x + 1 + dx] == T:
+                        out[y + 1 + dy][x + 1 + dx] = K
+    for y in range(h):
+        for x in range(w):
+            if g[y][x] != T:
+                out[y + 1][x + 1] = g[y][x]
+    return out
+
+
 # =============================================================================
-# THE BULWARK - a shield-bearer in mail, sword down, heater shield on the arm
+# THE BODIES - the person, less the NEAR arm, which is the item's
+#
+# A body draws its layers and answers its ANCHOR for the pose: the near
+# shoulder, where an item's arm begins. The anchor may move VERTICALLY with
+# the pose (the Ember rises and falls) and never sideways, because the machine
+# puts an item down in whole bytes from it (SPEC.md 97.4.9).
 # =============================================================================
 
 B_HEAD = parse("""
@@ -259,57 +270,29 @@ oooooooooooooooo
 .######..######.
 """)
 
-B_ARM = parse("""
-..##..
-.####.
-.####.
-.###..
-.###..
-.###..
-.###..
-..##..
-..##..
-..##..
-######
-..##..
-..##..
-..##..
-..##..
-..##..
-..##..
-..#...
-""")
-
-B_SHIELD = parse("""
-###########
-#ooooooooo#
-#o#######o#
-#o###o###o#
-#o###o###o#
-#o#ooooo#o#
-#o###o###o#
-#o###o###o#
-#o#######o#
-.#o#####o#.
-.#o#####o#.
-..#o###o#..
-...#o#o#...
-....#o#....
-.....#.....
+B_OFF = parse("""
+..##
+.###
+.###
+.###
+####
+###.
+###.
+###.
+###.
+.##.
+.##.
+.###
 """)
 
 
-def d_bulwark(f, p):
+def b_soldier(f, p):
     pp = ppose(p)
-    f.put(B_ARM, 1, 11)
+    f.put(B_OFF, 1, 11)
     f.put(B_BODY, 5, 10, True)
-    f.put(B_HEAD, 8, 1, True, ox=-pp)          # the head rocks a pixel...
-    f.put(B_SHIELD, 15, 13, True, oy=pp * 2)   # ...the shield lifts two
+    f.put(B_HEAD, 8, 1, True, ox=-pp)          # the head rocks a pixel
+    return (19, 12, 0)
 
-
-# =============================================================================
-# THE EMBER CHOIR - a hooded caster that HOVERS, with a wisp at its hand
-# =============================================================================
 
 E_UPPER = parse("""
 ........#.........
@@ -354,53 +337,19 @@ E_HEM = parse("""
 .#.#.#.##.#.#.##.#..
 """)
 
-E_ARM = parse("""
-........#.#
-........###
-.......####
-....######.
-..#######..
-#####o##...
-####o......
-###o.......
-##o........
-""")
-
 E_SHADOW = parse("""
 ..#.#.#.#.#.#.#.#..
 .#.#.#.#.#.#.#.#.#.
 """)
 
-E_WISP = [parse(s) for s in ("""
-.#.
-###
-.#.
-""", """
-#
-""", """
-..#..
-.###.
-.###.
-#####
-.###.
-""", """
-#
-""")]
 
-
-def d_ember(f, p):
+def b_hooded(f, p):
     dy = ppose(p) * 2
     f.put(E_UPPER, 3, 2, oy=dy)                # everything above the hem...
-    f.put(E_ARM, 15, 14, True, oy=dy)
     f.put(E_HEM, 2, 27)                        # ...and the hem, which never
     f.put(E_SHADOW, 2, 38)                     # moves, over its own shadow
-    w = E_WISP[p]
-    f.put(w, 24 - len(w[0]) // 2, 13 - len(w), oy=dy)
+    return (15, 16, dy)                        # ...and the arm rises with it
 
-
-# =============================================================================
-# THE COVENANT - a nun, still, with a censer SWAYING on its chain
-# =============================================================================
 
 C_BODY = parse("""
 .....######.....
@@ -437,44 +386,19 @@ C_BODY = parse("""
 ################
 """)
 
-C_ARM = parse("""
-##.....
-####...
-######.
-.######
-...####
-.....##
-""")
 
-C_CENSER = parse("""
-..#..
-.###.
-#####
-#o#o#
-#####
-.###.
-""")
-
-
-def d_covenant(f, p):
-    sw = ppose(p) * 2                          # TWO, and not ten: a sway
+def b_nun(f, p):
     f.put(C_BODY, 3, 6)
-    f.put(C_ARM, 15, 17, True)
-    f.line(21, 22, 22, 30, ox=sw)              # the chain, hand to censer
-    f.put(C_CENSER, 20, 31, True, ox=sw)
+    return (15, 17, 0)
 
 
-# =============================================================================
-# THE CGA FIGURES - DRAWN, NOT REDUCED
-#
+# --- and the CGA bodies, DRAWN for the surface ------------------------------
 # A CGA pixel is 2.4 times as tall as it is wide, so a board figure there is
-# 17 ROWS - and the per-layer reduction that holds up on a Hercules turns the
-# helm, the face and the hood into one dark blob at that height: every detail
-# row of a 42-row figure is one of the 60% the cut has to drop. So CGA is its
-# own drawing, at its own size, 1:1, with the same layers and the same motion
-# in CGA pixels. It is the one surface that costs an artist a second picture
-# (TITHE-PLAN 4.2's "CGA fallback, named and costed now").
-# =============================================================================
+# 17 ROWS, and the per-layer reduction that holds up on a Hercules turns a
+# helm, a face and a hood into one dark blob at that height. So CGA's BODIES
+# are drawn again at their own size, 1:1, with the same motion in CGA pixels -
+# and its ITEMS are not: an item is small already and its cut holds, which is
+# TITHE-PLAN 4.2.4's "the items, being small already, cut cleanly".
 CW_, CH_ = 26, 17
 
 BC_HEAD = parse("""
@@ -497,34 +421,22 @@ oooooooooooo
 .###...####.
 ####...#####
 """)
-BC_ARM = parse("""
-.##.
-.##.
-.##.
-.##.
-####
-.#..
-.#..
-.#..
-""")
-BC_SHIELD = parse("""
-#######
-###o###
-#ooooo#
-###o###
-###o###
-.##o##.
-..###..
-...#...
+BC_OFF = parse("""
+.##
+###
+##.
+##.
+##.
+.#.
 """)
 
 
-def c_bulwark(f, p):
+def c_soldier(f, p):
     pp = ppose(p)
-    f.put(BC_ARM, 3, 6)
+    f.put(BC_OFF, 4, 6)
     f.put(BC_BODY, 6, 5, True)
-    f.put(BC_HEAD, 9 - pp, 0, True)
-    f.put(BC_SHIELD, 14, 6 + (pp > 0) - (pp < 0), True)
+    f.put(BC_HEAD, 9, 0, True, ox=-pp)
+    return (16, 6, 0)
 
 
 EC_UPPER = parse("""
@@ -548,34 +460,13 @@ EC_HEM = parse("""
 #o##o##o##o#
 .#.#.#.#.#..
 """)
-EC_ARM = parse("""
-.....#.#
-.....###
-..#####.
-######..
-###o....
-""")
-EC_WISP = [parse(s) for s in ("""
-.#.
-###
-""", """
-#
-""", """
-.#.
-###
-###
-""", """
-#
-""")]
 
 
-def c_ember(f, p):
+def c_hooded(f, p):
     dy = ppose(p)
     f.put(EC_UPPER, 6, 0, oy=dy)
-    f.put(EC_ARM, 13, 6, True, oy=dy)
     f.put(EC_HEM, 6, 12)
-    w = EC_WISP[p]
-    f.put(w, 21 - len(w[0]) // 2, 6 - len(w), oy=dy)
+    return (14, 6, dy)
 
 
 CC_BODY = parse("""
@@ -596,38 +487,442 @@ oooooooooo
 #o######o#
 ##########
 """)
-CC_ARM = parse("""
-###..
-#####
-..###
-""")
-CC_CENSER = parse("""
-.#.
-###
-#o#
-###
-""")
 
 
-def c_covenant(f, p):
-    sw = ppose(p) * 2
+def c_nun(f, p):
     f.put(CC_BODY, 7, 1)
-    f.put(CC_ARM, 14, 6, True)
-    f.line(18, 8, 19, 11, ox=sw)
-    f.put(CC_CENSER, 18, 12, True, ox=sw)
+    return (15, 6, 0)
 
 
-CHARACTERS = [
-    ("bulwark",  "PIKEMAN", "THE BULWARK",
-     "a shield-bearer in mail; the shield lifts and settles",
-     d_bulwark, c_bulwark),
-    ("ember",    "ACOLYTE", "THE EMBER CHOIR",
-     "a hooded caster that hovers, wisp at the hand", d_ember, c_ember),
-    ("covenant", "HERALD",  "THE COVENANT",
-     "a nun, still, with a censer swaying on its chain",
-     d_covenant, c_covenant),
+BODIES = [
+    ("soldier", b_soldier, c_soldier),
+    ("hooded",  b_hooded,  c_hooded),
+    ("nun",     b_nun,     c_nun),
 ]
 
+
+# =============================================================================
+# THE ITEMS - the NEAR arm and what is in it (TITHE-PLAN 4.2.1)
+#
+# An item is eight frames - four of IDLE, a ping-pong like the body's, and
+# four of ATTACK - each an (art, gx, gy) placed with its top-left at the body's
+# anchor plus (gx, gy), in master pixels. The arm is the item's and not the
+# body's, which is the decision that makes the layer model work: a swing moves
+# an arm, so an arm that is part of the weapon can swing against any torso.
+# The attack's fourth frame is the idle's first, so an attack comes home.
+# =============================================================================
+
+I_SHIELD = parse("""
+###########
+#ooooooooo#
+#o#######o#
+#o###o###o#
+#o###o###o#
+#o#ooooo#o#
+#o###o###o#
+#o###o###o#
+#o#######o#
+.#o#####o#.
+.#o#####o#.
+..#o###o#..
+...#o#o#...
+....#o#....
+.....#.....
+""")
+
+
+def it_shield():
+    idle = [(I_SHIELD, -4, 1, 0, ppose(p) * 2) for p in range(POSES)]
+    # A SHOVE: the shield driven forward and back - a bash is the shield's
+    # own attack, and it is the Bulwark's
+    atk = [(I_SHIELD, -4, 1, 1, -1), (I_SHIELD, -4, 1, 3, -1),
+           (I_SHIELD, -4, 1, 2, 0), (I_SHIELD, -4, 1, 0, 0)]
+    return idle, atk
+
+
+I_SWORD = parse("""
+......#..
+......##.
+......##.
+......##.
+......##.
+......##.
+......##.
+......##.
+......##.
+###...##.
+###...##.
+###...##.
+###.#####
+###...#..
+.###.###.
+..#######
+...####..
+""")
+I_SWORD_UP = parse("""
+#........
+##.......
+.##......
+..##.....
+...##....
+....##...
+.....###.
+....####.
+...###...
+###......
+###......
+###......
+###......
+.##......
+""")
+I_SWORD_CUT = parse("""
+.........#...........
+#########o###########
+#########o###########
+#########o...........
+.........#...........
+""")
+I_SWORD_LOW = parse("""
+###.......
+####......
+.#####....
+..######..
+.....###..
+....#.##..
+......##..
+.......##.
+........##
+.........#
+""")
+
+
+def it_sword():
+    idle = [(I_SWORD, 0, -9, 0, ppose(p)) for p in range(POSES)]
+    atk = [(I_SWORD_UP, 0, -9, 0, 0), (I_SWORD_CUT, 0, -1, 0, 0),
+           (I_SWORD_LOW, 0, 0, 0, 0), (I_SWORD, 0, -9, 0, 0)]
+    return idle, atk
+
+
+def _bow(string, arrow):
+    """A bow held out at arm's length: belly forward at column 12, the string
+    at `string` - drawn back for the attack - and an arrow on it or not."""
+    rows = []
+    for y in range(17):
+        r = ["."] * 16
+        d = abs(y - 8)
+        belly = 12 - (d * d) // 16                # the limbs curve back
+        r[belly] = "#"
+        if d == 8:
+            r[belly - 1] = "#"
+        sx = string + (8 - d) * 0 if d == 8 else string + ((12 - string) * d) // 8
+        if 0 <= sx < 16 and sx != belly:
+            r[sx] = "#"
+        if y in (7, 8):                           # the arm, to the grip
+            for x in range(0, belly):
+                if r[x] == ".":
+                    r[x] = "#"
+        if arrow and y == 6:
+            for x in range(string, min(16, belly + 4)):
+                r[x] = "#"
+        rows.append("".join(r))
+    return parse("\n".join(rows))
+
+
+I_BOW = _bow(9, False)
+I_BOW_DRAW = _bow(6, True)
+I_BOW_FULL = _bow(3, True)
+I_BOW_LOOSE = _bow(10, False)
+
+
+def it_bow():
+    idle = [(I_BOW, 0, -7, 0, ppose(p)) for p in range(POSES)]
+    atk = [(I_BOW_DRAW, 0, -7, 0, 0), (I_BOW_FULL, 0, -7, 0, 0),
+           (I_BOW_LOOSE, 0, -7, 1, 0), (I_BOW, 0, -7, 0, 0)]
+    return idle, atk
+
+
+I_FORK = parse("""
+....#.#.#.
+....#.#.#.
+....#.#.#.
+....#####.
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+##....#...
+###...#...
+###...#...
+.###..#...
+..######..
+...####...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+......#...
+""")
+I_FORK_JAB = parse("""
+.......#.#.#
+.......#.#.#
+.......#.#.#
+.......#####
+.........#..
+.........#..
+.........#..
+.........#..
+.........#..
+##.......#..
+####.....#..
+.#####...#..
+...#######..
+.....###.#..
+.........#..
+.........#..
+.........#..
+.........#..
+.........#..
+.........#..
+.........#..
+.........#..
+""")
+
+
+def it_fork():
+    idle = [(I_FORK, 0, -10, 0, ppose(p)) for p in range(POSES)]
+    atk = [(I_FORK, 0, -10, -1, -1), (I_FORK_JAB, 0, -12, 0, 0),
+           (I_FORK_JAB, 0, -12, 0, 1), (I_FORK, 0, -10, 0, 0)]
+    return idle, atk
+
+
+I_STAFF = parse("""
+.....###.
+....#o#o#
+....##o##
+....#o#o#
+.....###.
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+##....#..
+###...#..
+###...#..
+.###..#..
+..######.
+...####..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+""")
+I_STAFF_UP = parse("""
+#...#...#
+.#..#..#.
+..#####..
+.#.#o#.#.
+####o####
+.#.#o#.#.
+..#####..
+.#..#..#.
+#...#...#
+......#..
+......#..
+##....#..
+###...#..
+###...#..
+.###..#..
+..######.
+...####..
+......#..
+......#..
+......#..
+......#..
+......#..
+......#..
+""")
+
+
+def it_staff():
+    idle = [(I_STAFF, 0, -11, 0, ppose(p)) for p in range(POSES)]
+    atk = [(I_STAFF, 0, -11, 0, -2), (I_STAFF_UP, 0, -15, 0, 0),
+           (I_STAFF_UP, 0, -15, 0, 1), (I_STAFF, 0, -11, 0, 0)]
+    return idle, atk
+
+
+I_WISP_ARM = parse("""
+........#.#
+........###
+.......####
+....######.
+..#######..
+#####o##...
+####o......
+###o.......
+##o........
+""")
+
+
+def _wisp(n, reach=0):
+    """The raised hand and its flame: `n` is the flame's size, `reach` how far
+    forward the hand has thrust it."""
+    g = [r[:] for r in I_WISP_ARM]
+    w = len(g[0]) + reach + 8
+    g = [[T] * w for _ in range(8)] + [r + [T] * (w - len(r)) for r in g]
+    if reach:
+        for y in range(8, 8 + 5):
+            for x in range(4, 4 + reach + 6):
+                if g[y][x - reach] == I and x < w:
+                    g[y][x] = I
+    cx = 9 + reach
+    for i in range(n):
+        for x in range(cx - (n - i) // 2, cx + (n - i) // 2 + 1):
+            if 0 <= x < w:
+                g[7 - i][x] = I
+    return g
+
+
+def it_wisp():
+    size = (2, 1, 3, 1)
+    idle = [(_wisp(size[p]), 0, -13, 0, 0) for p in range(POSES)]
+    atk = [(_wisp(4), 0, -13, 0, 0), (_wisp(6, 3), 0, -13, 0, 0),
+           (_wisp(3, 3), 0, -13, 0, 0), (_wisp(2), 0, -13, 0, 0)]
+    return idle, atk
+
+
+I_CENSER_ARM = parse("""
+##.....
+####...
+######.
+.######
+...####
+.....##
+""")
+I_CENSER = parse("""
+..#..
+.###.
+#####
+#o#o#
+#####
+.###.
+""")
+
+
+def _censer(sw, lift=0):
+    """The arm, the chain and the censer, swung `sw` pixels off the hand's
+    vertical and raised `lift`: a sway is two, and the swing the field read
+    as a mace being wielded - too active for an IDLE - is the ATTACK now."""
+    w = 7 + 12
+    h = 6 + 14
+    g = [[T] * w for _ in range(h)]
+    for y, r in enumerate(I_CENSER_ARM):
+        for x, v in enumerate(r):
+            if v:
+                g[y][x] = v
+    hx, hy = 6, 5
+    tx, ty = 7 + sw, 13 - lift
+    n = max(abs(tx - hx), abs(ty - hy), 1)
+    for i in range(n + 1):
+        g[int(round(hy + (ty - hy) * i / n))][int(round(hx + (tx - hx) * i / n))] = I
+    for y, r in enumerate(I_CENSER):
+        for x, v in enumerate(r):
+            if v and 0 <= tx - 2 + x < w:
+                g[ty + 1 + y][tx - 2 + x] = v
+    return g
+
+
+def it_censer():
+    idle = [(_censer(ppose(p) * 2), 0, 0, 0, 0) for p in range(POSES)]
+    atk = [(_censer(-3, 1), 0, 0, 0, 0), (_censer(8, 5), 0, 0, 0, 0),
+           (_censer(5, 2), 0, 0, 0, 0), (_censer(0), 0, 0, 0, 0)]
+    return idle, atk
+
+
+I_BOOK = parse("""
+##.........
+###........
+###........
+.###.......
+..###..####
+...###o####
+....#######
+...o#######
+...########
+""")
+I_BOOK_UP = parse("""
+.....#.#.#.
+......###..
+.....#####.
+##..#######
+###.o######
+.###.######
+..#####....
+...###.....
+""")
+
+
+def it_book():
+    idle = [(I_BOOK, 0, 1, 0, ppose(p)) for p in range(POSES)]
+    atk = [(I_BOOK, 0, 1, 0, -1), (I_BOOK_UP, 0, -3, 0, 0),
+           (I_BOOK_UP, 0, -3, 0, 1), (I_BOOK, 0, 1, 0, 0)]
+    return idle, atk
+
+
+ITEMS = [
+    ("shield", it_shield),
+    ("sword",  it_sword),
+    ("bow",    it_bow),
+    ("fork",   it_fork),
+    ("staff",  it_staff),
+    ("wisp",   it_wisp),
+    ("censer", it_censer),
+    ("book",   it_book),
+]
+IX = {n: i for i, (n, _) in enumerate(ITEMS)}
+BX = {n: i for i, (n, _, _) in enumerate(BODIES)}
+
+# THE HAND, as cards: a body, the item it carries in the FRONT column and the
+# one it carries at the REAR (TITHE-PLAN 5.2 - "the same man with a different
+# tool"). Seven cards, three bodies, eight items, and every item but two on
+# more than one card - the SWORD on a soldier and a hooded caster, the SHIELD on
+# two soldiers and a nun, the BOOK in two factions' hands - because whether a
+# shared item looks right on different builds is the question wave 1a asks.
+CARDS = [
+    ("PIKEMAN", "soldier", "sword",  "fork"),
+    ("ARCHER",  "hooded",  "sword",  "bow"),
+    ("WARDEN",  "soldier", "shield", "fork"),
+    ("ACOLYTE", "hooded",  "wisp",   "book"),
+    ("RAM",     "soldier", "sword",  "shield"),
+    ("HERALD",  "nun",     "censer", "staff"),
+    ("BULWARK", "nun",     "shield", "book"),
+]
+FRONT, REAR = 0, 1
+LUNGE = 8          # pixels an attack's STRIKE and FOLLOW-THROUGH step toward
+                   # the enemy - inside the band, so it stays self-erasing
+                   # (the machine's TI_CLSTEP, and tests/titheterr.py holds
+                   # the two to the same bytes)
+
+
+# =============================================================================
+# THE CUT, per surface
+# =============================================================================
 
 def scales(w, h, aspect):
     """(sx, sy) for a surface: as large as the band allows, never above the
@@ -639,79 +934,142 @@ def scales(w, h, aspect):
     return s, s / aspect
 
 
-def _fig(ch, surf, pose):
+CGA_ITEM = (0.72, 0.30)          # an item's cut on CGA, to the drawn bodies
+
+
+def _surf(name):
+    return [s for s in SURFACES if s[0] == name][0]
+
+
+def body_fig(body, surf, pose):
+    """(Fig, anchor) of a body at a surface: the anchor in the Fig's pixels."""
     name, w, h, aspect = surf
-    if name == "cga":                       # DRAWN for the surface, 1:1
+    b = BODIES[BX[body]]
+    if name == "cga":
         f = Fig(1, 1, CW_, CH_)
-        ch[5](f, pose)
+        ax, ay, oy = b[2](f, pose)
     else:
         sx, sy = scales(w, h, aspect)
         f = Fig(sx, sy)
-        ch[4](f, pose)
+        ax, ay, oy = b[1](f, pose)
     f.halo()
-    return f
+    return f, (f.X(ax), f.Y(ay) + f.dy(oy))   # the layers' own scaling rule
 
 
-_LEFT = {}
-
-
-def _left(ch, surf):
-    """The leftmost column ANY pose touches, so every pose moves together."""
-    k = (ch[0], surf[0])
-    if k not in _LEFT:
-        xs = []
-        for p in range(POSES):
-            f = _fig(ch, surf, p)
-            xs += [x for r in f.px for x, v in enumerate(r) if v != T]
-        _LEFT[k] = min(xs) if xs else 0
-    return _LEFT[k]
-
-
-def figure(ch, surf, pose):
-    """(the figure in BAND coordinates as rows of T/I/K) for one pose.
-
-    A BOARD FIGURE STANDS AGAINST ITS NUMBERS (SPEC.md 97.4.9): its left edge
-    is MARGIN pixels into the band, which starts where the cell's stat column
-    ends - so the numbers read as the figure's own and not as its neighbour's.
-    Centred, the column sat half-way between two figures and belonged to
-    neither. P2's cells mirror the band on the machine, which puts the figure
-    against its stat column on the other side. A card's mini unit is centred.
-    """
+def item_scale(surf):
     name, w, h, aspect = surf
-    f = _fig(ch, surf, pose)
+    if name == "cga":
+        return CGA_ITEM
+    return scales(w, h, aspect)
+
+
+_ICACHE = {}
+
+
+def item_frame(item, surf, frame):
+    """(grid with its ring, gx, gy): the frame at the surface, and where its
+    top-left sits relative to the anchor, in surface pixels."""
+    k = (item, surf[0], frame)
+    if k in _ICACHE:
+        return _ICACHE[k]
+    idle, atk = ITEMS[IX[item]][1]()
+    art, gx, gy, mx, my = (idle + atk)[frame]
+    sx, sy = item_scale(surf)
+    f = Fig(sx, sy)                     # for its scaling rules only: a MOTION
+    g = ring(reduce_art(art, sx, sy))   # never rounds away to nothing
+    ox = f.X(gx) + f.dx(mx)
+    oy = f.Y(gy) + f.dy(my)
+    _ICACHE[k] = (g, ox - 1, oy - 1)    # the ring grew it a pixel each way
+    return _ICACHE[k]
+
+
+_PLACE = {}
+
+
+def body_place(body, surf):
+    """(bx, by): where a body's Fig lands in its band - the SAME for every
+    pose and every item, so a character stands still whatever it carries.
+
+    ON THE BOARD, against its numbers: the leftmost pixel any pose touches is
+    MARGIN in, and then the body steps RIGHT until its anchor is on a BYTE
+    boundary, so every item goes down in whole bytes (SPEC.md 97.4.9). ON A
+    CARD it is centred, and steps the same way."""
+    k = (body, surf[0])
+    if k in _PLACE:
+        return _PLACE[k]
+    name, w, h, aspect = surf
+    xs = []
+    fh = 0
+    ax = 0
+    for p in range(POSES):
+        f, (ax, ay) = body_fig(body, surf, p)
+        xs += [x for r in f.px for x, v in enumerate(r) if v != T]
+        fh = f.h
+        fw = f.w
+    left = min(xs)
+    bx = (MARGIN - left) if w == 64 else (w - fw) // 2
+    while (bx + ax) % 8:
+        bx += 1
+    _PLACE[k] = (bx, h - fh)
+    return _PLACE[k]
+
+
+def compose(card, stance, surf, pose, attack=False):
+    """The character as the machine composes it: the body's figure, then the
+    item's frame over it at the anchor. Rows of T/I/K in BAND coordinates."""
+    name, w, h, aspect = surf
+    c = CARDS[card]
+    f, (ax, ay) = body_fig(c[1], surf, 0 if attack else pose)
+    bx, by = body_place(c[1], surf)
+    if attack and pose in (1, 2) and w == 64:
+        bx += LUNGE                     # the strike steps in
     band = [[T] * w for _ in range(h)]
-    ox = (MARGIN - _left(ch, surf)) if w == 64 else (w - f.w) // 2
-    oy = h - f.h                                # the feet on the band's floor
     for y in range(f.h):
         for x in range(f.w):
             v = f.px[y][x]
-            if v != T and 0 <= y + oy < h and 0 <= x + ox < w:
-                band[y + oy][x + ox] = v
+            if v != T and 0 <= y + by < h and 0 <= x + bx < w:
+                band[y + by][x + bx] = v
+    g, gx, gy = item_frame(c[2 + stance], surf, POSES + pose if attack else pose)
+    for y, r in enumerate(g):
+        for x, v in enumerate(r):
+            X, Y = bx + ax + gx + x, by + ay + gy + y
+            if v != T and 0 <= Y < h and 0 <= X < w:
+                band[Y][X] = v
     return band
 
 
-def boxed(band):
-    """The byte-aligned box of what a figure touches, and its (ink, mask)
-    bytes interleaved - one `lodsw` a byte on the machine."""
-    h, w = len(band), len(band[0])
-    ys = [y for y in range(h) if any(band[y])]
-    xs = [x for y in range(h) for x in range(w) if band[y][x]]
-    if not ys:
+# =============================================================================
+# WHAT THE MACHINE IS HANDED - one PART (SPEC.md 20.12), and the offsets into it
+# =============================================================================
+
+def boxed(g, x0, y0, w, h):
+    """The byte-aligned box of what grid g (placed at x0, y0 in a band w x h)
+    touches, as (bx, by, wb, rows, bytes) with (ink, mask) interleaved."""
+    pts = [(x0 + x, y0 + y) for y, r in enumerate(g) for x, v in enumerate(r)
+           if v != T and 0 <= x0 + x < w and 0 <= y0 + y < h]
+    if not pts:
         return (0, 0, 0, 0, b"")
-    y0, y1 = min(ys), max(ys)
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
     b0, b1 = min(xs) // 8, max(xs) // 8
+    Y0, Y1 = min(ys), max(ys)
+    band = {}
+    for y, r in enumerate(g):
+        for x, v in enumerate(r):
+            if v != T:
+                band[(x0 + x, y0 + y)] = v
     out = bytearray()
-    for y in range(y0, y1 + 1):
+    for y in range(Y0, Y1 + 1):
         for b in range(b0, b1 + 1):
             ink = mask = 0
             for i in range(8):
-                v = band[y][b * 8 + i]
+                v = band.get((b * 8 + i, y), T)
                 if v != T:
                     mask |= 0x80 >> i
                 if v == I:
                     ink |= 0x80 >> i
             out += bytes((ink, mask))
-    return (b0, y0, b1 - b0 + 1, y1 - y0 + 1, bytes(out))
+    return (b0, Y0, b1 - b0 + 1, Y1 - Y0 + 1, bytes(out))
 
 
 def dirty(bands, p):
@@ -723,30 +1081,166 @@ def dirty(bands, p):
     return (min(rows), max(rows) - min(rows) + 1)
 
 
+class Part:
+    """A little-endian byte image with forward references resolved at the end."""
+
+    def __init__(self):
+        self.b = bytearray()
+        self.fix = []
+        self.lab = {}
+
+    def here(self):
+        return len(self.b)
+
+    def db(self, *v):
+        for x in v:
+            self.b.append(x & 255)
+
+    def dw(self, v):
+        if isinstance(v, str):
+            self.fix.append((len(self.b), v))
+            self.b += b"\0\0"
+        else:
+            self.b += bytes((v & 255, (v >> 8) & 255))
+
+    def label(self, n):
+        self.lab[n] = len(self.b)
+
+    def done(self):
+        for at, n in self.fix:
+            v = self.lab[n]
+            self.b[at], self.b[at + 1] = v & 255, v >> 8
+        return bytes(self.b)
+
+
+def build_part():
+    """THE ART PART, and the offsets the package reads it by.
+
+        header      dw bodytab, itemtab, dirtytab, cardtab, sametab
+        bodytab     dw rec[body][surface]
+          rec       dw fig[4]; db bx[4], by[4], ax[4] (a BYTE), ay[4], bh
+        itemtab     dw rec[item][surface]
+          rec       dw fig[8]; db dx[8] (signed BYTES from the anchor),
+                    dy[8] (signed rows)
+        fig         db wb, rows; (ink, mask) x wb x rows
+        dirtytab    db (dy, dh) x 4, per card x stance x board surface
+        cardtab     db body, front item, rear item, per card
+        sametab     db 8 per card x stance x board surface: the frame each
+                    of the eight is a copy of (itself if it is new)
+    """
+    P = Part()
+    for n in ("bodytab", "itemtab", "dirtytab", "cardtab", "sametab"):
+        P.dw(n)
+    figs = {}
+    fbytes = []
+
+    def fig(wb, rows, data):
+        key = (wb, rows, data)
+        if key not in figs:
+            figs[key] = "f%d" % len(figs)
+            fbytes.append((figs[key], wb, rows, data))
+        return figs[key]
+
+    recs = []
+    P.label("bodytab")
+    for bname, _, _ in BODIES:
+        for surf in SURFACES:
+            r = "b_%s_%s" % (bname, surf[0])
+            P.dw(r)
+            recs.append(("body", bname, surf, r))
+    P.label("itemtab")
+    for iname, _ in ITEMS:
+        for surf in SURFACES:
+            r = "i_%s_%s" % (iname, surf[0])
+            P.dw(r)
+            recs.append(("item", iname, surf, r))
+    P.label("cardtab")
+    for c in CARDS:
+        P.db(BX[c[1]], IX[c[2]], IX[c[3]])
+    P.label("dirtytab")
+    for ci in range(len(CARDS)):
+        for st in (FRONT, REAR):
+            for surf in SURFACES[:BOARD_G]:
+                bands = [compose(ci, st, surf, p) for p in range(POSES)]
+                for p in range(POSES):
+                    P.db(*dirty(bands, p))
+    # THE SAME-AS TABLE: of a cell's eight frames - four idle, four attack -
+    # which is the SAME PICTURE as an earlier one, so the machine copies a slot
+    # it has already composed instead of composing it again. A ping-pong's
+    # pose 2 is its pose 0 wherever nothing moves on the off-beat, and every
+    # attack's recovery is the idle's first pose; about a quarter of all the
+    # composition a board costs. It is the tool's to know and the machine's to
+    # trust, and tests/titheterr.py holds every copied slot to the model.
+    P.label("sametab")
+    for ci in range(len(CARDS)):
+        for st in (FRONT, REAR):
+            for surf in SURFACES[:BOARD_G]:
+                fr = [compose(ci, st, surf, k % POSES, k >= POSES)
+                      for k in range(2 * POSES)]
+                P.db(*[fr.index(b) for b in fr])
+    for kind, n, surf, r in recs:
+        P.label(r)
+        name, w, h, aspect = surf
+        if kind == "body":
+            bx, by = body_place(n, surf)
+            ents = []
+            for p in range(POSES):
+                f, (ax, ay) = body_fig(n, surf, p)
+                b0, y0, wb, rows, data = boxed(f.px, bx, by, w, h)
+                ents.append((fig(wb, rows, data), b0, y0, (bx + ax) // 8, by + ay))
+            for e in ents:
+                P.dw(e[0])
+            for j in (1, 2, 3, 4):
+                P.db(*[e[j] for e in ents])
+            P.db(h)
+        else:
+            ents = []
+            for fr in range(2 * POSES):
+                g, gx, gy = item_frame(n, surf, fr)
+                # the anchor is on a byte: place the frame at (8 + gx) in a
+                # scratch band, box it there, and read the offset back
+                span = 8 * 16
+                b0, y0, wb, rows, data = boxed(g, 64 + gx, 64 + gy, span, span)
+                ents.append((fig(wb, rows, data), b0 - 8, y0 - 64))
+            for e in ents:
+                P.dw(e[0])
+            P.db(*[e[1] for e in ents])
+            P.db(*[e[2] for e in ents])
+    for lab, wb, rows, data in fbytes:
+        P.label(lab)
+        P.db(wb, rows)
+        P.b += data
+    P.lab["_figmax"] = max(2 + len(d) for _, _, _, d in fbytes)
+    return P.done(), P.lab
+
+
 # =============================================================================
 
 
 def sheet_out(out):
+    """Every card, both stances, idle and attack, at every surface."""
     z = 3
-    pad = 16
     rows = []
-    for ch in CHARACTERS:
-        for surf in SURFACES:
-            rows.append((ch, surf))
-    colw = 64 * z + pad
+    for ci in range(len(CARDS)):
+        for st in (FRONT, REAR):
+            for surf in SURFACES:
+                rows.append((ci, st, surf))
+    heights = [int(s[2] * s[3] * z) + 22 for _, _, s in rows]
+    colw = 64 * z + 10
+    sh = Sheet(230 + colw * 2 * POSES, sum(heights) + 24)
     y = 12
-    heights = [int(s[2] * s[3] * z) + 26 for _, s in rows]
-    sh = Sheet(200 + colw * POSES, sum(heights) + 24)
-    for (ch, surf), hh in zip(rows, heights):
-        sh.text(6, y, "%s %s" % (ch[0][:9].upper(), surf[0]), GREY, 1)
+    for (ci, st, surf), hh in zip(rows, heights):
+        sh.text(6, y, "%s %s %s" % (CARDS[ci][0], ("FRONT", "REAR")[st],
+                                    surf[0]), GREY, 1)
         zy = int(round(z * surf[3]))
-        for p in range(POSES):
-            b = figure(ch, surf, p)
-            x0 = 200 + p * colw
+        for k in range(2 * POSES):
+            b = compose(ci, st, surf, k % POSES, attack=k >= POSES)
+            x0 = 230 + k * colw
             for by in range(surf[2]):
                 for bx in range(surf[1]):
                     v = b[by][bx]
-                    c = (40, 64, 40) if v == T else (WHITE if v == I else (0, 0, 0))
+                    c = ((40, 64, 40) if k < POSES else (64, 40, 40)) \
+                        if v == T else (WHITE if v == I else (0, 0, 0))
                     for ddy in range(zy):
                         for ddx in range(z):
                             sh.set(x0 + bx * z + ddx, y + 12 + by * zy + ddy, c)
@@ -755,123 +1249,78 @@ def sheet_out(out):
     print("%s: %dx%d" % (out, sh.w, sh.h))
 
 
-def _db(data):
-    out = []
-    for i in range(0, len(data), 16):
-        out.append("    db " + ", ".join("0%02Xh" % b for b in data[i:i + 16]))
-    return out
-
-
-def emit(path):
-    """RECORD (character x surface):
-         dw fig[4]          the pose's figure, SHARED - a fullscreen and a
-                            windowed VGA figure are the same pixels at a
-                            different band row, and a ping-pong repeats one
-         db y[4]            ...the band row that figure's box starts at
-         db dy[4], dh[4]    ...interleaved: the rows the move INTO pose p
-                            touches, (0, 0) for none
-         db bh              the band height the art was cut for, so a
-                            shorter band keeps the figure's FLOOR
-       FIGURE:
-         db bx, wb, h       byte column, width in bytes, rows
-         db (ink, mask) x wb x h
-    """
-    lines = ["; GENERATED by tools/os88tithechar.py - do not edit.",
-             "; TITHE's faction idles as PIXEL ART (SPEC.md 97.4.9): per character",
-             "; and surface, four pose figures of interleaved (ink, mask) bytes and",
-             "; the rows each transition moves.",
-             "",
-             "TI_CHAR_N   equ %d" % len(CHARACTERS),
-             "TI_CHAR_G   equ %d" % len(SURFACES),
-             "TI_CHAR_BG  equ %d" % BOARD_G,
-             "TI_CR_Y     equ 8                 ; the record's band rows",
-             "TI_CR_D     equ 12                ; ...and its (dy, dh) pairs",
-             "TI_CR_H     equ 20                ; ...and the band it was cut for",
-             ""]
-    total = 0
-    tab, body, figs = [], [], {}
-    fbody = []
-    for ch in CHARACTERS:
-        for surf in SURFACES:
-            tag = "tic_%s_%s" % (ch[0], surf[0].replace("-", ""))
-            tab.append(tag)
-            bands = [figure(ch, surf, p) for p in range(POSES)]
-            names, ys = [], []
-            for b in bands:
-                bx, by, wb, hh, data = boxed(b)
-                key = (bx, wb, hh, data)
-                if key not in figs:
-                    figs[key] = "tif_%d" % len(figs)
-                    fbody.append("%s: db %d, %d, %d" % (figs[key], bx, wb, hh))
-                    fbody += _db(data)
-                    total += len(data) + 3
-                names.append(figs[key])
-                ys.append(by)
-            dd = []
-            for p in range(POSES):
-                dd += dirty(bands, p)
-            body.append("%s:" % tag)
-            body.append("    dw " + ", ".join(names))
-            body.append("    db " + ", ".join(str(v) for v in ys))
-            body.append("    db " + ", ".join(str(v) for v in dd))
-            body.append("    db %d" % surf[2])
-            total += 2 * POSES + POSES + 2 * POSES + 1
-    lines.append("ti_char_tab:")
-    for i in range(0, len(tab), 4):
-        lines.append("    dw " + ", ".join(tab[i:i + 4]))
-    lines.append("")
-    lines += body
-    lines.append("")
-    lines += fbody
-    open(path, "w").write("\n".join(lines) + "\n")
-    print("%s: %d characters x %d surfaces, %d figures, %d bytes of art"
-          % (path, len(CHARACTERS), len(SURFACES), len(figs), total))
-    return total
+def emit(inc_path, bin_path):
+    data, lab = build_part()
+    os.makedirs(os.path.dirname(bin_path), exist_ok=True)
+    open(bin_path, "wb").write(data)
+    L = ["; GENERATED by tools/os88tithechar.py - do not edit.",
+         "; TITHE's characters as LAYERS (SPEC.md 97.4.9): the numbers the package",
+         "; reads the ART PART by. The part itself is %s." % bin_path,
+         "",
+         "TI_BODIES   equ %d" % len(BODIES),
+         "TI_ITEMS    equ %d" % len(ITEMS),
+         "TI_CARDS    equ %d" % len(CARDS),
+         "TI_CHAR_G   equ %d                 ; surfaces a record exists for" % len(SURFACES),
+         "TI_CHAR_BG  equ %d                 ; ...of which the first are the board's" % BOARD_G,
+         "TI_P_BODYTAB equ %d" % lab["bodytab"],
+         "TI_P_ITEMTAB equ %d" % lab["itemtab"],
+         "TI_P_DIRTY  equ %d" % lab["dirtytab"],
+         "TI_P_CARDS  equ %d" % lab["cardtab"],
+         "TI_P_SAME   equ %d" % lab["sametab"],
+         "TI_BR_BX    equ 8                 ; a body record's byte columns,",
+         "TI_BR_BY    equ 12                ; ...rows, anchor byte, anchor row",
+         "TI_BR_AX    equ 16",
+         "TI_BR_AY    equ 20",
+         "TI_BR_BH    equ 24                ; ...and the band it was cut for",
+         "TI_IR_DX    equ 16                ; an item record's byte offsets",
+         "TI_IR_DY    equ 24                ; ...and row offsets, from the anchor",
+         "TI_P_SIZE   equ %d                ; bytes in the part" % len(data),
+         "TI_P_FIGMAX equ %d                  ; the largest figure, header and all"
+         % lab["_figmax"],
+         ""]
+    open(inc_path, "w").write("\n".join(L) + "\n")
+    print("%s + %s: %d bodies, %d items, %d cards, %d bytes of art"
+          % (inc_path, bin_path, len(BODIES), len(ITEMS), len(CARDS), len(data)))
+    return len(data)
 
 
 def selfcheck():
     bad = []
-    for ch in CHARACTERS:
+    for ci, c in enumerate(CARDS):
+        for st in (FRONT, REAR):
+            for surf in SURFACES:
+                name, w, h, _ = surf
+                idle = [compose(ci, st, surf, p) for p in range(POSES)]
+                atk = [compose(ci, st, surf, p, True) for p in range(POSES)]
+                tag = "%s/%s/%s" % (c[0], ("front", "rear")[st], name)
+                # 1. EVERY IDLE POSE IS A PICTURE - three of four at least
+                if len({repr(b) for b in idle}) < 3:
+                    bad.append("%s: %d distinct idle poses" % (
+                        tag, len({repr(b) for b in idle})))
+                # 2. ...AND THE ATTACK MOVES: its middle frames are not idle
+                if atk[1] == idle[0]:
+                    bad.append("%s: the attack's strike is the idle" % tag)
+                for p, b in enumerate(idle + atk):
+                    lit = sum(1 for r in b for v in r if v == I)
+                    if not 0.03 < lit / float(w * h) < 0.60:
+                        bad.append("%s frame %d lights %.0f%%"
+                                   % (tag, p, 100.0 * lit / (w * h)))
+                    # 3. CLEAR OF THE STAT COLUMN - and on a card, of the edge
+                    if w == 64 and any(any(r[:MARGIN]) for r in b):
+                        bad.append("%s frame %d reaches the stat column"
+                                   % (tag, p))
+    # 4. THE ANCHOR MOVES ONLY UP AND DOWN, or an item lands between bytes
+    for bname, _, _ in BODIES:
         for surf in SURFACES:
-            name, w, h, _ = surf
-            bands = [figure(ch, surf, p) for p in range(POSES)]
-            # 1. EVERY POSE IS A PICTURE, and a ping-pong has three of them.
-            #    A pose that reduces to its neighbour at a small size is a
-            #    commit that moves nothing - silent, the wheel still pays.
-            keys = {repr(b) for b in bands}
-            if len(keys) < 3:
-                bad.append("%s/%s: %d distinct poses of %d"
-                           % (ch[0], name, len(keys), POSES))
-            for p, b in enumerate(bands):
-                lit = sum(1 for r in b for v in r if v == I)
-                frac = lit / float(w * h)
-                # 2. A FIGURE, and not an empty band or a filled one
-                if not 0.03 < frac < 0.60:
-                    bad.append("%s/%s pose %d lights %.0f%% of its band"
-                               % (ch[0], name, p, frac * 100))
-                # 3. CLEAR OF THE STAT COLUMN: a board figure lights nothing
-                #    in the band's outer MARGIN columns (SPEC.md 97.2.1's rule
-                #    for a base, and the stat column is two pixels past it)
-                if w == 64:
-                    for r in b:
-                        if any(r[:MARGIN]) or any(r[w - MARGIN:]):
-                            bad.append("%s/%s pose %d reaches the band's edge"
-                                       % (ch[0], name, p))
-                            break
-            # 4. THE MOTION IS SMALL: the rows a transition moves are what the
-            #    wheel commits, and a figure that moves most of its band is a
-            #    dirty rect worth nothing (SPEC.md 97.4.3). NOT ON CGA: its
-            #    figure is 17 rows of an 18-row band, so ANY motion in two
-            #    parts of it - a head and a shield - spans the band
-            for p in range(POSES):
-                _, dh = dirty(bands, p)
-                if w == 64 and h >= 24 and dh * 4 > h * 3:
-                    bad.append("%s/%s pose %d moves %d rows of %d"
-                               % (ch[0], name, p, dh, h))
+            bx, _ = body_place(bname, surf)
+            xs = {(bx + body_fig(bname, surf, p)[1][0]) % 8 for p in range(POSES)}
+            if xs != {0}:
+                bad.append("%s/%s: the anchor leaves the byte grid (%s)"
+                           % (bname, surf[0], sorted(xs)))
     for line in bad:
         print("  FAIL %s" % line)
-    print("os88tithechar: %d character(s) x %d surfaces, %s"
-          % (len(CHARACTERS), len(SURFACES),
+    print("os88tithechar: %d cards, %d bodies, %d items x %d surfaces, %s"
+          % (len(CARDS), len(BODIES), len(ITEMS), len(SURFACES),
              "%d problem(s)" % len(bad) if bad else "ok"))
     return 1 if bad else 0
 
@@ -880,11 +1329,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("cmd", nargs="?", default="sheet", choices=["sheet", "emit"])
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--bin", default="build/tiart.bin")
     a = ap.parse_args()
     if a.selfcheck:
         return selfcheck()
     if a.cmd == "emit":
-        emit("apps/tithe/tichars.inc")
+        emit("apps/tithe/tiart.inc", a.bin)
         return 0
     sheet_out("build/tithe-chars.png")
     return 0

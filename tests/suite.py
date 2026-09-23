@@ -7264,19 +7264,21 @@ SOAK = [
         "SPEC.md 97.4.10 and 97.4.9: TITHE's BOARD is a PLACE - a sparse"
         "texture per column, a fence between the lanes on the shear's own"
         "slope, a wall along the back and a cliff under the front - composed"
-        "into four column strips in a heap claim, and every cell's four poses"
-        "are cut from its column's strip with a pixel-art figure MASKED over"
-        "them. tools/os88tithebg.py and tools/os88tithechar.py model both, and"
+        "into four column strips in a heap claim, and every cell's four idle"
+        "poses and four ATTACK frames are cut from its column's strip with a"
+        "body and the column's item MASKED over them. tools/os88tithebg.py and tools/os88tithechar.py model both, and"
         "this row holds the machine to the model EXACTLY, on all three"
         "adapters and both terrains: every strip to the byte, all eighty"
-        "poses to the byte, and each column's lip and cliff on the GLASS at"
+        "idle poses and all eighty attack frames (the lunge inside the band,"
+        "the copies the same-as table names) to the byte, and each column's lip and cliff on the GLASS at"
         "four heights a RISE apart - the one region no figure or number is"
         "ever drawn over, so a strip blitted at the wrong y fails there and"
         "nowhere else. Then G twice, which must be the second terrain's model"
         "and then the first board again to the bit. Broken on purpose both"
         "ways before it was registered: a figure ORed instead of masked fails"
-        "every pose, and a fence gap one row long fails every strip and the"
-        "glass. Needs `make tithedisk`",
+        "every pose, a fence gap one row long fails every strip and the glass,"
+        "the wrong stance fails the poses, and a missing lunge the attacks."
+        "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
@@ -7298,18 +7300,18 @@ SOAK = [
         "and 0.2s",
         needs=()),
     Row("tithechar", "fast", py("tools/os88tithechar.py", "--selfcheck"), 1.0,
-        "SPEC.md 97.4.9: TITHE's three FACTION IDLES as pixel art, at every"
-        "band size every adapter asks for - four for the board (CGA's DRAWN"
-        "for it, the rest reduced per layer) and four for the mini unit that"
-        "rides a card. Four assertions and each is about a thing that is"
-        "SILENT: four poses must be at least three PICTURES (a reduction can"
-        "round a one-pixel motion away, and the wheel still commits a pose"
-        "that moves nothing); a pose must light between 3% and 60% of its"
-        "band; a board figure must light nothing in the band's outer three"
-        "columns, because the stat column begins two past them; and a"
-        "transition may move at most three quarters of a board band's rows,"
-        "which is the dirty rect's whole lever (not on CGA, whose figure is"
-        "17 rows of 18). Host-side and 0.1s",
+        "SPEC.md 97.4.9: TITHE's characters as LAYERS - a body and a FRONT"
+        "and a REAR item a card - composed at every band size every adapter"
+        "asks for, both stances, idle and attack. Five assertions and each is"
+        "about a thing that is SILENT: four idle poses must be at least three"
+        "PICTURES (a reduction can round a one-pixel motion away, and the"
+        "wheel still commits a pose that moves nothing); an attack's STRIKE"
+        "must not be the idle (an item whose attack frames reduce to its"
+        "idle swings nothing); every frame must light between 3% and 60% of"
+        "its band; a board figure must light nothing in the band's MARGIN,"
+        "because the stat column begins there; and every body's anchor must"
+        "land on a BYTE at every surface and pose, because the machine puts"
+        "each item frame down in whole bytes from it. Host-side and 0.9s",
         needs=()),
     Row("tithebg", "fast", py("tools/os88tithebg.py", "--selfcheck"), 1.0,
         "SPEC.md 97.4.10: TITHE's board as a PLACE - the per-column textures"

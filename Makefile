@@ -9429,11 +9429,19 @@ apps/tithe/tibases.inc: tools/os88tithebase.py
 apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 	python3 tools/os88titheface.py emit
 
-# ...and the FACTION IDLES (SPEC.md 97.4.9) - pixel art, as (ink, mask) figures
-# - and the BOARD's ground (SPEC.md 97.4.10): per-column textures and the
+# ...and the CHARACTERS (SPEC.md 97.4.9): bodies and items as pixel art, the
+# card manifest and the dirty rows - a PART of TITHE.O88 (SPEC.md 20.12), with
+# the offsets the package reads it by in apps/tithe/tiart.inc. The part is
+# built; the .inc is committed, like every other generated file here. Both come
+# out of one run, so the .bin rule is the .inc's.
+apps/tithe/tiart.inc: tools/os88tithechar.py tools/os88tithebase.py
+	python3 tools/os88tithechar.py emit --bin $(BUILD)/tiart.bin
+
+$(BUILD)/tiart.bin: apps/tithe/tiart.inc | $(BUILD)
+	@test -f $@ || python3 tools/os88tithechar.py emit --bin $@
+
+# ...and the BOARD's ground (SPEC.md 97.4.10): per-column textures and the
 # wall, fence and cliff patterns the package composes its column strips from.
-apps/tithe/tichars.inc: tools/os88tithechar.py tools/os88tithebase.py
-	python3 tools/os88tithechar.py emit
 
 apps/tithe/tiground.inc: tools/os88tithebg.py
 	python3 tools/os88tithebg.py emit
@@ -9450,14 +9458,15 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
-                    apps/tithe/tichars.inc apps/tithe/tiground.inc \
+                    apps/tithe/tiart.inc apps/tithe/tiground.inc \
                     apps/tithe/tiplace.inc apps/tithe/titxt.inc \
+                    apps/os88parts.inc apps/os88partsbody.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tithe.o88: $(BUILD)/tithe.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@
+$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@ --part $(BUILD)/tiart.bin
 
 tithe: $(BUILD)/tithe.o88
 

@@ -1229,6 +1229,22 @@ is what §5.2 describes — the rear pose costs **nothing but an item reference*
 Where a card wants a genuinely different stance behind the line, it names a
 second body set and pays for it.
 
+**BUILT IN WAVE 1A, on the prototype's roster** (SPEC.md §97.4.9): three
+bodies, eight items and seven cards, each card three bytes — body, FRONT item,
+REAR item — with the item carrying its own arm as this section says. Four
+things the build settled that the paragraphs above left open:
+
+- **The anchor is the near SHOULDER, and it is on a byte.** The body is placed
+  so that point falls on a multiple of 8 at every surface, so an item frame is
+  a whole-byte `(dx, dy)` from it and the machine masks it in with no shift.
+- **An item's frames carry their own motion**, so a staff bobs and a censer
+  sways over a still body; the Bulwark's shield and the Ember's wisp are that.
+- **The stance is the COLUMN's**: columns 1 and 2 hold the front item, 0 and 3
+  the rear, and the card panel's minis hold the item for the row the toggle
+  names (§8.1.1).
+- **The whole table is 22,789 bytes**, 251 figures after sharing, of which
+  items are 64% — a PART (§4.3), not image.
+
 #### 4.2.1.1 AUTHOR IN COLOUR, REDUCE AT BUILD TIME — and the palette is the part that cannot be retrofitted
 
 **The masters are 16-colour PNGs and always were, because a master does not
@@ -1360,6 +1376,14 @@ unchanged; what changes is where the opaque sprite comes from.
 | **idle sprites** | both poses of every character **on the board**, plus the hovered card | at match load, and when a character arrives | a masked RAM composite of the item's ~240 bytes at **15.3 µs a byte** *measured* — **3.7 ms a frame**, so ~0.6 s for a full board |
 | **attack sprites** | the ≤20 characters on the board, 4 frames each | **once a round, during SPOILS** (§6.7) | 80 frames × 3.7 ms ≈ **0.3 s**, inside a phase that is already an animation |
 
+**What wave 1a does instead, and why it is not the answer**: it composes all
+eighty attack frames at LAYOUT, into a second 30 KB claim beside the arena,
+because a prototype with no rounds has no spoils. A relayout went 1.4 s → 2.6 s
+on a windowed VGA with it (SPEC.md §97.4.10) — tolerable for a keypress, and
+exactly the cost this section moves into spoils once there is a round to move it
+into. The tool's same-as table (a frame identical to an earlier one is copied,
+not composed) already takes a quarter of it, and carries over unchanged.
+
 **Spoils is the right place and the only one.** Composing at the start of a lane
 would be ~59 ms — a whole frame — in a phase budgeted at ≤1 s a lane; composing
 at match load would mean holding attack frames for every card in both decks
@@ -1427,6 +1451,11 @@ must be switched between by a keypress are simpler resident than as five parts,
 and because it dies the day a base is picked. **It does not survive wave 5.**
 Nothing else goes in the image, and the rule to apply is the one that broke it:
 if the bytes are pictures, they are a part.
+
+**The first part is built** (SPEC.md §97.4.9): wave 1a's character art is an
+`OP_ASSET, OP_COMP` part, 22,789 bytes lz4-packed to ~9.4 KB, loaded into the
+carve as the entry proc's first act. It stands in for `FACTION` until there are
+factions to split it by.
 
 | part | flags | when |
 |---|---|---|
@@ -2820,7 +2849,28 @@ everything else, so it costs a 256-byte table and no RAM.
 **The dirty rect's lever fell from +39.3% to +22.1%** (`tests/titheframe.py`,
 bar 20%): a detailed figure's head and shield are further apart in rows than a
 blob's, so a transition moves more of the band. And the rects were read by
-POSE alone — the first character's for all three — which is fixed.
+POSE alone — the first character's for all three — which is fixed. With the
+layers (§8.1.4) it reads **+26.7%**, the rects now per card and stance.
+
+### 8.1.4 BODY AND ITEM — the layers are built, and the attack with them
+
+The owner's call, and the reason it came before 1B: *body plus item is how we do
+front and back row, and how we do attack animations.* §4.2.1's model is built on
+the prototype's roster (SPEC.md §97.4.9) — three bodies, eight items, seven
+cards — and the three faction idles above survive as item motion.
+
+| | what it shows |
+|---|---|
+| **front and rear** | columns 1 and 2 hold a card's FRONT item and 0 and 3 its REAR one: a PIKEMAN is a sword in the line and a pitchfork behind it, an ARCHER a sword and a bow. P2's are mirrored |
+| **the attack** | four frames of the item — wind-up, strike, follow-through, recovery — over the body's pose 0, with an 8-pixel LUNGE on the strike and follow-through **inside the band**, so the band stays self-erasing. Rear items have attacks too (the bow drawn and loosed, the book raised), ready for §3.9.1's projectile |
+| **the clash** | `C`'s tier A plays both fighters' attack frames, one band each, every frame; tier B composes the same frames live into its two-cell band at ~70 ms a frame |
+| **the hand** | the card minis are composed in the toggle's stance, so the hand shows what a card holds where it would go |
+
+**What it cost**: the art is a part (§4.3), 22,789 bytes and ~9.4 KB on disk; a
+second 30 KB claim for the attack frames; a relayout 1.4 → 2.6 s on a windowed
+VGA (§4.2.3 is where that goes in the game). A frame costs what it did —
+18.7 fps in `tests/titheframe.py` — and `tests/titheterr.py` holds every idle
+pose and every attack frame to the model, to the byte, on all three adapters.
 
 ### 8.2 CARD ART — what is scoped, and the room the composer leaves
 
@@ -3983,7 +4033,7 @@ built on top of it.
 | **all twenty cells filled** | the only way to judge crowding, and the only way §1.3's 23-feature budget gets tested against something real |
 | **both poses**, side by side, **composed from one body and two items** | so *"the same person with a different tool"* (§4.2.1) either reads or does not — and so the **layer model itself** is judged before 90 body sets are drawn against it |
 | **one item set across several characters** | the other half of §4.2.1: a shared sword has to look right on three different builds, and that is an art question nobody can answer on paper |
-| **an attack swing** | the item's frames over a held body (§4.2.2), which is where the composed model earns its place — and where it would most obviously fail |
+| **an attack swing** | the item's frames over a held body (§4.2.2), which is where the composed model earns its place — and where it would most obviously fail. **BUILT** (§8.1.4), with the two rows above it: `C` swings, and columns 0/3 against 1/2 are the two poses |
 | **base candidates**, one or more per faction | §18 turned this into something to pick from rather than something to specify |
 | **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
 | **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is half (§3.8). Which reads best at 1bpp is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
@@ -4319,7 +4369,7 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Ten decisions that were made one way and then made another. Each is here
+Eleven decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
 
 **THE BOARD WAS A BACKGROUND AND IS A PLACE; THE FIGURES WERE SILHOUETTES AND
@@ -4336,6 +4386,14 @@ poses are per cell, in a heap claim, and a relayout costs twice what it did.
 The silhouettes went for the owner's reason: sixty characters. **What survived
 both reversals is the MOTION** — the owner signed it off and it was kept pixel
 for pixel, bar the censer.
+
+**THE CLASH MOVED THE BAND; NOW THE FIGURE MOVES IN IT** (§8.1.4). Tier A's
+lean stepped each fighter's band 8 pixels toward the line, which is the cheap
+reading of §3.9.2 A — and it left the band's trailing 8 columns of the previous
+frame on the glass, a slice of the figure standing beside it on every P2
+fighter. A self-erasing band is only self-erasing where it was last drawn. The
+lunge is baked into the attack frames at layout instead, inside the band, and
+mirrors with the cell.
 
 **THE FULLSCREEN RENDERER: planned, costed, and REFUSED on measurement**
 (`docs/reports/TITHE-FULLSCREEN-2026-09-22.md`). §3.1.1 planned a second
@@ -4460,7 +4518,7 @@ character was paid for by drawing each character twice, which fits on the disk
 only while a faction is sixteen cards. At thirty it does not — and it never had
 a byte for **attack** animation at all, which §3.6.1 had been promising since
 the beginning. Composing (§4.2.1) is what makes the attack affordable; the
-saving on the idle is the smaller half.
+saving on the idle is the smaller half. **Built in wave 1a** (§8.1.4).
 
 **The reference "does not idle during combat" — a measurement that was wrong.**
 The first pass at §3.8 concluded the reference freezes its board between

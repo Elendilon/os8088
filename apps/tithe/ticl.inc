@@ -14,7 +14,7 @@ TI_CLW      equ 2                  ; a tier B band spans TWO cells
 TI_CLMAX    equ 26 * 80            ; ...at the widest cell and a band a whole
                                    ; RISE taller than one, which is what the
                                    ; shear makes a two-cell band
-TI_CLFRAMES equ 12                 ; how long a clash runs
+TI_CLFRAMES equ 16                 ; how long a clash runs
 TI_CLSTEP   equ 8                  ; how far a fighter steps toward the line -
                                    ; A MULTIPLE OF 8, so tier A stays two
                                    ; ordinary bands with no composition at all
@@ -25,67 +25,6 @@ TI_CLSTEP   equ 8                  ; how far a fighter steps toward the line -
 ; -----------------------------------------------------------------------------
 ti_cl_fire:
     mov byte [ti_clash], TI_CLFRAMES
-    ret
-
-; -----------------------------------------------------------------------------
-; ti_cl_lean - how far cell [ti_ci] steps toward the line this frame
-; out: AX = the offset in pixels, signed
-; Preserves every other register.
-;
-; TIER A, and the whole of it: the two front fighters lean toward the line,
-; swing, and lean back, EACH IN ITS OWN RECTANGLE. Two bands a frame and no
-; composition - which is why it always works, on every adapter and at every
-; sprite size.
-; -----------------------------------------------------------------------------
-ti_cl_lean:
-    push bx
-    push cx
-    push dx
-    xor ax, ax
-    cmp byte [ti_clash], 0
-    je .out
-    mov ax, [ti_ci]                 ; is this cell in the clashing lane's front
-    mov cl, TI_ROWS                 ; line?
-    xor dx, dx
-    div cx                          ; AL = column, DL = row
-    mov bl, dl
-    cmp bl, [ti_pjlane]
-    jne .none
-    mov bl, al
-    xor ax, ax
-    cmp bl, 1
-    je .p1
-    cmp bl, 2
-    je .p2
-    jmp short .out
-.p1:
-    call ti_cl_phase                ; column 1 steps RIGHT, toward the line
-    jmp short .out
-.p2:
-    call ti_cl_phase                ; ...and column 2 LEFT
-    neg ax
-    jmp short .out
-.none:
-    xor ax, ax
-.out:
-    pop dx
-    pop cx
-    pop bx
-    ret
-
-; ti_cl_phase - AX = TI_CLSTEP while the clash is in its middle third
-; clobbers: AX, flags
-ti_cl_phase:
-    push bx
-    xor ax, ax
-    mov bl, [ti_clash]
-    cmp bl, TI_CLFRAMES - TI_CLFRAMES / 3
-    ja .out                         ; still leaning in
-    cmp bl, TI_CLFRAMES / 3
-    jb .out                         ; ...and leaning back
-    mov ax, TI_CLSTEP
-.out:
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -215,29 +154,115 @@ ti_cl_tierb:
     pop ax
     ret
 
-; ti_cl_put - the idle pose's FIGURE, masked into the tier B band at
-; [ti_clx] bytes and [ti_cly] rows - the figure and not the pose's band, which
-; carries its own cell's ground and would lay a second ground over the first
+; ti_cl_put - the character's ATTACK frame for this moment of the clash,
+; composed into the tier B band at [ti_clx] bytes and [ti_cly] rows - the
+; figure and not the cell's band, which carries its own cell's ground and
+; would lay a second ground over the first. Mirroring is the caller's.
 ; clobbers: AX, BX, CX, DX, SI, DI
 ti_cl_put:
-    push si
-    mov ax, [ti_gidx]
-    call ti_crec_at
-    mov al, [si + TI_CR_Y]          ; pose 0
-    xor ah, ah
-    add ax, [ti_cly]
-    mov [ti_fa_dy], ax
-    mov si, [si]
-    mov word [ti_fa_dx], 0          ; the WINDOW is the cell's band inside the
-    mov ax, [ti_clbs]               ; two-cell one, so a mirrored figure turns
-    mov [ti_fa_stride], ax          ; about its own cell and not the pair
-    mov ax, [ti_bs]
+    mov ax, [ti_clbs]               ; the window: this cell's band inside the
+    mov [ti_fa_stride], ax          ; two-cell one, so a mirrored figure turns
+    mov ax, [ti_bs]                 ; about its own cell and not the pair
     mov [ti_fa_wb], ax
     mov ax, [ti_clh]
     mov [ti_fa_h], ax
-    mov byte [ti_fa_or], 0
+    mov ax, [ti_bh]
+    mov [ti_cbh], ax
+    mov ax, [ti_cly]
+    mov [ti_cdy], ax
+    mov word [ti_cdx], 0
+    mov ax, [ti_gidx]
+    mov [ti_csurf], ax
+    mov word [ti_cst], TI_ROW_FRONT ; the front line fights
+    call ti_cl_frame
+    call ti_cl_lunge                ; ...the step into the strike
+    add ax, TI_POSES
+    mov [ti_cfr], ax
     mov di, ti_clband
     add di, [ti_clx]
-    call ti_fig_apply
-    pop si
+    call ti_char_put
+    ret
+
+; ti_cl_frame - AX = which of the four ATTACK frames the clash is on: the
+; swing spread evenly over TI_CLFRAMES, so it lands in the middle of the lean.
+; Preserves every other register.
+ti_cl_frame:
+    push dx
+    mov al, TI_CLFRAMES
+    sub al, [ti_clash]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1                       ; x the four frames
+    mov dl, TI_CLFRAMES
+    div dl
+    xor ah, ah
+    cmp ax, TI_POSES - 1
+    jbe .ok
+    mov ax, TI_POSES - 1
+.ok:
+    pop dx
+    ret
+
+; ti_cl_lunge - [ti_cdx] = how far attack frame AX steps toward the enemy:
+; TI_CLSTEP on the strike and the follow-through, nothing on the wind-up and
+; the recovery. Preserves every register.
+;
+; THE LUNGE IS IN THE FRAME, NOT IN THE BAND. It moved the BAND eight pixels,
+; which left the trailing eight columns of the last frame on the glass - on a
+; mirrored P2 fighter, a slice of the figure standing beside it. Moving the
+; character INSIDE its band keeps the band self-erasing (SPEC.md 97.4), and a
+; mirrored cell mirrors the step with everything else, so P2 lunges left.
+ti_cl_lunge:
+    push ax
+    mov word [ti_cdx], 0
+    cmp ax, 1
+    je .step
+    cmp ax, 2
+    jne .out
+.step:
+    mov word [ti_cdx], TI_CLSTEP / 8
+.out:
+    pop ax
+    ret
+
+; ti_cl_mine - CF=1 if cell AX is one of the two fighters in the clash now
+; running (columns 1 and 2 of the lane). Preserves every register.
+ti_cl_mine:
+    push ax
+    push cx
+    push dx
+    cmp byte [ti_clash], 0
+    je .no
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx                          ; AX = column, DX = row
+    cmp dl, [ti_pjlane]
+    jne .no
+    cmp al, 1
+    je .yes
+    cmp al, 2
+    je .yes
+.no:
+    clc
+    jmp short .out
+.yes:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; ti_cl_tiera - TIER A's frame: both fighters, from their ATTACK slots, every
+; frame of the clash - they lean and swing in their own rectangles, two
+; ordinary bands and no composition (SPEC.md 97.4.7). Preserves registers.
+ti_cl_tiera:
+    push ax
+    mov al, [ti_pjlane]
+    xor ah, ah
+    add ax, TI_ROWS                 ; cell (1, lane)
+    call ti_feature
+    add ax, TI_ROWS                 ; ...and (2, lane)
+    call ti_feature
+    pop ax
     ret

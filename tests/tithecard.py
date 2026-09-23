@@ -61,7 +61,7 @@ SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
         "ti_by", "ti_crows", "ti_face", "ti_fh", "ti_panx",
         "ti_pan", "ti_unith", "ti_cpad", "ti_row", "ti_hx", "ti_hw",
         "ti_hnx", "ti_nrows", "ti_hovc", "ti_bx", "ti_cw", "ti_ch",
-        "TI_CELLROWS", "ti_aseg", "ti_cslot", "TI_CHAR_N", "TI_POSES",
+        "TI_CELLROWS", "ti_aseg", "ti_cslot", "TI_POSES",
         "ti_bs", "ti_bh",
         "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
@@ -369,17 +369,17 @@ def run(mach, off):
         check(wrong == 0, "...and the line reads as the FACE says it should",
               "%d pixel(s) differ from the host's own render" % wrong)
 
-        # --- THREE FACTIONS, THREE FIGURES (SPEC.md 97.4.9) ----------------
-        # The bands themselves, out of the ARENA: pose 0 of cells 0, 1 and 2,
-        # which play the three characters in turn. A character that collapsed
-        # into another - a record read at the wrong stride, a bank indexed by
-        # the pose alone - draws a board of identical figures, which is what
-        # the tree looked like before there were three of them. (That each
-        # cell is the RIGHT figure, to the byte, is tests/titheterr.py's.)
+        # --- THREE BODIES, THREE FIGURES (SPEC.md 97.4.9) -----------------
+        # The bands themselves, out of the ARENA: pose 0 of cells 0, 1 and 5,
+        # which play the soldier, the hooded caster and the nun. A card whose
+        # record collapsed into another - a manifest read at the wrong stride,
+        # a body table indexed by the item - draws a board of identical
+        # figures. (That each cell is the RIGHT figure, body and item, to the
+        # byte, is tests/titheterr.py's.)
         np_ = off["TI_POSES"]
         span = rw("ti_cslot")
         banks = [bytes(m.readseg(rw("ti_aseg"), c * np_ * span, span))
-                 for c in range(off["TI_CHAR_N"])]
+                 for c in (0, 1, 5)]
         same = [(a, b) for a in range(len(banks)) for b in range(a + 1, len(banks))
                 if banks[a] == banks[b]]
         check(not same, "the three faction idles are three PICTURES",

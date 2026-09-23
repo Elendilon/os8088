@@ -31,8 +31,8 @@ TI_ARENAKB  equ 45                ; 30,720 of poses + 14,400 of strips on the
                                   ; biggest surface, and ti_place_lay refuses
                                   ; a layout that would not fit rather than
                                   ; trusting this arithmetic
-TI_GBMAX    equ 32                ; bytes a ground READ may span: a tier-B
-                                  ; clash is two cells, 26 at the widest
+TI_ATTACKKB equ 30                ; 20 cells x 4 attack frames x the biggest
+                                  ; band, 384 bytes on a fullscreen VGA
 
 ; -----------------------------------------------------------------------------
 ; ti_arena_claim - claim the arena. out: CF=1 refused. Preserves registers.
@@ -50,8 +50,16 @@ ti_arena_claim:
     mov [ti_aseg], dx
     mov ax, ti_arena_move           ; ONE WORD NAMES IT and nothing is derived
     call OSAPI_MEM_MOVABLE          ; from it - every reader loads ES from
-    clc                             ; [ti_aseg] - so the proc is one store. A
-.out:                               ; refusal leaves it pinned, which is legal
+                                    ; [ti_aseg] - so the proc is one store. A
+                                    ; refusal leaves it pinned, which is legal
+    mov ax, TI_ATTACKKB             ; ...and THE ATTACK FRAMES: every cell's
+    call OSAPI_MEM_CLAIM            ; four, composed ahead as TITHE-PLAN 4.2.3
+    jc .out                         ; says and never inside a frame
+    mov [ti_kseg], dx
+    mov ax, ti_attack_move
+    call OSAPI_MEM_MOVABLE
+    clc
+.out:
     pop dx
     pop ax
     ret
@@ -59,6 +67,10 @@ ti_arena_claim:
 ; the relocation proc (OSAPI_MEM_MOVABLE): BX = where it was, DX = where it is
 ti_arena_move:
     mov [ti_aseg], dx
+    ret
+
+ti_attack_move:
+    mov [ti_kseg], dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -538,13 +550,119 @@ ti_cells_build:
     mov ds, ax
     rep movsw
     pop ds
-.pose:
-    cmp word [ti_pi], TI_POSES
-    jae .cnext
-    call ti_cellpose_addr           ; DI = this pose's slot
-    call ti_fig_board               ; ...and its figure, MASKED over it
-    inc word [ti_pi]
-    jmp short .pose
+
+    ; ...AND INTO THE FOUR ATTACK SLOTS, in their own claim: the same ground
+    ; under the same cell, and the item's attack frames over it
+    mov word [ti_pi], 0
+    call ti_cellpose_addr
+    mov si, di                      ; SI = the arena's slot 0, a fresh ground
+    push es                         ; still
+    push ds
+    mov ax, [ti_kseg]
+    mov bx, es
+    mov es, ax
+    mov ds, bx
+    mov cx, [cs:ti_cslot]           ; CS = our segment: DS is the arena here
+    shl cx, 1
+    shl cx, 1
+    shr cx, 1                       ; four slots, in words
+    rep movsw
+    pop ds
+    pop es
+
+    ; --- THE CHARACTER: its body, then the item in its near hand -----------
+    mov ax, [ti_bs]                 ; the window every pose goes into
+    mov [ti_fa_stride], ax
+    mov [ti_fa_wb], ax
+    mov ax, [ti_bh]
+    mov [ti_fa_h], ax
+    mov [ti_cbh], ax
+    mov ax, [ti_bwfull]             ; a cropped arm keeps the figure where
+    sub ax, [ti_bw]                 ; the full band had it
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    neg ax
+    mov [ti_cdx], ax
+    mov word [ti_cdy], 0
+    mov ax, [ti_gidx]
+    mov [ti_csurf], ax
+    mov ax, [ti_ci]
+    call ti_cell_side               ; which item, and which way it faces
+
+    ; --- THE EIGHT FRAMES: four idle into the arena, four attack into their
+    ; own claim - and a frame the tool says is the SAME PICTURE as an earlier
+    ; one is copied from it rather than composed again (a quarter of them)
+    mov al, 0
+    call op_seg
+    push es
+    mov es, ax
+    mov ax, [ti_ck]
+    shl ax, 1
+    add ax, [ti_cst]
+    shl ax, 1
+    shl ax, 1
+    add ax, [ti_gidx]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, TI_P_SAME
+    mov [ti_csame], ax              ; this cell's row of the same-as table
+    pop es
+    mov word [ti_cfr], 0
+.frame:
+    cmp word [ti_cfr], 2 * TI_POSES
+    jb .fgo
+    jmp .fdone
+.fgo:
+    mov ax, [ti_cfr]
+    call ti_frame_slot              ; ES:DI = where frame AX goes
+    push es
+    mov al, 0
+    call op_seg
+    mov es, ax
+    mov bx, [ti_csame]
+    add bx, [ti_cfr]
+    mov al, [es:bx]
+    xor ah, ah
+    pop es
+    cmp ax, [ti_cfr]
+    je .compose
+    push ds                         ; --- A COPY of frame AX, already built
+    push es
+    push di
+    call ti_frame_slot              ; ES:DI = the frame it is a copy of
+    mov si, di
+    mov ax, es
+    pop di
+    pop es
+    mov cx, [ti_cslot]
+    shr cx, 1
+    mov ds, ax
+    rep movsw
+    pop ds
+    jmp short .fnext
+.compose:
+    push word [ti_cdx]
+    xor bx, bx
+    mov ax, [ti_cfr]
+    cmp ax, TI_POSES
+    jb .nolunge
+    sub ax, TI_POSES
+    call ti_cl_lunge                ; an attack's strike steps in
+    mov bx, [ti_cdx]
+.nolunge:
+    pop word [ti_cdx]
+    add [ti_cdx], bx
+    call ti_char_put
+    sub [ti_cdx], bx
+.fnext:
+    inc word [ti_cfr]
+    jmp .frame
+.fdone:
+    mov es, [ti_aseg]
+    mov byte [ti_fa_mir], 0
 .cnext:
     inc word [ti_ci]
     jmp .cell
@@ -558,6 +676,23 @@ ti_cells_build:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; ti_frame_slot - ES:DI = where cell [ti_ci]'s frame AX lives: 0-3 in the
+; arena, 4-7 in the attack claim. Preserves every register bar ES and DI.
+ti_frame_slot:
+    push ax
+    push word [ti_pi]
+    mov es, [ti_aseg]
+    cmp ax, TI_POSES
+    jb .have
+    sub ax, TI_POSES
+    mov es, [ti_kseg]
+.have:
+    mov [ti_pi], ax
+    call ti_cellpose_addr
+    pop word [ti_pi]
     pop ax
     ret
 
@@ -576,95 +711,171 @@ ti_cellpose_addr:
     pop ax
     ret
 
-; ti_crec_at - SI = the art record of character [ti_ck] at surface AX (0..7)
-; Preserves every register bar SI.
-ti_crec_at:
+; ti_cell_side - for cell AX: [ti_cst] = the item it carries - FRONT in
+; columns 1 and 2, REAR in 0 and 3 (TITHE-PLAN 5.2, and wave 1a's fiction for
+; where a card stands) - and [ti_fa_mir] = 1 in P2's columns, which face the
+; other way (SPEC.md 97.4.9). Preserves every register.
+ti_cell_side:
     push ax
-    push bx
-    push dx
-    mov bx, ax
-    mov ax, [ti_ck]
-    mov dx, TI_CHAR_G
-    mul dx
-    add ax, bx
-    shl ax, 1
-    mov si, ax
-    mov si, [ti_char_tab + si]
-    pop dx
-    pop bx
+    call ti_cell_stance
+    xor ah, ah
+    cmp al, TI_COLS / 2
+    cmc
+    sbb al, al
+    and al, 1
+    mov [ti_fa_mir], al
     pop ax
     ret
 
+; ti_cell_stance - [ti_cst] for cell AX; out AL = its column. Preserves the
+; rest.
+ti_cell_stance:
+    push dx
+    push cx
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx                          ; AX = the column
+    mov word [ti_cst], TI_ROW_REAR
+    cmp al, 1
+    je .front
+    cmp al, 2
+    jne .out
+.front:
+    mov word [ti_cst], TI_ROW_FRONT
+.out:
+    pop cx
+    pop dx
+    ret
+
 ; ti_dirty_rows - AL = the first row, AH = how many, that the move INTO pose
-; [ti_pi] of character [ti_ck] touches (SPEC.md 97.4.3). The TOOL's rows, cut
-; from the figures alone, so they hold over whatever ground a cell composed.
-; Preserves every register bar AX.
+; [ti_pi] of card [ti_ck] in stance [ti_cst] touches, on this surface (SPEC.md
+; 97.4.3). The TOOL's rows, from the composed characters alone, so they hold
+; over whatever ground a cell composed. Preserves every register bar AX.
 ti_dirty_rows:
     push bx
-    push si
-    mov ax, [ti_gidx]
-    call ti_crec_at
+    push es
+    mov al, 0
+    call op_seg
+    mov es, ax
+    mov ax, [ti_ck]
+    shl ax, 1
+    add ax, [ti_cst]
+    shl ax, 1
+    shl ax, 1                       ; x the four board surfaces
+    add ax, [ti_gidx]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                       ; x four (dy, dh) pairs
     mov bx, [ti_pi]
     shl bx, 1
-    mov ax, [bx + si + TI_CR_D]
-    pop si
+    add bx, ax
+    mov ax, [es:bx + TI_P_DIRTY]
+    pop es
     pop bx
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_fig_board - pose [ti_pi] of character [ti_ck], MASKED into the band at
-; ES:DI. Preserves every register.
+; ti_char_put - card [ti_ck], stance [ti_cst], frame [ti_cfr] (0..3 idle,
+; 4..7 attack), surface [ti_csurf], into the window at ES:DI
+; in:  [ti_fa_stride] [ti_fa_wb] [ti_fa_h] [ti_fa_mir] - the window, as
+;      ti_fig_apply takes it; [ti_cbh] the band height it stands for,
+;      [ti_cdx] bytes and [ti_cdy] rows to move the whole character by
+; Preserves every register.
 ;
-; THE SPRITE-SIZE ARM (SPEC.md 97.7's `S`) is a CROP now and not a scale: the
-; art is drawn for the table's band, so a smaller arm keeps its floor and its
-; centre and loses what falls outside - which is still an honest answer to
-; "what does a shorter band cost", and the only one a drawing can give.
+; THE LAYER MODEL, and the whole of it on the machine (TITHE-PLAN 4.2.1): the
+; card names a body and two items; the BODY's pose goes down, and then the
+; ITEM's frame at the body's anchor for that pose. An attack is the item's
+; frames 4-7 over the body's pose 0. Both are masked, so the item's own ring
+; parts it from the torso and the body's halo parts it from the ground.
 ; -----------------------------------------------------------------------------
-ti_fig_board:
+ti_char_put:
     push ax
     push bx
     push cx
     push dx
     push si
-    push bp
-    mov ax, [ti_gidx]
-    call ti_crec_at
-    mov bx, [ti_pi]
-    mov al, [si + TI_CR_Y + bx]
-    xor ah, ah
-    mov cx, ax                      ; CX = the figure's band row
+    push es                         ; [sp] = the window's segment
+    mov al, 0
+    call op_seg                     ; read at the point of use: a part's
+    mov [ti_pseg], ax               ; segment is not a thing to cache
+    mov es, ax
+    mov bx, [ti_ck]                 ; the card: body, front item, rear item
+    mov ax, bx
     shl bx, 1
-    mov si, [si + bx]               ; SI = the figure
-    mov bx, [ti_geo]                ; ...less what a smaller arm cut off the
-    mov ax, [bx + TI_G_BH]          ; top: the floor is where it stands
-    sub ax, [ti_bh]
-    sub cx, ax
-    mov [ti_fa_dy], cx
-    mov ax, [ti_bwfull]
-    sub ax, [ti_bw]
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    neg ax
+    add bx, ax
+    add bx, TI_P_CARDS
+    mov al, [es:bx]
+    xor ah, ah
+    mov [ti_cbody], ax
+    mov si, [ti_cst]
+    mov al, [es:bx + si + 1]
+    mov [ti_citem], ax
+
+    mov ax, [ti_cbody]              ; --- THE BODY ---------------------------
+    mov cx, TI_CHAR_G
+    mul cx
+    add ax, [ti_csurf]
+    shl ax, 1
+    mov bx, ax
+    mov bx, [es:bx + TI_P_BODYTAB]
+    mov si, [ti_cfr]
+    cmp si, TI_POSES                ; an attack stands on the body's pose 0
+    jb .bp
+    xor si, si
+.bp:
+    mov al, [es:bx + TI_BR_BH]      ; the band it was cut for, against the one
+    xor ah, ah                      ; it goes into: a shorter one keeps the
+    neg ax                          ; FLOOR
+    add ax, [ti_cbh]
+    add ax, [ti_cdy]
+    mov [ti_cyy], ax
+    mov al, [es:bx + si + TI_BR_BX]
+    xor ah, ah
+    add ax, [ti_cdx]
     mov [ti_fa_dx], ax
-    mov ax, [ti_bs]
-    mov [ti_fa_stride], ax
-    mov [ti_fa_wb], ax
-    mov ax, [ti_bh]
-    mov [ti_fa_h], ax
-    mov byte [ti_fa_or], 0
-    mov ax, [ti_ci]                 ; P2's cells face the other way
-    xor dx, dx
-    mov cx, TI_ROWS
-    div cx
-    call ti_col_insx
-    sbb al, al
-    and al, 1
-    mov [ti_fa_mir], al
+    mov al, [es:bx + si + TI_BR_BY]
+    xor ah, ah
+    add ax, [ti_cyy]
+    mov [ti_fa_dy], ax
+    mov al, [es:bx + si + TI_BR_AX]
+    xor ah, ah
+    mov [ti_cax], ax
+    mov al, [es:bx + si + TI_BR_AY]
+    xor ah, ah
+    mov [ti_cay], ax
+    shl si, 1
+    mov ax, [es:bx + si]            ; ...its figure
+    pop es
+    push es
+    call ti_fig_fetch
     call ti_fig_apply
-    mov byte [ti_fa_mir], 0
-    pop bp
+
+    mov es, [ti_pseg]               ; --- THE ITEM, at the anchor ------------
+    mov ax, [ti_citem]
+    mov cx, TI_CHAR_G
+    mul cx
+    add ax, [ti_csurf]
+    shl ax, 1
+    mov bx, ax
+    mov bx, [es:bx + TI_P_ITEMTAB]
+    mov si, [ti_cfr]
+    mov al, [es:bx + si + TI_IR_DX]
+    cbw
+    add ax, [ti_cax]
+    add ax, [ti_cdx]
+    mov [ti_fa_dx], ax
+    mov al, [es:bx + si + TI_IR_DY]
+    cbw
+    add ax, [ti_cay]
+    add ax, [ti_cyy]
+    mov [ti_fa_dy], ax
+    shl si, 1
+    mov ax, [es:bx + si]
+    pop es
+    push es
+    call ti_fig_fetch
+    call ti_fig_apply
+    pop es
     pop si
     pop dx
     pop cx
@@ -672,12 +883,44 @@ ti_fig_board:
     pop ax
     ret
 
+; ti_fig_fetch - AX = a figure's offset in the art part: copy it into
+; ti_figbuf and answer SI = ti_figbuf. Preserves every register bar SI.
+;
+; A COPY, because ti_fig_apply reads its figure through DS and keeps its own
+; state and its bit-reverse table there too. A figure is a few hundred bytes,
+; and the copy is one `rep movsb` against a masked loop over the same bytes.
+ti_fig_fetch:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es                          ; ES = here
+    mov di, ti_figbuf
+    mov si, ax
+    mov ax, [ti_pseg]
+    push ds
+    mov ds, ax                      ; DS = the part
+    mov al, [si]
+    mul byte [si + 1]               ; wb x rows
+    shl ax, 1
+    add ax, 2
+    mov cx, ax
+    cld
+    rep movsb
+    pop ds
+    pop es
+    pop di
+    pop cx
+    pop ax
+    mov si, ti_figbuf
+    ret
+
 ; -----------------------------------------------------------------------------
 ; ti_fig_apply - put figure SI into the band at ES:DI
 ; in:  [ti_fa_dx] bytes and [ti_fa_dy] rows to shift it by (signed),
 ;      [ti_fa_stride], [ti_fa_wb] bytes and [ti_fa_h] rows the band has,
-;      [ti_fa_or] = 1 to OR the INK alone (a figure on a black card, where the
-;      mask has nothing to punch), 0 to MASK it
+;      and [ti_fa_mir] = 1 to put it down mirrored
 ; Preserves every register.
 ;
 ; `band = (band AND NOT mask) OR ink`, a byte at a time, one `lodsw` fetching
@@ -693,17 +936,15 @@ ti_fig_apply:
     push di
     push bp
     cld
-    mov al, [si]                    ; the figure's first byte column, moved
-    xor ah, ah
-    add ax, [ti_fa_dx]
-    mov [ti_fa_x0], ax
-    mov al, [si + 1]
+    mov ax, [ti_fa_dx]              ; the figure's first byte column, which
+    mov [ti_fa_x0], ax              ; the caller placed
+    mov al, [si]
     xor ah, ah
     mov [ti_fa_n], ax               ; bytes a row
-    mov al, [si + 2]
+    mov al, [si + 1]
     xor ah, ah
     mov bp, ax                      ; rows
-    add si, 3
+    add si, 2
 
     ; THE COLUMNS ARE CLIPPED ONCE, not per byte: [lo, hi) of each row's
     ; bytes land inside the band, and the rest are stepped over
@@ -761,8 +1002,6 @@ ti_fig_apply:
     sub cx, [ti_fa_lo]
     cmp byte [ti_fa_mir], 0
     jne .mir
-    cmp byte [ti_fa_or], 0
-    jne .orb
 .mb:                                ; ONE READ AND ONE WRITE a byte: the band
     lodsw                           ; byte is fetched into a register, masked
     not ah                          ; and inked there, and stored with stosb -
@@ -770,12 +1009,6 @@ ti_fig_apply:
     or al, ah                       ; writes on memory, which is the whole of
     stosb                           ; the cost on an 8088
     loop .mb
-    jmp short .rdone
-.orb:
-    lodsw
-    or al, [es:di]
-    stosb
-    loop .orb
     jmp short .rdone
 .mir:                               ; MIRRORED: each byte's bits reversed by
     push bx                         ; table, written right to left
@@ -928,48 +1161,71 @@ ti_gnd_prep:
     push dx
     push si
     push di
-    cmp cx, TI_GBMAX
-    jbe .n
-    mov cx, TI_GBMAX
-.n:
-    mov [ti_gbn], cx
-    xor si, si                      ; SI indexes WORDS
-    mov di, cx                      ; DI = bytes still to resolve
+    ; THE BAND IS RUNS, ONE PER COLUMN IT CROSSES: a row of one column is one
+    ; stretch of that column's strip, so a run is resolved here once and a
+    ; row is then a `rep movsb` per run. It read a byte at a time, with a
+    ; column lookup and a bounds test in every one, and a tier-B clash's
+    ; ground cost 112 ms a frame of it.
+    mov word [ti_grk], 0
+    mov bx, 0FFFEh                  ; BX = the column the run in hand is of
+    xor si, si                      ; SI = that run's index x 2
 .b:
-    or di, di
-    jz .out
+    or cx, cx
+    jnz .go
+    jmp .out
+.go:
     push ax
-    mov word [ti_gbtop + si], 0FFFFh
+    push cx
+    mov dx, 0FFFFh                  ; DX = this byte's column, or off-board
     sub ax, [ti_bx]
-    jb .off
+    jb .have
     cmp ax, [ti_boardw]
-    jae .off
+    jae .have
+    push ax
     xor dx, dx
     div word [ti_cw]                ; AX = column, DX = x inside it
-    shr dx, 1
-    shr dx, 1
-    shr dx, 1
-    mov bx, dx                      ; BX = the byte inside the column
+    mov cx, dx
+    mov dx, ax                      ; DX = the column, CX = x inside it
+    pop ax
+.have:
+    cmp dx, bx
+    je .same
+    mov bx, dx                      ; --- a NEW run
+    mov si, [ti_grk]
+    shl si, 1
+    inc word [ti_grk]
+    mov word [ti_grn + si], 0
+    mov word [ti_grtop + si], 0FFFFh
+    cmp dx, 0FFFFh
+    je .same
     push ax
+    push dx
+    mov ax, dx
     mul word [ti_spitch]
     add ax, [ti_sbase]
-    add bx, ax                      ; BX = that byte of the strip's row 0
-    pop ax
-    mov cx, TI_COLS - 1
-    sub cx, ax
-    mov ax, cx
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    add ax, cx                      ; AX = the run's first byte, strip row 0
+    mov [ti_grbase + si], ax
+    pop dx
+    push dx
+    mov ax, TI_COLS - 1
+    sub ax, dx
     mul word [ti_rise]
-    add ax, [ti_by]                 ; AX = the strip's top on the screen
-    mov [ti_gbtop + si], ax
+    add ax, [ti_by]
+    mov [ti_grtop + si], ax         ; the strip's top on the screen
     mul word [ti_sb]
-    sub bx, ax                      ; ...so screen row y is BX + y * SB
-    mov [ti_gbbase + si], bx
-.off:
+    sub [ti_grbase + si], ax        ; ...so screen row y is base + y * SB
+    pop dx
+    pop ax
+.same:
+    inc word [ti_grn + si]
+    pop cx
     pop ax
     add ax, 8
-    add si, 2
-    dec di
-    jmp short .b
+    dec cx
+    jmp .b
 .out:
     pop di
     pop si
@@ -986,16 +1242,22 @@ ti_gnd_row:
     push dx
     push si
     push di
+    push bp
     push es
-    mov es, [ti_aseg]
+    push ds
+    pop es                          ; ES = here, the destination
+    cld
     mov ax, bx
     mul word [ti_sb]
-    mov dx, ax                      ; DX = y * SB, for every byte
-    xor si, si
-    mov cx, [ti_gbn]
-.b:
-    jcxz .out
-    mov ax, [ti_gbtop + si]
+    mov dx, ax                      ; DX = y * SB, for every run
+    xor bp, bp                      ; BP = the run, x 2
+.run:
+    mov ax, bp
+    shr ax, 1
+    cmp ax, [ti_grk]
+    jae .out
+    mov cx, [ds:ti_grn + bp]
+    mov ax, [ds:ti_grtop + bp]
     cmp ax, 0FFFFh
     je .zero
     neg ax
@@ -1003,22 +1265,22 @@ ti_gnd_row:
     js .zero
     cmp ax, [ti_sh]
     jae .zero
-    push bx
-    mov bx, [ti_gbbase + si]
-    add bx, dx
-    mov al, [es:bx]
-    pop bx
-    jmp short .put
+    mov si, [ds:ti_grbase + bp]
+    add si, dx
+    push ds
+    mov ds, [ti_aseg]
+    rep movsb
+    pop ds
+    jmp short .next
 .zero:
     xor al, al
-.put:
-    mov [di], al
-    inc di
-    add si, 2
-    dec cx
-    jmp short .b
+    rep stosb
+.next:
+    add bp, 2
+    jmp short .run
 .out:
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -1237,14 +1499,28 @@ ti_fa_x0:   dw 0
 ti_fa_n:    dw 0
 ti_fa_lo:   dw 0
 ti_fa_hi:   dw 0
-ti_fa_or:   db 0
+ti_kseg:    dw 0                  ; the ATTACK frames' claim
+ti_pseg:    dw 0                  ; the art part, as op_seg last answered
+ti_cst:     dw 0                  ; the stance: TI_ROW_FRONT or TI_ROW_REAR
+ti_cfr:     dw 0                  ; the frame: 0-3 idle, 4-7 attack
+ti_csurf:   dw 0                  ; the surface a record is read for
+ti_cbh:     dw 0                  ; ...and the band height it stands for
+ti_cdx:     dw 0                  ; a whole character's shift, bytes
+ti_cdy:     dw 0                  ; ...and rows
+ti_cyy:     dw 0
+ti_cax:     dw 0                  ; the body's anchor for this pose
+ti_cay:     dw 0
+ti_cbody:   dw 0
+ti_citem:   dw 0
+ti_csame:   dw 0                  ; this cell's row of the same-as table
+ti_figbuf:  times TI_P_FIGMAX db 0
 ti_fa_mir:  db 0                  ; ...and 1 to put it down MIRRORED
 ti_nstat:   dw 0                  ; the stat column's x in its cell
 ti_insx2:   dw 0                  ; P2's band inset: CW - INSX - BW
-ti_gbn:     dw 0
+ti_grk:     dw 0                  ; the ground reader's runs: how many,
 ti_nr:      dw 0
-ti_ushift:  dw 0                  ; rows a unit's art is cut above its band
-ti_gbtop:   times TI_GBMAX dw 0
-ti_gbbase:  times TI_GBMAX dw 0
+ti_grtop:   times 8 dw 0          ; ...each one's strip top on the screen
+ti_grbase:  times 8 dw 0          ; ...its first byte less top x SB
+ti_grn:     times 8 dw 0          ; ...and its length in bytes
 ti_vbuf:    times 6 * 40 db 0      ; the letters, ORed a row up and down
 ti_yoff:    times 128 db 0        ; the slope, a byte a pixel column
