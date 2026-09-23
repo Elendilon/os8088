@@ -88,6 +88,7 @@ ABILITIES = [
     "NOTHING PASSES WHILE IT STANDS. NOTHING.",
 ]
 POWER = [1, 2, 3, 2, 4, 2, 5]           # TI_C_PWR, card by card
+NAMES = ["PIKEMAN", "ARCHER", "WARDEN", "ACOLYTE", "RAM", "HERALD", "BULWARK"]
 HAND = 7
 
 fails = []
@@ -385,9 +386,12 @@ def run(mach, off):
         cell = rw("ti_hovc")
         if cell != 0xFFFF:
             card = cell % HAND
-            want_s = ABILITIES[card]
-            if rw("ti_nrows") < off["TI_CELLROWS"]:
-                want_s = "\x03%02d  %s" % (POWER[card], want_s)
+            # `NAME  <soul>PP  ABILITY` - the board's line NAMES the
+            # character, because a figure at 64 pixels cannot and will not,
+            # and it carries the POWER on every adapter: a cost falls back to
+            # the card and power has nowhere to fall back to (97.4.8.1).
+            want_s = "%s  \x03%02d  %s" % (NAMES[card], POWER[card],
+                                           ABILITIES[card])
             want = os88titheface.render(face[1], face[2], want_s)
             f = mono(m)[2]
             y = rw("ti_oy") + (rw("ti_hud") - rw("ti_fh")) // 2
@@ -397,9 +401,8 @@ def run(mach, off):
             bad = sum(1 for a, b in zip(want, got)
                       for p_, q in zip(a, b) if bool(p_) != bool(q))
             check(bad == 0,
-                  "a hovered board character says what it does%s"
-                  % (" - and what it pays" if rw("ti_nrows") < off["TI_CELLROWS"]
-                     else ""),
+                  "a hovered board character is NAMED, and says what it pays"
+                  " and what it does",
                   "cell %d, %d pixel(s) differ from the host's render"
                   % (cell, bad))
         else:

@@ -2740,8 +2740,15 @@ owner's reasoning is the part worth keeping: *power matters when you are
 planning a kill, which is exactly when you will not have the card, since you
 kill enemies on the board and not cards in your hand*. A **cost** can fall back
 to the card because a cost is only ever read with the card in hand; **power
-cannot**. So where the column has no row for it the status line leads with it,
-in front of the ability the strip already shows.
+cannot**.
+
+**So the board's status line is `NAME  POWER  ABILITY`, on every adapter.** The
+name is what makes it a line rather than a footnote: a character on the board is
+a 64-pixel figure and nothing else, and the art at that size cannot say which
+character it is — it will not say so when it is finished either. With the name
+in front, the power belongs there for everybody rather than being CGA's
+workaround, and **a character with no special ability still has a line worth
+reading**, which most of them will not have (§7.1).
 
 **That is the mouse-over, and it is the deliberate one.** It is affordable
 precisely because it answers a question a player asks *while planning*, not one

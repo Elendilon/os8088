@@ -140103,30 +140103,26 @@ interleaved row of digits. Stacked, each figure carries one block and the empty
 half of its cell is the gap. Both land on a multiple of 8 for free, the cell's
 x and `INSX` both being multiples of 8, so each is a single-store run (§6.1).
 
-#### 97.4.8.1 POWER is a BOARD question, so the pointer carries it on CGA
+#### 97.4.8.1 A board character's line is `NAME  POWER  ABILITY`
 
-**A CGA cell is one row short** — 20 pixels holds three rows of the 6×6 face —
-and **POWER is what goes**. It is the stat a player wants while planning a
-**kill**, and a kill is of something on the BOARD: so unlike a *cost*, which is
-only ever read with the card in hand, it has nowhere to fall back to. The card
-cannot answer for it.
+**THE NAME IS WHY IT IS A LINE AND NOT A CAPTION.** A card in the hand is
+lettered with its own name; a character on the BOARD is a 64-pixel figure and
+nothing else, so without this the player is reading the *art* to work out which
+character it is — which the art at this size cannot answer, and will not answer
+when it is finished either.
 
-So where the column has no row for it, the **status line leads with it** — the
-soul and the number in front of the ability the strip already shows for
-whatever the pointer is over (§97.4.8). One conditional, and the geometry
-decides: `ti_nrows` is what the cell's own height worked out, so an adapter
-that fits four rows never takes the branch.
+**AND THE POWER IS IN IT ON EVERY ADAPTER.** Power is the stat a player wants
+while planning a **kill**, and a kill is of something on the BOARD: so unlike a
+*cost*, which is only ever read with the card in hand, it has nowhere to fall
+back to — the card cannot answer for it. It was CGA's alone while the line was
+a bare ability and the column was a row short; with a name in front the line is
+the character's **identity** rather than its footnote, and **a character with no
+special ability still has a line worth reading**.
 
-**That is a mouse-over and the deliberate one**: it is affordable precisely
-because it answers a question a player asks *while planning*, not one they read
-at a glance — which is the test that kept the other three stats always-visible.
-
-**The HUD is ONE `font_run` for the whole strip** and not one a field. A row of
-text is ~71 ms on the target machine whichever way it is cut, so cutting it
-into three runs buys three arrivals for nothing — and one opaque run also means
-the strip never flashes, the ground and the glyph being one decision per cell.
-It is drawn with the **board** and not with a frame, for the same reason the
-numbers are: nothing in it changes more than once a round.
+**That is the mouse-over, and it is the deliberate one**: it is affordable
+precisely because it answers questions a player asks *while planning*, not ones
+they read at a glance — which is the test that kept HP, both variable stats and
+the stance always-visible in the cell's own column.
 
 #### 97.4.1.1 TITHE DRAWS ITS OWN TEXT, in its own face
 

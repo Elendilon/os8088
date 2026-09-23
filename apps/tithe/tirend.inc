@@ -1625,9 +1625,7 @@ ti_status:
     mov bx, TI_HAND                 ; STABLE one - the same cell always names
     div bx                          ; the same character
     mov bx, dx
-    cmp word [ti_nrows], TI_CELLROWS
-    jae .card                       ; ...AND ITS POWER, WHERE THE CELL HAS NO
-    jmp .cellpwr                    ; ROW FOR ONE (SPEC.md 97.4.8.1)
+    jmp .cellline                   ; ...and the board's line NAMES it (97.4.8.1)
 .card:
     mov ax, bx
     mov cl, TI_C_SIZE
@@ -1636,20 +1634,37 @@ ti_status:
     add si, ax
     mov si, [si + TI_C_ABIL]
     jmp short .out
-.cellpwr:
-    ; POWER IS A BOARD QUESTION AND THE CARD CANNOT ANSWER IT. It is the stat a
-    ; player wants while planning a KILL, and a kill is of something on the
-    ; BOARD - so unlike a cost, which is only ever read with the card in hand,
-    ; it has nowhere to fall back to. Where the cell's column is a row short
-    ; for it - CGA, whose 20-pixel cell holds three rows of the small face -
-    ; the pointer carries it, in front of the ability the strip already shows.
+.cellline:
+    ; A BOARD CHARACTER'S LINE IS `NAME  POWER  ABILITY` (SPEC.md 97.4.8.1).
+    ;
+    ; THE NAME IS WHY IT IS A LINE AND NOT A CAPTION. A card in the hand is
+    ; lettered with its own name; a character on the BOARD is a 64-pixel
+    ; figure and nothing else, so without this the player is reading the art
+    ; to work out which character it is - which the art at this size cannot
+    ; answer, and will not answer even when it is finished.
+    ;
+    ; AND THE POWER IS ALWAYS IN IT, not only where the cell's column has no
+    ; row for one. Power is what a player wants while planning a KILL, and a
+    ; kill is of something on the BOARD - so unlike a cost, which is only ever
+    ; read with the card in hand, it has nowhere to fall back to. It was CGA's
+    ; alone while the line was a bare ability; with a name in front the line is
+    ; the character's identity rather than its footnote, and a character that
+    ; has no special ability still has a line worth reading.
     push bx
     push word [ti_ci]
     mov ax, [ti_hovc]
     mov [ti_ci], ax
     call ti_cell_rec                ; SI -> the card behind that cell
     pop word [ti_ci]
+    pop bx
     mov di, ti_hudbuf
+    push si
+    mov si, [si + TI_C_NAME]
+    call ti_poke
+    mov al, ' '
+    stosb
+    stosb
+    pop si
     mov al, TI_IC_SOUL
     stosb
     mov al, [si + TI_C_PWR]
@@ -1657,12 +1672,6 @@ ti_status:
     mov al, ' '
     stosb
     stosb
-    pop bx
-    mov ax, bx
-    mov cl, TI_C_SIZE
-    mul cl
-    mov si, ti_cards
-    add si, ax
     mov si, [si + TI_C_ABIL]
     call ti_poke
     mov byte [di], 0
