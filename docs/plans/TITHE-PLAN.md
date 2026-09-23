@@ -4139,8 +4139,9 @@ bolts at once and every lane idling (SPEC.md §97.4.5), commits a second over
 Fullscreen VGA idles at **3.5 fps a figure**, against §1.3's measured 3.6, and
 **two bolts cost nothing measurable on any adapter** — the band being sized to
 the bolt's two places and the combat lane charged by the clock (SPEC.md
-§97.4.5). The busiest frame, two bolts and the dirty-rect arm, holds 15.8
-passes a second.
+§97.4.5). The busiest frame, two bolts and the dirty-rect arm, holds 15.3–15.4
+passes a second against the row's bar of 15 — thin, and the dirty-rect arm's
+doing: the default frame holds 18.7 with both bolts up.
 Music is ~0.5% of the machine (§13.5) and so it should disappear into the
 measurement — but *should* is what a bench is for.
 
@@ -4232,10 +4233,19 @@ frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 43.9 ms of
   The save-under pair was the alternative and refuses a rect straddling two
   displays. What XOR costs is ORDER — sparks off first in a frame, on last —
   and a paint that lands between the two, which asks for a whole repaint.
-- **The card is composed once, at the play.** Re-composing it per fade step
-  was ~35 ms of every step and put the frame over its tick; banked at the key
-  press, it is latency before the first spark (112 ms, with the cell's own
-  composition) instead of a stutter in the middle.
+- **The card is composed once, at the play, as it is on the glass.**
+  Re-composing it per fade step put the frame over its tick; banked at the play
+  - while it is still the hovered card, when a CLICK played it, which is how a
+  player plays - it is latency before the first spark instead of a stutter in
+  the middle, and each fade step thins the bank in place.
+- **A play composes the idle poses and nothing else.** The attack frames are
+  owed, and built a frame at a time after the reveal; a clash takes them at
+  once. The click reaches its first spark in **68 ms**, where composing all
+  eight frames up front made it 112.
+- **In the game, characters are built at DRAW TIME, after the resolution**
+  (the owner's plan, for wave 3): that is where the other side's plays land and
+  where a short delay is affordable, so a character and its attack frames are
+  composed when it is drawn there, not when it is planned.
 - **The idle slows and does not stop.** Overlapped, the reveal needs the
   wheel's whole credit on most of its frames, and the wheel keeps its one
   guaranteed commit — one band a frame where it would commit five. With twelve

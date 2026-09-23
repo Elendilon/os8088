@@ -43,12 +43,14 @@ ti_pj_lay:
     ; rows are the whole cost of composing it, and a bolt only ever needs the
     ; eight rows it is in and the ones it was in a step ago, which the lane's
     ; shear puts CLIMB rows above or below. Half a cell was 24 rows on a VGA
-    ; where this is 20.
+    ; where this is 18.
     mov ax, TI_PJSTEP
     mul word [ti_rise]
     div word [ti_cw]                ; AX = the climb a step
     shl ax, 1
-    add ax, 8 + 2                   ; 8 rows of bolt, and a row each side
+    add ax, 8                       ; 8 rows of bolt. The climb is the one the
+                                    ; step itself takes (ti_pj_frame), to the
+                                    ; row, so no margin is owed round it
     mov dx, [ti_ch]
     shr dx, 1
     cmp ax, dx                      ; ...never taller than half a cell

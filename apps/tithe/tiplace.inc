@@ -479,6 +479,8 @@ ti_sp_set:
 ; -----------------------------------------------------------------------------
 ti_cells_build:
     push word [ti_ci]
+    mov word [ti_cfbeg], 0          ; all eight frames of every cell
+    mov word [ti_cfend], 2 * TI_POSES
     mov word [ti_ci], 0
 .cell:
     cmp word [ti_ci], TI_CELLS
@@ -532,7 +534,69 @@ ti_cell_gsrc:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_cell_build - cell [ti_ci]'s eight frames, for whoever stands there now.
+; ti_cell_ground - cell [ti_ci]'s ground into its four slots in the claim at ES
+; - the arena's idle poses or the attack claim's frames, which share offsets -
+; out of its column's strip, and REPLICATED: slot 0 row by row, then one
+; overlapping `rep movsw` carries slot 0 into 1, 1 into 2 and 2 into 3.
+; in:  [ti_gsrc] set (ti_cell_gsrc). Preserves every register.
+; -----------------------------------------------------------------------------
+ti_cell_ground:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push word [ti_pi]
+    cld
+    mov word [ti_pi], 0
+    call ti_cellpose_addr           ; DI = slot 0
+    push di
+    mov si, [ti_gsrc]
+    mov bx, [ti_sb]
+    mov dx, [ti_bs]
+    mov bp, [ti_bh]
+    push ds
+    mov ds, [ti_aseg]               ; the strips are the arena's
+.gr:
+    or bp, bp
+    jz .grd
+    push si
+    mov cx, dx
+    rep movsb
+    pop si
+    add si, bx
+    dec bp
+    jmp short .gr
+.grd:
+    pop ds
+    pop si
+    mov di, si                      ; DI trails SI by exactly one slot. A slot
+    add di, [ti_cslot]              ; is BS x BH and BS is a whole number of
+    mov ax, [ti_cslot]              ; bytes, so it is even
+    mov cx, TI_POSES - 1
+    mul cx
+    mov cx, ax
+    shr cx, 1
+    push ds
+    push es
+    pop ds
+    rep movsw
+    pop ds
+    pop word [ti_pi]
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cell_build - cell [ti_ci]'s frames [ti_cfbeg] to [ti_cfend] - 1, for
+; whoever stands there now: 0-3 the idle poses, 4-7 the attack frames.
 ; Preserves every register.
 ;
 ; ONE CELL IS A UNIT OF WORK because a REVEAL changes one cell (tirv.inc):
@@ -553,44 +617,15 @@ ti_cell_build:
     mov ax, [ti_ci]
     call ti_ck_cell                 ; [ti_ck] = who stands here
     call ti_cell_gsrc               ; [ti_gsrc] = the band's first ground byte
-    mov word [ti_pi], 0
-    call ti_cellpose_addr           ; DI = pose 0's slot
-    push di
-    mov si, [ti_gsrc]               ; --- the ground, row by row, out of the
-    mov bx, [ti_sb]                 ;     strip and into pose 0's slot...
-    mov dx, [ti_bs]
-    mov bp, [ti_bh]
-    push ds
-    mov ax, es
-    mov ds, ax
-.gr:
-    or bp, bp
-    jz .grd
-    push si
-    mov cx, dx
-    rep movsb
-    pop si
-    add si, bx
-    dec bp
-    jmp short .gr
-.grd:
-    pop ds
-    pop si                          ; ...and REPLICATED into the other three:
-    mov di, si                      ; DI trails SI by exactly one slot, so a
-    add di, [ti_cslot]              ; forward copy of three slots' worth
-    mov ax, [ti_cslot]              ; carries slot 0 into 1, 1 into 2 and 2
-    mov cx, TI_POSES - 1            ; into 3. A slot is BS x BH, and BS is a
-    mul cx                          ; whole number of bytes, so it is even
-    mov cx, ax
-    shr cx, 1
-    push ds
-    mov ax, es
-    mov ds, ax
-    rep movsw
-    pop ds
-
-    ; ...AND INTO THE FOUR ATTACK SLOTS, in their own claim: the same ground
-    ; under the same cell, and the item's attack frames over it
+    ; --- THE GROUND under every slot the range covers ----------------------
+    cmp word [ti_cfbeg], TI_POSES
+    jae .kground
+    mov es, [ti_aseg]               ; the idle poses' four slots...
+    call ti_cell_ground
+    cmp word [ti_cfend], TI_POSES
+    jbe .grounded
+    ; ...AND THE FOUR ATTACK SLOTS, in their own claim: the same ground under
+    ; the same cell, copied from the four the arena has just had
     mov word [ti_pi], 0
     call ti_cellpose_addr
     mov si, di                      ; SI = the arena's slot 0, a fresh ground
@@ -607,6 +642,14 @@ ti_cell_build:
     rep movsw
     pop ds
     pop es
+    jmp short .grounded
+.kground:
+    cmp word [ti_cfbeg], TI_POSES   ; THE ATTACK FRAMES ALONE, later than the
+    jne .grounded                   ; poses (ti_rv_atk): their ground goes down
+    mov es, [ti_kseg]               ; ONCE, with the first of them - a frame
+    call ti_cell_ground             ; at a time, grounding all four again
+.grounded:                          ; each call wiped the ones already built
+    mov es, [ti_aseg]
 
     ; --- THE CHARACTER: its body, then the item in its near hand -----------
     mov ax, [ti_bs]                 ; the window every pose goes into
@@ -648,9 +691,11 @@ ti_cell_build:
     add ax, TI_P_SAME
     mov [ti_csame], ax              ; this cell's row of the same-as table
     pop es
-    mov word [ti_cfr], 0
+    mov ax, [ti_cfbeg]
+    mov [ti_cfr], ax
 .frame:
-    cmp word [ti_cfr], 2 * TI_POSES
+    mov ax, [ti_cfr]
+    cmp ax, [ti_cfend]
     jb .fgo
     jmp .fdone
 .fgo:
@@ -1930,6 +1975,8 @@ ti_figbuf:  times TI_P_FIGMAX db 0
 ti_fa_mir:  db 0                  ; ...and 1 to put it down MIRRORED
 ti_nstat:   dw 0                  ; the stat column's x in its cell
 ti_insx2:   dw 0                  ; P2's band inset: CW - INSX - BW
+ti_cfbeg:   dw 0                  ; ti_cell_build's range of frames
+ti_cfend:   dw 2 * TI_POSES
 ti_grk:     dw 0                  ; the ground reader's runs: how many,
 ti_nr:      dw 0
 ti_grtop:   times 8 dw 0          ; ...each one's strip top on the screen

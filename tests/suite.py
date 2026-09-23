@@ -7273,8 +7273,10 @@ SOAK = [
         "this was registered. All three adapters. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
-    Row("titherv", "soak", py("tests/titherv.py"), 60.0,
-        "SPEC.md 97.4.11: TITHE's REVEAL - `V` plays a card: XOR sparks from"
+    Row("titherv", "soak", py("tests/titherv.py"), 90.0,
+        "SPEC.md 97.4.11: TITHE's REVEAL - a CLICK on a card plays it, and so"
+        "does `V`, and the row makes one play each way (the click's card being"
+        "the HOVERED one, which is what dissolves). XOR sparks from"
         "the card to its cell, the character dissolving in over its column's"
         "ground, the card dissolving out. XOR is its own erase only while the"
         "frame keeps its order (sparks off first, on last), so the row asserts"
@@ -7285,7 +7287,9 @@ SOAK = [
         "repaint; and the gap between them, which no repaint of the package's"
         "redraws, is the glass it was before the key. Broken on purpose four"
         "ways before it was registered - no erase, no numbers, a card that"
-        "never empties, a cell table left unwritten - and each went red. It"
+        "never empties, a cell table left unwritten - and each went red; and"
+        "it caught the deferred attack frames each grounding all four slots"
+        "again and wiping the ones already built. It"
         "waits on the FRAME COUNT and not the flags: the key handler sets the"
         "played bit before ti_rv, a running guest can be read between the two,"
         "and the next key then lands inside the reveal, which drops it. Needs"

@@ -64,12 +64,27 @@ ti_rv_played:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_rv_key - SPEC.md 97.7's `V`: play a card. The hovered one, else the first
-; still in the hand, into the next of P1's cells in the row the FRONT/REAR
-; toggle names - and an empty hand is dealt again.
-; in:  a window callback, the gfx lock held. Preserves every register.
+; ti_rv_key - SPEC.md 97.7's `V`: play the hovered card, else the first still
+; in the hand - and an empty hand is dealt again. Preserves every register.
 ; -----------------------------------------------------------------------------
 ti_rv_key:
+    push ax
+    mov ax, -1
+    call ti_rv_play
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_rv_play - PLAY hand card AX (or, AX = -1, the hovered card else the first
+; still in the hand) into the next of P1's cells in the row the FRONT/REAR
+; toggle names. A CLICK on a card is this, and so is `V`.
+; in:  a window callback, the gfx lock held. Preserves every register.
+;
+; THE CARD THAT DISSOLVES IS THE ONE ON THE GLASS. A click lands on the
+; HOVERED card - expanded and in its own polarity - so it is composed and
+; banked while it is still the hovered one, and only then stops being it.
+; -----------------------------------------------------------------------------
+ti_rv_play:
     push ax
     push bx
     push cx
@@ -82,6 +97,14 @@ ti_rv_key:
     jne .out
     cmp word [ti_cardn], 0
     je .out
+    cmp ax, -1
+    je .pick
+    cmp ax, [ti_cardn]              ; ...a card named: it must be one still
+    jae .out                        ; in the hand
+    call ti_rv_played
+    jc .out
+    jmp short .have
+.pick:
     mov ax, [ti_hover]
     cmp ax, -1
     jne .have
@@ -104,12 +127,26 @@ ti_rv_key:
     jmp short .redraw
 .have:
     mov [ti_rvcard], ax
+    call ti_rv_atk_flush            ; the LAST play's attack frames, if any are
+                                    ; still owed (ti_rv_atk)
     mov cl, al                      ; ...it leaves the hand
     mov al, 1
     shl al, cl
     or [ti_played], al
-    mov word [ti_hover], -1         ; ...and stops being the hovered card, so
-                                    ; the wheel stops animating its unit
+
+    ; --- the CARD is composed now and banked for its fade, AS IT IS ON THE
+    ; GLASS - hovered, if it is - rather than on the fade's first step: ~22 ms
+    ; of an 8088 is room a trail frame has not got, and here it is latency
+    ; before the first spark instead of a stutter in the middle
+    mov byte [ti_cfsave], 0
+    mov byte [ti_cfade], 3
+    mov word [ti_calconly], 1       ; compose, bank - and put nothing down
+    mov ax, [ti_rvcard]
+    call ti_card_draw
+    mov word [ti_calconly], 0
+    mov byte [ti_cfade], 0
+    mov word [ti_hover], -1         ; ...and it stops being the hovered card,
+                                    ; so the wheel stops animating its unit
 
     ; --- WHERE: P1's column for the toggle's row, the next lane in turn ----
     xor ax, ax                      ; REAR is column 0
@@ -136,7 +173,12 @@ ti_rv_key:
     mov [ti_cellcard + bx], al
     push word [ti_ci]
     mov [ti_ci], bx
-    call ti_cell_build              ; ~90 ms on a windowed VGA, before a spark
+    mov word [ti_cfbeg], 0          ; ITS IDLE POSES ONLY: the four attack
+    mov word [ti_cfend], TI_POSES   ; frames are nobody's until a clash, so they
+    call ti_cell_build              ; follow the reveal a frame at a time
+    mov word [ti_cfend], 2 * TI_POSES ; (ti_rv_atk) instead of standing
+    mov [ti_atkcell], bx            ; between the click and the first spark
+    mov word [ti_atkfr], TI_POSES
     mov byte [bx + ti_clock], 0     ; ...and it will idle from its first pose
 
     ; --- the two ends of the trail -----------------------------------------
@@ -172,17 +214,6 @@ ti_rv_key:
     add bx, ax
     mov [ti_rvy0], bx
 
-    ; --- the CARD is composed now and banked for its fade, rather than on
-    ; the fade's first step: ~35 ms of an 8088 is room a trail frame has not
-    ; got, and here it is latency before the first spark instead of a stutter
-    mov byte [ti_cfsave], 0
-    mov byte [ti_cfade], 3
-    mov word [ti_calconly], 1       ; compose, bank - and put nothing down
-    mov ax, [ti_rvcard]
-    call ti_card_draw
-    mov word [ti_calconly], 0
-    mov byte [ti_cfade], 0
-
     ; --- the cell is VACATED, and the trail begins -------------------------
     xor al, al                      ; level 0: the ground alone
     call ti_rv_cell
@@ -193,6 +224,62 @@ ti_rv_key:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_rv_atk - one of the played cell's owed ATTACK frames, a frame at a time
+; once the reveal is over. Preserves every register.
+;
+; A PLAY IS THE IDLE POSES AND NOTHING ELSE, and the attack frames come after.
+; Composing all eight at the click was ~81 ms of the 112 between the click and
+; the first spark, and nothing needs the four attack frames until the cell
+; swings. One a frame, when no reveal is running, is ~10 ms of a frame that has
+; room for it; a clash, a relayout or the next play takes the rest at once
+; (ti_rv_atk_flush) rather than swing with frames that are not there.
+; -----------------------------------------------------------------------------
+ti_rv_atk:
+    cmp byte [ti_rv], 0
+    jne .out
+    cmp word [ti_atkcell], -1
+    je .out
+    push ax
+    push word [ti_ci]
+    mov ax, [ti_atkcell]
+    mov [ti_ci], ax
+    mov ax, [ti_atkfr]
+    mov [ti_cfbeg], ax
+    inc ax
+    mov [ti_cfend], ax
+    call ti_cell_build
+    mov word [ti_cfbeg], 0
+    mov word [ti_cfend], 2 * TI_POSES
+    inc word [ti_atkfr]
+    cmp word [ti_atkfr], 2 * TI_POSES
+    jb .more
+    mov word [ti_atkcell], -1       ; ...all four: the cell is whole
+.more:
+    pop word [ti_ci]
+    pop ax
+.out:
+    ret
+
+; ti_rv_atk_flush - every attack frame still owed, now. Preserves every
+; register.
+ti_rv_atk_flush:
+    push ax
+    push word [ti_ci]
+    mov ax, [ti_atkcell]
+    cmp ax, -1
+    je .out
+    mov [ti_ci], ax
+    mov ax, [ti_atkfr]
+    mov [ti_cfbeg], ax
+    call ti_cell_build
+    mov word [ti_cfbeg], 0
+    mov word [ti_atkcell], -1
+.out:
+    pop word [ti_ci]
     pop ax
     ret
 
@@ -552,34 +639,38 @@ ti_rv_cell:
     mov si, [ti_gsrc]
     mov es, [ti_aseg]
     mov bx, ti_rvband
-    xor bp, bp                      ; BP = the band row
+    mov word [ti_rvrow], 0
 .row:
-    cmp bp, [ti_bh]
+    mov ax, [ti_rvrow]
+    cmp ax, [ti_bh]
     jae .done
     push si
+    and ax, 3
+    add ax, [ti_rvdp]
     push bx
-    mov bx, bp
-    and bx, 3
-    add bx, [ti_rvdp]
-    mov dh, [bx]                    ; DH = this row's mask, DL its complement
-    pop bx
-    mov dl, dh
-    not dl
+    mov bx, ax
+    mov al, [bx]                    ; this row's mask, in both halves of a
+    pop bx                          ; word: BP = mask, DX = its complement
+    mov ah, al
+    mov bp, ax
+    not ax
+    mov dx, ax
     mov cx, [ti_bs]
-.byte:
-    mov al, [es:di]                 ; the character where the mask is set...
-    and al, dh
-    mov ah, [es:si]                 ; ...and the ground where it is not
-    and ah, dl
-    or al, ah
-    mov [bx], al
-    inc si
-    inc di
-    inc bx
-    loop .byte
+    shr cx, 1                       ; A WORD AT A TIME: a band is a whole
+.word:                              ; number of words on every surface
+    mov ax, [es:si]                 ; the ground where the mask is clear...
+    and ax, dx
+    mov [bx], ax
+    mov ax, [es:di]                 ; ...and the character where it is set
+    and ax, bp
+    or [bx], ax
+    add si, 2
+    add di, 2
+    add bx, 2
+    loop .word
     pop si
     add si, [ti_sb]
-    inc bp
+    inc word [ti_rvrow]
     jmp short .row
 .done:
     call ti_cell_xy                 ; AX, BX = the cell - and the band inset
@@ -669,19 +760,26 @@ ti_rv_nums:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_rv_cardfade - thin the card band at ti_cardband to dither level
-; [ti_cfade] (3, 2, 1), toward the panel's black. Preserves every register.
+; ti_rv_cardfade - the fading card, THINNED IN PLACE to dither level
+; [ti_cfade] (3, 2, 1) toward the panel's black. The first call - the play's,
+; which puts nothing down - banks the composition in ti_cfband and thins
+; nothing. Preserves every register.
+;
+; THE LEVELS NEST: every set bit of level 1 is set in 2 and every one of 2 in
+; 3, so thinning the banked card at 3, then 2, then 1 is the same picture as
+; thinning a fresh copy at each - and needs no copy. Each step copied the whole
+; 800-byte bank back first, ~1.5 ms of a frame that has the sparks in it.
 ; -----------------------------------------------------------------------------
 ti_rv_cardfade:
     push ax
     push bx
     push cx
     push dx
-    push di
-    cmp byte [ti_cfsave], 0         ; the FIRST step banks the composition
-    jne .banked
     push si
+    push di
     push es
+    cmp byte [ti_cfsave], 0         ; the PLAY banks the composition
+    jne .thin
     push ds
     pop es
     mov si, ti_cardband
@@ -689,17 +787,16 @@ ti_rv_cardfade:
     mov cx, TI_CARDBANDMAX / 2
     cld
     rep movsw
-    pop es
-    pop si
     mov byte [ti_cfsave], 1
-.banked:
+    jmp short .out
+.thin:
     mov al, [ti_cfade]
     xor ah, ah
     shl ax, 1
     shl ax, 1
     add ax, ti_rv_dith
     mov bx, ax
-    mov di, ti_cardband
+    mov di, ti_cfband
     xor dx, dx
 .row:
     cmp dx, [ti_cardh]
@@ -718,31 +815,13 @@ ti_rv_cardfade:
     inc dx
     jmp short .row
 .out:
+    pop es
     pop di
+    pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
-
-; ti_rv_cardget - the fading card's banked composition back into ti_cardband.
-; Preserves every register.
-ti_rv_cardget:
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov si, ti_cfband
-    mov di, ti_cardband
-    mov cx, TI_CARDBANDMAX / 2
-    cld
-    rep movsw
-    pop es
-    pop di
-    pop si
-    pop cx
     ret
 
 ; sine, sixteen steps a turn, x 64
@@ -774,6 +853,9 @@ ti_rvy1:    dw 0
 ti_rvpx:    dw 0
 ti_rvpy:    dw 0
 ti_rvdp:    dw 0
+ti_rvrow:   dw 0                    ; the dissolve's band row
+ti_atkcell: dw -1                   ; the played cell whose attack frames are
+ti_atkfr:   dw 0                    ; still owed, and the next of them
 ti_rvn:     dw 0                    ; sparks on the glass
 ti_rvsp:    times TI_RVSPK * 4 dw 0
 ti_rvband:  times TI_RVMAX db 0

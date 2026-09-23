@@ -21,6 +21,7 @@ TI_CLSTEP   equ 8                  ; how far a fighter steps toward the line -
 ; Preserves every register.
 ; -----------------------------------------------------------------------------
 ti_cl_fire:
+    call ti_rv_atk_flush            ; a played cell swings with every frame
     mov byte [ti_clash], TI_CLFRAMES
     ret
 

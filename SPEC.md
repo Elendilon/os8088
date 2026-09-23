@@ -140578,7 +140578,7 @@ cycle counter, windowed VGA:
 | a row loop, every row asking its lane | 22–56 ms |
 | **a few rectangles**: a run is one column, so its ground is one block of a strip and its figures and numbers at most two blocks of two cells, each sized once and copied by a register-only row loop | 16–26 ms |
 | the runs made WHOLE, one divide a run instead of one a byte; the lane stepped, not multiplied | 14–24 ms |
-| **the band's own size**: the bolt's 8 rows and one step's climb each way (20 rows on a VGA, not half a cell's 24), and 4 bytes — the byte it is in and the byte it was in, three back — not 6 | **12–17 ms** |
+| **the band's own size**: the bolt's 8 rows and one step's climb each way (18 rows on a VGA, not half a cell's 24), and 4 bytes — the byte it is in and the byte it was in, three back — not 6 | **12–17 ms** |
 
 About 2 ms of each band is the blit. The last row is the one worth keeping: a
 band's rows and bytes ARE its cost, at every layer, and the band only ever has to
@@ -140614,8 +140614,13 @@ fps a figure):
 18.3 to 18.6 bolt frames a second. The first cut of this table, with the
 6 x 24 band charged at the model's price, had VGA's idle falling 12–20% and its
 frames to 16–17 a second. `tests/titheframe.py` holds it: the idle's rate with
-two bolts in flight moves −0.3% against a ±15% bar, and the busiest frame —
-two bolts and the dirty-rect arm — holds 15.8 passes a second.
+two bolts in flight moves under 0.5% against a ±15% bar, and the frame holds
+18.7 passes a second. **The busiest frame — two bolts AND the dirty-rect arm —
+holds 15.3–15.4 against the row's bar of 15**, which is thin: with one
+ground-only bolt it held 18.7. The dirty-rect arm lets the wheel make ~26% more
+commits on a model that prices a commit by its rows, and the ticks it loses
+fall outside the span `ti_overran` watches, so the trim never sees them. That
+arm is off by default and is wave 1a's lever to look at, not the game's.
 
 **`tests/tithepj.py`** holds it on all three adapters: paused mid-flight, the
 glass against a whole repaint differs by at most two bolts' pixels; with the arm
@@ -140913,16 +140918,38 @@ breakpoints and the cycle counter:
 
 | | |
 |---|---:|
-| the key: composing the cell, banking the card, vacating the cell | **112 ms**, before the first spark |
+| the click: banking the card, composing the cell's four IDLE poses, vacating it | **68 ms**, the first spark on the next frame — it was 112 with all eight frames |
 | eight sparks off and eight on | **~13 ms** a frame |
 | a card fade step / a character dissolve step | **~12 ms** / **~9 ms** |
 | the heaviest frame: eight sparks, the card or the character, two idle bands | **48.7 ms of a 54.9 ms tick** |
 
-**THE CARD IS COMPOSED ONCE, AT THE PLAY.** Composing a card is ~35 ms of the
-8088, and re-composing it for every step of its fade put two frames over the
-tick (54 and 56 ms). It is composed at the key press into a bank of its own,
-`ti_cfband`, and each step copies it back and thins it: latency before the first
-spark instead of a stutter in the middle. The reveal's work is charged to the
+**THE CARD IS COMPOSED ONCE, AT THE PLAY, AS IT IS ON THE GLASS.** Composing a
+card is ~22 ms of the 8088, and re-composing it for every step of its fade put
+two frames over the tick (54 and 56 ms). It is composed at the play into a bank
+of its own, `ti_cfband` — while it is still the HOVERED card, if a click played
+it, so the card that dissolves is the expanded one the pointer lit — and each
+step THINS THE BANK IN PLACE and puts it down. That needs no copy because the
+dither levels nest: every set bit of level 1 is set in 2 and every one of 2 in
+3, so thinning at 3, then 2, then 1 is the picture thinning a fresh copy at
+each would give; the copy each step used to make was ~1.5 ms of a frame with
+the sparks in it.
+
+**THE PLAY COMPOSES THE IDLE POSES AND NOTHING ELSE.** The four attack frames
+are nobody's until the cell swings, and composing them at the click was 44 of
+the 112 ms before the first spark. They are OWED instead (`ti_atkcell`) and
+built one a frame once the reveal is over — before the reveal's own step, so
+the frame a reveal ends in, which carries its numbers, does not take one too —
+at 8–17 ms each, and a clash, a relayout or the next play takes whatever is
+still owed at once (`ti_rv_atk_flush`), so nothing ever swings with a frame that
+is not there. The attack claim's ground goes down once, with the first of them:
+grounding all four again at each one-frame build wiped the ones already built,
+which `tests/titherv.py` caught. **The game proper does this at the other end**
+(TITHE-PLAN §16.2 item 7): characters and their attack frames are built at draw
+time after the resolution, where a delay is affordable.
+
+**THE DISSOLVE BLENDS A WORD AT A TIME**, `(ground AND NOT mask) OR (pose AND
+mask)` with the mask doubled across a word, where it went a byte at a time: a
+band is a whole number of words on every surface. The reveal's work is charged to the
 wheel's credit in the wheel's own units — an arrival a call and rows at the
 calibrated rate — so the idle around it slows rather than the frame
 overrunning. **The idle SLOWS rather than stops, and it slows only by what
@@ -140946,9 +140973,10 @@ it; the other side's whole plan — new characters, swaps, stances — arrives
 **all at once** when the resolution begins, and how that animates is the
 resolution phase's own design (TITHE-PLAN §6.4), not this one.
 
-**`tests/titherv.py` holds where it ENDS, on all three adapters**: the card in
-the cell the key names, that cell's eight frames the model's for the new card to
-the byte, the card's slot dark, the board and the hand with the wheel paused
+**`tests/titherv.py` holds where it ENDS, on all three adapters and for both
+ways to play** — `V`, and a click on a hovered card: the card in
+the cell the play names, that cell's eight frames the model's for the new card
+to the byte (the owed attack frames included), the card's slot dark, the board and the hand with the wheel paused
 EXACTLY a whole repaint, and the gap between them — which no repaint of the
 package's redraws — the glass it was before the key. It went red on no erase,
 on no numbers, on a card that never empties and on a cell table left unwritten.
@@ -141174,7 +141202,8 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window at the fullscreen geometry row |
 | `D` | step the detail arm — `Flat` and `Banded` (§97.4.6). `Quad` is fullscreen-only and is not an arm until that renderer is |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
-| `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys and the toggle are ignored for the half second a reveal runs |
+| `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys, clicks and the toggle are ignored for the half second a reveal runs |
+| *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
 | `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `X` | the dirty-rect arm on/off (§97.4.3) |

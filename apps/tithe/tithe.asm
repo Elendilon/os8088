@@ -230,6 +230,8 @@ ti_relayout:
                                     ; leaves no spark behind
     mov word [ti_pjon], 0           ; ...and so do the BOLTS, whose positions
                                     ; are the old layout's
+    mov word [ti_atkcell], -1       ; ...and no attack frame is owed: every
+                                    ; cell is about to be built whole
     push cx                         ; ...and what every cell SHOWS, and its
     push di                         ; numbers, are the old layout's too: the
     push es                         ; paint after this records them again
@@ -385,6 +387,12 @@ ti_onclick:
     cmp byte [ti_ok], 0
     je .step
     call OSAPI_MOUSE                ; CX = x, DX = y
+    call ti_card_hit                ; A CARD CLICKED IS A CARD PLAYED
+    cmp ax, -1                      ; (SPEC.md 97.4.11) - the hovered one,
+    je .hud                         ; which is the one the pointer is on
+    call ti_rv_play
+    jmp short .out
+.hud:
     mov ax, [ti_oy]
     cmp dx, ax
     jb .step
@@ -870,6 +878,9 @@ ti_frame:
     call ti_pj_frame
     inc word [ti_npj]
 .nopjf:
+    call ti_rv_atk                  ; ...a played cell's owed attack frame -
+                                    ; BEFORE the reveal's step, so the frame a
+                                    ; reveal ends in does not take one too
     call ti_rv_step                 ; ...and the reveal's frame, on top of it all
     call ti_overran                 ; SPEC.md 97.5's own promise, and it was
     pop dx                          ; never built: the credit is trimmed when
@@ -1708,6 +1719,7 @@ TI_HUDBANDMAX equ 92 * 36
 ; most four rows of the tallest face.
 TI_CELLBANDMAX equ 6 * 40
 ti_cardband: times TI_CARDBANDMAX db 0
+ti_cbsrc:   dw ti_cardband          ; what ti_card_draw puts down
 ti_cfband:  times TI_CARDBANDMAX db 0 ; a card the reveal is fading, composed
                                     ; once (tirv.inc)
 ti_hudband: times TI_HUDBANDMAX db 0

@@ -335,9 +335,9 @@ ti_card_draw:
     jmp .blit
 .fading:
     cmp byte [ti_cfsave], 0         ; A FADING CARD IS COMPOSED ONCE: the rest
-    je .live                        ; of its steps take the composition back
-    call ti_rv_cardget              ; and thin it (tirv.inc) - composing a
-    jmp .blit                       ; card is ~35 ms of an 8088, every step
+    je .live                        ; of its steps thin the bank in place and
+    mov word [ti_cbsrc], ti_cfband  ; put IT down (tirv.inc) - composing a card
+    jmp .blit                       ; is ~22 ms of an 8088, every step
 .live:
 
     ; --- the frame, and the pulse-free second one --------------------------
@@ -397,7 +397,7 @@ ti_card_draw:
 %endif
     cmp word [ti_calconly], 0       ; ti_cal_card wants the COMPOSITION timed
     jne .noblit                     ; and not the arrival that follows it
-    mov si, ti_cardband
+    mov si, [ti_cbsrc]              ; the card band - or a fading card's bank
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
     mov cx, [ti_cbw]
@@ -405,6 +405,7 @@ ti_card_draw:
     mov bp, [ti_cbs]
     call OSAPI_GFX_BLIT1
 .noblit:
+    mov word [ti_cbsrc], ti_cardband
 %ifdef TICARDPROF
     call ti_pit
     mov bx, [ti_cp0]
@@ -1302,6 +1303,39 @@ ti_hover_ck:
     pop bx
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_card_hit - AX = the hand card at (CX, DX), or -1: the same box the hover
+; test uses, so the card a click plays is the card it lit.
+; Preserves every register bar AX.
+; -----------------------------------------------------------------------------
+ti_card_hit:
+    push bx
+    push dx
+    mov ax, -1
+    cmp cx, [ti_cardx]
+    jb .out
+    mov bx, [ti_cardx]
+    add bx, [ti_cardw]
+    cmp cx, bx
+    jae .out
+    sub dx, [ti_by]
+    jb .out
+    mov ax, dx
+    xor dx, dx
+    div word [ti_cardpitch]
+    cmp ax, [ti_cardn]
+    jb .have
+    mov ax, -1
+    jmp short .out
+.have:
+    cmp dx, [ti_cardh]              ; ...and not the gap below it
+    jb .out
+    mov ax, -1
+.out:
+    pop dx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
