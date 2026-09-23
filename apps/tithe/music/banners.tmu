@@ -1,0 +1,66 @@
+; TITHE - title theme, option 4: BANNERS
+;
+; The bright one, and the 1980s PC game in it: a trumpet fanfare in D major at
+; 136 BPM - a 16th is one row of TWO ticks, 109.9 ms. The major key keeps
+; C natural as its other pole (a flat seventh: mixolydian, heraldic), the bass
+; drives in octave eighths and a snare marches under it. A is the call and
+; its answer; B goes to B minor and climbs to B above before turning home.
+
+song banners "Banners"
+groove 2
+unit 16
+rows 32
+measure 16
+voice lead trumpet
+voice bass bass
+voice chord strings
+
+; --- the fanfare --------------------------------------------------------------
+lead LI1 = o4 a8 r16 a16 >d4< a8 r16 a16 >f+4 | e8. f+16 e8. d16 e2< |
+lead LI2 = o4 a8 r16 a16 >d4< a8 r16 a16 >a4 | a4. f+8 e4 d4< |
+bass BI1 = o2 d4 r4 d4 r4 | c4 r4 c4 r4 |
+bass BI2 = o2 d4 r4 d4 r4 | l8 d d d d a a a a |
+chord CI1 = o3 [d f+ a]1 | [c e g]1 |
+chord CI2 = o3 [d f+ a]1 | [d f+ a]1 |
+drum DI1 = k4 s16 s16 s8 k4 s16 s16 s8 | k4 s16 s16 s8 s16 s16 s16 s16 s16 s16 s16 s16 |
+drum DI2 = k4 s16 s16 s8 k4 s16 s16 s8 | s8 s8 s8 s8 s16 s16 s16 s16 T8 t8 |
+
+; --- A: the call and its answer -----------------------------------------------
+lead LA1 = o4 d4 f+8. a16 >d4< a4 | g4 e8. c16 e4 g4 |
+lead LA2 = o4 b4 >d8. c16< b4 g4 | a2 e4 c+4 |
+lead LA3 = o4 d4 f+8. a16 >d4 f+4 | e4 d8. c16 d4< g4 |
+lead LA4 = o4 b4 >d4 c+4 e4 | d2. r4< |
+bass BA1 = o2 l8 d d >d< d d d >d< d | c c >c< c c c >c< c |
+bass BA2 = o2 l8 g g >g< g g g >g< g | a a >a< a a a >a< a |
+bass BA4 = o2 l8 g g >g< g a a >a< a | d d >d< d d4 r4 |
+chord CA1 = o3 [d f+ a]2 [d f+ a]2 | [c e g]2 [c e g]2 |
+chord CA2 = o3 [d g b]2 [d g b]2 | [c+ e a]2 [c+ e a]2 |
+chord CA4 = o3 [d g b]2 [c+ e a]2 | [d f+ a]1 |
+drum DA = k8 h8 s8 h8 k8 k8 s8 h8 | k8 h8 s8 h8 k8 k8 s8 h8 |
+drum DA4 = k8 h8 s8 h8 k8 k8 s8 h8 | s16 s16 s8 s16 s16 s8 T8 T8 t8 t8 |
+
+; --- B: to B minor, and up ----------------------------------------------------
+lead LB1 = o5 f+4. e8 d4 f+4 | g4. f+8 e4 d4 |
+lead LB2 = o5 e4. d8 c+4 e4 | f+2 a4 f+4 |
+lead LB3 = o5 b4. a8 f+4 d4 | e4. f+8 g4 b4 |
+lead LB4 = o5 a4 g4 f+4 e4 | e4 c+4 <a4 e4 |
+bass BB1 = o2 l8 b b >b< b b b >b< b | g g >g< g g g >g< g |
+bass BB2 = o2 l8 a a >a< a a a >a< a | d d >d< d d d >d< d |
+bass BB4 = o2 l8 e e >e< e a a >a< a | a a >a< a a a >a< a |
+chord CB1 = o3 [d f+ b]2 [d f+ b]2 | [d g b]2 [d g b]2 |
+chord CB2 = o3 [c+ e a]2 [c+ e a]2 | [d f+ a]2 [d f+ a]2 |
+chord CB4 = o3 [e g b]2 [c+ e a]2 | [c+ e a]1 |
+drum DB = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 k8 h8 s8 h8 |
+drum DB4 = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 s16 s16 s16 s16 T8 t8 |
+
+order LI1 BI1 CI1 DI1
+order LI2 BI2 CI2 DI2
+order LA1 BA1 CA1 DA          ; 2: the loop comes back here
+order LA2 BA2 CA2 DA
+order LA3 BA1 CA1 DA
+order LA4 BA4 CA4 DA4
+order LB1 BB1 CB1 DB
+order LB2 BB2 CB2 DB
+order LB3 BB1 CB1 DB
+order LB4 BB4 CB4 DB4
+loop 2

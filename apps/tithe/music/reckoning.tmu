@@ -1,0 +1,71 @@
+; TITHE - title theme, option 2: THE RECKONING
+;
+; A jig in E dorian - the reference game's own colour, E minor with a raised
+; sixth and D major as its other pole. A row is an EIGHTH of THREE ticks, so a
+; bar of 6/8 is six rows and the dotted-quarter beat is 121 BPM. The fiddle
+; tunes up over a bodhran, then plays an AABB tune: A low and turning, B up
+; an octave and landing back on E. Lute chords on the off-beats, a plucked
+; bass on the beats - the "boom-chick" every session band plays.
+
+song reckoning "The Reckoning"
+groove 3
+unit 8
+rows 12
+measure 6
+voice lead fiddle
+voice bass pluckbass
+voice chord lute
+
+; --- the fiddle tunes up ------------------------------------------------------
+lead LI = o4 l8 e <b> e g e <b> | > e <b> e d e f+ |
+bass BI = o2 l4. e e | e e |
+chord CI = o3 r1. |
+drum DI = t8 p8 p8 t8 p8 p8 | t8 p8 p8 t8 t8 t8 |
+
+; --- A: twice, the second time handing on to B -----------------------------------
+lead LA1 = o4 l8 b4 a g f+ e | f+4 d d e f+ |
+lead LA2 = o4 l8 g4 a b4 >e | d c+< b a f+ d |
+lead LA3 = o4 l8 b4 a g f+ e | f+4 a >d4 c+< |
+lead LA4 = o4 l8 b a g a4 f+ | e4. e4 d |
+lead LA5 = o4 l8 b a g a4 f+ | e4. e4 >d |
+; --- B: up an octave ------------------------------------------------------------
+lead LB1 = o5 l8 e4 f+ g4 e | d4 e f+4 d |
+lead LB2 = o5 l8 e f+ g f+ e d | <b4 a f+4 a> |
+lead LB3 = o5 l8 e4 f+ g4 a | b4 a g4 f+ |
+lead LB4 = o5 l8 e d <b a f+ a | b4. >d4. |
+lead LB5 = o5 l8 e d <b a f+ a | b4. e4.> |
+
+; the bass on the beats, the chord on the off-beats
+bass BEm = o2 l4. e b | d a |
+bass BEd = o2 l4. e b | d f+ |
+bass BEe = o2 l4. e b | e e |
+bass BBD = o2 l4. e b | d a |
+bass BBe = o2 l4. e d | e e |
+chord CEm = o3 r4 [e g b]8 r4 [e g b]8 | r4 [d f+ a]8 r4 [d f+ a]8 |
+chord CEe = o3 r4 [e g b]8 r4 [e g b]8 | r4 [e g b]8 r4 [e b]8 |
+chord CDm = o3 r4 [e g b]8 r4 [e g b]8 | r4 [d f+ a]8 r4 [c+ f+ a]8 |
+chord CBe = o3 r4 [e g b]8 r4 [d f+ a]8 | r4 [e g b]8 r4 [e g b]8 |
+
+drum DJ = t8 p8 p8 t8 p8 p8 | t8 p8 p8 t8 p8 p8 |
+drum DF = t8 p8 p8 t8 p8 p8 | t8 p8 t8 T8 T8 T8 |
+
+; AABB, as a session plays it: each part twice, the second time with the
+; ending that hands on
+order LI BI CI DI
+order LA1 BEm CEm DJ          ; 1: the loop comes back here
+order LA2 BEd CDm DJ
+order LA3 BEm CEm DJ
+order LA4 BEe CEe DF
+order LA1 BEm CEm DJ
+order LA2 BEd CDm DJ
+order LA3 BEm CEm DJ
+order LA5 BEe CEe DF
+order LB1 BBD CEm DJ
+order LB2 BEd CDm DJ
+order LB3 BBD CEm DJ
+order LB4 BBe CBe DF
+order LB1 BBD CEm DJ
+order LB2 BEd CDm DJ
+order LB3 BBD CEm DJ
+order LB5 BBe CBe DF
+loop 1

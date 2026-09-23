@@ -499,6 +499,31 @@ ti_onkey:
     jne .n_terr
     jmp .terr
 .n_terr:
+    cmp bl, 'm'
+    jne .n_mus
+    jmp .music
+.n_mus:
+    cmp bl, 's'
+    jne .n_arm
+    jmp .arm
+.n_arm:
+    jmp .out
+.music:                             ; SPEC.md 97.7's `M`: the next title theme,
+    mov al, [tm_sel]                ; and after the last of them, silence. The
+    inc al                          ; worker starts it (timus.inc): the UI task
+    cmp al, TM_NSONG                ; only posts
+    jb .mset
+    mov al, TM_OFF
+.mset:
+    mov [tm_sel], al
+    call tm_post
+    call tm_title
+    jmp .out
+.arm:                               ; SPEC.md 97.7's `S`: the SPEAKER even where
+    xor byte [tm_spkonly], 1        ; FM is there - the one arm every machine
+    mov al, [tm_sel]                ; has - and the song starts again on it
+    call tm_post
+    call tm_title
     jmp .out
 .pause:
     xor byte [ti_paused], 1
@@ -659,6 +684,9 @@ ti_worker:
     mov bx, [ti_win]
     call OSAPI_TASK_ALIVE           ; the lock must NOT be held here; a clicked
                                     ; close box never returns
+    call tm_run                     ; THE MUSIC FIRST, and outside the lock
+                                    ; (timus.inc): a frame waiting on the gfx
+                                    ; lock must never hold a note up
     cmp byte [ti_rpq], 0            ; A WHOLE REPAINT, asked for from OUTSIDE:
     je .norp                        ; the tests write this byte to compare the
     cmp byte [ti_ok], 0             ; glass a frame left against the board
@@ -697,7 +725,7 @@ ti_worker:
 .sleep:
     mov ax, 1
     call OSAPI_TASK_SLEEP
-    jmp short .loop
+    jmp .loop
 
 ; -----------------------------------------------------------------------------
 ; ti_frame - ONE PASS OF THE PACING WHEEL (SPEC.md 97.5)
@@ -1361,6 +1389,8 @@ ti_pit:
 %include "ticl.inc"
 %include "tirv.inc"
 %include "tiplace.inc"
+%include "tisong.inc"
+%include "timus.inc"
 %include "os88parts.inc"
 
 ; THE ART IS A PART (SPEC.md 20.12, TITHE-PLAN 4.3): the bodies, the items, the
@@ -1368,8 +1398,12 @@ ti_pit:
 ; image the moment characters became layers - a package's image and bss cap at
 ; 60KB together, and the program was 59KB of it with three figures. OP_COMP,
 ; because pixel art packs 2.4 to 1 and it expands into the claim at load.
-    OS88_PARTS_BEGIN 1
+; THE MUSIC IS A PART TOO (TITHE-PLAN 13.6, SPEC.md 97.10): the score lives
+; with what it belongs to rather than in the image, and tools/os88tithemus.py
+; builds it. Every song in it is sequenced out of the part where it lies.
+    OS88_PARTS_BEGIN 2
       OS88_PART OP_ASSET, OP_COMP     ; 0 the characters
+      OS88_PART OP_ASSET, OP_COMP     ; 1 the music (TM_PART)
     OS88_PARTS_END
 
 ; =============================================================================
@@ -1502,7 +1536,7 @@ ti_p2soul:  db 2
 ti_round:   db 3
 
 ti_ttl:     db 'Tithe', 0
-ti_about:   db 'TITHE - wave 1a, the renderer. SPEC.md 97.', 0
+ti_about:   db 'TITHE - wave 1b, the renderer and the music. SPEC.md 97.', 0
 ti_s_small: db 'This window is too small for a board.', 0
 
 ti_win:     dw 0

@@ -54047,6 +54047,22 @@ Both are called directly by the router. There is no indirection to
 dispatch through, no presence flag to consult and no probe at boot: the
 speaker is not a device that can be absent.
 
+#### 34.2.1 A patch-load names ITS channel — the recorded bug
+
+`OSAPI_SND_FM` verb 2 stages the caller's eleven bytes into `snd_patch`
+before the driver sees them, and the staging is a `loop` over `CX`. It used to
+call the driver with `CX` still at the loop's zero and restore the caller's
+only afterwards, so **every patch-load on every channel landed on channel
+0** and every other channel went on sounding `SOUND.DRV`'s default patch — a
+half-sine carrier, which is a DC offset under the whole mix. Nothing in the
+tree could hear it: Frotz keys channel 0 alone, and `tests/fmtest`'s second
+channel asserts only that the verbs are not refused. TITHE's sequencer
+(§97.10) was the first package to patch six channels, and MartyPC's OPL
+capture of it was a bass-heavy smear where the host render had a horn.
+**The fix is the order of three pushes** — the channel is popped before the
+call — so it costs no byte; `tests/tithemus.py` is its gate, the model's
+patches being what the chip is asked for, call for call.
+
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =
@@ -139829,7 +139845,8 @@ plan is where the *reasons* live — this section is what the code has to be tru
 to, and it grows one wave at a time rather than describing a game that is not
 written yet.
 
-**What exists today is WAVE 1a: the renderer with no game behind it.** The
+**What exists today is WAVE 1a and the start of 1b: the renderer with no game
+behind it, and the music (§97.10).** The
 layout table, the board, the band composer and the pacing wheel, driven by a
 fixed board and a few keys. There are no rules, no cards, no AI and no network,
 and §97.9 lists what each later wave adds so that a reader can tell a gap from
@@ -139837,9 +139854,11 @@ a defect.
 
 ### 97.1 The package
 
-`TITHE.O88`, prefix `ti_`, one segment (§20.1) and one embedded ART PART
-(§20.12, §97.4.9), an embedded 16×16 icon, one worker, and **no kernel change** — the one it wanted is §5.4.2.6's fast path,
-which is a shared primitive's and not this package's.
+`TITHE.O88`, prefix `ti_`, one segment (§20.1) and two embedded PARTS
+(§20.12) — the ART (§97.4.9) and the MUSIC (§97.10) — an embedded 16×16 icon,
+one worker, and **no kernel change of its own** — the one it wanted is
+§5.4.2.6's fast path, which is a shared primitive's and not this package's,
+and the one it FOUND is §34.2.1, a defect in the FM slot every package shares.
 
 - `OSAPI_WM_OWNBG` — every pixel of the content is ours, so the kernel's white
   fill in front of `W_PAINT` is skipped. Without it every repaint flashes white
@@ -141361,6 +141380,8 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `P` | pause the wheel, for looking at one frame |
+| `M` | the next TITLE THEME (§97.10) — four candidates, then silence, then the first again. The window's title names the one playing and its arm |
+| `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
 | `Esc` | leave fullscreen, else close |
 
 **THE DEMO WAS CUT TO WHAT THE GAME WILL DO** before wave 1b. The keys that
@@ -141402,7 +141423,7 @@ is the full table and this is the part that binds the code:
 | wave | what appears |
 |---|---|
 | **1a** | **this section** — layout, board, bands, the wheel, the two renderers |
-| 1b | the sequencer and the music (`timus.inc`) |
+| **1b** | **§97.10** — the sequencer (`timus.inc`), both arms, and four candidate title themes on `M`; the faction theme in three states and the resolution piece follow once one is picked |
 | 2 | the rules engine and `tools/duelsim.py`, from one card table, no graphics |
 | 3 | the round loop, hot-seat |
 | 4 | the AI on the worker |
@@ -141413,3 +141434,116 @@ is the full table and this is the part that binds the code:
 **It is on `tests/unit/t_livefull.py`'s exemption list until wave 6**, with
 "under construction" as the reason, because a package that cannot be launched
 from a menu is not something to put on the live media.
+
+### 97.10 THE MUSIC — one score, two renderers (wave 1b)
+
+`docs/plans/TITHE-PLAN.md` §13 is the design and this is what the code holds
+to. **What exists is the sequencer and FOUR candidate TITLE THEMES**, stepped
+through with `M` (§97.7) so the owner can pick one by ear before the faction
+themes are written against it — the title sets the tone the rest follow. The
+three battle states (TITHE-PLAN §13.4) and the resolution piece's hand-back
+are in the format and the sequencer (`[tm_state]`, an order row's lead
+columns) and have no score yet.
+
+| option | | key, tempo | the speaker hears |
+|---|---|---|---|
+| 1 | **The Procession** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
+| 2 | **The Reckoning** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
+| 3 | **Vespers** | D minor plainchant, 68 BPM (an 8th = 4 ticks) | one voice chanting |
+| 4 | **Banners** | D major fanfare, 136 BPM (a 16th = 2 ticks) | a trumpet |
+
+#### 97.10.1 The source, and the tool
+
+`apps/tithe/music/*.tmu` are the songs and `bank.tmb` the instrument bank they
+share, in a plain-text MML (the IBM PC BASIC `PLAY` statement's) that
+`tools/os88tithemus.py` packs into the MUSIC part, `build/timus.bin`, and
+`apps/tithe/tisong.inc` — the part's layout constants and the song names,
+generated and committed as `tiart.inc` is. `SONGS` in the tool is the
+manifest, and its order is `M`'s.
+
+**A row is a whole number of ticks** (TITHE-PLAN §13.3), cycled through a
+GROOVE of one to four counts, and a pattern must be a whole number of grooves.
+So every pattern starts on the groove's first step and **a note's length in
+ticks is known at pack time**: the tool, not the machine, works out every
+note's GATE — its sounding length less the `q` gap, or one tick MORE when the
+next note slurs from it.
+
+`python3 tools/os88tithemus.py wav` renders both arms on the host — the
+speaker as the PIT's own square, the FM arm through pyopl (DOSBox's OPL2)
+driven with the register writes `SOUND.DRV` makes — **from the packed part,
+through a Python copy of this sequencer**, so what is approximate is the
+synthesis and never the notes. `--selfcheck` holds the part's note stream to
+the source's, tick for tick, and is a fast row.
+
+#### 97.10.2 The part
+
+```
++0   'TM', version, song count
++4   dw frequency table     84 words, C1..B7, integer Hz
++6   dw instrument records  16 bytes: the 11-byte OPL2 patch in SOUND.DRV's
+                            order (§34.2), vibrato delay, vibrato shift,
+                            macro length, macro loop, macro index
++8   dw macro pool          signed semitones a tick, per instrument
++10  dw chord shapes        two intervals above a root (0 = no note)
++12  dw per song            its header
+song +0 groove length, four tick counts, rows, states, order length, loop,
+        pad, dw order, dw phrase table
+order row   bass, chord, drum phrase, then one LEAD phrase per state
+            (0xFF = that channel is silent for the pattern)
+phrase      events: a note (1..127) then rows and gate; 00 rest, rows;
+            80|i instrument; A0|s chord shape; C0 slur; FF end
+```
+
+**Phrases are per CHANNEL, not per pattern**, so a bass line or a drum bar is
+stored once however many leads ride over it — the arrangement TITHE-PLAN
+§13.4 makes the three battle states out of. It is TITHE-PLAN §13.3's delta
+encoding rather than its packed rows, taken at the start because the four
+songs are 3,959 bytes as events, 2,483 packed.
+
+#### 97.10.3 The arms
+
+**The arm is chosen from `OSAPI_SND_CAPS` when a song starts, and the FM slot
+is never called to find out** (TITHE-PLAN §13.5 — with no driver that call
+wedges the machine rather than refusing).
+
+| arm | plays | through |
+|---|---|---|
+| **speaker** | the LEAD only, with its instrument's macro and square vibrato a tick at a time | `OSAPI_SND_TONE` at priority **0x20**, under the package default, so any effect preempts it; **every tone carries a duration**, the note's remaining gate |
+| **FM** | all four: lead on voice 0, bass on 1, the chord's up to three notes on 2–4, drums on 5 | `OSAPI_SND_FM`; a voice is re-patched only when its instrument changes, and a held note is RETRIGGERED (off, then on) unless the next one slurs. Voices 6–7 are left for effects and 8 is the tone tier's (§34.8) |
+
+`S` forces the speaker where FM is there, and restarts the song on it — the
+target machine's arm has to be heard on a machine that has the other one. An
+FM refusal mid-song (another package holding a voice) gives every voice back
+and carries on as the speaker.
+
+#### 97.10.4 Where it runs, and the order of a tick
+
+**`tm_run` is the first thing each worker pass does, before the frame and
+outside the gfx lock** (TITHE-PLAN §13.6), so a frame waiting on the lock never
+holds a note up. It steps once per ELAPSED tick — twice for a pass that came
+one late — and **once for a stall of three or more**: a relayout or a region
+move pauses the music rather than sprinting through the notes it missed.
+
+**The UI task only posts.** `M` and `S` write `[tm_req]` and the worker takes
+it with an `xchg`, so every sound call is made from one task: two tasks of one
+instance interleaving OPL address/data pairs would corrupt a write that
+ownership (§34.1) cannot see.
+
+A tick, in the order `timus.inc` and the tool's `Seq` both keep:
+
+1. If the last row's ticks are spent, a ROW begins: after the pattern's last
+   row the order advances (to the loop row after the last), every channel
+   whose wait has run out reads events up to its next note or rest, and the
+   groove's next count is the new row's length.
+2. Every sounding note AGES: one keyed this tick is left alone, so a gate of G
+   sounds G whole ticks; otherwise the gate runs down and a note whose gate
+   reaches zero is keyed off, and the speaker's lead re-sounds only if its
+   macro or vibrato has moved the frequency.
+
+#### 97.10.5 What it costs
+
+**No claim and no new kernel code**: the score is a part in the carve the art
+already shares (§20.12), and the sequencer is ~1.2 KB of the image. **Every
+speaker tone carries a duration**, so a worker that stops — a stall, a
+relayout, a close — leaves nothing droning; `snd_tick` expires it (§34.3), and
+the package's teardown releases the FM voices (§34.3's `snd_release_inst`).

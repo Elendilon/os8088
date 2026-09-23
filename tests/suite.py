@@ -7362,6 +7362,36 @@ SOAK = [
         "land on a BYTE at every surface and pose, because the machine puts"
         "each item frame down in whole bytes from it. Host-side and 0.9s",
         needs=()),
+    Row("tithemus", "fast", py("tools/os88tithemus.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.10: TITHE's MUSIC as the tool packs it. The part is read"
+        "back through the tool's own copy of the sequencer - the one"
+        "tests/tithemus.py holds the machine to - and every note it plays,"
+        "tick by tick, must be the note the SOURCE puts on that tick: a"
+        "packer that drops a slur, mis-counts a groove or loses a phrase"
+        "plays a plausible wrong tune and fails nothing else. It also fails"
+        "a frequency table more than 45 cents off, a note outside the OPL2's"
+        "19..6208 Hz, a speaker tone with NO DURATION (the one that drones"
+        "for ever when the worker stalls), and a tisong.inc that no longer"
+        "describes the part. Host-side and 0.1s",
+        needs=()),
+    Row("tithemusg", "soak", py("tests/tithemus.py"), 70.0,
+        "SPEC.md 97.10: TITHE's sequencer ON THE MACHINE, both arms - FM on a"
+        "Sound Blaster 5150 (SOUND.DRV mounts itself) and the speaker on a"
+        "plain one. The first song's whole command stream - every"
+        "OSAPI_SND_FM or OSAPI_SND_TONE call, caught at a breakpoint with its"
+        "registers, its tick and a patch's eleven bytes - is the model's call"
+        "for call; every song is then sampled paused and must be the model"
+        "tick for tick (order row, row, all four notes, the lead's frequency);"
+        "the speaker is gated exactly when the lead sounds; M past the last"
+        "song is silence; S moves a song to the one-voice arm; and the frame"
+        "holds with the music on. Broken on purpose: a gate one tick short"
+        "fails every song, and a macro step off by one fails the stream while"
+        "PASSING the samples - which is why the stream is there. It also"
+        "found SPEC.md 34.2.1, a kernel defect that sent every FM patch-load"
+        "to channel 0. `--record DIR` saves the guest's own audio per song"
+        "and arm. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("tithebg", "fast", py("tools/os88tithebg.py", "--selfcheck"), 1.0,
         "SPEC.md 97.4.10: TITHE's board as a PLACE - the per-column textures"
         "and the wall, fence and cliff patterns the package composes its"

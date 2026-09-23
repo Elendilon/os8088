@@ -1,0 +1,90 @@
+; TITHE's INSTRUMENT BANK (TITHE-PLAN 13.3, SPEC.md 97.10.2) - shared by every
+; song, carried once. tools/os88tithemus.py packs it into the MUSIC part.
+;
+; `fm` is an OPL2 patch in SOUND.DRV's own order (SPEC.md 34.2): the
+; MODULATOR's 20h 40h 60h 80h E0h, a `/`, the CARRIER's five, a `/`, C0h.
+;   20h  AM | VIB | EGT(sustain) | KSR | MULT      40h  KSL | TL (0 = loudest)
+;   60h  attack | decay                              80h  sustain level | release
+;   E0h  waveform 0 sine, 1 half, 2 abs, 3 pulse     C0h  feedback<<1 | additive
+; With EGT clear the note is PERCUSSIVE: it decays at the release rate even
+; while held, which is how a pluck, a drum and a bell stop by themselves.
+;
+; `spk` is what the SPEAKER does with the lead (TITHE-PLAN 13.2): a per-tick
+; MACRO of semitone offsets from the note's start - `|` is where it loops,
+; else the last value holds - and a square VIBRATO, `vib DELAY SHIFT`, that
+; alternates +/- freq>>SHIFT every two ticks once the note is DELAY ticks old.
+; Only the lead ever reaches the speaker, so only lead voices have one.
+;
+; `drum LETTER INSTRUMENT NOTE` names what a letter in a drum phrase plays.
+; The drum channel is ONE OPL voice (5), re-patched a hit at a time.
+
+; --- LEADS ------------------------------------------------------------------
+
+inst horn               ; brass: the modulator swells slower than the carrier
+  fm  21 1C 72 14 00 / 21 00 94 06 00 / 06
+  spk macro -1 0 vib 8 7                        ; a scoop up into the note
+
+inst trumpet            ; brighter and quicker than the horn
+  fm  21 14 A3 13 00 / 21 00 C5 06 00 / 08
+  spk macro 0 vib 10 7
+
+inst recorder           ; near-pure, breathy onset, the chip's own vibrato
+  fm  61 30 86 05 00 / 61 00 75 06 00 / 0C
+  spk macro 0 vib 6 7
+
+inst fiddle             ; bowed: a quick bite and a held tone
+  fm  61 18 B6 16 00 / 61 00 A5 06 00 / 0C
+  spk macro 0 vib 5 7
+
+inst chant              ; a single voice: soft, slow, a long release
+  fm  61 2A 54 03 00 / 61 02 64 05 00 / 06
+  spk macro 0 vib 8 7
+
+; --- ACCOMPANIMENT ------------------------------------------------------------
+
+inst strings            ; a pad: a slow swell, vibrato, three voices of it
+  fm  61 1E 44 04 00 / 61 10 54 05 00 / 0C
+
+inst organ              ; ADDITIVE: the modulator is an octave stop, heard
+  fm  22 16 D0 05 00 / 21 10 D0 05 00 / 03
+
+inst lute               ; plucked: bright at the attack, decays by itself
+  fm  01 1A F4 55 00 / 01 08 F3 25 01 / 0A
+  spk macro 12 0
+
+inst harp               ; a softer, longer pluck for the arpeggios
+  fm  01 24 F3 54 00 / 01 0C F2 24 00 / 06
+  spk macro 12 0
+
+inst bass               ; a held bass whose brightness settles after the attack
+  fm  21 1A F3 37 00 / 21 08 F2 07 00 / 06
+
+inst pluckbass          ; percussive: the jig's bass
+  fm  01 16 F4 55 00 / 01 06 F2 04 00 / 06
+
+inst pedal              ; the organ's pedal: additive, soft, sustained
+  fm  22 1A C0 05 00 / 21 0A C0 05 00 / 01
+
+; --- PERCUSSION (the drum channel's voice, re-patched a hit at a time) -------
+
+inst kick               ; a thump: a burst of modulation, then a falling sine
+  fm  01 0C F8 FF 00 / 01 00 F6 F6 00 / 00
+inst snare              ; feedback noise, ADDITIVE, over a short body
+  fm  0C 08 F7 F7 00 / 01 08 F8 F8 00 / 0F
+inst hat                ; the same noise, high and very short
+  fm  0F 0C FA FA 00 / 0F 14 FA FA 00 / 0F
+inst tom                ; a pitched drum with a little rasp: tabor, bodhran
+  fm  02 14 F7 F7 00 / 01 00 F5 F5 00 / 0A
+inst tap                ; the bodhran's knock: shorter and higher
+  fm  03 1A F9 F9 00 / 01 04 F8 F8 00 / 0C
+inst bell               ; a TOLL: carrier x2 against a modulator x5, so the
+  fm  05 1C F3 04 00 / 02 02 F2 03 00 / 00      ; partials are inharmonic
+
+drum k kick   d2        ; the march's bass drum
+drum s snare  d3
+drum h hat    c4
+drum t tom    a2        ; the tabor, and the bodhran's boom
+drum T tom    d3        ; ...a higher one, for fills
+drum p tap    e3        ; the bodhran's knock
+drum b bell   d2        ; the vesper toll - it SOUNDS an octave up, at D3
+drum B bell   a1        ; ...and its lower companion, at A2

@@ -3632,6 +3632,12 @@ A piece is written **once**, for **4 channels**, and **channel 0 is the LEAD**.
 - The **speaker** renderer plays **channel 0 and nothing else**. One voice is
   all it has, and the lead is the part a listener would hum.
 
+**BUILT, with one change** (SPEC.md §97.10.3): the chord channel plays up to
+THREE notes, so the FM arm takes **six** voices — lead 0, bass 1, chords 2–4,
+drums 5 — and leaves 6 and 7 for effects. Three single-note channels under a
+lead is a thin pad on an OPL2; a triad is what makes the FM arm sound like the
+arm with the card.
+
 **That is the whole compatibility story**, and it is why the composer is not
 writing two pieces: the speaker arm is the same score with three channels
 ignored. It also sets a composition rule — **the lead has to carry the tune on
@@ -3665,6 +3671,16 @@ channels, so a track is mostly zeros and lz4 (§20.13) eats it. If measurement
 says otherwise, the fallback is a delta encoding — *(row skip, channel, note,
 volume)* events instead of packed rows — and it is recorded here so it is not
 re-derived under pressure.
+
+**BUILT AS THE DELTA ENCODING, and per CHANNEL** (SPEC.md §97.10.2): a phrase
+is one channel's events for one pattern — note, rows to the next event, gate
+in ticks — and an order row names four phrases rather than one pattern, so a
+bass line or a drum bar is stored once however many leads ride it, which is
+§13.4's arrangement made structural. Four title themes are 3,959 bytes, 2,483
+packed. The GATE is worked out by the tool, not the machine, because a GROOVE
+of whole-tick rows cycled a pattern at a time fixes every note's length in
+ticks at pack time. There is no volume column: the speaker has none (§13.9)
+and the FM slot takes none, so loudness is the patch's.
 
 ### 13.4 The nine battle tracks are really three — and the tenth is the resolution
 
@@ -3864,6 +3880,16 @@ grey a fact, never a guess — and *"you have no sound driver"* is a fact, but
 a plain-text tracker notation in, the packed score out, `--selfcheck` in the
 build.
 
+**BUILT** — `tools/os88tithemus.py`, with `wav` for the host render, the FM
+arm through pyopl (DOSBox's OPL2) driven with `SOUND.DRV`'s own register
+writes. **It renders the PACKED part through a Python copy of the
+sequencer**, and `tests/tithemus.py` holds the machine to that copy call for
+call, so a host render is the guest's notes in the host's synthesis. Against
+MartyPC's OPL (a Nuked port) the two agree band for band once SPEC.md §34.2.1
+was fixed — which is how that defect was found: the guest's capture was the
+default patch's smear where the host had a horn. `tests/tithemus.py --record`
+takes the guest's own audio.
+
 **And `--wav`, which renders an approximation on the host.** Composing for a
 machine you have to boot to hear is how a project ends up with one piece of
 music; a composer who can hear a change in a second will write twelve. It is an
@@ -4055,7 +4081,7 @@ breaking the thing on purpose first and watching it go red —
 |---|---|---|
 | **0** | **DONE, in two passes.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. The first pass halved the animation rate (§19.2); the second priced three levers, took two, refused one, and **changed the kernel** (SPEC.md §5.4.2.6) | the numbers exist |
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it.** The fullscreen RENDERER was in this wave and is refused — §19.2, and fullscreen is `wm_fullscreen` | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features **in both the windowed and the fullscreen geometry** |
-| **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
+| **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece. **STARTED** (SPEC.md §97.10): the sequencer and both arms are BUILT and held to the tool's model call for call on the machine (`tests/tithemus.py`), and the **title theme came first**, at the owner's instruction, because it sets the tone the faction themes follow — **four candidates on `M`** for the owner to pick from by ear | **the owner signs off the sound**; the frame still holds with the sequencer running — **MEASURED: 18.7 wheel passes a second with a song playing against 18.5–18.7 silent**, on the Hercules 5150 with and without a Sound Blaster |
 | **1b** | **THE FULLSCREEN PANEL** (§8.3) — the hand along the bottom on VGA and Hercules fullscreen, portrait cards with the character at board size, the board centred above. A layout and a horizontal `ti_card_pos`, no second renderer. **BUILT** (SPEC.md §97.4.12): 72 × 107 on VGA, 80 × 72 on Hercules | **the owner looks at it** beside the vertical strip |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |

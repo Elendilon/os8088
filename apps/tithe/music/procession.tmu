@@ -1,0 +1,65 @@
+; TITHE - title theme, option 1: THE PROCESSION
+;
+; A march in E minor at 91 BPM - a 16th is one row of THREE ticks, 164.8 ms.
+; The horn carries it on its own, which is the speaker's whole arm: an intro
+; call, a theme (A) that rises from E and falls back, and a lifted middle (B)
+; on C and G that turns on B major to hand back to E. A B A B for ever after
+; the intro. Tabor and snare in a dotted march; strings under it.
+
+song procession "The Procession"
+groove 3
+unit 16
+rows 32
+measure 16
+voice lead horn
+voice bass bass
+voice chord strings
+
+; --- the call -----------------------------------------------------------------
+lead LI1 = o4 l8 e4 r <b> e g b4 | >e4.< b g4 e4 |
+lead LI2 = o4 l8 e4 r <b> e g a4 | b2 a g f+4 |
+bass BI1 = o2 e1 | e1 |
+bass BI2 = o2 e1 | b2 b4 f+4 |
+chord CI1 = o3 r1 | [e b]1 |
+chord CI2 = o3 [e g b]1 | [d+ f+ b]1 |
+drum DI1 = t4 r4 t4 r4 | t4 r4 t4 t8 t8 |
+drum DI2 = t4 r4 t4 r4 | t8 t8 t8 t8 T8 T8 T8 T8 |
+
+; --- A: the theme -------------------------------------------------------------
+lead LA1 = o4 l8 e4. f+ g4 b4 | >c4.< b a4 g4 |
+lead LA2 = o4 l8 f+4 a4 >d4. c< | b2 a g f+4 |
+lead LA3 = o4 l8 e4. f+ g4 b4 | >e4. d c4< b4 |
+lead LA4 = o4 l8 a4 >c4< b4. a | g f+ e2. |
+bass BA1 = o2 l4 e b e b | c g c g |
+bass BA2 = o2 l4 d a d a | e b g f+ |
+bass BA4 = o2 l4 a e b f+ | e b e2 |
+chord CA1 = o3 [e g b]1 | [e g >c]1 |
+chord CA2 = o3 [d f+ a]1 | [e g b]1 |
+chord CA4 = o3 [e a >c]2 [d+ f+ b]2 | [e g b]1 |
+drum DA = k4 s8. s16 k4 s16 s16 s8 | k4 s8. s16 k4 s16 s16 s8 |
+drum DA4 = k4 s8. s16 k4 s16 s16 s8 | s8 s8 s8 s16 s16 k4 T8 t8 |
+
+; --- B: the lift --------------------------------------------------------------
+lead LB1 = o5 l8 e2 d4 c4 | d4.< b g2 |
+lead LB2 = o4 l8 a4 b >c d4< a4 | b2 g4 e4 |
+lead LB3 = o5 l8 e2 g4 e4 | d4.< b g4 b4 |
+lead LB4 = o4 l8 a4 >c4 e4 c4< | b2 f+4 d+4 |
+bass BB1 = o2 l4 c g c g | g d g d |
+bass BB2 = o2 l4 d a d a | e b e b |
+bass BB4 = o2 l4 a e a e | b f+ b f+ |
+chord CB1 = o3 [e g >c]1 | [d g b]1 |
+chord CB4 = o3 [e a >c]1 | [d+ f+ b]1 |
+drum DB = k4 h4 s4 h4 | k4 h4 s4 h8 h8 |
+drum DB4 = k4 h4 s4 h4 | s16 s16 s16 s16 s8 s8 T8 T8 t4 |
+
+order LI1 BI1 CI1 DI1
+order LI2 BI2 CI2 DI2
+order LA1 BA1 CA1 DA          ; 2: the loop comes back here
+order LA2 BA2 CA2 DA
+order LA3 BA1 CA1 DA
+order LA4 BA4 CA4 DA4
+order LB1 BB1 CB1 DB
+order LB2 BB2 CA2 DB
+order LB3 BB1 CB1 DB
+order LB4 BB4 CB4 DB4
+loop 2

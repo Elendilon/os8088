@@ -1,0 +1,68 @@
+; TITHE - title theme, option 3: VESPERS
+;
+; The tithe as a SACRED debt. A plainchant line in D minor at 68 BPM - a row is
+; an eighth of FOUR ticks, 219.7 ms - sung stepwise and never far from where it
+; began, over an organ and a pedal, with a bell tolling on the drum channel.
+; On the speaker it is one voice chanting, which is exactly what a chant is.
+; A falls to the tonic through a C-sharp; B rises to D above and comes down.
+
+song vespers "Vespers"
+groove 4
+unit 8
+rows 16
+measure 8
+voice lead chant
+voice bass pedal
+voice chord organ
+
+; --- the intonation: the voice alone, then the organ under it ------------------
+lead VI1 = o4 d4 f4 g4 a4 | a2 g4 a4 |
+lead VI2 = o4 >c4< a4 g4 f4 | g2. r4 |
+bass BI1 = o2 r1 | d1 |
+bass BI2 = o2 f1 | g1 |
+chord CI1 = o3 r1 | [d f a]1 |
+chord CI2 = o3 [c f a]1 | [d g b-]1 |
+drum DI = b1 | b1 |
+
+; --- A ------------------------------------------------------------------------
+lead VA1 = o4 a2 g4 a4 | b-4 a4 g4 f4 |
+lead VA2 = o4 g2 e4 c4 | d2 f4 e4 |
+lead VA3 = o4 f4 g4 a4 >d4 | d4 c4< b-4 a4 |
+lead VA4 = o4 g4 f4 e4 c+4 | d2. r4 |
+bass BA1 = o2 d1 | <b-1> |
+bass BA2 = o2 c1 | d1 |
+bass BA3 = o2 f1 | <b-1> |
+bass BA4 = o2 g2 a2 | d1 |
+chord CA1 = o3 [d f a]1 | [d f b-]1 |
+chord CA2 = o3 [c e g]1 | [d f a]1 |
+chord CA3 = o3 [c f a]1 | [d f b-]1 |
+chord CA4 = o3 [d g b-]2 [c+ e a]2 | [d f a]1 |
+drum DA = b1 | r1 |
+drum DA4 = b2 B2 | b1 |
+
+; --- B: up to the D above -------------------------------------------------------
+lead VB1 = o5 c4 d4 c4< a4 | b-2 a4 g4 |
+lead VB2 = o4 g4 a4 b-4 >d4< | a2 e4 c+4 |
+lead VB3 = o4 d4 f4 a4 >d4 | e2 d4 c4< |
+lead VB4 = o4 b-4 >d4 c+4 e4 | d2. r4< |
+bass BB1 = o2 f1 | <b-2> f2 |
+bass BB2 = o2 g1 | a1 |
+bass BB3 = o2 d1 | c1 |
+bass BB4 = o2 <b-2 a2> | d1 |
+chord CB1 = o3 [c f a]1 | [d f b-]2 [c f a]2 |
+chord CB2 = o3 [d g b-]1 | [c+ e a]1 |
+chord CB3 = o3 [d f a]1 | [c e g]1 |
+chord CB4 = o3 [d f b-]2 [c+ e a]2 | [d f a]1 |
+drum DB = B1 | r1 |
+
+order VI1 BI1 CI1 DI
+order VI2 BI2 CI2 DI
+order VA1 BA1 CA1 DA          ; 2: the loop comes back here
+order VA2 BA2 CA2 DA
+order VA3 BA3 CA3 DA
+order VA4 BA4 CA4 DA4
+order VB1 BB1 CB1 DB
+order VB2 BB2 CB2 DA
+order VB3 BB3 CB3 DB
+order VB4 BB4 CB4 DA4
+loop 2

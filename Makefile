@@ -9446,6 +9446,19 @@ $(BUILD)/tiart.bin: apps/tithe/tiart.inc | $(BUILD)
 apps/tithe/tiground.inc: tools/os88tithebg.py
 	python3 tools/os88tithebg.py emit
 
+# ...and the MUSIC (SPEC.md 97.10, TITHE-PLAN 13): the scores in
+# apps/tithe/music/ packed into a second PART, with the offsets and the song
+# names the sequencer reads it by in apps/tithe/tisong.inc. tiart's shape: the
+# .inc is committed, both come out of one run, and the .bin rule is the .inc's.
+# `python3 tools/os88tithemus.py wav` renders both arms on the host.
+TITHEMUS := $(wildcard apps/tithe/music/*.tmu) apps/tithe/music/bank.tmb
+
+apps/tithe/tisong.inc: tools/os88tithemus.py $(TITHEMUS)
+	python3 tools/os88tithemus.py emit --bin $(BUILD)/timus.bin
+
+$(BUILD)/timus.bin: apps/tithe/tisong.inc | $(BUILD)
+	@test -f $@ || python3 tools/os88tithemus.py emit --bin $@
+
 # TICARDPROF=1 times each STAGE of one card's composition with the PIT and
 # banks the counts (SPEC.md 97.4.1.1). It is a knob rather than a counter
 # because what it had to settle was WHICH STAGE: a hover cost two frames and
@@ -9460,13 +9473,15 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
                     apps/tithe/tiart.inc apps/tithe/tiground.inc \
                     apps/tithe/tiplace.inc apps/tithe/titxt.inc \
+                    apps/tithe/tisong.inc apps/tithe/timus.inc \
                     apps/os88parts.inc apps/os88partsbody.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin tools/os88pkg.py
-	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@ --part $(BUILD)/tiart.bin
+$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin $(BUILD)/timus.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@ --part $(BUILD)/tiart.bin \
+	    --part $(BUILD)/timus.bin
 
 tithe: $(BUILD)/tithe.o88
 
