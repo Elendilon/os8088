@@ -30,6 +30,15 @@ The screen still read as text - 419 differing bits on a Right arrow.
          must draw the same screen
   leg D  a Down that SCROLLS the view, which is the one ordering the collapse
          changes - wd_seecaret now runs after the drawing rather than before it
+  leg E  an Up that scrolls is a caret move too (SPEC.md 27.4.11): wd_redraw's
+         first walk lays out the row the caret left, not the whole view, and
+         the scrolled screen equals a full repaint
+  leg F  a Down after a Down does not measure the caret again (SPEC.md
+         27.4.13): the redraw that drew the first one stood on the caret, so
+         the second is TWO walks and not three. The A/B is inside one boot -
+         the same Downs from the same click, once with the bank and once with
+         [wd_cxcur] poked stale before each key - and the carets must land on
+         the same indices, keystroke for keystroke
 """
 import os, sys, time, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
@@ -60,7 +69,7 @@ def pkg_syms(src="apps/word/word.asm", incs=("apps/", "apps/word/")):
         out={}
         for L in open(mp):
             f=L.split()
-            if len(f)==3 and all(c in "0123456789ABCDEF" for c in f[0]): out[f[2]]=int(f[0],16)
+            if len(f)==3 and all(c in "0123456789ABCDEF" for c in f[0]): out[f[2]]=int(f[1],16)
         return out, open(os.path.join(d,"p.bin"),"rb").read()
 
 
@@ -84,7 +93,7 @@ ap.add_argument("--machine", default="os8088_5150_cga_gla")
 a = ap.parse_args()
 syms, image = pkg_syms()
 DISK = "build/wdcaretgate.img"
-M.scratch_disk(DISK, "build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")
+M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC")
 S = lambda n: m.sym(n)
 
 with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
@@ -210,6 +219,101 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
               "%d differing pixels" % dD)
     else:
         check("D: the view came back to the same top", False, "top moved")
+
+    # ---- leg E: an Up that SCROLLS is a caret move too (SPEC.md 27.4.11) ---
+    # wd_move left before arming kind 4 when the target row was ABOVE the
+    # view, so pass 1 walked the whole view to learn nothing had moved - 450
+    # ms of an 850 ms Up on a 5150. Count the rows wd_redraw's FIRST walk lays
+    # out: the row the caret left is the bound now.
+    mo.to(sbx, ydn); time.sleep(0.25)
+    m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
+    mo.to(4, 4); time.sleep(0.8); M.settle(m)
+    check("E: the view is paged down (case, not assertion)", rw("wd_top") > 0,
+          "top %d" % rw("wd_top"))
+    click_row(0, col=10); settle_height()
+    top_e = rw("wd_top")
+    NM = {}
+    for nm in ("wd_redraw", "wd_walk", "wd_rstart", "wd_caretnet", "wd_seecaret"):
+        a = P(nm)
+        for kk in (a, "%X" % a, str(a)): NM[kk] = nm
+    seqE = []
+    with M.bp_trace(m, *[P(nm) for nm in ("wd_redraw", "wd_walk", "wd_rstart",
+                                          "wd_caretnet", "wd_seecaret")],
+                    on_hit=lambda mm, rec: seqE.append(NM.get(rec.get("name"))), cap=400):
+        m.key("ArrowUp"); time.sleep(2.5)
+    names = [x for x in seqE if x]
+    p1 = None
+    if "wd_redraw" in names:
+        i = names.index("wd_redraw")
+        rest = names[i+1:]
+        if "wd_walk" in rest:
+            j = rest.index("wd_walk")
+            k = j + 1
+            while k < len(rest) and rest[k] == "wd_rstart":
+                k += 1
+            p1 = k - j - 1
+    check("E: the Up actually scrolled the view (case, not assertion)",
+          rw("wd_top") < top_e, "top stayed at %d" % top_e)
+    check("E: an Up off the top row walks the row it left, not the view",
+          p1 is not None and p1 <= 3,
+          "wd_redraw's first walk laid out %s rows of a %d-row view" % (p1, vrows))
+    print("      pass-1 rows on a scrolling Up: %s" % p1)
+    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    afterE = shot(m); topE = rw("wd_top")
+    if page_round_trip(topE):
+        rpE = shot(m)
+        dE = sum(1 for p, q in zip(band(afterE, box), band(rpE, box)) if p != q)
+        check("E: an Up that scrolled equals a full repaint", dE == 0,
+              "%d differing pixels" % dE)
+    else:
+        check("E: the view came back to the same top", False, "top moved")
+
+    # ---- leg F: a run of Downs measures the caret once (SPEC.md 27.4.13) ---
+    # Row 1 of the view, then five Downs: the first primes the bank (the
+    # click's redraw is not guaranteed to have stood on the caret), and each
+    # of the other four must walk exactly ONCE FEWER than the same Down with
+    # the key poked stale - which is the reference, for the walk count and for
+    # the indices the cache must match. A plain Down is 2 against 3.
+    def downs(stale):
+        page_round_trip(0) if rw("wd_top") else None
+        click_row(1, col=20)
+        m.key("ArrowDown"); time.sleep(1.0); M.settle(m)
+        out = []
+        for _ in range(4):
+            if stale:
+                m.write(P("wd_cxcur"), b"\xff\xff")
+            t0 = rw("wd_top")
+            n, c = key_walks("ArrowDown")
+            out.append((n, c, rw("wd_cur"), rw("wd_currow"), rw("wd_top") != t0))
+        return out
+    hot, cold = downs(False), downs(True)
+    print("      Down with the bank:   walks %s, cur %s"
+          % ([x[0] for x in hot], [x[2] for x in hot]))
+    print("      Down, key poked stale: walks %s, cur %s"
+          % ([x[0] for x in cold], [x[2] for x in cold]))
+    check("F: the stale arm really measures (case, not assertion)",
+          all(x[0] and x[0] >= 3 for x in cold), "walks %s" % [x[0] for x in cold])
+    # A Down that SCROLLS aims at the row past the glass, whose table entry
+    # 27.7.12's stop may have left stale - so it measures, as it always did,
+    # and walks the same count in both arms. Every other one saves a walk.
+    check("F: a Down on the glass walks ONE fewer time; one that scrolls, "
+          "the same", all(h[0] is not None and
+                          h[0] == c[0] - (0 if c[4] else 1)
+                          for h, c in zip(hot, cold))
+          and any(not c[4] for c in cold),
+          "walks %s against %s measured (scrolled %s)"
+          % ([x[0] for x in hot], [x[0] for x in cold], [x[4] for x in cold]))
+    check("F: ...and lands where the measured Down lands",
+          [x[2:] for x in hot] == [x[2:] for x in cold],
+          "cached (cur, row) %s, measured %s"
+          % ([x[2:] for x in hot], [x[2:] for x in cold]))
+    if all(x[1] for x in hot + cold):
+        mh = sorted(ms(x[1]) for x in hot)[len(hot)//2]
+        mc = sorted(ms(x[1]) for x in cold)[len(cold)//2]
+        print("      Down: %.1f ms median with the bank, %.1f ms without" % (mh, mc))
+        check("F: ...and is cheaper", mh < mc, "%.1f ms against %.1f" % (mh, mc))
+    else:
+        check("F: every Down was timed", False, "a bracket did not return")
 
     # ---- leg C: the A/B, inside one boot ----------------------------------
     click_row(1, col=20)

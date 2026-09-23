@@ -55,7 +55,7 @@ def pkg_syms(src="apps/word/word.asm", incs=("apps/", "apps/word/")):
         for line in open(mp):
             f = line.split()
             if len(f) == 3 and all(c in "0123456789ABCDEF" for c in f[0]):
-                out[f[2]] = int(f[0], 16)
+                out[f[2]] = int(f[1], 16)   # VIRTUAL: part 1 is assembled at WD_P1ORG
         return out, open(os.path.join(d, "p.bin"), "rb").read()
 
 
@@ -86,7 +86,7 @@ a = ap.parse_args()
 
 syms, image = pkg_syms()
 DISK = "build/wdmenusu.img"
-M.scratch_disk(DISK, "build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")
+M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC")
 S = lambda n: m.sym(n)
 
 with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:

@@ -146,7 +146,7 @@ be done". Sizes are the `equ`s at the claim sites.
 
 | package | claims |
 |---|---|
-| **Word** | document and CHP arena (grown in lockstep from `WD_KB0`), PAP dictionary 1KB, undo arena, italic glyph table + staging `WD_ITKB` 9KB, `WORD.OVL` image `WD_OVKB` 8KB (a CS, so that one is forever), `WD_LSTGKB` 62KB load staging (transient), a `2*WD_SCHALF` scratch |
+| **Word** | document and CHP arena (grown in lockstep from `WD_KB0`), PAP dictionary 1KB, undo arena, italic glyph table + staging `WD_ITKB` 9KB, `WD_LSTGKB` 62KB load staging (transient), a `2*WD_SCHALF` scratch |
 | **the typeface cache** (`apps/os88type.inc`, so Word, TeXpad and every other includer) | `TY_FACE_KB` per open face, and it is the one claim in the tree that carries `MC_DMA` for **alignment alone**: it asks `OSAPI_MEM_CLAIM_DMA` for a whole-block head so the base is 512-byte aligned for its file read. It was `TY_FACE_KB + 1` with a hand round-up underneath, and the round-up could never fire — guard 6b makes every claim base `HEAP_SEG + n*MEM_PARA_KB` paragraphs and asserts `MEM_PARA_KB` is a multiple of 32 — so that was 1KB of heap per open face, up to three per Word or CWORD instance, for nothing. The package asserts the alignment now and refuses the face if it ever fails. No chip is armed on it and none ever will be, and since §66.4.2 that no longer pins it: the blanket `MC_DMA` refusal is gone and `mem_cp_dest` places a page-constrained block page-safely. It is still **UNDECLARED** — declaring it wants `TF_CLAIM`/`TF_SEG` per slot plus `[ty_curseg]` and `[ty_psseg]`, which is an audit rather than a proc |
 | **Sheet** | staging 32KB ONLY — it is the `ES:BX` of all seven of the package's `OSAPI_FILE_READ`/`WRITE` calls (§66.9 reason 4), so it stays pinned; §66.5.7.1's pin/unpin pair is what it would take. The other five — cells 32KB, text 8KB, borders 4KB, notes 4KB, chart 19KB — are **MOVABLE** now (see below) |
 | **Chart** | chart 19KB, staging 32KB |
@@ -225,7 +225,7 @@ declares the bare form and moves on `I_TASK == 0xFF`.
 | package | region | verdict | note |
 |---|---:|---|---|
 | **SHEET** | 48.5KB | **MOVABLE** | §66.6.1's first customer, and worker-less, so it moves on `I_TASK == 0xFF` alone |
-| **Word** | 56.8KB | **MOVABLE + RESTARTABLE** | the largest region in the tree that hires a worker. `wd_worker` polls four statics and sleeps; a restart costs one poll |
+| **Word** | 58.0KB, and part 1's 2.7KB in the same claim (SPEC.md 68.10) | **MOVABLE + RESTARTABLE** | the largest region in the tree that hires a worker. `wd_worker` polls four statics and sleeps; a restart costs one poll |
 | **Tank Attack** | 30.9KB | **MOVABLE + RESTARTABLE** | a game loop, every value a static; a restart costs one frame. No move row can cover it — it redraws for ever, so `settle` never returns |
 | **ftpd** | 28.2KB | **MOVABLE + RESTARTABLE** | `fd_step` is a state machine in statics and the restart lands at the loop top, above it, so a transfer resumes at the step it had reached |
 | **Audio** | 30.2KB | **MOVABLE + RESTARTABLE** | hires only when playback starts; until then it is movable on `I_TASK` alone |

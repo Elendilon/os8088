@@ -1299,9 +1299,19 @@ def check_pkgs():
         rows, cur = [], '.text'
         for f, n, raw in stream:
             line = raw.split(';')[0]
-            m = re.match(r'\s*section\s+(\.\w+)', line)
+            m = re.match(r'\s*section\s+(\.\w+)(.*)', line)
             if m:
                 cur = m.group(1)
+                # A `.modc` ASSEMBLED PAST THE IMAGE IS NOT ANOTHER SEGMENT.
+                # Word's part 1 (SPEC.md 68.10) is `section .modc
+                # vstart=WD_P1ORG`: the loader lays it down at that offset of
+                # the program's OWN segment, so a near call across is exactly
+                # right and a far one would be the bug. vstart=0 - or none,
+                # which NASM reads as the section's file position and every
+                # module here spells 0 - is the overlay this walk guards.
+                v = re.search(r'\bvstart\s*=\s*(\S+)', m.group(2))
+                if cur == '.modc' and v and v.group(1) != '0':
+                    cur = '.top'
                 continue
             rows.append((cur, f, n, line))
 
@@ -1340,11 +1350,36 @@ def check_pkgs():
                 if t is not None and t != fold(sect):
                     bad.append((f, n, '%s -> %s, near' % (fold(sect), t),
                                 tgt, pkg))
+
+        # ...AND PART 1'S HAZARD IS THE OTHER WAY ROUND. A near call into it is
+        # right, but its CODE must never be handed to anybody as an address:
+        # the kernel bounds every entry point a package gives it - a paint or
+        # key proc, a worker, a relocation proc - by I_SIZE, and I_SIZE is the
+        # region, which ends where part 1 begins (SPEC.md 68.10). So a `.top`
+        # CODE label may appear only as a branch target. Its DATA labels are
+        # fine anywhere: DS reaches them like any other byte of the segment.
+        topcode = set()
+        for sect, f, n, line in rows:
+            m = re.match(r'^([A-Za-z_]\w*):?\s*(\S*)', line)
+            if sect == '.top' and m and line[:1] not in ' \t' \
+                    and m.group(2).lower() not in ('db', 'dw', 'dd', 'times',
+                                                   'equ', 'resb', 'resw'):
+                topcode.add(m.group(1))
+        for sect, f, n, line in rows:
+            body = re.sub(r'^[A-Za-z_]\w*:', '', line)
+            if re.match(r'\s*times\b', body):
+                continue        # a count: assembly-time arithmetic, not an
+                                # address anybody is handed
+            body = CALL.sub('', body)
+            for w in re.findall(r'\b([A-Za-z_]\w*)\b', body):
+                if w in topcode:
+                    bad.append((f, n, 'part 1 code taken as an ADDRESS', w,
+                                pkg))
     for f, n, why, tgt, pkg in bad:
         print("%s:%d: %s: %s  (%s)" % (f, n, why, tgt, pkg), file=sys.stderr)
     if bad:
-        sys.exit("os88ovlchk: %d package call(s) cross a section boundary near "
-                 "- SPEC.md 68.10 rule 1" % len(bad))
+        sys.exit("os88ovlchk: %d package reference(s) cross a section "
+                 "boundary the wrong way - SPEC.md 68.10" % len(bad))
     if PKGS and not walked:
         sys.exit("os88ovlchk: none of the %d package(s) in PKGS is in the tree "
                  "- the package half of this gate checked nothing" % len(PKGS))

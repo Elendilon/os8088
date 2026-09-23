@@ -314,8 +314,9 @@ Times to JetBrains Mono — and choosing one sets the whole document in it. The 
 shapes, their height and their leading, but eight pixels a character. It is not a recompile: Opus is pcode
 built against the Windows 2.x API, none of which exists here, so the UI
 definition is mined from the Computer History Museum's source release and
-every menu string is verbatim from it. The disk carries `WORD.O88`,
-`WORD.OVL`, a generated `WELCOME.DOC` and an empty `DOCS\`. **`all` does not
+every menu string is verbatim from it. The disk carries `WORD.O88` (one
+file: its second segment is a part inside it), a generated `WELCOME.DOC` and
+an empty `DOCS\`. **`all` does not
 build it and no shipped disk grows a byte** — `make wordcheck` is the format
 gate, which round-trips the `.DOC` through an independent host-side reader.
 

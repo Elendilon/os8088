@@ -7189,7 +7189,7 @@ $(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL))
 # short here, and make cannot see through a #include. Without these two lines
 # an edit to the RTF engine or to the byte mover leaves build/cword.o88
 # untouched - and a stale package reads exactly like the change having done
-# nothing, which is the failure the WORD.OVL rule above already paid for once.
+# nothing, which is the failure the word.o88 rule above already paid for once.
 CWORDSRC := apps/cword/cwrtfio.c apps/cword/cwrtftbl.c apps/cword/cwrtftbl.h \
             apps/cword/cwmenu.c apps/cword/cwchrome.c apps/cword/cwdrop.c \
             apps/cword/cwcmd.c apps/cword/cwovl.c
@@ -7979,7 +7979,7 @@ $(eval $(call CC_PACKAGE,weave,weave,WEAVE.OVL))
 # and apps/weave/weave.asm, and make cannot see through a #include or a
 # %include - so without these two lines an edit to a part leaves
 # build/weave.o88 untouched, and a stale package reads exactly like the change
-# having done nothing. That is the failure the WORD.OVL rule already paid for
+# having done nothing. That is the failure the word.o88 rule already paid for
 # once.
 #
 # WILDCARDS RATHER THAN A NAMED LIST, which is where this differs from
@@ -8377,8 +8377,7 @@ $(BUILD)/loom.o88: $(BUILD)/loom.bin tools/os88pkg.py tools/os88ovl.py
 		--trim $(BUILD)/loom.trim.bin
 	python3 tools/os88pkg.py $(BUILD)/loom.trim.bin -o $@
 
-# ...AND THE OVERLAY IS ASKABLE BY NAME, the way $(BUILD)/WORD.OVL is and for
-# the same reason: it falls out of the recipe above rather than having one of
+# ...AND THE OVERLAY IS ASKABLE BY NAME. It falls out of the recipe above rather than having one of
 # its own, so `make $(BUILD)/LOOM.OVL` had no rule at all. Anything that names
 # a build artefact to make - a row's `Row(wants=...)`, a private tree's goal
 # list - can only name a TARGET, and weavepack names this one. An empty recipe
@@ -8714,7 +8713,7 @@ $(BUILD)/zork2.img: $(BUILD)/stories.stamp $(BUILD)/zcat/disk2/CATALOG.TXT \
 # Every include is a prerequisite: the format modules are where the file
 # layout lives, and a stale word.bin reads exactly like the layout being wrong.
 WORDSRC := apps/word/word.asm apps/word/wddoc.inc apps/word/wdrtf.inc \
-           apps/word/wdutil.inc
+           apps/word/wdutil.inc apps/word/wdicon.inc
 
 $(BUILD)/WELCOME.DOC: tools/os88doc.py apps/word/welcome.wtx | $(BUILD)
 	python3 tools/os88doc.py apps/word/welcome.wtx -o $@
@@ -8724,51 +8723,58 @@ $(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/word/ -o $@ apps/word/word.asm
 	@echo "word:   $(call FILESIZE,$@) bytes"
 
-# WORD.OVL is cut off the assembled image before it is packaged (SPEC.md
-# 65.10): the module is assembled WITH the package so it can reach every wd_*
-# through DS, and only then split out, so what ships in WORD.O88 is the
-# resident half alone. The cut point is the image size the package header
-# already carries, so the layout does not live in two places.
-# ONE recipe makes all three, because they are one operation: a rule whose
-# only prerequisite was WORD.OVL and which had NO recipe of its own left make
-# free to decide word.o88 was up to date against the PREVIOUS word.trim.bin,
-# and it packaged a stale image while the cut silently succeeded. That reads
-# exactly like the feature under test being broken - it cost a debugging pass
-# on a ruler that was already correct.
+# WORD.O88 IS A PARTED PACKAGE (SPEC.md 68.10, 20.12.10): the image the kernel
+# launches is apps/word/wdload.asm, and word.asm's assembly is cut in two to be
+# its parts. Part 0 is the image with its bss shipped inside it (--pad-bss: the
+# kernel does not zero a part) and part 1 is `.modc`, assembled at WD_P1ORG so
+# that it lands at the top of the program's own segment. The cut point is the
+# image size the package header already carries, so the layout does not live
+# in two places - and the padded part 0 is exactly WD_P1ORG long, because the
+# header's bss is declared to run up to it.
+# ONE recipe makes both halves and the package, because they are one
+# operation: a rule for a half with no recipe of its own lets make decide the
+# package is up to date against the PREVIOUS cut, and it packages a stale
+# image while the cut silently succeeds. That reads exactly like the feature
+# under test being broken - it cost a debugging pass on a ruler that was
+# already correct, back when the second half was WORD.OVL.
 #
-# $(OS88PKG) AND NOT A BARE os88pkg.py, since SPEC.md 24.6 put WORD.O88 on a
-# shipped floppy. That macro is what carries $(PKGZARG), so this rule was the
-# one shipping package in the tree that came out of a `make PKGZ=lz4` build
-# UNCOMPRESSED - which nothing noticed while Word had a disk of its own and
-# no `all` target built it. Measured: 51,407 bytes against 40,194, which is
-# 11 clusters of a 354-cluster office disk. Assembly packs badly (78.2%
-# where the .TEX pair is 40%), so this is the smallest win of any package on
-# the disk and it is still eleven clusters somebody else does not have to
-# find later. $(PKGZSTAMP) goes with it: the stamp's name
-# carries the format, so `make PKGZ=lzb` after an lz4 build rebuilds instead
-# of finding an lz4 package up to date and shipping it on an LZB disk
-# (SPEC.md 20.13.3's refusal, reported as 'Bad package').
-$(BUILD)/word.o88: $(BUILD)/word.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP)
-	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/WORD.OVL \
-		--trim $(BUILD)/word.trim.bin
-	$(OS88PKG) $(BUILD)/word.trim.bin -o $@
+# $(OS88PKG) AND NOT A BARE os88pkg.py, for $(PKGZSTAMP)'s sake: the stamp's
+# name carries the format, so `make PKGZ=lzb` after an lz4 build rebuilds
+# instead of finding an lz4 package up to date. A parted image is never
+# compressed itself (os88pkg.py declines, and --compress-if is the soft form
+# that says so and carries on); both PARTS are OP_COMP, which is where the
+# bytes are. The loader is 1,357 bytes and ships raw.
+$(BUILD)/wdload.bin: apps/word/wdload.asm apps/word/wdicon.inc apps/os88api.inc \
+                     apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/word/ -o $@ apps/word/wdload.asm
+	@echo "wdload: $(call FILESIZE,$@) bytes of parts loader"
 
-$(BUILD)/WORD.OVL: $(BUILD)/word.o88 ;
+$(BUILD)/word.o88: $(BUILD)/wdload.bin $(BUILD)/word.bin tools/os88ovl.py \
+                   tools/os88pkg.py $(PKGZSTAMP)
+	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/word.p1.bin \
+		--trim $(BUILD)/word.p0.bin --pad-bss
+	$(OS88PKG) $(BUILD)/wdload.bin -o $@ \
+		--part $(BUILD)/word.p0.bin --part $(BUILD)/word.p1.bin
+
+# ...and the two halves are askable by name, for tests/wdparts.py's `wants=`:
+# they fall out of the recipe above, so without this line `make
+# $(BUILD)/word.p1.bin` has no rule at all.
+$(BUILD)/word.p0.bin $(BUILD)/word.p1.bin: $(BUILD)/word.o88 ;
 
 worddisk: $(BUILD)/word.img $(BUILD)/word720.img $(BUILD)/word120.img \
           $(BUILD)/word360.img
 
-$(BUILD)/word.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word720.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word720.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word120.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1200 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word120.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
 # --- SCRIBE: the fork of WORD (SPEC.md 95) -----------------------------------
 # A SEPARATE PACKAGE and not a second build of the same source. apps/scribe/
@@ -11358,11 +11364,9 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 # get it was carry their packages through the same argument list.
 
 # --- office360 ---------------------------------------------------------------
-# WORD.OVL RIDES THE ROOT BESIDE WORD.O88 and has to: the overlay is resolved
-# with OSAPI_FILE_HERE/_GOTO in the package's OWN folder (SPEC.md 68.4's
-# loader, hdtool.inc's shape), so a copy anywhere else is a Word that refuses
-# its own second segment. It is the reason "packages at the root" is a
-# statement about the whole file set and not only about the .O88s.
+# WORD.O88 IS ONE FILE (SPEC.md 68.10): its second segment is a PART inside
+# it, where it was a WORD.OVL that had to ride the root beside it - a copy
+# anywhere else was a Word that refused its own module.
 #
 # FONTVIEW and CALC are here as accessories rather than as document
 # applications - a typeface browser and a calculator are what a desk with a
@@ -11372,8 +11376,8 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 OFFICE_PKGS := $(BUILD)/artful.o88 $(BUILD)/calc.o88 $(BUILD)/chart.o88 \
                $(BUILD)/fontview.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88 \
                $(BUILD)/texpad.o88 $(BUILD)/word.o88
-OFFICE360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL $(OFFICE_DATA)
-OFFICEARGS360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL \
+OFFICE360 := $(OFFICE_PKGS) $(OFFICE_DATA)
+OFFICEARGS360 := $(OFFICE_PKGS) \
                  $(addprefix MEDIA:,$(OFFICE_DATA)) \
                  $(MEDIAFOLDER) $(APPDATAFOLDER)
 
@@ -11595,7 +11599,7 @@ ALLAPPSIMG120 := $(BUILD)/apps-all-120.img
 # directory order. Scribe designed the collision out at the source; the disk
 # list went on believing in it.
 ALLAPPSFILES := $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
-                $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
+                $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
                 $(PACCMANDISK) \
                 $(BUILD)/c64.o88 $(BUILD)/C64.OVL \
@@ -11629,8 +11633,7 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA)) \
-               $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WORD.OVL \
-                                 $(BUILD)/WELCOME.DOC) \
+               $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WELCOME.DOC) \
                $(addprefix CWORD:,$(BUILD)/cword.o88 $(BUILD)/CWORD.OVL \
                                   $(BUILD)/WELCOME.RTF) \
                $(addprefix PACCMAN:,$(PACCMANDISK)) \

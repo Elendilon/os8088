@@ -758,7 +758,7 @@ FAST = [
         "SPEC.md 24.6's three category disks, checked for the one thing they "
         "ARE: packages at the ROOT with no folder to click into, MEDIA/ and "
         "SYSTEM/APPDATA/ present because --folder made them, a warm ASSOC.DAT "
-        "whose every row names the root, and WORD.OVL beside WORD.O88. "
+        "whose every row names the root, and no stale WORD.OVL (SPEC.md 68.10). "
         "`image`, `diskverify` and `pkg` all read these disks already and all "
         "three pass on one whose layout is wrong - they are about format, "
         "contiguity and file identity, and none of them about contents. "
@@ -6583,17 +6583,17 @@ SOAK = [
     Row("pkgthumb-np", "soak", py("tests/pkgthumb.py", "notepad"), 50.0,
         "SPEC.md 13.10.7: the thumb gesture inside a PACKAGE - Note Pad.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("pkgthumb-br", "soak", py("tests/pkgthumb.py", "browser"), 50.0,
         "SPEC.md 13.10.7: ...the Browser.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("pkgthumb-wd", "soak", py("tests/pkgthumb.py", "word"), 50.0,
         "SPEC.md 13.10.7: ...and Word, which needed 13.10.6.4 settling first -"
         "its menus are a modal poll and the thumb's two edges are disjoint"
         "from them.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
         "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
         "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
@@ -6610,7 +6610,7 @@ SOAK = [
         "formatted document always full-repaints (68.6), so the comparison is "
         "against a screen no early-out touched.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
         "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
         "wd_walk calls inside one keystroke and requires 1 - the change "
@@ -6625,9 +6625,164 @@ SOAK = [
         "one ordering the collapse changes: wd_seecaret now runs AFTER the "
         "drawing, so a Down that scrolls lands on rows this pass already drew. "
         "The pixel reference throughout is a page down and back, which a "
+        "formatted document always full-repaints (68.6). Leg E is SPEC.md 27.4.11: an Up off the top row was not armed as a "
+        "caret move, so pass 1 walked the whole view (450 ms of an 850 ms Up on "
+        "a 5150) - it counts wd_redraw's first walk, 2 rows on the fix and 8 "
+        "with the arming backed out. Leg F is SPEC.md 27.4.13: a Down after a "
+        "Down reuses the caret the last redraw measured, an A/B inside one "
+        "boot against the same Downs with [wd_cxcur] poked stale - one walk "
+        "fewer on the glass, the same for a Down that scrolls, and the same "
+        "indices; red with the bank never written (equal walks) and with a "
+        "banked x 96 px off (different indices).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdclick", "soak", py("tests/wdclick.py"), 420.0,
+        "SPEC.md 27.4.7 and 27.4.9: a CLICK is a caret move. It reached "
+        "wd_redraw with no KIND at all, so 27.4.1's bound, 27.4.4's seed and "
+        "27.4.6's single pass were all switched off at once - the view laid "
+        "out from its top row twice to move one bar. Leg A counts the ROWS "
+        "the walk finishes, which is the quantity that changed: a caret move "
+        "dirties two rows and walks exactly those two whatever it crossed. "
+        "ROWS and not wd_walk CALLS, because the fast path deliberately makes "
+        "two walks of one row each and a call count cannot tell that from the "
+        "two PASSES it replaced - which is how leg A first went red on a "
+        "build that was 6x faster. Leg C is the A/B inside one boot, "
+        "wd_clickcm "
+        "being the whole arming, so a bare `ret` over it puts the click back "
+        "on the whole view (2 rows against 12) and the same clicks must draw "
+        "the same screen. Leg D is "
+        "the load-bearing REFUSAL rather than a speed leg: wd_onclick clears "
+        "[wd_ckok] after erasing a selection, whose rows the pair says "
+        "nothing about, so clicking away from one must NOT be kind 4 and must "
+        "leave the selection's rows clean. Legs E and F are the same "
+        "mechanism inside a DRAG (27.8.2.1) - the end that moves is the "
+        "caret's and the anchor stands still - and leg E's second assertion "
+        "is the one with teeth: the arming has to be SELF-SUSTAINING across "
+        "the steps of one gesture, which it is only because the bounded walk "
+        "stands on the caret and re-banks the checkpoint on its way past. "
+        "The pixel reference throughout is a page down and back, which a "
         "formatted document always full-repaints (68.6).",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdreach", "soak", py("tests/wdreach.py"), 200.0,
+        "SPEC.md 27.11.2: EVERY PIXEL OF THE TEXT BAND NAMES A ROW. "
+        "wd_penadv gives a paragraph mark a whole 8px cell in the kernel's "
+        "face, so a row that exactly FILLS the measure wrapped its own "
+        "terminator onto a row of its own - and a FLUSH RIGHT paragraph "
+        "fills the measure by construction, the alignment offset putting the "
+        "pen at the right edge. WELCOME.DOC's flush-right line made a row out "
+        "of one invisible character, and that row was UNREACHABLE: a click in "
+        "its eight pixels named no row, so the hit query's default sent the "
+        "caret to the END of the document (47 rows walked, 2,123 ms), and "
+        "Down off the row above it did not move the caret at all - a walk "
+        "RESUMED there lays the row out eight pixels lower than the table "
+        "says, so neither query ever matches. The assertion is a SWEEP "
+        "because the defect is a GAP and a spot check walks past it: every y "
+        "from that row's band to the end of the one below, each asked through "
+        "[wd_hitset], the byte the walk sets when a row claims the point. It "
+        "is its own row rather than a leg of wdclick because it SCROLLS to "
+        "find the paragraph and every cost leg in that file measures against "
+        "the view it was left in. Legs C-E are SPEC.md 27.11.3: a query past a "
+        "SOFT-wrapped row's end named the NEXT row's first index, so End+Down "
+        "off the flush-right line skipped the wrapped row below it, landed "
+        "past the one-pass walk's bound, and repainted the whole window "
+        "(FIELD-NOTES 57) - D breaks on wd_redraw.full. All three go red with "
+        "wd_wrapq's call taken out.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdcourier", "soak", py("tests/wdcourier.py"), 100.0,
+        "SPEC.md 68.6.2: a walk that SEEDS reconstructs its row's glyph y "
+        "and its BAND TOP by hand, and the copy carried the kernel's cell "
+        "height as a LITERAL 8. In the 8x8 face 8 IS [wd_gh] and the two "
+        "copies agree, so the defect is a CHOSEN FACE's alone - which is why "
+        "every Pica row in the suite is silent about it. Too high a band top "
+        "makes 68.6's leading-gap fill, which is full width, start inside "
+        "the row ABOVE and take the bottom of its glyphs: the field's *'in "
+        "courier, sometimes selecting a line - via click, or arrow - will "
+        "erase half of the line above it'*. The row picks the disk's first "
+        "face off SYSTEM/FONTS through the ribbon's Font combo and then "
+        "clicks a row, which seeds; leg A reads [wd_rbandt] at every flush "
+        "against ryb[row-1] + [wd_gh] and is EXACT - backed out it reads -4 "
+        "on every flushed row against a gh of 12. Leg B's per-row ink "
+        "ratchet is the field's own sentence and is weaker on purpose: it "
+        "did NOT go red on this defect, the four rows the fill eats being "
+        "descenders. Legs E-H are FIELD-NOTES 60, the LAST line: E reads the "
+        "flush-right paragraph as ONE row (SPEC.md 68.13.2 - wd_rowmeasure "
+        "measured every character as a space, so the row wrapped and left an "
+        "EMPTY continuation row), F walks Down from the top to the note's "
+        "last row (it stalled on that empty row), G requires every row to "
+        "start [wd_gh] below the one above it and H the last line to keep ink "
+        "below its eighth pixel row (68.6.2.1 - a blank row stepped a literal "
+        "8 and its erase cut the last line). Each fix backed out turns its "
+        "own legs red; H read 8 px there against 199. Leg I is FIELD-NOTES "
+        "57 (SPEC.md 68.6.3): PageDown to the end and the bar's own record "
+        "must put the thumb at the bar's end - it read top 21 against a bar "
+        "end of 4 while the bar's page was the 8px [wd_vrows].",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wddrag", "soak", py("tests/wddrag.py"), 150.0,
+        "SPEC.md 27.8.2.4, FIELD-NOTES 59: a drag that auto-scrolls left the "
+        "rows it scrolled past UNSELECTED on the glass while [wd_sel0].."
+        "[wd_sel1] covered them. wd_redraw's .scrolled0 dropped the drag "
+        "step's own dirty rows, so the blit carried them across upright; "
+        "wd_hitpt seeded from tables still describing the pre-scroll view; "
+        "and its measure BANKED wd_rows between the scroll and the shift, "
+        "leaving the table a row off the glass. Stops the guest at "
+        "wd_dragsel's loop head for six steps of a slow drag. Leg A: every "
+        "row wholly inside the selection is more than half dark over its own "
+        "cells - red with the .scrolled0 rows taken out. Leg B: wd_rows[0] is "
+        "absolute row [wd_top]'s first index - red, exactly one row off, with "
+        "[wd_nobank] taken out of wd_hitpt. Leg C is FIELD-NOTES 59.1, reached "
+        "by PAGE DOWN: at the end of the note [wd_drows] must stay the height "
+        "counted before and the view stop at its clamp - a walk seeded on a "
+        "blank row banked below the end (SPEC.md 27.7.11) ran it to 346 rows "
+        "of 36 with wd_seedrow's refusal taken out. Leg D is SPEC.md 27.7.14: "
+        "a click in the paper below a short note's last line goes to the end "
+        "in under 200 guest ms - it walked the note from index 0, 734 ms with "
+        "wd_pastend taken out. Leg E is SPEC.md 27.4.12: Down through the "
+        "whole note, every keystroke under 900 guest ms - after a one-row "
+        "scroll the next Down read the stale tables past the glass as rows "
+        "that moved and repainted the window, 2,284 ms with the guards out.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdparts", "soak", py("tests/wdparts.py"), 45.0,
+        "SPEC.md 68.10: WORD.O88 IS ONE FILE. Its image is apps/word/"
+        "wdload.asm, which reads two parts and re-homes into part 0 - "
+        "word.asm's image with its bss inside - while part 1 is `.modc` "
+        "ASSEMBLED at WD_P1ORG, the offset op_load lays it down at in the "
+        "program's own segment, so it is reached by near calls and nothing "
+        "tells the program where it is. A layout that disagreed with the "
+        "assembly would jump into whatever the carve held. Leg A launches "
+        "through the .DOC association (the loader, then the document name "
+        "surviving the re-home), B reads I_SIZE = WD_P1ORG, C the region's "
+        "claim covering part 1, D part 1's bytes at program:WD_P1ORG, and E "
+        "runs Edit > Search, whose pattern compiler is part 1 code, and "
+        "checks the match is selected. Red with part 1 made OP_LAZY and the "
+        "loader's own layout check taken out: C, D and E fail (2,718 of 2,736 "
+        "bytes differ); with the check left in the launch refuses (LD_EABORT). "
+        "Measured at 35.5s.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/word.p1.bin", "build/WELCOME.DOC")),
+    Row("wdpen", "soak", py("tests/wdpen.py"), 60.0,
+        "SPEC.md 68.2.5: [gfx_dis] is ONE KERNEL BYTE whose lifetime is one "
+        "gfx-lock hold, and 12.8.3 takes that lock around the WHOLE event "
+        "handler - so a greyed control drawn earlier in the same hold is "
+        "still armed when Word starts lettering. The field photograph is the "
+        "row: nine menu titles as a 50% checkerboard with their mnemonic "
+        "UNDERLINES solid beside them, which is exactly a pen that reaches "
+        "glyphs and not lines. It never clears up because nothing redraws "
+        "the chrome - a 205-event sweep ran wd_rflush 204 times and wd_mbar, "
+        "wd_ribbon, wd_ruler and wd_status ZERO. Both legs arm the byte "
+        "BEHIND WORD'S BACK at the instant a painter is entered and assert "
+        "the pixels come out solid anyway; backed out, the same two readings "
+        "are 561 against 1,072 and 597 against 1,161 - halved, to the "
+        "checkerboard. Leg A pokes wd_chrome and not the callback, because "
+        "wd_paint reaches the chrome THROUGH wd_sbar and the os88ui scroll "
+        "bar puts the pen back live on its way past; and its gesture is a "
+        "RESIZE and not a View toggle, because wd_vtoggle redraws the four "
+        "strips itself afterwards and a toggle measures nothing.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
         "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
         "one gfx_scroll instead of erasing to the content bottom and "
@@ -6646,7 +6801,7 @@ SOAK = [
         "the tables for a layout the glass has not been given, so wd_redraw "
         "must refuse the blit and repaint.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdscroll", "soak", py("tests/wdscroll.py"), 330.0,
         "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
         "text band, and a scroll UPWARD blits like a scroll down. Leg A "
@@ -6674,7 +6829,7 @@ SOAK = [
         "wd_sigsame forced to refuse, which is the one path that still owes "
         "the strips.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
         "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
         "assertion is the BUFFER rather than the glass - a wrong word is a "
@@ -6686,7 +6841,7 @@ SOAK = [
         "tails and at both end stops where the count is 0 or 1. Verified to "
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdcombo", "soak", py("tests/wdcombo.py"), 80.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
@@ -6708,7 +6863,7 @@ SOAK = [
         "one leak makes Word's next re-layout read its piece table through a "
         "stale segment.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
         "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
         "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
@@ -6720,12 +6875,12 @@ SOAK = [
         "what a REFUSED claim leaves behind, so one run checks the banked path "
         "and the wd_mrepair fallback against one reference.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",
         needs=("marty",), serial=True,
-        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("facescan", "soak", py("tests/facescan.py"), 18.0,
         "SPEC.md 19.8: ty_scan WALKS to SYSTEM/FONTS on the machine and comes "
         "back with every family - a package standing on the apps floppy, told "

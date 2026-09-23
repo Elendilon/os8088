@@ -1740,9 +1740,10 @@ what makes the declaration free.
 between the two packages is exactly the shim convention. `wd_s_*` is
 `call`/`retf`, so the module's CS is on the stack for the whole of every
 shimmed routine and a move under one returns into memory that is no longer
-there. Changing that is a shim redesign, not a declaration. (`WORD.OVL` is an
-18-byte ping stub today, so Word's half is prophylactic — but `WD_OVKB` is
-claimed whole whatever the module holds.)
+there. Changing that is a shim redesign, not a declaration. (`WORD.OVL` was
+an 18-byte ping stub, and SPEC.md §68.10 has since retired it: Word's second
+segment is now part 1 of `WORD.O88`, inside the region's own claim, so it moves
+with the region and there is no Word half left to this row.)
 
 **`tests/ovlhigh.py` is the gate** (soak, `marty`+`cc`, 14.5s of a declared
 20). It boots CWORD, presses **F5** — `CWA_GOTO` → `ovl_dlg_open`, an overlay

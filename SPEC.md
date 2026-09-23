@@ -8032,6 +8032,89 @@ correct and measured at **2.01× the cost**. That is the degrade this library
 owes a small machine, and it is a degrade rather than a refusal because the
 result is identical pixels either way.
 
+#### 6.5.3 `ty_setslant` — a synthesised italic, at the cost of a bigger shift
+
+A `.F88` may carry a drawn italic (§6.4's style 2) and the ten faces this tree
+ships do not: each is **one style**, and a second would roughly double the file
+on a floppy that has no room for it. So Format ▸ Italic in a chosen face had
+nothing to draw and set **upright**, which reads as the command being broken.
+
+**The italic is synthesised by SHEARING, and the shear is free because the
+compose is already a shift.** `ty_put_slow` widens each glyph row into a 16-bit
+window and pushes it right by the pen's bit offset; leaning the upper rows
+further right is the same instruction with a larger `CL`. **Nothing is baked and
+nothing is claimed** — the whole of it is three bytes of state and a second row
+loop, behind `%define OS88TY_SLANT` so a package that never leans anything pays
+for none of it.
+
+The lean is **one pixel every four rows**, cut from the face's own height, so
+`(rows-1)/4` — 1 at 8 rows, 3 at 14. At 8 that is exactly the single-pixel
+shear §68.1's `wd_itrun` has always drawn the kernel's cell with, so the two
+faces lean alike.
+
+Three properties, and each is load-bearing:
+
+1. **The top row carries the whole lean and the bottom row none.** The glyph
+   stands ON the pen, so no row can reach LEFT of the band — which matters,
+   because a band's left edge is a byte column with nothing promised beyond it,
+   where its right edge is rounded up and the caller adds the lean to its own
+   high-water mark.
+2. **The advance does not move.** An italic sets in the same measure as its
+   upright, and the lean interlocks into the next cell — which is what italics
+   do. It is safe because the band accumulates ink (a set bit is paper, §5.4.2),
+   so a glyph leaning into its neighbour ORs with it instead of erasing it. That
+   is only true because the row composes as ONE band (§6.3): with a band a run,
+   the neighbour's opaque paper would land on the lean.
+3. **A slanted run takes the general path**, the way an odd pen does. §6.5.2's
+   pre-shifted table holds four PEN phases and no lean, so it cannot serve one —
+   same pixels, 2.01× the cost, on runs that are rare by nature.
+
+**A drawn italic still beats a sheared one** and this does not close that door:
+a face that carries style 2 should use it. This is what a face WITHOUT one gets,
+and the alternative it replaces was nothing at all.
+
+#### 6.5.4 `ty_flush`'s carry is an ARGUMENT, and a setter is not a getter
+
+`gfx_blit1` is the one drawing primitive in the tree that is greying-blind:
+the band arrives in final polarity and there is no colour left to reduce. So
+§47's dither for a band is laid on by `ty_flush` itself, over the band, in the
+SCREEN row's phase so it interlocks with every other dithered thing beside it.
+
+The question is how `ty_flush` learns whether this band is a greyed one, and
+the answer it shipped with was to **ask the kernel** — `call OSAPI_GFX_PEN` /
+`jnc .live`. That is not a query. §68.14 says it in as many words: *a package
+cannot read the pen back*. `OSAPI_GFX_PEN` is a SETTER whose argument **is**
+the carry flag, and the cell preserves every flag, so the carry that came back
+was the carry that went in. The routine therefore did two wrong things at
+once:
+
+1. it **greyed the band** whenever its caller happened to arrive with CF set —
+   in `apps/word` that is `wd_rowflush`'s own `cmp cx, ax`, so *every row
+   narrower than the widest band the text column holds*, which is most rows;
+2. and it **armed `[gfx_dis]`** with that same accidental carry, which by
+   §68.2.5 lives for the rest of the gfx-lock hold — so everything lettered
+   after it came out as a checkerboard too.
+
+The second is the half that was missed. `apps/cword` found the first, set
+`clc` at its own call site, wrote the diagnosis down, and ended it *"apps/word
+reaches the same routine from assembly and has the same exposure; nothing here
+can fix that for it."* The field duly reported the rest of it: a Word status
+line whose one CHANGED field dithered while the fields that had not been
+redrawn stayed solid — which is the delta cache (§68.2) showing exactly which
+cells this hold drew.
+
+**So the carry is the argument it always was, and the call is gone.** `CF = 1`
+means *draw this band greyed*, which is `gfx_pen_cf`'s own convention and the
+reason it is this way round; `CF = 0` means live. Every caller states it with
+`clc` or `stc` and never inherits it from the argument setup — the four in the
+tree (`apps/word`, `apps/scribe`, `apps/fontview`, `apps/cword`) all draw
+document or sample text and all say `clc`. `apps/scribe` was already arriving
+clear because an `and` happens to clear the carry, which is luck and not a
+contract, so it says so too.
+
+Removing the call also takes a far call, **46.7 µs**, off every row flushed in
+a chosen face.
+
 ### 6.6 Transparent text is a CLOSED LIST, and the build enforces it
 
 **`font_run` (§6.1) is how text is drawn in this system. `font_char` and
@@ -35512,7 +35595,7 @@ The tree, and the one part of it that is a correctness requirement:
 |---|---|
 | `APPS/` | the thirteen tools, plus `FROTZ.O88` |
 | `GAMES/` | the six games |
-| `WORD/` | `WORD.O88`, `WORD.OVL`, `WELCOME.DOC` |
+| `WORD/` | `WORD.O88`, `WELCOME.DOC` |
 | `CWORD/` | `CWORD.O88`, `CWORD.OVL`, `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
 | `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
@@ -44504,7 +44587,7 @@ everything on it and gain nothing from three.
 
 | disk | at the root | `MEDIA/` |
 |---|---|---|
-| `office360` | ArtfulType, Calculator, Chart, Font Viewer, Paint, Sheet, TeXPad, Word (+ `WORD.OVL`) | `PAPER.TEX`, `GUIDE.TEX`, `SALES.SLK`, `WRITING.MD`, `WELCOME.DOC`, `SAMPLE.BMP` |
+| `office360` | ArtfulType, Calculator, Chart, Font Viewer, Paint, Sheet, TeXPad, Word | `PAPER.TEX`, `GUIDE.TEX`, `SALES.SLK`, `WRITING.MD`, `WELCOME.DOC`, `SAMPLE.BMP` |
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
 
@@ -44516,11 +44599,10 @@ and nothing had to**: `assoc_dfold`'s build-time folder already has 0 for
 "the root" (§54.4.2), and `os88disk.py` writes a root package's `ASSOC.DAT`
 row with cluster 0, which is the FAT convention `dsk_dotdot` already reads.
 
-**`WORD.OVL` rides the root beside `WORD.O88`** and has to: the overlay is
-resolved with `OSAPI_FILE_HERE`/`_GOTO` in the package's *own* folder
-(§68.4), so a copy anywhere else is a Word that refuses its own second
-segment. "Packages at the root" is a statement about the whole file set, not
-only about the `.O88`s.
+**`WORD.O88` is one file.** Its second segment was a `WORD.OVL` that had to
+ride the root beside it, because it was found in the package's own folder.
+§68.10 made it a part inside the package, so nothing about Word constrains
+where the file set goes. `t_catdisk` asserts that no stale `WORD.OVL` ships.
 
 **`OS88NET.COM` stays in `SYSTEM/DOS/`** on the network disk, exactly as
 §24.2 puts it on the apps disks. It is an MS-DOS `.COM` for the machine at
@@ -46953,7 +47035,276 @@ pressed. **The reference is the full repaint, taken inside one boot.** A
 cross-boot framebuffer diff is a signal, not a verdict, and every leg of the
 gate is written against the repaint for that reason.
 
-### 27.5 Where each row starts — a query about a row costs a row
+#### 27.4.7 …and a CLICK is a caret move as well
+
+§27.4.4 found Left and Right reaching `wd_redraw` with no bound. **A click
+reached it with no *kind*** — `[wd_fast]` was never set on the mouse path at
+all, so `[wd_ekind]` was 0 and every cheap thing the three sections above
+built was switched off at once: no seed, so §27.4.1's pair could not bound the
+walk; and not kind 4, so `wd_1pok` refused and §27.4.6's single pass did not
+apply either. The view was laid out from its top row, **twice**, to move one
+caret bar.
+
+The rule that covers it is §27.4.1's, word for word. `wd_ask` folds the caret
+into a row's signature and a move changes nothing else, so the only rows whose
+signatures can differ are **the one the bar left and the one it arrived on** —
+and a click moves nothing else, which is precisely what makes it a caret move
+rather than an edit.
+
+What a click does *not* share with an arrow is that it may travel **any
+distance in either direction**, where Up lands one row above the checkpoint and
+Right lands at most one below it. So the pair has to be **ordered** before it
+is used, and that ordering is the whole of `wd_clickcm`:
+
+- the row the caret is **leaving** is `[wd_ckpr]`, still unwritten at that
+  point — `wd_measure` ran before `[wd_cur]` moved, so the walk stood on the
+  *old* caret and banked the *old* row;
+- the row it is **landing on** is whatever `wd_yrow` resolved for the click's
+  y, banked in `[wd_cmrow]` at that call and nowhere else, because the pointer
+  is what picked it;
+- `[wd_mvbot]` takes the deeper, which is the bound §27.4.1 already consumes;
+- and when the click went **backwards**, `[wd_ckpr]`/`[wd_ckpi]` move back with
+  the caret, because `wd_seedck` reads them and a seed *below* a row that has
+  to be drawn leaves the bar at (0,0).
+
+**The pair survives `wd_yrow` overshooting**, which is the one case its two
+answers disagree. A click below the last line of text resolves a row the
+content does not reach, and the caret then lands on the last row that it does.
+That row is at or above the resolved one and at or below every row the note
+has — so the deeper of the pair is deeper still, a **loose bound** that costs
+rows and cannot be wrong, and the earlier is `[wd_ckpr]`, a content row by
+definition. Loose and sound is the direction to be wrong in, and it is why no
+inverse lookup is needed.
+
+The refusals are the rest of it, and one of them is load-bearing. `[wd_ckok]`
+is clear when the caret's row is not banked — **and `wd_onclick` clears it
+deliberately after erasing a selection**, whose rows this pair says nothing
+about. So clicking away from a selection stays on the full repaint, where it
+belongs, and the section costs that case nothing.
+
+`.text` +47 bytes, `.bss` +2.
+
+#### 27.4.8 …and it seeds at its own row, not at the one above
+
+§27.4.7 gave a click the pair and the single pass. It still went through
+`wd_seedck`, and that is the wrong seeder for a caret move.
+
+`wd_seedck` walks **back** — one row always, and further still through a long
+word — and §27.11 is why: an **edit** can move the break in *front* of a row,
+because the break is decided by the length of the word behind it. A caret move
+changes not one character, so every break in the note is exactly where it was
+and the row's own entry in `wd_rows` is a sound seed. `wd_seedrow` is that
+seed, and §27.5 has published it since the day the table existed —
+`wd_onclick` and `wd_hitpt` both use it for their *measure* walk already.
+
+**The walk back was not merely wasted there; it is what REFUSED.** A row it
+cannot back up from — `wd_rowstart` declining, or `wd_ckword` sending it
+further back than the table reaches — leaves `[wd_resume]` clear, and the
+redraw then falls through to seeding at the **top of the view**. Measured on a
+cycle-accurate 5150 with `WELCOME.DOC` in a 41-row window, counting the rows
+the walk finished:
+
+| click | rows walked | |
+|---|---:|---|
+| row 16 → row 20 | 5 | the pair working |
+| **row 19 → row 20** | **20** | the same distance ONE, seeded at the top |
+
+774.1 ms against 241.0, for a caret that moved a single row. The refusal is
+invisible because it is a *fallback*: the screen is right either way, and only
+a row count says which path ran.
+
+So a kind-4 redraw whose pair `wd_clickcm` ordered — `[wd_ckpr]` the earlier
+row, `[wd_mvbot]` the deeper — seeds with `wd_seedrow` on that pair directly.
+`[wd_cmok]` is the one-shot that says the pair is a *pair* and not a
+checkpoint, because `[wd_ckpr]` alone cannot be told apart from the checkpoint
+an arrow key leaves; an arrow keeps `wd_seedck`, whose bound §27.4.4 already
+gives it.
+
+`.text` +26 bytes, `.bss` +1.
+
+#### 27.4.9 …and it walks the two rows, not the span between them
+
+§27.4.7 bounded a caret move at the deeper of its two rows and §27.4.8 seeded
+it at the earlier. The rows **between** them were still walked, and counting
+them is what shows why that is the whole remaining cost. Measured on a
+cycle-accurate 5150 with `WELCOME.DOC` in a 41-row window, rows the walk
+finished per click:
+
+| separation | rows walked | `wd_redraw` |
+|---:|---:|---:|
+| 1 | 2 | 102 ms |
+| 4 | 5 | 271 |
+| 10 | 11 | 544 |
+| 20 | 21 | 847 |
+
+`walked = separation + 1`, at ~40 ms a row. **Nothing in the middle changed** —
+a caret move alters no character, so those rows are laid out only to be told
+they are identical, and the reason the walk visits them at all is that it has
+to *reach* the far one.
+
+It does not. §27.5's `wd_rows` names the index every visible row begins at, so
+either row can be seeded **on its own**: the row the caret left gets a walk of
+one row, and the row it arrived on gets another. The span between is never
+visited, and a click costs **two rows whatever it crossed**.
+
+**Order matters and it is not the obvious one.** The row the caret LEFT goes
+first. The second walk is the one that stands on `[wd_cur]`, draws the bar and
+re-banks `[wd_ckpr]`/`[wd_ckpi]` through `wd_ask` — so it has to be the last
+thing the redraw does to the caret, or the checkpoint describes the row the
+bar just left.
+
+**The test is whether `wd_seedrow` will take both, and it is cheapest asked by
+asking.** `wd_clickcm` calls it once per row and reads `[wd_resume]`: it writes
+only bss, `wd_redraw` re-seeds before either walk anyway, and the alternative —
+restating `wd_seedrow`'s own three tests at a second site — is the kind of copy
+that goes stale. A row it declines falls back to §27.4.7's ordered pair, which
+is the previous behaviour exactly.
+
+Between the two walks nothing is reset. `[wd_dr0]`/`[wd_dr1]` accumulate across
+both, which is what makes the dirty range cover two rows that are not
+adjacent; `wd_walk` one-shots `[wd_lastrow]` and leaves `[wd_resume]` alone, so
+the second walk needs its seed again and nothing else.
+
+`.text` +79 bytes, `.bss` +5.
+
+#### 27.4.10 …and a scroll does not take the pair with it
+
+`wd_scrollto` has not dropped `wd_rows` since §27.7.2 — the table still
+describes the pixels that are still on screen, and `wd_shiftrows` slides it,
+`wd_sig` and `wd_ryb` together. What it does still drop is `[wd_ckok]`, the
+**one-row checkpoint**, on the stated grounds that one row is cheaper to
+re-find than to carry.
+
+That was true when nothing asked for it in a hurry. §27.4.7 made something
+ask: `wd_clickcm` needs the row the caret is **leaving**, and with `[wd_ckok]`
+clear it has no pair, so the first click after any scroll falls all the way
+back to the unseeded two-pass redraw. Measured on a cycle-accurate 5150 with
+`WELCOME.DOC` in a 6-row window, counting the rows the walk finished:
+
+| | rows walked | `wd_redraw` | |
+|---|---:|---:|---|
+| click, no scroll before | 2 | 109.6 ms | `rowsok=1 ckok=1` |
+| **first click after a page down** | **9** | **385.2 ms** | `rowsok=1 ckok=0` |
+| the second click | 2 | 146.8 ms | `rowsok=1 ckok=1` |
+| **first click after a page up** | **9** | **202.8 ms** | `rowsok=1 ckok=0` |
+
+`[wd_rowsok]` is set in every row. **The table was never the thing that went
+missing**, and the cost of the byte that did is 9 rows against 2.
+
+So the checkpoint is re-found rather than done without. `wd_rowofi` is the
+inverse lookup — the row whose `wd_rows` entry is the last at or before an
+index — and the index it is asked about is `[wd_cmoi]`, which `wd_onclick` and
+`wd_dragsel` bank immediately before they overwrite `[wd_cur]`. That is the
+only new fact in the scheme: the row is derivable, the index is not, because
+by the time `wd_clickcm` runs the caret has already moved.
+
+`wd_clickcm` then writes `[wd_ckpr]`, `[wd_ckpi]` and `[wd_ckok]` from the
+scan, so what it hands on is a genuine checkpoint and not a private copy —
+`wd_seedck` reads the same three on §27.4.7's fallback path, and an arrow key
+pressed after a scroll gets the seed back too.
+
+The scan is **linear**, deliberately. At 41 entries a binary search saves
+three compares and costs twice the bytes, in a package image where flat size
+is what is billed; and the whole scan is a few hundred cycles against the
+~40 ms a row of layout it removes.
+
+Two refusals, both falling back to exactly the previous behaviour: an index
+past `[wd_len]` is not this note's, and a caret **above** the view qualifies no
+row the table describes — `wd_rows[0]` already starts past it — which is the
+case where there is no bar on screen to erase and so no pair to be had.
+
+`.text` +102 bytes, `.bss` +2.
+
+#### 27.4.11 …and Up off the top row is a caret move too
+
+The handoff's item 5 was *"it still takes a very long time"* after Up or Down.
+Timed in guest cycles from `wd_onkey` to its `ret` on the Hercules 5150,
+WELCOME.DOC in Pica: a Down that does not scroll costs 78–385 ms depending on
+the rows involved, a Down that scrolls ~320 ms, and an **Up that scrolls ~850
+ms** (1.1–1.9 s in a chosen face). A profile of the Up, sampling the IP from
+the host so it costs the guest nothing, puts ~61% of the time in layout
+(`wd_walk` and its helpers) and 1.6% in `font_run`. It is walking, not drawing.
+
+The walk that did not need to happen was 450 ms of the 850. `wd_move` left
+early when the target row was ABOVE the view (`js .out`), before it armed
+kind 4. So `wd_redraw` did not know this was a caret move, and pass 1 walked
+all twenty rows of the view to learn that none of them had changed. That
+view is exactly what the scroll that follows moves, and the caret net
+re-derives it anyway. Now that case arms kind 4 with `[wd_mvbot]` set to the
+row the caret LEFT, which is also the seed. Pass 1 walks that one row, the
+caret net finds the caret above the view, and `wd_seecaret` scrolls. It is
+§27.4.1's rule, which already covered every other caret move. 8 bytes.
+Measured after: **~434 ms**, the pass-1 walk 2 rows where it was 20.
+
+What is left, for whoever takes this next: `wd_upheight` pricing the
+entering row is ~160 ms of the 434, and a scroll's exposed band is laid out
+down to `[wd_vrows] - 1`. That is the 8px over-count, so rows below the glass
+are laid out and never drawn.
+
+#### 27.4.12 …and a caret move owes nothing below its bound
+
+§27.7.12's glass stop leaves the row table ending one row past the glass
+after a one-row scroll. The ys and signatures below that row are not updated
+for the new view. The next Down's one-pass walk draws the caret's row and
+then ENTERS the row past its bound, as every bounded walk does, and that
+stale row read either as a row that MOVED (`[wd_ymoved]`) or as the dirty
+range growing past where the drawing reached (`[wd_dr1]` ≠ `[wd_1pdr1]`).
+Both are `.p1bad`, a full repaint of the window: **1.5–2.3 s** for a Down whose
+neighbours took 0.3.
+
+A caret move changes nothing below the row it bounded itself at (§27.4.1), so
+neither signal can be true there. For kind 4, `.p1bad` compares both ends of
+the range clamped to `[wd_mvbot]`, and `wd_rstart` treats a disagreeing bank
+past `[wd_mvbot]` as a row entering the view (dirty, not moved). For any other
+kind of redraw both tests are as they were, because an edit really can move
+rows the table stopped describing. After this, Down through WELCOME.DOC in
+Pica has a median of 263 ms and a worst case of 577 ms, and in the disk's
+first face 354 ms. `tests/wddrag.py` leg E presses Down through the whole
+note and requires every keystroke under 900 ms. With both guards taken out it
+reads 2,284 ms.
+
+#### 27.4.13 …and a run of Up or Down measures the caret once
+
+`wd_vmove` is two questions: where the caret is (`[wd_curx]`, `[wd_currow]`)
+and which index sits at that column on the next row. It walked for both, so a
+Down was three walks: the measure, the want query, and the redraw. But the
+redraw that ended the last keystroke stood on the caret too, and `wd_ask`
+writes the same two words whenever any walk passes it. The first walk was
+re-deriving an answer already in memory.
+
+So `wd_ask` also banks **which** caret it measured and **from which top**
+(`[wd_cxcur]`, `[wd_cxtop]`). `wd_vmove` skips its measure walk when four
+things hold:
+
+* `[wd_curseen]`: the most recent walk found the caret. Every walk clears it
+  at its top, so a walk that stopped short cannot leave an older answer
+  looking fresh;
+* `[wd_cxcur]` = `[wd_cur]` and `[wd_cxtop]` = `[wd_top]`: it was this caret,
+  and its row was counted from this view. A want walk passes the *old* caret
+  and `wd_move` then moves it, which is exactly the state this refuses;
+* `[wd_ckok]`: no row start has moved since. Every edit clears it, and it is
+  the flag `wd_seedck` already trusts for the same claim;
+* **the row it aims at is on the glass** (`wd_glass`, `wd_endvis`'s own test
+  factored out). This is the one the first build missed. The measure walk
+  also *enters* the row below the caret's and writes that row's start into
+  `[wd_rows]`, and `wd_move` then seeds from that entry. A row on the glass
+  was written by the last redraw too. The row just past the glass is the one
+  §27.7.12's stop leaves stale after a one-row scroll. A cached Down off the
+  bottom row seeded from it: in Courier it stalled at row 16 of 29
+  (`wdcourier` leg F), and at the note's end it took 1,408 ms (`wddrag` leg
+  E). So a Down that scrolls still measures, exactly as before.
+
+It is 82 bytes of image (`wd_glass` included) and 4 of bss, and it has no
+effect on where the caret lands. `tests/wdcaret.py` leg F checks that as an
+A/B inside one boot: the same Downs from the same click, once with the bank
+and once with `[wd_cxcur]` poked stale before each key. The indices match
+keystroke for keystroke. Every Down on the glass walks exactly once fewer, and
+one that scrolls walks the same. On the CGA 5150 the median Down goes
+**273.0 → 218.7 ms**. Two breaks were confirmed red: without the bank, the
+walk counts come out equal; with a banked x off by 96 pixels, the indices
+differ.
+
+#### 27.5 Where each row starts — a query about a row costs a row
 
 §27.4 bounded the *keystroke*. It did nothing for the caret keys, and they
 were the worse case: Up ran **four** full walks — `np_vmove` measured to find
@@ -47134,6 +47485,83 @@ minimize and restore to force a full `W_PAINT` at the same position, and diff
 the content rect — **0 differing pixels** for all three, at the default width
 and again in a window dragged narrow enough that every row carries a wrap
 decision and `compatibles.` is longer than a row.
+
+#### 27.11.2 …and so does the PARAGRAPH MARK, when it draws nothing
+
+`wd_penadv` answers **8** for a newline in the kernel's cell face, the same as
+for any other character, so the wrap test at the top of the loop treats the
+paragraph mark as a cell that has to fit. On a row that exactly FILLS the
+measure it does not, and the mark wraps onto a row of its own.
+
+**A flush right paragraph fills the measure by construction** — its alignment
+offset puts the pen at the right edge — so `WELCOME.DOC`'s *"This one is flush
+right (Ctrl-R)."* made a whole visible row out of one invisible character. Two
+separate reports came out of that one cell:
+
+- **A click anywhere in its eight pixels named no row**, so the hit query's
+  default sent the caret to the END of the document — and the redraw that
+  followed walked **47 rows in 2,123 ms** to get there.
+- **Down off the row above it did not move the caret at all.** A walk RESUMED
+  at that row lays it out **eight pixels lower** than the row table says
+  (`wd_papini` at a seed index that *is* a paragraph mark reads the next
+  paragraph's spacing, so `wd_rowhc` answers 16 where the full walk answered
+  8), and neither the hit query nor the want query ever matches a y the table
+  and the walk disagree about.
+
+The mark hangs past the margin now, exactly as a trailing space does and for
+the same reason: it is not ink. `wd_hangsp` already had the test and the
+structure — *"already hanging: the next one wraps"* keeps it from running away
+— and the newline joins the space in it. **Only when Show-all is off**: with it
+on the mark is a drawn pilcrow, a cell with ink in it, and wrapping it is what
+any other cell gets.
+
+`tests/wdreach.py` is the gate and its assertion is a **sweep**, because the
+defect is a GAP: every y from the flush-right row's band to the end of the one
+below, each asked through `[wd_hitset]`. A spot check walks straight past an
+eight-pixel hole.
+
+#### 27.11.3 A query past a SOFT-wrapped row's end stays on that row
+
+The half-cell rule (`wd_ask`, `wd_halfadv`) puts a query AFTER a character
+when the point is in its right half. After the LAST character of a
+soft-wrapped row is the first index of the next row, and the walk only ever
+reaches that index ON the next row: it decides the wrap at the top of the loop,
+before it asks about the index, so an index that begins a row is always
+answered, and always has its caret drawn, at that row's left margin. So a
+point to the right of a wrapped row's end named the start of the row below:
+
+- **Down (or Up) from further right skipped the wrapped row.** In
+  `WELCOME.DOC`, End on the flush-right line and then Down put the caret at
+  the left margin two rows down, not at the end of the row below.
+- **A click right of a wrapped row's end did the same thing.**
+- **And the skip was a whole-window repaint** (FIELD-NOTES 57). `wd_move`
+  bounds the one-pass redraw at the row it AIMED at, and `wd_caretdr` marks
+  the row the caret LANDED on, one row further down. The walk stopped short of
+  the only dirty row, drew nothing, never set `[wd_1pdr1]`, and
+  `wd_redraw`'s `.p1bad` net read that as a range that had outrun the
+  drawing: 6 walks, 59 row flushes and the chrome, for a caret moving one row.
+
+A newline already had no right half for exactly this reason. The wrap space
+needs the same treatment, but whether a space ends a row is only known after
+`wd_ask` has answered for it, so `wd_wrapq` makes the correction at the wrap
+instead: a hit or want answer that has reached `[wd_i]` is pulled back one,
+to BEFORE the hanging space, which is on the row that is ending. Only after a
+SPACE. A word longer than the row (§27.4.2) breaks between two letters, and
+pulling back there would put the caret before the row's last letter. The
+next row's start is the lesser error, and that case still has it.
+
+It takes no set-flag test and no row test. `[wd_hiti]` starts at `[wd_len]`,
+which a wrap is never at, and `[wd_wanti]` starts at 0xFFFF. An answer set on
+row R is at most row R+1's first index, which is `[wd_i]` at R's own wrap and
+at no other. So the whole thing is **36 bytes**, and it left Word 20 bytes
+under `APP_MAX_SIZE` (it had 56). An earlier version of this paragraph said
+18 bytes with 38 to spare. That came from a hand assembly that did not match
+the packaged image.
+
+`tests/wdreach.py` legs C to E are the gate. C: End then Down lands on the
+next row. D: that Down never reaches `wd_redraw.full`. E: a click right of the
+wrapped row keeps the caret on it. Taking the call out turns all three red.
+
 
 ### 27.6 The note is a heap claim, and it grows
 
@@ -48022,6 +48450,191 @@ delta against the old value and return on zero. The Browser's `br_flush` does
 the same. The file dialog still repaints its list at an end stop, which is six
 rows and has not been worth a byte.
 
+#### 27.7.11 A seed is never a PADDING row
+
+`wd_walk` draws blank rows below the note's end over rows the redraw still
+owns (`.blank`), and `wd_rstart` banks each of them in `wd_rows` like any
+other row. Each one starts at `[wd_len]`, and `[wd_rowsn]` counts them. A walk
+**seeded** on one reaches `.done` at once, and `.done` sets the note's height
+to `[wd_row] + [wd_top] + 1` because it trusts that it walked to the real end.
+So it called the note that many rows taller. `wd_scrollpaint` seeds at its
+band's first row out of the table it has just shifted, and a PageDown at the
+clamp shifts padding rows exactly there. On WELCOME.DOC in Pica, `[wd_drows]`
+went **36 → 48** and every page after that raised the ceiling by the page it
+moved: 52, 61, 69 and on. That is FIELD-NOTES 59.1's runaway, and the drag
+there reached it by the same seed. It was on the tree the first session
+left, `be33f94`, unchanged by anything since.
+
+`wd_seedrow` refuses a row that starts at `[wd_len]` when the row above it
+also starts there. The note's genuine last row, an empty one after a final
+paragraph mark, starts at the end with the row above it starting earlier, so
+it stays seedable. A refused seed falls to the row index (§27.13), which only
+knows real rows. 12 bytes. `tests/wddrag.py` leg C pages to the end and
+requires `[wd_drows]` to be the height counted before, with the view at its
+clamp. With the refusal taken out it reads 346 rows and top 329.
+
+#### 27.7.12 Scroll paint stops at the GLASS
+
+`wd_scrollpaint` lays its exposed band out down to `[wd_vrows] - 1`. That is
+the 8px count, so under formats or in a chosen face it includes rows below
+the glass, which get laid out and never drawn. A drag step walked 8 or 9 rows
+to draw one or two, ~280 ms of a ~500 ms step on a 5150, and a Down that
+scrolls pays the same way. Its walk now runs with `[wd_ystop]`, and
+`wd_ystopck` (called where the walk enters a row by wrap or by paragraph mark)
+ends it on the first row whose glyph band does not fit `[wd_bot]`. That row
+becomes `[wd_bd1]`. It is still entered, so `wd_rstart` has banked where it
+starts, and the table keeps one row past the glass. The next drag step and
+the next Down seed from exactly that row, and the `[wd_rowsn]` raise after
+the walk counts it.
+
+#### 27.7.13 The view does not scroll DOWN once the note's end is on the glass
+
+`wd_scrollmax` clamps with the rows guaranteed to fit, so a formatted note
+could scroll on into paper below its last line. Every such step of a drag
+seeded on a padding row (§27.7.11 refuses those) and fell back to walking the
+whole view to draw nothing: 1.1 s a step. Whether the end is on the glass
+needs no layout. Once the height count has finished (`[wd_hdirty]` = 0),
+`[wd_drows]` is exact, so the note's last row is visible row
+`[wd_drows] - 1 - [wd_top]`, and the banked y says whether it fits.
+`wd_endvis` answers that, and only while the table describes the glass
+(`[wd_top]` = `[wd_ptop]`). A view already past the end also answers yes.
+`wd_scrollto` refuses a downward move when it answers yes. `wd_sbset` gives
+the scroll bar a page of `[wd_drows] - [wd_top]` then, so the thumb reaches
+the end of the bar exactly when the view stops. A scroll of one row at a time
+(a drag, the arrows, the bar's arrow) therefore stops where the last line
+first fits. A jump (PageDown, a thumb drag) can still land with some paper
+below the end, bounded by the guaranteed fit as before, and nothing scrolls
+further from there. The first version scanned the row table for a row
+starting at `[wd_len]`. A table that ends ON the last row has none, so it
+answered "not visible" at exactly the moment it mattered.
+
+It also found a hole in §27.7.11's padding rule. The FIRST padding row
+after a note with no final paragraph mark starts at `[wd_len]` while the row
+above it does not, so it passed as the note's own empty last row. Down off
+the last line seeded there and `.done` called the note a row taller. A row
+may start at `[wd_len]` only when the note ends in a paragraph mark.
+
+#### 27.7.14 A point below the note's last line is the end, and costs no walk
+
+The field: *"clicking after the end freezes for a couple seconds"*. A click
+in the paper under the last line went to `wd_yrow`, which found one of the
+blank rows banked below the end, or no row at all. §27.7.11 refuses a padding
+seed, and a lookup that finds nothing refuses too, so both fell to the walk
+from index 0: the whole note laid out to learn what such a point always
+means, the end of the note. On a 5150 that was 556–857 ms for a short note.
+The click then went through `wd_dragsel`, whose `wd_hitpt` did the same thing
+again.
+
+`wd_pastend` answers it from the tables: `wd_endrow` names the note's last
+row (`[wd_drows] - 1 - [wd_top]` once the count has finished and the table
+describes the glass), and a y below that row's glyph band is past it. Both
+`wd_onclick` and `wd_hitpt` ask it first. The caret goes to `[wd_len]` and the
+last row becomes the click's row, so the redraw pairs it like any other caret
+move (§27.4.9). Measured after: **~40 ms**. `tests/wddrag.py` leg D shortens the
+note, clicks in the paper under it and requires the end within 200 ms. With
+the test taken out it reads 734 ms.
+
+#### 27.8.2.3 `wd_lastrowy`'s fallback is the FACE's row, not the kernel's
+
+`wd_hitpt` brings a pointer below the content to `wd_lastrowy` — the top of
+the last row the view really shows — so that `wd_yrow` lands it in a row that
+exists. With the banked ys valid that walk is exact. Without them it fell
+back to `[wd_ty] + ([wd_vrows] - 1) * 8`, and `[wd_vrows]` is a count of
+whole EIGHT-pixel rows: §27.2 wants it that way, as the signature array's
+bound, which is why `[wd_vfit]` exists beside it.
+
+**In the kernel's cell the two agree to the pixel** — on the shipped window
+`[wd_ty] + 24*8` is 302 and `[wd_bot] - [wd_gh1]` is 309 - 7 = 302 — so this
+changes nothing there, by arithmetic and not by measurement. They part by
+`[wd_gh1] - 7` in a chosen face, where the old expression can name a y whose
+glyph band does NOT fit and so a row that is not wholly on the glass.
+
+`[wd_bot] - [wd_gh1]` is the largest y whose whole band fits, it is the same
+test the banked-table path applies, and it needs no table at all.
+
+**This was found while investigating a drag whose selection lags its scroll,
+and it is NOT that defect** — that one reproduces in Pica, where these two
+expressions are the same number. docs/FIELD-NOTES.md 59 is the measurement.
+
+#### 27.8.2.4 A drag that auto-scrolls selects what it scrolls past
+
+FIELD-NOTES 59: *"the lines at the bottom that have been scrolled already
+through dragging are incorrectly not selected."* The selection was never
+wrong: `[wd_sel0]`..`[wd_sel1]` covered every row, and `wd_selq` answered
+correctly for every character in it. The **glass** was wrong, and so was the
+row table. Stopped at `wd_dragsel`'s loop head, so every redraw had finished,
+the rows that had been in the view when the drag began were inverted and
+every row the drag had scrolled in was upright. Three defects, found in this
+order:
+
+1. **`.scrolled0` said nothing was dirty.** A drag scrolls in `wd_hitpt`
+   before it calls `wd_redraw`. The redraw then sees `[wd_top]` ≠
+   `[wd_ptop]` and goes straight to `wd_scrollpaint` with an empty dirty
+   range, on the grounds that *"no walk has run this redraw"*. But a drag step
+   has moved the selection's caret end from `[wd_cmoi]` to `[wd_cur]`, and
+   every row between them changes its inversion. The blit carried those rows
+   across upright and scroll paint redrew only the band it exposed, which is
+   below the caret. So each step left exactly one row unselected on the
+   glass: every row the drag passed. `.scrolled0` now puts those rows in the
+   dirty range when `[wd_selonly]` says this is a drag step. `wd_rowofi` finds
+   them in the OLD frame, which is what `wd_scrollpaint`'s `.band` expects and
+   what the tables still describe, because `wd_scrollto` keeps them (§27.7.2).
+   An end off the top of the table is row 0 and one past it is the table's
+   last row, which is wider than needed and never narrower.
+2. **`wd_hitpt` resolved one row high.** After its scroll it seeded the
+   pointer's row from `wd_yrow` and `wd_seedrow`, reading those same kept
+   tables. So visible row R started at the text that *was* row R, one row
+   above where it is now, and every auto-scroll step put the caret end on the
+   row that had been at the bottom rather than the one that is. After a scroll
+   it seeds from the row index at the new `[wd_top]` instead (§27.13), which
+   describes the new view. That walk lays out up to a view of rows where the
+   old seed laid out one.
+3. **...and that walk must not BANK.** It runs between `wd_scrollto` and the
+   `wd_shiftrows` that brings the tables into the new frame, so writing
+   `wd_rows` as it goes left the table one row off the glass after every drag
+   step: behind on the tree before this (its stale seed banked old-frame
+   starts), ahead with only fix 2 in (the shift moved new-frame starts a
+   second time). That is §27.7.2.2's rule for `wd_upheight`, found for the
+   second walk that runs in the same gap, and `[wd_nobank]` is set around it.
+
+What these cost: 16 bytes for the seed, 10 for `[wd_nobank]`, about 45 for
+the dirty rows. Word paid for them with `wd_wfill`: thirteen inline copies of
+*white pen, fill*, 14 bytes each, became one 15-byte routine, **−128 bytes**.
+`tests/wddrag.py` is the gate. It stops the guest at the drag loop's head for
+six steps of a slow drag on the Hercules 5150. Leg A requires every row wholly
+inside the selection to be more than half dark over its own cells, and is red
+with fix 1 taken out. Leg B requires `wd_rows[0]` to be absolute row
+`[wd_top]`'s first index, and is red, exactly one row off, with fix 3 taken
+out.
+
+**What is left at the end of the note** (FIELD-NOTES 59.1): the runaway, where
+`[wd_top]` climbed to 337 on a 36-row note, no longer reproduces. The hit walk
+now walks the view from the row index, reaches the note's real end and sets
+`[wd_drows]` exactly. The one-row overshoot left after that (`[wd_drows]` 37
+once, top 29 against a clamp of 28) was a seed on a padding row. That has
+its own section, §27.7.11, and it is fixed there.
+
+#### 27.8.2.5 A drag step lays out the one row that came into view
+
+§27.8.2.4 made the auto-scrolling drag correct by walking the whole view after
+each scroll to resolve the pointer's y in it: 914 ms a step on a 5150, which
+the field called *"horrifically slow"*, rightly. The answer never needed a y.
+The pointer is below the glass, so the selection's end is on the row that
+just scrolled in, at the pointer's x. The kept table (§27.7.2) still says
+where that row starts: old row L+1, L being the last row that fitted, is new
+row L. So `wd_hitpt` seeds there, asks by ROW with the want query, and lays
+out one row, with `[wd_nobank]` because the table is still the old view's.
+Scrolling up asks the row index (§27.13) for new row 0. Anything that path
+cannot answer falls back to the view walk. With §27.7.12 and §27.7.13
+beside it, a drag step is ~260–490 ms (median ~360) where it was 914, and a
+pointer parked below a note whose end is already showing costs one tick a
+pass.
+
+The bytes came from a shared epilogue ladder (`wd_rdisdcba` / `wd_rsdcba` /
+`wd_rdcba`: 88 procs end in one jump instead of five to seven bytes of pops),
+and `wd_shl3` for thirteen inline copies of ×8. Word lives against
+`APP_MAX_SIZE`, and that is where the room came from.
+
 ### 27.8 A selection, and the two things a drag can mean
 
 The selection is a **pair of character indices**, `[np_sel0]`..`[np_sel1)`,
@@ -48163,6 +48776,82 @@ already takes an ink *and* a background (§6.1), so "draw this run inverted" is
 `AL = CWHITE, AH = CBLACK` and has always been expressible. The cost was never
 the inversion — it was re-lettering cells whose characters had not moved.
 
+##### 27.8.2.1 …and it lays the note out once as well
+
+§27.8.2 took the *glyphs* out of a drag step: a row whose inversion moved owes
+one `GFX_XOR_FILL` and no lettering at all. What it left behind was the
+**layout**. `wd_dragsel` cleared `[wd_ckok]` before every `wd_redraw` and set
+no kind, so each step of the gesture took the same unseeded two-pass walk
+§27.4.7 found under a click — the whole view laid out twice, per pointer
+packet, to flip a few cells. Measured on a cycle-accurate 5150 with
+`WELCOME.DOC` in a 41-row window, one drag step of one row was **1,048.9 ms**,
+of eight rows **1,528.9**.
+
+**A drag step is a caret move.** The end that moves is the *caret's* — the
+anchor stands still by definition (§27.8.1) — and no character moves at all,
+which is a stronger version of the same claim §27.4.1 rests on. So the pair
+is the same pair: the row the caret is leaving and the row it lands on, and
+`wd_clickcm` orders it identically. `wd_hitpt` already resolves the second
+with `wd_yrow` for its own seed, so it banks `[wd_cmrow]` there exactly as
+`wd_onclick` does and no new lookup exists.
+
+**Clearing `[wd_ckok]` was the thing in the way, and it is conditional now.**
+Its reason is sound and unchanged — the checkpoint is the *caret's* row start,
+the caret has just jumped, and a stale one is worse than none — but it is only
+true when there is nothing better to put there. When the pair is in hand there
+is: a backwards step moves `[wd_ckpr]`/`[wd_ckpi]` back with the caret, and a
+forwards step leaves them on the row being left, which is the earlier of the
+two and therefore a sound seed. Either way the walk is bounded at or below the
+caret's row, so it **stands on `[wd_cur]` and re-banks the checkpoint on its
+way past** — which is what makes the arming self-sustaining across the steps
+of one gesture rather than good for the first only.
+
+`wd_clickcm` therefore reports whether it armed, and the clear happens only on
+the refusal. The refusals are the same ones and they still cover the cases
+that matter: a step that **scrolled** the view comes back through `wd_scrollto`,
+which drops `[wd_ckok]` and `[wd_rowsok]` side by side, so the pair — which
+names rows of the *old* view — is refused before it can be believed.
+
+Nothing is added for the single pass: kind 4 is `wd_1pok`'s whole test and a
+drag reflows nothing, and `wd_selmark` runs at the **end** of `wd_redraw`, so
+`[wd_osel0]`/`[wd_osel1]` — the selection the screen is showing, which the XOR
+path diffs against — are stable across a walk that draws as it goes.
+
+##### 27.8.2.2 …and OUTSIDE THE VIEW means past the content, not on its last line
+
+Both `wd_hitpt` and `wd_dragsel` asked whether the pointer was below the view
+by comparing its y against `[wd_ty] + ([wd_vrows] - 1) * 8`, described in both
+places as *"the last visible row's top"*. That is wrong twice over, and the two
+errors hide each other.
+
+**It is the last row's TOP.** So the whole of the last visible line counts as
+below the view: a click on it cannot land without paging the note down one
+row first, and a button held anywhere on it takes `wd_dragsel`'s *parked
+outside the view, so every tick owes another row of scroll* arm — which runs
+until the note ends. The pointer never moves, and the selection grows a row
+a tick with it. On `WELCOME.DOC` a plain click on the bottom line, held for
+80 ms, came back with the view scrolled and **fifty characters selected**, and
+the next Backspace deleted them.
+
+**And the `* 8` is §68.6's uniform row**, which a formatted note is not. At
+`[wd_top]` = 5 the banked ys of that document are 8, 16, 8, 8 and 8 apart, so
+the arithmetic names a y a whole row above the row it claims to name.
+
+The threshold is `[wd_bot]` in both places now — outside the *content*, which
+is what the comment always said it meant — and the clamp a pointer past it is
+brought to is `wd_lastrowy`, which walks the banked ys back to the last row
+whose whole glyph band fits and falls back to the uniform arithmetic for a
+note with no formats or a stale table.
+
+**This was latent for as long as §68.6 has been in**, and what uncovered it
+was §27.19's speed: the auto-scroll arm scrolls one row per pass of
+`wd_dragsel`'s loop, so how far a held click ran away was set by how slow a
+redraw was. A click that went from ~370 ms to ~114 ms got through two passes
+where it used to get through one, and `wdenter`'s leg E — which clicks the
+bottom row — started arranging a different document. The failure it reported
+was the **Enter push**, five sections away.
+
+
 #### 27.8.3 Cut, Copy and Paste
 
 Over §55's system clipboard, so what is copied here can be pasted in another
@@ -48186,6 +48875,83 @@ undo group**, because the insert starts exactly where the delete left off
 **Cut copies first and its refusal is final.** A cut that lost the text because
 the clipboard would not hold it is the one outcome nobody can undo from the
 keyboard.
+
+#### 27.8.4 …and CLEARING one owes every row it was inverted on
+
+`wd_onclick` clears `[wd_ckok]` after erasing a selection, and said why:
+*"the band the walk resumes at would have left its inversion on screen."*
+§27.4.10 then gave `wd_clickcm` a way to **re-find** a dropped checkpoint out
+of `wd_rows`, on the grounds that `wd_scrollto` drops one because the row is
+cheaper to look up than to carry. Both are right and together they are a bug:
+**`[wd_ckok]` = 0 means two different things**, and the re-find assumed the
+other one. The pair came back, the walk was bounded to two rows, and every row
+between kept its highlight — **7,680 differing pixels** on a five-row
+selection, measured against a repaint. It is in every build since §27.4.10
+landed.
+
+The fix is not to refuse, because the rows are **known exactly**. `wd_selrows`
+banks the selection's two ends as VISIBLE ROWS at the click, before
+`wd_selclr` forgets the span and while `wd_rows` still describes the screen
+the inversion is on. Widened to the row clicked, that is one contiguous walk
+over precisely the rows whose pixels are wrong — six rows for the five-row
+case, where the honest alternative (the unseeded walk over the view) is
+`[wd_vrows]` of them and the wrong one is two.
+
+Either end outside the view is a **refusal** rather than a clamp: the whole
+point of the pair is that it bounds the walk, and a bound that does not cover
+the inverted rows leaves exactly the pixels this exists to clean. `[wd_kr0]`
+= 0xFFFF is that, and it falls to the unseeded walk — slow and never wrong.
+
+The rows do not need telling they are dirty. A selected cell folds differently
+into the row signature (§27.8), so a row whose inversion changed has a
+different signature by construction; all that was ever missing was a walk that
+visited it.
+
+**It is not in `wdclick` and that is worth saying rather than leaving.** The
+leg was written and taken out again: a selection built with a mouse drag is at
+the mercy of how many packets the guest gets through, and one built with F8
+(§68.2) arranges fine and then the *clearing* click will not land — every
+`wd_yrow` after it answers with the end of the document. The measurement the
+fix rests on is a standalone repro on the gate machine, **7,680 differing
+pixels against 0**, with the same repro red on the tree before it. A row that
+cannot arrange its case is a green row that tests nothing (docs/WRITING-TESTS.md
+§1), so it is absent on purpose and not by oversight.
+
+
+#### 27.8.5 A drag step changes every row BETWEEN its two ends
+
+§27.4.9's two-walk split rests on one sentence — *"two rows changed and
+nothing between them did"* — and that is true of a caret move and **false of a
+drag**. The end that moves is the caret's and the anchor stands still, so
+every row the step crossed goes from not-inverted to inverted, or back.
+Walking only the two ends leaves those rows exactly as they were.
+
+What it looks like is the report: drag from the start of one line to the end
+of one nine rows below and come back with **four rows highlighted and five
+not**, in the pattern the steps landed in — the field screenshot has rows 7,
+9, 14 and 15 inverted and 8 and 10 through 13 untouched, which is three steps
+of {7,9}, {9,14}, {14,15}. The selection itself is right: Backspace deletes
+all nine, because `[wd_sel0]`/`[wd_sel1]` never knew anything was wrong. It is
+a drawing defect and nothing else.
+
+`wd_clickcm` takes the **contiguous pair** when `[wd_selon]` or `[wd_oselon]`
+is set — §27.4.9's own fallback, which walks the span — and keeps the split
+for the case it was built for. A step of one row costs the same either way;
+a step of nine costs nine rows, which is what correctness is worth here.
+
+##### 27.8.5.1 …and a SCROLL is not "only the selection moved"
+
+`wd_rflush`'s XOR shortcut (§27.8.2) letters **nothing**, on the premise that
+the row's glyphs are already correct and only their inversion moved. A scroll
+has just put *different characters on every row*, and the rows it exposes at
+the bottom have no glyphs at all — so a drag that auto-scrolls took that path
+and painted the highlight onto bare paper. The lines coming up from below the
+fold never appeared; what appeared was the black bar where each should have
+been.
+
+`wd_scrollpaint` clears `[wd_selonly]` at its head. It is one byte and it is
+unconditional: the routine runs exactly when the view moved, and there is no
+shape of that where a row's cached glyphs still describe it.
 
 ### 27.9 Undo, five edits deep
 
@@ -48744,6 +49510,394 @@ that a user could notice.
 It is deliberate and it is confined here. Everywhere else `APP_SMALL` removes
 a *feature*; this is the only line that makes a kept feature slower, and the
 full build keeps every byte of the table.
+
+### 27.17 What is under the caret bar, banked as PIXELS
+
+§27.4.7 to §27.4.10 took a click to **two rows**, and those two rows are all
+that is left: the one the bar left has to lose it and the one it landed on has
+to gain one. `docs/plans/completed/WORD-CARET-OVERLAY-PLAN.md` is the route to **one**,
+and this is its first wave — **banking only, with the bar still drawn exactly
+as before.**
+
+The bank is **`OSAPI_GFX_SAVE` of the 8-px byte column the bar stands in**
+(§5.3, 0x0508/0x0510 — published, in both builds, with 1bpp twins). 64 bytes of
+Word's bss: one byte a row per plane, so 1 × `TY_BROWS` × 4 on VGA and a
+quarter of that at 1bpp.
+
+**Pixels and not the character, and that is the whole of why.** An earlier
+build banked the *character* on the cell face and re-lettered it to erase,
+which made a **styled** cell a documented refusal — bold draws the glyph twice
+a pixel apart, so re-lettering one cell of it loses the overlap its neighbour
+contributed. A style is not a reason to cache less. **Banking what is on the
+glass makes bold, italic, underlined and plain the same case**, needs no
+knowledge of how the row was drawn, and so works identically for the kernel's
+8×8 cell and for a chosen face's band — one arm where there were two.
+
+It is taken at `wd_rflush`'s `.caret`, and that moment is exact: the row is
+**completely** drawn by then — pass 1's paragraph marks and underline rules
+included — and the bar is not, because `wd_carets` deliberately *banks*
+`[wd_rcx]` instead of drawing so the row's own run cannot paint over it.
+
+#### 27.17.1 A style is not a refusal
+
+The refusals that remain are about the *glass*, not about the text: a row that
+does not fit the content box has no bar to bank; `gfx_save` refuses a rect
+straddling two displays (§5.3); and §27.17.2's clip test can say the column is
+not ours. Every one falls back to erasing the caret the old way — by redrawing
+its row — which is what every build before the overlay did for every caret
+move.
+
+#### 27.17.2 `gfx_restore` is unclipped, so the bank asks first
+
+**`gfx_restore` is off §11.3's clipped list** (§5.8 says so in as many words),
+so writing a banked column back while another window overlaps it would paint
+over *that window* — and §5.8's companion point is sharper: **a clipped restore
+does not report that it was clipped.**
+
+`OSAPI_WM_CLIP_TEST` (0x0180) is exactly that question — CF = 0 the whole rect
+is drawable, including when no clip is armed — and the rect here is **one pixel
+wide**, so it is one far call that answers yes in the ordinary case of an
+unobscured window. A no is a refusal like any other.
+
+### 27.18 The caret as an OVERLAY — one blit down, one line up
+
+§27.17 banked what is under the bar. This puts the pair of verbs around it:
+**`wd_curhide` takes the bar off the glass out of that bank, `wd_curshow` puts
+it back**, and `wd_redraw` is bracketed by the two — hide after `wd_bounds`,
+show at `.out` after everything else has drawn.
+
+`wd_curhide` is **one `OSAPI_GFX_BLIT1` of the banked byte column**: the same
+primitive the row itself went up with, at the same x, one byte wide and so a
+stride of 1. There is no new question about clipping or alignment to answer,
+because it is the question the row already answers. `wd_curshow` is the same
+1 px `CBLACK` vline `wd_rflush` draws, at `[wd_curx]`/`[wd_cury]`.
+
+**In this wave `wd_rflush` still draws the bar too**, and that is the test
+rather than an oversight: both draw the identical pixel column, so the screen
+must come out **bit-for-bit what it was** — which means any fault in the
+overlay shows as a wrong screen instead of as nothing at all. The wave after
+this one is where `wd_rflush`'s draw comes out and the overlay becomes the
+only drawer; `docs/plans/completed/WORD-CARET-OVERLAY-PLAN.md` §7 is the sequencing.
+
+#### 27.18.1 The position test is the lifetime rule
+
+A bank is good only where it was taken. `wd_curhide` therefore compares
+`[wd_curx] & ~7` against `[wd_cbx]` and `[wd_cury]` against `[wd_cby]`, and a
+mismatch — or a void bank, or a `gfx_blit1` that refuses — falls to
+`wd_curdirty`, which **complements the caret row's signature**. That cannot
+match what the next walk folds, so the row lands in the dirty range and is
+lettered, which is exactly what every build before the overlay did for every
+caret move. The fallback is the old behaviour, not a failure path anyone had
+to invent.
+
+#### 27.18.2 …and `wd_curvoid` is where the lifetime ends
+
+The bank describes pixels, so anything that moves or destroys them ends it:
+
+| site | why |
+|---|---|
+| `wd_scrollto` | the view moved; those pixels are somewhere else |
+| `wd_bounds` `.stale` | the geometry moved, so every row did |
+| the face change | a different face is different pixels |
+| the whole-buffer swap | the note underneath changed |
+| `wd_paint` | **the kernel has already filled the content** (§11.1), so the bar is gone and the bank describes pixels that no longer exist |
+
+`wd_paint`'s is the only one of the five that records a repaint rather than
+anticipating one, and it is why `wd_curvoid` clears `[wd_curshown]` as well as
+`[wd_cbok]`: a bar the overlay can no longer take down is one a repaint is
+about to draw over regardless.
+
+#### 27.18.3 The A/B is the two DRAWERS, not the two screens
+
+`[wd_rfbar]` is the arming: clearing it in a running guest stops `wd_rflush`
+drawing the bar and leaves the overlay alone with it. `tests/wdclick.py` leg H
+is that A/B, and **its reference had to be rebuilt once** — which is the lesson
+worth keeping.
+
+Every other leg in that file compares against a **page down and back**, a full
+repaint of a formatted document (§68.6). Leg H cannot: that is a different
+*screen*, so comparing an overlay-only screen against it compares the drawer
+and the view at once, and the first build read **411 differing pixels three
+scanlines above the caret's row** — text, not a bar, and nothing to do with the
+overlay at all.
+
+The sound reference is the **other drawer at the same caret index**: Right,
+Left, then Right again with `[wd_rfbar]` clear. Same index, same view, same
+everything but which code put the bar down — **0 differing pixels**. A
+reference that moves is not a reference, and a 12-px bar hiding inside a
+411-px difference is exactly how that gets missed.
+
+### 27.19 …and the caret comes OUT of the row signature
+
+This is what §27.17 and §27.18 were for. `wd_ask` used to fold the caret's pen
+into the row being accumulated — between the glyph before it and the one after
+— and SPEC's own note said why: *"The caret is part of the signature and has to
+be. Moving it off a row has to dirty that row, or it stays drawn there."* That
+is exactly true of a caret drawn **by the row**, and the overlay retires it:
+the row the caret left is erased by one blit, so it does not have to be
+lettered again, and **a caret move dirties one row instead of two**.
+
+`wd_rflush`'s `.caret` no longer draws anything. All it does is bank
+(§27.17); the bar itself is `wd_curshow`'s, at `wd_redraw`'s own exit once
+every row is down.
+
+**The plan called this wave a set of deletions and it is not.** Two things had
+to be added, and both are the same discovery from opposite ends: *with the
+caret out of the signature, nothing dirties the row it arrives on either.*
+
+- **`wd_caretdr`** puts the arrival row in `[wd_dr0]..[wd_dr1]` by hand. The
+  row's characters did not move, so its signature does not change and nothing
+  else will. **Where it runs is the whole of it** — §27.19.8 is the defect that
+  taught that, and it is the one thing in this section to read before touching
+  any of it.
+- **`wd_append`'s signature patch loses its two caret terms.** It could undo a
+  caret at all only because that one was folded *last* (§27.14); with none
+  folded, the patch is the character and its CHP rotate and nothing else.
+
+#### 27.19.1 ONE bank, of PIXELS, and the cell face is not a special case
+
+The first cut had two banks — a band column for a chosen face and the
+**character** for the kernel's 8×8, re-lettered opaquely the way `wd_append`
+has erased a caret since the day it was written — with `[wd_cbkind]` saying
+which. That shape carried a documented refusal with it: a **styled** cell,
+because bold draws the glyph twice a pixel apart and re-lettering one cell of
+it loses the overlap its neighbour contributed.
+
+**A style is not a refusal** (§27.17.1). The bank is `OSAPI_GFX_SAVE` of the
+byte column the bar stands in and the hide is `OSAPI_GFX_REST` of the same
+rect, so what is banked is *whatever drew those pixels* — a plain cell, a bold
+one, an inverted one, a band a chosen face composed. The second arm and the
+refusal both go, `[wd_cbkind]` with them, and the one refusal left is the
+kernel's own: a rect that **straddles** two displays, which `gfx_save` will
+not take.
+
+#### 27.19.3 The hide is unconditional, so the show must be answerable
+
+`wd_curshow` is gated on `[wd_curseen]`, and the reason that is the right gate
+and not a per-walk accident is `wd_walk`'s own discipline: it clears the flag
+**on entry** and nothing else does. So a redraw that walked nothing keeps the
+last walk's answer, and a redraw that walked and *missed* has been through
+`wd_caretnet` (§27.19.7) before the show is reached.
+
+Getting this wrong is the shape of every fault an overlay has — **the two
+halves gated on different facts.** An intermediate build made the show sticky
+instead, which papered over the missing net and then broke the other way: a
+void cleared the sticky flag without taking the bar down, so the next hide
+erased it and the show declined to put it back. 5 differing pixels at the
+caret's own column, and no bar on the screen a click produced.
+
+#### 27.19.4 …and it must trust where the BAR is, not where the caret is
+
+The hide's position test first compared the bank against `[wd_curx]`/
+`[wd_cury]`. Those are **already the new position** by the time it runs: an
+arrow key goes through `wd_vmove`, which calls `wd_measure` — a whole walk,
+with `wd_ask` in it — *before* `wd_redraw` is reached. So the test failed on
+every caret move, every hide fell to `wd_curdirty`, and the row the caret left
+was dirtied and lettered exactly as before.
+
+`wd_curshow` therefore records **where it put the bar** — `[wd_csx]`,
+`[wd_csy]` and `[wd_csrow]` — and those are the only three `wd_curhide` may
+read. `[wd_csrow]` matters as much as the other two: `wd_curdirty`'s fallback
+used `[wd_ckpr]`, which by the next hide is the row the caret has moved *to*,
+so a failed erase dirtied the wrong row.
+
+**An overlay's two halves run at different times, so neither may read anything
+that moves in between.**
+
+#### 27.19.5 The row the caret LEFT is not walked either
+
+Dirtying one row instead of two moved the clock by **nothing** — 99.7 ms
+before and after at separation 1, 232.2 against 232.6 at separation 10 —
+because **`wd_rflush` only decides whether to BLIT.** The row is laid out by
+the walk either way, and the walk is the ~40 ms.
+
+So the walk goes too. `wd_clickcm` already seeds and bounds the main walk at
+the row the caret **arrives** on (§27.4.9); the second one-row walk §27.4.9
+added for the row it left has nothing to feed once the overlay erases that row.
+
+**It is conditional on the erase having worked, and exactly on that.**
+`wd_curhide` raises `[wd_cherr]` when it falls back to `wd_curdirty`, and only
+then does the departure walk run — because `wd_curdirty` dirties the row, and a
+dirty row outside the walk's bound is a row nobody draws.
+
+##### 27.19.5.1 A SELECTION is not a caret
+
+The short walk is for a redraw where **the caret is the only thing that
+moved**. The overlay erases a *bar*, one byte column wide, and answers for
+nothing else — so a drag step, which carries the selection across rows the
+pair says nothing about, cannot use it. Bounding those to a single row was
+measured as **two whole rows of difference** (leg F, 2,048 pixels over the
+full content width), the signature of a row that needed drawing and was never
+walked.
+
+The short walk therefore also requires `[wd_selonly]`, `[wd_selon]` and
+`[wd_oselon]` all clear. Everything else keeps §27.4.9's pair.
+
+#### 27.19.7 The caret's PLACE is needed whether or not anyone follows it
+
+`wd_redraw` has always had a net for a walk that stopped short of the caret —
+re-seed at the caret's own index and walk again (§27.13). It sat behind
+`[wd_follow]`, and that was right while the net's only customer was
+`wd_seecaret`: **scrolling** to the caret is something only a keystroke asks
+for, and a click clears `[wd_follow]` on purpose.
+
+Since the caret left the row signature, the overlay is the only thing that
+draws the bar — so a redraw that ends without a position draws **no caret at
+all**. Measured as **5 differing pixels at the caret's own column, missing
+from the screen the click produced**: the bar was absent, not stranded, and
+every build before this one hid that because `wd_rflush` drew it as part of
+the row whether or not anything knew where it was.
+
+So the net is `wd_caretnet`, a routine — and **where it is called from is the
+whole of it.** The net inside `.normal` stays exactly where it was, behind
+`[wd_follow]`, because it is `wd_seecaret`'s: *knowing where the caret is* and
+*scrolling to it* are different questions and only the second is a keystroke's
+business. The overlay's own call is at **`.out`**, which is the only thing
+every exit of `wd_redraw` has in common.
+
+That distinction is not fussiness. **A scroll does not go through `.normal` at
+all**, so a net placed there covered a click and missed a page down and back:
+`wd_walk` zeroes `[wd_curx]`/`[wd_cury]` on entry and the paging walk never
+stood on the caret, so the redraw ended with no position and **drew no bar**.
+Traced through the round trip, `curx=216 cury=142 seen=1` after the click
+became `curx=0 cury=0 seen=0` after the page down and stayed there — 5
+differing pixels at the caret's own column, and the missing one was in the
+*reference*, not in the screen the click produced.
+
+It costs a second walk when it fires, and only where the caret was genuinely
+lost.
+
+#### 27.19.6 …and a scroll takes the bar off BEFORE the content moves
+
+`wd_scrollto` first called `wd_curvoid` and nothing else. That forgets the
+bank — and **leaves the bar on the glass**, where `wd_scrollpaint`'s blit
+carries it to a new row and `wd_curshow` then draws a second one.
+`tests/wdcaret.py` leg D read **198 differing pixels** on a caret move that
+scrolled.
+
+It calls `wd_curhide` first now, while the pre-scroll geometry is still the one
+the bank was taken in, and voids afterwards. The general form is §27.19.4's
+rule for the other axis: **the two halves run at different times, so the hide
+must happen before anything the bank describes can move** — and a scroll is
+the one thing that moves every pixel in the view at once.
+
+##### 27.19.6.1 …and it must not DIRTY anything while it is in flight
+
+`wd_curhide`'s fallback is `wd_curdirty`, which complements a row's signature —
+and inside `wd_scrollto` that is the one place it must not run. `[wd_top]` has
+already moved, `wd_shiftrows` has not, so the entry it writes is about to be
+shifted to a different row; and the scroll letters those rows itself regardless.
+
+Left in, it moved the **whole view a row further than the tables did**:
+`tests/wdcaret.py` leg D read 198 differing pixels with the scrolled screen's
+content 8 px out of step with a full repaint at the same `[wd_top]`, and its
+**top band solid black** — an exposed row nothing lettered.
+
+`[wd_noduty]` is the bracket: the hide still erases, and a hide that cannot
+simply does nothing, which is right because the scroll repaints the row anyway.
+
+#### 27.19.8 The dirty range gates the GLYPH STORE, so it may not be widened mid-row
+
+`wd_caretdr`'s first shape ran from `wd_ask`, at the caret's own cell, one
+instruction before `wd_carets` — and the reasoning was that the order is what
+makes the bank possible, because a row `wd_rowdirty` refuses is a row
+`wd_carets` does not bank `[wd_rcx]` for. That is a true sentence about the
+bank and a **defect** about the row.
+
+`[wd_dr0]..[wd_dr1]` gates `[wd_clip]`, and `[wd_clip]` gates the **glyph
+store** as well as the drawing. Widening the range half way along a row
+therefore does not merely add the row — it adds the row *from that cell
+onwards*: `wd_rbuf` keeps spaces for every cell the walk passed while the row
+was still out of range, and in a ONE-PASS redraw (§27.4.6) the very same walk
+then reaches `wd_rflush`, which draws that buffer **opaquely** over the whole
+row. The row comes out blank from `[wd_tx]` to the caret and correct after it.
+
+Measured on `WELCOME.DOC`, a drag that auto-scrolled: the row read **531** ink
+pixels where the same row drawn any other way reads **980**, and the buffer at
+`wd_rflush.runs` read
+
+```
+runs row=4 flo=0 fhi=71 rcols=72 |                         e same engine y|
+```
+
+— twenty-five spaces, which is exactly the caret's column, which is exactly
+where the blank ended. It is the same span whatever the click column, which is
+what named it: at column 10 the row lost 191 pixels and at column 40 it lost
+694.
+
+**So the two jobs separate, and neither belongs where the other was.**
+
+- **The range** is widened **before the walk**, at `wd_redraw`'s own reset of
+  `[wd_dr0]`/`[wd_dr1]`, from `wd_rowofi([wd_cur])` — the row table's inverse
+  (§27.4.10), a scan of at most `[wd_vrows]` entries, which refuses cleanly
+  when the caret is outside the view and leaves that case to `wd_seecaret` and
+  `wd_caretnet`. The store then sees the row in range from its first cell.
+- **The bank** stops depending on the range at all. `wd_carets` no longer asks
+  `wd_rowdirty` before storing `[wd_rcx]` — it only banks the pen, and whether
+  the row is *redrawn* is `wd_rflush`'s to decide — and `wd_rflush`'s two
+  refusals (`wd_rowrng` and `wd_rowdirty`) fall to `.justbank` instead of
+  leaving, which applies the same two fit tests the drawing path applies and
+  then takes the bank. **A row whose pixels are right is exactly the row a bank
+  under the bar is valid on**, so this is the natural home for it rather than a
+  concession.
+
+The check that says it is right is not the ink count: the same document row is
+drawn as row 5 of `top=0` and as row 0 of `top=5`, and the two are compared
+pixel for pixel — **0 differing of 4,039**. Sixteen of the eighteen steps of
+the A/B against the pre-overlay tree are byte-identical screens; the two that
+are not are the ones where the overlay is **cleaner**, base leaving four
+pixels of an old bar on a row it had lettered over.
+
+#### 27.19.9 ONE ROW IS THE WHOLE ANSWER — the keyboard, and a caret off the view
+
+§27.4.1's pair of rows predates the overlay. The row the caret **left** was in
+it because the bar was part of that row's pixels and had to be lettered out;
+`wd_curhide` puts the banked column back now, so when the erase worked and no
+selection is in play that row owes nothing — not a draw, and not the walk that
+would feed one. §27.19.5 took the *draw* away and `wd_clickcm` takes the
+*walk* away for a click whose two rows it can both seed (§27.4.9). Two cases
+were left paying for a row that owes nothing, and both are the same sentence.
+
+**A keystroke has no pair at all.** `wd_fastcm` seeds with `wd_seedck`, which
+walks back one row on purpose — an EDIT can move the break in front of a row
+(§27.11) — and bounds at `[wd_mvbot]`, the deeper of the two. So every arrow
+walked **two rows** where a click walked one: 145–199 ms against 34–98 on a
+41-row window, which is the "the keyboard feels slower than the mouse" it
+reads as. `wd_solorow` is the test — `[wd_cherr]` clear, no selection, and
+`wd_rowofi([wd_cur])` naming a row — and where it holds the seed and the bound
+are both that row.
+
+**And a click whose departing row is OUTSIDE the view.** Scroll the note a few
+pages and the caret is above it; `[wd_ckpr]` is then **negative**, because a
+visible row is signed (§27.7). Every compare in `wd_clickcm` is unsigned, so
+−7 read as 65529, the pair came out "backwards", and `[wd_mvbot]` was armed
+with 65529 as the *deeper* row. `wd_redraw`'s own bound then refused it for
+being negative and the walk ran to the bottom of the view: **24 rows and 843.6
+ms** for a click that moved one caret, against 66 ms for the same click with
+the caret in view. It is **1 row and 161.3 ms** now.
+
+The answer there is not a signed compare, and that is worth saying because a
+signed compare is what it looks like. A caret outside the view **has no bar
+drawn for it** — `wd_curshow` declines on the fit test — so the row it is
+leaving owes neither an erase nor a walk, and there is no pair to get the
+right way round. The row arrived on is the whole of the work.
+
+Three routes, one conclusion, and they are deliberately three: `wd_clickcm`
+answers at the click for the cases it can see, and `wd_solorow` answers inside
+`wd_redraw` for the ones it cannot — a key, and the click `wd_clickcm`
+refused outright.
+
+#### 27.19.2 What the gate counts now
+
+`[wd_rfbar]`, §27.18's arming, is gone with the draw it armed, so leg H has no
+knob to A/B against. It counts what the wave is *for* instead: the **dirty range**, which must be
+one row — `[wd_dr0] == [wd_dr1]`.
+
+It is deliberately **not** a count of `wd_rflush` calls, and that is §27.4.9's
+lesson in a second costume: `wd_rflush` is entered once per row **walked** and
+decides inside whether to letter, so counting its calls reads 2 on a build that
+letters 1. Legs B, D and F are what still say the screen is right, and they are
+unchanged — which is the property that made the three waves worth separating.
 
 ## 28. apps/taskmgr — the Task Manager
 
@@ -93988,6 +95142,83 @@ screen after the drag is identical to the pixel.
 
 `.text` +56 bytes. `tests/wdscroll.py` leg G is the gate.
 
+#### 68.2.5 The disabled pen belongs to the HOLD, and every callback claims it
+
+The field reported it in one sentence: *"The menu bar, and the lines at the
+bottom, would often grey or half grey and stay that way — it never clears
+up."* The photograph settles what it is. Word's nine menu titles, `Font:`,
+`Pts:`, `Style:` and both combo captions are drawn as a **50% checkerboard**,
+and the mnemonic UNDERLINES beside them are **solid black**. That pair is
+`[gfx_dis]` and can be nothing else: §47 rule 1's dither is laid on by
+`font_ink`, which is in the GLYPH path alone, so a disabled pen greys letters
+and leaves every fill, frame and line it draws beside them untouched.
+
+`[gfx_dis]` is one kernel byte (`kernel/vga12.inc`), and **its lifetime is one
+gfx-lock hold** — `gfx_unlock` clears it, exactly as it clears `gfx_mono1` and
+`gfx_blit1`'s pen. So the leak is not a byte that escapes for ever; it is a
+byte that is still armed **later in the same hold**. §12.8.3 is what makes
+that a long way: `ui_task` takes the lock around the WHOLE event handler, so
+the kernel's own chrome, a dialog, an on-demand module and the package's
+callback are all inside one hold, and a greyed control drawn by any of them
+arms the pen for everything drawn after it.
+
+**WHAT MAKES IT PERMANENT IS THAT NOTHING REDRAWS THE CHROME.** Measured: a
+205-event session sweep of the shipped window — every one of the nine menus
+opened and walked, arrows, page keys, `Ctrl-B`/`U`/`I`, clicks in the text —
+ran `wd_rflush` 204 times and `wd_mbar`, `wd_ribbon`, `wd_ruler` and
+`wd_status` **zero** times. §68.2.4 is why, and it is correct: the chrome is a
+function of the window and the caret, so a scroll, a keystroke and a click do
+not owe it. The consequence is that the ONE pass that drew the strips is the
+one the user keeps looking at, and the text — which every later incremental
+redraw re-letters — comes back solid around it. A screen with a dithered menu
+bar over crisp body text is that difference, not two different defects.
+
+The answer is the kernel's own, one layer out: `kernel/apps.inc` heads the
+Task Manager's clock with `gfx_pen_live` under *"a button drawn just before
+may have left `[gfx_dis]` set"*. Word claims the pen at the head of **every
+callback it registers** — `wd_paint`, `wd_onclick`, `wd_onkey` and
+`wd_onwake` — because those four are the only doors its drawing is behind.
+`wd_onwake` takes its own lock, so its guard is INSIDE that lock and not at
+the routine's head; the other three are entered with the lock already held.
+
+**AND THE CALLBACK'S GUARD IS NOT WHAT DEFENDS THE STRIPS.** `wd_paint`
+reaches `wd_chrome` through `wd_sbar`, and the os88ui scroll bar sets the pen
+live on its way past, so a pen armed at the callback's door is long gone by
+the time the nine titles are lettered — and a gate that poked there would
+pass on a build with no chrome guard at all. `wd_chrome` therefore claims the
+pen again at its own head. That is not belt and braces, it is the only one of
+the five that covers the thing the field reported, and it is free: the chrome
+is redrawn approximately never, so the call lands on a path nothing is
+waiting on.
+
+Five far calls in all, **46.7 µs** each against a handler measured in
+milliseconds. It is a guard and not a fix for a named producer: the pen is
+published state (§47) with no way to read it back, so a window that letters
+anything has to say which pen it means.
+
+`tests/wdpen.py` is the gate. It arms `[gfx_dis]` behind Word's back at the
+instant a painter is entered — through a `bp_trace` pump, so the pointer
+verbs inside the gesture still drive a machine that is moving — and asserts
+the pixels come out solid anyway. Measured on a cycle-accurate 5150 (CGA),
+the same two readings with the guards backed out:
+
+| | guarded | backed out |
+|---|---:|---:|
+| menu-bar ink, under a resize's W_PAINT | 1,072 | **561** |
+| a text row's ink, under a click | 1,161 | **597** |
+
+Halved, both of them, which is §47 rule 1's checkerboard to the pixel.
+
+**Two gestures that look right and measure NOTHING**, kept here because both
+were built before they were A/B'd. A *View toggle* does redraw the bar, and
+`wd_vtoggle` redraws all four strips ITSELF after `wd_redrawall` — *"cheap
+insurance either way"* — so a pen armed against that pass's `wd_chrome` is
+overwritten by a live second draw a moment later. And poking at
+`wd_onclick`'s door and picking a menu item greys nothing at all, because
+`os88ui_mndraw` sets the pen per item on the way through. The gesture that
+works is a **resize**: it goes through W_PAINT, and nothing draws the bar
+again after it.
+
 #### 68.3.1 The document's two moves go a WORD at a time
 
 Every edit opens or closes a gap in **two** claims in lockstep — the text and
@@ -94212,6 +95443,120 @@ banks `[wd_currow]` beside the pixel pair, `wd_vmove`/`wd_hmove`/`wd_move`
 ask for rows, and `wd_seecaret` scrolls by rows against `[wd_vfit]` — the
 rows GUARANTEED to fit (band/24 under formats, all of them while uniform).
 
+#### 68.6.2 A SEEDED walk reconstructs the row's band top, and it must use `[wd_gh]`
+
+The field, in one sentence: *"when in courier, sometimes selecting a line —
+via click, or arrow — will erase half of the line above it."* Both of those
+gestures SEED. §27.4.10's checkpoint lets a walk begin at a known row instead
+of walking down to it, and the seed then has to reconstruct that row's glyph
+`y` and its BAND TOP by hand, because it did not arrive there through
+`wd_advy`.
+
+`wd_ryb`'s own declaration publishes the rule: **the band top of row *r* is
+`ryb[r-1] + [wd_gh]`**, and `wd_advy` computes it that way. The seed's copy
+was `wd_advy`'s arithmetic written a second time, with the kernel's cell
+height as a **literal 8** in three places — the row-0 and above-the-view
+sentinels and the band top itself. In the kernel's 8×8 face `8` *is*
+`[wd_gh]` and the two copies agree exactly, which is why every Pica row in
+the suite is silent about it; in a chosen face they part by `gh - 8`.
+
+The consequence is not a misplaced row, it is an **erase**. §68.6's
+leading-gap fill exists because glyph runs never touch the band between a
+row's top and its glyphs, so ink parked there by an older layout would
+survive every redraw; that fill runs from `[wd_rbandt]` to `[wd_rby]-1` and
+is FULL WIDTH. With the band top `gh - 8` pixels too high it starts inside
+the row **above** and takes the bottom of its glyphs with it — which is the
+field's sentence, said in pixels.
+
+Measured on a cycle-accurate 5150 (Hercules) with the disk's first face, a
+click that seeds:
+
+| | |
+|---|---:|
+| `[wd_gh]` / `[wd_ghb]` for that face | 12 / 14 |
+| band top, `wd_advy`'s rule | `ryb[r-1] + 12` |
+| band top, the seed's copy | **4 low**, every flushed row |
+
+Four is `gh - 8` to the pixel.
+
+**`wd_seecaret` carried the same literal, and it is the fourth site.** Its
+exact-scroll loop asks how many pixels are freed by scrolling *k* rows off
+the top, and that is the band top of row *k* — `ryb[k-1] + [wd_gh]`. It read
+`+ 8`, so under a chosen face it credited itself `gh - 8` too few pixels a
+row and could scroll one row short of what the caret needed. `tests/wdcourier.py` is the gate and its first
+leg is that invariant read at the flush, which is exact; its per-row ink
+ratchet is kept as a cross-check and is honestly weaker — **it did not go red
+on this defect**, because the four rows it eats are a row's DESCENDERS and a
+sparse row has none. The source's own note beside `wd_ryb` records that six
+earlier sites carried the same literal; these are the three that were left.
+
+##### 68.6.2.1 ...and a BLANK row steps a glyph cell, not 8
+
+`wd_advblank` is the third way the walk enters a row, after a wrap and a
+paragraph mark. It is the padding `wd_walk`'s `.blank` loop draws below the
+note's last row, over rows the redraw still owns. It set `[wd_rowhv]` to a
+literal **8**, the same literal as 68.6.2 at a site that list did not reach. A
+blank row's erase runs from its glyph y for `[wd_gh]` rows, so in a 12-pixel
+face the first blank row started 8 pixels below the last real row and erased
+that row's bottom 4 pixel rows, which is where its descenders are. The field:
+*"Courier erases the last line when you arrow down to the very last line in
+the file"*, photographed as `Files too.` with its lower rows cut. Arrowing
+onto the last row is a redraw that pads past the end.
+
+It steps `[wd_gh]` now, so blank rows tile the band in whole glyph cells
+beneath the last row, and the kernel's cell is unchanged. Zero bytes: `mov ax,
+[wd_gh]` / `mov [wd_rowhv], ax` is the length of the immediate store it
+replaces, and its one caller reloads AX at the top of its loop.
+`tests/wdcourier.py` legs G and H are the gate. G: every visible row, blank
+or not, starts at least `[wd_gh]` below the row above it. H: the last line
+keeps ink below its first eight pixel rows, with one caret bar's tolerance.
+Both go red with the literal put back, and H read **8** px there against
+**199**.
+
+#### 68.6.3 The scroll bar's PAGE is the scroll clamp's own number
+
+Three quantities describe how much of the note the view holds, and only one
+of them may be handed to the bar:
+
+- **`[wd_vrows]`** is a count of whole EIGHT-pixel rows. It bounds the
+  signature array (§27.2) and is deliberately generous, because a row's
+  height is not known until the walk lays it out.
+- **`[wd_vfit]`** is the rows GUARANTEED to fit: the band divided by the
+  tallest row the note can hold.
+- **`wd_scrollmax`** is how far the view may scroll, `[wd_drows]` minus the
+  fit.
+
+`wd_sbset` handed the bar `[wd_vrows]` as its page. For a note with formats,
+`wd_scrollmax` subtracted `[wd_vfit]`, so the bar and the view disagreed
+about where the end was. The thumb reached the bottom of the bar with the
+view still rows short of the note's end. The field saw it in Courier: *"the
+scrollbar doesn't represent the actual bottom of the page... you can still
+click or arrow to scroll further down, but it isn't on the bar."* Measured on
+the Hercules 5150 with WELCOME.DOC in the disk's first face: the view stopped
+at top **21** of 29 rows while the bar's page of 25 put its own end at **4**.
+Pica had the same disagreement on any formatted note, only by less.
+
+The bar reads `[wd_vfit]` now, the number the clamp and PageUp/PageDown
+already used, so the thumb is at the bottom exactly when the view cannot
+scroll further. `[wd_vfit]` itself became face-aware. With no formats every
+row is the face's pitch `[wd_ghb]` apart, so band ÷ ghb is **exact**, and in
+the kernel's cell, where ghb is 8, it is `[wd_vrows]` to the row. With
+formats, double spacing and open space are each +8 over that pitch (§65.6),
+so the tallest row is ghb + 16: that is the 24 this always divided by in the
+kernel's cell, and a row it did not cover in a chosen face, where one is 30.
+`wd_scrollmax` lost its uniform branch, since both branches now subtract the
+same number, and `wd_lastrowy` lost its 8px arithmetic for the same reason.
+Word's image got **38 bytes smaller**.
+
+**What it does not do is make a formatted note's page exact.** The fit is a
+guarantee, so at the end of a formatted note the view still scrolls on until
+only that many rows are left, with blank band below them, and the thumb is
+that much smaller than what the glass shows. Exact would need the heights
+of the rows at the END of the note, which only a walk there knows. The bar
+and the view agreeing is the defect that was reported, and it is fixed.
+`tests/wdcourier.py` leg I is the gate: PageDown to the end, then the bar's
+own record must put its position at its own maximum.
+
 ### 68.7 Search, Replace, Go To
 
 Word 1.1 had no regex, and neither does this port: Note Pad's regex engine
@@ -94386,89 +95731,82 @@ Both radios are live; From..To filters by the level either rule produced,
 and a collection that found nothing toasts 'No table of contents entries'
 and inserts nothing.
 
-### 68.10 WORD.OVL — code that ships beside the package, not inside it
+### 68.10 Part 1 — the top of Word's own segment, inside WORD.O88
 
-A package's image + bss is capped at `APP_MAX_SIZE`, and that ceiling is not
-a budget anyone can raise: a package links at `org 0` and addresses itself
-with 16-bit offsets (§33), so image + bss can never reach 64KB whatever the
-heap has free. **A module has a segment of its own, so it does not spend the
-package's.** `WORD.OVL` is code that ships as a file beside `WORD.O88`, is
-read into a heap claim the first time one of its features is asked for, and
-is far-called through a dispatcher at its offset 0.
+A package's image + bss is capped at `APP_MAX_SIZE` = 61,440, and that is
+the **region** (§20.6), not the segment. Word stood at 61,425 of it. **The
+segment runs to 65,536, and a parted package's carve may run to 65,024**
+(§20.12: `op_size` refuses an unpacked run of 128 sectors), so Word ships as
+a parted package and puts code in the difference.
 
-The shape is the kernel's §2.8 on-demand module, not §52.11's self-contained
-driver, and the difference is the whole design: **the module keeps
-`DS` = the package's segment** and reaches the document, the claims and every
-`wd_*` variable through it exactly as resident code does. That is what makes
-moving a subsystem out a matter of moving its text rather than rewriting
-every data reference in it — the three candidate `.inc` files carry 375
-outgoing data references between them, and all 375 are free this way and
-would all break the other way.
+**`WORD.O88` is three pieces in one file.** Its image is
+`apps/word/wdload.asm`, a 1,357-byte loader that reads two parts and hands
+its identity to part 0 through `OSAPI_PKG_REHOME` (§20.12.10), after which its
+region is freed and it is gone. Part 0 is `word.asm`'s image with its bss
+shipped inside it (the kernel does not zero a part). Part 1 is `word.asm`'s
+`.modc` section. Both parts are `OP_SEG, OP_COMP`, and the icon and the `.DOC`
+association are one include, `apps/word/wdicon.inc`, read by both roots.
 
-**It costs no kernel byte.** Loading is the sequence `drivers/hdd/hdtool.inc`
-already uses (§52.11): `OSAPI_FILE_HERE` / `_GOTO` to reach the folder the
-package was launched from, `OSAPI_MEM_CLAIM` for the image,
-`OSAPI_FILE_READ` to fill it, and a far call. Every one of those is a slot a
-package already has.
+**Part 1 needs no mechanism to reach, and that is the design.** `op_load`
+lays the carve out at `roundup512(len)` a part (§20.12.7), and part 0 is
+exactly `WD_P1ORG` bytes long: `word.asm` declares its bss as running up to
+`WD_P1ORG`, so image + bss — the header's figure, I_SIZE, and part 0's length
+on the disk — is that one number. Part 1 is therefore laid down at offset
+`WD_P1ORG` **of the program's own segment**, and it is assembled there
+(`section .modc vstart=WD_P1ORG`). So:
 
-Two rules follow from the module having a `CS` of its own, and they are the
-only tax on writing code out there:
+* a call into it and a call out of it are both **near**; `cs:` still names
+  Word, `DS` never moves, and there is no vector, no shim and no stamp;
+* its data is DS-addressable like any other byte of the segment;
+* **a compaction moves it with the region**, because part 0 and part 1 are
+  one claim (§20.12.10.5 trims the carve's head, never its tail) — so the
+  region's relocation proc stays a bare `ret`.
 
-1. **A call from the module to resident code cannot be near.** It goes
-   through a vector — `call far [wd_v_*]`, a dword of (offset, segment) whose
-   offset is assembled in and whose segment `wd_ovbind` stamps at load. Each
-   vector points at a **shim**, never at the routine: every resident routine
-   is a near proc ending in `ret` (§20.1 — a package author never writes
-   `retf`), so far-calling one directly pops the offset, leaves the segment
-   on the stack and returns into nothing. The shim is the one place that
-   difference lives.
-2. **Nothing in the module may assume `CS`** beyond its own jump table, and
-   its data lives in `.text` with everything else.
+The loader checks the adjacency anyway, comparing `op_seg(1)` with part 0 plus
+image + bss in paragraphs and refusing the launch on a mismatch: the failure
+it guards is not a refusal but a jump into whatever the carve holds.
 
-**The cut.** `.modc` is assembled WITH the package — one assembly, so every
-symbol the module names is the address the package itself uses — and
-`tools/os88ovl.py` splits it off afterwards. NASM coalesces every `.text`
-fragment before it, so `.modc` lands at the end of the image whatever order
-the source is in, and the cut point is the image size the package header
-already carries at +8, where `tools/os88pkg.py` and the loader both read it.
-The layout therefore lives in one place. `align=1` on the section is
-load-bearing: a bin section aligns to 4 by default, and the pad would land
-between the recorded image size and the section's real start, so the cut
-would take the pad with it and the dispatcher would not be at offset 0.
+**One rule, and `tools/os88ovlchk.py` enforces it: part 1's CODE is never
+handed to anybody as an address.** The kernel bounds every entry point a
+package gives it — a paint or key proc, a worker, a relocation proc — by
+I_SIZE, and I_SIZE ends where part 1 begins. So every callback stays below
+`WD_P1ORG`; a routine the program only CALLS is free to live above it. The
+checker walks the package's expanded source and refuses a `.modc` code label
+(one assembled at a non-zero `vstart`) anywhere but as a branch target.
 
-**Refusal is an ordinary path** (§47). No heap, or a disk swapped for one
-without `WORD.OVL`, and the feature says which file is missing and the
-document is untouched. The load is UI-task only — it claims and it reads a
-floppy, both forbidden on a worker by §20.6 rule 7 — gated on `[wd_inwk]`,
-the same flag `wd_itinit` uses.
+**What it holds today** is the search pattern and the Utilities commands
+(§68.7, §68.9 — `wdutil.inc`, 2,736 bytes): menu-rate code, reached from five
+call sites. That took the image from 53,426 to 50,412 bytes. With `WD_P1ORG`
+at 0xE800 (59,392) part 0 carries 993 bytes of slack for the program's own
+growth, and part 1 may grow to 5,632 bytes before the carve's bound. The
+slack is RAM — the region is `WD_P1ORG` however much of it is used — so it is
+kept to the next sector up, and an assertion at `OS88_IMAGE_END` says when to
+raise it by 512.
 
-**Status, stated plainly because the mechanism is in the tree before any
-feature rides on it.** Proven on the emulator: the file is found and read
-into a claim, the far call reaches the dispatcher at offset 0, the verb table
-dispatches, the `retf` returns, and a far call OUT to a shim that only
-returns works.
+**The cost.** On the disk, `WORD.O88` is 44,585 bytes. The retired pair was
+~40,200 bytes for the package plus a `WORD.OVL` that held only a ping: +4.4KB,
+most of it the raw loader and the carve's sector alignment. Launching costs
+the loader's read and one decompression per part. In RAM the region is 59,392
+bytes plus part 1's 2,736, where it was 61,425, and the loader's own region is
+freed before the program runs.
 
-**The UI-touching shim was the open question, and it no longer reproduces.**
-The record used to say that calling `wd_saymsg` through `wd_s_saymsg` froze
-the app, that every static explanation had been checked and cleared, and that
-no feature could move out until the cause was understood. Re-run against the
-tree at §5.4.2.1: a temporary `WDM_SAY` verb was added in three variants —
-the toast through the shim, the toast called from the module's own segment,
-and a shim to a routine that touches nothing — and **all three work**, seven
-round trips interleaved, with editing across a paragraph break afterwards to
-show the app healthy. The likeliest explanation is that the defect was
-`gfx_blit1` restoring `DS` after its nest count rather than before (§5.4.2.1),
-which landed after that note was written and which the toast's own lettering
-goes through; that is an inference and is written down as one. The diagnosis
-hooks were removed; what stands is that the mechanism carries a call into the
-UI and back.
+**What it retired.** `WORD.OVL` was the §2.8 on-demand shape: a file beside
+the package, read into a heap claim through `OSAPI_FILE_HERE`/`_GOTO` from the
+launch folder, far-called through a dispatcher with vectors and `call/retf`
+shims for the way back. It carried only a `WDM_PING` verb and no feature ever
+moved into it, and it was a second file that had to travel with the first: a
+copy of `WORD.O88` without it was a Word whose module refused. The
+launch-folder banking, the claim, the vectors and 12 bytes of bss went with it.
+§73.14 is that far design for a **compiled** package and remains the right
+one there. A C package's code is not near-callable from a vstart the compiler
+does not control, and `CWORD.OVL` is 18,565 bytes, more than this carve's
+headroom.
 
-§73.14 is the same design for a **compiled** module, and it is proven the
-other way — by a capability gate that ships nothing, `tests/covl`, whose
-module calls back out into resident C that toasts. It also names the one place
-this design cannot be copied into C unchanged: a shim of `call` / `retf` puts
-a compiled routine's arguments two bytes further from its frame than every
-reference to them says.
+**Past the headroom** the next step is a far part: a lazy `OP_SEG` of its own
+claim, reached the way §73.14's overlay is, or large bss buffers moved into
+heap claims to shrink part 0. Neither is needed yet. `tests/wdparts.py` is the
+gate: the association launch, I_SIZE, the claim covering part 1, part 1's
+bytes at `WD_P1ORG`, and a search whose pattern compiler is part-1 code.
 
 ### 68.11 View > Page — the sheet
 
@@ -94722,7 +96060,26 @@ different typeface from the words either side of it — which reads as a bug rat
 than as italic. Upright in the right face is the better wrong answer until a face
 carries a drawn italic (§6.4's style 2).
 
-#### 68.13.1 Four bugs this cost — three fixed, one open — all worth writing down
+#### 68.13.1 Five bugs this cost — four fixed, one open — all worth writing down
+
+**A face change is a WRAP change, and owes the height with it.** `wd_a_csel`'s
+`.reflow` drops the four caches a new face invalidates — the signatures, the
+delta row, the checkpoint and `wd_rows` — and it did not drop the **height**.
+A face changes the advance of every character, so the note wraps into a
+different number of rows; `[wd_drows]` is that count and it is the scroll
+bar's whole range (`wd_sbset` hands it to `os88ui_sbar` as word 4). Left at
+the old face's count the bar describes a document that is not there, which is
+what the field reported after switching to Courier: *"the scrollbar doesn't
+represent the actual bottom of the page... you can still click or arrow to
+scroll further down, but it isn't on the bar."*
+
+`wd_hmark` is the one call for it and `wd_paint` already makes it for a
+**resize**, under *"the wrap width moved, so every row start moved with
+it"* — a face moves them identically, so this is the same event arriving by a
+different door. It drops the row index (§27.13) with the debt, which the
+reflow also owed and also was not paying: a table of where rows BEGIN
+describes the face that began them.
+
 
 **A literal that becomes a variable must be initialised before anything reads
 it.** `[wd_gh1]` — the glyph band's height less one, which replaced a hard `7` at
@@ -94808,6 +96165,34 @@ VALUE, not by meaning. `8` in this file is a glyph height, a row advance, a cell
 width, a tab stop and a byte column, and only a handful of the dozens of them
 are the height. Nothing but reading each one tells them apart, and a face whose
 height differs from its advance is the only test that separates them.
+
+#### 68.13.2 A centred or flush right row is measured in the FACE
+
+`wd_rowsetup` places a centred or flush right row by dry-running it through
+`wd_rowmeasure` for its width. That loop calls `wd_penadv`, whose answer is in
+AX, and then at `.take` read **AL as the character**: the tab test and
+`wd_scapof`/`wd_advof` asked about a character code equal to the advance.
+That is below the face's first glyph, so it measures as a space. **Every
+character of an aligned row measured as a space** in a chosen face. In the
+kernel's cell every advance is 8 whatever the character is asked, which is
+why it only showed up in a chosen face.
+
+In WELCOME.DOC's face it measured *"This one is flush right (Ctrl-R)."* as
+33 × 4 = 132 px against the real 164. So the row was placed 32 px too far
+right, the text ran past the margin, and the line WRAPPED although it fits.
+Its continuation row was then measured the same way, 9 × 4 = 36 against 44,
+so its first word no longer fitted where the row put it. The walk wrapped
+again before placing a character, leaving a row with **no characters in it**.
+No query can answer an empty row, so **Down stopped dead** on the line above
+it, and the last line of the note could not be reached by arrow at all. The
+field report of the last line being erased (68.6.2.1) was reachable only
+after this.
+
+`.take` reloads the character, 3 bytes. `tests/wdcourier.py` legs E and F are
+the gate. E: the flush-right paragraph is ONE row in the row table. F: Down
+walks from the top of the note to its last row without stalling. With the
+reload taken out, E reads the paragraph as rows 790..814 and F stalls at
+index 790 on row 12 of 31.
 
 ## 69. TeXPad — the TeX pad (`apps/texpad/texpad.asm`)
 
@@ -95276,10 +96661,10 @@ The whole of it, unchanged, is **§95.9**, and the file formats it needs are
 §95.5 to §95.8. What Word keeps from the episode is the three fixes that were
 not about pictures at all: `wd_ondlg`'s name bank is gone with the feature that
 needed it, but `tests/suite.py`'s `stkbalance` row still covers
-`apps/word/word.asm`, and `WORD.OVL`'s dispatcher still indexes through BP.
-
-Word's own overlay is back to the ping-only module it was: 18 bytes, the
-mechanism proven and no tenant.
+`apps/word/word.asm`. The overlay's dispatcher, which that episode taught to
+index through BP, went with `WORD.OVL` itself: §68.10 replaced the ping-only
+module with part 1 of `WORD.O88`, near-called at the top of Word's own
+segment.
 
 
 ## 70. Telnet — the terminal (`apps/telnet/telnet.asm`)
@@ -128019,8 +129404,8 @@ of that rule are load-bearing and the second is the subtler.
 The argument for the first is absolute addressing: a module that names its own
 bss names it at an **absolute** address, bss begins where the image ends, and
 two packages have different image sizes — so an include with private variables
-cannot serve a package that overlays it *and* a package that does not. WORD
-reaches this through `WORD.OVL`; PAINT would reach it resident.
+cannot serve a package that overlays it *and* a package that does not. SCRIBE
+reaches this through `SCRIBE.OVL`; PAINT would reach it resident.
 
 For the same reason **`IMG_ERR` is a number and not a string pointer**. A
 string in an overlaid module sits at a module-relative offset, and a resident

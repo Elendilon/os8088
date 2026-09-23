@@ -2817,3 +2817,268 @@ machine, which is what it was always about. The histogram prints that call as
 `1Fh disable driver`, which is not a second bug: `DOS_TR33_N` is 32 and
 anything above lands in the top bucket, so bucket 31 is a catch-all and the
 `IN ORDER` line (`00 03 03 05 06 90`) is the one that names the function.
+## 57. Word: Down at the END of a flush-right line redraws the WHOLE window, chrome included (FIXED — the caret SKIPPED the wrapped row below and landed past the walk's bound: SPEC.md 27.11.3)
+
+*"Putting the cursor at the end of the right aligned line, 17, then pressing
+'down' once redraws the entire window, including the whole interface."*
+
+Reproduced and traced on a cycle-accurate 5150 (Hercules, 25 visible rows),
+`WELCOME.DOC`, caret on the flush-right row, `End`, then one `ArrowDown`.
+Counted at `wd_rflush` (one hit per row DRAWN) and `wd_chrome` (which only a
+full repaint reaches): **70 row draws and 1 chrome pass**, over **6** walks,
+for a caret bar moving one row.
+
+**The arm is `wd_redraw.p1bad`, and it is NOT the scroll path.** Two theories
+were tested and both are wrong, which is most of what this entry is worth:
+
+1. *`wd_seecaret` says it scrolled when it did not.* It does not. `wd_scrollto`
+   documents *"CF=0 if `[wd_top]` moved"* and keeps that contract, and on this
+   gesture `.scrolled` is never reached at all.
+2. *`wd_scrollpaint` refuses on `jz .nope` and falls into `.fullpaint`.* Also
+   not reached. `wd_scrollpaint` does not run.
+
+What runs is `.p1one`'s bounded one-pass walk, and then:
+
+```
+    mov ax, [wd_dr1]
+    cmp ax, [wd_1pdr1]
+    je .p1ok                        ; ...or the walk's own tail widened the
+.p1bad:                             ; range past where the drawing reached
+    mov byte [wd_1pass], 0
+    jmp .full
+```
+
+Read at the breakpoint: `[wd_dr0]` = 18, `[wd_dr1]` = 18, `[wd_ymoved]` = 0,
+`[wd_1pdr1]` = **0**. So the test fires on the SECOND condition — and 0 is
+not evidence that the range widened, it is `[wd_1pdr1]`'s initial value from
+`.seeded1`. The one-pass walk made exactly ONE `wd_rflush` call and that row
+took `.justbank`, so nothing ever reached the `mov [wd_1pdr1], ax` that only
+a row `wd_rowdirty` calls DIRTY performs.
+
+**So the test conflates two different facts**: *the walk's tail widened the
+range after the drawing went past it* (which is what §27.4.6 put it there
+for, and is real — a note that SHRANK) and *no dirty row was drawn at all*.
+The second is what happens here, and the honest answer to it is not a full
+repaint of the window: it is to draw the rows that are still dirty, which is
+a bounded walk the machinery already has.
+
+That much was the first session's. **The fix is one level further down, and
+it is not in `.p1bad` at all.** Tracing which rows the walk visited, and not
+just the arm it took, showed the only dirty row was BELOW the walk's bound:
+
+```
+row 16  790..823  "This one is flush right (Ctrl-R).\r"   caret at the end, x=696
+row 17  824..907  "This one is double spaced ... as the "  soft-wrapped
+row 18  908..953  "shipped product's did.\r"
+Down:   [wd_mvbot] = 17 (the row it AIMED at), [wd_cur] = 908, dr0 = dr1 = 18
+```
+
+Down aimed at row 17 at x=696, which is past the end of that wrapped row. So
+the half-cell rule put the answer after the wrap space: index 908, the first
+character of row 18. The caret really did land on row 18, at the left margin.
+**The user-visible behaviour was a SKIP**, from the end of the flush-right
+line to the start of the row after the one below it, and the screenshots show
+it. The whole-window repaint came from that mismatch: `wd_move` bounded the
+walk at the row it aimed at, `wd_caretdr` marked the row the caret landed on,
+the walk stopped one row short of the only dirty row, and `[wd_1pdr1]` was
+never set.
+
+So `.p1bad` was right to refuse. A row that should have been drawn was not.
+The sentinel this entry proposed would have turned the slow screen into a
+stale one. SPEC.md 27.11.3 moves the answer instead: a query that runs past a
+soft-wrapped row's end stays on that row, before the hanging space. That is
+**36 bytes**. The first version of this note said 18, off a hand assembly.
+Measured after the fix, the same gesture is **1 walk, 1 row
+drawn, `.p1ok`, no caret net**, and a click right of a wrapped row got the
+same correction. `tests/wdreach.py` legs C to E are the gate, and all three
+go red with the call taken out.
+
+`[wd_1pdr1]`'s two meanings are still conflated. But the only way found to
+reach the conflation was this defect, and the net is correct to fall back to
+the full repaint while nothing else is known to reach it.
+
+## 58. Word: in Courier the scroll bar does not reach the bottom of the note (FIXED — the bar's page and the scroll clamp were two different numbers: SPEC.md 68.6.3)
+
+*"When switching to courier, the scrollbar doesn't represent the actual bottom
+of the page — I think it isn't resizing to Courier's different content height?
+You can still click or arrow to scroll further down, but it isn't on the bar."*
+
+Reproduced on a cycle-accurate 5150 (Hercules), `WELCOME.DOC`, the disk's
+first face picked from the ribbon's Font combo, then paged to the end:
+
+```
+   pica          top=  0 drows= 36 vrows=25 hdirty=0 prop=0 gh= 8
+   courier       top=  0 drows= 31 vrows=25 hdirty=0 prop=1 gh=12
+   at the end    top= 23 drows= 31 vrows=25
+   [wd_top] max would be drows-vrows = 6
+```
+
+**`[wd_vrows]` is 25 with a 12-pixel glyph band.** `wd_bounds` computes it as
+`1 + (band - 7) / 8` — three `shr ax, 1` and a literal `7` — which is the
+kernel's cell, and its own comment says what it is for: *"how many whole 8px
+rows that is, which is what the signature array is indexed by (§27.2)"*. As an
+ARRAY BOUND that is correct and deliberately an over-estimate; `[wd_vfit]` is
+the separate, face-aware *"rows GUARANTEED to fit"* number that exists because
+of it.
+
+The bug is that `wd_sbset` hands `[wd_vrows]` to `os88ui_sbar` as **word 4,
+the page size**, and `wd_scrollmax` computes `drows - vrows` from it. So on a
+12-pixel face the bar is told the window shows 25 of 31 rows when it shows
+about 13, and `[wd_top]` settles at 23 against a claimed maximum of 6. No
+thumb can be drawn sanely from that triple, which is the photograph.
+
+**Not fixed, because the fix is a contract decision and not a line.**
+`[wd_vrows]` cannot simply be made exact: `wd_bounds` runs BEFORE any walk and
+a row's height is not known until the walk lays it out — which is the whole
+reason the 8px upper bound and `[wd_vfit]` both exist. The honest answer is a
+THIRD number, the page actually on the glass, which the banked ys already
+answer exactly (`wd_lastrowy` walks `wd_ryb` back to the last row whose band
+fits `[wd_bot]`) and which the redraw tail could refresh for `wd_sbset` and
+`wd_scrollmax` to read. Estimated 40–60 bytes. `[wd_vfit]` is NOT a
+substitute: band/24 reads 8 where the truth is about 13, which trades a bar
+that over-reports for one that under-reports.
+
+**What WAS fixed alongside this, and is not the cure**: `wd_a_csel`'s
+`.reflow` never dropped the height debt or the row index on a face change
+(§68.13.1). That is a genuine staleness — a table of where rows BEGIN
+describes the face that began them — and `tests/wdcourier.py` leg C gates it.
+It is recorded here so the next reader does not mistake it for this entry's
+answer: `[wd_drows]` was measured going 36 → 31 across the face change on the
+build WITHOUT that fix as well, because the height worker re-counts anyway.
+
+**Fixed, and the first note's reasoning was right about the bar and wrong
+about the clamp.** WELCOME.DOC has formats (double spacing, open space), so
+`wd_scrollmax` never used `[wd_vrows]` for it: it used `[wd_vfit]`, band/24,
+which is 8. The view could scroll to 31 − 8 = **23** while the bar's page of
+25 put its end at **6**. The defect is that the two disagree, and the fix is
+that `wd_sbset` hands the bar `[wd_vfit]`, the clamp's own number. The *"third
+number"* this entry proposed (40–60 bytes) is not needed for that. `[wd_vfit]`
+was made face-aware alongside, exact for a note with no formats, and Word's
+image came out 38 bytes smaller. What stays is a formatted note's
+over-scroll at the very end, which the clamp has always allowed. SPEC.md
+68.6.3 says why exact would need a walk at the end of the note.
+`tests/wdcourier.py` leg I is the gate.
+
+## 59. Word: a drag that auto-scrolls leaves the rows it scrolled past unselected (FIXED — the rows were never REDRAWN inverted, and two table defects rode along: SPEC.md 27.8.2.4)
+
+*"Click and hold somewhere in the middle of the doc, move the mouse below the
+window, wait for it to scroll down — scrolled text is not selected... the
+lines at the bottom that have been scrolled already through dragging are
+incorrectly not selected."* The photograph shows the inversion stopping four
+lines above the bottom of a view with more document below it, in **Pica**,
+with the pointer still parked under the window.
+
+**The selection itself is never wrong.** `[wd_sel0]`/`[wd_sel1]` cover the
+anchor to `[wd_cur]` throughout and `wd_selq` answers correctly for every
+character in them. What lags is `[wd_cur]` — the END the drag moves. Measured
+mid-drag on `WELCOME.DOC` (36 rows, 25-row view):
+
+```
+  top= 13  cur= 1176  sel1= 1259 | last visible row 19 begins 1316 | cur is row 17
+```
+
+so the caret is two rows above the bottom of the glass and the rows between
+are drawn and not inverted, which is the photograph.
+
+**TWO THEORIES WERE TESTED AND BOTH ARE WRONG**, which is most of what this
+entry is worth.
+
+1. *The view runs off the END of the note, so there is nothing to invert.*
+   This is a REAL defect and it is not this one — see below — but it is not
+   what the field sees. A hand-speed drag stops at the note's end; the report
+   has document below the fold.
+2. *`wd_lastrowy`'s fallback names a row above the last one on the glass.* It
+   does, in a **chosen face** — §27.8.2.3 fixes that — and in the kernel's
+   cell the old and new expressions are **the same number to the pixel**
+   (`ty + 24*8` = 302, `bot - gh1` = 302). The report is in Pica, so this
+   cannot be its cause. Measured before and after: median lag 1, worst 2–3,
+   unchanged.
+
+What is established is where to look next: `wd_hitpt` computes the clamped y
+BEFORE `wd_scrollto` and resolves it AFTER, and `wd_scrollto` drops the
+banked tables in between (§27.7.2), so every auto-scroll step resolves
+through the unseeded path. The lag is between the scroll and the resolve, not
+in either alone.
+
+**Fixed, and neither theory above nor the lag was the reported defect.**
+Stopping the guest at `wd_dragsel`'s loop head, so the redraw is finished,
+and photographing the glass settles it. Every row the drag scrolled IN is
+drawn upright while `[wd_sel0]`..`[wd_sel1]` covers it. `wd_redraw` reaches
+`wd_scrollpaint` through `.scrolled0` with an empty dirty range, so the rows a
+drag step's caret end crossed are blitted across un-inverted and never drawn
+again. The lag was real too but it was a separate thing: `wd_hitpt` seeded
+from the pre-scroll tables. And a third defect came out while measuring it:
+the measure walk banked `wd_rows` between the scroll and the shift, so the
+table was a row off the glass after every drag step. That is also why the
+first session's "cur is row 17, last visible 19" could not be trusted, being
+read off that table. SPEC.md 27.8.2.4 has all three, and `tests/wddrag.py`
+is the gate. Word paid for it by factoring thirteen copies of *white pen,
+fill*, which bought 128 bytes.
+
+### 59.1 The runaway, which is a separate defect and reproduces on demand (FIXED — a seed on one of the blank rows banked below the end: SPEC.md 27.7.11)
+
+A FAST drag — the harness moves the pointer in one step — shows the other
+half. `wd_walk`'s `.stop` raises `[wd_drows]` to a lower bound computed as
+`[wd_row] + [wd_top] + 1`, so `wd_scrollmax` can never clamp the view short
+of a caret that has just moved past the old bottom. **`[wd_top]` is the
+quantity `wd_scrollmax` exists to bound**, so once the view is past the end
+of the note each step raises the ceiling by exactly the step that got it
+there:
+
+| `[wd_top]` | 12 | 59 | 85 | 114 | 143 | 309 | 337 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `[wd_drows]` | 36 | 83 | 109 | 139 | 168 | 334 | 361 |
+
+`[wd_top]` reached **337 on a 36-row note**, every visible row beginning at
+the terminator. It is a positive feedback loop between a clamp and the number
+it clamps against.
+
+**A guard on `[wd_stopi] >= [wd_len]` was built and DOES NOT WORK**, and that
+is worth recording: the walk seeds at the top of a view past the end, lays
+out blank rows, and stops with `[wd_i]` at **1514** of a 1524-byte note — the
+last real row's start, inside the note — so the test never fires. It was
+backed out. The distinguishing fact is not where the stopped row BEGINS but
+whether any row exists below it, and the bounded walk does not currently
+answer that.
+
+
+**Fixed, and PageDown reached it too.** Profiling Up and Down for 5 turned it
+up with no drag at all. On WELCOME.DOC in Pica, PageDown to the end went top
+24 → 28 with `[wd_drows]` 36 → **48**, then 52, 61, 69, and so on without
+limit. That was on `be33f94`, the tree this entry was written on. The walk
+that set 48 was `wd_scrollpaint`'s. It seeded at its band's first row out of
+the table it had just shifted, and that entry was one of the blank rows `.blank`
+draws below the end, banked starting at `[wd_len]` like every row in the
+table. So the walk reached `.done` immediately and took its own row number as
+the note's height. The guard this entry backed out tested where the stopped
+row BEGINS. What distinguishes the case is whether the row ABOVE the seed
+also begins at the end, and `wd_seedrow` now refuses on that (SPEC.md
+27.7.11). `tests/wddrag.py` leg C is the gate, and the fast drag's one-row
+overshoot went with it.
+## 60. Word: in Courier, arrowing to the LAST line erases its bottom (FIXED — two defects, and the first hid the second: SPEC.md 68.13.2, 68.6.2.1)
+
+*"Also seems fixed, except for when you arrow down to the very last line in
+the file."* That was after 68.6.2 fixed the general Courier erase, with a
+photograph showing `Files too.` at the bottom of the view with its lower rows
+cut.
+
+**Reproducing it on the glass took a fix first.** On a Hercules 5150 with the
+disk's first face (`[wd_gh]` 12, `[wd_ghb]` 14), Down from the top of
+WELCOME.DOC **stopped dead at row 12**, the flush-right line: the caret
+stayed at 790, the view never scrolled, and the key repainted 28 rows. It
+was the same on the tree before this cycle. The trace was short. The
+flush-right line had wrapped, and its continuation row came out EMPTY
+because the walk wrapped before placing its first character, so the want
+query had no row to answer. Behind that, `wd_rowmeasure` was measuring every
+character as a space, because it read the advance `wd_penadv` left in AL as
+if it were the character (SPEC.md 68.13.2). Every centred and flush right
+row in a chosen face was mis-placed by it.
+
+With that fixed, Down walks to the last row and the reported defect is right
+there. The blank padding row below the last line stepped a literal 8 in a
+12-pixel face, so its erase started inside the last line and took its bottom
+4 pixel rows (SPEC.md 68.6.2.1). The descenders of *"Save your own documents
+... plain text files too."* were gone, which is the photograph.
+
+3 bytes between them. `tests/wdcourier.py` legs E to H are the gate, and
+each half turns its own legs red when taken out.

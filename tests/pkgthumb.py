@@ -197,18 +197,17 @@ if APP == "frotz":
     need("build/frotz.o88", "build/zt/ZOPS.Z5")
     EXTRA = ["build/zt/ZOPS.Z5"]
 elif APP == "word":
-    # Word is not on the apps disk and it ships in TWO pieces: WORD.OVL is
-    # far-called out of the package image (SPEC.md 68.10) and the document is
-    # its own format, so this borrows the three artifacts `make worddisk`
-    # builds rather than writing a .DOC by hand.
+    # Word is not on the apps disk and the document is its own format, so
+    # this borrows the two artifacts `make worddisk` builds rather than
+    # writing a .DOC by hand.
     #
     # os88fixture.need is SAFE AGAIN here, and it was not while the gesture was
     # a knob: `make` for a fixture runs with no knob variables, and the
     # VIDSTAMP rule then removed build/kernel.bin because the knob set
     # differed. The drag ships now, so a plain `make` is the build under test.
     from os88fixture import need
-    need("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")
-    EXTRA = ["build/WORD.OVL", "build/WELCOME.DOC"]
+    need("build/word.o88", "build/WELCOME.DOC")
+    EXTRA = ["build/WELCOME.DOC"]
 M.scratch_disk(DISK, PKG, *(EXTRA or [LONG]))
 
 OPEN = {"word": "WELCOME.DOC", "frotz": "ZOPS.Z5"}.get(APP, DOC[0])
