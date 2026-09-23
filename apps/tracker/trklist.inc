@@ -603,8 +603,12 @@ tpl_paint:
     call tpl_unorg
     ret
 
-; tpl_refresh - what changed, from a handler: arms the clip on the editor
+; tpl_refresh - what changed, from a handler: arms the clip on the editor.
+; Never inside the fsx bracket: N/B walk the list from there, and the editor
+; window still exists under a surface that is not the desktop's (SPEC.md 53.7)
 tpl_refresh:
+    cmp byte [trk_fs], 0
+    jne .out
     call tpl_visible
     jc .out
     push bx
