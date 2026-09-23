@@ -1581,6 +1581,7 @@ ti_baseh:   dw 0                    ; ...and its rows: three lanes
 ti_bas:     dw 0                    ; ...and its band's stride in bytes
 ti_b1x:     dw 0                    ; P1's base x, behind column 0
 ti_b2x:     dw 0                    ; P2's, behind column 3
+ti_bgap:    dw 0                    ; fullscreen: each base's gap to the board
 ti_basey:   dw 0                    ; P1's base, a whole LIFT lower...
 ti_basey2:  dw 0                    ; ...and P2's, at the board's top edge
 ti_p1x:     dw 0                    ; the shear's empty corners, where each

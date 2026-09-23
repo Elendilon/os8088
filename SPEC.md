@@ -139920,6 +139920,20 @@ is empty *below* it; P2's began at the exact row its rear column's last cell
 ends, so it read as wedged against the board. Half the slack is the nudge — 14
 pixels on a VGA, 2 on the two 1bpp rows, which is all those have.
 
+**…AND IT ENDS AT THE BOARD'S RIGHT EDGE.** P1's block starts at the board's
+left edge, so P2's mirrors it: `ti_p2x` is the board's right edge less the
+block's width, which is **24** stacked (a coin and two digits) and **56** in one
+row, where P2 draws no swaps. `ti_res_draw`'s own `LIFT < 24` test picks between
+the two, and `ti_layout` asks the same question. It began a cell in from that
+edge, so the numbers stopped short of the board by most of a column.
+
+**IN FULLSCREEN THE BASES STAND OUT.** A windowed board has its bases hard
+against its rear columns because the width binds; fullscreen has room either
+side of a centred board, so each base moves out by up to `TI_BASEGAP` = 32
+pixels (`ti_bgap`) and the board and its two bases stay centred as one. A
+whole number of bytes, so every x after it stays aligned; windowed and on CGA
+it is 0.
+
 **A SHALLOW RESOURCE CORNER GOES SIDEWAYS.** The shear's empty strips carry each
 player's gold, souls and swaps (§97.3), and a CGA's lift is **twelve pixels** —
 one glyph row. Stacked, that showed the first field and refused the other two,

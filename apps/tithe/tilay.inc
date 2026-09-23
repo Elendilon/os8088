@@ -47,6 +47,10 @@ TI_HCARDMIN equ 64                ; a card shorter than this is not a
                                   ; they are wide
 TI_HCARDMAX equ 112
 TI_HCOMMITW equ 64                ; the COMMIT column's least width
+TI_BASEGAP  equ 32                ; ...and how far out a fullscreen base may
+                                  ; stand from its rear column
+TI_RESW     equ 24                ; P2's resource block, stacked...
+TI_RESWSIDE equ 56                ; ...and in one row (ti_res_draw)
 
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
@@ -237,6 +241,7 @@ ti_layout:
                                     ; the first aligned column is derived here,
                                     ; and the <=7 pixels of lead-in are charged
                                     ; to the fit check below
+    mov word [ti_bgap], 0
     cmp byte [ti_horiz], 0          ; ...and with no strip down the right the
     je .left                        ; board CENTRES, by a whole number of
     push bx                         ; bytes so every x below stays aligned
@@ -251,8 +256,15 @@ ti_layout:
     jb .nocen
     sub cx, [ti_basew]
     jb .nocen
-    shr cx, 1
+    shr cx, 1                       ; the room each side...
     and cx, 0FFF8h
+    mov bx, cx                      ; ...and THE BASES STAND OUT IN IT: a
+    cmp bx, TI_BASEGAP              ; fullscreen board has the width, so each
+    jbe .gap                        ; base moves away from its rear column by
+    mov bx, TI_BASEGAP              ; up to TI_BASEGAP and the board and its
+.gap:                               ; two bases stay centred as one
+    mov [ti_bgap], bx
+    sub cx, bx
     add ax, cx
 .nocen:
     pop cx
@@ -260,8 +272,10 @@ ti_layout:
 .left:
     mov [ti_b1x], ax                ; P1's base, hard against the left
     add ax, [ti_basew]
+    add ax, [ti_bgap]
     mov [ti_bx], ax                 ; ...then the four combat columns
     add ax, [ti_boardw]
+    add ax, [ti_bgap]
     mov [ti_b2x], ax                ; ...then P2's, behind their rear column
     mov ax, [ti_oy]
     add ax, [ti_hud]
@@ -293,9 +307,13 @@ ti_layout:
     mov [ti_p1x], ax
     mov ax, [ti_by]
     mov [ti_p1y], ax
-    mov ax, [ti_bx]
-    add ax, [ti_boardw]
-    sub ax, [ti_cw]
+    mov ax, [ti_bx]                 ; P2's ENDS AT THE BOARD'S RIGHT EDGE, as
+    add ax, [ti_boardw]             ; P1's starts at its left: the stacked
+    sub ax, TI_RESW                 ; block is 24 wide (a coin and two digits)
+    cmp word [ti_lift], 24          ; and the sideways one, which P2 draws
+    jae .p2w                        ; with no swaps, is 56 - ti_res_draw's
+    sub ax, TI_RESWSIDE - TI_RESW   ; own test picks between them
+.p2w:
     mov [ti_p2x], ax
     pop ax                          ; 5 * CH again
     add ax, [ti_by]
@@ -330,6 +348,8 @@ ti_layout:
     add ax, [ti_boardw]
     add ax, [ti_basew]
     add ax, [ti_basew]
+    add ax, [ti_bgap]
+    add ax, [ti_bgap]
     add ax, [ti_pan]
     cmp ax, [ti_cw_box]
     ja .no
