@@ -1803,7 +1803,6 @@ tw_scope:
 
 ; tw_scclr - clear the band. clobbers AX, CX, DI; ES = DS
 tw_scclr:
-    mov byte [ttx_shok], 0          ; the band IS the text shadow: spent
     push ds
     pop es
     mov ax, [tw_scr]
@@ -2909,13 +2908,10 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
     TRKB tw_scflat                  ; the flat trace is on the glass
     TRKW tw_scr                     ; the scope band's rows...
     TRKW tw_scy                     ; ...and its y
-tw_scb      equ ttx_shadow          ; the band itself: BORROWED from the text
-%if TW_SCSTR * TW_SCMAX + 2 > TTX_SHBYTES   ; screen's pattern shadow (45.13.2),
-  %error "the scope band no longer fits the text screen's shadow"
-%endif                              ; which only a text bracket reads - and
-                                    ; tw_scope says it is spent (ttx_shok = 0)
-                                    ; so the next one rebuilds it. 1,858 bytes
-                                    ; of bss the 60KB package could not spare
+    TRKBUF tw_scb, TW_SCSTR * TW_SCMAX + 2  ; the band itself. It BORROWED
+                                    ; the text screen's pattern shadow until
+                                    ; that became a claim held only inside a
+                                    ; text bracket (SPEC.md 45.13.8)
     TRKW tw_el                      ; stream bytes HEARD this song (32-bit)
     TRKW tw_el_hi
     TRKW tw_lplay                   ; [tui_play] as the last frame saw it

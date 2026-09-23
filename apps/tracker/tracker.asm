@@ -113,6 +113,13 @@
     OS88_ASSOC_EXT 'MOD'
     OS88_ASSOC16_END
 
+; --- the volume table's rows: 64 >> TRK_VSH (SPEC.md 45.4.1) -----------------
+%ifndef TRK_VSH                     ; 2 SHIPS: 16 rows plus silence = 17
+%define TRK_VSH 2                   ; levels, 4,096 bytes. 1 is 33 levels
+%endif                              ; (8,192) and 0 is 65 (16,384), the old
+                                    ; table. `make trkvol` builds those two,
+                                    ; titled to say which, beside the default
+
 ; --- the package-wide bss macros (the Arkanoid %assign pattern) ----------------
 ; Pinned interface: defined HERE, at the top, before any %include of
 ; trkplay.inc / trkui.inc, so all three files declare bss through the same
@@ -1524,6 +1531,7 @@ trk_fs_enter:
     push ax
     push bx
     push cx
+    push dx
     cmp byte [trk_fs], 0
     jne .out                        ; the bracket blocks, so this is belt-only
 %ifdef TTXFSANY
@@ -1587,6 +1595,14 @@ trk_fs_enter:
     je .run
     loop .drain
 .run:
+    call trk_txon                   ; THE TEXT SCREEN'S SHADOW IS CLAIMED HERE
+    je .noshadow                    ; (SPEC.md 45.13.8), before the bracket
+    mov ax, (TTX_SHBYTES + 1023) / 1024   ; and not in it: a refusal must
+    call OSAPI_MEM_CLAIM            ; still leave a screen to fall back to,
+    jc .noshadow                    ; and ttx_begin refusing on a zero
+    mov [ttx_shseg], dx             ; [ttx_shseg] is that fall-back - the
+    mov byte [ttx_shok], 0          ; graphics bracket. A NEW claim holds
+.noshadow:                          ; nothing, so the shadow is rebuilt
     mov ax, trk_fsx_main
     mov bx, [trk_win]
 %ifdef TTXNOFAST
@@ -1601,7 +1617,13 @@ trk_fs_enter:
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
     mov byte [trk_fs], 0            ; back to the windowed splash
+    mov dx, [ttx_shseg]             ; ...and the shadow goes back to the heap:
+    or dx, dx                       ; nothing outside a text bracket reads it
+    jz .out
+    call OSAPI_MEM_FREE
+    mov word [ttx_shseg], 0
 .out:
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -3224,6 +3246,12 @@ trk_feed:
     jmp .out
 .go:
     mov byte [trk_halves], 0
+    mov byte [trk_whole], 0         ; THE XT AT 11 kHz MIXES WHOLE HALVES
+    cmp byte [mp_xt], 0             ; (SPEC.md 45.16.7.1). There a half is
+    je .fill                        ; 186 ms of music and nearly as much 8088,
+    cmp word [mp_mixrate], 11000    ; so the pieces' frame a tick is paid for
+    jb .fill                        ; out of the cushion: a busy passage
+    mov byte [trk_whole], 1         ; drains it and it never refills
 .fill:
     cmp byte [trk_sopen], 0         ; a UI close mid-pass ends the burst
     je .out                         ; (bounds trk_stream_close's drain wait)
@@ -3251,6 +3279,8 @@ trk_feed:
     ; finishes the half at once, so the cushion is never traded for a frame.
     mov cx, TRK_HALF
     sub cx, [trk_mixed]             ; CX = what the half still needs
+    cmp byte [trk_whole], 0
+    jne .piece                      ; the XT at 11 kHz: all of it, always
     cmp ax, TRK_LOW
     jb .piece                       ; low: all of it, now
     cmp cx, TRK_PIECE
@@ -3285,6 +3315,8 @@ trk_feed:
 .part:
     pop dx
 .next:
+    cmp byte [trk_whole], 0         ; ...and it fills the ring before it
+    jne .fill                       ; draws, which is what it always did
     mov ax, [trk_total]             ; low: go round and fill regardless
     sub ax, dx
     cmp ax, TRK_LOW
@@ -3452,7 +3484,13 @@ trk_xrmsg:   dw trk_s_xm55, trk_s_xm11
 trk_s_xm55:  db 'Rate: 5.5 kHz - Enter plays', 0
 trk_s_xm11:  db 'Rate: 11 kHz - windowed only', 0
 
+%if TRK_VSH == 1
+trk_ttl:     db 'Tracker 33', 0     ; the listening builds say which they are
+%elif TRK_VSH == 0
+trk_ttl:     db 'Tracker 65', 0
+%else
 trk_ttl:     db 'Tracker', 0
+%endif
 
 ; --- status-line strings -------------------------------------------------------
 trk_s_stopd:  db 'Stopped  ENTER play  HOME top  L load', 0
@@ -3692,6 +3730,8 @@ trk_reloc:
     TRKB trk_halves                 ; halves fed this wake (bounds the burst)
     TRKW trk_mixed                  ; bytes of the half in mp_outbuf so far
     TRKW trk_wtick                  ; the tick the worker's pass is for
+    TRKB trk_whole                  ; this feed pass mixes whole halves and
+                                    ; fills the ring (SPEC.md 45.16.7.1)
     TRKB trk_rsel                   ; the Rate menu's pick (SPEC.md 45.10):
                                     ; 0/1/2 = 11/22/44 kHz; bss zeroes to
                                     ; the 11 kHz default

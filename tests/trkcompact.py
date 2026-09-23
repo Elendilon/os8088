@@ -62,7 +62,10 @@ MEM_PG_MIN, MEM_PG_MAX = 0xFB, 0xFE     # the purge tiers (SPEC.md 50.6.4)
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--machine", default="os8088_5150_cga_gla")
+    # 512KB, not 640: since SPEC.md 45.4.1 a region is 38KB and the eleven
+    # instances INST_MAX leaves no longer fill 640KB (the row said so, as
+    # "more heap than the test can fill"). The count below is still derived.
+    ap.add_argument("--machine", default="os8088_5150_cga_512k_gla")
     a = ap.parse_args()
 
     P = pkg_syms("apps/tracker/tracker.asm")
