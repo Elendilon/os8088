@@ -36,6 +36,7 @@ TI_G_CARDH  equ 16               ; a hand row's height in the card panel
 TI_G_INSX   equ 18               ; the band's inset inside its cell, which is
                                  ; ALSO the width of the stat column left of it
 TI_G_SIZE   equ 20
+TI_GCGA     equ 2                 ; the surface index a CGA gets (ti_georow)
 
 ; THE FULLSCREEN HAND (SPEC.md 97.4.12) is derived rather than tabled: the
 ; card is as tall as the rows under the board allow, up to a portrait's 112.
@@ -71,25 +72,25 @@ TI_RESWSIDE equ 56                ; ...and in one row (ti_res_draw)
 ti_georow:
     call OSAPI_VIDEO                ; AX=w BX=h CX=dock row DL=adapter DH=bpp
     mov si, ti_geo_vgaw
-    mov word [ti_gidx], 1           ; THE INDEX IS SET WITH THE POINTER, and
-    cmp dh, 1                       ; not derived from it: TI_G_SIZE is 22, so
+    mov word [ti_gidx], 0           ; THE INDEX IS SET WITH THE POINTER, and
+    cmp dh, 1                       ; not derived from it: TI_G_SIZE is 20, so
     jbe .mono                       ; a pointer difference is a DIVIDE where
     ret                             ; four stores are free. SPEC.md's own rule
                                     ; is to branch on DEPTH, and on the adapter
                                     ; only to tell the two 1bpp ones apart.
-                                    ; VGA FULLSCREEN TAKES THE WINDOWED BOARD
-                                    ; (SPEC.md 97.4.12): the fullscreen row's
-                                    ; board is 366 rows with its lip and cliff
-                                    ; and leaves 78 for a hand - a card 70
-                                    ; tall, which is not a portrait. The
-                                    ; windowed one leaves 117
+                                    ; ONE VGA ROW, windowed and fullscreen
+                                    ; alike (SPEC.md 97.4.12): a fullscreen
+                                    ; board of its own was 366 rows with its
+                                    ; lip and cliff and left 78 for a hand -
+                                    ; a card 70 tall, which is not a
+                                    ; portrait - so it and its art are gone
 .mono:
     mov si, ti_geo_herc
-    mov word [ti_gidx], 2
+    mov word [ti_gidx], 1
     cmp dl, VID_CGA
     jne .have
     mov si, ti_geo_cga
-    mov word [ti_gidx], 3
+    mov word [ti_gidx], 2
 .have:
     ret
 
@@ -201,7 +202,7 @@ ti_layout:
     mov byte [ti_horiz], 0
     cmp byte [ti_full], 0
     je .strip
-    cmp word [ti_gidx], 3
+    cmp word [ti_gidx], TI_GCGA
     je .strip
     mov ax, [ti_ch_box]
     sub ax, [ti_hud]

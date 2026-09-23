@@ -47,17 +47,19 @@ T, I, K = 0, 1, 2                                   # nothing, ink, black
 
 # The FIGURE band, out of ti_geo_*'s BW and BH, and the MINI UNIT that rides a
 # card (TI_UNITW by ti_unith). (name, w, h, pixel aspect)
+# THREE BOARD SURFACES, the VGA fullscreen one DELETED: fullscreen VGA takes the
+# windowed board (SPEC.md 97.4.12), so its 64 x 48 figures were reached by
+# nothing. The unit surfaces follow the board's in the same order, because the
+# package reads a unit record at TI_CHAR_BG + its surface.
 SURFACES = [
-    ("vga-full", 64, 48, 1.00),
     ("vga",      64, 44, 1.00),
     ("herc",     64, 32, 1.55),
     ("cga",      64, 18, 2.40),
-    ("unit-vga-full", 24, 30, 1.00),
     ("unit-vga",      24, 26, 1.00),
     ("unit-herc",     24, 18, 1.55),
     ("unit-cga",      24,  7, 2.40),
 ]
-BOARD_G = 4                     # the first four are the BOARD's
+BOARD_G = 3                     # the first three are the BOARD's
 POSES = 4                       # a ping-pong idle: A B C B (SPEC.md 97.5)
 MW, MH = 28, 42                 # the MASTER canvas every figure is drawn on
 MARGIN = 3                      # columns each side a board figure may not

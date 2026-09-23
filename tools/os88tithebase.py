@@ -50,7 +50,6 @@ import os88marty                                             # noqa: E402
 # ASPECT is how many times TALLER than wide one pixel is: a shape judged on the
 # stored band alone is judged on the wrong picture, and CGA is 2.4x out.
 SURFACES = [
-    ("vga-full", 56, 156, 1.00),
     ("vga",      56, 144, 1.00),
     ("herc",     72, 108, 1.55),
     ("cga",      48,  60, 2.40),
@@ -873,8 +872,8 @@ def emit(path):
         lines.append(".n_%s: db '%-*s', 0" % (c[0], wide, n[:wide]))
     lines.append("")
     lines.append("ti_bart_tab:")
-    for i in range(0, len(tab), 4):
-        lines.append("    dw " + ", ".join(tab[i:i + 4]))
+    for i in range(0, len(tab), len(SURFACES)):     # a candidate a line
+        lines.append("    dw " + ", ".join(tab[i:i + len(SURFACES)]))
     lines.append("")
     lines += body
     open(path, "w").write("\n".join(lines) + "\n")
@@ -907,8 +906,8 @@ def geocheck(bad):
     rows = {}
     for m in re.finditer(r"^ti_geo_(\w+):\s*dw\s+(.+)$", src, re.M):
         rows[m.group(1)] = [int(x) for x in m.group(2).split(",")]
-    want = {"vgaf": "vga-full", "vgaw": "vga", "herc": "herc", "cga": "cga"}
-    order = ["vgaf", "vgaw", "herc", "cga"]
+    want = {"vgaw": "vga", "herc": "herc", "cga": "cga"}
+    order = ["vgaw", "herc", "cga"]
     if [want[k] for k in order] != [x[0] for x in SURFACES]:
         bad.append("SURFACES is not in ti_geo_*'s own order")
         return

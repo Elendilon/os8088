@@ -139884,10 +139884,20 @@ aspect — `ddlay.inc`'s rule one game along (§93.3), and for its reason.
 
 | surface | HUD | panel | **base** | cell | `RISE` | board box | sprite band | content it needs | apparent |
 |---|---|---|---|---|---|---|---|---|---|
-| VGA 640×480 fullscreen | 36 | 136 | 56 × 156 | 96 × 52 | 22 | 384 × 326 | 64 × 48 | 632 × 362 | 1.85 : 1 |
 | VGA windowed | 28 | 128 | 56 × 144 | 96 × 48 | 20 | 384 × 300 | 64 × 44 | 624 × 328 | 2.00 : 1 |
 | Hercules 720×348 | 28 | 152 | 72 × 108 | 104 × 36 | 12 | 416 × 216 | 64 × 32 | 712 × 244 | 1.93 : 1 |
 | CGA 640×200 | 16 | 152 | 48 × 60 | 96 × 20 | 4 | 384 × 112 | 64 × 18 | 632 × 128 | 2.00 : 1 |
+
+**THREE SURFACES, and there were four.** A VGA 640×480 fullscreen row (a 96 ×
+52 cell, 22 rise, 64 × 48 figures) had its own board and its own art until the
+fullscreen hand (§97.4.12) took the windowed board instead, and nothing reached
+it after that; it was **deleted** — the row, its 64 × 48 figures and units, its
+bases and its ground — for **6,075 bytes of package image** (48,254 → 42,179:
+4,981 of it the bases' art, 736 a HUD band two rows shallower) and 1,152 of its
+bss and **4,116 of the art part** (22,789 →
+18,673), and every claim sized for its 384-byte band came down to the VGA's
+352: the arena 45 → 41 KB, the attack frames 40 → 37, the portraits 11 → 10.
+The surface index is 0 VGA, 1 Hercules, 2 CGA (`TI_GCGA`).
 
 The content a row needs is `BASE + 4·CW + BASE + PAN` across by
 `5·CH + 3·RISE + HUD` down, and the width reads left to right as the board
@@ -139948,9 +139958,9 @@ which. A deep corner keeps the label and the stack.
 **Each player's base sits outside the grid, behind their rear column** — column
 0 is P1's rear and column 3 is P2's — so the grid does **not** start at the
 content's left edge. `baseh` is **three lanes** (3 × `CH`) and `basew` is a
-table field, so every surface reserves a **tall narrow slab** — 56×156, 56×144,
+table field, so every surface reserves a **tall narrow slab** — 56×144,
 72×108 and 48×60 down the table, which once each adapter's pixel aspect is
-applied is about **1 : 2.5 apparent on all four**. That is a tower's proportion
+applied is about **1 : 2.5 apparent on all three**. That is a tower's proportion
 and not a fortress's, and it is the strongest single constraint on the art: a
 broad low keep cannot be drawn in this box on any surface.
 **The art is DATA and `tools/os88tithebase.py` emits it.** It was drawn by
@@ -140505,8 +140515,9 @@ machine's to trust, and `tests/titheterr.py` holds every copied slot to the
 model.
 
 **THE ART IS A PART OF THE PACKAGE, NOT ITS IMAGE** (§20.12). Three bodies and
-eight items at eight surfaces are **251 figures and 19,038 bytes**, and with the
-tables **22,789** — which does not fit beside the code under the 60 KB a
+eight items at eight surfaces were **251 figures and 19,038 bytes**, and with the
+tables **22,789** (at six surfaces since §97.2 deleted one, **18,673**) — which
+does not fit beside the code under the 60 KB a
 package's image and bss may be. So it is `OS88_PART OP_ASSET, OP_COMP`,
 lz4-packed to ~9.4 KB in the file, read into the parts carve by `op_load` as the
 entry proc's first act, and found with `op_seg` at the point of use — never
@@ -140515,8 +140526,8 @@ docstring and `tiart.inc` is the offsets the package reads it by. Items are
 **64%** of the figure bytes and CGA's second drawing **9%**.
 
 **THE DATA IS SHARED WHERE THE PIXELS ARE.** A figure is emitted once for every
-record that uses it — the fullscreen and windowed VGA bands carry the same
-figure at different band rows, and a ping-pong repeats a pose. A body record is
+record that uses it — two bands carry the same figure at different band rows
+where their heights allow, and a ping-pong repeats a pose. A body record is
 `dw fig[4]`, then the body's `x` byte and `y` row per pose, the anchor's byte
 and row per pose, and the band height it was cut for; an item record is `dw
 fig[8]` and a signed `(dx, dy)` per frame from the anchor.
@@ -140848,8 +140859,7 @@ is still the ground. A **terrain** is four texture names, a divide and a name
 (`G` cycles THE MARCH and THE CLOISTER for the demo).
 
 **THE BOARD GROWS BY `E` = `RISE + FH + 1 + D` under column 0**, for the ground
-beyond the front cells, the lip and the cliff — 40 rows on a fullscreen VGA,
-35 windowed, 22 on Hercules and **8 on CGA, which is every row its window has
+beyond the front cells, the lip and the cliff — 35 rows on a VGA, 22 on Hercules and **8 on CGA, which is every row its window has
 spare**. The window asks for it (`ti_pref`), the fit check counts it, and P2's
 resource block moves down past column 3's own cliff. It replaces §97.4.10's
 first slab, which took what the fit check left over.
@@ -141082,9 +141092,8 @@ under a 326-row board, and the board has since grown its lip and cliff
 `ti_georow` answers the windowed row on VGA whether or not the window is
 fullscreen — and what that cost is visible in §97.5.2's own table: the old
 fullscreen board could not reach the target rate (3.5 poses a second) and this
-one does (4.35-4.47). **`ti_geo_vgaf` and the art surface built for it are now
-reached by nothing**, and whether to delete them or to give them back to a
-fullscreen-without-a-hand arm is open.
+one does (4.35-4.47). **The fullscreen row and its art were then deleted**
+(§97.2): the owner looked at the board and kept it.
 
 **EVERY TERM IS A MULTIPLE OF 8, and that is why a hovered card RISES.** A
 band is blitted with `gfx_blit1`, so its x must be, and the hover's invert is
@@ -141349,8 +141358,8 @@ the rate is the design's number, and the owner set it at 4.4 on the glass.
 ### 97.6 ONE renderer, and fullscreen is a WINDOW
 
 **There is one renderer and it draws through `OSAPI_GFX_BLIT1`.** `F` takes
-`wm_fullscreen` (§11.2) and the layout steps to the fullscreen geometry row;
-`Esc` gives it back. The layout recomputes and the sprite masters are re-cut,
+`wm_fullscreen` (§11.2) and the layout is re-cut for the bigger box — on VGA
+and Hercules the hand goes along the bottom (§97.4.12); `Esc` gives it back. The layout recomputes and the sprite masters are re-cut,
 and that is the whole of the difference.
 
 **A SECOND, FRAMEBUFFER-OWNING RENDERER WAS PLANNED AND IS REFUSED** — on

@@ -65,7 +65,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ti_geo_*: CW, CH, RISE, BW, BH, HUD, PAN, BASEW, CARDH, INSX (tithe.asm)
 GEO = [
-    ("vga-full", 96, 52, 22, 64, 48, 1.00),
     ("vga",      96, 48, 20, 64, 44, 1.00),
     ("herc",    104, 36, 12, 64, 32, 1.55),
     ("cga",      96, 20,  4, 64, 18, 2.40),
@@ -76,7 +75,7 @@ COLS, ROWS = 4, 5
 # FH fence rows, WH wall rows, D cliff rows, per surface. E, what the board
 # grows by under column 0, is RISE + FH + 1 + D - and on a CGA that is the
 # whole of the eight rows its window has spare.
-SIZES = {"vga-full": (7, 7, 10), "vga": (6, 6, 8),
+SIZES = {"vga": (6, 6, 8),
          "herc": (4, 4, 5), "cga": (2, 2, 1)}
 
 TW, TH = 32, 32                   # a texture master: square pixels

@@ -2956,7 +2956,10 @@ rows the text does not.
 
 ### 8.3 THE FULLSCREEN PANEL — a different shape for the room fullscreen has
 
-> **BUILT in wave 1b (2026-09-23) — SPEC.md §97.4.12 is the contract.** Three
+> **BUILT in wave 1b (2026-09-23) — SPEC.md §97.4.12 is the contract.** And
+> the VGA fullscreen surface is DELETED as a result (SPEC.md §97.2): its board
+> and art were reached by nothing once fullscreen took the windowed board, so
+> wherever this document says "four surfaces" it now means three. Three
 > things came out differently from what is below. **The rooms were stale**: the
 > board has grown its lip and cliff since this table was taken, so the VGA
 > fullscreen board is 366 rows and leaves 78, not 118 — and fullscreen VGA

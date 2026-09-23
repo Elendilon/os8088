@@ -42,7 +42,7 @@ TI_RVSPK    equ 8                 ; sparks a frame: the head and seven behind,
                                   ; long. It was twelve, and the four it lost
                                   ; are what lets the idle keep breathing
                                   ; through a reveal rather than stopping
-TI_RVMAX    equ 384               ; the largest cell band (TI_ARENAKB's own)
+TI_RVMAX    equ 352               ; the largest cell band, a VGA's 64 x 44
 
 ; -----------------------------------------------------------------------------
 ; ti_rv_played - CF=1 if hand card AX has been played. Preserves every register.

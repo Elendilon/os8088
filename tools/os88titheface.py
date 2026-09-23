@@ -136,13 +136,14 @@ def geo():
     src = open("apps/tithe/tithe.asm", encoding="utf-8").read()
     rows = {m.group(1): [int(x) for x in m.group(2).split(",")]
             for m in re.finditer(r"^ti_geo_(\w+):\s*dw\s+(.+)$", src, re.M)}
-    # CW CH RISE BW BH HUD PAN BASEW NUMS CARDH INSX
+    # CW CH RISE BW BH HUD PAN BASEW CARDH INSX - NUMS went, and this read
+    # CARDH and INSX one field along from where they are
     out = []
-    for key, name, aspect in (("vgaf", "vga-full", 1.0), ("vgaw", "vga", 1.0),
+    for key, name, aspect in (("vgaw", "vga", 1.0),
                               ("herc", "herc", 1.55), ("cga", "cga", 2.40)):
         r = rows[key]
-        out.append(dict(key=name, aspect=aspect, cardw=r[6] - 16, cardh=r[9],
-                        insx=r[10], ch=r[1], unitw=24))
+        out.append(dict(key=name, aspect=aspect, cardw=r[6] - 16, cardh=r[8],
+                        insx=r[9], ch=r[1], unitw=24))
     return out
 
 

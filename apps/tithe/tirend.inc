@@ -35,13 +35,11 @@ TI_BASEPOSES equ 8                ; A BASE GETS FOUR TIMES THE FRAMES, and the
                                   ; 9.1 Hz is a cycle under a second where the
                                   ; figures' four at 3.5 is over one.
                                   ; POWER OF TWO: ti_base_addr masks
-TI_BASEMAX  equ 8 * 144           ; the largest BASE band: 64 x 144 on a
-                                  ; fullscreen VGA, which is the tallest cell
-                                  ; times three lanes
-TI_BANDMAX  equ 8 * 56            ; the largest band any surface asks for -
-                                  ; 64x40 is 320 and 56x56 is 392, so eight
-                                  ; bytes a row by fifty-six rows covers every
-                                  ; row of SPEC.md 97.2's table with slack
+TI_BASEMAX  equ 7 * 144           ; the largest BASE band: 56 x 144 on a
+                                  ; VGA, the tallest cell times three lanes
+                                  ; (Hercules' 72 x 108 is 972)
+TI_BANDMAX  equ 8 * 44            ; the largest band any surface asks for -
+                                  ; a VGA's 64 x 44
 TI_CELLMAX  equ 15 * 72           ; ...and the largest CELL ground, 120x52 and
                                   ; 104x72 both inside fifteen bytes by
                                   ; seventy-two rows

@@ -27,20 +27,22 @@
 ; sprites" line arriving, and it is where the final game keeps them anyway.
 ; =============================================================================
 
-TI_ARENAKB  equ 45                ; 30,720 of poses + 14,400 of strips on the
-                                  ; biggest surface, and ti_place_lay refuses
+TI_ARENAKB  equ 41                ; 28,160 of poses + 13,200 of strips on the
+                                  ; biggest surface (VGA, 64 x 44 bands and a
+                                  ; 275-row strip), and ti_place_lay refuses
                                   ; a layout that would not fit rather than
                                   ; trusting this arithmetic
 TI_STATBANK equ TI_CELLS * TI_POSES * TI_RVMAX ; the NUMBERS, after the
                                   ; attack frames in their claim: a cell's
 TI_STATREC  equ 2 * TI_CELLBANDMAX ; halo then its digits, for a bolt to go
                                   ; under (ti_pic_stat)
-TI_FIGKB    equ 11                ; the hand's portraits: 7 cards x 4 poses
-                                  ; x the biggest band, 384 bytes on a
-                                  ; fullscreen VGA - 10,752
-TI_ATTACKKB equ 40                ; 20 cells x 4 attack frames x the biggest
-                                  ; band, 384 bytes on a fullscreen VGA - and
-                                  ; then the twenty cells' numbers at 480
+TI_FIGKB    equ 10                ; the hand's portraits: 7 cards x 4 poses
+                                  ; x the biggest band, 352 bytes on a VGA -
+                                  ; 9,856, and ti_layout refuses the hand on
+                                  ; a surface that would not fit
+TI_ATTACKKB equ 37                ; 20 cells x 4 attack frames x the biggest
+                                  ; band, 352 bytes on a VGA - and then the
+                                  ; twenty cells' numbers at 480
 
 ; -----------------------------------------------------------------------------
 ; ti_arena_claim - claim the arena. out: CF=1 refused. Preserves registers.
@@ -688,8 +690,14 @@ ti_cell_build:
     mov ax, [ti_ck]
     shl ax, 1
     add ax, [ti_cst]
+    push dx                         ; x the THREE board surfaces
+    mov dx, ax
     shl ax, 1
-    shl ax, 1
+    add ax, dx
+    pop dx
+%if TI_CHAR_BG != 3
+%error "ti_csame multiplies by three board surfaces: TI_CHAR_BG moved"
+%endif
     add ax, [ti_gidx]
     shl ax, 1
     shl ax, 1
@@ -843,8 +851,9 @@ ti_dirty_rows:
     mov ax, [ti_ck]
     shl ax, 1
     add ax, [ti_cst]
-    shl ax, 1
-    shl ax, 1                       ; x the four board surfaces
+    mov bx, ax                      ; x the three board surfaces (BX is
+    shl ax, 1                       ; loaded again below)
+    add ax, bx
     add ax, [ti_gidx]
     shl ax, 1
     shl ax, 1

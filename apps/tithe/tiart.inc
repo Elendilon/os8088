@@ -5,13 +5,13 @@
 TI_BODIES   equ 3
 TI_ITEMS    equ 8
 TI_CARDS    equ 7
-TI_CHAR_G   equ 8                 ; surfaces a record exists for
-TI_CHAR_BG  equ 4                 ; ...of which the first are the board's
+TI_CHAR_G   equ 6                 ; surfaces a record exists for
+TI_CHAR_BG  equ 3                 ; ...of which the first are the board's
 TI_P_BODYTAB equ 10
-TI_P_ITEMTAB equ 58
-TI_P_DIRTY  equ 207
-TI_P_CARDS  equ 186
-TI_P_SAME   equ 655
+TI_P_ITEMTAB equ 46
+TI_P_DIRTY  equ 163
+TI_P_CARDS  equ 142
+TI_P_SAME   equ 499
 TI_BR_BX    equ 8                 ; a body record's byte columns,
 TI_BR_BY    equ 12                ; ...rows, anchor byte, anchor row
 TI_BR_AX    equ 16
@@ -19,6 +19,6 @@ TI_BR_AY    equ 20
 TI_BR_BH    equ 24                ; ...and the band it was cut for
 TI_IR_DX    equ 16                ; an item record's byte offsets
 TI_IR_DY    equ 24                ; ...and row offsets, from the anchor
-TI_P_SIZE   equ 22789                ; bytes in the part
+TI_P_SIZE   equ 18673                ; bytes in the part
 TI_P_FIGMAX equ 322                  ; the largest figure, header and all
 

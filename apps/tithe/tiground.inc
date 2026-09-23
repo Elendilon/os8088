@@ -8,7 +8,6 @@ TI_TEXW     equ 4               ; a texture row is this many BYTES
 ; per surface: FH, WH, D, E (the rows the board grows by under
 ; column 0), then the fence patterns, wall, cliff - as pointers
 ti_gsz:
-    dw 7, 7, 10, 40
     dw 6, 6, 8, 35
     dw 4, 4, 5, 22
     dw 2, 2, 1, 8
@@ -17,16 +16,14 @@ ti_gsz:
 ti_gtex:
     dw tig_cobble_v, tig_dirt_v, tig_dirt2_v, tig_grass_v, tip_fence_0
     dw tig_flag_v, tig_flagmoss_v, tig_flagmoss_v, tig_flag_v, tip_bollard_0
-    dw tig_cobble_v, tig_dirt_v, tig_dirt2_v, tig_grass_v, tip_fence_1
-    dw tig_flag_v, tig_flagmoss_v, tig_flagmoss_v, tig_flag_v, tip_bollard_1
-    dw tig_cobble_h, tig_dirt_h, tig_dirt2_h, tig_grass_h, tip_fence_2
-    dw tig_flag_h, tig_flagmoss_h, tig_flagmoss_h, tig_flag_h, tip_bollard_2
-    dw tig_cobble_c, tig_dirt_c, tig_dirt2_c, tig_grass_c, tip_fence_3
-    dw tig_flag_c, tig_flagmoss_c, tig_flagmoss_c, tig_flag_c, tip_bollard_3
+    dw tig_cobble_h, tig_dirt_h, tig_dirt2_h, tig_grass_h, tip_fence_1
+    dw tig_flag_h, tig_flagmoss_h, tig_flagmoss_h, tig_flag_h, tip_bollard_1
+    dw tig_cobble_c, tig_dirt_c, tig_dirt2_c, tig_grass_c, tip_fence_2
+    dw tig_flag_c, tig_flagmoss_c, tig_flagmoss_c, tig_flag_c, tip_bollard_2
 ti_gwall:
-    dw tip_wall_0, tip_wall_1, tip_wall_2, tip_wall_3
+    dw tip_wall_0, tip_wall_1, tip_wall_2
 ti_gcliff:
-    dw tip_cliff_0, tip_cliff_1, tip_cliff_2, tip_cliff_3
+    dw tip_cliff_0, tip_cliff_1, tip_cliff_2
 ti_terr_nm:
     dw .t0, .t1
 .t0: db 'THE MARCH   ', 0
@@ -453,12 +450,10 @@ tip_bollard_0:
     db 0ABh, 0CAh, 0AFh, 0EAh
     db 003h, 0C0h, 007h, 0E0h
     db 003h, 0C0h, 007h, 0E0h
-    db 003h, 0C0h, 007h, 0E0h
 tip_fence_0:
     db 0C0h, 000h, 0E0h, 001h
     db 0FFh, 0FFh, 0FFh, 0FFh
     db 0C0h, 000h, 0FFh, 0FFh
-    db 0C0h, 000h, 0E0h, 001h
     db 0FFh, 0FFh, 0FFh, 0FFh
     db 0C0h, 000h, 0FFh, 0FFh
     db 0C0h, 000h, 0E0h, 001h
@@ -468,7 +463,6 @@ tip_wall_0:
     db 0F7h, 0F7h, 0FFh, 0FFh
     db 07Fh, 07Fh, 0FFh, 0FFh
     db 0F7h, 0F7h, 0FFh, 0FFh
-    db 07Fh, 07Fh, 0FFh, 0FFh
     db 000h, 000h, 0FFh, 0FFh
 tip_cliff_0:
     db 0FFh, 0FFh, 0FFh, 0FFh
@@ -478,28 +472,20 @@ tip_cliff_0:
     db 0F7h, 078h, 0FFh, 0FFh
     db 0F8h, 0FBh, 0FFh, 0FFh
     db 0EFh, 0BBh, 0FFh, 0FFh
-    db 0DFh, 0DBh, 0FFh, 0FFh
-    db 03Fh, 0E4h, 0FFh, 0FFh
     db 0AAh, 0AAh, 0FFh, 0FFh
 tip_bollard_1:
     db 003h, 0C0h, 007h, 0E0h
     db 003h, 0C0h, 007h, 0E0h
-    db 003h, 0C0h, 007h, 0E0h
     db 0ABh, 0CAh, 0AFh, 0EAh
     db 003h, 0C0h, 007h, 0E0h
-    db 003h, 0C0h, 007h, 0E0h
 tip_fence_1:
+    db 0FFh, 0FFh, 0FFh, 0FFh
+    db 0C0h, 000h, 0FFh, 0FFh
     db 0C0h, 000h, 0E0h, 001h
-    db 0FFh, 0FFh, 0FFh, 0FFh
-    db 0C0h, 000h, 0FFh, 0FFh
-    db 0FFh, 0FFh, 0FFh, 0FFh
-    db 0C0h, 000h, 0FFh, 0FFh
     db 0C0h, 000h, 0E0h, 001h
 tip_wall_1:
     db 0FFh, 0FFh, 0FFh, 0FFh
     db 000h, 000h, 0FFh, 0FFh
-    db 0F7h, 0F7h, 0FFh, 0FFh
-    db 07Fh, 07Fh, 0FFh, 0FFh
     db 0F7h, 0F7h, 0FFh, 0FFh
     db 000h, 000h, 0FFh, 0FFh
 tip_cliff_1:
@@ -507,39 +493,15 @@ tip_cliff_1:
     db 0FBh, 0FFh, 0FFh, 0FFh
     db 0F7h, 0CFh, 0FFh, 0FFh
     db 00Fh, 0B7h, 0FFh, 0FFh
-    db 0F7h, 078h, 0FFh, 0FFh
-    db 0F8h, 0FBh, 0FFh, 0FFh
-    db 0EFh, 0BBh, 0FFh, 0FFh
     db 0AAh, 0AAh, 0FFh, 0FFh
 tip_bollard_2:
     db 003h, 0C0h, 007h, 0E0h
-    db 003h, 0C0h, 007h, 0E0h
     db 0ABh, 0CAh, 0AFh, 0EAh
-    db 003h, 0C0h, 007h, 0E0h
 tip_fence_2:
     db 0FFh, 0FFh, 0FFh, 0FFh
     db 0C0h, 000h, 0FFh, 0FFh
-    db 0C0h, 000h, 0E0h, 001h
-    db 0C0h, 000h, 0E0h, 001h
 tip_wall_2:
     db 0FFh, 0FFh, 0FFh, 0FFh
-    db 000h, 000h, 0FFh, 0FFh
-    db 0F7h, 0F7h, 0FFh, 0FFh
-    db 000h, 000h, 0FFh, 0FFh
-tip_cliff_2:
-    db 0FFh, 0FFh, 0FFh, 0FFh
-    db 0FBh, 0FFh, 0FFh, 0FFh
-    db 0F7h, 0CFh, 0FFh, 0FFh
-    db 00Fh, 0B7h, 0FFh, 0FFh
-    db 0AAh, 0AAh, 0FFh, 0FFh
-tip_bollard_3:
-    db 003h, 0C0h, 007h, 0E0h
-    db 0ABh, 0CAh, 0AFh, 0EAh
-tip_fence_3:
-    db 0FFh, 0FFh, 0FFh, 0FFh
-    db 0C0h, 000h, 0FFh, 0FFh
-tip_wall_3:
-    db 0FFh, 0FFh, 0FFh, 0FFh
     db 07Fh, 07Fh, 0FFh, 0FFh
-tip_cliff_3:
+tip_cliff_2:
     db 0FFh, 0FFh, 0FFh, 0FFh

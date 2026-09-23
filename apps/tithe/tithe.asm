@@ -533,7 +533,7 @@ ti_onkey:
     ; rather than a geometry step inside an ordinary one. It used to be the
     ; latter because the fullscreen RENDERER (97.6) did not exist, and stepping
     ; the surface row inside a 640x355 content box mostly REFUSED - the
-    ; vga-full board is 326 rows and its HUD another 36.
+    ; fullscreen board of its day was 326 rows and its HUD another 36.
     ;
     ; WM_FULLSCREEN IS THE THIRD OPTION AND NOBODY HAD PRICED IT. A fullscreen
     ; surface IS a window (SPEC.md 11.2), so this keeps every kernel drawing
@@ -1618,8 +1618,8 @@ ti_picsh:   dw 0                    ; shift that centres a figure the width
                                     ; of the board's in a card that is not
 TI_CARDBANDMAX equ 12 * 128
 ; THE HUD IS A BAND TOO (97.4.8): the widest strip is Hercules' 712 pixels,
-; which is 90 bytes and a pad, and the deepest is VGA fullscreen's 36 rows.
-TI_HUDBANDMAX equ 92 * 36
+; which is 90 bytes and a pad, and the deepest is 28 rows.
+TI_HUDBANDMAX equ 92 * 28
 ; ...and a CELL's stat column is 24 pixels wide (4 bytes with the pad) by at
 ; most four rows of the tallest face.
 TI_CELLBANDMAX equ 6 * 40
@@ -1761,7 +1761,7 @@ ti_bslot:   dw 0                    ; the base band's slot pitch, bas x rows
 ti_bart:    dw 0                    ; WHICH BASE CANDIDATE (SPEC.md 97.2.1) -
                                     ; `B` cycles it, and it is a wave 1a knob:
                                     ; the owner picks one and the rest go
-ti_gidx:    dw 1                    ; ...and which SURFACE's set of it, an
+ti_gidx:    dw 0                    ; ...and which SURFACE's set of it, an
                                     ; index into ti_bart_tab's rows
 ti_brec:    dw 0                    ; the record in play
 ti_mx:      dw 0                    ; a move sub-band, unpacked from its four
@@ -1814,7 +1814,6 @@ ti_insy:    dw 0
 ; clear row between. The hand is still SEVEN (SPEC.md 97.4.2): the board is 112
 ; rows, the pitch 13 and the button row's offset 5, which leaves 8 rows of
 ; which one is the button's.
-ti_geo_vgaf: dw   96, 52, 22, 64, 48, 36, 136, 56, 36, 24
 ti_geo_vgaw: dw   96, 48, 20, 64, 44, 28, 128, 56, 32, 24
 ti_geo_herc: dw  104, 36, 12, 64, 32, 28, 152, 72, 24, 24
 ti_geo_cga:  dw   96, 20,  4, 64, 18, 16, 152, 48, 11, 24
