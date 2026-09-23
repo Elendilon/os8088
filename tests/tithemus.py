@@ -26,8 +26,12 @@ both arms, for every title theme `M` steps through:
      the lead's last FREQUENCY is the model's, which is where the instrument's
      macro and vibrato show and nowhere else.
 
-  4. `M` past the last song is SILENCE, and `S` moves a playing song to the
-     one-voice arm on a machine that has FM.
+  4. `M` past the last song is SILENCE, `S` moves a playing song to the
+     one-voice arm on a machine that has FM and back again - and the Control
+     Panel's "PC speaker" does too. That setting is the TONE route (SPEC.md
+     34.8) and leaves FM published, so a package reading the caps word alone
+     plays FM to a user who asked for the speaker; it was reported off the
+     owner's machine exactly that way.
 
   5. THE FRAME HOLDS WITH THE MUSIC ON (TITHE-PLAN 16.1.1's gate for wave
      1b): wheel passes a second with a song playing against the same span
@@ -232,6 +236,24 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             check(rb("tm_song")[0] == 0 and rb("tm_arm")[0] == 0,
                   "...and S moves the song to the one-voice arm",
                   (rb("tm_song")[0], rb("tm_arm")[0]))
+            m.key("KeyS")               # ...and back to FM
+            os88marty.guest_sleep(m, 0.5)
+            check(rb("tm_arm")[0] == 1, "...and S again puts it back on FM",
+                  rb("tm_arm")[0])
+            # THE CONTROL PANEL'S "PC speaker" (SPEC.md 34.8) is the TONE
+            # ROUTE and leaves the card's FM published, so the caps word alone
+            # still says FM: the byte the Sound page writes, then a restart
+            route = m.sym("snd_route")
+            was = bytes(m.read(route, 1))
+            m.write(route, bytes([1]))  # SND_RT_SPK
+            m.key("KeyS")
+            os88marty.guest_sleep(m, 0.3)
+            m.key("KeyS")               # S twice: the song restarts, S off
+            os88marty.guest_sleep(m, 0.5)
+            check(rb("tm_song")[0] == 0 and rb("tm_arm")[0] == 0,
+                  "...and the Control Panel's PC speaker route takes the "
+                  "speaker arm though FM is there", rb("tm_arm")[0])
+            m.write(route, was)
 
 
 def cut(capture, marks, outdir):

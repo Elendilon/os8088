@@ -3597,8 +3597,8 @@ So music is a requirement rather than a polish item, and it is scoped that way:
 
 | where | what plays |
 |---|---|
-| the front menu | **the title theme** |
-| the campaign map | **the map theme** |
+| the front menu | **the title theme** — **THE PROCESSION**, chosen by the owner from four (SPEC.md §97.10) |
+| the campaign map | **the map theme** — **THE RECKONING**, the jig, kept for it at the same sitting |
 | the deck builder | **the builder theme** |
 | a match | **the player's own faction theme**, in one of three states — **NORMAL**, **PRESSED** (they are behind) and **ASCENDANT** (they are ahead) |
 

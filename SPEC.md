@@ -53810,6 +53810,13 @@ SND_RT_FM   (2)  AdLib: FM only - no streams, no 12KB
 SND_RT_SB   (3)  Sound Blaster: FM and streams both
 ```
 
+**`SND_RT_SPK` routes TONES and hides nothing.** FM stays published under it,
+because the tiers are a subset a user picks a point on and the speaker is the
+bottom of it, not a different card. So a package that plays MUSIC through FM
+and wants to respect a user who chose the speaker reads `OSAPI_SND_CAPS`'s BL
+as well as its AX — FM in AX with BL = 0 is that choice (§97.10.3 is the worked
+example). Frotz does not yet, and plays its FM effects under it.
+
 **Three tiers, not two, and the middle one is the point.** An AdLib is an OPL2
 and nothing else, and every Sound Blaster carries an OPL2 — so the tiers are
 not three devices to pick between, they are a **subset relationship the user
@@ -141468,10 +141475,14 @@ three battle states (TITHE-PLAN §13.4) and the resolution piece's hand-back
 are in the format and the sequencer (`[tm_state]`, an order row's lead
 columns) and have no score yet.
 
+**THE OWNER PICKED THE PROCESSION** as the title theme, on both arms, and kept
+THE RECKONING for the campaign (TITHE-PLAN §13.0's map theme). The other two
+stay on `M` until the faction themes are written.
+
 | option | | key, tempo | the speaker hears |
 |---|---|---|---|
-| 1 | **The Procession** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
-| 2 | **The Reckoning** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
+| 1 | **The Procession** — **the title theme** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
+| 2 | **The Reckoning** — **kept for the campaign** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
 | 3 | **Vespers** | D minor plainchant, 68 BPM (an 8th = 4 ticks) | one voice chanting |
 | 4 | **Banners** | D major fanfare, 136 BPM (a 16th = 2 ticks) | a trumpet |
 
@@ -141535,7 +141546,16 @@ wedges the machine rather than refusing).
 | **FM** | all four: lead on voice 0, bass on 1, the chord's up to three notes on 2–4, drums on 5 | `OSAPI_SND_FM`; a voice is re-patched only when its instrument changes, and a held note is RETRIGGERED (off, then on) unless the next one slurs. Voices 6–7 are left for effects and 8 is the tone tier's (§34.8) |
 
 `S` forces the speaker where FM is there, and restarts the song on it — the
-target machine's arm has to be heard on a machine that has the other one. An
+target machine's arm has to be heard on a machine that has the other one.
+
+**AND SO DOES THE CONTROL PANEL'S "PC speaker"**, which is the one that
+matters to a player. That setting is the TONE ROUTE (§34.8) and leaves the
+card's FM published, so `OSAPI_SND_CAPS`'s word still carries `SND_CAP_FM`
+and a package choosing on that alone plays FM to someone who asked for the
+speaker — which is how it shipped, and how the owner found it. BL is the route,
+read live, and **FM present with BL = 0 can only be that choice**, every other
+route answering 1 with a driver loaded; `tm_want_fm` reads both, at every song
+start, so a changed setting takes at the next one. An
 FM refusal mid-song (another package holding a voice) gives every voice back
 and carries on as the speaker.
 

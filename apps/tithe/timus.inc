@@ -78,13 +78,12 @@ tm_title:
     shl bx, 1
     mov si, [tm_names + bx]
     call .copy
-    call OSAPI_SND_CAPS             ; what the worker will find - the same
-    mov si, tm_s_spk                ; question, asked the same way
-    test al, SND_CAP_FM
+    call tm_want_fm                 ; what the worker will find - the same
+    mov si, tm_s_fm                 ; question, asked the same way
+    jnc .last
+    mov si, tm_s_spk
+    or al, al
     jz .last
-    mov si, tm_s_fm
-    cmp byte [tm_spkonly], 0
-    je .last
     mov si, tm_s_spkf
 .last:
     call .copy
@@ -112,6 +111,40 @@ tm_s_fm:    db ' [FM]', 0
 tm_s_spk:   db ' [speaker]', 0
 tm_s_spkf:  db ' [one voice; S for FM]', 0
 tm_tbuf:    times 64 db 0
+
+; -----------------------------------------------------------------------------
+; tm_want_fm - does a song start on the FM arm? CF = 0 yes. CF = 1 no, and
+; then AL = 1 if FM IS there and `S` is what said no (for the title).
+; Preserves every other register. UI task or worker.
+;
+; THREE THINGS SAY NO: no FM sink, `S`, and THE CONTROL PANEL. Its Sound page
+; picks the TONE ROUTE (SPEC.md 34.8), and "PC speaker" leaves the card's FM
+; published - SND_RT_SPK is "the speaker, whatever else is loaded" - so the
+; caps word alone says FM to a user who asked for the speaker. BL is the
+; route, read live: 0 with FM present can only be that choice, because with
+; a driver loaded every other route answers 1 (SPEC.md 97.10.3).
+; -----------------------------------------------------------------------------
+tm_want_fm:
+    push bx
+    push dx
+    call OSAPI_SND_CAPS             ; AX = caps, BL = where a tone goes now
+    test al, SND_CAP_FM
+    mov al, 0
+    jz .no                          ; no card: the speaker, and nothing to say
+    or bl, bl
+    jz .no                          ; the Control Panel chose the speaker
+    inc al
+    cmp byte [tm_spkonly], 0
+    jne .no                         ; `S` chose the one voice
+    pop dx
+    pop bx
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tm_run - the worker's step. No lock held, no lock taken.
@@ -193,12 +226,9 @@ tm_start:
     jc .out
     mov [tm_song], ah
     ; THE ARM, asked of the caps and never of the FM slot itself
-    call OSAPI_SND_CAPS
-    xor bl, bl
-    test al, SND_CAP_FM
-    jz .arm
-    cmp byte [tm_spkonly], 0
-    jne .arm
+    call tm_want_fm
+    mov bl, 0
+    jc .arm
     inc bl
 .arm:
     mov [tm_arm], bl
