@@ -69316,6 +69316,12 @@ place (§45.9.1).
 
 #### 45.13.6 The shadow survives the bracket, so re-entering it builds nothing
 
+> **SUPERSEDED by §45.13.8**: the shadow is a heap claim held only while a
+> text bracket is up, so a bracket exit DOES take it and re-entry rebuilds.
+> What follows is still true of everything else - `ttx_shvalid` is the one
+> predicate, and a new module clears `[ttx_shok]` - but its first paragraph's
+> saving is the price §45.13.8 pays.
+
 `ttx_shadow` is package **bss**, not a heap claim — so a bracket exit does not
 take it, and the 82 formatted rows are still sitting there when the user
 presses `F` again. `ttx_draw_all` cleared `[ttx_shok]` and ran `ttx_shbuild`
@@ -69426,6 +69432,43 @@ nothing to do with who picked the surface. The Rate menu is untouched — it
 still lists XT mode's two or the other mode's three, and `[trk_txw]` is not a
 mode. And `trktxt.inc` is untouched in full: it never read `[mp_xt]`, which is
 why this section is a gate change and not a port.
+
+#### 45.13.8 The shadow is a CLAIM, held only while the Text Screen is up
+
+`ttx_shadow` was 9,676 bytes of package bss - the largest single item in
+Tracker's region after the volume table - and every Tracker paid for it,
+including every windowed one that never entered the Text Screen. It is a heap
+claim now: `(TTX_SHBYTES + 1023) / 1024` = 10 KB, named by `[ttx_shseg]`,
+addressed from offset 0.
+
+**Claimed in `trk_fs_enter`, before `OSAPI_FSX_RUN`, and never inside the
+bracket.** Whether the bracket will be the text screen is `trk_txon`, which
+is known before the bracket starts, so the claim is made only when it will be
+used. A refusal must still leave a screen to say so on (§24.5's Skies case),
+and this one does without a word of new UI: `ttx_begin` refuses on a zero
+`[ttx_shseg]` before it touches the mode, and a refused `ttx_begin` is
+already the graphics bracket (§45.13.7). The claim is freed after
+`OSAPI_FSX_RUN` returns. A new claim holds nothing, so `[ttx_shok]` is cleared
+with it.
+
+**What it costs is §45.13.6's saving**: re-entering the Text Screen rebuilds
+the shadow, ~420 ms synchronously on a 4.77 MHz 8088 (328 `mp_cell2txt`
+calls). Keeping it between visits would want a PURGEABLE claim - held until
+the heap needs it - and the purgeable tiers are kernel tags with no package
+door (`OSAPI_MEM_*` has none), so that is a kernel API question and not this
+change.
+
+**The windowed scope band stopped borrowing it.** `tw_scb` was an `equ` onto
+`ttx_shadow` (1,858 bytes the windowed face used between brackets, clearing
+`[ttx_shok]` to say it had) and is its own bss now. Net: the region went
+59,000 -> 51,292 bytes, and the TRKLOG bench build from 183 bytes of
+`APP_MAX_SIZE` spare to 7,886.
+
+The four sites that touch the shadow change segment and nothing else:
+`ttx_shbuild`'s clear and `ttx_shstep`'s row copy take ES = `[ttx_shseg]`
+(the row copy only for the copy, `ttx_shline` wanting ES = DS), the
+sequential-boundary carry (§45.13.5) takes DS and ES both, and `ttx_blit`
+takes DS for its copy loop, which reads nothing of ours.
 
 ### 45.14 The instrumentation is a LOG, and it does not ship
 
@@ -70318,6 +70361,33 @@ at once: the cushion is never traded for a frame.
 The ring's lead now sits between 6 and 12 KB instead of at the ceiling, which
 is the mix being spread across the ticks rather than bunched — and 6 KB is
 still over a second of music at this rate.
+
+##### 45.16.7.1 …except on the XT at 11 kHz, which mixes whole halves
+
+The pieces spend the time left in a tick and give the rest to a frame, and
+that is only a trade while there is time to give. XT mode at 11 kHz is where
+there is not: a half is 186 ms of music and nearly as much 8088, so a frame a
+tick is paid for out of the cushion. Reported off the 5150 as smooth for
+~45 s, then jerky from a busy passage on and never recovering, and a pause
+buying 2-10 s of smoothness each time. Measured on MartyPC
+(`os8088_5150_herc_sb_gla`, BEVERLY.MOD, windowed), 40-60 s each:
+
+| build | ring lead, median (of 16K) | lead min | frame gap, median | underruns |
+|---|---|---|---|---|
+| pre-§45.16.7 (whole halves) | 12,288 | 2,048 | 165 ms | 26 |
+| §45.16.7 pieces | 2,048 | **0** | 67 ms | **143** |
+| this rule | 14,336 | 2,048 | 102 ms | 19 |
+
+(The ~20 underruns of the two healthy rows are the rate change's own restart:
+neither lead reaches zero in steady state.)
+
+So `trk_feed` sets `[trk_whole]` for the pass when `[mp_xt]` is set and
+`[mp_mixrate]` is 11,000 or more - the MIXER's state, so the bench sweep is
+covered as well as the menu - and then mixes whole halves and fills the ring
+before it returns, which is what every rate did before §45.16.7. The worker
+still draws when the ring is deep (`trk_deep`), and still skips its sleep
+after a pass that crossed a tick edge, which is why frames come faster than
+they did before the pieces. 5,500 Hz keeps the pieces unchanged.
 
 ### 45.17 Stop is a PAUSE, so play has to resume
 
