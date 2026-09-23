@@ -61,11 +61,11 @@ TW_SPFALL   equ 3 * TW_VUFALL       ; the spectrum's bars fall THREE times as
                                     ; fast (SPEC.md 45.24): they show what is
                                     ; happening NOW, and the peak markers below
                                     ; carry what happened recently
-TW_PKHOLD   equ 9                   ; a peak marker holds this many frames
-                                    ; (~half a second at a frame a tick)...
+TW_PKHOLD   equ 4                   ; a peak marker holds this many frames
+                                    ; (~0.2 s at a frame a tick)...
 TW_PKSTEP   equ 4                   ; ...then falls this far every
-TW_PKEVERY  equ 4                   ; TW_PKEVERY frames: a level a frame, slower
-                                    ; than the old bars fell, so it trails them.
+TW_PKEVERY  equ 2                   ; TW_PKEVERY frames: two levels a frame,
+                                    ; the old bars' speed, so it trails the new.
                                     ; STEPPED rather than a level a frame because
                                     ; a marker's move is two fills whatever its
                                     ; size (the rows it leaves, the rows it

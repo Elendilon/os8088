@@ -71220,10 +71220,10 @@ the legend was the one place still calling it a stop.
 bar falls **three times as fast** as before (`TW_SPFALL` = 3 × `TW_VUFALL`, six
 levels of 64 a frame), so it follows the notes as they are heard. A white
 **peak marker**, `TW_PKH` = 2 rows tall, stays at the highest level the bar
-reached. It holds there `TW_PKHOLD` = 9 frames (about half a second), then falls
-`TW_PKSTEP` = 4 levels once every `TW_PKEVERY` = 4 frames. That averages one
-level a frame, which is slower than the old bars fell, so the marker trails
-behind the bar. A marker that is level with or under the top of its bar is not
+reached. It holds there `TW_PKHOLD` = 4 frames (about 0.2 s), then falls
+`TW_PKSTEP` = 4 levels once every `TW_PKEVERY` = 2 frames. That averages two
+levels a frame, the speed the old bars fell at, so the marker trails behind
+the bar. A marker that is level with or under the top of its bar is not
 drawn at all, because the bar covers it; a new peak sits there until the bar
 falls away from it.
 
@@ -71252,10 +71252,14 @@ the fills counted in `tw_fills`:
 | before this section: one bar, slow fall | 11.0 | 57.4% |
 | markers falling a level a frame, every column cut and sorted | 20.9 | 68.2% |
 | markers stepping 4 levels every 4 frames | 11.7 | 60.9% |
-| ...and the fast path | 11.6 | 56.4% |
+| ...and the fast path (hold 9 frames, 4 levels every 4) | 11.6 | 56.4% |
+| **shipped:** hold 4 frames, 4 levels every 2 | 14.6 | 58.4% |
 
-So the markers cost what the old slow bars cost, within the noise. The faster
-bars drop to zero sooner, which pays for the marker steps. Spectrum is
+A full fall is sixteen steps at any step period, so falling twice as fast
+does not double the fills: it spends the same steps sooner. What the shorter
+hold adds is steps a sustained note would have held through. The markers cost
+about what the old slow bars cost, because the faster bars drop to zero
+sooner and that pays for most of the marker steps. Spectrum is
 286+-only (§45.21.5), so an XT never runs any of this.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
