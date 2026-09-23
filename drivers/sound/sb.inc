@@ -991,6 +991,8 @@ sbl_stream_op:
     je sbl_v_grant
     cmp al, 8
     je sbl_v_busy
+    cmp al, 9
+    je sbl_v_ppos
     mov ax, 7                   ; anything higher: bad verb
     stc
     ret
@@ -1432,6 +1434,78 @@ sbl_v_status:
     mov ax, 0xFFFF
     xor dx, dx
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_v_ppos - verb 9: verb 3 with DX = the bytes PLAYED, exactly (SPEC.md
+;              34.5.1)
+; in/out:   as verb 3
+;
+; Verb 3's count advances one whole block per block IRQ, so between IRQs it
+; says where the card WAS - 93 ms of 22 kHz, 372 ms of XT mode's 5.5 kHz -
+; and a display that wants where the card IS had to estimate the rest from
+; ticks, guessing when the report was raised. The 8237 knows: channel 1's
+; count is how far the DMA has got into the block playing now, so this is
+; verb 3's count plus that, under the same cli window, and no estimate.
+;
+; ONE RACE, and it is the IRQ this cli is holding off: the DMA can already be
+; in the NEXT half while the ISR that counts the last one is pending. Then the
+; half the count names is not [sbl_play], and the finished block is added
+; here as the ISR is about to add it. A record stream, a paused or ended one
+; and a stream with no IRQ armed answer verb 3's count unchanged.
+; -----------------------------------------------------------------------------
+sbl_v_ppos:
+    pushf
+    cli
+    call sbl_hcheck
+    jc sbl_v_status.stale
+    push bx
+    push cx
+    mov al, [sbl_str_state]
+    mov ah, 0
+    mov dx, [sbl_consumed]
+    cmp byte [sbl_str_dir], 0
+    jne .out                    ; recording: verb 3's count is the answer
+    cmp al, SBL_ST_PLAY
+    jne .out
+    cmp byte [sbl_expect], 0
+    je .out
+    push ax
+    out 0x0C, al                ; flip-flop clear (any value)
+    in al, 0x03                 ; channel 1's count: lo...
+    mov cl, al
+    in al, 0x03                 ; ...hi. It is LEFT - 1, and FFFFh at
+    mov ch, al                  ; terminal count
+    inc cx                      ; CX = bytes left in this DMA cycle
+    mov bx, [sbl_half]
+    cmp byte [sbl_auto], 0
+    je .single
+    mov ax, bx                  ; auto-init: one cycle is BOTH halves
+    shl ax, 1
+    sub ax, cx                  ; AX = bytes into the double buffer
+    cmp ax, bx
+    jb .h0
+    sub ax, bx                  ; the second half is playing
+    cmp byte [sbl_play], 1
+    je .add
+    jmp short .fin              ; ...and the ISR has not flipped to it yet
+.h0:
+    cmp byte [sbl_play], 0
+    je .add
+.fin:
+    add dx, bx                  ; the finished block the pending ISR counts
+    jmp short .add
+.single:
+    mov ax, bx                  ; single-cycle: one cycle is one half, and a
+    sub ax, cx                  ; terminal count (CX = 0 after the inc) is
+.add:                           ; the whole half, not yet counted
+    add dx, ax
+    pop ax
+.out:
+    pop cx
+    pop bx
+    popf
+    clc
     ret
 
 ; -----------------------------------------------------------------------------

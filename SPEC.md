@@ -54472,6 +54472,31 @@ those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
 `sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
 to the card.
 
+#### 34.5.1 Verb 9 — the bytes PLAYED, exactly
+
+Verb 3's count advances one whole block per block IRQ, so between interrupts
+it says where the card **was**: up to 93 ms behind at 22 kHz and 372 ms at XT
+mode's 5.5 kHz. A display that wants where the card **is** had to estimate the
+rest from ticks (§45.15.1), and the estimate needs to know WHEN the report it
+corrects against was raised — which it guessed as half a tick, and which an
+XT's feed pass, arriving up to 275 ms late behind a mixing burst, made wrong by
+exactly that much.
+
+`OSAPI_SND_STREAM` verb 9 (`SND_V_PPOS`) is verb 3 with `DX` = the bytes
+played **exactly**: the block-granular count plus the 8237's own progress
+into the block now sounding, read off channel 1's count register inside the
+same `cli` window. Any-task, like verb 3, and the kernel routes it through
+verb 3's `.status` path so the answer in `DX` is not banked away. One race is
+handled rather than ignored: the DMA can already be in the next half while the
+ISR that counts the last one is pending behind this very `cli`, which shows as
+the count naming a half that is not `[sbl_play]` — and then the finished block
+is added here, as the ISR is about to add it. A record stream, a paused or
+ended one and a stream with no IRQ armed answer verb 3's count.
+
+A driver without the verb refuses it (`AX = 7`, `CF = 1`), and a caller falls
+back to verb 3. Tracker does (§45.15.1's model carries that stream). One line
+of kernel (`cmp al, 9` / `je .status`) and the verb's body in `SOUND.DRV`.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -69560,6 +69585,11 @@ Eight things are load-bearing:
 
 #### 45.15.1 …and it is interpolated between block interrupts
 
+**Retired by §45.15.4**: the driver now answers the exact position (§34.5.1),
+and this estimate — with §45.15.2's sub-tick steps and §45.15.3's phase loop —
+is gone from `tui_playpos`. It is kept here as the account of why the answer
+had to come from the card.
+
 `[trk_consumed]` is the truth and it is **coarse**: the driver advances it one
 whole DMA half per block IRQ, which at the XT rate is 2,048 bytes — 372 ms,
 6.8 system ticks, about three rows. Followed raw, the grid stands still for a
@@ -69859,6 +69889,38 @@ boundaries, and a cycle that crossed none showed **0 of 18 samples** building.
 What does build unconditionally is *entering the bracket* — see §45.13.6,
 which is where that cost was found and removed. Read this paragraph as the
 worked example of why a plausible mechanism is not a measured one.
+
+#### 45.15.4 The position is the card's own, and the display leads it by half a frame
+
+**The estimate ran behind the card**, and that is the meters and the spectrum
+jumping *after* the note. Measured on MartyPC with a Sound Blaster, against
+the driver's own block-IRQ timestamps (the exact played position at each
+interrupt, advanced at the stream's rate between them), in XT mode:
+
+| | display position behind the card | kick behind the note |
+|---|---:|---:|
+| §45.15.1–3's estimate | median **170 ms** (103–260) | median **231 ms** (112–368) |
+| verb 9, exact | **±1 ms** | median 35 ms (1–125) |
+| + half a frame's lead, + §45.16.7 | ±1 ms | median **−3 ms** (−27 to +74) |
+
+The estimate's error was its **phase**: it assumed the worker read each block
+report half a tick after the IRQ that raised it, and an XT's feed pass arrives
+up to 275 ms late behind a mixing burst, so the correction pulled the model
+back towards a position the card had long left. A faster machine polls more
+regularly and hid it better, which is why it read as a small, constant lag on
+a 386 rather than a large, wandering one. `tui_playpos` now asks
+`SOUND.DRV`'s verb 9 (§34.5.1) — the 8237's own count — on every frame, and
+falls back to verb 3's coarse count only for a driver that refuses it. Still
+capped at `[trk_total]` and still monotone; the tick model, the frame
+counting and the phase loop are deleted (**−233 bytes** of image).
+
+**THE HALF-FRAME LEAD.** A kick can only be seen on a frame, so judged at the
+card's own position every one lands 0 to 1 frame late — up to 55 ms windowed,
+where a frame is a tick. `tui_sync` judges which row is audible at the card's
+position **plus half a frame** (half a tick windowed, an eighth on the fsx
+clock), capped at what has been mixed. The error is then centred on the note,
+and the side it errs on when it errs is early, which the eye forgives far
+sooner than late.
 
 ### 45.16 The text screen's frame clock is measured, not assumed
 
@@ -70223,6 +70285,39 @@ next moved**, which is up to nine seconds. It lives in `.text` with a real
 initialiser rather than in bss, so a fresh instance starts owing the line
 (§20.1 — every launch reloads the image). The row counter used to hide both
 problems by changing often enough to paper over them.
+
+
+#### 45.16.7 A half is MIXED in pieces, and the pieces stop at the tick edge
+
+§45.16.2 put the frame first when the ring is deep and left the mix to happen
+behind it — **one whole 2,048-byte half per pass**, ~200 ms of 8088 at XT
+mode's rate, during which the worker drew nothing. Measured windowed on a
+Hercules 5150 in XT mode, frame to frame: `55, 275, 55, 55, 220, 55, 55, 63,
+157 …` — a steady tick with a four-tick hole every fifth frame, 59 frames in
+6 s. That hole is the "pausing and jerking" of the windowed meters, and it was
+never CPU: the machine was 25% idle throughout.
+
+The card takes whole halves; nothing said they had to be **mixed** whole.
+`mp_genc` renders into `mp_outbuf` where the last piece stopped, stamped
+against the one `[mp_stampbase]` the half's first piece set, and `trk_feed`
+stages and feeds the half when `[trk_mixed]` reaches 2,048. **Pieces are
+`TRK_PIECE` = 256 bytes and go until the tick edge**, not to a byte count: a
+count sized at two ticks' audio overran the tick, the worker slept through
+the next one, and frames landed every other tick (measured: 110 ms median).
+A pass that did cross an edge skips its sleep (`[trk_wtick]`), so the frame
+it owes is drawn at once instead of a tick late. Under `TRK_LOW` = two halves
+of lead — 745 ms of cushion at the XT rate — the feed still finishes the half
+at once: the cushion is never traded for a frame.
+
+| windowed, XT mode, 20 s | frames | gap median | gap max | underruns |
+|---|---:|---:|---:|---:|
+| a whole half a pass | 59 in 6 s | 55 ms | 275 ms | 0 |
+| pieces to the edge, low mark `TRK_DEEP` | 353 | 55 ms | 185 ms | 0 |
+| pieces to the edge, low mark `TRK_LOW` | **354** | **55 ms** | **106 ms** | **0** |
+
+The ring's lead now sits between 6 and 12 KB instead of at the ceiling, which
+is the mix being spread across the ticks rather than bunched — and 6 KB is
+still over a second of music at this rate.
 
 ### 45.17 Stop is a PAUSE, so play has to resume
 
@@ -70703,6 +70798,29 @@ the same question (§19.2.1). So the editor edits the list in place and
 **posts** everything else — a play, a forwarded key, Add... — through
 `tpl_post` to the player's wake handler, which the kernel bills to Tracker.
 §56's editor had the same exposure and is left as it ships.
+
+#### 45.22.4 Opening a song IS adding it, and the one already loaded is not read again
+
+Every module opened — File > Open, a double-click, the association at launch —
+goes on the list and becomes its current entry (`tpl_note`): found where it
+already is (the same name in the same folder, one sixteen-byte compare), or
+put on the end. **Repeat List is the default**, so a double-click on one file
+is a one-entry list that goes round, which is exactly what Repeat Song did;
+the second song opened joins the first instead of replacing it, and nobody has
+to go back and add the first.
+
+**A one-entry list loops in the REPLAYER** (`trk_endstop_upd`): Repeat Song,
+or Repeat List with one entry that is the song playing, clears
+`[mp_endstop]`, so going round is §45.21.3's seamless order-list wrap rather
+than an end, a restart and a pre-roll. The rule is re-asked on every Repeat
+change and every list change (`tpl_refresh`), so opening a second song mid-play
+lets the first one END and advance.
+
+**The module already in the grant is not read again** (`tpl_play`): an entry
+that is the same file as `[tpl_loaded]` restarts the stream and touches no
+disk — a list that goes round to the song playing, `>>|` with one entry, the
+same file listed twice. Measured on MartyPC: `N` on a one-entry list, **zero**
+calls into the file-read path.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

@@ -67,45 +67,158 @@ tpl_ent:
     ret
 
 ; -----------------------------------------------------------------------------
-; tpl_add - put [trk_fname], in the folder we are in now, on the end of the
-; list. From trk_fdone, when the dialog was the editor's Add... (lock held).
+; tpl_here - [tpl_new] = [trk_fname] in the folder we are in NOW, as an entry:
+; the name up to its NUL and zeros after it, so two entries for one file are
+; the same sixteen bytes. Preserves everything.
 ; -----------------------------------------------------------------------------
-tpl_add:
+tpl_here:
     push ax
     push bx
     push cx
     push dx
     push si
     push di
-    mov al, [tpl_n]
-    cmp al, TPL_MAX
-    jb .room
-    mov si, tpl_s_full
-    call tui_msg
-    jmp short .out
-.room:
-    call tpl_ent                    ; SI = the new entry
-    mov di, si
     mov si, trk_fname
+    mov di, tpl_new
     mov cx, 13
 .cp:
     lodsb
     mov [di], al
     inc di
-    loop .cp
+    or al, al
+    loopnz .cp
+    jcxz .dir
+    xor al, al                      ; the name ended early: zero the rest
+.z:
+    mov [di], al
+    inc di
+    loop .z
+.dir:
     call OSAPI_FILE_HERE            ; DX = the folder, BL = the drive
-    mov [di - 13 + TPL_E_DRV], bl
-    mov [di - 13 + TPL_E_CLU], dx
-    inc byte [tpl_n]
-    mov si, tpl_s_added
-    call tui_msg
-.out:
-    call tpl_refresh
+    mov [tpl_new + TPL_E_DRV], bl
+    mov [tpl_new + TPL_E_CLU], dx
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; tpl_same - SI = an entry, DI = another: ZF = 1 the same file. Preserves all
+; but the flags.
+tpl_same:
+    push cx
+    push si
+    push di
+    mov cx, TPL_ESZ / 2
+    push es
+    push ds
+    pop es
+    cld
+    repe cmpsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; tpl_push - [tpl_new] onto the end. CF = 1 the list is full; else AL = its
+; index. Preserves the rest.
+tpl_push:
+    mov al, [tpl_n]
+    cmp al, TPL_MAX
+    cmc
+    jc .out                         ; (jae as a carry: full)
+    push cx
+    push si
+    push di
+    call tpl_ent
+    mov di, si
+    mov si, tpl_new
+    mov cx, TPL_ESZ / 2
+    push es
+    push ds
+    pop es
+    cld
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    inc byte [tpl_n]
+    clc
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; tpl_add - put [trk_fname], in the folder we are in now, on the end of the
+; list. From trk_fdone, when the dialog was the editor's Add... (lock held).
+; -----------------------------------------------------------------------------
+tpl_add:
+    push ax
+    push si
+    call tpl_here
+    call tpl_push
+    mov si, tpl_s_full
+    jc .say
+    mov si, tpl_s_added
+.say:
+    call tui_msg
+    call tpl_refresh
+    pop si
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tpl_note - a module LOADED (trk_fdone's success path, lock held): bank what
+; it is in [tpl_loaded], and unless the list itself asked for it, make it the
+; list's current entry - found where it already is, or put on the end
+; (SPEC.md 45.22.4). So opening a song is adding it: a double-click on one
+; file is a one-entry list under Repeat List, which loops it exactly as
+; Repeat Song would, and the second song opened joins the first rather than
+; replacing it. A full list keeps playing what it has; the song is just not
+; on it.
+; -----------------------------------------------------------------------------
+tpl_note:
+    push ax
+    push cx
+    push si
+    push di
+    call tpl_here
+    mov si, tpl_new                 ; what is in the grant from now on
+    mov di, tpl_loaded
+    mov cx, TPL_ESZ / 2
+    push es
+    push ds
+    pop es
+    cld
+    rep movsw
+    pop es
+    cmp byte [tpl_inplay], 0
+    jne .out                        ; tpl_play set [tpl_cur] itself
+    mov di, tpl_new
+    xor al, al
+.find:
+    cmp al, [tpl_n]
+    jae .push
+    call tpl_ent
+    call tpl_same
+    je .cur
+    inc al
+    jmp short .find
+.push:
+    call tpl_push
+    jnc .cur
+    mov al, 0FFh                    ; full: playing, and not on the list
+.cur:
+    mov [tpl_cur], al
+    mov [tpl_sel], al
+.out:
+    call tpl_refresh
+    pop di
+    pop si
+    pop cx
     pop ax
     ret
 
@@ -126,6 +239,16 @@ tpl_play:
     mov [tpl_cur], al
     mov [tpl_sel], al
     call tpl_ent
+    cmp byte [mp_loaded], 0         ; THE SONG THAT IS ALREADY IN THE GRANT is
+    je .fetch                       ; not read again (SPEC.md 45.22.4): a list
+    mov di, tpl_loaded              ; that goes round to the module playing -
+    call tpl_same                   ; one entry, or the same file listed twice
+    jne .fetch                      ; - restarts the stream and costs no disk
+    mov byte [trk_pause], 0
+    xor al, al
+    call trk_play
+    jmp short .out
+.fetch:
     call OSAPI_FILE_HERE            ; already there? A GOTO is a REMOUNT - real
     cmp bl, [si + TPL_E_DRV]        ; floppy I/O - so it is only paid for when
     jne .go                         ; the entry is somewhere else
@@ -607,6 +730,7 @@ tpl_paint:
 ; Never inside the fsx bracket: N/B walk the list from there, and the editor
 ; window still exists under a surface that is not the desktop's (SPEC.md 53.7)
 tpl_refresh:
+    call trk_endstop_upd            ; the list changed, so may the loop rule
     cmp byte [trk_fs], 0
     jne .out
     call tpl_visible
@@ -1071,6 +1195,8 @@ TPL_NT equ 22
     TRKW tpl_rq                     ; a posted request: TPLQ_*, and its byte
     TRKW tpl_rkey                   ; ...a forwarded key's AX
     TRKBUF tpl_ents, TPL_MAX * TPL_ESZ
+    TRKBUF tpl_new, TPL_ESZ         ; tpl_here's entry, for a push or a compare
+    TRKBUF tpl_loaded, TPL_ESZ      ; ...and the one whose module is loaded
     TRKW tpl_win                    ; the editor, 0 = not made yet
     TRKW tpl_sx                     ; the player's origin, banked by tpl_org
     TRKW tpl_sy

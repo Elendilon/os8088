@@ -1756,7 +1756,20 @@ tui_sync:
     cmp byte [tlog_nosync], 0       ; Y: back on the mixer, to A/B this
     jne .live                       ; against the card (tests/trklog.inc)
 %endif
-    call tui_playpos                ; AX = where the card is, INTERPOLATED
+    call tui_playpos                ; AX = where the card is, exactly
+    mov bx, [tui_bpt]               ; ...and HALF A FRAME AHEAD of it (SPEC.md
+    shr bx, 1                       ; 45.15.4). A kick can only land on the
+    cmp byte [trk_fs], 0            ; next frame, so judged at the card's own
+    je .lead                        ; position every one is 0 to 1 frame LATE;
+    shr bx, 1                       ; half a frame early centres the error on
+    shr bx, 1                       ; the note, and the eye forgives a picture
+.lead:                              ; that leads far sooner than one that lags.
+    add ax, bx                      ; A frame is a tick windowed and about a
+    mov bx, [trk_total]             ; third of one on the fsx clock; capped at
+    sub bx, ax                      ; what has been mixed
+    jns .led
+    mov ax, [trk_total]
+.led:
     call mp_at_pos                  ; SI = the stamp being heard
     mov al, [si + MP_SP_SPOS]
     mov [tui_apos], al
@@ -1812,179 +1825,44 @@ tui_sync:
 
 ; -----------------------------------------------------------------------------
 ; tui_playpos - out AX = the stream byte the card is playing NOW (SPEC.md
-;               45.15.1), interpolated between block interrupts
+;               45.15.1, 34.5.1). Preserves the rest.
 ;
-; [trk_consumed] is the truth and it is COARSE: the driver advances it one
-; whole DMA half per block IRQ, which at XT mode's 5,500 Hz is 2,048 bytes -
-; 372 ms, ~6.8 system ticks, about three rows. Following it raw makes the grid
-; stand still for a third of a second and then jump three rows, measured
-; exactly so in a SPEC.md 45.14 capture: the longest run of ticks with the
-; screen row unchanged was 7 whatever the frame rate.
+; THE CARD SAYS SO: SOUND.DRV's verb 9 is the bytes PLAYED, exactly, off the
+; 8237's own count - so there is nothing to estimate. What stood here was a
+; model: [trk_consumed] advances one whole block per block IRQ (372 ms at the
+; XT rate), so the position between blocks was extrapolated from ticks, split
+; into sub-tick steps by counting frames, and phase-locked to each report on
+; the assumption that the worker read it half a tick after its IRQ. That
+; assumption was the defect - an XT's feed pass arrives up to 275 ms late
+; behind a mixing burst - and the model ran a median 170 ms behind the card,
+; which is the meters jumping AFTER the note (measured on MartyPC against the
+; driver's own IRQ timestamps). With verb 9 it reads within 1 ms either way.
 ;
-; So between blocks the position is ESTIMATED from elapsed ticks at the
-; stream's own byte rate, and two properties make that safe rather than
-; merely smoother:
+; A driver without the verb refuses it once, and the stream then falls back
+; to verb 3's count as the worker last polled it: coarse, never early.
 ;
-;   BOUNDED BY WHAT WAS STAGED. The card cannot have played bytes the mixer
-;   has not written, so [trk_total] is the cap - a physical bound rather than
-;   an arbitrary one. It used to be "one block past the last REPORT", and the
-;   field showed why that is not the same thing: [trk_consumed] is not sampled
-;   per tick, it is whatever the WORKER last saw, and a capture has feed
-;   passes 10 to 20 ticks apart. Through a gap like that the estimate hit the
-;   clamp after one block and stopped, so the scroll ran three or four rows
-;   and then froze for about a fifth of a second - reported from the field in
-;   exactly those words. The card was playing normally throughout; only our
-;   view of it had stalled.
-;
-;   AN ACCUMULATOR, NOT A STOPWATCH. [tui_lcons] is the model's own running
-;   position and [tui_ct0] the tick it was last advanced on, so the elapsed
-;   term is only ever 0, 1 or 2 ticks. Holding an anchor and multiplying a
-;   growing elapsed against it overflows a word at 217 ticks - twelve seconds
-;   - and the overflow branch then slammed the estimate to [trk_total], which
-;   is the MIXER's position, nearly three seconds ahead of the music. The
-;   field caught it and QEMU could not: the model only free-runs that long
-;   when the report does not overtake it for twelve seconds, which needs a
-;   machine whose byte rate matches the model as closely as the real one does.
-;
-;   ANCHORED ONLY FORWARD. A report is the driver's block counter, so it is
-;   quantized DOWN: it names the last 2,048-byte boundary the card crossed and
-;   is therefore up to a whole block BEHIND where the card actually is. The
-;   model interpolates past that on purpose - so restarting the model at every
-;   report threw the interpolation away and, with the monotone guard holding
-;   the old answer, froze the display until the model climbed back. Up to a
-;   block of it, which is 6.8 ticks; the field measured 26% of row-to-row gaps
-;   at 4 ticks or more with exactly that shape. So the report re-anchors the
-;   model only when it has OVERTAKEN it, which means the model ran slow and
-;   the truth is the better answer. Drift the other way is bounded by the
-;   staged cap above.
-;
-;   MONOTONE, and this is the load-bearing one. [tui_play] is the last answer
-;   given and the estimate can never go below it. Without that, any
-;   disagreement between the estimate and the next real block - a rate that
-;   is a hair fast, a block that arrives early - moves the answer BACKWARDS,
-;   and a scroll that jumps back a row reads far worse than one that steps.
-;
-;   SUB-TICK, and it is the same argument one level down (SPEC.md 45.15.2).
-;   Everything above interpolates between the card's BLOCK reports, 2,048
-;   bytes apart; what it leaves is a staircase whose step is the SYSTEM TICK,
-;   because [tui_lcons] only moves when [ticks] does. At the XT rate a row is
-;   2.55 ticks, so row changes land on tick edges in a 3,2,3,3,2 pattern -
-;   165 ms, 110, 165, 165, 110 - and a 1.5x swing in the spacing of a scroll
-;   is exactly the "microstutter" the field reported after the music itself
-;   was smooth. The field capture is the proof rather than the theory: every
-;   single-tick PLAY step in it is 0, 302 or 604 and nothing between.
-;
-;   The screen redraws far more often than the tick - on the SPEC.md 53.5.1
-;   frame clock, exactly FSX_SUBTICK times - so the frames THEMSELVES are the
-;   finer clock, and no other one is available: SPEC.md 34.1 reserves the ch0
-;   latch and a package has no slot for it. So the frames of the PREVIOUS
-;   tick are counted and this tick is divided into that many equal steps. It
-;   cannot drift, because the sub-term is an offset ON TOP of the exact
-;   accumulator and is thrown away at every tick edge rather than added into
-;   it; it cannot go backwards, because the offset is capped one byte below a
-;   whole tick, so the edge that zeroes it also adds [tui_bpt]; and a machine
-;   that manages only one frame a tick divides by one and gets exactly the
-;   old behaviour back.
-;
-;   THE DIVISOR IS [tui_fcnt] PLUS ONE, and the missing +1 was a stutter of
-;   its own (SPEC.md 45.15.2). [tui_fcnt] is reset AT the tick edge by the
-;   frame standing on it, so it ends the tick holding the number of frames
-;   INSIDE the tick - two of the three the frame clock delivers. Divided by
-;   two, a tick's three frames offered 0, bpt/2 and (capped) bpt/2 again:
-;   the estimate froze for the last third of every tick and then jumped half
-;   a tick, which is one row in six at the XT rate. Measured as [tui_fpt] = 2
-;   on a machine measured at three frames a tick - the two numbers
-;   disagreeing is the whole bug, and 0, bpt/3, 2*bpt/3 is what it should
-;   always have been.
+; BOUNDED BY WHAT WAS STAGED (the card cannot play what the mixer has not
+; written) and MONOTONE ([tui_play] is the last answer and never goes back:
+; a scroll that steps back a row reads far worse than one that waits).
 ; -----------------------------------------------------------------------------
 tui_playpos:
     push bx
-    push cx
     push dx
-    call OSAPI_GET_TICKS
-    mov cx, ax                      ; CX = now, asked once
-    sub cx, [tui_ct0]               ; CX = ticks since the model last moved -
-    jz .subtick                     ; ALWAYS 0 or 1 or 2, because the model is
-    add [tui_ct0], cx               ; an accumulator: the anchor advances with
-    mov ax, cx                      ; it every call, so the multiply below can
-    mul word [tui_bpt]              ; never overflow and the clock never has a
-    add [tui_lcons], ax             ; long elapsed to multiply (see the header)
-
-    mov al, [tui_fcnt]              ; a new tick: last tick's frame count is
-    inc al                          ; this tick's divisor - PLUS ONE, because
-    jnz .div                        ; [tui_fcnt] counts the frames INSIDE the
-    dec al                          ; tick and the frame standing on the edge
-.div:                               ; is a frame too (saturate, never wrap to
-    mov [tui_fpt], al               ; 0: a 0 divisor is a #DE below)
-    mov byte [tui_fcnt], 0          ; the edge itself carries no offset: the
-    mov word [tui_sub], 0           ; whole tick just landed in [tui_lcons]
-    xor ah, ah
-    mov cx, ax
-    xor dx, dx
-    mov ax, [tui_bpt]
-    div cx                          ; bpt / frames, so fcnt*bpf <= bpt always
-    mov [tui_bpf], ax
-    jmp short .have
-.subtick:
-    mov al, [tui_fcnt]              ; the k'th frame inside this tick. COUNTING
-    inc al                          ; and CAPPING are separate on purpose: cap
-    jnz .fok                        ; the counter and it can never exceed its
-    dec al                          ; own previous value, so the divider
-.fok:                               ; ratchets down to 1 and stays there
-    mov [tui_fcnt], al
-    cmp al, [tui_fpt]               ; past what the last tick held: leave the
-    jae .have                       ; offset where it is rather than let it
-    xor ah, ah                      ; reach a whole tick
-    mul word [tui_bpf]              ; DX = 0 by the cap above
-    mov cx, [tui_bpt]
-    dec cx                          ; one byte short of the next tick edge:
-    cmp ax, cx                      ; monotone across it by construction
-    jbe .subok
-    mov ax, cx
-.subok:
-    mov [tui_sub], ax
+    cmp byte [tui_noppos], 0
+    jne .coarse
+    mov al, SND_V_PPOS
+    mov ah, [trk_hand]
+    call OSAPI_SND_STREAM
+    jnc .have
+    mov byte [tui_noppos], 1        ; refused: verb 3's count from now on
+.coarse:
+    mov dx, [trk_consumed]
 .have:
-    mov ax, [tui_lcons]             ; AX = what the model says, plus however
-    add ax, [tui_sub]               ; far into this tick the frames say we are
-
-    mov bx, [trk_consumed]          ; --- the PHASE loop (SPEC.md 45.15.3) ---
-    cmp bx, [tui_pcon]              ; a REPORT EDGE is the only place the
-    je .phdone                      ; model's phase can be measured at all
-    mov cx, bx
-    sub cx, [tui_pcon]              ; exactly one block, or the poll was late
-    mov [tui_pcon], bx              ; (a jump of two is not a measurement of
-    cmp cx, TRK_HALF                ; phase - the model was right to run on)
-    jne .phdone
-    push ax
-    sub ax, bx                      ; AX = the model's offset above the report
-    mov cx, [tui_bpt]               ; ...against where it SHOULD be: the report
-    shr cx, 1                       ; is seen about half a tick after the IRQ
-    sub ax, cx                      ; that raised it, so that is the target
-    sar ax, 1                       ; ...and a QUARTER of the error, so the
-    sar ax, 1                       ; loop converges in a few blocks and never
-    mov cx, ax                      ; steps the model back far enough to be
-    pop ax                          ; seen (SPEC.md 45.15.3)
-    sub ax, cx
-    sub [tui_lcons], cx
-.phdone:
-
-    mov bx, [trk_consumed]          ; has the REPORT overtaken the model?
+    mov ax, dx
+    mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN
     sub bx, ax                      ; (wrap-safe: the sign decides)
-    js .bound                       ; no - and that is the normal case: a
-                                    ; report is quantized BEHIND us, and
-                                    ; re-anchoring there throws the
-                                    ; interpolation away
-    mov ax, [trk_consumed]          ; yes: the model ran slow, so take the
-    mov [tui_lcons], ax             ; truth - and the anchor is now HERE, so
-    mov word [tui_sub], 0           ; the sub-tick offset that got us here is
-                                    ; spent, not owed again
-.bound:
-    mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN,
-    sub bx, ax                      ; because the card cannot play what is not
-    jns .mono                       ; there yet (wrap-safe: the sign decides)
+    jns .mono
     mov ax, [trk_total]
-    mov [tui_lcons], ax             ; a capped model stays capped rather than
-    mov word [tui_sub], 0           ; sprinting into a ceiling it cannot pass
 .mono:
     mov bx, ax                      ; ...and it may never go backwards
     sub bx, [tui_play]
@@ -1995,7 +1873,6 @@ tui_playpos:
     mov [tui_play], ax
 .out:
     pop dx
-    pop cx
     pop bx
     ret
 
@@ -3054,19 +2931,10 @@ tui_s_hintf:   db 'ENTER play  SPACE stop  F/ESC', 0
     TRKB tui_aspd                   ; ...and ticks per row, as they were heard
     TRKBUF tui_avol, 4              ; the channel volumes the needles show
 
-; --- tui_playpos's interpolation between block IRQs (SPEC.md 45.15.1) ---------
+; --- tui_playpos (SPEC.md 45.15.1, 34.5.1) -------------------------------------
     TRKW tui_bpt                    ; stream bytes per system tick
-    TRKW tui_lcons                  ; the reported position it is anchored to
-    TRKW tui_ct0                    ; ...and the tick that anchor landed on
-    TRKW tui_pcon                   ; the report the phase loop last measured on
     TRKW tui_play                   ; the last answer given: never goes back
-    TRKW tui_sub                    ; the SUB-TICK offset (SPEC.md 45.15.2):
-                                    ; how far the frames say we are into the
-                                    ; current tick. An offset on top of the
-                                    ; accumulator, never added into it
-    TRKW tui_bpf                    ; ...[tui_bpt] / the frames a tick holds
-    TRKB tui_fpt                    ; frames the LAST tick held: this one's
-    TRKB tui_fcnt                   ; divisor, and the count so far in this
+    TRKB tui_noppos                 ; the driver refused verb 9: verb 3's count
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter
     TRKB tui_lplay                  ; last seen [mp_playing], for the 8088

@@ -476,6 +476,11 @@ SND_CAP_PCM_BG   equ 04h
 SND_CAP_PCM_EXCL equ 08h
 SND_CAP_PCM_IN   equ 10h
 
+; verb 9 is verb 3 with DX = the bytes PLAYED EXACTLY, the DMA's progress into
+; the block now sounding added to the block-granular count (SPEC.md 34.5.1).
+; A driver without it answers AX = 7 with CF = 1: fall back to verb 3
+SND_V_PPOS       equ 9
+
 ; stream states returned by OSAPI_SND_STREAM verb 3 (SPEC.md 20.3/34.5)
 SND_ST_PLAYING   equ 0
 SND_ST_UNDER     equ 1           ; underrun-paused: resumable by a feed

@@ -326,8 +326,10 @@ trk_entry:
     call OSAPI_WM_ONCLICK           ; rects are re-read where the window is NOW
                                     ; before the library hit-tests them (a
                                     ; drag calls none of our handlers)
-    mov byte [trk_rep], 1           ; Repeat: Song - the module loops as it
-                                    ; always did ([mp_endstop] = 0, 45.21.3)
+    mov byte [trk_rep], 2           ; Repeat: List - and the first song opened
+                                    ; is the list, so it loops as it always
+                                    ; did (45.21.3, 45.22.4)
+    mov byte [mp_endstop], 1        ; ...once there is one: an empty list ends
     mov byte [tpl_cur], 0FFh        ; no list entry playing
     cmp byte [trk_cpu0], 0          ; the visualiser: the spectrum where there
     jne .viz                        ; are cycles for it, the needles where
@@ -1386,10 +1388,7 @@ trk_fdone:
     mov si, mp_title                ; the loaded title becomes the status line
     call tui_msg
     mov byte [trk_pause], 0         ; a NEW module is not paused in the old
-    cmp byte [tpl_inplay], 0        ; one's place - and one that did not come
-    jne .listed                     ; off the list is not the list's current
-    mov byte [tpl_cur], 0FFh        ; entry either
-.listed:
+    call tpl_note                   ; one's place - and it is on the list now
     mov al, 0
     call trk_play                   ; caps-gated: no SB machine stays a viewer
     call trk_repaint_done           ; the mandatory completion repaint - two
@@ -2143,22 +2142,13 @@ trk_play:
     mov word [mp_stampbase], 0      ; here, so the stamp history does too -
     call mp_stclear                 ; seeded with row 0, which mp_start has
                                     ; already read but nothing has mixed yet
-    mov word [tui_lcons], 0         ; ...and so does tui_playpos's estimate
-    mov word [tui_play], 0          ; (SPEC.md 45.15.1), which is anchored on
-    mov word [tui_pcon], 0          ; those same counters - the phase loop's
-                                    ; last-measured report included, or the
-                                    ; first edge of the new stream is compared
-                                    ; against the old one's (SPEC.md 45.15.3)
-    call OSAPI_GET_TICKS
-    mov [tui_ct0], ax
+    mov byte [tui_noppos], 0        ; ...and tui_playpos asks the card again
+    mov word [tui_play], 0          ; (SPEC.md 45.15.1, 34.5.1)
     mov ax, [mp_mixrate]            ; bytes per system tick: rate / 18.2065,
     mov dx, 3600                    ; and 3600/65536 is that to 0.011% - so
     mul dx                          ; the product's HIGH word is the answer
     mov [tui_bpt], dx               ; and no division is needed at all
-    mov [tui_bpf], dx               ; the sub-tick divider starts at one frame
-    mov word [tui_sub], 0           ; a tick (SPEC.md 45.15.2), which IS the
-    mov byte [tui_fpt], 1           ; old per-tick staircase - the first tick
-    mov byte [tui_fcnt], 0          ; measured replaces it
+    mov word [trk_mixed], 0         ; a restart drops a half in progress
     mov si, trk_s_buffer            ; ...and SAY SO, because the loop below is
     call tui_msg                    ; the longest thing this app ever does with
     call trk_say                    ; the gfx lock held (SPEC.md 45.17.2)
@@ -2231,8 +2221,26 @@ trk_mix_stage:
     mov ax, [trk_total]             ; where mp_outbuf[0] lands in the stream:
     mov [mp_stampbase], ax          ; the replayer stamps each row against it
     mov cx, TRK_HALF                ; (SPEC.md 45.15)
+    mov word [trk_mixed], 0         ; a whole half: no piece is in progress
     call mp_gen                     ; renders into mp_outbuf, advances the
                                     ; replayer; clobbers freely (mp_* rule)
+    call trk_stage
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; trk_stage - stage mp_outbuf, a WHOLE half, at the ring position [trk_total]
+; names and advance [trk_total]; [trk_mixed] back to 0. Preserves all.
+trk_stage:
+    push ax
+    push cx
+    push si
+    push di
+    mov word [trk_mixed], 0
     mov di, [trk_total]
     and di, [trk_rmask]
     add di, [trk_grant]             ; physical grant offset of stream byte n
@@ -2243,9 +2251,7 @@ trk_mix_stage:
     add word [trk_total], TRK_HALF  ; free-running 16-bit, mod 65536
     pop di
     pop si
-    pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -2406,9 +2412,7 @@ trk_rcyc:
     pop ax
     ret
 
-; trk_rep_cycle - O, the Repeat button: Off -> Song -> List. Song is the one
-; setting under which a song does not END - the replayer loops it
-; ([mp_endstop] = 0) - so it is the only one that touches the replayer.
+; trk_rep_cycle - O, the Repeat button: Off -> Song -> List
 trk_rep_cycle:
     push ax
     mov al, [trk_rep]
@@ -2418,11 +2422,30 @@ trk_rep_cycle:
     xor al, al
 .set:
     mov [trk_rep], al
-    cmp al, 1
-    mov al, 1
-    jne .es
+    pop ax                          ; ...and the loop rule follows it
+
+; trk_endstop_upd - does the song playing END at its order wrap, or does the
+; replayer loop it by itself ([mp_endstop] = 0, SPEC.md 45.21.3)? It loops
+; under Repeat Song, and under Repeat List when the list is ONE entry and that
+; entry is what is playing (45.22.4): going round a one-song list is looping
+; the song, and doing it in the replayer is seamless where a restart would be
+; a gap and a pre-roll. Asked on every Repeat change and every list change
+; (tpl_refresh), so adding a second song mid-play lets the first END. The
+; worker reads the byte; one store is atomic. Preserves all but the flags.
+trk_endstop_upd:
+    push ax
     xor al, al
-.es:
+    cmp byte [trk_rep], 1
+    je .set
+    cmp byte [trk_rep], 2
+    jne .ends
+    cmp byte [tpl_n], 1
+    jne .ends
+    cmp byte [tpl_cur], 0
+    je .set
+.ends:
+    inc ax
+.set:
     mov [mp_endstop], al
     pop ax
     ret
@@ -3037,6 +3060,14 @@ trk_xt_toggle:
 ; cushion.
 ; =============================================================================
 TRK_DEEP    equ 4 * TRK_HALF        ; half the ring: draw first above this
+TRK_PIECE   equ 256                 ; a feed piece while the ring is deep
+                                    ; (SPEC.md 45.16.7): ~25 ms of 8088
+TRK_LOW     equ 2 * TRK_HALF        ; ...and under THIS lead, whole halves at
+                                    ; once: 745 ms of cushion at the XT rate
+                                    ; against ~200 ms to mix a half. At
+                                    ; TRK_DEEP the ring dipped there every few
+                                    ; seconds in steady state, and each dip was
+                                    ; a 150-185 ms frame gap for nothing
 
 trk_worker:
     mov byte [trk_inrend], 0        ; THE RESTART LANDS HERE (SPEC.md 66.6.2)
@@ -3062,8 +3093,14 @@ trk_worker:
                                     ; one - FD reads 0 for both
     mov bx, [trk_win]
     call OSAPI_TASK_ALIVE           ; lock NOT held here (rule 4)
-    mov ax, 1
-    call OSAPI_TASK_SLEEP           ; ~18 wakes a second
+    call OSAPI_GET_TICKS            ; A TICK WENT BY during the last pass (the
+    cmp ax, [trk_wtick]             ; feed mixes up to the edge, SPEC.md
+    jne .late                       ; 45.16.7): its frame is owed NOW - a
+    mov ax, 1                       ; sleep here would wait out a whole
+    call OSAPI_TASK_SLEEP           ; second tick and draw every other one.
+    call OSAPI_GET_TICKS            ; Otherwise ~18 wakes a second, one frame
+.late:                              ; a tick
+    mov [trk_wtick], ax             ; ...and this is the tick the pass is for
     mov byte [trk_drew], 0
     cmp byte [trk_fs], 0            ; on the fsx surface (SPEC.md 53.2) the
     jne .feed                       ; BRACKET draws and this worker is the
@@ -3194,8 +3231,42 @@ trk_feed:
     sub bx, TRK_HALF                ; half, and the ring is chosen now
     cmp ax, bx                      ; (SPEC.md 45.18)
     ja .out                         ; no room for a whole half
+    ; --- A HALF IN PIECES (SPEC.md 45.16.7) ---------------------------------
+    ; The card takes whole halves and nothing said they had to be MIXED
+    ; whole. One was, per pass, and at XT mode's rate a half is 372 ms of
+    ; music and ~200 ms of 8088 - the worker drew nothing for that long, so
+    ; the windowed meters ran at 55 ms, 55, 55, 275 (measured). Now a pass
+    ; mixes TRK_PIECE at a time into mp_outbuf where the last piece stopped,
+    ; and stages and feeds the half when it is whole - and PIECES GO UNTIL
+    ; THE TICK EDGE rather than to a byte count: a count that overran the
+    ; tick made the worker sleep through the next one and draw every other
+    ; (measured, 110 ms median), where stopping at the edge spends exactly
+    ; the time the frame left. A ring that has run LOW (under TRK_LOW)
+    ; finishes the half at once, so the cushion is never traded for a frame.
+    mov cx, TRK_HALF
+    sub cx, [trk_mixed]             ; CX = what the half still needs
+    cmp ax, TRK_LOW
+    jb .piece                       ; low: all of it, now
+    cmp cx, TRK_PIECE
+    jbe .piece
+    mov cx, TRK_PIECE
+.piece:
     push dx
-    call trk_mix_stage              ; mix + stage + total += 2048
+    push cx                         ; mp_gen clobbers freely (mp_* rule)
+    cmp word [trk_mixed], 0
+    jne .more
+    mov ax, [trk_total]             ; the half's first piece: where
+    mov [mp_stampbase], ax          ; mp_outbuf[0] lands (SPEC.md 45.15)
+    call mp_gen
+    jmp short .mixed
+.more:
+    call mp_genc
+.mixed:
+    pop cx
+    add [trk_mixed], cx
+    cmp word [trk_mixed], TRK_HALF
+    jb .part
+    call trk_stage                  ; whole: stage + total += 2048
     mov cx, [trk_total]             ; verb 1: feed - new total valid length
     mov al, 1
     mov ah, [trk_hand]
@@ -3204,7 +3275,18 @@ trk_feed:
     or ax, ax
     jnz .out                        ; refused feed: try again next wake
     inc byte [trk_halves]
-    jmp .fill
+    jmp short .next
+.part:
+    pop dx
+.next:
+    mov ax, [trk_total]             ; low: go round and fill regardless
+    sub ax, dx
+    cmp ax, TRK_LOW
+    jb .fill
+    call OSAPI_GET_TICKS            ; deep: pieces while THIS tick lasts, and
+    cmp ax, [trk_wtick]             ; the next one's frame goes first
+    je .fill
+    jmp .out
 .dead:
     call mp_stop                    ; watchdog-ended streams never resume
     mov byte [trk_ended], 1         ; (SPEC.md 34.5); trk_reap or the next
@@ -3598,6 +3680,8 @@ trk_reloc:
                                     ; polled by the worker once a tick and
                                     ; read by every frame (SPEC.md 45.15)
     TRKB trk_halves                 ; halves fed this wake (bounds the burst)
+    TRKW trk_mixed                  ; bytes of the half in mp_outbuf so far
+    TRKW trk_wtick                  ; the tick the worker's pass is for
     TRKB trk_rsel                   ; the Rate menu's pick (SPEC.md 45.10):
                                     ; 0/1/2 = 11/22/44 kHz; bss zeroes to
                                     ; the 11 kHz default

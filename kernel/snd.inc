@@ -919,6 +919,8 @@ osapi_snd_stream:
     push bp
     cmp al, 3
     je .status
+    cmp al, 9                   ; verb 9 answers in DX as verb 3 does (SPEC.md
+    je .status                  ; 34.5.1)
     push dx                     ; every other verb gets its DX back
     mov bx, es                  ; BX = the CALLER'S SEGMENT, which verbs 5 and
                                 ; 6 copy to and from: the X stub put the

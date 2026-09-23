@@ -1138,8 +1138,13 @@ mp_pfind:
 ; =============================================================================
 ; mp_gen - render CX bytes (even, <= 2048) of unsigned 8-bit mono into
 ; mp_outbuf and advance the replayer. Silence when not playing.
+; mp_genc - the same, CONTINUING at [mp_outp] rather than at the buffer's
+; start: a half mixed in several pieces (SPEC.md 45.16.7), each stamped
+; against the one [mp_stampbase] the first piece set. CX <= what is left.
 ; =============================================================================
 mp_gen:
+    mov word [mp_outp], mp_outbuf
+mp_genc:
     cld
     push bp                     ; mp_mixch_xt keeps the frac step in BP
     push ds
@@ -1153,7 +1158,6 @@ mp_gen:
     mov cx, 2048
 .cxok:
     mov [mp_need], cx
-    mov word [mp_outp], mp_outbuf
 .big:
     mov cx, [mp_need]
     or cx, cx
