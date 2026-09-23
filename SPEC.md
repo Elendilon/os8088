@@ -140810,8 +140810,8 @@ arrive, and the character forms as they pour in:
 | 7–8 | the tail pours in | | three-quarters, **whole** |
 | 9 | | | its numbers |
 
-**THE TRAIL TWIRLS.** Twelve sparks: a five-pixel head on the line from the
-card's centre to the cell's, and eleven behind it a quarter of a frame apart,
+**THE TRAIL TWIRLS.** Eight sparks: a five-pixel head on the line from the
+card's centre to the cell's, and seven behind it a quarter of a frame apart,
 each on an ORBIT of the line — three, five or seven pixels out the older it is,
 three sixteenths of a turn a frame, neighbours five sixteenths apart. So the
 trail is a turning spiral that widens as it fades. A spark that has reached the
@@ -140854,9 +140854,9 @@ breakpoints and the cycle counter:
 | | |
 |---|---:|
 | the key: composing the cell, banking the card, vacating the cell | **112 ms**, before the first spark |
-| twelve sparks off and twelve on | **~20 ms** a frame |
+| eight sparks off and eight on | **~13 ms** a frame |
 | a card fade step / a character dissolve step | **~12 ms** / **~9 ms** |
-| the heaviest frames, 5 and 6: twelve sparks and the character | **48.5 ms of a 54.9 ms tick** |
+| the heaviest frames, 5 and 6: eight sparks, the character and one idle band | **43.9 ms of a 54.9 ms tick** |
 
 **THE CARD IS COMPOSED ONCE, AT THE PLAY.** Composing a card is ~35 ms of the
 8088, and re-composing it for every step of its fade put two frames over the
@@ -140865,12 +140865,13 @@ tick (54 and 56 ms). It is composed at the key press into a bank of its own,
 spark instead of a stutter in the middle. The reveal's work is charged to the
 wheel's credit in the wheel's own units — an arrival a call and rows at the
 calibrated rate — so the idle around it slows rather than the frame
-overrunning. **Overlapped, the reveal takes the WHOLE credit on most of its
-frames, and then the wheel commits nothing**: it normally commits one feature
-before it asks the credit, which guarantees progress on a machine whose credit
-is under one band, and on a reveal frame that one band put the frame at 54.8 of
-54.9 ms. So the board's idle holds still for the half second the reveal runs
-and breathes again after it — where the eye is on the trail anyway.
+overrunning. **Overlapped, the reveal takes the whole credit on most of its
+frames, and the idle SLOWS rather than stops**: the wheel commits one feature
+before it asks the credit — the guarantee of progress on a machine whose credit
+is under one band — so the board breathes at one band a frame where it
+otherwise commits five. The trail was twelve sparks, and then that one band put
+two frames at 54.8 of 54.9 ms and the wheel was stopped instead; the owner
+asked for the idle back, and four sparks were the price.
 
 **THE OPPONENT'S PLAN IS NOT THIS.** Planning is simultaneous and blind
 (TITHE-PLAN §6.0, TITHE-PLAN §6.3.1): until both players commit, neither sees the other's

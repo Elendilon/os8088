@@ -4185,7 +4185,7 @@ attack, and ending with the card fading out* — and then, on the owner's second
 look, **overlapped and twirling**: the card is gone by the time the sparks
 arrive, the character forms as they pour in, and the trail's sparks orbit the
 line as it flies. **Nine frames, ~0.5 s, against a clash's sixteen**, and every
-frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 48.5 ms of
+frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 43.9 ms of
 54.9). Three things it decided:
 
 - **The sparks are XOR and not a composed band.** The bolt composes over the
@@ -4198,10 +4198,12 @@ frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 48.5 ms of
   was ~35 ms of every step and put the frame over its tick; banked at the key
   press, it is latency before the first spark (112 ms, with the cell's own
   composition) instead of a stutter in the middle.
-- **The idle holds still while it runs.** Overlapped, the reveal needs the
-  wheel's whole credit on most of its frames, and the wheel's one guaranteed
-  commit was what put two of them at 54.8 of 54.9 ms. It commits nothing when
-  the reveal has taken everything, and the board breathes again after.
+- **The idle slows and does not stop.** Overlapped, the reveal needs the
+  wheel's whole credit on most of its frames, and the wheel keeps its one
+  guaranteed commit — one band a frame where it would commit five. With twelve
+  sparks that band put two frames at 54.8 of 54.9 ms and the wheel was stopped
+  instead; the owner wanted the idle kept, so the trail is eight sparks and the
+  heaviest frame is 43.9 ms.
 
 **IT IS A PLANNING-PHASE ANIMATION, and that answers the question above.**
 The owner's ruling: planning is simultaneous and blind (§6.0, §6.3.1), so

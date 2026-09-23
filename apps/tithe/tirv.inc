@@ -37,9 +37,11 @@ TI_RVTRAVEL equ 6                 ; frames of flight: a clash is sixteen, and a
 TI_RVCARD   equ 1                 ; the card fades on frames 1-4: 3, 2, 1, gone
 TI_RVCELL   equ 5                 ; the character forms on frames 5-8: 1 to 4
 TI_RVEND    equ 9                 ; its numbers, and the reveal is over
-TI_RVSPK    equ 12                ; sparks a frame: the head and eleven behind,
-                                  ; a quarter frame apart - a tail nearly three
-                                  ; frames long
+TI_RVSPK    equ 8                 ; sparks a frame: the head and seven behind,
+                                  ; a quarter frame apart - a tail two frames
+                                  ; long. It was twelve, and the four it lost
+                                  ; are what lets the idle keep breathing
+                                  ; through a reveal rather than stopping
 TI_RVMAX    equ 384               ; the largest cell band (TI_ARENAKB's own)
 
 ; -----------------------------------------------------------------------------
@@ -321,25 +323,20 @@ ti_rv_cost:
     pop bx
     ret
 
-; ti_rv_cost_sub - AX = AX less ti_rv_cost, floored at nothing, and CF=1 if
-; the reveal took ALL of it. Preserves every other register.
+; ti_rv_cost_sub - AX = AX less ti_rv_cost, floored at nothing. Preserves
+; every other register.
 ;
-; CF IS THE WHEEL'S CUE TO COMMIT NOTHING. It commits one feature before it
-; asks the credit, which is what guarantees progress on a machine whose credit
-; is under one band - and on a reveal frame that one band was the ~10 ms that
-; put the frame at 54.8 of a 54.9 ms tick. So the idle holds still for the few
-; frames the reveal needs the whole credit, and breathes again after.
+; THE IDLE SLOWS AND DOES NOT STOP. The wheel commits one feature before it
+; asks the credit, so a reveal that takes all of it still leaves one band a
+; frame breathing. With twelve sparks that one band put two frames at 54.8 of
+; a 54.9 ms tick and the wheel was stopped instead; with eight, it fits.
 ti_rv_cost_sub:
     push bx
     mov bx, ax
     call ti_rv_cost
     sub bx, ax
-    ja .have                        ; something left: CF is clear
+    jnc .have
     xor bx, bx
-    mov ax, bx
-    pop bx
-    stc
-    ret
 .have:
     mov ax, bx
     pop bx
@@ -399,10 +396,10 @@ ti_rv_sparks:
     or bp, bp
     jz .size
     mov cx, 3                       ; ...a SPARK: on an ORBIT of the line,
-    cmp bp, 3                       ; wider the older it is - the trail
+    cmp bp, 2                       ; wider the older it is - the trail
     jbe .orbit                      ; spreads as it fades
     mov cx, 5
-    cmp bp, 7
+    cmp bp, 5
     jbe .orbit
     mov cx, 7
 .orbit:
@@ -438,7 +435,7 @@ ti_rv_sparks:
     pop cx
     add [ti_rvpx], ax
     mov cx, 3
-    cmp bp, 3
+    cmp bp, 2
     jbe .size
     dec cx
 .size:
