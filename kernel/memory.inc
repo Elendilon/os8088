@@ -1575,9 +1575,10 @@ mem_can_move:
     ; rewrite while it is playing.
     ;
     ; [drv_wcnt] is the kernel's handle on that and it is exact in the
-    ; direction that matters: a stream is open only while its refill or drain
-    ; task lives (SPEC.md 34.5), so zero means no stream, and no stream means
-    ; nothing is armed. It costs the other three MC_DMA claims a refusal only
+    ; direction that matters for a DOUBLE-BUFFERED stream: one is open only
+    ; while its refill or drain task lives (SPEC.md 34.5), so zero means no
+    ; such stream. A DIRECT one (34.5.2) has no task, and the driver pins its
+    ; pool itself - MC_RLOC = 0, refused at the top of this routine. It costs the other three MC_DMA claims a refusal only
     ; while some driver has a worker at all, which is rare and always brief.
     ; PARKED IS NOT ENOUGH, for §66.6.3's reason one claim along: a parked
     ; refill task means the DSP is playing, not that it has stopped.

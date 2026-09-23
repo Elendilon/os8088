@@ -173,14 +173,23 @@ TRK_RING_SM equ 8192                ; the SMALL ring: 4 halves. Not a
                                     ; compromise about the PRE-ROLL, which is
                                     ; what the ring has to be big enough to
                                     ; hold
-; Both sizes are whole KB and both are POOL TIERS: the grant comes out of the
-; driver's staging pool, which tiers in 4KB steps (SPEC.md 34.6.2), so each
-; lands on a tier exactly rather than rounding up into one the heap may not be
-; able to fund. Asserted, because it is a fact about the DRIVER that this app
-; cannot see and would otherwise only discover as a refusal on a small machine.
+; Both sizes are whole KB, so the driver's pool - sized to the first grant
+; since SPEC.md 34.6.3 - is exactly the ring and not a byte more, and both are
+; whole multiples of the driver's widest block, so the card can play the ring
+; where it lies (SPEC.md 34.5.2) at every rate this app opens.
 %if (TRK_RING % 4096) || (TRK_RING_SM % 4096)
-  %error "a ring size must land on a staging-pool tier (SPEC.md 34.6.2)"
+  %error "a ring size must be whole 4KB blocks (SPEC.md 34.5.2)"
 %endif
+TRK_RING_HZ equ 8000                ; ...and at or below this RATE the small
+                                    ; ring is taken on EVERY machine (SPEC.md
+                                    ; 45.18.2). XT mode's 5.5 kHz mixes in
+                                    ; pieces to the tick edge and never fills
+                                    ; either ring - measured, the lead sits at
+                                    ; 2-4KB on both - so the full one was 8KB
+                                    ; of heap held for nothing. From 11 kHz up
+                                    ; the ring IS filled and the full one is
+                                    ; the cushion: at 11 kHz on an XT the small
+                                    ; ring holds, but with one half to spare
 TRK_ROOMYKB equ 64                  ; ...and the line between them. Above this
                                     ; much free RAM left over we take the full
                                     ; ring and the full cushion; at or below
@@ -1980,16 +1989,17 @@ trk_ring_set:
     ret
 
 ; -----------------------------------------------------------------------------
-; trk_ring_pick - choose the ring from the free RAM, and NEVER refuse
-; in:  nothing (asks OSAPI_MEM_AVAIL itself)
+; trk_ring_pick - choose the ring from the free RAM and the rate, NEVER refuse
+; in:  nothing (asks OSAPI_MEM_AVAIL and trk_rate_pick itself)
 ; out: nothing; the ring committed
 ; clobbers: nothing (flags)
 ;
-; SPEC.md 45.18's policy in one compare: above TRK_ROOMYKB of free RAM take
-; the full ring and the full cushion, at or below it take the small ring and
-; the pre-roll hitch with it. That is a question about POLITENESS rather than
-; about fit - 16KB out of a 20KB run is most of a small machine's heap, and
-; the app is not the only thing that wants it.
+; SPEC.md 45.18's policy in two compares: at or below TRK_ROOMYKB of free RAM
+; take the small ring and the pre-roll hitch with it - a question about
+; POLITENESS rather than fit, 16KB out of a 20KB run being most of a small
+; machine's heap - and at or below TRK_RING_HZ take it too, because a stream
+; that slow never fills the full one (SPEC.md 45.18.2). Called at load (the
+; probe) and again at every Play, since R moves the rate in between.
 ;
 ; **It cannot refuse, and that is deliberate.** OSAPI_MEM_AVAIL walks the
 ; claim map with mem_run, which counts a PURGEABLE claim (SPEC.md 50.4's
@@ -2010,6 +2020,9 @@ trk_ring_pick:
     mov cx, TRK_RING_SM
     cmp ax, TRK_ROOMYKB
     jbe .set
+    call trk_rate_pick              ; AX = the rate the next Play opens at:
+    cmp ax, TRK_RING_HZ             ; a slow stream never fills the full ring
+    jbe .set                        ; (SPEC.md 45.18.2)
     mov cx, TRK_RING
 .set:
     call trk_ring_set
@@ -2138,8 +2151,9 @@ trk_play:
                                     ; while we are stopped (SPEC.md 34.6);
                                     ; teardown still force-frees it (34.3) if
                                     ; a close never ran
-    mov cx, [trk_ring]              ; the size trk_ring_pick chose at LOAD
-.gtry:
+    call trk_ring_pick              ; picked AGAIN: the rate may have moved
+    mov cx, [trk_ring]              ; since the load (R), and the ring is
+.gtry:                              ; sized by it (SPEC.md 45.18.2)
     mov al, 7
     mov ah, 0                       ; sub-op 0 = alloc
     call OSAPI_SND_STREAM           ; out AX = 0 ok, SI = grant offset

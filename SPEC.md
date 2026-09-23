@@ -53046,7 +53046,7 @@ function*:
 
 | row | KB | = image + what it holds to work |
 |---|---|---|
-| Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
+| Sound | ~35 | 7 image + 8 double buffer (`SBL_DMASZ`, per stream) + 20 staging pool (`SBL_POOLKB`, its ceiling) — the worst case; an idle card holds its image alone (§34.5.2) |
 | Hard Drive | ~5 | 5 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
@@ -54432,10 +54432,12 @@ end.
 Retired once, and no longer: `drivers/sound/sb.inc` is the DSP scan, the
 stream verbs, the auto-init/single-cycle strategy gate and the deferred IRQ
 discovery, all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
-changed in the move is where its memory comes from — a **heap claim** taken at
-attach (`sbl_dma_map`, `OSAPI_MEM_CLAIM_DMA`), not a pinned segment, which is
-why the 64KB DMA-page rule had to become something the allocator answers
-(§50.3) rather than a property the address had by construction.
+changed in the move is where its memory comes from — a **heap claim**
+(`OSAPI_MEM_CLAIM_DMA_HI`), not a pinned segment, which is why the 64KB
+DMA-page rule had to become something the allocator answers (§50.3) rather
+than a property the address had by construction. It was taken at attach and
+held for the session; since §34.5.2 it is taken per stream, and a ring stream
+the card can reach needs none at all.
 
 The stream verbs reach it through `osapi_snd_stream` (slot `0x0100`), which is
 the one slot where **DX is an input on some verbs and an output on another**:
@@ -54497,6 +54499,75 @@ A driver without the verb refuses it (`AX = 7`, `CF = 1`), and a caller falls
 back to verb 3. Tracker does (§45.15.1's model carries that stream). One line
 of kernel (`cmp al, 9` / `je .status`) and the verb's body in `SOUND.DRV`.
 
+#### 34.5.2 A ring the card can reach is played where it lies
+
+A ring stream (`SND_OPENF_RING`) used to reach the card the way every stream
+did: the refill task copied each half of the package's ring out of the staging
+pool into an 8KB double buffer the 8237 was pointed at, and the ISR swapped the
+halves. But **a ring already is a double buffer** — halves, a producer writing
+ahead, a consumer the ISR counts — so the copy bought nothing except the copy
+itself and the 8KB it landed in. The buffer was claimed at attach and held for
+the session, so an idle card cost the heap 8KB whether or not anything had
+ever played.
+
+So verb 0 now asks three things of a ring stream and, if all three hold,
+programs the 8237 with **the ring itself** as its auto-init cycle
+(`[sbl_xoff]`, `[sbl_xpage]`, `[sbl_xcnt]` = RL − 1) and the DSP's block as one
+half:
+
+1. **auto-init** (DSP ≥ 2.00) — a single-cycle DSP re-arms each half from the
+   ISR, which the direct path does not carry;
+2. **RL ≥ two halves** — a ring of one block is a block the producer can never
+   write ahead of;
+3. **the ring's physical span does not cross a 64KB page** (`sbl_ring_phys`).
+   `sbl_pool_get` asks the allocator for a page-safe pool
+   (`OSAPI_MEM_CLAIM_DMA_HI`, head = the whole pool), so this is the case and
+   not a hope; if the heap has no such run the pool is claimed plainly and the
+   stream takes the copy path.
+
+What changes for a DIRECT stream (`[sbl_direct]` = 1):
+
+| | double-buffered | direct |
+|---|---|---|
+| what the 8237 reads | the 8KB buffer | the package's ring, in the pool |
+| refill task | yes — copies each half | **none** (`[drv_wcnt]` stays 0) |
+| ISR's question | was the next half's valid flag set? | is `total − consumed ≥ half`? |
+| verb 1's bound | `total − fed ≤ RL` | `total − consumed ≤ RL` |
+| who resumes an underrun | the refill task | **verb 1**, in its own `cli` window |
+| verb 9 | the half-and-pending-IRQ case | `consumed + ((into − (consumed & mask)) & mask)` — no case |
+| what keeps the memory still | `[drv_wcnt]` ≠ 0 pins an `MC_DMA` claim | verb 0 **pins the pool** (`OSAPI_MEM_MOVABLE`, AX = 0); `sbl_unpin` declares it again at close, after the channel is masked |
+
+The underrun contract is unchanged, word for word: the ISR halts and marks
+the stream paused, and nothing stale loops — what resumes it is now the feed
+that makes a whole block available again, since there is no task to notice.
+The producer's bound is the one Tracker and Audio already kept (the lead,
+`total − consumed`, never past the ring), so neither needed a line changed.
+
+**The double buffer is claimed lazily.** A stream that is not direct — a
+linear one, a single-cycle DSP, a pool that is not page-safe, and every
+record stream (the capture ring lives in it) — claims it at verb 0 or 4
+(`sbl_dma_get`) and frees it at close (`sbl_unpin`). Verbs 0 and 4 answer
+**8** when it cannot be had, verb 7's "no space"; attach no longer claims
+anything, so it can no longer fail for memory. `sbl_stop_stream` now masks
+channel 1 as well as halting the DSP, because the memory it was pointed at is
+about to be freed or allowed to move.
+
+Measured on a 4.77 MHz 5150 (MartyPC, Hercules + SB), Tracker playing
+BEVERLY.MOD windowed in XT mode:
+
+| | before | after |
+|---|---|---|
+| driver's claims, idle desktop | 6KB image + 8KB buffer | **7KB image** |
+| driver's claims, playing at 11 kHz (16KB ring) | image + 8KB buffer + 20KB pool | image + **16KB pool** |
+| ...at 5.5 kHz (8KB ring, §45.18.2) | image + 8KB buffer + 20KB pool | image + **8KB pool** |
+| `SOUND.DRV`'s share of the machine at 11 kHz | two copies of every byte | **3.5%** — only verb 6's stage |
+| 11 kHz, 60 s: underruns / minimum lead | 0 / 10,240 | 0 / **12,288** |
+| the SB's output over 25 s at 5.5 kHz | — | **byte-identical**, 1,075,588 samples |
+
+The image is 449 bytes bigger (5,903 → 6,352), which takes its claim from 6KB
+to 7KB: the only cost, against 8KB back on every machine with a card whether
+or not it ever plays, and 12–20KB back while it does.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -54518,11 +54589,11 @@ the whole reason to split them:
 
 | | DMA buffer | staging pool |
 |---|---|---|
-| size | 8KB | 20KB |
-| who addresses it | the **8237** | us, with `rep movsb` |
-| 64KB page rule | **binding** | none — it may straddle freely |
-| when claimed | attach, on an empty heap where a page-safe base is easy | first grant, and it may honestly refuse (error 8) |
-| lifetime | the driver's | the grants' |
+| size | 8KB | the first grant, up to 20KB (§34.6.3) |
+| who addresses it | the **8237** | us, with `rep movsb` — and the **8237** too, for a direct stream (§34.5.2) |
+| 64KB page rule | **binding** | asked for, so a ring in it can be played in place; a pool without it still works, by copy |
+| when claimed | ~~attach~~ the open of a stream that is not direct (§34.5.2) | first grant, and it may honestly refuse (error 8) |
+| lifetime | ~~the driver's~~ that stream's | the grants' |
 
 Holding both from boot cost a machine 32KB for a card nobody was playing —
 **58% of a 128KB machine's heap**. Measured after the split: a live grant shows
@@ -54618,6 +54689,29 @@ So digital audio was **unreachable at the RAM floor** and is not any more.
 The two changes compose: §34.6.1's smaller DMA claim is part of what leaves
 room for a pool at all. On the 640KB machine nothing moved — all three legs
 are byte-identical to the figures above.
+
+#### 34.6.3 The pool is sized to its first grant
+
+§34.6.2's tiers were right about the pool having manners and wrong about the
+size: the first tier was always 20KB, so a Tracker playing an 8KB ring held a
+20KB pool and a 16KB one held 4KB it never touched. Now the **first grant
+decides** — its size in whole KB, at least `SBL_POOLMIN` (4) so a small first
+grant leaves room for a scratch one beside it — and a later grant that does
+not fit **grows** the pool (`sbl_pool_grow`, `OSAPI_MEM_REGROW`) by the whole
+grant, up to `SBL_POOLKB` (20), which is now the pool's ceiling rather than
+its opening bid. A grant bigger than the ceiling is 7, as before.
+
+Growth never happens with a stream open — a direct stream is playing out of
+that very claim and a double-buffered one has a worker copying from it — so
+a second grant beside an open stream that does not fit answers **8** where
+the 20KB pool used to have room for it. `tests/sbtest`'s verb 5/6 round trip
+beside an open stream is that case, and `SBL_POOLMIN` is what keeps it
+working for any first grant under 4KB.
+
+The tiers went because they could not help: a pool smaller than the grant it
+was claimed for is a refusal either way, and every caller that can live with
+less — Tracker, Audio, the Recorder — already tiers its own grant and asks
+again.
 
 ### 34.7 State, boot gate, teardown
 
@@ -70656,6 +70750,37 @@ Four things hold the rest up:
   making the user close something and re-load, and `trk_ring_set` is called
   with what was *actually* granted, never with what was asked for.
 
+
+#### 45.18.2 The ring is sized by the RATE too
+
+§34.5.2 lets the card play the ring where it lies and §34.6.3 sizes the
+driver's pool to the ring, so the ring is now **all** the audio memory a
+playing Tracker holds — 16KB where the driver used to hold 28KB — and its size
+is worth asking about again. `trk_ring_pick` takes the small 8KB ring at or
+below `TRK_RING_HZ` (8,000 Hz) as well as on a tight heap, and it is called
+again at every Play, because R moves the rate after the load's probe.
+
+Measured on a 4.77 MHz 5150 (MartyPC, Hercules + SB), windowed, XT mode,
+ELYSIUM.MOD and STARDUST.MOD, 90 s each, with a window drag every 2 s in the
+middle third:
+
+| rate | ring | underruns, undisturbed | underruns, dragging | lead, undisturbed |
+|---|---|---|---|---|
+| 5,500 | 16KB | 0 | 7 / 8 | min 2,048, median 4,096 |
+| 5,500 | **8KB** | **0** | 10 / 9 | min 2,048, median 4,096 |
+| 11,000 | 16KB | 0 | 27 / 16 | min 10,240, median 14,336 |
+| 11,000 | 8KB | 0 | 60 / 46 | **min 2,048**, median 6,144 |
+
+**At 5.5 kHz the ring size changes nothing**: XT mode mixes in pieces up to
+the tick edge (§45.16.7) and never fills either ring, so the lead sits at
+2–4KB on both, and the full ring was 8KB of heap held for nothing. From 11 kHz
+up the whole-half feed (§45.16.7.1) *does* fill the ring and the full one is
+the cushion: the small ring holds at 11 kHz on an XT, but with one half to
+spare against the full ring's five, and it drops three times as often under
+load. So 11 kHz and above keep 16KB. Every run recovers once the load stops —
+the stream that fell behind and never caught up is gone at both sizes. And
+the small ring's shorter pre-roll (three halves, 1.12 s at 5.5 kHz) cost
+nothing measurable: no underrun from the first Play on any of three modules.
 
 ### 45.19 Its off-grid pens are MEASURED and deliberately left alone
 
@@ -91350,6 +91475,19 @@ the image and checks them against the base the kernel granted. A/B'd with
 vectors follow, the desktop draws, and the only thing that goes red is that
 one check — the next `Play` would have programmed the 8237 with a page and
 offset belonging to somebody else's claim.
+
+**Superseded in part by §34.5.2**, and the paragraphs above are kept as the
+design record. The 8KB ring is no longer claimed at attach: it is the double
+buffer of a stream that is *not* direct, claimed at open and freed at close,
+never declared movable, and pinned for its short life by `[drv_wcnt]` as
+before — so `sbl_ring_reloc` is gone and `tests/sndmove.py` asserts an idle
+card holds nothing but its image instead. A **direct** stream has no task, so
+`[drv_wcnt]` is 0 while the 8237 reads the package's ring out of the staging
+pool — which is itself an `MC_DMA` claim now, page-safe by request. So
+`[drv_wcnt]` is no longer exact for that claim, and the driver does not rely
+on it: verb 0 **pins** the pool (`OSAPI_MEM_MOVABLE`, AX = 0) and
+`sbl_unpin` declares it again after `sbl_stop_stream` has masked the channel.
+`mem_can_move` refuses a claim with no proc before it asks anything else.
 
 ### 66.7 What is deliberately not done
 

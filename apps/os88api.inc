@@ -502,7 +502,13 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; ringbase + (n & (RL-1)), and verb 1 still
                                  ; feeds the NEW TOTAL - free-running, so the
                                  ; driver reads it as a wrapping counter, not
-                                 ; as a delta.
+                                 ; as a delta. THE CARD MAY PLAY THE RING IN
+                                 ; PLACE (SPEC.md 34.5.2) - so keep the lead,
+                                 ; total - consumed, within RL, which verb 1
+                                 ; enforces, and never stage behind consumed.
+                                 ; Verbs 0 and 4 answer 8 when a stream the
+                                 ; driver must double-buffer cannot have its
+                                 ; 8KB, which it claims per stream now.
 
 ; --- window management (SPEC.md 11.1/11.2) -------------------------------------
 %define OSAPI_WM_SIZABLE    KERNEL_SEG:0x0108   ; BX=win ptr, AL = 0 clear / non-zero set
