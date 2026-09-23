@@ -56,6 +56,11 @@ def tiles_of(text, label):
     i = text.index("\n" + label + ":")
     out, pend = [], None
     for line in text[i:].split("\n")[2:]:
+        m = re.match(r"\s+db\s+(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*$", line)
+        if m:                           # the face's 4-byte form: x1/4, (x2+1)/4
+            a, b, y1, y2 = (int(g) for g in m.groups())
+            out.append((a * 4, y1, b * 4 - 1, y2))
+            continue
         m = re.match(r"\s+dw\s+(\d+),\s*(\d+)\s*$", line)
         if m:
             pend = (int(m.group(1)), int(m.group(2)))
@@ -151,7 +156,15 @@ def main(argv):
             t = make_tiles(W, H, els)
             print("%s:%s; %d tiles" % (name, " " * max(1, 26 - len(name)), len(t)))
             for (a, y1, b, y2) in t:
-                print("    dw %d, %d\n    db %d, %d" % (a, b, y1, y2))
+                if name.startswith("tw_"):
+                    if a % 4 or (b + 1) % 4:
+                        print("trkface: %s: tile %r is off the 4-pixel grid the "
+                              "face's 4-byte tiles need" % (name, (a, y1, b, y2)),
+                              file=sys.stderr)
+                        return 1
+                    print("    db %d, %d, %d, %d" % (a // 4, (b + 1) // 4, y1, y2))
+                else:
+                    print("    dw %d, %d\n    db %d, %d" % (a, b, y1, y2))
         return 0
     bad = 0
     for name, src, els, W, H in sets:

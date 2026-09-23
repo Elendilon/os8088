@@ -699,13 +699,9 @@ tpl_onup:
     push cx
     push dx
     mov bx, tpl_btns
-    call os88ui_btnup               ; AX = the button, 0 = cancelled
-    or ax, ax
-    jz .out
-    dec ax
-    mov bx, ax
-    shl bx, 1
-    call [tpl_acts + bx]
+    call tw_prefire                 ; the action first, the release drawn
+    call os88ui_btnup               ; once in the state it leaves (tw_prefire)
+    call tw_synced
     call tpl_refresh
     call tw_refresh
 .out:
@@ -717,6 +713,17 @@ tpl_onup:
 
 tpl_acts: dw tpl_b_add, tpl_b_remove, tpl_b_clear, tpl_b_shuffle
           dw tpl_b_sort, tpl_b_play
+
+; tpl_fire - AX = the editor's button that fired (0-based)
+tpl_fire:
+    push ax
+    push bx
+    mov bx, ax
+    shl bx, 1
+    call [tpl_acts + bx]
+    pop bx
+    pop ax
+    ret
 
 tpl_b_add:
     mov ax, TPLQ_ADD

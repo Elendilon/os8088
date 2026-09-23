@@ -2568,6 +2568,8 @@ trk_legend:
     mov si, [tui_msgp]
     cmp si, trk_s_stopd
     je .re
+    cmp si, trk_s_paused
+    je .re
     cmp si, trk_s_playing
     je .re
     cmp si, trk_s_stopdf
@@ -2587,6 +2589,9 @@ trk_transport:
     jne .playing
     mov al, [mp_row]
     mov [tui_vrow], al
+    mov si, trk_s_paused            ; a PAUSE says so (45.21): Play resumes,
+    cmp byte [trk_pause], 0         ; where a stop starts the song again
+    jne .msg
     mov si, trk_s_stopd             ; ...and the FULLSCREEN twin of each, which
     cmp byte [trk_fs], 0            ; is where the legend is actually read from
     je .msg                         ; most of the time: [tui_msgp] is non-zero
@@ -3355,6 +3360,7 @@ trk_ttl:     db 'Tracker', 0
 ; --- status-line strings -------------------------------------------------------
 trk_s_stopd:  db 'Stopped  ENTER play  HOME top  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  HOME top  L load', 0
+trk_s_paused: db 'Paused  ENTER resumes', 0 ; short enough for either surface
 ; The fullscreen twins are SHORTER because that field is: TL_STW is 284px on
 ; the compact (CGA) layout = 35 cells, against the windowed splash's 52. The
 ; first version was 45 and truncated to `... HOME top  L lo`, which is how a

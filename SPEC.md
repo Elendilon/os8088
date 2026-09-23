@@ -67899,6 +67899,11 @@ where this one contradicts it, and every place that took a real correction —
 
 ### 45.1 Windowed is a splash; the app lives fullscreen
 
+**The splash described here is GONE (§45.21)**: windowed, Tracker is ModPlug
+Player's face now. What this section says about the FULLSCREEN surfaces - the
+bracket, the ordering of `[trk_fs]`, the keys - still stands; what it says
+about a card with a key map on it is history.
+
 The entry proc creates an ordinary centred 420x180 window — a splash card:
 the name, the loaded module's title, the key map, and *Press F or click for
 fullscreen*. Fullscreen is **F or a click, never "any key"** — it used to be
@@ -70501,6 +70506,7 @@ standard of this tree:
 | LED strips under every button | **latches** (`OS88UI_LATCH`): one of Play, Pause and Stop is always down, a tape deck's row; an option that is on is drawn down |
 | a volume slider that jumped on a click | click **and drag**, live — heard as it moves |
 | a scrubber that seeked the mixer | the thumb follows the hand and the seek lands on the **release**, restarting the stream there so it is heard at once rather than a ring later (`tw_seek`) |
+| a latching button (Shuffle, Play) redrawn upright on the release and inverted again by the state change a frame later | the action runs FIRST and the library's release draw is the button's final picture (`tw_prefire`): measured on the glass as a 1,080-pixel transient before, and nothing but the pointer's own sprite after |
 | an About panel its own worker painted over | the **standard card** (§20.5.1): while it is up the worker drops its frames, every refresh from a handler refuses, and the button record has **no live buttons** — so not even a press can draw through it |
 | a layout banked at paint, broken by a drag | the origin, the layout and the **depth of the display the window is on** (§39.16.4) are asked at the top of every draw (`tw_track`), because a drag calls none of our handlers (§11.96.12, §93.3.4.2); the button rects are screen coordinates and are rebuilt there and before every press, and a move repaints nothing |
 
@@ -81449,6 +81455,9 @@ replayer and mixer), `mppui.inc` (the skinned player window), `mppset.inc`
 `mpm_`, `mppu_`, `mpps_`, `mppl_`.
 
 It is the second MOD player in this tree and that is deliberate — see §56.1.
+**Its face now lives in Tracker (§45.21)**, rebuilt on Tracker's replayer,
+with the playlist (§45.22); this package is left as it ships until it is
+retired, and the defects §45.21's table lists are not fixed here.
 Tracker (§45) is a FastTracker II *pattern editor's* view of a module, drawn
 fullscreen; this is a **player**, windowed, with an LCD, a transport row and a
 visualiser. They share a lineage and no code.
