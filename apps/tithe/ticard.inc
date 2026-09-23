@@ -911,6 +911,8 @@ ti_cb_unit:
     mov bl, [bx]
     xor bh, bh
     mov [ti_pi], bx
+    mov ax, [ti_cardi]              ; ...and the character this card plays
+    call ti_ck_card                 ; (SPEC.md 97.4.9)
     ; ...AND IT IS NOT REBUILT HERE. Every pose is composed once at art-build
     ; time (ti_art_build), and ti_unit_build CLEARS TI_UNITMAX bytes - the
     ; worst case over every geometry - where a live band is unitb * unith. On
@@ -961,15 +963,20 @@ ti_cb_unit:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_unit_build - the mini unit that rides a card, one frame per pose
-; in:  [ti_pi]; the layout is current
-; clobbers: AX, BX, CX, DX, SI, DI
+; ti_unit_build - the mini units that ride a card: character [ti_ck]'s four
+; poses, at the unit's own surface (SPEC.md 97.4.9)
+; Preserves every register.
 ;
 ; THE CARD'S OWN ANIMATION (TITHE-PLAN 3.3). A hovered card was a pulsing
 ; frame, which is a state change dressed as movement; what the panel wants is
 ; the unit ON the card moving, which is also what says which unit the card
-; plays. One 16-pixel band a pose, drawn with the card's pen so it inverts
-; with everything else.
+; plays - and now says WHICH CHARACTER, the three factions being three
+; silhouettes rather than one trapezoid.
+;
+; IT IS A SURFACE OF ITS OWN AND NOT A SCALE OF THE BOARD'S. The unit is 24
+; wide where the board's band is 64, so the same drawing code is asked for the
+; small size rather than the big one being resampled - `tools/os88tithechar.py`
+; emits four more surfaces for it, and `TI_CHAR_BG` is where they start.
 ; -----------------------------------------------------------------------------
 ti_unit_build:
     push ax
@@ -982,76 +989,132 @@ ti_unit_build:
     push ds
     pop es
     cld
-    mov word [ti_spanw], TI_UNITW
+    push word [ti_pi]
+
+    mov ax, [ti_ck]                 ; the record: character x unit surface
+    mov bx, TI_CHAR_G
+    mul bx
+    add ax, TI_CHAR_BG
+    add ax, [ti_gidx]
+    shl ax, 1
+    mov si, ti_char_tab
+    add si, ax
+    mov si, [si]
+    mov [ti_urec], si
+
+    mov ax, [ti_unitb]              ; the slot's own pitch
+    mul word [ti_unith]
+    mov [ti_uslot], ax
+
+    mov word [ti_pi], 0             ; --- THE BODY, INTO SLOT 0 --------------
     call ti_unit_addr
     push di
     mov cx, TI_UNITMAX
-    xor ax, ax
+    xor al, al
     rep stosb
     pop di
+    mov si, [ti_urec]
+    mov si, [si]
+    mov cx, [ti_uslot]
+    rep movsb
 
-    mov word [ti_ury], 0
-.row:
-    mov ax, [ti_ury]
-    cmp ax, [ti_unith]
-    jae .done
+    mov word [ti_pi], 0             ; ...REPLICATED INTO THE REST
+    call ti_unit_addr
+    mov si, di
+    add di, TI_UNITMAX
+    mov cx, TI_POSES - 1
+.rep:
+    push cx
+    push si
     push di
+    mov cx, [ti_uslot]
+    rep movsb
+    pop di
+    pop si
+    add si, TI_UNITMAX
+    add di, TI_UNITMAX
+    pop cx
+    loop .rep
+
+    mov word [ti_pi], 0             ; ...AND EACH POSE'S MOVE ON TOP
+.mp:
+    mov ax, [ti_pi]
+    cmp ax, TI_POSES
+    jae .done
+    call ti_unit_move
+    inc word [ti_pi]
+    jmp short .mp
+.done:
+    pop word [ti_pi]
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+ti_unit_move:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov si, [ti_urec]
+    mov ax, [ti_pi]
+    inc ax
+    shl ax, 1
+    add si, ax
+    mov si, [si]
+    mov al, [si + 2]                ; w
+    xor ah, ah
+    or ax, ax
+    jz .out
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mb], ax
+    mov al, [si + 3]                ; h
+    xor ah, ah
+    mov [ti_mh], ax
+    mov al, [si + 0]                ; x
+    xor ah, ah
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mx], ax
+    mov al, [si + 1]                ; y
+    xor ah, ah
+    mov [ti_my], ax
+    add si, 4
+
+    call ti_unit_addr
+    mov ax, [ti_my]
     mul word [ti_unitb]
     add di, ax
-
-    ; THE SAME SHAPE AS THE BOARD'S FIGURE, at a quarter of the size - head
-    ; for the top eighth, then a body widest at the shoulders and tapering to
-    ; the feet. It has to read as the unit the card PLAYS, so a shape of its
-    ; own would be a second character; the first cut widened downward and read
-    ; as a wedge.
-    mov ax, [ti_unith]
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1                       ; AX = h/8, the head's depth
-    mov bx, ax
-    or bx, bx
-    jnz .hd
-    inc bx
-.hd:
-    mov ax, [ti_ury]
-    cmp ax, bx
-    jae .body
-    mov cx, bx                      ; the head: a small constant width
-    shr cx, 1
-    inc cx
-    inc cx
-    jmp short .emit
-.body:
-    mov dx, TI_UNITW
-    shr dx, 1
-    shr dx, 1                       ; DX = w/4
-    push dx
-    mov ax, [ti_ury]
-    mul dx
-    mov cx, [ti_unith]
-    or cx, cx
-    jnz .bdiv
-    inc cx
-.bdiv:
-    xor dx, dx
-    div cx
-    shr ax, 1
-    pop dx
-    sub dx, ax
-    inc dx
-    mov cx, dx                      ; CX = the half width
-.emit:
-    mov ax, TI_UNITW / 2
-    cmp word [ti_ury], bx           ; the LEAN is the pose, and only the top
-    jae .put                        ; moves - the dirty rect's rule applies to
-    add ax, [ti_pi]                 ; a card's unit exactly as it does to a
-    dec ax                          ; figure on the board
-.put:
-    call ti_pose_span
+    add di, [ti_mx]
+    mov dx, [ti_mh]
+.row:
+    or dx, dx
+    jz .out
+    push di
+    mov cx, [ti_mb]
+.byte:
+    lodsb
+    or [di], al
+    inc di
+    loop .byte
     pop di
-    inc word [ti_ury]
+    add di, [ti_unitb]
+    dec dx
     jmp short .row
-.done:
+.out:
     pop es
     pop di
     pop si
@@ -1065,10 +1128,12 @@ ti_unit_build:
 ti_unit_addr:
     push ax
     push dx
-    mov ax, [ti_pi]
-    and ax, TI_POSES - 1
-    mul word [ti_unitb]
-    mul word [ti_unith]
+    mov ax, [ti_ck]
+    mov dx, TI_POSES
+    mul dx
+    add ax, [ti_pi]
+    mov dx, TI_UNITMAX
+    mul dx
     mov di, ti_unit
     add di, ax
     pop dx

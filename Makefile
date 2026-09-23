@@ -9429,6 +9429,11 @@ apps/tithe/tibases.inc: tools/os88tithebase.py
 apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 	python3 tools/os88titheface.py emit
 
+# ...and the FACTION IDLES (SPEC.md 97.4.9), which share tibases' drawing
+# primitives and its packed ground-plus-move format.
+apps/tithe/tichars.inc: tools/os88tithechar.py tools/os88tithebase.py
+	python3 tools/os88tithechar.py emit
+
 # TICARDPROF=1 times each STAGE of one card's composition with the PIT and
 # banks the counts (SPEC.md 97.4.1.1). It is a knob rather than a counter
 # because what it had to settle was WHICH STAGE: a hover cost two frames and
@@ -9441,6 +9446,7 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
+                    apps/tithe/tichars.inc \
                     apps/tithe/titxt.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm

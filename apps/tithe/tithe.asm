@@ -904,6 +904,8 @@ ti_feature:
     mov bl, [bx]                    ; fill, a frame, three icons and two runs
     xor bh, bh                      ; for one moving band
     mov [ti_pi], bx
+    mov ax, [ti_hover]              ; ...and the character it plays (97.4.9)
+    call ti_ck_card
     mov ax, [ti_hovbx]
     mov [ti_cbx], ax
     mov ax, [ti_hovbw]
@@ -927,6 +929,8 @@ ti_feature:
     mov al, [bx]
     xor ah, ah
     mov [ti_pi], ax
+    mov ax, [ti_ci]                 ; ...and WHICH CHARACTER stands here
+    call ti_ck_cell                 ; (SPEC.md 97.4.9)
     call ti_pose_addr               ; DI = the pose's band
     mov si, di
     mov ax, [ti_ci]
@@ -1330,8 +1334,10 @@ ti_cost:
     mov ax, [ti_bh]
     cmp byte [ti_drect], 0
     je .rows
-    mov bx, [ti_pi]
-    shl bx, 1
+    push di
+    call ti_drect_i
+    mov bx, di
+    pop di
     mov ax, [ti_dh + bx]
 .rows:
     mul word [ti_rowus]
@@ -1372,6 +1378,7 @@ ti_pit:
 %include "tifaces.inc"
 %include "titxt.inc"
 %include "tibases.inc"
+%include "tichars.inc"
 %include "tilay.inc"
 %include "tirend.inc"
 %include "ticard.inc"
@@ -1476,6 +1483,12 @@ ti_cards:
 ; card WOULD do rather than what any code does - the thing being judged is
 ; whether a strip of prose reads at every surface size, and a placeholder that
 ; is the wrong LENGTH would answer that question wrongly.
+; WHICH CHARACTER EACH CARD IS. Wave 1a has three faction idles and seven
+; cards, so the three go round - which is a fiction like every other number
+; here and a STABLE one, so the same card always stands the same way. The
+; card's own faction is what this becomes (TITHE-PLAN 7.1).
+ti_ckind:   db 0, 1, 2, 0, 1, 2, 0
+
 ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
 ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
 ti_a_3:     db 'HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS', 0
@@ -1591,6 +1604,11 @@ ti_nrows:   dw 0                    ; how many rows of it are used,
 ti_nh:      dw 0                    ; how tall that is,
 ti_nrec:    dw 0                    ; the card behind the cell,
 ti_nrow:    dw 0                    ; and which of its two stat pairs
+ti_ck:      dw 0                    ; the CHARACTER a band is being built
+ti_crec:    dw 0                    ; for, its art record, and its slot's
+ti_cslot:   dw 0                    ; own pitch (SPEC.md 97.4.9)
+ti_urec:    dw 0                    ; ...and the mini unit's two
+ti_uslot:   dw 0
 %ifdef TICARDPROF
 ; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us
 ; each), for the last card drawn. It is a knob and not a counter because the
@@ -1717,8 +1735,8 @@ ti_nbadv:   dw 0                    ; ...of which this many ADVANCED a pose -
 ti_nframe:  dw 0                    ; ...and wheel passes
 ti_d0:      dw 0
 ti_d1:      dw 0
-ti_dy:      times TI_POSES dw 0
-ti_dh:      times TI_POSES dw 0
+ti_dy:      times TI_POSES * TI_CHAR_N dw 0
+ti_dh:      times TI_POSES * TI_CHAR_N dw 0
 ti_nx:      dw 0                    ; the cell whose numbers are being drawn
 ti_ny:      dw 0
 ti_ktop:    dw 0                    ; the keep's top row, banked because two
@@ -1777,15 +1795,16 @@ ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
-ti_unit:    times TI_UNITMAX * TI_POSES db 0
+ti_unit:    times TI_UNITMAX * TI_POSES * TI_CHAR_N db 0
 ti_pjband:  times TI_PJMAX db 0
 ti_clband:  times TI_CLMAX db 0
 
-TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES + TI_BASEMAX * TI_BASEPOSES
+TI_BSS      equ TI_CELLMAX + TI_BANDMAX * TI_POSES * TI_CHAR_N \
+                + TI_BASEMAX * TI_BASEPOSES
 
     OS88_BSS TI_BSS
     OS88_IMAGE_END
 
 ti_cell     equ os88_image_end + 0
 ti_pose     equ os88_image_end + TI_CELLMAX
-ti_base     equ os88_image_end + TI_CELLMAX + TI_BANDMAX * TI_POSES
+ti_base     equ os88_image_end + TI_CELLMAX + TI_BANDMAX * TI_POSES * TI_CHAR_N

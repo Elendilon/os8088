@@ -140369,6 +140369,56 @@ layout decision, not a second code path.
 than on the board: P1's drops by the lift and P2's rises by it, so each reads as
 standing on the same ground as the lanes in front of it.
 
+#### 97.4.9 THREE FACTIONS, THREE SILHOUETTES — the idles are ART
+
+**The placeholder figure was a trapezoid with a lean**, drawn out of the band's
+own dimensions: it scaled to every surface for free and it said nothing about
+*who* was standing there. Three factions with three silhouettes and three
+motions is what the look owes, and it is what a music session has to write
+against — a rhythm has to be a rhythm of *something*.
+
+| | the silhouette | what moves |
+|---|---|---|
+| **THE BULWARK** | a shield-bearer, legs planted | the body rocks one pixel; the **shield** lifts and settles two |
+| **THE EMBER CHOIR** | a hooded caster | the robe's **hem never moves** — it is the shadow it hovers over — and everything above it rises and falls, with a **wisp** that flickers between two sizes |
+| **THE COVENANT** | a nun, hands together | the body is still; the **censer** swings on its chain through an arc — the cathedral base's pendulum one scale down |
+
+**THE MOTION IS SMALL AND THE HELD ITEM MOVES FURTHEST**, which is
+TITHE-PLAN §4.2.1's body/item split arriving as a *drawing rule* rather than as
+a data structure. It is what the reference does (TITHE-PLAN §0): the bodies
+shift a pixel or two and the weapons swing.
+
+**IT IS EMITTED IN `tibases.inc`'s FORMAT** — a shared GROUND (the body, which
+every pose shares) and a packed sub-band per pose with its own bbox, one set
+per surface. Emitting each pose whole is **13,632 bytes** of a package that has
+60KB for everything; packed it is 7,482 for three characters across **eight**
+surfaces — four for the board's 64-wide band and four more for the **mini unit
+that rides a card**, which is 24 wide and is therefore a surface of its own
+rather than a resampling of the big one.
+
+**THE BAND IS BUILT GROUND-FIRST.** A base stands on nothing, so its ground is
+its own art; a character stands on a CELL, and the band is one opaque rectangle
+that INCLUDES the diamond under it, because drawing the band back where it was
+is the erase (§97.4). So a slot is the cell's ground, then the body, then the
+pose's move — and only then replicated.
+
+**THE DIRTY RECTS ARE PER CHARACTER** (§97.4.3), and the first build got that
+wrong in an instructive way. The rects say which rows a *transition* moves, and
+three characters move three different sets — so a rect cut from one leaves the
+other two's motion on the glass wherever it reaches further. The obvious fix is
+a **union**, which is correct and costs the lever its edge: it took the dirty
+rect's own measured win from 24% to **19.7%**, under the bar the gate holds it
+to. Keeping a set per character costs **eight more words of bss and nothing
+else**, and the character is already known wherever the rect is read — the
+feature has set it in order to draw the band at all. The lever measures
+**+39.3%** now, better than it ever did with the trapezoid, because these
+figures move less.
+
+**Which character a card plays is a TABLE and a stable fiction.** Wave 1a has
+three idles and seven cards, so the three go round; the card's own **faction**
+is what that becomes (TITHE-PLAN §7.1). A cell names a card by its index the
+same way, so the board and the hand agree without either asking the other.
+
 #### 97.4.3 The DIRTY RECT, and the rect is the tool's
 
 **An idle pose differs from its neighbour in PART of the figure, not all of

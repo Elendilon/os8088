@@ -116,28 +116,30 @@ ti_art_build:
     jmp short .crow
 .cdone:
 
-    ; --- the four poses -----------------------------------------------------
-    mov word [ti_pi], 0
-.pose:
-    mov ax, [ti_pi]
-    cmp ax, TI_POSES
+    ; --- the THREE CHARACTERS, four poses each (SPEC.md 97.4.9) -------------
+    mov word [ti_ck], 0
+.char:
+    mov ax, [ti_ck]
+    cmp ax, TI_CHAR_N
     jae .pdone
-    call ti_pose_build
-    inc word [ti_pi]
-    jmp short .pose
+    call ti_char_build
+    inc word [ti_ck]
+    jmp short .char
 .pdone:
+    mov word [ti_ck], 0
 
     call ti_dirty_build             ; ...and what each TRANSITION moves
 
-    mov word [ti_pi], 0             ; ...and the mini unit that rides a card
-.unit:
-    mov ax, [ti_pi]
-    cmp ax, TI_POSES
+    mov word [ti_ck], 0             ; ...and the mini units that ride a card,
+.unit:                              ; which are the same three characters at a
+    mov ax, [ti_ck]                 ; surface of their own (24 wide, not 64)
+    cmp ax, TI_CHAR_N
     jae .udone
     call ti_unit_build
-    inc word [ti_pi]
+    inc word [ti_ck]
     jmp short .unit
 .udone:
+    mov word [ti_ck], 0
 
     ; --- and the two players' bases, which are ONE band drawn twice ---------
     ; ONE CALL AND NOT A LOOP: the base builder does every pose itself, the
@@ -271,11 +273,22 @@ ti_dirty_build:
     push dx
     push si
     push di
+    ; ONE SET PER CHARACTER (SPEC.md 97.4.9), which is not what this first
+    ; did. The rects say which rows a TRANSITION moves, and three characters
+    ; move three different sets - so a rect cut from one of them leaves the
+    ; other two's motion on the glass wherever it reaches further. The UNION
+    ; fixes that and costs the lever its edge: it took the dirty rect's own
+    ; measured win from 24% to 19.7%, under the bar tests/titheframe.py holds
+    ; it to. Keeping a set per character costs eight more words of bss and
+    ; nothing else, and the CHARACTER IS ALREADY KNOWN wherever the rect is
+    ; read - `ti_feature` has set it to draw the band at all.
+    mov word [ti_ck], 0
+.chr:
     mov word [ti_pi], 0
 .pose:
     mov ax, [ti_pi]
     cmp ax, TI_POSES
-    jae .done
+    jae .cnext
     call ti_pose_addr               ; DI = the pose ARRIVED AT
     mov bx, di
     mov ax, [ti_pi]                 ; ...and the one before it
@@ -307,8 +320,7 @@ ti_dirty_build:
     inc cx
     jmp short .row
 .have:
-    mov di, [ti_pi]
-    shl di, 1
+    call ti_drect_i                 ; DI = (character, pose)'s own word
     cmp word [ti_d0], 0FFFFh
     je .none
     mov ax, [ti_d0]
@@ -325,12 +337,33 @@ ti_dirty_build:
     inc word [ti_pi]
     jmp .pose                       ; NEAR: the row walk sits between here and
                                     ; the top and a short jump will not reach
+.cnext:
+    inc word [ti_ck]
+    mov ax, [ti_ck]
+    cmp ax, TI_CHAR_N
+    jb .chr
+    mov word [ti_ck], 0
 .done:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; ti_drect_i - DI = the word index of (character [ti_ck], pose [ti_pi])
+; Preserves every register bar DI.
+ti_drect_i:
+    push ax
+    push dx
+    mov ax, [ti_ck]
+    mov dx, TI_POSES
+    mul dx
+    add ax, [ti_pi]
+    shl ax, 1
+    mov di, ax
+    pop dx
     pop ax
     ret
 
@@ -403,6 +436,205 @@ ti_pose_build:
     jmp short .row
 .done:
     pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_char_build - one CHARACTER's four poses: the cell's ground, the body,
+; and each pose's own move on top (SPEC.md 97.4.9)
+; in:  [ti_ck] = the character, [ti_gidx] = the surface
+; Preserves every register.
+;
+; IT IS ti_base_build'S SHAPE with one thing in front of it. A base stands on
+; nothing, so its ground is its own art; a character stands on a CELL, and the
+; band is one opaque rectangle that INCLUDES the diamond under it - drawing the
+; band back where it was is the erase (SPEC.md 97.4). So the slot is built
+; ground-first, ART second, and only then replicated.
+; -----------------------------------------------------------------------------
+ti_char_build:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    push word [ti_pi]
+
+    mov ax, [ti_ck]                 ; the record: character x surface
+    mov bx, TI_CHAR_G
+    mul bx
+    add ax, [ti_gidx]
+    shl ax, 1
+    mov si, ti_char_tab
+    add si, ax
+    mov si, [si]
+    mov [ti_crec], si
+
+    mov ax, [ti_bs]                 ; the slot's own pitch
+    mul word [ti_bh]
+    mov [ti_cslot], ax
+
+    mov word [ti_pi], 0             ; --- THE CELL'S GROUND, INTO SLOT 0 -----
+    mov ax, [ti_bw]
+    mov [ti_spanw], ax
+    call ti_pose_addr
+    push di
+    mov cx, TI_BANDMAX
+    xor ax, ax
+    rep stosb
+    pop di
+    mov word [ti_ry], 0
+.grow:
+    mov ax, [ti_ry]
+    cmp ax, [ti_bh]
+    jae .gdone
+    call ti_pose_addr
+    mov ax, [ti_bs]
+    mov bx, [ti_ry]
+    push dx
+    mul bx
+    pop dx
+    add di, ax
+    call ti_pose_ground
+    inc word [ti_ry]
+    jmp short .grow
+.gdone:
+
+    call ti_pose_addr               ; ...THE BODY over it
+    mov si, [ti_crec]
+    mov si, [si]
+    mov cx, [ti_cslot]
+.body:
+    lodsb
+    or [di], al
+    inc di
+    loop .body
+
+    ; --- ...REPLICATED INTO THE REST ---------------------------------------
+    ; SI trails DI by exactly one slot, so slot 1 is copied from 0, slot 2
+    ; from the 1 just written, and so on: one `rep movsw` fills them all.
+    mov word [ti_pi], 0
+    call ti_pose_addr
+    mov si, di
+    add di, TI_BANDMAX
+    mov cx, [ti_cslot]
+    shr cx, 1
+    mov ax, TI_POSES - 1
+    mul cx
+    mov cx, ax
+    mov bx, TI_BANDMAX
+    sub bx, [ti_cslot]              ; the slack between slots, which movsw
+    or bx, bx                       ; would carry the last row into
+    jz .flat
+    mov cx, TI_POSES - 1            ; ...so a ragged slot is copied slot by
+.rag:                               ; slot instead
+    push cx
+    push si
+    push di
+    mov cx, [ti_cslot]
+    rep movsb
+    pop di
+    pop si
+    add si, TI_BANDMAX
+    add di, TI_BANDMAX
+    pop cx
+    loop .rag
+    jmp short .moves
+.flat:
+    rep movsw
+
+.moves:                             ; --- ...AND EACH POSE'S MOVE ON TOP -----
+    mov word [ti_pi], 0
+.mp:
+    mov ax, [ti_pi]
+    cmp ax, TI_POSES
+    jae .mdone
+    call ti_char_move
+    inc word [ti_pi]
+    jmp short .mp
+.mdone:
+    pop word [ti_pi]
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_char_move - pose [ti_pi]'s packed sub-band, ORed over the body -------
+ti_char_move:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov si, [ti_crec]               ; the pose's record
+    mov ax, [ti_pi]
+    inc ax                          ; +0 is the body's pointer
+    shl ax, 1
+    add si, ax
+    mov si, [si]
+    mov al, [si + 2]                ; w
+    xor ah, ah
+    or ax, ax
+    jz .out
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mb], ax                 ; ...in BYTES, w being a multiple of 8
+    mov al, [si + 3]                ; h
+    xor ah, ah
+    mov [ti_mh], ax
+    mov al, [si + 0]                ; x, likewise a multiple of 8
+    xor ah, ah
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_mx], ax
+    mov al, [si + 1]                ; y
+    xor ah, ah
+    mov [ti_my], ax
+    add si, 4                       ; SI -> the bytes
+
+    call ti_pose_addr               ; DI = this pose's slot
+    mov ax, [ti_my]
+    mul word [ti_bs]
+    add di, ax
+    add di, [ti_mx]                 ; ...at the sub-band's own corner
+
+    mov dx, [ti_mh]
+.row:
+    or dx, dx
+    jz .out
+    push di
+    mov cx, [ti_mb]
+.byte:
+    lodsb
+    or [di], al                     ; PURE OR - the body stays where the move
+    inc di                          ; does not reach
+    loop .byte
+    pop di
+    add di, [ti_bs]
+    dec dx
+    jmp short .row
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; ti_pose_row - one row of the figure. [ti_ry] = the row, [ti_pi] = the pose.
@@ -611,10 +843,38 @@ ti_pose_span:
     ret
 
 ; ti_pose_addr - DI = the band of pose [ti_pi]
+; ti_ck_card - AX = a CARD index -> [ti_ck], its character
+; Preserves every register.
+ti_ck_card:
+    push ax
+    push bx
+    push dx
+    xor dx, dx
+    mov bx, TI_HAND
+    div bx
+    mov bx, dx
+    add bx, ti_ckind
+    mov bl, [bx]
+    xor bh, bh
+    mov [ti_ck], bx
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; ti_ck_cell - AX = a CELL index -> [ti_ck]. Preserves every register.
+ti_ck_cell:
+    call ti_ck_card                 ; a cell names a card by its index mod the
+    ret                             ; hand (ti_cell_rec), and so does this
+
+; DI = the band of pose [ti_pi] of character [ti_ck] (SPEC.md 97.4.9)
 ti_pose_addr:
     push ax
     push dx
-    mov ax, [ti_pi]
+    mov ax, [ti_ck]
+    mov dx, TI_POSES
+    mul dx
+    add ax, [ti_pi]
     mov dx, TI_BANDMAX
     mul dx
     mov di, ti_pose

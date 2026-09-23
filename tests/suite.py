@@ -7278,6 +7278,19 @@ SOAK = [
         "numbers where a reader has no context to recover from. Host-side"
         "and 0.2s",
         needs=()),
+    Row("tithechar", "fast", py("tools/os88tithechar.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.4.9: TITHE's three FACTION IDLES, at every band size every"
+        "adapter asks for - four for the board and four for the mini unit that"
+        "rides a card, the unit being 24 wide where the board's band is 64."
+        "Three assertions and each is about a thing that is SILENT: four poses"
+        "must be at least three PICTURES (a pose count is paid for in build"
+        "time and in the claim, and art that does not vary with it still"
+        "commits and still measures); a pose must cover between 3% and 60% of"
+        "its band (an empty one and a filled one both draw something); and a"
+        "pose's moving sub-band must be under 192 BYTES - the bar is in bytes"
+        "and not a fraction, because the Ember's upper body IS most of a 24x18"
+        "mini unit and most of a 24x18 band is 54 bytes. Host-side and 0.2s",
+        needs=()),
     Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
         "SPEC.md 97.5.1: TITHE's base candidates, at every band size every"
         "adapter asks for. It is here because of ONE assertion - eight poses"

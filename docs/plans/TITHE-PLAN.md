@@ -2755,6 +2755,43 @@ precisely because it answers a question a player asks *while planning*, not one
 they read at a glance — which is the test that kept the other three
 always-visible.
 
+### 8.1.3 THE THREE FACTION IDLES — and what they are for
+
+**The placeholder was a trapezoid with a lean.** It scaled to every surface for
+free and said nothing about who was standing there. Three silhouettes with
+three motions is what wave 1a owes the look — and it is what the **music**
+session needs, because a rhythm has to be a rhythm of *something*.
+
+| | the silhouette | what moves |
+|---|---|---|
+| **THE BULWARK** | a shield-bearer, legs planted | the body rocks a pixel; the **shield** lifts and settles two |
+| **THE EMBER CHOIR** | a hooded caster | the hem never moves — it is the shadow it hovers over — everything above it rises and falls, and a **wisp** flickers at the hand |
+| **THE COVENANT** | a nun, hands together | the body is still; the **censer** swings on its chain, which is §4.2.1's pendulum one scale down |
+
+**The motion is small and the HELD ITEM moves furthest**, which is §4.2.1's
+body/item split arriving as a drawing rule rather than as a data structure.
+That is what the reference does (§0): bodies shift a pixel or two and the
+weapons swing.
+
+**They are ART, generated on the host** (`tools/os88tithechar.py`, sharing
+`os88tithebase.py`'s primitives and its packed ground-plus-move format) and
+they ride **eight** surfaces, not four: the mini unit on a card is 24 wide
+where the board's band is 64, so the same drawing code is asked for the small
+size rather than the big one being resampled. 7,482 bytes packed, against
+13,632 emitting each pose whole — which a package with 60KB for everything
+cannot spend.
+
+**The dirty rects become one set PER CHARACTER**, and the first build got that
+wrong in a way worth keeping. A rect says which rows a transition moves and
+three characters move three different sets, so one cut from a single character
+leaves the others' motion on the glass. The obvious fix is a **union** — which
+is correct, and cost the lever its edge: the dirty rect's measured win went
+from 24% to **19.7%**, under the bar its own gate holds it to. A set per
+character is eight more words of bss and nothing else, and the character is
+already known wherever the rect is read. It measures **+39.3%** now, better
+than it ever did with the trapezoid, because these figures move less than it
+did.
+
 ### 8.2 CARD ART — what is scoped, and the room the composer leaves
 
 The owner's question was whether card art was sized in this plan. **The
