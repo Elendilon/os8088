@@ -314,6 +314,12 @@ trk_entry:
                                     ; glyphs are the ones that come out
                                     ; aligned). wm_snap preserves FLAGS, so
                                     ; the loader's CF still survives to .out
+    mov si, trk_pref                ; the two faces as a DECLARATION (SPEC.md
+    call OSAPI_WM_PREFER            ; 11.100.1): a drag onto the other card of
+                                    ; an extended desktop (11.100.4) takes the
+                                    ; frame that card's face wants, and
+                                    ; tw_track re-picks the layout off the
+                                    ; content height it lands at. Flags kept
     push bx                         ; THE BUTTONS' GESTURE (SPEC.md 20.5.1.3):
     mov ax, bx                      ; press inverts, release fires, a slide
     mov bx, tw_btns                 ; off cancels, and the two slots it rides
@@ -3359,6 +3365,10 @@ trk_render:
 trk_tpl:
     dw 0, 0, TRK_WINW, TRK_WINH
     dw trk_ttl, trk_paint, trk_onkey, tw_clickw
+
+; --- the frame per adapter (SPEC.md 11.100.1): VGA, Hercules, CGA ------------
+    OS88_PREFER trk_pref, TRK_WINW, TRK_WINH,  TRK_WINW, TRK_WINH, \
+                          TRK_WINW, TW_HCOMP + TITLE_H + 2
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
     OS88_MENUSET trk_menus, trk_m_name, trk_oncmd

@@ -70666,6 +70666,18 @@ path on all three adapters (§11.94). The palette is the depth's: `CLGREEN` on
 black and a grey body at 4bpp, white on black and a white body at 1bpp, for
 §56.4's reasons.
 
+**The two heights are a DECLARATION** (§11.100.1): `trk_pref` names the full
+frame for VGA and Hercules and the compact one (`TW_HCOMP` plus the title and
+border) for CGA, and `trk_entry` hands it to `OSAPI_WM_PREFER` straight after
+`OSAPI_WM_SNAP`. What that buys is the drag onto the other card of an
+extended desktop (§11.100.4): the frame takes the size that card's face
+wants, and `tw_track` - which re-reads `OSAPI_WM_GEOM` on every call rather
+than deciding once at launch - picks the layout off the height it lands at.
+No `OSAPI_WM_ONRESIZE` handler is needed for that reason; ModPlug needed one
+because its `[mpp_compact]` was decided once. This was ModPlug's behaviour
+(§56.4) and is carried over because §56.15 retires ModPlug; `tests/dispsize.py`
+leg C is the gate, with Tracker as its subject now.
+
 #### 45.21.3 A song ENDS now, and the master volume is the replayer's
 
 A MOD's order list loops: at its end `mp_nextrow` goes to the restart
@@ -81636,7 +81648,13 @@ claim table, and `mem_claim`/`mem_free` run their own critical sections — so
 two tasks racing to copy cannot corrupt it. The loser simply overwrites the
 winner's text, which is what having *one* clipboard means.
 
-## 56. ModPlug Player — the fourteenth package (apps/modplug/modplug.asm)
+## 56. ModPlug Player — the fourteenth package (apps/modplug/modplug.asm) — **RETIRED**
+
+> **RETIRED (§56.15, `apps/RETIRED.txt`).** Tracker's windowed face (§45.21)
+> replaced it, and no image carries `MODPLUG.O88`. The source, this section
+> and its tests stay, and `make modplug` still builds it. Everything below
+> describes the package as it was built and is true of `make modplug`'s
+> output.
 
 A port of **ModPlug Player V2**'s look and feel onto the window manager:
 `modplug.asm` (shell, transport, playlist store, worker), `mppmix.inc` (the
@@ -82264,6 +82282,32 @@ holds again — but it is a premise, where Tracker's ordering is a guarantee.
 The fix is to hoist `.alloc`'s sizing above the stop-and-free; it is not
 attempted here, and the free itself cannot simply move below the read for
 §45.3.1.1's reason.
+
+### 56.15 RETIRED — Tracker's windowed face replaced it
+
+**ModPlug no longer ships** (`apps/RETIRED.txt`, §20.16). It is not a failed
+port the way §89.12's was: it was the better-looking windowed player, and
+§45.21 took its look and its options into Tracker, rebuilt to the tree's
+standards - press-on-release buttons with inverted pressed states and
+slide-off cancel (§20.5.1.3), a volume bar that drags, a face drawn from dirty
+bits that never blanks before it draws, a content origin that follows a drag,
+and a playlist that works in the fullscreen mode Tracker keeps (§45.22). With
+that done, two MOD players on one disk were one player and one regression
+surface, and the owner called it.
+
+What it took off: `$(APPS_TOOLS)`, `$(SMALLOMIT)` and `$(COMBO_DROP)` - the
+last two because a filter naming a package no list contains is the silent
+no-op §24.5 describes - so no apps disk, small floppy, combo disk or live
+volume carries `MODPLUG.O88`. What it kept, for §89.12's reason (a retirement
+that deletes the only way to build the thing is a record nobody can check):
+the source, this section, `make modplug`, `make modplugdbg` and the on-demand
+`build/mppmove360.img` that `tests/editmove.py --app modplug` still drives.
+
+**One behaviour had to be carried over rather than dropped**: ModPlug was the
+only MOD player that declared a frame per adapter (§56.4, §11.100.1), and
+`tests/dispsize.py` leg C used it as the subject for *"a declared size is
+adopted on landing on the other card"*. Tracker declares the same two heights
+now (§45.21.1), so the gate kept its subject class and changed its subject.
 
 ---
 

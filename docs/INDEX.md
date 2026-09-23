@@ -334,7 +334,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | LOOM | `apps/loom/loom.asm` | `docs/WEAVE-SPEC.md` | yes |
 | MINES | `apps/mines/mines.asm` | §23 | yes |
 | MISSILE | `apps/missile/missile.asm` | §48 | yes |
-| MODPLUG | `apps/modplug/modplug.asm` | §56 | yes |
+| MODPLUG | `apps/modplug/modplug.asm` | §56 | **retired** |
 | NOTEPAD | `apps/notepad/notepad.asm` | §27 | yes |
 | PACCMAN | `apps/paccman/paccman.asm` | §91 | yes |
 | PACMAN | `apps/pacman/pacman.asm` | §89 | **retired** |
@@ -418,7 +418,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 53 | fsx.inc — fullscreen exclusive |
 | 54 | assoc.inc — file type associations |
 | 55 | clip.inc — the system clipboard |
-| 56 | ModPlug Player — the fourteenth package (apps/modplug/modplug.asm) |
+| 56 | ModPlug Player — the fourteenth package (apps/modplug/modplug.asm) — **RETIRED** |
 | 57 | The debug registry — how a test package reads kernel state |
 | 58 | (retired) `DEBUG.DRV`, the serial monitor |
 | 59 | toast.inc — the transient one-line message |

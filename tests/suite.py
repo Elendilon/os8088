@@ -6441,7 +6441,7 @@ SOAK = [
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True,
-        wants=("build/editmove360.img", "build/mppmove360.img", "build/zmove360.img")),
+        wants=("build/editmove360.img", "build/zmove360.img")),
     Row("frcyclefull", "soak",
         py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
         "...and the same agreement at stride 7 - about 25 million (point,"
