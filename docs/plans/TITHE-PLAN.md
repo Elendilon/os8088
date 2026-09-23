@@ -813,6 +813,13 @@ frame — which leaves the rest of the frame for the projectiles that are the
 expensive part. The eye is on the lane that is resolving, and nobody watches row
 4 while row 1 is swinging.
 
+**SUPERSEDED — every lane keeps idling** (the owner's ruling in wave 1a). This
+was a performance concession, and the built renderer did not need it: the combat
+lane has an allowance of its own beside the idle's (SPEC.md §97.5.1), and a
+clash and a pair of crossing bolts both run while all twenty figures breathe —
+at an unchanged rate, on all three adapters (SPEC.md §97.4.5). What made it affordable is §6.5's order: a lane's attacks play in
+sequence, so the worst the frame carries is two bolts, not four and an idle.
+
 **Simultaneity is a resolution rule, not an animation one.** Both sides' damage
 for a lane is computed from the state at the *start of that lane*, then applied
 together — so two characters that would kill each other both die. The animation
@@ -2396,6 +2403,17 @@ to 4, in order. For each lane:
 **Attacks first, then healing** — and §14.2 keeps the order as a dial, because
 the alternative reading (heal first, so a lane's healer pre-loads it against the
 damage about to land) is a different and defensible game.
+
+**THE ANIMATION IS IN SEQUENCE, AND THAT IS THE BUDGET TOO** (the owner's
+ruling in wave 1a): a lane's **melee first, then its ranged, then its heals and
+its generation**, each played quickly so a round is not an eon, and each read by
+the player as a thing that happened rather than four to eight animations at
+once. The rules above resolve a lane's damage together; the ANIMATION lays it
+out in that order. It is also what bounds the frame: the busiest moment is
+**two ranged attacks at once, one a side**, which wave 1a's `A` sustains and
+measures (SPEC.md §97.4.5) — where §16.1.1 had budgeted four projectiles and an
+acting lane's idles. The rest of how the resolution animates — the other side's
+plan arriving (§6.4), orders played, the gold and soul roll-ups — is wave 3's.
 
 ### 6.6 PHASE 5 — CASUALTIES (animated, ~1 s)
 
@@ -4056,9 +4074,9 @@ built on top of it.
 | **base candidates**, one or more per faction | §18 turned this into something to pick from rather than something to specify |
 | **the numbers beside the figure, not on it** (§3.8.1) | the layout that shrinks the band 576 → 392 B and buys 47% more animation. It has to be *read* at all four surface sizes before the budgets are re-derived from it |
 | **three sprite sizes, side by side** | the reference's character is a fifth of its cell's width and ours is half (§3.8). Which reads best at 1bpp is the single largest lever on the art budget (§18.1), so it is shown rather than argued |
-| **a PROJECTILE crossing the board** | §3.9.1 is the most expensive thing in the game and the only thing in the renderer that is not a self-erasing band. It has to be seen moving, at the real cost, over a real board |
+| **a PROJECTILE crossing the board** | §3.9.1 is the most expensive thing in the game and the only thing in the renderer that is not a self-erasing band. It has to be seen moving, at the real cost, over a real board. **BUILT**: two at once, crossing — §6.5's worst case — and composed OVER the characters and under the numbers (SPEC.md §97.4.5) |
 | **a melee clash, both tiers** | stepping forward (§3.9.2 A) beside a composed overlap (tier B), so the choice is made by looking rather than by arithmetic. **DECIDED: tier A** (§3.9.2) |
-| **the acting lane idling while four lanes hold** | §3.8's concession. Whether it reads as *focus* or as *the board froze* is the whole question, and it is one nobody can answer on paper |
+| **the acting lane idling while four lanes hold** | §3.8's concession. Whether it reads as *focus* or as *the board froze* is the whole question, and it is one nobody can answer on paper. **SUPERSEDED**: every lane keeps idling through an attack, and the frame affords it (§3.8) |
 | **the reveal** | §16.2 item 7: how a played card reaches its cell has never been specified, and the reveal is the phase where a sequence may beat a flurry. **BUILT** (§16.2 item 7) |
 | the **idle animation at its computed rate** | see below — this is the single most important thing the prototype answers |
 | the card panel | with real card faces at their real size, and the hover expansion |
@@ -4099,10 +4117,30 @@ that art as its input, producing the sequencer, both arms, one faction theme in
 three states and the resolution piece. 1a's gate is the owner's eye and a real
 CGA; 1b's is the owner's ear and the frame still holding.
 
+**THE CGA GATE IS PASSED** — the owner, on a CGA: *the characters and board are
+correctly scaled, and the text is readable. It turned out better than I had
+expected.* Signed off, as the layers and swings were (§8.1.4).
+
 **The frame budget is checked in both**, separately and then together: 23
 features at §1.3's rate in 1a — **and the combat frame too**, four projectiles
 plus an acting lane's idles at §3.9's ~30 ms, which is the busiest the machine
 ever gets — and the same with the sequencer running in 1b.
+
+**MEASURED IN 1A, against the busiest frame as §6.5 now defines it** — two
+bolts at once and every lane idling (SPEC.md §97.4.5), commits a second over
+20, fps a figure:
+
+| | windowed | + two bolts | fullscreen | + two bolts |
+|---|---:|---:|---:|---:|
+| VGA | 4.38 | 4.30 | 3.51 | 3.50 |
+| Hercules | 4.41 | 4.40 | 4.40 | 4.42 |
+| CGA | 6.17 | 6.19 | 6.13 | 6.19 |
+
+Fullscreen VGA idles at **3.5 fps a figure**, against §1.3's measured 3.6, and
+**two bolts cost nothing measurable on any adapter** — the band being sized to
+the bolt's two places and the combat lane charged by the clock (SPEC.md
+§97.4.5). The busiest frame, two bolts and the dirty-rect arm, holds 15.8
+passes a second.
 Music is ~0.5% of the machine (§13.5) and so it should disappear into the
 measurement — but *should* is what a bench is for.
 

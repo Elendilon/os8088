@@ -140544,7 +140544,7 @@ figure, which is a rect covering the whole band and a lever worth exactly
 nothing; confining the lean to the top half made it 22 rows of 44. A cycle may
 travel the whole body by moving a different region each step.
 
-#### 97.4.5 A PROJECTILE is the one thing that is not a self-erasing band
+#### 97.4.5 A PROJECTILE is not a self-erasing band
 
 Every other mover here is an opaque band with its ground baked in (§97.4), so
 drawing it where it was *is* the erase. **A projectile cannot be**: a bolt
@@ -140553,13 +140553,74 @@ crosses cells whose ground it does not own, so there is nothing to bake. It is
 commit — which is `dotdel`'s shape one game along (§93.5.1) and the most
 expensive thing in the renderer.
 
-**The ground is read out of the column strips** (§97.4.10) — a bolt crosses
-from a yard into the contested middle, two textures and a fence, and every
-column's ground is its own. `ti_gnd_prep` resolves each of the band's bytes to
-its column once, and a row is then one multiply and a load a byte, which is
-what the old read modulo one shared tile cost too. What it does *not* carry is a **figure** the
-band laps; that is wave 3's board picture, and until it exists a bolt scrubs
-the figures it crosses until the wheel redraws them.
+**THE BAND IS THE BOARD AS THE GLASS SHOWS IT, and the bolt goes OVER the
+characters and UNDER the numbers** (`ti_pic_band`, `tiplace.inc`). It carried
+the ground alone, so a bolt crossing a cell painted the ground over the figure
+in it until the wheel came round — the owner's call was that this could not
+wait for wave 3's board picture, because everything the glass holds under a
+board band is already in RAM:
+
+| layer | out of |
+|---|---|
+| the **ground** | the column strips (§97.4.10) — one block of a strip a run, a run being the stretch of the band inside one column |
+| every **figure** | the band that cell was last COMMITTED from — its idle pose, a clash's attack frame, a reveal's dissolve — which `ti_feature` and the reveal record as they commit it (`ti_shseg`/`ti_shoff`), so the reader never re-derives what the glass shows |
+| the **bolts** | OR'd in, EVERY bolt still flying that lands in the band, so two that cross both show |
+| the **numbers** | `(byte AND NOT halo) OR digits`, out of a bank `ti_cellnum` keeps beside the attack frames — 480 bytes a cell. The owner allowed a bolt to go under the digits rather than over them, which is what lets the stat column be one masked pass instead of a split blit |
+
+**A LAYER IS A FEW RECTANGLES AND NOT A ROW LOOP, AND THE BAND IS NO BIGGER
+THAN THE BOLT'S TWO PLACES.** The first reader asked every row which lane it was
+in and multiplied its way to the source: two bolts were **22–56 ms** a frame and
+put frames at 60–74 ms. What took it down, measured on a 4.77 MHz 8088 with the
+cycle counter, windowed VGA:
+
+| | two bolts, a frame |
+|---|---:|
+| a row loop, every row asking its lane | 22–56 ms |
+| **a few rectangles**: a run is one column, so its ground is one block of a strip and its figures and numbers at most two blocks of two cells, each sized once and copied by a register-only row loop | 16–26 ms |
+| the runs made WHOLE, one divide a run instead of one a byte; the lane stepped, not multiplied | 14–24 ms |
+| **the band's own size**: the bolt's 8 rows and one step's climb each way (20 rows on a VGA, not half a cell's 24), and 4 bytes — the byte it is in and the byte it was in, three back — not 6 | **12–17 ms** |
+
+About 2 ms of each band is the blit. The last row is the one worth keeping: a
+band's rows and bytes ARE its cost, at every layer, and the band only ever has to
+hold two places of one small bolt.
+
+**THE COMBAT LANE IS CHARGED WHAT THE BOLTS REALLY COST** (`ti_pj_cost`): the
+model's price or the PIT's timing of the last frame of them, whichever is more.
+The model prices a band at a blit and as much again, and a band read from the
+board is more than that; charged the model, two bolts over-ran the lane and
+took the frame with them, and the idle fell 22% on a VGA while they flew.
+Charged the clock, the lane pays for its own bolts, and on a machine that cannot
+afford them every frame it is the BOLTS that slow, not the board.
+
+**TWO AT ONCE, AND THEY CROSS** (TITHE-PLAN §6.5). The resolution plays a lane's
+melee, then its ranged, then its heals and generation, so the worst ranged case
+is one bolt a side in the same lane: P1's rear flying right, P2's flying left.
+That is what `A` sustains, both charged to the combat lane. **A bolt that
+arrives spends one more frame on a band without itself**, at the last place it
+was drawn, which is its erase — it used to stop with its bolt still up. The
+bolts draw **after** the wheel, so a band reads the figures this frame's idle
+commits put down and a figure committed under a bolt cannot cut it.
+
+**What they cost the frame**, over ten guest seconds (commits a second ÷ 20 is
+fps a figure):
+
+| | windowed | + two bolts | fullscreen | + two bolts |
+|---|---:|---:|---:|---:|
+| VGA | 4.38 | 4.30 | 3.51 | 3.50 |
+| Hercules | 4.41 | 4.40 | 4.40 | 4.42 |
+| CGA | 6.17 | 6.19 | 6.13 | 6.19 |
+
+**Nothing measurable, on any adapter**, and the bolts fly at the frame rate —
+18.3 to 18.6 bolt frames a second. The first cut of this table, with the
+6 x 24 band charged at the model's price, had VGA's idle falling 12–20% and its
+frames to 16–17 a second. `tests/titheframe.py` holds it: the idle's rate with
+two bolts in flight moves −0.3% against a ±15% bar, and the busiest frame —
+two bolts and the dirty-rect arm — holds 15.8 passes a second.
+
+**`tests/tithepj.py`** holds it on all three adapters: paused mid-flight, the
+glass against a whole repaint differs by at most two bolts' pixels; with the arm
+off, by nothing. A band of ground alone fails by 324–530 pixels, a figure's
+worth.
 
 **The step is a multiple of 8, and the bolt rides the band's LEADING EDGE.**
 The first keeps the ground copy a byte copy rather than a shifted
@@ -140568,11 +140629,10 @@ second is what makes `union(old, new)` fall out of the geometry: centred, a
 24-pixel step leaves the last frame's bolt 8 pixels *left* of the new band and
 the thing draws a track behind it.
 
-**Measured** (`docs/reports/TITHE-RATE-2026-09-22.md`): one bolt in flight
-takes the idle from 11.2 feature commits a frame to 9.7 and **the frame still
-holds at 17.5–18.6 passes a second**. TITHE-PLAN §3.9.1 predicts 8.88 ms, which
-is 16% of a frame against the ~20% measured — the two agree, and its "one a
-side is comfortable" reading is confirmed.
+**Measured, for the ground-only bolt this replaced**
+(`docs/reports/TITHE-RATE-2026-09-22.md`): one bolt in flight took the idle
+from 11.2 feature commits a frame to 9.7 and the frame held at 17.5–18.6 passes
+a second, against TITHE-PLAN §3.9.1's 8.88 ms.
 
 #### 97.4.6 The DETAIL arm — `Flat` and `Banded`
 
@@ -140751,10 +140811,10 @@ the two corners the shear leaves above and below each column are filled.
 figure band is cut from its column's strip; its **numbers** are composed over
 the stat column's own ground with a one-pixel black halo, so a fence runs on
 behind them where the old stat column was a black box; a **projectile**, which
-crosses cells it does not own, reads it through `ti_gnd_prep` / `ti_gnd_row` —
-a band's columns resolved once, then each row copied as runs of whole columns;
-and a **reveal** (§97.4.11) dissolves a cell between its strip's own rows and
-the new character's pose, reading both straight out of the arena.
+crosses cells it does not own, reads the board through `ti_pic_band` —
+the strips, every cell's committed figure and its numbers (§97.4.5); and a
+**reveal** (§97.4.11) dissolves a cell between its strip's own rows and the new
+character's pose, reading both straight out of the arena.
 
 **WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, breakpoints on the
 routines and the cycle counter between them, against the diamond board at the
@@ -140856,7 +140916,7 @@ breakpoints and the cycle counter:
 | the key: composing the cell, banking the card, vacating the cell | **112 ms**, before the first spark |
 | eight sparks off and eight on | **~13 ms** a frame |
 | a card fade step / a character dissolve step | **~12 ms** / **~9 ms** |
-| the heaviest frames, 5 and 6: eight sparks, the character and one idle band | **43.9 ms of a 54.9 ms tick** |
+| the heaviest frame: eight sparks, the card or the character, two idle bands | **48.7 ms of a 54.9 ms tick** |
 
 **THE CARD IS COMPOSED ONCE, AT THE PLAY.** Composing a card is ~35 ms of the
 8088, and re-composing it for every step of its fade put two frames over the
@@ -140865,13 +140925,19 @@ tick (54 and 56 ms). It is composed at the key press into a bank of its own,
 spark instead of a stutter in the middle. The reveal's work is charged to the
 wheel's credit in the wheel's own units — an arrival a call and rows at the
 calibrated rate — so the idle around it slows rather than the frame
-overrunning. **Overlapped, the reveal takes the whole credit on most of its
-frames, and the idle SLOWS rather than stops**: the wheel commits one feature
-before it asks the credit — the guarantee of progress on a machine whose credit
-is under one band — so the board breathes at one band a frame where it
-otherwise commits five. The trail was twelve sparks, and then that one band put
-two frames at 54.8 of 54.9 ms and the wheel was stopped instead; the owner
-asked for the idle back, and four sparks were the price.
+overrunning. **The idle SLOWS rather than stops, and it slows only by what
+the tick cannot spare.** The idle's credit is its SPEED — a share of the tick
+sized for how fast a figure breathes — and not the tick's spare room, so a
+reveal charged to it slowed the board while ~11 ms of every reveal frame went
+unused. The reveal is charged first to what no lane has claimed —
+`TI_FRAMEMAX` = 75% of the tick, less the combat and base lanes' allowances and
+the idle's own credit — and the idle pays only what that cannot cover. So the
+board breathes at **two bands a frame through a reveal where it commits five**,
+the heaviest frame is **48.7 ms**, and the costs being the calibrated ones, the
+same arithmetic answers on every adapter. 80% bought three bands and put two
+frames at 54.3 ms, where the wheel's overrun guard trimmed the credit for good
+measure; 70% bought one. The trail went from twelve sparks to eight on the way,
+which is what put the wheel's one guaranteed band a frame back.
 
 **THE OPPONENT'S PLAN IS NOT THIS.** Planning is simultaneous and blind
 (TITHE-PLAN §6.0, TITHE-PLAN §6.3.1): until both players commit, neither sees the other's
@@ -141112,7 +141178,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `S` | step the sprite size, so three can be compared on the glass — a CROP of the drawn figure since §97.4.9, not a rescale |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `X` | the dirty-rect arm on/off (§97.4.3) |
-| `A` | sustained projectile fire down a lane (§97.4.5) — sustained rather than one bolt, because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
+| `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `R` | re-calibrate the wheel's credit and show it |
 | `+` / `-` | move the animation share off its default 20% |

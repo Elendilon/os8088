@@ -1521,6 +1521,7 @@ ti_cellnum:
 
 .put:
     call ti_stat_compose            ; OVER THE GROUND, with a halo (tiplace.inc)
+    call ti_stat_bank               ; ...and kept, for a bolt to go under
     mov si, ti_cellout
     mov ax, [ti_nx]
     mov bx, [ti_ny]

@@ -141,6 +141,12 @@ TI_BTD      equ 15                ; ...out of this many. 7/15 gives the two
                                   ; in how often each is visited, never in a
                                   ; visit that draws the same picture again
 TI_FRAMEUS  equ 54925             ; one system tick, in microseconds
+TI_FRAMEMAX equ 75                ; per cent of a tick the lanes may plan to
+                                  ; use between them - the rest is the frame's
+                                  ; own overhead and the model's error. A
+                                  ; reveal spends the gap between this and the
+                                  ; lanes' shares before it slows the idle
+                                  ; (tirv.inc)
 TI_COMBATUS equ TI_FRAMEUS * TI_COMBAT / 100
 TI_BASEUS   equ TI_FRAMEUS * TI_BASESHARE / 100
 TI_CALN     equ 8                 ; samples the calibration takes, ONE BLIT
@@ -222,6 +228,24 @@ ti_relayout:
     mov word [ti_rvn], 0            ; ends here, its card already in the cell,
     mov byte [ti_rvfull], 0         ; and the whole-window paint that follows
                                     ; leaves no spark behind
+    mov word [ti_pjon], 0           ; ...and so do the BOLTS, whose positions
+                                    ; are the old layout's
+    push cx                         ; ...and what every cell SHOWS, and its
+    push di                         ; numbers, are the old layout's too: the
+    push es                         ; paint after this records them again
+    push ds
+    pop es
+    xor ax, ax
+    mov di, ti_shseg
+    mov cx, TI_CELLS
+    cld
+    rep stosw
+    mov di, ti_stok
+    mov cx, TI_CELLS
+    rep stosb
+    pop es
+    pop di
+    pop cx
     call ti_layout
     jc .no
     mov ax, [ti_face]               ; ...the face's shape, which the card
@@ -789,23 +813,20 @@ ti_frame:
     jnz .nocl                       ; fitted, so a starved clash drops frames
     call ti_cl_tiera                ; ...and at its END both fighters go back
 .nocl:                              ; fitted, so a starved clash drops frames
-    cmp byte [ti_pjon], 0           ; rather than outstaying its animation
-    jne .pj
-    cmp byte [ti_pjrep], 0          ; ...and it re-fires while the arm is on
+    mov byte [ti_pjgo], 0           ; rather than outstaying its animation
+    call ti_pj_live                 ; --- THE BOLTS: paid for now, drawn after
+    or ax, ax                       ; the wheel (ti_pj_frame)
+    jnz .pj
+    cmp byte [ti_pjrep], 0          ; ...and fired again while the arm is on
     je .nopj
     call ti_pj_fire
+    mov ax, TI_PJN
 .pj:
-    cmp byte [ti_pjon], 0
-    je .nopj
-    mov ax, [ti_pjh]                ; the bolt at the model's own terms: one
-    mul word [ti_rowus]             ; arrival and its rows like any other band,
-    add ax, [ti_arrus]              ; plus the compose, which TITHE-PLAN 3.9.1
-    shl ax, 1                       ; measures at about as much again
+    call ti_pj_cost                 ; a band each, at what they really cost
     mov bx, ti_cacc
     call ti_lane
     jc .nopj
-    call ti_pj_step
-    inc word [ti_npj]
+    mov byte [ti_pjgo], 1
 .nopj:
     call ti_base_frame              ; --- THE BASE LANE, on its own clock -----
 
@@ -844,6 +865,11 @@ ti_frame:
     dec cx
     jmp short .walk
 .out:
+    cmp byte [ti_pjgo], 0           ; ...the bolts, over what the wheel left
+    je .nopjf
+    call ti_pj_frame
+    inc word [ti_npj]
+.nopjf:
     call ti_rv_step                 ; ...and the reveal's frame, on top of it all
     call ti_overran                 ; SPEC.md 97.5's own promise, and it was
     pop dx                          ; never built: the credit is trimmed when
@@ -1017,9 +1043,11 @@ ti_feature:
     pop di
     mov es, [ti_kseg]
     pop ax
-    jmp short .rows
+    call ti_shown_set               ; WHAT THE CELL SHOWS, for a band that
+    jmp short .rows                 ; crosses it (ti_pic_band)
 .idle:
     pop ax
+    call ti_shown_set
     cmp byte [ti_drect], 0          ; THE DIRTY RECT (SPEC.md 97.4.3): commit
     je .rows                        ; the rows this TRANSITION moved and not
     cmp byte [ti_dok], 0            ; the whole figure. Only the WHEEL may use
@@ -1685,6 +1713,11 @@ ti_cfband:  times TI_CARDBANDMAX db 0 ; a card the reveal is fading, composed
 ti_hudband: times TI_HUDBANDMAX db 0
 ti_cellband: times TI_CELLBANDMAX db 0
 ti_cellout: times TI_CELLBANDMAX db 0 ; ...and the same rows over their ground
+ti_stmask:  times TI_CELLBANDMAX db 0 ; ...and their halo, which the stat bank
+                                    ; keeps for a bolt to go under
+%if TI_STATBANK + TI_CELLS * TI_STATREC > TI_ATTACKKB * 1024
+    %error "the attack claim cannot hold the numbers' bank after its frames"
+%endif
 ti_cbs:     dw 0                    ; the band's stride, pad included
 ti_crows:   dw 0                    ; rows of the chosen face that fit
 ti_tw:      dw 0                    ; the flow's right margin - the card's
@@ -1765,7 +1798,7 @@ ti_ry2:     dw 0
 ti_rg:      db 0
 ti_rs:      db 0
 ti_rsw:     db 0
-ti_pjon:    db 0                    ; is a projectile in flight?
+ti_pjon:    db 0, 0                 ; each bolt: 0 idle, 1 flying, 2 erasing
 ti_pjlane:  db 2
 ti_pjrep:   db 0                    ; keep firing, so the frame can be read
 ti_detail:  db 0                    ; 0 = Flat, 1 = Banded (TITHE-PLAN 3.5)
@@ -1775,8 +1808,14 @@ ti_stbp:    dw 0
 ti_sth:     dw 0
 ti_stpen:   db CWHITE, CLGRAY, CDGRAY   ; head, body, base - each over BLACK
                                     ; paper, which is the cheap pen path
-ti_pjx:     dw 0
-ti_pjy:     dw 0
+ti_pjx:     dw 0, 0
+ti_pjy:     dw 0, 0
+ti_pjbx:    dw 0                    ; the band in hand's x and y
+ti_pjby:    dw 0
+ti_pjgo:    db 0                    ; the combat lane paid for this frame's
+ti_pjt0:    dw 0                    ; ...and the bolts' own timing: the PIT at
+ti_pjus:    dw 0                    ; their start, and what the last frame of
+                                    ; them cost in microseconds
 ti_pjh:     dw 0
 ti_pjb:     dw TI_PJB
 ti_npj:     dw 0                    ; projectile frames committed
@@ -1882,7 +1921,7 @@ ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
 ti_unit:    times TI_UNITMAX * TI_POSES * TI_CARDS db 0
-ti_pjband:  times TI_PJMAX db 0
+ti_pjband:  times TI_PJMAX * TI_PJN db 0
 
 ; THE POSES AND THE BOARD'S GROUND ARE NOT HERE: they are per cell and per
 ; column now, and live in the ARENA, a heap claim (tiplace.inc). What stays in

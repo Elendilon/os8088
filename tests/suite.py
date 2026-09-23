@@ -7260,6 +7260,19 @@ SOAK = [
         "back to the card. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithepj", "soak", py("tests/tithepj.py"), 90.0,
+        "SPEC.md 97.4.5: TITHE's BOLTS go OVER the characters. `A` sustains"
+        "the resolution's worst ranged case, one bolt a side crossing in one"
+        "lane, and each band is composed from the board as the glass shows"
+        "it - the strips, the band every cell last committed, its numbers"
+        "over the bolt. With the wheel paused mid-flight the glass against a"
+        "whole repaint differs by at most two bolts' worth of pixels (and at"
+        "one of three moments by at least half of one, so they are up); with"
+        "the arm off it is exactly the repaint. A band of ground alone - the"
+        "old bolt - fails by 324-530 pixels, a figure's worth, and did before"
+        "this was registered. All three adapters. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titherv", "soak", py("tests/titherv.py"), 60.0,
         "SPEC.md 97.4.11: TITHE's REVEAL - `V` plays a card: XOR sparks from"
         "the card to its cell, the character dissolving in over its column's"

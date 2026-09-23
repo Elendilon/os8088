@@ -13,10 +13,10 @@
 ;                strip and the figure MASKED over it, so a detailed figure
 ;                keeps its black detail over a lit ground and every cell stands
 ;                on its own column's texture.
-;   THE READER   `ti_gnd_prep` / `ti_gnd_row`: any row of the board's ground,
-;                at any 8-aligned x, for the three things composed against it
-;                at run time - a projectile, a tier-B clash and a cell's
-;                numbers.
+;   THE READER   `ti_pic_band` / `ti_pic_stat`: the board AS THE GLASS SHOWS
+;                IT under any band at an 8-aligned x - the strips, every
+;                cell's figure as last committed, and its numbers - for what
+;                crosses cells it does not own: a projectile.
 ;
 ; WHY A HEAP CLAIM. The poses used to be three - one per character, composed
 ; once over one tile every cell shared - and lived in the package's own bss.
@@ -31,8 +31,13 @@ TI_ARENAKB  equ 45                ; 30,720 of poses + 14,400 of strips on the
                                   ; biggest surface, and ti_place_lay refuses
                                   ; a layout that would not fit rather than
                                   ; trusting this arithmetic
-TI_ATTACKKB equ 30                ; 20 cells x 4 attack frames x the biggest
-                                  ; band, 384 bytes on a fullscreen VGA
+TI_STATBANK equ TI_CELLS * TI_POSES * TI_RVMAX ; the NUMBERS, after the
+                                  ; attack frames in their claim: a cell's
+TI_STATREC  equ 2 * TI_CELLBANDMAX ; halo then its digits, for a bolt to go
+                                  ; under (ti_pic_stat)
+TI_ATTACKKB equ 40                ; 20 cells x 4 attack frames x the biggest
+                                  ; band, 384 bytes on a fullscreen VGA - and
+                                  ; then the twenty cells' numbers at 480
 
 ; -----------------------------------------------------------------------------
 ; ti_arena_claim - claim the arena. out: CF=1 refused. Preserves registers.
@@ -1170,16 +1175,9 @@ ti_board_strips:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_gnd_prep - get ready to read the ground under CX bytes from screen x AX
-; ti_gnd_row  - ...and read row BX of it (a screen y) into DI
-; Both preserve every register.
-;
-; WHAT A RUN-TIME COMPOSITION STANDS ON. A projectile crosses cells it does
-; not own, a tier-B clash spans two columns and a cell's numbers sit in the
-; stat column - and none of those grounds is one tile any more. So the ground
-; is read out of the strips: `prep` resolves each byte's column and strip ONCE
-; for a band, and a row is then one multiply and a load a byte, which is what
-; the old read modulo one shared tile cost too.
+; ti_gnd_prep - the RUNS under CX bytes from screen x AX: one per board column
+; the band crosses, each with its strip, its column and where in it the run
+; starts (ti_pic_band reads them). Preserves every register.
 ; -----------------------------------------------------------------------------
 ti_gnd_prep:
     push ax
@@ -1188,71 +1186,87 @@ ti_gnd_prep:
     push dx
     push si
     push di
-    ; THE BAND IS RUNS, ONE PER COLUMN IT CROSSES: a row of one column is one
-    ; stretch of that column's strip, so a run is resolved here once and a
-    ; row is then a `rep movsb` per run. It read a byte at a time, with a
-    ; column lookup and a bounds test in every one, and a tier-B clash's
-    ; ground cost 112 ms a frame of it.
+    ; THE BAND IS RUNS, ONE PER COLUMN IT CROSSES - at most three for a band
+    ; narrower than a column - and a run is made WHOLE: one divide finds where
+    ; it starts, and its length is what is left of its column. It walked the
+    ; band a byte at a time, a push, a divide and a test in each, and that
+    ; was 1.3 ms of every bolt band.
     mov word [ti_grk], 0
-    mov bx, 0FFFEh                  ; BX = the column the run in hand is of
-    xor si, si                      ; SI = that run's index x 2
-.b:
+    xor si, si                      ; SI = the run in hand, x 2
+    mov dx, ax
+    sub dx, [ti_bx]                 ; DX = x on the board, signed
+    jns .on
+    neg dx                          ; --- the bytes LEFT of the board
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    cmp dx, cx
+    jbe .lft
+    mov dx, cx
+.lft:
+    call .off
+    sub cx, dx
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    add ax, dx
+.on:
     or cx, cx
-    jnz .go
-    jmp .out
-.go:
+    jz .out
+    mov dx, ax
+    sub dx, [ti_bx]
+    cmp dx, [ti_boardw]
+    jb .col
+    mov dx, cx                      ; --- the bytes RIGHT of it
+    call .off
+    jmp short .out
+.col:
     push ax
     push cx
-    mov dx, 0FFFFh                  ; DX = this byte's column, or off-board
-    sub ax, [ti_bx]
-    jb .have
-    cmp ax, [ti_boardw]
-    jae .have
-    push ax
-    xor dx, dx
-    div word [ti_cw]                ; AX = column, DX = x inside it
-    mov cx, dx
-    mov dx, ax                      ; DX = the column, CX = x inside it
-    pop ax
-.have:
-    cmp dx, bx
-    je .same
-    mov bx, dx                      ; --- a NEW run
-    mov si, [ti_grk]
-    shl si, 1
-    inc word [ti_grk]
-    mov word [ti_grn + si], 0
-    mov word [ti_grtop + si], 0FFFFh
-    cmp dx, 0FFFFh
-    je .same
-    push ax
-    push dx
     mov ax, dx
+    xor dx, dx
+    div word [ti_cw]                ; AX = the column, DX = x inside it
+    mov [ti_grc + si], ax
+    mov [ti_grlx + si], dx
+    mov bx, [ti_cw]                 ; its length: the rest of the column,
+    sub bx, dx                      ; or the rest of the band
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    pop cx
+    cmp bx, cx
+    jbe .len
+    mov bx, cx
+.len:
+    mov [ti_grn + si], bx
+    push bx
+    push dx
+    mov di, ax                      ; DI = the column
     mul word [ti_spitch]
     add ax, [ti_sbase]
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    add ax, cx                      ; AX = the run's first byte, strip row 0
-    mov [ti_grbase + si], ax
     pop dx
-    push dx
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    add ax, dx                      ; AX = the run's first byte, strip row 0
+    mov [ti_grbase + si], ax
     mov ax, TI_COLS - 1
-    sub ax, dx
+    sub ax, di
     mul word [ti_rise]
     add ax, [ti_by]
     mov [ti_grtop + si], ax         ; the strip's top on the screen
     mul word [ti_sb]
     sub [ti_grbase + si], ax        ; ...so screen row y is base + y * SB
-    pop dx
+    pop bx
     pop ax
-.same:
-    inc word [ti_grn + si]
-    pop cx
-    pop ax
-    add ax, 8
-    dec cx
-    jmp .b
+    sub cx, bx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add ax, bx
+    add si, 2
+    inc word [ti_grk]
+    jmp .on
 .out:
     pop di
     pop si
@@ -1261,8 +1275,87 @@ ti_gnd_prep:
     pop bx
     pop ax
     ret
+; .off - an OFF-BOARD run of DX bytes at SI, which reads black. Advances SI.
+.off:
+    or dx, dx
+    jz .offx
+    mov [ti_grn + si], dx
+    mov word [ti_grtop + si], 0FFFFh
+    mov word [ti_grc + si], 0FFFFh
+    add si, 2
+    inc word [ti_grk]
+.offx:
+    ret
 
-ti_gnd_row:
+; -----------------------------------------------------------------------------
+; ti_pic_band - THE BOARD AS IT IS ON THE GLASS, under a band that crosses cells
+; it does not own: the columns' ground, then every cell's figure band as it was
+; last committed (ti_shseg/ti_shoff). The NUMBERS are a second call, after the
+; caller has put down whatever it carries (ti_pic_stat) - so a bolt goes OVER
+; the characters and UNDER the digits.
+; in:  AX = x (a multiple of 8), BX = the first row, CX = bytes, DX = rows,
+;      DI = the band (in this segment, stride CX)
+; Preserves every register.
+;
+; THE BOLT'S BAND WAS GROUND ALONE, so a bolt crossing a cell painted the
+; ground over the figure standing in it and left it that way until the wheel
+; came round. Everything the glass holds under a board band is already in RAM:
+; the strips, and the band each cell was last committed from - the idle pose,
+; a clash's attack frame, a reveal's dissolve - which ti_feature and the reveal
+; RECORD as they commit it, so this reads what the glass shows and never
+; re-derives it.
+; -----------------------------------------------------------------------------
+ti_pic_band:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov [ti_pbx], ax
+    mov [ti_pby], bx
+    mov [ti_pbh], dx
+    mov [ti_pbw], cx
+    mov [ti_pbd], di
+    call ti_gnd_prep                ; the band's runs, a column each
+    push ds                         ; a clean band: off the board is black
+    pop es
+    cld
+    mov ax, cx
+    mul dx
+    mov cx, ax
+    xor al, al
+    rep stosb
+    mov byte [ti_pmode], 2          ; the ground...
+    call ti_pic_pass
+    mov byte [ti_pmode], 0          ; ...and the figures over it
+    call ti_pic_pass
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_pic_stat - the NUMBERS over the band ti_pic_band last composed: each
+; byte (byte AND NOT halo) OR digits, out of the stat bank ti_cellnum keeps.
+; Preserves every register.
+ti_pic_stat:
+    mov byte [ti_pmode], 1
+    call ti_pic_pass
+    ret
+
+; ti_pic_pass - one layer, [ti_pmode]'s - 2 the ground, 0 the figures, 1 the
+; numbers - over every run of the band. Preserves every register.
+;
+; A LAYER IS A FEW RECTANGLES, NOT A ROW LOOP. The first cut asked every row
+; which lane it was in and multiplied its way to the source, and a 6 x 24 band
+; cost 14 ms of it. A run is one column of the board, so its ground is ONE
+; block of the strip and its figures and numbers are at most two blocks of two
+; cells: each is sized here, once, and copied with a row loop that holds
+; everything in registers.
+ti_pic_pass:
     push ax
     push bx
     push cx
@@ -1271,40 +1364,280 @@ ti_gnd_row:
     push di
     push bp
     push es
-    push ds
-    pop es                          ; ES = here, the destination
     cld
-    mov ax, bx
-    mul word [ti_sb]
-    mov dx, ax                      ; DX = y * SB, for every run
-    xor bp, bp                      ; BP = the run, x 2
+    mov word [ti_prun], 0
+    mov word [ti_pj0], 0
 .run:
-    mov ax, bp
+    mov bx, [ti_prun]
+    mov ax, bx
     shr ax, 1
     cmp ax, [ti_grk]
-    jae .out
-    mov cx, [ds:ti_grn + bp]
-    mov ax, [ds:ti_grtop + bp]
-    cmp ax, 0FFFFh
-    je .zero
-    neg ax
-    add ax, bx                      ; AX = the strip row
-    js .zero
-    cmp ax, [ti_sh]
-    jae .zero
-    mov si, [ds:ti_grbase + bp]
-    add si, dx
+    jb .rgo
+    jmp .out
+.rgo:
+    cmp word [ti_grtop + bx], 0FFFFh
+    jne .rcol
+    jmp .rnext
+.rcol:
+    cmp byte [ti_pmode], 2
+    jne .over
+    ; --- THE GROUND: one block of the strip, the rows of it the band holds -
+    mov ax, [ti_grtop + bx]         ; ra = max(0, top - y0)
+    sub ax, [ti_pby]
+    jns .gra
+    xor ax, ax
+.gra:
+    mov [ti_pra], ax
+    mov ax, [ti_grtop + bx]         ; rb = min(h, top + SH - y0)
+    add ax, [ti_sh]
+    sub ax, [ti_pby]
+    cmp ax, [ti_pbh]
+    jle .grb
+    mov ax, [ti_pbh]
+.grb:
+    sub ax, [ti_pra]
+    jg .grows
+    jmp .rnext
+.grows:
+    mov bp, ax                      ; BP = rows
+    mov ax, [ti_pby]
+    add ax, [ti_pra]
+    mul word [ti_sb]
+    add ax, [ti_grbase + bx]
+    mov si, ax                      ; SI = the strip, at the first of them
+    mov ax, [ti_pra]
+    mul word [ti_pbw]
+    add ax, [ti_pbd]
+    add ax, [ti_pj0]
+    mov di, ax
+    mov ax, [ti_grn + bx]           ; AX = bytes a row
+    mov dx, [ti_sb]
+    mov bx, [ti_pbw]
+    push ds
+    pop es
     push ds
     mov ds, [ti_aseg]
+.gl:
+    push si
+    push di
+    mov cx, ax
     rep movsb
+    pop di
+    pop si
+    add si, dx
+    add di, bx
+    dec bp
+    jnz .gl
     pop ds
-    jmp short .next
-.zero:
-    xor al, al
-    rep stosb
-.next:
-    add bp, 2
-    jmp short .run
+    jmp .rnext
+
+.over:
+    ; --- the overlap of this run with the column's figure band or numbers,
+    ;     in the column's own bytes: [a, b) against the run's [r0, r0 + n)
+    mov ax, [ti_grc + bx]
+    mov [ti_pkcol], ax
+    mov dx, ax
+    call ti_col_insx                ; AX = the figure band's inset
+    mov si, [ti_bw]
+    cmp byte [ti_pmode], 0
+    je .have
+    cmp dx, TI_COLS / 2
+    jae .p2s
+    xor ax, ax                      ; P1's numbers are the column's first
+    jmp short .ss                   ; INSX pixels...
+.p2s:
+    add ax, [ti_bw]                 ; ...P2's the ones past its figure band
+.ss:
+    mov si, [ti_insx]
+.have:
+    mov cl, 3
+    shr ax, cl                      ; AX = a, in bytes
+    shr si, cl
+    add si, ax                      ; SI = b
+    mov dx, [ti_grlx + bx]
+    shr dx, cl                      ; DX = r0
+    mov di, dx
+    add di, [ti_grn + bx]           ; DI = r0 + n
+    mov bp, ax                      ; BP = a, which the source counts from
+    cmp ax, dx
+    jae .lo
+    mov ax, dx                      ; lo = max(a, r0)
+.lo:
+    cmp si, di
+    jbe .hi
+    mov si, di                      ; hi = min(b, r0 + n)
+.hi:
+    cmp ax, si
+    jb .some
+    jmp .rnext
+.some:
+    sub si, ax
+    mov [ti_pcnt], si
+    push ax
+    sub ax, bp
+    mov [ti_psrc], ax               ; where in the source's row
+    pop ax
+    sub ax, dx
+    add ax, [ti_pj0]
+    mov [ti_pdst], ax               ; where in the band's row
+
+    ; --- and the lanes: each cell's block is at most one rectangle ---------
+    ; The first lane whose block reaches the band is found with ONE divide:
+    ; lane L's block is [YS_L, YS_L + H), YS_L = top + INSY + L x CH, and it
+    ; reaches row y0 when L > (y0 - top - INSY - H) / CH. Walking there from
+    ; lane 0 cost up to four empty rounds a run, in two passes, per bolt.
+    mov cx, [ti_bh]
+    cmp byte [ti_pmode], 0
+    je .h0
+    mov cx, [ti_nh]
+.h0:
+    mov ax, [ti_pby]
+    sub ax, [ti_grtop + bx]
+    sub ax, [ti_insy]
+    sub ax, cx
+    mov word [ti_plane], 0
+    js .l0
+    xor dx, dx
+    div word [ti_ch]
+    inc ax
+    mov [ti_plane], ax
+.l0:
+    mov ax, [ti_plane]              ; YS = top + lane x CH + INSY, the block's
+    mul word [ti_ch]                ; first row on the screen - then stepped a
+    add ax, [ti_grtop + bx]         ; CH at a time
+    add ax, [ti_insy]
+    mov [ti_pys], ax
+.lane:
+    cmp word [ti_plane], TI_ROWS
+    jb .lgo
+    jmp .rnext
+.lgo:
+    mov ax, [ti_pys]
+    mov cx, ax
+    sub cx, [ti_pby]
+    cmp cx, [ti_pbh]                ; a lane below the band, and so is every
+    jl .lin                         ; lane after it
+    jmp .rnext
+.lin:
+    mov cx, [ti_bh]                 ; ...and its height
+    cmp byte [ti_pmode], 0
+    je .hgt
+    mov cx, [ti_nh]
+.hgt:
+    sub ax, [ti_pby]                ; ra = max(0, YS - y0)
+    mov dx, ax
+    add dx, cx                      ; rb = min(h, YS + H - y0)
+    or ax, ax
+    jns .lra
+    xor ax, ax
+.lra:
+    cmp dx, [ti_pbh]
+    jle .lrb
+    mov dx, [ti_pbh]
+.lrb:
+    sub dx, ax
+    jg .lrows
+    jmp .lnext
+.lrows:
+    mov [ti_pra], ax
+    mov bp, dx                      ; BP = rows
+    mov ax, [ti_pkcol]              ; BX = the cell
+    mov bx, TI_ROWS
+    mul bx
+    add ax, [ti_plane]
+    mov bx, ax
+    mov ax, [ti_pby]                ; the block's first row that lands
+    add ax, [ti_pra]
+    sub ax, [ti_pys]
+    mov [ti_psr], ax
+    mov ax, [ti_pra]                ; DI = where in the band
+    mul word [ti_pbw]
+    add ax, [ti_pbd]
+    add ax, [ti_pdst]
+    mov di, ax
+    cmp byte [ti_pmode], 0
+    jne .stat
+    ; --- a FIGURE: what the cell last showed, copied a row at a time -------
+    shl bx, 1
+    cmp word [ti_shseg + bx], 0
+    jne .fig
+    jmp .lnext                      ; never committed: the ground stands
+.fig:
+    mov ax, [ti_psr]
+    mul word [ti_bs]
+    add ax, [ti_shoff + bx]
+    add ax, [ti_psrc]
+    mov si, ax
+    mov es, [ti_shseg + bx]
+    mov ax, [ti_pcnt]
+    mov dx, [ti_bs]
+    mov bx, [ti_pbw]
+    push ds
+    push ds
+    push es
+    pop ds                          ; DS = the cell's source
+    pop es                          ; ES = here, the band
+.fl:
+    push si
+    push di
+    mov cx, ax
+    rep movsb
+    pop di
+    pop si
+    add si, dx
+    add di, bx
+    dec bp
+    jnz .fl
+    pop ds
+    jmp .lnext
+    ; --- the NUMBERS: (byte AND NOT halo) OR digits ------------------------
+.stat:
+    cmp byte [ti_stok + bx], 0
+    jne .num
+    jmp .lnext                      ; none banked: the ground stands
+.num:
+    mov ax, bx
+    mov cx, TI_STATREC
+    mul cx
+    add ax, TI_STATBANK
+    add ax, [ti_psrc]
+    mov si, ax
+    mov ax, [ti_psr]
+    mul word [ti_nbs]
+    add si, ax                      ; SI = the halo, SI + TI_CELLBANDMAX the
+    mov es, [ti_kseg]               ; digits, in the attack claim
+    mov dx, [ti_nbs]
+    mov bx, [ti_pbw]
+.nl:
+    push si
+    push di
+    mov cx, [ti_pcnt]
+.nb:
+    mov al, [es:si]
+    not al
+    and [di], al
+    mov al, [es:si + TI_CELLBANDMAX]
+    or [di], al
+    inc si
+    inc di
+    loop .nb
+    pop di
+    pop si
+    add si, dx
+    add di, bx
+    dec bp
+    jnz .nl
+.lnext:
+    mov ax, [ti_ch]
+    add [ti_pys], ax
+    inc word [ti_plane]
+    jmp .lane
+.rnext:
+    mov bx, [ti_prun]
+    mov ax, [ti_grn + bx]
+    add [ti_pj0], ax
+    add word [ti_prun], 2
+    jmp .run
 .out:
     pop es
     pop bp
@@ -1314,6 +1647,58 @@ ti_gnd_row:
     pop cx
     pop bx
     pop ax
+    ret
+
+; ti_stat_bank - bank cell [ti_ci]'s numbers as ti_stat_compose left them:
+; the halo, then the digits, [ti_nh] rows at [ti_nbs] a row. Preserves every
+; register.
+ti_stat_bank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    mov ax, [ti_ci]
+    mov bx, TI_STATREC
+    mul bx
+    add ax, TI_STATBANK
+    mov di, ax
+    mov es, [ti_kseg]
+    mov ax, [ti_nh]
+    mul word [ti_nbs]
+    mov bx, ax                      ; BX = the bytes in the block
+    mov si, ti_stmask
+    mov cx, bx
+    push di
+    rep movsb
+    pop di
+    add di, TI_CELLBANDMAX
+    mov si, ti_cellband
+    mov cx, bx
+    rep movsb
+    mov bx, [ti_ci]
+    mov byte [ti_stok + bx], 1
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_shown_set - cell [ti_ci] now shows the band at ES:SI. Preserves every
+; register.
+ti_shown_set:
+    push bx
+    mov bx, [ti_ci]
+    shl bx, 1
+    mov [ti_shoff + bx], si
+    mov [ti_shseg + bx], es
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1444,6 +1829,7 @@ ti_stat_compose:
 .nn:
     dec bx
     mov dl, al
+    mov [ti_stmask + bx + si], ah   ; (the halo, kept for a bolt to go under)
     not ah
     and [di + bx], ah               ; the ground under the halo goes dark...
     mov al, [ti_cellband + bx + si]
@@ -1549,5 +1935,26 @@ ti_nr:      dw 0
 ti_grtop:   times 8 dw 0          ; ...each one's strip top on the screen
 ti_grbase:  times 8 dw 0          ; ...its first byte less top x SB
 ti_grn:     times 8 dw 0          ; ...and its length in bytes
+ti_grc:     times 8 dw 0          ; ...its column, or 0FFFFh off the board
+ti_grlx:    times 8 dw 0          ; ...and its first byte's x inside it
+ti_shseg:   times TI_CELLS dw 0   ; WHAT EACH CELL SHOWS: the band ti_feature
+ti_shoff:   times TI_CELLS dw 0   ; (or a reveal) last put on the glass there
+ti_stok:    times TI_CELLS db 0   ; ...and whether its numbers are banked
+ti_pbx:     dw 0                  ; ti_pic_band's band: x, first row, rows,
+ti_pby:     dw 0                  ; stride, where it is
+ti_pbh:     dw 0
+ti_pbw:     dw 0
+ti_pbd:     dw 0
+ti_pmode:   db 0                  ; 0 the figures, 1 the numbers
+ti_pcnt:    dw 0                  ; ...and a run's overlap: bytes, where in
+ti_pdst:    dw 0                  ; the band, where in the source, the lane
+ti_psrc:    dw 0                  ; and the row inside it
+ti_plane:   dw 0
+ti_pra:     dw 0
+ti_pys:     dw 0
+ti_psr:     dw 0
+ti_pkcol:   dw 0
+ti_prun:    dw 0
+ti_pj0:     dw 0
 ti_vbuf:    times 6 * 40 db 0      ; the letters, ORed a row up and down
 ti_yoff:    times 128 db 0        ; the slope, a byte a pixel column

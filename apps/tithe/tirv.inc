@@ -278,7 +278,8 @@ ti_rv_step:
     jmp short .out
 .nums:
     call ti_rv_nums                 ; ...and its NUMBERS a frame after it is
-    mov byte [ti_rv], 0             ; whole. Done: the wheel has the cell back
+    call ti_rv_home                 ; whole. Done: the wheel has the cell back
+    mov byte [ti_rv], 0
 .out:
     pop ax
     ret
@@ -323,22 +324,44 @@ ti_rv_cost:
     pop bx
     ret
 
-; ti_rv_cost_sub - AX = AX less ti_rv_cost, floored at nothing. Preserves
-; every other register.
+; ti_rv_cost_sub - AX = the idle's credit AX less what the reveal owes it
+; this frame, floored at nothing. Preserves every other register.
 ;
-; THE IDLE SLOWS AND DOES NOT STOP. The wheel commits one feature before it
-; asks the credit, so a reveal that takes all of it still leaves one band a
-; frame breathing. With twelve sparks that one band put two frames at 54.8 of
-; a 54.9 ms tick and the wheel was stopped instead; with eight, it fits.
+; THE REVEAL PAYS OUT OF THE TICK'S SLACK FIRST. The idle's credit is its
+; SPEED - a share of the tick, sized for how fast a figure should breathe -
+; and not the tick's spare room, so charging a reveal to it slowed the board
+; while ~11 ms of every reveal frame sat unused. So the reveal is charged first
+; to what no lane has claimed - TI_FRAMEMAX of the tick, less the combat and
+; base lanes' allowances and the idle's own credit - and the idle pays only
+; what is left over. The costs are the calibrated ones (ti_arrus, ti_rowus),
+; so this is the same answer on every adapter without a constant per machine.
 ti_rv_cost_sub:
     push bx
-    mov bx, ax
-    call ti_rv_cost
+    push cx
+    push dx
+    mov bx, ax                      ; BX = the idle's credit
+    call ti_rv_cost                 ; AX = what the reveal costs
+    push ax
+    mov ax, TI_FRAMEUS / 100        ; CX = the slack: the tick's usable share
+    mov cx, TI_FRAMEMAX - TI_COMBAT - TI_BASESHARE
+    mul cx                          ; less the other lanes'...
+    sub ax, bx                      ; ...less the idle's own
+    jnc .slack
+    xor ax, ax
+.slack:
+    mov cx, ax
+    pop ax
+    sub ax, cx                      ; what the slack cannot cover
+    jnc .over
+    xor ax, ax
+.over:
     sub bx, ax
     jnc .have
     xor bx, bx
 .have:
     mov ax, bx
+    pop dx
+    pop cx
     pop bx
     ret
 
@@ -575,6 +598,7 @@ ti_rv_cell:
     push ds
     pop es
     mov si, ti_rvband
+    call ti_shown_set               ; the cell shows the dissolve now
     mov cx, [ti_bs]
     shl cx, 1
     shl cx, 1
@@ -596,6 +620,37 @@ ti_rv_cell:
     pop cx
     pop bx
     pop ax
+    ret
+
+; ti_rv_home - hand cell [ti_rvcell] back to the wheel AS IT STANDS: the glass
+; shows its pose 0, whole, so that is its clock and its shown band. Preserves
+; every register.
+;
+; THE WHEEL KEPT TURNING ITS CLOCK through the reveal while skipping its
+; commits, so the clock came out four-odd poses from the glass - and the next
+; DIRTY RECT committed only the rows that transition moved, over a picture
+; that was not the one it moved them from.
+ti_rv_home:
+    push bx
+    push di
+    push es
+    push word [ti_ci]
+    push word [ti_pi]
+    mov bx, [ti_rvcell]
+    mov byte [bx + ti_clock], 0
+    mov [ti_ci], bx
+    mov word [ti_pi], 0
+    call ti_cellpose_addr           ; DI = its pose 0, in the arena
+    mov es, [ti_aseg]
+    push si
+    mov si, di
+    call ti_shown_set
+    pop si
+    pop word [ti_pi]
+    pop word [ti_ci]
+    pop es
+    pop di
+    pop bx
     ret
 
 ; ti_rv_nums - cell [ti_rvcell]'s numbers, the new card's. Preserves every
