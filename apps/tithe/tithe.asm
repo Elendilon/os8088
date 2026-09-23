@@ -215,6 +215,8 @@ ti_relayout:
     call ti_art_build
     call ti_phase_seed              ; ...and spread the clocks, so neighbours
                                     ; do not breathe together
+    call ti_cal_card                ; ...and what a card costs to COMPOSE, which
+                                    ; nothing else on the machine can see
     mov byte [ti_ok], 1
     call ti_calibrate               ; ...AND WHAT A BAND COSTS AT THIS SIZE.
                                     ; It was the `R` key's alone, so the wheel
@@ -1575,6 +1577,29 @@ ti_cl:      dw 0                    ; the CARD's left edge inside the band,
                                     ; which is the panel's width: 0 for an
                                     ; expanded card and the margin for the rest
 ti_cwd:     dw 0                    ; ...and the card's own width in it
+ti_spx0:    dw 0                    ; ti_cb_span / ti_cb_vline's own ends,
+ti_spx1:    dw 0                    ; in memory because the 8086 has not got
+ti_spy1:    dw 0                    ; the registers for a masked byte run
+ti_calc0:   dw 0                    ; ti_cal_card's PIT start...
+ti_calconly: dw 0                   ; ...its compose-but-do-not-blit flag
+ti_ccardus: dw 0                    ; ...and what one card costs to compose
+%ifdef TICARDPROF
+; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us
+; each), for the last card drawn. It is a knob and not a counter because the
+; thing it had to settle was WHICH STAGE: a hover was costing two frames and
+; every whole-frame A/B said "the card draw", which is a routine and not an
+; answer. These said `ti_cb_frame` was 36-44 ms of it - a rectangle - against
+; 4.2 ms for the blit of the finished card.
+ti_cp0:     dw 0
+ti_ccomp:   dw 0                    ; the whole composition...
+ti_cblit:   dw 0                    ; ...and the arrival that puts it down
+ti_pclear:  dw 0                    ; ...then stage by stage
+ti_pframe:  dw 0
+ti_pframe2: dw 0
+ti_ptext:   dw 0
+ti_punit:   dw 0
+ti_pinv:    dw 0
+%endif
 ti_row:     dw 0                    ; FRONT or REAR - which row a played card
                                     ; is going into, and so which pair of
                                     ; variable stats every card shows (97.4.8)

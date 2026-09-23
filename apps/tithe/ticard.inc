@@ -177,6 +177,63 @@ ti_card_y:
 ; past the card's own width; the pad is where that byte goes, and the blit is
 ; told the real width.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; ti_cal_card - microseconds for ONE resting card's COMPOSITION, banked in
+; [ti_ccardus]. Preserves every register.
+;
+; IT EXISTS BECAUSE A COMPOSITION CANNOT BE SEEN ANY OTHER WAY. The picture is
+; identical whether the frame takes 3 ms or 40, the wheel still commits, and no
+; other row in the suite can tell - so `ti_cb_frame` drew its ~320 pixels one
+; at a time through a 16-bit multiply, cost two thirds of a system tick to draw
+; a RECTANGLE, and shipped. A whole-frame rate check is too blunt to catch it:
+; the defect reads 12.5 frames a second against 15.3 on a metric whose idle is
+; 18.6, so a bar loose enough not to flake is loose enough to pass it. This is
+; the direct number, and tests/titheframe.py asserts it.
+;
+; It is `ti_cal_one`'s shape one object along - the same PIT span, the same
+; counts-to-microseconds - and it runs once, at layout.
+; -----------------------------------------------------------------------------
+ti_cal_card:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    cmp word [ti_cardn], 0
+    je .out
+    pushf
+    cli                             ; the span must not have a tick ISR in it
+    call ti_pit
+    mov [ti_calc0], ax
+    mov word [ti_calconly], 1       ; ...compose, and do NOT put it down
+    xor ax, ax
+    call ti_card_draw
+    mov word [ti_calconly], 0
+    call ti_pit
+    mov bx, [ti_calc0]
+    sub bx, ax                      ; counter 0 counts DOWN
+    popf
+    mov ax, bx
+    xor dx, dx
+    mov cx, 8381                    ; one count is 0.8381 us
+    mul cx
+    mov cx, 10000
+    div cx
+    mov [ti_ccardus], ax
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ti_card_draw:
     push ax
     push bx
@@ -250,6 +307,12 @@ ti_card_draw:
     inc cx                          ; ...the pad byte ti_glyph writes into
     mov [ti_cbs], cx
 
+%ifdef TICARDPROF
+    pushf
+    cli
+    call ti_pit
+    mov [ti_cp0], ax
+%endif
     mov di, ti_cardband             ; a clean band
     mov ax, [ti_cbs]
     mul word [ti_cardh]
@@ -260,15 +323,33 @@ ti_card_draw:
     pop di
 
     ; --- the frame, and the pulse-free second one --------------------------
+%ifdef TICARDPROF
+%macro TIPROF 1
+    call ti_pit
+    mov bx, [ti_cp0]
+    sub bx, ax
+    mov [%1], bx
+    call ti_pit
+    mov [ti_cp0], ax
+%endmacro
+%else
+%macro TIPROF 1
+%endmacro
+%endif
+    TIPROF ti_pclear
     call ti_cb_frame
+    TIPROF ti_pframe
     cmp word [ti_cx], 0
     je .text
     cmp word [ti_cpad], 0
     je .text
     call ti_cb_frame2
 .text:
+    TIPROF ti_pframe2
     call ti_cb_text
+    TIPROF ti_ptext
     call ti_cb_unit
+    TIPROF ti_punit
 
     ; --- AND THE HOVER INVERTS IN THE BAND, not in the pen -----------------
     ; Which is what makes it INVERT AT ALL on the two adapters the pen does
@@ -280,6 +361,20 @@ ti_card_draw:
     jne .blit                       ; hovered: the picture IS the ink
     call ti_cb_invert
 .blit:
+    TIPROF ti_pinv
+%ifdef TICARDPROF
+    call ti_pit
+    mov bx, [ti_cp0]
+    sub bx, ax
+    mov [ti_ccomp], bx
+    popf                            ; ...CLOSED HERE and re-armed below, because
+    pushf                           ; the branch under it leaves by another
+    cli                             ; door: a `pushf` whose `popf` is on only
+    call ti_pit                     ; one path is an unbalanced `ret`, which is
+    mov [ti_cp0], ax                ; what tests/unit/t_stkbalance.py exists for
+%endif
+    cmp word [ti_calconly], 0       ; ti_cal_card wants the COMPOSITION timed
+    jne .noblit                     ; and not the arrival that follows it
     mov si, ti_cardband
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
@@ -287,6 +382,16 @@ ti_card_draw:
     mov dx, [ti_cardh]
     mov bp, [ti_cbs]
     call OSAPI_GFX_BLIT1
+.noblit:
+%ifdef TICARDPROF
+    call ti_pit
+    mov bx, [ti_cp0]
+    sub bx, ax
+    mov [ti_cblit], bx
+    popf
+%endif
+    cmp word [ti_calconly], 0
+    jne .out
 
     cmp word [ti_cx], 0             ; the hovered card's box is banked, so the
     je .out                         ; wheel can redraw the UNIT alone
@@ -307,44 +412,85 @@ ti_card_draw:
     pop ax
     ret
 
-; --- ti_cb_set / ti_cb_frame - the band's own primitives ---------------------
-; A pixel and a frame, in the band rather than on the screen. They are here and
-; not in os88gfx.inc because a band this small wants no clipping and no stride
-; arithmetic beyond one multiply (SPEC.md 5.12's own test: a shim would be
-; longer than the body).
-ti_cb_set:                          ; BX = x, DX = y
+; --- the band's own primitives: A SPAN AND A LINE, BOTH BYTE-WISE -----------
+; They are here and not in os88gfx.inc because a band this small wants no
+; clipping and no stride arithmetic beyond one multiply (SPEC.md 5.12's own
+; test: a shim would be longer than the body).
+;
+; A PIXEL AT A TIME THROUGH A MULTIPLY IS WHAT MADE A HOVER STUTTER. The frame
+; is ~320 pixels of a card and the second frame another ~270, and a per-pixel
+; `mul` plus its own call frame is ~600 cycles: measured with the PIT on the
+; machine at 36-44 ms for ONE frame and 38-42 for the second, against a blit
+; of the finished card at 4.2 ms. That is two thirds of a system tick to draw
+; a rectangle - so the pointer landing on a card cost two frames, which is
+; exactly what the field reported. Both bodies below resolve the row ONCE and
+; then work in bytes.
+;
+; ti_cb_span - set pixels [BX, CX] inclusive on band row DX
+; Preserves every register.
+ti_cb_span:
     push ax
     push bx
     push cx
-    push dx                         ; ...DX, WHICH IS THE ROW. `mul` lands its
-                                    ; high half there, so a body that resolves
-                                    ; the row and then forgets it hands its
-                                    ; CALLER a destroyed y - and every caller
-                                    ; here loops on one. ti_cb_hline still
-                                    ; terminates (it counts BX) and writes the
-                                    ; rest of its run at an offset of tens of
-                                    ; thousands, which is not a wrong line, it
-                                    ; is the package's own memory. ti_glyph
-                                    ; carries the same warning for the same
-                                    ; reason; this is the site it was not
-                                    ; applied to.
+    push dx
     push di
-    cmp dx, [ti_cardh]              ; a band write is unclipped, so the band's
-    jae .out                        ; own height is the fence
-    cmp bx, [ti_cbw]
+    cmp dx, [ti_cardh]
     jae .out
-    mov ax, dx
+    mov ax, [ti_cbw]                ; ...clamped to the band, both ends
+    dec ax
+    cmp cx, ax
+    jbe .rok
+    mov cx, ax
+.rok:
+    cmp bx, cx
+    ja .out
+    mov [ti_spx0], bx
+    mov [ti_spx1], cx
+
+    mov ax, dx                      ; THE ROW, RESOLVED ONCE
     mul word [ti_cbs]
     mov di, ti_cardband
     add di, ax
-    mov ax, bx
+    mov ax, [ti_spx0]
     mov cl, 3
     shr ax, cl
-    add di, ax
-    mov cx, bx
+    add di, ax                      ; DI -> the byte holding x0
+
+    mov cx, [ti_spx0]               ; AH = the first byte's mask
     and cx, 7
-    mov al, 080h
+    mov al, 0FFh
     shr al, cl
+    mov ah, al
+    mov cx, [ti_spx1]               ; AL = the last byte's
+    and cx, 7
+    xor cx, 7                       ; ...which is 7 - (x1 & 7)
+    mov al, 0FFh
+    shl al, cl
+
+    mov bx, [ti_spx1]               ; BX = how many bytes apart they are
+    mov cl, 3
+    shr bx, cl
+    mov cx, [ti_spx0]
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    sub bx, cx
+    or bx, bx
+    jnz .multi
+    and al, ah                      ; one byte carries both ends
+    or [di], al
+    jmp short .out
+.multi:
+    or [di], ah
+    inc di
+    dec bx
+    jz .last
+.mid:
+    mov byte [di], 0FFh             ; ...and the middle is whole bytes
+    inc di
+    dec bx
+    jnz .mid
+.last:
     or [di], al
 .out:
     pop di
@@ -354,45 +500,101 @@ ti_cb_set:                          ; BX = x, DX = y
     pop ax
     ret
 
-ti_cb_hline:                        ; BX = x0, CX = x1, DX = y
+; ti_cb_vline - set pixel BX on band rows [CX, DX] inclusive
+; Preserves every register.
+ti_cb_vline:
+    push ax
     push bx
-.x:
-    cmp bx, cx
+    push cx
+    push dx
+    push di
+    cmp bx, [ti_cbw]
+    jae .out
+    mov [ti_spy1], dx
+    mov ax, cx                      ; ...the row resolved once here too, and
+    mul word [ti_cbs]               ; the rest is a stride add
+    mov di, ti_cardband
+    add di, ax
+    mov ax, bx
+    push cx
+    mov cl, 3
+    shr ax, cl
+    pop cx
+    add di, ax
+    and bx, 7
+    push cx
+    mov cx, bx
+    mov al, 080h
+    shr al, cl
+    pop cx
+.row:
+    cmp cx, [ti_spy1]
     ja .out
-    call ti_cb_set
-    inc bx
-    jmp short .x
+    cmp cx, [ti_cardh]
+    jae .out
+    or [di], al
+    add di, [ti_cbs]
+    inc cx
+    jmp short .row
 .out:
+    pop di
+    pop dx
+    pop cx
     pop bx
+    pop ax
     ret
 
+; --- ti_cb_frame / ti_cb_frame2 - the card's own edges ----------------------
 ti_cb_frame:
     push bx
     push cx
     push dx
-    push si
     mov bx, [ti_cl]
     mov cx, bx
     add cx, [ti_cwd]
     dec cx
     xor dx, dx
-    call ti_cb_hline                ; the top...
+    call ti_cb_span                 ; the top...
     mov dx, [ti_cardh]
     dec dx
-    call ti_cb_hline                ; ...the foot...
-    xor dx, dx
-.side:                              ; ...and the two uprights
-    cmp dx, [ti_cardh]
-    jae .out
+    call ti_cb_span                 ; ...the foot...
+    mov dx, [ti_cardh]
+    dec dx
+    xor cx, cx
     mov bx, [ti_cl]
-    call ti_cb_set
+    call ti_cb_vline                ; ...and the two uprights
     add bx, [ti_cwd]
     dec bx
-    call ti_cb_set
-    inc dx
-    jmp short .side
-.out:
-    pop si
+    call ti_cb_vline
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+ti_cb_frame2:                       ; the hovered card's inner outline
+    push bx
+    push cx
+    push dx
+    mov bx, [ti_cl]
+    add bx, 2
+    mov cx, [ti_cl]
+    add cx, [ti_cwd]
+    sub cx, 3
+    mov dx, 2
+    call ti_cb_span
+    mov dx, [ti_cardh]
+    sub dx, 3
+    call ti_cb_span
+    mov dx, [ti_cardh]
+    sub dx, 3
+    mov cx, 2
+    mov bx, [ti_cl]
+    add bx, 2
+    call ti_cb_vline
+    mov bx, [ti_cl]
+    add bx, [ti_cwd]
+    sub bx, 3
+    call ti_cb_vline
     pop dx
     pop cx
     pop bx
@@ -428,10 +630,18 @@ ti_cb_invert:
     jae .out
     push di
     mov cx, bx
-.b:
-    not byte [di]
+    shr cx, 1                       ; ...A WORD AT A TIME, which halves it:
+    jcxz .tail                      ; `not` has no `rep` form, so the loop's
+.b:                                 ; own overhead is most of its cost
+    not word [di]
+    inc di
     inc di
     loop .b
+.tail:
+    test bl, 1
+    jz .done
+    not byte [di]
+.done:
     pop di
     add di, [ti_cbs]
     inc dx
@@ -742,43 +952,6 @@ ti_cb_unit:
     pop word [ti_pi]
     pop di
     pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-ti_cb_frame2:                       ; the hovered card's inner outline
-    push ax
-    push bx
-    push cx
-    push dx
-    mov bx, [ti_cl]
-    add bx, 2
-    mov cx, [ti_cl]
-    add cx, [ti_cwd]
-    sub cx, 3
-    mov dx, 2
-    call ti_cb_hline
-    mov dx, [ti_cardh]
-    sub dx, 3
-    call ti_cb_hline
-    mov dx, 2
-.side:
-    mov ax, [ti_cardh]
-    sub ax, 3
-    cmp dx, ax
-    ja .out
-    mov bx, [ti_cl]
-    add bx, 2
-    call ti_cb_set
-    mov bx, [ti_cl]
-    add bx, [ti_cwd]
-    sub bx, 3
-    call ti_cb_set
-    inc dx
-    jmp short .side
-.out:
     pop dx
     pop cx
     pop bx

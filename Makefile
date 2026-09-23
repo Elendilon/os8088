@@ -9429,13 +9429,21 @@ apps/tithe/tibases.inc: tools/os88tithebase.py
 apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 	python3 tools/os88titheface.py emit
 
+# TICARDPROF=1 times each STAGE of one card's composition with the PIT and
+# banks the counts (SPEC.md 97.4.1.1). It is a knob rather than a counter
+# because what it had to settle was WHICH STAGE: a hover cost two frames and
+# every whole-frame A/B answered "the card draw", which is a routine and not a
+# cause. It is not stamp-tracked, so `make tithedisk TICARDPROF=1` after a
+# plain build needs the .bin removing first - it builds no shipped image.
+TITHEDEF := $(if $(TICARDPROF),-DTICARDPROF,)
+
 $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
                     apps/tithe/tipj.inc apps/tithe/ticl.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
                     apps/tithe/titxt.inc \
                     apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
+	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/tithe.o88: $(BUILD)/tithe.bin tools/os88pkg.py

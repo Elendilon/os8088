@@ -39,9 +39,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import os88ui                                             # noqa: E402
 import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
+import os88mouse                                          # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_nbadv", "ti_bw", "ti_bh",
+        "ti_panx", "ti_by", "ti_cardpitch", "ti_cardh", "ti_ccardus",
         "ti_calfull", "ti_calone", "ti_drect", "ti_base", "ti_bslot",
         "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS")
 SPAN = 5.0
@@ -271,7 +273,12 @@ def main():
         adv = (rw(m, seg, "ti_nbadv") - adv0) & 0xFFFF
         com = (rw(m, seg, "ti_nbase") - com0) & 0xFFFF
         print("  base lane: %d commits, %d of them advanced a pose" % (com, adv))
-        check(adv == com, "every base commit advances a pose",
+        # ...WITHIN ONE, because the two counters are read one after the other
+        # and the lane increments them one after the other: a sample that lands
+        # between them reads a commit whose advance has not been counted yet.
+        # It is a straddle and not a skipped pose - the defect this is for
+        # skipped ONE VISIT IN FIVE, which is 20% and not 3%.
+        check(abs(adv - com) <= 1, "every base commit advances a pose",
               "%d of %d" % (adv, com))
 
         gaps = set()
@@ -282,6 +289,65 @@ def main():
         print("  base cadences: %d distinct gaps in 12 samples" % len(gaps))
         check(len(gaps) >= 3, "the two bases drift rather than mirroring",
               "%d distinct gaps" % len(gaps))
+
+        # --- WHAT ONE CARD COSTS TO COMPOSE (SPEC.md 97.4.1.1) -------------
+        # The direct number, because a composition cannot be seen any other
+        # way: the picture is identical whether the frame takes 3 ms or 40,
+        # the wheel still commits, and every other row here still passes.
+        # `ti_cb_frame` drew its ~320 pixels one at a time through a 16-bit
+        # multiply - two thirds of a system tick to draw a RECTANGLE - and the
+        # field reported it as a stutter on landing.
+        #
+        # IT IS A WINDOW AND NOT A CEILING, and the floor is the point: the
+        # PIT counter is 16 bits and wraps at 54.9 ms, and the defect measured
+        # ~54 - so the reading a regression gives is as likely to be a small
+        # number as a large one. The tree reads 21.6 ms on VGA, 19.7 on
+        # Hercules and 10.3 on CGA, and the pixel-at-a-time frame reads 38.4,
+        # 40.2 and 30.8 - so the ceiling is 28 ms, which is 30% of headroom
+        # over the worst real reading and still under the smallest defect one.
+        cc = rw(m, seg, "ti_ccardus")
+        print("  one card composes in %d us" % cc)
+        check(3000 < cc < 28000, "a card composes in a sane fraction of a tick",
+              "%d us" % cc)
+
+        # --- A HOVER MUST NOT COST THE FRAME (SPEC.md 97.4.1.1) -------------
+        # The card panel is composed by the package, and a composition that
+        # goes quadratic is INVISIBLE in every other row here: the picture is
+        # identical, the wheel still commits, nothing fails. `ti_cb_frame`
+        # drew its ~320 pixels one at a time through a 16-bit multiply and
+        # cost 36-44 ms - two thirds of a system tick to draw a RECTANGLE -
+        # so the pointer landing on a card dropped two frames and the field
+        # reported it as a stutter.
+        #
+        # TEN CHANGES BETWEEN TWO FIXED POINTS, and not a free sweep: how many
+        # hover changes a sweep makes depends on mouse packet timing, and the
+        # same build read 7.8 and 9.3 fps back to back that way.
+        #
+        # THE BAR IS LOOSE ON PURPOSE. It is a gate against a primitive going
+        # quadratic, not a budget: the defect read 0.26 of the idle rate and
+        # the tree reads 0.82, so 0.6 catches the thing it is for with room to
+        # spare and cannot flake on a loaded box.
+        mo = os88mouse.Mouse(marty=m)
+        px, by = rw(m, seg, "ti_panx"), rw(m, seg, "ti_by")
+        pitch, chh = rw(m, seg, "ti_cardpitch"), rw(m, seg, "ti_cardh")
+        pts = [(px + 20, by + 1 * pitch + chh // 2),
+               (px + 20, by + 4 * pitch + chh // 2)]
+        mo.to(pts[0][0], pts[0][1])
+        os88marty.guest_sleep(m, 1.5)
+        tick = lambda: struct.unpack("<I", bytes(m.read(0x46C, 4)))[0]
+        a, t0 = rw(m, seg, "ti_nframe"), tick()
+        for i in range(10):
+            mo.to(pts[i & 1][0], pts[i & 1][1])
+        secs = (tick() - t0) / 18.2
+        hov = ((rw(m, seg, "ti_nframe") - a) & 0xFFFF) / max(secs, 1e-6)
+        mo.to(px // 2, by + 3 * pitch)
+        os88marty.guest_sleep(m, 1.5)
+        a, t0 = rw(m, seg, "ti_nframe"), tick()
+        os88marty.guest_sleep(m, 3.0)
+        idle = ((rw(m, seg, "ti_nframe") - a) & 0xFFFF) / max((tick() - t0) / 18.2, 1e-6)
+        print("  hovering: %.1f fps over 10 changes, idle %.1f" % (hov, idle))
+        check(hov >= 0.6 * idle, "a hover does not cost the frame",
+              "%.1f of %.1f = %.2f" % (hov, idle, hov / idle if idle else 0))
 
         b_hi, c_hi, f_hi = lane()
         print("  base lane: %.1f commits/s of %.1f frames/s (idle %.1f/s)"

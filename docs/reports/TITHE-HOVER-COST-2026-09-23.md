@@ -56,3 +56,74 @@ arrival, which is proportional to what it draws. Nothing here is pathological
 any more; the next lever would be deferring the status onto the lane system
 (SPEC.md §97.5.1) so it competes for credit rather than being unconditional
 work, and that is not worth its machinery at this rate.
+
+---
+
+# Part 2 — what it actually was
+
+The first half of this report blamed the HUD strip and cut it to the status
+line's own rectangle. That was real (4.9 → ~8.6 fps on a free sweep) and it was
+**not the main term**. The field came back: the stutter was still there, it was
+only on landing ON a card, and it ended the moment the card's figure started
+moving.
+
+**Every whole-frame A/B answered "the card draw"**, which is a routine and not
+a cause: nopping the blit, the text, the frame, the invert or the unit each
+left the transient unchanged, and nopping the whole of `ti_card_draw` removed
+it. That is what a cost distributed across a routine looks like — and it was
+wrong. The frame counter is quantised to 4 ticks per sample here, which is too
+coarse to divide 110 ms among seven stages.
+
+## The instrument that settled it
+
+`TICARDPROF=1` brackets each stage of one card with the PIT (`ti_pit`, the same
+reader `ti_calibrate` uses). One boot, one hover, six numbers:
+
+| stage | before | after |
+|---|---|---|
+| clear the band | 1.3 ms | 1.3 |
+| **`ti_cb_frame`** | **36–44 ms** | **2.5–2.9** |
+| **`ti_cb_frame2`** (hovered) | **38–42 ms** | **2.3–2.8** |
+| `ti_cb_text` | 11.6 ms | 10.6 |
+| `ti_cb_unit` | 2.2 ms | 2.2 |
+| `ti_cb_invert` | 5.3 ms | 4.0 |
+| the blit of the finished card | 4.2 ms | 4.2 |
+
+**A rectangle was two thirds of a system tick.** `ti_cb_set` wrote one pixel
+per call and resolved the band row with a 16-bit multiply each time — ~600
+cycles a pixel with its call frame — and a card's frame is ~320 pixels.
+`ti_cb_span` and `ti_cb_vline` resolve the row once and then work in whole
+bytes with masked ends.
+
+## Where it stands
+
+| | before | after |
+|---|---|---|
+| one card's composition, VGA | ~54 ms | **21.6 ms** |
+| ...Hercules | ~53 | **19.7** |
+| ...CGA | ~46 | **10.3** |
+| ten card↔card hovers | 12.5 fps | **15.3** |
+| idle | 18.6 | 18.6 |
+
+## Two things to keep
+
+**The obvious metric was the wrong one.** Frames-per-second over a hover is
+quantised, adaptive (the wheel spends what it has) and blames whole routines.
+The PIT bracket is thirty lines and answered in one run. PERFORMANCE.md's rule
+4 says a counter is not a timer; this is the same rule one level down — a
+*profile at routine granularity* is not a timer either.
+
+**The defect measured ~54 ms and the PIT counter wraps at 54.9.** A regression
+here is as likely to read as a small number as a large one, which is why
+`tests/titheframe.py` asserts a WINDOW (3–28 ms) and not a ceiling.
+
+## What is left, and what it would cost
+
+Composition is 21.6 ms of a 54.9 ms frame, of which the text is 10.6. A hover
+change is one or two compositions plus two blits plus the status. The next
+lever is the one the owner named: **compose the resting bands once** and keep
+them, so a hover blits rather than composes. Seven bands at the worst geometry
+is 4,536 bytes, and the invalidation surface is three places (relayout, the
+FRONT/REAR toggle, the face key). It is not taken here because the measured
+stutter is gone and 4.5 KB plus a cache is real money; it becomes worth it when
+a deck makes a card's content change more often than its layout does.

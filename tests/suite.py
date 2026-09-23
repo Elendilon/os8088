@@ -7197,7 +7197,7 @@ SOAK = [
         "`make titheband`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/titheband360.img",)),
-    Row("titheframe", "soak", py("tests/titheframe.py"), 150.0,
+    Row("titheframe", "soak", py("tests/titheframe.py"), 200.0,
         "SPEC.md 97.5: does TITHE's pacing wheel hold its frame, and do its"
         "two levers still work? The rate was measured once"
         "(docs/reports/TITHE-RATE-2026-09-22.md) and the three defects that"
@@ -7209,7 +7209,16 @@ SOAK = [
         "its two heights are ordered, that the dirty rect buys at least 20%,"
         "that the three sprite arms differ, and that a projectile costs the"
         "idle something without stalling the frame, and that the BASE LANE"
-        "runs on a clock the idle's share cannot reach (SPEC.md 97.5.1)."
+        "runs on a clock the idle's share cannot reach (SPEC.md 97.5.1). It"
+        "also carries the two HOVER checks, which exist because a composition"
+        "is invisible to everything else here - the picture is identical"
+        "whether a frame takes 3 ms or 40, the wheel still commits and every"
+        "other row still passes. `ti_cb_frame` drew its ~320 pixels one at a"
+        "time through a 16-bit multiply, cost two thirds of a system tick to"
+        "draw a RECTANGLE, and the field reported it as a stutter on landing."
+        "`ti_ccardus` is the direct number and the check is a WINDOW and not a"
+        "ceiling: the PIT counter wraps at 54.9 ms and the defect measured"
+        "~54, so a regression is as likely to read small as large."
         "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),

@@ -115,11 +115,19 @@ ti_chidx:
     mov al, ah
     xor ah, ah
     ret
-
 ; -----------------------------------------------------------------------------
-; ti_glyph - OR glyph AL into the band at (BX = x, DX = y)
-; in:  ES:DI = the band's base, BP = its stride, [ti_fw]/[ti_fh]/[ti_fdata]
-; Preserves every register.
+; ti_glyph - OR glyph AL into the band at (BX = x) on the row DI points at
+; in:  ES:DI = the BAND ROW's own base, BP = its stride, [ti_fw]/[ti_fh]/[ti_fdata]
+; Preserves BX, DI, BP and ES; clobbers AX, CX, DX, SI.
+;
+; THE ROW IS THE CALLER'S. It used to take a y in DX and resolve the row here,
+; which is one 16-bit multiply a GLYPH - and a card is ~55 of them, so the run
+; paid for the same row fifty-five times over. `ti_text` does it once. What is
+; left per glyph is the byte within the row, the pen's bit, and the multiply
+; that finds the glyph itself.
+;
+; IT PRESERVES LESS THAN IT USED TO, and deliberately: a push and its pop are
+; ~27 cycles of an 8088 and six pairs of them were a fifth of a glyph.
 ;
 ; THE X NEED NOT BE A MULTIPLE OF EIGHT. A glyph is at most 8 bits, so it lands
 ; in at most two destination bytes: the row goes into AH, the pair is shifted
@@ -128,37 +136,24 @@ ti_chidx:
 ; refuse the band itself at an unaligned x (SPEC.md 5.4.2).
 ; -----------------------------------------------------------------------------
 ti_glyph:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
     cmp al, 0FFh
     je .out
-    ; THE DESTINATION IS RESOLVED FIRST, while DX still holds the y: both
-    ; multiplies land their high half in DX, so computing the glyph's offset
-    ; before the band row loses the row and draws every glyph on the top line.
-    push ax                         ; ...and the glyph index is banked over it
-    mov ax, dx
-    mul bp                          ; AX = y * stride
-    add di, ax
-    mov ax, bx
-    mov cl, 3
-    shr ax, cl
-    add di, ax                      ; ...plus the byte within the row
+    push di
+    push bx
     mov cx, bx
-    and cx, 7                       ; CL = the pen's bit inside that byte
-    pop ax
+    and cx, 7                       ; CL = the pen's bit inside its byte
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    add di, bx                      ; ...and the byte within the row
     xor ah, ah
     mul word [ti_fh]                ; AX = glyph * rows
     mov si, [ti_fdata]
     add si, ax                      ; SI -> its first row
-
     mov dx, [ti_fh]
 .row:
     or dx, dx
-    jz .out
+    jz .done
     mov ah, [si]                    ; the glyph's row, MSB first...
     xor al, al
     shr ax, cl                      ; ...placed at the pen's own bit
@@ -168,35 +163,46 @@ ti_glyph:
     add di, bp
     dec dx
     jmp short .row
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
+.done:
     pop bx
-    pop ax
+    pop di
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
 ; ti_text - OR the NUL-terminated run at DS:SI into the band
-; in:  ES:DI = band, BP = stride, BX = x, DX = y
+; in:  ES:DI = the band's base, BP = stride, BX = x, DX = y
 ; out: BX = the x after the last glyph. Preserves every other register.
+;
+; IT RESOLVES THE ROW ONCE and hands it to every glyph (see ti_glyph).
 ; -----------------------------------------------------------------------------
 ti_text:
     push ax
+    push cx
+    push dx
     push si
+    push di
+    mov ax, dx
+    mul bp                          ; ...ONE multiply for the whole run
+    add di, ax
 .ch:
     lodsb
     or al, al
     jz .out
     call ti_chidx
+    push si
     call ti_glyph
+    pop si
     add bx, [ti_fw]
     jmp short .ch
 .out:
+    pop di
     pop si
+    pop dx
+    pop cx
     pop ax
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; ti_textw - AX = what ti_text would advance BX by, for DS:SI

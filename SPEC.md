@@ -140154,6 +140154,26 @@ reading the screen would ever find. They are 50 now, and
 `tools/os88titheface.py --selfcheck` takes the package's OWN STRINGS as its
 input: every `db '...'` in `tithe.asm`, against the set the faces carry.
 
+**A RECTANGLE IS DRAWN IN BYTES, NOT PIXELS — and this is where the cost was
+all along.** The card's frame is ~320 pixels and its hovered inner frame
+another ~270, and a per-pixel body through a 16-bit multiply is ~600 cycles
+each: **36–44 ms for one frame and 38–42 for the second**, against **4.2 ms**
+for the blit of the finished card. Two thirds of a system tick to draw a
+rectangle, so the pointer landing on a card dropped two frames — which the
+field reported, and which every whole-frame A/B blamed on *the card draw*,
+a routine and not a cause. `ti_cb_span` and `ti_cb_vline` resolve the row once
+and then work in whole bytes with masked ends: **2.5–2.9 ms**, a 14× cut, and
+one card's whole composition is **21.6 ms on VGA, 19.7 on Hercules, 10.3 on
+CGA**.
+
+**IT IS MEASURED IN EVERY BUILD**, because a composition cannot be seen any
+other way: the picture is identical either way, the wheel still commits, and
+no other row in the suite can tell. `ti_cal_card` times one resting card at
+layout and banks the microseconds, `ti_cal_one`'s shape one object along, and
+`tests/titheframe.py` asserts a **window** rather than a ceiling — the PIT
+counter is 16 bits and wraps at 54.9 ms, and the defect measured ~54, so a
+regression is as likely to read small as large.
+
 **A GLYPH NEEDS NO ALIGNMENT.** It is at most 8 bits wide, so it lands in at
 most two destination bytes: the row goes into `AH`, the pair is shifted right
 by `x & 7` and the two halves are ORed. That is the whole of why a card can be
@@ -140161,6 +140181,11 @@ composed at any pitch the layout hands it, where `OSAPI_GFX_BLIT1` refuses the
 *band* at an unaligned x (§5.4.2). **The band is one byte wider than the card**
 so the last glyph on a row has somewhere to put its second byte, and the blit
 is told the real width.
+
+**A RUN RESOLVES ITS ROW ONCE.** `ti_glyph` took a y and did the row's
+multiply itself, which is one 16-bit multiply a GLYPH where a card is ~55 of
+them; `ti_text` does it once and hands the row down. With six fewer register
+saves a glyph that is ~1 ms of a card.
 
 **THE FACE IS A KEY (`T`) AND NOT A SETTING**, because which one is right is a
 look question and the two answer different ones: the 8×8 is more legible and
