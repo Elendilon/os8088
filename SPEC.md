@@ -89626,6 +89626,19 @@ rule `inst_seg_parked` now applies to every package. **+17 bytes resident on
 against the tree before them; **`kern_small` +6** (`.text`), which has no
 compactor and gains only §12.4.2's `mem_pg_own` row.
 
+**`tests/heapfrag` was leaning on the old answer, three times.** Checks 7, 13
+and 14 each size a claim at *one KB past the largest run* so that only a merge
+can fund it — and measured that run with its own blocks declared movable, so
+the old plan walled them in only because the suite's worker was running. With
+the park modelled the run already includes the merge and the +1 is a claim the
+contract says must fail, which is what `heapcheck` then reported (four checks
+red, the triggering claim never made). The suite now measures through
+`hf_availp`: every block it holds pinned (`OSAPI_MEM_MOVABLE` with `AX = 0`),
+`OSAPI_MEM_AVAIL`, and the declarations given back — the question those checks
+ask is *the largest run without moving my blocks*, and that is now what they
+say rather than what they inherited. Checks 15 and 16, which hold `mem_avail`
+to being claimable, are untouched and pass.
+
 **A PLAN MAY NOW READ HIGH** by exactly the workers that fail to park inside
 `INST_PARKW` — a worker is expected to reach `OSAPI_TASK_ALIVE` at least once a
 tick, and one that does not is already the case §66.5 names. That is the
