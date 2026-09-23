@@ -14,7 +14,7 @@ a rhythm has to be a rhythm of something.
 
 THE MOTION IS THE POINT AND IT IS SMALL. The reference (docs/plans/TITHE-PLAN.md
 §0) idles at a few pixels: a body that shifts weight, and a HELD ITEM that
-moves further than the body does. That is §4.2.1's body/item split arriving as
+moves further than the body does. That is TITHE-PLAN §4.2.1's body/item split arriving as
 a drawing rule rather than as a data structure - the item layer is what swings,
 and the body barely moves.
 
@@ -44,7 +44,7 @@ from os88tithebase import (Band, Sheet, circ, bbox, pack, _db,   # noqa: E402
                            WHITE, GREY, RED)
 
 # The FIGURE band, out of ti_geo_*'s BW and BH. BW is 64 on every surface -
-# what changes is the height, and that is the whole of the cut (§4.2).
+# what changes is the height, and that is the whole of the cut (TITHE-PLAN §4.2).
 SURFACES = [
     ("vga-full", 64, 48, 1.00),
     ("vga",      64, 44, 1.00),
