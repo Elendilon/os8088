@@ -46,23 +46,24 @@ ti_face_set:
 ; ti_chidx - AL = a byte -> AL = its glyph, 0FFh for one the face has not got
 ; Preserves every register bar AX and the flags.
 ;
-; THE FACES ARE 48 CONSECUTIVE GLYPHS AND NOT ASCII (tifaces.inc): the package
-; draws capitals, digits, a space, four marks and the seven icons and nothing
-; else, so a 91-entry table would be 43 glyphs nobody ever asks for. Codes 1..7
+; THE FACES ARE CONSECUTIVE GLYPHS AND NOT ASCII (tifaces.inc): the package
+; draws capitals, digits, a space, six marks and the nine icons and nothing
+; else, so a 91-entry table would be 43 glyphs nobody ever asks for. Codes 1..9
 ; arrive as themselves - an icon is a glyph like any other, which is what lets
-; one run carry `heart 12` with no second call and no second alignment.
+; one run carry `heart 12` with no second call and no second alignment, and it
+; is why the two STANCES are glyphs too rather than a bitmap of their own.
 ; -----------------------------------------------------------------------------
 ti_chidx:
-    cmp al, 7
+    cmp al, 9
     ja .notic
     or al, al
     jz .bad
-    dec al                          ; 1..7 -> 0..6
+    dec al                          ; 1..9 -> 0..8
     ret
 .notic:
     cmp al, ' '
     jne .dig
-    mov al, 7
+    mov al, 9
     ret
 .dig:
     cmp al, '0'                     ; ...AND A MARK BELOW '0' IS STILL A MARK.
@@ -74,7 +75,7 @@ ti_chidx:
                                     ; reaches .marks the long way round.
     cmp al, '9'
     ja .upper
-    sub al, '0' - 8
+    sub al, '0' - 10
     ret
 .upper:
     cmp al, 'a'                     ; a lower-case byte is drawn as its capital
@@ -87,10 +88,10 @@ ti_chidx:
     jb .marks
     cmp al, 'Z'
     ja .marks
-    sub al, 'A' - 18
+    sub al, 'A' - 20
     ret
 .marks:
-    mov ah, 44                      ; the marks, in tifaces.inc's own order
+    mov ah, 46                      ; the marks, in tifaces.inc's own order
     cmp al, '-'
     je .mk
     inc ah

@@ -1562,10 +1562,13 @@ ti_unith:   dw 0                    ; the mini unit on a card
 TI_CARDBANDMAX equ 20 * 40
 ; THE HUD IS A BAND TOO (97.4.8): the widest strip is Hercules' 712 pixels,
 ; which is 90 bytes and a pad, and the deepest is VGA fullscreen's 36 rows.
-TI_HUDBANDMAX equ 92 * 36      ; the widest card (a hovered 152) by the
-                                ; tallest (36), plus ti_glyph's pad byte
+TI_HUDBANDMAX equ 92 * 36
+; ...and a CELL's stat column is 24 pixels wide (4 bytes with the pad) by at
+; most four rows of the tallest face.
+TI_CELLBANDMAX equ 6 * 40
 ti_cardband: times TI_CARDBANDMAX db 0
 ti_hudband: times TI_HUDBANDMAX db 0
+ti_cellband: times TI_CELLBANDMAX db 0
 ti_cbs:     dw 0                    ; the band's stride, pad included
 ti_crows:   dw 0                    ; rows of the chosen face that fit
 ti_tw:      dw 0                    ; the flow's right margin - the card's
@@ -1583,6 +1586,11 @@ ti_spy1:    dw 0                    ; the registers for a masked byte run
 ti_calc0:   dw 0                    ; ti_cal_card's PIT start...
 ti_calconly: dw 0                   ; ...its compose-but-do-not-blit flag
 ti_ccardus: dw 0                    ; ...and what one card costs to compose
+ti_nbs:     dw 0                    ; the cell column's band stride,
+ti_nrows:   dw 0                    ; how many rows of it are used,
+ti_nh:      dw 0                    ; how tall that is,
+ti_nrec:    dw 0                    ; the card behind the cell,
+ti_nrow:    dw 0                    ; and which of its two stat pairs
 %ifdef TICARDPROF
 ; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us
 ; each), for the last card drawn. It is a knob and not a counter because the
@@ -1711,7 +1719,6 @@ ti_d0:      dw 0
 ti_d1:      dw 0
 ti_dy:      times TI_POSES dw 0
 ti_dh:      times TI_POSES dw 0
-ti_nums:    dw 0                    ; rows of numbers a cell carries
 ti_nx:      dw 0                    ; the cell whose numbers are being drawn
 ti_ny:      dw 0
 ti_ktop:    dw 0                    ; the keep's top row, banked because two
@@ -1746,7 +1753,7 @@ ti_insy:    dw 0
 ; every machine. The short screens are short in HEIGHT and not in width - a
 ; CGA has 504 columns of content and 136 rows - which is why what came down
 ; is CH and RISE and not CW.
-;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  NUMS  CARDH  INSX
+;            CW   CH  RISE  BW  BH  HUD  PAN  BASEW  CARDH  INSX
 ; CARDH ON CGA IS 11 AND NOT 10, and the one row is what stops the name
 ; eating the card's own bottom edge: a glyph is 8 tall and sat at +2, so it
 ; ended on row 9 - which at CARDH 10 IS the bottom frame, drawn first and
@@ -1754,10 +1761,10 @@ ti_insy:    dw 0
 ; clear row between. The hand is still SEVEN (SPEC.md 97.4.2): the board is 112
 ; rows, the pitch 13 and the button row's offset 5, which leaves 8 rows of
 ; which one is the button's.
-ti_geo_vgaf: dw  96, 52, 22, 64, 48, 36, 136, 56, 2, 36, 24
-ti_geo_vgaw: dw  96, 48, 20, 64, 44, 28, 128, 56, 2, 32, 24
-ti_geo_herc: dw 104, 36, 12, 64, 32, 28, 152, 72, 2, 24, 24
-ti_geo_cga:  dw  96, 20,  4, 64, 18, 16, 152, 48, 2, 11, 24
+ti_geo_vgaf: dw   96, 52, 22, 64, 48, 36, 136, 56, 36, 24
+ti_geo_vgaw: dw   96, 48, 20, 64, 44, 28, 128, 56, 32, 24
+ti_geo_herc: dw  104, 36, 12, 64, 32, 28, 152, 72, 24, 24
+ti_geo_cga:  dw   96, 20,  4, 64, 18, 16, 152, 48, 11, 24
 
 ti_s_bsep:  db '   BASE ', 0
 ti_clock:   times TI_FEATURES db 0

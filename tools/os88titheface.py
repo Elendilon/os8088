@@ -39,6 +39,9 @@ import os88marty                                             # noqa: E402
 from os88tithebase import Sheet, WHITE, GREY, RED            # noqa: E402
 
 ICON_HP, ICON_GOLD, ICON_SOUL, ICON_MELEE, ICON_SHIELD, ICON_BOW, ICON_STAR = range(1, 8)
+# ...and the two STANCES (TITHE-PLAN 5.4), which are a ranged character's
+# standing order and the only per-character state the board cannot infer.
+ICON_SFRONT, ICON_SNIPE = 8, 9
 
 # How far apart an icon must be from every other glyph in its face, in pixels
 # that differ. Four is what the shipped faces clear with room; two is what the
@@ -281,7 +284,7 @@ def sheet_out(faces, out):
 # ti_ic_* - a second drawing of the same coin would be a second coin.
 # =============================================================================
 
-ORDER = ([("icon", i) for i in range(1, 8)] + [("c", " ")] +
+ORDER = ([("icon", i) for i in range(1, 10)] + [("c", " ")] +
          [("c", c) for c in "0123456789"] +
          [("c", c) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"] +
          [("c", c) for c in "-.+/,:"])
@@ -294,6 +297,8 @@ TALL_ICONS = {                      # 8x8, and the first five are ti_ic_*'s own
     5: [0xFF, 0xC3, 0xC3, 0x66, 0x66, 0x3C, 0x18, 0x00],   # shield
     6: [0x60, 0x50, 0x48, 0x44, 0x48, 0x50, 0x60, 0x00],   # bow     ranged
     7: [0x18, 0x18, 0x7E, 0x3C, 0x66, 0x42, 0x00, 0x00],   # star    special
+    8: [0x80, 0xC0, 0xE0, 0xF0, 0xE0, 0xC0, 0x80, 0x00],   # stance  FRONT
+    9: [0x80, 0xC0, 0xE0, 0xF0, 0x00, 0x00, 0xFE, 0x00],   # stance  SNIPE
 }
 
 
@@ -392,7 +397,7 @@ def render(face, icons, text):
 
 def selfcheck():
     bad = []
-    need = set(range(1, 8)) | {32} | set(range(48, 58)) | set(range(65, 91))
+    need = set(range(1, 10)) | {32} | set(range(48, 58)) | set(range(65, 91))
     for path in ("fonts/tithe4.f4", "fonts/tithe6.f6"):
         f = Face(path)
         miss = sorted(need - set(f.g))
@@ -437,7 +442,7 @@ def selfcheck():
             ink[code] = [p == "#" for r in rows for p in r]
         for code, rows in (icons or {}).items():       # ...a packed icon wins
             ink[code] = [bool(b & (0x80 >> x)) for b in rows for x in range(f.w)]
-        for code in range(1, 8):
+        for code in range(1, 10):
             if code not in ink:
                 bad.append("%s has no icon %d" % (name, code))
                 continue

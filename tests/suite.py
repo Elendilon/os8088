@@ -7252,7 +7252,12 @@ SOAK = [
         "can see a glyph the face HAS and ti_chidx cannot reach - every mark"
         "below '0' drew a hole for as long as the faces existed, and the colon"
         "was the one that worked, so the compared line has to have a COMMA in"
-        "it. Needs `make tithedisk`",
+        "it. It also covers the BOARD's stat column (SPEC.md 97.4.8.1): a cell"
+        "states HP, both variable stats and - where its height holds a fourth"
+        "row - its POWER, and where it does not the POINTER carries the power"
+        "in front of the ability. Power is what a player wants while planning"
+        "a KILL, which is a board question, so unlike a cost it cannot fall"
+        "back to the card. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
@@ -7263,7 +7268,9 @@ SOAK = [
         "pixels of width a run that touches is a word nobody can read); no two"
         "glyphs may be the SAME picture (a ring is the letter O, and a"
         "three-pixel bow is the letter D); and every glyph the renderer asks"
-        "for must exist. A FOURTH rule was added when identical turned out to"
+        "for must exist - and there are NINE icons now, the two STANCES (FRONT"
+        "and SNIPE) being glyphs like the rest rather than a bitmap of their"
+        "own. A FOURTH rule was added when identical turned out to"
         "be the wrong bar: an ICON must be at least four pixels from every"
         "other glyph in its face, because at five pixels the coin was the"
         "digit 0 with a stroke (two apart) and the shield was the heart with"

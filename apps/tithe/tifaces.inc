@@ -4,7 +4,7 @@
 ; drawing slot.
 
 TI_FACES    equ 2
-TI_GLYPHS   equ 50
+TI_GLYPHS   equ 52
 
 ti_face_tab:
     dw ti_f_t6, ti_f_tall
@@ -22,6 +22,8 @@ ti_f_t6:
     db 0F8h, 0A8h, 0F8h, 050h, 020h, 000h
     db 0C0h, 0B0h, 098h, 0B0h, 0C0h, 000h
     db 020h, 0F8h, 070h, 088h, 000h, 000h
+    db 080h, 0C0h, 0E0h, 0C0h, 080h, 000h
+    db 080h, 0C0h, 0E0h, 000h, 0F8h, 000h
     db 000h, 000h, 000h, 000h, 000h, 000h
     db 070h, 098h, 0A8h, 0C8h, 070h, 000h
     db 020h, 060h, 020h, 020h, 070h, 000h
@@ -73,6 +75,8 @@ ti_f_tall:
     db 0FFh, 0C3h, 0C3h, 066h, 066h, 03Ch, 018h, 000h
     db 060h, 050h, 048h, 044h, 048h, 050h, 060h, 000h
     db 018h, 018h, 07Eh, 03Ch, 066h, 042h, 000h, 000h
+    db 080h, 0C0h, 0E0h, 0F0h, 0E0h, 0C0h, 080h, 000h
+    db 080h, 0C0h, 0E0h, 0F0h, 000h, 000h, 0FEh, 000h
     db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
     db 000h, 070h, 0D8h, 0D8h, 0D8h, 0D8h, 070h, 000h
     db 000h, 030h, 070h, 030h, 030h, 030h, 078h, 000h

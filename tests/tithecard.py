@@ -60,7 +60,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
         "ti_by", "ti_crows", "ti_face", "ti_fh", "ti_panx",
         "ti_pan", "ti_unith", "ti_cpad", "ti_row", "ti_hx", "ti_hw",
-        "ti_hnx",
+        "ti_hnx", "ti_nrows", "ti_hovc", "ti_bx", "ti_cw", "ti_ch",
+        "TI_CELLROWS",
         "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 # The ability line of the card the hover checks land on - hand row 5, the
@@ -74,6 +75,20 @@ MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 # looking at its punctuation passed the break that this check exists for.
 HOVER_ROW = 5
 ABILITY = "CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD"
+
+# ...and the whole set, because a BOARD hover names a card by the cell it is
+# over and the test cannot choose which cell the pointer lands on.
+ABILITIES = [
+    "BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED",
+    "VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE",
+    "HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS",
+    "TITHE: TAKES A SOUL FROM EVERY DEATH IN THIS LANE",
+    "BREACH: A GATE, AND WHATEVER IS STANDING BEHIND IT",
+    "CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD",
+    "NOTHING PASSES WHILE IT STANDS. NOTHING.",
+]
+POWER = [1, 2, 3, 2, 4, 2, 5]           # TI_C_PWR, card by card
+HAND = 7
 
 fails = []
 
@@ -351,6 +366,44 @@ def run(mach, off):
                     for p_, q in zip(a, b) if bool(p_) != bool(q))
         check(wrong == 0, "...and the line reads as the FACE says it should",
               "%d pixel(s) differ from the host's own render" % wrong)
+
+        # --- THE BOARD'S OWN STAT COLUMN (SPEC.md 97.4.8.1) ----------------
+        # A character states its HP, both variable stats and its POWER beside
+        # the figure, in the package's face - the column is 24 pixels on every
+        # adapter, which is THREE cells of the system 8x8 and FOUR at 6x6, and
+        # the cell's height holds four rows where it held two. Three is the
+        # ask (HP, both stats) and four is HP, both and POWER.
+        check(rw("ti_nrows") >= 3, "a cell states at least HP and both stats",
+              "%d rows" % rw("ti_nrows"))
+
+        # ...AND WHERE POWER DOES NOT FIT, THE POINTER CARRIES IT. Power is
+        # what a player wants while planning a KILL, and a kill is of something
+        # on the BOARD - so unlike a cost it cannot fall back to the card. On
+        # CGA the cell is a row short and the status line leads with it.
+        mo.to(x0 // 2, y0 + 2 * rw("ti_cardpitch"))
+        os88marty.guest_sleep(m, 2.0)
+        cell = rw("ti_hovc")
+        if cell != 0xFFFF:
+            card = cell % HAND
+            want_s = ABILITIES[card]
+            if rw("ti_nrows") < off["TI_CELLROWS"]:
+                want_s = "\x03%02d  %s" % (POWER[card], want_s)
+            want = os88titheface.render(face[1], face[2], want_s)
+            f = mono(m)[2]
+            y = rw("ti_oy") + (rw("ti_hud") - rw("ti_fh")) // 2
+            got = [f[y + r][rw("ti_hx") + rw("ti_hnx"):
+                            rw("ti_hx") + rw("ti_hnx") + len(want[0])]
+                   for r in range(rw("ti_fh"))]
+            bad = sum(1 for a, b in zip(want, got)
+                      for p_, q in zip(a, b) if bool(p_) != bool(q))
+            check(bad == 0,
+                  "a hovered board character says what it does%s"
+                  % (" - and what it pays" if rw("ti_nrows") < off["TI_CELLROWS"]
+                     else ""),
+                  "cell %d, %d pixel(s) differ from the host's render"
+                  % (cell, bad))
+        else:
+            check(False, "the pointer reached a board cell at all", "none")
 
         mo.to(x0 // 2, mid)
         os88marty.guest_sleep(m, 2.5)

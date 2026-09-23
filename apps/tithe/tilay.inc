@@ -26,16 +26,16 @@ TI_G_BH     equ 8
 TI_G_HUD    equ 10               ; rows of HUD above the board
 TI_G_PAN    equ 12               ; columns of card panel down the right
 TI_G_BASEW  equ 14               ; columns of BASE either side of the grid
-TI_G_NUMS   equ 16               ; ROWS of numbers a cell carries beside its
-                                 ; figure - 2 normally, 1 where the cell is too
-                                 ; short for a figure and a glyph row (SPEC.md
-                                 ; 97.4.1). A LAYOUT-TABLE DECISION and not a
-                                 ; second code path, which is the rule the
-                                 ; whole of 97.2 is built on
-TI_G_CARDH  equ 18               ; a hand row's height in the card panel
-TI_G_INSX   equ 20               ; the band's inset inside its cell, which is
+; NUMS IS GONE. It was ROWS of numbers a cell carries beside its figure - a
+; layout-table decision, 2 normally and 1 on CGA - and the small face (SPEC.md
+; 97.4.1.1) made it arithmetic instead: `ti_cellnum` divides the cell's own
+; height by the face's and caps at four, so an adapter states as many stats as
+; it has room for without a table row saying so. The rule that field was an
+; instance of still stands; this stopped being an instance of it.
+TI_G_CARDH  equ 16               ; a hand row's height in the card panel
+TI_G_INSX   equ 18               ; the band's inset inside its cell, which is
                                  ; ALSO the width of the stat column left of it
-TI_G_SIZE   equ 22
+TI_G_SIZE   equ 20
 
 ; -----------------------------------------------------------------------------
 ; ti_layout - fill the layout state from the live content box
@@ -141,8 +141,6 @@ ti_layout:
     mov [ti_pan], ax
     mov ax, [si + TI_G_BASEW]
     mov [ti_basew], ax
-    mov ax, [si + TI_G_NUMS]
-    mov [ti_nums], ax
     mov ax, [si + TI_G_CARDH]
     mov [ti_cardh], ax
     mov ax, [si + TI_G_INSX]         ; ...and a SHORTER sprite stays where the

@@ -2710,6 +2710,44 @@ character on the board has a position, so the row is a fact rather than a
 choice. What the board needs instead is the same ability line the card has,
 which is what turned the HUD into a status line.
 
+### 8.1.2 THE BOARD'S OWN COLUMN — and where POWER goes when it will not fit
+
+**The owner's question was: another small font, a mouse-over, or a whole-board
+toggle?** The arithmetic answers it, and the answer is the face:
+
+| | at the system 8×8 | at 6×6 |
+|---|---|---|
+| glyphs across the 24-pixel column | **3** — one `icon + two digits` pair, nothing spare | **4** |
+| rows, VGA / Hercules / CGA | 6 / 4 / **2** | 8 / 6 / **3** |
+
+So a character states its **HP, both variable stats and its POWER**, with the
+fourth cell of the first row left for the **STANCE** — and nothing has to be
+operated to see any of it. `NUMS` retires with it: how many rows a cell carries
+is arithmetic now rather than a table field.
+
+**The stance is TWO glyphs and not one.** It is FRONT or SNIPE (§5.4) and only
+a *shooter* has one, so an empty cell has to mean "not a shooter" and cannot
+also mean "FRONT".
+
+**Which pair of variable stats is the column's own**: front and rear are
+different roles (§5.2), and a character on the board HAS a position — so the
+row is a fact there, where in the hand it is the choice §8.1.1's toggle makes.
+That also puts the toggle's own subject on the board, where a player can see
+what the two rows actually do.
+
+**CGA is one row short and POWER is what goes, onto the POINTER** — and the
+owner's reasoning is the part worth keeping: *power matters when you are
+planning a kill, which is exactly when you will not have the card, since you
+kill enemies on the board and not cards in your hand*. A **cost** can fall back
+to the card because a cost is only ever read with the card in hand; **power
+cannot**. So where the column has no row for it the status line leads with it,
+in front of the ability the strip already shows.
+
+**That is the mouse-over, and it is the deliberate one.** It is affordable
+precisely because it answers a question a player asks *while planning*, not one
+they read at a glance — which is the test that kept the other three
+always-visible.
+
 ### 8.2 CARD ART — what is scoped, and the room the composer leaves
 
 The owner's question was whether card art was sized in this plan. **The

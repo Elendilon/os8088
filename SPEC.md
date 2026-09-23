@@ -140075,8 +140075,25 @@ them tens of times over for nothing.
 | element | where | when it redraws |
 |---|---|---|
 | the sprite, in its live pose | the `BW × BH` band | on its animation clock (§97.5) |
-| **HP**, then **SHIELD** under it | the cell's empty columns, `[0, INSX)` | only when a number changes |
+| **HP**, both variable stats, **POWER**, and the **STANCE** | the cell's empty columns, `[0, INSX)` | only when a number changes |
 | the cell ground | the rest of the cell | once, with the board |
+
+**THE SMALL FACE IS WHAT PUTS FOUR STATS THERE** (§97.4.1.1). The column is 24
+pixels on every adapter, which is **three** cells of the system 8×8 — exactly
+one `icon + two digits` pair and nothing spare — against **four** at 6×6; and
+the cell's height holds 6 rows where it held 4, or 3 where it held 2. So the
+owner's question — another face, a mouse-over, or a whole-board toggle — is
+answered by the face on its own, with nothing to operate. `NUMS` is retired
+with it: how many rows fit is arithmetic now, not a table field.
+
+**The STANCE takes the fourth cell of the first row**, and it is TWO glyphs and
+not one: a stance is FRONT or SNIPE (TITHE-PLAN §5.4) and only a *shooter* has
+one, so an empty cell has to mean "not a shooter" and cannot also mean "FRONT".
+
+**WHICH pair of variable stats is the column's own.** Front and rear are
+different roles (TITHE-PLAN §5.2), and a character on the board HAS a position
+— so the row is a fact here, where in the hand it is the choice §97.4.8's
+toggle makes.
 
 **They are STACKED on one side and not split either side of the figure.** The
 cells tile exactly (§97.3), so the column to a figure's left is 16 pixels from
@@ -140086,10 +140103,23 @@ interleaved row of digits. Stacked, each figure carries one block and the empty
 half of its cell is the gap. Both land on a multiple of 8 for free, the cell's
 x and `INSX` both being multiples of 8, so each is a single-store run (§6.1).
 
-**How many rows of numbers is a LAYOUT-TABLE field, not a second code path.**
-`NUMS` is 2 everywhere but CGA, where a 20-pixel cell will not carry a figure
-and two glyph rows and the shield is dropped. §97.2's table is where that kind
-of decision goes, every time.
+#### 97.4.8.1 POWER is a BOARD question, so the pointer carries it on CGA
+
+**A CGA cell is one row short** — 20 pixels holds three rows of the 6×6 face —
+and **POWER is what goes**. It is the stat a player wants while planning a
+**kill**, and a kill is of something on the BOARD: so unlike a *cost*, which is
+only ever read with the card in hand, it has nowhere to fall back to. The card
+cannot answer for it.
+
+So where the column has no row for it, the **status line leads with it** — the
+soul and the number in front of the ability the strip already shows for
+whatever the pointer is over (§97.4.8). One conditional, and the geometry
+decides: `ti_nrows` is what the cell's own height worked out, so an adapter
+that fits four rows never takes the branch.
+
+**That is a mouse-over and the deliberate one**: it is affordable precisely
+because it answers a question a player asks *while planning*, not one they read
+at a glance — which is the test that kept the other three stats always-visible.
 
 **The HUD is ONE `font_run` for the whole strip** and not one a field. A row of
 text is ~71 ms on the target machine whichever way it is cut, so cutting it
@@ -140273,14 +140303,9 @@ callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
 frame already makes. A change repaints the row that *lost* the hover; the row
 that gained it is feature 22 and is drawn by the walk anyway.
 
-**CGA CARRIES BOTH NUMBER ROWS.** `NUMS` was 1 there, so a character showed its
-HP and nothing else and its other stats were on no surface at all. They fit:
-`insy` is `CH − BH` = 2 on that row, so the two rows occupy 2..17 of a 20-row
-cell and the stat column is the 24 pixels left of the figure either way. The
-board is busier and it is legible, which is the trade §97.2 makes on that
-adapter throughout. **Splitting them either side of the figure is still
-refused** (§97.4.1): the cells tile edge to edge, so a number to the left of
-one figure sits against its *neighbour's* rather than against its own.
+**Splitting the column either side of the figure is still refused**
+(§97.4.1): the cells tile edge to edge, so a number to the left of one figure
+sits against its *neighbour's* rather than against its own.
 
 **A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and the pointer
 picks which.** At rest it shows the four **board** numbers — HP, both stats and

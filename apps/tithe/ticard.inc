@@ -52,6 +52,8 @@ TI_IC_MELEE equ 4
 TI_IC_SHIELD equ 5
 TI_IC_BOW   equ 6
 TI_IC_STAR  equ 7
+TI_IC_SFRONT equ 8                  ; a ranged character's standing order
+TI_IC_SNIPE equ 9                   ; (TITHE-PLAN 5.4)
 
 ; ti_clip - cut the NUL string at ti_cardbuf to BX characters
 ; clobbers: nothing

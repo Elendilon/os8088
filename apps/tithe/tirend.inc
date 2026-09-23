@@ -1625,6 +1625,9 @@ ti_status:
     mov bx, TI_HAND                 ; STABLE one - the same cell always names
     div bx                          ; the same character
     mov bx, dx
+    cmp word [ti_nrows], TI_CELLROWS
+    jae .card                       ; ...AND ITS POWER, WHERE THE CELL HAS NO
+    jmp .cellpwr                    ; ROW FOR ONE (SPEC.md 97.4.8.1)
 .card:
     mov ax, bx
     mov cl, TI_C_SIZE
@@ -1632,6 +1635,38 @@ ti_status:
     mov si, ti_cards
     add si, ax
     mov si, [si + TI_C_ABIL]
+    jmp short .out
+.cellpwr:
+    ; POWER IS A BOARD QUESTION AND THE CARD CANNOT ANSWER IT. It is the stat a
+    ; player wants while planning a KILL, and a kill is of something on the
+    ; BOARD - so unlike a cost, which is only ever read with the card in hand,
+    ; it has nowhere to fall back to. Where the cell's column is a row short
+    ; for it - CGA, whose 20-pixel cell holds three rows of the small face -
+    ; the pointer carries it, in front of the ability the strip already shows.
+    push bx
+    push word [ti_ci]
+    mov ax, [ti_hovc]
+    mov [ti_ci], ax
+    call ti_cell_rec                ; SI -> the card behind that cell
+    pop word [ti_ci]
+    mov di, ti_hudbuf
+    mov al, TI_IC_SOUL
+    stosb
+    mov al, [si + TI_C_PWR]
+    call ti_u8
+    mov al, ' '
+    stosb
+    stosb
+    pop bx
+    mov ax, bx
+    mov cl, TI_C_SIZE
+    mul cl
+    mov si, ti_cards
+    add si, ax
+    mov si, [si + TI_C_ABIL]
+    call ti_poke
+    mov byte [di], 0
+    mov si, ti_hudbuf
     jmp short .out
 .base:
     mov di, ti_hudbuf
@@ -1860,17 +1895,33 @@ ti_hp_draw:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_cellnum - one cell's numbers, BESIDE the figure and outside the band
+; ti_cellnum - one cell's STAT COLUMN, composed in the package's own face
 ; in:  [ti_ci]; AX = the cell's x, BX = its y
 ; Preserves every register.
 ;
-; TITHE-PLAN 3.8.1, and the whole reason the band is the FIGURE's box: these
-; change at most ONCE A ROUND while the sprite redraws every few frames, so
-; carrying them inside the band would pay for them tens of times over. They sit
-; in the cell's empty columns - [0, INSX) to the left of the band and
-; [INSX+BW, CW) to the right - both of which start on a multiple of 8 because
-; the cell's x and INSX are, so each is a single-store run (SPEC.md 6.1).
+; TITHE-PLAN 3.8.1, and the whole reason the sprite band is the FIGURE's box:
+; these change at most ONCE A ROUND while the sprite redraws every few frames,
+; so carrying them inside the band would pay for them tens of times over. They
+; sit in the cell's empty columns - [0, INSX) to the left of the band - which
+; starts on a multiple of 8 because the cell's x and INSX both are.
+;
+; THE SMALL FACE IS WHAT PUTS FOUR STATS THERE (SPEC.md 97.4.1.1). The column
+; is 24 pixels on every adapter, which is THREE cells of the system 8x8 -
+; exactly one `icon + two digits` pair and nothing spare - against FOUR at 6x6,
+; and the cell's height holds 6 rows where it held 4, or 3 where it held 2. So
+; a character states its HP, both of its variable stats and its POWER, with the
+; fourth cell of the first row left for the STANCE; and the question the owner
+; put - another face, a mouse-over, or a whole-board toggle - is answered by
+; the face on its own, with nothing to operate.
+;
+; WHICH PAIR OF VARIABLE STATS IS THE COLUMN'S OWN (TITHE-PLAN 5.2): front and
+; rear are different roles, and a character on the board HAS a position, so the
+; row is a fact here rather than the choice the hand's toggle makes.
+;
+; CGA IS ONE ROW SHORT AND POWER IS WHAT GOES (SPEC.md 97.4.8.1).
 ; -----------------------------------------------------------------------------
+TI_CELLROWS equ 4                   ; HP, both variable stats, and POWER
+
 ti_cellnum:
     push ax
     push bx
@@ -1878,76 +1929,87 @@ ti_cellnum:
     push dx
     push si
     push di
+    push bp
     push es
     push ds
     pop es
     cld
-    push ax
-    push bx
-
-    mov di, ti_numbuf               ; HP: derived rather than tabled, because
-    mov ax, [ti_ci]                 ; wave 1a has no rules behind it and a
-    and al, 15                      ; table would only be a second fiction
-    add al, 5                       ; 5..20
-    call ti_u8
-    mov byte [di], 0
-
-    pop bx
-    pop ax
-    push ax
-    push bx
     mov [ti_nx], ax
     mov [ti_ny], bx
+
+    mov ax, [ti_insx]               ; the band is the column, plus ti_glyph's
+    mov cl, 3                       ; own pad byte
+    shr ax, cl
+    inc ax
+    mov [ti_nbs], ax
+
+    mov ax, [ti_ch]                 ; ...and as many rows as the cell holds
+    sub ax, [ti_insy]
+    jc .out
+    xor dx, dx
+    div word [ti_fh]
+    cmp ax, TI_CELLROWS
+    jbe .rok
+    mov ax, TI_CELLROWS
+.rok:
+    or ax, ax
+    jz .out
+    mov [ti_nrows], ax
+    mul word [ti_fh]
+    mov [ti_nh], ax
+    mul word [ti_nbs]
+    cmp ax, TI_CELLBANDMAX
+    ja .out
     mov cx, ax
-    mov dx, bx
-    add dx, [ti_insy]               ; level with the figure's head
-    push cx
-    push dx
-    mov ax, cx                      ; the icon takes the first cell of the
-    mov bx, dx                      ; three, and the digits the other two
-    mov si, ti_ic_hp
-    call ti_icon
-    pop dx
-    pop cx
-    add cx, 8
-    mov si, ti_numbuf
-    mov ax, (CBLACK << 8) | CWHITE
-    call OSAPI_FONT_RUN
+    mov di, ti_cellband
+    xor al, al
+    rep stosb
 
-    pop bx                          ; THE CELL'S x AND y COME BACK FIRST, both
-    pop ax                          ; arms: they were pushed above and the
-                                    ; short arm used to jump straight to the
-                                    ; epilogue past these two pops, which left
-                                    ; four bytes on the stack and returned into
-                                    ; nothing. Only the CGA row asks for one
-                                    ; number, so only CGA broke - and it broke
-                                    ; as a board that stops after one cell
-    cmp word [ti_nums], 2           ; a cell too short for two rows carries the
-    jb .out                         ; HP alone (SPEC.md 97.4.1)
+    call ti_cell_rec                ; SI -> the card behind this cell, BX = the
+    mov [ti_nrec], si               ; offset of its own row's stat pair
+    mov [ti_nrow], bx
+    mov di, ti_cellband
+    mov bp, [ti_nbs]
+    xor dx, dx
 
-    mov di, ti_numbuf               ; SHIELD, STACKED UNDER THE HP AND NOT ON
-    mov ax, [ti_ci]                 ; THE OTHER SIDE. Split either side of the
-    and al, 3                       ; figure, a cell's two numbers sit against
-    call ti_u8                      ; its NEIGHBOUR's rather than against their
-    mov byte [di], 0                ; own - the cells tile edge to edge, so the
-                                    ; column left of a figure is 16 px from the
-                                    ; column right of the last one. Stacked,
-                                    ; each figure carries one block and the
-                                    ; empty half of the cell is the gap
-    mov cx, [ti_nx]
-    mov dx, [ti_ny]
-    add dx, [ti_insy]
-    add dx, 8
-    mov ax, cx
-    mov bx, dx
-    mov si, ti_ic_def
-    call ti_icon
-    add cx, 8
-    mov si, ti_numbuf
-    mov ax, (CBLACK << 8) | CWHITE
-    call OSAPI_FONT_RUN
+    mov si, [ti_nrec]               ; ROW 1 - the HP, and the STANCE beside it
+    mov ah, [si + TI_C_HP]
+    mov al, TI_IC_HP
+    call ti_cn_pair
+    call ti_cn_stance
+
+    add dx, [ti_fh]                 ; ROW 2 and ROW 3 - the two that depend on
+    mov si, [ti_nrec]               ; which row the character is standing in
+    add si, [ti_nrow]
+    mov ax, [si]
+    call ti_cn_pair
+    cmp word [ti_nrows], 3
+    jb .put
+    add dx, [ti_fh]
+    mov si, [ti_nrec]
+    add si, [ti_nrow]
+    mov ax, [si + 2]
+    call ti_cn_pair
+    cmp word [ti_nrows], 4          ; ROW 4 - POWER, where there is a row for
+    jb .put                         ; it; the pointer carries it where there
+    add dx, [ti_fh]                 ; is not (SPEC.md 97.4.8.1)
+    mov si, [ti_nrec]
+    mov ah, [si + TI_C_PWR]
+    mov al, TI_IC_SOUL
+    call ti_cn_pair
+
+.put:
+    mov si, ti_cellband
+    mov ax, [ti_nx]
+    mov bx, [ti_ny]
+    add bx, [ti_insy]
+    mov cx, [ti_insx]
+    mov dx, [ti_nh]
+    mov bp, [ti_nbs]
+    call OSAPI_GFX_BLIT1
 .out:
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -1955,6 +2017,111 @@ ti_cellnum:
     pop bx
     pop ax
     ret
+
+; --- ti_cn_pair - one `icon value` pair at x=0 of band row DX ---------------
+; in:  AL = the icon, AH = the value; DI = the band, BP = its stride
+; Preserves every register.
+ti_cn_pair:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push di
+    mov di, ti_numbuf
+    stosb                           ; the icon IS a glyph (tifaces.inc)
+    mov al, ah
+    call ti_u8
+    mov byte [di], 0
+    pop di
+    xor bx, bx
+    mov si, ti_numbuf
+    call ti_text
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cn_stance - the fourth cell of row 1, for a RANGED character --------
+; A stance is FRONT or SNIPE (TITHE-PLAN 5.4) and only a shooter has one, so
+; the cell is empty for everybody else - which is why there are TWO glyphs and
+; not one: absent has to mean "not a shooter" and cannot also mean "FRONT".
+ti_cn_stance:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov si, [ti_nrec]
+    add si, [ti_nrow]
+    mov al, [si]                    ; ...ranged if either variable stat is
+    cmp al, TI_IC_BOW               ; the bow
+    je .yes
+    mov al, [si + 2]
+    cmp al, TI_IC_BOW
+    jne .out
+.yes:
+    mov al, TI_IC_SFRONT            ; wave 1a has no orders behind it, so the
+    mov bx, [ti_ci]                 ; stance is derived like every other number
+    test bl, 4                      ; here - but it is STABLE, so the same cell
+    jz .have                        ; always reads the same way
+    mov al, TI_IC_SNIPE
+.have:
+    mov [ti_numbuf], al
+    mov byte [ti_numbuf + 1], 0
+    mov bx, [ti_fw]
+    shl bx, 1
+    add bx, [ti_fw]                 ; ...the fourth cell of the four
+    mov si, ti_numbuf
+    call ti_text
+.out:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_cell_rec - SI = the card behind cell [ti_ci], BX = its row's pair ----
+; Wave 1a has no board state, so a cell names a card by its index and the
+; COLUMN says which row it is standing in - columns 1 and 2 are the two front
+; lines and 0 and 3 the two rears (SPEC.md 97.2.1). That is a fiction, but it
+; is a stable one and it makes the front/rear split visible on the board, which
+; is the thing the hand's toggle is about.
+ti_cell_rec:
+    push ax
+    push cx
+    push dx
+    mov ax, [ti_ci]
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx                          ; AL = the column, DL = the row in it
+    push ax
+    mov ax, [ti_ci]
+    xor dx, dx
+    mov cx, TI_HAND
+    div cx
+    mov ax, dx                      ; ...the card this cell shows
+    mov cl, TI_C_SIZE
+    mul cl
+    mov si, ti_cards
+    add si, ax
+    pop ax
+    mov bx, TI_C_RI1
+    cmp al, 1
+    je .front
+    cmp al, 2
+    jne .have
+.front:
+    mov bx, TI_C_FI1
+.have:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
 
 ti_board:
     push ax
