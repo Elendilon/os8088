@@ -1,0 +1,65 @@
+; TITHE - THE BULWARK, option 1: STEADFAST
+;
+; A faction theme plays under PLANNING (TITHE-PLAN 13.4), which is untimed
+; and may last a minute, so it is a tune to think over rather than to march
+; to: a hymn in G on the horn, half notes and quarters, with F major as its
+; stubborn other chord - the flat seventh the rampart stands on. A walks up
+; and settles; B climbs to G above and comes down through F to D. Tabor and
+; snare keep a slow tread under it.
+
+song bulsteadfast "Bulwark: Steadfast"
+groove 3
+unit 16
+rows 32
+measure 16
+voice lead horn
+voice bass bass
+voice chord strings
+
+; --- the call -----------------------------------------------------------------
+lead LI = o4 d4 g4 b4 >d4 | c2< b2 |
+bass BI = o2 g1 | g1 |
+chord CI = o3 [d g b]1 | [e g >c]2 [d g b]2 |
+drum DI = k4 r4 k4 r4 | k4 r4 s8 s8 s8 s8 |
+
+; --- A: up, and settled ---------------------------------------------------------
+lead LA1 = o4 d4 g4 g4 a4 | b2 a4 g4 |
+lead LA2 = o4 a4 b4 >d4< b4 | a2. r4 |
+lead LA3 = o4 b4 >d4 e4 d4 | c4< b4 a4 g4 |
+lead LA4 = o4 a4 >c4< f4 a4 | g2. r4 |
+bass BA1 = o2 g2 g2 | e2 e2 |
+bass BA2 = o2 g2 b2 | d2 <a2> |
+bass BA3 = o2 e2 e2 | c2 c2 |
+bass BA4 = o2 f2 a2 | g2 g4 d4 |
+chord CA1 = o3 [d g b]1 | [e g b]1 |
+chord CA2 = o3 [d g b]1 | [d f+ a]1 |
+chord CA3 = o3 [e g b]1 | [e g >c]1 |
+chord CA4 = o3 [f a >c]1 | [d g b]1 |
+
+; --- B: to G above, and down through F ------------------------------------------
+lead LB1 = o5 e2 d4 c4 | d2< b4 g4 |
+lead LB2 = o4 a4 >c4 f2 | e4 d4 c2< |
+lead LB3 = o4 b4 >d4 e4 g4 | f+4 e4 d4< a4 |
+lead LB4 = o5 c4< a4 f4 a4 | a2 f+4 a4 |
+bass BB1 = o2 c2 e2 | g2 d2 |
+bass BB2 = o2 f2 c2 | c2 e2 |
+bass BB3 = o2 e2 b2 | d2 a2 |
+bass BB4 = o2 f2 c2 | d2 f+2 |
+chord CB1 = o3 [e g >c]1 | [d g b]1 |
+chord CB2 = o3 [f a >c]1 | [e g >c]1 |
+chord CB3 = o3 [e g b]1 | [d f+ a]1 |
+chord CB4 = o3 [f a >c]1 | [d f+ a]1 |
+
+drum DT = k4 h4 s4 h4 | k4 h4 s4 s8 s8 |
+drum DF = k4 h4 s4 h4 | s8 s8 s8 s8 T8 T8 t8 t8 |
+
+order LI BI CI DI
+order LA1 BA1 CA1 DT          ; 1: the loop comes back here
+order LA2 BA2 CA2 DT
+order LA3 BA3 CA3 DT
+order LA4 BA4 CA4 DF
+order LB1 BB1 CB1 DT
+order LB2 BB2 CB2 DT
+order LB3 BB3 CB3 DT
+order LB4 BB4 CB4 DF
+loop 1

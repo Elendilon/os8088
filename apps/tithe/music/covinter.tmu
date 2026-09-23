@@ -1,0 +1,59 @@
+; TITHE - THE COVENANT, option 2: INTERCESSION
+;
+; The Covenant's mercy rather than its rite: a hymn in THREE, in F, on the
+; recorder over a harp that breaks every chord into six eighths - the one
+; place the healer's work is heard as movement. G major where F major would
+; want G minor (the lydian B-natural) is the lift in both halves. An eighth is
+; FIVE ticks, 274.6 ms, so a bar of 3/4 is 1.6 seconds and the pulse 109 BPM.
+; The bell on F marks each four-bar line.
+
+song covinter "Covenant: Intercession"
+groove 5
+unit 8
+rows 12
+measure 6
+voice lead recorder
+voice bass pedal
+voice chord harp
+
+; --- the harp, and a first line ---------------------------------------------------
+lead LI = o4 c4 f4 a4 | g2. |
+bass BI = o2 f2. | c2. |
+chord HI = o3 f a >c f c< a | c e g >c< g e |
+drum DI = F2. | r2. |
+
+; --- A --------------------------------------------------------------------------
+lead LA1 = o4 a4. g8 f4 | e4 g4 >c4< |
+lead LA2 = o5 d4. c8< a4 | d2 f4 |
+lead LA3 = o4 a4. b-8 >c4 | d4 c4< b4 |
+lead LA4 = o5 c4< b-4 g4 | f2. |
+; --- B: up to F above ---------------------------------------------------------------
+lead LB1 = o5 d4. e8 f4 | f4 e4 d4 |
+lead LB2 = o5 c2< a4 | g2 e4 |
+lead LB3 = o4 f4 a4 >d4 | d4 c4< b4 |
+lead LB4 = o4 g4 >c4< b-4 | a2. |
+
+bass BFC = o2 f2. | c2. |
+bass BDB = o2 d2. | <b-2.> |
+bass BFG = o2 f2. | g2. |
+bass BCF = o2 c2. | f2. |
+bass BDG = o2 d2. | g2. |
+chord HFC = o3 f a >c f c< a | c e g >c< g e |
+chord HDB = o3 d f a >d< a f | o2 b- >d f b- f d |
+chord HFG = o3 f a >c f c< a | g b >d g d< b |
+chord HCF = o3 c e g b- g e | f a >c f c< a |
+chord HDG = o3 d f a >d< a f | g b >d g d< b |
+
+drum DB = F2. | r2. |
+drum DR = r2. | r2. |
+
+order LI BI HI DI
+order LA1 BFC HFC DB          ; 1: the loop comes back here
+order LA2 BDB HDB DR
+order LA3 BFG HFG DR
+order LA4 BCF HCF DR
+order LB1 BDB HDB DB
+order LB2 BFC HFC DR
+order LB3 BDG HDG DR
+order LB4 BCF HCF DR
+loop 1

@@ -1,0 +1,66 @@
+; TITHE - THE EMBER CHOIR, option 1: KINDLING
+;
+; Fire, and a choir that feeds it. D harmonic minor - the C-sharp is the
+; heat - so its dominant, A, is the phrygian-dominant chord with a B-flat
+; leaning on it. The harp is a FLAME: an arpeggio in 16ths that never stops,
+; which is also what keeps a long planning phase moving. The choir sings over
+; it in long notes and runs; war drums and a crackle of hat underneath.
+; A falls from A to the tonic; B rises through the A chord to B-flat above.
+
+song emberkindle "Ember Choir: Kindling"
+groove 3
+unit 16
+rows 32
+measure 16
+voice lead choir
+voice bass bass
+voice chord harp
+
+; --- the flame catches ----------------------------------------------------------
+lead LI = o4 d4. e8 f4. e8 | c+4 d4 e2 |
+bass BI = o2 l8 d d d d d d d d | a a a a a a a a |
+chord HDA = o3 l16 d f a >d< a f d f d f a >d< a f d f |
+            c+ e a >c+< a e c+ e c+ e a >c+< a e c+ e |
+drum DI = k4 r4 k4 r4 | k8 t16 t16 t8 h8 k8 t8 s8 h8 |
+
+; --- A: from A down to D ----------------------------------------------------------
+lead LA1 = o4 a4. g8 f8 e8 f8 g8 | b-2 f4 d4 |
+lead LA2 = o4 g4. f8 e8 d8 e8 f8 | e2 c+4 e4 |
+lead LA3 = o4 a4. g8 f8 e8 f8 a8 | >d2 f4 d4< |
+lead LA4 = o4 b-4 g4 a4 c+4 | d2. r4 |
+; --- B: through A, up to B-flat ----------------------------------------------------
+lead LB1 = o5 e4. f8 e8 d8 c+8 d8 | f2 e4 d4 |
+lead LB2 = o5 e4. f8 e8 d8 c+8 <b-8 | a2. r4> |
+lead LB3 = o5 d4 f4 b-4 a4 | g4 f4 e4 d4 |
+lead LB4 = o5 c+4 d4 e4 c+4 | d2. r4 |
+
+bass BDB = o2 l8 d d d d d d d d | <b- b- b- b- b- b- b- b-> |
+bass BGA = o2 l8 g g g g g g g g | a a a a a a a a |
+bass BGAD = o2 l8 g g g g a a a a | d d d d d d d d |
+bass BAD = o2 l8 a a a a a a a a | d d d d d d d d |
+bass BBG = o2 l8 <b- b- b- b- b- b- b- b-> | g g g g g g g g |
+
+chord HDB = o3 l16 d f a >d< a f d f d f a >d< a f d f |
+            d f b- >d< b- f d f d f b- >d< b- f d f |
+chord HGA = o3 l16 d g b- >d< b- g d g d g b- >d< b- g d g |
+            c+ e a >c+< a e c+ e c+ e a >c+< a e c+ e |
+chord HGAD = o3 l16 d g b- >d< b- g d g c+ e a >c+< a e c+ e |
+             d f a >d< a f d f d f a >d< a f d f |
+chord HAD = o3 l16 c+ e a >c+< a e c+ e c+ e a >c+< a e c+ e |
+            d f a >d< a f d f d f a >d< a f d f |
+chord HBG = o3 l16 d f b- >d< b- f d f d f b- >d< b- f d f |
+            d g b- >d< b- g d g d g b- >d< b- g d g |
+
+drum DW = k8 t16 t16 t8 h8 k8 t8 s8 h8 | k8 t16 t16 t8 h8 k8 t8 s8 h8 |
+drum DF = k8 t16 t16 t8 h8 k8 t8 s8 h8 | k8 t16 t16 t8 h8 s16 s16 s16 s16 T8 T8 |
+
+order LI BI HDA DI
+order LA1 BDB HDB DW          ; 1: the loop comes back here
+order LA2 BGA HGA DW
+order LA3 BDB HDB DW
+order LA4 BGAD HGAD DF
+order LB1 BAD HAD DW
+order LB2 BAD HAD DW
+order LB3 BBG HBG DW
+order LB4 BAD HAD DF
+loop 1

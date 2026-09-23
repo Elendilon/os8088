@@ -19,7 +19,12 @@ both arms, for every title theme `M` steps through:
      and does not count a tick, so the comparison is exact under any load.
      A pause can land INSIDE a tick - the row counted and the tick not yet -
      and the first run of this row caught exactly that, so `[tm_busy]` is set
-     across tm_run and a sample waits it out.
+     across tm_run and a sample waits it out. It can also land BEFORE one:
+     IRQ0 has counted the tick and expired a tone whose duration ran out,
+     and the worker has not yet been scheduled to key the note off - a
+     window of well under a millisecond that Litany's long notes hit once in
+     48 samples. So a sample also waits for `[tm_last]` to be the kernel's
+     tick, which is the sequencer having served the tick the timer began.
 
   3. THE SPEAKER IS GATED ONLY WHEN THE LEAD SOUNDS, on the speaker arm:
      port 61h's two low bits against the model's lead, at every sample - and
@@ -42,9 +47,9 @@ the note-on tick (every note one tick short) fails every song's samples; the
 speaker's macro step off by one fails the command stream - and PASSED the
 samples, a one-tick scoop being what a sample a second apart sees one time in
 eight, which is why the stream is here. The groove's index never advancing
-fails NOTHING, and says so: no song yet has a groove of more than one step,
-so that branch is exercised by the tool's --selfcheck on the host and not
-here.
+failed NOTHING while every song had a one-step groove, and said so; the
+Bulwark's Tollkeeper swings (3 then 2 ticks), and now it fails that song's
+samples and its speaker gating both.
 
     make && make tithedisk && python3 tests/tithemus.py
     python3 tests/tithemus.py --record build/tithemus-guest
@@ -68,7 +73,7 @@ import os88geom                                           # noqa: E402
 import os88tithemus as tm                                 # noqa: E402
 
 SYMS = ("tm_song", "tm_arm", "tm_ticks", "tm_ord", "tm_row", "tm_ch",
-        "tm_sel", "ti_nframe", "tm_busy", "tm_tone")
+        "tm_sel", "ti_nframe", "tm_busy", "tm_tone", "tm_last")
 FM_CELL = os88marty.KERNEL_SEG * 16 + 0x00F8    # OSAPI_SND_FM's cell
 STREAM = {"spk": 80, "fm": 240}                 # calls of song 0 compared
 MACHINES = (("os8088_5150_herc_sb_gla", "fm"), ("os8088_5150_herc_gla", "spk"))
@@ -182,9 +187,12 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             for _ in range(SAMPLES):
                 os88marty.guest_sleep(m, 1.0)
                 m.pause()
-                for _ in range(50):     # never read a tick half-stepped
-                    if not rb("tm_busy")[0]:
-                        break
+                ticks = m.sym("ticks")
+                for _ in range(50):     # never read a tick half-stepped, nor
+                    if not rb("tm_busy")[0] and \
+                            bytes(m.read(ticks, 2)) == rb("tm_last", 2):
+                        break           # one the timer has begun and the
+                                        # worker not yet stepped (below)
                     m.run()
                     os88marty.guest_sleep(m, 0.003)
                     m.pause()

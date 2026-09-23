@@ -40,6 +40,10 @@ inst chant              ; a single voice: soft, slow, a long release
   fm  61 2A 54 03 00 / 61 02 64 05 00 / 06
   spk macro 0 vib 8 7
 
+inst choir              ; the Ember Choir's voice: a slow swell and the chip's
+  fm  61 1C 64 14 00 / 61 00 55 05 00 / 06      ; vibrato - an "aah", not a flute
+  spk macro 0 vib 6 7
+
 ; --- ACCOMPANIMENT ------------------------------------------------------------
 
 inst strings            ; a pad: a slow swell, vibrato, three voices of it
@@ -53,7 +57,7 @@ inst lute               ; plucked: bright at the attack, decays by itself
   spk macro 12 0
 
 inst harp               ; a softer, longer pluck for the arpeggios
-  fm  01 24 F3 54 00 / 01 0C F2 24 00 / 06
+  fm  01 24 F3 54 00 / 01 06 F2 24 00 / 06
   spk macro 12 0
 
 inst bass               ; a held bass whose brightness settles after the attack
@@ -88,3 +92,4 @@ drum T tom    d3        ; ...a higher one, for fills
 drum p tap    e3        ; the bodhran's knock
 drum b bell   d2        ; the vesper toll - it SOUNDS an octave up, at D3
 drum B bell   a1        ; ...and its lower companion, at A2
+drum F bell   f2        ; ...and one on F, for the Covenant's hymn in F

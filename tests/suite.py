@@ -7408,7 +7408,7 @@ SOAK = [
         "for ever when the worker stalls), and a tisong.inc that no longer"
         "describes the part. Host-side and 0.1s",
         needs=()),
-    Row("tithemusg", "soak", py("tests/tithemus.py"), 70.0,
+    Row("tithemusg", "soak", py("tests/tithemus.py"), 90.0,
         "SPEC.md 97.10: TITHE's sequencer ON THE MACHINE, both arms - FM on a"
         "Sound Blaster 5150 (SOUND.DRV mounts itself) and the speaker on a"
         "plain one. The first song's whole command stream - every"

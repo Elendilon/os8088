@@ -1,0 +1,63 @@
+; TITHE - THE EMBER CHOIR, option 2: DIES IRAE
+;
+; A faction that tithes in SOULS sings the requiem's own sequence. A is the
+; Dies irae - the thirteenth-century chant, public domain for seven hundred
+; years - in D minor over a slow heartbeat on the tabor, strings low beneath
+; the choir and the hat's crackle every other bar. B answers it in the
+; choir's own words, climbing to D above, and then the chant comes back low
+; before the turn home. 68 BPM: an eighth is four ticks.
+
+song emberdies "Ember Choir: Dies Irae"
+groove 4
+unit 8
+rows 16
+measure 8
+voice lead choir
+voice bass bass
+voice chord strings
+
+; --- the heartbeat, and a low D ----------------------------------------------------
+lead LI = o3 d1 | a2 >d2 |
+bass BI = o2 d1 | d1 |
+chord CI = o3 r1 | [d a]1 |
+drum DI = t8 t8 r4 r2 | t8 t8 r4 T8 T8 t8 t8 |
+
+; --- A: the sequence ------------------------------------------------------------
+lead LA1 = o4 f4 e4 f4 d4 | e4 c4 d2 |
+lead LA2 = o4 f4 f4 g4 f4 | e4 d4 c4 e4 |
+lead LA3 = o4 f4 e4 d2 | d4 g4 f4 e4 |
+lead LA4 = o4 c+4 e4 d4 c+4 | d2. r4 |
+; --- B: the answer ----------------------------------------------------------------
+lead LB1 = o4 a4 a4 >c4< a4 | b-2 >d4< b-4 |
+lead LB2 = o4 a4 >c4 d4 c4 | e2< g2 |
+lead LB3 = o4 f4 e4 f4 d4 | e4 c4 d2 |
+lead LB4 = o4 g4 b-4 a4 c+4 | d2. r4 |
+
+bass BA1 = o2 d1 | c2 d2 |
+bass BA2 = o2 f1 | c1 |
+bass BA3 = o2 d1 | g1 |
+bass BA4 = o2 a1 | d1 |
+bass BB1 = o2 d1 | <b-1> |
+bass BB2 = o2 f1 | c1 |
+bass BB4 = o2 g2 a2 | d1 |
+chord CA1 = o3 [d f a]1 | [c e g]2 [d f a]2 |
+chord CA2 = o3 [c f a]1 | [c e g]1 |
+chord CA3 = o3 [d f a]1 | [d g b-]1 |
+chord CA4 = o3 [c+ e a]1 | [d f a]1 |
+chord CB1 = o3 [d f a]1 | [d f b-]1 |
+chord CB2 = o3 [c f a]1 | [c e g]1 |
+chord CB4 = o3 [d g b-]2 [c+ e a]2 | [d f a]1 |
+
+drum DH = t8 t8 r4 r2 | t8 t8 r4 h8 r8 r4 |
+drum DF = t8 t8 r4 r2 | t8 t8 r4 T8 T8 t8 t8 |
+
+order LI BI CI DI
+order LA1 BA1 CA1 DH          ; 1: the loop comes back here
+order LA2 BA2 CA2 DH
+order LA3 BA3 CA3 DH
+order LA4 BA4 CA4 DF
+order LB1 BB1 CB1 DH
+order LB2 BB2 CB2 DH
+order LB3 BA1 CA1 DH
+order LB4 BB4 CB4 DF
+loop 1

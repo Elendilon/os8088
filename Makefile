@@ -9465,13 +9465,19 @@ apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 # ...and the CHARACTERS (SPEC.md 97.4.9): bodies and items as pixel art, the
 # card manifest and the dirty rows - a PART of TITHE.O88 (SPEC.md 20.12), with
 # the offsets the package reads it by in apps/tithe/tiart.inc. The part is
-# built; the .inc is committed, like every other generated file here. Both come
-# out of one run, so the .bin rule is the .inc's.
-apps/tithe/tiart.inc: tools/os88tithechar.py tools/os88tithebase.py
-	python3 tools/os88tithechar.py emit --bin $(BUILD)/tiart.bin
-
-$(BUILD)/tiart.bin: apps/tithe/tiart.inc | $(BUILD)
-	@test -f $@ || python3 tools/os88tithechar.py emit --bin $@
+# built; the .inc is committed, like every other generated file here.
+#
+# ONE RUN WRITES BOTH, so the .bin carries the recipe and the .inc is up to
+# date once the .bin is - os88net.lz's idiom, without a 4.3 grouped target.
+# THE .bin IS KEYED ON THE GENERATOR, NOT ON THE .inc. It was `test -f $@ ||`
+# under the committed .inc, which regenerates a MISSING part and never a STALE
+# one: a soak's private tree (build/trees/, docs/plans/SOAK-PARALLEL.md 8)
+# kept the part it was first built with while the package was assembled
+# against the .inc a later commit brought, and every TITHE row on the machine
+# drew nothing - seven of them at once, reading like a broken worker.
+$(BUILD)/tiart.bin: tools/os88tithechar.py tools/os88tithebase.py | $(BUILD)
+	python3 tools/os88tithechar.py emit --bin $@
+apps/tithe/tiart.inc: $(BUILD)/tiart.bin ;
 
 # ...and the BOARD's ground (SPEC.md 97.4.10): per-column textures and the
 # wall, fence and cliff patterns the package composes its column strips from.
@@ -9481,16 +9487,14 @@ apps/tithe/tiground.inc: tools/os88tithebg.py
 
 # ...and the MUSIC (SPEC.md 97.10, TITHE-PLAN 13): the scores in
 # apps/tithe/music/ packed into a second PART, with the offsets and the song
-# names the sequencer reads it by in apps/tithe/tisong.inc. tiart's shape: the
-# .inc is committed, both come out of one run, and the .bin rule is the .inc's.
+# names the sequencer reads it by in apps/tithe/tisong.inc. tiart's shape, and
+# its reason: the .bin is keyed on the tool and the scores, never on the .inc.
 # `python3 tools/os88tithemus.py wav` renders both arms on the host.
 TITHEMUS := $(wildcard apps/tithe/music/*.tmu) apps/tithe/music/bank.tmb
 
-apps/tithe/tisong.inc: tools/os88tithemus.py $(TITHEMUS)
-	python3 tools/os88tithemus.py emit --bin $(BUILD)/timus.bin
-
-$(BUILD)/timus.bin: apps/tithe/tisong.inc | $(BUILD)
-	@test -f $@ || python3 tools/os88tithemus.py emit --bin $@
+$(BUILD)/timus.bin: tools/os88tithemus.py $(TITHEMUS) | $(BUILD)
+	python3 tools/os88tithemus.py emit --bin $@
+apps/tithe/tisong.inc: $(BUILD)/timus.bin ;
 
 # TICARDPROF=1 times each STAGE of one card's composition with the PIT and
 # banks the counts (SPEC.md 97.4.1.1). It is a knob rather than a counter

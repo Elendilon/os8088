@@ -141410,7 +141410,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `P` | pause the wheel, for looking at one frame |
-| `M` | the next TITLE THEME (§97.10) — four candidates, then silence, then the first again. The window's title names the one playing and its arm |
+| `M` | the next piece of MUSIC (§97.10) — the title theme, the campaign theme and two candidates a faction, then silence, then the first again. The window's title names the one playing and its arm |
 | `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
 | `Esc` | leave fullscreen, else close |
 
@@ -141468,23 +141468,28 @@ from a menu is not something to put on the live media.
 ### 97.10 THE MUSIC — one score, two renderers (wave 1b)
 
 `docs/plans/TITHE-PLAN.md` §13 is the design and this is what the code holds
-to. **What exists is the sequencer and FOUR candidate TITLE THEMES**, stepped
-through with `M` (§97.7) so the owner can pick one by ear before the faction
-themes are written against it — the title sets the tone the rest follow. The
-three battle states (TITHE-PLAN §13.4) and the resolution piece's hand-back
-are in the format and the sequencer (`[tm_state]`, an order row's lead
-columns) and have no score yet.
+to. **What exists is the sequencer and eight pieces on `M`**: the TITLE theme
+and the CAMPAIGN theme, both chosen by the owner, and **two candidate themes
+for each faction** to pick from by ear. A faction theme plays under PLANNING
+(TITHE-PLAN §13.4), which is untimed, so each is written to be thought over
+for minutes rather than marched to. The three battle states and the resolution
+piece's hand-back are in the format and the sequencer (`[tm_state]`, an order
+row's lead columns) and have no score until a faction theme is picked.
 
-**THE OWNER PICKED THE PROCESSION** as the title theme, on both arms, and kept
-THE RECKONING for the campaign (TITHE-PLAN §13.0's map theme). The other two
-stay on `M` until the faction themes are written.
-
-| option | | key, tempo | the speaker hears |
+| `M` | | key, tempo | the speaker hears |
 |---|---|---|---|
-| 1 | **The Procession** — **the title theme** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
-| 2 | **The Reckoning** — **kept for the campaign** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
-| 3 | **Vespers** | D minor plainchant, 68 BPM (an 8th = 4 ticks) | one voice chanting |
-| 4 | **Banners** | D major fanfare, 136 BPM (a 16th = 2 ticks) | a trumpet |
+| 1 | **Title: The Procession** — chosen | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
+| 2 | **Campaign: The Reckoning** — kept for the map | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
+| 3 | **Bulwark: Steadfast** | G hymn-march with F major as its stubborn chord, 91 BPM | a horn, in half notes and quarters |
+| 4 | **Bulwark: The Tollkeeper** | D mixolydian guild tune, SWUNG — a groove of 3 then 2 ticks, 109 BPM | a trumpet counting coins |
+| 5 | **Ember Choir: Kindling** | D harmonic minor over a harp ostinato in 16ths, 91 BPM | the choir's line |
+| 6 | **Ember Choir: Dies Irae** | the 13th-century sequence, D minor, over a heartbeat, 68 BPM | the chant |
+| 7 | **Covenant: Litany** | A dorian chant, organ and bell — Vespers' tone, a warmer mode, 68 BPM | one voice chanting |
+| 8 | **Covenant: Intercession** | an F hymn in 3/4 on recorder over harp, 109 BPM (an 8th = 5 ticks) | a recorder |
+
+`apps/tithe/music/archive/` holds what was retired from the list, each with
+the reason at its top: BANNERS (liked, and not this game) and VESPERS (its tone
+became the Covenant's brief; the song did not).
 
 #### 97.10.1 The source, and the tool
 
@@ -141531,8 +141536,8 @@ phrase      events: a note (1..127) then rows and gate; 00 rest, rows;
 **Phrases are per CHANNEL, not per pattern**, so a bass line or a drum bar is
 stored once however many leads ride over it — the arrangement TITHE-PLAN
 §13.4 makes the three battle states out of. It is TITHE-PLAN §13.3's delta
-encoding rather than its packed rows, taken at the start because the four
-songs are 3,959 bytes as events, 2,483 packed.
+encoding rather than its packed rows, taken at the start because eight songs
+are 6,685 bytes as events, 3,834 packed.
 
 #### 97.10.3 The arms
 
