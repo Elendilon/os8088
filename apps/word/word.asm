@@ -1640,6 +1640,14 @@ wd_shiftrows:
     add si, bx
     rep movsw
     pop cx
+    push cx                         ; ...and the inverted spans, a DWORD a row
+    shl cx, 1                       ; (SPEC.md 27.8.2.6)
+    mov di, wd_sxr
+    mov si, di
+    add si, bx
+    add si, bx
+    rep movsw
+    pop cx
     mov di, wd_ryb                  ; ...and the ys, which ride the same shift
     mov si, di                      ; (SPEC.md 68.6)
     add si, bx
@@ -1673,6 +1681,20 @@ wd_shiftrows:
     push di
     add si, wd_rows
     add di, wd_rows
+    std
+    rep movsw
+    cld
+    pop di
+    pop si
+    pop cx
+    push cx                         ; the spans: the same rows, a dword each,
+    push si                         ; so every offset doubles and the copy
+    push di                         ; starts at the LAST WORD of the last row
+    shl si, 1
+    shl di, 1
+    add si, wd_sxr + 2
+    add di, wd_sxr + 2
+    shl cx, 1
     std
     rep movsw
     cld
@@ -5067,7 +5089,7 @@ wd_rflush:
                                     ; still
                                     ; advanced, so every position below is true
     cmp word [wd_rcols], 0
-    je .caret
+    je .empty
 
     ; --- ONLY THE INVERSION MOVED (SPEC.md 27.8.2) -------------------------
     ; A drag changes no character anywhere. What it changes is which cells are
@@ -5460,6 +5482,11 @@ wd_rflush:
     mov [wd_prs0], ax               ; inverted, or the next pass has no way to
     mov ax, [wd_rs1]                ; tell that the highlight moved off a row
     mov [wd_prs1], ax               ; whose characters did not
+    call wd_sxrec                   ; ...and where on the glass it is inverted,
+    jmp short .justbank             ; for a deselect (SPEC.md 27.8.2.6)
+.empty:
+    call wd_sxrec                   ; an empty row inverts nothing
+    jmp short .caret
 
 .justbank:
     mov ax, [wd_rby]                ; nothing of this row is being drawn, so
@@ -9449,7 +9476,10 @@ wd_onclick:
     pop ax
     jc .nosel                       ; there was no selection to erase, so the
     mov byte [wd_ckok], 0           ; band the walk resumes at would have left
-    jmp short .nosel2               ; its inversion on screen
+                                    ; its inversion on screen
+    call wd_sxdesel                 ; ...UNLESS the XORs that put it there take
+    jc .nosel2                      ; it off (SPEC.md 27.8.2.6): then no row
+                                    ; owes an un-inversion and this is a click
 .nosel:
     mov word [wd_kr0], 0xFFFF       ; nothing was erased, so no row owes an
     mov word [wd_kr1], 0xFFFF       ; un-inversion
@@ -10828,6 +10858,10 @@ wd_redraw:
     call wd_sigsame
     pop ax
     jc .full
+    cmp al, 4                       ; A DESELECT THAT MOVED NO CHARACTER takes
+    jne .nodesel                    ; the highlight back off with the XORs that
+    call wd_sxdesel                 ; put it on, and walks nothing for it
+.nodesel:                           ; (SPEC.md 27.8.2.6)
     mov byte [wd_chkeep], 1         ; THE CHROME IS ON THE GLASS (SPEC.md
                                     ; 68.2.4). wd_sigsame agreeing is the
                                     ; whole proof: the only things that draw
@@ -21062,6 +21096,138 @@ wd_p1org:
 
 ; --- the search pattern and the Utilities commands (SPEC.md 68.7/68.9) -------
 %include "wdutil.inc"
+
+;
+; --- the inverted spans on the glass (SPEC.md 27.8.2.6) ---------------------
+; ONE DWORD A VISIBLE ROW: the first and last pixel column its selection is
+; inverted over, (0, -) for none. Here and not in the bss because part 1 has
+; the room and part 0 does not; it is data like any other byte of the segment.
+; A fresh launch reads it off the disk as zeros, which is "nothing inverted".
+wd_sxr:     times WD_MAXROWS dw 0, 0
+
+; -----------------------------------------------------------------------------
+; wd_sxrec - bank where the row wd_rflush just finished is inverted
+; in:  [wd_row], [wd_rs0]/[wd_rs1] = its selected cells (0xFFFF = none), and
+;      the row's own wd_px[] still in place; out: nothing; preserves all
+;
+; Called for every row that reaches the glass, so an entry always describes
+; what its row shows: wd_selxor and the selection-only XOR both leave the row
+; inverted over exactly [rs0, rs1] and nothing else (SPEC.md 27.8.2).
+; -----------------------------------------------------------------------------
+wd_sxrec:
+    push ax
+    push bx
+    mov bx, [wd_row]
+    cmp bx, WD_MAXROWS
+    jae .out                        ; unsigned: above the view fails too
+    shl bx, 1
+    shl bx, 1
+    xor ax, ax
+    mov [bx+wd_sxr], ax             ; none, until proved otherwise
+    mov ax, [wd_rs0]
+    cmp ax, 0xFFFF
+    je .out
+    call wd_cx                      ; x1
+    mov [bx+wd_sxr], ax
+    mov ax, [wd_rs1]
+    inc ax
+    call wd_cx                      ; ...and the slot PAST the last cell, less 1
+    dec ax
+    mov [bx+wd_sxr+2], ax
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_sxdesel - the screen shows a selection and the note has none: XOR it off
+; in:  wd_bounds run, gfx lock held, the selection already cleared - from
+;      wd_onclick, and from wd_redraw's normal path for a caret move (kind 4)
+; out: CF = 0 it applied, and [wd_oselon] is 0 afterwards, so what follows
+;      sees a caret move and no more; CF = 1 it did not. Preserves the rest.
+;
+; Every inverted row went on as upright glyphs and one XOR fill over its
+; selected span, so the same fill takes it off again, exactly - a deselect is
+; one fill a row where it re-lettered every row the selection covered, and
+; the view twice over besides (2.2 s for 15 rows on a 5150). The rows it
+; clears keep a SIGNATURE that folds the selection in (SPEC.md 27.8), which
+; the next walk through them reads as changed and letters once, upright -
+; right, and paid only by a row something later walks anyway.
+;
+; Only while the tables describe the glass, and a row only when it is on it,
+; inside what the table covers, and meets the selection the screen shows.
+; -----------------------------------------------------------------------------
+wd_sxdesel:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [wd_oselon], 0
+    je .out
+    cmp byte [wd_selon], 0
+    jne .out
+    cmp byte [wd_rowsok], 0
+    je .out
+    mov ax, [wd_top]
+    cmp ax, [wd_ptop]
+    jne .out
+    mov di, [wd_vrows]              ; DI = the rows both tables describe
+    mov ax, [wd_rowsn]
+    dec ax                          ; a row's END is the next row's start
+    cmp di, ax
+    jbe .n
+    mov di, ax
+.n:
+    xor si, si                      ; SI = the row
+.row:
+    cmp si, di
+    jge .done
+    mov bx, si
+    shl bx, 1
+    mov ax, [bx+wd_rows]
+    cmp ax, [wd_osel1]
+    jae .next                       ; starts after the selection
+    mov ax, [bx+wd_rows+2]
+    cmp ax, [wd_osel0]
+    jbe .next                       ; ends before it
+    mov dx, [bx+wd_ryb]
+    cmp dx, [wd_ty]
+    jb .next                        ; not on the glass
+    add dx, [wd_gh1]
+    cmp dx, [wd_bot]
+    ja .next
+    shl bx, 1
+    mov ax, [bx+wd_sxr]
+    or ax, ax
+    jz .next                        ; nothing inverted there
+    mov cx, [bx+wd_sxr+2]
+    mov word [bx+wd_sxr], 0
+    push bx
+    mov bx, dx
+    sub bx, [wd_gh1]
+    call OSAPI_GFX_XOR_FILL
+    pop bx
+.next:
+    inc si
+    jmp short .row
+.done:
+    mov byte [wd_oselon], 0         ; the screen shows no selection now...
+    mov word [wd_prs0], 0xFFFF      ; ...and nor does the row wd_rflush's
+    mov word [wd_prs1], 0xFFFF      ; delta cached, whichever one it was
+    clc
+    jmp short .ret
+.out:
+    stc
+.ret:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 wd_p1end:
 ; The carve's run is under 128 sectors (op_size), and part 0 is WD_P1ORG of it.

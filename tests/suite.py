@@ -6745,6 +6745,21 @@ SOAK = [
         "that moved and repainted the window, 2,284 ms with the guards out.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdunsel", "soak", py("tests/wdunsel.py"), 230.0,
+        "SPEC.md 27.8.2.6: A DESELECT TAKES THE HIGHLIGHT OFF WITH THE XORS "
+        "THAT PUT IT ON. A click that cleared a selection re-lettered every "
+        "row it covered and walked the view twice (1.5 s for six rows on a "
+        "5150); every selected row reached the glass as upright glyphs plus "
+        "one XOR fill, so wd_sxrec banks each visible row's inverted span, "
+        "wd_shiftrows carries the bank on a scroll and wd_sxdesel replays it. "
+        "Every leg compares the glass with a repaint the scroll bar forces: "
+        "A ragged ends (and the click costs a plain click plus its fills), B a "
+        "drag that auto-scrolled, C Downs across the cleared rows, D a chosen "
+        "face, E the refused arm as an A/B in one boot (168 ms against 1,226 "
+        "on a Hercules). Red with the shift taken out (B, 12,992 pixels) and "
+        "with the span one cell short (every leg). Measured at 214s.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdparts", "soak", py("tests/wdparts.py"), 45.0,
         "SPEC.md 68.10: WORD.O88 IS ONE FILE. Its image is apps/word/"
         "wdload.asm, which reads two parts and re-homes into part 0 - "

@@ -48635,6 +48635,56 @@ The bytes came from a shared epilogue ladder (`wd_rdisdcba` / `wd_rsdcba` /
 and `wd_shl3` for thirteen inline copies of ×8. Word lives against
 `APP_MAX_SIZE`, and that is where the room came from.
 
+#### 27.8.2.6 A deselect takes the highlight off with the XORs that put it on
+
+A click that cleared a selection re-lettered every row the selection covered,
+and on the way it walked the view twice. A 6-row selection took 1.5 s on a
+5150 and a 15-row one 2.2 s, whatever the rows held. Yet every selected row
+reached the glass the same way: upright glyphs, then **one XOR fill** over its
+selected span (`wd_selxor`, or the selection-only delta of §27.8.2). A second
+fill over the same rectangle restores the row exactly, and no layout is needed
+to know where the fill went.
+
+So the glass's inversion is banked as it is drawn. `wd_sxr` holds one dword
+per visible row: the first and last pixel column inverted, or 0 for none.
+`wd_sxrec` writes an entry for every row `wd_rflush` puts on the glass,
+including an empty row, while that row's own `wd_px[]` is still in place.
+`wd_shiftrows` carries the entries with `wd_sig`, `wd_rows` and `wd_ryb` when
+a scroll blits the view; the y is not stored, because `wd_ryb[r]` is exactly
+the band the fill used. The bank lives in **part 1** (§68.10), 240 bytes of
+the segment's top, so part 0's slack is untouched.
+
+`wd_sxdesel` replays it. `wd_onclick` calls it right after `wd_selclr` and,
+when it succeeds, drops `[wd_kr0]`/`[wd_kr1]`. Those are the rows §27.8.4
+makes a click walk to un-invert, so without them the click is an ordinary
+caret move. `wd_redraw`'s normal path calls it too, for any other caret move
+that clears a selection. It applies only while `[wd_rowsok]` holds and
+`[wd_top]` = `[wd_ptop]`, and to a row only when that row is on the glass,
+inside the table, and meets the selection the screen shows.
+
+**The rows it clears keep their signatures**, and a signature folds a
+selected cell differently (§27.8). The fold is a rotate-and-add chain, which
+does not distribute over addition, so the unselected signature cannot be
+derived without a walk. The next walk that passes such a row reads it as
+changed and letters it once, upright. That is correct, and it is paid only by
+rows something later walks anyway.
+
+Measured on the Hercules 5150, `tests/wdunsel.py`:
+
+| | before | after |
+|---|---:|---:|
+| a 16-row selection, clicked below | — | 221 ms (a plain click there: 124) |
+| the same selection and click, A/B in one boot | 1,226 ms | 168 ms |
+| a chosen face | — | 121 ms |
+
+Each fill costs about 6 ms a row there. It is 56 bytes of part 0 and 457 of
+part 1, 240 of them the bank. The gate compares every leg's glass with a
+repaint that the scroll bar forces, which moves no caret: ragged ends, a
+drag that auto-scrolled, Downs across the cleared rows, a chosen face, and
+the refused arm. Two breaks were confirmed red. Without the shift, the
+scrolled drag reads 12,992 pixels off. With the span one cell short, every
+leg is off.
+
 ### 27.8 A selection, and the two things a drag can mean
 
 The selection is a **pair of character indices**, `[np_sel0]`..`[np_sel1)`,
