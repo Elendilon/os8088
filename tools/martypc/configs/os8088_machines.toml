@@ -302,6 +302,33 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# A 512KB 5150 - `os8088_5150_cga_gla` with 0x80000 of RAM and nothing else
+# changed. Not a floor like the 128KB machine above: it exists because
+# tests/trkcompact.py builds a crowded heap out of Tracker instances, and once
+# SPEC.md 45.4.1 took Tracker's region to 38KB, eleven of them (INST_MAX less
+# the Disk window's) no longer fill 640KB. 512KB was an ordinary period
+# configuration, and the row counts rather than assumes, so it holds here.
+[[machine]]
+name = "os8088_5150_cga_512k_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0x80000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
 # ...and the SOUND machine: the CGA 5150 with an AdLib and a Sound Blaster.
 #
 # Both cards, because they are two halves of one real one - a Sound Blaster's

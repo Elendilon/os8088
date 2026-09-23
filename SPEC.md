@@ -68322,9 +68322,9 @@ machine that never played anything.
 
 Four stores, none of them guessed:
 
-- **The package segment** — image + bss, including the mixer's 65×256
-  volume table (16,640 bytes, built at load: `vt[vol][b] = (int8)b·vol»6`)
-  and the 2048-byte `mp_outbuf`.
+- **The package segment** — image + bss, including the mixer's volume table
+  (16 rows of 256 = 4,096 bytes since §45.4.1, built at load:
+  `vt[vol][b] = (int8)b·vol»6`) and the 2048-byte `mp_outbuf`.
 - **The module blob** — one heap claim (§50), `ceil(bytes / 1024)` KB at the
   file's real size, held until the next load or teardown. It was
   `min(largest free run, 128 KB)` *regardless* of the module's actual size,
@@ -68371,6 +68371,40 @@ All three grants are stamped with the instance and force-freed at teardown
 (§50.2/§34.3), which is why the close box needs no code at all: the worker
 dies inside `OSAPI_TASK_ALIVE`, and the kernel sweeps the stream, the pool
 grant and the heap claim behind it.
+
+
+#### 45.4.1 Seventeen volume levels, and why nobody can hear it
+
+The table is the XT mixer's MULTIPLY: every output sample is
+`sample × channel volume`, and the table holds every answer so the inner
+loop is one `xlat` (11 clocks) where an 8088 `imul` is 80–98 - a mix step is
+~60 clocks in all, so multiplying would cost ~35% more of the machine at
+5,500 Hz and ~70% at 11,000. It cannot go; it could get SMALLER.
+
+It had 65 rows, one per ProTracker volume, 16,640 bytes. It has **16**: row
+`r` is volume `r << TRK_VSH` with `TRK_VSH` = 2, `mp_volsel` rounds a
+channel's volume (after the master) to the nearest row **once per channel per
+chunk**, and silence - row 0, all zeroes - is not stored at all, because
+`mp_volsel` answers ZF for it and both mixers skip the channel. 4,096 bytes:
+**-12,544 of the region**, with the per-sample cost unchanged.
+
+Listened to on the owner's 5150 and on a 286, with the 17- and 33-level
+builds open side by side, on a generated tone that fades 64 -> 0 one step a
+row and walks a quiet staircase 8 -> 1, and on three real modules chosen for
+their volume work (1,100-1,400 slides each): **no audible difference.** The
+arithmetic says why on the XT. XT mode's output is ±31 a channel, and 17
+levels change a sample there by at most ONE of those steps (25% of
+(volume, sample) pairs move at all; 33 levels, 11%). The 286+ mixer is ±127
+and moves by at most 4, which is relative and not sharp - and is what the 286
+listening was for. The one place 17 levels shows is the quietest volumes: 1
+rounds to silence and 2 plays as 4.
+
+`TRK_VSH` stays a define so the answer can be changed back in one line: 1 is
+33 levels (8,192 bytes), 0 is 65 (16,384). `make trkvol` builds both beside
+the shipped build and BEVERLY.MOD, titled `Tracker 33` and `Tracker 65`.
+BEVERLY.MOD is the wrong module to judge it with, for the record: it never
+changes a volume while playing, and its samples sit at 64, 40, 30 and 20 -
+all exact at 33 levels, so a 33-level build plays it bit for bit.
 
 ### 45.5 The replayer is ProTracker, validated hostile
 
@@ -68557,8 +68591,8 @@ switch. What it changes, and why each piece pays on an 8088:
   disappear. The first audible channel *stores* `128 + vt[b]` straight
   into `mp_outbuf`, later channels *add* — a chunk with no audible
   channel is one `rep stosb` of 0x80. One table format per mode: the
-  toggle rebuilds the 65×256 table (16,640 `imul`s — an intentional
-  sub-second freeze on the machines this mode exists for).
+  toggle rebuilds the table (4,096 `imul`s since §45.4.1 — an intentional
+  short freeze on the machines this mode exists for).
 - **The bounds check leaves the inner loop.** Each channel's chunk is cut
   into runs: one `div` computes a conservative sample count that cannot
   reach the sample/loop limit (`(limit − pos − 1) / (stepint + 1)`), the
@@ -70763,7 +70797,7 @@ the button comes up latched and a module played on its own loops as it did
 before the face; Off and List are one and two presses of it away.
 
 The **master volume** is `mp_volsel`: a channel's output volume scaled by
-`[mp_master]` before it picks a slice of the 65×256 table — ModPlug's design
+`[mp_master]` before it picks a slice of the volume table — ModPlug's design
 (§56.3): one multiply per channel per chunk, no table rebuild, and at unity
 the multiply is skipped. `mp_setposn` is the absolute seek, sharing
 `mp_setpos`'s tail so the two cannot disagree about what a seek resets.

@@ -113,10 +113,12 @@
     OS88_ASSOC_EXT 'MOD'
     OS88_ASSOC16_END
 
-; --- the volume table's rows: (64 >> TRK_VSH) + 1 -----------------------------
-%ifndef TRK_VSH                     ; 0 ships (65 rows, 16,640 bytes); 1 and 2
-%define TRK_VSH 0                   ; are the 33- and 17-row listening builds
-%endif                              ; (`make trkvol`), titled to say which
+; --- the volume table's rows: 64 >> TRK_VSH (SPEC.md 45.4.1) -----------------
+%ifndef TRK_VSH                     ; 2 SHIPS: 16 rows plus silence = 17
+%define TRK_VSH 2                   ; levels, 4,096 bytes. 1 is 33 levels
+%endif                              ; (8,192) and 0 is 65 (16,384), the old
+                                    ; table. `make trkvol` builds those two,
+                                    ; titled to say which, beside the default
 
 ; --- the package-wide bss macros (the Arkanoid %assign pattern) ----------------
 ; Pinned interface: defined HERE, at the top, before any %include of
@@ -3484,8 +3486,8 @@ trk_s_xm11:  db 'Rate: 11 kHz - windowed only', 0
 
 %if TRK_VSH == 1
 trk_ttl:     db 'Tracker 33', 0     ; the listening builds say which they are
-%elif TRK_VSH == 2
-trk_ttl:     db 'Tracker 17', 0
+%elif TRK_VSH == 0
+trk_ttl:     db 'Tracker 65', 0
 %else
 trk_ttl:     db 'Tracker', 0
 %endif

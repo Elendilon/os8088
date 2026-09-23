@@ -33,7 +33,7 @@
 ; The tick model counts UP: tick 0 reads the row and runs tick-0 effects,
 ; ticks 1..speed-1 run the per-tick effects, the row advances when the
 ; count wraps. Mixing is per-channel accumulate into a 16-bit chunk
-; buffer through the 65x256 volume table (built at load), then one
+; buffer through the volume table (built at load), then one
 ; conversion pass: out = 128 + (sum >> 2).
 ; =============================================================================
 
@@ -41,7 +41,9 @@ MP_MAXSMP  equ 60000            ; per-sample play-length cap, bytes: keeps
                                 ; off + pos + step*chunk < 65536 in the mixer
                                 ; even at a 4000 Hz mix rate (step int <= 7)
 MP_CHUNK   equ 512              ; mix chunk cap, samples (mp_mixbuf = 2x)
-MP_VROWS   equ (64 >> TRK_VSH) + 1  ; volume-table rows (TRK_VSH: tracker.asm)
+MP_VROWS   equ 64 >> TRK_VSH    ; volume-table rows, SILENCE NOT STORED:
+                                ; mp_volsel answers ZF for it, and the mixers
+                                ; skip the channel (TRK_VSH: tracker.asm)
 
 ; --- the position stamps (SPEC.md 45.15): what the LISTENER is hearing ---------
 ; Every mp_* readout above is the position being MIXED, and the mixer runs a
@@ -157,7 +159,8 @@ mp_volsel:
     jz .out                         ; ZF = 1: silence
     mov cl, 8
     shl ax, cl
-    add ax, mp_voltab               ; never 0, so ZF = 0
+    add ax, mp_voltab - 256         ; row 1 is the table's first: never 0,
+                                    ; so ZF = 0
 .out:
     pop cx
     ret
@@ -433,7 +436,7 @@ mp_load:
 .smdone:
     push ds
     pop es
-    call mp_vtbuild             ; the 65x256 volume table, in the current
+    call mp_vtbuild             ; the volume table, in the current
                                 ; mode's format (SPEC.md 45.9)
     ; -- done ----------------------------------------------------------------
     mov byte [mp_songpos], 0
@@ -446,7 +449,8 @@ mp_load:
     ret
 
 ; -----------------------------------------------------------------------------
-; mp_vtbuild - the 65x256 volume table for the current mode (SPEC.md 45.9):
+; mp_vtbuild - the volume table for the current mode (SPEC.md 45.9, 45.4.1):
+;   MP_VROWS rows of 256, row r being vol = r << TRK_VSH, r = 1..MP_VROWS
 ;   default: vt[vol][b] = (int8)b * vol >> 6 (+/-127; 16-bit accumulate,
 ;            out = 128 + (sum >> 2))
 ;   XT:      vt[vol][b] = (int8)b * vol >> 8 (+/-31; four channels sum in
@@ -455,7 +459,7 @@ mp_load:
 ; -----------------------------------------------------------------------------
 mp_vtbuild:
     mov di, mp_voltab
-    mov byte [mp_tvol], 0
+    mov byte [mp_tvol], 1 << TRK_VSH    ; row 1: silence is not stored
     mov cl, 6
     cmp byte [mp_xt], 0
     je .vt_v
@@ -482,8 +486,8 @@ mp_vtbuild:
 ; -----------------------------------------------------------------------------
 ; mp_setxt - set XT mode (AL = 0/1; SPEC.md 45.9) and rebuild the volume
 ; table to the mode's format when a module is loaded. UI context, playback
-; stopped by the caller: the 16,640-imul rebuild is a deliberate sub-second
-; freeze on the machines the mode exists for. Clobbers AX/BX/CX/DI.
+; stopped by the caller: the MP_VROWS * 256-imul rebuild (4,096 as shipped)
+; is a deliberate short freeze on the machines the mode exists for. Clobbers AX/BX/CX/DI.
 ; -----------------------------------------------------------------------------
 mp_setxt:
     mov [mp_xt], al
@@ -2581,4 +2585,4 @@ mpe_song:   db 'Bad song data', 0
     TRKBUF mp_smptab, MS_SZ * 31    ; the validated sample table
     TRKBUF mp_chans, MP_CHSZ * 4    ; the four channel records
     TRKBUF mp_mixbuf, MP_CHUNK * 2  ; 16-bit accumulator
-    TRKBUF mp_voltab, MP_VROWS * 256    ; vt[row][byte] = (int8)byte * vol >> 6
+    TRKBUF mp_voltab, MP_VROWS * 256    ; vt[row-1][byte] = (int8)byte * vol >> 6

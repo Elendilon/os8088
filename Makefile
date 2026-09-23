@@ -5792,12 +5792,11 @@ $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/tracker.bin -o $@
 
-# `make trkvol`: a LISTENING disk, on demand and shipping nowhere - Tracker
-# built twice with a smaller volume table (-DTRK_VSH=1: 33 rows, 8,448 bytes;
-# -DTRK_VSH=2: 17 rows, 4,352) beside BEVERLY.MOD, so the two can be heard
-# against each other on the machine the table exists for. Each window's title
-# says which it is. The shipped build is TRK_VSH=0 and byte-identical to the
-# tree before the define existed.
+# `make trkvol`: a LISTENING disk, on demand and shipping nowhere - the
+# shipped Tracker (17 volume levels, SPEC.md 45.4.1) beside the same source
+# built with the finer tables it replaced (-DTRK_VSH=1: 33 levels, 8,192
+# bytes; -DTRK_VSH=0: 65, 16,384) and BEVERLY.MOD, so a tester who hears a
+# difference can show it. The two variants' titles say which they are.
 TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
               apps/tracker/trkwin.inc apps/tracker/trklist.inc \
@@ -5807,16 +5806,18 @@ trkvol: $(BUILD)/trkvol360.img
 
 $(BUILD)/trkvol/trk%.bin: $(TRKVOL_SRC) | $(BUILD)
 	@mkdir -p $(BUILD)/trkvol
-	$(NASM) -f bin -w+error -DTRK_VSH=$(if $(filter 33,$*),1,2) -I apps/ \
+	$(NASM) -f bin -w+error -DTRK_VSH=$(if $(filter 33,$*),1,0) -I apps/ \
 	        -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 
 $(BUILD)/trkvol/TRK%.O88: $(BUILD)/trkvol/trk%.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@
 
-$(BUILD)/trkvol360.img: $(BUILD)/trkvol/TRK33.O88 $(BUILD)/trkvol/TRK17.O88 \
-                        apps/tracker/beverly.mod tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/trkvol/TRK33.O88 \
-	        $(BUILD)/trkvol/TRK17.O88 apps/tracker/beverly.mod
+$(BUILD)/trkvol360.img: $(BUILD)/tracker.o88 $(BUILD)/trkvol/TRK33.O88 \
+                        $(BUILD)/trkvol/TRK65.O88 apps/tracker/beverly.mod \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tracker.o88 \
+	        $(BUILD)/trkvol/TRK33.O88 $(BUILD)/trkvol/TRK65.O88 \
+	        apps/tracker/beverly.mod
 
 # AUDIO.O88 - the Audio Player (SPEC.md 86): lightweight background music from
 # a streamed WAV (unsigned 8-bit PCM, or IMA/DVI 4-bit ADPCM decoded straight
