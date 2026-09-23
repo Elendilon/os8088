@@ -23734,6 +23734,43 @@ about the control and not the app:
 
 Everything else in those windows fires on the release.
 
+#### 13.8.9 A button with a PICTURE, and a button that writes each pixel once — `OS88UI_BIMG`
+
+`apps/os88ui.inc`'s button took a caption and nothing else, so a transport
+row — play, pause, stop — could only be drawn by hand, and a hand-drawn row
+is the one that forgets §13.7's gesture. `%define OS88UI_BIMG` before the
+include adds two things, and a package that does not define it assembles
+**byte-identical** (checked across every package in the tree when it landed):
+
+- **`OS88UI_IMG` (flag 64)**: the labels-array entry is an
+  `OSAPI_ICON_DRAW` record (§25.6.1 — `db 1, rows`, then `rows` mask words,
+  then `rows` data words) instead of a string. It is centred exactly as a
+  caption is, drawn through the sprite pass's PAIR (§25.6) so a pressed
+  button inverts its picture the way it inverts a caption, and it should
+  carry a **full mask**: the picture is then opaque over its own 16-wide
+  cell, ground and ink in one pass. A button's height was never fixed — the
+  rect is the caller's and the caption is centred in it vertically — so a
+  taller button with a taller picture is the same call.
+- **A different drawing body for every button of that package,
+  `os88ui_bdraw1`, in which no pixel is written twice.** `os88ui_bdraw` fills
+  the interior and then letters the caption over it — the fill-then-letter
+  pair §6.1 exists to remove, on both edges of every press. `bdraw1` cuts the
+  interior into the label's (or picture's) own rect, drawn opaque, and the
+  ring around it, filled in at most four strips; the frame is outside both.
+  It costs calls — up to four fills where there was one, ~2 ms per button on
+  the field machine — on an event a human generates, which is why it is an
+  opt-in and not `os88ui_bdraw`'s replacement.
+
+**A picture the clip cuts draws its ground and not its ink.** The sprite
+pass clips a shape whole (§25.6), so a half-covered picture would leave its
+rect holding whatever was there before; filling it in the ground colour keeps
+the button a button, and uncovering it is a `W_PAINT` that draws the picture.
+
+`OS88UI_NOGLYPH` is the matching opt-OUT: the check-box/radio glyph body and
+its two shape routines, ~300 bytes every button user carries, for a package
+that draws neither. It refuses to assemble beside `OS88UI_CHK` or
+`OS88UI_RAD`. Tracker (§45.21) is the first consumer of both.
+
 ### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0430)
 
 **Call me back in N ticks.** `OSAPI_WM_TIMER` (BX = window, AX = ticks from
@@ -70441,6 +70478,153 @@ apps disk; that one reported a reproducible **1,247 pixels on Hercules** for a
 change that cannot touch a mono pixel, and the control that settles it is the
 same image launched twice — 0 differing pixels, so the instrument is
 deterministic across launches and any reading it gives is about the images.
+
+### 45.21 The windowed face is ModPlug Player's, rebuilt (`trkwin.inc`)
+
+§45.1's splash card is gone. Windowed, Tracker is now the player §56 ported
+from ModPlug Player V2 — the green LCD, the transport row, the time scrubber,
+the volume slider, the visualiser and the option grid — and the FT2 screen is
+what F still enters, unchanged. The two players shared a lineage and no code
+(§56.1); this is the step that ends the second copy of the replayer: the face
+is new code in Tracker's own conventions, the replayer is `trkplay.inc`
+(which grew the two things the face needs, §45.21.3), and nothing of
+`apps/modplug` is included. ModPlug itself is left as it ships until it is
+retired; it is not fixed here.
+
+It is **not a copy**, and each difference is a ModPlug defect or a newer
+standard of this tree:
+
+| ModPlug did | the face does |
+|---|---|
+| filled its grey body, then drew every control over it | a **table of body tiles** covers exactly the pixels no element owns (`tw_tiles_*`, generated with the layouts and checked for exact cover by `tools/trkface.py`), every text is one opaque run, a well's black is the strips *between* its lines, a slider is the groove either side of its thumb: **no pixel of the face is written twice**, including on a full `W_PAINT` |
+| buttons that acted on the press | the standard button (§13.7, §13.8): press draws it inverted, release on the same button fires, a slide off un-presses it and the release cancels — with pictures (`OS88UI_BIMG`, §13.8.9) |
+| LED strips under every button | **latches** (`OS88UI_LATCH`): one of Play, Pause and Stop is always down, a tape deck's row; an option that is on is drawn down |
+| a volume slider that jumped on a click | click **and drag**, live — heard as it moves |
+| a scrubber that seeked the mixer | the thumb follows the hand and the seek lands on the **release**, restarting the stream there so it is heard at once rather than a ring later (`tw_seek`) |
+| an About panel its own worker painted over | the **standard card** (§20.5.1): while it is up the worker drops its frames, every refresh from a handler refuses, and the button record has **no live buttons** — so not even a press can draw through it |
+| a layout banked at paint, broken by a drag | the origin, the layout and the **depth of the display the window is on** (§39.16.4) are asked at the top of every draw (`tw_track`), because a drag calls none of our handlers (§11.96.12, §93.3.4.2); the button rects are screen coordinates and are rebuilt there and before every press, and a move repaints nothing |
+
+**Everything is drawn from what changed** — §56.12's shape, kept: each LCD
+line and the status line by a hash, each button by its flag word and label,
+each thumb by its x, each meter by its length. A worker frame on a steady
+screen costs the compares and no primitive calls; a handler that changed
+something calls `tw_refresh`, which arms the clip on our own window (the
+lesson §56.3 recorded: the kernel arms one for `W_PAINT` and for nothing
+else) — and does nothing inside the worker's frame, whose clip it would
+otherwise clear.
+
+#### 45.21.1 Two layouts, and CGA's is the compact one
+
+416 content pixels wide on every adapter; 184 tall on VGA and Hercules. CGA's
+desktop band is 156 rows, `wm_fit` clamps the frame, and `tw_track` picks the
+**compact** layout off the content height it is given: three LCD lines (the
+format line goes), shorter transport buttons, a shorter visualiser, six
+option buttons (Rate and About are in the menus). Every text run starts on
+the byte grid (`WF_SNAP` plus x = 8), so `font_run` takes its single-store
+path on all three adapters (§11.94). The palette is the depth's: `CLGREEN` on
+black and a grey body at 4bpp, white on black and a white body at 1bpp, for
+§56.4's reasons.
+
+#### 45.21.3 A song ENDS now, and the master volume is the replayer's
+
+A MOD's order list loops: at its end `mp_nextrow` goes to the restart
+position, and a Bxx jumps back. `trkplay.inc` used to know only F00, so a
+module never ended and there was nothing for a playlist to advance on (this
+was true of ModPlug's copy too). `mp_nextrow` now notes **the order list
+going back** — the wrap, or a Bxx to where the song already is or was — in
+`[mp_songend]`, and with `[mp_endstop]` set that is F00's exit: the replayer
+stops, the ring's tail plays out, the worker latches `[trk_ended]`. The
+**Repeat** option decides it: *Off* and *List* set `[mp_endstop]`, *Song*
+clears it and the module loops as it always did. Off is the default, so a
+module played on its own now stops at its end.
+
+The **master volume** is `mp_volsel`: a channel's output volume scaled by
+`[mp_master]` before it picks a slice of the 65×256 table — ModPlug's design
+(§56.3): one multiply per channel per chunk, no table rebuild, and at unity
+the multiply is skipped. `mp_setposn` is the absolute seek, sharing
+`mp_setpos`'s tail so the two cannot disagree about what a seek resets.
+
+#### 45.21.5 The visualiser: XT, or 286+
+
+| mode | what | cost a frame |
+|---|---|---|
+| **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1) | the difference: nothing when steady, one fill per needle that moved |
+| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard** | one fill per band that moved |
+| **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
+
+ModPlug's visualisers drew every column and bar every frame — its scope alone
+was two hundred primitive calls — and did not keep up on a 286 either. Here
+the heaviest mode is one call. The **spectrum is synchronised by the same
+stamps as the needles** (§45.15): `tui_sync` kicks both when a row becomes
+audible, and `tw_skick` reads the note out of the pattern cell the stamp
+names (`mp_cellptr`), so the mixer pays nothing for it. A semitone index is a
+logarithmic axis (§56.6); what it cannot show is harmonic content. The scope
+is the mixed output, which leads the card by the ring — honest about that
+here, and noise-shaped enough that nobody can tell; its band borrows the text
+screen's pattern shadow (§45.13.2), which is then rebuilt at the next text
+bracket, because the 60KB package budget had no 1,858 bytes to spare.
+
+#### 45.21.7 The keys the face added
+
+Every §45.7 key is unchanged. Added, on both surfaces unless noted:
+
+| key | action |
+|---|---|
+| N / B | next / previous in the PlayList (|<< restarts the song when there is none) |
+| E | the PlayList editor — windowed only, and says so in fullscreen |
+| O | Repeat: Off / Song / List |
+| H | Shuffle |
+| + (=) / − | master volume, a sixteenth of the range a press |
+
+### 45.22 The PlayList (`trklist.inc`)
+
+ModPlug Player's list and its editor (§56.8), moved to the player that
+survives. **The store is not the editor's**: the transport reads it — a song
+ending walks it whether the editor was ever opened or not — and so does the
+fullscreen bracket. An entry is a name **and a folder** (drive and first
+cluster, `OSAPI_FILE_HERE` at the moment it was added), because a list is
+built out of more than one directory; playing it `OSAPI_FILE_GOTO`s there only
+when it is somewhere else, since a GOTO is a remount. Sixteen entries.
+Add... / Remove / Clear / Shuffle / Sort / Play, the same standard buttons as
+the face; a click selects a row and a click on the selected row plays it
+(§56.8's reason: no timing). Repeat and Shuffle are §56.8's rules, decided in
+one place, `trk_song_over`.
+
+#### 45.22.1 The end of a song is heard, then acted on — by a wake
+
+`trk_reap` used to close a stream the moment the replayer stopped, which cut
+off the ring's tail: up to three seconds of every song. It closes now only a
+stream the worker has seen **drain**, and marks the song over. Acting on that
+may mean loading a file, and a paint is not where a load may happen
+(§54.10), so the worker posts `OSAPI_WM_WAKE` when it latches the end, and
+`trk_onwake` closes and walks the list without anybody touching the machine.
+
+And the first thing the walk found: a ring grant **still held** after the
+close (its free refused) made the next load's ring probe ask for a second
+grant, which is refused, and read as *"Too big for free memory"*. A grant we
+hold is a ring, and `trk_ring_probe` now counts it.
+
+#### 45.22.2 The list plays on in fullscreen
+
+The bracket dispatches no events (§53.1) and so gets no wake; its own loop
+asks `trk_sover_ck` every frame instead, and a load inside the bracket is
+legal (§53.7: the file slots are the UI task's, and this is it). After the
+load the surface is redrawn by the surface's own renderer — the text screen
+with `ttx_draw_all`, never a kernel drawing slot (§45.13.3). N and B work
+there too. What does not is the editor (a window cannot open over a bracket)
+and Add..., for L's reason.
+
+#### 45.22.3 The editor is UNBOUND, so it may not touch a file or the card
+
+The editor is a window created after the entry proc, so no instance owns it
+(§56.2), and **a callback is billed to the instance that owns its window**.
+A play started from the editor's own Play button therefore claimed its ring
+grant as the *kernel*: the player's close could not free it, and the next
+stream open was refused (err 7) with the grant stranded. The file API asks
+the same question (§19.2.1). So the editor edits the list in place and
+**posts** everything else — a play, a forwarded key, Add... — through
+`tpl_post` to the player's wake handler, which the kernel bills to Tracker.
+§56's editor had the same exposure and is left as it ships.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

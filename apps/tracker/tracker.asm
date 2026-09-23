@@ -11,10 +11,13 @@
 ; stream fed by the package's worker task (the worker-safe stream verbs and
 ; ring mode of SPEC.md 34.5/20.3 exist for this app).
 ;
-; Three files, one package (SPEC.md 45):
+; Six files, one package (SPEC.md 45):
 ;   tracker.asm  - header, icon, entry, callbacks, worker, stream plumbing
 ;   trkplay.inc  - MOD loader/validator, replayer, mixer (prefix mp_)
 ;   trkui.inc    - adapter-parameterized FT2 layout + all drawing (tui_)
+;   trktxt.inc   - the same FT2 screen in 80x25 text (ttx_, SPEC.md 45.13)
+;   trkwin.inc   - the WINDOWED face, ModPlug Player's (tw_, SPEC.md 45.21)
+;   trklist.inc  - the playlist and its editor window (tpl_, SPEC.md 45.22)
 ;
 ; The division of labour mirrors Arkanoid: the UI task only sets words and
 ; calls UI-context-only services (file dialog, stream open/close, MEM_*);
@@ -30,13 +33,15 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_192
+    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
-                                ; static 80, measured +60;
-                                ; the larger of the two wins
-                                ; over the 64-byte interrupt floor
-                                ; that is 144, and 192 gives 1.33x
+                                ; static 118 since the windowed
+                                ; face (45.21) - its frame reaches
+                                ; the button library's body - so
+                                ; with the 64-byte interrupt floor
+                                ; that is 182, and 256 gives 1.41x
+                                ; where 192 gave 1.05
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; Two beamed eighth notes over a square wave - the app in two glyphs. The mask
@@ -247,8 +252,11 @@ TRK_PREROLL equ 6                   ; ring halves staged before the stream is
 TRK_MAXFEED equ 6                   ; halves mixed per worker wake, at most -
                                     ; bounds the lock-free burst so a wake
                                     ; never mixes more than ~1.1s of audio
-TRK_WINW    equ 420                 ; the windowed splash frame
-TRK_WINH    equ 180
+TRK_WINW    equ TW_W + 2            ; the windowed face's FRAME: content plus
+TRK_WINH    equ TW_HFULL + TITLE_H + 2  ; the border and the title bar. CGA's
+                                    ; band cannot hold it and wm_fit clamps
+                                    ; it, which is what tw_track's COMPACT
+                                    ; layout is for (SPEC.md 45.21.1)
 
 ; =============================================================================
 ; Entry (SPEC.md 20.2): create the splash window, register menus + About,
@@ -273,7 +281,7 @@ trk_entry:
     jnz .cpu                        ; its menu item already relabeled
     mov byte [mp_xt], 1             ; (SPEC.md 45.9) - no table to rebuild,
     mov byte [trk_cpu0], 1          ; nothing is loaded yet - and the machine
-    mov word [trk_mi_file + 2], trk_s_xton  ; itself is remembered (45.9.1)
+    mov word [trk_mi_file + TRK_MI_XT], trk_s_xton  ; itself is remembered
 .cpu:
     call OSAPI_VIDEO                ; AX = w, BX = h, CX = first dock row
     sub ax, TRK_WINW                ; centre the frame on the screen...
@@ -306,6 +314,26 @@ trk_entry:
                                     ; glyphs are the ones that come out
                                     ; aligned). wm_snap preserves FLAGS, so
                                     ; the loader's CF still survives to .out
+    push bx                         ; THE BUTTONS' GESTURE (SPEC.md 20.5.1.3):
+    mov ax, bx                      ; press inverts, release fires, a slide
+    mov bx, tw_btns                 ; off cancels, and the two slots it rides
+    mov si, tw_onup                 ; on are the library's to install
+    mov di, tw_ondrag
+    mov dx, tw_onclick              ; ...a press on no button goes here
+    call os88ui_btninit
+    pop bx
+    mov ax, tw_clickw               ; ...and the press reaches US first, so the
+    call OSAPI_WM_ONCLICK           ; rects are re-read where the window is NOW
+                                    ; before the library hit-tests them (a
+                                    ; drag calls none of our handlers)
+    mov byte [mp_endstop], 1        ; Repeat: Off - a song ENDS (45.21.3)
+    mov byte [tpl_cur], 0FFh        ; no list entry playing
+    cmp byte [trk_cpu0], 0          ; the visualiser: the spectrum where there
+    jne .viz                        ; are cycles for it, the needles where
+    mov byte [tw_viz], TWV_SPEC     ; there are not (tw_vizfx forces those)
+.viz:
+    clc                             ; (wm_create's success, which the loader
+                                    ; reads; the calls above write flags)
     call trk_menus_build            ; ...and this ends in MENU_SET. It has to
                                     ; run before the first paint: every item
                                     ; it owns is composed into BSS, which
@@ -410,6 +438,11 @@ trk_arg:
 ; reclaims the grant and repaints, all of which want the lock held.
 ; -----------------------------------------------------------------------------
 trk_onwake:
+    call OSAPI_GFX_LOCK             ; a song ENDED while nobody touched us: the
+    call trk_sover_ck               ; worker woke us to close it and walk the
+    call tpl_run                    ; list (SPEC.md 45.22.1) - or the editor
+    call tw_refresh                 ; posted work only WE may do (45.22.3).
+    call OSAPI_GFX_UNLOCK           ; Cheap when it is neither
     cmp byte [trk_cpq], 0           ; OUR OWN POSTED COMPACTION HAS RUN
     jne .cpq                        ; (SPEC.md 66.4.3), so this wake is the
                                     ; SAME load attempt continuing and not a
@@ -534,7 +567,14 @@ trk_paint:
     call tui_layout_init
 .l1:
     call trk_hire                   ; idempotent; refusal is transient, so it
-    call tui_draw_all               ; is retried every paint, never latched
+                                    ; is retried every paint, never latched
+    cmp byte [trk_fs], 0
+    jne .fs
+    call tw_paint                   ; the windowed face (SPEC.md 45.21)
+    jmp short .done
+.fs:
+    call tui_draw_all
+.done:
     pop di
     pop si
     pop dx
@@ -716,6 +756,8 @@ trk_onkey:
     cmp bl, 'K'
     je .xrate
 %endif
+    call trk_ukey                   ; N B E O H + - (SPEC.md 45.21.7), both
+    jnc .out                        ; surfaces' keys
     cmp bl, '1'
     jb .out
     cmp bl, '4'
@@ -736,15 +778,7 @@ trk_onkey:
     call trk_txt_toggle             ; no stop, no rebuild - the pick is not
     jmp .out                        ; something the mixer can see (45.13.7)
 .rcyc:
-    call trk_rsel_get               ; R cycles whatever the Rate MENU lists in
-    mov al, ah                      ; this mode - 11/22/44 outside XT mode and
-    inc al                          ; 5.5/11 inside it (SPEC.md 45.9.3/45.10).
-    call trk_rcount                 ; One control, so the key and the menu
-    cmp al, cl                      ; cannot come to differ
-    jb .rset
-    xor al, al
-.rset:
-    call trk_rate_set
+    call trk_rcyc
     jmp .out
 %ifdef TRKLOG
 .diag:
@@ -784,6 +818,7 @@ trk_onkey:
     call trk_play
     jmp .out
 .load:
+    mov byte [trk_addpl], 0
     call trk_do_open
     jmp .out
 .fstog:
@@ -794,39 +829,8 @@ trk_onkey:
 .fenter:
     call trk_fs_enter
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-; -----------------------------------------------------------------------------
-; trk_onclick - W_ONCLICK: windowed, a click enters fullscreen (the splash's
-;               other promise); fullscreen, a click in a scope cell toggles
-;               that channel's mute, exactly like its number key.
-; in:  CX = x, DX = y (absolute screen), SI = window ptr; gfx lock held
-; -----------------------------------------------------------------------------
-trk_onclick:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call trk_reap                   ; F00/watchdog leftovers close first
-    call trk_abdismiss              ; a click takes the About panel down too
-    jc .out
-    cmp byte [trk_fs], 0
-    jne .full
-    call trk_fs_enter
-    jmp .out
-.full:
-    call tui_scopehit               ; CX/DX screen coords -> CF=0, AL = 0..3
-    jc .out
-    call mp_mutetog
-.out:
-    pop di
+    call tw_refresh                 ; the face follows the key NOW, not at the
+    pop di                          ; worker's next frame (SPEC.md 56.12)
     pop si
     pop dx
     pop cx
@@ -876,19 +880,30 @@ trk_oncmd:
                                     ; predicate (SPEC.md 47 rule 5) rather
                                     ; than being two opinions
 .file:
+    mov byte [trk_addpl], 0
     or bl, bl                       ; File > Open...
     jz .fopen
-    cmp bl, 1                       ; File > XT Mode (the relabeling item)
+    cmp bl, 1                       ; File > Add to PlayList... (45.22)
+    je .fadd
+    cmp bl, 2                       ; File > PlayList Editor
+    je .fedit
+    cmp bl, 3                       ; File > XT Mode (the relabeling item)
     jne .out
     call trk_xt_toggle
     jmp .out
+.fadd:
+    inc byte [trk_addpl]
 .fopen:
     call trk_do_open
+    jmp .out
+.fedit:
+    call tpl_toggle
     jmp .out
 .rate:
     mov al, bl                      ; Rate > 11/22/44 kHz (SPEC.md 45.10)
     call trk_rate_set
 .out:
+    call tw_refresh                 ; a menu command's effect on the face now
     pop di
     pop si
     pop dx
@@ -897,38 +912,37 @@ trk_oncmd:
     pop ax
     ret
 ; -----------------------------------------------------------------------------
-; trk_about - the OSAPI_ABOUT_SET handler: panel-in-content, the [ark_abon]
-;             pattern. The worker checks [trk_abon] under the lock, right
-;             after the clip is armed, and drops the whole frame while it is
-;             set - audio keeps feeding, only the drawing pauses.
+; trk_about - the OSAPI_ABOUT_SET handler: the STANDARD About card (os88ui.inc,
+;             SPEC.md 20.5.1), drawn over the face and remembered in
+;             [trk_abon]. While it is up the worker drops its frames under the
+;             lock (trk_render), tw_refresh refuses, and the button record has
+;             NO live buttons - so nothing, a press included, can draw through
+;             it. ModPlug's card was painted over by its own worker; this is
+;             the shape that cannot be. Audio keeps feeding throughout.
 ; in:  SI = our window ptr; gfx lock held
 ; -----------------------------------------------------------------------------
 trk_about:
-    push ax
     push bx
-    push cx
-    push dx
     push si
-    push di
     mov byte [trk_abon], 1
-    call tui_draw_all               ; draws the panel last while the flag is up
-    pop di
-    pop si
-    pop dx
-    pop cx
+    call tw_rects                   ; BT_N = 0: the buttons are not live
+    mov bx, [trk_win]
+    mov si, tw_ablines
+    call os88ui_about               ; CF = 1: not visible, and the next paint
+    pop si                          ; puts the card up (the flag is set)
     pop bx
-    pop ax
     ret
 ; -----------------------------------------------------------------------------
-; trk_abdismiss - take the About panel down if it is up
+; trk_abdismiss - take the About card down if it is up
 ; out: CF=1 the key/click was spent doing it; preserves every register
 ; -----------------------------------------------------------------------------
 trk_abdismiss:
     cmp byte [trk_abon], 0
     je .none
     mov byte [trk_abon], 0
-    call tui_draw_all
-    stc
+    call tw_rects                   ; the buttons are live again...
+    call tw_redraw                  ; ...and the face is drawn whole over the
+    stc                             ; card (tw_redraw arms our clip)
     ret
 .none:
     clc
@@ -942,6 +956,8 @@ trk_abdismiss:
 ; worker's periodic top-band repaint erases the fdlg-cancel menu-bar strip
 ; (SPEC.md 38.6/45).
 ; -----------------------------------------------------------------------------
+; [trk_addpl] says which dialog this is: 0 Open (load and play), 1 the
+; PlayList's Add... - the completion proc reads it back (SPEC.md 45.22)
 trk_do_open:
     push ax
     push bx
@@ -1055,10 +1071,15 @@ trk_trim:
 trk_repaint_done:
     cmp byte [trk_fs], 0
     jne .full
-    call tui_win_lines
-    ret
+    call tw_refresh                 ; the face: what the load changed, and no
+    ret                             ; more (tw_refresh arms our clip)
 .full:
-    call tui_draw_all
+    cmp byte [trk_tx], 0            ; a playlist advance INSIDE the bracket
+    jne .text                       ; (SPEC.md 45.22.2) lands here too, and on
+    call tui_draw_all               ; the text surface no kernel drawing slot
+    ret                             ; may be used (45.13.3)
+.text:
+    call ttx_draw_all
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1204,6 +1225,12 @@ trk_fdone:
     ; the name AND the size, so both answers are free.
     call trk_is_mod
     jc .notmod
+    cmp byte [trk_addpl], 0         ; the PlayList's Add... (SPEC.md 45.22):
+    je .load                        ; the name goes on the list and NOTHING
+    mov byte [trk_addpl], 0         ; is read - the dialog left us in its
+    call tpl_add                    ; folder, which is what the entry banks
+    jmp .out
+.load:
     mov word [trk_needk], 0         ; "unknown" has to be written, not assumed:
                                     ; this word survives the LAST load, so a
                                     ; file whose size nothing can answer would
@@ -1357,6 +1384,11 @@ trk_fdone:
                                     ; input to it is in the four-way test
     mov si, mp_title                ; the loaded title becomes the status line
     call tui_msg
+    mov byte [trk_pause], 0         ; a NEW module is not paused in the old
+    cmp byte [tpl_inplay], 0        ; one's place - and one that did not come
+    jne .listed                     ; off the list is not the list's current
+    mov byte [tpl_cur], 0FFh        ; entry either
+.listed:
     mov al, 0
     call trk_play                   ; caps-gated: no SB machine stays a viewer
     call trk_repaint_done           ; the mandatory completion repaint - two
@@ -1605,7 +1637,7 @@ trk_fsx_main:
     call ttx_draw_all
     call ttx_clkpick                ; the frame clock (SPEC.md 45.16/53.5.1)
 .txloop:
-    call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    call trk_sover_ck               ; F00 / song end: close, walk the list
     call os88alt_edge               ; ...and Alt+Enter, which int 16h below
     jc .txdone                      ; cannot carry: no XT BIOS enqueues the
                                     ; combination (SPEC.md 9.7.1) and a
@@ -1643,7 +1675,7 @@ trk_fsx_main:
 .gfx:
     call tui_draw_all               ; the whole FT2 screen
 .loop:
-    call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    call trk_sover_ck               ; F00 / song end: close, walk the list
     call os88alt_edge               ; ...and Alt+Enter, for .txloop's reason
     jc .done                        ; one screen along (SPEC.md 11.2.1.1)
     mov ah, 1                       ; poll the keyboard - this IS the UI task
@@ -1776,6 +1808,9 @@ trk_fsx_key:
     cmp al, 'M'
     je .mark
 %endif
+    mov bx, ax                      ; N B E O H + - (SPEC.md 45.21.7): the
+    call trk_ukey                   ; list plays on in here too (45.22.2)
+    jnc .out
     cmp al, '1'
     jb .out
     cmp al, '4'
@@ -1863,16 +1898,8 @@ trk_fsx_key:
                                     ; exactly the case that reaches that
                                     ; repaint. Say why not (47), like L does
 .rcyc:
-    call trk_rsel_get               ; R cycles whatever the Rate MENU lists in
-    mov al, ah                      ; this mode - 11/22/44 outside XT mode and
-    inc al                          ; 5.5/11 inside it (SPEC.md 45.9.3/45.10).
-    call trk_rcount                 ; The bracket's key asks the same two
-    cmp al, cl                      ; routines the windowed one does, so they
-    jb .rset                        ; cannot come to differ
-    xor al, al
-.rset:
-    call trk_rate_set
-    jmp .out
+    call trk_rcyc                   ; the windowed key's own routine, so the
+    jmp .out                        ; two cannot come to differ
 .txxt:
     mov si, trk_s_txxt
     call tui_msg
@@ -1987,6 +2014,14 @@ trk_ring_probe:
     push ax
     push cx
     push si
+    cmp byte [trk_ghave], 0         ; A GRANT WE STILL HOLD IS A RING: the one
+    jne .none                       ; trk_stream_close could not give back (its
+                                    ; free refused, so the latch stayed) and
+                                    ; which trk_play reuses. Asking for a SECOND
+                                    ; is refused by the driver, and that refusal
+                                    ; read as "Too big for free memory" on the
+                                    ; first playlist advance after a song ENDED
+                                    ; (SPEC.md 45.22.1)
     call OSAPI_SND_CAPS             ; AX = merged caps word
     test ax, SND_CAP_PCM_BG
     jz .none                        ; NO BACKGROUND PCM SINK: this machine is
@@ -2094,27 +2129,11 @@ trk_play:
     mov [trk_grant], si             ; and pre-roll follow it and not the pick
     mov byte [trk_ghave], 1
 .granted:
-    cmp byte [mp_xt], 0             ; XT mode overrides the Rate menu with
-    je .rsel                        ; its own rate (SPEC.md 45.9/45.10)
-%ifdef TRKLOG
-    mov ax, [tlog_xrate]            ; ...which K can move WITHOUT leaving XT
-    jmp .rate                       ; mode, so the rate can be swept with the
-%else                               ; surface held still (docs/FIELD-NOTES.md
-    mov ax, TRK_RATE_XT             ; 16). Bench-only, and it OUTRANKS the
-    cmp byte [trk_xhi], 0           ; user's pick below: a sweep that a
-    je .rate                        ; setting could veto is not a sweep
-    mov ax, TRK_RATE_XT2            ; 45.9.3's windowed-only high rate
-    jmp .rate
-%endif
-.rsel:
-    mov bl, [trk_rsel]              ; the Rate menu's pick: 0/1/2
-    xor bh, bh
-    shl bx, 1
-    mov ax, [trk_rates + bx]
-.rate:
+    call trk_rate_pick              ; AX = the rate this mode asks for
     mov [mp_mixrate], ax
     mov al, [trk_pmode]
-    call mp_start
+    call tw_newstream               ; the face's clock: restarted with a song,
+    call mp_start                   ; kept across a resume
 %ifdef TRKLOG
     call tlog_stream                ; a new stream: the log's clocks restart
 %endif
@@ -2158,6 +2177,7 @@ trk_play:
     jnz .ofail
     mov [trk_hand], ah
     mov byte [trk_ended], 0         ; re-arm BEFORE publishing: the worker
+    mov byte [trk_pause], 0
     mov byte [trk_sopen], 1         ; keys every pass on trk_sopen, and a
                                     ; pass must never see the new stream
                                     ; through the old session's flags
@@ -2292,16 +2312,202 @@ trk_stream_close:
 trk_reap:
     cmp byte [trk_sopen], 0
     je .out
-    cmp byte [trk_ended], 0
-    jne .close
-    cmp byte [mp_playing], 0        ; F00: the worker latches trk_ended once
-    jne .out                        ; the ring drains, but close early if a
-.close:                             ; callback lands first - the tail already
-    call trk_stream_close           ; played or the user is acting anyway
+    cmp byte [trk_ended], 0         ; ONLY a stream the worker has seen DRAIN:
+    je .out                         ; the song's tail is in the ring and the
+                                    ; card plays it first. This used to close
+                                    ; the moment the replayer stopped too, and
+                                    ; with a playlist that cut the last seconds
+                                    ; off every song (SPEC.md 45.22.1)
+    call trk_stream_close
+    mov byte [trk_sover], 1         ; ...and the song is OVER: what happens next
+.out:                               ; is trk_song_over's, run where a load may
+    ret                             ; happen - a wake or the bracket, never a
+                                    ; paint (SPEC.md 54.10)
+
+; -----------------------------------------------------------------------------
+; trk_sover_ck - spend a song-over (lock held, UI task, not a paint). The
+; windowed half is trk_onwake's, woken by the worker the moment it latches
+; the end; the fullscreen half is the bracket's own loop, where no event is
+; dispatched at all (SPEC.md 53.1). preserves all
+; -----------------------------------------------------------------------------
+trk_sover_ck:
+    call trk_reap
+    cmp byte [trk_sover], 0
+    je .out
+    mov byte [trk_sover], 0
+    call trk_song_over
 .out:
     ret
 
+; -----------------------------------------------------------------------------
+; trk_stop - the transport's Stop: a PAUSE that forgets where it was, so Play
+; starts the song again from the top. [trk_ended] is exactly that fact
+; (trk_play_go's own latch), and the face's Stop lamp reads it. lock held.
+; -----------------------------------------------------------------------------
+trk_stop:
+    push ax
+    call trk_play_stop
+    mov byte [trk_pause], 0
+    mov byte [trk_ended], 1
+    xor al, al
+    mov [mp_songpos], al
+    mov [mp_row], al
+    call mp_setposn                 ; (the pattern with it)
+    call tw_newstream               ; ...and the clock
+    call trk_transport
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_rate_pick - AX = the rate the next Play asks for: XT mode's own, or the
+; Rate menu's pick (SPEC.md 45.9, 45.10). trk_play's choice, factored so the
+; face can SAY it before anything plays. Preserves the rest.
+; -----------------------------------------------------------------------------
+trk_rate_pick:
+    push bx
+    cmp byte [mp_xt], 0             ; XT mode overrides the Rate menu with
+    je .rsel                        ; its own rate (SPEC.md 45.9/45.10)
+%ifdef TRKLOG
+    mov ax, [tlog_xrate]            ; ...which K can move WITHOUT leaving XT
+    jmp short .out                  ; mode, so the rate can be swept with the
+%else                               ; surface held still (docs/FIELD-NOTES.md
+    mov ax, TRK_RATE_XT             ; 16). Bench-only, and it OUTRANKS the
+    cmp byte [trk_xhi], 0           ; user's pick below: a sweep that a
+    je .out                         ; setting could veto is not a sweep
+    mov ax, TRK_RATE_XT2            ; 45.9.3's windowed-only high rate
+    jmp short .out
+%endif
+.rsel:
+    mov bl, [trk_rsel]              ; the Rate menu's pick: 0/1/2
+    xor bh, bh
+    shl bx, 1
+    mov ax, [trk_rates + bx]
+.out:
+    pop bx
+    ret
+
+; trk_rcyc - R, the Rate option button: cycle whatever the Rate MENU lists in
+; this mode - 11/22/44 outside XT mode and 5.5/11 inside it (SPEC.md
+; 45.9.3/45.10). One routine, so the key, the button and the menu agree.
+trk_rcyc:
+    push ax
+    push cx
+    call trk_rsel_get
+    mov al, ah
+    inc al
+    call trk_rcount
+    cmp al, cl
+    jb .set
+    xor al, al
+.set:
+    call trk_rate_set
+    pop cx
+    pop ax
+    ret
+
+; trk_rep_cycle - O, the Repeat button: Off -> Song -> List. Song is the one
+; setting under which a song does not END - the replayer loops it
+; ([mp_endstop] = 0) - so it is the only one that touches the replayer.
+trk_rep_cycle:
+    push ax
+    mov al, [trk_rep]
+    inc al
+    cmp al, 3
+    jb .set
+    xor al, al
+.set:
+    mov [trk_rep], al
+    cmp al, 1
+    mov al, 1
+    jne .es
+    xor al, al
+.es:
+    mov [mp_endstop], al
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_ukey - the keys the face and the list added (SPEC.md 45.21.7), shared
+; by both surfaces' keyboards. in: BL = ascii. out: CF = 0 it was one of
+; them and is done, CF = 1 not ours. Preserves every register.
+;
+;   N / B   next / previous in the PlayList (|<< restarts a song with none)
+;   E       the PlayList editor - windowed only: a window cannot open over a
+;           bracket (SPEC.md 53.7), so the key says why, like L does
+;   O       Repeat: Off / Song / List        H   Shuffle
+;   + -     master volume, a sixteenth of the range a press
+; -----------------------------------------------------------------------------
+trk_ukey:
+    push ax
+    push si
+    mov al, bl
+    cmp al, 'A'
+    jb .sym
+    or al, 20h                      ; the letters, either case
+.sym:
+    cmp al, 'n'
+    je .next
+    cmp al, 'b'
+    je .prev
+    cmp al, 'e'
+    je .edit
+    cmp al, 'o'
+    je .rep
+    cmp al, 'h'
+    je .shuf
+    cmp al, '+'
+    je .up
+    cmp al, '='                     ; + unshifted, on a US keyboard
+    je .up
+    cmp al, '-'
+    je .down
+    pop si
+    pop ax
+    stc
+    ret
+.next:
+    call tpl_next
+    jmp short .done
+.prev:
+    call tpl_prev
+    jmp short .done
+.edit:
+    cmp byte [trk_fs], 0
+    jne .win
+    call tpl_toggle
+    jmp short .done
+.win:
+    mov si, trk_s_txxt
+    call tui_msg
+    jmp short .done
+.rep:
+    call trk_rep_cycle
+    jmp short .done
+.shuf:
+    xor byte [trk_shuf], 1
+    jmp short .done
+.up:
+    mov al, [mp_master]
+    add al, 4
+    cmp al, 64
+    jbe .vol
+    mov al, 64
+    jmp short .vol
+.down:
+    mov al, [mp_master]
+    sub al, 4
+    jnc .vol
+    xor al, al
+.vol:
+    mov [mp_master], al
+.done:
+    pop si
+    pop ax
+    clc
+    ret
+
 trk_play_stop:
+    mov byte [trk_pause], 1         ; a stop PARKS (SPEC.md 45.17): Play resumes
     call tui_sync                   ; where the LISTENER is, asked while the
                                     ; stream can still answer (SPEC.md 45.15)
     call trk_stream_close
@@ -2775,7 +2981,7 @@ trk_xt_toggle:
     je .lab
     mov si, trk_s_xton
 .lab:
-    mov [trk_mi_file + 2], si
+    mov [trk_mi_file + TRK_MI_XT], si
     call trk_menus_build            ; the Rate menu becomes XT mode's TWO rows
                                     ; or the other mode's three, and View >
                                     ; Fullscreen greys with them (SPEC.md
@@ -2965,6 +3171,7 @@ trk_feed:
     cmp dx, [trk_total]             ; UI-side close - mp_stop already ran
     jne .out                        ; (the effect itself), so only the
     mov byte [trk_ended], 1         ; latch is left
+    call trk_wake                   ; ...and the UI task is TOLD (45.22.1)
     jmp .out
 .go:
     mov byte [trk_halves], 0
@@ -2995,7 +3202,7 @@ trk_feed:
 .dead:
     call mp_stop                    ; watchdog-ended streams never resume
     mov byte [trk_ended], 1         ; (SPEC.md 34.5); trk_reap or the next
-                                    ; Play closes it on the UI task
+    call trk_wake                   ; Play closes it on the UI task
 .out:
 %ifdef TRKLOG
     call tlog_wend                  ; ...and the span closes here
@@ -3007,6 +3214,15 @@ trk_feed:
     pop cx
     pop bx
     pop ax
+    ret
+
+; trk_wake - post our window a wake, from the worker (OSAPI_WM_WAKE is
+; worker-safe, and at most one is ever queued). preserves all
+trk_wake:
+    push bx
+    mov bx, [trk_win]
+    call OSAPI_WM_WAKE
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3030,7 +3246,9 @@ trk_render:
     jc .unlock
     cmp byte [trk_abon], 0          ; checked HERE, under the lock, after the
     jne .unlock                     ; clip: the [ark_abon] rule verbatim
-    call tui_draw_dyn
+    mov byte [tw_inframe], 1        ; the frame's own clip is armed: a message
+    call tui_draw_dyn               ; set inside it is drawn BY it, and nothing
+    mov byte [tw_inframe], 0        ; may clear the clip (tw_refresh)
 .unlock:
     call OSAPI_GFX_UNLOCK           ; also clears the clip
     pop di
@@ -3048,11 +3266,11 @@ trk_render:
 ; --- window template (SPEC.md 11: 16 bytes, 8 words); x/y set by trk_entry ----
 trk_tpl:
     dw 0, 0, TRK_WINW, TRK_WINH
-    dw trk_ttl, trk_paint, trk_onkey, trk_onclick
+    dw trk_ttl, trk_paint, trk_onkey, tw_clickw
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
     OS88_MENUSET trk_menus, trk_m_name, trk_oncmd
-        OS88_MENU trk_m_file, trk_mi_file, 2
+        OS88_MENU trk_m_file, trk_mi_file, 4
 trk_e_view:
         OS88_MENU trk_m_view, trk_mi_view, 2    ; Fullscreen + Text Screen
                                         ; (SPEC.md 45.13.7). A fixed count,
@@ -3071,10 +3289,13 @@ trk_e_rate:                             ; ...labelled because its AMENU_NITEM
 
 trk_m_name:  db 'Tracker', 0
 trk_m_file:  db 'File', 0
-trk_mi_file: dw trk_s_open, trk_s_xtoff ; item 1 repointed by trk_xt_toggle
+trk_mi_file: dw trk_s_open, trk_s_addl, trk_s_edit, trk_s_xtoff
+TRK_MI_XT   equ 3 * 2                   ; item 3 repointed by trk_xt_toggle
                                         ; (the sol_dealmenu relabel idiom -
                                         ; invisible until MENU_SET re-runs)
 trk_s_open:  db 'Open...', 0
+trk_s_addl:  db 'Add to PlayList...', 0
+trk_s_edit:  db 'PlayList Editor', 0
 trk_s_xtoff: db 'XT Mode: Off', 0
 trk_s_xton:  db 'XT Mode: On', 0
 trk_s_fsxhi: db '11 kHz is windowed: R picks 5.5', 0
@@ -3125,7 +3346,6 @@ trk_s_x55:   db '5.5 kHz', 0
 trk_s_x11:   db '11 kHz', 0
 trk_s_xwin:  db ' (Windowed)', 0
 trk_xrname:  dw trk_s_x55, trk_s_x11
-trk_xrates:  dw TRK_RATE_XT, TRK_RATE_XT2
 trk_xrmsg:   dw trk_s_xm55, trk_s_xm11
 trk_s_xm55:  db 'Rate: 5.5 kHz - Enter plays', 0
 trk_s_xm11:  db 'Rate: 11 kHz - windowed only', 0
@@ -3251,6 +3471,8 @@ trk_reloc:
 
 %include "trkui.inc"
 %include "trktxt.inc"
+%include "trkwin.inc"
+%include "trklist.inc"
 %ifdef TRKLOG
 %include "trklog.inc"               ; tests/ - the bench build only, and the
 %endif                              ; only thing -DTRKLOG adds beyond hooks
@@ -3281,6 +3503,13 @@ trk_reloc:
                                     ; is off-limits until the bracket returns
                                     ; (SPEC.md 53.1). Implies [trk_fs]
     TRKB trk_hired                  ; the worker exists
+    TRKB trk_addpl                  ; the open dialog is the PlayList's Add...
+    TRKB trk_pause                  ; stopped WHERE THE LISTENER WAS: Play
+                                    ; resumes (the face's Pause lamp)
+    TRKB trk_rep                    ; Repeat: 0 Off, 1 Song, 2 List
+    TRKB trk_shuf                   ; Shuffle
+    TRKB trk_sover                  ; a song ended and its stream is closed:
+                                    ; trk_song_over is owed
     TRKB trk_abon                   ; the About panel is up; worker frames drop
     TRKB trk_pmode                  ; 0 = song, 1 = pattern loop, 2 = resume
     TRKB trk_xhi                      ; XT mode's rate: 0 = 5,500 (the default,
@@ -3366,6 +3595,10 @@ trk_reloc:
                                     ; UI-task touch of mp_* state or the blob
 
 %include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the brackets
+%define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
+%define OS88UI_BIMG                 ; ...and buttons with PICTURES, drawn with
+%define OS88UI_NOGLYPH              ; no pixel written twice (SPEC.md 13.8.9),
+%include "os88ui.inc"               ; and no check box or radio at all
 
     OS88_BSS TRK_BSS
     OS88_IMAGE_END

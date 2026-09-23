@@ -5783,7 +5783,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 # sources, one binary.
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-                      apps/os88api.inc apps/os88alt.inc | $(BUILD)
+                      apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
 
@@ -9010,7 +9011,8 @@ zscreens: $(BUILD)/stories.stamp
 # is a log of an idle machine. It must NOT be write-protected: W writes
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-             apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trklog.inc
+             apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9049,7 +9051,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # legitimate QEMU case. BEVERLY.MOD rides along because a scroll gate with
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-              apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trkscrl.inc
+              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 

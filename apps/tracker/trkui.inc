@@ -712,18 +712,6 @@ tui_dec3:
 ; line, 51 cells at [tui_cw] = 418, and the longest string sent to it is
 ; 'ENTER play  SPACE stop  HOME top  P pattern' at 43.
 ; -----------------------------------------------------------------------------
-; The windowed position readout's row, measured UP from the bottom of the
-; content. It was 22, which put it on rows [ch-22 .. ch-15] - and on the two
-; adapters where wm_fit squeezes the 180-row template (CGA gives [tui_ch] =
-; 136) that is 114..121, straight through the splash's last line at 108..115.
-; The gap between that line and the status line at ch-10 is where it belongs:
-; 38 clears the splash at every geometry this window has (ch = 136 puts it at
-; 98..105, against a keys line ending at 95) and still clears the status line.
-TUI_WPOSY   equ 38
-TUI_WPOSW   equ 9                   ; 'Pos xx/yy' - SPEC.md 45.16.6: the ROW is
-                                    ; NOT here, because windowed it cannot be
-                                    ; right and the position always is
-
 TUI_RDCELLS equ 56                  ; the widest field is [tui_cw]/8 and the
                                     ; frame is TRK_WINW = 420, so 52 cells;
                                     ; the clamp is a bound, not a budget
@@ -841,15 +829,9 @@ tui_msg_draw:
     call tui_rdout
     jmp .out
 .win:
-    mov cx, 4
-    mov dx, [tui_ch]
-    sub dx, 10
-    mov bx, [tui_cw]
-    sub bx, 8
-    mov ah, TC_WBG
-    mov al, TC_WTX
-    call tui_rdout
-.out:
+    call tw_refresh                 ; the face's status line, which draws it
+.out:                               ; by its hash - or, inside the worker's
+                                    ; frame, leaves it to that frame
     pop si
     pop dx
     pop cx
@@ -1800,7 +1782,8 @@ tui_sync:
     je .kn                          ; it fires once per row however many
     mov al, [tui_avol + bx]         ; frames that row is on screen for
     mov [tui_vu + bx], al
-.kn:
+    call tw_skick                   ; ...and the face's spectrum, off the same
+.kn:                                ; row (trkwin.inc, 45.21.5)
     inc bx
     cmp bx, 4
     jb .kick
@@ -2800,136 +2783,8 @@ tui_draw_all:
     call tui_draw_pat
     jmp .about
 .win:
-    TSETC TC_WBG                    ; the windowed splash card
-    mov byte [tui_wdrawn], 0        ; ...which covers the readout, and the
-                                    ; position may not move again for nine
-                                    ; seconds, so the marker alone would leave
-                                    ; the line blank until it did
-    xor ax, ax
-    xor bx, bx
-    mov cx, [tui_cw]
-    dec cx
-    mov dx, [tui_ch]
-    dec dx
-    call tui_fillc
-    mov si, tui_s_splash1
-    mov dx, 16
-    call tui_cline
-    mov si, tui_s_splash2
-    mov dx, 36
-    call tui_cline
-    mov si, mp_title
-    cmp byte [mp_loaded], 0
-    jne .title
-    mov si, tui_s_none
-.title:
-    mov dx, 56
-    call tui_cline
-    mov si, tui_s_keys1
-    mov dx, 76
-    call tui_cline
-    mov si, tui_s_keys2
-    mov dx, 88
-    call tui_cline
-    mov si, tui_s_anykey            ; ...and NOT while 11 kHz is picked, where
-    call trk_fs_ok                  ; F and the click are both refused
-    jnc .hint                       ; (SPEC.md 45.9.3). View > Fullscreen is
-    mov si, tui_s_nofs              ; greyed on the same predicate; a legend
-.hint:                              ; is the one place with no greying to do
-    mov dx, 108                     ; the explaining, so it says the other
-    call tui_cline                  ; thing instead. The tree has been here
-                                    ; before: trk_s_stopdf's own comment is
-                                    ; about a legend that went on advertising
-                                    ; a key it was written to stop advertising
-    call tui_msg_draw
+    call tw_redraw                  ; the windowed face (trkwin.inc, 45.21)
 .about:
-    cmp byte [trk_abon], 0
-    je .out
-    call tui_about_panel
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; tui_win_lines - redraw ONLY the two windowed-splash lines a load changes
-; in:  gfx lock held; preserves all registers
-;
-; The splash card is static except for the module title and the status line,
-; so a load owes the screen those and nothing else. tui_cline erases its own
-; band before lettering it, which is what makes this safe without the full
-; content fill - and skipping that fill is the point: on a 4.77MHz machine
-; the fill plus five untouched lines was a couple of hundred milliseconds of
-; redrawing text that had not changed (PERFORMANCE.md).
-;
-; The About panel is checked exactly as tui_draw_all checks it: while it is
-; up it owns the content, and these two lines must not be painted through it.
-; -----------------------------------------------------------------------------
-tui_win_lines:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cmp byte [tui_inited], 0
-    je .out
-    cmp byte [trk_abon], 0
-    jne .out
-    call tui_track
-    mov si, mp_title
-    cmp byte [mp_loaded], 0
-    jne .title
-    mov si, tui_s_none
-.title:
-    mov dx, 56                      ; the same y tui_draw_all letters it at
-    call tui_cline
-    call tui_msg_draw
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; tui_cline - a centred splash line: one gated erase+text pair on white
-; in:  SI = NUL string, DX = y (content)
-; -----------------------------------------------------------------------------
-tui_cline:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call OSAPI_FONT_WIDTH           ; AX = pixel width
-    mov di, [tui_cw]
-    sub di, ax
-    shr di, 1                       ; DI = centred x
-    mov ax, 4
-    mov bx, dx
-    mov cx, [tui_cw]
-    sub cx, 5
-    push dx
-    add dx, 7
-    call tui_clipc
-    jc .skip
-    TSETC TC_WBG
-    call tui_fillc
-    TSETC TC_WTX
-    pop dx
-    mov cx, di
-    call tui_textc
-    jmp .out
-.skip:
-    pop dx
 .out:
     pop di
     pop si
@@ -3056,31 +2911,7 @@ tui_draw_dyn:
     ; W_PAINT for it like anything else, which is one repaint on an event
     ; rather than a repaint per second forever.
 .win:
-    cmp byte [mp_playing], 0        ; windowed: a live position line on the
-    je .out                         ; splash while something plays
-    ; ONLY when it changes - and what changes is the POSITION alone, once every
-    ; 64 rows. It used to compare the row too, so this drew a 17-cell run seven
-    ; times a second on Beverly, a millisecond a cell (SPEC.md 6.1.1), for a
-    ; number that windowed cannot be right anyway (SPEC.md 45.16.5/45.16.6).
-    ; [tui_wdrawn] is the "is it on screen" half, because a repaint fills the
-    ; card and the position may not move again for nine seconds - the same trap
-    ; a zeroed bss marker sets, one step further along: here the marker is
-    ; correct and the PIXELS are gone.
-    cmp byte [tui_wdrawn], 0
-    je .wupd
-    mov al, [tui_apos]
-    cmp al, [tui_lpos]
-    je .out
-.wupd:
-    mov byte [tui_wdrawn], 1
-    mov al, [tui_apos]
-    mov [tui_lpos], al
-    mov di, tui_pbuf
-    mov bx, TUI_WPOSW * 8
-    call tui_wpos
-    mov byte [di], 0
-    mov cx, 8
-    call tui_wfld
+    call tw_frame                   ; the windowed face (trkwin.inc, 45.21)
 .out:
     pop di
     pop si
@@ -3090,15 +2921,6 @@ tui_draw_dyn:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; tui_wpos / tui_wfld - the windowed readout's two halves, factored out
-;
-; tui_wpos appends 'Pos xx  Row yy' at [DI] and leaves DI past it. tui_wfld
-; draws tui_pbuf as one opaque run (SPEC.md 6.1) at x = CX, width BX, on the
-; readout's row. They are separate because the bench build has TWO fields on
-; that row and they redraw on different things - the text on a row change, the
-; hold's animation on a frame - so neither may redraw for the other.
-; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; tui_hintp - SI = the status legend this SURFACE should carry
 ; -----------------------------------------------------------------------------
@@ -3108,101 +2930,6 @@ tui_hintp:
     je .out
     mov si, tui_s_hintf
 .out:
-    ret
-
-tui_wpos:
-    push ax
-    push si
-    mov si, tui_s_posl
-    call tui_scpy
-    mov al, [tui_apos]
-    call tui_hexb
-    mov byte [di], '/'              ; ...OF the song's length. A bare 'Pos 09'
-    inc di                          ; steps once every 64 rows, which at
-    mov al, [mp_songlen]            ; Beverly's tempo is 8.9 SECONDS, and with
-    call tui_hexb                   ; no row counter beside it the denominator
-    pop si                          ; is the only thing saying the field is
-    pop ax                          ; alive rather than stuck
-    ret
-
-tui_wfld:
-    push ax
-    push dx
-    push si
-    mov si, tui_pbuf
-    mov dx, [tui_ch]
-    sub dx, TUI_WPOSY
-    mov ah, TC_WBG
-    mov al, TC_WTX
-    call tui_rdout
-    pop si
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; tui_about_panel - the credits, panel-in-content (the ark_about pattern):
-;                   drawn by the UI task while [trk_abon] holds the worker's
-;                   frames off, so nothing paints over it
-; -----------------------------------------------------------------------------
-tui_about_panel:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov ax, [tui_cw]
-    sub ax, TUI_ABW
-    jns .wok                        ; a content narrower or shorter than the
-    xor ax, ax                      ; card would otherwise centre it off the
-.wok:                               ; top-left: shr on a negative is a very
-    shr ax, 1                       ; large positive, and the card lands off
-    mov [tui_t1], ax                ; the screen entirely. panel left
-    mov ax, [tui_ch]
-    sub ax, TUI_ABH
-    jns .hok
-    xor ax, ax
-.hok:
-    shr ax, 1
-    mov [tui_t2], ax                ; panel top
-    mov ax, [tui_t1]
-    mov bx, [tui_t2]
-    mov cx, ax
-    add cx, TUI_ABW - 1
-    mov dx, bx
-    add dx, TUI_ABH - 1
-    TSETC TC_WBG
-    call tui_fillc
-    TSETC TC_WTX
-    call tui_framec
-    mov di, tui_ablines
-    mov dx, [tui_t2]
-    add dx, TUI_ABTOP
-.line:
-    mov si, [di]
-    or si, si
-    jz .out
-    push dx
-    push di
-    call OSAPI_FONT_WIDTH           ; AX = width
-    mov cx, TUI_ABW
-    sub cx, ax
-    shr cx, 1
-    add cx, [tui_t1]
-    pop di
-    pop dx
-    call tui_textc
-    add di, 2
-    add dx, TUI_ABLH
-    jmp .line
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; =============================================================================
@@ -3264,12 +2991,6 @@ tui_s_bpmc:  db 'BPM:', 0
 tui_s_spdc:  db 'SPD:', 0
 tui_s_posc:  db 'POS:', 0
 tui_s_ptnc:  db 'PTN:', 0
-tui_s_posl:  db 'Pos ', 0
-
-; "is the windowed readout on the glass" - .text, not bss, because it wants a
-; real initialiser and every launch reloads the image (SPEC.md 20.1), so a
-; fresh instance starts owing the line rather than believing it drew one.
-tui_wdrawn:  db 0
 
 ; the FT2 button stacks (decorative in v1; each names its key)
 tui_mbl:     dw tui_b_about, tui_b_mute, tui_b_scroll, tui_b_pos, tui_b_exit, 0
@@ -3286,32 +3007,6 @@ tui_b_stop:  db 'Stop', 0
 tui_b_load:  db 'Load L', 0
 tui_b_full:  db 'Full F', 0
 
-; the windowed splash
-tui_s_splash1: db 'T R A C K E R', 0
-tui_s_splash2: db 'A FastTracker II style MOD player', 0
-tui_s_none:    db 'No module loaded', 0
-tui_s_keys1:   db 'ENTER play  SPACE stop  HOME top  P pattern', 0
-tui_s_keys2:   db 'ARROWS position  1-4 mute  L load  X xt  V screen', 0
-                                    ; 'a key nothing names is a key nobody
-                                    ; finds' (just below) applies to V as much
-                                    ; as it did to the bench keys, and the
-                                    ; SURFACE is the one setting whose effect
-                                    ; is invisible until F is pressed
-                                    ; (SPEC.md 45.13.7). 49 cells against
-                                    ; tui_cline's centred [tui_cw] = 418 = 52,
-                                    ; and tui_cw does not move with the
-                                    ; adapter - only tui_ch does - so this
-                                    ; fits on all three of SPEC.md 39's
-%ifdef TRKLOG                       ; the bench keys are on screen, because a
-                                    ; key nothing names is a key nobody finds:
-                                    ; this line said 'P pattern' one row above
-                                    ; it and P was reached for as the pace
-                                    ; cycler for a whole round of testing
-tui_s_anykey:  db 'F full  K rate  D log  W write  M mark', 0
-%else
-tui_s_anykey:  db 'Press F or click for fullscreen', 0
-%endif
-tui_s_nofs:    db 'Full screen needs Rate 5.5 kHz', 0
 ; Two status legends, because L IS REFUSED on the exclusive surface
 ; (SPEC.md 53.7 - the file dialog's answer comes back through an event ladder a
 ; bracket is not running) and offering a key that answers "not here" is worse
@@ -3321,28 +3016,6 @@ tui_s_nofs:    db 'Full screen needs Rate 5.5 kHz', 0
 tui_s_hint:    db 'ENTER play  SPACE stop  HOME top  L load', 0
 tui_s_hintf:   db 'ENTER play  SPACE stop  F/ESC', 0
 
-
-; the About panel. TUI_ABH is DERIVED from the line count rather than pinned:
-; the card was 84 tall with five lines in it and the credit added two, which
-; is exactly the drift a literal invites (SPEC.md 20.5.1).
-TUI_ABLINES equ 7                   ; ...and this is asserted against the table
-TUI_ABLH    equ 12                  ; below, so the two cannot disagree
-TUI_ABTOP   equ 10                  ; the first line's pen, from the card top
-TUI_ABW     equ 240
-TUI_ABH     equ TUI_ABTOP + TUI_ABLINES * TUI_ABLH + 4
-
-tui_ablines:
-    dw tui_ab1, tui_ab2, tui_ab3, tui_ab4, tui_ab5, tui_ab6, tui_ab7, 0
-tui_ab1:     db 'Tracker for os8088', 0
-tui_ab2:     db 'A FastTracker II homage', 0
-tui_ab3:     db 'MOD replay in the style of', 0
-tui_ab4:     db '8bitbubsy/ft2-clone', 0
-tui_ab5:     db 'Ported by Jorge Gonzalez', 0
-tui_ab6:     db 'Optimized by Elendilon', 0
-tui_ab7:     db 'Any key closes', 0
-%if (tui_ab1 - tui_ablines) / 2 - 1 != TUI_ABLINES
-  %error "tui_ablines no longer holds TUI_ABLINES lines - the card is mis-sized"
-%endif
 
 ; =============================================================================
 ; trkui bss (through tracker.asm's TRKB/TRKW/TRKBUF accumulator)
@@ -3430,6 +3103,4 @@ tui_ab7:     db 'Any key closes', 0
     TRKW tui_t1                     ; shared scratch words (serial: every
     TRKW tui_t2                     ; drawer runs under the one gfx lock)
     TRKBUF tui_nbuf, 8              ; number/text compose buffers
-    TRKBUF tui_pbuf, 48             ; 'Pos xx  Row yy' plus, in the TRKLOG
-                                    ; build only, SPEC.md 45.16.4's sweep
     TRKBUF tui_insbuf, 20
