@@ -140134,6 +140134,18 @@ it is a **distance** rather than an inequality. What clears it is mass and not
 detail: the coin is SOLID where `0` is outlined, the shield OUTLINED where the
 heart is solid, and the sword's guard is low because a centred one is the `+`.
 
+**A MISSING GLYPH IS A HOLE AND NOTHING REPORTS IT, and the face is not where
+to look for one.** Every mark below `'0'` — `+ , - . /` — answered *"no such
+glyph"* for as long as these faces have existed, because `ti_chidx` tested for
+a digit before it tested for a mark and fell straight to its refusal. The one
+mark anything wrote was the **colon**, which sorts above `'9'` and reached the
+mark table the long way round, so the defect shipped invisible and
+`--selfcheck` could never have found it: nothing in the faces was wrong. What
+finds it is `tests/tithecard.py` comparing the strip on the glass against the
+FACE'S OWN BITMAPS rendered on the host (`os88titheface.render`) — and the line
+it compares has to be one with a comma in it, a colon being exactly the
+character that worked while the rest did not.
+
 **A MISSING GLYPH IS A HOLE AND NOTHING REPORTS IT.** `ti_chidx` answers
 `0FFh` for a byte no face carries and `ti_glyph` then draws *nothing* — no box,
 no fallback, a gap the width of a cell. The faces were 48 glyphs and the first
@@ -140194,8 +140206,21 @@ between the flow's margin and the figure's column. Both defects were put back
 in and a frame-line check passed them.
 
 **A card is white and the board is black**, which is the whole of how it reads
-at 1bpp — so the hovered card needs no second colour and no dither: ink and
-paper swap and it inverts whole, icons included (`OSAPI_GFX_BLIT1_PEN`).
+at 1bpp — so the hovered card needs no second colour and no dither: it inverts
+whole, icons included.
+
+**THE PEN IS NOT A POLARITY, ON TWO ADAPTERS OF THREE.** `gfx_blit1_pen` is
+*ignored* on 1bpp (§97.4.6) — there is one plane and a set bit is lit — so a
+band composed as *"ink is the picture"* reads one way on VGA and the other way
+on Hercules and CGA. The band is composed **SET = WHITE** on every adapter and
+no pen is set at all, the package's default (ink white, paper black) already
+being that; the resting card's inversion is a byte `not` over the card's own
+columns, which are byte-aligned by construction. **Three things follow, and
+the middle one is why it had to change**: the hover now inverts on all three
+adapters where it used to invert only on VGA; the panel's **margins** are
+clear bits, which is the only thing that is black everywhere — composed as ink
+they were two white bars down the panel on both 1bpp adapters, which is what
+the field saw; and two far calls come out of every card draw.
 
 **It also EXPANDS, sideways into the panel's own 8-pixel margins**, and
 sideways rather than downward for a reason: an expansion that overlapped its
@@ -140409,6 +140434,29 @@ shear in a second place is how two answers get to disagree; twenty compares
 once a frame is nothing against the twenty-three arrivals the frame already
 makes. A hover that worked only on the panel would go blank at exactly the
 moment the pointer reached the thing it was about.
+
+**A HOVER REDRAWS THE STATUS BLOCK, NOT THE STRIP.** It redrew the strip, and
+the field reported it exactly: running the pointer down the card list took the
+idle animation to a crawl. Measured on a VGA at **4.9 frames a second against
+18.7 parked**, while sweeping the *board* — the same cell walk, the same status
+change, no card redraw — stayed at 18.2. The strip is 640×36 = 23,040 pixels
+and a card is 4,096, so the strip was three quarters of a hover's work and none
+of it had changed: the round, the phase and the toggle are the same bytes.
+
+The band **persists** — it is bss, the other two blocks are still in it — so a
+hover recomposes the middle and puts down **the line's own rectangle**, unioned
+with the one it replaces because the old line is what would otherwise be left
+behind. **Clearing and blitting are two different rectangles on purpose**: the
+clear is memory and the blit is a kernel arrival over a framebuffer, so the
+cheap one is done generously (the whole block) and the dear one is cut to what
+changed. A card↔card hover is **12.5 fps** now, and 14.2 with the status
+redraw removed entirely — so what is left is proportional to the pixels.
+
+**Each block keeps a CELL OF GAP from the next, and it is load-bearing.** The
+block is cleared a byte at a time and a glyph's pad cell beyond that, so a
+boundary falling inside a neighbour's last glyph takes that glyph with it —
+`PLAN` came back as `PLA`, and the toggle lost its `F` and the left edge of its
+box.
 
 **THE STRIP IS COMPOSED AND BLITTED, not run.** `OSAPI_FONT_RUN` draws only
 its own length, which is survivable for `ROUND 03 PLAN` and is not for a line

@@ -7213,7 +7213,7 @@ SOAK = [
         "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
-    Row("tithecard", "soak", py("tests/tithecard.py"), 120.0,
+    Row("tithecard", "soak", py("tests/tithecard.py"), 150.0,
         "SPEC.md 97.4.1: TITHE's card composer, on all three adapters and in"
         "both faces. A card is ONE `OSAPI_GFX_BLIT1` of a band the package"
         "composed in its own face, and the flow that fills it answers"
@@ -7237,8 +7237,13 @@ SOAK = [
         "composed right and inverted one frame later); and SPEC.md 97.4.8's"
         "FRONT/REAR toggle and status line - every card restates its stats when"
         "the row flips, and the HUD says what the pointer is over and comes"
-        "back WHOLE, which a centred font_run could not do. Needs"
-        "`make tithedisk`",
+        "back WHOLE, which a centred font_run could not do. Its last check is"
+        "the one that reaches furthest: the strip on the glass against the"
+        "FACE'S OWN BITMAPS rendered on the host, which is the only thing that"
+        "can see a glyph the face HAS and ti_chidx cannot reach - every mark"
+        "below '0' drew a hole for as long as the faces existed, and the colon"
+        "was the one that worked, so the compared line has to have a COMMA in"
+        "it. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,

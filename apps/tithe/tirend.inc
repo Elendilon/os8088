@@ -1234,31 +1234,9 @@ ti_hud_draw:
     call ti_hud_toggle
 
     ; --- and the status, centred between them ------------------------------
-    call ti_status                  ; SI -> the line
-    call ti_textw
-    mov cx, [ti_hright]             ; the room the other two blocks left
-    sub cx, [ti_hleft]
-    jbe .blit
-    cmp ax, cx
-    jbe .mid
-    mov bx, [ti_hleft]              ; ...and a line too long for it starts at
-    add bx, [ti_fw]                 ; the left of that room rather than being
-    jmp short .put                  ; centred out of the window
-.mid:
-    sub cx, ax
-    shr cx, 1
-    mov bx, [ti_hleft]
-    add bx, cx
-.put:
-    mov di, ti_hudband
-    mov dx, [ti_hty]
-    call ti_status
-    call ti_text
-.blit:
-    mov ax, (CBLACK << 8) | CWHITE
-    call OSAPI_GFX_BLIT1_PEN
-    mov si, ti_hudband
-    mov ax, [ti_hx]
+    call ti_hb_status
+    mov si, ti_hudband              ; ...then the WHOLE strip, this being the
+    mov ax, [ti_hx]                 ; call that composed all three blocks
     mov bx, [ti_oy]
     mov cx, [ti_hw]
     mov dx, [ti_hud]
@@ -1267,6 +1245,209 @@ ti_hud_draw:
 .out:
     pop es
     pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_hud_status - recompose and blit the MIDDLE BLOCK alone
+; Preserves every register.
+;
+; A HOVER CHANGE MUST NOT COST THE WHOLE STRIP. It did, and the field reported
+; it exactly: running the pointer down the card list took the idle animation
+; to a crawl. Measured on a VGA at 4.9 frames a second against 18.7 parked,
+; while sweeping the BOARD - the same twenty-cell walk, the same status
+; change, no card redraw - stayed at 18.2. The strip is 640x36 = 23,040 pixels
+; and a card is 128x32 = 4,096, so the strip was three quarters of the work of
+; a hover and none of it had changed: the round, the phase and the toggle are
+; the same bytes they were.
+;
+; So the band PERSISTS - it is bss, the other two blocks are still in it - and
+; this recomposes the middle and blits that rectangle alone. Its x is snapped
+; out to a byte each side, `gfx_blit1` refusing an unaligned one (SPEC.md
+; 5.4.2), and the right edge gets one byte of slack because `ti_glyph` writes
+; a pad byte past its last cell.
+; -----------------------------------------------------------------------------
+ti_hud_status:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    push ds
+    pop es
+    cld
+    cmp word [ti_hbs], 0            ; nothing has composed the strip yet
+    je .out
+    mov bp, [ti_hbs]
+    call ti_hb_status               ; ...which leaves the rectangle to put down
+    cmp word [ti_hsw], 0
+    je .out
+    mov si, ti_hudband              ; ...and the band's own row and byte
+    mov ax, [ti_hty]
+    mul word [ti_hbs]
+    add si, ax
+    mov ax, [ti_hsx]
+    mov cl, 3
+    shr ax, cl
+    add si, ax
+    mov ax, [ti_hx]
+    add ax, [ti_hsx]
+    mov bx, [ti_oy]
+    add bx, [ti_hty]
+    mov cx, [ti_hsw]
+    mov dx, [ti_fh]
+    mov bp, [ti_hbs]
+    call OSAPI_GFX_BLIT1
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_hb_status - the middle block INTO the band ---------------------------
+; in:  BP = the band's stride
+; out: [ti_hsx]/[ti_hsw] = the byte-snapped rectangle that needs putting down
+;
+; IT CLEARS THE BLOCK AND BLITS THE LINE. Those are two different rectangles
+; on purpose: clearing is memory and blitting is a kernel arrival over a
+; framebuffer, so the cheap one is done generously and the dear one is cut to
+; what changed. The block is ~550 pixels of a VGA strip and an ability line is
+; ~300 of them, and what has to be PUT DOWN is the union of the line that was
+; there and the line replacing it - the old one being what would otherwise be
+; left behind. Cutting the CLEAR to that union as well is where the first
+; version went wrong, because the union's left edge is only meaningful once a
+; line has been drawn at all.
+ti_hb_status:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    ; --- where the line goes, and how wide it is ---------------------------
+    call ti_status                  ; SI -> the line
+    call ti_textw
+    mov cx, [ti_hright]             ; the room the other two blocks left
+    sub cx, [ti_hleft]
+    jbe .none
+    cmp cx, [ti_fw]                 ; ...less the cell ti_glyph pads with
+    jbe .none
+    sub cx, [ti_fw]
+    cmp ax, cx
+    jbe .mid
+    mov bx, [ti_hleft]              ; ...and a line too long for it starts at
+    add bx, [ti_fw]                 ; the left of that room rather than being
+    mov ax, cx                      ; centred out of the window
+    jmp short .have
+.mid:
+    sub cx, ax
+    shr cx, 1
+    mov bx, [ti_hleft]
+    add bx, cx
+.have:
+    mov [ti_hnx], bx
+    add ax, bx
+    add ax, [ti_fw]                 ; ...plus ti_glyph's own pad cell
+    mov [ti_hnr], ax
+
+    ; --- CLEAR the whole block, which is memory and costs no arrival -------
+    mov dx, [ti_hty]
+.clr:
+    mov ax, dx
+    sub ax, [ti_hty]
+    cmp ax, [ti_fh]
+    jae .rect
+    push dx                         ; ...DX, THE ROW, WHICH `mul` CLOBBERS.
+    mov ax, dx                      ; It is the third time in this package: a
+    mul bp                          ; multiply lands its high half there, so a
+    pop dx                          ; loop that counts rows in DX and resolves
+    mov di, ti_hudband              ; a row address inside itself clears
+    add di, ax                      ; exactly ONE row and leaves the rest of
+    mov ax, [ti_hleft]              ; the last line under the new one - which
+    add ax, 7                       ; on the glass is a status strip with a
+    mov cl, 3                       ; clean TOP pixel row and four garbled
+    shr ax, cl                      ; ones under it. It clears from the first
+    add di, ax                      ; WHOLE byte at or after the block's left
+                                    ; edge and never the one that straddles it.
+    mov ax, [ti_hright]
+    sub ax, [ti_hleft]
+    shr ax, cl                      ; ...and THE COUNT VIA AX, because
+    mov cx, ax                      ; `mov cx, <count>` before `shr cx, cl`
+    inc cx                          ; overwrites the 3 in CL that the shift
+    xor al, al                      ; itself reads
+    rep stosb
+    inc dx
+    jmp short .clr
+
+    ; --- the rectangle to PUT DOWN: this line unioned with the last --------
+.rect:
+    mov bx, [ti_hnx]
+    cmp bx, [ti_hpr]                ; ...and nothing to union with while the
+    jb .l                           ; last box is empty
+    cmp word [ti_hpr], 0
+    je .l2
+.l:
+    cmp bx, [ti_hpx]
+    jbe .l2
+    mov bx, [ti_hpx]
+.l2:
+    mov ax, [ti_hnr]
+    cmp ax, [ti_hpr]
+    jae .r
+    mov ax, [ti_hpr]
+.r:
+    cmp bx, [ti_hleft]              ; ...clamped to the block it belongs to
+    jae .lc
+    mov bx, [ti_hleft]
+.lc:
+    mov cx, [ti_hright]
+    add cx, [ti_fw]
+    cmp ax, cx
+    jbe .rc
+    mov ax, cx
+.rc:
+    and bx, 0FFF8h                  ; ...and snapped out to whole bytes, which
+    add ax, 7                       ; gfx_blit1's one alignment rule wants
+    and ax, 0FFF8h
+    cmp ax, [ti_hw]
+    jbe .clamp
+    mov ax, [ti_hw]
+.clamp:
+    mov [ti_hsx], bx
+    sub ax, bx
+    jnc .keep
+    xor ax, ax
+.keep:
+    mov [ti_hsw], ax
+
+    mov ax, [ti_hnx]                ; this line's box becomes the last one's
+    mov [ti_hpx], ax
+    mov ax, [ti_hnr]
+    mov [ti_hpr], ax
+
+    mov di, ti_hudband              ; ...and then it is lettered
+    mov bx, [ti_hnx]
+    mov dx, [ti_hty]
+    call ti_status
+    call ti_text
+    jmp short .out
+.none:
+    mov word [ti_hsw], 0
+.out:
     pop di
     pop si
     pop dx
@@ -1307,8 +1488,12 @@ ti_hud_toggle:
     sub cx, [ti_fw]
     sub cx, ax
     mov [ti_tg0x], cx
-    sub cx, [ti_fw]
-    mov [ti_hright], cx
+    sub cx, [ti_fw]                 ; ...TWO CELLS OF GAP, and like the left
+    sub cx, [ti_fw]                 ; block's it is load-bearing: the status
+    mov [ti_hright], cx             ; block clears a byte at a time and a
+                                    ; glyph's pad cell past that, so a tighter
+                                    ; gap takes the toggle's first letter and
+                                    ; the left edge of its box with it
 
     mov bx, [ti_tg0x]
     mov dx, [ti_hty]

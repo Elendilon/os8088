@@ -54,13 +54,26 @@ import os88ui                                             # noqa: E402
 import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
 import os88mouse                                          # noqa: E402
+import os88titheface                                      # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
         "ti_by", "ti_crows", "ti_face", "ti_fh", "ti_panx",
         "ti_pan", "ti_unith", "ti_cpad", "ti_row", "ti_hx", "ti_hw",
+        "ti_hnx",
         "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
+# The ability line of the card the hover checks land on - hand row 5, the
+# HERALD. Kept here rather than scraped out of the source, so a change to the
+# text is a change somebody makes on purpose.
+#
+# IT IS THE ONE WITH A COMMA IN IT, deliberately. Row 2's line has only a
+# colon, and a colon is the ONE mark that worked while every other one was
+# unreachable - it sorts above '9', so it reached the mark table the long way
+# round where `+ , - . /` fell to the index's refusal. A row chosen without
+# looking at its punctuation passed the break that this check exists for.
+HOVER_ROW = 5
+ABILITY = "CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD"
 
 fails = []
 
@@ -225,7 +238,7 @@ def run(mach, off):
                     for r in p[y0:y1]]
         base = margins(before)
         mo = os88mouse.Mouse(marty=m)
-        mid = y0 + 2 * rw("ti_cardpitch") + rw("ti_cardh") // 2
+        mid = y0 + HOVER_ROW * rw("ti_cardpitch") + rw("ti_cardh") // 2
         mo.to(x0 + 20, mid)                     # ...onto a card
         os88marty.guest_sleep(m, 1.5)
 
@@ -317,6 +330,28 @@ def run(mach, off):
         said = sum(1 for a, b in zip(h0, h1) for q, r_ in zip(a, b) if q != r_)
         check(said > 100, "the HUD says what the pointer is over",
               "%d differing pixel(s)" % said)
+        # ...AND IT SAYS THE RIGHT WORDS, compared against the FACE's own
+        # bitmaps rather than against a screenshot. This is the only check
+        # that can see a glyph the face HAS and `ti_chidx` cannot reach: every
+        # mark below '0' - `+ , - . /` - answered "no such glyph" and drew a
+        # hole for as long as the faces have existed, because the index tested
+        # for a digit before it tested for a mark and fell straight to its
+        # refusal. The one mark anything wrote was the COLON, which sorts
+        # above '9' and reached the marks the long way round, so the defect
+        # shipped invisible - and `--selfcheck`, which reads the FACES, could
+        # never have found it: nothing in them was wrong.
+        face = [x for x in os88titheface.shipped() if x[0] == "t6"][0]
+        want = os88titheface.render(face[1], face[2], ABILITY)
+        f = mono(m)[2]
+        y = rw("ti_oy") + (rw("ti_hud") - rw("ti_fh")) // 2
+        got = [f[y + r][rw("ti_hx") + rw("ti_hnx"):
+                        rw("ti_hx") + rw("ti_hnx") + len(want[0])]
+               for r in range(rw("ti_fh"))]
+        wrong = sum(1 for a, b in zip(want, got)
+                    for p_, q in zip(a, b) if bool(p_) != bool(q))
+        check(wrong == 0, "...and the line reads as the FACE says it should",
+              "%d pixel(s) differ from the host's own render" % wrong)
+
         mo.to(x0 // 2, mid)
         os88marty.guest_sleep(m, 2.5)
         h2 = hud(mono(m)[2])

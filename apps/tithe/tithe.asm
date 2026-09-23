@@ -695,9 +695,14 @@ ti_frame:
     push dx
     call ti_hover_ck                ; the pointer moved between cards, so BOTH
     jnc .credit                     ; of them are redrawn - the one it left
-    call ti_hud_draw                ; ...and the STATUS LINE either way, the
+    call ti_hud_status              ; ...and the STATUS LINE either way, the
                                     ; board's own hover changing nothing else
-                                    ; (SPEC.md 97.4.8)
+                                    ; (SPEC.md 97.4.8). THE BLOCK AND NOT THE
+                                    ; STRIP: the round, the phase and the
+                                    ; toggle have not moved, and blitting them
+                                    ; again was three quarters of a hover's
+                                    ; work - 4.9 frames a second down the card
+                                    ; list against 18.7 parked
     cmp word [ti_hovold], -1        ; and the one it arrived on. Only the first
     je .gain                        ; was, and the second was left to feature
     mov ax, [ti_hovold]             ; 22 - which draws the UNIT ALONE, at a box
@@ -1578,6 +1583,12 @@ ti_hx:      dw 0                    ; ...its own ALIGNED screen x, which
 ti_hw:      dw 0                    ; ti_ox is not, and its width
 ti_hty:     dw 0                    ; ...its one text line's row
 ti_hleft:   dw 0                    ; ...where the left block ends
+ti_hsx:     dw 0                    ; the STATUS block's own rectangle,
+ti_hsw:     dw 0                    ; which is what a hover redraws
+ti_hnx:     dw 0                    ; the status line's own box, and the
+ti_hnr:     dw 0                    ; one it replaces - a hover covers
+ti_hpx:     dw 0                    ; the UNION, the old line being what
+ti_hpr:     dw 0                    ; would be left behind otherwise
 ti_hright:  dw 0                    ; ...and where the toggle begins
 ti_tg0x:    dw 0                    ; the toggle's two arms, banked in SCREEN
 ti_tg1x:    dw 0                    ; x so a click can be resolved

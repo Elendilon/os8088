@@ -65,8 +65,13 @@ ti_chidx:
     mov al, 7
     ret
 .dig:
-    cmp al, '0'
-    jb .bad
+    cmp al, '0'                     ; ...AND A MARK BELOW '0' IS STILL A MARK.
+    jb .marks                       ; This said `jb .bad`, so every one of
+                                    ; `+ , - . /` answered "no such glyph" and
+                                    ; drew a hole - and the defect was invisible
+                                    ; because the only mark anything wrote was
+                                    ; the COLON, which sorts above '9' and
+                                    ; reaches .marks the long way round.
     cmp al, '9'
     ja .upper
     sub al, '0' - 8

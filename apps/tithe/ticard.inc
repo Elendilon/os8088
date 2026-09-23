@@ -217,9 +217,18 @@ ti_card_draw:
     ; stale white down each side of the panel. The old per-primitive draw put
     ; a `gfx_fill` of the whole panel row in front of the card for this; the
     ; composer would rather not spend the arrival, so the MARGINS ARE PART OF
-    ; THE COMPOSITION - solid INK, which is the panel's black under a resting
-    ; card's pen and is nothing at all under an expanded one, which has no
-    ; margins to cover.
+    ; THE COMPOSITION - and they are CLEAR bits, which is the only thing that
+    ; is black on every adapter.
+    ;
+    ; THE PEN IS NOT A POLARITY, ON TWO ADAPTERS OF THREE. `gfx_blit1_pen` is
+    ; IGNORED on 1bpp (SPEC.md 97.4.6) - there is one plane and a set bit is
+    ; lit - so a band composed as "ink is the picture" reads one way on VGA
+    ; and the other way on Hercules and CGA. Composing the margins as ink made
+    ; them the panel's black on VGA and two white bars down the panel on both
+    ; 1bpp adapters, which is what the field saw. So the band is composed
+    ; SET = WHITE on every adapter and no pen is set at all: the package's
+    ; default (ink white, paper black) is already that, which also takes two
+    ; far calls out of every card draw.
     mov word [ti_cl], 0
     mov cx, [ti_pan]
     cmp word [ti_cx], 0
@@ -250,7 +259,6 @@ ti_card_draw:
     rep stosb
     pop di
 
-    call ti_cb_margins
     ; --- the frame, and the pulse-free second one --------------------------
     call ti_cb_frame
     cmp word [ti_cx], 0
@@ -262,15 +270,16 @@ ti_card_draw:
     call ti_cb_text
     call ti_cb_unit
 
-    ; --- ONE ARRIVAL ------------------------------------------------------
-    ; A hovered card is INK ON PAPER the other way round, which the PEN does
-    ; rather than a second composition: the band is the same bits either way.
-    mov ax, (CWHITE << 8) | CBLACK
+    ; --- AND THE HOVER INVERTS IN THE BAND, not in the pen -----------------
+    ; Which is what makes it INVERT AT ALL on the two adapters the pen does
+    ; not reach: a hovered card was distinguished on Hercules and CGA by its
+    ; width and by nothing else. The card's columns are byte-aligned by
+    ; construction - the panel's x, its width and the margin are all multiples
+    ; of 8 - so this is a byte `not` over the card and never over the margins.
     cmp word [ti_cx], 0
-    je .pen
-    mov ax, (CBLACK << 8) | CWHITE
-.pen:
-    call OSAPI_GFX_BLIT1_PEN
+    jne .blit                       ; hovered: the picture IS the ink
+    call ti_cb_invert
+.blit:
     mov si, ti_cardband
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
@@ -278,8 +287,6 @@ ti_card_draw:
     mov dx, [ti_cardh]
     mov bp, [ti_cbs]
     call OSAPI_GFX_BLIT1
-    mov ax, (CBLACK << 8) | CWHITE  ; the pen is valid for this lock hold
-    call OSAPI_GFX_BLIT1_PEN        ; (SPEC.md 5.4.2.2), so it is put back
 
     cmp word [ti_cx], 0             ; the hovered card's box is banked, so the
     je .out                         ; wheel can redraw the UNIT alone
@@ -391,32 +398,46 @@ ti_cb_frame:
     pop bx
     ret
 
-; --- ti_cb_margins - the panel's ground each side of an inset card ----------
-; Solid INK for the whole of the band's height, so a resting card's blit puts
-; the panel's own black back over whatever an expansion left there.
-ti_cb_margins:
+; --- ti_cb_invert - flip the CARD's own columns, leaving the margins --------
+; The band is composed "the picture is set" and a resting card wants the
+; opposite: white paper, black frame, black letters. Flipping it here rather
+; than with the pen is what makes the margins work - a clear bit is black on
+; every adapter and an ink bit is not (see ti_card_draw) - and it is what
+; makes a hovered card invert on the two adapters the pen does not reach.
+;
+; BYTE WORK AND NOT BIT WORK: the panel's x, its width and the margin are all
+; multiples of 8, so the card starts and ends on a byte boundary. A VGA card
+; is 14 bytes across 32 rows, which is under half a millisecond against an
+; arrival's ~800 us.
+ti_cb_invert:
     push ax
     push bx
     push cx
     push dx
-    cmp word [ti_cl], 0
-    je .out
+    push di
+    mov ax, [ti_cl]
+    mov cl, 3
+    shr ax, cl
+    mov di, ti_cardband
+    add di, ax
+    mov bx, [ti_cwd]
+    shr bx, cl
     xor dx, dx
 .row:
     cmp dx, [ti_cardh]
     jae .out
-    xor bx, bx
-    mov cx, [ti_cl]
-    dec cx
-    call ti_cb_hline
-    mov bx, [ti_cl]
-    add bx, [ti_cwd]
-    mov cx, [ti_cbw]
-    dec cx
-    call ti_cb_hline
+    push di
+    mov cx, bx
+.b:
+    not byte [di]
+    inc di
+    loop .b
+    pop di
+    add di, [ti_cbs]
     inc dx
     jmp short .row
 .out:
+    pop di
     pop dx
     pop cx
     pop bx

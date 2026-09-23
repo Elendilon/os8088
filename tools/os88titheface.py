@@ -357,6 +357,39 @@ def emit(path):
           % (path, len(faces), len(ORDER), total))
 
 
+def render(face, icons, text):
+    """The pixel rows a run of `text` makes - the composer's own arithmetic.
+
+    It exists so a TEST can compare what the machine drew against what the
+    face says it should have, which is the only thing that catches a glyph
+    the face HAS and the package's index cannot reach: every mark below '0'
+    answered "no such glyph" for as long as this face has existed, because
+    `ti_chidx` tested for a digit first and fell to its refusal, and the one
+    mark anything wrote was the COLON - which sorts above '9' and got there
+    the long way round. Nothing in the faces was wrong, so nothing that reads
+    the faces could have told.
+    """
+    packed = {}
+    for code, rows in face.g.items():
+        packed[code] = [sum(0x80 >> i for i, c in enumerate(r) if c == "#")
+                        for r in rows]
+    for code, rows in (icons or {}).items():
+        packed[code] = list(rows)
+    out = [[0] * (len(text) * face.w) for _ in range(face.h)]
+    for n, ch in enumerate(text):
+        code = ord(ch.upper()) if isinstance(ch, str) else ch
+        g = packed.get(code)
+        if g is None:
+            continue
+        for y in range(face.h):
+            for x in range(8):
+                if g[y] & (0x80 >> x):
+                    px = n * face.w + x
+                    if px < len(out[y]):
+                        out[y][px] = 1
+    return out
+
+
 def selfcheck():
     bad = []
     need = set(range(1, 8)) | {32} | set(range(48, 58)) | set(range(65, 91))
