@@ -2890,8 +2890,8 @@ tui_b_full:  db 'Full F', 0
 ; than not offering it. The refusal stays: a key the user presses anyway still
 ; says WHY, which is SPEC.md 47 rule 3's shape - the greyed thing explains
 ; itself and the unlisted thing has to.
-tui_s_hint:    db 'ENTER play  SPACE stop  HOME top  L load', 0
-tui_s_hintf:   db 'ENTER play  SPACE stop  F/ESC', 0
+tui_s_hint:    db 'ENTER play  SPACE pause  HOME top  L load', 0
+tui_s_hintf:   db 'ENTER play  SPACE pause  F/ESC', 0
 
 
 ; =============================================================================

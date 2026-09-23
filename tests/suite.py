@@ -542,18 +542,20 @@ FAST = [
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
     Row("sndmove", "soak", py("tests/sndmove.py"), 150.0,
-        "SPEC.md 66.6.3.1/66.6.4: the LAST pinned claims. SOUND.DRV is the "
-        "only driver that hooks an interrupt vector - five of them - so its "
-        "image was the one thing mem_can_move still refused outright; the "
-        "kernel patches the IVT now and moves the image at IF=0. Its 8KB DMA "
-        "ring sits immediately below it and could never move while it was "
-        "pinned, which is why the two are one row. Six assertions, and THREE "
-        "of them are A/B'd: with sbl_ring_reloc storing the old base 5 goes "
-        "red alone, with the IVT loop out 5b goes red alone AND THE MACHINE "
-        "STILL DRAWS - which is the whole reason that check exists. It wants "
-        "a Sound Blaster: os8088_5150_sb_gla, and the driver is already up at "
-        "the first desktop frame there - the first draft went to the Control "
-        "Panel and clicked row 0, which UNLOADED it",
+        "SPEC.md 66.6.3.1/34.5.2: SOUND.DRV is the only driver that hooks an "
+        "interrupt vector, so its image is the one a compaction must follow "
+        "into the IVT - moved at IF=0 with the card idle and the vector still "
+        "hooked. And an idle card holds NOTHING but that image: the 8KB ring "
+        "this row used to move is claimed per double-buffered stream now and "
+        "freed with it, so assertion 1 is the leak check (sbl_unpin's free "
+        "taken out: red at a lone 8KB claim after the stream closed). With "
+        "the IVT loop out 5b goes red alone AND THE MACHINE STILL DRAWS - "
+        "which is the whole reason that check exists. The arena is built "
+        "with SBTEST in the ceiling above the re-mounted driver: the RAM disk "
+        "did it while the ring made the driver's hole 14KB, and its 9KB "
+        "image no longer fits the 7KB one. It wants a Sound Blaster: "
+        "os8088_5150_sb_gla, and the driver is already up at the first "
+        "desktop frame there",
         wants=("build/sndmove360.img",)),
     Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
         "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
@@ -7125,8 +7127,10 @@ SOAK = [
     Row("heapdrv", "soak", py("tests/heapdrv.py"), 20.0,
         "SPEC.md 28.4.6: a DRIVER's own claims are on the heap page. "
         "SOUND.DRV's image was on it - MEM_K_DRV is a kernel tag, so DrvImg "
-        "files under System - and the 8KB DMA ring the driver then claims for "
-        "itself was on no row at all: mem_own stamps a claim with the CALLING "
+        "files under System - and the claims the driver takes for itself "
+        "(the staging pool and the double buffer, held while SBTEST's stream "
+        "is open - an idle card holds neither since SPEC.md 34.5.2) were on "
+        "no row at all: mem_own stamps a claim with the CALLING "
         "segment, which for a driver is its image's, and that is neither a "
         "kernel tag nor an instance nor any tm_ispt, so every arm of "
         "tm_hmatch refused it and there was no third answer. It is a DEFECT "

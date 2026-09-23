@@ -14,7 +14,7 @@ text screen has NOT demonstrated the decoupling. So X comes off FIRST, and
 every interesting assertion below is made with `[mp_xt]` observed to be 0.
 
   1. XT mode is pre-armed here, and the pick is untouched by that
-  2. X takes XT mode off - the rate menu goes back to the 45.10 three
+  2. X takes XT mode off - the rate menu goes back to the 45.10 rows
   3. V sets the pick, and the row is LIVE (not MENU_DIS) with XT mode off
   4. R takes the rate to 22 kHz, which no XT mode can reach
   5. F reaches the TEXT screen with [mp_xt] = 0            <- the whole point
@@ -107,7 +107,15 @@ def main():
         print("2. X takes XT mode off")
         m.key("KeyX"); time.sleep(6)
         check("mp_xt after X", b("mp_xt"), 0)
-        check("Rate rows are the 45.10 three", w2(P["trk_e_rate"] + AMENU_NITEM), 3)
+        # 11/22 kHz, and 33/44 ONLY where the card can play them: the
+        # count is the guest's own SND_CAP_PCM_HI, read off the kernel's
+        # copy of the driver's caps (drv_svc + DSV_CAPS = 0), so this holds
+        # on the DSP 2.01 SB this machine carries (2) and on an SB Pro/16 (4)
+        # alike (SPEC.md 45.10.1)
+        hirate = int.from_bytes(m.read(S("drv_svc"), 2), "little") & 0x20
+        check("Rate rows with XT mode OFF (%s)" % ("SB Pro/16" if hirate
+              else "SB 2.0: no 33/44"), w2(P["trk_e_rate"] + AMENU_NITEM),
+              4 if hirate else 2)
         check("the Text Screen row is LIVE and unmarked",
               text_row(), b"  Text Screen")
 

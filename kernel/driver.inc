@@ -1177,7 +1177,7 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
+DRVM_IMG_SND equ 7              ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 5              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 19             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 9              ; ceil(build/ramdisk.drv / 1024)   of these
@@ -1188,11 +1188,13 @@ DRVM_IMG_NET equ 7              ; ceil(build/net.drv     / 1024) - SEVEN
 DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
 DRVM_IMG_USBM equ 2             ; ceil(build/usbmouse.drv / 1024)
 
-DRVM_SND     equ DRVM_IMG_SND + 8 + 20    ; SBL_DMASZ (the DMA-visible double
-                                ; buffer and record ring) + SBL_POOLKB (the
-                                ; staging pool, taken on the first grant). The
-                                ; pool walks DOWN by SBL_POOLSTEP when the heap
-                                ; will not fund it; 20 is the top rung
+DRVM_SND     equ DRVM_IMG_SND + 16        ; SBL_PLAYKB: what it holds PLAYING -
+                                ; a 16KB ring the card reads in place, and no
+                                ; double buffer (SPEC.md 34.5.2). It was
+                                ; image + 8 + 20, the worst case no shipped
+                                ; program reaches; recording is image + 16
+                                ; + 8 (the capture buffer), and an idle card
+                                ; holds its image alone (31.6.2, 34.6.3)
 DRVM_HDD     equ DRVM_IMG_HDD ; the hard disk claims NOTHING while doing its
                                 ; job. It was `+ 4 * 6` - HD_MAXVOL listing
                                 ; claims of HDD_LISTKB, one per mounted volume

@@ -38,7 +38,13 @@ Nine assertions. Check 7 is the one no memory dump can make:
   6. All 4 channel `MP_SEG` followed.
   7. The replayer is STILL RUNNING afterwards - `mp_row` advances - which is
      the only check that says the worker came back from its park.
-  8/9. The sound driver's staging pool, where the machine has a card.
+  8/9. The sound driver's staging pool, where the machine has a card - and
+     since SPEC.md 34.5.2 the card PLAYS out of it, so check 8's direct arm
+     asserts it held still under the compaction rather than that it moved.
+     SAID PLAINLY: nothing reaches that arm today. The registered machine has
+     no card, and on one that has, Tracker plays and its face animates, so
+     this script's settles never end. The pin itself is one MC_RLOC word the
+     compactor refuses on sight (mem_can_move's first test).
 """
 import sys, os, time, hashlib, argparse, subprocess, tempfile
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
@@ -153,7 +159,8 @@ def main():
                           machine=a.machine, boot=False) as m:
         m.run()
         os88marty.settle(m, gate=os88marty.desktop_up)
-        mo = os88mouse.Mouse(marty=m)
+        os88marty.no_saver(m)           # a settle can outlast the saver's
+        mo = os88mouse.Mouse(marty=m)   # delay, and then never ends
 
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         dslot = dispcp.win_list(m, S)[-1]
@@ -212,14 +219,18 @@ def main():
                      ("drivers/sound/", "drivers/", "apps/"))
         dseg = next((c[0] for c in claims(m, S) if c[2] == MEM_K_DRV), None)
         pool0 = prloc = None
+        direct = 0
         if dseg:
             pool0 = u16(m.read(dseg * 16 + D["sbl_poolseg"], 2))
+            direct = m.read(dseg * 16 + D["sbl_direct"], 1)[0]
             if pool0:
                 pc = [c for c in claims(m, S) if c[0] == pool0]
                 prloc = pc[0][3] if pc else None
-                print("sound driver at %04x, pool %04x %dKB%s"
+                print("sound driver at %04x, pool %04x %dKB%s%s"
                       % (dseg, pool0, (pc[0][1] // 64) if pc else 0,
-                         "  MOVABLE" if prloc else ""))
+                         "  MOVABLE" if prloc else "",
+                         "  DIRECT - the card plays out of it" if direct
+                         else ""))
         if not pool0:
             print("no sound driver / no stream: the pool checks will SKIP")
 
@@ -361,7 +372,21 @@ def main():
             # trapped beneath PINNED claims. So this reports what it saw and
             # does not manufacture a pass. (Closing Tracker to open a hole is
             # self-defeating: it stops the stream, and [sbl_poolseg] goes to 0.)
-            if not pnew:
+            #
+            # A DIRECT STREAM TURNS THIS ROUND (SPEC.md 34.5.2): the 8237 is
+            # reading the ring straight out of the pool, so the driver PINS it
+            # for the stream's life and the right answer is the one this row
+            # could never assert before - a compaction ran under a playing
+            # stream (checks 2-7 are it) and the pool did NOT move.
+            if direct:
+                held = pnew == pool0 and not prloc
+                print("  8 pool held still     %s"
+                      % ("OK - pinned while the card plays it" if held else
+                         "%04x -> %04x, MC_RLOC %04x  <-- moved or movable "
+                         "under a live DMA transfer" % (pool0, pnew,
+                                                         prloc or 0)))
+                bad += not held
+            elif not pnew:
                 print("  8 pool moved          SKIP (the stream closed, so the"
                       " pool was freed)")
             elif pnew != pool0:
@@ -369,7 +394,7 @@ def main():
             else:
                 print("  8 pool moved          NOT EXERCISED (declared=%s;"
                       " nothing was free beneath it)" % bool(prloc))
-            if not prloc:
+            if not direct and not prloc:
                 print("      the pool was never DECLARED movable")
                 bad += 1
             ok8 = (not pnew) or (pnew in live)

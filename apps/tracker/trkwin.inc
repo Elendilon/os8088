@@ -57,6 +57,20 @@ TW_CELLS    equ 50                  ; so font_run takes its one-store path
 TW_LPITCH   equ 10                  ; LCD line pitch
 TW_THW      equ 8                   ; a slider thumb's width
 TW_VUFALL   equ 2                   ; the needles' fall per frame (tui_vu_step)
+TW_SPFALL   equ 3 * TW_VUFALL       ; the spectrum's bars fall THREE times as
+                                    ; fast (SPEC.md 45.24): they show what is
+                                    ; happening NOW, and the peak markers below
+                                    ; carry what happened recently
+TW_PKHOLD   equ 4                   ; a peak marker holds this many frames
+                                    ; (~0.2 s at a frame a tick)...
+TW_PKSTEP   equ 4                   ; ...then falls this far every
+TW_PKEVERY  equ 2                   ; TW_PKEVERY frames: two levels a frame,
+                                    ; the old bars' speed, so it trails the new.
+                                    ; STEPPED rather than a level a frame because
+                                    ; a marker's move is two fills whatever its
+                                    ; size (the rows it leaves, the rows it
+                                    ; takes), so the step is what is paid for
+TW_PKH      equ 2                   ; the marker's height in rows
 
 TWI_BODY    equ 1                   ; the whole face owes a draw
 TWI_VIZ     equ 2                   ; ...or only the visualiser pane
@@ -106,10 +120,12 @@ TWO_ABOUT   equ 7
 TWV_VU      equ 0
 TWV_SPEC    equ 1
 TWV_SCOPE   equ 2
-TWV_N       equ 3                   ; ...the three a pick cycles through; the
-TWV_THIN    equ 3                   ; two below are only ever FORCED: the XT
-TWV_OFF     equ 4                   ; meter, and nothing at XT mode's 11 kHz
+TWV_OFF     equ 3                   ; nothing: a PICK now (SPEC.md 45.23), and
+                                    ; still what XT mode's 11 kHz forces
+TWV_N       equ 4                   ; ...the four a pick cycles through; the
+TWV_THIN    equ 4                   ; one below is only ever FORCED: the XT meter
 TW_OFFLEN   equ 19                  ; tw_s_voff's length (asserted below)
+TW_UOFFLEN  equ 9                   ; ...and tw_s_uoff's
 TW_NBAND    equ 16
 TW_BPITCH2  equ 14                  ; a band's pitch...
 TW_BANDW    equ 12                  ; ...and its bar's width
@@ -1391,6 +1407,14 @@ tw_vuy:
 tw_voff:
     cmp byte [tw_vfull], 0
     je .out
+    mov si, tw_s_voff               ; XT mode's 11 kHz forced it...
+    mov di, TW_OFFLEN
+    cmp byte [tw_viz], TWV_OFF
+    jne .str
+    mov si, tw_s_uoff               ; ...or the user PICKED it (SPEC.md 45.23)
+    mov di, TW_UOFFLEN
+.str:
+    mov [tw_t2], si
     call tw_zin
     mov [tw_t1], dx
     mov [tw_t3], cx
@@ -1398,7 +1422,11 @@ tw_voff:
     add ax, cx
     inc ax
     shr ax, 1
-    sub ax, TW_OFFLEN * 4
+    push di
+    shl di, 1
+    shl di, 1
+    sub ax, di                      ; less half the line (4 px a cell)
+    pop di
     mov bp, ax                      ; BP = the line's x
     mov ax, bx
     add ax, dx
@@ -1420,13 +1448,16 @@ tw_voff:
     mov cx, bp
     dec cx
     call tw_fills                   ; left
-    mov ax, bp
-    add ax, TW_OFFLEN * 8
+    mov ax, di
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, bp                      ; the line's end: 8 px a cell
     mov cx, [tw_t3]
     call tw_fills                   ; right
     mov cx, bp
     mov dx, [tw_t4]
-    mov si, tw_s_voff
+    mov si, [tw_t2]
     mov al, [tw_ink]
     mov ah, CBLACK
     call tw_run
@@ -1515,7 +1546,8 @@ tw_skick:
 ; -----------------------------------------------------------------------------
 ; tw_spec - sixteen bands, each a column that moves by its difference. The
 ; levels live in tw_band (0..64), kicked by tw_skick as a note is HEARD and
-; decayed by tw_vtick; tw_bh holds each column's drawn height.
+; decayed by tw_vtick; tw_bh holds each column's drawn height, and tw_peak /
+; tw_ph each band's peak marker (SPEC.md 45.24).
 ; -----------------------------------------------------------------------------
 tw_spec:
     call tw_zin
@@ -1545,83 +1577,279 @@ tw_spec:
     add ax, 8                       ; AX = band 0's x
     xor di, di
 .b:
-    mov cx, [tw_t3]                 ; the new height: level * rows / 64
-    sub cx, [tw_t1]
-    inc cx
     push ax
+    mov bx, [tw_t3]                 ; BX = the rows: a level is level * rows
+    sub bx, [tw_t1]                 ; / 64 of them
+    inc bx
+    mov cl, 6
     mov al, [tw_band + di]
     xor ah, ah
-    mul cx
-    mov cl, 6
+    mul bx
     shr ax, cl
-    mov si, ax                      ; SI = the new height
+    mov si, ax                      ; SI = the bar's new height
+    mov al, [tw_peak + di]
+    xor ah, ah
+    mul bx
+    shr ax, cl
+    mov bp, ax                      ; BP = the marker's
     pop ax
-    call tw_col
+    call tw_scol
     add ax, TW_BPITCH2
     inc di
     cmp di, TW_NBAND
     jb .b
     ret
 
-; tw_col - band DI at x AX to height SI (drawn up from [tw_t3]); preserves all
-tw_col:
+; -----------------------------------------------------------------------------
+; tw_scol - band DI at x AX: a bar SI rows high and its peak marker at BP,
+;           both drawn up from [tw_t3]. Preserves all.
+;
+; ONE PASS OVER THE COLUMN, NOTHING WRITTEN TWICE (PERFORMANCE.md rule 2). A
+; marker is a second shape in the column, and the obvious order - the bar's
+; own grow/shrink fill, then the marker over it - blacks the rows a marker is
+; emerging into and paints them white a moment later, which is the
+; double-draw flash. So the column is described as runs of three colours -
+; bar (ink), marker (white), ground (black) - for the heights on the glass and
+; the heights wanted, cut at every height where either changes colour; each
+; run whose colour moved is filled ONCE, with neighbours of one colour merged.
+; A settled column costs a compare. Owed whole ([tw_vfull]), every run is
+; drawn: black, marker, black, bar - the old two fills plus the marker's two.
+;
+; A marker at or under the bar is not drawn at all (the bar covers it), which
+; is where a fresh peak sits until the bar falls away from it (SPEC.md 45.24).
+; -----------------------------------------------------------------------------
+tw_scol:
     push ax
     push bx
     push cx
     push dx
     push si
-    mov cx, ax
-    add cx, TW_BANDW - 1
-    mov dl, [tw_bh + di]            ; DX = the height on the glass
-    xor dh, dh
-    mov bx, si
-    mov [tw_bh + di], bl
+    push di
+    push bp
+    mov [tw_scx], ax
+    cmp bp, si                      ; a marker the bar covers is not one
+    ja .pv
+    xor bp, bp
+.pv:
+    mov bl, [tw_bh + di]            ; BX, CX = the column on the glass
+    xor bh, bh
+    mov cl, [tw_ph + di]
+    xor ch, ch
+    mov ax, si
+    mov [tw_bh + di], al
+    mov ax, bp
+    mov [tw_ph + di], al
+    mov byte [tw_sall], 0
     cmp byte [tw_vfull], 0
-    jne .whole
-    cmp dx, si
-    je .out
-    jb .grow
-    mov bx, [tw_t3]                 ; shrink: black over the rows it left
-    sub bx, dx
-    inc bx
-    mov dx, [tw_t3]
-    sub dx, si
-    mov si, CBLACK
-    call tw_fills
-    jmp short .out
-.grow:
-    mov bx, [tw_t3]                 ; grow: ink over the rows it gained
-    sub bx, si
-    inc bx
-    push si
-    mov si, dx
-    mov dx, [tw_t3]
-    sub dx, si
-    pop si
-    mov si, [tw_ink]
-    and si, 0FFh
-    call tw_fills
-    jmp short .out
-.whole:
-    mov bx, [tw_t1]                 ; black above, ink below: one write each
-    mov dx, [tw_t3]
-    sub dx, si
-    push si
-    mov si, CBLACK
-    call tw_fills
-    pop si
-    mov bx, dx
-    inc bx
-    mov dx, [tw_t3]
-    mov si, [tw_ink]
-    and si, 0FFh
-    call tw_fills
+    je .same
+    inc byte [tw_sall]              ; owed whole: the glass is not known, so
+    mov bx, si                      ; every run is drawn and only the NEW
+    mov cx, bp                      ; heights cut the column
+    jmp short .build
+.same:
+    cmp cx, bp
+    jne .build                      ; the marker moved: the general walk
+    cmp bx, si
+    jne .fast
+    jmp .out                        ; unchanged: nothing to draw
+.fast:                              ; THE COMMON FRAME: the marker holds and
+    mov dx, bx                      ; the bar moves under it. DX = the higher
+    cmp dx, si                      ; of the two bars; clear of the marker's
+    jae .fh                         ; foot, the change is ONE run of ONE
+    mov dx, si                      ; colour and needs no cuts at all
+.fh:
+    or bp, bp
+    jz .fok
+    mov ax, bp
+    sub ax, TW_PKH
+    cmp dx, ax
+    ja .build
+.fok:
+    mov [tw_srn], bx                ; grow: ink over (old, new]
+    mov [tw_srt], si
+    mov byte [tw_src], 1
+    cmp si, bx
+    ja .fgo
+    mov [tw_srn], si                ; shrink: ground over (new, old]
+    mov [tw_srt], bx
+    mov byte [tw_src], 0
+.fgo:
+    call .flush
+    jmp .out
+.build:
+    mov [tw_sob], bx
+    mov [tw_sop], cx
+    mov [tw_snb], si
+    mov [tw_snp], bp
+    mov di, tw_sb                   ; the cut heights, unsorted: 0, the top,
+    xor ax, ax                      ; both bars, both markers and the foot of
+    call .put                       ; each marker
+    mov ax, [tw_t3]
+    sub ax, [tw_t1]
+    inc ax
+    call .put
+    mov ax, si
+    call .put
+    mov ax, bx
+    call .put
+    mov ax, bp
+    call .pk
+    mov ax, cx
+    call .pk
+    sub di, tw_sb
+    shr di, 1
+    mov [tw_sn], di
+    mov cx, 1                       ; insertion sort, at most eight words
+.i:
+    cmp cx, [tw_sn]
+    jae .sorted
+    mov si, cx
+    shl si, 1
+    mov ax, [tw_sb + si]
+    mov di, si
+.j:
+    or di, di
+    jz .ins
+    mov dx, [tw_sb + di - 2]
+    cmp dx, ax
+    jbe .ins
+    mov [tw_sb + di], dx
+    sub di, 2
+    jmp short .j
+.ins:
+    mov [tw_sb + di], ax
+    inc cx
+    jmp short .i
+.sorted:
+    mov byte [tw_src], 0FFh         ; no run pending
+    mov si, 2                       ; SI = the boundary index, words
+.seg:
+    mov ax, [tw_sn]
+    shl ax, 1
+    cmp si, ax
+    jae .done
+    mov dx, [tw_sb + si - 2]        ; the run (DX, AX]
+    mov ax, [tw_sb + si]
+    add si, 2
+    cmp ax, dx
+    je .seg                         ; an empty cut
+    push ax
+    mov bx, [tw_snb]
+    mov cx, [tw_snp]
+    call tw_scolr                   ; AL = the colour wanted
+    mov ah, al
+    cmp byte [tw_sall], 0
+    jne .chg
+    pop bx                          ; BX = the run's top again
+    push bx
+    push ax
+    mov ax, bx
+    mov bx, [tw_sob]
+    mov cx, [tw_sop]
+    call tw_scolr                   ; AL = the colour on the glass
+    mov bl, al
+    pop ax
+    cmp bl, ah
+    jne .chg
+    pop ax                          ; this run did not move
+    call .flush
+    jmp short .seg
+.chg:
+    pop bx                          ; BX = the run's top, DX its foot, AH its
+    cmp byte [tw_src], ah           ; colour: joins the pending run if it
+    jne .new                        ; continues it in the same colour
+    cmp [tw_srt], dx
+    jne .new
+    mov [tw_srt], bx
+    jmp short .seg
+.new:
+    call .flush
+    mov [tw_srn], dx
+    mov [tw_srt], bx
+    mov [tw_src], ah
+    jmp short .seg
+.done:
+    call .flush
 .out:
+    pop bp
+    pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+.put:                               ; [DI] = AX, DI += 2
+    mov [di], ax
+    add di, 2
+    ret
+.pk:                                ; a marker at AX: its top and its foot
+    or ax, ax
+    jz .pkr
+    call .put
+    sub ax, TW_PKH
+    jnc .pkf
+    xor ax, ax
+.pkf:
+    call .put
+.pkr:
+    ret
+.flush:                             ; fill the pending run, if there is one:
+    cmp byte [tw_src], 0FFh         ; heights (from, to] are screen rows
+    je .fr                          ; t3 - to + 1 .. t3 - from
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov ax, [tw_scx]
+    mov cx, ax
+    add cx, TW_BANDW - 1
+    mov bx, [tw_t3]
+    sub bx, [tw_srt]
+    inc bx
+    mov dx, [tw_t3]
+    sub dx, [tw_srn]
+    mov si, CBLACK
+    cmp byte [tw_src], 0
+    je .fc
+    mov si, CWHITE
+    cmp byte [tw_src], 2
+    je .fc
+    mov si, [tw_ink]
+    and si, 0FFh
+.fc:
+    call tw_fills
+    mov byte [tw_src], 0FFh
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.fr:
+    ret
+
+; tw_scolr - the colour at height AX (1 = the column's foot) for a bar BX high
+;            and a marker at CX (0 = none): AL = 0 ground, 1 bar, 2 marker.
+;            Clobbers AX; preserves the rest.
+tw_scolr:
+    cmp ax, bx
+    ja .nb
+    mov al, 1
+    ret
+.nb:
+    jcxz .blk
+    cmp ax, cx
+    ja .blk
+    push cx
+    sub cx, TW_PKH                  ; SIGNED: a marker nearer the foot than
+    cmp ax, cx                      ; its own height runs to the foot
+    pop cx
+    jle .blk
+    mov al, 2
+    ret
+.blk:
+    xor al, al
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1900,11 +2128,30 @@ tw_vtick:
     cmp bx, 4
     jb .v
     jmp short .out
-.spec:
-    xor bx, bx
+.spec:                              ; the bars fall fast and a marker keeps
+    xor bx, bx                      ; each one's recent high (SPEC.md 45.24)
 .s:
     mov al, [tw_band + bx]
-    sub al, TW_VUFALL
+    cmp al, [tw_peak + bx]
+    jb .pfall
+    mov [tw_peak + bx], al          ; a new high: the marker jumps to it and
+    mov byte [tw_phold + bx], TW_PKHOLD ; holds there a while
+    jmp short .bfall
+.pfall:
+    cmp byte [tw_phold + bx], 0
+    je .pdrop
+    dec byte [tw_phold + bx]
+    jmp short .bfall
+.pdrop:
+    mov byte [tw_phold + bx], TW_PKEVERY - 1 ; the next step's wait
+    mov ah, [tw_peak + bx]
+    sub ah, TW_PKSTEP
+    jnc .pst
+    xor ah, ah
+.pst:
+    mov [tw_peak + bx], ah
+.bfall:
+    sub al, TW_SPFALL
     jnc .st
     xor al, al
 .st:
@@ -1989,8 +2236,8 @@ tw_update:
     or byte [tw_dirty], TWI_VIZ
     push ds
     pop es
-    mov di, tw_band                 ; a new mode starts from nothing
-    mov cx, TW_NBAND
+    mov di, tw_band                 ; a new mode starts from nothing - the
+    mov cx, 2 * TW_NBAND            ; bands and their peak markers both
     xor al, al
     cld
     rep stosb
@@ -2103,8 +2350,8 @@ tw_want:
     mov bx, 4                       ; the pane is showing is the one falling
     cmp byte [tw_vizm], TWV_SPEC
     jne .scan
-    mov si, tw_band
-    mov bx, TW_NBAND
+    mov si, tw_band                 ; ...and the peak markers after them,
+    mov bx, 2 * TW_NBAND            ; which fall after the bars have gone
 .scan:
     cmp byte [si], 0                ; (no lodsb: a worker assumes no DF)
     jne .busy
@@ -2554,11 +2801,15 @@ tw_s_rep2:  db 'Rpt List', 0
 tw_s_shuf:  db 'Shuffle', 0
 tw_s_list:  db 'PlayList', 0
 tw_s_xt:    db 'XT Mode', 0
-tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope, tw_s_vu, tw_s_vnone
+tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope, tw_s_vnone, tw_s_vu
 tw_s_vnone: db 'Meter Off', 0
 tw_s_voff:  db 'No meters at 11 kHz', 0
 %if $ - tw_s_voff - 1 != TW_OFFLEN
 %error "tw_s_voff: TW_OFFLEN is the string's length"
+%endif
+tw_s_uoff:  db 'Meter off', 0         ; ...the PICKED Off's line (SPEC.md 45.23)
+%if $ - tw_s_uoff - 1 != TW_UOFFLEN
+%error "tw_s_uoff: TW_UOFFLEN is the string's length"
 %endif
 tw_s_vu:    db 'VU Meter', 0
 tw_s_spec:  db 'Spectrum', 0
@@ -2903,7 +3154,26 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
     TRKB tw_vizm                    ; ...and the mode on the glass
     TRKBUF tw_vw, 8                 ; the needles' drawn lengths, 0FFFFh muted
     TRKBUF tw_band, TW_NBAND        ; the spectrum's levels, 0..64
+    TRKBUF tw_peak, TW_NBAND        ; ...the peak markers' levels - RIGHT
+                                    ; AFTER tw_band, so the idle scan and a
+                                    ; mode's clear take both in one run
+    TRKBUF tw_phold, TW_NBAND       ; ...frames each marker still holds
     TRKBUF tw_bh, TW_NBAND          ; ...and its columns' drawn heights
+    TRKBUF tw_ph, TW_NBAND          ; ...and its markers' (0 = none on glass)
+    TRKBUF tw_sb, 8 * 2             ; tw_scol's run boundaries (words)
+    TRKW tw_sn                      ; ...how many
+    TRKW tw_scx                     ; ...the column's x
+    TRKW tw_sob                     ; ...and the four heights it compares:
+    TRKW tw_sop                     ;    old bar, old marker,
+    TRKW tw_snb                     ;    new bar, new marker
+    TRKW tw_snp
+    TRKW tw_srn                     ; the pending run: from, to, colour code
+    TRKW tw_srt
+    TRKB tw_src
+    TRKB tw_sall                    ; 1 = the column is owed whole
+%if tw_peak != tw_band + TW_NBAND
+  %error "tw_peak must follow tw_band: tw_want and tw_update take both as one run"
+%endif
     TRKBUF tw_chnote, 4             ; each channel's last note
     TRKB tw_scflat                  ; the flat trace is on the glass
     TRKW tw_scr                     ; the scope band's rows...

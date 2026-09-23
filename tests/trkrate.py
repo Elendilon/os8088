@@ -136,10 +136,18 @@ def main():
         check("trk_fs after F at 5.5 kHz", b("trk_fs"), 1)
         m.key("Escape"); time.sleep(3)
 
-        print("8. ...and XT mode off puts the other mode's three rows back")
+        print("8. ...and XT mode off puts the other mode's rows back")
         m.key("KeyX"); time.sleep(3)
         check("mp_xt after X", b("mp_xt"), 0)
-        check("Rate rows with XT mode OFF", w2(P["trk_e_rate"] + AMENU_NITEM), 3)
+        # 11/22 kHz, and 33/44 ONLY where the card can play them: the
+        # count is the guest's own SND_CAP_PCM_HI, read off the kernel's
+        # copy of the driver's caps (drv_svc + DSV_CAPS = 0), so this holds
+        # on the DSP 2.01 SB this machine carries (2) and on an SB Pro/16 (4)
+        # alike (SPEC.md 45.10.1)
+        hirate = int.from_bytes(m.read(S("drv_svc"), 2), "little") & 0x20
+        check("Rate rows with XT mode OFF (%s)" % ("SB Pro/16" if hirate
+              else "SB 2.0: no 33/44"), w2(P["trk_e_rate"] + AMENU_NITEM),
+              4 if hirate else 2)
         check("View > Fullscreen is live", item0_byte("trk_e_view"), ord("F"))
 
     print("\n%s" % ("FAILED: " + ", ".join(fails) if fails else "all checks passed"))

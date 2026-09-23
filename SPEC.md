@@ -54176,7 +54176,7 @@ memory that driver holds while it is doing its job**, in KB, right of the name
 on the name's own line.
 
 ```
-[x] Sound                              (~34K)
+[x] Sound                              (~23K)
     Loaded
 [ ] Hard Drive                         (~32K)
     Not loaded
@@ -54200,7 +54200,7 @@ function*:
 
 | row | KB | = image + what it holds to work |
 |---|---|---|
-| Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
+| Sound | ~23 | 7 image + 16 (`SBL_PLAYKB`): a player's 16KB ring, which the card reads in place (§34.5.2). It was 35 — image + the 8KB double buffer + the pool's 20KB ceiling, a worst case no shipped program reaches. Recording holds 31 (a 16KB grant + the 8KB capture buffer); an idle card holds its image alone |
 | Hard Drive | ~5 | 5 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
 | Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
 | Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
@@ -54250,7 +54250,7 @@ lettered one (PERFORMANCE.md Part 2).
 **The brackets come off if a name grows into them.** `cp_drv_mempar` measures
 the longest title in the whole table against the widest figure once per paint
 and answers one bit: with `CP_DMGAP` (8px) of air to spare the column is
-`(~34K)`, and without it the two brackets are dropped and it is `~34K`. It is
+`(~23K)`, and without it the two brackets are dropped and it is `~23K`. It is
 decided over the WHOLE table rather than the four visible rows, so a scroll
 cannot change it — a column that gained brackets halfway down the list would
 read as two columns. Today every name fits: `'Hard Drive'` is ten cells and
@@ -55424,6 +55424,21 @@ Both are called directly by the router. There is no indirection to
 dispatch through, no presence flag to consult and no probe at boot: the
 speaker is not a device that can be absent.
 
+#### 34.2.1 `SND_CAP_PCM_HI` — the card takes rates above 22,222 Hz
+
+A driver adds its bits to that word (§51.4), and one more is defined:
+**`SND_CAP_PCM_HI` = 20h**, published by `SOUND.DRV` beside `PCM_BG` when
+the DSP is 3.00 or newer — an SB Pro (high-speed mode) or an SB16 (`41h`).
+It is the same test `sbl_v_open` refuses on (err 2, §34.5), read the other
+way round, so a package can leave out a rate the card cannot play instead of
+offering it and taking the refusal at Play. `snd_hicap` sets it at
+attach and when `DRVV_TIER` turns the DSP back on; the tier's off arm clears
+it with the other PCM bits.
+
+It exists because the absence was a defect with a field report: Tracker
+offered 44 kHz on every machine, an SB 2.0 (DSP 2.01) refused it, and the
+reason never reached the user (§45.10.1).
+
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =
@@ -55586,10 +55601,12 @@ end.
 Retired once, and no longer: `drivers/sound/sb.inc` is the DSP scan, the
 stream verbs, the auto-init/single-cycle strategy gate and the deferred IRQ
 discovery, all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
-changed in the move is where its memory comes from — a **heap claim** taken at
-attach (`sbl_dma_map`, `OSAPI_MEM_CLAIM_DMA`), not a pinned segment, which is
-why the 64KB DMA-page rule had to become something the allocator answers
-(§50.3) rather than a property the address had by construction.
+changed in the move is where its memory comes from — a **heap claim**
+(`OSAPI_MEM_CLAIM_DMA_HI`), not a pinned segment, which is why the 64KB
+DMA-page rule had to become something the allocator answers (§50.3) rather
+than a property the address had by construction. It was taken at attach and
+held for the session; since §34.5.2 it is taken per stream, and a ring stream
+the card can reach needs none at all.
 
 The stream verbs reach it through `osapi_snd_stream` (slot `0x0100`), which is
 the one slot where **DX is an input on some verbs and an output on another**:
@@ -55651,6 +55668,75 @@ A driver without the verb refuses it (`AX = 7`, `CF = 1`), and a caller falls
 back to verb 3. Tracker does (§45.15.1's model carries that stream). One line
 of kernel (`cmp al, 9` / `je .status`) and the verb's body in `SOUND.DRV`.
 
+#### 34.5.2 A ring the card can reach is played where it lies
+
+A ring stream (`SND_OPENF_RING`) used to reach the card the way every stream
+did: the refill task copied each half of the package's ring out of the staging
+pool into an 8KB double buffer the 8237 was pointed at, and the ISR swapped the
+halves. But **a ring already is a double buffer** — halves, a producer writing
+ahead, a consumer the ISR counts — so the copy bought nothing except the copy
+itself and the 8KB it landed in. The buffer was claimed at attach and held for
+the session, so an idle card cost the heap 8KB whether or not anything had
+ever played.
+
+So verb 0 now asks three things of a ring stream and, if all three hold,
+programs the 8237 with **the ring itself** as its auto-init cycle
+(`[sbl_xoff]`, `[sbl_xpage]`, `[sbl_xcnt]` = RL − 1) and the DSP's block as one
+half:
+
+1. **auto-init** (DSP ≥ 2.00) — a single-cycle DSP re-arms each half from the
+   ISR, which the direct path does not carry;
+2. **RL ≥ two halves** — a ring of one block is a block the producer can never
+   write ahead of;
+3. **the ring's physical span does not cross a 64KB page** (`sbl_ring_phys`).
+   `sbl_pool_get` asks the allocator for a page-safe pool
+   (`OSAPI_MEM_CLAIM_DMA_HI`, head = the whole pool), so this is the case and
+   not a hope; if the heap has no such run the pool is claimed plainly and the
+   stream takes the copy path.
+
+What changes for a DIRECT stream (`[sbl_direct]` = 1):
+
+| | double-buffered | direct |
+|---|---|---|
+| what the 8237 reads | the 8KB buffer | the package's ring, in the pool |
+| refill task | yes — copies each half | **none** (`[drv_wcnt]` stays 0) |
+| ISR's question | was the next half's valid flag set? | is `total − consumed ≥ half`? |
+| verb 1's bound | `total − fed ≤ RL` | `total − consumed ≤ RL` |
+| who resumes an underrun | the refill task | **verb 1**, in its own `cli` window |
+| verb 9 | the half-and-pending-IRQ case | `consumed + ((into − (consumed & mask)) & mask)` — no case |
+| what keeps the memory still | `[drv_wcnt]` ≠ 0 pins an `MC_DMA` claim | verb 0 **pins the pool** (`OSAPI_MEM_MOVABLE`, AX = 0); `sbl_unpin` declares it again at close, after the channel is masked |
+
+The underrun contract is unchanged, word for word: the ISR halts and marks
+the stream paused, and nothing stale loops — what resumes it is now the feed
+that makes a whole block available again, since there is no task to notice.
+The producer's bound is the one Tracker and Audio already kept (the lead,
+`total − consumed`, never past the ring), so neither needed a line changed.
+
+**The double buffer is claimed lazily.** A stream that is not direct — a
+linear one, a single-cycle DSP, a pool that is not page-safe, and every
+record stream (the capture ring lives in it) — claims it at verb 0 or 4
+(`sbl_dma_get`) and frees it at close (`sbl_unpin`). Verbs 0 and 4 answer
+**8** when it cannot be had, verb 7's "no space"; attach no longer claims
+anything, so it can no longer fail for memory. `sbl_stop_stream` now masks
+channel 1 as well as halting the DSP, because the memory it was pointed at is
+about to be freed or allowed to move.
+
+Measured on a 4.77 MHz 5150 (MartyPC, Hercules + SB), Tracker playing
+BEVERLY.MOD windowed in XT mode:
+
+| | before | after |
+|---|---|---|
+| driver's claims, idle desktop | 6KB image + 8KB buffer | **7KB image** |
+| driver's claims, playing at 11 kHz (16KB ring) | image + 8KB buffer + 20KB pool | image + **16KB pool** |
+| ...at 5.5 kHz (8KB ring, §45.18.2) | image + 8KB buffer + 20KB pool | image + **8KB pool** |
+| `SOUND.DRV`'s share of the machine at 11 kHz | two copies of every byte | **3.5%** — only verb 6's stage |
+| 11 kHz, 60 s: underruns / minimum lead | 0 / 10,240 | 0 / **12,288** |
+| the SB's output over 25 s at 5.5 kHz | — | **byte-identical**, 1,075,588 samples |
+
+The image is 449 bytes bigger (5,903 → 6,352), which takes its claim from 6KB
+to 7KB: the only cost, against 8KB back on every machine with a card whether
+or not it ever plays, and 12–20KB back while it does.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -55672,11 +55758,11 @@ the whole reason to split them:
 
 | | DMA buffer | staging pool |
 |---|---|---|
-| size | 8KB | 20KB |
-| who addresses it | the **8237** | us, with `rep movsb` |
-| 64KB page rule | **binding** | none — it may straddle freely |
-| when claimed | attach, on an empty heap where a page-safe base is easy | first grant, and it may honestly refuse (error 8) |
-| lifetime | the driver's | the grants' |
+| size | 8KB | the first grant, up to 20KB (§34.6.3) |
+| who addresses it | the **8237** | us, with `rep movsb` — and the **8237** too, for a direct stream (§34.5.2) |
+| 64KB page rule | **binding** | asked for, so a ring in it can be played in place; a pool without it still works, by copy |
+| when claimed | ~~attach~~ the open of a stream that is not direct (§34.5.2) | first grant, and it may honestly refuse (error 8) |
+| lifetime | ~~the driver's~~ that stream's | the grants' |
 
 Holding both from boot cost a machine 32KB for a card nobody was playing —
 **58% of a 128KB machine's heap**. Measured after the split: a live grant shows
@@ -55772,6 +55858,29 @@ So digital audio was **unreachable at the RAM floor** and is not any more.
 The two changes compose: §34.6.1's smaller DMA claim is part of what leaves
 room for a pool at all. On the 640KB machine nothing moved — all three legs
 are byte-identical to the figures above.
+
+#### 34.6.3 The pool is sized to its first grant
+
+§34.6.2's tiers were right about the pool having manners and wrong about the
+size: the first tier was always 20KB, so a Tracker playing an 8KB ring held a
+20KB pool and a 16KB one held 4KB it never touched. Now the **first grant
+decides** — its size in whole KB, at least `SBL_POOLMIN` (4) so a small first
+grant leaves room for a scratch one beside it — and a later grant that does
+not fit **grows** the pool (`sbl_pool_grow`, `OSAPI_MEM_REGROW`) by the whole
+grant, up to `SBL_POOLKB` (20), which is now the pool's ceiling rather than
+its opening bid. A grant bigger than the ceiling is 7, as before.
+
+Growth never happens with a stream open — a direct stream is playing out of
+that very claim and a double-buffered one has a worker copying from it — so
+a second grant beside an open stream that does not fit answers **8** where
+the 20KB pool used to have room for it. `tests/sbtest`'s verb 5/6 round trip
+beside an open stream is that case, and `SBL_POOLMIN` is what keeps it
+working for any first grant under 4KB.
+
+The tiers went because they could not help: a pool smaller than the grant it
+was claimed for is a refusal either way, and every caller that can live with
+less — Tracker, Audio, the Recorder — already tiers its own grant and asks
+again.
 
 ### 34.7 State, boot gate, teardown
 
@@ -69955,7 +70064,74 @@ confirmation goes to 5150 #2 and its Picomem (docs/FIELD-MACHINES.md). And wheth
 not a thing any of this can measure — it is Set 20's 4,000 Hz question in the
 other direction, and it is settled the same way, on hardware and by ear.
 
-### 45.10 The Rate menu — 11 / 22 / 44 kHz for the other end of the range
+
+### 45.9.4 The XT mix at 11 kHz, profiled and tightened
+
+Reported off the 5150: at 11 kHz a busy passage puts the stream behind and it
+never catches up. Profiled on MartyPC (`os8088_5150_herc_sb_gla`,
+BEVERLY.MOD, windowed) by sampling the CPU's address from outside the guest
+and resolving it by routine - Tracker from its listing, the kernel by linear
+address, SOUND.DRV from its map at the segment its IRQ vector names - the
+machine was 97% busy, **116-117 underruns a minute**, and one routine was
+most of it:
+
+| | before | after |
+|---|---|---|
+| XT mix loop (`mp_mixch_xt`, `mp_stepi_set`) | 64.6% | 53.4% |
+| SOUND.DRV's two copies | 8.3% | 7.4% |
+| `mp_chupd` (the per-tick step) | 3.7% | 2.2% |
+| idle | 2.6% | 6.4% |
+| underruns in the window | 117 / 60 s | **0 / 90 s** |
+| ring lead, minimum | 0 | 10,240 of 16,384 |
+
+What freed that time went to the windowed face, which draws when the ring is
+deep (§45.16.7) - which is the design and is why the IDLE row understates it.
+A half's mix, `mp_gen` to `trk_stage`, went **130 -> 115 ms** median of the
+186 ms of music it carries (wall time, preemption included).
+
+Five changes, and the rule behind all of them is PERFORMANCE.md Set 20's: on
+an 8-bit bus the BYTES are the cost, instruction and data alike, 4 clocks
+each.
+
+1. **The step immediate is a byte.** `adc si, imm8` sign-extended, not
+   `imm16`: the step's integer part is at most 31,388 Hz / the mix rate - 5
+   at 5,500 - so a byte holds it for any rate over 247 Hz. One byte less on
+   every sample of every channel.
+2. **The store pass swaps its segments** (`MIXSTORE`). The first audible
+   channel WRITES, so with DS the sample and ES the package it is `lodsb`,
+   `es xlat`, `add al, 0x80`, `stosb`: 11 instruction bytes where the old body
+   was 14, ~56 clocks against ~68. The swap is two push/pop pairs a RUN (up to
+   512 samples). The add pass gains nothing from the same swap - `add [es:di],
+   al` pays back the byte - so it keeps DS.
+3. **The add pass loads with `es lodsb`** (`MIXADD`): the segment-overridden
+   `lodsb` is `mov al, [es:si]` plus the step of one, in 2 bytes rather than 3.
+   Both passes therefore patch the step LESS ONE; `mp_stepi_set` writes AL - 1
+   into all eighteen copies.
+4. **Eight samples a `loop`, not four.** A taken `loop` is 17 clocks and a
+   flushed prefetch queue; over eight it is half the tax. +114 bytes of
+   image, the one change here that costs space.
+5. **`mp_chupd` caches the step.** It is a function of the clamped period and
+   the mix rate alone, and `[mp_chper]` already holds last tick's period, so a
+   period that did not change costs no DIV (three were ~450 clocks a channel a
+   tick). A record `mp_start` zeroed has a step of 0, which no clamped period
+   has, and a new rate clears every slot - `[mp_chrate]` is what it was worked
+   out for.
+
+And in SOUND.DRV (§34.5), every pool and ring copy is `SBL_MOVS` - `rep
+movsw` and the odd byte, where it was `rep movsb` - 13.3 clocks a byte on an
+8088 (PERFORMANCE.md Set 117.2) against 17, and each copy's cli window
+shortens with it.
+
+**It is the same sound, to the sample.** The Sound Blaster's output was
+captured with `MARTYPC_WAV` for 24 seconds of BEVERLY.MOD at 5,500 Hz - the
+rate neither build underruns at, so no silence is inserted - from the tree
+before this section and after it: **1,083,451 samples compared, 0 differ.**
+The driver's copies were checked separately, because both captures went
+through the new driver: a breakpoint after every copy compared source with
+destination, 128 copies and 64 KB, all identical. The 286+ mixer is
+untouched.
+
+### 45.10 The Rate menu — 11 / 22 / 33 / 44 kHz for the other end of the range
 
 The XT trades fidelity for cycles; a 286/386 has cycles to spend, and the
 **Rate** menu spends them: `11 kHz` (default, requested as 11,000),
@@ -69970,6 +70146,61 @@ toggle. **While XT mode is on this menu is §45.9.3's two rows instead** —
 pick they had, when it goes off. The mixer's cost is linear
 in the rate: 44 kHz is 4× the default's samples — chosen for machines
 where the default is loafing, refused honestly where it is not.
+
+#### 45.10.1 33 kHz, and the rows a card cannot play are left out
+
+**The rows are 11 / 22 / 33 / 44 kHz now.** 33,075 Hz is ¾ of 44.1 — on an
+SB16 exact through `41h`, on an SB Pro's high-speed TC 226 = 33,333 Hz. It is
+the rate a 286 can **mix**, which is the question 44 kHz fails on: measured
+under QEMU with `-icount` pinning the guest's instruction rate, Tracker
+windowed on BEVERLY.MOD —
+
+| guest | rate | underruns | machine busy |
+|---|---|---|---|
+| ~2 MIPS | 22 kHz | 0 | 47% |
+| ~2 MIPS | 33 kHz | 0 | 91% |
+| ~2 MIPS | 44.1 kHz | constant, never recovers | over 100% |
+| ~3.9 MIPS | 44.1 kHz | 0 | 60% |
+
+So 44.1 kHz wants ~2.35 M instructions a second of Tracker alone: a 12 MHz
+286 is short of it and a 16 MHz one is not. The CPU tier cannot tell those
+apart, so nothing is gated on it — selecting 44 kHz says **`smooth at 16
+MHz+`** on the status line instead, and the user decides. (QEMU counts
+instructions, not 286 clocks, so the figures are the shape and not a
+reading off the machine.)
+
+**33 and 44 kHz are not offered at all on a card without `SND_CAP_PCM_HI`**
+(§34.2.1). Not greyed: §47 greys what is unavailable *now*, and a sound card
+is not swapped without a reboot, so a row that can never be picked is only
+noise. `trk_rcount` answers the USABLE count — 2 there, 4 with the bit — and
+it is the Rate menu's item count, **R**'s and the rate button's cycle, and
+`trk_rate_set`'s bound, from one predicate (§47 rule 5). The caps are asked
+whenever the menu is built rather than latched once. A DSP tier switched off
+in the Control Panel mid-session leaves a stale 33/44 pick to be refused at
+Play, which now says why.
+
+**And the refusal now says what it is.** `trk_play`'s failure arm called
+`mp_stop` before testing the driver's answer, `mp_stop` zeroes AX, and so
+every refusal read `Sound open failed` — including err 2, whose own message
+(`That rate needs an SB Pro or SB16` now) never once reached the screen. It
+was reported off an SB 2.0 in a 286, where 44 kHz was offered and refused.
+
+**And a rate message survives the stop it causes.** Changing the rate while
+playing stops playback first, and the renderer's transport watch (`[tui_lplay]`
+against `[mp_playing]`) saw that stop a frame later and repainted `Paused
+ENTER resumes` over `Rate: 22 kHz - Enter plays` — which had always been lost
+that way, and would have taken the 44 kHz note with it. `trk_rate_set` now
+runs `trk_transport` itself and marks the stop seen, except on a tier-0
+machine's fullscreen, where that transition also reshapes the pattern view.
+
+#### 45.10.2 A 286 or better opens at 22 kHz
+
+`[trk_rsel]` starts at 1 on any machine `OSAPI_CPU_INFO` does not call tier 0,
+so a 286 opens on the 22 kHz row where it used to open on 11. §45.10.1's
+measurement is the reason: 22 kHz is about half of a ~2 MIPS machine, and
+every Sound Blaster takes it (an SB 2.0's time constant lands it at 21,739 Hz).
+A tier-0 machine still opens in XT mode at 5.5 kHz, and its Rate pick stays 11
+for the day XT mode is switched off.
 
 ### 45.11 Smooth — retired with §32's back buffer
 
@@ -71744,6 +71975,37 @@ Four things hold the rest up:
   with what was *actually* granted, never with what was asked for.
 
 
+#### 45.18.2 The ring is sized by the RATE too
+
+§34.5.2 lets the card play the ring where it lies and §34.6.3 sizes the
+driver's pool to the ring, so the ring is now **all** the audio memory a
+playing Tracker holds — 16KB where the driver used to hold 28KB — and its size
+is worth asking about again. `trk_ring_pick` takes the small 8KB ring at or
+below `TRK_RING_HZ` (8,000 Hz) as well as on a tight heap, and it is called
+again at every Play, because R moves the rate after the load's probe.
+
+Measured on a 4.77 MHz 5150 (MartyPC, Hercules + SB), windowed, XT mode,
+ELYSIUM.MOD and STARDUST.MOD, 90 s each, with a window drag every 2 s in the
+middle third:
+
+| rate | ring | underruns, undisturbed | underruns, dragging | lead, undisturbed |
+|---|---|---|---|---|
+| 5,500 | 16KB | 0 | 7 / 8 | min 2,048, median 4,096 |
+| 5,500 | **8KB** | **0** | 10 / 9 | min 2,048, median 4,096 |
+| 11,000 | 16KB | 0 | 27 / 16 | min 10,240, median 14,336 |
+| 11,000 | 8KB | 0 | 60 / 46 | **min 2,048**, median 6,144 |
+
+**At 5.5 kHz the ring size changes nothing**: XT mode mixes in pieces up to
+the tick edge (§45.16.7) and never fills either ring, so the lead sits at
+2–4KB on both, and the full ring was 8KB of heap held for nothing. From 11 kHz
+up the whole-half feed (§45.16.7.1) *does* fill the ring and the full one is
+the cushion: the small ring holds at 11 kHz on an XT, but with one half to
+spare against the full ring's five, and it drops three times as often under
+load. So 11 kHz and above keep 16KB. Every run recovers once the load stops —
+the stream that fell behind and never caught up is gone at both sizes. And
+the small ring's shorter pre-roll (three halves, 1.12 s at 5.5 kHz) cost
+nothing measurable: no underrun from the first Play on any of three modules.
+
 ### 45.19 Its off-grid pens are MEASURED and deliberately left alone
 
 §11.94.3 listed this app's face as the worst alignment offender in the tree
@@ -71975,7 +72237,7 @@ and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
 |---|---|---|
 | **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
 | **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
-| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard** | one fill per band that moved |
+| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard**, each with a peak marker (§45.24) | one fill per band that moved, two for a marker's step |
 | **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
 
 ModPlug's visualisers drew every column and bar every frame — its scope alone
@@ -72091,6 +72353,68 @@ that is the same file as `[tpl_loaded]` restarts the stream and touches no
 disk — a list that goes round to the song playing, `>>|` with one entry, the
 same file listed twice. Measured on MartyPC: `N` on a one-entry list, **zero**
 calls into the file-read path.
+
+### 45.23 The visualiser can be switched off, and SPACE says pause
+
+**Off is a fourth pick** — VU Meter → Spectrum → Scope → Off, on the same
+button. `TWV_OFF` was already a mode, but only XT mode at 11 kHz could force
+it, with `No meters at 11 kHz` in the pane; picked, the pane says `Meter off`
+(`tw_voff` takes its line and length from which of the two it is). Nothing
+is drawn in the pane while it is off; the levels behind the needles are
+still kept, being a handful of bytes a row.
+
+**The key legend says `SPACE pause`** where it said `SPACE stop` — in all four
+strings, windowed and fullscreen. Space has parked the replayer at the row
+the listener heard since §45.17, and `Paused  ENTER resumes` follows it, so
+the legend was the one place still calling it a stop.
+
+### 45.24 The spectrum's peak markers
+
+**Each band now shows two things: what is playing and what just played.** The
+bar falls **three times as fast** as before (`TW_SPFALL` = 3 × `TW_VUFALL`, six
+levels of 64 a frame), so it follows the notes as they are heard. A white
+**peak marker**, `TW_PKH` = 2 rows tall, stays at the highest level the bar
+reached. It holds there `TW_PKHOLD` = 4 frames (about 0.2 s), then falls
+`TW_PKSTEP` = 4 levels once every `TW_PKEVERY` = 2 frames. That averages two
+levels a frame, the speed the old bars fell at, so the marker trails behind
+the bar. A marker that is level with or under the top of its bar is not
+drawn at all, because the bar covers it; a new peak sits there until the bar
+falls away from it.
+
+**Each column is drawn in one pass and no pixel is written twice.** The obvious
+order is the bar's own grow or shrink fill, then the marker over it. That order
+blackens the rows the marker is moving into and paints them white a moment
+later, which is the double-draw flash (PERFORMANCE.md rule 2). Instead,
+`tw_scol` describes the column as runs of three colours (bar, marker and
+ground), both as it is on the glass and as it is wanted. It cuts the column at
+every height where either changes colour and fills once each run whose colour
+moved, merging neighbours of the same colour. **The common frame skips all of
+that.** When the marker holds and the bar moves clear of the marker's foot, the
+change is one run of one colour, so the fast path fills it directly, with no
+cuts and no sort. Measured, that is about 11 of every 13 column updates.
+
+**The marker steps rather than sliding, and that is what it costs.** A
+marker's move is two fills whatever its size: the ground over the rows it
+leaves, and white over the rows it takes. So the count of moves is the price,
+not their distance. Measured under QEMU `-icount shift=9` (~2 MIPS, about a
+286/12), playing `BEVERLY.MOD` at 22 kHz for the same 20 host seconds, with
+the Tracker worker's share taken off the scheduler's own per-task counters and
+the fills counted in `tw_fills`:
+
+| spectrum | fills a frame | Tracker's share |
+|---|---|---|
+| before this section: one bar, slow fall | 11.0 | 57.4% |
+| markers falling a level a frame, every column cut and sorted | 20.9 | 68.2% |
+| markers stepping 4 levels every 4 frames | 11.7 | 60.9% |
+| ...and the fast path (hold 9 frames, 4 levels every 4) | 11.6 | 56.4% |
+| **shipped:** hold 4 frames, 4 levels every 2 | 14.6 | 58.4% |
+
+A full fall is sixteen steps at any step period, so falling twice as fast
+does not double the fills: it spends the same steps sooner. What the shorter
+hold adds is steps a sustained note would have held through. The markers cost
+about what the old slow bars cost, because the faster bars drop to zero
+sooner and that pays for most of the marker steps. Spectrum is
+286+-only (§45.21.5), so an XT never runs any of this.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -92437,6 +92761,19 @@ the image and checks them against the base the kernel granted. A/B'd with
 vectors follow, the desktop draws, and the only thing that goes red is that
 one check — the next `Play` would have programmed the 8237 with a page and
 offset belonging to somebody else's claim.
+
+**Superseded in part by §34.5.2**, and the paragraphs above are kept as the
+design record. The 8KB ring is no longer claimed at attach: it is the double
+buffer of a stream that is *not* direct, claimed at open and freed at close,
+never declared movable, and pinned for its short life by `[drv_wcnt]` as
+before — so `sbl_ring_reloc` is gone and `tests/sndmove.py` asserts an idle
+card holds nothing but its image instead. A **direct** stream has no task, so
+`[drv_wcnt]` is 0 while the 8237 reads the package's ring out of the staging
+pool — which is itself an `MC_DMA` claim now, page-safe by request. So
+`[drv_wcnt]` is no longer exact for that claim, and the driver does not rely
+on it: verb 0 **pins** the pool (`OSAPI_MEM_MOVABLE`, AX = 0) and
+`sbl_unpin` declares it again after `sbl_stop_stream` has masked the channel.
+`mem_can_move` refuses a claim with no proc before it asks anything else.
 
 ### 66.7 What is deliberately not done
 

@@ -1381,14 +1381,12 @@ mp_mixch:
 ; never a memory base, so SS != DS cannot bite.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; MIXSAMP - one channel-sample of the XT mixer (PERFORMANCE.md Set 20)
-;
-;   %1 = 0  the STORE pass: this is the first live channel, so it writes
-;   %1 = 1  the ADD pass: every channel after it accumulates
-;   %2      this copy's PATCHED step immediate - a LOCAL label
+; MIXADD - one channel-sample of the XT mixer's ADD pass (PERFORMANCE.md Set
+;          20, SPEC.md 45.9.4). %1 is this copy's PATCHED step immediate - a
+;          LOCAL label. The STORE pass is MIXSTORE, below.
 ;
 ; in:  ES:SI = the sample, DS:BX = the volume-table slice (xlat), DI = the
-;      output, DX = the fractional position, BP = the fractional step.
+;      output, DX = the fractional position, BP = the fractional step, DF = 0.
 ;      Advances SI, DI and DX; leaves CX alone, so the caller owns the loop.
 ;
 ; WHY THE STEP IS AN IMMEDIATE AND NOT A MEMORY OPERAND. On an 8088 the bus is
@@ -1398,43 +1396,77 @@ mp_mixch:
 ; 6 data bytes = 21 = 84 clocks, and 84 x 4 channels x 5,500 Hz is 38.7% of a
 ; 4.77MHz machine, which is what PERFORMANCE.md Set 20 profiled. The integer
 ; step is LOOP-INVARIANT and cost 2 of those data bytes as
-; `adc si, [mp_cstepi]`; as an immediate it is the same four instruction bytes
-; and no read at all.
+; `adc si, [mp_cstepi]`; as an immediate it cost no read at all. SPEC.md
+; 45.9.4 took it to 11 instruction bytes and 4 data bytes: `es lodsb` loads
+; and steps SI in 2 bytes where `mov al, [es:si]` was 3, and the step is a
+; sign-extended BYTE (at most 31,388 Hz / the mix rate - 5 at 5,500), patched
+; as the step LESS ONE because lodsb has moved SI one already.
 ;
-; mp_stepi_set patches every copy, once per channel per chunk - thousands of
+; mp_stepi_set patches every copy, once per channel per chunk - hundreds of
 ; samples before the prefetch queue could be holding a stale one, which is the
 ; only thing that makes self-modifying code delicate on this CPU.
 ; -----------------------------------------------------------------------------
-%macro MIXSAMP 2
-    mov al, [es:si]
+%macro MIXADD 1
+    es lodsb                        ; `mov al, [es:si]` in 2 bytes, not 3
     xlat
-%if %1 == 0
-    add al, 0x80
-    mov [di], al
-%else
     add [di], al
-%endif
     inc di
     add dx, bp
-    db 0x81, 0xD6                   ; adc si, imm16 - the immediate is DATA,
-%2: dw 0                            ; patched by mp_stepi_set
+    db 0x83, 0xD6                   ; adc si, imm8 (sign-extended): the step
+%1: db 0                            ; less one, patched by mp_stepi_set
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; mp_stepi_set - AX = the integer step, into every MIXSAMP copy
-;                Preserves every register.
+; MIXSTORE - the STORE pass, with the segments SWAPPED (SPEC.md 45.9.4)
+;
+; in:  DS:SI = the sample, ES:BX = the volume-table slice, ES:DI = the
+;      output, DX/BP as MIXADD; DF = 0. %1 is this copy's patched step,
+;      which is the integer step LESS ONE: lodsb has already moved SI by one.
+;
+; The first audible channel WRITES, and a write is what the string
+; instructions are for: `lodsb` is the old `mov al, [es:si]` in 1 byte
+; instead of 3, and `stosb` is its `mov [di], al` / `inc di` in 1 instead of
+; 3, against `es xlat` costing one byte more than a plain one. 11 instruction
+; bytes and 3 data bytes a sample where the old store was 14 and 3: ~56 clocks
+; against ~68 on an 8-bit bus. The ADD pass gains nothing from the same swap
+; - `add [es:di], al` pays the byte `mov` saved - so MIXADD keeps DS ours.
+; -----------------------------------------------------------------------------
+%macro MIXSTORE 1
+    lodsb
+    es xlatb
+    add al, 0x80
+    stosb
+    add dx, bp
+    db 0x83, 0xD6                   ; adc si, imm8 (sign-extended): the
+%1: db 0                            ; step less one, patched by mp_stepi_set
+%endmacro
+
+; -----------------------------------------------------------------------------
+; mp_stepi_set - AL = the integer step (< 128, see MIXADD), into every
+;                MIXADD and MIXSTORE copy LESS ONE, because both load with
+;                a lodsb that steps one itself. Preserves every register.
 ; -----------------------------------------------------------------------------
 mp_stepi_set:                       ; STRAIGHT LINE, not a table walk: this runs
-    mov [mp_mixch_xt.ps0], ax       ; once per channel per chunk and the loop it
-    mov [mp_mixch_xt.ps1], ax       ; replaces profiled at 3.1% of the whole
-    mov [mp_mixch_xt.ps2], ax       ; machine. `mov [imm16], ax` is the
-    mov [mp_mixch_xt.ps3], ax       ; accumulator-direct form - 3 instruction
-    mov [mp_mixch_xt.ps4], ax       ; bytes and a 2-byte write, 20 clocks - so
-    mov [mp_mixch_xt.pa0], ax       ; ten of them are 200 against the loop's
-    mov [mp_mixch_xt.pa1], ax       ; ~480, and it touches no register but AX,
-    mov [mp_mixch_xt.pa2], ax       ; so the three pushes go too
-    mov [mp_mixch_xt.pa3], ax
-    mov [mp_mixch_xt.pa4], ax
+    dec ax                          ; once per channel per chunk (up to 512
+    mov [mp_mixch_xt.pa0], al       ; samples) and the loop it replaced profiled
+    mov [mp_mixch_xt.pa1], al       ; at 3.1% of the whole machine. `mov
+    mov [mp_mixch_xt.pa2], al       ; [imm16], al` is the accumulator-direct
+    mov [mp_mixch_xt.pa3], al       ; form - 3 instruction bytes and a 1-byte
+    mov [mp_mixch_xt.pa4], al       ; write, 14 clocks - so eighteen of them are
+    mov [mp_mixch_xt.pa5], al       ; ~250, and it touches no register but AX,
+    mov [mp_mixch_xt.pa6], al       ; which the inc gives back
+    mov [mp_mixch_xt.pa7], al
+    mov [mp_mixch_xt.par], al
+    mov [mp_mixch_xt.ps0], al
+    mov [mp_mixch_xt.ps1], al
+    mov [mp_mixch_xt.ps2], al
+    mov [mp_mixch_xt.ps3], al
+    mov [mp_mixch_xt.ps4], al
+    mov [mp_mixch_xt.ps5], al
+    mov [mp_mixch_xt.ps6], al
+    mov [mp_mixch_xt.ps7], al
+    mov [mp_mixch_xt.psr], al
+    inc ax
     ret
 
 mp_mixch_xt:
@@ -1448,7 +1480,7 @@ mp_mixch_xt:
     mov [mp_cloopl], ax
     mov ax, [si+MP_STEPI]
     mov [mp_cstepi], ax
-    call mp_stepi_set           ; ...and into every MIXSAMP copy, once per
+    call mp_stepi_set           ; ...and into every MIXADD/MIXSTORE copy, once per
     mov ax, [si+MP_STEPF]       ; channel rather than once per sample
     mov [mp_cstepf], ax
     mov bl, [mp_curc]
@@ -1488,40 +1520,60 @@ mp_mixch_xt:
     sub cx, ax
     xchg cx, ax                 ; CX = run length, AX = remaining
     push ax
-    mov ax, cx                  ; the run is walked FOUR samples at a time and
-    shr cx, 1                   ; then the 0..3 that are left, which amortises
-    shr cx, 1                   ; `loop` from 2 bytes a sample to half of one
-    and ax, 3                   ; (PERFORMANCE.md Set 20: on an 8-bit bus the
-    mov [mp_crem], ax           ; byte count IS the cost)
+    mov ax, cx                  ; the run is walked EIGHT samples at a time
+    shr cx, 1                   ; and then the 0..7 that are left, which
+    shr cx, 1                   ; amortises `loop` - 17 clocks and a flushed
+    shr cx, 1                   ; prefetch queue - over eight (SPEC.md
+    and ax, 7                   ; 45.9.4; it was four, PERFORMANCE.md Set
+    mov [mp_crem], ax           ; 20: on an 8-bit bus the bytes ARE the cost)
+    cld                         ; both passes load with lodsb
     cmp byte [mp_first], 0
     je .addq
+    push ax                     ; the 0..7 remainder, off the stack below:
+    push ds                     ; nothing of ours is readable once the
+    push es                     ; segments swap (SPEC.md 45.9.4) - DS the
+    pop ds                      ; sample for lodsb, ES us for the table and
+    pop es                      ; for stosb
     jcxz .strem
 .stq:
-    MIXSAMP 0, .ps0           ; store pass: out = 128 + vt[b]
-    MIXSAMP 0, .ps1
-    MIXSAMP 0, .ps2
-    MIXSAMP 0, .ps3
+    MIXSTORE .ps0             ; store pass: out = 128 + vt[b]
+    MIXSTORE .ps1
+    MIXSTORE .ps2
+    MIXSTORE .ps3
+    MIXSTORE .ps4
+    MIXSTORE .ps5
+    MIXSTORE .ps6
+    MIXSTORE .ps7
     loop .stq
 .strem:
-    mov cx, [mp_crem]
-    jcxz .rejoin
+    pop cx
+    jcxz .stx
 .stl:
-    MIXSAMP 0, .ps4
+    MIXSTORE .psr
     loop .stl
+.stx:
+    push ds                     ; ...and back: DS us, ES the sample, which
+    push es                     ; is what .runs, .edge and .fin read
+    pop ds
+    pop es
     jmp .rejoin
 .addq:
     jcxz .addrem
 .addq1:
-    MIXSAMP 1, .pa0           ; add pass: out += vt[b]
-    MIXSAMP 1, .pa1
-    MIXSAMP 1, .pa2
-    MIXSAMP 1, .pa3
+    MIXADD .pa0           ; add pass: out += vt[b]
+    MIXADD .pa1
+    MIXADD .pa2
+    MIXADD .pa3
+    MIXADD .pa4
+    MIXADD .pa5
+    MIXADD .pa6
+    MIXADD .pa7
     loop .addq1
 .addrem:
     mov cx, [mp_crem]
     jcxz .rejoin
 .addl:
-    MIXSAMP 1, .pa4
+    MIXADD .par
     loop .addl
 .rejoin:
     pop cx                      ; CX = remaining
@@ -2407,6 +2459,16 @@ mp_arp:
 ; #DE guard) and publish the UI-visible volume/period.
 ; -----------------------------------------------------------------------------
 mp_chupd:
+    mov ax, [mp_mixrate]        ; THE STEP IS CACHED (SPEC.md 45.9.4): it is a
+    cmp ax, [mp_chrate]         ; function of the clamped period and the rate
+    je .rate                    ; and nothing else, and [mp_chper] is last
+    mov [mp_chrate], ax         ; tick's period - so a new rate invalidates
+    xor ax, ax                  ; every slot, and 0 is never a clamped period
+    mov [mp_chper], ax
+    mov [mp_chper + 2], ax
+    mov [mp_chper + 4], ax
+    mov [mp_chper + 6], ax
+.rate:
     mov word [mp_crec], mp_chans
     mov byte [mp_curc], 0
 .ch:
@@ -2419,8 +2481,14 @@ mp_chupd:
     call mp_pclamp
     push bx
     shl bx, 1
-    mov [mp_chper + bx], ax     ; word slot
+    cmp ax, [mp_chper + bx]     ; the same period as last tick...
+    mov [mp_chper + bx], ax     ; word slot (mov and pop keep the flags)
     pop bx
+    jne .calc
+    mov dx, [di+MP_STEPI]       ; ...and a step already worked out for it -
+    or dx, [di+MP_STEPF]        ; mp_start zeroes the records, and no clamped
+    jnz .pubv                   ; period has a step of 0 - costs no DIVs
+.calc:
     push bx
     mov bx, ax
     mov dx, 0x0036
@@ -2433,6 +2501,7 @@ mp_chupd:
     div word [mp_mixrate]
     mov [di+MP_STEPF], ax
     pop bx
+.pubv:
     ; publish volume: 0 when muted, else the tick's output volume
     cmp byte [mp_mute + bx], 0
     jne .quietv
@@ -2520,6 +2589,7 @@ mpe_song:   db 'Bad song data', 0
                                     ; last stamp (SPEC.md 45.12.1) - mp_trig
                                     ; sets, mp_stamp_at reads and clears
     TRKBUF mp_chper, 8              ; current playing periods (0 = silent)
+    TRKW mp_chrate                  ; the rate mp_chupd's cached steps are for
     TRKBUF mp_title, 21             ; module title, NUL-terminated
     TRKBUF mp_outbuf, 2048          ; mp_gen's rendered output
 
