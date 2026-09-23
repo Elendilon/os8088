@@ -119,6 +119,40 @@ mp_init:
     mov byte [mp_speed], 6
     mov byte [mp_bpm], 125
     mov word [mp_mixrate], 11000
+    mov byte [mp_master], 64        ; unity: the master volume is an
+    ret                             ; ATTENUATOR, never a gain (mp_volsel)
+
+; =============================================================================
+; mp_volsel - a channel's output volume, through the MASTER volume, as the
+;             volume table slice the mixer xlats through
+; in:  AL = the channel's output volume 0..64
+; out: AX = mp_voltab + vol' * 256, ZF = 0; or ZF = 1 when vol' is 0 and the
+;      channel is silent this chunk. Preserves everything else.
+;
+; THE VOLUME TABLE IS NOT REBUILT, and that is the whole design (it is the
+; one ModPlug's mixer had, SPEC.md 56.3): the master scales which of the 65
+; slices a channel reads, so it costs ONE multiply per channel per CHUNK -
+; up to 512 samples - where scaling the output would cost one per sample, and
+; a rebuild would be 16,640 imuls every time a slider moved. At unity the
+; multiply is skipped altogether, so the default path pays a compare.
+; =============================================================================
+mp_volsel:
+    push cx
+    mov ah, [mp_master]
+    cmp ah, 64
+    jae .unity
+    mul ah                          ; AX = vol * master, <= 64 * 63
+    mov cl, 6
+    shr ax, cl                      ; AL = vol * master / 64
+.unity:
+    xor ah, ah
+    or al, al
+    jz .out                         ; ZF = 1: silence
+    mov cl, 8
+    shl ax, cl
+    add ax, mp_voltab               ; never 0, so ZF = 0
+.out:
+    pop cx
     ret
 
 ; =============================================================================
@@ -517,6 +551,8 @@ mp_start:
                                 ; over all 128), so the mask is safe
     mov al, [mp_orders + bx]
     mov [mp_pattern], al
+    mov [mp_curpos], bl         ; the position this row is IN (mp_nextrow)
+    mov byte [mp_songend], 0
     call mp_calc_spt
     mov ax, [mp_spt]
     mov [mp_tickrem], ax
@@ -540,6 +576,22 @@ mp_stop:
     ret
 
 ; =============================================================================
+; mp_setposn - AL = an ABSOLUTE order position, clamped to 0..songlen-1
+;
+; The scrubber's (SPEC.md 45.21): a click or a drag names a position, and
+; expressing it as a delta would mean computing `target - current` from a
+; [mp_songpos] the worker moves underneath it. It shares mp_setpos's tail, so
+; the two cannot disagree about what a seek resets.
+; =============================================================================
+mp_setposn:
+    cmp byte [mp_loaded], 0
+    je mp_setpos.out
+    mov ah, al
+    cmp ah, [mp_songlen]
+    jb mp_setpos.have
+    jmp short mp_setpos.top
+
+; =============================================================================
 ; mp_setpos - AL = signed delta to song position, clamped to 0..songlen-1
 ; =============================================================================
 mp_setpos:
@@ -561,6 +613,7 @@ mp_setpos:
                                 ; songlen-1, not position 0
 .have:
     mov [mp_songpos], ah
+    mov [mp_curpos], ah         ; a seek is a new place to END from, too
     mov bl, ah
     xor bh, bh
     mov al, [mp_orders + bx]
@@ -572,6 +625,127 @@ mp_setpos:
     jne .out                    ; playing: the row chain continues there
     mov byte [mp_row], 0
 .out:
+    ret
+
+; =============================================================================
+; mp_timeat - AL = an order position -> DX:AX = stream samples, at the current
+; [mp_mixrate], from the top of the song to that position's first row; and
+; [mp_speed]/[mp_bpm]/[mp_spt] left as they stand there, so a resume (mp_start
+; mode 2) plays at the tempo the clock was priced at. The ORDER LIST is walked
+; in sequence, every row priced speed * spt, an Fxx changing the tempo on its
+; own row and a Dxx (or a Bxx, as a break to row 0) ending the pattern. The
+; walk follows the order list and not the jump, and E6x/EEx are not modelled:
+; exact for a song that plays its orders in order, an estimate for one that
+; loops inside itself. Preserves all but AX, DX.
+; =============================================================================
+mp_timeat:
+    push bx
+    push cx
+    push di
+    push es
+    mov [mp_tpos], al
+    xor ax, ax
+    mov [mp_tacc], ax
+    mov [mp_tacc + 2], ax
+    mov byte [mp_speed], 6
+    mov byte [mp_bpm], 125
+    call mp_calc_spt
+    xor bx, bx                  ; BL = the order, BH = the row it starts on
+.ord:
+    cmp bl, [mp_tpos]
+    jae .done
+    push bx
+    xor bh, bh
+    mov al, [mp_orders + bx]
+    xor ah, ah
+    cmp ax, [mp_npat]           ; mp_readrow's guard, for the same reason
+    jb .pok
+    xor ax, ax
+.pok:
+    mov cl, 6
+    shl ax, cl
+    add ax, 67
+    add ax, [mp_blobseg]
+    mov es, ax
+    pop bx
+    mov al, bh
+    mov bh, 0FFh                ; no break seen in this pattern yet
+.row:
+    push ax
+    xor ah, ah
+    mov cl, 4
+    shl ax, cl
+    add ax, 12
+    mov di, ax                  ; ES:DI = the row's first cell
+    mov ch, 4
+.cell:
+    mov al, [es:di + 2]
+    and al, 0Fh
+    mov cl, [es:di + 3]
+    cmp al, 0Fh
+    jne .nf
+    or cl, cl
+    jz .next                    ; F00 is a stop, not a tempo
+    cmp cl, 20h
+    jae .bpm
+    mov [mp_speed], cl
+    jmp short .next
+.bpm:
+    mov [mp_bpm], cl
+    push bx
+    call mp_calc_spt
+    pop bx
+    jmp short .next
+.nf:
+    cmp al, 0Bh
+    jne .nd
+    cmp bh, 0FFh
+    jne .next
+    mov bh, 0
+    jmp short .next
+.nd:
+    cmp al, 0Dh
+    jne .next
+    mov al, cl                  ; BCD row, as mp_readrow's .fD
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    mov ah, 10
+    mul ah
+    and cl, 0Fh
+    add al, cl
+    cmp al, 63
+    jbe .dok
+    xor al, al
+.dok:
+    mov bh, al
+.next:
+    add di, 4
+    dec ch
+    jnz .cell
+    mov al, [mp_speed]          ; the row, at the tempo it set
+    xor ah, ah
+    mul word [mp_spt]
+    add [mp_tacc], ax
+    adc [mp_tacc + 2], dx
+    pop ax
+    cmp bh, 0FFh
+    jne .brk
+    inc al
+    cmp al, 64
+    jb .row
+    mov bh, 0
+.brk:
+    inc bl
+    jmp .ord
+.done:
+    mov ax, [mp_tacc]
+    mov dx, [mp_tacc + 2]
+    pop es
+    pop di
+    pop cx
+    pop bx
     ret
 
 ; =============================================================================
@@ -774,19 +948,29 @@ mp_insname:
     ret
 
 ; =============================================================================
-; mp_cell2txt - in AL = row 0..63, AH = channel 0..3, DI = pattern number;
-; fills mp_celltxt with 'C-2 01 A0F' + NUL. CF=1 no module / out of range.
+; mp_cellptr - in AL = row 0..63, AH = channel 0..3, DI = pattern number;
+;              out ES:SI = that cell's four bytes, CF = 1 no module or out of
+;              range. BX, CX clobbered. The face's spectrum reads the note the
+;              listener is hearing through it (SPEC.md 45.21.5)
 ; =============================================================================
-mp_cell2txt:
+mp_cellptr:
     cmp byte [mp_loaded], 0
     je .no
     cmp al, 63
     ja .no
     cmp ah, 3
     ja .no
-    cmp di, [mp_npat]           ; DI = pattern number against the WORD count
+    cmp di, [mp_npat]
     jae .no
-    ; ES = pattern segment, SI = cell offset
+    call mp_cellp
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; mp_cellp - the address arithmetic, unchecked (both callers have checked)
+mp_cellp:
     mov bx, di
     mov cl, 6
     shl bx, cl                  ; pattern * 64 paragraphs
@@ -804,6 +988,22 @@ mp_cell2txt:
     shl bx, 1                   ; ch * 4
     add si, bx
     add si, 12
+    ret
+
+; =============================================================================
+; mp_cell2txt - in AL = row 0..63, AH = channel 0..3, DI = pattern number;
+; fills mp_celltxt with 'C-2 01 A0F' + NUL. CF=1 no module / out of range.
+; =============================================================================
+mp_cell2txt:
+    cmp byte [mp_loaded], 0
+    je .no
+    cmp al, 63
+    ja .no
+    cmp ah, 3
+    ja .no
+    cmp di, [mp_npat]           ; DI = pattern number against the WORD count
+    jae .no
+    call mp_cellp               ; ES:SI = the cell
     ; decode
     mov al, [es:si]             ; b0
     mov ah, [es:si+1]           ; b1
@@ -938,8 +1138,13 @@ mp_pfind:
 ; =============================================================================
 ; mp_gen - render CX bytes (even, <= 2048) of unsigned 8-bit mono into
 ; mp_outbuf and advance the replayer. Silence when not playing.
+; mp_genc - the same, CONTINUING at [mp_outp] rather than at the buffer's
+; start: a half mixed in several pieces (SPEC.md 45.16.7), each stamped
+; against the one [mp_stampbase] the first piece set. CX <= what is left.
 ; =============================================================================
 mp_gen:
+    mov word [mp_outp], mp_outbuf
+mp_genc:
     cld
     push bp                     ; mp_mixch_xt keeps the frac step in BP
     push ds
@@ -953,7 +1158,6 @@ mp_gen:
     mov cx, 2048
 .cxok:
     mov [mp_need], cx
-    mov word [mp_outp], mp_outbuf
 .big:
     mov cx, [mp_need]
     or cx, cx
@@ -1070,15 +1274,8 @@ mp_mixch:
     cmp byte [mp_mute + bx], 0
     jne .silent
     mov al, [si+MP_OVOL]
-    or al, al
-    jz .silent
-    ; BX = volume table slice
-    xor ah, ah
-    push cx
-    mov cl, 8
-    shl ax, cl
-    pop cx
-    add ax, mp_voltab
+    call mp_volsel              ; AX = the table slice, through the master
+    jz .silent                  ; volume; ZF = 1 when it rounds to silence
     mov bx, ax
     ; the inner loop
     mov es, [si+MP_SEG]
@@ -1244,12 +1441,8 @@ mp_mixch_xt:
     cmp byte [mp_mute + bx], 0
     jne mp_mixch.silent         ; the shared advance-only path: same scratch,
     mov al, [si+MP_OVOL]        ; same [mp_crec] in SI, ends in ret
-    or al, al
+    call mp_volsel
     jz mp_mixch.silent
-    xor ah, ah
-    mov cl, 8
-    shl ax, cl
-    add ax, mp_voltab
     mov bx, ax                  ; BX = the volume table slice (xlat)
     mov es, [si+MP_SEG]
     mov dx, [si+MP_POSF]
@@ -1399,6 +1592,14 @@ mp_dotick:
     jmp .upd                    ; held row: no note re-read
 .advance:
     call mp_nextrow
+    cmp byte [mp_songend], 0    ; the order list went back (mp_nextrow): with
+    je .onrow                   ; [mp_endstop] set that is F00's exit - the
+    mov byte [mp_songend], 0    ; replayer stops, mp_gen pads silence and the
+    cmp byte [mp_endstop], 0    ; worker latches trk_ended once the card has
+    je .onrow                   ; played the tail - and without it the song
+    mov byte [mp_playing], 0    ; loops as it always did (SPEC.md 45.21.3)
+    ret
+.onrow:
     mov al, [mp_songpos]        ; BEFORE the effects: a Bxx parks songpos at
     mov [mp_pendpos], al        ; target-1 for the rest of its row (mp_start's
     mov al, [mp_pattern]        ; note), and a stamp taken after mp_readrow
@@ -1445,6 +1646,11 @@ mp_nextrow:
     mov ah, [mp_restart]
     mov [mp_songpos], ah
 .pat:
+    cmp ah, [mp_curpos]         ; THE SONG IS OVER when the order list goes
+    ja .fwd                     ; BACK - the wrap to the restart position
+    mov byte [mp_songend], 1    ; above, or a Bxx to where we already are or
+.fwd:                           ; were. A replayer that only knew F00 never
+    mov [mp_curpos], ah         ; ended at all, and a playlist hangs off this
     push ax
     mov bl, [mp_songpos]
     xor bh, bh
@@ -2322,6 +2528,13 @@ mpe_song:   db 'Bad song data', 0
 ; --- replayer internals --------------------------------------------------------
     TRKB mp_restart                 ; validated restart position
     TRKB mp_ploop                   ; 1 = pattern-loop mode (P key)
+    TRKB mp_master                  ; master volume 0..64, 64 = unity (mp_volsel)
+    TRKB mp_curpos                  ; the order position the current row is in
+    TRKB mp_tpos                    ; mp_timeat's target position
+    TRKBUF mp_tacc, 4               ; ...and its sum (32-bit)
+    TRKB mp_songend                 ; mp_nextrow saw the order list go BACK
+    TRKB mp_endstop                 ; ...and 1 = that stops the replayer (the
+                                    ; app's Repeat setting, SPEC.md 45.21.3)
     TRKB mp_tick                    ; tick 0..speed-1
     TRKB mp_patdel                  ; EEx pending delay
     TRKB mp_patdel2                 ; ...and the held-row counter

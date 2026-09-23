@@ -21926,6 +21926,36 @@ packet rate puts it right. Nothing is latched and nothing is run. `menu_hover`
 alone hands its answer to a release, which is why it alone pays the three
 bytes.
 
+#### 12.4.2 The save-under is TRIVIAL-purgeable, `MEM_P_MSAVE`
+
+A menu's save-under is claimed by `menu_drop` for exactly as long as the menu
+is on the glass, and until this section it carried an ordinary kernel tag,
+`MEM_K_SAVE` = `0xFF01`. It is `MEM_P_MSAVE` = `MEM_PG_TRIV << 8 | 0x02` now,
+with a `mem_pg_own` row naming `[menu_sseg]`, for the window raise cache's
+reason (§11.96): **losing it costs the repaint `menu_drop` already falls back
+to**, and a block whose loss costs a repaint is TRIVIAL on §50.6.4's ladder.
+So `mem_avail`'s plan counts it as free (`mem_pg_cheap`), a compacting claim
+dissolves it rather than packing round it (`mem_cp_drop`), and a shed zeroes
+`[menu_sseg]` so the restore takes `.repaint` — which the refused claim has
+always taken, so there is no new path.
+
+It is still declared movable (§66.5.6), so a pass that can move it rather
+than dissolve it does. In practice neither happens often: the save-under is
+only ever held **inside the gfx lock**, for the menu's own tracking loop, and
+almost nothing claims in that state — which is why it was never the wall.
+The window raise cache, which outlives any lock hold, was.
+
+**The claim's own rank moved with the tag**, and that is the one behaviour
+change: the tag IS the request (§50.6.4), so the save-under is now claimed at
+TRIVIAL rank and sheds nothing to get room. On a heap too tight for it the
+menu repaints on close instead of evicting the directory read-ahead or a FAT
+window to bank a few KB of pixels for a few seconds — the ladder's answer,
+where the old tag outranked every cache in the system.
+
+`0xFF01` is retired and not reused. `tm_ktab` names `MEM_P_MSAVE` as
+`MenuSav`, and tests/unit/t_ktags.py holds the kernel, the SDK and the Task
+Manager to one list.
+
 ### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
@@ -23733,6 +23763,43 @@ about the control and not the app:
 | Paint's **canvas** | a stroke |
 
 Everything else in those windows fires on the release.
+
+#### 13.8.9 A button with a PICTURE, and a button that writes each pixel once — `OS88UI_BIMG`
+
+`apps/os88ui.inc`'s button took a caption and nothing else, so a transport
+row — play, pause, stop — could only be drawn by hand, and a hand-drawn row
+is the one that forgets §13.7's gesture. `%define OS88UI_BIMG` before the
+include adds two things, and a package that does not define it assembles
+**byte-identical** (checked across every package in the tree when it landed):
+
+- **`OS88UI_IMG` (flag 64)**: the labels-array entry is an
+  `OSAPI_ICON_DRAW` record (§25.6.1 — `db 1, rows`, then `rows` mask words,
+  then `rows` data words) instead of a string. It is centred exactly as a
+  caption is, drawn through the sprite pass's PAIR (§25.6) so a pressed
+  button inverts its picture the way it inverts a caption, and it should
+  carry a **full mask**: the picture is then opaque over its own 16-wide
+  cell, ground and ink in one pass. A button's height was never fixed — the
+  rect is the caller's and the caption is centred in it vertically — so a
+  taller button with a taller picture is the same call.
+- **A different drawing body for every button of that package,
+  `os88ui_bdraw1`, in which no pixel is written twice.** `os88ui_bdraw` fills
+  the interior and then letters the caption over it — the fill-then-letter
+  pair §6.1 exists to remove, on both edges of every press. `bdraw1` cuts the
+  interior into the label's (or picture's) own rect, drawn opaque, and the
+  ring around it, filled in at most four strips; the frame is outside both.
+  It costs calls — up to four fills where there was one, ~2 ms per button on
+  the field machine — on an event a human generates, which is why it is an
+  opt-in and not `os88ui_bdraw`'s replacement.
+
+**A picture the clip cuts draws its ground and not its ink.** The sprite
+pass clips a shape whole (§25.6), so a half-covered picture would leave its
+rect holding whatever was there before; filling it in the ground colour keeps
+the button a button, and uncovering it is a `W_PAINT` that draws the picture.
+
+`OS88UI_NOGLYPH` is the matching opt-OUT: the check-box/radio glyph body and
+its two shape routines, ~300 bytes every button user carries, for a package
+that draws neither. It refuses to assemble beside `OS88UI_CHK` or
+`OS88UI_RAD`. Tracker (§45.21) is the first consumer of both.
 
 ### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0430)
 
@@ -54405,6 +54472,31 @@ those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
 `sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
 to the card.
 
+#### 34.5.1 Verb 9 — the bytes PLAYED, exactly
+
+Verb 3's count advances one whole block per block IRQ, so between interrupts
+it says where the card **was**: up to 93 ms behind at 22 kHz and 372 ms at XT
+mode's 5.5 kHz. A display that wants where the card **is** had to estimate the
+rest from ticks (§45.15.1), and the estimate needs to know WHEN the report it
+corrects against was raised — which it guessed as half a tick, and which an
+XT's feed pass, arriving up to 275 ms late behind a mixing burst, made wrong by
+exactly that much.
+
+`OSAPI_SND_STREAM` verb 9 (`SND_V_PPOS`) is verb 3 with `DX` = the bytes
+played **exactly**: the block-granular count plus the 8237's own progress
+into the block now sounding, read off channel 1's count register inside the
+same `cli` window. Any-task, like verb 3, and the kernel routes it through
+verb 3's `.status` path so the answer in `DX` is not banked away. One race is
+handled rather than ignored: the DMA can already be in the next half while the
+ISR that counts the last one is pending behind this very `cli`, which shows as
+the count naming a half that is not `[sbl_play]` — and then the finished block
+is added here, as the ISR is about to add it. A record stream, a paused or
+ended one and a stream with no IRQ armed answer verb 3's count.
+
+A driver without the verb refuses it (`AX = 7`, `CF = 1`), and a caller falls
+back to verb 3. Tracker does (§45.15.1's model carries that stream). One line
+of kernel (`cmp al, 9` / `je .status`) and the verb's body in `SOUND.DRV`.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -67862,6 +67954,11 @@ where this one contradicts it, and every place that took a real correction —
 
 ### 45.1 Windowed is a splash; the app lives fullscreen
 
+**The splash described here is GONE (§45.21)**: windowed, Tracker is ModPlug
+Player's face now. What this section says about the FULLSCREEN surfaces - the
+bracket, the ordering of `[trk_fs]`, the keys - still stands; what it says
+about a card with a key map on it is history.
+
 The entry proc creates an ordinary centred 420x180 window — a splash card:
 the name, the loaded module's title, the key map, and *Press F or click for
 fullscreen*. Fullscreen is **F or a click, never "any key"** — it used to be
@@ -69488,6 +69585,11 @@ Eight things are load-bearing:
 
 #### 45.15.1 …and it is interpolated between block interrupts
 
+**Retired by §45.15.4**: the driver now answers the exact position (§34.5.1),
+and this estimate — with §45.15.2's sub-tick steps and §45.15.3's phase loop —
+is gone from `tui_playpos`. It is kept here as the account of why the answer
+had to come from the card.
+
 `[trk_consumed]` is the truth and it is **coarse**: the driver advances it one
 whole DMA half per block IRQ, which at the XT rate is 2,048 bytes — 372 ms,
 6.8 system ticks, about three rows. Followed raw, the grid stands still for a
@@ -69787,6 +69889,38 @@ boundaries, and a cycle that crossed none showed **0 of 18 samples** building.
 What does build unconditionally is *entering the bracket* — see §45.13.6,
 which is where that cost was found and removed. Read this paragraph as the
 worked example of why a plausible mechanism is not a measured one.
+
+#### 45.15.4 The position is the card's own, and the display leads it by half a frame
+
+**The estimate ran behind the card**, and that is the meters and the spectrum
+jumping *after* the note. Measured on MartyPC with a Sound Blaster, against
+the driver's own block-IRQ timestamps (the exact played position at each
+interrupt, advanced at the stream's rate between them), in XT mode:
+
+| | display position behind the card | kick behind the note |
+|---|---:|---:|
+| §45.15.1–3's estimate | median **170 ms** (103–260) | median **231 ms** (112–368) |
+| verb 9, exact | **±1 ms** | median 35 ms (1–125) |
+| + half a frame's lead, + §45.16.7 | ±1 ms | median **−3 ms** (−27 to +74) |
+
+The estimate's error was its **phase**: it assumed the worker read each block
+report half a tick after the IRQ that raised it, and an XT's feed pass arrives
+up to 275 ms late behind a mixing burst, so the correction pulled the model
+back towards a position the card had long left. A faster machine polls more
+regularly and hid it better, which is why it read as a small, constant lag on
+a 386 rather than a large, wandering one. `tui_playpos` now asks
+`SOUND.DRV`'s verb 9 (§34.5.1) — the 8237's own count — on every frame, and
+falls back to verb 3's coarse count only for a driver that refuses it. Still
+capped at `[trk_total]` and still monotone; the tick model, the frame
+counting and the phase loop are deleted (**−233 bytes** of image).
+
+**THE HALF-FRAME LEAD.** A kick can only be seen on a frame, so judged at the
+card's own position every one lands 0 to 1 frame late — up to 55 ms windowed,
+where a frame is a tick. `tui_sync` judges which row is audible at the card's
+position **plus half a frame** (half a tick windowed, an eighth on the fsx
+clock), capped at what has been mixed. The error is then centred on the note,
+and the side it errs on when it errs is early, which the eye forgives far
+sooner than late.
 
 ### 45.16 The text screen's frame clock is measured, not assumed
 
@@ -70152,6 +70286,39 @@ initialiser rather than in bss, so a fresh instance starts owing the line
 (§20.1 — every launch reloads the image). The row counter used to hide both
 problems by changing often enough to paper over them.
 
+
+#### 45.16.7 A half is MIXED in pieces, and the pieces stop at the tick edge
+
+§45.16.2 put the frame first when the ring is deep and left the mix to happen
+behind it — **one whole 2,048-byte half per pass**, ~200 ms of 8088 at XT
+mode's rate, during which the worker drew nothing. Measured windowed on a
+Hercules 5150 in XT mode, frame to frame: `55, 275, 55, 55, 220, 55, 55, 63,
+157 …` — a steady tick with a four-tick hole every fifth frame, 59 frames in
+6 s. That hole is the "pausing and jerking" of the windowed meters, and it was
+never CPU: the machine was 25% idle throughout.
+
+The card takes whole halves; nothing said they had to be **mixed** whole.
+`mp_genc` renders into `mp_outbuf` where the last piece stopped, stamped
+against the one `[mp_stampbase]` the half's first piece set, and `trk_feed`
+stages and feeds the half when `[trk_mixed]` reaches 2,048. **Pieces are
+`TRK_PIECE` = 256 bytes and go until the tick edge**, not to a byte count: a
+count sized at two ticks' audio overran the tick, the worker slept through
+the next one, and frames landed every other tick (measured: 110 ms median).
+A pass that did cross an edge skips its sleep (`[trk_wtick]`), so the frame
+it owes is drawn at once instead of a tick late. Under `TRK_LOW` = two halves
+of lead — 745 ms of cushion at the XT rate — the feed still finishes the half
+at once: the cushion is never traded for a frame.
+
+| windowed, XT mode, 20 s | frames | gap median | gap max | underruns |
+|---|---:|---:|---:|---:|
+| a whole half a pass | 59 in 6 s | 55 ms | 275 ms | 0 |
+| pieces to the edge, low mark `TRK_DEEP` | 353 | 55 ms | 185 ms | 0 |
+| pieces to the edge, low mark `TRK_LOW` | **354** | **55 ms** | **106 ms** | **0** |
+
+The ring's lead now sits between 6 and 12 KB instead of at the ceiling, which
+is the mix being spread across the ticks rather than bunched — and 6 KB is
+still over a second of music at this rate.
+
 ### 45.17 Stop is a PAUSE, so play has to resume
 
 `trk_play_stop` has always parked the replayer where the **listener** was —
@@ -70441,6 +70608,231 @@ apps disk; that one reported a reproducible **1,247 pixels on Hercules** for a
 change that cannot touch a mono pixel, and the control that settles it is the
 same image launched twice — 0 differing pixels, so the instrument is
 deterministic across launches and any reading it gives is about the images.
+
+### 45.21 The windowed face is ModPlug Player's, rebuilt (`trkwin.inc`)
+
+§45.1's splash card is gone. Windowed, Tracker is now the player §56 ported
+from ModPlug Player V2 — the green LCD, the transport row, the time scrubber,
+the volume slider, the visualiser and the option grid — and the FT2 screen is
+what F still enters, unchanged. The two players shared a lineage and no code
+(§56.1); this is the step that ends the second copy of the replayer: the face
+is new code in Tracker's own conventions, the replayer is `trkplay.inc`
+(which grew the two things the face needs, §45.21.3), and nothing of
+`apps/modplug` is included. ModPlug itself is left as it ships until it is
+retired; it is not fixed here.
+
+It is **not a copy**, and each difference is a ModPlug defect or a newer
+standard of this tree:
+
+| ModPlug did | the face does |
+|---|---|
+| filled its grey body, then drew every control over it | a **table of body tiles** covers exactly the pixels no element owns (`tw_tiles_*`, generated with the layouts and checked for exact cover by `tools/trkface.py`), every text is one opaque run, a well's black is the strips *between* its lines, a slider is the groove either side of its thumb: **no pixel of the face is written twice**, including on a full `W_PAINT` |
+| buttons that acted on the press | the standard button (§13.7, §13.8): press draws it inverted, release on the same button fires, a slide off un-presses it and the release cancels — with pictures (`OS88UI_BIMG`, §13.8.9) |
+| LED strips under every button | **latches** (`OS88UI_LATCH`): one of Play, Pause and Stop is always down, a tape deck's row; an option that is on is drawn down |
+| a volume slider that jumped on a click | click **and drag**, live — heard as it moves, and the thumb drawn from `[mp_master]` itself, so it cannot lag the value it shows |
+| a scrubber that seeked the mixer | the thumb follows the hand and the seek lands on the **release**, restarting the stream there so it is heard at once rather than a ring later (`tw_seek`) — and the **clock goes with it**: `mp_timeat` prices the order list up to the position the seek landed on (§45.21.3), so the LCD reads the song's time there rather than running on from where the hand left it |
+| a latching button (Shuffle, Play) redrawn upright on the release and inverted again by the state change a frame later | the action runs FIRST and the library's release draw is the button's final picture (`tw_prefire`): measured on the glass as a 1,080-pixel transient before, and nothing but the pointer's own sprite after |
+| a button that opens a window drawn over that window on its release | the clip is armed AGAIN after the action fires (`tw_onup`): the PlayList button opens the editor on top of the player, and the clip armed on the press predates it |
+| an About panel its own worker painted over | the **standard card** (§20.5.1): while it is up the worker drops its frames, every refresh from a handler refuses, and the button record has **no live buttons** — so not even a press can draw through it |
+| a layout banked at paint, broken by a drag | the origin, the layout and the **depth of the display the window is on** (§39.16.4) are asked at the top of every draw (`tw_track`), because a drag calls none of our handlers (§11.96.12, §93.3.4.2); the button rects are screen coordinates and are rebuilt there and before every press, and a move repaints nothing |
+
+**Everything is drawn from what changed** — §56.12's shape, kept: each LCD
+line and the status line by a hash, each button by its flag word and label,
+each thumb by its x, each meter by its length. A worker frame on a steady
+screen costs the compares and no primitive calls; a handler that changed
+something calls `tw_refresh`, which arms the clip on our own window (the
+lesson §56.3 recorded: the kernel arms one for `W_PAINT` and for nothing
+else) — and does nothing inside the worker's frame, whose clip it would
+otherwise clear.
+
+**A frame that would draw nothing does not take the lock** (`tw_want`). The
+worker woke ~18 times a second and took the gfx lock each time, which lifts
+the pointer (§7.1.4) — so a PAUSED player, every element already right,
+flashed the pointer continuously. What the UI task changes it draws itself,
+so the worker's frame is owed only to what moves on its own: an open stream,
+a start or stop the transport has not seen, and a meter still falling. Once
+all three are still, `TW_IDLEF` = 2 more frames run and then none. Measured
+paused on MartyPC: **0 flash frames in 60**, with the pointer over the window.
+
+#### 45.21.1 Two layouts, and CGA's is the compact one
+
+416 content pixels wide on every adapter; 184 tall on VGA and Hercules. CGA's
+desktop band is 156 rows, `wm_fit` clamps the frame, and `tw_track` picks the
+**compact** layout off the content height it is given: three LCD lines (the
+format line goes), shorter transport buttons, a shorter visualiser, six
+option buttons (Rate and About are in the menus). Every text run starts on
+the byte grid (`WF_SNAP` plus x = 8), so `font_run` takes its single-store
+path on all three adapters (§11.94). The palette is the depth's: `CLGREEN` on
+black and a grey body at 4bpp, white on black and a white body at 1bpp, for
+§56.4's reasons.
+
+**The two heights are a DECLARATION** (§11.100.1): `trk_pref` names the full
+frame for VGA and Hercules and the compact one (`TW_HCOMP` plus the title and
+border) for CGA, and `trk_entry` hands it to `OSAPI_WM_PREFER` straight after
+`OSAPI_WM_SNAP`. What that buys is the drag onto the other card of an
+extended desktop (§11.100.4): the frame takes the size that card's face
+wants, and `tw_track` - which re-reads `OSAPI_WM_GEOM` on every call rather
+than deciding once at launch - picks the layout off the height it lands at.
+No `OSAPI_WM_ONRESIZE` handler is needed for that reason; ModPlug needed one
+because its `[mpp_compact]` was decided once. This was ModPlug's behaviour
+(§56.4) and is carried over because §56.15 retires ModPlug; `tests/dispsize.py`
+leg C is the gate, with Tracker as its subject now.
+
+#### 45.21.3 A song ENDS now, and the master volume is the replayer's
+
+A MOD's order list loops: at its end `mp_nextrow` goes to the restart
+position, and a Bxx jumps back. `trkplay.inc` used to know only F00, so a
+module never ended and there was nothing for a playlist to advance on (this
+was true of ModPlug's copy too). `mp_nextrow` now notes **the order list
+going back** — the wrap, or a Bxx to where the song already is or was — in
+`[mp_songend]`, and with `[mp_endstop]` set that is F00's exit: the replayer
+stops, the ring's tail plays out, the worker latches `[trk_ended]`. The
+**Repeat** option decides it: *Off* and *List* set `[mp_endstop]`, *Song*
+clears it and the module loops as it always did. *Song* is the default, so
+the button comes up latched and a module played on its own loops as it did
+before the face; Off and List are one and two presses of it away.
+
+The **master volume** is `mp_volsel`: a channel's output volume scaled by
+`[mp_master]` before it picks a slice of the 65×256 table — ModPlug's design
+(§56.3): one multiply per channel per chunk, no table rebuild, and at unity
+the multiply is skipped. `mp_setposn` is the absolute seek, sharing
+`mp_setpos`'s tail so the two cannot disagree about what a seek resets.
+
+**`mp_timeat` is the song's clock at an order position**: the order list
+walked in sequence up to it, every row priced `speed × spt` at the current
+`[mp_mixrate]`, an Fxx changing the tempo on its own row and a Dxx (or a Bxx,
+taken as a break to row 0) ending the pattern. It leaves `[mp_speed]`,
+`[mp_bpm]` and `[mp_spt]` as they stand there, so the resume (§45.17's
+`mp_start` mode 2) plays at the tempo the clock was priced at. The walk
+follows the ORDER LIST and not the jump, and E6x/EEx are not modelled: exact
+for a song that plays its orders in order, an estimate for one that loops
+inside itself. It reads four cells a row and multiplies once, so a seek into
+an 83-order module is a few hundred thousand cycles. Checked against an
+independent model of `BEVERLY.MOD` on MartyPC: a parked seek to orders 1, 3
+and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
+
+#### 45.21.5 The visualiser: XT, or 286+
+
+| mode | what | cost a frame |
+|---|---|---|
+| **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
+| **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
+| **Spectrum** (286+) | sixteen bands, kicked as a note is **heard** | one fill per band that moved |
+| **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
+
+ModPlug's visualisers drew every column and bar every frame — its scope alone
+was two hundred primitive calls — and did not keep up on a 286 either. Here
+the heaviest mode is one call. The **spectrum is synchronised by the same
+stamps as the needles** (§45.15): `tui_sync` kicks both when a row becomes
+audible, and `tw_skick` reads the note out of the pattern cell the stamp
+names (`mp_cellptr`), so the mixer pays nothing for it. A semitone index is a
+logarithmic axis (§56.6); what it cannot show is harmonic content. The scope
+is the mixed output, which leads the card by the ring — honest about that
+here, and noise-shaped enough that nobody can tell; its band borrows the text
+screen's pattern shadow (§45.13.2), which is then rebuilt at the next text
+bracket, because the 60KB package budget had no 1,858 bytes to spare.
+
+**The XT meter is thin because a fill is priced per ROW on a 1bpp adapter**
+(PERFORMANCE.md, `fill ns per row`): a needle a third of its slot tall costs
+roughly a third of the rows every time it moves. Measured on a Hercules 5150
+playing `BEVERLY.MOD` in XT mode, 20 guest seconds from the same point, off
+the scheduler's own per-task cycle counters: the machine's idle share went
+**24.7% → 26.6%**. That is small — the fixed part of each call dominates a
+narrow strip — and it is taken because it is free. **At XT mode's 11 kHz
+there is no meter at all**: the mixer leaves the XT no time to draw one, so
+what it had was needles frozen for seconds at a time; the pane says so
+instead, and the VU button greys with it.
+
+**The bench build carries no 286+ picture.** `-DTRKLOG` (tests/trklog.inc,
+the XT field log) replaces the spectrum and the scope with `tw_skick: ret`
+and forces the meter in `tw_vizfx`: on an XT they are forced off anyway, so
+they were ~700 bytes it could never run, of a package that has to fit
+`APP_MAX_SIZE` with the log inside it.
+
+#### 45.21.7 The keys the face added
+
+Every §45.7 key is unchanged. Added, on both surfaces unless noted:
+
+| key | action |
+|---|---|
+| N / B | next / previous in the PlayList (|<< restarts the song when there is none) |
+| E | the PlayList editor — windowed only, and says so in fullscreen |
+| O | Repeat: Off / Song / List |
+| H | Shuffle |
+| + (=) / − | master volume, a sixteenth of the range a press |
+
+### 45.22 The PlayList (`trklist.inc`)
+
+ModPlug Player's list and its editor (§56.8), moved to the player that
+survives. **The store is not the editor's**: the transport reads it — a song
+ending walks it whether the editor was ever opened or not — and so does the
+fullscreen bracket. An entry is a name **and a folder** (drive and first
+cluster, `OSAPI_FILE_HERE` at the moment it was added), because a list is
+built out of more than one directory; playing it `OSAPI_FILE_GOTO`s there only
+when it is somewhere else, since a GOTO is a remount. Sixteen entries.
+Add... / Remove / Clear / Shuffle / Sort / Play, the same standard buttons as
+the face; a click selects a row and a click on the selected row plays it
+(§56.8's reason: no timing). Repeat and Shuffle are §56.8's rules, decided in
+one place, `trk_song_over`.
+
+#### 45.22.1 The end of a song is heard, then acted on — by a wake
+
+`trk_reap` used to close a stream the moment the replayer stopped, which cut
+off the ring's tail: up to three seconds of every song. It closes now only a
+stream the worker has seen **drain**, and marks the song over. Acting on that
+may mean loading a file, and a paint is not where a load may happen
+(§54.10), so the worker posts `OSAPI_WM_WAKE` when it latches the end, and
+`trk_onwake` closes and walks the list without anybody touching the machine.
+
+And the first thing the walk found: a ring grant **still held** after the
+close (its free refused) made the next load's ring probe ask for a second
+grant, which is refused, and read as *"Too big for free memory"*. A grant we
+hold is a ring, and `trk_ring_probe` now counts it.
+
+#### 45.22.2 The list plays on in fullscreen
+
+The bracket dispatches no events (§53.1) and so gets no wake; its own loop
+asks `trk_sover_ck` every frame instead, and a load inside the bracket is
+legal (§53.7: the file slots are the UI task's, and this is it). After the
+load the surface is redrawn by the surface's own renderer — the text screen
+with `ttx_draw_all`, never a kernel drawing slot (§45.13.3). N and B work
+there too. What does not is the editor (a window cannot open over a bracket)
+and Add..., for L's reason.
+
+#### 45.22.3 The editor is UNBOUND, so it may not touch a file or the card
+
+The editor is a window created after the entry proc, so no instance owns it
+(§56.2), and **a callback is billed to the instance that owns its window**.
+A play started from the editor's own Play button therefore claimed its ring
+grant as the *kernel*: the player's close could not free it, and the next
+stream open was refused (err 7) with the grant stranded. The file API asks
+the same question (§19.2.1). So the editor edits the list in place and
+**posts** everything else — a play, a forwarded key, Add... — through
+`tpl_post` to the player's wake handler, which the kernel bills to Tracker.
+§56's editor had the same exposure and is left as it ships.
+
+#### 45.22.4 Opening a song IS adding it, and the one already loaded is not read again
+
+Every module opened — File > Open, a double-click, the association at launch —
+goes on the list and becomes its current entry (`tpl_note`): found where it
+already is (the same name in the same folder, one sixteen-byte compare), or
+put on the end. **Repeat List is the default**, so a double-click on one file
+is a one-entry list that goes round, which is exactly what Repeat Song did;
+the second song opened joins the first instead of replacing it, and nobody has
+to go back and add the first.
+
+**A one-entry list loops in the REPLAYER** (`trk_endstop_upd`): Repeat Song,
+or Repeat List with one entry that is the song playing, clears
+`[mp_endstop]`, so going round is §45.21.3's seamless order-list wrap rather
+than an end, a restart and a pre-roll. The rule is re-asked on every Repeat
+change and every list change (`tpl_refresh`), so opening a second song mid-play
+lets the first one END and advance.
+
+**The module already in the grant is not read again** (`tpl_play`): an entry
+that is the same file as `[tpl_loaded]` restarts the stream and touches no
+disk — a list that goes round to the song playing, `>>|` with one entry, the
+same file listed twice. Measured on MartyPC: `N` on a one-entry list, **zero**
+calls into the file-read path.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -81256,7 +81648,13 @@ claim table, and `mem_claim`/`mem_free` run their own critical sections — so
 two tasks racing to copy cannot corrupt it. The loser simply overwrites the
 winner's text, which is what having *one* clipboard means.
 
-## 56. ModPlug Player — the fourteenth package (apps/modplug/modplug.asm)
+## 56. ModPlug Player — the fourteenth package (apps/modplug/modplug.asm) — **RETIRED**
+
+> **RETIRED (§56.15, `apps/RETIRED.txt`).** Tracker's windowed face (§45.21)
+> replaced it, and no image carries `MODPLUG.O88`. The source, this section
+> and its tests stay, and `make modplug` still builds it. Everything below
+> describes the package as it was built and is true of `make modplug`'s
+> output.
 
 A port of **ModPlug Player V2**'s look and feel onto the window manager:
 `modplug.asm` (shell, transport, playlist store, worker), `mppmix.inc` (the
@@ -81265,6 +81663,9 @@ replayer and mixer), `mppui.inc` (the skinned player window), `mppset.inc`
 `mpm_`, `mppu_`, `mpps_`, `mppl_`.
 
 It is the second MOD player in this tree and that is deliberate — see §56.1.
+**Its face now lives in Tracker (§45.21)**, rebuilt on Tracker's replayer,
+with the playlist (§45.22); this package is left as it ships until it is
+retired, and the defects §45.21's table lists are not fixed here.
 Tracker (§45) is a FastTracker II *pattern editor's* view of a module, drawn
 fullscreen; this is a **player**, windowed, with an LCD, a transport row and a
 visualiser. They share a lineage and no code.
@@ -81881,6 +82282,32 @@ holds again — but it is a premise, where Tracker's ordering is a guarantee.
 The fix is to hoist `.alloc`'s sizing above the stop-and-free; it is not
 attempted here, and the free itself cannot simply move below the read for
 §45.3.1.1's reason.
+
+### 56.15 RETIRED — Tracker's windowed face replaced it
+
+**ModPlug no longer ships** (`apps/RETIRED.txt`, §20.16). It is not a failed
+port the way §89.12's was: it was the better-looking windowed player, and
+§45.21 took its look and its options into Tracker, rebuilt to the tree's
+standards - press-on-release buttons with inverted pressed states and
+slide-off cancel (§20.5.1.3), a volume bar that drags, a face drawn from dirty
+bits that never blanks before it draws, a content origin that follows a drag,
+and a playlist that works in the fullscreen mode Tracker keeps (§45.22). With
+that done, two MOD players on one disk were one player and one regression
+surface, and the owner called it.
+
+What it took off: `$(APPS_TOOLS)`, `$(SMALLOMIT)` and `$(COMBO_DROP)` - the
+last two because a filter naming a package no list contains is the silent
+no-op §24.5 describes - so no apps disk, small floppy, combo disk or live
+volume carries `MODPLUG.O88`. What it kept, for §89.12's reason (a retirement
+that deletes the only way to build the thing is a record nobody can check):
+the source, this section, `make modplug`, `make modplugdbg` and the on-demand
+`build/mppmove360.img` that `tests/editmove.py --app modplug` still drives.
+
+**One behaviour had to be carried over rather than dropped**: ModPlug was the
+only MOD player that declared a frame per adapter (§56.4, §11.100.1), and
+`tests/dispsize.py` leg C used it as the subject for *"a declared size is
+adopted on landing on the other card"*. Tracker declares the same two heights
+now (§45.21.1), so the gate kept its subject class and changed its subject.
 
 ---
 
@@ -89168,9 +89595,11 @@ questions — and the difference between them, which is the whole signal this
 verb exists to give, would read non-zero every time and post a compaction the
 caller did not need. `[mem_cp_self]` names the segment — the X stub's `ES`, so
 the region to excuse costs no argument — and `mem_frameless` excuses **the
-nest test alone** — `[ld_base]` and the worker are as true at the service point
-as they are now, and only the nest is the thing that stops being true once the
-callback has returned.
+nest test** while it stands, for every declared region and not only the
+asker's (§66.4.3.5): the nest is the thing that stops being true once the
+callback has returned, for every package at once. `[ld_base]` is as true at the
+service point as it is now and stays asked; the worker is §66.4.3.5's, and is
+excused on every `mem_avail` plan rather than on this one alone.
 
 **Claiming this number refuses**, and that is correct rather than a wart: the
 caller really is standing in its region as it asks. The number becomes true by
@@ -89193,7 +89622,8 @@ KB** where the posted pass then produced **250 KB**, and `[mem_cp_self]` was
 correct and `.self` was taken five times — the missing 27 KB was three movable
 57 KB claims *owned by the asker*, pinned in the plan because its worker was
 running, and moved by the pass because the pass parked it. Six bytes at
-`.notslot` close it, and **the caller is the one package in the system
+`.notslot` closed it — since moved into `inst_seg_parked`, where §66.4.3.5
+applies it to every package's claims and not only the asker's, and **the caller is the one package in the system
 guaranteed to be running as it asks**, so this is the common case rather than
 an edge. The two arms stay two: `mem_busy_seg` must not ask the nest (a
 package's data claim may move while the package executes, §66.3 rule 2), so an
@@ -89301,6 +89731,82 @@ so `OS88_WORKER_RESTARTABLE` reaches a park point that is *not* the top of
 its loop — which is exactly the case the SDK note warns about and the one
 `tests/heapfrag`'s pump-shaped worker cannot exercise. What that cost was
 one line of `trk_worker`'s head, and §45.3.2 says which line and why.
+
+#### 66.4.3.5 Every plan assumes the park its claim will make
+
+**`mem_avail` answers what `mem_claim` would hand out, and `mem_claim` parks.**
+Its compaction plans, finds a claim pinned because a package worker might be
+running in it, raises `[mem_wpin]`, asks every package worker to stand at
+`OSAPI_TASK_ALIVE` (`inst_park_req`, `INST_PARKW` ticks) and plans again with
+them standing (§66.5). The plan `mem_avail` made did not: it asked
+`inst_seg_parked` about the worker **as it was at that instant**, so every
+package whose worker was merely running or sleeping had its region and its data
+claims planned as walls that the claim beside it would have moved.
+
+It was invisible for as long as the workers that mattered were **blocked in
+`OSAPI_GFX_LOCK`**, which a park-safe package's worker counts as parked
+(§66.5.4) — and Tracker's was, eighteen times a second, drawing frames of
+nothing. §45.21.1's idle frame stopped that, and two rows went red the same
+day, both on this defect and neither on Tracker:
+
+| row | what asked | answered | the claim would have had |
+|---|---|---:|---:|
+| `trkcompact` | Tracker's what-if, seven idle Trackers under the ceiling | **65 KB** | 123 KB |
+| `trackmove` | HEAPFRAG's plain `OSAPI_MEM_AVAIL`, an idle Tracker holding its module | **45 KB** | the room to build its comb |
+
+Fixed, on the same heaps: Tracker's what-if answers **123 KB**, it posts, its
+region moves **8300 → 9180** into the hole above it and the 114 KB module
+loads; HEAPFRAG passes **all 14** of its own checks and its claim moves
+Tracker's module **57c0 → 4ec0**.
+
+In the first, Tracker refused a load it could have posted for. In the second,
+HEAPFRAG read too little room to build its comb (its own check 2, `FAIL room`)
+and never claimed at all, so the compaction the row exists to watch never ran.
+
+**`[mem_cp_pl]` is the fix**: a byte `mem_avail_lvl_x` raises around
+`mem_cp_both`, inside its `cli` window, and `inst_seg_parked` answers "parked"
+for any **package** worker while it stands. A driver's task is not excused —
+it has no instance record and "I cannot tell" still means busy (§66.5.5). It is
+never standing inside `mem_compact`, whose own plan is followed by moves and so
+must ask about the machine as it is: `mem_cp_plan` and `mem_cp_run` share
+`mem_can_move`, and a plan that excused a running worker would be a run that
+moved a claim out from under it.
+
+**The what-if keeps the one excuse plain `mem_avail` must not make**: the nest.
+It models the POSTED pass, which runs at `ui_task` step 0a with every callback
+returned, so while `[mem_cp_self]` stands `mem_frameless` excuses `mem_in_nest`
+for **every** declared region, not only the asker's. Plain `mem_avail` is
+answering for a claim made *now*, from inside the caller's own callback, where
+the caller's region really is pinned by its frame — so it leaves the nest
+alone. The restart declaration binds on both, because without one no park
+helps (§66.6.2).
+
+The excuse that used to live at `mem_can_move`'s `.notslot` — the asker's
+own data claims, §66.4.3.2 — is subsumed and deleted: it is one case of the
+rule `inst_seg_parked` now applies to every package. **+17 bytes resident on
+`kern_big`** with §12.4.2 (`.text` +13, `.cold` +3, `.bss` +1), measured
+against the tree before them; **`kern_small` +6** (`.text`), which has no
+compactor and gains only §12.4.2's `mem_pg_own` row.
+
+**`tests/heapfrag` was leaning on the old answer, three times.** Checks 7, 13
+and 14 each size a claim at *one KB past the largest run* so that only a merge
+can fund it — and measured that run with its own blocks declared movable, so
+the old plan walled them in only because the suite's worker was running. With
+the park modelled the run already includes the merge and the +1 is a claim the
+contract says must fail, which is what `heapcheck` then reported (four checks
+red, the triggering claim never made). The suite now measures through
+`hf_availp`: every block it holds pinned (`OSAPI_MEM_MOVABLE` with `AX = 0`),
+`OSAPI_MEM_AVAIL`, and the declarations given back — the question those checks
+ask is *the largest run without moving my blocks*, and that is now what they
+say rather than what they inherited. Checks 15 and 16, which hold `mem_avail`
+to being claimable, are untouched and pass.
+
+**A PLAN MAY NOW READ HIGH** by exactly the workers that fail to park inside
+`INST_PARKW` — a worker is expected to reach `OSAPI_TASK_ALIVE` at least once a
+tick, and one that does not is already the case §66.5 names. That is the
+direction §66.4.3.2 chose for the what-if; for plain `mem_avail` it trades an
+under-report nobody sees for an over-report that costs a shed, on a worker that
+is already misbehaving.
 
 ### 66.5 The worker park
 

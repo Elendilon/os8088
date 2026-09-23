@@ -5783,7 +5783,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 # sources, one binary.
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-                      apps/os88api.inc apps/os88alt.inc | $(BUILD)
+                      apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
 
@@ -5879,7 +5880,15 @@ $(BUILD)/audio-hdd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 .PHONY: audio-hdd
 audio-hdd: $(BUILD)/audio-hdd.img
 
-# ModPlug Player, the fourteenth shipped package (SPEC.md 56): a port of
+# ModPlug Player (SPEC.md 56) - **RETIRED** (SPEC.md 56.15, apps/RETIRED.txt):
+# Tracker's windowed face replaced it. `all` does not name it and no image
+# carries it; these rules and the `modplug` target are what is left, for
+# pacman's reason - a retirement that deleted the only way to build the thing
+# retired is a record nobody can check.
+.PHONY: modplug
+modplug: $(BUILD)/modplug.o88
+
+# It was a port of
 # ModPlug Player V2's LOOK AND FEEL - the skinned player window with its LCD
 # panel, LED transport row and visualiser, the Setup window with its page
 # list, and the PlayList editor - onto the window manager. Its replayer is an
@@ -5906,7 +5915,10 @@ $(BUILD)/modplug.o88: $(BUILD)/modplug.bin tools/os88pkg.py $(PKGZSTAMP)
 # needs something to boot: build/dbg-os8088-360.img is the ordinary system
 # disk and build/dbg-apps360.img is the apps disk with the instrumented
 # player in place of the shipped one. Nothing here is in `all` and nothing
-# ships.
+# ships. Since ModPlug was RETIRED (SPEC.md 56.15) the disk carries the
+# instrumented player, the module and SYSTEM/ and nothing else: the whole
+# apps list plus an uncompressed debug build had stopped fitting 354
+# clusters long before, and nothing had built this since.
 modplugdbg: $(BUILD)/dbg-apps360.img
 
 $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
@@ -5920,12 +5932,9 @@ $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
 $(BUILD)/dbg/modplug.o88: $(BUILD)/dbg/modplug.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/dbg/modplug.bin -o $@
 
-$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
-                          $(APPSYS) tools/os88disk.py
+$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPSYS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88 $(BUILD)/audio.o88,$(APPS_TOOLS))) \
 	    APPS:$(BUILD)/dbg/modplug.o88 \
-	    $(patsubst %,GAMES:%,$(APPS_GAMES)) \
 	    MEDIA:apps/tracker/beverly.mod \
 	    $(patsubst %,SYSTEM:%,$(APPSYS))
 	@echo "modplugdbg: boot build/os8088-360.img with $@ as the APPS disk"
@@ -6600,7 +6609,9 @@ $(BUILD)/editmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/notepad.o88 $(BUILD)/fractal.o88 $(BUILD)/artful.o88
 
-# ModPlug's own disk, for tests/trackmove.py --app modplug (SPEC.md 66.5.8).
+# ModPlug's own disk, for tests/editmove.py --app modplug (SPEC.md 66.5.8).
+# ModPlug is RETIRED (SPEC.md 56.15), so no row wants this any more; it stays
+# on demand beside `make modplug` so that record can still be re-run.
 # Same shape as trackmove360 and separate for the same reason: the listing is
 # sorted by name (SPEC.md 19.4), so an extra package renumbers every row the
 # script clicks. ModPlug does NOT own .MOD (SPEC.md 56.13 leaves that pointed
@@ -9010,7 +9021,8 @@ zscreens: $(BUILD)/stories.stamp
 # is a log of an idle machine. It must NOT be write-protected: W writes
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-             apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trklog.inc
+             apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9049,7 +9061,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # legitimate QEMU case. BEVERLY.MOD rides along because a scroll gate with
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-              apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trkscrl.inc
+              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 
@@ -9732,7 +9745,7 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #                           $(SMALLSYSAPPS) below rather than the apps lists -
 #                           and it is named HERE so that one list stays the
 #                           authority for "kern_small cannot run this at all"
-#   modplug, tracker,       SOUND.DRV, which a 128-256KB machine has nothing
+#   tracker,                SOUND.DRV, which a 128-256KB machine has nothing
 #   audio                   to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
 #   skies                   a 32KB heap claim for its frame shadow, which the
@@ -9770,13 +9783,14 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # this list to subtract from - and a name here that no list contains is a
 # filter that reads like a decision and is a no-op, which is the shape a stale
 # omit list takes. The rule it would have failed is unchanged and would still
-# omit it if it came back.
+# omit it if it came back. MODPLUG left for the same reason one cycle on: it
+# is RETIRED (SPEC.md 56.15) and in no list at all.
 #
-# Nine programs that could not have started (SPEC.md 24.5 has the same
+# The programs that could not have started (SPEC.md 24.5 has the same
 # figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
-             $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
+             $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88 $(BUILD)/sheet.o88
 # DOT DELIRIUM WAS THE SECOND NAME HERE AND IS NOT ANY MORE (SPEC.md 24.5.5).
 # Its ground was *"kern_small carries no `gfx_blit1` body at all and this
@@ -10815,10 +10829,16 @@ $(BUILD)/lptlink144.img: $(BUILD)/llboot144.bin $(BUILD)/lptlink.bin \
 # no-op.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
-              $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
+              $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
+# MODPLUG.O88 IS RETIRED too (SPEC.md 56.15): Tracker's windowed face
+# (SPEC.md 45.21) is ModPlug's player done to the tree's standards, with the
+# playlist, the Repeat modes and the per-adapter faces carried over, so two
+# MOD players on one disk had become one player and one regression. Same
+# registry, same gate, and `make modplug` still builds it.
+#
 # PACMAN.O88 IS RETIRED - not "off the disks while Dot Delirium is developed",
 # which is what this said for a cycle and which was a sentence with no expiry
 # and nothing watching it. The owner has called it: it is a failed port, DOT
@@ -11148,7 +11168,8 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # all on it at 342 of 354 clusters - 12 spare. The paragraphs above are kept
 # because the REASONS are still the reasons - a MOD player beside no module, a
 # disk that is exactly full - and they are what the next thing that grows this
-# geometry gives something up for.
+# geometry gives something up for. MODPLUG.O88 has since left EVERY geometry
+# - RETIRED, SPEC.md 56.15 - so the MOD player half of that is history.
 #
 # **AND FONT VIEWER IS OFF THIS GEOMETRY AGAIN, AT EVERY GEOMETRY, FOR A
 # REASON THAT IS NOT ARITHMETIC** (SPEC.md 90.3). The paragraph above is a
@@ -11967,10 +11988,14 @@ imager:
 # there, and COMBO144ARGS below is therefore built from the FULL lists rather
 # than from COMBOARGS as it used to be.
 #
+# MODPLUG was the fourth name in COMBO_DROP until it was RETIRED everywhere
+# (SPEC.md 56.15): it is in no list for this one to subtract from, and a
+# filter naming it would be the silent no-op SPEC.md 24.5 warns about.
+#
 # SHEET and CHART went with the spreadsheet: 57 clusters between them, sheet
 # is the largest package on the disk, and neither is a field-calibration
 # tool - Calc stays for the arithmetic a field run needs.
-COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/modplug.o88 $(BUILD)/texpad.o88 \
+COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/texpad.o88 \
               $(BUILD)/tracker.o88 \
               $(BUILD)/sheet.o88 $(BUILD)/chart.o88
 COMBO_TOOLS := $(filter-out $(COMBO_DROP),$(APPS_TOOLS))

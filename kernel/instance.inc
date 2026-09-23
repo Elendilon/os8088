@@ -907,6 +907,14 @@ inst_seg_parked:
     pop bx
     jne .free                   ; parked: it is standing at the top of its own
                                 ; loop and holds nothing derived
+    cmp byte [mem_cp_pl], 0     ; ...OR mem_avail IS PLANNING (SPEC.md 66.4.3.5):
+    jne .free                   ; the claim it answers for parks every package
+                                ; worker before it moves anything (mem_compact
+                                ; .nowt, inst_park_req), so a worker merely
+                                ; RUNNING or SLEEPING now is one that claim will
+                                ; find standing. Never true inside mem_compact's
+                                ; own plan, whose answer is followed by moves. A
+                                ; driver's task is not asked about here
     jmp short .busy
 .drv:
     call inst_svc_parked        ; no instance owns it, so it is a DRIVER image

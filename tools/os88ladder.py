@@ -867,12 +867,12 @@ def owner_tags():
 
 
 def _claim_name(tag):
-    """MEM_K_SAVE -> "Menu save-under". A tag is an internal name; the map is
+    """MEM_P_MSAVE -> "Menu save-under". A tag is an internal name; the map is
     not the place for one, and the reader only needs to know what the block is
     for."""
     if not tag:
         return "In use"
-    nice = {"SAVE": "Menu backing store", "DRV": "Loaded driver",
+    nice = {"MSAVE": "Menu backing store", "DRV": "Loaded driver",
             "COPY": "Copy buffer", "ASC": "File-association cache",
             "CLIP": "Clipboard", "MOD": "Loaded module",
             "CLONE": "Disk copier buffer", "BAND": "Title-bar composer",

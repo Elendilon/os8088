@@ -155,33 +155,47 @@ def main():
                   " machine has more heap than the test can fill" % (MAXTRK,
                                                                      run))
             return 1
-        # --- ONE MORE, and then TWO come off the ceiling ---------------------
+        # --- EXTRA more, and then EXTRA+1 come off the ceiling --------------
         # One region of room is not enough once the floor is modelled right.
-        # With the two floor claims packing, eight instances leave 132 KB and
-        # the 114 KB module simply fits (no post to observe); nine leave 83,
-        # and the posted pass then has EIGHT workers to stand up inside
-        # INST_PARKW's four ticks - which this machine does not manage
-        # (measured: four of the eight parked, the pass delivered 83 KB, and
-        # Tracker refused the load it had promised itself). So the stack goes
-        # one deeper and TWO regions come off the ceiling: the asker drags
-        # SEVEN workers behind it, the count the row has always passed with,
-        # into 98 KB of room.
-        if i + 1 >= MAXTRK:
+        # With the two floor claims packing and a 49 KB region, eight
+        # instances leave 132 KB and the 114 KB module simply fits (no post to
+        # observe); nine leave 83, and the posted pass then has EIGHT workers
+        # to stand up inside INST_PARKW's four ticks - which this machine does
+        # not manage (measured: four of the eight parked, the pass delivered
+        # 83 KB, and Tracker refused the load it had promised itself). So the
+        # stack went one deeper and TWO regions came off the ceiling: the
+        # asker drags SEVEN workers behind it into 98 KB of room.
+        #
+        # THAT WAS A NUMBER AND NOT A RULE, and it broke the day the region
+        # grew: at 57 KB (SPEC.md 45.21's face) two regions off the ceiling
+        # are a 114 KB hole and the module fits it exactly. What the shape
+        # needs is that the CEILING hole stays under the module, so the count
+        # is derived from the region: close as many as fit under it, having
+        # opened one fewer than that past the floor. Either way the live
+        # count is the stopping depth less one, so the posted pass drags the
+        # same number of workers it always did.
+        rgn = max(c[1] // 64 for c in claims(m, S)
+                  if c[0] == trackers()[0][0])
+        extra = max(0, (needk - 1) // rgn - 1)
+        if i + 1 + extra > MAXTRK:
             print("FAIL: %d instances is the row's limit and the floor only"
                   " went under %d KB at the last one" % (MAXTRK, needk))
             return 1
-        ui.open(PKG)
-        layout("%d instance(s), one past the floor" % (i + 2))
+        for _ in range(extra):
+            ui.open(PKG)
+        layout("%d instance(s), %d past the floor, %d KB a region"
+               % (i + 1 + extra, extra, rgn))
         tk = trackers()
         nopen = len(tk)
         print("  trackers at %s" % " ".join("%04x" % s for s, _ in tk))
 
+        top = tk[:extra + 1]
         rgnkb = sum(c[1] // 64 for c in claims(m, S)
-                    if c[0] in (tk[0][0], tk[1][0]))
-        ui.close(tk[0][1])
-        ui.close(tk[1][1])
+                    if c[0] in [sg for sg, _ in top])
+        for _, w in top:
+            ui.close(w)
         ui.settle()
-        run2 = layout("...and the top two closed")
+        run2 = layout("...and the top %d closed" % len(top))
         if run2 >= needk:
             print("FAIL: the floor run is %d KB and the module wants %d - the"
                   " load would simply fit" % (run2, needk))
@@ -278,7 +292,7 @@ def main():
         clear = tb("trk_cpq") == 0
         print("  4 survivors / flag    %d instance(s), [trk_cpq]=%d"
               % (left, tb("trk_cpq")))
-        bad += left != nopen - 2
+        bad += left != nopen - len(top)
         bad += not clear
         print("VERDICT:", "OK" if not bad else "%d PROBLEM(S)" % bad)
         return 1 if bad else 0

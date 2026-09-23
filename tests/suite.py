@@ -243,6 +243,13 @@ FAST = [
         "for WIRE.O88 matched THEWIRE.O88. FAST for t_movable's argument - it "
         "is a rule about what apps/ means, so it belongs in front of the next "
         "make rather than the next soak run"),
+    Row("trkface", "soak", ["python3", "tools/trkface.py"], 1.5,
+        "Tracker's windowed face and PlayList editor draw no pixel twice "
+        "(SPEC.md 45.21): the body is a table of tiles that must cover "
+        "exactly the pixels no element owns, and this checks the cover from "
+        "the same numbers the assembler reads. It found the editor's table "
+        "still in an old record format on its first run. SOAK: one "
+        "package's subject"),
     Row("blobruns", "soak", py("tests/unit/t_blobruns.py"), 0.1,
         "how many int 13h calls stage 1 spends on the blob, per geometry "
         "(SPEC.md 15.3.8.5) - the count is NOT a function of BOOT2_SECS "
@@ -6434,7 +6441,7 @@ SOAK = [
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True,
-        wants=("build/editmove360.img", "build/mppmove360.img", "build/zmove360.img")),
+        wants=("build/editmove360.img", "build/zmove360.img")),
     Row("frcyclefull", "soak",
         py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
         "...and the same agreement at stride 7 - about 25 million (point,"

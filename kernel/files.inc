@@ -1220,7 +1220,7 @@ fmv_owner:
     mov ax, [fm_vinst]
     or ax, ax
     jnz .have
-    mov bx, MEM_K_SAVE          ; cannot happen: fm_vp_set fills fm_vinst
+    mov bx, MEM_P_MSAVE         ; cannot happen: fm_vp_set fills fm_vinst
     pop ax                      ; before anything reaches here
     ret
 .have:
