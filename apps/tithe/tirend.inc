@@ -179,10 +179,17 @@ ti_row_dither:
     push bx
     push cx
     push di
-    mov bl, 0AAh                    ; bit 7 is the LEFTMOST pixel (SPEC.md
-    test al, 1                      ; 5.4.2), so an even row lights the even
-    jz .have                        ; columns
-    mov bl, 55h
+    ; THE PATTERN IS THE TERRAIN'S (SPEC.md 97.4.10). Four rows deep, so a
+    ; terrain can be a COARSE texture and not only a checker: bit 7 is the
+    ; leftmost pixel (SPEC.md 5.4.2), and the row's low two bits pick the row
+    ; of the pattern.
+    and ax, 3
+    mov bx, [ti_terr]
+    shl bx, 1
+    shl bx, 1
+    add bx, ax
+    add bx, ti_terr_pat
+    mov bl, [bx]
 .have:
     jcxz .out
 .b:
@@ -247,6 +254,78 @@ ti_cell_span:
     mov ax, [ti_ry]
     call ti_row_dither
     pop cx
+
+    ; --- THE DIAMOND'S OWN EDGE, WHICH IS THE LANE SEPARATOR ----------------
+    ; SPEC.md 97.4.10. The cells tile EXACTLY (97.3), so a lit pixel at each
+    ; end of every row of the diamond joins its neighbours' into one continuous
+    ; line up-and-to-the-right - which is the axis a lane runs on. There is no
+    ; separator to draw over the board: the tile IS the separator, which is
+    ; what makes it free and what TITHE-PLAN 3.2 means by a tile set.
+    push cx
+    mov bx, [ti_terr]
+    add bx, ti_terr_edge
+    mov bl, [bx]
+    or bl, bl
+    je .noedge
+    dec bl                          ; THE VALUE IS THE MASK PLUS ONE: 1 is a
+    mov ax, [ti_ry]                 ; solid rim - FLAGSTONE's mortar joint -
+    and al, bl                      ; and 2 a dotted one, which is all OPEN
+    jnz .noedge                     ; GROUND's loose earth has a right to
+    mov ax, [ti_cw]                 ; TWO pixels at each end and not one: a
+    shr ax, 1                       ; single lit pixel against a dither that
+    sub ax, cx                      ; already lights half of them is one extra
+    call ti_cell_dot                ; pixel a row, which is nothing to look at.
+    inc ax                          ; Two is a rim.
+    call ti_cell_dot
+    mov ax, [ti_cw]
+    shr ax, 1
+    add ax, cx
+    dec ax                          ; ...and its last
+    call ti_cell_dot
+    dec ax
+    call ti_cell_dot
+.noedge:
+    pop cx
+    ret
+
+; ti_cell_dot - light pixel AX of row [ti_ry] of the cell band
+; Preserves every register.
+ti_cell_dot:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    cmp ax, [ti_cw]
+    jae .out
+    mov dx, ax
+    mov ax, [ti_cw]
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov bx, ax
+    mov ax, [ti_ry]
+    push dx                         ; ...DX, THE PIXEL, WHICH `mul` CLOBBERS.
+    mul bx                          ; Fourth time in this package: the high
+    pop dx                          ; half lands there, so every dot was drawn
+    mov di, ti_cell                 ; at x=0 and the diamond's outline came out
+    add di, ax                      ; as one vertical line down the tile's edge
+    mov ax, dx
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    and ax, 7
+    mov cl, al
+    mov al, 80h
+    shr al, cl
+    or [di + bx], al
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1938,12 +2017,23 @@ ti_status:
     mov si, ti_hudbuf
     jmp short .out
 .base:
+    ; NOTHING UNDER THE POINTER NAMES THE GROUND (SPEC.md 97.4.10). The board
+    ; is a PLACE and not a backdrop - the plan has several of them - so the
+    ; line that has nothing else to say says which one this is, beside the
+    ; base art it already named.
     mov di, ti_hudbuf
     mov si, ti_s_bsep
     call ti_poke
     mov bx, [ti_bart]
     shl bx, 1
     mov si, [bx + ti_bart_name]
+    call ti_poke
+    mov al, ' '
+    stosb
+    stosb
+    mov bx, [ti_terr]
+    shl bx, 1
+    mov si, [bx + ti_terr_nm]
     call ti_poke
     mov byte [di], 0
     mov si, ti_hudbuf
@@ -2414,6 +2504,8 @@ ti_board:
     dec dx
     call OSAPI_GFX_FILL
 
+    call ti_slab                    ; ...and the SLAB it all stands on
+
     push ds
     pop es
     mov word [ti_ci], 0
@@ -2478,6 +2570,102 @@ ti_board:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_slab - the EDGE of the board: the lit line the cells stand on, and the
+; band of rock under it (SPEC.md 97.4.10). Preserves every register.
+;
+; IT IS NOT A LANE SEPARATOR AND IT IS NOT A TILE. The separators come out of
+; the cell tile for nothing, because the cells tile exactly; the board's own
+; outer edge does not tile with anything, so it is drawn - and it is drawn in a
+; handful of FILLS rather than a line walk, which on a shear of RISE over CW
+; would be one arrival a pixel.
+;
+; THE SHEAR IS WHAT MAKES IT CHEAP. Column c's bottom is `RISE` higher than
+; column c-1's, so the edge is FOUR horizontal runs at four heights and not a
+; diagonal at all - the staircase IS the isometric read here, the same one the
+; cells make.
+; -----------------------------------------------------------------------------
+ti_slab:
+    cmp word [ti_slabh], 0          ; a board that got no spare rows at all
+    je .none                        ; stands on nothing, and says so by
+    push ax                         ; drawing nothing
+    push bx
+    push cx
+    push dx
+    mov word [ti_sc], 0
+.col:
+    mov ax, [ti_sc]
+    cmp ax, TI_COLS
+    jae .out
+    mov ax, [ti_ch]                 ; the FRONT column's lip: one row below
+    mov cx, TI_ROWS                 ; its last cell, which the whole lift has
+    mul cx                          ; pushed down
+    add ax, [ti_lift]
+    add ax, [ti_by]
+    mov bx, ax
+    mov ax, [ti_sc]                 ; ...and every column behind it is one
+    mul word [ti_rise]              ; RISE higher, so the edge is FOUR
+    sub bx, ax                      ; horizontal runs at four heights and not
+    mov [ti_sy], bx                 ; a diagonal at all
+
+    mov ax, [ti_sc]
+    mul word [ti_cw]
+    add ax, [ti_bx]
+    mov [ti_sx], ax
+
+    mov al, CWHITE                  ; 1. the lit lip the column stands on
+    call OSAPI_SET_COLOR
+    mov ax, [ti_sx]
+    mov bx, [ti_sy]
+    mov cx, ax
+    add cx, [ti_cw]
+    dec cx
+    mov dx, bx
+    call OSAPI_GFX_FILL
+
+    mov ax, [ti_sy]                 ; 2. ...and the rock face under it, in the
+    add ax, [ti_slabh]              ; terrain's own stripe: one row in two for
+    dec ax                          ; OPEN GROUND's loose earth, one in four
+    mov [ti_sbot], ax               ; for FLAGSTONE's cut block
+    mov ax, [ti_sy]                 ; THE FACE IS THE SAME DEPTH UNDER EVERY
+    inc ax                          ; COLUMN, so the band follows the staircase
+    mov [ti_sr], ax                 ; instead of hanging off it. Running each
+.rock:                              ; one down to a shared floor instead reads
+    mov ax, [ti_sr]                 ; as a cliff, and fills the shear's own
+    cmp ax, [ti_sbot]               ; empty corner - which is where P2's block
+    ja .cnext                       ; and the near cells' numbers live
+    sub ax, [ti_by]                 ; THE STRATA ARE THE BOARD'S ROWS AND NOT
+    mov bx, [ti_terr]               ; THE COLUMN'S, so a band runs straight
+    add bx, ti_terr_rock            ; across a step instead of jogging at
+    mov cl, [bx]                    ; every one of them
+    and al, cl
+    jnz .rnext
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [ti_sx]                 ; ...inset a pixel each side, so the joint
+    inc ax                          ; between two columns carries on down the
+    mov bx, [ti_sr]                 ; face as the lane separators do above it
+    mov cx, [ti_sx]
+    add cx, [ti_cw]
+    sub cx, 2
+    mov dx, bx
+    call OSAPI_GFX_FILL
+.rnext:
+    inc word [ti_sr]
+    jmp short .rock
+.cnext:
+    inc word [ti_sc]
+    jmp .col
+.out:
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.none:
     ret
 
 ; ti_cell_xy - AX = x, BX = y of cell index [ti_ci], in column-major order

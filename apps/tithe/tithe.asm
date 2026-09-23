@@ -453,6 +453,10 @@ ti_onkey:
     jne .n_rowsel
     jmp .rowsel
 .n_rowsel:
+    cmp bl, 'g'
+    jne .n_terr
+    jmp .terr
+.n_terr:
     cmp al, '+'
     jne .n_up
     jmp .up
@@ -527,6 +531,18 @@ ti_onkey:
     xor ax, ax
 .armset:
     mov [ti_arm], ax
+    mov byte [ti_laid], 0
+    call ti_relayout_ck
+    call ti_paint_now
+    jmp .out
+.terr:                              ; SPEC.md 97.7's `G`: the next BOARD. The
+    mov ax, [ti_terr]               ; terrain is composed at ROUND LOAD, which
+    inc ax                          ; for wave 1a is the layout - so this forces
+    cmp ax, TI_TERRAINS             ; one, the same way `B` does for the bases
+    jb .terrset
+    xor ax, ax
+.terrset:
+    mov [ti_terr], ax
     mov byte [ti_laid], 0
     call ti_relayout_ck
     call ti_paint_now
@@ -1489,6 +1505,32 @@ ti_cards:
 ; card's own faction is what this becomes (TITHE-PLAN 7.1).
 ti_ckind:   db 0, 1, 2, 0, 1, 2, 0
 
+; THE TERRAINS (SPEC.md 97.4.10). Four rows of pattern each, because a
+; terrain that is only a checker is only a shade - and the second one has to
+; read as a DIFFERENT PLACE and not as the same place turned down.
+TI_TERRAINS equ 2
+ti_terr_pat:
+    db 0AAh, 055h, 0AAh, 055h       ; OPEN GROUND: the fine 50% checker
+    db 0CCh, 0CCh, 033h, 033h       ; FLAGSTONE: 2x2 blocks, coarse
+ti_terr_rock:
+    db 1, 3                         ; the slab's stripe: `row AND this` zero is
+                                    ; a lit row, so 1 is every other and 3 is
+                                    ; one in four - loose earth against cut
+                                    ; block
+ti_terr_edge:
+    db 2, 1                         ; ...and the lane separator each one gets:
+                                    ; the MASK PLUS ONE, so FLAGSTONE is
+                                    ; MORTARED on every row of the diamond and
+                                    ; OPEN GROUND worn into a dotted track on
+                                    ; every other one. The cells tile exactly,
+                                    ; so either joins its neighbours' into the
+                                    ; separators for nothing; 0 is a terrain
+                                    ; with no lanes marked on it at all
+ti_terr_nm:
+    dw .t0, .t1
+.t0: db 'OPEN GROUND', 0
+.t1: db 'FLAGSTONE  ', 0
+
 ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
 ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
 ti_a_3:     db 'HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS', 0
@@ -1609,6 +1651,14 @@ ti_crec:    dw 0                    ; for, its art record, and its slot's
 ti_cslot:   dw 0                    ; own pitch (SPEC.md 97.4.9)
 ti_urec:    dw 0                    ; ...and the mini unit's two
 ti_uslot:   dw 0
+ti_terr:    dw 0                    ; which BOARD we are fighting on
+ti_slabh:   dw 0                    ; ...the rock under it, and the walk
+ti_sc:      dw 0
+ti_sx:      dw 0
+ti_sy:      dw 0
+ti_sr:      dw 0
+ti_sbot:    dw 0
+                                    ; (SPEC.md 97.4.10)
 %ifdef TICARDPROF
 ; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us
 ; each), for the last card drawn. It is a knob and not a counter because the

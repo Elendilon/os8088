@@ -140596,6 +140596,68 @@ ABILITY, which is one of the things a variable stat can BE. The soul therefore
 appears on both lines — as a cost above and as a yield below — and the line it
 is on is what says which.
 
+#### 97.4.10 THE BOARD IS A PLACE — terrain, lane separators and the slab
+
+**The ground under the lanes is not a backdrop, it is a TERRAIN**, and there
+will be several of them (TITHE-PLAN §3.2). A background is three elements —
+the texture of the ground, the separators between the lanes, and the board's
+own isometric edge — and none of them belongs to a character: they are
+composed at **round load**, from one table row per place, and nothing on the
+frame clock ever touches them again. `G` cycles the terrain for the demo,
+which is a relayout and not a repaint.
+
+**`ti_terr_pat`, `ti_terr_rock` and `ti_terr_edge` are the row**, four bytes of
+dither and two masks:
+
+- **THE TEXTURE IS A 4-ROW DITHER**, indexed by `row AND 3`, composed into the
+  cell tile with the diamond. `0AAh 055h 0AAh 055h` is OPEN GROUND's fine 50%
+  checker and `0CCh 0CCh 033h 033h` FLAGSTONE's coarse 2x2 blocks — the same
+  mid-tone by area, so the figure standing on either reads the same, and a
+  different grain at arm's length.
+- **THE SEPARATOR IS THE TILE'S OWN EDGE AND COSTS NOTHING.** The cells tile
+  exactly (§97.3), so a lit pixel at each end of a diamond row joins its
+  neighbours' into one continuous line running up-and-to-the-right — which is
+  the axis a lane runs on. There is no separator drawn over the board at all.
+  `ti_terr_edge` is the row mask **plus one**: 1 is every row, which is
+  FLAGSTONE's mortar, 2 is every other one, which is all a worn earth track
+  has a right to, and 0 is a place with no lanes marked on it.
+- **TWO PIXELS AT EACH END AND NOT ONE.** Against a dither that already lights
+  half of them, a single lit pixel a row is one extra pixel a row and is
+  nothing to look at.
+
+**THE SLAB IS THE ONE ELEMENT THAT IS DRAWN**, because it is the one that does
+not tile with anything: the board's outer edge is the bottom of four columns
+the shear leaves at four different heights. It is therefore **four horizontal
+runs at four heights and not a diagonal** — the staircase IS the isometric
+read here, the same one the cells make — so it is a handful of `gfx_fill`s
+rather than the one arrival a pixel a line walk over a shear of RISE over CW
+would be. Under each lit lip is a rock face in the terrain's own stripe, one
+lit row in two for loose earth and one in four for cut block, inset a pixel
+each side so the joint between two columns carries on down the face as the
+separators do above it.
+
+- **THE FACE IS THE SAME DEPTH UNDER EVERY COLUMN.** Running each one down to
+  a shared floor instead is the obvious reading of "one solid mass" and it
+  reads as a **cliff** — and it fills the shear's own empty corners, which is
+  where P2's resource block and the near cells' numbers live (§97.2.1).
+- **THE LIP IS COMPUTED FROM THE LIFT.** Column c's lip is
+  `BY + LIFT + TI_ROWS*CH - c*RISE`, one row below its last cell. Computed
+  without the lift it lands a whole cell up **inside** column 0's fourth row
+  and is then painted over by the cell blit that follows it — nothing on the
+  glass, nothing in any other gate, and no error anywhere. `tests/titheterr.py`
+  asserts a full-width lit run under each of the four columns at four heights
+  exactly one RISE apart, which a lip at the wrong height cannot satisfy.
+- **THE SLAB TAKES WHAT THE FIT CHECK LEFT OVER**, up to a lip and a
+  quarter-lane of rock. A board that refused itself over a decoration would be
+  the fit check answering a question nobody asked — the lanes are the game and
+  the slab is the frame round them, so **the slab is what gives way**. It is 8
+  rows of a wanted 13 on a windowed VGA, 8 of 10 on Hercules and the full 6 on
+  CGA; 0 means no slab at all and is drawn as nothing rather than as one row.
+
+**AND THE IDLE STATUS LINE NAMES THE GROUND.** With nothing under the pointer
+the line says which place this is, beside the base art it already named — which
+is how a player learns there is more than one.
+
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
 The renderer holds the animated features and **a credit in microseconds a

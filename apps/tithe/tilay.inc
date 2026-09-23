@@ -293,6 +293,32 @@ ti_layout:
     cmp ax, [ti_ch_box]
     ja .no
 
+    ; --- ...AND THE SLAB THE WHOLE THING STANDS ON (SPEC.md 97.4.10)
+    ; The board's front edge is the bottom of the FOUR columns, which the shear
+    ; leaves at four different heights - so the rock under it is deepest behind
+    ; column 3 and shallowest in front of column 0, and the only column the box
+    ; has to grow for at all is column 0. Every other one's face is deeper by
+    ; its own share of the lift for free, which is what makes the staircase
+    ; read as one solid mass rather than four slabs hanging in the air.
+    ;
+    ; IT TAKES WHAT THE FIT CHECK LEFT OVER, and takes nothing when that is
+    ; nothing. A board that refused itself over a decoration would be the fit
+    ; check answering a question nobody asked - the lanes are the game and the
+    ; slab is the frame round them, so the slab is what gives way.
+    mov ax, [ti_ch_box]
+    sub ax, [ti_hud]
+    sub ax, [ti_boardh]             ; the rows the check above has just proved
+    mov bx, [ti_ch]                 ; are going spare
+    mov cl, 2
+    shr bx, cl
+    inc bx                          ; ...against the lip and a quarter-lane of
+    cmp ax, bx                      ; rock, which is what it would like
+    jbe .slabtake
+    mov ax, bx
+.slabtake:
+    mov [ti_slabh], ax
+    add [ti_boardh], ax
+
     mov ax, [ti_ox]                 ; the card panel is hard against the right
     add ax, [ti_cw_box]             ; edge, which is what rescues CGA: every
     sub ax, [ti_pan]                ; row the hand does not take is a row the

@@ -7260,6 +7260,30 @@ SOAK = [
         "back to the card. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("titheterr", "soak", py("tests/titheterr.py"), 150.0,
+        "SPEC.md 97.4.10: TITHE's BOARDS - the ground under the lanes, the"
+        "separators between them and the board's own isometric edge, composed"
+        "at round load from one table row per PLACE and cycled with `G`. Two"
+        "of the three cost no drawing at all (the cells tile exactly, so the"
+        "tile IS the separator), and the one that is drawn is the one this row"
+        "exists for. THE SLAB CAN DRAW NOTHING AND BREAK NOTHING: its lip was"
+        "computed without the shear's own LIFT, so it landed a whole cell up"
+        "INSIDE column 0's fourth row and the cell blit that follows painted"
+        "over it - the board still drew, the wheel still held its frame and"
+        "every card check still passed. What catches it is an assertion about"
+        "the SHEAR and not about the slab: a full-width lit run under each of"
+        "the four columns, at four heights exactly one RISE apart, which a lip"
+        "at the wrong height cannot satisfy. It also asserts the slab was"
+        "granted rows at all (it takes what the fit check left over, because a"
+        "board that refused itself over a decoration would be the check"
+        "answering a question nobody asked), that the two terrains are two"
+        "PICTURES, and that G comes back to the same board TO THE BIT. That"
+        "last pair compare the composed CELL TILE and not the screen: the"
+        "three faction idles are running, so two captures four guest seconds"
+        "apart differ by a couple of hundred pixels whatever the ground is"
+        "doing. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
         "SPEC.md 97.4.1: TITHE's small faces, which exist because a character"
         "has FOUR stats that must be on the board and the system 8x8 fits TWO"

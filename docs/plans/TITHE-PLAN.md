@@ -522,6 +522,58 @@ not constants to hard-code.
 **The band is smaller than the cell on purpose** (§3.4): the figure animates and
 the rest of the cell — its ground, and the numbers beside it — does not.
 
+#### 3.2.2 THE BACKGROUND IS A TABLE ROW — BUILT (SPEC.md §97.4.10)
+
+§3.2 says the four combat columns sit on **one shared ground texture** and that
+the isometric read comes from the art. Built, that came out as three elements
+and one table row per **place** — which is what "multiple places to fight" costs
+in this architecture, and the answer is: almost nothing.
+
+| element | where it lives | what a new place costs |
+|---|---|---|
+| ground texture | composed into the cell tile at load | **4 bytes** of dither |
+| lane separators | the tile's own edge, tiled | **1 byte** of row mask |
+| board edge + rock | four `gfx_fill` runs, drawn | **1 byte** of stripe mask |
+
+**TWO OF THE THREE COST NO DRAWING AT ALL, and that is §3.2's tiling doing the
+work.** The cells tile exactly, so a lit pixel at each end of a diamond row
+joins its neighbours' into a continuous line up-and-to-the-right — the lane
+axis. There is no separator drawn over the board; the tile **is** the
+separator, which is what §3.2 meant by one shared ground texture and is why a
+separator is a byte rather than a pass.
+
+**THE EDGE IS THE ONE THING THAT HAD TO BE DRAWN**, because it is the one that
+tiles with nothing: it is the bottom of four columns the shear leaves at four
+different heights. §3.2's own sentence is what makes it cheap — the shear is a
+*shear* and not a projection, so the edge is **four horizontal runs at four
+heights**, ~20 `gfx_fill`s once per board repaint (≈15 ms at §1.1's 756 µs),
+and never a line walk over a slope of RISE over CW.
+
+**IT COST ONE DEFECT WORTH WRITING DOWN, and the shape of it is the reason this
+subsection exists.** The lip was computed as `BY + TI_ROWS*CH - c*RISE` —
+correct-looking, and missing the `LIFT` that §3.2's shear pushes column 0 down
+by. It therefore landed a whole cell **up inside** column 0's fourth row and was
+painted over by the cell blit that follows it. **Nothing on the glass, no
+error, and no existing gate could see it**: the board still drew, the wheel
+still held its frame, every card check still passed. Two whole-frame captures
+and a pixel probe said only "there is no lit row where I expected one". What
+finds it is an assertion about the SHEAR rather than about the slab — four
+full-width lit runs, exactly one RISE apart — which is `tests/titheterr.py`.
+
+**AND THE SLAB GIVES WAY TO THE FIT CHECK, not the other way round.** §3.1
+sizes the board from the content box and refuses when it does not fit; growing
+the box by a decoration made a windowed VGA refuse outright. The slab takes
+what the check left over, up to a lip and a quarter-lane of rock — 8 rows of a
+wanted 13 windowed, 8 of 10 on Hercules, the full 6 on CGA — and draws nothing
+when that is nothing. **The lanes are the game; the slab is the frame round
+them.**
+
+One shape that looked right and was not: running every column's rock down to a
+**shared floor**, so the four faces join into one mass. It reads as a *cliff*,
+and it fills the shear's own empty corners — which §2.1 spends on the two
+players' resource blocks. A constant depth under every column follows the
+staircase instead and leaves the corners alone.
+
 ### 3.3 The card panel is on the right, and that is what rescues CGA
 
 Cards live in a **vertical strip down the right-hand edge**, not along the
