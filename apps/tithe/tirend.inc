@@ -187,6 +187,7 @@ ti_base_build:
     cmp ax, TI_BASEPOSES
     jae .done
     call ti_base_move
+    call tm_run                     ; ...and a base pose at a time
     inc word [ti_pi]
     jmp short .mp
 .done:
@@ -1666,10 +1667,12 @@ ti_board:
     jae .done
     call ti_cell_xy                 ; AX = x, BX = y for cell [ti_ci]
     call ti_cellnum                 ; ...and its numbers, over its ground
+    call tm_run                     ; the music a cell at a time (timus.inc)
     inc word [ti_ci]
     jmp short .cell
 .done:
     call ti_hud_draw
+    call tm_run                     ; the HUD is ~100 ms on a Hercules 5150
     mov ax, [ti_p1x]                ; each player's gold and souls, in the
     mov bx, [ti_p1y]                ; corner the shear left them
     mov cl, [ti_p1gold]
@@ -1692,6 +1695,7 @@ ti_board:
     mov bx, [ti_basey2]
     mov cl, [ti_p2hp]
     call ti_hp_draw
+    call tm_run
     call ti_panel                   ; ...and the hand, which redraws with the
                                     ; board for the numbers' reason: nothing in
                                     ; it changes more than once a round bar the

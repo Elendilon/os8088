@@ -141468,28 +141468,25 @@ from a menu is not something to put on the live media.
 ### 97.10 THE MUSIC — one score, two renderers (wave 1b)
 
 `docs/plans/TITHE-PLAN.md` §13 is the design and this is what the code holds
-to. **What exists is the sequencer and eight pieces on `M`**: the TITLE theme
-and the CAMPAIGN theme, both chosen by the owner, and **two candidate themes
-for each faction** to pick from by ear. A faction theme plays under PLANNING
-(TITHE-PLAN §13.4), which is untimed, so each is written to be thought over
-for minutes rather than marched to. The three battle states and the resolution
-piece's hand-back are in the format and the sequencer (`[tm_state]`, an order
-row's lead columns) and have no score until a faction theme is picked.
+to. **Every piece on `M` has been chosen by the owner**, one per place the
+game plays music: the title, the campaign map, the deck builder, and one theme
+per faction for PLANNING (TITHE-PLAN §13.4), which is untimed and so is written
+to be thought over for minutes rather than marched to. The three battle states
+are in the format and the sequencer (`[tm_state]`, an order row's lead
+columns) and have no score yet.
 
 | `M` | | key, tempo | the speaker hears |
 |---|---|---|---|
-| 1 | **Title: The Procession** — chosen | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
-| 2 | **Campaign: The Reckoning** — kept for the map | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
-| 3 | **Bulwark: Steadfast** | G hymn-march with F major as its stubborn chord, 91 BPM | a horn, in half notes and quarters |
-| 4 | **Bulwark: The Tollkeeper** | D mixolydian guild tune, SWUNG — a groove of 3 then 2 ticks, 109 BPM | a trumpet counting coins |
+| 1 | **Title: The Procession** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
+| 2 | **Campaign: The Reckoning** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
+| 3 | **Deck builder: The Tollkeeper** | D mixolydian guild tune, SWUNG — a groove of 3 then 2 ticks, 109 BPM | a trumpet counting coins |
+| 4 | **Bulwark: Steadfast** | G hymn-march with F major as its stubborn chord, 91 BPM | a horn, in half notes and quarters |
 | 5 | **Ember Choir: Kindling** | D harmonic minor over a harp ostinato in 16ths, 91 BPM | the choir's line |
-| 6 | **Ember Choir: Dies Irae** | the 13th-century sequence, D minor, over a heartbeat, 68 BPM | the chant |
-| 7 | **Covenant: Litany** | A dorian chant, organ and bell — Vespers' tone, a warmer mode, 68 BPM | one voice chanting |
-| 8 | **Covenant: Intercession** | an F hymn in 3/4 on recorder over harp, 109 BPM (an 8th = 5 ticks) | a recorder |
+| 6 | **Covenant: Intercession** | an F hymn in 3/4 on recorder over harp, 109 BPM (an 8th = 5 ticks) | a recorder |
 
-`apps/tithe/music/archive/` holds what was retired from the list, each with
-the reason at its top: BANNERS (liked, and not this game) and VESPERS (its tone
-became the Covenant's brief; the song did not).
+`apps/tithe/music/archive/` holds every candidate not chosen, each with the
+reason at its top: BANNERS (liked, and not this game), VESPERS (its tone became
+the Covenant's brief; the song did not), DIES IRAE and LITANY.
 
 #### 97.10.1 The source, and the tool
 
@@ -141566,16 +141563,32 @@ and carries on as the speaker.
 
 #### 97.10.4 Where it runs, and the order of a tick
 
-**`tm_run` is the first thing each worker pass does, before the frame and
-outside the gfx lock** (TITHE-PLAN §13.6), so a frame waiting on the lock never
-holds a note up. It steps once per ELAPSED tick — twice for a pass that came
-one late — and **once for a stall of three or more**: a relayout or a region
-move pauses the music rather than sprinting through the notes it missed.
+**THE SONG KEEPS THE TIMER'S TIME, NOT THE FRAME'S.** `tm_run` steps once
+per ELAPSED tick, and it is called from wherever TITHE spends time: the top of
+every worker pass, between the wheel's commits and after the frame's big draws
+(a card, the bolts, the reveal), and on the UI task between the RELAYOUT's
+strips, cells, units and base poses, its calibration samples and the whole
+board's bands. The relayout is the case that forced it: it holds the gfx lock
+for seconds while the worker, blocked on that lock, can step nothing.
 
-**The UI task only posts.** `M` and `S` write `[tm_req]` and the worker takes
-it with an `xchg`, so every sound call is made from one task: two tasks of one
-instance interleaving OPL address/data pairs would corrupt a write that
-ownership (§34.1) cannot see.
+A call one or two ticks late steps each tick. Later than that it **CHASES**:
+steps the missed ticks QUIETLY (`[tm_quiet]` — `tm_tone` and `tm_voice` touch
+no hardware, so the state is exactly what normal steps leave), then
+`tm_resync` sounds what should be sounding now, leaving an FM voice alone that
+is already on the right note (`[tm_keep]`, `tm_fmnote`). Only a gap over
+`TM_STALL` (two seconds) pauses the song instead. **It used to pause at three
+ticks**, and three ticks is an ordinary hover down the hand: the music slowed
+with the frames and stopped outright for a relayout, which is how the owner
+found it. MEASURED on a Hercules 5150 across a relayout: 0 ticks of song in 75
+of clock before, and the clock's own count after, with no step more than 2
+ticks late (`[tm_gapmax]`, which `tests/tithemus.py` bounds at 3).
+
+**Any task may call it, and one at a time does.** `[tm_busy]` is a try-lock
+taken with an `xchg`, and a caller that finds it held returns, the holder
+being mid-step already. So every sound call is still one task's at a time —
+two tasks of one instance interleaving OPL address/data pairs would corrupt a
+write that ownership (§34.1) cannot see — and `M` and `S` still only POST, into
+`[tm_req]`, which the next `tm_run` takes.
 
 A tick, in the order `timus.inc` and the tool's `Seq` both keep:
 

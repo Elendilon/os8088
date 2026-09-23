@@ -1,4 +1,8 @@
-; TITHE - THE BULWARK, option 2: THE TOLLKEEPER
+; TITHE - THE DECK BUILDER's theme: THE TOLLKEEPER
+;
+; Written as the Bulwark's second option; the owner set it aside for the
+; deck designer page (TITHE-PLAN 13.0's builder theme), where a guild's
+; counting-house tune suits a player sorting their cards.
 ;
 ; The Bulwark's other face - the gold. A guild band's tune in D with C
 ; natural in it (mixolydian: earthy rather than bright), SWUNG: the groove
@@ -7,7 +11,7 @@
 ; off-beats, the bass plucks roots and fifths. A turns round D and C; B goes
 ; up through G and lands on D.
 
-song bultoll "Bulwark: The Tollkeeper"
+song bultoll "Deck builder: The Tollkeeper"
 groove 3 2
 unit 16
 rows 32

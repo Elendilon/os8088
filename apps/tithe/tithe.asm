@@ -259,10 +259,15 @@ ti_relayout:
     mov ax, [ti_face]               ; ...the face's shape, which the card
     call ti_face_set                ; composer reads on every row
     call ti_art_build
+    call tm_run                     ; THE RELAYOUT IS SECONDS ON THE UI TASK
+                                    ; with the gfx lock held, and the worker
+                                    ; is blocked on that lock - so the music
+                                    ; is stepped from HERE (timus.inc)
     call ti_phase_seed              ; ...and spread the clocks, so neighbours
                                     ; do not breathe together
     call ti_cal_card                ; ...and what a card costs to COMPOSE, which
                                     ; nothing else on the machine can see
+    call tm_run
     mov byte [ti_ok], 1
     call ti_calibrate               ; ...AND WHAT A BAND COSTS AT THIS SIZE.
                                     ; It was the `R` key's alone, so the wheel
@@ -758,11 +763,14 @@ ti_frame:
     je .gain                        ; was, and the second was left to feature
     mov ax, [ti_hovold]             ; 22 - which draws the UNIT ALONE, at a box
     call ti_card_draw               ; ti_card_draw banks and nothing had banked
+    call tm_run                     ; (a card is the frame's longest single
+                                    ; draw: the music is stepped after each)
 .gain:                              ; for the new card. So a hover animated
     cmp word [ti_hover], -1         ; only while a full repaint happened to
     je .credit                      ; have set the box up, which on the glass
     mov ax, [ti_hover]              ; is "it worked for one frame"
     call ti_card_draw
+    call tm_run
 .credit:
     call OSAPI_GET_TICKS            ; THE FRAME IS TIMED, because the model
     mov [ti_ft0], ax                ; under-prices what a commit really costs -
@@ -853,6 +861,8 @@ ti_frame:
     cmp [ti_left], ax
     jbe .out                        ; the credit is the contract: overrun is
     sub [ti_left], ax               ; impossible by construction
+    call tm_run                     ; THE MUSIC BETWEEN COMMITS: a frame that
+                                    ; runs past its tick holds no note up
     dec cx
     jmp short .walk
 .out:
@@ -860,11 +870,13 @@ ti_frame:
     je .nopjf
     call ti_pj_frame
     inc word [ti_npj]
+    call tm_run
 .nopjf:
     call ti_rv_atk                  ; ...a played cell's owed attack frame -
                                     ; BEFORE the reveal's step, so the frame a
                                     ; reveal ends in does not take one too
     call ti_rv_step                 ; ...and the reveal's frame, on top of it all
+    call tm_run
     call ti_overran                 ; SPEC.md 97.5's own promise, and it was
     pop dx                          ; never built: the credit is trimmed when
     pop cx                          ; the frame missed its tick
@@ -939,7 +951,8 @@ ti_all:
     push ax
     call ti_feature
     pop ax
-    inc ax
+    call tm_run                     ; a whole board is a second or two of
+    inc ax                          ; blits, on whichever task asked for it
     jmp short .f
 .out:
     call ti_base_all                ; the bases are off the wheel, so a full
@@ -1213,7 +1226,8 @@ ti_cal_one:
     popf                            ; modular, over ONE blit which cannot wrap
     add [ti_calacc], bx
     pop cx
-    loop .b
+    call tm_run                     ; BETWEEN samples, never inside one: a
+    loop .b                         ; span is one blit, read either side
 
     mov ax, [ti_calacc]             ; counts -> microseconds: one count is
     xor dx, dx                      ; 0.8381 us, so us = counts * 8381 / 10000

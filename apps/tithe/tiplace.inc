@@ -395,6 +395,10 @@ ti_strips_build:
     mov dx, [ti_y0]
     call ti_sp_set
 .pnext:
+    test byte [ti_lx], 7            ; the music every eight columns: a strip
+    jnz .pn8                        ; is ~200 ms of this on a VGA (timus.inc)
+    call tm_run
+.pn8:
     inc word [ti_lx]
     jmp .px
 
@@ -428,6 +432,7 @@ ti_strips_build:
 .pret:
     ret
 .pdone:
+    call tm_run                     ; ...and between strips
     inc word [ti_sc]
     cmp word [ti_sc], TI_COLS
     jae .out
@@ -500,7 +505,8 @@ ti_cells_build:
 .cell:
     cmp word [ti_ci], TI_CELLS
     jae .done
-    call ti_cell_build
+    call tm_run                     ; the music between cells (timus.inc): a
+    call ti_cell_build              ; relayout composes twenty of them
     inc word [ti_ci]
     jmp short .cell
 .done:
@@ -1214,6 +1220,7 @@ ti_board_strips:
     mov cx, [ti_cw]
     mov bp, [ti_sb]
     call OSAPI_GFX_BLIT1
+    call tm_run                     ; ...and between a strip's blits
     push dx
     mov ax, dx
     mul word [ti_sb]

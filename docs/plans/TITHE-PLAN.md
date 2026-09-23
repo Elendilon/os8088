@@ -3599,8 +3599,9 @@ So music is a requirement rather than a polish item, and it is scoped that way:
 |---|---|
 | the front menu | **the title theme** — **THE PROCESSION**, chosen by the owner from four (SPEC.md §97.10) |
 | the campaign map | **the map theme** — **THE RECKONING**, the jig, kept for it at the same sitting |
+| the deck builder | **the builder theme** — **THE TOLLKEEPER**, written as a Bulwark candidate and set aside for it |
 | the deck builder | **the builder theme** |
-| a match | **the player's own faction theme**, in one of three states — **NORMAL**, **PRESSED** (they are behind) and **ASCENDANT** (they are ahead). **Two candidates a faction are on the demo's `M`** (SPEC.md §97.10) — the Bulwark's STEADFAST and TOLLKEEPER, the Choir's KINDLING and DIES IRAE, the Covenant's LITANY and INTERCESSION — with NORMAL's lead only; the other two leads are written once one is picked |
+| a match | **the player's own faction theme**, in one of three states — **NORMAL**, **PRESSED** (they are behind) and **ASCENDANT** (they are ahead). **CHOSEN** (SPEC.md §97.10): the Bulwark's STEADFAST, the Choir's KINDLING and the Covenant's INTERCESSION, NORMAL's lead only so far |
 
 Twelve pieces nominally; §13.4 is the arrangement that makes nine of them cost
 about four.

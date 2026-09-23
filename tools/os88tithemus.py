@@ -64,11 +64,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 MUSDIR = os.path.join(ROOT, "apps", "tithe", "music")
 BANK = os.path.join(MUSDIR, "bank.tmb")
 # THE MANIFEST, and its order is the demo's `M` key's (SPEC.md 97.7)
-SONGS = ["procession.tmu",                  # the title theme (chosen)
-         "reckoning.tmu",                   # the campaign map's (kept)
-         "bulsteadfast.tmu", "bultoll.tmu",  # THE BULWARK, two to pick from
-         "emberkindle.tmu", "emberdies.tmu", # THE EMBER CHOIR
-         "covlitany.tmu", "covinter.tmu"]    # THE COVENANT
+SONGS = ["procession.tmu",                  # the title theme
+         "reckoning.tmu",                   # the campaign map's
+         "bultoll.tmu",                     # the deck builder's
+         "bulsteadfast.tmu",                # THE BULWARK
+         "emberkindle.tmu",                 # THE EMBER CHOIR
+         "covinter.tmu"]                    # THE COVENANT - every one chosen
 # archive/ holds the ones retired from this list, with why at the top of each
 
 TICK_HZ = 1193182.0 / 65536.0        # 18.2065

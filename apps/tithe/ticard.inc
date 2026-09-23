@@ -1477,6 +1477,7 @@ ti_units_build:
 .pose:
     cmp word [ti_pi], TI_POSES
     jae .next
+    call tm_run                     ; the music a unit pose at a time
     call ti_unit_addr               ; DI = this pose's slot: cleared to the
     push di                         ; card's black, then the character
     mov cx, [ti_uslot]
@@ -1723,6 +1724,7 @@ ti_panel:
     jae .done
     push ax
     call ti_card_draw
+    call tm_run                     ; the music a card at a time
     pop ax
     inc ax
     jmp short .row

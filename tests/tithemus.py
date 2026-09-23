@@ -42,6 +42,16 @@ both arms, for every title theme `M` steps through:
      1b): wheel passes a second with a song playing against the same span
      silent.
 
+  6. ...AND THE MUSIC HOLDS WHEN THE FRAME DOES NOT. `G` rebuilds the board
+     on the UI task with the gfx lock held for seconds, and the worker is
+     blocked on that lock throughout; the song must advance one tick per tick
+     of the clock across it, and no step may come more than TM_LATE ticks
+     late (`[tm_gapmax]`). It did not: a pass three ticks late counted as a
+     STALL and stepped once, so the music slowed with the frame and STOPPED
+     for a relayout - reported off the owner's machine, and measured at 0
+     ticks of song in 75 of clock before the fix, with a worst gap of 876
+     ms after it until the relayout's own loops stepped the music too.
+
 Broken on purpose before it was registered: a gate that starts counting on
 the note-on tick (every note one tick short) fails every song's samples; the
 speaker's macro step off by one fails the command stream - and PASSED the
@@ -73,7 +83,9 @@ import os88geom                                           # noqa: E402
 import os88tithemus as tm                                 # noqa: E402
 
 SYMS = ("tm_song", "tm_arm", "tm_ticks", "tm_ord", "tm_row", "tm_ch",
-        "tm_sel", "ti_nframe", "tm_busy", "tm_tone", "tm_last")
+        "tm_sel", "ti_nframe", "tm_busy", "tm_tone", "tm_last",
+        "tm_gapmax")
+TM_LATE = 3                                     # ticks: a note's worst lateness
 FM_CELL = os88marty.KERNEL_SEG * 16 + 0x00F8    # OSAPI_SND_FM's cell
 STREAM = {"spk": 80, "fm": 240}                 # calls of song 0 compared
 MACHINES = (("os8088_5150_herc_sb_gla", "fm"), ("os8088_5150_herc_gla", "spk"))
@@ -83,7 +95,7 @@ fails = []
 
 def check(ok, what, got=""):
     print("  %-4s %s%s" % ("ok" if ok else "FAIL", what,
-                           "" if ok else "   got: %s" % got))
+                           "" if ok else "   got: %s" % (got,)))
     if not ok:
         fails.append(what)
 
@@ -130,6 +142,33 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             return ((rw("ti_nframe") - f) & 0xFFFF) / spent
 
         quiet = fps(4.0)
+
+        def tempo():
+            """Item 6: THE TEMPO IS THE CLOCK'S, not the frame's. `G` rebuilds
+            the board on the UI task with the gfx lock held for seconds - the
+            worker is blocked on that lock the whole time - and the song must
+            still advance one tick a tick, never more than TM_LATE late."""
+            ticks = m.sym("ticks")
+            m.write(seg * 16 + off["tm_gapmax"], b"\0\0")
+            k0, t0, f0 = (struct.unpack("<H", bytes(m.read(ticks, 2)))[0],
+                          rw("tm_ticks"), rw("ti_nframe"))
+            g0 = gsecs()
+            m.key("KeyG")
+            os88marty.guest_sleep(m, 5.0)
+            k1, t1, f1 = (struct.unpack("<H", bytes(m.read(ticks, 2)))[0],
+                          rw("tm_ticks"), rw("ti_nframe"))
+            dk, dt = (k1 - k0) & 0xFFFF, (t1 - t0) & 0xFFFF
+            fr = ((f1 - f0) & 0xFFFF) / max(0.1, gsecs() - g0)
+            check(fr < 12.0, "...a relayout stalls the frame: %.1f passes/s "
+                  "over it" % fr, fr)
+            check(abs(dk - dt) <= 2,
+                  "...and the song keeps the CLOCK's time through it: %d ticks "
+                  "of song in %d of clock" % (dt, dk), (dt, dk))
+            gap = rw("tm_gapmax")
+            check(gap <= TM_LATE, "...and no step came more than %d ticks "
+                  "late (worst %d)" % (TM_LATE, gap), gap)
+            m.key("KeyG")               # ...and the board it was, back
+            os88marty.guest_sleep(m, 5.0)
 
         # --- item 2's first half: SONG 0's WHOLE COMMAND STREAM, every call
         # the sequencer makes, against the model's - exact, where a sample a
@@ -225,6 +264,7 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 check(on >= quiet * 0.95,
                       "...the frame holds with the music on: %.1f passes/s "
                       "against %.1f silent" % (on, quiet), (on, quiet))
+                tempo()
             if record:
                 one = tm.Seq(part, si, want_arm).song_ticks() / tm.TICK_HZ
                 os88marty.guest_sleep(m, max(0.0, one + 2.0 - SAMPLES - 0.5))

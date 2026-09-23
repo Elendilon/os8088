@@ -3,11 +3,11 @@
 ; reads the MUSIC PART by, and the names the window shows. The part
 ; itself is timus.bin in the build tree, built from apps/tithe/music/.
 
-TM_NSONG    equ 8
+TM_NSONG    equ 6
 TM_NOTE0    equ 24                  ; the frequency table's first note (C1)
 TM_NNOTE    equ 84
 TM_INSTREC  equ 16                  ; an instrument record's bytes
-TM_P_SIZE   equ 6685                ; bytes in the part
+TM_P_SIZE   equ 5760                ; bytes in the part
 
 ; the part's own layout (SPEC.md 97.10.2) - this tool is its one source
 TMP_FREQ    equ 4                   ; dw: the frequency table
@@ -43,13 +43,9 @@ tm_names:
     dw tm_name3
     dw tm_name4
     dw tm_name5
-    dw tm_name6
-    dw tm_name7
 tm_name0: db 'Tithe - Title: The Procession', 0
 tm_name1: db 'Tithe - Campaign: The Reckoning', 0
-tm_name2: db 'Tithe - Bulwark: Steadfast', 0
-tm_name3: db 'Tithe - Bulwark: The Tollkeeper', 0
+tm_name2: db 'Tithe - Deck builder: The Tollkeeper', 0
+tm_name3: db 'Tithe - Bulwark: Steadfast', 0
 tm_name4: db 'Tithe - Ember Choir: Kindling', 0
-tm_name5: db 'Tithe - Ember Choir: Dies Irae', 0
-tm_name6: db 'Tithe - Covenant: Litany', 0
-tm_name7: db 'Tithe - Covenant: Intercession', 0
+tm_name5: db 'Tithe - Covenant: Intercession', 0

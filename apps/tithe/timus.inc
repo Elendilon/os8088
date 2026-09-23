@@ -10,20 +10,25 @@
 ; chosen from OSAPI_SND_CAPS when a song STARTS, and never by calling the FM
 ; slot to see: with no driver that call wedges the machine (TITHE-PLAN 13.5).
 ;
-; IT RUNS ON THE WORKER, BESIDE THE WHEEL (TITHE-PLAN 13.6) - tm_run is the
-; first thing each pass does, before the frame and outside the gfx lock, so a
-; frame that waits for the lock never holds a note up. It steps once per
-; ELAPSED TICK: a pass that comes late steps twice, and a STALL - three ticks
-; or more, a relayout or a region move - steps ONCE, because a sequencer that
-; sprints to catch up plays the notes it missed as a smear. The music pauses
-; instead, and every speaker tone carries a DURATION, so a worker that stops
-; can never leave the speaker droning (snd_tick expires it, SPEC.md 34.3).
+; THE CLOCK IS THE TIMER'S, NOT THE FRAME'S (SPEC.md 97.10.4). tm_run steps
+; once per ELAPSED tick, and it is called from wherever TITHE spends time: the
+; top of every worker pass, between the wheel's commits and the frame's big
+; draws, and between the relayout's cells on the UI task - which holds the gfx
+; lock for SECONDS and used to stop the music outright, the worker being
+; blocked on that lock. A pass one or two ticks late steps each tick; later
+; than that it CHASES - steps the missed ticks QUIETLY, touching no hardware,
+; then re-sounds what should be sounding now - so the tempo never follows the
+; frame rate and the notes it missed are not smeared through as blips. Only a
+; gap over TM_STALL, a real stall, pauses the song instead. It used to pause
+; at three ticks, and a frame of three ticks was an ordinary hover: the music
+; slowed with the frames, which is how the owner found it.
 ;
-; THE UI TASK ONLY POSTS. `M` and `S` write [tm_req] and the worker services
-; it: every sound call is made from ONE task, because two tasks of the same
-; instance interleaving OPL address/data pairs would corrupt a register write
-; that ownership (SPEC.md 34.1) cannot see. The post is one byte and the take
-; is an `xchg`, so a key between the read and the clear cannot be lost.
+; ANY TASK MAY CALL IT, AND ONE AT A TIME DOES. [tm_busy] is a try-lock taken
+; with an `xchg`: a caller that finds it held returns, because the holder is
+; stepping the music already. So every sound call is still made by one task
+; at a time - two tasks of one instance interleaving OPL address/data pairs
+; would corrupt a register write that ownership (SPEC.md 34.1) cannot see -
+; and `M`/`S` still only POST, into [tm_req], which the next tm_run takes.
 ;
 ; tools/os88tithemus.py carries the same sequencer in Python, reading the same
 ; packed bytes - its `Seq` is this file's model and SPEC.md 97.10.4 is the
@@ -37,7 +42,8 @@ TM_PRIO     equ 0x20                ; under the package default 0x40, so any
                                     ; effect preempts the music (TITHE-PLAN 13.8)
 TM_NCH      equ 4
 TM_CHORD    equ 2                   ; the channel whose notes are chords
-TM_STALL    equ 3                   ; ticks late that count as a stall
+TM_CHASE    equ 3                   ; ticks late that are CAUGHT UP quietly
+TM_STALL    equ 36                  ; ...and late enough to be a stall: 2 s
 
 TMC_PTR     equ 0                   ; dw where the phrase has got to (0: silent)
 TMC_WAIT    equ 2                   ; rows until its next event
@@ -155,8 +161,11 @@ tm_run:
     push bx
     push cx
     push es
-    mov byte [tm_busy], 1           ; for an OBSERVER: a machine paused while
-                                    ; this is set is mid-tick (tests/tithemus.py)
+    mov al, 1                       ; THE TRY-LOCK: another task is stepping
+    xchg al, [tm_busy]              ; the music, so this one need not. It is
+    or al, al                       ; also what an observer waits out: a
+    jnz .held                       ; machine paused while it is set is
+                                    ; mid-tick (tests/tithemus.py)
     mov al, TM_NOREQ                ; TAKE the post and clear it in one
     xchg al, [tm_req]               ; instruction: a key cannot land between
     cmp al, TM_NOREQ
@@ -170,18 +179,33 @@ tm_run:
     sub ax, [tm_last]
     mov [tm_last], bx
     jz .out                         ; the tick has not turned over
+    cmp ax, [tm_gapmax]             ; the worst gap seen, for an OBSERVER:
+    jbe .gap                        ; it is how late a note can land, and
+    mov [tm_gapmax], ax             ; tests/tithemus.py bounds it
+.gap:
     cmp ax, TM_STALL
-    jb .n
-    mov ax, 1                       ; A STALL: pause, never sprint
+    jbe .n
+    mov ax, 1                       ; A STALL: pause
 .n:
     mov cx, ax
     call tm_seg
     jc .out
+    cmp cx, TM_CHASE
+    jb .t
+    dec cx                          ; THE CHASE: every missed tick but the
+    mov byte [tm_quiet], 1          ; last, silently...
+.q:
+    call tm_tick
+    loop .q
+    mov byte [tm_quiet], 0
+    call tm_resync                  ; ...what should sound, sounded...
+    inc cx                          ; ...and the last tick, as ever
 .t:
     call tm_tick
     loop .t
 .out:
     mov byte [tm_busy], 0
+.held:
     pop es
     pop cx
     pop bx
@@ -522,6 +546,25 @@ tm_on:
     mov [di + TMC_NOTE], al
     mov byte [di + TMC_FRESH], 1
     mov byte [di + TMC_AGE], 0
+    call tm_sound
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_sound - channel BX (record DI) sounds its note [di + TMC_NOTE] as it
+; stands: the speaker's lead at its macro and vibrato for its age, or the FM
+; voices with the chord's shape. [tm_slur] says whether an FM voice glides.
+; ES = the part. Preserves every register.
+; -----------------------------------------------------------------------------
+tm_sound:
+    push ax
+    push cx
+    push dx
+    push si
+    mov al, [di + TMC_NOTE]
     cmp byte [tm_arm], 0
     jne .fm
     or bx, bx                       ; THE SPEAKER PLAYS THE LEAD AND NOTHING
@@ -574,7 +617,9 @@ tm_on:
 ; Preserves every register.
 ; -----------------------------------------------------------------------------
 tm_voice:
-    push ax
+    cmp byte [tm_quiet], 0          ; a CHASE touches no hardware: the chip
+    jne .quiet                      ; is left as it is, and so is our record
+    push ax                         ; of it, until tm_resync
     push bx
     mov bl, cl
     xor bh, bh
@@ -589,7 +634,17 @@ tm_voice:
 .on:
     mov al, [di + TMC_INST]
     cmp al, [tm_fmpatch + bx]
-    je .same
+    je .same0
+    jmp short .new
+.same0:
+    cmp byte [tm_keep], 0           ; A RESYNC leaves a voice that is already
+    je .same                        ; sounding this note in this patch alone:
+    cmp byte [tm_fmkeyed + bx], 0   ; retriggering it would re-attack a note
+    je .same                        ; the listener has been hearing all along
+    cmp dl, [tm_fmnote + bx]
+    je .out
+    jmp short .same
+.new:
     cmp byte [tm_fmkeyed + bx], 0
     je .patch
     mov al, 1
@@ -618,12 +673,14 @@ tm_voice:
     pop bx
     jc .refused
     mov byte [tm_fmkeyed + bx], 1
+    mov [tm_fmnote + bx], dl
     jmp short .out
 .refused:
     call tm_fm_drop
 .out:
     pop bx
     pop ax
+.quiet:
     ret
 
 ; tm_patch_ld - the record DI's instrument onto voice CL. CF = 1 refused.
@@ -685,13 +742,20 @@ tm_fm_drop:
 ; tm_off - channel BX (record DI) stops sounding. Preserves every register.
 ; -----------------------------------------------------------------------------
 tm_off:
-    push ax
-    push cx
-    push dx
     cmp byte [di + TMC_NOTE], 0
     je .out
     mov byte [di + TMC_NOTE], 0
     mov byte [di + TMC_SLUR], 0
+    call tm_mute
+.out:
+    ret
+
+; tm_mute - channel BX's sound goes off, whatever its record says. Preserves
+; every register.
+tm_mute:
+    push ax
+    push cx
+    push dx
     cmp byte [tm_arm], 0
     jne .fm
     or bx, bx
@@ -859,12 +923,46 @@ tm_hz:
 ; tm_tone - the speaker: AX = Hz (0 = off), CX = ticks. At OUR priority, so an
 ; effect preempts it; a refusal is exactly that and is not an error.
 tm_tone:
+    cmp byte [tm_quiet], 0          ; a CHASE touches no hardware
+    jne .quiet
     push ax                         ; the slot answers AL = the generation
     push dx
     mov dl, TM_PRIO
     call OSAPI_SND_TONE
     pop dx
     pop ax
+.quiet:
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_resync - after a CHASE: every channel sounds what its record says it
+; should now, and nothing else. An FM voice already on the right note in the
+; right patch is left ringing ([tm_keep]); the speaker's lead is simply
+; sounded again, having no envelope to restart. ES = the part.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+tm_resync:
+    push bx
+    push di
+    mov byte [tm_keep], 1
+    mov byte [tm_slur], 0
+    xor bx, bx
+    mov di, tm_ch
+.ch:
+    cmp byte [di + TMC_NOTE], 0
+    je .mute
+    call tm_sound
+    jmp short .next
+.mute:
+    call tm_mute
+.next:
+    add di, TMC_SIZE
+    inc bx
+    cmp bx, TM_NCH
+    jb .ch
+    mov byte [tm_keep], 0
+    pop di
+    pop bx
     ret
 
 ; --- the voices each channel sounds on (SPEC.md 97.10.3) ----------------------
@@ -881,7 +979,10 @@ tm_spkonly: db 0                    ; `S`: the speaker even with FM there
 tm_arm:     db 0                    ; 0 the speaker, 1 FM
 tm_state:   db 0                    ; the lead a battle state names (13.4)
 tm_slur:    db 0
-tm_busy:    db 0                    ; set across tm_run
+tm_busy:    db 0                    ; the try-lock across tm_run
+tm_quiet:   db 0                    ; a CHASE: step, touch no hardware
+tm_keep:    db 0                    ; a RESYNC: leave a right voice ringing
+tm_gapmax:  dw 0                    ; the most ticks one tm_run has stepped
 tm_last:    dw 0                    ; the tick the sequencer last stepped at
 tm_ticks:   dw 0                    ; ticks since the song began
 tm_hdr:     times TMS_PTAB + 2 db 0 ; the song's header, copied at tm_start
@@ -904,4 +1005,5 @@ tm_gi:      db 0
 tm_ch:      times TM_NCH * TMC_SIZE db 0
 tm_fmpatch: times TM_NVOICE db 0xFF
 tm_fmkeyed: times TM_NVOICE db 0
+tm_fmnote:  times TM_NVOICE db 0    ; what each keyed voice is sounding
 tm_patch:   times 11 db 0
