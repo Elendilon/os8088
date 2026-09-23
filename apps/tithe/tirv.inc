@@ -2,14 +2,16 @@
 ; os8088 - apps/tithe/tirv.inc
 ;
 ; THE REVEAL (SPEC.md 97.4.11, TITHE-PLAN 16.2 item 7): a card played from the
-; hand reaches its cell. Three things, one after another, and the whole of it
-; is shorter than a clash:
+; hand reaches its cell. Three things, OVERLAPPED, and the whole of it is
+; nine frames where a clash is sixteen:
 ;
-;   1. a TRAIL OF SPARKS from the card to the cell - TI_RVTRAVEL frames;
-;   2. the character DISSOLVING IN over its cell's ground, through three
-;      ordered-dither steps, with its numbers arriving on the last;
-;   3. the card DISSOLVING OUT of the hand the same way, a step behind, and
-;      leaving an empty slot.
+;   1. a TRAIL OF SPARKS from the card to the cell, TWIRLING about the line
+;      as it flies - the head arrives on frame TI_RVTRAVEL and the tail pours
+;      in over the two after;
+;   2. the card DISSOLVING OUT of the hand while the trail leaves it, gone
+;      before the sparks arrive;
+;   3. the character DISSOLVING IN over its cell's ground as the tail pours
+;      in, through three ordered-dither steps, its numbers on the frame after.
 ;
 ; THE SPARKS ARE XOR, AND THAT IS NOT THE BOLT'S SHAPE ON PURPOSE. The bolt is
 ; a band composed over the ground it crosses (tipj.inc), which works because a
@@ -32,7 +34,9 @@
 TI_RVTRAVEL equ 6                 ; frames of flight: a clash is sixteen, and a
                                   ; bolt crosses the board at 24 pixels a frame
                                   ; where this goes ~70
-TI_RVSTEPS  equ 5                 ; frames of the dissolve, the card's included
+TI_RVCARD   equ 1                 ; the card fades on frames 1-4: 3, 2, 1, gone
+TI_RVCELL   equ 5                 ; the character forms on frames 5-8: 1 to 4
+TI_RVEND    equ 9                 ; its numbers, and the reveal is over
 TI_RVSPK    equ 12                ; sparks a frame: the head and eleven behind,
                                   ; a quarter frame apart - a tail nearly three
                                   ; frames long
@@ -170,7 +174,7 @@ ti_rv_key:
     ; the fade's first step: ~35 ms of an 8088 is room a trail frame has not
     ; got, and here it is latency before the first spark instead of a stutter
     mov byte [ti_cfsave], 0
-    mov byte [ti_cfade], TI_RVSTEPS - 2
+    mov byte [ti_cfade], 3
     mov word [ti_calconly], 1       ; compose, bank - and put nothing down
     mov ax, [ti_rvcard]
     call ti_card_draw
@@ -250,34 +254,29 @@ ti_rv_step:
     call ti_all
 .go:
     inc byte [ti_rvt]
-    cmp byte [ti_rv], 1
-    jne .fade
-    call ti_rv_sparks               ; --- 1: THE TRAIL ------------------------
-    cmp byte [ti_rvt], TI_RVTRAVEL
-    jb .out
-    mov byte [ti_rv], 2
-    mov byte [ti_rvt], 0
-    jmp short .out
-.fade:
-    mov al, [ti_rvt]                ; --- 2: THE CHARACTER, levels 1 to 4 -----
-    cmp al, 4
-    ja .nums
-    call ti_rv_cell
-    jmp short .card
-.nums:
-    call ti_rv_nums                 ; ...and its NUMBERS a frame after it is
-.card:                              ; whole, on the step that has room for them
-    cmp al, 2                       ; --- 3: THE CARD, a step behind: 3, 2, 1,
-    jb .out                         ; and then the empty slot
-    mov ah, TI_RVSTEPS
+    call ti_rv_sparks               ; --- THE TRAIL, until its tail is in ------
+    mov al, [ti_rvt]
+    cmp al, TI_RVCARD + 3           ; --- THE CARD, while the trail leaves it:
+    ja .cell                        ; 3, 2, 1 and then the empty slot
+    mov ah, TI_RVCARD + 3
     sub ah, al
     mov [ti_cfade], ah
+    push ax
     mov ax, [ti_rvcard]
     call ti_card_draw
+    pop ax
     mov byte [ti_cfade], 0
-    cmp byte [ti_rvt], TI_RVSTEPS
+.cell:
+    cmp al, TI_RVCELL               ; --- THE CHARACTER, as the sparks pour in
     jb .out
-    mov byte [ti_rv], 0             ; done: the wheel has the cell back
+    cmp al, TI_RVEND
+    jae .nums
+    sub al, TI_RVCELL - 1
+    call ti_rv_cell
+    jmp short .out
+.nums:
+    call ti_rv_nums                 ; ...and its NUMBERS a frame after it is
+    mov byte [ti_rv], 0             ; whole. Done: the wheel has the cell back
 .out:
     pop ax
     ret
@@ -285,8 +284,8 @@ ti_rv_step:
 ; -----------------------------------------------------------------------------
 ; ti_rv_cost - AX = the model's price, in microseconds, of this frame's reveal
 ; work, which the wheel's credit pays before any idle does (SPEC.md 97.5).
-; The same units as everything else it pays for: an arrival a call, rows at
-; the calibrated row rate, and the card composition ti_cal_card measured.
+; The same units as everything else it pays for: an arrival a call and rows at
+; the calibrated row rate.
 ; Preserves every other register.
 ; -----------------------------------------------------------------------------
 ti_rv_cost:
@@ -296,30 +295,51 @@ ti_rv_cost:
     cmp byte [ti_rv], 0
     je .out
     mov ax, [ti_arrus]              ; the trail: every spark twice, down and up
-    mov bx, 2 * TI_RVSPK
-    mul bx
-    cmp byte [ti_rv], 1
-    je .out
-    mov ax, [ti_bh]                 ; the dissolve: the cell's band and the
-    add ax, [ti_cardh]              ; card's, and composing the card
+    mov bx, 2 * TI_RVSPK            ; - and on the last frame, which has none,
+    mul bx                          ; the numbers, which cost about as much
+    mov bx, ax
+    mov al, [ti_rvt]                ; the frame this one is about to draw
+    inc al
+    cmp al, TI_RVCARD + 3
+    ja .cell
+    mov ax, [ti_cardh]              ; the card's band - composed at the key,
+    mul word [ti_rowus]             ; so rows and an arrival
+    add bx, ax
+    add bx, [ti_arrus]
+    jmp short .have
+.cell:
+    cmp al, TI_RVCELL
+    jb .have
+    mov ax, [ti_bh]                 ; the cell's band
     mul word [ti_rowus]
-    add ax, [ti_arrus]
-    add ax, [ti_arrus]
-    add ax, [ti_ccardus]
+    add bx, ax
+    add bx, [ti_arrus]
+.have:
+    mov ax, bx
 .out:
     pop dx
     pop bx
     ret
 
-; ti_rv_cost_sub - AX = AX less ti_rv_cost, floored at nothing. Preserves
-; every other register.
+; ti_rv_cost_sub - AX = AX less ti_rv_cost, floored at nothing, and CF=1 if
+; the reveal took ALL of it. Preserves every other register.
+;
+; CF IS THE WHEEL'S CUE TO COMMIT NOTHING. It commits one feature before it
+; asks the credit, which is what guarantees progress on a machine whose credit
+; is under one band - and on a reveal frame that one band was the ~10 ms that
+; put the frame at 54.8 of a 54.9 ms tick. So the idle holds still for the few
+; frames the reveal needs the whole credit, and breathes again after.
 ti_rv_cost_sub:
     push bx
     mov bx, ax
     call ti_rv_cost
     sub bx, ax
-    jnc .have
+    ja .have                        ; something left: CF is clear
     xor bx, bx
+    mov ax, bx
+    pop bx
+    stc
+    ret
 .have:
     mov ax, bx
     pop bx
@@ -327,9 +347,15 @@ ti_rv_cost_sub:
 
 ; -----------------------------------------------------------------------------
 ; ti_rv_sparks - frame [ti_rvt] of the trail: the head at t/T of the way, and
-; each spark behind it a quarter of a frame further back, jittered off the
-; line and smaller the older it is. Every rect is recorded for the erase.
+; each spark behind it a quarter of a frame further back, smaller the older it
+; is and ORBITING the line - further out the older it is, and a turn round it
+; every ~five frames, neighbours a third of a turn apart, so the trail TWIRLS.
+; A spark that has reached the cell is poured in and drawn no more, which is
+; how the tail follows the head home. Every rect is recorded for the erase.
 ; Preserves every register.
+;
+; THE TWIRL IS A TABLE: sixteen signed bytes of sine, a lookup and an IMUL a
+; spark - microseconds against the ~2 ms of a spark's two XOR fills.
 ; -----------------------------------------------------------------------------
 ti_rv_sparks:
     push ax
@@ -352,7 +378,13 @@ ti_rv_sparks:
     shl ax, 1
     shl ax, 1
     sub ax, bp
-    jle .next                       ; not born yet: the trail grows from the card
+    jg .aged
+    jmp .next                       ; not born yet: the trail grows from the card
+.aged:
+    cmp ax, 4 * TI_RVTRAVEL
+    jbe .flying
+    jmp .next                       ; ...and home: poured into the cell
+.flying:
     mov cx, ax                      ; CX = the spark's share of the way...
     mov di, 4 * TI_RVTRAVEL         ; ...in quarter frames
     mov ax, [ti_rvx0]
@@ -366,18 +398,45 @@ ti_rv_sparks:
     mov cx, 5                       ; the HEAD: five pixels, on the line
     or bp, bp
     jz .size
-    mov cx, 3                       ; ...a SPARK: off it, and further off and
-    cmp bp, 3                       ; smaller the older it is - the trail
-    jbe .jit                        ; spreads as it fades
-    mov cx, 7
+    mov cx, 3                       ; ...a SPARK: on an ORBIT of the line,
+    cmp bp, 3                       ; wider the older it is - the trail
+    jbe .orbit                      ; spreads as it fades
+    mov cx, 5
     cmp bp, 7
-    jbe .jit
-    mov cx, 15
-.jit:
-    call ti_rv_rand
-    add [ti_rvpx], ax
-    call ti_rv_rand
+    jbe .orbit
+    mov cx, 7
+.orbit:
+    mov al, [ti_rvt]                ; the angle: three sixteenths a frame, and
+    mov bl, 3                       ; five between neighbours
+    mul bl
+    mov bx, bp
+    mov bh, bl
+    shl bl, 1
+    shl bl, 1
+    add bl, bh
+    add al, bl
+    and ax, 15
+    mov bx, ax
+    push bx
+    mov al, [ti_rvsin + bx]         ; dy = R sin
+    cbw
+    imul cx
+    push cx
+    mov cl, 6
+    sar ax, cl
+    pop cx
     add [ti_rvpy], ax
+    pop bx
+    add bx, 4                       ; dx = R cos
+    and bx, 15
+    mov al, [ti_rvsin + bx]
+    cbw
+    imul cx
+    push cx
+    mov cl, 6
+    sar ax, cl
+    pop cx
+    add [ti_rvpx], ax
     mov cx, 3
     cmp bp, 3
     jbe .size
@@ -432,24 +491,6 @@ ti_rv_lerp:
     add ax, si
     pop si
     pop dx
-    ret
-
-; ti_rv_rand - AX = a signed offset off a 16-bit Galois LFSR: (lfsr AND CX)
-; less half of CX + 1, so CX = 3, 7 or 15 is -2..1, -4..3 or -8..7. Preserves
-; every other register.
-ti_rv_rand:
-    mov ax, [ti_rvseed]
-    shr ax, 1
-    jnc .keep
-    xor ax, 0B400h
-.keep:
-    mov [ti_rvseed], ax
-    and ax, cx
-    push cx
-    inc cx
-    shr cx, 1
-    sub ax, cx
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -652,6 +693,10 @@ ti_rv_cardget:
     pop cx
     ret
 
+; sine, sixteen steps a turn, x 64
+ti_rvsin:
+    db 0, 24, 45, 59, 64, 59, 45, 24, 0, -24, -45, -59, -64, -59, -45, -24
+
 ; A 4x4 BAYER MATRIX at five levels - 0/16, 4, 8, 12 and 16/16 - one byte a
 ; row, the 4-pixel pattern twice. A set bit is the NEW picture.
 ti_rv_dith:
@@ -661,7 +706,7 @@ ti_rv_dith:
     db 0FFh, 055h, 0FFh, 055h
     db 0FFh, 0FFh, 0FFh, 0FFh
 
-ti_rv:      db 0                    ; 0 idle, 1 the trail, 2 the dissolve
+ti_rv:      db 0                    ; 1 while a reveal runs
 ti_rvt:     db 0                    ; the frame within the phase
 ti_rvfull:  db 0                    ; an expose landed on the sparks
 ti_rvlane:  db 0                    ; the lane the next reveal takes
@@ -678,7 +723,6 @@ ti_rvpx:    dw 0
 ti_rvpy:    dw 0
 ti_rvdp:    dw 0
 ti_rvn:     dw 0                    ; sparks on the glass
-ti_rvseed:  dw 0ACE1h
 ti_rvsp:    times TI_RVSPK * 4 dw 0
 ti_rvband:  times TI_RVMAX db 0
 ti_cellcard:

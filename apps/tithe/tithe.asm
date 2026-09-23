@@ -813,6 +813,7 @@ ti_frame:
     mov ax, [ti_creditus]
     call ti_rv_cost_sub             ; ...less what the reveal owes this frame
     mov [ti_left], ax
+    jc .out                         ; ...which may be all of it (tirv.inc)
     mov cx, TI_FEATURES
 .walk:
     or cx, cx

@@ -2282,7 +2282,10 @@ any number of times unless a limit is stated.**
 | **COMMIT** | — | once, and it is final |
 
 **Playing a character.** Pick the card in the right-hand panel, then pick
-**FRONT** or **REAR**. The destination cell — the topmost empty one in that
+**FRONT** or **REAR**. **The play animates as it is made** — sparks from the
+card to the cell, the card fading out of the hand, the character forming in its
+cell (§16.2 item 7, SPEC.md §97.4.11) — because it is the active player's own
+choice, and those are the only ones planning shows. The destination cell — the topmost empty one in that
 column, **counting your own plan so far** — highlights before you commit, and
 **the stat block and the pose art that will be live there are both shown**, so
 the decision is made against the character you will actually get. **Refusals are
@@ -2356,6 +2359,13 @@ the same number the first one started from, and the same number they could have
 worked out themselves.
 
 ### 6.4 PHASE 3 — REVEAL (animated, ~1–2 s)
+
+**Your own plan is already on your half of the board**, each play having
+animated as you made it (§6.3). What the reveal shows is **the OPPONENT's plan,
+ALL AT ONCE** — new characters, swaps, stance changes and orders together, not
+replayed in the order they were built — which is the owner's ruling, and the
+same rule that keeps a networked plan from leaking (§6.3.1). How it animates is
+wave 3's design, with the rest of the resolution.
 
 **Both plans are applied and animated together.** Swaps first on both sides,
 then plays on both sides, each side's actions in its own recorded order — so
@@ -4171,11 +4181,12 @@ point of the reveal is that the player is finding out what happened.
 **BUILT IN WAVE 1A** (SPEC.md §97.4.11), to the owner's brief: *a trail of
 magical particles from the card slot to the board's slot, like an attack shot
 with a different origin and end, then the character fading in — quicker than an
-attack, and ending with the card fading out.* Six frames of a twelve-spark
-trail, then five of an ordered-dither dissolve with the card a step behind:
-**eleven frames, ~0.6 s, against a clash's sixteen**, and every frame of it fits
-inside the tick on a 4.77 MHz 8088 (the heaviest is 41.9 ms of 54.9). Two
-things it decided that §6.4 will inherit:
+attack, and ending with the card fading out* — and then, on the owner's second
+look, **overlapped and twirling**: the card is gone by the time the sparks
+arrive, the character forms as they pour in, and the trail's sparks orbit the
+line as it flies. **Nine frames, ~0.5 s, against a clash's sixteen**, and every
+frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 48.5 ms of
+54.9). Three things it decided:
 
 - **The sparks are XOR and not a composed band.** The bolt composes over the
   ground because a lane is ground and nothing else in its rows; a card-to-cell
@@ -4187,12 +4198,24 @@ things it decided that §6.4 will inherit:
   was ~35 ms of every step and put the frame over its tick; banked at the key
   press, it is latency before the first spark (112 ms, with the cell's own
   composition) instead of a stutter in the middle.
+- **The idle holds still while it runs.** Overlapped, the reveal needs the
+  wheel's whole credit on most of its frames, and the wheel's one guaranteed
+  commit was what put two of them at 54.8 of 54.9 ms. It commits nothing when
+  the reveal has taken everything, and the board breathes again after.
 
-What §6.4 still owes: P2's plays arrive from a hand nobody can see, so their
-origin is a design question and not a coordinate; and *"both plans animated
-together"* is several reveals at once, where the one built here is a sequence
-of one. Sequence or flurry is the question the item above asked, and it is
-still the owner's.
+**IT IS A PLANNING-PHASE ANIMATION, and that answers the question above.**
+The owner's ruling: planning is simultaneous and blind (§6.0, §6.3.1), so
+**this animates the ACTIVE player's own choices, as they make them**, and
+nothing else. The opponent's plan is invisible until both have committed, so it
+has no planning animation at all: **it arrives ALL AT ONCE when the resolution
+begins** — new characters, moved characters, changed stances and the orders
+played, together (§6.4). How that and the rest of the resolution animate — the
+other side's board moving, order cards being played, attacks, heals, the gold
+and soul roll-ups — is the resolution phase's design, and wave 3's.
+
+What the planning half still owes: **an UNDO of a play** (§5.0.2) wants this
+animation's reverse — the character dissolving out and the card coming back —
+and a **swap** and a **stance change** want their own, smaller ones.
 
 ### 16.3 …and four things deliberately NOT specified yet
 
@@ -4401,7 +4424,7 @@ a second time.
 | a commit clock for posted play | **none** — play by mail, and the same adaptive poll serves a live match with no mode switch (§12.7.1) |
 | undo | **any action, not just the last**, until the commit (§5.0.2) |
 | **the melee clash** | **tier A** — each fighter's own attack frames in its own band; the composed overlap (tier B) was built, looked at and dropped (§3.9.2) |
-| **the reveal** | **sparks from the card to the cell, then the character dissolving in and the card dissolving out**, shorter than a clash (§16.2 item 7, SPEC.md §97.4.11) |
+| **the reveal** | **the active player's own play animates in PLANNING** — twirling sparks from the card to the cell, the card fading out during the flight and the character forming as they arrive, nine frames; **the opponent's plan arrives all at once** at the resolution (§16.2 item 7, SPEC.md §97.4.11) |
 | **how characters are drawn** | **composed from a BODY and a held ITEM** (§4.2.1), the item carrying the arm and the swing, at most 8 items a faction — which is what makes attack animation affordable at all (§4.2.2) |
 
 ### 19.2 Reversed, and why

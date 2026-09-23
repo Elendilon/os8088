@@ -140797,15 +140797,32 @@ to the bit. It went red on an ORed figure and on a fence gap one row long.
 
 #### 97.4.11 THE REVEAL — sparks from the card, then a dissolve
 
-How a played card reaches its cell (TITHE-PLAN §16.2 item 7), in three parts
-one after another, and **shorter than a clash** — eleven frames, ~0.6 s,
-against sixteen:
+How the active player's own play reaches its cell, **during PLANNING**
+(TITHE-PLAN §6.3, TITHE-PLAN §16.2 item 7) — three things **overlapped**, nine frames,
+~0.5 s, against a clash's sixteen. The card is gone by the time the sparks
+arrive, and the character forms as they pour in:
 
-| | frames | what |
-|---|---:|---|
-| **the trail** | 6 | twelve sparks from the card's centre to the cell's: a five-pixel head on the line and eleven behind it a quarter of a frame apart, off the line by more and smaller the older they are, so the trail spreads as it fades. ~70 pixels a frame on a windowed VGA, where a bolt goes 24 |
-| **the character** | 4 | the cell's band as a 4×4 ordered dither between its column's ground and the new character's pose 0 — a quarter, a half, three quarters, whole — then its numbers on the frame after |
-| **the card** | 4, a step behind | the same dither toward the panel's black, then an **empty slot**: a played card stays gone until the hand is dealt again |
+| frame | the trail | the card | the character |
+|---:|---|---|---|
+| 1–3 | leaving the card | three-quarters, half, a quarter | the cell's ground |
+| 4 | | **gone**: an empty slot | |
+| 5–6 | the head arrives on 6 | | a quarter, a half |
+| 7–8 | the tail pours in | | three-quarters, **whole** |
+| 9 | | | its numbers |
+
+**THE TRAIL TWIRLS.** Twelve sparks: a five-pixel head on the line from the
+card's centre to the cell's, and eleven behind it a quarter of a frame apart,
+each on an ORBIT of the line — three, five or seven pixels out the older it is,
+three sixteenths of a turn a frame, neighbours five sixteenths apart. So the
+trail is a turning spiral that widens as it fades. A spark that has reached the
+cell is drawn no more, which is how the tail follows the head home. The orbit is
+a table of sixteen signed bytes of sine, a lookup and an `IMUL` a spark:
+microseconds, against the ~2 ms of a spark's two XOR fills. ~70 pixels a frame
+on a windowed VGA, where a bolt goes 24.
+
+**THE DISSOLVES ARE A 4×4 ORDERED DITHER** — a quarter, a half, three
+quarters — the character's between its column's ground and its pose 0, the card's
+toward the panel's black. A played card stays gone until the hand is dealt again.
 
 **THE SPARKS ARE XOR, NOT A COMPOSED BAND.** The bolt (§97.4.5) composes over
 the ground it crosses because a lane is ground and nothing else in its rows. A
@@ -140837,18 +140854,30 @@ breakpoints and the cycle counter:
 | | |
 |---|---:|
 | the key: composing the cell, banking the card, vacating the cell | **112 ms**, before the first spark |
-| a trail frame: twelve sparks off and twelve on | **~24 ms** of a 34–38 ms frame |
-| a dissolve frame: the cell's band and the card's | **28 ms** of a 42 ms frame |
-| the heaviest frame of the reveal | **41.9 ms of a 54.9 ms tick** |
+| twelve sparks off and twelve on | **~20 ms** a frame |
+| a card fade step / a character dissolve step | **~12 ms** / **~9 ms** |
+| the heaviest frames, 5 and 6: twelve sparks and the character | **48.5 ms of a 54.9 ms tick** |
 
 **THE CARD IS COMPOSED ONCE, AT THE PLAY.** Composing a card is ~35 ms of the
 8088, and re-composing it for every step of its fade put two frames over the
 tick (54 and 56 ms). It is composed at the key press into a bank of its own,
 `ti_cfband`, and each step copies it back and thins it: latency before the first
 spark instead of a stutter in the middle. The reveal's work is charged to the
-wheel's credit in the wheel's own units — an arrival a call, rows at the
-calibrated rate, the card composition `ti_cal_card` measured — so the idle
-around it slows rather than the frame overrunning.
+wheel's credit in the wheel's own units — an arrival a call and rows at the
+calibrated rate — so the idle around it slows rather than the frame
+overrunning. **Overlapped, the reveal takes the WHOLE credit on most of its
+frames, and then the wheel commits nothing**: it normally commits one feature
+before it asks the credit, which guarantees progress on a machine whose credit
+is under one band, and on a reveal frame that one band put the frame at 54.8 of
+54.9 ms. So the board's idle holds still for the half second the reveal runs
+and breathes again after it — where the eye is on the trail anyway.
+
+**THE OPPONENT'S PLAN IS NOT THIS.** Planning is simultaneous and blind
+(TITHE-PLAN §6.0, TITHE-PLAN §6.3.1): until both players commit, neither sees the other's
+plays. So this animation is the ACTIVE player's own play, landing as they make
+it; the other side's whole plan — new characters, swaps, stances — arrives
+**all at once** when the resolution begins, and how that animates is the
+resolution phase's own design (TITHE-PLAN §6.4), not this one.
 
 **`tests/titherv.py` holds where it ENDS, on all three adapters**: the card in
 the cell the key names, that cell's eight frames the model's for the new card to
