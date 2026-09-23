@@ -1146,17 +1146,22 @@ ti_poke:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_hud_draw - the strip above the board, with real numbers in it
-; Preserves every register.
+; ti_hud_draw - the strip above the board: the round, the STATUS LINE and the
+; FRONT/REAR toggle. Preserves every register.
 ;
-; ONE font_run FOR THE WHOLE ROW and not one a field (SPEC.md 97.4.1). A row of
-; text is ~71 ms on the target machine whichever way it is cut, and cutting it
-; into three runs buys three arrivals for nothing - while cutting it into one
-; opaque run also means the strip never flashes, because the ground and the
-; glyphs are one decision per cell (SPEC.md 6.1).
+; IT IS COMPOSED AND BLITTED ONCE, like a card (SPEC.md 97.4.1.1). It was one
+; centred `OSAPI_FONT_RUN`, which is cheap and has one property that rules it
+; out here: a run draws ONLY ITS OWN LENGTH, so a strip whose text changes
+; length leaves the tail of the last one behind. That was survivable while the
+; strip said `ROUND 03 PLAN` and is not now it carries an ABILITY LINE - one
+; card's is forty characters and the next one's is fifty-three.
 ;
-; It is drawn with the BOARD and not with a frame: every number in it changes
-; at most once a round, which is TITHE-PLAN 3.8.1's whole argument one level up.
+; THREE BLOCKS AND THE MIDDLE ONE IS THE VARIABLE: the round and phase hard
+; left, the toggle hard right ABOVE THE PANEL IT BELONGS TO, and the status
+; centred in what is left. The toggle is in the HUD and not in the panel
+; because the panel has no row to give - Hercules' seven cards and the COMMIT
+; row use its height to the pixel (97.4.2) - and because the HUD's own right
+; hand end is directly over the hand it is about.
 ; -----------------------------------------------------------------------------
 ti_hud_draw:
     push ax
@@ -1165,45 +1170,296 @@ ti_hud_draw:
     push dx
     push si
     push di
+    push bp
     push es
     push ds
     pop es
     cld
 
-    mov di, ti_hudbuf               ; THE ROUND AND THE PHASE, AND NOTHING
-    mov si, ti_s_round              ; ELSE. Each player's own numbers went here
-    call ti_poke                    ; first and read as a scoreboard bolted
-    mov al, [ti_round]              ; over the top of the board; they are on
-    call ti_u8                      ; the board now, in the shear's own empty
-    mov si, ti_s_phase              ; corners and above each base, where they
-    call ti_poke                    ; sit beside the thing they are about
-    mov si, ti_s_bsep               ; ...and, FOR WAVE 1a ONLY, which base
-    call ti_poke                    ; candidate `B` is showing, because a
-    mov bx, [ti_bart]               ; picture nobody can name is a picture
-    shl bx, 1                       ; nobody can choose (SPEC.md 97.2.1). It
-    mov si, [bx + ti_bart_name]     ; goes when one is picked, with the rest
-    call ti_poke                    ; of the candidates
-    mov byte [di], 0
-
-    mov si, ti_hudbuf               ; centred on the content
-    call OSAPI_FONT_WIDTH
+    ; THE BAND'S X IS ALIGNED AND THE CONTENT ORIGIN IS NOT NECESSARILY.
+    ; `OSAPI_GFX_BLIT1` refuses an x that is not a multiple of 8 (SPEC.md
+    ; 5.4.2) and WF_SNAP is best-effort, so a window the kernel could not snap
+    ; leaves `ti_ox` odd - which is the trap ti_lay already carries its own
+    ; note about, and which cost this strip its first two characters on a
+    ; Hercules the first time it ran.
+    mov ax, [ti_ox]
+    add ax, 7
+    and ax, 0FFF8h
+    mov [ti_hx], ax
+    sub ax, [ti_ox]
     mov cx, [ti_cw_box]
     sub cx, ax
-    shr cx, 1
-    and cx, 0FFF8h                  ; ...and on the byte grid, so the row takes
-    add cx, [ti_ox]                 ; SPEC.md 6.1's single-store path
-    mov dx, [ti_oy]
-    mov ax, [ti_hud]
-    sub ax, 8
-    shr ax, 1
-    add dx, ax
-    mov si, ti_hudbuf
-    mov ax, (CBLACK << 8) | CWHITE
-    call OSAPI_FONT_RUN
+    and cx, 0FFF8h
+    mov [ti_hw], cx
+    mov ax, cx                      ; the band is the whole strip
+    mov cl, 3
+    shr ax, cl
+    inc ax                          ; ...plus ti_glyph's pad byte
+    mov [ti_hbs], ax
+    mul word [ti_hud]
+    cmp ax, TI_HUDBANDMAX
+    jbe .fit
+    jmp .out                        ; a surface this wide cannot occur, but a
+.fit:                               ; band that overran would be silent
+    mov di, ti_hudband
+    mov cx, ax
+    push di
+    xor al, al
+    rep stosb
+    pop di
+    mov bp, [ti_hbs]
 
+    mov ax, [ti_hud]                ; one line, centred in the strip
+    sub ax, [ti_fh]
+    shr ax, 1
+    mov [ti_hty], ax
+
+    ; --- hard left: the round and the phase --------------------------------
+    mov di, ti_hudbuf
+    mov si, ti_s_round
+    call ti_poke
+    mov al, [ti_round]
+    call ti_u8
+    mov si, ti_s_phase
+    call ti_poke
+    mov byte [di], 0
+    mov di, ti_hudband
+    mov bx, 4
+    mov dx, [ti_hty]
+    mov si, ti_hudbuf
+    call ti_text
+    mov [ti_hleft], bx
+
+    ; --- hard right: the FRONT/REAR toggle, over the panel -----------------
+    call ti_hud_toggle
+
+    ; --- and the status, centred between them ------------------------------
+    call ti_status                  ; SI -> the line
+    call ti_textw
+    mov cx, [ti_hright]             ; the room the other two blocks left
+    sub cx, [ti_hleft]
+    jbe .blit
+    cmp ax, cx
+    jbe .mid
+    mov bx, [ti_hleft]              ; ...and a line too long for it starts at
+    add bx, [ti_fw]                 ; the left of that room rather than being
+    jmp short .put                  ; centred out of the window
+.mid:
+    sub cx, ax
+    shr cx, 1
+    mov bx, [ti_hleft]
+    add bx, cx
+.put:
+    mov di, ti_hudband
+    mov dx, [ti_hty]
+    call ti_status
+    call ti_text
+.blit:
+    mov ax, (CBLACK << 8) | CWHITE
+    call OSAPI_GFX_BLIT1_PEN
+    mov si, ti_hudband
+    mov ax, [ti_hx]
+    mov bx, [ti_oy]
+    mov cx, [ti_hw]
+    mov dx, [ti_hud]
+    mov bp, [ti_hbs]
+    call OSAPI_GFX_BLIT1
+.out:
     pop es
+    pop bp
     pop di
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_hud_toggle - FRONT / REAR at the strip's right hand end
+; in:  DI = the band, BP = its stride; out: [ti_hright] = where it starts
+; Preserves every register.
+;
+; THE SELECTED ARM IS BOXED, not brightened: the strip is one bit deep on two
+; adapters of three (SPEC.md 39.4), so a "highlight" there is either the same
+; white or a dither nobody can read at six pixels. A box is legible on all
+; three and is the same four lines on each.
+;
+; ITS HIT BOX IS BANKED IN SCREEN COORDINATES, because the click handler has
+; no way to re-derive it: the arms are laid out from the RIGHT, so their x
+; depends on the two words' own widths in whichever face is current.
+; -----------------------------------------------------------------------------
+ti_hud_toggle:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, ti_s_rear
+    call ti_textw
+    mov cx, [ti_hw]                 ; ...laid out from the right
+    sub cx, 4
+    sub cx, ax
+    mov [ti_tg1x], cx
+    mov si, ti_s_front
+    call ti_textw
+    sub cx, [ti_fw]
+    sub cx, [ti_fw]
+    sub cx, ax
+    mov [ti_tg0x], cx
+    sub cx, [ti_fw]
+    mov [ti_hright], cx
+
+    mov bx, [ti_tg0x]
+    mov dx, [ti_hty]
+    mov si, ti_s_front
+    call ti_text
+    mov bx, [ti_tg1x]
+    mov dx, [ti_hty]
+    mov si, ti_s_rear
+    call ti_text
+
+    mov bx, [ti_tg0x]               ; the box, round whichever arm is selected
+    mov si, ti_s_front
+    cmp word [ti_row], TI_ROW_FRONT
+    je .box
+    mov bx, [ti_tg1x]
+    mov si, ti_s_rear
+.box:
+    call ti_textw
+    mov cx, bx
+    add cx, ax
+    call ti_hb_box
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_hb_box - a frame round [BX, CX) of the HUD's own text line ----------
+; It hangs one pixel outside the glyph cell on every side, which the strip has
+; because ti_hty centres a single line in a HUD at least eight rows deeper.
+ti_hb_box:
+    push ax
+    push bx
+    push cx
+    push dx
+    dec bx
+    inc cx
+    mov dx, [ti_hty]
+    dec dx
+    call ti_hb_hline
+    mov dx, [ti_hty]
+    add dx, [ti_fh]
+    call ti_hb_hline
+    mov ax, bx
+.side:
+    mov bx, ax
+    call ti_hb_set
+    mov bx, cx
+    call ti_hb_set
+    dec dx
+    cmp dx, [ti_hty]
+    jae .side
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+ti_hb_hline:
+    push bx
+.x:
+    cmp bx, cx
+    ja .out
+    call ti_hb_set
+    inc bx
+    jmp short .x
+.out:
+    pop bx
+    ret
+
+ti_hb_set:                          ; BX = x, DX = y, in the HUD band
+    push ax
+    push bx
+    push cx
+    push dx                         ; ...DX, WHICH `mul` CLOBBERS AND WHICH IS
+                                    ; THE ROW (ti_cb_set's own note)
+    push di
+    cmp dx, [ti_hud]
+    jae .out
+    cmp bx, [ti_hw]
+    jae .out
+    mov ax, dx
+    mul word [ti_hbs]
+    mov di, ti_hudband
+    add di, ax
+    mov ax, bx
+    mov cl, 3
+    shr ax, cl
+    add di, ax
+    mov cx, bx
+    and cx, 7
+    mov al, 080h
+    shr al, cl
+    or [di], al
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_status - SI -> the line the HUD's middle block shows
+; Preserves every register bar SI.
+;
+; THE POINTER PICKS IT (SPEC.md 97.4.8). A character has a special ability and
+; a line of prose is the only way to say what it does, so the strip that says
+; what ROUND it is becomes the strip that says what the thing under the pointer
+; DOES - a card in the hand or a character on the board, the two being the same
+; question asked in two places. With nothing hovered it says which base
+; candidate is on screen, which is wave 1a's own business (97.2.1).
+; -----------------------------------------------------------------------------
+ti_status:
+    push ax
+    push bx
+    push cx                         ; ...CX and DX, which the divide below uses
+    push dx                         ; and which ti_hud_draw has already set up
+    push di
+    mov bx, [ti_hover]
+    cmp bx, -1
+    jne .card
+    mov bx, [ti_hovc]
+    cmp bx, -1
+    je .base
+    mov ax, bx                      ; a cell shows the card it would be, which
+    xor dx, dx                      ; is wave 1a's fiction and is at least a
+    mov bx, TI_HAND                 ; STABLE one - the same cell always names
+    div bx                          ; the same character
+    mov bx, dx
+.card:
+    mov ax, bx
+    mov cl, TI_C_SIZE
+    mul cl
+    mov si, ti_cards
+    add si, ax
+    mov si, [si + TI_C_ABIL]
+    jmp short .out
+.base:
+    mov di, ti_hudbuf
+    mov si, ti_s_bsep
+    call ti_poke
+    mov bx, [ti_bart]
+    shl bx, 1
+    mov si, [bx + ti_bart_name]
+    call ti_poke
+    mov byte [di], 0
+    mov si, ti_hudbuf
+.out:
+    pop di
     pop dx
     pop cx
     pop bx

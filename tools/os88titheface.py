@@ -284,7 +284,7 @@ def sheet_out(faces, out):
 ORDER = ([("icon", i) for i in range(1, 8)] + [("c", " ")] +
          [("c", c) for c in "0123456789"] +
          [("c", c) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"] +
-         [("c", c) for c in "-.+/"])
+         [("c", c) for c in "-.+/,:"])
 
 TALL_ICONS = {                      # 8x8, and the first five are ti_ic_*'s own
     1: [0x66, 0xFF, 0xFF, 0xFF, 0x7E, 0x3C, 0x18, 0x00],   # heart   HP
@@ -323,8 +323,11 @@ def pack_face(f, icons=None):
 
 def shipped():
     """The faces the package carries - named once, for `emit` and the gate."""
-    return [("tall", Face("fonts/tallx.f8"), TALL_ICONS),
-            ("t6", Face("fonts/tithe6.f6"), None)]
+    # THE SHIPPED DEFAULT IS FIRST. tithe6 is the face the panel is cut for -
+    # it is the only one a CGA card can carry a line of at all - so it is face
+    # 0 and the key switches UP into the tall one rather than down out of it.
+    return [("t6", Face("fonts/tithe6.f6"), None),
+            ("tall", Face("fonts/tallx.f8"), TALL_ICONS)]
 
 
 def emit(path):
@@ -413,6 +416,36 @@ def selfcheck():
                     bad.append("%s icon %d and glyph %d are %d pixel(s) apart "
                                "- under %d nobody reads them as two things"
                                % (name, code, other, d, ICON_APART))
+    # ...AND EVERY CHARACTER THE PACKAGE ACTUALLY WRITES MUST EXIST.
+    # `ti_chidx` answers 0FFh for a byte no face carries and `ti_glyph` then
+    # draws NOTHING - no box, no fallback, just a gap the width of a cell. A
+    # colon in an ability line came out as a hole with no error anywhere, and
+    # the only way that is ever noticed is by reading the screen. So the
+    # STRINGS are the input here: every `db '...'` in the package, against the
+    # 48 glyphs the faces carry.
+    have = set(" 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.+/,:")
+    src = open("apps/tithe/tithe.asm", encoding="utf-8").read()
+    for n, line in enumerate(src.split("\n"), 1):
+        # CUT THE COMMENT OFF FIRST, and cut it at a `;` that is OUTSIDE a
+        # quoted literal - nasm comments are full of apostrophes and prose,
+        # and a scanner that took them for strings reports the whole file.
+        code, q = [], False
+        for ch in line:
+            if ch == "'":
+                q = not q
+            if ch == ";" and not q:
+                break
+            code.append(ch)
+        code = "".join(code)
+        if " db " not in " " + code.strip():
+            continue
+        for lit in re.findall(r"'([^']*)'", code):
+            if len(lit) == 1:
+                continue                # a character CONSTANT, not a string
+            miss = sorted({c for c in lit.upper() if c not in have})
+            if miss:
+                bad.append("tithe.asm:%d writes %s, which no face carries"
+                           % (n, ", ".join(repr(c) for c in miss)))
     for line in bad:
         print("  FAIL %s" % line)
     print("os88titheface: %d face(s), %s"

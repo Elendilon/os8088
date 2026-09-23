@@ -1,31 +1,45 @@
 #!/usr/bin/env python3
-"""TITHE's card composer: does the card stay INSIDE its own frame?
+"""TITHE's card panel and HUD: does everything stay inside its own box?
 
-SPEC.md 97.4.1's gate. The panel is one `OSAPI_GFX_BLIT1` a card now - a band
-composed by the package, in the package's OWN face - and the two defects that
-cost a screenshot round each are both a line crossing a boundary:
+SPEC.md 97.4.1's gate, and 97.4.8's. The panel is one `OSAPI_GFX_BLIT1` a card
+now - a band composed by the package, in the package's OWN face - and every
+defect it has had is a thing crossing a boundary or failing to come back:
 
   1. A ROW THAT DOES NOT FIT IS NOT DRAWN. The flow's bottom test was off by
      one row, so a VGA card started a fourth line of text and the card's foot
-     cut it in half. The frame's bottom line is what it cut through, so the
-     assertion is that the frame's four lines are UNBROKEN.
+     cut it in half.
 
-  2. THE FIGURE OWNS A COLUMN. Before the flow had a right margin the stat
-     row ran under the mini unit and off the card's right-hand edge - into
-     the pad byte, which the blit then carried onto the screen. The right
-     upright is what that breaks, and the same four-line check catches it.
+  2. THE FIGURE OWNS A COLUMN. Before the flow had a right margin the stat row
+     ran under the mini unit and off the card's right-hand edge.
 
-  3. NOTHING LEAVES THE BAND. A one-pixel ring outside each card must stay
-     clear: the band is padded by a byte so `ti_glyph` can shift a glyph
-     across a byte pair, and a blit told the wrong width puts that pad on the
-     glass.
+  NEITHER OF THOSE IS VISIBLE AS A BROKEN FRAME LINE, which is the lesson of
+  this file: the band is composed by OR and the frame is drawn FIRST, so a
+  glyph landing on it changes no pixel at all. Both were put back in on
+  purpose and PASSED a frame-line check. What catches them is the row above
+  the foot being blank and the three-column gutter to the figure being clear.
 
-  4. THE FACE KEY CHANGES THE CARD. `T` cycles the faces and the whole point
-     of the second one is that a 6x6 fits FOUR rows where 8x8 fits three -
-     so `ti_crows` must go UP, and the panel's pixels must actually differ.
-     A face table that is emitted but never rebuilt into the package reads
-     exactly like a glyph change that did nothing, which is what happened:
-     the Makefile had no dependency on tifaces.inc.
+  3. THE PANEL COMES BACK. The hovered card expands into the panel's 8-pixel
+     margins, and the composer dropped the `gfx_fill` of the whole panel row
+     that used to put them back - so moving off a card left a stripe of it
+     down each side. The margins are part of the composition now.
+
+  4. THE HOVERED CARD'S FIGURE KEEPS ITS POLARITY. The wheel redraws the unit
+     ALONE every frame at a pen of its own, and that pen said the opposite of
+     what the composition says - so the card went down right and was inverted
+     one frame later, which on the glass is a figure that goes black part of
+     the way round its cycle.
+
+  5. THE FACE KEY WORKS AT ALL. `T` cycles the faces and the shorter one fits
+     more rows; a generated face table with no Makefile dependency behind it
+     reads exactly like a glyph change that did nothing, which is what
+     happened.
+
+  6. THE TOGGLE AND THE STATUS LINE (97.4.8). Every card restates its stats
+     when FRONT/REAR flips - a toggle that redrew one card would leave six
+     stating the other row's - and the HUD says what the pointer is over and
+     comes back WHOLE, which the centred `font_run` it replaced could not do:
+     a run draws only its own length, so a forty-character ability line after
+     a fifty-three-character one left thirteen characters behind.
 
 Every check runs on all three adapters, because the card's height is a
 geometry-table field and the flow's answer differs on each.
@@ -39,10 +53,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import os88ui                                             # noqa: E402
 import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
+import os88mouse                                          # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
-        "ti_by", "ti_crows", "ti_face", "ti_cpad", "TI_FACES", "TI_UNITW")
+        "ti_by", "ti_crows", "ti_face", "ti_fh", "ti_panx",
+        "ti_pan", "ti_unith", "ti_cpad", "ti_row", "ti_hx", "ti_hw",
+        "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 
 fails = []
@@ -108,7 +125,7 @@ def run(mach, off):
                 m.key("KeyT")
                 os88marty.guest_sleep(m, 2.5)
             name = "face %d" % rw("ti_face")
-            rows_seen.append(rw("ti_crows"))
+            rows_seen.append((rw("ti_fh"), rw("ti_crows")))
             w, h, px = mono(m)
             # THE PACKAGE'S COORDINATES ARE THE SCREEN'S. A kernel drawing
             # slot takes a screen x and y, so what the package banks is one
@@ -116,8 +133,9 @@ def run(mach, off):
             # whole HUD lower and read the desktop as a broken card. It is
             # the trap ti_basey carries its own note about, one file along.
             x, cw, ch = rw("ti_cardx"), rw("ti_cardw"), rw("ti_cardh")
+            px0, pw = rw("ti_panx"), rw("ti_pan")
             pitch, n, by = rw("ti_cardpitch"), rw("ti_cardn"), rw("ti_by")
-            panels.append([r[x:x + cw] for r in px])
+            panels.append([r[px0:px0 + pw] for r in px])
 
             broke, leaked = [], []
             for i in range(n):
@@ -175,9 +193,136 @@ def run(mach, off):
             check(not leaked, "%s: nothing is drawn outside the flow's grid" % name,
                   "%d pixel(s), first %s" % (len(leaked), leaked[:3]))
 
-        check(rows_seen[1] > rows_seen[0],
-              "the 6x6 face fits more rows than the 8x8",
-              "%d vs %d" % (rows_seen[1], rows_seen[0]))
+        # KEYED TO THE CELL HEIGHT AND NOT TO THE FACE INDEX, because the
+        # shipped default moved to the front of the table and an index-wise
+        # assertion then reads backwards while testing nothing.
+        tall = max(rows_seen)
+        short = min(rows_seen)
+        check(short[1] > tall[1],
+              "the shorter face fits more rows",
+              "%s vs %s" % (short, tall))
+
+        # AND MOVING OFF A CARD LEAVES NOTHING BEHIND. The hovered card
+        # expands sideways into the panel's 8-pixel margins, so the row the
+        # pointer LEAVES has to put those margins back - and the composer's
+        # first build did not, because the `gfx_fill` of the whole panel row
+        # that used to do it went away with the eleven other calls. The margins
+        # are part of the composition now, which costs no arrival; this is the
+        # assertion that says so, and it is a PIXEL COMPARISON against the
+        # panel before anything was hovered rather than a rule about what
+        # should be there.
+        w, h, before = mono(m)
+        x0, y0 = rw("ti_panx"), rw("ti_by")
+        y1 = min(y0 + rw("ti_cardn") * rw("ti_cardpitch"), h)
+        marg = rw("ti_cardx") - x0
+        # THE MARGINS AND NOT THE WHOLE PANEL. The card's own body is where the
+        # figure is, and the figure is on a clock: a card is redrawn only when
+        # the hover changes, so its pose is whatever the clock had reached and
+        # two captures a few seconds apart differ there by design. Reading the
+        # whole panel row measured the ANIMATION and called it residue.
+        def margins(p):
+            return [(r[x0:x0 + marg], r[x0 + rw("ti_pan") - marg:x0 + rw("ti_pan")])
+                    for r in p[y0:y1]]
+        base = margins(before)
+        mo = os88mouse.Mouse(marty=m)
+        mid = y0 + 2 * rw("ti_cardpitch") + rw("ti_cardh") // 2
+        mo.to(x0 + 20, mid)                     # ...onto a card
+        os88marty.guest_sleep(m, 1.5)
+
+        # THE FIGURE ON THE HOVERED CARD MOVES, AND IT STAYS THE CARD'S OWN
+        # POLARITY. Two defects met here and each hid the other. The wheel
+        # redraws the unit ALONE every frame, at a pen of its own, and that pen
+        # said black-ink-on-white where the composition says white-on-black -
+        # so the card was composed right and inverted again one frame later,
+        # which on the glass is a figure that goes black part of the way round
+        # its cycle. And the composer REBUILT the pose it was about to draw,
+        # where every pose is built once at art-build time; the rebuild clears
+        # TI_UNITMAX bytes - the worst case over every geometry - so on any
+        # card but the tallest it blanked the top of the NEXT pose's band.
+        top = mid - rw("ti_cardh") // 2
+        fy = top + 2 + rw("ti_cpad")
+        fx = x0 + rw("ti_pan") - off["TI_UNITW"] - 8
+        paper = mono(m)[2][fy + 1][x0 + 1]      # ...BETWEEN the two frames, which
+                                                # the upright check above has
+                                                # already asserted is ground;
+                                                # column 2 is the inner frame
+        shots, wrong = [], 0
+        for _ in range(5):
+            f = mono(m)[2]
+            shots.append([r[fx:fx + off["TI_UNITW"]]
+                          for r in f[fy:fy + rw("ti_unith")]])
+            if f[fy][fx] != paper or f[fy][fx + off["TI_UNITW"] - 1] != paper:
+                wrong += 1                      # the band's own corners are
+            os88marty.guest_sleep(m, 0.35)      # always ground, whatever pose
+        check(wrong == 0,
+              "the hovered card's figure keeps the card's own polarity",
+              "%d of 5 frames inverted" % wrong)
+        check(any(a != b for a, b in zip(shots, shots[1:])),
+              "...and it actually moves", "5 identical frames")
+
+        os88marty.guest_sleep(m, 0.5)
+        mo.to(x0 // 2, mid)                     # ...and off it again
+        os88marty.guest_sleep(m, 2.5)
+        after = margins(mono(m)[2])
+        left = sum(1 for (la, ra), (lb, rb) in zip(base, after)
+                   for p, q in list(zip(la, lb)) + list(zip(ra, rb)) if p != q)
+        check(left == 0, "the panel comes back when the pointer leaves a card",
+              "%d margin pixel(s) left behind" % left)
+
+        # --- the FRONT/REAR toggle, and the HUD's status line --------------
+        # THE FACE GOES BACK TO THE SHIPPED ONE FIRST. The loop above left it
+        # on the last of the table, and on CGA the tall face fits NO card text
+        # at all - (11 - 4) / 8 is zero rows - so a toggle check run there
+        # compares two cards that both say nothing and fails for the one
+        # reason that is not a defect. That is also the clearest statement of
+        # why tithe6 is the default (97.4.1.1).
+        while rw("ti_face") != 0:
+            m.key("KeyT")
+            os88marty.guest_sleep(m, 2.0)
+        # ONE CONTROL FOR THE HAND AND NOT A SWITCH ON EVERY CARD (97.4.8).
+        # What it changes is every card at once, so a toggle that redrew only
+        # the hovered one would leave six cards stating the stats they would
+        # have had in the other row - which is the sort of wrong that reads as
+        # a balance question rather than as a bug.
+        hud = lambda p: [r[rw("ti_hx"):rw("ti_hx") + rw("ti_hw")]
+                         for r in p[rw("ti_oy"):rw("ti_oy") + rw("ti_hud")]]
+        pan = lambda p: [r[x0:x0 + rw("ti_pan")] for r in p[y0:y1]]
+        was_row = rw("ti_row")
+        p0 = pan(mono(m)[2])
+        m.key("KeyW")
+        os88marty.guest_sleep(m, 2.0)
+        check(rw("ti_row") != was_row, "the row toggle moves", "%d" % rw("ti_row"))
+        p1 = pan(mono(m)[2])
+        moved = sum(1 for a, b in zip(p0, p1) for q, r_ in zip(a, b) if q != r_)
+        check(moved > 40, "...and every card in the hand restates its stats",
+              "%d differing pixel(s)" % moved)
+        # ...and the toggle's own box moved with it, which is the only thing
+        # on the strip that says WHICH arm is selected on a 1bpp adapter
+        tg = lambda p: [r[rw("ti_hx") + rw("ti_tg0x") - 2:
+                          rw("ti_hx") + rw("ti_tg1x") + 40]
+                        for r in p[rw("ti_oy"):rw("ti_oy") + rw("ti_hud")]]
+        m.key("KeyW")
+        os88marty.guest_sleep(m, 2.0)
+        check(rw("ti_row") == was_row, "...and back", "%d" % rw("ti_row"))
+
+        # THE HUD SAYS WHAT THE POINTER IS OVER, and puts it back afterwards.
+        # The strip was one centred `font_run`, which draws only its own
+        # length - so a forty-character ability line followed by a
+        # fifty-three-character one left thirteen characters of the first
+        # behind. It is a composed band now and this is what says so.
+        h0 = hud(mono(m)[2])
+        mo.to(x0 + 20, mid)
+        os88marty.guest_sleep(m, 2.0)
+        h1 = hud(mono(m)[2])
+        said = sum(1 for a, b in zip(h0, h1) for q, r_ in zip(a, b) if q != r_)
+        check(said > 100, "the HUD says what the pointer is over",
+              "%d differing pixel(s)" % said)
+        mo.to(x0 // 2, mid)
+        os88marty.guest_sleep(m, 2.5)
+        h2 = hud(mono(m)[2])
+        back = sum(1 for a, b in zip(h0, h2) for q, r_ in zip(a, b) if q != r_)
+        check(back == 0, "...and the strip comes back whole",
+              "%d pixel(s) of the last line left behind" % back)
         diff = sum(1 for a, b in zip(panels[0], panels[1])
                    for p, q in zip(a, b) if p != q)
         check(diff > 200, "...and the panel is actually redrawn in it",

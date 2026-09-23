@@ -95836,6 +95836,7 @@ Every clamp is to the 80x25 buffer. `Pn` is param 0 unless stated.
 | `P` | DCH | 1 | delete `Pn` cells at `cx`; blanks arrive at the right |
 | `X` | ECH | 1 | `Pn` cells from `cx` become blank |
 | `S` | SU | 1 | the whole screen scrolls up `Pn` |
+| `W` | flip the FRONT/REAR toggle (§97.4.8). It is a CONTROL first — the box at the HUD's right-hand end — and the key is here so a test can drive it without resolving a hit box |
 | `T` | SD | 1 | the whole screen scrolls down `Pn` |
 | `s` | SCP | — | save `cx`, `cy` into **the one slot** `ESC 7` uses (§70.8). Never the attribute |
 | `u` | RCP | — | restore them, and clear `[con_pwrap]` |
@@ -140133,6 +140134,14 @@ it is a **distance** rather than an inequality. What clears it is mass and not
 detail: the coin is SOLID where `0` is outlined, the shield OUTLINED where the
 heart is solid, and the sword's guard is low because a centred one is the `+`.
 
+**A MISSING GLYPH IS A HOLE AND NOTHING REPORTS IT.** `ti_chidx` answers
+`0FFh` for a byte no face carries and `ti_glyph` then draws *nothing* — no box,
+no fallback, a gap the width of a cell. The faces were 48 glyphs and the first
+ability line wanted a colon and a comma, which came out as two holes that only
+reading the screen would ever find. They are 50 now, and
+`tools/os88titheface.py --selfcheck` takes the package's OWN STRINGS as its
+input: every `db '...'` in `tithe.asm`, against the set the faces carry.
+
 **A GLYPH NEEDS NO ALIGNMENT.** It is at most 8 bits wide, so it lands in at
 most two destination bytes: the row goes into `AH`, the pair is shifted right
 by `x & 7` and the two halves are ORed. That is the whole of why a card can be
@@ -140384,6 +140393,64 @@ each figure at its own offset inside it. A band cut to one cell's height
 composes the two figures at the same y and puts one of them a whole rise out of
 place — on the glass, two fighters trading past each other. It is committed at
 the **higher** cell's top.
+
+#### 97.4.8 The HUD is the STATUS LINE, and the FRONT/REAR toggle lives in it
+
+**A character has a special ability and only prose can say what it does**
+(TITHE-PLAN §5.2). So the strip that says what round it is becomes the strip
+that says what the thing under the pointer *does* — a card in the hand or a
+character on the board, the same question asked in two places. With nothing
+hovered it says which base candidate is on screen, which is wave 1a's own
+business (§97.2.1).
+
+**THE BOARD IS HOVERED TOO, and by a LINEAR WALK of the twenty cells.**
+`ti_cellpos` is the only thing that knows where a cell is, and inverting the
+shear in a second place is how two answers get to disagree; twenty compares
+once a frame is nothing against the twenty-three arrivals the frame already
+makes. A hover that worked only on the panel would go blank at exactly the
+moment the pointer reached the thing it was about.
+
+**THE STRIP IS COMPOSED AND BLITTED, not run.** `OSAPI_FONT_RUN` draws only
+its own length, which is survivable for `ROUND 03 PLAN` and is not for a line
+that is forty characters for one card and fifty-three for the next — the tail
+of the longer one stays on the glass. The strip is a band in the package's own
+face now (§97.4.1.1), one arrival, and it is not on any animation clock:
+nothing in it changes more than once a round bar the hovered line.
+
+**ITS X IS ALIGNED AND `ti_ox` IS NOT NECESSARILY.** `OSAPI_GFX_BLIT1` refuses
+an x that is not a multiple of 8 (§5.4.2) and `WF_SNAP` is best-effort, so a
+window the kernel could not snap leaves the content origin odd. §97.2's board
+already carries that note; the strip cost its first two characters on a
+Hercules before it carried the same rounding.
+
+**FRONT AND REAR ARE DIFFERENT ROLES, so the hand needs to say which one it is
+being read for** (TITHE-PLAN §5.2): the same person is a shield-and-sword tank
+in the front column and a pitchfork farmer behind it. The toggle answers two
+questions with one control — **where a card goes when it is played**, and
+**what its stats will be when it gets there** — and a card therefore shows the
+pair of variable stats belonging to the SELECTED row, icons and all.
+
+- **ONE CONTROL FOR THE HAND, not a switch on every card.** Seven switches
+  would be seven answers to a question with one answer, and on a CGA card
+  there is no room for one.
+- **IT IS IN THE HUD because the panel has no row to give.** Hercules' seven
+  cards and the COMMIT row use the panel's height to the pixel (§97.4.2), and
+  the HUD's right-hand end is directly over the hand it is about.
+- **The selected arm is BOXED and not brightened.** The strip is one bit deep
+  on two adapters of three (§39.4), so a highlight there is either the same
+  white or a dither nobody can read at six pixels.
+- **Its hit box is banked in screen coordinates.** The arms are laid out from
+  the RIGHT, so their x depends on the two words' widths in whichever face is
+  current; the click handler cannot re-derive that and is handed it.
+- **A flip redraws EVERY card**, not the hovered one: six cards left stating
+  the stats they would have had in the other row is the sort of wrong that
+  reads as a balance question rather than as a bug.
+
+**POWER carries the SOUL and not the star.** Power is what a kill of the
+character pays, so the soul is what it is denominated in; the star is a special
+ABILITY, which is one of the things a variable stat can BE. The soul therefore
+appears on both lines — as a cost above and as a yield below — and the line it
+is on is what says which.
 
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 

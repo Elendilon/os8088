@@ -4,65 +4,16 @@
 ; drawing slot.
 
 TI_FACES    equ 2
-TI_GLYPHS   equ 48
+TI_GLYPHS   equ 50
 
 ti_face_tab:
-    dw ti_f_tall, ti_f_t6
-ti_face_w:  db 8, 6
-ti_face_h:  db 8, 6
-ti_face_nm: dw ti_fn_tall, ti_fn_t6
-ti_fn_tall: db 'TALL', 0
+    dw ti_f_t6, ti_f_tall
+ti_face_w:  db 6, 8
+ti_face_h:  db 6, 8
+ti_face_nm: dw ti_fn_t6, ti_fn_tall
 ti_fn_t6: db 'T6  ', 0
+ti_fn_tall: db 'TALL', 0
 
-ti_f_tall:
-    db 066h, 0FFh, 0FFh, 0FFh, 07Eh, 03Ch, 018h, 000h
-    db 03Ch, 066h, 0DBh, 0DBh, 0DBh, 0DBh, 066h, 03Ch
-    db 03Ch, 07Eh, 0DBh, 0FFh, 0E7h, 07Eh, 03Ch, 018h
-    db 018h, 018h, 018h, 018h, 07Eh, 018h, 018h, 03Ch
-    db 0FFh, 0C3h, 0C3h, 066h, 066h, 03Ch, 018h, 000h
-    db 060h, 050h, 048h, 044h, 048h, 050h, 060h, 000h
-    db 018h, 018h, 07Eh, 03Ch, 066h, 042h, 000h, 000h
-    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
-    db 000h, 070h, 0D8h, 0D8h, 0D8h, 0D8h, 070h, 000h
-    db 000h, 030h, 070h, 030h, 030h, 030h, 078h, 000h
-    db 000h, 070h, 0D8h, 018h, 030h, 060h, 0F8h, 000h
-    db 000h, 0F0h, 018h, 070h, 018h, 0D8h, 070h, 000h
-    db 000h, 018h, 038h, 058h, 0D8h, 0F8h, 018h, 000h
-    db 000h, 0F8h, 0C0h, 0F0h, 018h, 0D8h, 070h, 000h
-    db 000h, 038h, 060h, 0F0h, 0D8h, 0D8h, 070h, 000h
-    db 000h, 0F8h, 018h, 030h, 030h, 060h, 060h, 000h
-    db 000h, 070h, 0D8h, 070h, 0D8h, 0D8h, 070h, 000h
-    db 000h, 070h, 0D8h, 0D8h, 078h, 030h, 0E0h, 000h
-    db 000h, 078h, 0CCh, 0CCh, 0FCh, 0CCh, 0CCh, 000h
-    db 000h, 0F8h, 0CCh, 0F8h, 0CCh, 0CCh, 0F8h, 000h
-    db 000h, 078h, 0CCh, 0C0h, 0C0h, 0CCh, 078h, 000h
-    db 000h, 0F8h, 0CCh, 0CCh, 0CCh, 0CCh, 0F8h, 000h
-    db 000h, 0FCh, 0C0h, 0F8h, 0C0h, 0C0h, 0FCh, 000h
-    db 000h, 0FCh, 0C0h, 0F8h, 0C0h, 0C0h, 0C0h, 000h
-    db 000h, 078h, 0CCh, 0C0h, 0DCh, 0CCh, 078h, 000h
-    db 000h, 0CCh, 0CCh, 0FCh, 0CCh, 0CCh, 0CCh, 000h
-    db 000h, 0FCh, 030h, 030h, 030h, 030h, 0FCh, 000h
-    db 000h, 01Ch, 00Ch, 00Ch, 00Ch, 0CCh, 078h, 000h
-    db 000h, 0CCh, 0D8h, 0F0h, 0F0h, 0D8h, 0CCh, 000h
-    db 000h, 0C0h, 0C0h, 0C0h, 0C0h, 0C0h, 0FCh, 000h
-    db 000h, 0C6h, 0EEh, 0D6h, 0C6h, 0C6h, 0C6h, 000h
-    db 000h, 0CCh, 0ECh, 0ECh, 0DCh, 0DCh, 0CCh, 000h
-    db 000h, 078h, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 000h
-    db 000h, 0F8h, 0CCh, 0CCh, 0F8h, 0C0h, 0C0h, 000h
-    db 000h, 078h, 0CCh, 0CCh, 0CCh, 0DCh, 078h, 01Ch
-    db 000h, 0F8h, 0CCh, 0CCh, 0F8h, 0D8h, 0CCh, 000h
-    db 000h, 078h, 0CCh, 070h, 01Ch, 0CCh, 078h, 000h
-    db 000h, 0FCh, 030h, 030h, 030h, 030h, 030h, 000h
-    db 000h, 0CCh, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 000h
-    db 000h, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 030h, 000h
-    db 000h, 0C6h, 0C6h, 0D6h, 0D6h, 0D6h, 06Ch, 000h
-    db 000h, 0CCh, 0CCh, 078h, 078h, 0CCh, 0CCh, 000h
-    db 000h, 0CCh, 0CCh, 078h, 030h, 030h, 030h, 000h
-    db 000h, 0FCh, 00Ch, 018h, 030h, 060h, 0FCh, 000h
-    db 000h, 000h, 000h, 000h, 078h, 000h, 000h, 000h
-    db 000h, 000h, 000h, 000h, 000h, 030h, 030h, 000h
-    db 000h, 000h, 030h, 030h, 0FCh, 030h, 030h, 000h
-    db 000h, 00Ch, 018h, 018h, 030h, 060h, 0C0h, 000h
 ti_f_t6:
     db 0D8h, 0F8h, 0F8h, 070h, 020h, 000h
     db 070h, 0F8h, 0A8h, 0F8h, 070h, 000h
@@ -112,3 +63,56 @@ ti_f_t6:
     db 000h, 000h, 000h, 000h, 020h, 000h
     db 020h, 020h, 0F8h, 020h, 020h, 000h
     db 008h, 010h, 020h, 040h, 080h, 000h
+    db 000h, 000h, 000h, 030h, 020h, 000h
+    db 000h, 020h, 000h, 020h, 000h, 000h
+ti_f_tall:
+    db 066h, 0FFh, 0FFh, 0FFh, 07Eh, 03Ch, 018h, 000h
+    db 03Ch, 066h, 0DBh, 0DBh, 0DBh, 0DBh, 066h, 03Ch
+    db 03Ch, 07Eh, 0DBh, 0FFh, 0E7h, 07Eh, 03Ch, 018h
+    db 018h, 018h, 018h, 018h, 07Eh, 018h, 018h, 03Ch
+    db 0FFh, 0C3h, 0C3h, 066h, 066h, 03Ch, 018h, 000h
+    db 060h, 050h, 048h, 044h, 048h, 050h, 060h, 000h
+    db 018h, 018h, 07Eh, 03Ch, 066h, 042h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 070h, 0D8h, 0D8h, 0D8h, 0D8h, 070h, 000h
+    db 000h, 030h, 070h, 030h, 030h, 030h, 078h, 000h
+    db 000h, 070h, 0D8h, 018h, 030h, 060h, 0F8h, 000h
+    db 000h, 0F0h, 018h, 070h, 018h, 0D8h, 070h, 000h
+    db 000h, 018h, 038h, 058h, 0D8h, 0F8h, 018h, 000h
+    db 000h, 0F8h, 0C0h, 0F0h, 018h, 0D8h, 070h, 000h
+    db 000h, 038h, 060h, 0F0h, 0D8h, 0D8h, 070h, 000h
+    db 000h, 0F8h, 018h, 030h, 030h, 060h, 060h, 000h
+    db 000h, 070h, 0D8h, 070h, 0D8h, 0D8h, 070h, 000h
+    db 000h, 070h, 0D8h, 0D8h, 078h, 030h, 0E0h, 000h
+    db 000h, 078h, 0CCh, 0CCh, 0FCh, 0CCh, 0CCh, 000h
+    db 000h, 0F8h, 0CCh, 0F8h, 0CCh, 0CCh, 0F8h, 000h
+    db 000h, 078h, 0CCh, 0C0h, 0C0h, 0CCh, 078h, 000h
+    db 000h, 0F8h, 0CCh, 0CCh, 0CCh, 0CCh, 0F8h, 000h
+    db 000h, 0FCh, 0C0h, 0F8h, 0C0h, 0C0h, 0FCh, 000h
+    db 000h, 0FCh, 0C0h, 0F8h, 0C0h, 0C0h, 0C0h, 000h
+    db 000h, 078h, 0CCh, 0C0h, 0DCh, 0CCh, 078h, 000h
+    db 000h, 0CCh, 0CCh, 0FCh, 0CCh, 0CCh, 0CCh, 000h
+    db 000h, 0FCh, 030h, 030h, 030h, 030h, 0FCh, 000h
+    db 000h, 01Ch, 00Ch, 00Ch, 00Ch, 0CCh, 078h, 000h
+    db 000h, 0CCh, 0D8h, 0F0h, 0F0h, 0D8h, 0CCh, 000h
+    db 000h, 0C0h, 0C0h, 0C0h, 0C0h, 0C0h, 0FCh, 000h
+    db 000h, 0C6h, 0EEh, 0D6h, 0C6h, 0C6h, 0C6h, 000h
+    db 000h, 0CCh, 0ECh, 0ECh, 0DCh, 0DCh, 0CCh, 000h
+    db 000h, 078h, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 000h
+    db 000h, 0F8h, 0CCh, 0CCh, 0F8h, 0C0h, 0C0h, 000h
+    db 000h, 078h, 0CCh, 0CCh, 0CCh, 0DCh, 078h, 01Ch
+    db 000h, 0F8h, 0CCh, 0CCh, 0F8h, 0D8h, 0CCh, 000h
+    db 000h, 078h, 0CCh, 070h, 01Ch, 0CCh, 078h, 000h
+    db 000h, 0FCh, 030h, 030h, 030h, 030h, 030h, 000h
+    db 000h, 0CCh, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 000h
+    db 000h, 0CCh, 0CCh, 0CCh, 0CCh, 078h, 030h, 000h
+    db 000h, 0C6h, 0C6h, 0D6h, 0D6h, 0D6h, 06Ch, 000h
+    db 000h, 0CCh, 0CCh, 078h, 078h, 0CCh, 0CCh, 000h
+    db 000h, 0CCh, 0CCh, 078h, 030h, 030h, 030h, 000h
+    db 000h, 0FCh, 00Ch, 018h, 030h, 060h, 0FCh, 000h
+    db 000h, 000h, 000h, 000h, 078h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 030h, 030h, 000h
+    db 000h, 000h, 030h, 030h, 0FCh, 030h, 030h, 000h
+    db 000h, 00Ch, 018h, 018h, 030h, 060h, 0C0h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 030h, 030h, 060h
+    db 000h, 000h, 030h, 030h, 000h, 030h, 030h, 000h

@@ -319,12 +319,78 @@ ti_onresize:
                                     ; let ti_relayout_ck cut against the box
                                     ; the kernel has finished settling
 
-; ti_onclick - a click runs one wheel pass, so the prototype can be stepped
+; ti_onclick - the HUD's FRONT/REAR toggle, and otherwise one wheel pass
+;
+; THE TOGGLE IS THE ONLY CONTROL THE PROTOTYPE HAS A CLICK FOR, which is why
+; this is a hit test and not a dispatcher: everything else on the surface is
+; still a key (SPEC.md 97.7). Its arms are laid out from the RIGHT of the HUD
+; and their x therefore depends on the two words' widths in whichever face is
+; current, so `ti_hud_toggle` banks the boxes rather than letting this
+; re-derive them.
 ti_onclick:
+    push ax
+    push bx
+    push cx
+    push dx
     push si
     mov [ti_win], si
+    cmp byte [ti_ok], 0
+    je .step
+    call OSAPI_MOUSE                ; CX = x, DX = y
+    mov ax, [ti_oy]
+    cmp dx, ax
+    jb .step
+    add ax, [ti_hud]
+    cmp dx, ax
+    jae .step
+    mov ax, [ti_hx]                 ; the band's own ALIGNED x, not ti_ox
+    add ax, [ti_tg0x]
+    cmp cx, ax
+    jb .step
+    mov bx, [ti_hx]
+    add bx, [ti_tg1x]
+    cmp cx, bx
+    jb .front
+    mov word [ti_row], TI_ROW_REAR
+    jmp short .apply
+.front:
+    mov word [ti_row], TI_ROW_FRONT
+.apply:
+    call ti_row_apply
+    jmp short .out
+.step:
     call ti_spawn_ck
+.out:
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_row_apply - the toggle moved, so the HUD and every card say so
+; Preserves every register.
+;
+; EVERY CARD AND NOT ONLY THE HOVERED ONE: the row decides which pair of
+; variable stats a card shows (97.4.8), so a toggle that redrew one card would
+; leave six saying what they would have been in the other row. Seven blits and
+; a HUD, once, on a control nobody clicks in a frame.
+ti_row_apply:
+    push ax
+    cmp byte [ti_ok], 0
+    je .out
+    call ti_hud_draw
+    xor ax, ax
+.card:
+    cmp ax, [ti_cardn]
+    jae .out
+    push ax
+    call ti_card_draw
+    pop ax
+    inc ax
+    jmp short .card
+.out:
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -381,6 +447,10 @@ ti_onkey:
     jne .n_face
     jmp .face
 .n_face:
+    cmp bl, 'w'
+    jne .n_rowsel
+    jmp .rowsel
+.n_rowsel:
     cmp al, '+'
     jne .n_up
     jmp .up
@@ -459,6 +529,11 @@ ti_onkey:
     call ti_relayout_ck
     call ti_paint_now
     jmp .out
+.rowsel:                            ; SPEC.md 97.7's `W`: the row a played card
+    xor word [ti_row], 1            ; is going into. It is a CONTROL first -
+    call ti_row_apply               ; the toggle in the HUD - and the key is
+    jmp .out                        ; here so a test can drive it without
+                                    ; resolving a hit box
 .face:                              ; SPEC.md 97.4.1's `T`: the next TYPEFACE.
     mov ax, [ti_face]               ; The card is composed rather than drawn
     inc ax                          ; through the kernel's runs, so the face is
@@ -620,6 +695,9 @@ ti_frame:
     push dx
     call ti_hover_ck                ; the pointer moved between cards, so BOTH
     jnc .credit                     ; of them are redrawn - the one it left
+    call ti_hud_draw                ; ...and the STATUS LINE either way, the
+                                    ; board's own hover changing nothing else
+                                    ; (SPEC.md 97.4.8)
     cmp word [ti_hovold], -1        ; and the one it arrived on. Only the first
     je .gain                        ; was, and the second was left to feature
     mov ax, [ti_hovold]             ; 22 - which draws the UNIT ALONE, at a box
@@ -825,9 +903,13 @@ ti_feature:
     mov [ti_cbw], ax
     mov ax, [ti_hovy]
     mov [ti_cardy], ax
-    mov ax, (CWHITE << 8) | CBLACK  ; a hovered card is INVERTED: ink black on
-    call OSAPI_GFX_BLIT1_PEN        ; white paper
-    call ti_unit_draw
+    mov ax, (CBLACK << 8) | CWHITE  ; A HOVERED CARD IS WHITE INK ON BLACK
+    call OSAPI_GFX_BLIT1_PEN        ; PAPER, and this said the opposite - so
+    call ti_unit_draw               ; the composition put the figure down
+                                    ; right and the very next frame put it
+                                    ; down inverted, which on the glass is a
+                                    ; figure that goes black part of the way
+                                    ; round its cycle
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_GFX_BLIT1_PEN
     jmp .out
@@ -1344,27 +1426,64 @@ ti_n_6:     db 'HERALD', 0
 ti_n_7:     db 'BULWARK', 0
                                     ; cost, atk, def, name - a fixed hand,
                                     ; because wave 1a has no deck behind it and
-ti_cards:                           ; what is being judged is the LOOK
-    db 2, 3, 2
-    dw ti_n_1
-    db 3, 4, 1
-    dw ti_n_2
-    db 4, 2, 6
-    dw ti_n_3
-    db 2, 1, 3
-    dw ti_n_4
-    db 5, 7, 2
-    dw ti_n_5
-    db 3, 2, 4
-    dw ti_n_6
-    db 6, 5, 8
-    dw ti_n_7
+ti_cards:
+    ;    gold  soul | FRONT i1,v1  i2,v2 | REAR i1,v1  i2,v2 |  HP  PWR
+    db 2, 1
+    db TI_IC_MELEE, 3, TI_IC_SHIELD, 2
+    db TI_IC_MELEE, 1, TI_IC_SHIELD, 2
+    db 5, 1
+    dw ti_n_1, ti_a_1
+    db 3, 0
+    db TI_IC_MELEE, 1, TI_IC_SHIELD, 1
+    db TI_IC_BOW,   4, TI_IC_SHIELD, 1
+    db 6, 2
+    dw ti_n_2, ti_a_2
+    db 4, 1
+    db TI_IC_SHIELD, 6, TI_IC_MELEE, 2
+    db TI_IC_SHIELD, 4, TI_IC_GOLD,  1
+    db 7, 3
+    dw ti_n_3, ti_a_3
+    db 2, 2
+    db TI_IC_MELEE, 1, TI_IC_STAR, 1
+    db TI_IC_SOUL,  3, TI_IC_STAR, 2
+    db 4, 2
+    dw ti_n_4, ti_a_4
+    db 5, 0
+    db TI_IC_MELEE, 7, TI_IC_SHIELD, 2
+    db TI_IC_MELEE, 2, TI_IC_SHIELD, 1
+    db 9, 4
+    dw ti_n_5, ti_a_5
+    db 3, 1
+    db TI_IC_MELEE, 2, TI_IC_STAR, 3
+    db TI_IC_GOLD,  3, TI_IC_STAR, 3
+    db 5, 2
+    dw ti_n_6, ti_a_6
+    db 6, 0
+    db TI_IC_SHIELD, 8, TI_IC_MELEE, 1
+    db TI_IC_SHIELD, 5, TI_IC_GOLD,  2
+    db 11, 5
+    dw ti_n_7, ti_a_7
+
+; THE ABILITY LINE, which the HUD shows for whatever the pointer is over
+; (SPEC.md 97.4.8). Wave 1a has no rules behind them, so these say what the
+; card WOULD do rather than what any code does - the thing being judged is
+; whether a strip of prose reads at every surface size, and a placeholder that
+; is the wrong LENGTH would answer that question wrongly.
+ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
+ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
+ti_a_3:     db 'HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS', 0
+ti_a_4:     db 'TITHE: TAKES A SOUL FROM EVERY DEATH IN THIS LANE', 0
+ti_a_5:     db 'BREACH: A GATE, AND WHATEVER IS STANDING BEHIND IT', 0
+ti_a_6:     db 'CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD', 0
+ti_a_7:     db 'NOTHING PASSES WHILE IT STANDS. NOTHING.', 0
 
 ti_s_p1:    db 'P1', 0
 ti_s_p2:    db 'P2', 0
 ti_s_round: db 'ROUND ', 0
 ti_s_phase: db '   PLAN', 0
 ti_s_undo:  db 'UNDO', 0
+ti_s_front: db 'FRONT', 0
+ti_s_rear:  db 'REAR', 0
 ti_s_swap:  db 'SWAP ', 0
 
 ti_p1hp:    db 20                  ; wave 1a has no rules behind it, so these
@@ -1433,9 +1552,13 @@ ti_cardp:   dw 0
 ti_cardl2:  dw 0
 ti_cgap:    dw 0                    ; the button row's offset from the hand
 ti_unith:   dw 0                    ; the mini unit on a card
-TI_CARDBANDMAX equ 20 * 40      ; the widest card (a hovered 152) by the
+TI_CARDBANDMAX equ 20 * 40
+; THE HUD IS A BAND TOO (97.4.8): the widest strip is Hercules' 712 pixels,
+; which is 90 bytes and a pad, and the deepest is VGA fullscreen's 36 rows.
+TI_HUDBANDMAX equ 92 * 36      ; the widest card (a hovered 152) by the
                                 ; tallest (36), plus ti_glyph's pad byte
 ti_cardband: times TI_CARDBANDMAX db 0
+ti_hudband: times TI_HUDBANDMAX db 0
 ti_cbs:     dw 0                    ; the band's stride, pad included
 ti_crows:   dw 0                    ; rows of the chosen face that fit
 ti_tw:      dw 0                    ; the flow's right margin - the card's
@@ -1443,6 +1566,23 @@ ti_tw:      dw 0                    ; the flow's right margin - the card's
 ti_tx:      dw 0                    ; the flow's pen
 ti_ty:      dw 0
 ti_tfull:   dw 0                    ; set when it has run out of rows
+ti_cl:      dw 0                    ; the CARD's left edge inside the band,
+                                    ; which is the panel's width: 0 for an
+                                    ; expanded card and the margin for the rest
+ti_cwd:     dw 0                    ; ...and the card's own width in it
+ti_row:     dw 0                    ; FRONT or REAR - which row a played card
+                                    ; is going into, and so which pair of
+                                    ; variable stats every card shows (97.4.8)
+ti_hbs:     dw 0                    ; the HUD band's stride
+ti_hx:      dw 0                    ; ...its own ALIGNED screen x, which
+ti_hw:      dw 0                    ; ti_ox is not, and its width
+ti_hty:     dw 0                    ; ...its one text line's row
+ti_hleft:   dw 0                    ; ...where the left block ends
+ti_hright:  dw 0                    ; ...and where the toggle begins
+ti_tg0x:    dw 0                    ; the toggle's two arms, banked in SCREEN
+ti_tg1x:    dw 0                    ; x so a click can be resolved
+ti_hovc:    dw -1                   ; the BOARD cell under the pointer
+ti_hovc2:   dw -1                   ; ...as this poll found it
 ti_face:    dw 0                    ; SPEC.md 97.4.1's `T`: which face
 ti_fdata:   dw 0                    ; ...and its glyphs, width and height
 ti_fw:      dw 8

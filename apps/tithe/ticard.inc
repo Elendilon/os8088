@@ -17,12 +17,32 @@ TI_UNITW    equ 24                ; the mini unit drawn ON a card - and the
 TI_UNITHMAX equ 34                ; thing that animates when it is moused over
 TI_UNITMAX  equ (TI_UNITW / 8) * TI_UNITHMAX
 
-; a card record: cost, attack, defence, and a pointer to its name
-TI_C_COST   equ 0
-TI_C_ATK    equ 1
-TI_C_DEF    equ 2
-TI_C_NAME   equ 3
-TI_C_SIZE   equ 5
+; A CARD RECORD, and it holds TITHE-PLAN 5.2's six stats rather than three
+; numbers. Two COSTS that matter only while it is a card; HP and POWER, which
+; are the same wherever it stands; and TWO PAIRS of variable stats, because
+; FRONT AND REAR ARE DIFFERENT ROLES (TITHE-PLAN 5.2) - the same person is a
+; shield-and-sword tank in the front column and a pitchfork farmer behind it.
+; Each variable stat carries its OWN ICON, the stat being drawn from a list
+; (shield, gold, souls, melee, ranged, special) per character rather than
+; fixed by the slot it sits in.
+TI_C_COST   equ 0                   ; gold, to play it
+TI_C_SOUL   equ 1                   ; ...and souls
+TI_C_FI1    equ 2                   ; FRONT: stat 1's icon, then its value
+TI_C_FV1    equ 3
+TI_C_FI2    equ 4                   ; ...and stat 2's
+TI_C_FV2    equ 5
+TI_C_RI1    equ 6                   ; REAR: the same two, for the back row
+TI_C_RV1    equ 7
+TI_C_RI2    equ 8
+TI_C_RV2    equ 9
+TI_C_HP     equ 10
+TI_C_PWR    equ 11                  ; the souls a kill of it pays
+TI_C_NAME   equ 12
+TI_C_ABIL   equ 14                  ; ...and the line the HUD shows (97.4.8)
+TI_C_SIZE   equ 16
+
+TI_ROW_FRONT equ 0
+TI_ROW_REAR  equ 1
 
 ; the seven icons, which are glyphs 1..7 of every face (tools/os88titheface.py)
 TI_IC_HP    equ 1
@@ -32,56 +52,6 @@ TI_IC_MELEE equ 4
 TI_IC_SHIELD equ 5
 TI_IC_BOW   equ 6
 TI_IC_STAR  equ 7
-
-; ti_stat - one icon-and-number pair on a card's second line
-; in:  BX = the pair's x offset from [ti_cbx]+8, SI = the icon, AL = the
-;      field's offset in the card record
-; Preserves every register.
-ti_stat:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    cld
-    mov [ti_statx], bx
-    mov bl, al
-    xor bh, bh
-    add bx, [ti_cardp]
-    mov al, [bx]
-    mov [ti_statv], al
-
-    mov ax, [ti_cbx]
-    add ax, 8
-    add ax, [ti_statx]
-    mov bx, [ti_cardl2]
-    call ti_icon
-
-    mov di, ti_numbuf
-    mov al, [ti_statv]
-    call ti_u8
-    mov byte [di], 0
-    mov cx, [ti_cbx]
-    add cx, 16
-    add cx, [ti_statx]
-    mov dx, [ti_cardl2]
-    mov si, ti_numbuf
-    mov al, [ti_cink]
-    mov ah, [ti_cpap]
-    call OSAPI_FONT_RUN
-
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; ti_clip - cut the NUL string at ti_cardbuf to BX characters
 ; clobbers: nothing
@@ -240,15 +210,31 @@ ti_card_draw:
     jne .box
     mov word [ti_cx], 1
 .box:
-    mov ax, [ti_cardx]
-    mov cx, [ti_cardw]
-    cmp word [ti_cx], 0
-    je .have
-    mov ax, [ti_panx]
+    ; THE BAND IS THE PANEL'S OWN WIDTH AND THE CARD IS INSET IN IT, whether
+    ; the card is expanded or not. A resting card blitted at its own width
+    ; leaves the 8-pixel margins an expansion covered exactly as the
+    ; expansion left them, and the pointer moving off a card is then a row of
+    ; stale white down each side of the panel. The old per-primitive draw put
+    ; a `gfx_fill` of the whole panel row in front of the card for this; the
+    ; composer would rather not spend the arrival, so the MARGINS ARE PART OF
+    ; THE COMPOSITION - solid INK, which is the panel's black under a resting
+    ; card's pen and is nothing at all under an expanded one, which has no
+    ; margins to cover.
+    mov word [ti_cl], 0
     mov cx, [ti_pan]
+    cmp word [ti_cx], 0
+    jne .have
+    mov ax, [ti_cardx]
+    sub ax, [ti_panx]
+    mov [ti_cl], ax
 .have:
+    mov ax, [ti_panx]
     mov [ti_cbx], ax
     mov [ti_cbw], cx
+    sub cx, [ti_cl]
+    sub cx, [ti_cl]
+    mov [ti_cwd], cx                ; ...the CARD's own width inside the band
+    mov cx, [ti_cbw]
     shr cx, 1
     shr cx, 1
     shr cx, 1
@@ -264,6 +250,7 @@ ti_card_draw:
     rep stosb
     pop di
 
+    call ti_cb_margins
     ; --- the frame, and the pulse-free second one --------------------------
     call ti_cb_frame
     cmp word [ti_cx], 0
@@ -377,8 +364,9 @@ ti_cb_frame:
     push cx
     push dx
     push si
-    xor bx, bx
-    mov cx, [ti_cbw]
+    mov bx, [ti_cl]
+    mov cx, bx
+    add cx, [ti_cwd]
     dec cx
     xor dx, dx
     call ti_cb_hline                ; the top...
@@ -389,9 +377,9 @@ ti_cb_frame:
 .side:                              ; ...and the two uprights
     cmp dx, [ti_cardh]
     jae .out
-    xor bx, bx
+    mov bx, [ti_cl]
     call ti_cb_set
-    mov bx, [ti_cbw]
+    add bx, [ti_cwd]
     dec bx
     call ti_cb_set
     inc dx
@@ -401,6 +389,38 @@ ti_cb_frame:
     pop dx
     pop cx
     pop bx
+    ret
+
+; --- ti_cb_margins - the panel's ground each side of an inset card ----------
+; Solid INK for the whole of the band's height, so a resting card's blit puts
+; the panel's own black back over whatever an expansion left there.
+ti_cb_margins:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [ti_cl], 0
+    je .out
+    xor dx, dx
+.row:
+    cmp dx, [ti_cardh]
+    jae .out
+    xor bx, bx
+    mov cx, [ti_cl]
+    dec cx
+    call ti_cb_hline
+    mov bx, [ti_cl]
+    add bx, [ti_cwd]
+    mov cx, [ti_cbw]
+    dec cx
+    call ti_cb_hline
+    inc dx
+    jmp short .row
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; --- ti_cb_text - everything the card SAYS, into the band -------------------
@@ -435,13 +455,16 @@ ti_cb_text:
     or ax, ax
     jz .out
 
-    mov ax, [ti_cbw]                ; ...and the column the figure leaves
+    mov ax, [ti_cl]                 ; ...and the column the figure leaves
+    add ax, [ti_cwd]
     sub ax, TI_UNITW + 11
     jnc .w
     mov ax, [ti_fw]
 .w:
     mov [ti_tw], ax
-    mov word [ti_tx], 3
+    mov ax, [ti_cl]
+    add ax, 3
+    mov [ti_tx], ax
     mov ax, 2
     add ax, [ti_cpad]
     mov [ti_ty], ax
@@ -466,9 +489,8 @@ ti_cb_text:
     mov ah, [si + TI_C_COST]
     mov al, TI_IC_GOLD
     call ti_cb_pair
-    mov ax, [ti_cardi]
-    and al, 1
-    mov ah, al
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_SOUL]
     mov al, TI_IC_SOUL
     call ti_cb_pair
     cmp word [ti_crows], 2          ; ...on a line of their own, because the
@@ -489,7 +511,9 @@ ti_cb_text:
 ; --- ti_cb_nl - the flow's next line, or the end of it ----------------------
 ti_cb_nl:
     push ax
-    mov word [ti_tx], 3
+    mov ax, [ti_cl]
+    add ax, 3
+    mov [ti_tx], ax
     push bx
     mov ax, [ti_ty]
     add ax, [ti_fh]
@@ -518,6 +542,7 @@ ti_cb_name:
     mov si, [ti_cardp]
     mov si, [si + TI_C_NAME]
     mov ax, [ti_tw]                 ; how many glyphs the column holds
+    sub ax, [ti_cl]
     sub ax, 3
     xor dx, dx
     div word [ti_fw]
@@ -578,8 +603,10 @@ ti_cb_pair:
     add bx, cx
     cmp bx, [ti_tw]
     jbe .fits
-    cmp word [ti_tx], 3             ; a pair too wide for a WHOLE line would
-    je .fits                        ; loop for ever, so it is drawn and cut
+    mov ax, [ti_cl]                 ; a pair too wide for a WHOLE line would
+    add ax, 3                       ; loop for ever, so it is drawn and cut
+    cmp [ti_tx], ax
+    je .fits
     call ti_cb_nl
     cmp word [ti_tfull], 0
     jne .out
@@ -600,32 +627,38 @@ ti_cb_pair:
     ret
 
 ; --- ti_cb_stats - the four that follow it onto the board -------------------
-; Wave 1a has no rules behind them, so they are derived from the index exactly
-; as ti_cellnum derives its HP - a table would only be a second fiction.
+; THE TWO VARIABLE ONES ARE THE SELECTED ROW'S (SPEC.md 97.4.8). Front and
+; rear are different roles, so a card in the hand shows the stats it WOULD have
+; where the FRONT/REAR toggle says it is going - which is the question a player
+; is answering while looking at it, and the reason the toggle is ONE control
+; for the hand rather than a switch on every card.
 ti_cb_stats:
     push ax
+    push bx
     push si
-    mov ax, [ti_cardi]              ; HP, the cell's own fiction
-    and al, 7
-    add al, 5
-    mov ah, al
+    mov bx, TI_C_FI1
+    cmp word [ti_row], TI_ROW_FRONT
+    je .have
+    mov bx, TI_C_RI1
+.have:
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_HP]
     mov al, TI_IC_HP
     call ti_cb_pair
     mov si, [ti_cardp]
-    mov ah, [si + TI_C_ATK]
-    mov al, TI_IC_MELEE             ; stat1
+    add si, bx
+    mov ax, [si]                    ; AL = stat 1's icon, AH = its value
     call ti_cb_pair
     mov si, [ti_cardp]
-    mov ah, [si + TI_C_DEF]
-    mov al, TI_IC_SHIELD            ; stat2
+    add si, bx
+    mov ax, [si + 2]                ; ...and stat 2's
     call ti_cb_pair
-    mov ax, [ti_cardi]              ; POWER, what a kill of it pays
-    and al, 3
-    inc al
-    mov ah, al
-    mov al, TI_IC_STAR
-    call ti_cb_pair
-    pop si
+    mov si, [ti_cardp]
+    mov ah, [si + TI_C_PWR]
+    mov al, TI_IC_SOUL              ; POWER is what a kill of it PAYS, so it is
+    call ti_cb_pair                 ; the soul and not the star - the star is a
+    pop si                          ; special ABILITY, which is one of the
+    pop bx                          ; things a variable stat can BE
     pop ax
     ret
 
@@ -645,10 +678,16 @@ ti_cb_unit:
     mov bl, [bx]
     xor bh, bh
     mov [ti_pi], bx
-    call ti_unit_build
+    ; ...AND IT IS NOT REBUILT HERE. Every pose is composed once at art-build
+    ; time (ti_art_build), and ti_unit_build CLEARS TI_UNITMAX bytes - the
+    ; worst case over every geometry - where a live band is unitb * unith. On
+    ; the tallest card that is the same number; on every other one the clear
+    ; runs into the NEXT pose's band, so rebuilding pose N at draw time blanked
+    ; the top of pose N+1 and the card's figure went to pieces as it cycled.
     call ti_unit_addr
     mov si, di
-    mov ax, [ti_cbw]                ; its corner
+    mov ax, [ti_cl]                 ; its corner
+    add ax, [ti_cwd]
     sub ax, TI_UNITW
     sub ax, 8
     mov cl, 3
@@ -693,8 +732,10 @@ ti_cb_frame2:                       ; the hovered card's inner outline
     push bx
     push cx
     push dx
-    mov bx, 2
-    mov cx, [ti_cbw]
+    mov bx, [ti_cl]
+    add bx, 2
+    mov cx, [ti_cl]
+    add cx, [ti_cwd]
     sub cx, 3
     mov dx, 2
     call ti_cb_hline
@@ -707,9 +748,11 @@ ti_cb_frame2:                       ; the hovered card's inner outline
     sub ax, 3
     cmp dx, ax
     ja .out
-    mov bx, 2
+    mov bx, [ti_cl]
+    add bx, 2
     call ti_cb_set
-    mov bx, [ti_cbw]
+    mov bx, [ti_cl]
+    add bx, [ti_cwd]
     sub bx, 3
     call ti_cb_set
     inc dx
@@ -1020,8 +1063,34 @@ ti_hover_ck:
     jb .have
     mov ax, -1
 .have:
+    ; ...AND THE BOARD IS ASKED THE SAME QUESTION (SPEC.md 97.4.8). A character
+    ; on the board has the same special ability the card in the hand has, so
+    ; the HUD's status line answers for either - and a hover that only worked
+    ; on the panel would say so by going blank the moment the pointer reached
+    ; the thing it was about. It is a LINEAR WALK of twenty cells and not a
+    ; reverse of the shear: `ti_cellpos` is the only place that knows where a
+    ; cell is, and inverting it in a second place is how the two get to
+    ; disagree.
+    push ax
+    call ti_cell_hit
+    mov [ti_hovc2], ax
+    pop ax
     cmp ax, [ti_hover]
+    jne .chg
+    mov bx, [ti_hovc2]
+    cmp bx, [ti_hovc]
     je .same
+    mov [ti_hovc], bx               ; the BOARD's hover moved and the panel's
+    pop dx                          ; did not: the HUD is the only thing that
+    pop cx                          ; changed, and ti_hovold stays -1 so no
+    pop bx                          ; card is redrawn for it
+    pop ax
+    mov word [ti_hovold], -1
+    stc
+    ret
+.chg:
+    mov bx, [ti_hovc2]
+    mov [ti_hovc], bx
     mov bx, [ti_hover]              ; the row that LOST the hover has to be put
     mov [ti_hovold], bx             ; back too, and only the caller knows it is
     mov [ti_hover], ax              ; safe to draw
@@ -1037,4 +1106,49 @@ ti_hover_ck:
     pop bx
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_cell_hit - AX = the board cell at (CX, DX), or -1
+; Preserves every register bar AX.
+; -----------------------------------------------------------------------------
+ti_cell_hit:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push word [ti_ci]
+    mov word [ti_ci], 0
+.n:
+    mov ax, [ti_ci]
+    cmp ax, TI_CELLS
+    jae .none
+    call ti_cell_xy                 ; AX = the cell's x, BX = its y
+    cmp cx, ax
+    jb .next
+    mov si, ax
+    add si, [ti_cw]
+    cmp cx, si
+    jae .next
+    cmp dx, bx
+    jb .next
+    mov si, bx
+    add si, [ti_ch]
+    cmp dx, si
+    jae .next
+    mov ax, [ti_ci]
+    jmp short .out
+.next:
+    inc word [ti_ci]
+    jmp short .n
+.none:
+    mov ax, -1
+.out:
+    pop word [ti_ci]
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     ret

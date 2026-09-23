@@ -2691,6 +2691,25 @@ exactly the two rows. Worth writing down because the binding quantity was not
 the panel's width or the face's height — it was a *decoration* nobody had
 priced.
 
+### 8.1.1 THE FRONT/REAR TOGGLE, and what it answers
+
+**Front and rear are different roles** (§5.2), so a card in the hand cannot
+state one set of stats and be telling the truth. The toggle answers two
+questions with one control — **where a card goes when it is played**, and
+**what its stats will be when it gets there** — and every card in the hand
+restates itself when it moves.
+
+It is **one control and not a switch per card**: seven switches are seven
+answers to a question with one answer, and a CGA card has no room for one. It
+lives in the **HUD**, at the right-hand end, directly over the hand it is
+about, because the panel has no row to give — Hercules' seven cards and the
+COMMIT row use its height to the pixel (§8.1). SPEC.md §97.4.8 is the contract.
+
+**The board needs no toggle**, which is the owner's own distinction: a
+character on the board has a position, so the row is a fact rather than a
+choice. What the board needs instead is the same ability line the card has,
+which is what turned the HUD into a status line.
+
 ### 8.2 CARD ART — what is scoped, and the room the composer leaves
 
 The owner's question was whether card art was sized in this plan. **The
@@ -2725,6 +2744,56 @@ resident.
 **A picture BEHIND the text is refused.** The band is composed by OR at 1bpp,
 so text over art is text with the art showing through it; the art has to own
 rows the text does not.
+
+### 8.3 THE FULLSCREEN PANEL — a different shape for the room fullscreen has
+
+**This is the owner's, and the arithmetic says it works.** Windowed, vertical
+space is what binds and the panel is a vertical strip because every row of
+board height the hand does not take is a row the five lanes get (§8.1).
+**Fullscreen on VGA and Hercules that is no longer true**, and a hand laid out
+along the BOTTOM — in a different format, at a larger face, with room for
+art — is a strictly better use of it. The board then centres above.
+
+The rooms, measured rather than assumed:
+
+| | content | board needs | **spare below** |
+|---|---|---|---|
+| VGA windowed | 624 × 328 | 300 + 28 HUD | **0** |
+| **VGA fullscreen** | 640 × 480 | 326 + 36 HUD | **118 rows** |
+| **Hercules fullscreen** | 720 × 348 | 216 + 28 HUD | **104 rows** |
+| CGA fullscreen | 640 × 200 | 112 + 16 HUD | 72 rows — but see below |
+
+**118 rows of 640 is a real hand.** Seven cards across is 91 pixels each,
+which is narrow; **seven cards of 88 × 112**, gapped, is 640 wide exactly and
+leaves a card the shape a card actually is — **portrait**, which the vertical
+strip has never been able to give. At that size the 8×8 face fits **thirteen
+rows** and still leaves 88 × 60 for a picture: the first geometry in this
+design where card ART is the larger half of the card rather than a footnote.
+
+**It is a second LAYOUT and not a second renderer**, which is the whole reason
+it is worth doing: `ti_card_draw` already composes a band and blits it once,
+the flow already answers to whatever box it is handed (§8.1), and `ti_panel_lay`
+is the only thing that decides where the boxes are. What changes is a layout
+row and a `ti_card_y` that steps in x rather than y.
+
+**CGA is excluded and the reason is the pixel and not the room.** Its 72 spare
+rows are 72 × 2.4 apparent, which is more than enough — but seven cards across
+640 at 91 wide, on an adapter whose pixels are 2.4 : 1 tall, is a card that
+*looks* 91 × 30. The strip is the right shape there and fullscreen does not
+change that. The rule this is an instance of is §1.4's: the last column of
+§97.2's table is the one the eye reads.
+
+**What it would cost, honestly:** a layout row per surface, a horizontal
+`ti_card_y`, and a second `CARDH`/`CARDW` pair — call it ~200 bytes of the
+package and none of the kernel. What it would BUY is the only place in this
+design where 90 card arts have somewhere to be seen at full size, which is why
+it is written down here at the point the question came up rather than
+discovered in wave 5 when the art exists.
+
+**NOT TAKEN YET**, and the thing that should decide it is the same thing that
+decided the face: somebody looks at it. It is listed in §16's wave table
+against wave 1b, because it is a layout change and wave 1a's business is
+whether the layout reads at all.
 
 ---
 
@@ -3765,6 +3834,7 @@ breaking the thing on purpose first and watching it go red —
 | **0** | **DONE, in two passes.** §3.7's blit bench — `tests/titheband/`, `make titheband`, `python3 tests/titheband.py`, and `docs/reports/TITHE-BAND-2026-09-21.md`. The first pass halved the animation rate (§19.2); the second priced three levers, took two, refused one, and **changed the kernel** (SPEC.md §5.4.2.6) | the numbers exist |
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it.** The fullscreen RENDERER was in this wave and is refused — §19.2, and fullscreen is `wm_fullscreen` | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features **in both the windowed and the fullscreen geometry** |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece | **the owner signs off the sound**; the frame still holds with the sequencer running |
+| **1b** | **THE FULLSCREEN PANEL** (§8.3) — the hand along the bottom on VGA and Hercules fullscreen, portrait cards at 88 × 112 with room for art, the board centred above. A layout row and a horizontal `ti_card_y`, no second renderer | **the owner looks at it** beside the vertical strip |
 | **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |

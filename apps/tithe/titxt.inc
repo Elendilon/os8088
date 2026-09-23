@@ -85,28 +85,30 @@ ti_chidx:
     sub al, 'A' - 18
     ret
 .marks:
+    mov ah, 44                      ; the marks, in tifaces.inc's own order
     cmp al, '-'
-    je .m0
+    je .mk
+    inc ah
     cmp al, '.'
-    je .m1
+    je .mk
+    inc ah
     cmp al, '+'
-    je .m2
+    je .mk
+    inc ah
     cmp al, '/'
-    je .m3
-.bad:
+    je .mk
+    inc ah
+    cmp al, ','                     ; A COMMA AND A COLON ARE PROSE, and the
+    je .mk                          ; HUD carries prose now (SPEC.md 97.4.8).
+    inc ah                          ; They were not in the set, ti_chidx
+    cmp al, ':'                     ; answered 0FFh and ti_glyph then drew
+    je .mk                          ; NOTHING - no box, no fallback, a hole the
+.bad:                               ; width of a cell that nothing reports
     mov al, 0FFh
     ret
-.m0:
-    mov al, 44
-    ret
-.m1:
-    mov al, 45
-    ret
-.m2:
-    mov al, 46
-    ret
-.m3:
-    mov al, 47
+.mk:
+    mov al, ah
+    xor ah, ah
     ret
 
 ; -----------------------------------------------------------------------------

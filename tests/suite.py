@@ -7213,7 +7213,7 @@ SOAK = [
         "Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
-    Row("tithecard", "soak", py("tests/tithecard.py"), 60.0,
+    Row("tithecard", "soak", py("tests/tithecard.py"), 120.0,
         "SPEC.md 97.4.1: TITHE's card composer, on all three adapters and in"
         "both faces. A card is ONE `OSAPI_GFX_BLIT1` of a band the package"
         "composed in its own face, and the flow that fills it answers"
@@ -7228,8 +7228,17 @@ SOAK = [
         "put back in and PASSED a frame-line check. What catches them is the"
         "row above the foot being blank and the three-column gutter to the"
         "figure being clear. It also asserts the face key works at all, which"
-        "the Makefile's missing dependency on tifaces.inc had silently broken."
-        "Needs `make tithedisk`",
+        "the Makefile's missing dependency on tifaces.inc had silently broken;"
+        "that the panel COMES BACK when the pointer leaves an expanded card"
+        "(the composer dropped the `gfx_fill` of the panel row that used to put"
+        "its margins back, and they are part of the composition now); that the"
+        "hovered card's figure keeps the card's own polarity and moves (the"
+        "wheel's per-frame unit redraw used the OPPOSITE pen, so the card was"
+        "composed right and inverted one frame later); and SPEC.md 97.4.8's"
+        "FRONT/REAR toggle and status line - every card restates its stats when"
+        "the row flips, and the HUD says what the pointer is over and comes"
+        "back WHOLE, which a centred font_run could not do. Needs"
+        "`make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
     Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
