@@ -5915,7 +5915,10 @@ $(BUILD)/modplug.o88: $(BUILD)/modplug.bin tools/os88pkg.py $(PKGZSTAMP)
 # needs something to boot: build/dbg-os8088-360.img is the ordinary system
 # disk and build/dbg-apps360.img is the apps disk with the instrumented
 # player in place of the shipped one. Nothing here is in `all` and nothing
-# ships.
+# ships. Since ModPlug was RETIRED (SPEC.md 56.15) the disk carries the
+# instrumented player, the module and SYSTEM/ and nothing else: the whole
+# apps list plus an uncompressed debug build had stopped fitting 354
+# clusters long before, and nothing had built this since.
 modplugdbg: $(BUILD)/dbg-apps360.img
 
 $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
@@ -5929,12 +5932,9 @@ $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
 $(BUILD)/dbg/modplug.o88: $(BUILD)/dbg/modplug.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/dbg/modplug.bin -o $@
 
-$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
-                          $(APPSYS) tools/os88disk.py
+$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPSYS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/audio.o88,$(APPS_TOOLS))) \
 	    APPS:$(BUILD)/dbg/modplug.o88 \
-	    $(patsubst %,GAMES:%,$(APPS_GAMES)) \
 	    MEDIA:apps/tracker/beverly.mod \
 	    $(patsubst %,SYSTEM:%,$(APPSYS))
 	@echo "modplugdbg: boot build/os8088-360.img with $@ as the APPS disk"
