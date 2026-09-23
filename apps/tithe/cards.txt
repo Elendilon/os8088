@@ -1,0 +1,148 @@
+# =============================================================================
+# apps/tithe/cards.txt - TITHE's CARD TABLE, the ONE source (SPEC.md 97.11)
+#
+# tools/os88tithecards.py reads it for the package (apps/tithe/ticards.inc)
+# and tools/duelsim.py for the simulator, so the two cannot drift. It is a
+# FIRST DRAFT (TITHE-PLAN 7.1, wave 2): every number here is a guess that the
+# wave-11 harness exists to replace, and the shapes are what is binding -
+# TITHE-PLAN 7.1's thirty slots, three commanders a faction, at most eight
+# pure specialists.
+#
+# A CHARACTER (role melee, ranged, shield, gen, ident, cmdr):
+#   name | role | cost | POWER | FRONT m r hp s g h KEYWORDS | REAR m r hp s g h KEYWORDS
+# An ORDER (role order) has one block, its EFFECT for this round:
+#   name | order | cost | - | +m +r +s +g +h KEYWORDS
+#
+# cost is gold and souls: 3g, 2s, 5g1s, and a card's COST TIER (TITHE-PLAN
+# 7.1's template) is the two added. m r hp s g h is MELEE, RANGED, HP,
+# SHIELD, GOLD, HEAL (TITHE-PLAN 5.2). A keyword with a number is written
+# BULWARK1. The keywords, and what each does, are SPEC.md 97.11.3.
+#
+# A STARTER DECK (TITHE-PLAN 9.1) is `deck FACTION: name*copies, name, ...`.
+#
+# A NAME IS AT MOST 12 CHARACTERS: capitals, digits, space and - . + / , :
+# (the faces carry nothing else - tools/os88titheface.py).
+# =============================================================================
+
+faction BULWARK
+# melee 1-5
+Pikeman      | melee  | 1g   | 1 | 2 0 3 0 0 0             | 0 0 3 0 1 0
+Axeman       | melee  | 2g   | 2 | 3 0 4 1 0 0             | 0 0 4 0 1 0
+Hammerhand   | melee  | 3g   | 3 | 4 0 4 1 0 0             | 0 0 4 0 1 0
+Maulbrother  | melee  | 4g   | 4 | 5 0 5 1 0 0             | 0 1 5 0 1 0
+Ironclad     | melee  | 5g   | 5 | 6 0 6 1 0 0             | 0 0 6 0 2 0
+# ranged 1-5
+Slinger      | ranged | 1g   | 1 | 0 1 2 0 0 0             | 0 1 2 0 1 0
+Crossbowman  | ranged | 2g   | 2 | 1 1 3 1 0 0             | 0 2 3 0 0 0
+Bow Sergeant | ranged | 3g   | 3 | 2 2 4 1 0 0             | 0 3 4 0 1 0
+Arbalest     | ranged | 4g   | 4 | 0 3 4 1 0 0             | 0 4 4 0 0 0
+Siegemaster  | ranged | 5g   | 5 | 2 3 5 2 0 0             | 0 4 5 0 1 0
+# shield 2 3 3 4 5
+Shieldbearer | shield | 2g   | 2 | 2 0 4 2 0 0             | 0 1 4 1 0 0
+The Steading | shield | 3g   | 3 | 3 0 5 2 0 0             | 0 1 5 0 2 0
+Towerguard   | shield | 3g   | 3 | 1 0 6 3 0 0 GUARD       | 0 0 6 1 1 0
+Iron Knight  | shield | 4g   | 4 | 2 0 6 3 0 0 BULWARK1    | 0 0 6 2 1 0
+Wallwarden   | shield | 5g   | 5 | 2 0 7 3 0 0 RAMPART     | 0 0 7 2 0 0 RAMPART
+# generation 1 1 2 3 4
+Tollkeeper   | gen    | 1g   | 1 | 1 0 2 1 0 0             | 0 0 2 0 1 0
+Gleaner      | gen    | 1g   | 1 | 0 0 3 0 0 0             | 0 0 3 0 1 0 LEVY1
+Reeve        | gen    | 2g   | 2 | 1 0 3 1 0 0             | 0 0 3 0 2 0
+Bailiff      | gen    | 3g   | 3 | 2 0 4 1 0 0             | 0 0 4 0 2 0 LEVY1
+Freeholder   | gen    | 4g   | 4 | 0 0 7 0 0 0             | 0 0 7 0 4 0
+# identity 3 4 5 6
+Hearthwarden | ident  | 3g   | 3 | 1 0 5 2 0 1             | 0 0 5 0 1 1
+Gate Captain | ident  | 4g   | 4 | 3 0 6 2 0 0 GUARD       | 0 2 6 0 1 0
+Gate Warden  | ident  | 4g1s | 6 | 2 0 7 3 0 2 GUARD BULWARK1 | 0 0 7 2 1 0 RAMPART
+Lord Marshal | ident  | 6g   | 7 | 5 0 8 3 0 0 BULWARK2    | 0 2 8 1 2 0 LEVY1
+# orders 1 2 3
+Brace        | order  | 1g   | - | 0 0 2 0 0
+Rally        | order  | 2g   | - | 2 0 0 0 0
+Wages        | order  | 3g   | - | 0 0 0 3 0
+# commanders: one early, two late
+Castellan    | cmdr   | 2g   | 5 | 2 0 5 2 0 0 MUSTER      | 0 1 5 0 1 0 MUSTER
+Old Guard    | cmdr   | 5g2s | 8 | 4 0 8 3 0 0 STANDFAST   | 0 2 8 1 1 0 STANDFAST
+High Steward | cmdr   | 6g   | 8 | 2 0 7 2 0 0 STEWARD     | 0 0 7 0 3 0 STEWARD
+
+deck BULWARK: Pikeman*2, Axeman*2, Hammerhand, Slinger*2, Crossbowman, Shieldbearer*2, The Steading, Tollkeeper*2, Gleaner*2, Reeve*2, Bailiff, Brace*2, Rally
+
+faction CHOIR
+# melee 1-5: the worst five in the game (TITHE-PLAN 7.1)
+Ember Thrall | melee  | 1g   | 1 | 2 0 2 0 0 0             | 0 1 2 0 0 0
+Coalfist     | melee  | 2g   | 2 | 3 0 3 0 0 0             | 0 0 3 0 1 0
+Brand Zealot | melee  | 3g   | 3 | 3 0 4 1 0 0             | 0 1 4 0 0 0
+Pyreknight   | melee  | 4g   | 4 | 4 0 5 1 0 0             | 0 2 5 0 0 0
+Ash Colossus | melee  | 3g2s | 5 | 5 0 6 1 0 0             | 0 1 6 0 0 0 PYRE1
+# ranged 1-5: the best
+Kindler      | ranged | 1g   | 1 | 0 2 2 0 0 0             | 0 2 2 0 0 0 KINDLE
+Emberbow     | ranged | 2g   | 2 | 1 2 3 0 0 0             | 0 3 3 0 0 0
+Flamecaller  | ranged | 3g   | 3 | 0 3 3 0 0 0             | 0 4 3 0 0 0 PIERCE1
+Scorchbow    | ranged | 3g1s | 4 | 1 3 4 0 0 0             | 0 4 4 0 0 0 SCORCH
+Hellarcher   | ranged | 3g2s | 5 | 0 4 4 1 0 0 PIERCE2     | 0 5 4 0 0 0 PIERCE2
+# shield 2 3 3 4 5
+Ashen Screen | shield | 2g   | 2 | 1 0 4 2 0 0             | 0 1 4 1 0 0
+Cinderwall   | shield | 3g   | 3 | 1 0 5 2 0 0             | 0 2 5 0 0 0
+Smoke Veil   | shield | 3g   | 3 | 0 1 5 2 0 0             | 0 2 5 1 0 0
+Kiln Guard   | shield | 4g   | 4 | 2 0 6 3 0 0             | 0 2 6 1 0 0
+Obsidian     | shield | 3g2s | 5 | 2 1 7 3 0 0             | 0 3 7 1 0 0
+# generation 1 1 2 3 4: PYRE, and thin on gold
+Cinder Monk  | gen    | 1g   | 1 | 0 1 2 0 0 0             | 0 1 2 0 0 0 PYRE1
+Tinder       | gen    | 1g   | 1 | 1 0 2 0 0 0             | 0 0 2 0 1 0
+Ash Tender   | gen    | 2g   | 2 | 0 1 3 0 0 0             | 0 0 3 0 1 0 PYRE1
+Censer       | gen    | 3g   | 3 | 0 2 3 0 0 0             | 0 1 3 0 0 0 PYRE2
+Soul Kiln    | gen    | 2g2s | 4 | 0 0 5 1 0 0             | 0 0 5 0 1 0 PYRE2
+# identity 3 4 5 6
+Brandmaster  | ident  | 2g1s | 4 | 2 2 5 1 0 0 SCORCH      | 0 3 5 0 0 0 SCORCH
+Choirmaster  | ident  | 2g2s | 5 | 1 3 4 1 0 0 VOLLEY      | 0 4 4 0 0 0 VOLLEY PYRE1
+Ember Seraph | ident  | 2g3s | 7 | 1 4 6 1 0 0 VOLLEY      | 0 5 6 0 0 0 VOLLEY KINDLE
+Choir Pyre   | ident  | 2g4s | 9 | 2 5 6 0 0 0 PIERCE3 SCORCH | 0 5 6 0 0 0 PIERCE3 KINDLE PYRE2
+# orders 1 2 3
+Sear         | order  | 1g   | - | 0 1 0 0 0
+Flense       | order  | 2g   | - | 0 0 0 0 0 PIERCE2
+Immolate     | order  | 1g2s | - | 0 3 0 0 0 SCORCH
+# commanders
+Cantor       | cmdr   | 2g   | 5 | 1 2 4 0 0 0 HYMN        | 0 3 4 0 0 0 HYMN PYRE1
+Ash Prophet  | cmdr   | 3g3s | 8 | 1 3 6 1 0 0 CHORUS      | 0 4 6 0 0 0 CHORUS
+Flame Herald | cmdr   | 4g4s | 9 | 2 4 7 1 0 0 REQUIEM     | 0 5 7 0 0 0 REQUIEM PYRE1
+
+deck CHOIR: Ember Thrall*2, Coalfist*2, Kindler*2, Emberbow*2, Flamecaller, Ashen Screen*2, Cinderwall, Cinder Monk*2, Tinder*2, Ash Tender*2, Sear*2
+
+faction COVENANT
+# melee 1-5
+Novice       | melee  | 1g   | 1 | 2 0 3 0 0 0             | 0 0 3 0 0 1
+Zealot       | melee  | 2g   | 2 | 3 0 3 1 0 0             | 0 0 3 0 1 0
+Penitent     | melee  | 3g   | 3 | 3 0 5 1 0 0             | 0 0 5 0 1 0 BLESS1
+Templar      | melee  | 4g   | 4 | 4 0 6 1 0 0 ABSOLVE     | 0 1 6 0 0 1
+Crusader     | melee  | 5g   | 5 | 5 0 7 2 0 0             | 0 1 7 0 0 2
+# ranged 1-5: the weakest output (TITHE-PLAN 7.4)
+Psalmist     | ranged | 1g   | 1 | 0 1 2 0 0 0             | 0 1 2 0 0 1
+Litanist     | ranged | 2g   | 2 | 1 2 4 0 0 0             | 0 2 4 0 0 1
+Chanter      | ranged | 3g   | 3 | 1 2 4 1 0 0             | 0 3 4 0 0 1
+Seer         | ranged | 4g   | 4 | 0 3 5 1 0 0             | 0 3 5 0 0 2
+Oracle       | ranged | 3g2s | 5 | 1 3 6 1 0 0             | 0 4 6 0 0 2
+# shield 2 3 3 4 5
+Warded Monk  | shield | 2g   | 2 | 2 0 4 2 0 0 VIGIL       | 0 0 4 1 0 0 VIGIL
+Custodian    | shield | 3g   | 3 | 1 0 6 2 0 1             | 0 0 6 1 0 1
+Shrinekeeper | shield | 3g   | 3 | 1 0 5 2 0 0 VIGIL       | 0 0 5 2 0 1
+Vigilant     | shield | 4g   | 4 | 2 0 7 3 0 0 VIGIL       | 0 0 7 2 0 1
+Reliquary    | shield | 3g2s | 5 | 1 0 9 4 0 0             | 0 0 9 2 0 2
+# generation 1 1 2 3 4
+Almoner      | gen    | 1g   | 1 | 1 0 3 0 0 0             | 0 0 3 0 1 1
+Tithe Clerk  | gen    | 1g   | 1 | 0 0 3 0 0 0             | 0 0 3 0 2 0
+Almsgiver    | gen    | 2g   | 2 | 1 0 4 1 0 0             | 0 0 4 0 2 0
+Abbey Farmer | gen    | 3g   | 3 | 2 0 5 1 0 0             | 0 0 5 0 2 1
+Tithe Barn   | gen    | 4g   | 4 | 0 0 7 0 0 0             | 0 0 7 0 3 0
+# identity 3 4 5 6
+Physician    | ident  | 2g1s | 4 | 0 0 4 1 0 2             | 0 0 4 0 0 4
+Mender       | ident  | 4g   | 4 | 1 0 5 1 0 2             | 0 0 5 0 0 3 BLESS1
+Intercessor  | ident  | 3g3s | 8 | 2 0 7 2 0 3 INTERCEDE   | 0 0 7 1 1 6 INTERCEDE ABSOLVE
+Hierophant   | ident  | 3g2s | 7 | 2 1 8 2 0 3 BLESS1      | 0 2 8 1 0 4 VIGIL
+# orders 1 2 3
+Mend         | order  | 1g   | - | 0 0 0 0 2
+Blessing     | order  | 2g   | - | 2 0 1 0 0
+Absolution   | order  | 3g   | - | 0 0 0 0 0 WARD
+# commanders
+Abbess       | cmdr   | 2g   | 5 | 1 0 5 1 0 1 SANCTUARY   | 0 0 5 0 0 2 SANCTUARY
+Abbot        | cmdr   | 5g   | 7 | 2 0 7 2 0 2 MERCY       | 0 0 7 1 0 3 MERCY
+Saint        | cmdr   | 5g3s | 9 | 3 0 8 2 0 3 MARTYR      | 0 1 8 1 0 4 MARTYR
+
+deck COVENANT: Novice*2, Zealot*2, Psalmist*2, Litanist*2, Warded Monk*2, Custodian, Almoner*2, Tithe Clerk*2, Almsgiver*2, Physician, Mend*2

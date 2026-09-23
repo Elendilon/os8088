@@ -2005,7 +2005,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
-        titheband tithequick tithe tithedisk \
+        titheband tithequick titherules tithe tithedisk \
         xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
@@ -9401,6 +9401,39 @@ $(BUILD)/titheband360.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
 	@python3 tools/os88disk.py --verify $@
 
 titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
+
+# --- TITHE's RULES ENGINE against its simulator (SPEC.md 97.11) --------------
+#   make titherules
+#   python3 tests/titherules.py
+#
+# The card table is ONE source, apps/tithe/cards.txt, and both readers are
+# generated from it: apps/tithe/ticards.inc for the machine and
+# tools/duelsim.py's import for the host. build/tirmatch.bin is the set of
+# match files `duelsim.py bake` chose so that every keyword fires, and the
+# harness replays one a keypress and leaves its state records in its segment
+# for the test to compare with the simulator's.
+apps/tithe/ticards.inc: tools/os88tithecards.py apps/tithe/cards.txt
+	python3 tools/os88tithecards.py emit
+
+$(BUILD)/tirmatch.bin: tools/duelsim.py tools/os88tithecards.py \
+                       apps/tithe/cards.txt | $(BUILD)
+	python3 tools/duelsim.py bake $@
+
+$(BUILD)/titherul.bin: tests/titherule/titherule.asm apps/tithe/tirule.inc \
+                       apps/tithe/ticards.inc $(BUILD)/tirmatch.bin \
+                       apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -I $(BUILD)/ -o $@ \
+	    tests/titherule/titherule.asm
+	@echo "titherul: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/titherul.o88: $(BUILD)/titherul.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/titherul.bin -o $@
+
+$(BUILD)/titherule360.img: $(BUILD)/titherul.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/titherul.o88
+	@python3 tools/os88disk.py --verify $@
+
+titherules: $(BUILD)/titherule360.img
 
 # --- TITHE (SPEC.md 97), the two-player card duel ----------------------------
 # **WAVE 1a: the renderer with no game behind it** - the layout table, the

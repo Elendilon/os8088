@@ -4086,7 +4086,7 @@ breaking the thing on purpose first and watching it go red —
 | **1a** | **THE LOOK PROTOTYPE** (§16.1) — the exact board at the exact geometry on all four surfaces, one faction's concept art **through §4.2.1's layers**, the card look, **base candidates to choose from**, the HUD and panel. **No rules and no sound behind it.** The fullscreen RENDERER was in this wave and is refused — §19.2, and fullscreen is `wm_fullscreen` | **the owner signs off the look and picks a base**, on a real CGA among others, and it holds 18 fps with 23 features **in both the windowed and the fullscreen geometry** |
 | **1b** | **THE MUSIC**, in a session of its own with 1a's concept art as its input (§13, §16.1.1) — the sequencer, both arms, one faction theme in three states, and the resolution piece. **STARTED** (SPEC.md §97.10): the sequencer and both arms are BUILT and held to the tool's model call for call on the machine (`tests/tithemus.py`), and the **title theme came first**, at the owner's instruction, because it sets the tone the faction themes follow — **four candidates on `M`** for the owner to pick from by ear | **the owner signs off the sound**; the frame still holds with the sequencer running — **MEASURED: 18.7 wheel passes a second with a song playing against 18.5–18.7 silent**, on the Hercules 5150 with and without a Sound Blaster |
 | **1b** | **THE FULLSCREEN PANEL** (§8.3) — the hand along the bottom on VGA and Hercules fullscreen, portrait cards with the character at board size, the board centred above. A layout and a horizontal `ti_card_pos`, no second renderer. **BUILT** (SPEC.md §97.4.12): 72 × 107 on VGA, 80 × 72 on Hercules | **the owner looks at it** beside the vertical strip |
-| **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all** | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
+| **2** | the rules engine + `duelsim.py`, together, from one card table — **including orders, commanders, the discard cycle and the mulligan**. **No graphics at all**. **BUILT** (SPEC.md §97.11): `apps/tithe/cards.txt` drafts all ninety cards to §7.1's template, `tirule.inc` and `tools/duelsim.py` agree on 17 matches and 157 rounds to the byte, and three of §7's keywords were bent to be buildable at all (§19.2) | a match plays to completion in the simulator; the two agree; a replay is byte-identical; a 14-card deck and a 50-card deck both finish |
 | **3** | the round loop: plan, commit, **reveal**, combat with healing, spoils, HUD, log — with the **fully editable plan** (§5.0.2). **Hot-seat**, with §6.3.1's frozen opponent | two humans play a whole match; neither learns anything about the other's plan before the reveal; any entry in a plan can be removed and the board is right afterwards |
 | **4** | the AI on the worker; the jitter and the three arms; **`Wu`, because it plans blind** (§10.5) | an AI match completes; the wheel keeps turning while it thinks; the evaluator is handed the frozen board and nothing else |
 | **5** | **the rest of the art and music** — three factions of ~30 cards: ~90 body sets, 24 item sets, 90 card faces, the bases, the remaining themes. **This is the wave that builds §4.3's PARTS**, and the wave 1a base art comes out of the image with it | the disk fits in 354 clusters; the worst-case heap fits; **nothing but the program is in the image, and the CARVE is granted on the floor machine**; the body-set count is at or under budget (§4.2.4); every item reads as its faction's |
@@ -4532,7 +4532,7 @@ a second time.
 
 ### 19.2 Reversed, and why
 
-Twelve decisions that were made one way and then made another. Each is here
+Thirteen decisions that were made one way and then made another. Each is here
 because the *reason* it changed is worth more than the change.
 
 **THE BOARD WAS A BACKGROUND AND IS A PLACE; THE FIGURES WERE SILHOUETTES AND
@@ -4712,6 +4712,16 @@ them the demo's other settled levers — `S` (sprite size: the table's own), `T`
 come back it is as art with its own palette, not as strips over the 1bpp bank —
 so §3.5(b), §6's *Detail* setting and the 360KB row above are the reasoning
 that was, not a plan that stands (SPEC.md §97.4.6, §97.7).
+
+**THREE KEYWORDS COULD NOT BE BUILT AS §7 WROTE THEM** (wave 2, SPEC.md
+§97.11.3). `GUARD` protected the character *behind* it from a gap-punish, and a
+gap-punish needs the front cell empty — so it covers the lanes beside it.
+`STANDFAST` (a commander's) guarded its own lane from player damage, and a
+player is only hit through a lane with nobody in it — so it guards the lanes
+beside it. `ABSOLVE` counted deaths in its own lane, one cell, and fired zero
+times in 400 matches — so it counts the lanes beside it too. The first two were
+found by reading and the third by the harness never seeing it fire, which is
+what `duelsim.py bake`'s keyword coverage is for.
 
 ### 19.3 Superseded, and where it went
 

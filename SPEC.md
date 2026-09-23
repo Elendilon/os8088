@@ -141590,3 +141590,201 @@ already shares (§20.12), and the sequencer is ~1.2 KB of the image. **Every
 speaker tone carries a duration**, so a worker that stops — a stall, a
 relayout, a close — leaves nothing droning; `snd_tick` expires it (§34.3), and
 the package's teardown releases the FM voices (§34.3's `snd_release_inst`).
+
+### 97.11 THE RULES ENGINE — one card table, two readers (wave 2)
+
+**The rules exist in two places that check each other**, which is TITHE-PLAN
+§14.1's instruction and wave 2's gate. `apps/tithe/tirule.inc` is the
+machine's: the only place the rules exist in the package, called by the game,
+by wave 4's AI and by wave 10's checksum. `tools/duelsim.py` is the host's: a
+reference implementation that plays AI against AI at thousands of matches a
+second, and the balance harness wave 11 is iterated with. **Neither is the
+other's specification** — this section is, and every rule below is pinned
+here because the two have to make the same decision in the same order.
+`tests/titherules.py` holds them together: every match of a baked set is
+replayed on the machine and its state record after every round compared with
+the simulator's, to the byte.
+
+**No graphics, no files, no kernel slots.** The engine is arithmetic over a
+state of two sides and twenty cells, and it needs the card table in front of
+it and nothing else — which is what lets a test package carry it as it is
+(`tests/titherule/`) and the game carry it unchanged in wave 3.
+
+#### 97.11.1 The card table is ONE source
+
+`apps/tithe/cards.txt` is the table: a line a card, `name | role | cost |
+POWER | FRONT m r hp s g h KEYWORDS | REAR …`, a faction header, and a
+`deck FACTION: name*copies, …` line for each starter deck. **Both readers are
+generated from it**: `tools/os88tithecards.py emit` writes
+`apps/tithe/ticards.inc` for the machine, and `duelsim.py` imports the same
+module's `load()`, which reads each card's stats back **out of the packed
+record** rather than out of the parse — so a field the emitter packs wrongly is
+wrong in the simulator too, and its own matches see it.
+
+**The table is a FIRST DRAFT and its shape is what is binding** (TITHE-PLAN
+§7.1). Ninety cards, thirty a faction, filling the template exactly: five
+melee, ranged, shield and generation cards at the template's cost tiers, four
+identity cards, three orders, three commanders of which one is early — and at
+most eight pure specialists (two, four and two). A card's cost tier is its gold
+and its souls added. HP is one number on both blocks, which the engine relies
+on: a swap never has to decide what a wound is worth on the other block. The
+§7.2–§7.4 examples are in it, their names cut to the twelve characters a card
+can print. `os88tithecards.py --selfcheck` is TITHE-PLAN §15.3's `t_tithecards`
+and a FAST row, and it also fails when the committed include is not the
+table's.
+
+#### 97.11.2 The record
+
+| offset | | |
+|---|---|---|
+| 0, 1 | cost in gold, in souls | |
+| 2 | POWER | what a kill of it pays (TITHE-PLAN §5.1) |
+| 3 | kind | 0 character, 1 order, 2 commander |
+| 4, 5 | faction, role | |
+| 6–14 | the FRONT block | `m r hp s g h`, then three keyword bytes |
+| 15–23 | the REAR block | the same |
+
+A keyword byte is its **id in bits 0–4 and its number in bits 5–7**, so
+`PIERCE3` is one byte and a block carries three. An ORDER's one block is its
+**effect** — `+m +r +s +g +h` in the stat bytes and the keywords it grants.
+The ids are the engine's and are only ever appended to.
+
+#### 97.11.3 The keywords, and where a plan rule was bent
+
+TITHE-PLAN §7.2–§7.4's keywords, plus nine commanders' abilities
+(§7.1.1's *unique ability*) and one order's grant:
+
+| keyword | when | what |
+|---|---|---|
+| **GUARD** | targeting | a gap-punish into the lane **above or below** this front character takes it instead |
+| **BULWARK n** | a hit | its shield never falls below `n` after one |
+| **RAMPART** | combat start | friendly cells above and below in its column +1 shield |
+| **LEVY n** | spoils | +`n` gold |
+| **PYRE n** | spoils | +`n` souls |
+| **PIERCE n** | a hit | ignores `n` of the target's shield, and a front shield of `n` or less does not wall a SNIPE |
+| **VOLLEY** | a ranged hit | also 1 to the cells above and below the target |
+| **SCORCH** | a ranged hit | the overkill on a front target carries into the cell behind it |
+| **KINDLE** | a kill | +1 soul |
+| **VIGIL** | combat start | the friendly cell across +1 shield |
+| **BLESS n** | lane start | friendly cells above and below in its column +`n` melee |
+| **INTERCEDE** | casualties | an adjacent friendly that would die holds at 1 HP, and this dies instead; once |
+| **ABSOLVE** | casualties | a friendly death in its lane **or the lanes beside it**: +1 melee, +1 ranged, for good |
+| **MUSTER** *(commander)* | combat start | every friendly front cell +1 shield |
+| **STANDFAST** *(commander)* | player damage | no player damage through the lanes **above and below** it |
+| **STEWARD** *(commander)* | spoils | +1 gold per friendly rear character |
+| **HYMN** *(commander)* | casualties | every kill its side makes pays +1 soul |
+| **CHORUS** *(commander)* | lane start | friendly characters in the lanes above and below +1 ranged |
+| **REQUIEM** *(commander)* | spoils | +1 soul per friendly death this round |
+| **SANCTUARY** *(commander)* | a ranged hit | cannot take a friendly in its lane below 1 HP |
+| **MERCY** *(commander)* | healing | every friendly healer's pool +1 |
+| **MARTYR** *(commander)* | casualties | when it dies, every friendly character heals 3 |
+| **WARD** *(order)* | casualties | the target holds at 1 HP this round |
+
+**Three of TITHE-PLAN's rules could not be built as written**, and what
+shipped is recorded so it is argued with rather than rediscovered:
+
+- **GUARD** protected *"the character directly behind it"* from the
+  gap-punish — but a gap-punish only happens when the front cell is EMPTY, and a
+  guard in it is what makes it not empty. So a guard covers the lanes beside it
+  instead, stepping across to take the hit.
+- **STANDFAST** first guarded its own lane. A player is only hit through a lane
+  with **nobody in it on their side**, so a STANDFAST standing in that lane
+  could never fire — `duelsim.py bake` found it by never seeing it fire in 400
+  matches. It guards the lanes above and below.
+- **ABSOLVE** counted deaths in its own lane only, which is one cell, and in
+  400 matches it fired zero times. It counts the lanes beside it too.
+
+**An ORDER may grant only PIERCE, SCORCH and WARD**: the engine carries a
+round's orders as five stat deltas, a pierce count and two flags, and the
+table's check refuses anything else.
+
+#### 97.11.4 THE ORDER OF A ROUND
+
+**Both plans apply to their own halves, in their own recorded order**
+(TITHE-PLAN §6.0) — so either side's plan applied first gives the same board,
+and `duelsim.py --selfcheck` applies every round of every match both ways and
+compares. TITHE-PLAN §6.4's *"swaps first on both sides, then plays"* is the
+REVEAL's presentation order and not the rules': a plan that swaps a character
+out of the top cell and then plays a card lands that card in the hole, which is
+what the player saw while building it.
+
+1. **UPKEEP**: a card drawn, `+2` gold (both pools cap at 99), two swaps, and
+   shields filled to their round's value for the frozen board.
+2. **PLANS**: `PLAY` pays and puts a character in the **topmost empty cell** of
+   the column, with the next instance id (1–255, round again). `ORDER` pays,
+   adds its effect to the character with that id and goes to the discard at
+   once. `SWAP` exchanges two of the side's cells whole. `STANCE` sets one.
+3. **COMBAT START**: every character's shield is recomputed from where it now
+   stands — its block's shield, its orders', RAMPART, VIGIL and MUSTER — which
+   is why a swap across columns takes its new block's shield into combat.
+4. **LANES 0 TO 4.** A lane's hits are all **decided** from the state at the
+   lane's start — each attacker's melee and ranged with the auras read then,
+   its target by TITHE-PLAN §5.4 with the SNIPE wall read against the front's
+   shield then — and then **applied in a fixed order**: side 0's front melee,
+   front ranged, rear ranged, then side 1's. A hit that kills first marks the
+   target and owns the kill. After the hits, the lane's **unmarked** healers
+   fire, side 0 then 1, front then rear. A character marked in an earlier lane
+   (a VOLLEY's 1) takes no part in its own.
+5. **CASUALTIES**, lane by lane, side by side, front then rear: a WARDed
+   character holds; otherwise an INTERCEDE above, below or across — in that
+   order — dies instead. Then the deaths in that order: the card to its owner's
+   discard, POWER + KINDLE + HYMN in souls to the other side, ABSOLVE counted.
+   MARTYRs heal last.
+6. **SPOILS**, every character left: its block's gold and its orders', LEVY,
+   STEWARD; PYRE, REQUIEM.
+7. **THE VICTORY CHECK**, and the round's orders are spent. A match that reaches
+   round 60 undecided is a STALEMATE, which the harness reports and TITHE-PLAN
+   §5.8's valve (income rising with the round) is the answer to if it happens.
+
+#### 97.11.5 The shuffles
+
+**One generator a side**, xorshift16 with shifts 7, 9 and 8, seeded once at
+setup (a seed of 0 is 1). A pile is shuffled Fisher–Yates from its end — for
+`i` from `n-1` down to 1, swap `i` with `rand mod (i+1)` — and a card is drawn
+from its **end**. An empty draw pile takes the discard in its order and
+shuffles it; an empty pair of piles is a dry draw. A MULLIGAN puts the hand on
+the draw pile's end in hand order, shuffles and draws four. Nothing else in the
+game calls it.
+
+#### 97.11.6 The state record and the match file
+
+**The STATE RECORD** is 376 bytes: the round; per side its HP (clamped to a
+byte), gold, souls, next instance id, generator (low, high), swaps, then the
+hand, the draw pile and the discard, each a count and its array padded with
+`0FFh` (7, 50 and 50); then the twenty cells, side then column then lane, each
+`card inst hp shield stance +melee +ranged` (an empty one `0FFh` and six
+zeros); then the result — 0 playing, 1 and 2 a side's win, 3 a draw, 4 a
+stalemate. It is what `tests/titherules.py` compares, and it is written after
+setup and after every round.
+
+**THE MATCH FILE** (TITHE-PLAN §12.6) is `TMF1`, the two decks (a count and the
+card ids), the two shuffle seeds, the two mulligans, the round count, and per
+round the two plans — a count and three bytes an action: `1 card column`,
+`2 card instance`, `3 cell cell`, `4 cell stance`, a cell being `column × 5 +
+lane`. A twenty-round match is well under a kilobyte, and `duelsim.py replay`
+turns one back into its log.
+
+#### 97.11.7 What it costs, and the two gates
+
+**The rows**: `tithecards` and `duelsim` are FAST and host-side — the table's
+shape, every pairing and both deck-size ends played to completion, confluence
+on every round, and a byte-identical replay. `titherules` is SOAK: seventeen
+matches, 157 rounds, every keyword fired, every record the simulator's. **It
+went red on a real defect first**: `tr_intercede` did not give SI back, so a
+KINDLE kill's extra soul was read off a neighbour's cell, and 16 of the 17
+agreed.
+
+**On a 4.77 MHz 8088 a round costs ~97 ms**, record included — the engine is
+written for the two engines to agree and not yet for speed, with a multiply
+behind every cell and keyword lookup. That is fine for resolving a round and
+is **not fine for wave 4's AI**, whose one-ply lookahead is this engine on a
+scratch board once a candidate (TITHE-PLAN §10.3): at ~250 candidates a ply it
+is the number wave 4 has to take down first, or evaluate with something
+cheaper than a whole round.
+
+**The draft's balance is not a wave 2 finding.** The simulator's player is a
+few lines of greed, enough to play legal matches to an end; with it, the three
+starter decks come out Bulwark 47%, Choir 25%, Covenant 78% over 120 matches,
+median 8 rounds, and a Bulwark–Covenant pairing can stalemate. Those are the
+first numbers wave 11's harness will move, and wave 4's AI is what makes them
+mean anything.

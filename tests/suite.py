@@ -7273,6 +7273,19 @@ SOAK = [
         "this was registered. All three adapters. Needs `make tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("titherules", "soak", py("tests/titherules.py"), 30.0,
+        "SPEC.md 97.11: TITHE's rules engine on the machine AGREES with"
+        "tools/duelsim.py - wave 2's gate. Every match of `duelsim.py bake`'s"
+        "set (chosen so all 23 keywords fire) is replayed in the harness and"
+        "its STATE RECORD after setup and every round compared with the"
+        "simulator's to the byte, and the engine must refuse no action the"
+        "simulator took. It went red on a real defect first: tr_intercede did"
+        "not give SI back, so a KINDLE kill's extra soul was read off the"
+        "wrong cell - 16 of 17 matches agreed. Prints the machine's"
+        "milliseconds a round, which sizes wave 4's AI. Needs `make"
+        "titherules`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/titherule360.img",)),
     Row("tithefs", "soak", py("tests/tithefs.py"), 120.0,
         "SPEC.md 97.4.12: TITHE's FULLSCREEN HAND - seven portrait cards along"
         "the bottom under a centred board on VGA and Hercules fullscreen, the"
@@ -7361,6 +7374,27 @@ SOAK = [
         "because the stat column begins there; and every body's anchor must"
         "land on a BYTE at every surface and pose, because the machine puts"
         "each item frame down in whole bytes from it. Host-side and 0.9s",
+        needs=()),
+    Row("tithecards", "fast", py("tools/os88tithecards.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.11.2 and TITHE-PLAN 15.3's t_tithecards: TITHE's card table"
+        "is the SHAPE the plan asks for - every faction fills 7.1's template"
+        "(five melee, ranged, shield and generation cards and four identity"
+        "cards at the template's cost tiers, three orders, three commanders"
+        "with one early), at most eight pure specialists, every stat inside"
+        "5.2's range and HP one number on both blocks, two blocks that differ,"
+        "every name printable in the package's faces, commanders' keywords on"
+        "commanders only, every starter deck legal under 9.3 and without a"
+        "commander, and room for a fifty-card deck. And the COMMITTED include"
+        "is the table's: apps/tithe/ticards.inc is generated, and a stale one"
+        "assembles without a word. Host-side and 0.1s",
+        needs=()),
+    Row("duelsim", "fast", py("tools/duelsim.py", "--selfcheck"), 1.0,
+        "SPEC.md 97.11 and TITHE-PLAN 14.1: the rules' reference"
+        "implementation plays every faction pairing and a fourteen- and a"
+        "fifty-card deck to completion, and every round of every match is"
+        "applied BOTH plan orders and the boards compared (6.0's confluence),"
+        "and the match file replays to a byte-identical log (14.3's"
+        "determinism). A stalemate at sixty rounds fails it. Host-side, 0.4s",
         needs=()),
     Row("tithemus", "fast", py("tools/os88tithemus.py", "--selfcheck"), 1.0,
         "SPEC.md 97.10: TITHE's MUSIC as the tool packs it. The part is read"
