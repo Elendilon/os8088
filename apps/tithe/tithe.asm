@@ -356,8 +356,8 @@ ti_paint:
                                     ; this is where the layout happens at all
     cmp byte [ti_ok], 0
     je .refuse
-    cmp byte [tg_ph], TG_PH_PLAN    ; BETWEEN TWO PLANNERS the window shows
-    je .board                       ; the pass screen and nothing of either
+    call tg_onscreen                ; BETWEEN TWO PLANNERS the window shows
+    jc .board                       ; the pass screen and nothing of either
     call tg_screen                  ; plan (tigame.inc)
     jmp short .out
 .board:
@@ -743,8 +743,8 @@ ti_paint_now:
     push si
     cmp byte [ti_ok], 0
     je .out
-    cmp byte [tg_ph], TG_PH_PLAN
-    je .board
+    call tg_onscreen
+    jc .board
     call tg_screen
     jmp short .out
 .board:

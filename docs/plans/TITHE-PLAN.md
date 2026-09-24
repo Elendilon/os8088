@@ -4470,11 +4470,10 @@ heading, as it arrives. Each line names the section it falls short of.
   the clock. Choosing is the front menu's (wave 6).
 - **The match's end is a line of text** and a click for a new one.
 
-**Not measured on the target machine**
-
-- The cost of a plan edit's replay and redraw on a 4.77 MHz 8088, the
-  opponent's arrival (every changed cell composed at once), and a lane's step.
-  QEMU and the tests say they are correct, not how long they take.
+**Measured on the target machine** - the round, after the owner reported
+the log freezing the screen and the music: SPEC.md §97.12.8's table, 880 ms
+openings and 439 ms music gaps down to 165 and 110. **Still not measured**:
+a plan edit's replay and redraw.
 
 **Not tested**
 

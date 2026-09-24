@@ -1055,6 +1055,18 @@ tg_reset:
 ; numbers redrawn. The gfx lock held. Preserves every register.
 ; -----------------------------------------------------------------------------
 tg_sync:
+    call tg_sync1
+    jnc tg_sync
+    ret
+
+; tg_sync1 - the NEXT cell tg_sync would touch, and only that one: CF=0 one
+; was brought to its view, CF=1 none was owed. Preserves every register.
+;
+; ONE A CALL so the worker can take the round's arrival a cell a frame
+; (tg_res_step) rather than all of them inside one - the other side's plan
+; is up to ten characters composed from nothing, and in one call that was the
+; longest stall of the round.
+tg_sync1:
     push ax
     push bx
     push cx
@@ -1062,12 +1074,19 @@ tg_sync:
     xor cx, cx
 .c:
     cmp cx, TI_CELLS
-    jae .out
-    mov [ti_ci], cx
+    jae .none
+    mov bx, cx
     mov ax, cx
     call ti_ck_cell
-    mov bx, cx
     mov al, [ti_ck]
+    cmp al, [tg_cart + bx]
+    jne .do
+    cmp byte [tg_vdirty + bx], 0
+    jne .do
+    inc cx
+    jmp short .c
+.do:
+    mov [ti_ci], cx
     cmp al, [tg_cart + bx]
     je .art
     mov word [ti_cfbeg], 0          ; ALL EIGHT FRAMES: a character that is
@@ -1077,16 +1096,15 @@ tg_sync:
     mov byte [ti_dok], 0            ; whole, not a transition
     mov ax, cx
     call ti_feature
-    mov byte [tg_vdirty + bx], 1
 .art:
-    cmp byte [tg_vdirty + bx], 0
-    je .n
     mov byte [tg_vdirty + bx], 0
     call ti_cell_xy
     call ti_cellnum
-.n:
-    inc cx
-    jmp short .c
+    call tm_run                     ; the music a cell at a time
+    clc
+    jmp short .out
+.none:
+    stc
 .out:
     pop word [ti_ci]
     pop cx
@@ -1246,6 +1264,24 @@ tg_screen:
     add cx, [ti_ox]
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
+    ret
+
+; tg_onscreen - CF=0 when the window is showing the pass screen (or the
+; match's end), CF=1 when it is showing the board. Preserves every register.
+;
+; THE BOARD IS UP IN TWO PHASES, not one: a planner's AND the round being
+; fought. A repaint asked `is it the planning phase?` and drew the pass
+; screen for anything else - so a window uncovered mid-round lost the board
+; and the log to a screen saying the first planner had committed.
+tg_onscreen:
+    cmp byte [tg_ph], TG_PH_PASS
+    je .yes
+    cmp byte [tg_ph], TG_PH_OVER
+    je .yes
+    stc
+    ret
+.yes:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1480,6 +1516,7 @@ tg_btn_hit:
 ; =============================================================================
 
 TG_LROW     equ 8                   ; the list's row pitch: the system face
+TG_LMAXR    equ 32                  ; rows a list is ever given
 
 ; -----------------------------------------------------------------------------
 ; tg_card_click - hand slot AX was clicked: an ORDER is ARMED (a character is
@@ -1850,12 +1887,59 @@ tg_list_box:
     mov cx, [ti_cardw]
     ret
 
+; tg_list_geo - where the rows are: [tg_lx] (a byte in from the box, so a
+; row's cells are byte columns and GFX_SCROLL can move them), [tg_ly],
+; [tg_lw] characters a row - A LOG LINE'S WIDTH in the log, never the box's -
+; and [tg_lrows]. Preserves every register.
+tg_list_geo:
+    push ax
+    push bx
+    push cx
+    push dx
+    call tg_list_box
+    add ax, 8
+    mov [tg_lx], ax
+    add bx, 3
+    mov [tg_ly], bx
+    sub cx, 16
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    mov bx, TG_BUFW - 1
+    cmp byte [tg_list], 2           ; THE LOG IS NEVER WIDER THAN ITS LINES:
+    jne .cap                        ; padding a fullscreen row to the box's
+    mov bx, TG_LOGW - 1             ; 39 cells for a 17-cell line was more
+.cap:                               ; than half of every row it drew
+    cmp cx, bx
+    jbe .w
+    mov cx, bx
+.w:
+    mov [tg_lw], cx
+    mov ax, dx
+    sub ax, 6
+    xor dx, dx
+    mov bx, TG_LROW
+    div bx
+    cmp al, [tg_lrcap]              ; (a test may ask for fewer, to make the
+    jbe .r                          ; log scroll: tests/tithelog.py)
+    mov al, [tg_lrcap]
+    xor ah, ah
+.r:
+    mov [tg_lrows], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; tg_list_show - the list's ground, then the list: a SWITCH to it, once
 tg_list_show:
     push ax
     push bx
     push cx
     push dx
+    push di
+    push es
     mov al, CBLACK
     call OSAPI_SET_COLOR
     call tg_list_box
@@ -1869,19 +1953,27 @@ tg_list_show:
     call OSAPI_SET_COLOR
     pop ax
     call OSAPI_GFX_FRAME
+    push ds                         ; the ground is fresh: every row is empty
+    pop es
+    cld
+    mov di, tg_rowlen
+    mov cx, TG_LMAXR
+    xor al, al
+    rep stosb
+    pop es
+    pop di
     pop dx
     pop cx
     pop bx
     pop ax
-    mov word [tg_lhi], 0            ; the ground is fresh: nothing stale
     jmp tg_list_draw
 
 ; -----------------------------------------------------------------------------
-; tg_list_draw - every row of the plan, RESET under the last, and one blank
-; row after that. EACH ROW IS PADDED TO THE LIST'S WIDTH and drawn by
-; font_run, which lays its own ground (SPEC.md 6.1) - so an edit redraws the
-; list without a fill in front of it, and a row a removal left behind is
-; overwritten by the blank one. Preserves every register.
+; tg_list_draw - the list whole: every row of the plan and RESET under the
+; last - or, in the log, its last lines. A row is drawn only as wide as its
+; text or what it overwrites (tg_row_put), and a row that was empty and
+; stays empty costs nothing, so an edit redraws what changed width and not
+; the box. Preserves every register.
 ; -----------------------------------------------------------------------------
 tg_list_draw:
     push ax
@@ -1894,26 +1986,7 @@ tg_list_draw:
     push ds
     pop es
     cld
-    call tg_list_box
-    add ax, 4
-    mov [tg_lx], ax
-    add bx, 3
-    mov [tg_ly], bx
-    sub cx, 8
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    cmp cx, TG_BUFW - 1
-    jbe .w
-    mov cx, TG_BUFW - 1
-.w:
-    mov [tg_lw], cx                 ; characters a row
-    mov ax, dx
-    sub ax, 6
-    xor dx, dx
-    mov bx, TG_LROW
-    div bx
-    mov [tg_lrows], ax              ; rows the box holds
+    call tg_list_geo
     cmp byte [tg_list], 2           ; THE LOG, while a round is fought: its
     jne .plan                       ; last lines, as many as the box holds
     mov ax, [tg_logn]
@@ -1928,6 +2001,9 @@ tg_list_draw:
 .lset:
     mov [tg_lfirst], dx
     mov [tg_ln], ax
+    mov [tg_lused], ax              ; ...and all of it is drawn after this
+    mov ax, [tg_ltot]
+    mov [tg_ldrn], ax
     jmp short .rows
 .plan:
     mov al, [tg_side]
@@ -1944,20 +2020,16 @@ tg_list_draw:
     cmp byte [tg_list], 2
     jne .prow
     cmp ax, [tg_ln]
-    jae .blank
+    jae .put
     push ax                         ; a log line
     add ax, [tg_lfirst]
-    mov bx, TG_LOGW
-    mul bx
-    add ax, tg_log
-    mov si, ax
-    call ti_poke
+    call tg_log_line
     pop ax
-    jmp short .pad
+    jmp short .put
 .prow:
     cmp ax, [tg_ln]
     jb .entry
-    jne .blank
+    jne .put
     mov si, ti_s_reset              ; the row after the last: RESET, or
     cmp word [tg_ln], 0             ; that there is nothing to reset
     jne .word
@@ -1966,43 +2038,212 @@ tg_list_draw:
     push ax                         ; (ti_poke takes AL, and AX is the row)
     call ti_poke
     pop ax
-    jmp short .pad
+    jmp short .put
 .entry:
     call tg_entry_text
-    jmp short .pad
-.blank:
-    cmp ax, [tg_lhi]                ; blank down to the last row the list
-    ja .out                         ; drew before: a removal can take more
-.pad:                               ; than one entry out (its orphans)
-    mov dx, di                      ; ...padded to the width
-    sub dx, tg_buf1
-.p:
+.put:
+    mov byte [di], 0
+    call tg_row_put
+    inc ax
+    jmp short .r
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tg_log_line - AX = a line of the log buffer: DI -> it copied to tg_buf1,
+; DI past it. Preserves every register bar DI.
+;
+; IT SETS ES ITSELF. The copy is `stosb`, and the worker's frame reaches here
+; with ES on whatever it last composed through - the scratch part, an art
+; part - so the line went THERE, into another segment, and tg_buf1 still
+; held the line before it: the log drew each line twice and wrote a stray
+; one into the scratch part. The window callbacks happened to arrive with
+; ES = DS, which is why the whole-list draw never showed it.
+tg_log_line:
+    push ax
+    push bx
+    push si
+    push es
+    push ds
+    pop es
+    cld
+    mov bx, TG_LOGW
+    mul bx
+    add ax, tg_log
+    mov si, ax
+    mov di, tg_buf1
+    call ti_poke
+    pop es
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tg_row_put - list row AX gets the NUL text at tg_buf1: padded only to what
+; was there before (tg_rowlen), so a shorter line leaves nothing behind and a
+; row that was empty and stays empty is not drawn at all. One font_run, which
+; lays its own ground (SPEC.md 6.1). Preserves every register.
+; -----------------------------------------------------------------------------
+tg_row_put:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov bx, ax
+    mov di, tg_buf1
+    xor cx, cx
+.l:
+    cmp byte [di], 0
+    je .have
+    inc di
+    inc cx
+    jmp short .l
+.have:
+    cmp cx, [tg_lw]
+    jbe .c
+    mov cx, [tg_lw]
+    mov di, tg_buf1
+    add di, cx
+.c:
+    mov dl, [tg_rowlen + bx]        ; what the row held
+    xor dh, dh
+    mov [tg_rowlen + bx], cl        ; ...and what it will
     cmp dx, [tg_lw]
-    jae .cut
+    jbe .p
+    mov dx, [tg_lw]
+.p:
+    cmp cx, dx
+    jae .end
     mov byte [di], ' '
     inc di
-    inc dx
+    inc cx
     jmp short .p
-.cut:
-    mov di, tg_buf1
-    add di, [tg_lw]
+.end:
     mov byte [di], 0
-    push ax
-    mov bx, TG_LROW
-    mul bx
+    jcxz .out                       ; empty, and was
+    mov ax, bx
+    mov cx, TG_LROW
+    mul cx
     add ax, [tg_ly]
     mov dx, ax
     mov cx, [tg_lx]
     mov si, tg_buf1
     mov ax, (CBLACK << 8) | CWHITE
-    call OSAPI_FONT_RUN
-    pop ax
-    inc ax
-    jmp .r
-.out:
-    mov ax, [tg_ln]                 ; ...and what this one drew, for the next
-    mov [tg_lhi], ax
+    call OSAPI_FONT_RUN             ; (NO tm_run here: a row is one short
+.out:                               ; line now, and the music's own chain
+                                    ; under a list draw under a board repaint
+                                    ; was 22 bytes past the worker's 256-byte
+                                    ; slice - tests/unit/t_stkclass.py)
     pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tg_log_draw1 - ONE log line onto the glass, if one is owed: from the
+; worker's frame while a round is fought. Preserves every register.
+;
+; THE LOG WAS REDRAWN WHOLE FOR EVERY LINE ADDED, every row padded to the
+; box - measured on a 4.77 MHz 8088 in fullscreen at up to 275 ms of a lane's
+; 330, inside the worker's frame, with the music waiting at the top of the
+; loop for all of it. Now a line is drawn ONCE, one a frame, as wide as a log
+; line; and when the box is full the rows above it move up by OSAPI_GFX_SCROLL
+; (SPEC.md 5.5) - under a millisecond - rather than being lettered again.
+; -----------------------------------------------------------------------------
+tg_log_draw1:
+    cmp byte [tg_list], 2
+    jne .ret
+    push ax
+    mov ax, [tg_ltot]
+    cmp ax, [tg_ldrn]
+    jne .go
+    pop ax
+.ret:
+    ret
+.go:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call tg_list_geo
+    mov ax, [tg_ltot]               ; the oldest line owed, in the buffer -
+    sub ax, [tg_ldrn]               ; which keeps the last TG_LOGN, so a
+    cmp ax, [tg_logn]               ; backlog longer than that has lost its
+    jbe .inbuf                      ; head, and is taken from what is left
+    mov ax, [tg_logn]
+    mov bx, [tg_ltot]
+    sub bx, ax
+    mov [tg_ldrn], bx
+.inbuf:
+    mov bx, [tg_logn]
+    sub bx, ax
+    mov ax, bx
+    call tg_log_line
+    mov byte [di], 0
+    mov ax, [tg_lused]
+    cmp ax, [tg_lrows]
+    jb .room
+    mov ax, [tg_lx]                 ; FULL: everything up a row. The rect is
+    mov bx, [tg_ly]                 ; the rows' own cells, byte columns both
+    mov cx, [tg_lw]                 ; ends, so the scroll is legal and what
+    shl cx, 1                       ; it vacates is exactly one row
+    shl cx, 1
+    shl cx, 1
+    add cx, ax
+    dec cx
+    push ax
+    mov ax, [tg_lrows]
+    mov dx, TG_LROW
+    mul dx
+    add ax, bx
+    dec ax
+    mov dx, ax
+    pop ax
+    mov si, TG_LROW
+    call OSAPI_GFX_SCROLL
+    jnc .moved
+    call tg_list_draw               ; refused (the window is covered): the
+    jmp short .out                  ; whole list, which is the old way
+.moved:
+    push es                         ; ...the lengths move with the rows, and
+    push ds                         ; the vacated one is repainted WHOLE -
+    pop es                          ; its content is unspecified (5.5)
+    cld
+    mov di, tg_rowlen
+    mov si, tg_rowlen + 1
+    mov cx, TG_LMAXR - 1
+    rep movsb
+    pop es
+    mov bx, [tg_lrows]
+    dec bx
+    mov al, [tg_lw]
+    mov [tg_rowlen + bx], al
+    mov ax, bx
+    jmp short .put
+.room:
+    inc word [tg_lused]
+.put:
+    call tg_row_put
+    inc word [tg_ldrn]
+.out:
     pop di
     pop si
     pop dx
@@ -2217,9 +2458,12 @@ tg_res_begin:
     mov byte [tg_ph], TG_PH_RES
     mov byte [tg_rs], 0
     mov byte [tg_rsync], 0
-    mov byte [tg_rwait], TG_RHOLD
+    mov byte [tg_rwait], 0         ; the arrival first, then the hold
     mov byte [tg_list], 2           ; the panel is the LOG now
     mov word [tg_logn], 0
+    mov word [tg_ltot], 0
+    mov word [tg_ldrn], 0
+    mov word [tg_lused], 0
     mov di, tg_buf1
     mov si, ti_s_round
     call ti_poke
@@ -2231,9 +2475,19 @@ tg_res_begin:
     mov word [tg_phs], ti_s_resolving
     mov word [ti_hover], -1
     mov word [ti_hovc], -1
-    call tg_cells                   ; the other side's characters, composed
-    call ti_board                   ; ...and the board both plans made, whole
-    call ti_all
+    ; WHAT MOVED AND NOTHING ELSE, AND NOT ALL AT ONCE. This was ti_board
+    ; and ti_all - the whole window again - and measured 880 ms of a 4.77 MHz
+    ; 8088 in fullscreen with the music stopped for it. What the commit
+    ; changes is the HUD's phase, the pools, the panel - here - and the cells
+    ; the other side's plan filled, which the worker composes and puts down
+    ; ONE A FRAME (tg_sync1), so the arrival is a cascade and not a freeze.
+    call tm_run                     ; (the UI task holds the lock the worker
+    call ti_hud_draw                ; would step the music from, so it steps
+    call tm_run                     ; it here, between the three)
+    call ti_res_all                 ; ...and the CELLS arrive a frame at a
+    call tm_run                     ; time, from the worker (tg_res_step)
+    call ti_panel
+    mov byte [tg_rarr], 1
     pop es
     pop di
     pop si
@@ -2251,11 +2505,20 @@ tg_res_step:
     ret
 .go:
     push ax
+    call tg_log_draw1               ; a log line a frame, if one is owed
     cmp byte [tg_rwait], 0
     je .due
     dec byte [tg_rwait]
     jmp .out
 .due:
+    cmp byte [tg_rarr], 0           ; THE ARRIVAL: a cell a frame, then the
+    je .fight                       ; hold before the first lane
+    call tg_sync1
+    jnc .out
+    mov byte [tg_rarr], 0
+    mov byte [tg_rwait], TG_RHOLD
+    jmp .out
+.fight:
     cmp byte [ti_clash], 0          ; a clash or a bolt still in the air: the
     jne .out                        ; numbers change when they LAND
     call ti_pj_live
@@ -2404,6 +2667,7 @@ tg_res_show:
     pop es
     cld
     mov byte [tg_lhdr], 0
+    mov byte [tg_rpool], 0
     mov si, tr_cells
     xor bx, bx
 .c:
@@ -2458,6 +2722,7 @@ tg_res_show:
     shr bx, 1
     or ax, ax
     jz .pool
+    mov byte [tg_rpool], 1
     call .hdr
     mov di, tg_buf1
     call .who
@@ -2487,6 +2752,7 @@ tg_res_show:
     sub ah, [tg_sns + bx]
     or ax, ax
     jz .sn
+    mov byte [tg_rpool], 1
     mov di, tg_buf1                 ; SPOILS: `P1 +2G +1S`
     call .who
     push ax
@@ -2509,7 +2775,10 @@ tg_res_show:
     call tg_views                   ; ...and the board shows it
     mov word [tg_phs], ti_s_resolving
     call tg_sync
+    cmp byte [tg_rpool], 0          ; ...and the pools, only if they moved
+    je .nopool
     call ti_res_all
+.nopool:
     pop es
     pop di
     pop si
@@ -2601,8 +2870,9 @@ tg_num:
     pop ax
     ret
 
-; tg_log_add - the NUL line at tg_buf1 onto the log (the oldest scrolls off),
-; and the panel shows it. Preserves every register.
+; tg_log_add - the NUL line at tg_buf1 onto the log (the oldest scrolls off).
+; It DRAWS NOTHING: tg_log_draw1 owes it to the glass. Preserves every
+; register.
 tg_log_add:
     push ax
     push cx
@@ -2637,10 +2907,8 @@ tg_log_add:
 .end:
     mov byte [di], 0
     inc word [tg_logn]
-    cmp byte [tg_list], 2
-    jne .out
-    call tg_list_draw
-.out:
+    inc word [tg_ltot]              ; owed to the glass: tg_log_draw1 puts it
+.out:                               ; down, a line a frame
     pop es
     pop di
     pop si
@@ -2663,7 +2931,8 @@ tg_res_done:
     mov byte [tg_ph], TG_PH_PASS
     call tg_idle
     call tg_replay
-    call tg_screen
+    call tm_run                     ; (the upkeep and the replay, then a fill
+    call tg_screen                  ; of the whole window: the music between)
     jmp short .out
 .over:
     call tg_save
@@ -2747,13 +3016,19 @@ tg_ly:      dw 0
 tg_lw:      dw 0
 tg_lrows:   dw 0
 tg_ln:      dw 0
-tg_lhi:     dw 0                    ; the last row with anything in it
+tg_rowlen:  times TG_LMAXR db 0     ; what each list row holds, in cells
+tg_lrcap:   db TG_LMAXR             ; the most rows a list is given
+tg_ltot:    dw 0                    ; log lines added this round...
+tg_ldrn:    dw 0                    ; ...and put on the glass
+tg_lused:   dw 0                    ; the log's rows in use
 tg_lfirst:  dw 0                    ; the first log line shown
 tg_rs:      db 0                    ; the round's step: lanes, casualties, hold
 tg_rsync:   db 0                    ; a step fought, and not yet shown
 tg_rwait:   db 0                    ; frames before the next step
 tg_rlane:   db 0                    ; the lane just fought, 0FFh casualties
 tg_lhdr:    db 0
+tg_rarr:    db 0                    ; the other side's cells still arriving
+tg_rpool:   db 0                    ; a step moved a player's HP or pools
 tg_snc:     times TR_CELLS db 0     ; the board and pools before a step
 tg_snh:     times TR_CELLS db 0
 tg_snp:     dw 0, 0

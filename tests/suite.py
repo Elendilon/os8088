@@ -7299,6 +7299,21 @@ SOAK = [
         "tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithelog", "soak", py("tests/tithelog.py"), 35.0,
+        "SPEC.md 97.12.8: TITHE's round fought on the glass, fullscreen on"
+        "Hercules - the owner's report that the LOG froze the screen and"
+        "stopped the music. The music's own worst gap through the fight is at"
+        "most 3 ticks (it was 7-8, with every log line redrawing the whole"
+        "log inside the worker's frame and the round opening on a 880 ms"
+        "whole-window repaint); a whole repaint mid-round draws the board and"
+        "not the pass screen (it drew the pass screen for any phase but"
+        "planning); and the log, capped at four rows by a test byte so the"
+        "round's nine lines scroll it five times with OSAPI_GFX_SCROLL, is"
+        "exactly a whole repaint at the round's end. Broken on purpose: a"
+        "line copied through the wrong ES goes red by 452 px. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("tithegame", "soak", py("tests/tithegame.py"), 80.0,
         "SPEC.md 97.12: TITHE's ROUND LOOP, played by hand on Hercules and"
         "CGA. A SEEDED deal (tg_fillq = 3) that tools/duelsim.py deals the"

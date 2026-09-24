@@ -142146,6 +142146,41 @@ A lane where nothing landed is a beat and nothing more.
 misses is a slower round, never a different one; and the idle wheel keeps
 turning under it, the figures breathing while they wait for their lane.
 
+**What it costs, and the three things that made it cheap** — measured on a
+4.77 MHz 8088 in fullscreen after the owner reported the log freezing the
+screen and stopping the music:
+
+| | before | after |
+|---|---|---|
+| the round's opening | **880 ms** in one call, a whole-window repaint | 165 ms: the HUD, the pools and the panel, then the other side's cells **one a frame** (`tg_sync1`) |
+| a lane's worst frame | 220–330 ms, of which the log was up to 275 | 110–165 ms |
+| the casualties step | 440 ms | 110–165 ms |
+| the music's worst gap, through the fight | **439 ms** | **110 ms** |
+| frames a second, through the round | ~14 | 15–17 |
+
+1. **The log draws a line ONCE.** `tg_log_add` draws nothing; `tg_log_draw1`
+   puts ONE owed line down a frame, as wide as a log line (17 cells) and
+   never the box's 39, and when the box is full the rows above move up by
+   `OSAPI_GFX_SCROLL` (§5.5) — under a millisecond where lettering them
+   again was a row's worth of cells each. The scroll rect is the rows' own
+   byte columns, so it is legal and vacates exactly one row, which the new
+   line repaints whole: its content is unspecified. **Every list row is
+   padded only to what it overwrites** (`tg_rowlen`), so the plan list's
+   edits got cheaper by the same rule.
+2. **The opening redraws what moved** and lets the cells arrive a frame at a
+   time — a cascade rather than a freeze.
+3. **The music is stepped inside the long calls** (`tm_run` between cells
+   and between the opening's three draws - not per list row, whose music
+   chain under a board repaint was 22 bytes past the worker's 256-byte slice,
+   `tests/unit/t_stkclass.py`). The worker steps it at the top of
+   its loop, and a frame that holds the lock for a quarter of a second held
+   the tune with it.
+
+**And a repaint mid-round draws the BOARD.** The paint path showed the pass
+screen for every phase but planning, so an uncovered window lost the round
+to *PLAYER 1 HAS COMMITTED*; `tg_onscreen` names the two phases that really
+are between players. `tests/tithelog.py` holds all three.
+
 **The resolution music (§97.10.6) is the round's**: the fight posts
 `TM_RQ_RES` as it begins and `TM_RQ_END` as the round's screen goes up, which
 is exactly what the music's `R` key fakes — so `R` stays the music's, and
