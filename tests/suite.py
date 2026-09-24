@@ -2283,8 +2283,10 @@ SOAK = [
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
-        "prints numbers. `--all` runs one per adapter.",
-        needs=("marty",), serial=True, alone=True),
+        "prints numbers. `--all` runs one per adapter. Every figure is GUEST "
+        "milliseconds off the cycle counter, sampled per displayed frame by "
+        "m.flicker, so it shares the lane: a busy box cannot move one.",
+        needs=("marty",), serial=True),
     Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 80.0,
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
@@ -5971,7 +5973,10 @@ SOAK = [
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
-        needs=("marty", "wiredisk"), serial=True, alone=True,
+        # It shares the lane: the latency is the CYCLE count between two
+        # memory breakpoints the guest itself hits, so the box's load cannot
+        # move it.
+        needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
@@ -7096,15 +7101,12 @@ SOAK = [
         "with a DAEMONISED `make test` left a qemu holding the floppy image "
         "and made every later QEMU row die at once - three of which "
         "os88bisect read as this row failing.",
-        # ALONE, STILL, and now for a reason that is the HARNESS's rather than
-        # the row's: every QEMU row in the tree opens the same fixed
-        # build/qmp.sock (tests/ethernet.py), so two of them can never run
-        # together whatever the lane says. The suite never puts a qemu row in
-        # the shared lane anyway - that lane is built from `marty` in needs -
-        # so this flag costs the run nothing and says the true thing. The
-        # row's own Mouse helper still carries a fixed time.sleep(0.4) per
-        # press; the reads no longer trust it.
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=900,
+        # NOT `alone`: every QEMU row opens the same fixed build/qmp.sock
+        # (tests/ethernet.py), and the runner already keeps any row without
+        # `marty` out of the shared lane - so it runs one at a time as a
+        # SERIAL row, which is the true statement. Every read is on the
+        # guest's own [ticks].
+        needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
     Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
@@ -7135,7 +7137,7 @@ SOAK = [
         "unreachable on that arm by mou_apply's own first compare, and a "
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
-        needs=("marty",), alone=True, serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=900),
     Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
         "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
         "19h resets no hardware, so the next boot inherits drive B's head "
@@ -7147,7 +7149,7 @@ SOAK = [
         "ui_cmd_reboot's own int 19h and reads ST3 off the emulated 765 from "
         "the host. It builds NOFDDPARK=1 itself: reading TRK0 set on one arm "
         "says only that SOMETHING parked the head.",
-        needs=("marty",), alone=True, serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "

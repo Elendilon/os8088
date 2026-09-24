@@ -177,14 +177,39 @@ def pace(m, secs):
     with something and which has no state of its own to wait on. When there IS
     a state - a word that moves, a window that appears, disk traffic that
     stops - wait on that with `until` or `quiesce` instead; a fixed pause is
-    the fallback, not the tool. The guest must be running: a pause over a
-    paused machine is `guest_sleep`'s stall and raises in GUEST_STALL seconds.
+    the fallback, not the tool.
+
+    A PAUSE ENDS WHEN THE GUEST STOPS, which is what `time.sleep` did for the
+    guest's purposes and what a pause is: a breakpoint the caller armed fires
+    inside it (tests/uilat.py sends a packet with one armed on `evq_tail`), or
+    the caller had the machine paused, and either way nothing more will happen
+    until the caller acts. `guest_sleep` raises there instead, because a
+    SLEEP has a duration to deliver. Under a `bp_trace` pump a stop is a
+    moment the pump is about to end, so the pause keeps counting. Answers the
+    guest seconds actually spent.
     """
     import time
-    if GUEST_PACE > 0 and m is not None:
-        return guest_sleep(m, secs * GUEST_PACE)
-    time.sleep(secs)
-    return 0.0
+    if GUEST_PACE <= 0 or m is None:
+        time.sleep(secs)
+        return 0.0
+    want = secs * GUEST_PACE
+    st = m.status()
+    c0 = int(st.get("cycles", 0))
+    t0 = time.time()
+    while True:
+        spent = (int(st.get("cycles", 0)) - c0) / GUEST_HZ
+        if spent >= want:
+            return spent
+        if (st.get("state", "running") != "running"
+                and not getattr(m, "_pumping", 0)):
+            return spent
+        if time.time() - t0 > max(5.0, want * HOST_BACKSTOP):
+            raise MartyError(
+                "a %.2fs pause (%.1f guest seconds) had spent %.2f of them "
+                "after %.0f host seconds - the guest is running at under a "
+                "tenth of real time" % (secs, want, spent, time.time() - t0))
+        time.sleep(0.01)
+        st = m.status()
 
 # Where a run records what its waits actually cost, in guest seconds, when
 # OS88_WAITLOG names a file. Nothing reads it at run time: it is how the
