@@ -53,9 +53,12 @@ DSK_B_MEDIA  equ 21              ; BPB_Media (byte)
 DSK_B_FATSZ  equ 22              ; BPB_FATSz16 (word)
 DSK_B_SPT    equ 24              ; BPB_SecPerTrk (word)
 DSK_B_HEADS  equ 26              ; BPB_NumHeads (word)
-DSK_BPB_SZ   equ 32              ; bytes staged/banked: covers 0..DSK_B_HEADS+1
-%if DSK_B_HEADS + 2 > DSK_BPB_SZ
-  %error "DSK_BPB_SZ must cover every DSK_B_* field"
+DSK_BPB_SZ   equ 18              ; bytes staged and banked per volume: the BPB
+                                 ; from DSK_B_BPS through DSK_B_HEADS+1 (even,
+                                 ; for rep movsw). DSK_B_JMP is asked of the
+                                 ; sector itself, beside rule 1 (SPEC.md 18.9.2)
+%if DSK_BPB_SZ < DSK_B_HEADS + 2 - DSK_B_BPS
+  %error "DSK_BPB_SZ no longer covers DSK_B_BPS..DSK_B_HEADS"
 %endif
 
 ; --- raw on-disk root directory entry field offsets (SPEC.md 19) -------------
@@ -763,17 +766,17 @@ dsk_bpb_bank_get:
     add bx, bx
     mov si, [bx+dsk_bpbsg]      ; the signature, banked with the head
     mov [dsk_sigcur], si
-    mov cl, 5
-    shl ax, cl                  ; index * 32
+    mov cl, DSK_BPB_SZ
+    mul cl                      ; index * DSK_BPB_SZ (AX = AL*CL; DX untouched)
     mov si, ax
     add si, dsk_bpbv
-    mov di, dsk_bpb
+    mov di, dsk_bpbh
     push ds
     pop es
     mov cx, DSK_BPB_SZ / 2
     cld
     rep movsw                   ; the staged head
-    mov byte [dsk_bpbpre], 1    ; ...so dsk_bpb_check skips rule 1 and the
+    mov byte [dsk_bpbpre], 1    ; ...so dsk_bpb_check skips rules 1-2 and the
     pop es                      ; staging, and only those
     pop di
     pop si
@@ -829,11 +832,11 @@ dsk_bpb_bank_put:
     jne .fixed
     mov byte [bx+dsk_bpbok], 2  ; ...2 = only for as long as this batch runs
 .fixed:
-    mov cl, 5
-    shl ax, cl
+    mov cl, DSK_BPB_SZ
+    mul cl                      ; index * DSK_BPB_SZ
     mov di, ax
     add di, dsk_bpbv
-    mov si, dsk_bpb
+    mov si, dsk_bpbh
     push ds
     pop es
     mov cx, DSK_BPB_SZ / 2
@@ -3440,7 +3443,7 @@ disk_mount_x:
 ; clobbers: nothing but CF
 ;
 ; Rule 1 runs via one es: word compare against the sector in low memory;
-; the boot sector's first DSK_BPB_SZ bytes are then staged into dsk_bpb (kernel
+; the boot sector's BPB (offsets 11..28) is then staged into dsk_bpbh (kernel
 ; .bss) and every later rule runs on plain DS reads - odd-offset word loads
 ; are plain 8086 loads, no alignment requirement exists. The BPB is
 ; HOSTILE: each rule protects a specific downstream consumer (18.2), and
@@ -3456,10 +3459,11 @@ dsk_bpb_check:
 
     push es
 
-    ; A BANKED head skips rule 1 and the staging, and only those (SPEC.md
-    ; 18.9.2): it passed rule 1 when it was banked, the bytes in dsk_bpb ARE
+    ; A BANKED head skips rules 1 and 2 and the staging, and only those (SPEC.md
+    ; 18.9.2): it passed rules 1 and 2 when it was banked (both are asked of
+    ; the sector, and the jump byte is not banked), the bytes in dsk_bpb ARE
     ; that sector's, and dsk_secbuf now holds something else entirely. Every
-    ; rule from 2 down still runs, because re-validating costs no I/O and a
+    ; rule from 3 down still runs, because re-validating costs no I/O and a
     ; bank that has been corrupted in RAM must not be trusted further than a
     ; sector off the disk. READ-AND-CLEAR: the flag is for exactly one call,
     ; and a leaked 1 would skip rule 1 on a sector that never passed it.
@@ -3474,9 +3478,19 @@ dsk_bpb_check:
     cmp word [es:dsk_secbuf+510], 0xAA55
     jne .jfail1
 
-    ; stage the boot-sector head so rules 2..16 read plain DS (SPEC.md 18.2)
-    mov si, dsk_secbuf
-    mov di, dsk_bpb
+    ; rule 2: BS_jmpBoot[0] in {0xEB, 0xE9} (MS-spec first validity test).
+    ; Asked of the SECTOR, beside rule 1, because the jump byte is not staged:
+    ; a banked head passed both when it was banked and neither can change in RAM
+    mov al, [es:dsk_secbuf+DSK_B_JMP]
+    cmp al, 0xEB
+    je .r2ok
+    cmp al, 0xE9
+    jne .jfail1
+.r2ok:
+    ; stage the BPB fields rules 3..16 read, so they read plain DS (SPEC.md
+    ; 18.2) - offsets DSK_B_BPS..DSK_B_BPS+DSK_BPB_SZ-1 and nothing else
+    mov si, dsk_secbuf+DSK_B_BPS
+    mov di, dsk_bpbh
     mov cx, DSK_BPB_SZ
     call dsk_copy_in_x
 .staged:
@@ -3487,13 +3501,6 @@ dsk_bpb_check:
                                 ; touches and never names BX, and `mul` writes
                                 ; only AX and DX
 
-    ; rule 2: BS_jmpBoot[0] in {0xEB, 0xE9} (MS-spec first validity test)
-    mov al, [dsk_bpb+DSK_B_JMP]
-    cmp al, 0xEB
-    je .r3
-    cmp al, 0xE9
-    jne .jfail1
-.r3:
     ; rule 3: bytes/sector == 512 exactly (disk_read moves exactly 512)
     cmp word [dsk_bpb+DSK_B_BPS], 512
     jne .jfail1
@@ -8668,7 +8675,11 @@ ico_keyb:   resb ICO_KEY        ; THIS ENTRY'S (name, size), taken at the top
 
 ; mount-derived FAT state (SPEC.md 18.1) - valid only after a successful
 ; mount; every consumer is already gated by disk_nfiles != 0
-dsk_bpb:      resb DSK_BPB_SZ   ; staged boot-sector head (mount scratch)
+dsk_bpbh:     resb DSK_BPB_SZ   ; staged BPB fields 11..28 (mount scratch)
+dsk_bpb       equ dsk_bpbh - DSK_B_BPS  ; ...addressed as sector offsets, so
+                                ; [dsk_bpb+DSK_B_*] is the field for every
+                                ; DSK_B_* from DSK_B_BPS up. DSK_B_JMP is
+                                ; asked of dsk_secbuf and never through this
 dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
 dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
 dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)
