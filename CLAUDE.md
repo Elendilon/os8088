@@ -1271,8 +1271,20 @@ python3 tools/shot.py build/qmp.sock out.png [--crop X,Y,W,H] [--zoom N]
 python3 tools/qmp.py build/qmp.sock 'quit'
 ```
 
-Three traps not written down elsewhere:
+Four traps, the first of which you can spring by hand in one command:
 
+- **NEVER hand `/dev/null` to nasm as `-o` or `-l`** - not in a script, not
+  in a one-off "does it assemble?" check. nasm treats its output files as its
+  own: a FAILED assembly unlinks its `-o` target and `-l` replaces its target
+  with a regular file even on success, and as root that target is the device
+  itself (docs/plans/SOAK-PARALLEL.md 16 has the measurement). Everything
+  after it then misbehaves without naming the cause - output grows on disk,
+  `diff`/`cmp` against it answer wrongly, `./configure` fails. Write to a temp
+  file and delete it. `tests/unit/t_nulldev.py` refuses the pattern in the
+  tree, but it cannot see a command typed at a prompt, and a session typed
+  exactly that on 2026-09-24. The check and the repair, as root:
+  `stat -c %F /dev/null` must say `character special file`; otherwise
+  `mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new && mv -f /dev/null.new /dev/null`.
 - **A knob kernel in `build/` is a different kernel to the symbol reader.**
   Every emulator row resolves kernel symbols through `tools/os88sym.py`, which
   re-assembles `kernel.asm` and refuses an address unless the result is
