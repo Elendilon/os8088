@@ -48658,7 +48658,22 @@ the segment's top, so part 0's slack is untouched.
 when it succeeds, drops `[wd_kr0]`/`[wd_kr1]`. Those are the rows §27.8.4
 makes a click walk to un-invert, so without them the click is an ordinary
 caret move. `wd_redraw`'s normal path calls it too, for any other caret move
-that clears a selection. It applies only while `[wd_rowsok]` holds and
+that clears a selection.
+
+**A click INSIDE the selection is the other door, and the one a hand uses
+most.** `wd_onclick` hands such a press to `wd_dragmove`, because it may be
+the start of a drag-and-drop, and a release that never left the dead zone is
+resolved there as a click. That branch cleared the selection and called
+`wd_redraw` with no kind at all: a two-pass repaint of the view, 2.5 s and 52
+rows flushed on a 5150, and 31 rows for a selection of part of ONE line. It
+was reported from the field three ways: a click in the middle of a large
+selection, a click inside a partial line, and a click in the gap under
+WELCOME.DOC's flush-right line after a drag that scrolled past it. The gap
+names the next row, so that click also lands inside the selection. The branch
+now banks the index the caret leaves, tries `wd_sxdesel`, and on success is a
+plain caret move through `wd_clickcm`, exactly as `wd_onclick` is. It does so
+only when the pointer never left the dead zone, so nothing has drawn or
+scrolled since the press and `[wd_cmrow]` still names its row. It applies only while `[wd_rowsok]` holds and
 `[wd_top]` = `[wd_ptop]`, and to a row only when that row is on the glass,
 inside the table, and meets the selection the screen shows.
 
@@ -48681,9 +48696,11 @@ Each fill costs about 6 ms a row there. It is 56 bytes of part 0 and 457 of
 part 1, 240 of them the bank. The gate compares every leg's glass with a
 repaint that the scroll bar forces, which moves no caret: ragged ends, a
 drag that auto-scrolled, Downs across the cleared rows, a chosen face, and
-the refused arm. Two breaks were confirmed red. Without the shift, the
-scrolled drag reads 12,992 pixels off. With the span one cell short, every
-leg is off.
+the refused arm, and legs F to H for the three inside-selection clicks. Three
+breaks were confirmed red. Without the shift, the scrolled drag reads 12,992
+pixels off. With the span one cell short, every leg is off. With
+`wd_dragmove`'s branch back on the old path, F to H flush 45, 31 and 50
+rows.
 
 ### 27.8 A selection, and the two things a drag can mean
 

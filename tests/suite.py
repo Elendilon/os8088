@@ -6745,7 +6745,7 @@ SOAK = [
         "that moved and repainted the window, 2,284 ms with the guards out.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdunsel", "soak", py("tests/wdunsel.py"), 230.0,
+    Row("wdunsel", "soak", py("tests/wdunsel.py"), 360.0,
         "SPEC.md 27.8.2.6: A DESELECT TAKES THE HIGHLIGHT OFF WITH THE XORS "
         "THAT PUT IT ON. A click that cleared a selection re-lettered every "
         "row it covered and walked the view twice (1.5 s for six rows on a "
@@ -6756,8 +6756,13 @@ SOAK = [
         "A ragged ends (and the click costs a plain click plus its fills), B a "
         "drag that auto-scrolled, C Downs across the cleared rows, D a chosen "
         "face, E the refused arm as an A/B in one boot (168 ms against 1,226 "
-        "on a Hercules). Red with the shift taken out (B, 12,992 pixels) and "
-        "with the span one cell short (every leg). Measured at 214s.",
+        "on a Hercules), F-H a click INSIDE the selection - wd_dragmove's "
+        "release, which redrew the view twice (2.5 s, 52 rows; 31 for part "
+        "of one line): most of the page, part of a line, and the field's gap "
+        "under the flush-right line after a scrolling drag. Red with the "
+        "shift taken out (B, 12,992 pixels), with the span one cell short "
+        "(every leg), and with wd_dragmove's branch on the old path (F-H, "
+        "45/31/50 rows). Measured at 342s.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdparts", "soak", py("tests/wdparts.py"), 45.0,

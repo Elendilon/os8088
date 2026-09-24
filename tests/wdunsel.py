@@ -29,6 +29,15 @@ the trap is everything that puts pixels on a row WITHOUT wd_rflush:
   leg E  the A/B inside one boot: wd_sxdesel poked to `stc; ret` is the old
          path, the same selection and click must give the same pixels, and
          the fast one must be at least three times cheaper
+  legs F-H  a click INSIDE the selection, which is wd_dragmove's and not
+         wd_onclick's: a press there may be the start of a drag-and-drop, so
+         it is resolved on the release - and that path redrew the view twice
+         (2.5 s, 52 rows) until it took the bank as well. F: most of the page,
+         clicked in the middle. G: part of one line, clicked inside it. H: the
+         field's report - a drag that scrolled, past WELCOME.DOC's flush-right
+         line, then a click in the gap under that line, which names the next
+         row and so lands inside the selection. Each takes the fast path,
+         redraws at most four rows and equals a repaint
 """
 import os, sys, time, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
@@ -198,6 +207,29 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         mo.to(4, 4); time.sleep(0.8); M.settle(m)
         return (bool(hit) and hit[0]), ms(T.get("out", 0) - T.get("in", 0))
 
+    def inside(g, x, y):
+        """A click that lands INSIDE the selection: (fast path, rows flushed)."""
+        mo.to(x, y); time.sleep(0.4); M.settle(m)
+        st = {"fast": None, "rf": 0}
+        NM = {}
+        for nm in ("wd_sxdesel.ret", "wd_rflush"):
+            a2 = P(nm)
+            for kk in (a2, "%X" % a2, str(a2)):
+                NM[kk] = nm
+        def on(mm, rec):
+            nm = NM.get(rec.get("name"))
+            if nm == "wd_rflush":
+                st["rf"] += 1
+            elif st["fast"] is None:
+                st["fast"] = not (mm.regs()["flags"] & 1)
+            return None
+        with M.bp_trace(m, P("wd_sxdesel.ret"), P("wd_rflush"), on_hit=on, cap=400):
+            mo._edge(True); time.sleep(0.15); mo._edge(False)
+            M.quiesce(m, lambda: (rb("wd_selon"), rw("wd_cur")))
+            time.sleep(0.6)
+        mo.to(4, 4); time.sleep(0.8); M.settle(m)
+        return bool(st["fast"]), st["rf"]
+
     def against_repaint(g):
         now = shot(m)
         top0 = rw("wd_top")
@@ -275,6 +307,44 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("E: both arms draw the SAME screen", dE == 0, "%d differing pixels" % dE)
     check("E: ...and the bank is at least 3x cheaper", tF > 0 and tS > 3 * tF,
           "%.1f ms against %.1f" % (tF, tS))
+
+    # ---- legs F-H: a click INSIDE the selection (wd_dragmove) ----------------
+    to_top(g)
+    on, s0, s1 = select(g, 1, 40, NV - 3, 200)
+    fF, rF = inside(g, g["tx"] + 100, ryb(NV // 2) + 2)
+    dF = against_repaint(g)
+    check("F: most of the page, clicked inside: the fast path",
+          on == 1 and fF and rF <= 4, "selon %d, fast %s, %d rows flushed" % (on, fF, rF))
+    check("F: ...and the glass equals a full repaint", dF == 0,
+          "%s differing pixels" % dF)
+    on, s0, s1 = select(g, 3, 16, 3, 150)
+    fG, rG = inside(g, g["tx"] + 80, ryb(3) + 2)
+    dG = against_repaint(g)
+    check("G: part of a line, clicked inside it: the fast path",
+          on == 1 and fG and rG <= 4, "selon %d, fast %s, %d rows flushed" % (on, fG, rG))
+    check("G: ...and the glass equals a full repaint", dG == 0,
+          "%s differing pixels" % dG)
+    to_top(g)
+    select(g, 2, 24, NV - 2, 160, hold_below=3)
+    note = m.read(u16(m.read(P("wd_dseg"), 2)) * 16, rw("wd_len"))
+    mark = note.find(b"flush right")
+    rowsA = lambda r: u16(m.read(P("wd_rows") + 2*r, 2))
+    FR = None
+    for r in range(min(rw("wd_rowsn"), g["vrows"]) - 1):
+        if rowsA(r) <= mark < rowsA(r + 1):
+            FR = r
+            break
+    inH = FR is not None and rb("wd_selon") and rw("wd_sel0") <= mark < rw("wd_sel1")
+    check("H: a scrolled selection runs past the flush-right line (case, "
+          "not assertion)", inH, "top %d, row %s" % (rw("wd_top"), FR))
+    if inH:
+        fH, rH = inside(g, g["tx"] + 60, (ryb(FR) + rw("wd_gh") + ryb(FR + 1)) // 2)
+        dH = against_repaint(g)
+        print("      the gap under the flush-right line: fast %s, %d rows" % (fH, rH))
+        check("H: the gap under it, clicked: the fast path", fH and rH <= 4,
+              "fast %s, %d rows flushed" % (fH, rH))
+        check("H: ...and the glass equals a full repaint", dH == 0,
+              "%s differing pixels" % dH)
 
     # ---- leg D: a chosen face ------------------------------------------------
     Rf = base + syms["wd_dfont"]

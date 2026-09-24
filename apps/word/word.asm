@@ -14745,11 +14745,21 @@ wd_dragmove:
     call wd_redraw
     jmp short .out
 .click:
+    mov ax, [wd_cur]            ; the index the caret is LEAVING, for the
+    mov [wd_cmoi], ax           ; pair wd_clickcm orders (SPEC.md 27.4.10)
     mov ax, [wd_anchor]         ; never left the dead zone: it was a click,
     mov [wd_cur], ax            ; and a click puts the caret where it landed
     call wd_selclr
     mov byte [wd_ckok], 0
     call wd_chpsync             ; ...and the typing attrs with it (65.3)
+    or bx, bx                   ; THE SAME DESELECT wd_onclick has (SPEC.md
+    jnz .slow                   ; 27.8.2.6), and this is the one a hand makes
+    call wd_sxdesel             ; most: a click INSIDE the selection. Only
+    jc .slow                    ; when the pointer never left the dead zone,
+    mov word [wd_kr0], 0xFFFF   ; so nothing has drawn or scrolled since the
+    mov word [wd_kr1], 0xFFFF   ; press and [wd_cmrow] is still its row
+    call wd_clickcm             ; ...and then it is a plain caret move
+.slow:
     call wd_redraw
 .out:
     mov word [wd_dpos], 0xFFFF
