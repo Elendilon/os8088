@@ -144,6 +144,13 @@ kd_nothing_far:
 
 ; The NEAR group.
 fpg_step:
+; ...and SPEC.md 2.6.2's cold-side trampolines, which the disk layer's `.cold`
+; sites NEAR-call in front of three of the far stubs above. In the kernel each
+; is `call KERNEL_SEG:<target> / ret`; here the target does nothing, so the
+; trampoline does nothing either and owes the near `ret` its callers push.
+ct_fpg_begin:
+ct_fpg_end:
+ct_cw_mem_disp:
 desk_zmark_x:
 desk_learn_x:                   ; ...and which diskette to draw (SPEC.md 26.4.1)
 fmv_gneed:

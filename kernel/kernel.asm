@@ -7003,34 +7003,68 @@ cw_wm_title_set:        call wm_title_set
 cw_wm_win_rect:         call wm_win_rect
                     retf
 
+; --- COLD-SIDE TRAMPOLINES (SPEC.md 2.6.2) -----------------------------------
+; A call out of `.cold` into `.text` is five bytes (`call KERNEL_SEG:x`) where
+; a near call is three, and the targets below have enough `.cold` call sites
+; that one six-byte `call KERNEL_SEG:x / ret` here, near-called from each of
+; them, is smaller than the far calls it replaces: 2N - 6 bytes for N sites.
+; Nothing a caller can see changes - a near call and its `ret` touch no
+; register and no flag, and BP (cw_mem_disp's input) passes straight through -
+; except two bytes of stack, for the near return address, during the call.
+;
+; `.cold` CALLERS ONLY. An on-demand module (`.modc`/`.modd`/...) and the boot
+; overlay run at another CS and keep the far call; fdlg.inc, which is `.cold`
+; on kern_big and FDLG.DRV on kern_small, reaches these through its FDK macro.
+; The sites-per-target figures are kern_big's / kern_small's, measured when
+; this block was written; a target whose count falls to 3 or below is paying
+; for its trampoline, and goes back to the plain far call.
+section .cold
+ct_cw_gfx_fill:     call KERNEL_SEG:cw_gfx_fill
+                    ret                     ; 23 / 18 sites
+ct_cw_gfx_unlock:   call KERNEL_SEG:cw_gfx_unlock
+                    ret                     ; 15 / 10 sites
+ct_cw_gfx_lock:     call KERNEL_SEG:cw_gfx_lock
+                    ret                     ; 14 / 10 sites
+ct_cw_font_run:     call KERNEL_SEG:cw_font_run
+                    ret                     ; 10 / 10 sites
+ct_cw_wm_content:   call KERNEL_SEG:cw_wm_content
+                    ret                     ; 9 / 3 sites
+ct_cw_mem_disp:     call KERNEL_SEG:cw_mem_disp
+                    ret                     ; 8 / 6 sites
+ct_toast_say:       call KERNEL_SEG:toast_say
+                    ret                     ; 8 / 8 sites
+ct_cw_gfx_frame:    call KERNEL_SEG:cw_gfx_frame
+                    ret                     ; 8 / 7 sites
+ct_font_width:      call KERNEL_SEG:font_width
+                    ret                     ; 7 / 5 sites
+ct_fpg_begin:       call KERNEL_SEG:fpg_begin
+                    ret                     ; 6 / 5 sites
+ct_cw_inst_win_owner: call KERNEL_SEG:cw_inst_win_owner
+                    ret                     ; 6 / 5 sites
+ct_cw_gfx_xor_fill: call KERNEL_SEG:cw_gfx_xor_fill
+                    ret                     ; 5 / 3 sites
+ct_cw_wm_clip_test: call KERNEL_SEG:cw_wm_clip_test
+                    ret                     ; 5 / 3 sites
+ct_cw_snd_beep:     call KERNEL_SEG:cw_snd_beep
+                    ret                     ; 5 / 2 sites
+ct_fpg_end:         call KERNEL_SEG:fpg_end
+                    ret                     ; 4 / 4 sites
+ct_cw_task_yield:   call KERNEL_SEG:cw_task_yield
+                    ret                     ; 4 / 3 sites
+ct_cw_gfx_pen_cf:   call KERNEL_SEG:cw_gfx_pen_cf
+                    ret                     ; 4 / 4 sites
+ct_cw_gfx_hline:    call KERNEL_SEG:cw_gfx_hline
+                    ret                     ; 4 / 4 sites
+section .text
+
 ; ...and the other direction: what the kernel calls IN the Control Panel.
-; cp_tpl and the driver/UI call sites still name these, so nothing outside
-; ctrl.inc changed at all.
-cp_paint:             call COLD_SEG:cpf_cp_paint
-                    ret
-cp_onclick:           call COLD_SEG:cpf_cp_onclick
-                    ret
-%ifdef KERN_BIG                 ; kern_small's cp_tpl names 0 (SPEC.md 62.9.15)
-cp_onkey:             call COLD_SEG:cpf_cp_onkey
-                    ret         ; W_ONKEY, so cp_tpl names THIS and not the
-                                ; body: the panel's window has W_SEG 0 and the
-                                ; dispatch is a NEAR call in KERNEL_SEG, which
-                                ; a cold offset would answer with whatever
-                                ; lives at that address down here (SPEC.md 2.6)
-%endif
-cp_onup:              call COLD_SEG:cpf_cp_onup      ; SPEC.md 13.8.3's two
-                    ret                              ; edges. The window record
-%ifdef KERN_BIG                                      ; holds these as NEAR
-cp_ondrag:            call COLD_SEG:cpf_cp_ondrag    ; pointers, so resident -
-                    ret                              ; and the RELEASE is on
-%endif                                               ; both kernels, because a
-                                ; driver's page acts on it (SPEC.md 13.8.4).
-                                ; The drag is kern_big's (SPEC.md 13.8.2)
-                      ; ...but NOT cp_flush. It has no thunk on purpose: with
-                      ; no way into it from .text, "the panel's teardown is the
-                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
-                      ; something the build enforces rather than something
-                      ; every new page has to be told
+; NOTHING, any more, for its window: cp_tpl and cp_kinit name the cold
+; cpf_ entries themselves, because a kernel window's callbacks are dispatched
+; into `.cold` by wm_pkgcall (SPEC.md 2.6.3) and need no resident thunk.
+; ...and NOT cp_flush either. It has no thunk on purpose: with no way into it
+; from .text, "the panel's teardown is the only thing that writes SYSTEM.CFG"
+; (SPEC.md 31.8) is something the build enforces rather than something every
+; new page has to be told
 
 %ifdef KERN_BIG
 ; --- ...and wm.inc's two chrome-box helpers (SPEC.md 13.8.1), which are cold
@@ -7098,39 +7132,12 @@ wm_ontimer_c:         stc       ; which of the three it is refusing
 ; is cold too, so those calls stayed near. diskw.inc's eight file doors and
 ; loader.inc's package start need none EITHER, since SPEC.md 20.3.2: each was
 ; reached by nothing but its N cell, and the cell names the dwf_/ldf_ far
-; entry itself now. What is left here is what a NEAR caller in .text names -
-; a window template, a `mov ax, proc`.
+; entry itself now. What is left here is what a NEAR caller in .text names
+; and a window's dispatch does not reach - the Disk window's KD_INIT. Its
+; template, its menu handler, its two edges and its image dialog's completion
+; name the cold bodies, and so does the file dialog's template: a kernel
+; window's callbacks are dispatched into `.cold` by wm_pkgcall (SPEC.md 2.6.3).
 fm_kinit:             call COLD_SEG:fm_kinit_x
-                    ret
-fm_onclick:           call COLD_SEG:fmf_fm_onclick
-                    ret
-%ifdef KERN_BIG
-fm_onup:              call COLD_SEG:fm_onup_x
-                    ret
-fm_ondrag:            call COLD_SEG:fmf_fm_ondrag
-                    ret                 ; ...and 13.10.5.4.2's PAUSE commit is
-                                        ; fm_onup itself, installed twice
-%endif
-fm_oncmd:             call COLD_SEG:fm_oncmd_x
-                    ret
-fm_onkey:             call COLD_SEG:fm_onkey_x
-                    ret
-fm_paint:             call COLD_SEG:fm_paint_x
-                    ret
-%ifdef KERN_BIG
-fdlg_onup:            call COLD_SEG:fdf_fdlg_onup   ; SPEC.md 13.8.3's release
-                  ret                               ; and tracking edges - the
-fdlg_ondrag:          call COLD_SEG:fdf_fdlg_ondrag ; window record holds these
-                  ret                               ; as NEAR pointers, so the
-                                                    ; thunk has to be resident.
-                                                    ; 13.10.5.4.2's PAUSE commit
-                                                    ; is fdlg_onup, twice over
-%endif
-fdlg_onclick:         call COLD_SEG:fdlg_onclick_x
-                    ret
-fdlg_onkey:           call COLD_SEG:fdlg_onkey_x
-                    ret
-fdlg_paint:           call COLD_SEG:fdf_fdlg_paint
                     ret
 ; SPEC.md 38.1.1 - THE GUARD IS ON THIS SIDE. fdlg_reap_x opens with
 ; `cmp word [fdlg_win], 0 / je`, and wm.inc calls that "one compare per pass
@@ -7164,14 +7171,12 @@ fdlg_reap:
 ; The DATA stayed resident: rule 1, and every reader of the templates, titles
 ; and strings addresses DS.
 ;
-; ELEVEN ENTRIES, WHICH IS ALL OF THEM, because every one is named by
-; something that dispatches NEAR in KERNEL_SEG and none of them is reached by
-; a far call written in source: inst_kinds' KD_TASK and KD_INIT words, the
-; three templates' paint and click words, the two that app_tmr_kinit installs
-; through wm_onmouseup/wm_ondrag - all of those land on wm_pkgcall's `call bp`
-; - and app_about_center, which ui.inc calls twice. So none of them can take
-; SPEC.md 2.6.1's shortcut of losing the thunk, and the public name stays here
-; while the body takes the _x suffix.
+; FOUR ENTRIES, and they are the two KD_INIT words and the two KD_TASK words
+; in inst_kinds, which inst_launch and task_spawn reach NEAR in KERNEL_SEG.
+; The three templates' paint and click words and the two edges app_tmr_kinit
+; installs name the cold bodies: they land on wm_pkgcall, which dispatches a
+; kernel window into `.cold` (SPEC.md 2.6.3). So did app_about_center, whose
+; one caller - the notice's paint - is cold now too.
 ;
 ; The two TASKS never return: task_spawn seeds the frame with the entry as a
 ; near address in KERNEL_SEG, so the thunk has to be resident, and the `ret`
@@ -7186,26 +7191,6 @@ app_tmr_kinit:        call COLD_SEG:app_tmr_kinit_x
 app_bounce_kinit:     call COLD_SEG:app_bounce_kinit_x
                     ret
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
-app_about_paint:      call COLD_SEG:app_about_paint_x
-                    ret
-%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
-app_tmr_paint:        call COLD_SEG:app_tmr_paint_x
-                    ret
-%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
-%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
-app_tmr_onclick:      call COLD_SEG:app_tmr_onclick_x
-                    ret
-%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
-%ifdef KERN_BIG
-app_tmr_onup:         call COLD_SEG:app_tmr_onup_x
-                    ret
-app_tmr_ondrag:       call COLD_SEG:app_tmr_ondrag_x
-                    ret
-%endif
-%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
-app_bounce_paint:     call COLD_SEG:app_bounce_paint_x
-                    ret
-%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_tmr_task:         call COLD_SEG:app_tmr_task_x
                     ret                     ; never reached (inst_task_die)
@@ -7214,11 +7199,6 @@ app_tmr_task:         call COLD_SEG:app_tmr_task_x
 app_bounce_task:      call COLD_SEG:app_bounce_task_x
                     ret                     ; never reached (inst_task_die)
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
-; ...and the one with near callers of its own: app_about_paint calls it four
-; times from inside .cold, so the body keeps a near `ret` and apf_ is the pad
-; that owes the far one (SPEC.md 2.6's original two-call shape).
-app_about_center:     call COLD_SEG:apf_app_about_center
-                    ret
 
 ; --- ...and assoc.inc's (SPEC.md 54). It joined the cold set because nothing
 ; in it runs faster than a double-click, and because its heaviest callees were
@@ -7275,18 +7255,11 @@ dsk_vol_slot:     call COLD_SEG:dkf_dsk_vol_slot
 drv_svc_call:  call COLD_SEG:drv_svc_call_x
            ret                          ; drv_task, drv_cfg and drv_dlg are
                                         ; their cells' own (SPEC.md 20.3.2)
-; ...and the other end of that round trip (SPEC.md 51.10). It is RESIDENT and
-; has to be: fdlg_commit dispatches a kernel window's completion proc through
-; wm_pkgcall, which for W_SEG 0 is a NEAR call in KERNEL_SEG, so the offset
-; handed to fdlg_open cannot be a cold one.
-; The file dialog's completion proc for the DISK WINDOW's image commands
-; (SPEC.md 18.99.8), resident for drv_dlg_done's reason immediately below: a
-; kernel window's callback is dispatched as a near call in KERNEL_SEG, and
-; files.inc is `.cold`.
-fm_img_done:   call COLD_SEG:fm_img_done_x
-                  ret
-drv_dlg_done:  call COLD_SEG:dvf_drv_dlg_done
-           ret
+; ...and the other end of that round trip (SPEC.md 51.10) needs NO thunk:
+; fdlg_commit dispatches a kernel window's completion proc through wm_pkgcall,
+; which takes a W_SEG 0 window into `.cold` (SPEC.md 2.6.3), so the offset
+; handed to fdlg_open is the cold body - drv_dlg_done_x here, and fm_img_done_x
+; for the Disk window's image commands (SPEC.md 18.99.8).
 
 ; --- ...and memory.inc's (SPEC.md 50). The claim heap: every claim and free
 ; in the machine, none of them on a drawing path. The busiest is the menu
@@ -7465,8 +7438,10 @@ kretc_cx:         pop cx
 kretfc_es:        pop es
 kretfc_bp:        pop bp
 kretfc_di:        pop di
-kretfc_si:        pop si
-kretfc_dx:        pop dx
+                  pop si          ; unlabelled for the same reason as `cx`
+kretfc_dx:        pop dx          ; below: app_about_paint_x was its last
+                                  ; caller, and it returns near now (SPEC.md
+                                  ; 2.6.3)
                   pop cx          ; UNLABELLED, and it is the `dx` rung above
                   pop bx          ; that took its last caller: `kretfc_cx` had
                   pop ax          ; exactly one jump in the tree and desk.inc's

@@ -1172,7 +1172,7 @@ assoc_run_x:
     mov bx, assoc_s_lead        ; wanted - which is exactly the report that
     mov di, assoc_s_ttl         ; found this (SPEC.md 54.4.1)
     mov bp, ui_note
-    call KERNEL_SEG:cw_mem_disp
+    call ct_cw_mem_disp
 .refresh:                       ; ...and both routes end at the one repaint
     call files_refresh_x
 .out:
@@ -1225,7 +1225,7 @@ assoc_handover:
     or si, si
     jz .out
     mov bp, wm_wake_call        ; assoc_run's second phase (SPEC.md 54.10): the
-    call KERNEL_SEG:cw_mem_disp ; launched window is on the glass, so the
+    call ct_cw_mem_disp         ; launched window is on the glass, so the
                                 ; package may now spend the document it was
                                 ; handed
 .out:

@@ -215,15 +215,17 @@ section .text
 ; whole life - it is mouse-only, every control on the five static pages being
 ; a radio, a check box or a button - and it is non-zero on kern_big alone,
 ; where SPEC.md 31.9.2 gave a DRIVER's page a typed field (SPEC.md 62.9.15).
+; The callbacks are the RESIDENT `.cold` entries below, NEAR procs there:
+; wm_pkgcall dispatches a kernel window into the cold segment (SPEC.md 2.6.3).
 %ifdef KERN_BIG
-cp_tpl:     dw 160, 130, 320, 151, cp_ttl, cp_paint, cp_onkey, cp_onclick
+cp_tpl:     dw 160, 130, 320, 151, cp_ttl, cpf_cp_paint, cp_onkey_x, cpf_cp_onclick
 %else                           ; **NO KEYBOARD ON kern_small** (SPEC.md
                                 ; 62.9.15): the one field in the machine that
                                 ; can be typed into is the RAM disk's size, and
                                 ; kern_small has no RAM disk. The word goes
                                 ; back to 0, which is what it was for the whole
                                 ; life of the panel before SPEC.md 31.9.2
-cp_tpl:     dw 160, 130, 320, 151, cp_ttl, cp_paint, 0, cp_onclick
+cp_tpl:     dw 160, 130, 320, 151, cp_ttl, cpf_cp_paint, 0, cpf_cp_onclick
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -258,10 +260,10 @@ cp_kinit:
     xor ax, ax
     call COLD_SEG:os88ui_arm_f
 %endif
-    mov ax, cp_onup
+    mov ax, cpf_cp_onup         ; a COLD offset (SPEC.md 2.6.3)
     call wm_onmouseup           ; .text calling .text: apps.inc's kind table
 %ifdef KERN_BIG                 ; is resident and so is this proc
-    mov ax, cp_ondrag
+    mov ax, cpf_cp_ondrag
     call wm_ondrag
 %endif
     pop ax
@@ -6736,25 +6738,24 @@ cpf_cp_paint:
     jc .p_gone
     call far [CPFP + CPE_PAINT*4]
 .p_gone:                        ; the window is up and its content cannot be
-    retf                        ; drawn. ui_cp_open makes this unreachable in
+    ret                         ; drawn. ui_cp_open makes this unreachable in
                                 ; practice by loading BEFORE app_launch; it is
                                 ; here because "unreachable" is a claim about
                                 ; today's callers
 
-; cp_onkey is a plain thunk: it is short, it runs only while the panel is on
-; screen (so the image is already in), and a mod_need here would be a floppy
-; read on a keystroke.
-%ifdef KERN_BIG
-cpf_cp_onkey:          call cp_onkey_x
-                    retf
-%endif
+; ...and cp_onkey has no entry here at all: cp_tpl names cp_onkey_x, which is
+; short, runs only while the panel is on screen (so the image is already in),
+; and would make a mod_need here a floppy read on a keystroke.
+; THESE ARE NEAR PROCS, every one of the four: cp_tpl and cp_kinit name them
+; and wm_pkgcall calls a kernel window's callbacks near in `.cold` (SPEC.md
+; 2.6.3).
 
 cpf_cp_onclick:
     call cpf_need
     jc .c_gone
     call far [CPFP + CPE_ONCLICK*4]
 .c_gone:
-    retf
+    ret
 
 ; SPEC.md 13.8.3's two edges. They do NOT call mod_need, and that is the
 ; difference from every shim above: a release or a drag can only follow a
@@ -6770,7 +6771,7 @@ cpf_cp_onup:
     jc .u_gone
     call far [CPFP + CPE_ONUP*4]
 .u_gone:
-    retf
+    ret
 %ifdef KERN_BIG
 cpf_cp_ondrag:
     push ax
@@ -6780,7 +6781,7 @@ cpf_cp_ondrag:
     jc .d_gone
     call far [CPFP + CPE_ONDRAG*4]
 .d_gone:
-    retf
+    ret
 %endif
 
 ; cp_flush_close is the panel's TEARDOWN (SPEC.md 31.8), so it is also where
@@ -6864,7 +6865,7 @@ cp_open_x:
     clc
     ret
 .beep:
-    call KERNEL_SEG:cw_snd_beep ; audible refusal (SPEC.md 34.3), which is
+    call ct_cw_snd_beep         ; audible refusal (SPEC.md 34.3), which is
     pop ax                      ; what every one of these call sites did with
     stc                         ; a CF=1 from app_launch before cp_open owned
     ret                         ; the decision
@@ -6880,7 +6881,7 @@ cp_open_x:
     mov al, 1
     mov bx, cp_opentab
     mov cx, CP_NOPEN
-    call KERNEL_SEG:toast_say
+    call ct_toast_say
     pop cx
     pop bx
     pop ax

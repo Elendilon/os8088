@@ -2386,7 +2386,8 @@ osapi_drv_dlg_x:
     xor si, si                  ; no default: SPEC.md 38.10's remembered name,
 .go:                            ; and NOT a kernel address holding an empty
                                 ; string, which fdlg_open cannot tell from one
-    mov di, drv_dlg_done
+    mov di, drv_dlg_done_x      ; the COLD body: a kernel window's callback
+                                ; is dispatched into `.cold` (SPEC.md 2.6.3)
     mov al, [drv_dlg_mode]
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
     jc .disarm
@@ -2451,8 +2452,6 @@ drv_dlg_done_x:
 osapi_drv_dlg_x:                ; the cell exists, the body does not
     stc
     retf
-drv_dlg_done_x:                 ; ...and nothing can arm it, so nothing calls
-    ret                         ; this - it is here because the thunk names it
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3234,7 +3233,7 @@ drv_unload_x:
     je .free
     mov dx, [ticks]
 .tk:
-    call KERNEL_SEG:cw_task_yield
+    call ct_cw_task_yield
     cmp byte [drv_wcnt], 0
     je .free
     cmp dx, [ticks]
@@ -4535,15 +4534,15 @@ drv_notice_x:
 ; 44 bytes of `.cold`, and SPEC.md 2.6.1 had already named this exact defect
 ; twice (`drv_status_x`, `drv_cp_count_x`) without the set being swept.
 ;
-; The two that survive are the two with a resident caller: kernel.asm's
-; `drv_owns_seg` and `drv_dlg_done` thunks. Every other `.text` thunk in that
+; The one that survives is the one with a resident caller: kernel.asm's
+; `drv_owns_seg` thunk (`drv_dlg_done`'s went with SPEC.md 2.6.3, the Control
+; Panel's window dispatching its completion proc into `.cold` directly).
+; Every other `.text` thunk in that
 ; file far-calls the `_x` BODY directly, which is SPEC.md 2.6.1's deleted
 ; middle pair - so a new `dvf_` entry is wanted only when the body it wraps
 ; ends in a near `ret` and something in `.text` has to reach it.
 ; =============================================================================
 dvf_drv_owns_seg:  call drv_owns_seg_x
-               retf
-dvf_drv_dlg_done:  call drv_dlg_done_x
                retf
 
 
@@ -4937,8 +4936,6 @@ section .cold
 ; kernel cannot".
 dvf_drv_owns_seg:
     stc
-    retf
-dvf_drv_dlg_done:
     retf
 osapi_drv_cfg_x:
 osapi_drv_dlg_x:

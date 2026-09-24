@@ -2809,7 +2809,7 @@ ui_sys_find:
 ; .text because -f bin zeroes no .bss and this is read before anything writes
 ; it (the fdlg_win precedent).
 ; -----------------------------------------------------------------------------
-ui_note_tpl: dw 150, 150, 288, 78, ui_s_tmttl, ui_note_paint, 0, 0
+ui_note_tpl: dw 150, 150, 288, 78, ui_s_tmttl, ui_note_paint_x, 0, 0
 ui_note_win: dw 0
 ui_note_msg: dw 0
 ui_note_lead: dw 0
@@ -2854,22 +2854,28 @@ ui_note:
     pop ax
     ret
 
-ui_note_paint:
+; The notice's W_PAINT is `.cold`, like every kernel window's callback
+; (SPEC.md 2.6.3): wm_pkgcall dispatches a W_SEG 0 window's procs into the
+; cold segment. That is also what makes app_about_center_x a NEAR call from
+; here, so the About box's resident thunk and its cold pad went with it.
+section .cold
+ui_note_paint_x:
     push ax
     push bx
     push cx
     push dx
     push si
-    call gfx_pen_live           ; CBLACK and the disabled flag clear (47)
+    call KERNEL_SEG:cw_gfx_pen_live ; CBLACK and the disabled flag clear (47)
     mov bx, si
     mov dx, [bx+W_Y]
     add dx, TITLE_H + 16
     mov si, [ui_note_lead]
-    call app_about_center
+    call app_about_center_x
     add dx, 16
     mov si, [ui_note_msg]
-    call app_about_center
-    jmp kret_si
+    call app_about_center_x
+    jmp kretc_si
+section .text
 
 ; -----------------------------------------------------------------------------
 ; ui_cmd - act on one of the kernel's own menu commands

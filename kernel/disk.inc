@@ -1563,7 +1563,7 @@ dsk_xfer:
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     SPLCALL splf_step               ; it is stepped per sector rather than per
     mov bp, fpg_step
-    call KERNEL_SEG:cw_mem_disp ; call, or the bar would under-count exactly
+    call ct_cw_mem_disp         ; call, or the bar would under-count exactly
     loop .notch                 ; as far as the batching won. BOTH preserve
                                 ; every register and the flags - CX is this
                                 ; loop's counter and CF is dsk_xfer's answer
@@ -6683,7 +6683,7 @@ dsk_read_chain_x:
     mov cx, 512                 ; (SPEC.md 12.8). This caller is handed SECTORS
     mul cx                      ; and holds no finer figure, so the byte count
     mov cx, ax                  ; is exact to the sector and the last partial
-    call KERNEL_SEG:fpg_begin                 ; one rounds up here exactly as it used to
+    call ct_fpg_begin                         ; one rounds up here exactly as it used to
     pop dx                      ; round up inside the widget (12.8.1)
     pop ax                      ; ...AX is the first cluster either side
 
@@ -6787,7 +6787,7 @@ dsk_read_chain_x:
     mov [dsk_chain_end], si     ; where a chunked caller resumes from
 .done2:                         ; ...and where the redirected read above joins,
     clc                         ; having stored its handle already
-    call KERNEL_SEG:fpg_end                   ; preserves CF, so it sits either side of the
+    call ct_fpg_end                           ; preserves CF, so it sits either side of the
                                 ; clc without comment (SPEC.md 12.8)
     jmp kretc_bp
 .fail1:
@@ -6796,7 +6796,7 @@ dsk_read_chain_x:
 .fail2:
     mov byte [dsk_cherr], 2     ; chain corrupt
 .failc:
-    call KERNEL_SEG:fpg_end                   ; a failed read owes the bar back exactly as
+    call ct_fpg_end                           ; a failed read owes the bar back exactly as
     pop bp                      ; a successful one does
     pop di
     pop si

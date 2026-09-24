@@ -535,7 +535,7 @@ ld_say_status:
 .say:
     mov bx, fm_stattab
     mov cx, LD_NSTAT
-    call KERNEL_SEG:toast_say
+    call ct_toast_say
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1016,7 +1016,7 @@ ld_alloc:
 
     ; --- 5. reserve an instance record + a pool region -------------------------
     mov bp, inst_alloc
-    call KERNEL_SEG:cw_mem_disp ; DI = record (unpublished: still free on
+    call ct_cw_mem_disp         ; DI = record (unpublished: still free on
     jc .nomem                   ; any later failure)
     mov [ld_rec], di            ; banked in .bss, not in BP: BP carries the
                                 ; entry offset into the dispatcher below,
@@ -1196,7 +1196,7 @@ ld_start:
     mov es, [ld_base]           ; the name field is in the package's image
     mov si, 16
     mov bp, inst_set_name_x
-    call KERNEL_SEG:cw_mem_disp ; ES:SI -> the 16-byte NUL-padded name
+    call ct_cw_mem_disp         ; ES:SI -> the 16-byte NUL-padded name
                                 ; ("out: nothing - all registers preserved")
     ; --- and the ICON, off the SAME ES -------------------------------------
     ; A SENTINEL, not a copy. The icon body is 64 bytes at a fixed offset in
@@ -1216,7 +1216,7 @@ ld_start:
     mov [di+I_ICON], ax
     pop es
     mov bp, inst_bind_win
-    call KERNEL_SEG:cw_mem_disp ; DI = record, BX = window (from the entry)
+    call ct_cw_mem_disp         ; DI = record, BX = window (from the entry)
     mov byte [di+I_STATE], 1    ; publish - the LAST record write
     ; --- the status BEFORE the repaint, not after ---------------------------
     ; A Disk window's status line draws [ld_status] (SPEC.md 22), so the
@@ -1241,9 +1241,9 @@ ld_start:
     ; live, for every reader in the machine - so the poster's window is
     ; untouched by this load from beginning to end, and the ordering that
     ; had to be got right no longer exists to get wrong.
-    call KERNEL_SEG:cw_gfx_lock
+    call ct_cw_gfx_lock
     call KERNEL_SEG:cw_wm_show  ; in: BX = window ptr; repaints all
-    call KERNEL_SEG:cw_gfx_unlock
+    call ct_cw_gfx_unlock
     mov word [ld_base], 0       ; ...AND NOTHING IS BEING LOADED ANY MORE
                                 ; (SPEC.md 66.6.1). mem_can_move pins the
                                 ; region whose base this names, so a value left
@@ -1453,11 +1453,11 @@ ld_start:
     ; five instructions .abort and .rehome share, once. A re-home that goes on
     ; to abort runs it twice and the second pass finds nothing, which is
     ; cheaper than the twenty bytes a second copy cost
-    call KERNEL_SEG:cw_gfx_lock
+    call ct_cw_gfx_lock
     mov ax, [ld_base]
     mov bp, wm_destroy_seg
-    call KERNEL_SEG:cw_mem_disp
-    call KERNEL_SEG:cw_gfx_unlock
+    call ct_cw_mem_disp
+    call ct_cw_gfx_unlock
     ret
 
 ; -----------------------------------------------------------------------------

@@ -5,8 +5,9 @@
 ; assembles into the KERNEL's own dialogs and into any package that wants it,
 ; from the same text. Define OS88UI_KERNEL before including it and every
 ; primitive call below becomes the kernel's own (`KERNEL_SEG:cw_*`, the
-; cold-to-text shims of SPEC.md 2.6); leave it undefined and they become
-; `OSAPI_*` far calls. Nothing else differs.
+; cold-to-text shims of SPEC.md 2.6, or the `ct_*` cold trampoline in front
+; of one when the kernel has one - SPEC.md 2.6.2); leave it undefined and they
+; become `OSAPI_*` far calls. Nothing else differs.
 ;
 ; THAT IS THE WHOLE POINT OF THE FILE. Saving bytes was never the argument -
 ; measured, consolidating the kernel's private helpers was worth twelve
@@ -94,22 +95,22 @@
 
 %ifdef OS88UI_KERNEL
   %macro UI_FRAME 0
-    call KERNEL_SEG:cw_gfx_frame
+    call ct_cw_gfx_frame
   %endmacro
   %macro UI_FILL 0
-    call KERNEL_SEG:cw_gfx_fill
+    call ct_cw_gfx_fill
   %endmacro
   %macro UI_STR 0
     call KERNEL_SEG:font_str
   %endmacro
   %macro UI_RUN 0                   ; ...and the OPAQUE one (SPEC.md 6.1)
-    call KERNEL_SEG:cw_font_run
+    call ct_cw_font_run
   %endmacro
   %macro UI_WIDTH 0
-    call KERNEL_SEG:font_width
+    call ct_font_width
   %endmacro
   %macro UI_PEN 0
-    call KERNEL_SEG:cw_gfx_pen_cf
+    call ct_cw_gfx_pen_cf
   %endmacro
   %macro UI_ICON 0                  ; SPEC.md 25.6: the masked 1bpp sprite
     call KERNEL_SEG:cw_icon_draw    ; pass - CX = x, DX = y, SI -> record
@@ -133,7 +134,7 @@
     mov [gfx_color], al
   %endmacro
   %macro UI_HLINE 0
-    call KERNEL_SEG:cw_gfx_hline
+    call ct_cw_gfx_hline
   %endmacro
   %macro UI_GRAY 0
     call KERNEL_SEG:cw_gfx_fill_gray

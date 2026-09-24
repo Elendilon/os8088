@@ -324,7 +324,10 @@ wm_strseg:
 ; out: whatever the callback returns, CF included
 ; clobbers: BP (it is the input) - DS and ES are restored
 ;
-; W_SEG = 0 is a kernel window and the call is an ordinary near one. Anything
+; W_SEG = 0 is a kernel window, and EVERY kernel window's callbacks are `.cold`
+; NEAR procs (SPEC.md 2.6.3): the far call below lands on wm_cbd, which is
+; `call bp / retf` in the cold segment - the same two transfers, in the other
+; order, that a resident `.text` thunk per callback used to spend. Anything
 ; else is a package: DS becomes its segment, ES is pointed at KERNEL_SEG (the
 ; window record it was handed lives there, and so does the file dialog's name
 ; buffer - a package reads both through ES, SPEC.md 20.5), and the far call
@@ -396,7 +399,8 @@ wm_pkgcall:
                                 ; writes none
     jmp short .out
 .near:
-    call bp                     ; a kernel window: DS is already ours
+    call COLD_SEG:wm_cbd        ; a kernel window: DS is already ours, and BP
+                                ; is a COLD offset (SPEC.md 2.6.3)
 .out:
     pop es
     pop ds
@@ -8601,7 +8605,7 @@ wm_chrome_relit_x:
     mov si, di
     mov ah, [ui_armr]
     call wm_chrome_rect_x
-    call KERNEL_SEG:cw_gfx_xor_fill ; the caller holds the gfx lock: every
+    call ct_cw_gfx_xor_fill         ; the caller holds the gfx lock: every
     pop si                          ; wm_draw_title caller does
     pop dx
     pop cx
@@ -12268,6 +12272,14 @@ wm_nest_pushd_x:
     retf
 wm_nest_pop_x:
     call wm_nest_pop
+    retf
+; ...and wm_pkgcall's dispatch into a KERNEL window's callback (SPEC.md 2.6.3):
+; every one is a `.cold` near proc, named by its offset in BP. The same entry
+; serves anything else in the kernel that wants a cold near proc called from
+; another segment with BP free - HIBER.DRV reaches nine bodies through it.
+; `call`/`retf` touch no flag, which the callbacks that answer in CF rely on.
+wm_cbd:
+    call bp
     retf
 section .text
 

@@ -883,7 +883,10 @@ the three templates' paint and click words and the two handlers
 `app_tmr_kinit` installs through `wm_onmouseup`/`wm_ondrag` all reach
 `wm_pkgcall`'s `call bp`, which is near in `KERNEL_SEG`, and `app_about_center`
 is called from `ui.inc`. `app_about_center` also keeps a **pad** rather than a
-`retf` body, because `app_about_paint_x` near-calls it four times.
+`retf` body, because `app_about_paint_x` near-calls it four times. **§2.6.3
+has since taken seven of the eleven** — the template and edge words, and
+`app_about_center` with its pad — so four remain, the `KD_TASK` and `KD_INIT`
+words, which `wm_pkgcall` does not dispatch.
 
 It made four crossings **disappear**, which is this section's own rule about
 growing the set: `os88ui_arm`, `os88ui_fire`, `os88ui_armed` and `os88ui_btn`
@@ -941,7 +944,8 @@ zero. PERFORMANCE.md Set 109 made that mistake and records it.
 
 Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
 thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
-that is the wrong contract for cold code. The thunk keeps the **public**
+that is the wrong contract for cold code. (A kernel window's callbacks no
+longer need one: §2.6.3.) The thunk keeps the **public**
 name and the body takes an `_x` suffix, so no caller outside changes.
 
 Four rules, and every one of them is something that assembles cleanly and
@@ -1016,8 +1020,11 @@ moves, and each had already shipped a failure by the time it was written:
   dispatches through it.** There are four: `ctrl.inc`'s page table, and
   `files.inc`'s `fm_jmp` and two `fm_ctx_*` sets. The mirror rule is the one
   that broke first — a table `.text` *does* dispatch through must name the
-  **thunk**, not the `_x` body, which is what `fm_tpl`, `fm_menus` and
-  `fdlg_tpl` do.
+  **thunk**, not the `_x` body. A kernel window's template, menu set and
+  installed handlers are the one exception, and a deliberate one: `wm_pkgcall`
+  dispatches a `W_SEG` 0 window **into `.cold`** (§2.6.3), so `fm_tpl`,
+  `fm_menus`, `fdlg_tpl`, `cp_tpl` and the rest name near procs in the cold
+  segment — and a `.text` proc there would be the wild jump.
 - **A macro argument is a call site.** `OSAPI_SLOT dskw_dfree` near-calls its
   argument from inside the macro body, and six of those pointed into these
   modules. `tools/os88ovlchk.py` reads the source, so it saw none of them
@@ -1103,6 +1110,101 @@ into an unreported one. An arm with no return in it at all is still
 unclassified and still not judged, which is what keeps `wm_ondrag_c` and
 `wm_timer_c` — three labels sharing one refusing body in `kern_small` — out of
 the report.
+
+### 2.6.2 Cold-side trampolines — one far call per target, not per site
+
+§2.6.1 took the middle pair out of a call INTO `.cold`. The other direction
+has a cost of its own that §2.6.1 does not touch: every call from `.cold` into
+`.text` is `call KERNEL_SEG:x`, **five bytes where a near call is three**, and
+the calls are concentrated — `cw_gfx_fill` alone had 23 `.cold` call sites on
+`kern_big`. So for a target with N `.cold` sites, one six-byte trampoline in
+`.cold`
+
+```
+ct_cw_gfx_fill:     call KERNEL_SEG:cw_gfx_fill
+                    ret
+```
+
+near-called from all N of them is **2N − 6 bytes** smaller than N far calls.
+`kernel.asm` carries eighteen, every target with at least four `.cold` sites
+on `kern_big`: **`.cold` −182 on `kern_big` and −115 on `kern_small`**,
+nothing else moved. The name is `ct_` + the far target, whatever it is
+(`ct_toast_say`, `ct_font_width`).
+
+It is **invisible to the callee and to the caller's registers and flags** — a
+near `call`/`ret` pair writes neither, and BP, which `cw_mem_disp` dispatches
+through, passes straight across. What it does cost is **two bytes of stack
+for the duration of the call** (the near return address) and a near call and
+return, ~9 µs on a 4.77 MHz 8088, on paths that are file-manager, dialog,
+loader and control drawing — human cadence, against a 756 µs draw call.
+
+**Only a `.cold` caller may use one.** An on-demand module runs at a heap
+address and the boot overlay at `FAT_SEG`, so neither can near-call `.cold`
+and both keep `call KERNEL_SEG:x`; `tools/os88ovlchk.py` refuses a near call
+to a trampoline from any other section, like any other crossing. `fdlg.inc`
+is the one file that is both — `.cold` on `kern_big`, `FDLG.DRV` on
+`kern_small` — so its sites are written `FDK <target>`, which is the
+trampoline on the first and the far call on the second (the same shape as its
+`FDX`). `apps/os88ui.inc`'s kernel copy is `.cold` on both kernels and its
+`UI_*` macros name the trampolines directly.
+
+A trampoline is **billed by site count and the count moves**. Five of the
+eighteen are break-even or worse on `kern_small` (`cw_snd_beep` has two
+`.cold` sites there, so it costs that kernel two bytes); the figure beside
+each in `kernel.asm` is the count it was taken at, and a target that falls to
+three sites on `kern_big` should go back to the plain far call.
+
+### 2.6.3 A kernel window's callbacks are `.cold` — no thunk per callback
+
+`wm_pkgcall` is the one place a window's callbacks are dispatched — paint,
+key, click, release, drag, timer, the menu handler, the resize and close
+negotiators and a file dialog's completion proc — and for a **kernel** window
+(`W_SEG` 0) it used to make an ordinary near `call bp` into `KERNEL_SEG`. So
+every kernel window callback that lived in `.cold` needed a six-byte resident
+thunk (`call COLD_SEG:x` / `ret`), and **28 of them existed for nothing
+else** — the Disk window's six, the file dialog's five, the Control Panel's
+five and its completion proc, Hibernate's four, About, Timer and Bounce's six
+and the image dialog's completion proc.
+
+The dispatch goes into the cold segment instead:
+
+```
+.near:
+    call COLD_SEG:wm_cbd        ; wm_cbd: call bp / retf   (in .cold)
+```
+
+**It is the same four transfers as the thunk path, in the other order** — a
+far call and a near call, a near return and a far return — so a kernel
+window's callback costs what it cost, and the stack at the callback is the
+same six bytes deeper. A package window never reaches `.near` and is
+untouched. `wm_cbd` is also HIBER.DRV's way into its nine BP-free cold bodies,
+which had a copy of it (`hbk_bp`) that went.
+
+**The rule it sets is absolute: every callback a kernel window can hold is a
+`.cold` NEAR proc**, named by its cold offset in the template, the menu set,
+`wm_onmouseup`/`wm_ondrag`/`W_ONTIMER`, or `fdlg_open`'s completion word. A
+`.text` proc there is a wild jump; a `retf` body is a wrong return. That
+meant converting what the thunks used to reach: the `retf` bodies (`fm_paint_x`,
+`fm_onkey_x`, `cpf_cp_paint`, `hbf_paint`, ...) end in `ret` now, the bodies
+that had a far wrapper for the thunk's sake (`fm_onclick_x`, `fdlg_onup_x`,
+`cp_onkey_x`, `drv_dlg_done_x`, ...) are named directly and the wrappers are
+deleted, and the notice window's paint — the one kernel callback that was in
+`.text` — moved to `.cold` as `ui_note_paint_x`. The file dialog's key and
+click bodies are near on **both** kernels, so on `kern_small` FDLG.DRV's
+header wraps them (`modd_e_onkey`, `modd_e_onclick`) exactly as it already
+wrapped open and paint, and the resident stubs in front of the image return
+near.
+
+`tools/os88ovlchk.py` **cannot see this**: a template word or a `mov ax,
+proc` is data, and the dispatch is `call bp`. What it does still check is
+that nothing far-calls a body that now returns near — and with the thunks gone
+nothing far-calls them at all. `KD_INIT` and `KD_TASK` are not window
+callbacks (`inst_launch` calls the first near in `KERNEL_SEG` and
+`task_spawn` seeds a frame with the second), so their thunks stay.
+
+**`.text` −207 on `kern_big` and −117 on `kern_small`** — the segment that
+binds (`KERN_CODE_MAX`) — against `.cold` +1 and +26, the notice's paint
+moving there and three bytes of `wm_cbd`.
 
 ### 2.7 The boot sector goes to the top of RAM, not to a fixed address
 
@@ -26574,10 +26676,9 @@ costs a rung crossing that has not happened.
 both worth recording so the next reader does not re-derive them:
 
 - **`app_about_center` is the kernel's own dialog-centring helper**, not
-  About's. `ui_note_paint` centres both lines of every note and alert through
-  it (12.9), so it stays whichever way About goes - and with it
-  `apf_app_about_center`, its far thunk, which has to move out of the gated
-  block rather than into it.
+  About's. `ui_note_paint_x` centres both lines of every note and alert
+  through it (12.9), so it stays whichever way About goes. Both callers are
+  `.cold` now (§2.6.3), so it has no far thunk to move any more.
 - **`%include "buildnum.inc"` sits inside About's data block**, and
   `BUILD_NUM` is read by `clone.inc`, `ctrl.inc`, `diskw.inc`, `fdlg.inc` and
   `filecp.inc` as well. Gating the block gates the include, and five modules
@@ -43322,11 +43423,12 @@ between a command and an unrecoverable act names the act.
 ##### The dialog is opened by the resident half, always
 
 `fdlg_open` fences on a **live owned window** and dispatches a kernel window's
-completion proc as a **near call in `KERNEL_SEG`** (§38.6). An on-demand module
-is neither of those things, so `CLV_KEY` answers **`CLA_SAVE`** — "ask for a
-name" — and `fm_editkey` opens the dialog. `drv_dlg_done` is armed the same way
-for the same reason (§51.10), and `fm_img_done` is this feature's copy of that
-shape: a six-byte resident thunk in `kernel.asm` in front of a `.cold` body.
+completion proc as a **near call in the kernel's cold segment** (§38.6,
+§2.6.3). An on-demand module is neither of those things, so `CLV_KEY` answers
+**`CLA_SAVE`** — "ask for a name" — and `fm_editkey` opens the dialog.
+`drv_dlg_done_x` is armed the same way for the same reason (§51.10), and
+`fm_img_done_x` is this feature's copy of that shape: a `.cold` body, named
+directly.
 
 **One completion proc serves both commands**, because the dialog's own mode
 tells them apart — Save is the clone's, Open is `Write Img`'s — and only one
@@ -53442,7 +53544,7 @@ indistinguishable from resetting to 0.
 cp_ttl   db 'Control Panel', 0   ; window title
 cp_sname db 'Control', 0         ; KD_NAME: <= 7 chars, fits the Task
                                  ; Manager NAME column (the tm_sname rule)
-cp_tpl:  dw 160, 130, 320, 140, cp_ttl, cp_paint, 0, cp_onclick
+cp_tpl:  dw 160, 130, 320, 140, cp_ttl, cpf_cp_paint, 0, cpf_cp_onclick
          ;  x    y    w    h     title   paint     onkey  onclick
 cp_dirty db 0                    ; deferred-repaint flag (§31.2)
 cp_sel   db 0                    ; selected item; 0 = Scheduler
@@ -78539,9 +78641,9 @@ line of `fdlg.inc` changed.
 What the cell adds is the other half of the round trip. The completion proc
 `fdlg_commit` calls is **the kernel's**, because it must be: the panel's window
 is a kernel window with `W_SEG` 0, so `wm_pkgcall` dispatches its completion as
-a *near call in `KERNEL_SEG`*, and a driver's near offset there is a wild jump
-into the kernel. `drv_dlg_done` is that proc — resident `.text` for exactly
-that reason, six bytes — and it far-calls the driver through `drv_call` with
+a *near call in the kernel's cold segment* (§2.6.3), and a driver's near
+offset there is a wild jump into the kernel. `drv_dlg_done_x` is that proc — a
+`.cold` body, named directly — and it far-calls the driver through `drv_call` with
 
 ```
 AL = the mode, ES:DI = the chosen NUL name in KERNEL_SEG, DX:CX = its size
