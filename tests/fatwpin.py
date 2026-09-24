@@ -200,7 +200,7 @@ def boot(m, defs=()):
     except os88marty.MartyError:
         raise SystemExit("fatwpin: never reached a desktop - nothing below "
                          "would mean what it says")
-    os88marty.pace(m, 3.0)              # the desktop's first paint
+    os88marty.settle(m)                 # the desktop's first paint
 
 
 def sample(m, defs=()):
@@ -312,8 +312,14 @@ def phase_shed():
         w = dispcp.win_list(m, S)
         wx, wy, _, _ = dispcp.win_rect(m, S, w[-1])
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "HEAPFRAG.O88")
-        os88marty.pace(m, 6.0)          # heapfrag's comb, then the shed
-        after = State(m)
+        try:                            # heapfrag's comb, then the shed -
+            os88marty.until(            # bounded by what an idle box's
+                m, lambda _: not State(m).fatw_claims,      # pause gave it
+                "heapfrag's comb to shed the FAT window", poll=0.2,
+                guest=6.0 * os88marty.GUEST_PACE)
+        except os88marty.MartyError:
+            pass                        # ...the first check below says so
+        after = sample(m)
         print("  heap filled    : %s" % after)
 
         check(not after.fatw_claims,

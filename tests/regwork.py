@@ -241,10 +241,16 @@ def main():
         bad += not nstart1 > nstart0
 
         t0 = u16(bss(m, pm_now, PM_NTICK))
-        os88marty.pace(m, 4)
+        try:                        # its next loop, or what an idle box's
+            os88marty.until(        # four seconds gave it of none
+                m, lambda _: u16(bss(m, pm_now, PM_NTICK)) > t0,
+                "the worker to loop", poll=0.05,
+                guest=4 * os88marty.GUEST_PACE)
+        except os88marty.MartyError:
+            pass
         t1 = u16(bss(m, pm_now, PM_NTICK))
         print("  5 ...and it is RUNNING     %s"
-              % ("loop %d -> %d over 4s" % (t0, t1) if t1 > t0 else
+              % ("loop %d -> %d" % (t0, t1) if t1 > t0 else
                  "NO (%d -> %d) <-- the frame was rebuilt and the scheduler "
                  "never resumed it: the machine is one worker short and "
                  "nothing else would say so" % (t0, t1)))

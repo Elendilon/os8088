@@ -240,8 +240,15 @@ def main():
         floppy_done(r0)                         # the first paint LOADS the
         os88marty.settle(m)                     # page image off the floppy
         mo.click(x0 + CP_RX + RP_MNTX + RP_MNTW // 2, y0 + RP_B0Y + RP_BH // 2)
-        os88marty.pace(m, 6)
-        os88marty.settle(m)
+        try:            # the mount claims the arena (rd_store_get), bounded
+            os88marty.until(        # by what an idle box's pause gave it
+                m, lambda _: rd_seg() and u16(m.read(
+                    rd_seg() * 16 + R["rd_arena"], 2)),
+                "the RAM disk's arena", poll=0.1,
+                guest=6 * os88marty.GUEST_PACE)
+        except os88marty.MartyError:
+            pass                            # ...check 1 below says so
+        os88marty.settle(m)                 # ...and the page repainting it
 
         # CLOSE the panel: SPEC.md 31.8 writes SYSTEM.CFG on the close, and
         # leaving it open would sit a modal-ish window over everything below.
