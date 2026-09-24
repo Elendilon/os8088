@@ -6643,7 +6643,7 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
+    Row("wdtype", "soak", py("tests/wdtype.py"), 70.0,
         "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
         "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
         "old code was correct, so they pass on a build with the early-out "
@@ -6660,7 +6660,7 @@ SOAK = [
         "against a screen no early-out touched.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 110.0,
         "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
         "wd_walk calls inside one keystroke and requires 1 - the change "
         "itself, and what fails on a build with the feature off; leg C is the "
@@ -6685,7 +6685,7 @@ SOAK = [
         "banked x 96 px off (different indices).",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdclick", "soak", py("tests/wdclick.py"), 420.0,
+    Row("wdclick", "soak", py("tests/wdclick.py"), 130.0,
         "SPEC.md 27.4.7 and 27.4.9: a CLICK is a caret move. It reached "
         "wd_redraw with no KIND at all, so 27.4.1's bound, 27.4.4's seed and "
         "27.4.6's single pass were all switched off at once - the view laid "

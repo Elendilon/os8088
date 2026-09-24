@@ -128,24 +128,111 @@ M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC")
 S = lambda n: m.sym(n)
 
 with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
-    M.settle(m); mo = Mouse(marty=m)
+    mo = Mouse(marty=m)                 # launch() has already settled the boot
     print("== Word: a click is a caret move (SPEC.md 27.4.7) ==")
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    M.pace(m, 2.5); M.settle(m)
 
-    raw = m.read(S("inst_tab"), 32*12); seg = None
-    for i in range(12):
-        b = i*32
-        if raw[b] == 1 and (raw[b+2] & 0x80):
-            c = u16(raw, b+6)
-            if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
-                seg = c; break
+    def find_seg():
+        raw = m.read(S("inst_tab"), 32*12)
+        for i in range(12):
+            b = i*32
+            if raw[b] == 1 and (raw[b+2] & 0x80):
+                c = u16(raw, b+6)
+                if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
+                    return c
+        return None
+    try:                                # the package up, on guest state
+        M.until(m, lambda _m: find_seg() is not None, "Word to be running",
+                poll=0.3, limit=60)
+    except M.MartyError:
+        pass
+    seg = find_seg()
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")
     base = seg*16; P = lambda n: base + syms[n]
     rw = lambda n: u16(m.read(P(n), 2)); rb = lambda n: m.read(P(n), 1)[0]
+
+    # ---- waiting on the guest, not on a clock ------------------------------
+    # Every gesture below waits for the UI to be FINISHED with it rather than
+    # for a fixed pause: the input is out of both queues (the BIOS keyboard
+    # ring and the kernel's event ring) and nobody holds the gfx lock, which
+    # ui_task takes around every handler it dispatches.
+    KBUF = 0x41A                        # 0040:001A/001C - the BIOS ring's head, tail
+    kbhead = lambda: m.read(KBUF, 2)
+    evtail = lambda: m.read(S("evq_tail"), 1)[0]
+    cyc = lambda: int(m.status()["cycles"])
+
+    def ui_idle():
+        kb = m.read(KBUF, 4)
+        return (kb[0:2] == kb[2:4] and m.read(S("evq_count"), 1)[0] == 0
+                and m.read(S("gfx_lock_flag"), 1)[0] == 0)
+
+    def done(arrived=None, what="the UI to finish with the gesture", tr=None,
+             idle=True):
+        """`arrived()` true (the gesture reached the guest) and the UI idle -
+        twice, a twentieth of a guest second apart, because ui_task pops an
+        event a few instructions before it takes the lock for it."""
+        wait = ((lambda c, w: tr.until(c, w, 30)) if tr is not None else
+                (lambda c, w: M.until(m, lambda _m: c(), w, poll=0.05, limit=30)))
+        if tr is None:
+            m.run()
+        if not idle:                    # ...only that it was DISPATCHED: a text
+            wait(lambda: arrived() and     # click's handler holds the lock
+                 m.read(S("evq_count"), 1)[0] == 0, what)   # until the release
+            return
+        wait(lambda: (arrived is None or arrived()) and ui_idle(), what)
+        c0 = cyc()
+        wait(lambda: cyc() - c0 >= M.GUEST_HZ / 20 and ui_idle(), what)
+
+    def key(k):
+        m.run(); h = kbhead(); m.key(k)
+        done(lambda: kbhead() != h, "the %s key to be handled" % k)
+
+    def press():
+        """the button down, and dispatched: its handler is running"""
+        t = evtail(); m.mouse(l=True)
+        done(lambda: evtail() != t, "the press to be dispatched", idle=False)
+
+    def release():
+        """the button up, and the handler it ends finished"""
+        t = evtail(); m.mouse(l=False)
+        done(lambda: evtail() != t, "the button release to be handled")
+
+    def sb_click(x, y):
+        """a scroll-bar click. The press is HANDLED before the release is
+        sent, so wd_onclick's OSAPI_EVQ_PENDING sees no click behind it and
+        draws the page itself (SPEC.md 27.7.8)."""
+        m.run(); mo.to(x, y); done()
+        t = evtail(); m.mouse(l=True)
+        done(lambda: evtail() != t, "the scroll-bar press to be handled")
+        release()
+
+    def still():
+        """before a capture: the UI idle, Word's height count finished (it
+        redraws the scroll bar), then the screen still"""
+        m.run()
+        M.until(m, lambda _m: rb("wd_hdirty") == 0 and ui_idle(),
+                "Word to finish its height count", poll=0.1, limit=60)
+        M.settle(m, quiet=0.3)
+
+    def tracked(x, y):
+        """wd_dragsel has taken the pointer at (x, y) - [wd_lmx]/[wd_lmy] are
+        its last sample - and finished the pass that sample drew: it is back
+        at the top of its loop"""
+        m.bp_exec(P("wd_dragsel.pass"))
+        for _ in range(60):
+            m.run()
+            if not m.wait_stop(30):
+                break
+            if (rw("wd_lmx"), rw("wd_lmy")) == (x, y):
+                break
+        m.bp_exec(); m.run()
+
+    # the document: wd_onwake clears [wd_argp] and then reads and draws it
+    # under the lock, so the lock coming free after that is the load done
+    done(lambda: rb("wd_argp") == 0 and rw("wd_len") > 0, "WELCOME.DOC to open")
 
     def settle_height():
         for _ in range(400):
@@ -171,14 +258,14 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         a formatted document is the only kind this gate opens"""
         return u16(m.read(P("wd_ryb") + 2*r, 2))
 
-    def click_at(r, col=20, hold=0.25):
-        m.run(); mo.to(tx + col*8, ryb(r) + 2); M.pace(m, 0.35)
-        m.mouse(l=True); M.pace(m, hold); m.mouse(l=False); M.pace(m, 1.0)
+    def click_at(r, col=20):
+        m.run(); mo.to(tx + col*8, ryb(r) + 2); done()
+        press(); release()
 
     def click_walks(r, col=20):
         """ROWS the wd_redraw of ONE click walks, and what it costs."""
         settle_height()
-        m.run(); mo.to(tx + col*8, ryb(r) + 2); M.pace(m, 0.35)
+        m.run(); mo.to(tx + col*8, ryb(r) + 2); done()
         m.bp_exec(P("wd_redraw")); m.mouse(l=True)
         if not m.wait_stop(30):
             m.bp_exec(); m.mouse(l=False); m.run(); return None, None, None
@@ -196,18 +283,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             n += 1
         c = m.status()["cycles"] - c0
         kind = rb("wd_ekind")
-        m.bp_exec(); m.mouse(l=False); m.run(); M.pace(m, 0.8)
+        t = evtail(); m.bp_exec(); m.mouse(l=False); m.run()
+        done(lambda: evtail() != t, "the click's release to be handled")
         return n, c, kind
 
     def page_round_trip(top0):
-        mo.to(sbx, ydn); M.pace(m, 0.25)
-        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+        sb_click(sbx, ydn)
         for _ in range(12):
             if rw("wd_top") <= top0:
                 break
-            mo.to(sbx, yup); M.pace(m, 0.25)
-            m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
-        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+            sb_click(sbx, yup)
+        mo.to(4, 4); still()
         return rw("wd_top") == top0
 
     # ---- leg A: one walk, not two -----------------------------------------
@@ -227,7 +313,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     def pixels_match(name, r0, r1):
         click_at(r0, col=8)
         click_at(r1, col=24)
-        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+        mo.to(4, 4); still()
         moved = shot(m)
         top0 = rw("wd_top")
         if not page_round_trip(top0):
@@ -276,17 +362,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # ---- leg D: the refusal - a selection is not a caret move --------------
     click_at(0, col=4)
-    m.run(); mo.to(tx + 4*8, ryb(0) + 2); M.pace(m, 0.3)
-    m.mouse(l=True); M.pace(m, 0.2)
-    mo.to(tx + 28*8, ryb(LAST) + 2, l=True); M.pace(m, 0.4)
-    m.mouse(l=False); M.pace(m, 1.2)
+    m.run(); mo.to(tx + 4*8, ryb(0) + 2); done()
+    press(); tracked(tx + 4*8, ryb(0) + 2)
+    mo.to(tx + 28*8, ryb(LAST) + 2, l=True); tracked(tx + 28*8, ryb(LAST) + 2)
+    release()
     check("D: the drag made a selection", rb("wd_selon") == 1,
           "[wd_selon] = %d" % rb("wd_selon"))
     n3, c3, k3 = click_walks(1, col=16)
     check("D: clicking away from a selection is NOT kind 4", k3 != 4,
           "[wd_ekind] = %s - the pair says nothing about the "
           "selection's rows" % k3)
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+    mo.to(4, 4); still()
     moved = shot(m)
     top0 = rw("wd_top")
     if page_round_trip(top0):
@@ -314,18 +400,18 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             if pc == ret: break
             n += 1
         kind = rb("wd_ekind")
-        m.bp_exec(); m.run(); M.pace(m, 1.0)
-        return n, kind
+        m.bp_exec(); m.run()            # wd_redraw has returned: the loop is
+        return n, kind                  # back at .pass with nothing owed
 
     click_at(0, col=4)
     settle_height()
-    m.run(); mo.to(tx + 4*8, ryb(1) + 2); M.pace(m, 0.35)
-    m.mouse(l=True); M.pace(m, 1.2)
-    mo.to(tx + 4*8 + 40, ryb(1) + 2, l=True); M.pace(m, 1.5)
+    m.run(); mo.to(tx + 4*8, ryb(1) + 2); done()
+    press(); tracked(tx + 4*8, ryb(1) + 2)
+    mo.to(tx + 4*8 + 40, ryb(1) + 2, l=True); tracked(tx + 4*8 + 40, ryb(1) + 2)
     nA, kA = drag_step_walks(8)
     nB, kB = drag_step_walks(8)
     nC, kC = drag_step_walks(-8)
-    m.mouse(l=False); M.pace(m, 1.2)
+    release()
     check("E: a drag step walks at most TWO rows",
           nA is not None and nA <= 2, "%s rows on the first step" % nA)
     check("E: ...and the arming survives the NEXT step",
@@ -338,7 +424,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # ---- leg F: and the selection it left is right to the pixel -----------
     check("F: the drag left a selection", rb("wd_selon") == 1,
           "[wd_selon] = %d" % rb("wd_selon"))
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+    mo.to(4, 4); still()
     moved = shot(m)
     top0 = rw("wd_top")
     if page_round_trip(top0):
@@ -366,13 +452,13 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # THE CELL FACE IS THE REFUSAL, and it is where this starts: WELCOME.DOC
     # opens on the kernel's 8x8, which composes no band at all.
     click_at(1, col=6)
-    mo.to(4, 4); M.pace(m, 0.6)
-    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
+    mo.to(4, 4)
+    key("ArrowRight")
     check("G: a CELL face banks too", rb("wd_cbok") == 1,
           "[wd_cbok]=0 with [wd_pxon]=%d - the bank is PIXELS now, so the "
           "face it was drawn in cannot matter (SPEC.md 27.17)"
           % rb("wd_pxon"))
-    m.key("ArrowLeft"); M.pace(m, 1.0)
+    key("ArrowLeft")
 
     Rf = base + syms["wd_dfont"]
     cl, ct = rw("wd_cl"), rw("wd_ct")
@@ -383,7 +469,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # [wd_nfont] IS 0 UNTIL THE LIST IS FIRST OPENED - wd_fontscan walks
     # SYSTEM/FONTS on that gesture and not before - so the count is read AFTER
     # the open and not used to decide whether to make it.
-    m.run(); mo.to(fbx, fboxtop + 6); M.pace(m, 0.3)
+    m.run(); mo.to(fbx, fboxtop + 6); done()
     mo._edge(True)
     M.until(m, lambda _m: fopen() == 1,
             "the Font list to come down", guest=40.0)       # a FONTS walk
@@ -398,7 +484,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     mo._edge(False)
     M.until(m, lambda _m: fopen() == 0, "the face pick to complete",
             guest=40.0)
-    M.pace(m, 1.5); M.settle(m); settle_height()
+    done()                              # the pick's handler, face and reflow
+    M.quiesce(m, lambda: (m.disk().get("reads"), rb("wd_pxon")), guest=0.5,
+              what="the face load to finish")
+    settle_height()
     check("G: the document is on a chosen face", rb("wd_pxon") == 1,
           "[wd_pxon] = %d, Font list had %d item(s) and [wd_nfont] is %d - "
           "the band path is not running, so leg G would pass vacuously"
@@ -421,9 +510,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # click reaches the same place, but where it PUTS the caret under a
     # proportional face is a second question this leg has no business asking.
     click_at(1, col=6)
-    mo.to(4, 4); M.pace(m, 0.6)
-    m.key("ArrowRight"); M.pace(m, 1.2)
-    M.settle(m); settle_height()
+    mo.to(4, 4)
+    key("ArrowRight")
+    still(); settle_height()
     print("      caret at (%d,%d) row %d; bank ok=%d at (%d,%d) y2=%d"
           % (rw("wd_curx"), rw("wd_cury"), rw("wd_ckpr"), rb("wd_cbok"),
              rw("wd_cbx"), rw("wd_cby"), rw("wd_cbh")))
@@ -461,8 +550,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # BOLD centred heading, and an earlier build - which banked the character
     # and re-lettered it - could not erase a caret there at all.
     click_at(0, col=4)
-    mo.to(4, 4); M.pace(m, 0.6)
-    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
+    mo.to(4, 4)
+    key("ArrowRight")
     check("G: ...and a STYLED cell banks like any other",
           rb("wd_cbok") == 1 and rb("wd_cherr") == 0,
           "[wd_cbok]=%d [wd_cherr]=%d on the bold heading - the bank is "
@@ -470,7 +559,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           % (rb("wd_cbok"), rb("wd_cherr")))
 
     # the refusals, so an always-void bank cannot pass leg G vacuously
-    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
+    key("ArrowRight")
     check("G: ...and it re-banks as the bar moves", rb("wd_cbok") == 1,
           "[wd_cbok] = 0 after a second move - the bank is armed once and "
           "not maintained")
@@ -483,14 +572,14 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("H: the overlay put a bar up", rb("wd_curshown") == 1,
           "[wd_curshown] = 0 - wd_curshow never ran or refused")
     settle_height()
-    m.key("ArrowDown"); M.pace(m, 1.4); M.settle(m)
+    key("ArrowDown")
     dr0, dr1 = rw("wd_dr0"), rw("wd_dr1")
     check("H: a caret move dirties ONE row, not two",
           dr0 != 0xFFFF and dr0 == dr1,
           "dirty range %d..%d - the row the caret LEFT is in it, so the "
           "caret is still in its signature" % (dr0, dr1))
     print("      caret move dirtied rows %d..%d" % (dr0, dr1))
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+    mo.to(4, 4); done()
 
     # ---- leg I: one row, for a key and for a caret off the view ----------
     def key_walks(key):
@@ -516,7 +605,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             rb("wd_ekind"), rb("wd_cherr"), rb("wd_cbok"), rb("wd_curshown"),
             rb("wd_selon"), rb("wd_ckok"), rw("wd_cur"), rw("wd_ckpi"),
             rw("wd_ckpr"), rw("wd_mvbot"), rb("wd_rowsok"), rw("wd_rowsn")))
-        m.bp_exec(); m.run(); M.pace(m, 0.6)
+        m.bp_exec(); m.run(); done()
         return n, c, why
 
     click_at(1, col=12)
@@ -534,9 +623,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # the caret is above it, which is what makes [wd_ckpr] negative.
     top0 = rw("wd_top")
     for _ in range(6):
-        mo.to(sbx, ydn); M.pace(m, 0.25)
-        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
-    mo.to(4, 4); M.pace(m, 0.8); M.settle(m)
+        sb_click(sbx, ydn)
+    mo.to(4, 4); done()
     scrolled = rw("wd_top") > top0
     check("I: the view really scrolled past the caret (case, not assertion)",
           scrolled, "top %d -> %d" % (top0, rw("wd_top")))

@@ -97,7 +97,7 @@ M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC")
 S = lambda n: m.sym(n)
 
 with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
-    M.settle(m); mo = Mouse(marty=m)
+    mo = Mouse(marty=m)                 # launch() has already settled the boot
     print("== Word: a caret move lays the note out ONCE (SPEC.md 27.4.6) ==")
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
@@ -117,12 +117,78 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
                 poll=0.5, limit=60)
     except M.MartyError:
         pass
-    M.settle(m)
     seg = find_seg()
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")
     base = seg*16; P = lambda n: base + syms[n]
     rw = lambda n: u16(m.read(P(n), 2)); rb = lambda n: m.read(P(n), 1)[0]
+
+    # ---- waiting on the guest, not on a clock ------------------------------
+    # Every gesture below waits for the UI to be FINISHED with it rather than
+    # for a fixed pause: the input is out of both queues (the BIOS keyboard
+    # ring and the kernel's event ring) and nobody holds the gfx lock, which
+    # ui_task takes around every handler it dispatches.
+    KBUF = 0x41A                        # 0040:001A/001C - the BIOS ring's head, tail
+    kbhead = lambda: m.read(KBUF, 2)
+    evtail = lambda: m.read(S("evq_tail"), 1)[0]
+    cyc = lambda: int(m.status()["cycles"])
+
+    def ui_idle():
+        kb = m.read(KBUF, 4)
+        return (kb[0:2] == kb[2:4] and m.read(S("evq_count"), 1)[0] == 0
+                and m.read(S("gfx_lock_flag"), 1)[0] == 0)
+
+    def done(arrived=None, what="the UI to finish with the gesture", tr=None,
+             idle=True):
+        """`arrived()` true (the gesture reached the guest) and the UI idle -
+        twice, a twentieth of a guest second apart, because ui_task pops an
+        event a few instructions before it takes the lock for it."""
+        wait = ((lambda c, w: tr.until(c, w, 30)) if tr is not None else
+                (lambda c, w: M.until(m, lambda _m: c(), w, poll=0.05, limit=30)))
+        if tr is None:
+            m.run()
+        if not idle:                    # ...only that it was DISPATCHED: a text
+            wait(lambda: arrived() and     # click's handler holds the lock
+                 m.read(S("evq_count"), 1)[0] == 0, what)   # until the release
+            return
+        wait(lambda: (arrived is None or arrived()) and ui_idle(), what)
+        c0 = cyc()
+        wait(lambda: cyc() - c0 >= M.GUEST_HZ / 20 and ui_idle(), what)
+
+    def key(k):
+        m.run(); h = kbhead(); m.key(k)
+        done(lambda: kbhead() != h, "the %s key to be handled" % k)
+
+    def press():
+        """the button down, and dispatched: its handler is running"""
+        t = evtail(); m.mouse(l=True)
+        done(lambda: evtail() != t, "the press to be dispatched", idle=False)
+
+    def release():
+        """the button up, and the handler it ends finished"""
+        t = evtail(); m.mouse(l=False)
+        done(lambda: evtail() != t, "the button release to be handled")
+
+    def sb_click(x, y):
+        """a scroll-bar click. The press is HANDLED before the release is
+        sent, so wd_onclick's OSAPI_EVQ_PENDING sees no click behind it and
+        draws the page itself (SPEC.md 27.7.8)."""
+        m.run(); mo.to(x, y); done()
+        t = evtail(); m.mouse(l=True)
+        done(lambda: evtail() != t, "the scroll-bar press to be handled")
+        release()
+
+    def still():
+        """before a capture: the UI idle, Word's height count finished (it
+        redraws the scroll bar), then the screen still"""
+        m.run()
+        M.until(m, lambda _m: rb("wd_hdirty") == 0 and ui_idle(),
+                "Word to finish its height count", poll=0.1, limit=60)
+        M.settle(m, quiet=0.3)
+
+    # the document: wd_onwake clears [wd_argp] and then reads and draws it
+    # under the lock, so the lock coming free after that is the load done
+    done(lambda: rb("wd_argp") == 0 and rw("wd_len") > 0, "WELCOME.DOC to open")
 
     def settle_height():
         for _ in range(400):
@@ -144,18 +210,16 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     yup = ty + (sbb-ty)//4
 
     def click_row(r, col=20):
-        m.run(); mo.to(tx + col*8, ty + r*8 + 3); M.pace(m, 0.35)
-        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.0)
+        m.run(); mo.to(tx + col*8, ty + r*8 + 3); done()
+        press(); release()
 
     def page_round_trip(top0):
-        mo.to(sbx, ydn); M.pace(m, 0.25)
-        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+        sb_click(sbx, ydn)
         for _ in range(12):
             if rw("wd_top") <= top0:
                 break
-            mo.to(sbx, yup); M.pace(m, 0.25)
-            m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
-        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+            sb_click(sbx, yup)
+        mo.to(4, 4); still()
         return rw("wd_top") == top0
 
     def key_walks(key):
@@ -177,7 +241,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
                 break
             n += 1
         c = m.status()["cycles"] - c0
-        m.bp_exec(); m.run(); M.pace(m, 0.8)
+        m.bp_exec(); m.run(); done()
         return n, c
 
     # ---- leg A: one walk, not two -----------------------------------------
@@ -185,7 +249,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     n1, c1 = key_walks("ArrowRight")
     check("A: a Right arrow makes ONE wd_walk", n1 == 1,
           "%s walks - the two-pass redraw is still running" % n1)
-    m.key("ArrowLeft"); M.pace(m, 1.0)
+    key("ArrowLeft")
 
     # ---- leg B: pixels, against a repaint the one pass never touched ------
     for name, keys, row in (("Right",  ["ArrowRight"]*4,             1),
@@ -195,8 +259,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
                             ("Down/Up",["ArrowDown", "ArrowUp"],     1)):
         click_row(row, col=20)
         for k in keys:
-            m.key(k); M.pace(m, 0.9)
-        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+            key(k)
+        mo.to(4, 4); still()
         moved = shot(m)
         top0 = rw("wd_top")
         if not page_round_trip(top0):
@@ -213,9 +277,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     click_row(vrows - 1, col=10)
     top_before = rw("wd_top")
     for _ in range(3):
-        m.key("ArrowDown"); M.pace(m, 1.2)
+        key("ArrowDown")
     scrolled = rw("wd_top") != top_before
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+    mo.to(4, 4); still()
     afterscroll = shot(m)
     topD = rw("wd_top")
     check("D: the Down actually scrolled the view (case, not assertion)",
@@ -233,9 +297,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # view, so pass 1 walked the whole view to learn nothing had moved - 450
     # ms of an 850 ms Up on a 5150. Count the rows wd_redraw's FIRST walk lays
     # out: the row the caret left is the bound now.
-    mo.to(sbx, ydn); M.pace(m, 0.25)
-    m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
-    mo.to(4, 4); M.pace(m, 0.8); M.settle(m)
+    sb_click(sbx, ydn)
+    mo.to(4, 4); done()
     check("E: the view is paged down (case, not assertion)", rw("wd_top") > 0,
           "top %d" % rw("wd_top"))
     click_row(0, col=10); settle_height()
@@ -247,8 +310,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     seqE = []
     with M.bp_trace(m, *[P(nm) for nm in ("wd_redraw", "wd_walk", "wd_rstart",
                                           "wd_caretnet", "wd_seecaret")],
-                    on_hit=lambda mm, rec: seqE.append(NM.get(rec.get("name"))), cap=400):
-        m.key("ArrowUp"); M.pace(m, 2.5)
+                    on_hit=lambda mm, rec: seqE.append(NM.get(rec.get("name"))),
+                    cap=400) as tr:
+        h = kbhead(); m.key("ArrowUp")     # (the pump does the running)
+        done(lambda: kbhead() != h, "the Up to be handled", tr=tr)
     names = [x for x in seqE if x]
     p1 = None
     if "wd_redraw" in names:
@@ -266,7 +331,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           p1 is not None and p1 <= 3,
           "wd_redraw's first walk laid out %s rows of a %d-row view" % (p1, vrows))
     print("      pass-1 rows on a scrolling Up: %s" % p1)
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+    mo.to(4, 4); still()
     afterE = shot(m); topE = rw("wd_top")
     if page_round_trip(topE):
         rpE = shot(m)
@@ -285,7 +350,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     def downs(stale):
         page_round_trip(0) if rw("wd_top") else None
         click_row(1, col=20)
-        m.key("ArrowDown"); M.pace(m, 1.0); M.settle(m)
+        key("ArrowDown")
         out = []
         for _ in range(4):
             if stale:
@@ -326,25 +391,24 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # ---- leg C: the A/B, inside one boot ----------------------------------
     click_row(1, col=20)
     for _ in range(4):
-        m.key("ArrowRight"); M.pace(m, 0.9)
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+        key("ArrowRight")
+    mo.to(4, 4); still()
     one = shot(m)
     for _ in range(4):
-        m.key("ArrowLeft"); M.pace(m, 0.9)
-    M.pace(m, 0.6); M.settle(m)
+        key("ArrowLeft")
     click_row(1, col=20)
     non, con = key_walks("ArrowRight")
-    m.key("ArrowLeft"); M.pace(m, 1.0)
+    key("ArrowLeft")
 
     keep = m.read(P("wd_1pok"), 2)
     m.write(P("wd_1pok"), bytes([0xF9, 0xC3]))       # stc; ret - refuse
     click_row(1, col=20)
     ntwo, ctwo = key_walks("ArrowRight")
-    m.key("ArrowLeft"); M.pace(m, 1.0)
+    key("ArrowLeft")
     click_row(1, col=20)
     for _ in range(4):
-        m.key("ArrowRight"); M.pace(m, 0.9)
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+        key("ArrowRight")
+    mo.to(4, 4); still()
     two = shot(m)
     m.write(P("wd_1pok"), keep)
 
@@ -360,8 +424,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     m.write(P("wd_1pok"), bytes([0xF9, 0xC3]))
     click_row(3, col=20)
     for k in ("End", "Home"):
-        m.key(k); M.pace(m, 0.9)
-    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
+        key(k)
+    mo.to(4, 4); still()
     twoEH = shot(m)
     topEH = rw("wd_top")
     if page_round_trip(topEH):
