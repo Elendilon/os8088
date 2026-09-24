@@ -1673,7 +1673,7 @@ ti_commit_draw:
     add cx, 8
     mov dx, [ti_cardy]
     add dx, 2
-    mov si, ti_s_undo
+    mov si, [tg_lbl]                ; PLAN, or HAND (tigame.inc)
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
 .out:
@@ -1728,7 +1728,7 @@ ti_commit_col:
     add cx, [ti_cmx]
     mov dx, [ti_hy]
     add dx, TI_HLIFT + 4
-    mov si, ti_s_undo
+    mov si, [tg_lbl]                ; PLAN, or HAND (tigame.inc)
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
     mov cx, [ti_cmw]                ; ...and COMMIT six
@@ -1749,6 +1749,11 @@ ti_commit_col:
 ti_panel:
     push ax
     push cx
+    cmp byte [tg_list], 0           ; THE PLAN where the hand was (tigame.inc)
+    je .hand
+    call tg_list_show
+    jmp short .done
+.hand:
     xor ax, ax
 .row:
     cmp ax, [ti_cardn]
@@ -1780,6 +1785,8 @@ ti_hover_ck:
     push cx
     push dx
     call OSAPI_MOUSE                ; CX = x, DX = y
+    cmp byte [tg_list], 0           ; the plan list has no cards to hover
+    jne .nocard
     cmp byte [ti_horiz], 0          ; the fullscreen hand asks the click's own
     je .strip                       ; box, which knows the risen card
     call ti_card_hit

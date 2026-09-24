@@ -98,6 +98,8 @@ ti_rv_play:
     jne .out
     cmp word [ti_cardn], 0
     je .out
+    cmp byte [tg_list], 0           ; the hand is not on the glass
+    jne .out
     cmp ax, -1
     je .pick
     cmp ax, [ti_cardn]              ; ...a card named: it must be one still

@@ -1064,6 +1064,10 @@ HT_KINDLE   equ 8
 TR_HITSZ    equ 10
 TR_PLAYER   equ 2
 
+; tr_resolve is THREE CALLS, and the game makes them one at a time: the
+; round is animated a lane at a time (tigame.inc), and a second copy of the
+; order here would be a second game (97.11.4). tr_res_begin, tr_lane per lane
+; with [tr_lr] set, then tr_res_end - which is exactly this.
 tr_resolve:
     push ax
     push bx
@@ -1071,16 +1075,41 @@ tr_resolve:
     push dx
     push si
     push di
-    mov ch, 1                       ; shields, after BOTH plans
-    call tr_refill
+    call tr_res_begin
     xor cl, cl
 .lane:
     mov [tr_lr], cl
+    push cx
     call tr_lane
-    mov cl, [tr_lr]
+    pop cx
     inc cl
     cmp cl, TR_LANES
     jb .lane
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp tr_res_end
+
+; tr_res_begin - the shields, after BOTH plans. Preserves every register.
+tr_res_begin:
+    push cx
+    mov ch, 1
+    call tr_refill
+    pop cx
+    ret
+
+; tr_res_end - casualties, spoils, the victory check, this round's orders
+; spent and the stalemate. Preserves every register.
+tr_res_end:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     call tr_casualties
     call tr_spoils
     xor bl, bl                      ; THE VICTORY CHECK (TITHE-PLAN 6.8)

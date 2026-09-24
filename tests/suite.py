@@ -7299,6 +7299,23 @@ SOAK = [
         "tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
+    Row("tithegame", "soak", py("tests/tithegame.py"), 80.0,
+        "SPEC.md 97.12: TITHE's ROUND LOOP, played by hand on Hercules and"
+        "CGA. A SEEDED deal (tg_fillq = 3) that tools/duelsim.py deals the"
+        "same way, then P1's round with the mouse: two plays, an ORDER armed"
+        "and placed, a STANCE badge, a SWAP - the plan and the board the"
+        "simulator's; the FIRST play removed from the plan list, and the rest"
+        "re-applied with the order and the stance following the play they"
+        "named, the glass exactly a whole repaint; the pass screen two lines"
+        "and nothing else; P2 on the FROZEN board with P1's pool unspent; and"
+        "the resolved round - HP, pools, every cell and the next hand - the"
+        "simulator's. It went red on two real defects before it was"
+        "registered: a swap carried the subject of the cell clicked first, so"
+        "removing that character's play orphaned the swap; and the list"
+        "blanked one stale row where a removal can take out two. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
     Row("titherv", "soak", py("tests/titherv.py"), 90.0,
         "SPEC.md 97.4.11: TITHE's REVEAL - a CLICK on a card plays it, and so"
         "does `V`, and the row makes one play each way (the click's card being"
