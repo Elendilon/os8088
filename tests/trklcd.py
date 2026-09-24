@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""trklcd - the XT visualiser button, and the LCD drawn by its inputs
-(SPEC.md 45.23.1, 45.21.8)
+"""trklcd - the XT visualiser button and spectrum, the 286 face's markers, and
+the LCD drawn by its inputs (SPEC.md 45.23.1, 45.24.1, 45.21.8)
 
     make trkrate && python3 tests/trklcd.py
 
@@ -8,9 +8,22 @@ On a 5150 with XT mode pre-armed (tier 0, SPEC.md 45.9), playing BEVERLY.MOD
 at 5.5 kHz:
 
   THE BUTTON (45.23.1) - the forced XT meter no longer greys it:
-    1. live at 5.5 kHz, and a click picks Off, a second VU Meter again
+    1. live at 5.5 kHz, and clicks go VU Meter -> Spectrum -> Off -> VU
     2. R to 11 kHz forces none and GREYS it, and a click there does nothing
     3. R back makes it live again
+
+  THE XT SPECTRUM (45.24.1) - bars only, TW_XTNB of them, decayed by the
+  clock and held at the top, and it KEEPS UP: 17 frames a second or better
+  (it reads 17.8-17.9) with the ring never under half full (TRK_DEEP, where
+  the worker turns to mixing first - at the 2-tick hold it touches 4,096 and
+  stops there, in every run). The 286's 16-band spectrum with markers, forced
+  onto the XT, reads 15.0 and a ring down to 2,048, so either threshold alone
+  catches that regression.
+
+  THE 286 FACE'S MARKERS (45.24.1) - reached on the 8088 by [trk_cpu0] = 0 and
+  XT mode off: a bar HELD low must let its peak marker fall to it. The first
+  build skipped a held band's whole step, marker included, and leaves the
+  staged marker at 60 where this wants 16.
 
   THE LCD (45.21.8) - a line is composed only when its KEY moves, and then
   only the cells that differ from its shadow are lettered:
@@ -50,6 +63,9 @@ DISK = "build/trkship360.img"          # the SHIPPED player
 MACHINE = "os8088_5150_herc_sb_gla"
 HZ = 4772728.0
 VIZ = 8 + 4                            # TW_NTB + the TWO_VIZ option slot
+XTNB = int(re.search(r"^TW_XTNB\s+equ\s+(\d+)",          # read, not restated
+                     open(os.path.join(ROOT, "apps/tracker/trkwin.inc")).read(),
+                     re.M).group(1))
 fails = []
 
 
@@ -65,7 +81,8 @@ def immediates(lst):
     which os88rate.symbols() cannot see - it scrapes [name] operands."""
     out = {}
     pats = [(r"BF\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*mov di, (tw_rects_b|tw_flags_b)\s*$", 3),
-            (r"81C7\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*add di, (tw_keys)\b", 3)]
+            (r"81C7\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*add di, (tw_keys)\b", 3),
+            (r"BF\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*mov di, (tw_band)\s", 3)]
     for L in open(lst):
         for pat, g in pats:
             mo = re.search(pat, L)
@@ -85,7 +102,7 @@ def main():
         imm = immediates(os88rate.LST)
     finally:
         os.unlink(os88rate.LST)
-    for n in ("tw_rects_b", "tw_flags_b", "tw_keys"):
+    for n in ("tw_rects_b", "tw_flags_b", "tw_keys", "tw_band"):
         if n not in imm:
             print("FAIL: no address for %s in the listing" % n)
             return 1
@@ -153,6 +170,30 @@ def main():
         check("drawn: the thin XT meter (tw_vizm)", b("tw_vizm"), 4)
         check("the button is live", flags() & 1, 0)
         click()
+        check("click: Spectrum picked and drawn", (b("tw_viz"), b("tw_vizm")), (1, 1))
+        check("...bars only (tw_mk), TW_XTNB of them",
+              (b("tw_mk"), b("tw_nb")), (0, XTNB))
+        ups = rate(P["tw_update"])
+        # THE RING, not a byte count: [trk_consumed] moves in whole BLOCKS,
+        # so a short window reads 93% or 102% of a perfect stream. A lead
+        # that never reaches zero is the music reaching the card whole.
+        c0 = m.status()["cycles"]
+        heard, lead = 0, []
+        last = wv(P["@trk_consumed"])
+        for _ in range(64):
+            guest(0.25)
+            now = wv(P["@trk_consumed"])
+            heard += (now - last) & 0xFFFF
+            last = now
+            lead.append((wv(P["@trk_total"]) - now) & 0xFFFF)
+        secs = (m.status()["cycles"] - c0) / HZ
+        audible = 100.0 * heard / secs / wv(P["@mp_mixrate"])
+        print("  XT spectrum: %.1f frames/s, %.1f%% heard, ring lead min %d"
+              % (ups, audible, min(lead)))
+        check("...at 17 frames a second or better", ups >= 17.0, True)
+        check("...the ring stays half full (min lead >= 4096)", min(lead) >= 4096, True)
+        check("...and the byte count agrees (>= 95%)", audible >= 95.0, True)
+        click()
         check("click: Off picked and drawn", (b("tw_viz"), b("tw_vizm")), (3, 3))
         check("...and the button still live", flags() & 1, 0)
         click()
@@ -217,6 +258,36 @@ def main():
             break
         else:
             check("found a moment with no line's inputs moving", False, True)
+
+        # THE 286 FACE'S MARKERS (45.24.1), on the 8088: [trk_cpu0] = 0 and XT
+        # mode off is the face a 286 gets. A bar HELD low under a high marker
+        # - a neighbour band kicked at half level every row - must let the
+        # marker fall to the bar. The hold used to skip the band's whole step,
+        # marker included, so it stood frozen at the old peak for as long as
+        # the neighbour kept playing. Staged with playback stopped, so no kick
+        # moves anything but the decay under test.
+        print("the 286 face's markers (SPEC.md 45.24.1)")
+        m.write(base + P["@trk_cpu0"], b"\0")
+        m.key("KeyX")                  # stops, and takes XT mode off
+        guest(3.0)
+        check("XT mode off, stopped", (b("mp_xt"), b("mp_playing")), (0, 0))
+        for _ in range(4):
+            if b("tw_vizm") == 1:
+                break
+            click()
+        check("the 286 spectrum: 16 bands with markers",
+              (b("tw_vizm"), b("tw_nb"), b("tw_mk")), (1, 16, 1))
+        band = imm["tw_band"]          # tw_peak, tw_phold, tw_bhold follow it
+        BAND, PEAK, PHOLD, BHOLD = (band + 16 * i + 5 for i in range(4))
+        m.pause()
+        for off, v in ((BAND, 16), (BHOLD, 250), (PEAK, 60), (PHOLD, 0)):
+            m.write(base + off, bytes([v]))
+        m.advance(cycles=int(2.5 * HZ))
+        rd = lambda off: m.read(base + off, 1)[0]
+        got = (rd(BAND), rd(BHOLD) < 250, rd(PEAK))
+        m.run()
+        check("bar held at 16 while the ticks ran", got[:2], (16, True))
+        check("...and its marker fell to it (was 60)", got[2], 16)
 
     print("trklcd: %s" % ("pass" if not fails else "%d FAILED" % len(fails)))
     return 1 if fails else 0
