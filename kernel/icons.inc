@@ -1131,6 +1131,9 @@ icon_pen:
 
 
 section .bss
+%if FONT_RN_MAX*2 + 16 > ICO_IBUF_SZ
+  %error "font_run_x's glyph table and edge bytes are a union with ico_ibuf (font.inc) and no longer fit it"
+%endif
 %if ICO_STAGE_SZ > ICO_IBUF_SZ
   %error "ico_ibuf is the taller of the pair and sizes the cell (SPEC.md 25.7.2) - ICO_STAGE_SZ has outgrown it"
 %endif
