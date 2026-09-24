@@ -31,11 +31,11 @@ alone fails, which is the row that would otherwise pass for the wrong reason).
 import argparse
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
 SYS = os.path.join(ROOT, "build", "os8088-360.img")
@@ -68,13 +68,13 @@ def main():
             fail("double-clicking %s opened no window" % PROG)
 
         rows = []
-        end = time.time() + 180.0
-        while time.time() < end:
-            rows = m.screen() or []
-            if any("KEY" in r for r in rows):
-                break
-            time.sleep(0.3)
-        else:
+
+        def done(mm):
+            rows[:] = mm.screen() or []
+            return any("KEY" in r for r in rows)
+        try:            # a GUEST budget: a loaded box cannot shorten it
+            os88marty.until(m, done, "the program's closing KEY line", poll=0.3, limit=180.0)
+        except os88marty.MartyError:
             fail("the program never finished; the last text screen was %r"
                  % ([r.rstrip() for r in rows if r.strip()][:12],))
 

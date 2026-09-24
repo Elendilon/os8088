@@ -46,7 +46,7 @@ Nine assertions. Check 7 is the one no memory dump can make:
      this script's settles never end. The pin itself is one MC_RLOC word the
      compactor refuses on sight (mem_can_move's first test).
 """
-import sys, os, time, hashlib, argparse, subprocess, tempfile
+import sys, os, hashlib, argparse, subprocess, tempfile
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
 # checkout it was written in and wrong in a git worktree, which is how parallel
 # work is done here: os88sym re-assembles ROOT/kernel/kernel.asm and compares it
@@ -177,9 +177,17 @@ def main():
             mo.click(*pt)
             os88marty.settle(m)
 
+        def heap_quiet():
+            # the drive AND the arena still: a load is reads, a compaction
+            # is claims moving with the drive silent
+            os88marty.quiesce(m, lambda: (m.disk().get("reads"),
+                                          sorted(claims(m, S))),
+                              guest=2.0, budget=120.0,
+                              what="heapfrag's load and claims")
+
         # --- heapfrag first, so it owns the floor of the arena --------------
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, PKG_HEAPFRAG)
-        time.sleep(22)
+        heap_quiet()
         os88marty.settle(m)
         hf_seg, hf_win = find_win(m, S, "Heap")
         print("heapfrag at %04x" % (hf_seg or 0))
@@ -187,7 +195,15 @@ def main():
         # --- then the module, which OPENS TRACKER through the association ---
         raise_disk()
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, PKG_MOD)
-        time.sleep(30)                       # 116KB off a 360KB floppy
+
+        def loaded(_):                       # 116KB off a 360KB floppy
+            seg, _w = find_win(m, S, "Tracker")
+            return bool(seg) and u16(m.read(seg * 16 + P["mp_loaded"], 2))
+        try:
+            os88marty.until(m, loaded, "Tracker to load the module",
+                            poll=0.5, limit=60)
+        except os88marty.MartyError:
+            pass                             # ...and the next lines say so
         os88marty.settle(m)
         tk_seg, tk_win = find_win(m, S, "Tracker")
         if tk_seg is None:
@@ -264,7 +280,7 @@ def main():
         # --- and run it again, whose big claim forces the compaction ---------
         raise_disk()
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, PKG_HEAPFRAG)
-        time.sleep(22)
+        heap_quiet()
         os88marty.settle(m)
 
         # heapfrag's OWN verdict, so a module that did not move can be told
@@ -355,7 +371,11 @@ def main():
         # stop, it plays the wrong bytes, so this is a liveness check and the
         # four above are the correctness ones
         r1 = tword("mp_row")
-        time.sleep(4)
+        try:
+            os88marty.until(m, lambda _: tword("mp_row") != r1,
+                            "the replayer's next row", poll=0.2, limit=4)
+        except os88marty.MartyError:
+            pass
         r2 = tword("mp_row")
         alive = tword("mp_loaded") != 0
         print("  7 replayer alive      %s  (row %d -> %d -> %d, loaded=%s)"

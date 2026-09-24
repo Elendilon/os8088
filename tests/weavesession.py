@@ -50,7 +50,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
@@ -308,7 +307,11 @@ def _drive(machine, card, vidw, S, m, want_val, want_max, cells, png_dir):
 
     # --- 4: and the guest is still EXECUTING -------------------------------
     t0 = m.read(0x46C, 4)
-    time.sleep(0.6)
+    try:                        # a GUEST bound: the tick is 55 ms of it
+        os88marty.until(m, lambda mm: mm.read(0x46C, 4) != t0,
+                        "the BIOS tick to move", poll=0.1, limit=0.6)
+    except os88marty.MartyError:
+        pass                    # ...and the check below says so
     check(m.read(0x46C, 4) != t0, "%s: the guest is still running" % machine,
           "a task frozen holding the gfx lock draws a perfect window and "
           "never draws another (SPEC.md 59.7), so stillness alone cannot "
