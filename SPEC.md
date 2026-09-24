@@ -82649,7 +82649,20 @@ a documents floppy, and every `.MOD` there still carries Tracker's mark.
 
 ### 54.4.1 A notice names the thing that failed
 
-`ui_note` is the kernel's one-line notice window and it takes **three**
+**It is a TOAST since kernel size pass 4, reading `Needs TRACKER.O88`**, and
+`ui_note` - the notice window this section describes below - is gone with its
+template, its paint callback and its strings. Two reasons, both the owner's.
+Every other failed launch is a toast (§28.3, §59), so this was the one
+failure that still needed dismissing. And **`not on this disk` was never
+true**: the kernel looks where §54.4.2's rungs look and nowhere else, so the
+program may well be on another disk, or on this one somewhere the association
+does not know. What IS true is that the document needs that program.
+`assoc_progname` writes `'Needs '` + `assoc_fnat`'s `'<STEM>.O88'` - the
+name lookup's own body, shared - 19 bytes inside `TOAST_MAX`'s 24.
+
+What follows is the record of the window it replaced.
+
+`ui_note` was the kernel's one-line notice window and it took **three**
 strings from the caller: the message, the line above it, and the window's
 title. It used to take one. The other two were baked in as `'Task Manager'`
 and `'Cannot open the Task Manager:'`, because `ui_tm_open` was the only
@@ -82662,21 +82675,15 @@ Unable to open Task Manager"*.
 The window is created once and reused, so `W_TITLE` is restamped per call,
 before `wm_show` — which draws the frame whole, so nothing else is owed.
 
-**It has one caller now** (kernel size pass 4): `ui_sys_open` - the Task
-Manager and the desktop service zone - toasts its failure instead (§28.3.2),
-which leaves this document-open notice as `ui_note`'s only use. Its line,
-`'TRACKER.O88 - not on this disk'`, is 30 characters against a toast's 24
-(`TOAST_MAX`), so it stays a window until somebody decides a shorter one
-(e.g. `Needs TRACKER.O88`) says enough - at which point `ui_note`, its
-template and its paint callback go too.
 
 **And the message names the program**, which is the half that turns a correct
 error into a useful one. The reporting disk was a `make trklog` build
 (§45.14): `TRKLOG.O88` and `BEVERLY.MOD` and no `TRACKER.O88`, so the
 built-in `MOD → TRACKER` default resolved to a program that was genuinely not
 there. "Program not found" is true and tells the user nothing they can act
-on; `assoc_progname` builds the stem into `'TRACKER.O88 - not on this disk'`
-out of the slot the lookup already returned.
+on; `assoc_progname` builds the stem into `'Needs TRACKER.O88'` (it read
+`'TRACKER.O88 - not on this disk'` in the window) out of the slot the lookup
+already returned.
 
 **Costed exactly, because it crosses a `KIMG_PARA` step and those are 512
 bytes each:** the branding fix is **0 bytes** — measured, the kernel lands at
@@ -84562,11 +84569,10 @@ menu bar and no window manager to borrow anything from. None of the three
 moves. The two that are toasts are Note Pad's `np_toast` and Paint's
 `pt_msg_show`, and both are gone.
 
-**This is not `ui_note`** (§54.4.1). That is a *window*, for a failure the
-user has to acknowledge — a document's program not on the disk — and it stays
-until it is dismissed. This is for an operation that just finished, usually
-successfully, that nobody needs to acknowledge. A notice you can miss is not a
-notice; a toast you have to dismiss is a dialog.
+**This was not `ui_note`** (§54.4.1), a *window* for a failure the user had
+to acknowledge. Since kernel size pass 4 there is no `ui_note`: every failed
+launch - the Task Manager's, the Wire zone's, a document's program not found -
+is a toast too, says its piece and goes away on its own.
 
 ### 59.1 It lives in the menu bar, and that is the whole design
 

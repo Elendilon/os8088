@@ -851,11 +851,18 @@ assoc_post_x:
 assoc_fname:
     push di
     mov di, assoc_fnb
+    call assoc_fnat
+    pop di
+    ret
+
+; assoc_fnat - '<STEM>.O88', NUL, at DI (AL = the app slot); DI is advanced
+; past the stem and everything else preserved. assoc_fname's body, shared with
+; assoc_progname's toast.
+assoc_fnat:
     call assoc_stemcpy
     mov word [di], '.O'
     mov word [di+2], '88'
     mov byte [di+4], 0
-    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1166,13 +1173,13 @@ assoc_run_x:
 .nofile:
     call assoc_back
     pop ax                      ; the app index, back off the stack and into
-    push ax                     ; 'TRACKER.O88 - not on this disk', because
-    call assoc_progname         ; "Program not found" alone leaves the user
-    mov si, assoc_pnbuf         ; with no way to know WHICH program a document
-    mov bx, assoc_s_lead        ; wanted - which is exactly the report that
-    mov di, assoc_s_ttl         ; found this (SPEC.md 54.4.1)
-    mov bp, ui_note
-    call ct_cw_mem_disp
+    push ax                     ; 'Needs TRACKER.O88', because "Program not
+    call assoc_progname         ; found" alone leaves the user with no way to
+    mov si, assoc_pnbuf         ; know WHICH program a document wanted - which
+    push ds                     ; is exactly the report that found this
+    pop es                      ; (SPEC.md 54.4.1). A TOAST since size pass 4,
+    xor cx, cx                  ; as every other failed launch is; ES and CX
+    call KERNEL_SEG:cw_toast_show ; come back through kretfc_es
 .refresh:                       ; ...and both routes end at the one repaint
     call files_refresh_x
 .out:
@@ -1259,44 +1266,35 @@ section .text                   ; DATA, so back to the kernel segment: cold
                                 ; still KERNEL_SEG (SPEC.md 2.6 rule 1)
 assoc_s_apps:   db 'APPS', 0
 assoc_s_games:  db 'GAMES', 0
-assoc_s_ttl     equ fdlg_s_topen    ; the Standard File dialog's own title
-assoc_s_lead:   db 'This document opens with', 0
-assoc_s_ptail:  db '.O88 - not on this disk', 0
-ASSOC_PTAIL     equ 24          ; ...NUL included, so one rep movsb ends it
 
 section .cold                   ; ...and back to cold code
 
 ; -----------------------------------------------------------------------------
-; assoc_progname - the file name of an app slot, for the notice
+; assoc_progname - the toast for a document whose program was not found
 ; in:  AL = the app index
-; out: assoc_pnbuf = 'STEM.O88 - not on this disk', NUL
+; out: assoc_pnbuf = 'Needs STEM.O88', NUL
 ; clobbers: nothing (all registers preserved)
 ;
-; The stem copy is assoc_stemcpy's, which assoc_fname shares.
+; 'Needs', and NOT 'not on this disk': the kernel looked where assoc_locate's
+; rungs look (SPEC.md 54.4.2) and no further, so the program may well be on
+; another disk, or on this one somewhere the association does not know. What
+; is TRUE is that this document needs that program. 6 + 12 + 1 = 19 bytes,
+; inside a toast's TOAST_MAX of 24. It was a notice window until kernel size
+; pass 4 retired ui_note.
 ; -----------------------------------------------------------------------------
 assoc_progname:
-    push ax
-    push cx
-    push si
     push di
-    push es
-    push ds
-    pop es                      ; the tail lands through ES:DI
-    mov di, assoc_pnbuf
-    call assoc_stemcpy
-    mov si, assoc_s_ptail
-    mov cx, ASSOC_PTAIL
-    cld
-    rep movsb
-    pop es
+    mov di, assoc_pnbuf + 6     ; past the 'Needs ' that never changes
+    call assoc_fnat
     pop di
-    pop si
-    pop cx
-    pop ax
     ret
 
 section .text                   ; DATA, so back to the kernel segment
-assoc_pnbuf:    times 8 + ASSOC_PTAIL db 0
+assoc_pnbuf:    db 'Needs '
+                times 8 + 5 db 0    ; the stem, '.O88' and the NUL
+%if 6 + 8 + 5 > TOAST_MAX + 1
+  %error "assoc_pnbuf's toast is longer than TOAST_MAX"
+%endif
 
 section .bss
 ; **THESE THREE CELLS ARE THE PUBLISHED LOCATOR, IN ITS OWN ORDER** (SPEC.md
