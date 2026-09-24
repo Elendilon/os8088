@@ -403,10 +403,11 @@ CMZ_DEPTH = 16                  # chain candidates tried per position
 CMZ_WMAX = 16384                # ...over a window this big, 2 bytes of prev[]
 CMZ_WMIN = 1024                 # each. The verb takes the largest that fits
 CMZ_SLACK = 16                  # how far past the bail limit one pass can go
-CMZ_MAXM = 0x7FFF               # the longest match cmz_pack emits: the FORMAT
+CMZ_MAXM = 0x3FF0               # the longest match cmz_pack emits: the FORMAT
                                 # has no limit, the encoder's slide does
-                                # (SPEC.md 20.15.4) - SI + a match must stay
-                                # inside the segment it is sliding through
+                                # (SPEC.md 20.15.4) - every byte a probe or a
+                                # hash reads stays inside the 48KB window a
+                                # streamed Compress holds (22.22.5)
 
 
 def lzb_compress_machine(src, window=CMZ_WMAX, depth=CMZ_DEPTH):

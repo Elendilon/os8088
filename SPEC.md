@@ -39867,11 +39867,15 @@ exactly what it tested before and a file under 32KB never slides at all.
   by is `SI − DI` plus the difference of the two bases, 32 bits, and the
   compare is the same strictly-greater one (§20.15.2). The tail is copied in
   32KB pieces with both pointers normalised before each (`cmz_move`).
-- **No match is longer than `CMZ_MAXM` = 32,767**, which is the one thing a
-  slide asks of the parse: `SI` is under 32KB at every probe and `SI` plus a
-  match must stay inside the segment. It is the only change a slide makes to
+- **No match is longer than `CMZ_MAXM` = 16,368**, which is the one thing a
+  slide asks of the parse: `SI` is under 32KB at every probe, and every byte a
+  probe compares or a hash reads must stay under **48KB** — the source window
+  a streamed Compress holds (§22.22.5). It is the only change a slide makes to
   the STREAM, and `os88lz.lzb_compress_machine` carries it, so the mirror is
-  still statement for statement and does no sliding of its own.
+  still statement for statement and does no sliding of its own. (It was
+  32,767 for a day, which kept `SI` plus a match inside the segment and no
+  more; a longer match is split in two, which a file has to hold 16KB of one
+  repeated pattern to notice.)
 
 **The one new refusal is the tail.** The `T` word is 16 bits, so a cut more
 than 64KB before the end — a file whose last 64KB or more is net-expanding,
@@ -43992,13 +43996,112 @@ widget's scale, the `'CZ'` header's `U` and the write's count. The percentage
 shifts both sizes right together until the old one is a word, which loses
 nothing two digits can show.
 
-**What bounds it is MEMORY, and the claim says so.** §22.22.2's one block is
-`2·U + tables`, so a 640KB machine with ~440KB of heap free compresses a file
-up to about 200KB and answers `Not enough memory` above that; a 128KB machine
-reaches ~20KB. `U` over 16MB is `Too large` before anything is claimed — the
+**Whole, it is bounded by memory, and §22.22.5 is what happens past that.**
+§22.22.2's one block is `2·U + tables`, so a 640KB machine with ~440KB of heap
+free compresses a file up to about 200KB in one pass; past that a plain file
+is STREAMED. `U` over 16MB is `Too large` before anything is claimed — the
 directory hint that tells every reader what a file expands to is 24 bits
-(§20.14.1), and no heap here could hold one that big anyway. A **package**
-stays under 64KB by `APP_MAX_SIZE` and is refused past it in its own words.
+(§20.14.1). A **package** stays under 64KB by `APP_MAX_SIZE` and is refused
+past it in its own words.
+
+#### 22.22.5 Too big to hold twice: it STREAMS, in two passes
+
+A file whose whole claim will not fit is read through a **48KB source window**
+and written through a **33KB output window**, so what it costs is **89KB plus
+the tables** — 121KB at the full window, 91KB at the smallest dial — whatever
+the file's size. The limit becomes the DISK: the result is written beside the
+original before the original goes.
+
+**`cmz_route` decides, and it decides on `mem_avail`** — the number a claim
+would be served, asked without claiming, so asking sheds nothing (§66.4). Whole
+when `2·U + 41KB` fits: it is one pass and streaming is two. Streamed when it
+does not and every one of these holds:
+
+- the source is **plain** — a `'CZ'` source expands on the way in (§20.14.2)
+  and can only be read whole, so one that does not fit is `Not enough memory`;
+- it is **not a package** and is **over 64KB** (under it, whole is always the
+  cheaper claim);
+- the volume's cluster is **16KB or less**, because the refills are 16KB and
+  32KB at offsets that are multiples of 16KB, and `OSAPI_FILE_READ_AT` takes
+  whole clusters on both (§18.4.4);
+- the heap holds the windows at the smallest dial.
+
+**TWO PASSES, BECAUSE THE CUT COMES LAST.** The stream is cut at the first peak
+of the lead and everything after it is thrown away and sent raw (§20.15.2), and
+where that peak is is not known until the end. Keeping everything after the
+current cut in memory would bound nothing — a stretch of noise in the middle
+of a file holds the cut still for as long as it lasts — and writing it and
+taking it back would need a truncate this file layer does not have. So:
+
+1. **Pass 1** parses the whole file through the windows and keeps only the
+   numbers: the cut, the tail and the packed length. A refusal — not smaller,
+   `Its end won't compress` — costs one read of the file and writes nothing.
+2. **Pass 2** parses it again. It is the same parse byte for byte — same
+   bytes, same tables, same slides — so it reaches the cut on a symbol
+   boundary with the output exactly where pass 1's was, and stops there. Each
+   16KB of output is written as the output window slides, the first with a
+   WRITE (so `dskw_czstamp` sees the `'CZ'` header, which sits in the
+   paragraph in front of the window) and the rest with APPENDs, whose rule
+   (the file a whole number of clusters) the 16KB chunks keep until the last.
+   The tail then runs through the same two windows a byte at a time, and the
+   last partial chunk goes out.
+3. The **original is deleted and the new file renamed over it** —
+   `CMPRESS~.TMP`, in the same folder, named in `fm_ebuf` (the status line's
+   edit buffer, idle while a menu verb runs, and in `DS` where the file layer
+   wants a name). A rename patches the name in the staged entry, so the hint
+   survives it. A read-only original refuses the delete and the new file is
+   removed; a failed write removes the half-written one. The one gap is a
+   rename that fails after the delete, which leaves the result under the
+   temporary name, on the listing, and says the `FERR_*`.
+
+**The windows move by COPYING, not by moving a segment**, and that is the
+whole difference from a whole compress: `cmz_sslide` and `cmz_oslide` do the
+same address arithmetic either way (§20.15.4), and the streamed arm moves the
+bytes down instead of the segment up — the source then refilled behind them,
+the output first written out in pass 2. The cut is kept as positions in the
+FILE (`cmz_ksa`, `cmz_koa`) rather than as far pointers, because a streamed
+window no longer holds it. A failed read or write unwinds from wherever it
+happened to `cmz_pack`'s own frame (`cmz_ioerr`) with the `FERR_*` for the
+caller to say.
+
+**What it costs is time**: two parses where whole makes one, at ~1,600 cycles
+a byte — a 250KB file is about three minutes of 4.77MHz 8088 where whole
+would have been one and a half, had it fitted. `kern_small` does not reach
+this path at all: 91KB of windows is more than its heap. The bar is scaled
+to both passes, and since every `dskw_*` call arms the widget to its own
+length and ends it (§12.8), `cmz_rearm` puts the verb's scale back after each
+read and write.
+
+#### 22.22.6 The pointer tracks and the bar says `Compressing...`
+
+**The parse is CPU work with no disk in it, and the pointer used to freeze for
+all of it** — a 160KB file is a minute of 8088 inside a lock hold (§12.8.3).
+§7.4's bracket is what lets the arrow track through an `int 13h`, and the
+argument for it holds here unchanged: `[cur_inxfer]` set means *this task holds
+the gfx lock and is not inside a drawing primitive*, so the mouse ISR may draw
+the arrow itself (with §7.4.2's other conditions: our lock, no clip region, not
+onto the bar). The parse draws nothing, so the module raises the flag at the
+top of `cmz_pack` and drops it around everything that paints — each progress
+step (`cmz_prog`), each `cmz_rearm` — and around every read and write, which
+bracket their own `int 13h` and clear it after. `CMZ_TRACK` is the module's
+own macro, because the flag is kernel `.text` and the parse's `DS` is the
+source; `NOCURDISK=1` compiles it away. The streaming and this together
+cost `CLONE.DRV` **1,228 bytes of image** (6,488 → 7,716) and 901 of disk,
+measured, and the kernel nothing. Uncompress is a read and a write and tracks through both
+already; the decode between them is inside the kernel's read and is not
+bracketed.
+
+**`Compressing...` goes up before the work starts** — after the refusals that
+need no work, so `Already compressed` does not flash it first — and it goes up
+**inside fpg's bar bracket** (`CURBAR_ON`, §7.4.3). The strip is drawn by
+`menu_draw_bar`, and without the bracket that composition spends `gfx_lock`'s
+promised hide: the arrow leaves the glass and a hidden arrow cannot track, so
+the first build of this read **6 moves in 150 looks** through a parse — every
+one inside the file's own read — against **144** with it (`tests/lzbig.py`). `OSAPI_TOAST`
+draws at once when the UI task holds the lock (`toast_now`, §59), and nothing
+takes it down: the progress widget no longer retires a toast (§59.8.1 keeps
+the two apart by geometry), and expiry is the idle pass's, which does not run
+until the verb returns — by which time the verdict has replaced it.
 
 ### 22.23 `Uncompress` — and it is the same module
 

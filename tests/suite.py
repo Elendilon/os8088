@@ -6326,7 +6326,7 @@ SOAK = [
         "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
         "half",
         needs=("marty",), serial=True, wants=("build/hello.o88",)),
-    Row("lzbig", "soak", py("tests/lzbig.py"), 140.0,
+    Row("lzbig", "soak", py("tests/lzbig.py"), 280.0,
         "SPEC.md 20.15.4 and 22.22.4: File > Compress and Uncompress on "
         "files PAST 64KB, which used to answer 'Too large'. The machine's "
         "file against os88lz.lzb_compress_machine's BYTE FOR BYTE, as "
@@ -6344,8 +6344,14 @@ SOAK = [
         "as its count's high word (FERR_BIG, said as 'Too large'), and a "
         "tail length whose low byte a shift count overwrote (12 bytes of "
         "junk past a zero-length tail, which the decoder then refused). A "
-        "1.44MB XT (os8088_xt_vga_144): the fixtures are 330KB and every "
-        "720KB profile here is 40-cylinder",
+        "1.44MB XT (os8088_xt_vga_144): the fixtures are 580KB and every "
+        "720KB profile here is 40-cylinder. BIG3.TXT (250KB) is too big to "
+        "hold twice and is STREAMED (22.22.5) - two passes and a temporary "
+        "file renamed over the original - and must still equal the mirror "
+        "byte for byte, fm_ebuf proving the streamed path ran. And BIG2's "
+        "Compress is WATCHED (22.22.6): the mouse swings through the parse and "
+        "the arrow must move with the lock held (144 moves; the first build, "
+        "whose toast spent the hide, read 6) while `Compressing...` stays up",
         needs=("marty",), serial=True, wants=("build/os8088.img",)),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
