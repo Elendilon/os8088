@@ -28,23 +28,30 @@ the sum of the RESIDENT sections (`.text` + `.bss` + `.cold` + `.lowbss` +
 
 | | kern_big base | kern_big close | Δ | kern_small base | kern_small close | Δ |
 |---|---:|---:|---:|---:|---:|---:|
-| `.text` | 50,358 | 49,194 | −1,164 | 37,423 | 36,397 | −1,026 |
-| `.bss` | 6,114 | 5,552 | −562 | 4,189 | 3,539 | −650 |
-| `.cold` | 41,020 | 40,337 | −683 | 26,394 | 26,066 | −328 |
+| `.text` | 50,358 | 47,534 | −2,824 | 37,423 | 35,793 | −1,630 |
+| `.bss` | 6,114 | 5,554 | −560 | 4,189 | 3,539 | −650 |
+| `.cold` | 41,020 | 40,255 | −765 | 26,394 | 26,028 | −366 |
 | `.lowbss` | 6,366 | 6,366 | 0 | 3,636 | 3,636 | 0 |
 | `.vgabuf` | 848 | 336 | −512 | 0 | 0 | 0 |
-| **resident** | **104,706** | **101,785** | **−2,921** | **71,642** | **69,638** | **−2,004** |
-| `.text`+`.bss` (the binding segment) | 56,472 | 54,746 | **−1,726** | 41,612 | 39,936 | −1,676 |
-| `KERN_SIZE` | 111,104 | **107,520** | −3,584 | 74,240 | **71,680** | −2,560 |
+| **resident** | **104,706** | **100,045** | **−4,661** | **71,642** | **68,996** | **−2,646** |
+| `.text`+`.bss` (the binding segment) | 56,472 | 53,088 | **−3,384** | 41,612 | 39,332 | −2,280 |
+| `KERN_SIZE` | 111,104 | **105,984** | −5,120 | 74,240 | **71,168** | −3,072 |
+
+The pass ran in two rounds. Batches 1-10 took it past 2KB on both kernels
+(−2,921 / −2,004); the owner then reviewed what was left and took five more
+(batches 11-15, −1,740 / −642), which is what the table closes on.
 
 `KERN_SIZE` moved further than the byte sum because rungs round separately —
 the banner in CLAUDE.md is why that figure is quoted beside the byte sum and
 never instead of it. On kern_big the segment (`KERN_CODE_MAX`) goes 9,064 →
-10,790 left.
+12,448 left.
 
 **What a VGA machine and a mono machine each get.** `.vgabuf` is the one rung
 a mono machine never reserves (SPEC.md 39.22), so batch 8's −512 is a VGA
-machine's alone. A Hercules or CGA kern_big machine gets the other −2,409.
+machine's alone. A Hercules or CGA kern_big machine gets the other −4,149,
+and batch 15's −851 is every machine's that does not EXTEND its desktop - a
+two-adapter machine that does pays it back as a 2KB heap claim while
+extended.
 
 ## 1. WHERE THE BYTES CAME FROM
 
@@ -60,7 +67,13 @@ machine's alone. A Hercules or CGA kern_big machine gets the other −2,409.
 | 8 | **the VGA decode table shares the mono pair tables** (a measured speed trade, below) | −505 | 0 |
 | 9 | **the window record absorbs its eleven side tables**; drag and grow share one loop; the built-in dock icons are row runs | −600 | −533 |
 | 10 | cold-side trampolines for multi-site `.cold` → `.text` far calls; kernel windows call their `.cold` callbacks directly | −388 | −206 |
-| | **total** | **−2,921** | **−2,004** |
+| | *round one* | *−2,921* | *−2,004* |
+| 11 | **a failed load says two things** (`Load failed` / `Out of memory`, `LDDIAG=1` for the four reasons), and the Task Manager's and the Wire zone's failure is a toast rather than a notice window | −216 | −182 |
+| 12 | `rect_get`/`rect_put` at the 19 measured-cold rect sites (the other 15 held in LAST-DROP-BYTES 7.10) | −142 | −99 |
+| 13 | **boot-only code into the stage-2 blob**: `kmain_o`, `BLOBCALL`, `vid_detect`/`vid_init`/`hb_probe_x`; knob builds get room of their own (SPEC.md 2.5.3.3) | −334 | −248 |
+| 14 | a document's missing program is a toast, `Needs TRACKER.O88`, and `ui_note` is gone | −197 | −113 |
+| 15 | **the extended desktop is an on-demand module, `EXTD.DRV`** (SPEC.md 39.19.6) | −851 | 0 |
+| | **total** | **−4,661** | **−2,646** |
 
 ### 1.1 The two ideas that were new
 
@@ -123,11 +136,11 @@ the callback are unchanged.
 
 | candidate | kern_big | kern_small | why not taken |
 |---|---:|---:|---|
-| `rect_get`/`rect_put` for 37 four-word load/store sites | −298 | −245 | ~30 µs a rect on repaint and raise paths; the 12 cold sites alone are ~−70 |
+| `rect_get`/`rect_put` for 37 four-word load/store sites | −298 | −245 | **S1 TAKEN as batch 12** (19 sites, −142) after the sites were COUNTED on MartyPC; S2 (damage repaint, ~80) and S3 (save-under, ~70) held in LAST-DROP-BYTES 7.10 |
 | boot-only code into the blob (`kmain`'s pre-mount half, `vid_detect`, `vid_init`, `hb_probe_x`; a `BLOBCALL` macro and three `os88ovlchk` rules) | −270 | −208 | **TAKEN AFTER THE CLOSE, as SPEC.md 2.5.3.3** — at −334 / −248 with the post-mount half, `dsk_ltrtab` and two `desk_init` thunks folded in. The owner took kern_small's blob at 42 bytes free, and the knob builds that overflowed it got knob-only room (2.5.3.3.1) rather than a second blob length |
-| the extended desktop's WM code as a kern_big on-demand module | ~−850 | 0 | `MOD_NENT` = 7 entry points; a design decision |
+| the extended desktop's WM code as a kern_big on-demand module | ~−850 | 0 | **TAKEN as batch 15**, `EXTD.DRV`, at −851. About 440 more bytes are movable and would need entries past seven: a second wave might net 150-250 |
 | inline cells whose routine fits in 8 bytes (`get_ticks`, `set_color`, …) | −55 | −55 | FASTER; needs an INLINE shape in `t_api_abi.py` |
-| `ui_tm_errs` duplicates `fm_stattab` | −125 | | changes the Task Manager's error wording — the owner's call |
+| `ui_tm_errs` duplicates `fm_stattab` | −125 | | **TAKEN, and further, as batches 11 and 14** — the owner folded four verdicts into `Load failed`, made every failed launch a toast and retired `ui_note` |
 | eleven near-identical block pairs (`dskw_mkbody`/`rmbody`/`dbody`, `dskw_wdata`/`rdata`, …) | ~−280 | | eleven separate edits, each small |
 | `mov word [wm_clip_n], 0` → `call wm_clip_clear` at ~18 non-hot sites | ~−54 | | |
 | `inst_icobuf` onto `ico_ibuf` | −64 | | REFUSED: it is filled on a dying package's WORKER while task 0 may be staging |
@@ -183,3 +196,13 @@ system: 16 rows from `bootsmoke` to `wmartifact`; the decoder: `blitplane`,
 `lzmod-lzb`; the callbacks: 17 rows from `fmcommit` to `dockmodule`), plus
 `small128` and `bootsmoke` throughout. `soak -k buildmatrix` at the close.
 The whole soak tier was not run: it is the owner's to ask for.
+
+**Round two** (batches 11-15) ran the same way, per batch: the failure
+toasts were driven on MartyPC by pointing the Task Manager at a missing file
+and at a directory in SYSTEM, and by double-clicking `BEVERLY.MOD` off
+`media360.img` with no Tracker anywhere; the rect sites were COUNTED with
+execution breakpoints before any was converted; batch 13 ran the boot rows
+and `buildmatrix` (four new kern_small knob rows); batch 15 ran 47 rows -
+every `disp*` row but `dispfit`, which fails identically at the base (its
+second adapter switch never takes), plus the new `extdmod`, `kernmods`,
+`fsxdisp` and the Control Panel, dock and association rows - 47/47.

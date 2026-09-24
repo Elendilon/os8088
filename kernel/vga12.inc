@@ -3589,7 +3589,7 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
 ; the wrong PLACE.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; osapi_gfx_fill_pat - API slot 0x022B's X body (SPEC.md 20.9)
+; osapi_gfx_fill_pat - API slot 0x0222's X body (SPEC.md 20.9)
 ; in:  AX/BX/CX/DX = the rect, ES:SI = the caller's 8 pattern bytes
 ; out: nothing; SI preserved
 ;
@@ -4446,7 +4446,7 @@ thm_set:
 ; below rather than bending these: themed here, the Control Panel's radios
 ; and every package's greyed caption go white on white and vanish.
 ; -----------------------------------------------------------------------------
-; gfx_blit1_pen - set the pen the NEXT gfx_blit1 emits with (SPEC.md 5.4.2.2)
+; OSAPI_GFX_BLIT1_PEN - set the pen the NEXT gfx_blit1 emits with (SPEC.md 5.4.2.2)
 ; in:       AL = ink (what a SET band bit becomes), AH = paper (a CLEAR one)
 ; out:      nothing
 ; clobbers: nothing (flags)
@@ -4455,16 +4455,23 @@ thm_set:
 ; one of the nine carries geometry - and not a persistent setting because
 ; gfx_unlock clears it. A caller sets it inside the lock hold it draws in,
 ; which is the same lifetime gfx_pen_cf publishes for [gfx_dis].
+;
+; THE CELL IS THE ROUTINE (SPEC.md 20.3's inline cell): `mov [cs:gfx_b1ink],
+; ax / retf`, one word store into the adjacent pair. The pen is kern_big's
+; alone (the declarations at the top of this file say why), so kern_small's
+; cell sets nothing. Only BAND=1 keeps a body, because its composer's
+; polarity byte is a third store the five-byte cell has no room for: a
+; PACKAGE's band is in screen polarity by SPEC.md 5.4.2.2, and only band.inc's
+; composer sets that flag, and only for its own emit. The cell's near `jmp`
+; lands here on the caller's FAR frame and with the CALLER's DS, so this ends
+; in `retf` and reaches both bytes through CS.
 ; -----------------------------------------------------------------------------
+%ifdef BANDCOMP
 gfx_blit1_pen:
-%ifdef KERN_BIG                 ; the SLOT is in both API tables and the state
-    mov [gfx_b1ink], al         ; is kern_big's alone (SPEC.md 5.4.2.5): on the
-    mov [gfx_b1pap], ah         ; small build the blit itself answers stc, so a
-%ifdef BANDCOMP                 ; remembered pen would have nothing to colour
-    mov byte [gfx_b1adp], 0     ; ...and a PACKAGE's band is in screen polarity
-%endif                          ; by SPEC.md 5.4.2.2: only band.inc's composer
-%endif                          ; sets that flag, and only for its own emit
-    ret
+    mov [cs:gfx_b1ink], ax      ; AL = ink, AH = paper
+    mov byte [cs:gfx_b1adp], 0
+    retf
+%endif
 
 gfx_pen_cf:
     jc gfx_pen_dis
@@ -4688,7 +4695,7 @@ gfx_unlock:
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x0192)
+; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x018A)
 ;
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive, absolute screen
 ;           coords), SI = dy SIGNED: positive moves the rect's content UP dy

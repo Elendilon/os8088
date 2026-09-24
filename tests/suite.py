@@ -2679,6 +2679,13 @@ SOAK = [
         "Optional Dock module: missing/corrupt file refusal and saved-setting "
         "boot fallback, with no live callback into an unloaded claim",
         needs=("marty",), serial=True),
+    Row("extdmod", "soak", py("tests/extdmod.py"), 60.0,
+        "EXTD.DRV (SPEC.md 39.19.6): Extend loads the extended desktop's "
+        "module and Single drops it with every slot back on mod_gone; with "
+        "the file gone the panel refuses to Single with a toast and a boot "
+        "with Extend saved comes up Single - and two displays with no image "
+        "is a failure wherever it is seen",
+        needs=("marty",), serial=True),
     Row("dockpos", "soak", py("tests/dockpos.py", "--cga"), 300.0,
         "Does the dock stand on every edge and hide? (SPEC.md 30.5, 30.6,"
         "31.13) The Dock page drives Left, Right and Auto-hide on a 5150/"

@@ -43,8 +43,9 @@ MOD_MAX     equ 5               ; SMALL: file operations, no hibernate, and
                                 ; no Dock module (SPEC.md 30.5)
 %else
 MOD_DOCK    equ 4
-MOD_MAX     equ 5               ; BIG: hibernate, resident file operations,
-                                ; and the optional Dock
+MOD_EXT     equ 5               ; ...and the extended desktop (SPEC.md 39.19.6)
+MOD_MAX     equ 6               ; BIG: hibernate, resident file operations,
+                                ; the optional Dock and EXTD.DRV
 %endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
@@ -221,6 +222,9 @@ section .text
 %ifdef DOCK_OPT
 mod_f_dock: db 'DOCK.DRV', 0
 %endif
+%ifdef KERN_BIG
+mod_f_ext:  db 'EXTD.DRV', 0
+%endif
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
@@ -266,6 +270,9 @@ mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md
 %ifdef DOCK_OPT
 mod_r_dock:
     dw 0, mod_f_dock            ; MOD_DOCK, kern_big's alone (SPEC.md 30.5)
+%endif
+%ifdef KERN_BIG
+    dw 0, mod_f_ext             ; MOD_EXT, kern_big's alone (SPEC.md 39.19.6)
 %endif
 
 MOD_TAB_OFF equ mod_tab - $$    ; mod_tab AS A NUMBER. .text has vstart=0

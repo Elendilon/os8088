@@ -127,7 +127,7 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
 %endif
 
 ; -----------------------------------------------------------------------------
-; fsx_run - the bracket (SPEC.md 53.1, slot 0x023E via X stub)
+; fsx_run - the bracket (SPEC.md 53.1, slot 0x0235 via X stub)
 ;
 ; in:       AX = near entry inside the caller's image, BX = the caller's own
 ;           window ptr, CX = flags (bit 0 = FSXF_KEEPWORKER, bit 1 =
@@ -346,9 +346,10 @@ fsx_restore:
     popf
     mov byte [fsx_cur], 0xFF
 %ifdef KERN_BIG
-    call vid_fsx_leave          ; the DESKTOP's shape back - the union, the
-                                ; primary's chrome - before anything draws on
-                                ; it (SPEC.md 39.18)
+    push ax                     ; the DESKTOP's shape back - the union, the
+    mov ah, EXTF_LEAVE          ; primary's chrome - before anything draws on
+    EXTCALL EXT_FSX             ; it (SPEC.md 39.18). EXTD.DRV's: with no image
+    pop ax                      ; there was never a second display to restore
 %endif
     call blk_relit              ; the bar and the strip really WERE overdrawn -
                                 ; an exclusive app owned the whole screen
@@ -358,8 +359,10 @@ fsx_restore:
                                 ; inside it destroys them; this is a caller
                                 ; that genuinely did
 %ifdef KERN_BIG
-    call vid_fsx_unblank        ; ...and only NOW the dark monitors, because a
-                                ; blanked card still holds the frame it was
+    push ax                     ; ...and only NOW the dark monitors, because a
+    mov ah, EXTF_UNBLANK        ; blanked card still holds the frame it was
+    EXTCALL EXT_FSX
+    pop ax
                                 ; blanked on and lighting it first shows that
                                 ; one (SPEC.md 39.18.1)
 %endif
@@ -450,7 +453,8 @@ fsx_mode:
 %ifdef KERN_BIG
     push ax                     ; ...and ONLY NOW is the machine one display
     mov al, [fsx_wdisp]         ; with every other card dark (SPEC.md 39.18):
-    call vid_fsx_enter          ; a mode is about to be set, which makes every
+    mov ah, EXTF_ENTER          ; a mode is about to be set, which makes every
+    EXTCALL EXT_FSX
     pop ax                      ; other display's geometry meaningless. After
 %endif                          ; the caps test, so a REFUSED mode leaves the
                                 ; desktop exactly as it found it; idempotent,
@@ -524,7 +528,7 @@ fsx_mode:
     jmp kret_di
 
 ; -----------------------------------------------------------------------------
-; fsx_surf - the rect this bracket owns (SPEC.md 53.7.1, slot 0x0311)
+; fsx_surf - the rect this bracket owns (SPEC.md 53.7.1, slot 0x0304)
 ;
 ; in:       nothing. Bracket-only, exclusive task only.
 ; out:      CF=0 with AX = x, BX = y, CX = w, DX = h - the surface the app may

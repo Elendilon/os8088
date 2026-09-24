@@ -81,7 +81,11 @@ the Control Panel, Format, Clone, Hibernate, a Cut/Copy/Paste, a file dialog —
 so one can fragment the heap only for as long as the user is inside it, and
 `mem_claim_1`'s `.hi` arm puts it back at the ceiling when it is dropped and
 re-taken. **A persistent module would reopen the question**, and only for that
-module.
+module. **Two are persistent now**: `DOCK.DRV` for as long as an advanced Dock
+setting stands (§30.5) and `EXTD.DRV` for as long as the desktop is extended
+(§39.19.6) - 3KB and 2KB claims, taken top-down, so each is a small wall at the
+ceiling for the session rather than one in the middle of the arena, and neither
+has been given a relocation proc.
 
 **On `kern_small` NOTHING in this file moves** (§66.0). The compactor is
 `kern_big`'s: every claim there is born pinned and stays pinned, `mem_can_move`
