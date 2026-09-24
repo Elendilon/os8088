@@ -47999,6 +47999,30 @@ without the raise it reads 14 against 20 rows on the glass, and a Down takes
 1,252 ms. With the raise, the slowest Down through the note is the known
 578 ms scroll at top 13.
 
+#### 27.7.2.4 …and a downward scroll moves the rows by the heights that left
+
+A formatted downward scroll paint computed its blit as `ryb[d] − ryb[0]`.
+That lands row d at old row 0's glyph y, which assumes the two rows have the
+same height. They don't when the row arriving at the top carries different
+space: a row's extra height (its line spacing, its paragraph's space-before)
+sits ABOVE its glyphs (`wd_advy`: row r's glyphs are at `ryb[r−1] + h(r)`,
+and row 0's at `ty + h(0) − gh`). So a drag that auto-scrolled a heading up
+to the top left the whole view 8 px too high, which is that heading's
+space-before. A full repaint at the same `[wd_top]` disagreed by 20,000–46,000
+pixels. §27.8.2.6's deselect is what exposed it. The old slow deselect
+re-lettered the view and hid the offset; the fast one XORs in place, so
+`tests/wdunsel.py` leg H reads the glass as the drag left it. It failed 4 to
+8 attempts in 16 under load.
+
+The retained rows move by the heights of the rows that left, rows 0..d−1:
+`ryb[d−1] + [wd_gh] − [wd_ty]`, the band bottom of the last row leaving,
+less the view's top. The form before `ryb[d] − ryb[0]` was this one with a
+literal 8 in place of `[wd_gh]`. That is the substitution §68.6.2 made in the
+walk's own copies of the arithmetic, and the likeliest reading of the 16 px
+that form was measured short over a paragraph with a gap (not re-measured). After the change, 16 scrolling
+drags at tops 3 to 10 each equal a repaint to the pixel, and leg H passed
+64 attempts of 64 under load.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left

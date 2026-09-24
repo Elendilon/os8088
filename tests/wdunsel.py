@@ -236,7 +236,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         if not page_round_trip(g, top0):
             return None
         rp = shot(m)
-        return sum(1 for p, q in zip(band(now, g["box"]), band(rp, g["box"])) if p != q)
+        x0, y0, x1, y1 = g["box"]
+        w = x1 - x0 + 1
+        diff = [i for i, (p, q) in enumerate(zip(band(now, g["box"]), band(rp, g["box"])))
+                if p != q]
+        if diff:
+            xs = [x0 + i % w for i in diff]
+            ys = [y0 + i // w for i in diff]
+            print("      differing pixels in x %d..%d, y %d..%d; caret at [wd_cur]=%d, "
+                  "row %d" % (min(xs), max(xs), min(ys), max(ys), rw("wd_cur"),
+                              rw("wd_currow")))
+        return len(diff)
 
     settle_height()
     g = geom()

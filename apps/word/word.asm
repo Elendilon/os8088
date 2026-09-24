@@ -1876,26 +1876,33 @@ wd_scrollpaint:
                                     ; the bank runs 0..[wd_rowsn]-1
     mov di, ax
     shl di, 1
-    mov di, [di+wd_ryb]             ; ryb[d], where the first RETAINED row's
-    sub di, [wd_ryb]                ; glyphs are now, LESS ryb[0], where row 0's
-                                    ; are - which is where they will be, the
-                                    ; row keeping its own space above it.
-                                    ; Exactly the pixels the retained rows move.
+    mov di, [di+wd_ryb-2]           ; ryb[d-1] + gh - ty: the band BOTTOM of
+    add di, [wd_gh]                 ; the last row leaving, less the view's
+    sub di, [wd_ty]                 ; top - the heights of rows 0..d-1, which
+                                    ; is exactly how far the retained rows
+                                    ; move (SPEC.md 27.7.2.4). A row's extra
+                                    ; height - its line spacing, its
+                                    ; paragraph's space before - is ABOVE its
+                                    ; glyphs (wd_advy), so row d arrives at
+                                    ; ty + h(d) - gh with its OWN space above
+                                    ; it. The form this replaces, ryb[d] -
+                                    ; ryb[0], landed it at old row 0's glyph
+                                    ; y instead, which is the same only while
+                                    ; the two rows are the same height: a
+                                    ; drag that scrolled a heading up to the
+                                    ; top left the whole view its 8px of space
+                                    ; too high, measured against a repaint.
                                     ;
-                                    ; It used to be ryb[d-1] + 8 - [wd_ty], and
-                                    ; both terms are wrong in the same way: row
-                                    ; 0's band does not start at [wd_ty] (it
-                                    ; starts at ryb[0], which is 6 pixels lower
-                                    ; on the shipped window), and row d's does
-                                    ; not start 8 pixels after row d-1's glyphs
-                                    ; unless the two rows are a plain 14 apart.
-                                    ; The two errors cancel on an ordinary pair
-                                    ; and stop cancelling across a paragraph
-                                    ; carrying space: MEASURED, a blit over one
-                                    ; with a 30-pixel gap computed 112 where the
-                                    ; rows moved 128, so sixteen pixels of the
-                                    ; old frame survived under the redraw and
-                                    ; the line was on the glass TWICE.
+                                    ; What came before THAT was ryb[d-1] + 8 -
+                                    ; [wd_ty] - this form with a LITERAL 8
+                                    ; where the glyph band is [wd_gh], the
+                                    ; substitution SPEC.md 68.6.2 made in the
+                                    ; walk's own copies of the arithmetic. Its
+                                    ; record: a blit over a 30-pixel gap
+                                    ; computed 112 where the rows moved 128, so
+                                    ; sixteen pixels of the old frame survived
+                                    ; under the redraw and the line was on the
+                                    ; glass TWICE.
     jle .nope                       ; it did not get past row 0, or the pen
     cmp di, [wd_bot]                ; went backwards
     jae .nope
