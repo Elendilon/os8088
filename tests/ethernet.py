@@ -219,7 +219,7 @@ class Qemu:
         if name not in self.QKEYS:
             raise KeyError("no QMP sendkey name for %r" % name)
         self.hmp("sendkey " + self.QKEYS[name])
-        time.sleep(0.05)
+        os88qemu.pace(self, 0.05)           # the GUEST's time: os88qemu.py
 
     def read(self, linear, n):
         p = os.path.join(self.tmp, "m.bin")
@@ -243,6 +243,14 @@ def u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
+def gsleep(secs):
+    """`secs` of the GUEST's clock, for a caller holding no Qemu - one
+    tools/qmp.py `gsleep`, which counts the BIOS ticks (tests/os88qemu.py's
+    reason: a loaded box cannot shorten it the way it shortens a sleep)."""
+    subprocess.run(["python3", "tools/qmp.py", SOCK, "gsleep %s" % secs],
+                   check=True, capture_output=True)
+
+
 def dotted(b):
     return ".".join(str(x) for x in b)
 
@@ -257,23 +265,26 @@ class Mouse:
 
     def click(self, x, y):
         self.run("click", str(x), str(y))
-        time.sleep(0.4)
+        gsleep(0.4)
 
     def dblclick(self, x, y):
         # TWO `click`s ARE NOT A DOUBLE-CLICK (CLAUDE.md): the detectors
         # compare birth ticks in a 9-tick window and two processes are far too
-        # slow. Position, then both presses down one QMP connection.
+        # slow. Position, then both presses down one QMP connection. The
+        # spacing INSIDE the pair stays host time: it is well inside the
+        # window either way, and a tick-rounded one would eat into it.
         self.run("to", str(x), str(y))
         subprocess.run(["python3", "tools/qmp.py", SOCK,
                         "mouse_button 1", "sleep 0.08", "mouse_button 0",
                         "sleep 0.12",
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0"],
+                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
+                        "gsleep 0.4"],
                        check=True, capture_output=True)
-        time.sleep(0.4)
 
 
 def settle(m, card=None):
-    time.sleep(2.0)
+    """What a settle was on QEMU - two seconds - spent in the GUEST's time."""
+    os88qemu.pace(m, 2.0)
 
 
 # --- QEMU's sendkey names for the characters a URL needs ---------------------
@@ -292,7 +303,7 @@ def type_url(text):
             cmds += ["sendkey " + KEYS[ch]]
         else:
             sys.exit("ethernet: no sendkey mapping for %r" % ch)
-        cmds += ["sleep 0.06"]
+        cmds += ["gsleep 0.06"]         # the guest's time (tools/qmp.py)
     subprocess.run(["python3", "tools/qmp.py", SOCK] + cmds,
                    check=True, capture_output=True)
 
@@ -396,8 +407,9 @@ def main():
     # with `pkill -f qemu`, whose pattern matches the calling shell.
     if os.path.exists("build/qemu.pid"):
         try:
-            os.kill(int(open("build/qemu.pid").read().strip()), 15)
-            time.sleep(1.0)
+            pid = int(open("build/qemu.pid").read().strip())
+            os.kill(pid, 15)
+            os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
     for f in ("build/qmp.sock", "build/qemu.pid"):
@@ -417,13 +429,14 @@ def main():
     m = Qemu()
     try:
         # --- 1: a card, and an address ------------------------------------
-        seg = 0
-        for _ in range(150):
-            time.sleep(0.4)
-            row = m.read(S("drv_tab") + ETH_ROW * DRVR_SZ + DRVR_SEG, 2)
-            seg = u16(row)
-            if seg:
-                break
+        # EVERY WAIT BELOW IS IN THE GUEST'S SECONDS (tests/os88qemu.py) and on
+        # the word the next line reads - the budgets are what the host-clock
+        # loops they replace allowed on an idle box.
+        def drvseg():
+            return u16(m.read(S("drv_tab") + ETH_ROW * DRVR_SZ + DRVR_SEG, 2))
+        os88qemu.acted(m, lambda: drvseg() != 0, secs=60,
+                       what="ETHER.DRV's drv_tab row", poll=0.4)
+        seg = drvseg()
         if not seg:
             m.quit()
             sys.exit("ethernet: ETHER.DRV never attached - no card was found "
@@ -444,12 +457,9 @@ def main():
         # above can catch the row a whole floppy read and a bus sweep ahead of
         # the card. A machine that really has none leaves this 0 for ever, so a
         # bounded wait still catches it and no longer reports the window.
-        base = 0
-        for _ in range(60):
-            base = dw("eth_base")
-            if base:
-                break
-            time.sleep(0.4)
+        os88qemu.acted(m, lambda: dw("eth_base") != 0, secs=24,
+                       what="[eth_base]", poll=0.4)
+        base = dw("eth_base")
         mac = m.readseg(seg, syms["eth_mac"], 6)
         say("card at %04X, id %s" % (base, mac.hex()))
         if base == 0:
@@ -517,10 +527,8 @@ def main():
                              "through the low door, so SPEC.md 66.4.1's "
                              "descending pass will never reach it")
 
-        for _ in range(80):                     # DHCP_WAIT is 110 ticks
-            if db("dhcp_st") == DH_BOUND:
-                break
-            time.sleep(0.3)
+        os88qemu.acted(m, lambda: db("dhcp_st") == DH_BOUND, secs=24,
+                       what="DHCP bound", poll=0.3)     # DHCP_WAIT: 110 ticks
         st, ip, gw, dns = db("dhcp_st"), dip("eth_ip"), dip("eth_gw"), \
             dip("eth_dns")
         if db("eth_mode") != 0:
@@ -569,20 +577,18 @@ def main():
         # read `http:/http://10.0.2.2:8090/eth.htm/`, the browser refused it
         # correctly, and the gate reported the STACK as broken over a fetch
         # that was never asked for. Nothing below assertion 2 could pass.
-        time.sleep(1.0)
+        os88qemu.pace(m, 1.0)
         type_url(URL[len("http://"):])
-        time.sleep(1.0)
+        os88qemu.pace(m, 1.0)
         subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey ret"],
                        check=True, capture_output=True)
 
         img = os.path.getsize(os88build.at("build/browser.bin"))
-        nstate = nlines = 0
-        for _ in range(60):
-            time.sleep(0.5)
-            nstate = m.readseg(pseg, img + BR_NSTATE, 1)[0]
-            nlines = u16(m.readseg(pseg, img + BR_NLINES, 2))
-            if nstate in (BN_DONE, BN_ERR):
-                break
+        os88qemu.acted(m, lambda: m.readseg(pseg, img + BR_NSTATE, 1)[0]
+                       in (BN_DONE, BN_ERR), secs=30, what="br_nstate",
+                       poll=0.5)
+        nstate = m.readseg(pseg, img + BR_NSTATE, 1)[0]
+        nlines = u16(m.readseg(pseg, img + BR_NLINES, 2))
         say("br_nstate = %d, br_nlines = %d" % (nstate, nlines))
         say("frames rx %d tx %d, segments %d, dropped %d, overruns %d"
             % (dw("eth_nrx"), dw("eth_ntx"), dw("eth_nseg"),

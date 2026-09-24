@@ -40,7 +40,6 @@ called at all.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88marty                                               # noqa: E402
@@ -86,7 +85,7 @@ def sweep(m, dx, dy, n=10):
     for _ in range(n):
         r.move(dx, dy)
     m.run()
-    time.sleep(2.0)
+    os88marty.pace(m, 2.0)
 
 
 def main(argv):

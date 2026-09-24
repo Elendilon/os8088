@@ -274,6 +274,48 @@ class Result:
         self.cpu = cpu
 
 
+# A ROW'S TIMEOUT IS CHARGED LIKE THE BUDGET: in the CPU its process tree
+# spends, with the wall clock only a backstop this many times wider. The
+# timeout is there to stop a hung emulator eating the tier, and a hung emulator
+# SPINS - it is caught on CPU exactly as fast as before. What the wall clock
+# alone also caught was a row that was merely QUEUED: `mirror` (4.5s declared,
+# 60s timeout) timed out at 60 wall seconds with seven agents and their
+# emulators on four cores, having done no more work than it does in four. A
+# row that hangs WITHOUT spinning - a socket nobody answers - still ends, at the
+# backstop.
+WALL_BACKSTOP = 5.0
+
+
+def _tree_cpu(root):
+    """CPU seconds (user + sys) of `root` and every live descendant, plus what
+    they have already reaped - or None where /proc cannot answer (not Linux),
+    in which case the wall backstop is all that bounds the row."""
+    try:
+        hz = os.sysconf("SC_CLK_TCK")
+        kids, stat = {}, {}
+        for d in os.listdir("/proc"):
+            if not d.isdigit():
+                continue
+            try:
+                raw = open("/proc/%s/stat" % d).read()
+            except OSError:
+                continue
+            f = raw[raw.rindex(")") + 2:].split()
+            pid, ppid = int(d), int(f[1])
+            kids.setdefault(ppid, []).append(pid)
+            stat[pid] = sum(int(x) for x in f[11:15])   # utime stime cutime cstime
+        if root not in stat:
+            return None
+        total, todo = 0, [root]
+        while todo:
+            q = todo.pop()
+            total += stat.get(q, 0)
+            todo.extend(kids.get(q, ()))
+        return total / float(hz)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def _communicate(p, timeout):
     """Popen.communicate, but REAPED WITH wait4 so the row's CPU is kept.
 
@@ -301,18 +343,28 @@ def _communicate(p, timeout):
     for t in ts:
         t.start()
 
-    def reap(limit):
-        end = None if limit is None else time.time() + limit
+    def reap(limit, cpu=False):
+        """Reap the row, or None once `limit` is spent. With `cpu`, `limit`
+        is charged in the row's CPU (see `_tree_cpu`), with the wall clock
+        only a backstop WALL_BACKSTOP times wider."""
+        t0 = time.time()
+        wall = None if limit is None else limit * (WALL_BACKSTOP if cpu else 1)
+        n = 0
         while True:
             pid, status, ru = os.wait4(p.pid, os.WNOHANG)
             if pid:
                 return status, ru
-            if end is not None and time.time() > end:
+            if wall is not None and time.time() - t0 > wall:
                 return None
+            n += 1
+            if cpu and limit is not None and n % 50 == 0:
+                spent = _tree_cpu(p.pid)
+                if spent is not None and spent > limit:
+                    return None
             time.sleep(0.02)
 
     timed_out = False
-    got = reap(timeout)
+    got = reap(timeout, cpu=True)
     if got is None:
         timed_out = True
         p.terminate()

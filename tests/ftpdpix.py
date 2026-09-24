@@ -10,7 +10,6 @@ scrolled log.
 """
 import subprocess
 import sys
-import time
 
 sys.path.insert(0, 'tools')
 sys.path.insert(0, 'tests')
@@ -41,8 +40,9 @@ def boot():
     import os
     if os.path.exists("build/qemu.pid"):
         try:
-            os.kill(int(open("build/qemu.pid").read().strip()), 15)
-            time.sleep(1.0)
+            pid = int(open("build/qemu.pid").read().strip())
+            os.kill(pid, 15)
+            os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
     for f in ("build/qmp.sock", "build/qemu.pid"):
@@ -80,10 +80,12 @@ def session(tag):
     buf = io.BytesIO()
     f.retrbinary("RETR FTPHELLO.TXT", buf.write)
     f.quit()
-    time.sleep(3.0)
+    # both pauses are the GUEST's time (tests/os88qemu.py): the log's last
+    # lines are committed by the UI task on a wake, and nothing says "done"
+    os88qemu.pace(m, 3.0)
     fx, fy = G.ftp_win(m)
     mo.click(*G.ro_box(fx, fy))          # a tick: one 12px box
-    time.sleep(2.0)
+    os88qemu.pace(m, 2.0)
     # RAW PIXELS, cropped to the WINDOW - a PNG's bytes differ for reasons
     # that are not pixels, and the menu bar carries a clock that moves between
     # two runs minutes apart.
@@ -91,8 +93,13 @@ def session(tag):
     subprocess.run(["python3", "tools/qmp.py", SOCK,
                     'screendump %s' % out], check=True, capture_output=True)
     rect = G.ftp_win(m)
+    try:
+        pid = int(open("build/qemu.pid").read().strip())
+    except (OSError, ValueError):
+        pid = None
     m.quit()
-    time.sleep(1.0)
+    if pid:
+        os88qemu.gone(pid)          # a host wait: the process, not a guess
     return crop(out, rect)
 
 

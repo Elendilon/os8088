@@ -43,7 +43,6 @@ import argparse
 import os
 import subprocess
 import sys
-import time
 
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
 # checkout it was written in and wrong in a git worktree, which is how parallel
@@ -86,8 +85,9 @@ def say(*a):
 def boot():
     if os.path.exists("build/qemu.pid"):
         try:
-            os.kill(int(open("build/qemu.pid").read().strip()), 15)
-            time.sleep(1.0)
+            pid = int(open("build/qemu.pid").read().strip())
+            os.kill(pid, 15)
+            os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
     for f in ("build/qmp.sock", "build/qemu.pid"):
@@ -109,6 +109,70 @@ def qmp(*cmds):
                    check=True, capture_output=True)
 
 
+# EVERY WAIT IN THIS ROW IS ON THE GUEST'S CLOCK (tests/os88qemu.py) - on the
+# window or the driver word the next line reads where there is one, and a
+# tick-counted pause of the old length where there is not.
+def drvseg(m):
+    """ETHER.DRV's segment out of drv_tab, once it is there (60 guest s)."""
+    os88qemu.acted(m, lambda: u16(m.read(S("drv_tab") + 2 * 16 + 2, 2)) != 0,
+                   secs=60, what="ETHER.DRV's drv_tab row", poll=0.4)
+    return u16(m.read(S("drv_tab") + 2 * 16 + 2, 2))
+
+
+def find_cp(m):
+    cp = None
+    for w in dispcp.win_list(m, S):
+        x, y, ww, hh = dispcp.win_rect(m, S, w)
+        if ww >= 280 and hh >= 100:
+            cp = (x, y)
+    return cp
+
+
+def setup_wins(m):
+    return [w for w in dispcp.win_list(m, S)
+            if dispcp.win_rect(m, S, w)[2] == EC_FW]
+
+
+def open_cp(m):
+    """Chip menu -> Control Panel, and wait for its window."""
+    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
+                    "down", "8", "8"], check=True, capture_output=True)
+    os88qemu.pace(m, 0.4)
+    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
+                    "to", "8", "40"], check=True, capture_output=True)
+    os88qemu.pace(m, 0.4)
+    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock", "up"],
+                   check=True, capture_output=True)
+    if os88qemu.acted(m, lambda: find_cp(m) is not None, secs=15,
+                      what="the Control Panel window", poll=0.25):
+        os88qemu.pace(m, 1)             # ...and its first paint
+    return find_cp(m)
+
+
+def open_setup(m, mo, cx, cy, cp_ether):
+    """The Ethernet page, then its Set Up window."""
+    x0, y0 = cx + 1, cy + TITLE_H
+    mo.click(x0 + 40, y0 + CP_I0Y + cp_ether * CP_IROWH + 7)
+    os88qemu.pace(m, 2)                 # the page swap: nothing to read
+    mo.click(x0 + CP_RX + EU_B2X + EU_BW // 2, y0 + EU_BY + EU_BH // 2)
+    if os88qemu.acted(m, lambda: bool(setup_wins(m)), secs=10,
+                      what="the Set Up window", poll=0.25):
+        os88qemu.pace(m, 0.5)
+    return setup_wins(m)
+
+
+def quit_and_wait(m):
+    """quit, and have QEMU GONE before the image is reused - a host wait on
+    a host thing, by the process table."""
+    try:
+        pid = int(open("build/qemu.pid").read().strip())
+    except (OSError, ValueError):
+        pid = None
+    m.quit()
+    if pid:
+        os88qemu.gone(pid, 2.0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shot", default=None)
@@ -125,12 +189,7 @@ def main():
 
     syms = ether_syms()
     m, mo = boot(), Mouse()
-    seg = 0
-    for _ in range(150):
-        time.sleep(0.4)
-        seg = u16(m.read(S("drv_tab") + 2 * 16 + 2, 2))
-        if seg:
-            break
+    seg = drvseg(m)
     if not seg:
         m.quit()
         sys.exit("ethcfg: ETHER.DRV never attached")
@@ -143,7 +202,8 @@ def main():
 
     cp_ether = m.read(S("cp_nst"), 1)[0]
 
-    time.sleep(10)                              # let DHCP finish
+    os88qemu.acted(m, lambda: db("dhcp_st") == 3, secs=30,   # DH_BOUND
+                   what="DHCP bound", poll=0.4)
     say("boot 1: mode %d, addr %s" % (db("eth_mode"), dip("eth_ip")))
     if db("eth_mode") != 0:
         fails.append("a fresh image did not come up Automatic")
@@ -152,33 +212,13 @@ def main():
                      "below is testing what it claims" % dip("eth_ip"))
 
     # --- the Control Panel, its Ethernet page, and Set Up ------------------
-    qmp("sleep 0.1")
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
-                    "down", "8", "8"], check=True, capture_output=True)
-    time.sleep(0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
-                    "to", "8", "40"], check=True, capture_output=True)
-    time.sleep(0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock", "up"],
-                   check=True, capture_output=True)
-    time.sleep(3)
-    cp = None
-    for w in dispcp.win_list(m, S):
-        x, y, ww, hh = dispcp.win_rect(m, S, w)
-        if ww >= 280 and hh >= 100:
-            cp = (x, y)
+    os88qemu.pace(m, 0.1)
+    cp = open_cp(m)
     if cp is None:
         m.quit()
         sys.exit("ethcfg: no Control Panel window")
     cx, cy = cp
-    x0, y0 = cx + 1, cy + TITLE_H
-    mo.click(x0 + 40, y0 + CP_I0Y + cp_ether * CP_IROWH + 7)
-    time.sleep(2)
-    mo.click(x0 + CP_RX + EU_B2X + EU_BW // 2, y0 + EU_BY + EU_BH // 2)
-    time.sleep(2.5)
-
-    sw = [w for w in dispcp.win_list(m, S)
-          if dispcp.win_rect(m, S, w)[2] == EC_FW]
+    sw = open_setup(m, mo, cx, cy, cp_ether)
     if not sw:
         m.quit()
         sys.exit("ethcfg: `Set Up` opened no window - and a window that is "
@@ -189,20 +229,23 @@ def main():
 
     # --- Manual, then retype the address -----------------------------------
     mo.click(ctx + EC_R2X + 6, cty + 2 + 6)
-    time.sleep(1.5)
+    os88qemu.pace(m, 1.5)
     mo.click(ctx + 120, cty + EC_F0Y + EC_FHT // 2)
-    time.sleep(0.8)
+    os88qemu.pace(m, 0.8)
+    # the spacing is the keyboard's, a QEMU device on the host's clock; the
+    # pause after it is the guest's
     qmp(*(["sendkey end", "sleep 0.1"] +
           ["sendkey backspace", "sleep 0.05"] * 16))
     type_url(NEWIP)
-    time.sleep(1)
+    os88qemu.pace(m, 1)
     if a.shot:
         subprocess.run(["python3", "tools/shot.py", "build/qmp.sock", a.shot],
                        check=True)
         say("wrote %s" % a.shot)
 
     mo.click(ctx + EC_B1X + EC_BW // 2, cty + EC_BY + EC_BH // 2)   # Ok
-    time.sleep(2)
+    os88qemu.acted(m, lambda: db("eth_mode") == 1 and dip("eth_ip") == NEWIP
+                   and not setup_wins(m), secs=10, what="Ok taken", poll=0.25)
     say("after Ok: mode %d, addr %s, mask %s, router %s"
         % (db("eth_mode"), dip("eth_ip"), dip("eth_mask"), dip("eth_gw")))
     if db("eth_mode") != 1:
@@ -220,19 +263,18 @@ def main():
 
     # --- close the panel: THAT is what writes it (SPEC.md 31.8) ------------
     mo.click(cx + 8, cy + 9)
-    time.sleep(5)
-    m.quit()
-    time.sleep(2)
+    # the close is the WRITE: the window going is the handler running, and
+    # two guest seconds more are the floppy
+    os88qemu.acted(m, lambda: find_cp(m) is None, secs=15,
+                   what="the Control Panel closing", poll=0.25)
+    os88qemu.pace(m, 2)
+    quit_and_wait(m)
 
     # --- and again --------------------------------------------------------
     m = boot()
-    seg = 0
-    for _ in range(150):
-        time.sleep(0.4)
-        seg = u16(m.read(S("drv_tab") + 2 * 16 + 2, 2))
-        if seg:
-            break
-    time.sleep(6)
+    seg = drvseg(m)
+    os88qemu.acted(m, lambda: db("eth_mode") == 1 and dip("eth_ip") == NEWIP,
+                   secs=10, what="the saved setting", poll=0.25)
     say("boot 2: mode %d, addr %s, mask %s, router %s, name %s"
         % (db("eth_mode"), dip("eth_ip"), dip("eth_mask"), dip("eth_gw"),
            dip("eth_dns")))
@@ -244,38 +286,24 @@ def main():
 
     # --- put it back, so the next gate is not testing this one's leftovers -
     say("restoring Automatic")
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
-                    "down", "8", "8"], check=True, capture_output=True)
-    time.sleep(0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
-                    "to", "8", "40"], check=True, capture_output=True)
-    time.sleep(0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock", "up"],
-                   check=True, capture_output=True)
-    time.sleep(3)
-    cp = None
-    for w in dispcp.win_list(m, S):
-        x, y, ww, hh = dispcp.win_rect(m, S, w)
-        if ww >= 280 and hh >= 100:
-            cp = (x, y)
+    cp = open_cp(m)
     if cp:
         cx, cy = cp
-        x0, y0 = cx + 1, cy + TITLE_H
-        mo.click(x0 + 40, y0 + CP_I0Y + cp_ether * CP_IROWH + 7)
-        time.sleep(2)
-        mo.click(x0 + CP_RX + EU_B2X + EU_BW // 2, y0 + EU_BY + EU_BH // 2)
-        time.sleep(2.5)
-        sw = [w for w in dispcp.win_list(m, S)
-              if dispcp.win_rect(m, S, w)[2] == EC_FW]
+        sw = open_setup(m, mo, cx, cy, cp_ether)
         if sw:
             wx, wy = dispcp.win_rect(m, S, sw[0])[:2]
             ctx, cty = wx + 1, wy + TITLE_H + 1
             mo.click(ctx + 2 + 6, cty + 2 + 6)          # Automatic
-            time.sleep(1.5)
+            os88qemu.pace(m, 1.5)
             mo.click(ctx + EC_B1X + EC_BW // 2, cty + EC_BY + EC_BH // 2)
-            time.sleep(2)
+            os88qemu.pace(m, 2)
         mo.click(cx + 8, cy + 9)
-        time.sleep(5)
+        # ...and Automatic RUNS a DHCP exchange: the address coming back is
+        # the guest's own answer (seven seconds was the old wait's total)
+        os88qemu.acted(m, lambda: db("eth_mode") == 0
+                       and dip("eth_ip") == "10.0.2.15", secs=10,
+                       what="Automatic re-bound", poll=0.25)
+        os88qemu.pace(m, 2)             # ...and the panel's write behind it
     say("back to: mode %d, addr %s" % (db("eth_mode"), dip("eth_ip")))
     if db("eth_mode") != 0:
         fails.append("Automatic did not take: the mode is still %d"

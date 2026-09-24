@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispapps                                             # noqa: E402
 import dispcp                                               # noqa: E402
-from ethernet import Qemu, S, SOCK, settle                  # noqa: E402
+from ethernet import Qemu, S, SOCK, settle, gsleep          # noqa: E402
 import os88fixture                                       # noqa: E402
 import os88geom                                             # noqa: E402
 import os88qemu                                              # noqa: E402
@@ -71,11 +71,11 @@ class Mouse:
 
     def click(self, x, y):
         self.run("click", str(x), str(y))
-        time.sleep(0.4)
+        gsleep(0.4)                     # the GUEST's time (tools/qmp.py)
 
     def rclick(self, x, y):
         self.run("rclick", str(x), str(y))
-        time.sleep(0.4)
+        gsleep(0.4)
 
     def dblclick(self, x, y):
         # TWO `click`s ARE NOT A DOUBLE-CLICK (CLAUDE.md): the detectors
@@ -85,9 +85,9 @@ class Mouse:
         subprocess.run(["python3", "tools/qmp.py", SOCK,
                         "mouse_button 1", "sleep 0.08", "mouse_button 0",
                         "sleep 0.12",
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0"],
+                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
+                        "gsleep 0.4"],
                        check=True, capture_output=True)
-        time.sleep(0.4)
 
 
 def frontmost(m):
@@ -173,8 +173,9 @@ def boot():
     """A plain `make test` - the default images, VGA, the apps disk in B:."""
     if os.path.exists("build/qemu.pid"):
         try:
-            os.kill(int(open("build/qemu.pid").read().strip()), 15)
-            time.sleep(1.0)
+            pid = int(open("build/qemu.pid").read().strip())
+            os.kill(pid, 15)
+            os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
     for f in ("build/qmp.sock", "build/qemu.pid"):
@@ -213,7 +214,11 @@ def launch_mines(m, mo):
     games = dispcp.win_list(m, S)[-1]
     wx, wy = dispcp.win_rect(m, S, games)[:2]
     dispcp.open_named(m, mo, S, settle, wx, wy, MINES_PKG)
-    time.sleep(4)
+    # The package's WINDOW is the launch having landed - in the guest's own
+    # seconds (tests/os88qemu.py) - and one more for the board's first paint.
+    if os88qemu.acted(m, lambda: dispapps.pkg_seg(m, 0) is not None, secs=30,
+                      what="the Minesweeper window", poll=0.25):
+        os88qemu.pace(m, 1)
     got = dispapps.pkg_seg(m, 0)
     if got is None:
         sys.exit("minesrc: MINES.O88 did not open")
@@ -243,7 +248,17 @@ def main():
 
 
 def _run(m):
-    time.sleep(6)
+    # The desktop is up when drive B: has its zone - the thing the first
+    # double-click aims at - and that is asked of the GUEST, not a 6s guess.
+    def zone():
+        try:
+            return dispcp.drive_ordinal(m, S, "B") is not None
+        except Exception:                                   # noqa: BLE001
+            return False
+    if not os88qemu.acted(m, zone, secs=90, what="drive B's zone", poll=0.4):
+        sys.exit("minesrc: drive B: never got a desktop zone - the guest did "
+                 "not reach a desktop")
+    os88qemu.pace(m, 1)
     mo = Mouse()
     slot, seg, games = launch_mines(m, mo)
     rect = dispcp.win_rect(m, S, slot)

@@ -37,7 +37,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -143,14 +142,17 @@ def main():
     # booting, which is true and is not the question.
     with M.launch(DISK_A, apps=DISK_B, machine="os8088_5150_cga_gla",
                   boot=2) as m:
-        end = time.time() + 120
         text = ""
-        while time.time() < end:
-            rows = m.screen() or []
-            text = "\n".join(r.rstrip() for r in rows)
-            if "gate done" in text or "FAILED" in text or "NOT FOUND" in text:
-                break
-            time.sleep(0.4)
+
+        def ended(_m):
+            nonlocal text
+            text = "\n".join(r.rstrip() for r in (m.screen() or []))
+            return ("gate done" in text or "FAILED" in text
+                    or "NOT FOUND" in text)
+        try:
+            M.until(m, ended, "the gate's last line", poll=0.4, limit=120)
+        except M.MartyError:
+            pass                        # the screen below says where it got
         print("kerndos: the guest's screen:")
         for r in text.splitlines():
             if r.strip():
